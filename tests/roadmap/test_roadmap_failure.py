@@ -44,7 +44,7 @@ from devops_cli.roadmap.stage.stage import (
     StageTarget,
     stage_results,
 )
-from devops_cli.roadmap.stage.stage_eval_cases import DefectType
+from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity
 from devops_cli.roadmap.stage.stage_verify import Finding, Locator, PlanPart
 from devops_cli.roadmap.stores.store import Item
 from tests.support.builders import make_stage_proposal
@@ -680,6 +680,7 @@ def test_a_staged_item_with_an_open_finding_is_a_failed_attempt_not_a_staged_pla
     )
     open_finding = Finding(
         type=DefectType.OTHER,
+        severity=Severity.MAJOR,
         where=Locator(part=PlanPart.TASKS, section="1"),
         problem="The task group says placeholder.",
         quote="placeholder",

@@ -19,6 +19,7 @@ from devops_cli.roadmap.stage.stage_eval_cases import (
     CASES_DIRECTORY,
     DefectType,
     GateName,
+    Severity,
     StageCase,
     Verdict,
     load_cases,
@@ -125,6 +126,7 @@ def test_a_quoted_dropped_criterion_finding_on_the_dropped_case_keeps_the_plan_i
     )
     finding = Finding(
         type=DefectType.CRITERION_DROPPED,
+        severity=Severity.MAJOR,
         where=Locator(part=PlanPart.ISSUE, section=CRITERION),
         problem="The group writes only a fixture and a test, and no group adds the field.",
         quote=CRITERION,

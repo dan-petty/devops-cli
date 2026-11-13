@@ -10,13 +10,15 @@ also reads the repository with the read tools of the planner, and a quote may co
 of a tool (#3039). The review of refine (`refine_judge`) sends the same request with no tool.
 
 A finding names its place with a structured locator (`Locator`, #5410): a part of the plan
-(`proposal`, `design`, `tasks` or `spec`) or the issue, and a section of that part. A finding is
-open when the input holds its place (`VerificationInput.holds`) and when its type is in
-`OPEN_TYPES` and its `quote` is a text of the input or of a tool answer
-(`VerificationInput.contains`), or it reports a placeholder that the request holds (#3264). A
-finding on a requirement, a group or a key that the plan does not hold is advice, whatever its
-quote: a reviewer can quote a base spec that the plan does not change. Each open finding returns
-the plan to the planner (#5059). It does so `roadmap.stage.verify_repair_rounds` times, and once
+(`proposal`, `design`, `tasks` or `spec`) or the issue, and a section of that part. It also has a
+severity (#5411): `blocker`, `major`, `minor` or `nit`, the four grades of the golden set
+(`stage_eval_cases.Severity`). A finding is open when its severity is in `OPEN_SEVERITIES`, the
+input holds its place (`VerificationInput.holds`), and its type is in `OPEN_TYPES` and its `quote`
+is a text of the input or of a tool answer (`VerificationInput.contains`), or it reports a
+placeholder that the request holds (#3264). A minor or a nit finding is advice: one line of the
+plan fixes it, so it keeps no plan from a person. A finding on a requirement, a group or a key that
+the plan does not hold is advice, whatever its quote: a reviewer can quote a base spec that the
+plan does not change. Each open finding returns the plan to the planner (#5059). It does so `roadmap.stage.verify_repair_rounds` times, and once
 more for each review that fixes more earlier findings than it adds, up to
 `roadmap.stage.verify_repair_rounds_ceiling` rounds (`repair_round_due`, #3039, #5066, #5409,
 #5440). An open finding of the last review keeps the plan in
@@ -30,8 +32,9 @@ added or changed (`changed_texts`): the planner fixes a finding at its place or 
 `feasibility` that it is no defect, so the changed text is its answer. Its reply
 (`LaterVerification`) gives each earlier finding the verdict `holds` or `gone`, and a new finding
 is open only when the revision holds its place and its quote is in a block of `answer`
-(`judge_later`). An earlier finding keeps its locator. A first review keeps the
-request, the prompt and the schema that it had before, so the golden set scores the same pass.
+(`judge_later`) and the rules of a first review, its severity too, open it. An earlier finding
+keeps its locator and its severity. A later review adds nothing to the request, the prompt or the
+schema of a first review, so the golden set scores the pass of a first review.
 """
 
 from __future__ import annotations
@@ -60,7 +63,7 @@ from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.pull_form import is_placeholder
 from devops_cli.roadmap.refine.refine_investigation import tokens_of, tool_stop
 from devops_cli.roadmap.stage.stage_change import capability_name, safe_text
-from devops_cli.roadmap.stage.stage_eval_cases import DefectType
+from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity
 from devops_cli.roadmap.stage.stage_tools import with_call_budget
 from devops_cli.security.sanitizer import mask_secrets
 
@@ -93,6 +96,10 @@ OPEN_TYPES: Final[frozenset[DefectType]] = frozenset(
         DefectType.CRITERION_DROPPED,
     }
 )
+# The severities of an open finding (#5411): a blocker or a major defect returns the plan and, in
+# the last review, keeps it in draft. A minor or a nit defect is advice in the comment. On #4917 one
+# minor `spec_delta_wrong` finding, which one line of the plan fixes, kept the plan in draft.
+OPEN_SEVERITIES: Final[frozenset[Severity]] = frozenset({Severity.BLOCKER, Severity.MAJOR})
 # The nine types that the verification prompt and reply schema name.
 VERIFY_TYPES: Final[frozenset[DefectType]] = OPEN_TYPES | {
     DefectType.CONTRIVED_TEST,
@@ -170,13 +177,15 @@ class Locator(BaseModel):
 
 
 class Finding(BaseModel):
-    """One defect that the model found in a plan. `where` is the part of the plan or of the
-    issue that holds the defect. `quote` is a text of the issue, the plan or a cited file that
-    shows the defect, or empty when no text shows it."""
+    """One defect that the model found in a plan. `severity` is how much the defect costs, as the
+    golden set grades a defect (#5411). `where` is the part of the plan or of the issue that holds
+    the defect. `quote` is a text of the issue, the plan or a cited file that shows the defect, or
+    empty when no text shows it."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     type: DefectType
+    severity: Severity
     where: Locator
     problem: str = Field(min_length=1)
     quote: str = ""
@@ -606,14 +615,16 @@ def open_findings(
     *,
     types: frozenset[DefectType] = OPEN_TYPES,
 ) -> list[Finding]:
-    """The findings that return the plan to the planner and keep it in draft: a finding whose
-    place the plan or the issue holds (#5410), with a type of `types` and a quote that is in the
-    input or in a tool answer, or with a placeholder that the request holds (#3264, #5059). A
-    placeholder in a file that a tool read is no defect of the plan. Any other finding is advice."""
+    """The findings that return the plan to the planner and keep it in draft: a blocker or a
+    major finding (#5411) whose place the plan or the issue holds (#5410), with a type of `types`
+    and a quote that is in the input or in a tool answer, or with a placeholder that the request
+    holds (#3264, #5059). A placeholder in a file that a tool read is no defect of the plan. Any
+    other finding is advice."""
     return [
         f
         for f in findings
-        if given.holds(f.where)
+        if f.severity in OPEN_SEVERITIES
+        and given.holds(f.where)
         and (
             (f.type in types and given.contains(f.quote))
             or (_reports_placeholder(f) and given.requests(f.quote))
@@ -629,12 +640,14 @@ def judge_later(
 ) -> Judgement:
     """What the later review `reply` made of the plan of `given` (#5409). An earlier finding that
     the reply marks `holds`, gives no verdict, or reports again as a new finding stays open as it
-    is, with its locator: the review that opened it checked its quote and its place (#5410). Any
+    is, with its locator and its severity: the review that opened it checked its quote, its place
+    and its severity (#5410, #5411). Any
     other earlier finding that it marks `gone` is fixed, but not a finding that it also marks
     `holds`. So a reply that breaks the rules keeps a finding and never closes one. A new finding
     is open only when `open_findings` opens it, so the revision holds its place, and its quote is
     in a block of `answer`, the text that the revision changed. Any other new finding is advice,
-    and a new finding that is an earlier one adds nothing."""
+    and a new finding that is an earlier one adds nothing. So a minor or a nit new finding is
+    advice, as in a first review (#5411)."""
     holds = {entry.number for entry in reply.earlier if entry.verdict is Verdict.HOLDS}
     gone = {entry.number for entry in reply.earlier if entry.verdict is Verdict.GONE} - holds
     fixed = tuple(
@@ -667,14 +680,15 @@ def repair_round_due(round_: int, rounds: int, last: Judgement, *, ceiling: int)
 
 
 def finding_line(finding: Finding) -> str:
-    """The line that lists `finding` in a comment: its type, place and problem, and its quote with
-    the secrets and the markup of the model's text made safe."""
+    """The line that lists `finding` in a comment: its severity, type, place and problem, and its
+    quote with the secrets and the markup of the model's text made safe."""
     quote = (
         MESSAGES.roadmap.stage_finding_quote.format(quote=safe_text(finding.quote))
         if finding.quote.strip()
         else ""
     )
     return MESSAGES.roadmap.stage_finding.format(
+        severity=finding.severity.value,
         type=finding.type.value,
         where=safe_text(finding.where.text()),
         problem=safe_text(finding.problem),
@@ -706,6 +720,7 @@ def open_findings_section(findings: Sequence[Finding]) -> str:
 
 
 __all__ = [
+    "OPEN_SEVERITIES",
     "OPEN_TYPES",
     "PLAN_NEEDS_FIX_LABEL",
     "EarlierVerdict",

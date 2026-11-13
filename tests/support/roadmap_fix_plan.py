@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 from devops_cli.config.constants import CONST_ROADMAP_STAGE_COMMENT_MARKER
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap.stage.stage_change import render_change
-from devops_cli.roadmap.stage.stage_eval_cases import DefectType
+from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity
 from devops_cli.roadmap.stage.stage_verify import (
     PLAN_NEEDS_FIX_LABEL,
     Finding,
@@ -74,11 +74,18 @@ def place(part: str, section: str, capability: str = "") -> Locator:
     return Locator(part=PlanPart(part), section=section, capability=capability)
 
 
-def finding(kind: DefectType, quote: str = ISSUE_QUOTE, where: Locator | None = None) -> Finding:
-    """A finding of `kind` whose quote is a text of the input, so an open type makes it open. Its
-    place is `where`, by default the first task group of the plan."""
+def finding(
+    kind: DefectType,
+    quote: str = ISSUE_QUOTE,
+    where: Locator | None = None,
+    severity: Severity = Severity.MAJOR,
+) -> Finding:
+    """A finding of `kind` whose quote is a text of the input, so an open type of an open
+    severity makes it open. Its place is `where`, by default the first task group of the plan,
+    and its severity is major by default."""
     return Finding(
         type=kind,
+        severity=severity,
         where=place("tasks", "1") if where is None else where,
         problem=f"Problem of {kind.value}.",
         quote=quote,

@@ -16,7 +16,7 @@ from devops_cli.roadmap.stage.stage import (
     parse_filters,
     plan_stage,
 )
-from devops_cli.roadmap.stage.stage_eval_cases import DefectType
+from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.stage.stage_verify import (
     PLAN_NEEDS_FIX_LABEL,
@@ -83,8 +83,19 @@ def verifier() -> ModelFake:
 GROUP_1 = Locator(part=PlanPart.TASKS, section="1")
 
 
-def _finding(kind: DefectType, quote: str = "", where: Locator = GROUP_1) -> Finding:
-    return Finding(type=kind, where=where, problem=f"Problem of {kind.value}.", quote=quote)
+def _finding(
+    kind: DefectType,
+    quote: str = "",
+    where: Locator = GROUP_1,
+    severity: Severity = Severity.MAJOR,
+) -> Finding:
+    return Finding(
+        type=kind,
+        severity=severity,
+        where=where,
+        problem=f"Problem of {kind.value}.",
+        quote=quote,
+    )
 
 
 def _plan(
@@ -596,6 +607,37 @@ def test_a_clean_review_applies_no_needs_fix_label(
     (change,) = plan.ready
     assert change.open_findings == ()
     assert PLAN_NEEDS_FIX_LABEL not in store._roadmap.issues[5].labels
+
+
+def test_a_minor_finding_is_a_point_of_the_comment_and_applies_no_label(
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    verifier: ModelFake,
+    github_api: GitHubApiFake,
+) -> None:
+    """A quoted finding of an open type with the severity minor returns no plan and keeps no
+    draft with `plan/needs-fix`: the comment lists it with the points (#5411)."""
+    store = _placeholder_store()
+    github_api.route(
+        "POST",
+        PULLS,
+        github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201),
+    )
+    _seed_pull_5(store)
+    minor = _finding(DefectType.SPEC_DELTA_WRONG, SAMPLE_QUOTE, severity=Severity.MINOR)
+    model_fake.answer(make_stage_proposal())
+    verifier.answer(Verification(findings=[minor]))
+
+    plan = _plan(store, stage_repo, verifier)
+    apply_stage(store, plan, source=stage_repo.clone)
+
+    (change,) = plan.ready
+    assert (model_fake.call_count, verifier.call_count) == (1, 1)
+    assert (change.findings, change.open_findings) == ((minor,), ())
+    assert PLAN_NEEDS_FIX_LABEL not in store._roadmap.issues[5].labels
+    (comment,) = [c.body for c in store.comments_on(1)]
+    assert "- minor `spec_delta_wrong` at tasks (1): Problem of spec_delta_wrong." in comment
+    assert "They stop no draft" in comment
 
 
 def test_a_clean_round_removes_the_open_finding_label(

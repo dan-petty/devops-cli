@@ -26,9 +26,10 @@ from devops_cli.config.defaults import (
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.roadmap.plan_read import read_change
 from devops_cli.roadmap.refine.refine_investigation import tool_stop
-from devops_cli.roadmap.stage.stage_eval_cases import DefectType, load_cases
+from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity, load_cases
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient, review
 from devops_cli.roadmap.stage.stage_verify import (
+    OPEN_SEVERITIES,
     OPEN_TYPES,
     PLAN_NEEDS_FIX_LABEL,
     VERIFY_TYPES,
@@ -77,10 +78,18 @@ def _input(root: Path | None = None, plan: dict[str, object] | None = None) -> V
     )
 
 
-def _finding(kind: DefectType, quote: str = "", where: Locator | None = None) -> Finding:
-    """A finding of `kind` on `where`, by default the first task group of the plan."""
+def _finding(
+    kind: DefectType,
+    quote: str = "",
+    where: Locator | None = None,
+    severity: Severity = Severity.MAJOR,
+) -> Finding:
+    """A finding of `kind` and `severity` on `where`, by default the first task group of the
+    plan."""
     place_ = place("tasks", "1") if where is None else where
-    return Finding(type=kind, where=place_, problem="The plan is wrong.", quote=quote)
+    return Finding(
+        type=kind, severity=severity, where=place_, problem="The plan is wrong.", quote=quote
+    )
 
 
 def test_the_prompt_names_the_nine_types_and_no_other() -> None:
@@ -255,6 +264,61 @@ def test_an_open_finding_is_a_listed_type_or_a_placeholder_with_a_quote_in_the_i
     assert open_findings(findings, given) == [findings[0], findings[1]]
 
 
+def test_a_minor_finding_is_advice() -> None:
+    """Only a blocker or a major finding is open (#5411). The finding of #4917 on the 7-file
+    scenario is minor: one line of the plan fixes it, so it keeps no plan in draft."""
+    given = _input()
+    quote = "The job drops the last comment"
+    findings = [
+        _finding(DefectType.SPEC_DELTA_WRONG, quote, severity=severity) for severity in Severity
+    ]
+
+    assert open_findings(findings, given) == findings[:2]
+    assert OPEN_SEVERITIES == {Severity.BLOCKER, Severity.MAJOR}
+
+
+def test_a_minor_placeholder_finding_is_advice() -> None:
+    given = _input(plan={"groups": [{"title": "placeholder"}]})
+
+    found = [_finding(DefectType.OTHER, "placeholder", severity=Severity.NIT)]
+
+    assert open_findings(found, given) == []
+
+
+def test_a_finding_with_no_severity_fails_the_schema() -> None:
+    finding = {
+        "type": "false_premise",
+        "where": {"part": "tasks", "section": "1", "capability": ""},
+        "problem": "The plan is wrong.",
+        "quote": "",
+    }
+
+    with pytest.raises(ValidationError, match="severity"):
+        Verification.model_validate({"findings": [finding]})
+    with pytest.raises(ValidationError, match="severity"):
+        Verification.model_validate({"findings": [{**finding, "severity": "low"}]})
+
+
+def test_the_prompt_names_the_four_severities_and_the_two_that_return_the_plan() -> None:
+    prompt = load_task_prompt("roadmap_stage_verify.md")
+    line = next(line for line in prompt.splitlines() if line.startswith("- `severity`:"))
+    named = Verification.model_json_schema()["$defs"]["Severity"]["enum"]
+
+    assert set(re.findall(r"`([a-z]+)`", line)) - {"severity"} == set(named)
+    assert "`blocker` or `major`" in prompt
+    assert "`type`, `severity`, `where`, `problem` and `quote`" in prompt
+
+
+def test_the_spec_delta_type_names_a_scenario_where_no_test_can_assert_any_part() -> None:
+    line = next(
+        line
+        for line in load_task_prompt("roadmap_stage_verify.md").splitlines()
+        if line.startswith("- `spec_delta_wrong`")
+    )
+
+    assert "a scenario where no test can assert any part of its THEN" in line
+
+
 CRITERION = "The stage eval case MUST hold the plan of #3378 and its recorded search evidence."
 # The plan of group 4 of #3410: the criterion names a case of the golden set, and the group writes
 # only a fixture and a test file. No group changes the code that gives the case its field.
@@ -293,6 +357,7 @@ def test_a_dropped_criterion_finding_of_a_test_only_group_with_a_quote_in_the_in
     given = _test_only_input()
     finding = Finding(
         type=DefectType.CRITERION_DROPPED,
+        severity=Severity.MAJOR,
         where=place("issue", CRITERION),
         problem="The group writes only a fixture and a test, and no group adds the field.",
         quote=CRITERION,
@@ -305,12 +370,14 @@ def test_a_dropped_criterion_finding_with_no_quote_in_the_input_is_advice() -> N
     given = _test_only_input()
     invented = Finding(
         type=DefectType.CRITERION_DROPPED,
+        severity=Severity.MAJOR,
         where=place("issue", CRITERION),
         problem="The group writes only a test.",
         quote="The case MUST hold a field that the issue never names.",
     )
     unquoted = Finding(
         type=DefectType.CRITERION_DROPPED,
+        severity=Severity.MAJOR,
         where=place("issue", CRITERION),
         problem="The group writes only a test.",
     )
@@ -357,6 +424,7 @@ def _input_5350() -> VerificationInput:
 def _spec_finding(where: Locator, quote: str) -> Finding:
     return Finding(
         type=DefectType.SPEC_DELTA_WRONG,
+        severity=Severity.MAJOR,
         where=where,
         problem="The requirement repeats a rule of the base spec.",
         quote=quote,
@@ -402,6 +470,7 @@ def test_criterion_dropped_names_the_criterion_of_the_issue() -> None:
     given = _test_only_input()
     finding = Finding(
         type=DefectType.CRITERION_DROPPED,
+        severity=Severity.MAJOR,
         where=place("issue", CRITERION),
         problem="No group changes the code that gives the case its field.",
         quote=CRITERION,
@@ -482,6 +551,7 @@ def test_a_finding_that_names_the_design_for_a_key_of_the_proposal_stays_open() 
     findings = [
         Finding(
             type=DefectType.FALSE_PREMISE,
+            severity=Severity.MAJOR,
             where=place("design", "feasibility"),
             problem="security/ruff.py:23 is not a run_subprocess re-import.",
             quote=feasibility,
@@ -609,7 +679,7 @@ def test_a_finding_line_shows_the_part_the_capability_and_the_section() -> None:
     finding = _spec_finding(place("spec", "A release keeps a Status", CLAIM), "")
 
     assert findings_section([finding]).splitlines()[-1] == (
-        f"- `spec_delta_wrong` at spec {CLAIM} (A release keeps a Status): "
+        f"- major `spec_delta_wrong` at spec {CLAIM} (A release keeps a Status): "
         "The requirement repeats a rule of the base spec."
     )
 
@@ -639,6 +709,7 @@ def test_the_findings_section_is_empty_without_findings() -> None:
 def test_the_findings_section_puts_each_finding_on_one_line_without_a_ping() -> None:
     finding = Finding(
         type=DefectType.CONTRIVED_TEST,
+        severity=Severity.MAJOR,
         where=place("tasks", "2"),
         problem="The test\nasks @octocat to read https://example.com/x.",
         quote="a  quote",
@@ -690,6 +761,7 @@ def test_a_later_review_gets_the_earlier_findings_and_the_answer() -> None:
         _finding(DefectType.FALSE_PREMISE, "The job drops the last comment"),
         Finding(
             type=DefectType.TASK_ORDER,
+            severity=Severity.MAJOR,
             where=place("tasks", "2"),
             problem="The test comes last.",
             quote="Keep the last comment",
@@ -702,6 +774,7 @@ def test_a_later_review_gets_the_earlier_findings_and_the_answer() -> None:
         {
             "number": 1,
             "type": "false_premise",
+            "severity": "major",
             "where": {"part": "tasks", "section": "1", "capability": ""},
             "problem": "The plan is wrong.",
             "quote": "The job drops the last comment",
@@ -709,6 +782,7 @@ def test_a_later_review_gets_the_earlier_findings_and_the_answer() -> None:
         {
             "number": 2,
             "type": "task_order",
+            "severity": "major",
             "where": {"part": "tasks", "section": "2", "capability": ""},
             "problem": "The test comes last.",
             "quote": "Keep the last comment",
@@ -741,6 +815,30 @@ def test_a_new_finding_outside_the_changed_text_is_advice() -> None:
     assert judged == Judgement(
         findings=(unchanged, changed), open=(changed,), fixed=(earlier[0],), added=(changed,)
     )
+
+
+def test_a_minor_new_finding_of_a_later_review_is_advice() -> None:
+    """A later review opens a new finding in the changed text only for a blocker or a major
+    defect (#5411), as a first review does."""
+    from devops_cli.roadmap.stage.stage_verify import (
+        EarlierVerdict,
+        Judgement,
+        LaterVerification,
+        Verdict,
+        judge_later,
+    )
+
+    earlier = [_finding(DefectType.FALSE_PREMISE, "The job drops the last comment")]
+    given = _later_input(earlier)
+    minor = _finding(DefectType.MISSING_PATH, "keeps the last comment", severity=Severity.MINOR)
+    reply = LaterVerification(
+        earlier=[EarlierVerdict(number=1, verdict=Verdict.GONE)], findings=[minor]
+    )
+
+    judged = judge_later(reply, given)
+
+    assert given.in_answer(minor.quote)
+    assert judged == Judgement(findings=(minor,), open=(), fixed=(earlier[0],), added=())
 
 
 def test_an_earlier_finding_with_no_verdict_holds() -> None:
@@ -832,6 +930,7 @@ def test_a_new_finding_of_a_later_review_on_a_place_that_the_plan_does_not_hold_
     given = _later_input(earlier)
     outside = Finding(
         type=DefectType.SPEC_DELTA_WRONG,
+        severity=Severity.MAJOR,
         where=place("spec", "The job reads each comment once", "comment-thread"),
         problem="The requirement repeats a rule of the base spec.",
         quote=REVISED_WHY,

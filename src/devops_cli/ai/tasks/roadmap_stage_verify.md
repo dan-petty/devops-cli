@@ -8,7 +8,7 @@ The nine types are `missing_path`, `false_premise`, `spec_delta_wrong`, `verify_
 
 - `missing_path`: the plan names a file that does not exist and that no earlier group creates, or a code change needs a file that the plan does not change. Name the group that names the file or that needs it.
 - `false_premise`: the plan claims a fact about the code, a tool or the system that `files` or the issue contradict, or that nothing in the input supports.
-- `spec_delta_wrong`: the spec delta changes a requirement that does not exist, adds one that duplicates another, keeps a modified requirement whose name no longer fits its text (for example a name that says the opposite of the new text) with no `renamed` entry, or has a scenario that no test can assert.
+- `spec_delta_wrong`: the spec delta changes a requirement that does not exist, adds one that duplicates another, keeps a modified requirement whose name no longer fits its text (for example a name that says the opposite of the new text) with no `renamed` entry, or has a scenario where no test can assert any part of its THEN. A scenario with one part of its THEN that no test can assert is a `minor` defect when a test can assert the other parts.
 - `verify_form`: the verification command of a group does not run the work of the group, or gives a different answer on each run.
 - `task_order`: a task needs the result of a later task, or a test comes after the code it tests in a group of new behavior.
 - `criterion_dropped`: an acceptance criterion of the issue has no task in the plan, or the group that holds its task changes only test files while no group of the plan changes the code or the data that the criterion needs. A group that changes only test files delivers its criterion when an earlier group changes that code or data. That group is no `criterion_dropped`. Name the criterion with `part` `issue` and the text of the criterion as `section`, and quote the text of the criterion.
@@ -19,6 +19,11 @@ The nine types are `missing_path`, `false_premise`, `spec_delta_wrong`, `verify_
 Report only a defect that you can show. For each finding give:
 
 - `type`: one of the nine types.
+- `severity`: how much the defect costs, one of `blocker`, `major`, `minor` and `nit`:
+  - `blocker`: nobody can build the plan as written, or the plan builds the wrong change. For example, the plan rests on a false fact, a task needs a file that does not exist, or `files` already hold the change.
+  - `major`: the plan can be built, but the result misses an acceptance criterion of the issue, a check of the project fails, or a test proves nothing. The plan must change before the build.
+  - `minor`: a small defect that one line of the plan fixes and that does not change whether the result meets each criterion. For example, one part of a scenario that no test can assert, a fact that no task needs, or a task that is not clear.
+  - `nit`: a defect of the words or the form only.
 - `where`: the place of the defect, as an object with the keys `part`, `section` and `capability`:
   - `part`: `proposal`, `design`, `tasks`, `spec` or `issue`.
   - `section`: for `tasks`, the number of the group, such as `2`. For `spec`, the name of a requirement of the spec delta, as the delta writes it. For `design`, the key of `plan` that holds the defect: `decisions` or `rejected`. For `proposal`, each other key of `plan` except `groups` and `specs`, such as `why` or `feasibility`. For `issue`, the text of the issue that the finding is about, such as an acceptance criterion.
@@ -28,6 +33,6 @@ Report only a defect that you can show. For each finding give:
 
 Name only a place that the plan or the issue holds. A finding on a requirement, a group or a key that the plan does not hold cannot stop the plan: a requirement of a base spec that the spec delta does not change is no place of the plan. A finding that reports a missing part names the part that needs it, such as the group that needs a file or the criterion that no group delivers.
 
-A finding with a quote that is in the input and a place that the plan holds can stop the plan, so report it only when the quote proves it. Report a style preference, or a doubt that you cannot show, as no finding. A plan with no defect gets an empty list.
+Only a `blocker` or `major` finding with a quote that is in the input and a place that the plan holds can stop the plan, so report it only when the quote proves it, and give the severity that the evidence shows. A `minor` or `nit` finding goes to the comment as advice. Report a style preference, or a doubt that you cannot show, as no finding. A plan with no defect gets an empty list.
 
-The reply has the key `findings` and no other key. Its value is a list of objects with the keys `type`, `where`, `problem` and `quote`, and `where` is an object with the keys `part`, `section` and `capability`.
+The reply has the key `findings` and no other key. Its value is a list of objects with the keys `type`, `severity`, `where`, `problem` and `quote`, and `where` is an object with the keys `part`, `section` and `capability`.

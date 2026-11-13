@@ -12,7 +12,7 @@ import pytest
 from devops_cli.ai.client.models import AIClientError
 from devops_cli.exceptions import RoadmapRefineError
 from devops_cli.roadmap.run import MODEL_LANE_ROWS
-from devops_cli.roadmap.stage.stage_eval_cases import DefectType
+from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity
 from devops_cli.roadmap.stage.stage_verify import Finding, Locator, PlanPart, Verification
 from devops_cli.roadmap.stores.store import ItemField
 from tests.support.roadmap_job_result import result_fields
@@ -31,6 +31,7 @@ pytestmark = pytest.mark.usefixtures("keyring_store", "app_slug")
 REFINE_ROW = next(row for row in MODEL_LANE_ROWS if row.name == "refine")
 FALSE_PREMISE = Finding(
     type=DefectType.FALSE_PREMISE,
+    severity=Severity.MAJOR,
     where=Locator(part=PlanPart.PROPOSAL, section="problem_statement"),
     problem="The issue does not say that the item needs a design.",
     quote=READY.problem_statement,

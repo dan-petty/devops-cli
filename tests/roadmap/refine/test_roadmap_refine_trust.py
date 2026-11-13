@@ -38,7 +38,7 @@ from devops_cli.roadmap.refine.refine import (
     plan_refine,
 )
 from devops_cli.roadmap.refine.refine_judge import judge
-from devops_cli.roadmap.stage.stage_eval_cases import DefectType
+from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity
 from devops_cli.roadmap.stage.stage_verify import Finding, Locator, PlanPart, Verification
 from devops_cli.roadmap.stores.store import ItemField, JudgeVerdict, RefineRecordKey
 from devops_cli.roadmap.trust import is_approved
@@ -65,18 +65,20 @@ _READY = RefinementProposal(
 )
 _FALSE_PREMISE = Finding(
     type=DefectType.FALSE_PREMISE,
+    severity=Severity.MAJOR,
     where=Locator(part=PlanPart.PROPOSAL, section="problem_statement"),
     problem="The issue does not say that the item needs a design.",
     quote=PREMISE,
 )
 _ADVICE = Finding(
     type=DefectType.CONTRIVED_TEST,
+    severity=Severity.MAJOR,
     where=Locator(part=PlanPart.PROPOSAL, section="acceptance_criteria"),
     problem="A test repeats the code.",
 )
 # The line of `_FALSE_PREMISE` that the job record keeps and the next request gives (#4798).
 _FALSE_PREMISE_LINE = (
-    "`false_premise` at proposal (problem_statement): The issue does not say that the item "
+    "major `false_premise` at proposal (problem_statement): The issue does not say that the item "
     f'needs a design. Evidence: "{PREMISE}"'
 )
 _NOW = datetime(2026, 11, 11, 12, 0, tzinfo=UTC)
@@ -543,6 +545,22 @@ def test_a_finding_without_a_quote_from_the_input_is_advice_and_refuses_nothing(
     invented = _FALSE_PREMISE.model_copy(update={"quote": "A sentence that no text holds."})
 
     _round(store, git_repo, _Proposer(), _Verifier(invented))
+
+    assert (_status(store, number), _record(store, number, RefineRecordKey.JUDGE)) == (
+        "Ready",
+        "approved",
+    )
+
+
+@pytest.mark.parametrize("severity", [Severity.MINOR, Severity.NIT])
+def test_a_minor_or_a_nit_finding_is_advice_and_refuses_nothing(
+    store: InMemoryRoadmapStore, git_repo: Path, severity: Severity
+) -> None:
+    """Only a blocker or a major finding refuses an item of a bot (#5411)."""
+    number = _seed(store)
+    finding = _FALSE_PREMISE.model_copy(update={"severity": severity})
+
+    _round(store, git_repo, _Proposer(), _Verifier(finding))
 
     assert (_status(store, number), _record(store, number, RefineRecordKey.JUDGE)) == (
         "Ready",

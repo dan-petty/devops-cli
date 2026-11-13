@@ -3448,6 +3448,15 @@ CONST_ROADMAP_STAGE_VERIFY_MAX_FILES: Final[int] = 30
 # The recall floor of the verification pass (#3039, #3207): the share of the blocker and major
 # defects of the golden set that the pass must find. `docs/ROADMAP_WORKFLOW.md` states the same floor.
 CONST_ROADMAP_VERIFY_RECALL_FLOOR: Final[float] = 0.9
+# The ceiling of the findings that return a good plan of the golden set to the planner, as a mean
+# for each good plan that the run verified (#5411). A good plan has no known defect, so each such
+# finding costs a repair round for nothing. On 2026-11-13 the pass with deepseek-v4.1-flash-1017
+# gave 9 such findings on the 6 good plans (1.5 for each plan), 6 of them on good-3264. On
+# 2026-11-10, when a minor finding still returned a plan, it gave 14 on 5 good plans (2.8). The
+# returning findings of the same cases vary by about a third between two runs of one pass (9 to 15
+# on the cases 2166 and 2169 on 2026-11-13). So 2.0 holds the pass of today with that variance and
+# fails a return to the old count. `docs/ROADMAP_WORKFLOW.md` names the ceiling.
+CONST_ROADMAP_VERIFY_GOOD_RETURNING_CEILING: Final[float] = 2.0
 # `devops roadmap alternatives` (#2650): the block the job keeps in an issue body, the marker of
 # its comment (a comment after the job's last one is a reply), the most searches and fact reads of
 # one item's check, and how long a tool may go without a push or an upload and stay maintained.

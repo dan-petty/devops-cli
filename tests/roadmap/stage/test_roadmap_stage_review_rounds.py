@@ -17,7 +17,7 @@ from devops_cli.config.settings import RoadmapStageConfig
 from devops_cli.exceptions import ServiceStoppingError, ended_by_stop
 from devops_cli.roadmap.service_stop import begin_service_stop
 from devops_cli.roadmap.stage.stage import StagePlan, parse_filters, plan_stage
-from devops_cli.roadmap.stage.stage_eval_cases import DefectType
+from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.stage.stage_verify import Finding, Locator, PlanPart, Verification
 from tests.support.builders import make_stage_proposal
@@ -76,6 +76,7 @@ def _review(count: int) -> Verification:
         findings=[
             Finding(
                 type=DefectType.FALSE_PREMISE,
+                severity=Severity.MAJOR,
                 where=Locator(part=PlanPart.PROPOSAL, section="why"),
                 problem=f"The premise of group {number} is wrong.",
                 quote=ISSUE_QUOTE,
@@ -176,6 +177,7 @@ def test_a_review_that_fixes_as_many_findings_as_it_adds_gets_no_round_after_the
     )
     added = Finding(
         type=DefectType.FALSE_PREMISE,
+        severity=Severity.MAJOR,
         where=Locator(part=PlanPart.PROPOSAL, section="why"),
         problem="The second repair names no test.",
         quote="the second repair keeps it",
@@ -200,6 +202,7 @@ def test_a_repair_round_sends_the_earlier_findings_and_the_answer(
     first_review = _review(1)
     unchanged = Finding(
         type=DefectType.FALSE_PREMISE,
+        severity=Severity.MAJOR,
         where=Locator(part=PlanPart.TASKS, section="1"),
         problem="The group reads the wrong file.",
         quote=ISSUE_QUOTE,
@@ -225,6 +228,7 @@ def test_a_later_finding_on_a_requirement_that_the_plan_does_not_hold_keeps_the_
     model_fake.answer(make_stage_proposal(), make_stage_proposal(why=REVISED_WHY))
     outside = Finding(
         type=DefectType.SPEC_DELTA_WRONG,
+        severity=Severity.MAJOR,
         where=Locator(
             part=PlanPart.SPEC,
             section="The job reads each comment once",

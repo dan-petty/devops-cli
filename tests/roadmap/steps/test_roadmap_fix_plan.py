@@ -21,7 +21,7 @@ from devops_cli.config.constants import CONST_AI_JEV_MODEL, CONST_ROADMAP_FIX_PL
 from devops_cli.exceptions import ServiceStoppingError
 from devops_cli.roadmap.run import MODEL_LANE_ROWS
 from devops_cli.roadmap.service_stop import begin_service_stop
-from devops_cli.roadmap.stage.stage_eval_cases import DefectType
+from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity
 from devops_cli.roadmap.stage.stage_jev_screen import QUESTIONS, VERIFY_SCREEN
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL, Verification
@@ -335,6 +335,37 @@ def test_a_clean_head_with_listed_findings_is_dismissed(
     (_, comment) = _comments(store)
     assert "dismisses" in comment
     assert f"issue ({ISSUE_QUOTE})" in comment
+
+
+def test_a_head_with_only_a_minor_finding_is_dismissed_and_lists_it_as_advice(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    verifier: ModelFake,
+    github_api: GitHubApiFake,
+) -> None:
+    """The decisions of the step count only blocker and major findings (#5411): a head whose
+    review finds a quoted minor defect gets no repair, loses the label, and the comment lists the
+    defect as advice."""
+    plan = needs_fix_plan(store, stage_repo, github_api)
+    listed = finding(DefectType.SPEC_DELTA_WRONG, where=place("issue", ISSUE_QUOTE))
+    store.seed_comment(plan.number, stage_comment(plan.pull, [listed]))
+    minor = finding(
+        DefectType.SPEC_DELTA_WRONG, where=place("issue", ISSUE_QUOTE), severity=Severity.MINOR
+    )
+    verifier.answer(Verification(findings=[minor]))
+
+    run = _run(store, stage_repo, verifier)
+
+    assert run.attempt is not None
+    assert (run.attempt.result, run.attempt.before) == (FixPlanResult.DISMISSED, 0)
+    assert model_fake.call_count == 0
+    assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) == plan.head
+    assert PLAN_NEEDS_FIX_LABEL not in store._roadmap.issues[plan.pull].labels
+    (_, comment) = _comments(store)
+    dismissed, advice = comment.split("They stop no draft")
+    assert f"- major `spec_delta_wrong` at issue ({ISSUE_QUOTE})" in dismissed
+    assert f"- minor `spec_delta_wrong` at issue ({ISSUE_QUOTE})" in advice
 
 
 @pytest.mark.parametrize(
