@@ -104,7 +104,7 @@ The stage replay SHALL catch a recorded placeholder plan as a defect of type `ot
 - **THEN** `replay_case` marks the `content` defect `missed` and reports a failure.
 
 ### Requirement: The stage job checks the form of the plan title
-The stage job SHALL run `title_problems` on the title that it builds for the plan. A reply whose title has a problem SHALL go back to the model with the problems, `roadmap.stage.gate_returns` times at most, and a reply with a problem after the last return SHALL stop the item.
+The stage job SHALL run `title_problems` on the title that it builds for the plan. A reply whose title has a problem SHALL go back to the model with the problems, `roadmap.stage.gate_returns` times at most and one more time when the item gets its extra return (`roadmap-stage/returns`, #4851), and a reply with a problem after the last return SHALL stop the item.
 
 #### Scenario: A summary that repeats plan
 - **WHEN** the first reply has the summary `plan the form of a task`

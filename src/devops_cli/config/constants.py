@@ -3377,8 +3377,15 @@ CONST_ROADMAP_STAGE_MAX_REQUESTS: Final[int] = 250
 # the counts above, so one item with a review of the default 2 repair rounds makes 3R + 4 plan runs
 # at most: 13 at this ceiling. A plan run took about 728 s at p90 on 2026-11-11, so 13 runs are
 # about 2.6 hours, and a value of 10 would give 34 runs. The settings load refuses a value above it.
-# The ceiling of the review rounds below gives 5R + 6 plan runs at most: 21 (#5066).
+# The ceiling of the review rounds below gives 5R + 6 plan runs at most: 21 (#5066). The extra
+# return of an item below adds one more plan run (#4851).
 CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING: Final[int] = 3
+# The extra returns of one item past `roadmap.stage.gate_returns` (#4851). A reply that the checks
+# refuse at the last return gets one more return when no finding of the reply before it stays and
+# no finding has the fix class `never`. Each extra return is one plan run, so one reply gets at
+# most R + 2 planner requests, and an item 5R + 7 plan runs at most: 22 at the ceiling above. On
+# 2026-11-13, #5136 stopped at its third return while its findings went from 3 to 1 to 1 new one.
+CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS: Final[int] = 1
 # The call budget of a stage run (#4346). The prompt of a run says how many tool calls it needs
 # (`*_CALLS_ADVISED`), and from the call `*_CALLS_NOTICE` each tool answer ends with a notice to give
 # the reply, with the tools still on. A plan run needs about 30 calls and a review run about 40: the

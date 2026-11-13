@@ -462,8 +462,11 @@ def test_gate_refusal_the_counter_is_declared_with_its_series_count_and_document
 
 def test_gate_problems_the_histogram_is_declared_with_its_series_count_and_documented() -> None:
     """The description states the series count: one repository and one series for each reply of
-    the hard ceiling of the gate returns."""
-    from devops_cli.config.constants import CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING
+    the hard ceiling of the gate returns and of the extra return of an item (#4851)."""
+    from devops_cli.config.constants import (
+        CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS,
+        CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING,
+    )
     from devops_cli.telemetry.instruments import INSTRUMENTS, InstrumentKind
 
     declared = {instrument.name: instrument for instrument in INSTRUMENTS}
@@ -476,10 +479,10 @@ def test_gate_problems_the_histogram_is_declared_with_its_series_count_and_docum
         "1",
         True,
     )
-    assert re.search(
-        rf"\bat most {CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING + 1} series\b",
-        instrument.description,
+    replies = (
+        CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING + CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS + 1
     )
+    assert re.search(rf"\bat most {replies} series\b", instrument.description)
 
 
 def test_step_label_the_series_of_the_stage_row_are_five_steps_and_two_results() -> None:

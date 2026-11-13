@@ -3965,9 +3965,21 @@ class RoadmapMessages:
     stage_left_planned: str = "Its plan is on {branch}: the change folder `{folder}` is there."
     stage_left_archived: str = "Its change is archived on {branch}: the folder `{folder}` is there."
     # The files of the change that the stage job writes, and what its checks find wrong (#2654).
-    stage_invalid: str = "The change fails its checks, also after a second try: {problem}"
+    stage_invalid: str = (
+        "The change still fails its checks after return {returns} ({stop}): {problem}"
+    )
     stage_invalid_revision: str = (
-        "The revision after the model review fails its checks, also after a return: {problem}"
+        "The revision after the model review still fails its checks after return {returns} "
+        "({stop}): {problem}"
+    )
+    # Why a reply that the checks refuse at the last gate return gets no extra return (#4851).
+    stage_gate_stop_used: str = "no extra return: the item used its extra return"
+    stage_gate_stop_first: str = "no extra return: no return compares two replies"
+    stage_gate_stop_stuck: str = (
+        "no extra return: a finding of the gate {gates} stays from the reply before"
+    )
+    stage_gate_stop_never: str = (
+        "no extra return: no saved return fixed a finding code of the gate {gates}"
     )
     stage_degenerate: str = (
         "Every text of the plan reply is a placeholder, such as `x` or `placeholder`. The same "

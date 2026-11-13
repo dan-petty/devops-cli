@@ -536,8 +536,27 @@ ROADMAP_STAGE_GATE_PROBLEMS = Instrument(
     "1",
     "Findings of the stage checks in one reply of a plan, one observation for each reply that the "
     "checks judged, by repo and reply: 0 for the first reply of a plan run and 1 more for each "
-    "return, so at most roadmap.stage.gate_returns plus 1. A reply that passes the checks "
-    "observes 0. One repository adds at most 4 series",
+    "return, so at most roadmap.stage.gate_returns plus 2 with the extra return of an item "
+    "(#4851). A reply that passes the checks observes 0. One repository adds at most 5 series",
+)
+ROADMAP_STAGE_GATE_EXTENSION_TOTAL = Instrument(
+    "devops_cli_roadmap_stage_gate_extension_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Decisions on a stage reply that the checks refused at the last return of "
+    "roadmap.stage.gate_returns (#4851), by result: extended (the reply got one more return), "
+    "used (the item used its extra return), first (no return compares two replies), stuck (a "
+    "finding of the reply before stays) or never (a finding has a code that no saved return "
+    "fixed). A rule decides with no model call. The metric adds at most 5 series",
+)
+ROADMAP_STAGE_GATE_EXTENSION_ENDS_TOTAL = Instrument(
+    "devops_cli_roadmap_stage_gate_extension_ends_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Ends of the extra return of a stage reply (#4851), one count for each extended decision, by "
+    "result: passed or refused when the checks judged the reply of the extra return, or ended "
+    "when the run ended before that (a stop of the Service, a provider error, a broken schema or "
+    "a reply of placeholders). The metric adds at most 3 series",
 )
 EMBEDDING_CACHE_LOOKUPS_TOTAL = Instrument(
     "devops_cli_embedding_cache_lookups_total",
@@ -793,6 +812,8 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_JEV_COMPLETENESS_TOTAL,
     ROADMAP_INTAKE_JEV_FIELDS_TOTAL,
     ROADMAP_IMPLEMENT_EXTENSION_TOTAL,
+    ROADMAP_STAGE_GATE_EXTENSION_ENDS_TOTAL,
+    ROADMAP_STAGE_GATE_EXTENSION_TOTAL,
     ROADMAP_STAGE_GATE_PROBLEMS,
     ROADMAP_STAGE_GATE_REFUSALS_TOTAL,
     EMBEDDING_CACHE_LOOKUPS_TOTAL,
@@ -940,6 +961,8 @@ __all__ = [
     "ROADMAP_PAGE_FETCHES_TOTAL",
     "ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL",
     "ROADMAP_ROW_SECONDS",
+    "ROADMAP_STAGE_GATE_EXTENSION_ENDS_TOTAL",
+    "ROADMAP_STAGE_GATE_EXTENSION_TOTAL",
     "ROADMAP_STAGE_GATE_PROBLEMS",
     "ROADMAP_STAGE_GATE_REFUSALS_TOTAL",
     "ROADMAP_STAGE_PLAN_RECORD_TOTAL",

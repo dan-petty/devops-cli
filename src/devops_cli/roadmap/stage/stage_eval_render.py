@@ -7,7 +7,10 @@ from collections.abc import Sequence
 from dataclasses import asdict
 from typing import Any
 
-from devops_cli.config.constants import CONST_ROADMAP_STAGE_MAX_REQUESTS
+from devops_cli.config.constants import (
+    CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS,
+    CONST_ROADMAP_STAGE_MAX_REQUESTS,
+)
 from devops_cli.config.settings import load_settings
 from devops_cli.dry_run import PlannedRequest
 from devops_cli.lang import MESSAGES
@@ -203,11 +206,14 @@ def planned_calls(
     cases: Sequence[StageCase], gateway: str, *, toolbox: bool = True
 ) -> list[PlannedRequest]:
     """The model calls of a run, making none: the planner call of each case, with the calls it
-    may add. A case has a plan run for the first ask and one for each return of a refused reply
-    (`roadmap.stage.gate_returns`). With the toolbox, each plan run can make
+    may add. A case has a plan run for the first ask, one for each return of a refused reply
+    (`roadmap.stage.gate_returns`) and one for its extra return (#4851). With the toolbox, each
+    plan run can make
     `CONST_ROADMAP_STAGE_MAX_REQUESTS` requests, and the split makes one."""
     texts = MESSAGES.roadmap
-    plan_runs = 1 + load_settings().roadmap.stage.gate_returns
+    plan_runs = (
+        1 + load_settings().roadmap.stage.gate_returns + CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS
+    )
     count = plan_runs * CONST_ROADMAP_STAGE_MAX_REQUESTS + 1 if toolbox else plan_runs + 1
     return [
         PlannedRequest(

@@ -43,8 +43,10 @@ files that its tasks name, each packed to at most `CONST_ROADMAP_IMPLEMENT_FILE_
 (`step_files`). A group still over the budget stops the item (`OverBudget`). The job validates the
 change with `openspec validate --strict` in a scratch directory when the binary is on `PATH`; a
 failure goes back to the model `roadmap.stage.gate_returns` times, and a failure after the last
-return stops the item. A reply the rules refuse (`check_proposal`) takes the same returns. A group
-that changes no file, has a blank text, or breaks the rules of its kind (`GroupKind`: a `behavior`
+return stops the item. A reply the rules refuse (`check_proposal`) takes the same returns. A reply
+that the checks refuse at the last return gets one more return when no finding of the reply before
+it stays and no finding has the fix class `never` (`gate_extension`, #4851), once for each item. A
+group that changes no file, has a blank text, or breaks the rules of its kind (`GroupKind`: a `behavior`
 group has a test and changes a path under `src/`, and an `other` group has no test and one of
 `verify` and `process`) fails the schema of the reply, and `chat_structured` sends it back once
 (`_REPLY_RETURNS`). A reply that names a path that is no file of the staged commit, and that no
@@ -182,6 +184,8 @@ from devops_cli.roadmap.refine.refine import (
 from devops_cli.roadmap.refine.refine_investigation import task_window
 from devops_cli.roadmap.round_log import (
     log_fix_plan_progress,
+    log_gate_extension,
+    log_gate_extension_end,
     log_gate_findings,
     log_gate_returns,
     log_review_extension,
@@ -212,9 +216,13 @@ from devops_cli.roadmap.stage.stage_findings import (
     BODY_GATE,
     TITLE_GATE,
     VALIDATE_GATE,
+    ExtensionEnd,
+    GateExtension,
     StageFinding,
     check_findings,
+    gate_extension,
     gate_findings,
+    load_finding_classes,
     return_counts,
 )
 from devops_cli.roadmap.stage.stage_form import (
@@ -304,6 +312,8 @@ from devops_cli.roadmap.time_budget import TimeBudget
 from devops_cli.roadmap.trust import is_approved, is_trusted
 from devops_cli.security.sanitizer import mask_secrets, redact_text
 from devops_cli.telemetry.instruments import (
+    ROADMAP_STAGE_GATE_EXTENSION_ENDS_TOTAL,
+    ROADMAP_STAGE_GATE_EXTENSION_TOTAL,
     ROADMAP_STAGE_GATE_PROBLEMS,
     ROADMAP_STAGE_GATE_REFUSALS_TOTAL,
     ROADMAP_STAGE_PLAN_RECORD_TOTAL,
@@ -1226,6 +1236,8 @@ class _Planner:
         self._stopped_by_checks = False
         # The replies of the item in hand that the checks sent back to the model (#4845).
         self._returns = 0
+        # The extra returns of the item in hand past `roadmap.stage.gate_returns` (#4851).
+        self._extensions = 0
         # The counts of each item that the planner tried, in order (#4845).
         self.attempts: list[StageAttempt] = []
         # The repair of a plan of an open pull request (`revise`, #5213): the step that it is in,
@@ -1263,15 +1275,18 @@ class _Planner:
     def plan(self, target: StageTarget) -> StagedChange | OverBudget | Blocked | FalsePremise:
         """The change of `target`, or the group that stops it. A reply the checks refuse goes back
         to the model `roadmap.stage.gate_returns` times (R), with the problem, and so does the
-        revision of each repair round (#4348, #4802). The model splits the groups at most once.
-        With a verifier, the model review of the plan (#3153) follows the checks and may return the
-        plan V times (`roadmap.stage.verify_repair_rounds`, #3039, #5066), and more while its
-        count of open findings drops, at most `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING`
-        (4) times. So an item costs R + 2 planner calls at most without a verifier (5 at the
-        default of 3), (V + 1)(R + 1) + 1 with one (13 at the defaults) and V + 1 calls of the
-        verifier, and with the extensions at most 5R + 6 planner calls and 5 calls of the verifier.
-        R is at most `CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING` (3), so 21 planner calls is the
-        hard ceiling of an item (#4900, #5066)."""
+        revision of each repair round (#4348, #4802). A reply that stays refused at the last return
+        gets one more return while the rule `gate_extension` sees progress, once for each item
+        (`CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS`, #4851). The model splits the groups at most
+        once. With a verifier, the model review of the plan (#3153) follows the checks and may
+        return the plan V times (`roadmap.stage.verify_repair_rounds`, #3039, #5066), and more
+        while its count of open findings drops, at most
+        `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING` (4) times. So an item costs R + 3
+        planner calls at most without a verifier (6 at the default of 3), (V + 1)(R + 1) + 2 with
+        one (14 at the defaults) and V + 1 calls of the verifier, and with the extensions at most
+        5R + 7 planner calls and 5 calls of the verifier. R is at most
+        `CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING` (3), so 22 planner calls is the hard ceiling of
+        an item (#4900, #5066, #4851)."""
         self._start_item()
         kept, key = self._kept(target)
         # A plain client has no trace and its gate is off, on a hit as on a miss.
@@ -1315,6 +1330,7 @@ class _Planner:
         self._refused = []
         self._stopped_by_checks = False
         self._returns = 0
+        self._extensions = 0
         self.step = StepName.GATE
         self.gated = None
         self.head_findings = None
@@ -1481,44 +1497,104 @@ class _Planner:
     ) -> StagedChange | OverBudget:
         """The change of `proposal`, a reply for the first ask or for a repair round. A reply that
         the checks refuse goes back to the model with the problem, up to
-        `roadmap.stage.gate_returns` times. A reply that stays refused ends the item, and the
-        file of refused replies holds each of them (#4348, #4312). Once the Service stops, no
-        return starts: a return is a new plan run of model requests, which the cut at the end of
-        the drain does not stop (#4900). `floor` is the number of runs before the ask. `invalid` is
-        the failure text, with `{problem}`."""
+        `roadmap.stage.gate_returns` times, and once more when `_extension` grants an extra return
+        (#4851). A reply that stays refused ends the item, and the file of refused replies holds
+        each of them (#4348, #4312). Once the Service stops, no return starts: a return is a new
+        plan run of model requests, which the cut at the end of the drain does not stop (#4900).
+        `floor` is the number of runs before the ask. `invalid` is the failure text, with
+        `{returns}`, `{stop}` and `{problem}`."""
         refused = self._refused
         returns = 0
-        while True:
-            if _is_degenerate(proposal):
-                self._stop_degenerate(target, key, refused, proposal, floor)
-            outcome = self._settle(target, proposal, request, trace=self._trace_facts())
-            self._note_gates(target, returns, outcome)
-            if not isinstance(outcome, _Refused):
-                log_gate_returns(
-                    self._pull_repo,
-                    target.item.number,
-                    returns,
-                    passed=True,
-                    findings=self._last_findings(),
-                )
-                return outcome
-            self._note_refused(target, floor, "refused")
-            refused.append((outcome.reply, outcome.problem))
-            if returns >= self._gate_returns:
-                self._stopped_by_checks = True
-                self._keep_refused(target, key, refused)
-                log_gate_returns(
-                    self._pull_repo,
-                    target.item.number,
-                    returns,
-                    passed=False,
-                    findings=self._last_findings(),
-                )
-                raise _stage_error(invalid.format(problem=outcome.problem), target)
-            raise_if_service_stops(f"return {returns + 1} of the plan of #{target.item.number}")
-            returns += 1
-            self._returns += 1
-            proposal = self._ask_plan(target, key, refused, outcome.returned(request))
+        # True from the grant of the extra return until the checks judge its reply (#4851).
+        extended = False
+        try:
+            while True:
+                if _is_degenerate(proposal):
+                    self._stop_degenerate(target, key, refused, proposal, floor)
+                outcome = self._settle(target, proposal, request, trace=self._trace_facts())
+                self._note_gates(target, returns, outcome)
+                if extended:
+                    extended = False
+                    passed = not isinstance(outcome, _Refused)
+                    end = ExtensionEnd.PASSED if passed else ExtensionEnd.REFUSED
+                    self._end_extension(target, returns, end)
+                if not isinstance(outcome, _Refused):
+                    log_gate_returns(
+                        self._pull_repo,
+                        target.item.number,
+                        returns,
+                        passed=True,
+                        findings=self._last_findings(),
+                    )
+                    return outcome
+                before = self._last_findings() if returns else None
+                self._note_refused(target, floor, "refused")
+                refused.append((outcome.reply, outcome.problem))
+                if returns >= self._gate_returns:
+                    stop = self._extension(target, returns, before)
+                    if stop is not None:
+                        self._stopped_by_checks = True
+                        self._keep_refused(target, key, refused)
+                        log_gate_returns(
+                            self._pull_repo,
+                            target.item.number,
+                            returns,
+                            passed=False,
+                            findings=self._last_findings(),
+                        )
+                        raise _stage_error(
+                            invalid.format(returns=returns, stop=stop, problem=outcome.problem),
+                            target,
+                        )
+                    extended = True
+                raise_if_service_stops(f"return {returns + 1} of the plan of #{target.item.number}")
+                returns += 1
+                self._returns += 1
+                proposal = self._ask_plan(target, key, refused, outcome.returned(request))
+        finally:
+            if extended:
+                self._end_extension(target, returns, ExtensionEnd.ENDED)
+
+    def _extension(
+        self, target: StageTarget, returns: int, before: Sequence[StageFinding] | None
+    ) -> str | None:
+        """Decide whether the reply that the checks refused at return `returns`, the last of the
+        setting, gets one more return (`gate_extension`, #4851). `before` holds the findings of
+        the reply before it, or None when no return compares two replies. The decision logs one
+        line with its facts, and a run of a repository adds one count. The result is None for an
+        extra return, or the text that names the stop."""
+        after = self._last_findings()
+        decision = gate_extension(
+            before, after, used=self._extensions, classes=load_finding_classes()
+        )
+        log_gate_extension(
+            self._pull_repo,
+            target.item.number,
+            returns,
+            return_counts(before or (), after),
+            never=decision.never,
+            result=decision.result.value,
+        )
+        if self._pull_repo:
+            emit(ROADMAP_STAGE_GATE_EXTENSION_TOTAL, 1, {"result": decision.result.value})
+        if decision.result is GateExtension.EXTENDED:
+            self._extensions += 1
+            return None
+        texts = MESSAGES.roadmap
+        stops = {
+            GateExtension.USED: texts.stage_gate_stop_used,
+            GateExtension.FIRST: texts.stage_gate_stop_first,
+            GateExtension.STUCK: texts.stage_gate_stop_stuck,
+            GateExtension.NEVER: texts.stage_gate_stop_never,
+        }
+        return stops[decision.result].format(gates=", ".join(decision.gates))
+
+    def _end_extension(self, target: StageTarget, returns: int, end: ExtensionEnd) -> None:
+        """Log how the extra return of the reply in hand ended (#4851), and count it for a run
+        of a repository, as `_note_gates` counts the findings."""
+        log_gate_extension_end(self._pull_repo, target.item.number, returns, end.value)
+        if self._pull_repo:
+            emit(ROADMAP_STAGE_GATE_EXTENSION_ENDS_TOTAL, 1, {"result": end.value})
 
     def _ask_plan(
         self,
@@ -2612,9 +2688,9 @@ def plan_item(
     """Plans `item` as the job does, in the checkout at `sha`, and writes nothing (#3028).
 
     The golden set of the stage job runs this on each case. A reply the checks refuse goes back to
-    the model `roadmap.stage.gate_returns` times, as in a run, and a reply that stays refused raises
-    `RoadmapStageError`. `step_tokens`
-    overrides `roadmap.stage.step_tokens`. A `client` that is a `ToolboxClient` plans with the
+    the model `roadmap.stage.gate_returns` times, and once more when the rule `gate_extension` sees
+    progress (#4851), as in a run, and a reply that stays refused raises `RoadmapStageError`.
+    `step_tokens` overrides `roadmap.stage.step_tokens`. A `client` that is a `ToolboxClient` plans with the
     read-only tools (#3037); the golden set builds it for the case checkout. This planner reads no
     open plan, so it finds no dependency. A dependency that the type still allows raises
     `RoadmapStageError`, which the golden set counts as refused (#3418). The cases are frozen at old

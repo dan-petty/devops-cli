@@ -68,6 +68,42 @@ def log_gate_findings(repo: str, item: int, return_: int, counts: ReturnCounts) 
     )
 
 
+def log_gate_extension(
+    repo: str, item: int, returns: int, counts: ReturnCounts, *, never: int, result: str
+) -> None:
+    """Log the decision on a stage reply that the checks refused at the last gate return
+    (#4851): the returns of the reply, the facts of the rule (the findings of the reply before,
+    those gone, those stuck and the new ones, and the findings of a `never` code) and the result:
+    `extended` or the stop."""
+    logger.info(
+        "stage gate extension: repo=%s item=#%d returns=%d in=%d gone=%d stuck=%d new=%d "
+        "never=%d result=%s version=%s",
+        repo or "none",
+        item,
+        returns,
+        counts.before,
+        counts.gone,
+        counts.stuck,
+        counts.new,
+        never,
+        result,
+        __version__,
+    )
+
+
+def log_gate_extension_end(repo: str, item: int, returns: int, result: str) -> None:
+    """Log the end of the extra return of a stage reply (#4851): `passed` or `refused` when the
+    checks judged its reply, or `ended` when the run ended before that."""
+    logger.info(
+        "stage gate extension end: repo=%s item=#%d returns=%d result=%s version=%s",
+        repo or "none",
+        item,
+        returns,
+        result,
+        __version__,
+    )
+
+
 def log_review_round(
     repo: str, item: int, round_: int, *, findings: int, returned: int, open_: int
 ) -> None:
@@ -164,6 +200,8 @@ def log_implement_attempt(
 
 __all__ = [
     "log_failed_item",
+    "log_gate_extension",
+    "log_gate_extension_end",
     "log_gate_findings",
     "log_gate_returns",
     "log_implement_attempt",

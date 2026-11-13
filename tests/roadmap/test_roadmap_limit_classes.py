@@ -170,6 +170,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "guard",
         "the hard ceiling of `roadmap.stage.gate_returns`; 13 plan runs of an item at most (#4900)",
     ),
+    "CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS": (
+        "guard",
+        "the extra returns of one item past `roadmap.stage.gate_returns` while the rule sees progress; 22 plan runs of an item at most (#4851)",
+    ),
     "CONST_ROADMAP_STAGE_LOG_MAX_COUNT": ("raised", "was 20; commits of one `git_log` answer"),
     "CONST_ROADMAP_STAGE_MAP_MAX_FILES": ("raised", "was 20; files of one `repo_map` answer"),
     "CONST_ROADMAP_STAGE_MAP_LINE_CHARS": (
@@ -263,7 +267,7 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     "CONST_ROADMAP_STAGE_VERIFY_MAX_FILES": ("kept", "same reason as the body cap"),
     "CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING": (
         "guard",
-        "the hard ceiling of `roadmap.stage.verify_repair_rounds` and of its extension; 5 review runs and 21 plan runs of an item at most (#5066)",
+        "the hard ceiling of `roadmap.stage.verify_repair_rounds` and of its extension; 5 review runs and 21 plan runs of an item at most before the gate return extension (#5066)",
     ),
     "CONST_ROADMAP_STAGE_ORPHAN_AGE_SECONDS": (
         "kept",

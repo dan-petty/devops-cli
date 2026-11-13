@@ -27,6 +27,7 @@ from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config import settings
 from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
+    CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS,
     CONST_ROADMAP_STAGE_TOOL_MAX_CALLS,
 )
 from devops_cli.exceptions.git import GitOperationError
@@ -1276,7 +1277,7 @@ def test_a_second_plan_body_that_breaks_the_plan_form_stops_the_item(
     (failure,) = plan.failed
     assert plan.ready == ()
     assert (failure.number, failure.error) == (item, "RoadmapStageError")
-    assert "also after a second try" in failure.reason
+    assert MESSAGES.roadmap.stage_gate_stop_stuck.format(gates="body") in failure.reason
 
 
 @pytest.mark.usefixtures("openspec")
@@ -1685,11 +1686,14 @@ def test_a_failed_validation_after_the_last_return_stops_the_item(
     model_fake: ModelFake,
     openspec: OpenSpecFake,
 ) -> None:
+    """Each failed validation differs from the one before it, so the reply also gets the one
+    extra return of the item (#4851), and the failure after it stops the item."""
     openspec.script_sequence(
         VALIDATE,
         (1, "ERROR: first\n"),
         (1, "ERROR: second\n"),
         (1, "ERROR: third\n"),
+        (1, "ERROR: fourth\n"),
         (1, "ERROR: last\n"),
     )
     model_fake.answer(make_stage_proposal())
@@ -1698,7 +1702,8 @@ def test_a_failed_validation_after_the_last_return_stops_the_item(
 
     (failure,) = plan.failed
     assert plan.ready == ()
-    assert model_fake.call_count == 1 + 3
+    assert model_fake.call_count == 1 + 3 + CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS
+    assert MESSAGES.roadmap.stage_gate_stop_used in failure.reason
     assert "ERROR: last" in failure.reason
     assert "ERROR: first" not in failure.reason
 

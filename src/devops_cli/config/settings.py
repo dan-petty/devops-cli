@@ -1061,7 +1061,7 @@ class RoadmapStageConfig(BaseModel):
         ge=1,
     )
     gate_returns: Annotated[int, Variable()] = Field(
-        description="How many times a plan run sends a reply that the stage checks refuse back to the planner with its problem, for the first reply and for the revision of each repair round; a reply that is refused after the last return ends the item with the class plan_defect. Each return is one more plan run, so the value is at most 3. After the Service stops, no return starts",
+        description="How many times a plan run sends a reply that the stage checks refuse back to the planner with its problem, for the first reply and for the revision of each repair round. A reply that the checks refuse at the last return gets one more return when no finding of the reply before stays and no finding has a code that no saved return fixed, once for each item; a reply that is refused after that ends the item with the class plan_defect. Each return is one more plan run, so the value is at most 3. After the Service stops, no return starts",
         default=DEFAULT_ROADMAP_STAGE_GATE_RETURNS,
         ge=0,
         le=CONST_ROADMAP_STAGE_GATE_RETURNS_CEILING,
