@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.129.0](https://github.com/dan-petty/devops-cli/compare/v0.128.0...v0.129.0) (2026-11-13)
+
+
+### Features
+
+* **roadmap:** run the plan checks before the stage push ([#5416](https://github.com/dan-petty/devops-cli/issues/5416)) ([4c3de9d](https://github.com/dan-petty/devops-cli/commit/4c3de9d1b7f63f5673ad345040d6ae4b5ef6bcf1))
+
 ## [0.128.0](https://github.com/dan-petty/devops-cli/compare/v0.127.1...v0.128.0) (2026-11-13)
 
 
