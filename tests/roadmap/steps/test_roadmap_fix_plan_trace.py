@@ -1,12 +1,12 @@
 """The trace gate of the step `fix-plan` judges only the Feasibility sentences that a repair adds
 or changes (#5391).
 
-The stage run that wrote the plan of the head read the files that the Feasibility section cites,
-and its trace gate passed each sentence. No trace of that run is in the process of the step. On
-2026-11-13 the fix-plan Job on #5390 kept the citations of the stage run, its own run did not read
-them again, and the gate refused the plan 3 times (2.4M tokens). A sentence that the repair adds
-or changes is still judged on the reads of the plan runs of the repair. The planner here is a
-scripted toolbox model, so the trace gate judges the tool calls of its runs.
+The trace gate of the run that wrote the plan of the head passed each sentence of its Feasibility
+section, and no trace of that run is in the process of the step. So a sentence that the repair
+keeps word for word is not judged again, and a sentence that the repair adds or changes is judged
+on the reads of the plan runs of the repair. On 2026-11-13 the fix-plan Job on #5390 ended at the
+gate after 3 returns and 2.4M tokens. The planner here is a scripted toolbox model, so the trace
+gate judges the tool calls of its runs.
 """
 
 from __future__ import annotations

@@ -2026,10 +2026,10 @@ _LINE_ARGUMENTS: Final[re.Pattern[str]] = re.compile(r"(?:\s+\d+){1,2}$")
 
 
 def _citation(span: str, stage_tools: Collection[str]) -> str:
-    """The citation of a code span: the span without a toolbox tool name before it, as in
-    `read_file path`, and without the line numbers after the path of that form, as in
-    `read_file path 50 215` (#5391), the first string argument of a toolbox tool call, as in
-    `read_file("path", 60, 80)`, and without a leading `./` (#4463)."""
+    """The citation of a code span, without a leading `./` (#4463): the first string argument of
+    a toolbox tool call, as in `read_file("path", 60, 80)`, else the span without a toolbox tool
+    name before it, as in `read_file path`, and without the start and end line after that path,
+    as in `read_file path 50 215` (#5391)."""
     call = _TOOL_CALL.match(span)
     if call and call["tool"] in stage_tools:
         return (call["double"] or call["single"]).removeprefix("./")

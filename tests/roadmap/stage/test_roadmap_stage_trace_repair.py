@@ -1,8 +1,9 @@
 """The trace gate judges only the Feasibility sentences that a repair adds or changes (#5391).
 
 The step `fix-plan` gives the gate the sentences of the plan of the head as `judged`: the trace
-gate of the run that wrote the head passed them. The plan of the head of #5390 is the fixture. On
-2026-11-13 the fix-plan Job on #5390 read none of its files again, and the gate refused the plan.
+gate of the run that wrote the head passed them. The plan of the head of #5390 is the fixture. A
+repair that keeps its sentences and reads none of their files again passes, and a sentence that
+the repair adds or changes is judged on the reads of the repair.
 """
 
 from __future__ import annotations
