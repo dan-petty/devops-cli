@@ -37,13 +37,14 @@ provider, of GitHub or of the cluster does not count: a split does not help it.
 
 **The result line.** The actor that writes the check-in of an attempt writes its result line
 (`roadmap/job_result.py`), so each attempt counts once in the job grades (#5556). The Job logs the
-line of its item after its check-in, and only when the check-in found its check-out, or when the
-pod has no Job name. When the check-in finds no check-out of the Job, the Service ended the attempt
-and wrote the line of a failed end. When the check-in fails, the check-out stays, and the Service
-checks in for the `failed` end and writes its line; an item that holds its draft then ends
-`succeeded`, and no actor writes a line. `devops roadmap stage --job-item` writes the line to
-stderr as plain text. `devops_cli_roadmap_stage_total` counts the item before the check-in, as a
-round does.
+line of its item after its check-in, and only when the check-in found its check-out, or when no
+check-out named the Job at its start: a Job that a person starts, with or without a Job name, is
+an attempt that the Service does not know. When the check-in finds no check-out of a Job that the
+Service knows, the Service ended the attempt and wrote the line of a failed end. When the check-in
+fails, the check-out stays, and the Service checks in for the `failed` end and writes its line; an
+item that holds its draft then ends `succeeded`, and no actor writes a line. The line goes to
+stderr as plain text (`devops roadmap stage --job-item`). `devops_cli_roadmap_stage_total` counts
+the item before the check-in, as a round does.
 
 **A published item.** An item whose record holds its draft (`stage.pr`) at the check-in was
 published by this Job before its end, such as a pod that a SIGTERM ended during the check-in write.
@@ -322,10 +323,13 @@ def _deadline_end(
     budget: RequestBudget,
     kill: AttemptKill | None,
     now: datetime | None,
+    *,
+    known: bool,
 ) -> StageJobRun:
-    """Check in with the failure of a Job that the deadline ended. The end counts."""
+    """Check in with the failure of a Job that the deadline ended. The end counts. A Job that
+    the Service does not know (`known` False) has no check-in, so it logs its result line."""
     at = now or datetime.now(UTC)
-    check_in(
+    written = check_in(
         store,
         number,
         repo=repo,
@@ -334,7 +338,21 @@ def _deadline_end(
         now=at,
         failure=FailureClass.TIMEOUT,
     )
+    if written is None and not known:
+        log_job_result(
+            RoadmapJob.STAGE, repo, number, StageResult.FAILED.value, failure=FailureClass.TIMEOUT
+        )
     return StageJobRun(StageJobExit.DEADLINE, DEADLINE_RESULT, budget, kill=kill)
+
+
+def _known(store: RoadmapStore, number: int, job: str | None) -> bool:
+    """Whether the check-out of item `number` names the Job `job` at the start of the Job. The
+    Service knows only the attempt of such a Job: it recovers that attempt and writes its line
+    when the Job does not check in. A Job that a person starts has no check-out."""
+    if job is None:
+        return False
+    held = store.item(number)
+    return held is not None and held.job_record.get(StageRecordKey.JOB) == job
 
 
 def _clone(repo: str) -> Path:
@@ -367,11 +385,12 @@ def run_stage_job(
     settings = load_settings().roadmap.stage
     set_model_call_limit(1)
     budget = install_request_budget(settings.github_requests_per_hour)
+    known = _known(store, item, settings.job)
     seconds = job_time_budget(
         settings.time_budget_seconds, settings.job_deadline, now or datetime.now(UTC)
     )
     if seconds <= 0:
-        return _deadline_end(store, repo, item, settings.job, budget, None, now)
+        return _deadline_end(store, repo, item, settings.job, budget, None, now, known=known)
     time_budget = TimeBudget.start(seconds, _BUDGET_SETTING)
     try:
         with sigterm_raises():
@@ -395,9 +414,9 @@ def run_stage_job(
         kill = kill_of(time_budget, killed)
         if kill is AttemptKill.EVICTED:
             return StageJobRun(StageJobExit.EVICTED, kill.value, budget, kill=kill)
-        return _deadline_end(store, repo, item, settings.job, budget, kill, now)
+        return _deadline_end(store, repo, item, settings.job, budget, kill, now, known=known)
     except RoadmapTimeBudgetError:
-        return _deadline_end(store, repo, item, settings.job, budget, None, now)
+        return _deadline_end(store, repo, item, settings.job, budget, None, now, known=known)
     applied = writer.applied()
     emit_stage_results(plan, applied, repo=repo, attempt_lines=False)
     for failure in (*plan.failed, *applied.failed):
@@ -405,7 +424,7 @@ def run_stage_job(
     result = stage_results(plan, applied).get(item, StageResult.SKIPPED)
     at = now or datetime.now(UTC)
     written = check_in(store, item, repo=repo, job=settings.job, result=result.value, now=at)
-    if written is not None or settings.job is None:
+    if written is not None or not known:
         log_stage_attempts(plan, applied, repo=repo)
     exit_code = StageJobExit.FAILURE if result in _FAILED else StageJobExit.RESULT
     return StageJobRun(exit_code, result.value, budget, plan=plan, applied=applied)

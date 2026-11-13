@@ -373,6 +373,29 @@ def test_a_job_that_the_check_out_does_not_name_logs_no_result_line(
     assert result_lines(caplog) == []
 
 
+def test_a_job_that_a_person_starts_logs_its_result_line(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+    config: Callable[..., Path],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`devops k8s run-job --template stage` names the Job, and no check-out names it. The Service
+    does not know the attempt and cannot recover it, so the Job writes its line (#5556)."""
+    config(roadmap={"stage": {"job": JOB}})
+    number = seed_stageable(store)
+    github_api.route("POST", PULLS, OPENED)
+    model_fake.answer(make_stage_proposal())
+
+    with caplog.at_level(logging.INFO, logger=RESULT_LOGGER):
+        run_stage_job(store, repo=STAGE_REPO, item=number, source=stage_repo.clone, now=NOW)
+
+    assert [line.removeprefix(LINE_PREFIX).split()[:4] for line in result_lines(caplog)] == [
+        ["job=stage", f"repo={STAGE_REPO}", f"item=#{number}", "result=staged"]
+    ]
+
+
 def test_the_counter_counts_the_item_also_when_the_job_logs_no_result_line(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
@@ -573,6 +596,31 @@ def test_a_job_with_no_time_left_before_its_deadline_makes_no_model_call(
         "deadline",
         0,
     )
+
+
+@pytest.mark.parametrize("checked_out", [True, False], ids=["service-job", "person-job"])
+def test_a_deadline_end_logs_one_result_line(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    config: Callable[..., Path],
+    caplog: pytest.LogCaptureFixture,
+    *,
+    checked_out: bool,
+) -> None:
+    """The check-in of a Job that the Service checked out logs the line of its `deadline` end. A
+    Job that a person starts has no check-in, and logs the same line itself (#5556)."""
+    deadline = NOW + timedelta(seconds=600)
+    config(roadmap={"stage": {"job": JOB, "job_deadline": deadline.isoformat()}})
+    number = seed_stageable(store)
+    if checked_out:
+        _check_out(store, number, JOB)
+
+    with caplog.at_level(logging.INFO, logger=RESULT_LOGGER):
+        run_stage_job(store, repo=STAGE_REPO, item=number, source=stage_repo.clone, now=NOW)
+
+    assert [line.removeprefix(LINE_PREFIX).split()[3:7] for line in result_lines(caplog)] == [
+        ["result=failed", "success=false", "class=timeout", "infra=false"]
+    ]
 
 
 @pytest.mark.parametrize(
