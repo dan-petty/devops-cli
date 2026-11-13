@@ -5,7 +5,7 @@ The command `devops pr check-readiness` SHALL read the files a pull request chan
 
 #### Scenario: A moved merge base
 - **WHEN** The pull request branch holds a merge commit that moves its merge base, and the payload's `base.sha` and the pulls files endpoint still name the old base.
-- **THEN** The readiness read asks for the compare of the base branch and the head commit, judges the files of that answer, and no request of the run names the payload's `base.sha`.
+- **THEN** The readiness read asks for the compare of the base branch and the head commit, judges the files of that answer, and no compare request of the run names the payload's `base.sha`.
 
 #### Scenario: No pulls files request
 - **WHEN** The readiness run reads the changed files of a pull request.

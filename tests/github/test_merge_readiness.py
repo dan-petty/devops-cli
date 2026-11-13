@@ -609,7 +609,7 @@ def test_review_threads_that_cannot_be_read_block_naming_the_error(
 def test_readiness_reads_the_files_the_base_and_the_closing_issues_once_each(
     github: _GitHub, tmp_path: Path
 ) -> None:
-    """The files are one compare of the base commit and the head commit, then gh reads the base's
+    """The files are one compare of the base branch and the head commit, then gh reads the base's
     change directory and the issues the PR closes, with their labels, in one GraphQL request. No
     project board and no pulls files request is read (#2530)."""
     verdict = _assess(tmp_path)
