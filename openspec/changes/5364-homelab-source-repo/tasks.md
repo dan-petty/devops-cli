@@ -19,4 +19,4 @@ Kind: other. Changes: `docs/HOMELAB_REPO_SWITCH.md`, `.nav.yml`, `k8s/README.md`
 ## Workflow follow-up
 
 - #5134 keeps plan steps 10 to 17, which `docs/HOMELAB_REPO_SWITCH.md` gives.
-- #5134: after the merge, `kubectl get appproject homelab homelab-system -n argocd -o jsonpath='{.spec.sourceRepos}'` lists the homelab repository, and all 34 Applications stay Synced.
+- #5364: after the merge, `kubectl get appproject homelab homelab-system -n argocd -o jsonpath='{.spec.sourceRepos}'` lists the homelab repository, all 34 Applications stay Synced, and the `OrphanedResourceWarning` for `repo-homelab` goes away.

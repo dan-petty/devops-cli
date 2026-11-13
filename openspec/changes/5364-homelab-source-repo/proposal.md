@@ -1,7 +1,7 @@
-# Proposal: #5134
+# Proposal: #5364
 
 ## Why
-#5134 moves the source of the homelab environment of Argo CD from devops-cli to the private repository dan-petty/homelab. Argo CD refuses an Application source whose repository is not in the `sourceRepos` of its AppProject. Today the AppProjects `homelab` and `homelab-system` admit devops-cli and the Helm chart repositories only, so the switch of plan step 11 would fail with a refused source. The owner made the repository credential Secret `repo-homelab` in namespace `argocd` on 2026-11-13. No Application tracks it, so project `homelab` reports it as an orphan: Applications `argocd`, `argocd-image-updater` and `base` each show `OrphanedResourceWarning` with 1 orphaned resource. This change is plan step 8 of #5134 and is part of #5134; the later steps stay open on #5134.
+#5134 moves the source of the homelab environment of Argo CD from devops-cli to the private repository dan-petty/homelab. Argo CD refuses an Application source whose repository is not in the `sourceRepos` of its AppProject. Today the AppProjects `homelab` and `homelab-system` admit devops-cli and the Helm chart repositories only, so the switch of plan step 11 would fail with a refused source. The owner made the repository credential Secret `repo-homelab` in namespace `argocd` on 2026-11-13. No Application tracks it, so project `homelab` reports it as an orphan: Applications `argocd`, `argocd-image-updater` and `base` each show `OrphanedResourceWarning` with 1 orphaned resource. This change (#5364) is plan step 8 of #5134 and is part of #5134; the later steps stay open on #5134.
 
 ## What Changes
 - AppProjects `homelab` and `homelab-system` (`k8s/argocd/apps/projects.yaml`) add `https://github.com/dan-petty/homelab` to `sourceRepos` and keep `https://github.com/dan-petty/devops-cli`. Application `devops` reads `k8s/devops` from devops-cli after the switch, so both stay.
