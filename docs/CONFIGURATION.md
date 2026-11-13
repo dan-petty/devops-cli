@@ -298,7 +298,7 @@ roadmap configuration settings.
 | `implement` | `RoadmapImplementConfig` | `effort=['low', 'medium'] in_runner=False repair_rounds=3 step_token_budget=8000000 step_token_ceiling=None item_token_budget=20000000 step_time_limit_seconds=5400 item_time_limit_seconds=12600 digest_clears_per_class=1 digest_clears_per_item=3 continuations_per_item=2 ladder={'edit': ['devops-coder'], 'repair': ['devops-coder']} request_timeout_seconds=1200 command_timeout_seconds=1800 monitor_timeout_seconds=3600 deadline_stall_seconds=4200 deadline_extension_seconds=5400 deadline_ceiling_seconds=14400 max_memory_limit='8Gi' mcp=False` | - | - |
 | `inbox` | `RoadmapInboxConfig` | `draft_days=7 wait_days=7` | - | - |
 | `intake` | `RoadmapIntakeConfig` | `jev='off'` | - | - |
-| `fix_plan` | `RoadmapFixPlanConfig` | `mode='plan'` | - | - |
+| `fix_plan` | `RoadmapFixPlanConfig` | `mode='plan' time_budget_seconds=3600` | - | - |
 | `mcp` | `RoadmapMcpConfig` | `url=None timeout_seconds=30.0` | - | - |
 | `decisions` | `dict` | `{}` | `DEVOPS_CLI_ROADMAP_DECISIONS` | The mode of each decision point of the roadmap jobs (ADR 0020), by the name of the point, as a JSON object such as `{"stage.verify_screen": "shadow"}`. `off` runs nothing. `shadow` runs the resolver chain (a proven rule, then the model of `ai.decision_model`, then the current behavior), records its band and the real result, and changes nothing. `on` lets the band act. A point that is not in the mapping is off. A key that names no registered point stops the settings from loading, and so does `on` for a point whose fitted cuts file is not in the repository |
 

@@ -32,6 +32,9 @@ review wrote the comment, so the count of the comment (`comment`) is only report
 
 **Results**, in this order:
 
+- `timeout`: the time budget of the step ended before a plan run or a review (#5363). The step
+  pushes nothing, also a gated plan or a revision that exists, and the label stays. The comment
+  lists the open findings that keep the label and the counts of the attempt.
 - `stopped`: a false premise, an open blocker or a head over the budget stops the attempt before a
   gated plan exists. The label stays, and the comment holds the evidence. A person decides.
 - `failed`: a model call or the checks fail before a gated plan exists, or a step after the checks
@@ -48,15 +51,21 @@ review wrote the comment, so the count of the comment (`comment`) is only report
 **Writes.** A push is one commit on the latest default branch, which the step pushes with
 `--force-with-lease` on the head that it read; the pull request gets the title and the body of the
 plan. The step posts one comment with `CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER` on the issue for
-each attempt that ends `revised`, `cleared`, `regated`, `dismissed` or `stopped`, and writes only
-its own record keys (`FixPlanRecordKey`, ADR 0021 section 8).
+each attempt that ends `revised`, `cleared`, `regated`, `dismissed`, `stopped` or `timeout`, and
+writes only its own record keys (`FixPlanRecordKey`, ADR 0021 section 8).
+
+**Budget.** The setting `roadmap.fix_plan.time_budget_seconds` starts with the call (#5363). The
+planner compares the time with it before each plan run and each review run, and starts no run once
+it is spent: a Job that runs the step then writes its result line and its comment before the
+deadline of the Job stops the pod. Each review logs one progress line with its number, its open
+findings, the tokens and the seconds so far, and the budget.
 
 **Result.** Each attempt with a read plan logs one line and one result line (`log_job_result`, job
 `fix_plan`) with the counts of the plan runs and `comment`, `before` only when the review of the
 head ran, and `after` only when a review of a revision ran: a count that the attempt did not
 measure is left out, never written as 0. A stop names its kind (`stop`), and a failure its step
-(`step`) and its class. Each attempt adds 1 to `devops_cli_roadmap_fix_plan_total` by repository
-and result.
+(`step`) and its class, `timeout` for a spent budget. Each attempt adds 1 to
+`devops_cli_roadmap_fix_plan_total` by repository and result.
 """
 
 from __future__ import annotations
@@ -78,6 +87,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
     CONST_ROADMAP_STATUS_READY,
 )
+from devops_cli.config.settings import load_settings
 from devops_cli.git.branch_form import parse_branch
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
@@ -123,11 +133,12 @@ from devops_cli.roadmap.stores.store import (
     ImplementRecordKey,
     StageRecordKey,
 )
+from devops_cli.roadmap.time_budget import TimeBudget
 from devops_cli.roadmap.trust import trusted_replies
 from devops_cli.telemetry.instruments import ROADMAP_FIX_PLAN_TOTAL, emit
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Iterable, Mapping
     from pathlib import Path
 
     from devops_cli.ai.client import LLMClient
@@ -154,6 +165,8 @@ _PLAN_MARKERS: Final[tuple[str, ...]] = (
 )
 # The characters of a commit that a comment or a reason shows.
 _SHORT: Final[int] = 12
+# The setting of the time budget, which its error and its comment name (#5363).
+_BUDGET_SETTING: Final[str] = "roadmap.fix_plan.time_budget_seconds"
 
 
 class FixPlanResult(StrEnum):
@@ -161,8 +174,9 @@ class FixPlanResult(StrEnum):
     an open finding, `cleared` pushed one with no open finding (the label goes), `regated` pushed
     the plan that passed the checks in place of a head that they refused, `dismissed` found no
     open finding in the head (the label goes, no push), `unchanged` made no better plan, `stopped`
-    stopped before a gated plan existed, `failed` failed before a plan to push existed, and
-    `unreadable` could not read the plan of the head (#5213)."""
+    stopped before a gated plan existed, `failed` failed before a plan to push existed,
+    `unreadable` could not read the plan of the head (#5213), and `timeout` spent the time budget
+    before a model call and pushed nothing (#5363)."""
 
     REVISED = "revised"
     CLEARED = "cleared"
@@ -172,6 +186,7 @@ class FixPlanResult(StrEnum):
     STOPPED = "stopped"
     FAILED = "failed"
     UNREADABLE = "unreadable"
+    TIMEOUT = "timeout"
 
 
 class FixPlanStop(StrEnum):
@@ -501,6 +516,7 @@ class _Attempt:
     source: Path
     target: FixPlanTarget
     base: str
+    budget: TimeBudget
 
 
 @dataclass(frozen=True)
@@ -525,8 +541,11 @@ def _stop_of(outcome: object) -> FixPlanStop | None:
 
 
 def _decide(revision: PlanRevision, head: StageProposal) -> _Decision:
-    """The result of `revision` of the plan `head`, in the order of the module (#5213)."""
+    """The result of `revision` of the plan `head`, in the order of the module (#5213). A spent
+    time budget pushes nothing (#5363)."""
     outcome, gated = revision.outcome, revision.gated
+    if isinstance(outcome, StageFailure) and outcome.failure_class is FailureClass.TIMEOUT:
+        return _Decision(FixPlanResult.TIMEOUT)
     if _stop_of(outcome) is not None and not revision.reviewed:
         return _Decision(FixPlanResult.STOPPED)
     failed = isinstance(outcome, StageFailure)
@@ -578,16 +597,23 @@ def _regated_why(done: FixPlanAttempt, decision: _Decision) -> str:
     return texts.fix_plan_regated_open.format(before=done.before or 0)
 
 
+def _counts_text(counts: Iterable[tuple[str, int]]) -> str:
+    """The counts of the plan runs of an attempt on one line, as `<name> <value>` pairs."""
+    return ", ".join(f"{name} {value}" for name, value in counts)
+
+
 def _comment(
     target: FixPlanTarget,
     done: FixPlanAttempt,
     decision: _Decision,
     revision: PlanRevision,
     listed: tuple[Finding, ...],
+    budget: int,
 ) -> str | None:
     """The comment of an attempt, or None for an attempt that posts none. A comment that keeps the
     label lists the open findings that keep it: those of the last review, or those of the last
-    plan comment when no review ran, so the next attempt reads them (`comment_open_findings`)."""
+    plan comment when no review ran, so the next attempt reads them (`comment_open_findings`).
+    `budget` is the time budget of the step in seconds, which a `timeout` comment names."""
     texts = MESSAGES.roadmap
     values = {
         "marker": CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER,
@@ -620,6 +646,16 @@ def _comment(
                 else ""
             )
             return texts.fix_plan_comment_dismissed.format(**values, dismissed=dismissed)
+        case FixPlanResult.TIMEOUT:
+            return texts.fix_plan_comment_timeout.format(
+                **values,
+                budget=budget,
+                step=done.step.value if done.step is not None else "",
+                counts=_counts_text(
+                    revision.attempt.counts().items() if revision.attempt is not None else ()
+                ),
+                findings=open_findings_section(held),
+            )
         case FixPlanResult.STOPPED:
             return texts.fix_plan_comment_stopped.format(
                 **values,
@@ -677,7 +713,7 @@ def _settle(
     if decision.unlabel:
         remove_pull_labels(attempt.store, target.pull, (PLAN_NEEDS_FIX_LABEL,))
     done = _attempt_of(target, revision, decision, head)
-    comment = _comment(target, done, decision, revision, listed)
+    comment = _comment(target, done, decision, revision, listed, attempt.budget.seconds)
     if comment is not None:
         attempt.store.comment(target.item.number, comment)
     return done
@@ -843,6 +879,7 @@ def _attempt(
         findings=listed,
         open_creates=_open_creates(store, source, attempt.base),
         screen=screen,
+        time_budget=attempt.budget,
     )
     done = _settle(attempt, proposal, listed, revision)
     counts = revision.attempt.counts() if revision.attempt is not None else {}
@@ -869,7 +906,9 @@ def run_fix_plan(
     clone `source`, as the module says. Without `confirm` the call makes no model call and no
     write. `model`, `verifier` and `screen` are those of `plan_stage`; with no `verifier`, the
     model of the task `verification` reviews. A failed read or write of GitHub or git raises after
-    the attempt marks."""
+    the attempt marks. The time budget `roadmap.fix_plan.time_budget_seconds` starts with the call
+    (#5363)."""
+    budget = TimeBudget.start(load_settings().roadmap.fix_plan.time_budget_seconds, _BUDGET_SETTING)
     now = now or datetime.now(UTC)
     target, left = select_fix_plan(store, repo=repo, item=item, pull=pull, now=now)
     run = FixPlanRun(repo, target, left)
@@ -893,7 +932,7 @@ def run_fix_plan(
         verifier = ToolboxModel(get_task_model("verification"))
     base = target.status.base_ref or default_branch(source, operation=_GIT_OPERATION)
     done = _attempt(
-        _Attempt(store, repo, source, target, base),
+        _Attempt(store, repo, source, target, base, budget),
         now,
         model=model,
         verifier=verifier,
@@ -932,8 +971,11 @@ def render_fix_plan(run: FixPlanRun) -> str:
     if done is not None:
         lines.append(_attempt_line(done))
         if done.counts:
-            shown = ", ".join(f"{name} {value}" for name, value in done.counts)
-            lines.append(texts.fix_plan_counts.format(counts=shown, head=done.head[:_SHORT]))
+            lines.append(
+                texts.fix_plan_counts.format(
+                    counts=_counts_text(done.counts), head=done.head[:_SHORT]
+                )
+            )
     return "\n".join(lines)
 
 

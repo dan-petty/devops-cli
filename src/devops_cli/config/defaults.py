@@ -977,6 +977,13 @@ DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES: int = 37
 # most one plan, and an item waits 6 hours between two attempts, so 53 minutes reaches 6 plans in
 # less than 6 hours.
 DEFAULT_ROADMAP_FIX_PLAN_INTERVAL_MINUTES: int = 53
+# The seconds that one call of the step fix-plan may run before it makes no more model calls
+# (#5363). The step checks the budget before each plan run and each review run, so one run that
+# started before the end goes on: the longest run of the attempt on #5350 took 757 s (2026-11-13).
+# A Job of `devops k8s run-job` has the deadline of its CronJob template (7200 s), and the hand-made
+# fix-plan Jobs had 5400 s, so the budget, one more run, the push and the result line end before
+# both. The attempts that repaired a plan took 2387 s to 3016 s (2026-11-12).
+DEFAULT_ROADMAP_FIX_PLAN_TIME_BUDGET_SECONDS: int = 3600
 # How often the stage_ready row is due on its own, besides its first run (#2865). A round with no
 # recorded draft sends no request; a draft that waits for its checks costs two requests a round.
 DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES: int = 3

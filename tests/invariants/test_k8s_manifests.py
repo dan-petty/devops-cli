@@ -18,6 +18,7 @@ from packaging.version import Version
 from devops_cli.commands.k8s.stack_lifecycle import HELM_RELEASES_BY_STACK
 from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS
 from devops_cli.config.env import keyring_names, option_env_vars
+from devops_cli.config.settings import RoadmapFixPlanConfig
 from devops_cli.k8s.cluster_secrets import (
     CLUSTER_SECRETS,
     DEVOPS_CACHE_VALKEY_AUTH_KEY,
@@ -44,6 +45,11 @@ from tests.support.paths import REPO_ROOT
 # The Proxy Read Timeout of the Cloudflare edge, which only an Enterprise zone can change.
 CLOUDFLARE_PROXY_READ_TIMEOUT_SECONDS = 125
 
+# The time that a fix-plan attempt can take after its budget: one model run that started before
+# the budget ended (the longest run of the attempt on #5350 on 2026-11-13 took 757 s), and the
+# push, the comment and the result line after it.
+FIX_PLAN_STOP_MARGIN_SECONDS = 1200
+
 # The first Ollama release that runs a multimodal embedding model, such as embeddinggemma-2,
 # through llama-server, its runner on Linux. 0.40.0 ran that model on Apple MLX only (#2395).
 OLLAMA_FIRST_LLAMA_SERVER_EMBEDDING_RELEASE = Version("0.40.4")
@@ -62,6 +68,24 @@ def test_the_deadline_of_a_step_call_is_under_the_router_timeout() -> None:
     timeout = config["router_settings"]["timeout"]
 
     assert 0 < DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS < timeout
+
+
+def test_the_fix_plan_time_budget_ends_before_the_deadline_of_each_job_template() -> None:
+    """A Job of `devops k8s run-job` gets the deadline of its CronJob template. The time budget of
+    the step fix-plan stops the attempt at the next model call, so the budget, one more model run
+    and the push and the comment after it end before that deadline (#5363)."""
+
+    def deadline(name: str) -> int:
+        manifest = yaml.safe_load((REPO_ROOT / "k8s/devops" / name).read_text(encoding="utf-8"))
+        return int(manifest["spec"]["jobTemplate"]["spec"]["activeDeadlineSeconds"])
+
+    deadlines = {name: deadline(name) for name in ("cronjob.yaml", "cronjob-runner.yaml")}
+
+    end = RoadmapFixPlanConfig().time_budget_seconds + FIX_PLAN_STOP_MARGIN_SECONDS
+
+    assert {name: end < limit for name, limit in deadlines.items()} == dict.fromkeys(
+        deadlines, True
+    )
 
 
 def test_the_gateway_keeps_a_streamed_chat_reply_open_under_the_edge_timeout() -> None:

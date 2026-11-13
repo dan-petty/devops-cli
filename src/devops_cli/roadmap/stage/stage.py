@@ -128,6 +128,7 @@ from devops_cli.exceptions import (
     GitOperationError,
     RoadmapStageDegenerateError,
     RoadmapStageError,
+    RoadmapTimeBudgetError,
     ServiceStoppingError,
     ToolExecutionError,
     ValidationError,
@@ -180,6 +181,7 @@ from devops_cli.roadmap.refine.refine import (
 )
 from devops_cli.roadmap.refine.refine_investigation import task_window
 from devops_cli.roadmap.round_log import (
+    log_fix_plan_progress,
     log_gate_findings,
     log_gate_returns,
     log_review_extension,
@@ -298,6 +300,7 @@ from devops_cli.roadmap.stores.store import (
     RoadmapStore,
     StageRecordKey,
 )
+from devops_cli.roadmap.time_budget import TimeBudget
 from devops_cli.roadmap.trust import is_approved, is_trusted
 from devops_cli.security.sanitizer import mask_secrets, redact_text
 from devops_cli.telemetry.instruments import (
@@ -1158,8 +1161,13 @@ class _Planner:
         plan_files: PlanFiles | None = None,
         facts_source: Path | None = None,
         gate_returns: int | None = None,
+        time_budget: TimeBudget | None = None,
     ) -> None:
         self._client = client
+        # The time budget of the step fix-plan (#5363): no model call starts once it is spent, and
+        # each review logs one progress line. The stage job has none.
+        self._time_budget = time_budget
+        self._reviews = 0
         self._facts_source = facts_source
         # The returns of a refused reply: `roadmap.stage.gate_returns` when none is given (#4802).
         self._gate_returns = (
@@ -1310,6 +1318,7 @@ class _Planner:
         self.step = StepName.GATE
         self.gated = None
         self.head_findings = None
+        self._reviews = 0
 
     def revise(
         self, target: StageTarget, proposal: StageProposal, findings: Sequence[Finding] = ()
@@ -1520,7 +1529,9 @@ class _Planner:
     ) -> StageProposal:
         """The plan reply for `request`. A reply that breaks the schema past its retries never
         reaches the checks, so it is logged here with its violations, and kept in the refused file
-        beside the replies that the checks refused before it (#4269)."""
+        beside the replies that the checks refused before it (#4269). No plan run starts once the
+        time budget is spent (#5363)."""
+        self._check_budget(f"the next plan run of #{target.item.number}")
         try:
             return self._ask(StageProposal, CHANGE_TASK, request)
         except StructuredOutputValidationError as exc:
@@ -1711,7 +1722,41 @@ class _Planner:
             window=self._verify_window,
         )
 
+    def _check_budget(self, work: str) -> None:
+        """Raise `RoadmapTimeBudgetError` when the time budget is spent, so `work` does not
+        start (#5363). A planner with no budget never raises."""
+        if self._time_budget is not None:
+            self._time_budget.raise_if_spent(work)
+
     def _review(
+        self,
+        target: StageTarget,
+        change: StagedChange,
+        verifier: ToolboxClient,
+        *,
+        screen: bool = True,
+    ) -> tuple[list[Finding], list[Finding]]:
+        """The review of `_run_review`. No review starts once the time budget is spent, and with a
+        budget each review logs one progress line: its number in the item (0 for the first), its
+        open findings, the tokens of the runs of the item so far, and the seconds of the budget
+        so far (#5363)."""
+        self._check_budget(f"the next review of the plan of #{target.item.number}")
+        findings, open_ = self._run_review(target, change, verifier, screen=screen)
+        budget = self._time_budget
+        if budget is not None:
+            log_fix_plan_progress(
+                self._pull_repo,
+                target.item.number,
+                self._reviews,
+                open_=len(open_),
+                tokens=sum(trace.input_tokens + trace.output_tokens for trace in self._traces),
+                seconds=round(budget.elapsed()),
+                budget=budget.seconds,
+            )
+            self._reviews += 1
+        return findings, open_
+
+    def _run_review(
         self,
         target: StageTarget,
         change: StagedChange,
@@ -2099,7 +2144,7 @@ def openspec_tool() -> Iterator[OpenSpecTool | None]:
 
 def _failure_of(
     target: StageTarget,
-    exc: AIClientError | RoadmapStageError | ToolExecutionError,
+    exc: AIClientError | RoadmapStageError | RoadmapTimeBudgetError | ToolExecutionError,
     refused: Sequence[str] = (),
     *,
     stopped_by_checks: bool = False,
@@ -2496,6 +2541,7 @@ def _planner_of(
     plan_files: PlanFiles | None = None,
     facts_source: Path | None = None,
     gate_returns: int | None = None,
+    time_budget: TimeBudget | None = None,
 ) -> _Planner:
     """The planner for the checkout at `sha`: it reads the tracked files, the capabilities and the
     context window of the `stage` task once. With a `toolbox` model, a plan run calls the
@@ -2507,7 +2553,8 @@ def _planner_of(
     different windows (#3039). `rejected` holds the reason of each rejected plan by issue number,
     for the request of an item that a person rejected (#3503). `facts_source` is a checkout whose
     `HEAD` supplies a runner fact file that the staged commit lacks (#4207). `gate_returns` is the
-    returns of a refused reply; without it, the planner reads `roadmap.stage.gate_returns`."""
+    returns of a refused reply; without it, the planner reads `roadmap.stage.gate_returns`.
+    `time_budget` stops the planner before a model call once it is spent (#5363)."""
     window = task_window("stage")
     verify_window = task_window("verification")
     traces: list[RunTrace] = []
@@ -2549,6 +2596,7 @@ def _planner_of(
         plan_files=plan_files,
         facts_source=facts_source,
         gate_returns=gate_returns,
+        time_budget=time_budget,
     )
 
 
@@ -2603,6 +2651,7 @@ def revise_plan(
     findings: Sequence[Finding] = (),
     open_creates: Callable[[], Mapping[str, int]] | None = None,
     screen: ResolverChain[ScreenCase] | None = None,
+    time_budget: TimeBudget | None = None,
 ) -> PlanRevision:
     """Revise `proposal`, the plan of the open pull request of `target`, in the clone `checkout`
     at `sha`, the default branch of `origin` after the fetch, and write nothing (#5061). The clone
@@ -2613,8 +2662,10 @@ def revise_plan(
     reviews of the revision; without it the setting `roadmap.decisions` chooses it. A failed model
     call or a plan that the checks refuse gives a `StageFailure` with the step of the repair that
     failed (`gate`, `review` or `plan`), and the revision keeps the gated plan and the findings of
-    the review of the head that the planner got before the failure. Rejected credentials and the
-    stop of the Service raise."""
+    the review of the head that the planner got before the failure. `time_budget` is the budget of
+    the step: once it is spent, no plan run and no review starts, and the revision is a
+    `StageFailure` with the class `timeout` and the step in which it ended. Each review logs one
+    progress line (#5363). Rejected credentials and the stop of the Service raise."""
     settings = load_settings()
     _move_clone(checkout, sha)
     toolbox = model if isinstance(model, ToolboxModel) else None
@@ -2637,18 +2688,27 @@ def revise_plan(
             repo=repo,
             open_creates=open_creates,
             gate_returns=settings.roadmap.stage.gate_returns,
+            time_budget=time_budget,
         )
         try:
             revision = planner.revise(target, proposal, findings)
         except AICredentialsError:
             raise
-        except (AIClientError, RoadmapStageError, ToolExecutionError) as exc:
+        except (
+            AIClientError,
+            RoadmapStageError,
+            RoadmapTimeBudgetError,
+            ToolExecutionError,
+        ) as exc:
             failure = _failure_of(
                 target,
                 exc,
                 planner.refused_problems,
                 stopped_by_checks=planner.stopped_by_checks,
             )
+            if isinstance(exc, RoadmapTimeBudgetError):
+                # The stop site knows its cause, so it passes the class itself (#3476, #5363).
+                failure = replace(failure, failure_class=FailureClass.TIMEOUT)
             found = planner.head_findings
             revision = PlanRevision(
                 replace(failure, step=planner.step),

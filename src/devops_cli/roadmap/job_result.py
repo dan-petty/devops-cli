@@ -62,9 +62,9 @@ class RoadmapJob(StrEnum):
 # request, an implement attempt reaches a ready pull request, a refine attempt sets the next step
 # of the item, the review approves, the alternatives check writes a verdict, and intake places the
 # candidate. A fix-plan attempt pushes a repair that its review finds better than the review of the
-# head in the same attempt (#5213): `regated`, `dismissed`, `unchanged`, `stopped` and `failed`
-# repair no finding of that review, and `unreadable` writes no line. Each value is a member of the
-# result enum of its job.
+# head in the same attempt (#5213): `regated`, `dismissed`, `unchanged`, `stopped`, `failed` and
+# `timeout` (#5363) repair no finding of that review, and `unreadable` writes no line. Each value
+# is a member of the result enum of its job.
 SUCCESS_RESULTS: Final[Mapping[RoadmapJob, frozenset[str]]] = MappingProxyType(
     {
         RoadmapJob.STAGE: frozenset({"staged"}),

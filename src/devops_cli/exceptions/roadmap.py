@@ -252,6 +252,16 @@ class RoadmapStageError(DevOpsCLIError):
         )
 
 
+class RoadmapTimeBudgetError(DevOpsCLIError):
+    """Raised before a model call of a step whose time budget is spent (#5363).
+
+    The message names the setting, its value and the work that does not start. The step that
+    stops on it passes the failure class `timeout` itself.
+    """
+
+    error_code = "ROADMAP_TIME_BUDGET"
+
+
 class RoadmapStageDegenerateError(RoadmapStageError):
     """Raised for an item whose plan reply holds a placeholder in every text of the plan (#4204).
 

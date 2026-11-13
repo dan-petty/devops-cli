@@ -113,6 +113,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
     DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS,
     DEFAULT_ROADMAP_FIX_PLAN_MODE,
+    DEFAULT_ROADMAP_FIX_PLAN_TIME_BUDGET_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_CONTINUATIONS_PER_ITEM,
     DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_CEILING_SECONDS,
@@ -1458,6 +1459,11 @@ class RoadmapFixPlanConfig(BaseModel):
     mode: Annotated[RowMode, Variable()] = Field(
         description="What the row fix_plan of the Service does with an open plan pull request that holds the label plan/needs-fix (ADR 0021, section 8). `off` sends no request. `plan` selects the pull request and logs it, with no model call and no write. `on` runs the attempt: the stage planner and the verification pass revise the plan, and a better revision is pushed. The command `devops roadmap step fix-plan --confirm` acts in every mode",
         default=DEFAULT_ROADMAP_FIX_PLAN_MODE,
+    )
+    time_budget_seconds: Annotated[int, Variable()] = Field(
+        description="The most seconds that one call of the step fix-plan may run, counted from its start. The step compares the time with the budget before each plan run and each review run, so a run that started before the end goes on. When the budget is spent, the attempt makes no more model calls, pushes nothing, keeps the label plan/needs-fix, comments the open findings and the counts, and logs the result line with the result and the class `timeout`. Keep it below the deadline of the Job that runs the command, with a margin for one more model run and the push",
+        default=DEFAULT_ROADMAP_FIX_PLAN_TIME_BUDGET_SECONDS,
+        ge=1,
     )
 
 

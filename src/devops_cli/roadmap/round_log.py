@@ -102,6 +102,28 @@ def log_review_extension(repo: str, item: int, round_: int, *, before: int, open
     )
 
 
+def log_fix_plan_progress(
+    repo: str, item: int, round_: int, *, open_: int, tokens: int, seconds: int, budget: int
+) -> None:
+    """Log one review of a fix-plan attempt (#5363): `round_` 0 is the review of the head and each
+    later review adds 1, `open_` counts its open findings, `tokens` the input and output tokens of
+    the plan runs and the review runs of the attempt so far, `seconds` the time since the step
+    started, and `budget` the seconds of `roadmap.fix_plan.time_budget_seconds`. A pod that the
+    deadline of its Job stops keeps these lines."""
+    logger.info(
+        "fix-plan progress: repo=%s item=#%d round=%d open=%d tokens=%d seconds=%d budget=%d "
+        "version=%s",
+        repo or "none",
+        item,
+        round_,
+        open_,
+        tokens,
+        seconds,
+        budget,
+        __version__,
+    )
+
+
 def log_failed_item(repo: str, item: int, step: str, failure_class: str) -> None:
     """Log one item that a stage round failed, with the step and the class of its error."""
     logger.info(
