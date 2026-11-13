@@ -2,7 +2,9 @@
 
 A Service stop ends the round and loses at most the item in progress. A write that fails costs the
 other items nothing, and the round logs its start and its end with the counts of items taken,
-written and failed. `plan_refine` writes nothing unless the caller gives it a writer.
+written and failed. An item that changed since the read is skipped: it fails nothing and writes
+no result line (#5299).
+`plan_refine` writes nothing unless the caller gives it a writer.
 
 The roadmap is the in-memory store, the model edge is the fake, and git runs on a temporary
 repository.
@@ -19,11 +21,15 @@ from typing import TYPE_CHECKING
 import pytest
 
 from devops_cli.exceptions import RoadmapRefineError, ServiceStoppingError
+from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.roadmap import RoadmapItemChangedError
 from devops_cli.roadmap.refine.refine import plan_refine
 from devops_cli.roadmap.run import _run_refine_adapter
 from devops_cli.roadmap.service_stop import begin_service_stop, reset_service_stop
 from devops_cli.roadmap.stores.store import ItemField
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.roadmap_job_result import result_fields
+from tests.support.roadmap_refine import require_item
 from tests.support.service_stop import stop_error
 
 if TYPE_CHECKING:
@@ -215,4 +221,138 @@ def test_plan_refine_without_a_writer_writes_nothing(git_repo: Path, model_fake:
         3,
         [],
         ["New", "New", "New"],
+    )
+
+
+def _lines_of(caplog: pytest.LogCaptureFixture, number: int) -> list[dict[str, str]]:
+    """The result, the success flag and the class of each result line of item `number`."""
+    return [
+        {key: fields[key] for key in ("result", "success", "class")}
+        for fields in result_fields(caplog)
+        if fields["item"] == f"#{number}"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("error", "raises", "lines"),
+    [
+        pytest.param(
+            RoadmapItemChangedError("The Status of the item changed since the read."),
+            False,
+            [],
+            id="item-changed",
+        ),
+        pytest.param(
+            GitHubOperationError("GitHub refused the write."),
+            True,
+            [{"result": "error", "success": "false", "class": "ci_infra"}],
+            id="other-failure",
+        ),
+    ],
+)
+def test_only_a_write_that_the_change_of_the_item_refuses_is_a_skip(
+    git_repo: Path,
+    model_fake: ModelFake,
+    caplog: pytest.LogCaptureFixture,
+    error: Exception,
+    raises: bool,
+    lines: list[dict[str, str]],
+) -> None:
+    """The write of item 2 of 3 fails. When the item changed since the read, the round skips the
+    item, writes no result line for it, as an alternatives check does, and ends with no error.
+    Another failure of the write still fails the round, names the item and logs `error` (#5299)."""
+    store = InMemoryRoadmapStore(repo=REPO)
+    first, second, third = _seed_three(store)
+    store.fail_write(write="set_field", item=second, error=error)
+    model_fake.answer(_READY)
+
+    with caplog.at_level(logging.INFO):
+        if raises:
+            with pytest.raises(RoadmapRefineError) as raised:
+                _run_refine_adapter(store, repo=REPO, clone_path=git_repo)
+            failed = list(raised.value.failed_items)
+        else:
+            _run_refine_adapter(store, repo=REPO, clone_path=git_repo)
+            failed = []
+
+    assert (_statuses(store, [first, second, third]), failed, _lines_of(caplog, second)) == (
+        ["Ready", "New", "Ready"],
+        [second] if raises else [],
+        lines,
+    )
+
+
+def test_an_item_that_a_person_changes_during_the_round_is_skipped_and_read_again(
+    git_repo: Path, model_fake: ModelFake, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A person moves item 2 to Blocked while the model works on it. Refine writes nothing for
+    item 2, logs one INFO line for it and no warning, writes the others, and the round ends with
+    no error. The next round takes item 2 again (ADR 0002, #5299)."""
+    store = InMemoryRoadmapStore(repo=REPO)
+    first, second, third = _seed_three(store)
+    person = store.as_actor("octocat")
+
+    def ready(prompt: str) -> str:
+        if json.loads(prompt)["number"] == second and require_item(store, second).status == "New":
+            person.remove_label(second, "status/new")
+            person.add_label(second, "status/blocked")
+        return _READY
+
+    model_fake.answer(ready)
+    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.refine.refine"):
+        _run_refine_adapter(store, repo=REPO, clone_path=git_repo)
+    levels = [
+        record.levelno
+        for record in caplog.records
+        if record.name == "devops_cli.roadmap.refine.refine" and f"#{second}" in record.getMessage()
+    ]
+    person.remove_label(second, "status/blocked")
+    person.add_label(second, "status/new")
+    asked = model_fake.call_count
+    model_fake.answer(_READY)
+    _run_refine_adapter(store, repo=REPO, clone_path=git_repo)
+
+    assert (
+        _statuses(store, [first, third]),
+        levels,
+        _round_lines(caplog),
+        [json.loads(call.prompt)["number"] for call in model_fake.calls[asked:]],
+    ) == (
+        ["Ready", "Ready"],
+        [logging.INFO],
+        [
+            f"Refine round for {REPO} started: 3 item(s) taken.",
+            f"Refine round for {REPO} ended: taken=3, written=2, failed=0.",
+        ],
+        [second],
+    )
+
+
+def test_an_item_whose_body_a_person_edits_during_the_round_is_skipped_not_written(
+    git_repo: Path, model_fake: ModelFake, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A person edits the body of item 2 while the model works on it. Refine writes nothing for
+    item 2, logs no result line for it, not the next step of a body that it did not write, and the
+    round counts item 2 as not written (#5299)."""
+    store = InMemoryRoadmapStore(repo=REPO)
+    _, second, _ = _seed_three(store)
+    person = store.as_actor("octocat")
+
+    def ready(prompt: str) -> str:
+        if json.loads(prompt)["number"] == second:
+            person.write_issue_body(second, "Body P2-Medium, edited by a person")
+        return _READY
+
+    model_fake.answer(ready)
+    with caplog.at_level(logging.INFO):
+        _run_refine_adapter(store, repo=REPO, clone_path=git_repo)
+
+    assert (
+        require_item(store, second).status,
+        _lines_of(caplog, second),
+        _round_lines(caplog)[-1],
+    ) == (
+        "New",
+        [],
+        f"Refine round for {REPO} ended: taken=3, written=2, failed=0.",
     )

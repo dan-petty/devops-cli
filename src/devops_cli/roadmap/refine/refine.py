@@ -190,7 +190,11 @@ from devops_cli.exceptions.git import (
     GitHubRateLimitError,
     GitHubUnauthenticatedError,
 )
-from devops_cli.exceptions.roadmap import RoadmapRefineError, ServiceStoppingError
+from devops_cli.exceptions.roadmap import (
+    RoadmapItemChangedError,
+    RoadmapRefineError,
+    ServiceStoppingError,
+)
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.body_hash import (
@@ -531,10 +535,14 @@ class RefinePlan:
 
 @dataclass(frozen=True)
 class RefineApplied:
+    """The counts of the writes of refine. `changed_count` counts the items that changed since
+    the read: refine wrote nothing for them, and the next round reads them again (#5299)."""
+
     refined_count: int = 0
     readied_count: int = 0
     split_count: int = 0
     comments_posted: int = 0
+    changed_count: int = 0
 
     def __add__(self, other: RefineApplied) -> RefineApplied:
         return RefineApplied(
@@ -542,6 +550,7 @@ class RefineApplied:
             self.readied_count + other.readied_count,
             self.split_count + other.split_count,
             self.comments_posted + other.comments_posted,
+            self.changed_count + other.changed_count,
         )
 
 
@@ -3257,14 +3266,14 @@ def _refine_marks(r: RefinedItem, deferred: Sequence[int]) -> JobRecord:
 def _apply_refined(store: RoadmapStore, r: RefinedItem, *, repo: str) -> RefineApplied:
     """Write the result of one item: its body, marks, Status and comment, or only the record of
     an item too big to refine or whose job failed. The counts are zero for an item that refine
-    leaves as it is."""
+    leaves as it is. A body that changed since the read counts as a changed item (#5299)."""
     if r.skip_reason is not None:
         _record_unwritten(store, r)
         return RefineApplied()
 
     # Race condition check: ensure body did not change between read and write
     if not _outside_unchanged_since_read(store, r.item.number, r.read_hash):
-        return RefineApplied()
+        return RefineApplied(changed_count=1)
 
     # The deferred parts are filed first: an item whose parts are not all filed is not set
     # Ready, and the next round files the rest (#2423)
@@ -3356,7 +3365,9 @@ class RefineWriter:
     `plan_refine` gives it the count of candidates and the result of each item. A stop of the
     Service then ends the round and loses at most the item in progress, and the next round takes
     the items that are not yet written. A write that fails is logged and counted, and the next
-    item still runs. Rejected GitHub credentials and the stop of the Service end the round.
+    item still runs. An item that changed since the read is no failure: refine writes nothing for
+    it (ADR 0002), logs no result line for it, as an alternatives check does, and the next round
+    reads it again (#5299). Rejected GitHub credentials and the stop of the Service end the round.
     """
 
     def __init__(self, store: RoadmapStore, repo: str) -> None:
@@ -3388,6 +3399,9 @@ class RefineWriter:
             applied = _apply_result(self._store, result, repo=self._repo)
         except GitHubUnauthenticatedError, ServiceStoppingError:
             raise
+        except RoadmapItemChangedError:
+            logger.info(MESSAGES.roadmap.refine_item_changed.format(number=number, repo=self._repo))
+            applied = RefineApplied(changed_count=1)
         except DevOpsCLIError as exc:
             logger.warning(
                 MESSAGES.roadmap.refine_write_failed_warning.format(
@@ -3398,10 +3412,12 @@ class RefineWriter:
                 self._unwritten.append(number)
             _log_attempt(self._repo, result, failure_class_of(exc))
             return
-        if isinstance(result, RefinedItem):
+        if isinstance(result, RefineFailure):
+            _log_attempt(self._repo, result)
+        elif not applied.changed_count:
             self._written += 1
             self.readied_count += applied.readied_count
-        _log_attempt(self._repo, result)
+            _log_attempt(self._repo, result)
 
     def write_waiting(self, plan: RefinePlan) -> None:
         """Write what the plan owes the items the round left alone."""
