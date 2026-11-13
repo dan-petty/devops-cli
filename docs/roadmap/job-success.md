@@ -26,7 +26,7 @@ A line holds no text of an issue, of a model or of a log. Each value is a number
 
 | Job | Where the line comes from | Results | Intended result | Counts and names |
 | :--- | :--- | :--- | :--- | :--- |
-| `stage` | Each item that a round tried. A left-out item writes no line. | `staged`, `needs_split`, `failed`, `degenerate` | `staged`: the plan pull request is open. | `plan_calls`, `gate_returns`, `verify_rounds`, `tokens`, `seconds` |
+| `stage` | Each item that a round tried. A left-out item writes no line. | `staged`, `needs_split`, `failed`, `degenerate` | `staged`: the plan pull request is open. | `plan_calls`, `gate_returns`, `verify_rounds`, `tokens`, `seconds`. `plan_calls` counts the plan calls that the attempt made to the model, also with a client that keeps no trace. An attempt that starts from a kept plan has no `plan_calls`, because an earlier attempt made the calls of that plan (#5166). |
 | `implement` | Each runner Job that ended, when the `implement` row reports it. | `ready`, `yielded`, `returned`, `stopped` | `ready`: the pull request is ready. | `repair_rounds`, `tokens`, `seconds` |
 | `refine` | Each item that a round refined. | The next step of the item, or `error` for a failed model call or write | `ready`, `person`, `split` or `blocked` | none |
 | `refine_judge` | Each review of the proposal for an item that a bot opened that calls the model. A kept approval writes no line. | `approved`, `refused` | `approved` | `findings` |
@@ -41,6 +41,7 @@ Some attempts write no line:
 - A stop of the Service ends the round, and the attempt in progress writes no line.
 - An alternatives check whose body a person changed since the read writes no line. The next round checks the item again.
 - A refine item that a person or another job changed since the read writes no line. Refine does not write the item, the round does not fail, and the next round reads the item again.
+- An intake candidate that another writer changed between the plan and the write writes no line, for example an issue that `devops roadmap intake` in an agent session placed itself. Intake writes nothing for the candidate, the round does not fail, and the next plan decides the candidate again. The candidate still adds 1 to `devops_cli_roadmap_intake_candidates_total` with `result=skipped` (#5166).
 
 A change that adds a cap extension to a job adds the count `extensions` to the line of that job.
 
@@ -91,7 +92,7 @@ The ratio `p` is the successes divided by the attempts with `infra=false`. An in
 <!-- JOB_GRADES_END -->
 
 - **Interval.** The report gives the Wilson 95% interval of `p` (statsmodels `proportion_confint`), the point grade of `p` and the grades of the two bounds. For example, 22 successes in 25 attempts give `p` 0.88, the interval [0.70, 0.96], the point grade 80 and the range 70 to 90. The grade is `too few`, because 25 attempts are fewer than 30.
-- **First pass.** A first pass is a success with no fix round. The grade `100` needs a first pass for each attempt. Three lines hold the counts of the rule (`FIRST_PASS_LIMITS` in `src/devops_cli/roadmap/job_result.py`): `stage` (`plan_calls` ≤ 1, `gate_returns` = 0, `verify_rounds` ≤ 1), `implement` (`repair_rounds` = 0) and `fix_plan` (`gate_returns` = 0, `verify_rounds` ≤ 1, `after` = 0). The line of another job has no count of its fix rounds, so its first pass is not known, and it cannot get the grade `100`.
+- **First pass.** A first pass is a success with no fix round. The grade `100` needs a first pass for each attempt. Three lines hold the counts of the rule (`FIRST_PASS_LIMITS` in `src/devops_cli/roadmap/job_result.py`): `stage` (`plan_calls` ≤ 1, `gate_returns` = 0, `verify_rounds` ≤ 1), `implement` (`repair_rounds` = 0) and `fix_plan` (`gate_returns` = 0, `verify_rounds` ≤ 1, `after` = 0). A line with no count of the rule is no first pass, such as a `stage` line with no `plan_calls`. The line of another job has no count of its fix rounds, so its first pass is not known, and it cannot get the grade `100`.
 - **Windows.** The 7-day window gives the grade. The report also shows the attempts and the successes of the last 24 hours and of the last 6 hours. 5 attempts or more with no success in 6 hours give the signal `broken`. An infrastructure share over 20% of 10 attempts or more in 24 hours gives the signal `infra`, and not a grade.
 - **Versions.** The report shows each devops-cli version that has 10 attempts or more in the window.
 - **Failure classes.** The report shows the 3 largest failure classes of the attempts with `infra=false`.
