@@ -21,12 +21,11 @@ The `alloy-metrics` pod SHALL have a required node affinity with the expression 
 - **THEN** `controller.affinity` holds one required node selector term with the one expression `node-role.kubernetes.io/control-plane` `DoesNotExist`
 
 ### Requirement: The alloy-profiles pod does not run on the node hawk
-The `alloy-profiles` DaemonSet SHALL have a required node affinity with the expression `kubernetes.io/hostname` `NotIn [hawk]`, so that its eBPF profiler does not load on that node while the cause of the crashes of that node is open. No other collector SHALL carry this exclusion.
+The `alloy-profiles` collector values in `k8s/monitoring/k8s-monitoring-values.yaml` SHALL hold no `controller.affinity`, so its eBPF profiler runs on every node. The `alloy-logs` and `alloy-singleton` collectors SHALL hold no `controller.affinity`, and `alloy-metrics` SHALL keep its one required node selector term with the expression `node-role.kubernetes.io/control-plane` `DoesNotExist`.
 
 #### Scenario: The affinity excludes the node
-- **WHEN** the `alloy-profiles` collector values in `k8s/monitoring/k8s-monitoring-values.yaml` are read
-- **THEN** `controller.affinity` holds one required node selector term with the one expression `kubernetes.io/hostname` `NotIn [hawk]`
-- **AND** the `alloy-singleton` and `alloy-logs` collectors have no `controller.affinity`
+- **WHEN** A test reads the `collectors` block of `k8s/monitoring/k8s-monitoring-values.yaml`
+- **THEN** The alloy-profiles, alloy-logs and alloy-singleton collectors hold no node affinity, and the alloy-metrics collector holds its one term with the control-plane label DoesNotExist
 
 ### Requirement: The OpenTelemetry collector sends metrics to the Prometheus OTLP receiver
 The metrics pipeline of `k8s/otel/values.yaml` SHALL send only to an `otlp_http` exporter at the path `/api/v1/otlp/v1/metrics` of the Prometheus server, and SHALL set the datapoint attribute `cluster`. The Prometheus server SHALL run its OTLP receiver with `created-timestamp-zero-ingestion` and the translation strategy `UnderscoreEscapingWithoutSuffixes`, so that each new stream starts with a zero sample.
