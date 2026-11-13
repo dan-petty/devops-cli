@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.134.1](https://github.com/dan-petty/devops-cli/compare/v0.134.0...v0.134.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* **k8s:** the DeepSeek gateway group gets a fallback group ([#5565](https://github.com/dan-petty/devops-cli/issues/5565)) ([183487d](https://github.com/dan-petty/devops-cli/commit/183487d72bbde93400a6d70b9f75f9fe0e2b1bf8))
+* **roadmap:** eval grades counts the result lines of Job pods ([#5569](https://github.com/dan-petty/devops-cli/issues/5569)) ([1eb3ea4](https://github.com/dan-petty/devops-cli/commit/1eb3ea4ff66af1085cdeecad80f8084ffe67dbbe))
+
 ## [0.134.0](https://github.com/dan-petty/devops-cli/compare/v0.133.0...v0.134.0) (2026-11-13)
 
 
