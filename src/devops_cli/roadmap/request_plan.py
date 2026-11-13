@@ -983,6 +983,8 @@ def implement_requests(
     pulls = f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/pulls/{_p('pull')}"
     issues = f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/issues"
     target = f"#{item}" if item is not None else _p("item")
+    # A push of the job runs in a new git folder that reads no configuration of the clone (GHSA).
+    origin_git = ("git", f"--git-dir={_p('git_folder')}", "push", "--quiet", "--no-verify")
 
     def git(
         key: str, cwd: str, *args: str, when: str = "", repeat: str = each_item
@@ -1076,16 +1078,23 @@ def implement_requests(
         git("commit", tree, "commit", "-m", _p("title"), when=cond["docs_commit"]),
         other("process", "archive", "uv", "run", "devops", "openspec", "archive", _p("change")),
         git("commit", tree, "commit", "-m", _p("title")),
-        git(
+        other(
+            "git",
             "push",
-            tree,
-            "push",
-            f"--force-with-lease={branch}:{_p('remote_tip')}",
-            "origin",
-            branch,
+            *origin_git,
+            f"--force-with-lease=refs/heads/{branch}:{_p('remote_tip')}",
+            _p("origin_url"),
+            f"{_p('tip')}:refs/heads/{branch}",
             when=cond["staged"],
         ),
-        git("push_new", tree, "push", "-u", "origin", new_branch, when=cond["planned"]),
+        other(
+            "git",
+            "push_new",
+            *origin_git,
+            _p("origin_url"),
+            f"{_p('tip')}:refs/heads/{new_branch}",
+            when=cond["planned"],
+        ),
         other(
             "REST write",
             "create_pull",

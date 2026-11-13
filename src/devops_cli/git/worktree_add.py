@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Literal, NamedTuple
+from typing import Literal, NamedTuple, Protocol
 
 from pydantic import BaseModel, Field
 
@@ -197,7 +197,9 @@ def _commands(
     A run makes the third only when `origin` holds the branch, and then it takes the branch over
     instead of the fourth (`_take_over`). The fourth starts the new branch at `base`, or at
     `origin/main` when `base` is None. `--no-track` leaves a new branch with no upstream, so
-    that a plain `git push` cannot aim at `main`."""
+    that a plain `git push` cannot aim at `main`. The second line is the short form of the fetch:
+    the run gives the refspec `+refs/heads/main:refs/remotes/origin/main` (`_CloneOrigin.fetch`),
+    which changes `origin/main` in the same way."""
     git = _git(repo_root)
     start = _main_ref() if base is None else base
     return [
@@ -206,6 +208,33 @@ def _commands(
         [*git, "log", LOG_FORMAT, f"{_main_ref()}..{CONST_GIT_REMOTE_ORIGIN}/{branch}"],
         [*git, "worktree", "add", "--no-track", "-b", branch, str(directory), start],
     ]
+
+
+class OriginReads(Protocol):
+    """The reads of `origin` that `add_worktree` makes: the branches, and a fetch of branches into
+    `refs/remotes/origin/<branch>`. The implement job passes its own, which runs each read in a new
+    git folder (`roadmap/implement/git_isolation.py`)."""
+
+    def heads(self, *branches: str) -> str: ...
+
+    def fetch(self, *branches: str) -> None: ...
+
+
+class _CloneOrigin:
+    """The reads of `origin` as git commands in the clone at `repo_root`."""
+
+    def __init__(self, repo_root: Path) -> None:
+        self._git = _git(repo_root)
+
+    def heads(self, *branches: str) -> str:
+        return _run([*self._git, "ls-remote", "--heads", CONST_GIT_REMOTE_ORIGIN, *branches])
+
+    def fetch(self, *branches: str) -> None:
+        specs = [
+            f"+{CONST_REFS_HEADS_PREFIX}{name}:refs/remotes/{CONST_GIT_REMOTE_ORIGIN}/{name}"
+            for name in branches
+        ]
+        _run([*self._git, "fetch", CONST_GIT_REMOTE_ORIGIN, *specs])
 
 
 def _run(argv: list[str]) -> str:
@@ -378,6 +407,7 @@ def _take_over(
     directory: Path,
     reclaim: ReclaimResult,
     remote_heads: str,
+    origin: OriginReads,
 ) -> WorktreeAddReport:
     """Add the worktree on the pushed branch when the App wrote every commit past main, apart from
     a clean merge by a person.
@@ -387,15 +417,7 @@ def _take_over(
     """
     git, branch = _git(repo_root), pushed.name
     remote_branch = f"{CONST_GIT_REMOTE_ORIGIN}/{branch}"
-    _run(
-        [
-            *git,
-            "fetch",
-            CONST_GIT_REMOTE_ORIGIN,
-            CONST_GIT_MAIN_BRANCH,
-            f"+{CONST_REFS_HEADS_PREFIX}{branch}:refs/remotes/{remote_branch}",
-        ]
-    )
+    origin.fetch(CONST_GIT_MAIN_BRANCH, branch)
     log = _run([*git, "log", LOG_FORMAT, f"{_main_ref()}..{remote_branch}"])
     authors = person_authors(_git(repo_root), log)
     _check_authors(issue, branch, authors)
@@ -421,10 +443,11 @@ def _create(
     reclaim: ReclaimResult,
     remote_heads: str,
     base: str | None,
+    origin: OriginReads,
 ) -> WorktreeAddReport:
     """Add the worktree on the new `branch` at `base`, or at the fetched `origin/main`."""
-    _, fetch, _, create = _commands(repo_root, branch, directory, base)
-    _run(fetch)
+    create = _commands(repo_root, branch, directory, base)[-1]
+    origin.fetch(CONST_GIT_MAIN_BRANCH)
     _clear_stray_branch(repo_root, branch, remote_heads)
     _run(create)
     return WorktreeAddReport(
@@ -455,6 +478,7 @@ def add_worktree(
     dry_run: bool = False,
     reclaim: ReclaimResult | None = None,
     base: str | None = None,
+    origin: OriginReads | None = None,
 ) -> WorktreeAddReport:
     """Create the worktree of `issue`, or take over the staged branch that `origin` holds for it.
 
@@ -468,7 +492,8 @@ def add_worktree(
     worktree holds before it reads `origin`, and one that a branch of `origin` holds before it adds
     the worktree, so a refused run leaves no worktree and no local branch. A dry run reads the
     local worktrees only and lists the four commands. `reclaim` is the result of
-    `reclaim_merged_worktrees`, which the caller ran first; it goes into the report.
+    `reclaim_merged_worktrees`, which the caller ran first; it goes into the report. `origin`
+    makes the reads of `origin`; by default they are git commands in the clone.
     """
     if title is not None:
         derived_type = commit_type(title)
@@ -506,12 +531,13 @@ def add_worktree(
             kept=reclaim.kept,
             reclaim_error=reclaim.error,
         )
-    heads = _run([*_git(repo_root), "ls-remote", "--heads", CONST_GIT_REMOTE_ORIGIN])
+    origin = origin or _CloneOrigin(repo_root)
+    heads = origin.heads()
     if (pushed := _staged_branch(heads, issue)) is None:
         branch = _new_branch(issue, type_, slug)
-        return _create(repo_root, issue, branch, directory, reclaim, heads, base)
+        return _create(repo_root, issue, branch, directory, reclaim, heads, base, origin)
     _check_names(issue, pushed, type_, slug)
-    return _take_over(repo_root, issue, pushed, directory, reclaim, heads)
+    return _take_over(repo_root, issue, pushed, directory, reclaim, heads, origin)
 
 
 def read_remote_heads(repo_root: Path) -> str:

@@ -17,7 +17,7 @@ A process whose environment holds `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY` SH
 - **THEN** it raises `ConfigurationError` whose message names `service.github_app.app_id` and `service.github_app.installation_id`
 
 ### Requirement: The App mints an installation token and renews it before it expires
-A process that acts as the App SHALL sign a JWT whose issuer is the App ID with the private key, and SHALL exchange it at `POST /app/installations/<installation_id>/access_tokens` for an installation token. It SHALL keep the token until less than `DEFAULT_GITHUB_APP_TOKEN_RENEW_SECONDS` are left before GitHub's `expires_at`, and SHALL then mint a new one on the next call. Each gh and git child SHALL get the current token as `GH_TOKEN`.
+A process that acts as the App SHALL sign a JWT whose issuer is the App ID with the private key, and SHALL exchange it at `POST /app/installations/<installation_id>/access_tokens` for an installation token. It SHALL keep the token until less than `DEFAULT_GITHUB_APP_TOKEN_RENEW_SECONDS` are left before GitHub's `expires_at`, and SHALL then mint a new one on the next call. Each gh child, and each git child that reaches a remote, SHALL get the current token.
 
 #### Scenario: A token near its expiry is renewed for the next gh child
 - **WHEN** the first exchange gives `ghs_first`, which expires in 5 minutes, the second gives `ghs_second`, which expires in one hour, and three gh children start one after another

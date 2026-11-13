@@ -401,6 +401,13 @@ def test_the_paths_of_the_run_follow_a_mark_also_when_the_command_has_none() -> 
         ("! git grep -n name", False),
         ("! rm -rf src/", False),
         ("!git grep -n name src/", False),
+        ("git ls-remote --upload-pack=/srv/probe origin", False),
+        ("git -c core.sshCommand=/srv/probe fetch origin", False),
+        ("git --exec-path=/srv/probe status", False),
+        ("git -C /srv/other push origin main", False),
+        ("git fetch origin", False),
+        ("git grep -n name src/", False),
+        ("git status", False),
     ],
 )
 def test_the_verification_problem_is_none_exactly_when_the_step_runs_the_command(
@@ -525,3 +532,17 @@ def test_a_local_command_reaches_the_process_edge_and_is_no_refusal(
     assert "not in the allowed list" not in answer
     assert [text for text in started if command in text] != []
     assert "Refused commands" not in outcome.reason
+
+
+def test_a_verification_command_runs_git_only_as_the_negative_search() -> None:
+    """A git call in the checkout reads the configuration that the agent can write, and a git call
+    that reaches a remote gets the token. So a verification command runs git only in the fixed
+    shape of the negative search, which reaches no remote and takes no option that names a file."""
+    assert (
+        verification_problem("git fetch origin"),
+        verification_problem("curl http://example.com"),
+    ) == (
+        "`git` runs only as the negative search `! git grep -n <literal> -- <paths>`",
+        "`curl` is not one of: "
+        + ", ".join(name for name in IMPLEMENT_ALLOWED_PROGRAMS if name != "git"),
+    )

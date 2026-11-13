@@ -315,6 +315,17 @@ class GitHubFake:
 
         return dispatch
 
+    def answer_children(self, monkeypatch: Any) -> None:
+        """Answer each `gh` child of the real process runner as this fake, and hand every other
+        program to the real call: through `subprocess.run`, and through `_run_in_own_session`,
+        which starts a child that gets the session's token."""
+        from devops_cli.core import process
+
+        monkeypatch.setattr(subprocess, "run", self.process(subprocess.run))
+        monkeypatch.setattr(
+            process, "_run_in_own_session", self.process(process._run_in_own_session)
+        )
+
     def install(self, fake: ProcessFake) -> None:
         """Answer each `gh` command that `fake` is asked to run as this repository, and leave
         every other program to the answers of `fake`."""

@@ -9,8 +9,9 @@ message of the agent, which is a claim that no check verified (#3476). `ACTION_B
 table of defaults: each class has exactly one `FailureAction`.
 
 **Typed classes.** A stop site that knows its cause passes the class itself: `no_change_in_fix`,
-`tests_lost`, `head_moved`, `output_cap`, `limit_reached` and `outside_plan` come from the step, and no rule below
-makes them. The rules are the fallback for a stop whose cause has no class of its own.
+`tests_lost`, `head_moved`, `output_cap`, `limit_reached` and `outside_plan` come from the step, and
+`git_config` from the check of the git settings of the implement job; no rule below makes them.
+The rules are the fallback for a stop whose cause has no class of its own.
 
 **Order of the rules.** The first rule that matches wins, and the order goes from the cause that is
 most sure to the one that is least sure:
@@ -75,6 +76,7 @@ class FailureClass(StrEnum):
     READ_ONLY_PATH = "read_only_path"
     LIMIT_REACHED = "limit_reached"
     OUTSIDE_PLAN = "outside_plan"
+    GIT_CONFIG = "git_config"
 
 
 class StepName(StrEnum):
@@ -134,6 +136,7 @@ ACTION_BY_CLASS: Final[Mapping[FailureClass, FailureAction]] = MappingProxyType(
         FailureClass.READ_ONLY_PATH: FailureAction.WAIT,
         FailureClass.LIMIT_REACHED: FailureAction.RAISE_LIMIT,
         FailureClass.OUTSIDE_PLAN: FailureAction.WAIT,
+        FailureClass.GIT_CONFIG: FailureAction.WAIT,
     }
 )
 

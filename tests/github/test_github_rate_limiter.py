@@ -40,6 +40,7 @@ from devops_cli.github.rate_limiter import (
 )
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+from tests.support.github_identity import faked_children, token_seen
 
 
 @pytest.fixture(autouse=True)
@@ -1230,9 +1231,15 @@ def test_each_identity_keeps_its_own_quota_and_response_cache(
     caplog.set_level(logging.DEBUG, logger="devops_cli.github.rate_limiter")
     limiters: list[GitHubRateLimiter] = []
     answer = subprocess.CompletedProcess([], 0, stdout='[{"number": 1}]', stderr="")
+    seen: list[str | None] = []
+
+    def child(*_args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        seen.append(token_seen(kwargs["env"]))
+        return answer
+
     reset_process_runner()
     try:
-        with patch("subprocess.run", return_value=answer) as run:
+        with faked_children(side_effect=child):
             for token in tokens:
                 monkeypatch.setattr(process, "_github_token", token)
                 limiter = get_github_rate_limiter()
@@ -1247,7 +1254,7 @@ def test_each_identity_keeps_its_own_quota_and_response_cache(
         ]
         written = [str(path) for path in isolate_data_dir.rglob("*")]
         assert (
-            [call.kwargs["env"]["GH_TOKEN"] for call in run.call_args_list],
+            seen,
             [directory.name for directory in identity_dirs],
             [len(list((directory / "responses").glob("*.json"))) for directory in identity_dirs],
             [(directory / "gh_quota.json").is_file() for directory in identity_dirs],

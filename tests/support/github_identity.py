@@ -10,6 +10,13 @@ this suite's own run sees them there too.
 
 from __future__ import annotations
 
+import contextlib
+import json
+from collections.abc import Iterator, Mapping
+from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from devops_cli.core import process
@@ -18,11 +25,40 @@ from devops_cli.lang import ERRORS
 PINNED_GITHUB_TOKEN = "test-github-token"
 
 
+def token_seen(env: Mapping[str, str]) -> str | None:
+    """The GitHub token that a child finds while it runs: its `GH_TOKEN`, else the `oauth_token` of
+    `hosts.yml` in its `GH_CONFIG_DIR`, where the process runner puts the token of a gh child. Call
+    it from the stand-in of the child: the runner removes the folder when the child ends."""
+    if "GH_TOKEN" in env:
+        return env["GH_TOKEN"]
+    hosts = Path(env.get("GH_CONFIG_DIR", "/nonexistent")) / "hosts.yml"
+    if not hosts.is_file():
+        return None
+    for line in hosts.read_text(encoding="utf-8").splitlines():
+        key, _, value = line.strip().partition(":")
+        if key == "oauth_token":
+            found: str = json.loads(value.strip())
+            return found
+    return None
+
+
 def fail_the_github_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make `gh auth token` print no token from now on, as when gh has no login."""
     unauthenticated = ERRORS.git.github_unauthenticated.format(status=1)
     monkeypatch.setattr(process, "_github_token", None)
     monkeypatch.setattr(process, "_lookup_github_token", lambda: ("", unauthenticated))
+
+
+@contextlib.contextmanager
+def faked_children(**answer: Any) -> Iterator[MagicMock]:
+    """Stand in for each child of the process runner with one mock, which `answer` (`side_effect`
+    or `return_value`) sets up: `subprocess.run`, and `_run_in_own_session`, which starts a child
+    that gets the session's token."""
+    with (
+        patch("subprocess.run", **answer) as run,
+        patch.object(process, "_run_in_own_session", run),
+    ):
+        yield run
 
 
 @pytest.fixture

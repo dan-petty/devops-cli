@@ -140,10 +140,17 @@ def the_whole_group() -> tuple[tuple[str, dict[str, Any]], ...]:
 
 
 def git_for_real(call: ProcessCall) -> subprocess.CompletedProcess[str]:
-    """Run the call for real. Output that is not UTF-8 is decoded with `errors="replace"`, as the
-    real process runner decodes it, so that the diff of a file of any bytes reads the same."""
+    """Run the call for real, with the input that the caller gave, as the real process runner
+    does. Output that is not UTF-8 is decoded with `errors="replace"`, as the real process runner
+    decodes it, so that the diff of a file of any bytes reads the same."""
     return subprocess.run(
-        call.argv, cwd=call.cwd, capture_output=True, text=True, errors="replace", check=False
+        call.argv,
+        cwd=call.cwd,
+        input=call.stdin if isinstance(call.stdin, str) else None,
+        capture_output=True,
+        text=True,
+        errors="replace",
+        check=False,
     )
 
 

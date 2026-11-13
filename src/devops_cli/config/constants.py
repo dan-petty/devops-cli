@@ -5,9 +5,11 @@ from __future__ import annotations
 import ipaddress
 import json
 import re
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final
 
 if TYPE_CHECKING:
@@ -1191,6 +1193,104 @@ which reads the GH_TOKEN that the process runner pins on a git child (#5162). Th
 first clears the helpers of the config files, such as the helper of VS Code, which needs keys
 that `build_subprocess_env` does not pass. The devcontainer sets the same helpers with
 `GIT_CONFIG_*` keys, which `build_subprocess_env` does not pass either."""
+CONST_GIT_ISOLATED_CONFIG_ENV: Final[Mapping[str, str]] = MappingProxyType(
+    {"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
+)
+"""The two git keys that `build_subprocess_env` accepts from a caller, each with this value only.
+Each turns a configuration file off (the global file and `/etc/gitconfig`), and neither names a
+program or a file that git reads. The network git calls of the implement job set both (GHSA)."""
+CONST_GIT_NETWORK_SUBCOMMANDS: Final[frozenset[str]] = frozenset(
+    {"push", "fetch", "pull", "ls-remote", "clone"}
+)
+"""The git subcommands that reach a remote. Only such a child gets the session's token (GHSA)."""
+CONST_GIT_REMOTE_NETWORK_ACTIONS: Final[frozenset[str]] = frozenset(
+    {"set-head", "show", "update", "prune"}
+)
+"""The actions of `git remote` that can reach the remote (git-remote(1))."""
+CONST_GIT_VALUE_OPTIONS: Final[frozenset[str]] = frozenset(
+    {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--attr-source"}
+)
+"""The global options of git that take the next word as their value (git.c `handle_options`)."""
+CONST_GIT_TOKEN_CALL_CONFIG: Final[tuple[str, ...]] = (
+    "credential.helper=",
+    *CONST_GIT_GITHUB_CREDENTIAL_CONFIG,
+    "core.hooksPath=/dev/null",
+    "gc.auto=0",
+    "maintenance.auto=false",
+)
+"""The `git -c` values of a network git call of the implement job (GHSA). The empty helper clears
+every helper before the trusted one, and no hook runs. The git folder of the call shares the
+objects of the clone, so git packs and prunes nothing from it."""
+CONST_GIT_ALLOWED_SETTINGS: Final[frozenset[str]] = frozenset(
+    {
+        "core.repositoryformatversion",
+        "core.filemode",
+        "core.bare",
+        "core.logallrefupdates",
+        "core.ignorecase",
+        "core.precomposeunicode",
+        "remote.origin.url",
+        "remote.origin.fetch",
+        "user.name",
+        "user.email",
+        "commit.gpgsign",
+        "extensions.worktreeconfig",
+    }
+)
+"""The git keys of the scopes `local` and `worktree` that the implement job allows in its clone:
+the keys that `git clone`, `git init`, `ensure_checkout` and the eval write. None names a program,
+a file or a host (GHSA)."""
+CONST_GIT_ALLOWED_SETTING_PATTERNS: Final[tuple[str, ...]] = ("branch.*.remote", "branch.*.merge")
+"""The `fnmatch` patterns of the other git keys that the implement job allows in its clone."""
+CONST_GIT_ATTRIBUTE_DRIVERS: Final[tuple[str, ...]] = ("filter", "diff", "merge")
+"""The git attributes whose value names a driver that git starts as a program."""
+CONST_GIT_BUILTIN_DRIVERS: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
+    {
+        "filter": frozenset(),
+        "diff": frozenset(
+            {
+                "ada",
+                "bash",
+                "bibtex",
+                "cpp",
+                "csharp",
+                "css",
+                "dts",
+                "elixir",
+                "fortran",
+                "fountain",
+                "golang",
+                "html",
+                "ini",
+                "java",
+                "kotlin",
+                "markdown",
+                "matlab",
+                "objc",
+                "pascal",
+                "perl",
+                "php",
+                "python",
+                "r",
+                "ruby",
+                "rust",
+                "scheme",
+                "tex",
+            }
+        ),
+        "merge": frozenset({"text", "binary", "union"}),
+    }
+)
+"""The values of each attribute of `CONST_GIT_ATTRIBUTE_DRIVERS` that git defines itself
+(userdiff.c, gitattributes(5)): a built-in pattern of `diff` and a built-in driver of `merge` run
+no program. No filter is built in."""
+CONST_GIT_ATTRIBUTE_STATES: Final[frozenset[str]] = frozenset({"unspecified", "set", "unset"})
+"""The words of `git check-attr` for an attribute with no value."""
+CONST_GIT_ALTERNATES_FILE: Final[str] = "objects/info/alternates"
+"""The file of a git folder that names other object folders (gitrepository-layout(5))."""
+CONST_GIT_SHALLOW_FILE: Final[str] = "shallow"
+"""The file of a git folder that names the commits whose parents a shallow clone does not hold
+(gitrepository-layout(5))."""
 CONST_GIT_ACCEPTED_ENV: Final[frozenset[str]] = frozenset(
     {
         "GIT_TERMINAL_PROMPT",
@@ -1479,9 +1579,19 @@ CONST_GH_CLI = "gh"
 CONST_CI_WORKFLOW_FILE = "ci.yml"
 CONST_GIT_CLI = "git"
 CONST_GH_AUTH_SUBCOMMAND = "auth"
-# The variable gh reads its token from first; the session pins it on every gh and git child
-# (#767).
+# The variable gh and `gh auth git-credential` read the token from first; the session pins it on
+# each git child that reaches a remote (#767).
 CONST_GH_AUTH_ENV_VAR = "GH_TOKEN"
+# The variables and files of gh's own configuration folder. A gh child of the process runner gets a
+# new private folder whose `hosts.yml` holds the session's token, and no token in its environment:
+# gh gives its environment to a `--jq` filter (GHSA).
+CONST_GH_CONFIG_DIR_ENV: Final[str] = "GH_CONFIG_DIR"
+CONST_GH_HOST_ENV: Final[str] = "GH_HOST"
+CONST_GH_HOSTS_FILE: Final[str] = "hosts.yml"
+CONST_GH_CONFIG_FILE: Final[str] = "config.yml"
+CONST_GH_PRIVATE_CONFIG_DIRNAME: Final[str] = "gh-config"
+# The prefix of the private gh configuration folder of one call in the temp folder of the system.
+CONST_GH_TEMP_FOLDER_PREFIX: Final[str] = "devops-cli-gh-"
 # Every variable gh reads a token from, so a pinned child is given none but the session's.
 CONST_GH_TOKEN_ENV_VARS: Final[tuple[str, ...]] = (CONST_GH_AUTH_ENV_VAR, "GITHUB_TOKEN")
 # Where `gh auth token` finds a stored login: its config directory and the keyring's session bus.

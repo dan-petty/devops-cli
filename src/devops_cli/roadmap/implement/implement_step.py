@@ -121,6 +121,7 @@ from devops_cli.roadmap.failure import (
     classify_failure,
 )
 from devops_cli.roadmap.fence import code_fence
+from devops_cli.roadmap.implement.git_isolation import check_settings
 from devops_cli.roadmap.implement.implement_base_replay import (
     BaseReplay,
     BaseStatus,
@@ -1730,14 +1731,19 @@ def _turn(
     message: str,
     conversation: Conversation | None = None,
     *,
+    source: Path,
     usage_limits: UsageLimits,
 ) -> _Run:
     """One turn of the agent under `usage_limits`. When it ends, so does every process of the
-    agent's shell, before the job runs a program that gets the session's token."""
+    agent's shell, before the job runs a program that gets the session's token. Then, in a runner,
+    the git settings of the checkout `source` are checked before the job runs git there again: a
+    setting that the job does not allow raises `GitSettingsError` (GHSA)."""
     try:
-        return _run_agent(agent, model, log, message, conversation, usage_limits=usage_limits)
+        run = _run_agent(agent, model, log, message, conversation, usage_limits=usage_limits)
     finally:
         _end_agent_processes()
+    check_settings(source)
+    return run
 
 
 def _tree(source: Path) -> str:
@@ -1812,7 +1818,15 @@ def _extra_turn(
     before_request, log.before_request = log.before_request, None
     try:
         run = first.then(
-            _turn(agent, model, log, ask.message, first.conversation, usage_limits=usage_limits)
+            _turn(
+                agent,
+                model,
+                log,
+                ask.message,
+                first.conversation,
+                source=source,
+                usage_limits=usage_limits,
+            )
         )
     finally:
         log.before_request = before_request
@@ -1981,7 +1995,9 @@ def _attempt(
             log.fail_to_pass = None
             log.verified.clear()
             log.parser_failures = 0
-            run = _turn(agent, tier_model, log, inputs.message, usage_limits=usage_limits)
+            run = _turn(
+                agent, tier_model, log, inputs.message, source=source, usage_limits=usage_limits
+            )
             first_request = first_request or run.first_request_tokens
             failure = (
                 _Failure(run.reason, klass=run.failure_class)

@@ -184,7 +184,7 @@ Each clear by digest adds an entry (the class, the new digest and the time) to `
 
 ## The failure classes
 
-A stop has a class (`roadmap/failure.py`, #3065). A stop site that knows its cause passes the class itself (#3476): the classes `no_change_in_fix`, `tests_lost`, `head_moved`, `output_cap`, `limit_reached` and `outside_plan` come from the step, and no rule makes them. For any other stop, the classifier is a pure function of the error text, the exit status, the refusal of a tool, the name of the check and the log of the check. It never reads the last message of the agent, which is a claim that no check verified. A failure that no rule matches is `ci_infra`. The stop comment starts with the failed check and the end of its log, then names the class, the action taken and the action left. It shows the last message of the agent as a claim that no check verified. The Job log holds one line with the class and the action left. The Service adds 1 to `devops_cli_service_implement_failures_total` with the labels `class` and `repo` when a round reports the Job. A Job that left the Item with no result gets the class of the tail of its log.
+A stop has a class (`roadmap/failure.py`, #3065). A stop site that knows its cause passes the class itself (#3476): the classes `no_change_in_fix`, `tests_lost`, `head_moved`, `output_cap`, `limit_reached` and `outside_plan` come from the step, `git_config` comes from the check of the git settings, and no rule makes them. For any other stop, the classifier is a pure function of the error text, the exit status, the refusal of a tool, the name of the check and the log of the check. It never reads the last message of the agent, which is a claim that no check verified. A failure that no rule matches is `ci_infra`. The stop comment starts with the failed check and the end of its log, then names the class, the action taken and the action left. It shows the last message of the agent as a claim that no check verified. The Job log holds one line with the class and the action left. The Service adds 1 to `devops_cli_service_implement_failures_total` with the labels `class` and `repo` when a round reports the Job. A Job that left the Item with no result gets the class of the tail of its log.
 
 | Class | Default action | Meaning |
 | :--- | :--- | :--- |
@@ -207,6 +207,7 @@ A stop has a class (`roadmap/failure.py`, #3065). A stop site that knows its cau
 | `limit_reached` | `raise_limit` | A step spent a token budget or a time limit of `roadmap.implement`, or the one extension of its token budget. The reason names the setting and its value. See [the budgets](#checks-of-the-implement-job) |
 | `read_only_path` | `wait` | A command wrote to a path that the Job mounts read-only. A new attempt or a new runner image writes to the same path, so a person fixes the cause |
 | `outside_plan` | `wait` | A fix step changed, added or deleted a path that the plan does not name (a path in a code span of any group, or a file of the change folder). The stop names the paths and holds the discarded diff. A person decides whether the plan changes |
+| `git_config` | `wait` | The git settings of the checkout hold a key that the job does not allow, an attribute names a filter, or a diff or merge driver that git does not define, or the clone has an alternates file. The job checks them when each turn of the agent ends and before each git call that reaches `origin`. The stop names each key, or each attribute and its first path, and no value, and pushes nothing. A person removes the setting and its cause |
 
 The Job runs these actions by itself:
 - the fix rounds of `roadmap.implement.repair_rounds` for a failed check,
@@ -315,6 +316,8 @@ The programs that the shell refuses, and what to run instead:
 | `cd` | nothing. Every command runs in the checkout |
 | `!` | `git grep -n <literal> -- <paths>`. Read no output as a pass. The step runs a verification command that starts with `!` itself, after your run |
 
+A verification command of a plan starts with a program of the first table other than `git`, with `openspec` or `devops`, or with the `!` of the negative search. The step runs git in a verification command only as the negative search `! git grep`: it runs the command in the checkout, where git reads the configuration that the agent can write, and the negative search reaches no remote and gets no token. The step, the stage gate, the plan reader and the amendments read the same rule (`read_verification`).
+
 The runner image holds the tools that the gate and the hooks need, listed in `RUNNER_TOOLS` in `src/devops_cli/roadmap/runner_tools.py`. The image leaves out `actionlint`, `shellcheck` and Trivy, because the image scan fails on the newest release of each (#3108), and it leaves out npm, so a Job cannot run the `audit` row, the `actionlint` row or the IaC scan of Trivy. The pull request runs them. The shell can start only the programs above. The checks of a group run them through `uv run`.
 
 ## The open plans in the stage context
@@ -403,6 +406,9 @@ The runner Job runs the checks that a person runs in the devcontainer, from the 
 - **After the push.** The checks of the pull request stay the gate. The watch reads check runs only, because the App token holds no `statuses` permission, which the commit status endpoint needs (#2877). A failed check gets a fix step, a push and a new watch, up to `repair_rounds` times. Each round has a comment on the pull request. A check that still fails after the last round stops the item.
 - **Time.** The hooks add about 10 s to each step, and the install about 9 s. The scoped checks add about 35 s for the first two, and for the tests at most 30 test modules. On 2 CPUs, as in a Job, 12 test modules of the roadmap ran in 88 s, so the tests add at most about 3.5 minutes. The comment on the pull request gives the seconds of each scoped check.
 
+- **Target repositories.** The Job refuses a filter, and a diff or merge driver that git does not define itself, in the attributes of the checkout (the class `git_config`). So a repository that uses Git LFS (`filter=lfs diff=lfs merge=lfs`), `merge=ours` or another driver of its own cannot use the implement Job: each item stops at its first turn. Check the `.gitattributes` of a repository before the Service gets it. A shallow clone, which a run with `--source` can name, works: the network calls copy its `shallow` file.
+- **gh calls.** The Job, and each `devops` command, runs gh with a configuration folder of its own that holds only the token ([SECURITY.md](../SECURITY.md), item 15). A gh call reads no gh configuration of the person: no alias, pager, editor or `git_protocol`, and no login for a host other than github.com.
+
 Tests hold the drift: each local hook runs a tool that the runner image holds, each scoped row is a row of `devops ci`, and the branches of the Job pass the branch-name hook.
 
 A change that removes, renames or tightens a setting that `k8s/devops/configmap.example.yaml` or the live ConfigMap names says in its OpenSpec proposal and in a comment on its pull request how the live ConfigMap changes first ([Go-live check](../k8s/README.md#go-live-check)).
@@ -422,7 +428,7 @@ The implement job has a baseline score. The command that gives it calls a model 
 | `no_scratch` | The diff adds no file at the root, under `.data/`, or with a scratch suffix |
 | `tasks_ticked` | Every task of the group is ticked |
 
-The report lists each property as pass, fail or skipped, the tokens, the model requests, the tool calls and the wall time of each fixture, and the property that failed first. A run writes the same report as JSON under `eval/implement` in the data directory. The command reads no GitHub state, writes none and pushes nothing. The scratch clone has no remote and goes away after the run.
+The report lists each property as pass, fail or skipped, the tokens, the model requests, the tool calls and the wall time of each fixture, and the property that failed first. A run writes the same report as JSON under `eval/implement` in the data directory. The command reads no GitHub state, writes none and pushes nothing. The scratch clone has no remote and goes away after the run. The scratch clone shares the objects of this repository (`git clone --shared`), which writes an alternates file. The check of the git settings refuses that file in a runner, so the command runs only outside a runner.
 
 The fixtures hold the diffs of real runs: deliveries, and stops with a scratch file in the root. `--check-only` evaluates those recorded diffs with no model and no clone, and exits 1 when a diff fails other properties than its record says. `--check-only --run-commands` also applies each diff in a clone, runs the two properties that run commands, and compares all six with the record. A record may name a command property as failed. `--dry-run` lists the fixtures and the model requests, and makes no request.
 

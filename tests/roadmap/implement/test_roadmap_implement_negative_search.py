@@ -15,9 +15,9 @@ import pytest
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS
 from devops_cli.roadmap.implement.implement_shell_policy import (
-    IMPLEMENT_ALLOWED_PROGRAMS,
     NEGATIVE_SEARCH_LITERAL_SIGNS,
     NEGATIVE_SEARCH_OPTION_LETTERS,
+    VERIFICATION_FIRST_WORDS,
     verification_problem,
 )
 from devops_cli.roadmap.implement.implement_step import commands_failure
@@ -190,7 +190,7 @@ def test_a_search_longer_than_the_limit_is_refused_and_starts_no_process(
     [
         (
             "curl http://example.com",
-            "`curl` is not one of: " + ", ".join(IMPLEMENT_ALLOWED_PROGRAMS),
+            "`curl` is not one of: " + ", ".join(VERIFICATION_FIRST_WORDS),
         ),
         ("uv run 'devops", "it is not a valid command line"),
         ("", "it is not a valid command line"),

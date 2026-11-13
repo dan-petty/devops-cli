@@ -390,6 +390,18 @@ class ConfigMessages:
         "Quote <file> and <key> for the shell.\n"
         "A key that is not a config option needs only step 2."
     )
+    gh_config_root_not_private: str = (
+        "the folder is a link, belongs to another user, or others can read it"
+    )
+    gh_config_root_in_current_folder: str = (
+        "the folder is in the current folder, which can be a working tree"
+    )
+    gh_config_data_dir_relative: str = "the data directory is relative"
+    gh_config_folder_failed: str = (
+        "devops-cli found no private folder for the gh configuration of a gh call: {reasons}. "
+        "Set XDG_RUNTIME_DIR or TMPDIR to a folder that you can write, or set data.dir "
+        "(DEVOPS_CLI_DATA_DIR) to an absolute folder that you can write."
+    )
 
 
 @dataclass(frozen=True)
@@ -3215,6 +3227,9 @@ class RoadmapMessages:
     verify_reason_bytes: str = "a word holds a NUL byte or a character that cannot be encoded"
     verify_reason_long: str = "it is longer than {limit} characters"
     verify_reason_program: str = "`{program}` is not one of: {allowed}"
+    verify_reason_git: str = (
+        "`git` runs only as the negative search `! git grep -n <literal> -- <paths>`"
+    )
     implement_stop_command_timeout: str = "{command} ran out of time after {seconds} s."
     implement_formatted: str = "Formatted: {paths}"
     implement_stop_link: str = (
@@ -3450,9 +3465,15 @@ class RoadmapMessages:
         "covers every repository of the installation. This process ran no step."
     )
     implement_leftover_processes: str = (
-        "A process that the agent's shell started is still alive after the step: {names}. The job "
-        "runs no program with the GitHub token while such a process lives, so it stops the item."
+        "A process that the job started is still alive after the job sent it SIGKILL: {names}. The "
+        "job runs no program with the GitHub token while such a process lives, so it stops the item."
     )
+    implement_git_settings_refused: str = (
+        "The git settings of the checkout hold {settings}, which the implement job does not allow. "
+        "The job runs no more git commands in the checkout and pushes nothing. A person removes "
+        "the setting and its cause, and then retries the item."
+    )
+    implement_git_attribute_refused: str = "the attribute {attribute} ({path}, {more} more paths)"
     implement_job_runner_refused: str = (
         "The implement job runs a step only in a runner pod. Set roadmap.implement.in_runner to "
         "true there. The shell of the agent is no security boundary, so the runner is the "
@@ -5128,6 +5149,9 @@ class RoadmapMessages:
             "change": "<change>",
             "pull": "<pull request>",
             "remote_tip": "<remote tip>",
+            "tip": "<tip>",
+            "git_folder": "<new git folder>",
+            "origin_url": "<URL of origin>",
         }
     )
     plan_targets: dict[str, str] = field(

@@ -84,17 +84,28 @@ def test_two_groups_make_a_new_branch_a_draft_a_closing_body_and_a_ready_pull_re
     )
 
 
-def test_the_branch_is_published_once_with_upstream_and_the_clone_keeps_no_branch_or_worktree(
+def _pushes(world: JobWorld) -> list[tuple[str, ...]]:
+    """The words after `push` of each push of the job, which runs in a new git folder (GHSA)."""
+    return [
+        call.argv[call.argv.index("push") + 1 :]
+        for call in world.programs.calls
+        if "push" in call.argv
+    ]
+
+
+def test_the_branch_is_published_once_and_the_clone_keeps_no_branch_or_worktree(
     planned_world: JobWorld,
 ) -> None:
     planned_world.run(two_groups())
 
-    pushes = [call.argv[4:] for call in planned_world.programs.calls if call.argv[3:4] == ("push",)]
+    pushes = _pushes(planned_world)
+    origin, ref = str(planned_world.repo.origin), f"refs/heads/{BRANCH}"
     # The first checkpoint (#3677) publishes the branch. The final push holds a lease on its tip.
     assert len(pushes) == 2
-    assert pushes[0] == ("-u", "origin", BRANCH)
-    assert pushes[1][0].startswith(f"--force-with-lease={BRANCH}:")
-    assert pushes[1][1:] == ("origin", BRANCH)
+    assert pushes[0][:3] == ("--quiet", "--no-verify", origin)
+    assert pushes[0][3].endswith(f":{ref}")
+    assert pushes[1][2].startswith(f"--force-with-lease={ref}:")
+    assert (pushes[1][3], pushes[1][4].endswith(f":{ref}")) == (origin, True)
     assert planned_world.repo.git("worktree", "list").count("\n") == 0
     assert planned_world.repo.git("branch", "--format=%(refname:short)") == "main"
 
@@ -106,13 +117,15 @@ def test_a_check_that_fails_once_gets_a_fix_step_and_a_push_with_a_lease_on_the_
 
     applied = planned_world.run(two_groups(*a_fix()))
 
-    pushes = [call.argv[4:] for call in planned_world.programs.calls if call.argv[3:4] == ("push",)]
+    pushes = _pushes(planned_world)
     first_tip = planned_world.repo.origin_git("rev-parse", f"{BRANCH}~1")
+    tip = planned_world.repo.origin_git("rev-parse", BRANCH)
+    origin, ref = str(planned_world.repo.origin), f"refs/heads/{BRANCH}"
     # The checkpoint publishes the branch, the final push follows, and the fix gets its own push.
     assert (applied.ready, len(pushes)) == ((1,), 3)
-    assert pushes[0] == ("-u", "origin", BRANCH)
-    assert pushes[1][0].startswith(f"--force-with-lease={BRANCH}:")
-    assert pushes[2] == (f"--force-with-lease={BRANCH}:{first_tip}", "origin", BRANCH)
+    assert pushes[0][:3] == ("--quiet", "--no-verify", origin)
+    assert pushes[1][2].startswith(f"--force-with-lease={ref}:")
+    assert pushes[2][2:] == (f"--force-with-lease={ref}:{first_tip}", origin, f"{tip}:{ref}")
     assert len(planned_world.sent("POST", "pulls")) == 1
 
 
