@@ -38,6 +38,11 @@ None.
 - Documents: `docs/TELEMETRY.md`, `docs/CONFIGURATION.md`, `docs/ENV_VARS.md`, `docs/adr/0020-a-decision-point-is-a-unit-of-a-workflow-with-a-resolver-chain-and-a-rule-goes-before-a-decision-model.md`
 - Tests: `tests/roadmap/test_roadmap_decision_table.py`, `tests/config/test_decision_point_settings.py`, `tests/telemetry/test_telemetry_instruments.py`, `tests/roadmap/test_roadmap_decision_step.py`, `tests/roadmap/test_roadmap_decision_point.py`, `tests/support/fakes/jev.py`, `tests/roadmap/test_roadmap_limit_classes.py`
 
+## Weakened checks
+
+- **`tests/roadmap/test_roadmap_decision_table.py::test_on_is_refused_for_a_point_with_no_cuts_file_and_shadow_is_not`**: Stopped: a change that lets a point with no cuts file take the mode `on`, and a change that refuses the mode `shadow` for that point. Safeguard: The mode `shadow` now also needs a cuts file, so task 1.1 replaces the test with `test_shadow_and_on_are_refused_for_a_point_with_no_cuts_file`. It asserts that each of the modes `shadow` and `on` raises a `ValueError` that names the point and the path of the cuts file.
+- **`tests/roadmap/test_roadmap_decision_point.py::test_the_registry_refuses_a_catalogue_above_60_series`**: Stopped: a registry that accepts a catalogue above its series bound: eight points of 8 series give 64 label sets, above the bound of 60. Safeguard: ADR 0020 section 7 allows 92 series, so task 10.1 replaces the test with `test_the_registry_accepts_a_catalogue_at_the_bound_and_refuses_one_above_it`. It reads `CONST_ROADMAP_DECISION_POINT_MAX_SERIES`, asserts that a catalogue of 92 label sets (eight points of 8 series and two of 14) loads, and asserts that a catalogue of 94 label sets (ten points of 8 series and one of 14) raises.
+
 ## Feasibility
 
 - The probes confirm that the cited file exists: The path `src/devops_cli/roadmap/decision_table.py` is a file of the staging commit.
