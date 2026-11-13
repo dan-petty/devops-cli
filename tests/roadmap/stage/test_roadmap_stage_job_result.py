@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from devops_cli.roadmap.run import MODEL_LANE_ROWS
+from devops_cli.roadmap.stage.stage import emit_stage_results, parse_filters, plan_stage
 from devops_cli.roadmap.stage.stage_change import StageSplit
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import github_json
@@ -17,6 +18,7 @@ from tests.support.roadmap_stage import (
     STAGE_REPO,
     VALID_REPORT,
     StageRepo,
+    apply_stage,
     heavy_group,
     no_findings,
     seed_stageable,
@@ -27,6 +29,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
+    from devops_cli.roadmap.stage.stage import StagePlan
     from tests.support.fakes.github import GitHubApiFake
     from tests.support.fakes.model import ModelFake
     from tests.support.fakes.openspec import OpenSpecFake
@@ -104,3 +107,61 @@ def test_a_round_of_three_tried_items_and_one_left_out_logs_three_result_lines(
         {"plan_calls": "2", "gate_returns": "1", "verify_rounds": "0"},
     ]
     assert [int(line["tokens"]) > 0 for line in fields] == [True] * 3
+
+
+def _plain_round(store: InMemoryRoadmapStore, stage_repo: StageRepo) -> StagePlan:
+    """A round with no writer whose planner is the plain client of the job: no toolbox client
+    runs, so the round keeps no run trace."""
+    return plan_stage(store, repo=STAGE_REPO, source=stage_repo.clone, filters=parse_filters(()))
+
+
+def _lines(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    plan: StagePlan,
+    caplog: pytest.LogCaptureFixture,
+) -> list[dict[str, str]]:
+    """The result lines of `plan` once the writer of the job wrote it."""
+    applied = apply_stage(store, plan, source=stage_repo.clone)
+    with caplog.at_level(logging.INFO):
+        emit_stage_results(plan, applied, STAGE_REPO)
+    return result_fields(caplog)
+
+
+def test_a_plan_of_a_client_with_no_trace_counts_its_plan_call(
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The plain client keeps no run trace, and the line counts the plan call all the same: the
+    count comes from the model calls of the attempt (#5166)."""
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    github_api.route("POST", f"/repos/{STAGE_REPO}/pulls", OPENED)
+    seed_stageable(store)
+    model_fake.answer(make_stage_proposal())
+
+    (line,) = _lines(store, stage_repo, _plain_round(store, stage_repo), caplog)
+
+    assert (line["result"], line["plan_calls"], model_fake.call_count) == ("staged", "1", 1)
+
+
+def test_an_attempt_that_stages_a_kept_plan_logs_no_plan_call_count(
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An earlier attempt made the plan and kept it, and a stop cut that attempt before its write.
+    The next attempt stages the kept plan with no plan call. The calls that made the plan belong
+    to the earlier attempt, so the line holds no `plan_calls` count, and not 0 (#5166)."""
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    github_api.route("POST", f"/repos/{STAGE_REPO}/pulls", OPENED)
+    seed_stageable(store)
+    model_fake.answer(make_stage_proposal())
+    _plain_round(store, stage_repo)
+
+    (line,) = _lines(store, stage_repo, _plain_round(store, stage_repo), caplog)
+
+    assert (line["result"], "plan_calls" in line, model_fake.call_count) == ("staged", False, 1)
+    assert list(line) == [*HEAD, *COUNTS[1:]]

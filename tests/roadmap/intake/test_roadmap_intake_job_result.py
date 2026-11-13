@@ -6,6 +6,7 @@ import logging
 
 import pytest
 
+from devops_cli.exceptions.roadmap import RoadmapItemChangedError
 from devops_cli.roadmap.intake.intake import apply_intake
 from tests.support.roadmap_intake import REPO, FakeModel, Roadmap
 from tests.support.roadmap_job_result import result_fields
@@ -48,4 +49,27 @@ def test_each_candidate_logs_one_line_with_its_result_and_the_class_of_a_failed_
             (skipped, "skipped", "false", "none", "false"),
             (failing, "failed", "false", "ci_infra", "true"),
         )
+    ]
+
+
+def test_a_candidate_that_another_writer_changed_logs_no_line(
+    roadmap: Roadmap, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Another writer placed candidate 2 of 3 between the plan and the write, so its write raises
+    `RoadmapItemChangedError`. That is no failure of intake, and the next plan decides the
+    candidate again (#4042). So it logs no result line, and the two others log one each (#5166)."""
+    first, changed, last = (roadmap.issue(f"feat: candidate {n}") for n in range(3))
+    roadmap.store.fail_write(
+        write="set_field",
+        item=changed,
+        error=RoadmapItemChangedError(f"#{changed}'s Status changed since the plan."),
+    )
+    plan = roadmap.plan(FakeModel())
+
+    with caplog.at_level(logging.INFO):
+        apply_intake(roadmap.store, plan, repo=REPO)
+
+    assert [(line["item"], line["result"], line["class"]) for line in result_fields(caplog)] == [
+        (f"#{first}", "placed", "none"),
+        (f"#{last}", "placed", "none"),
     ]
