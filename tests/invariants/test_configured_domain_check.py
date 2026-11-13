@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import pytest
 
+from devops_cli.config.settings import Settings
+from devops_cli.core.dns_names import configured_domains
 from tests.gate.configured_domain import findings, main, named_setting, outcome
 
 _DOMAINS = {"k8s.domain": "example.net"}
@@ -135,6 +137,29 @@ def test_a_name_is_the_domain_with_no_name_character_next_to_it(
     """The domain names itself in any case when no letter, digit or hyphen is next to it. A dot
     is no such character, so a name under the domain and a file name with an extension name it."""
     assert named_setting(text, _DOMAINS) == expected
+
+
+@pytest.mark.parametrize("value", ["example.net.", " example.net ", "EXAMPLE.NET"])
+def test_a_configured_domain_finds_its_hosts_in_each_spelling_of_the_config(value: str) -> None:
+    """The config keeps a final dot and blank space, and the row reads the domain as a host name
+    spells it, so `example.net.` finds `api.example.net`."""
+    domains = configured_domains(Settings.model_validate({"k8s": {"domain": value}}))
+
+    assert findings(_log((_FIRST, _ADDS_A_HOST)), domains) == [
+        f"k8s/app.yaml:2 in commit {_FIRST[:12]} names the value of k8s.domain"
+    ]
+
+
+@pytest.mark.parametrize("value", ["bücher.example", "xn--bcher-kva.example"])
+@pytest.mark.parametrize("text", ["https://bücher.example/", "api.xn--bcher-kva.example"])
+def test_a_domain_with_a_unicode_label_is_found_in_its_ascii_and_its_unicode_form(
+    value: str, text: str
+) -> None:
+    """A host name can spell a Unicode label in its ASCII form, `xn--`, or as Unicode. The row
+    finds both forms, whichever form the config holds."""
+    domains = configured_domains(Settings.model_validate({"cloudflare": {"domain": value}}))
+
+    assert named_setting(text, domains) == "cloudflare.domain"
 
 
 @pytest.mark.parametrize(

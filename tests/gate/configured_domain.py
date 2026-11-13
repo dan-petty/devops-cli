@@ -22,6 +22,7 @@ import sys
 from collections.abc import Iterator, Mapping
 from typing import Final
 
+import dns.name
 from unidiff.errors import UnidiffParseError
 from unidiff.patch import Line, PatchedFile, PatchSet
 
@@ -58,9 +59,12 @@ _NAME_CHARACTERS: Final[str] = "a-z0-9-"
 
 @functools.cache
 def _name_pattern(domain: str) -> re.Pattern[str]:
-    """The pattern of `domain` with no character of a name just before or just after it."""
+    """The pattern of `domain`, in its ASCII form or its Unicode form, with no character of a name
+    just before or just after it."""
+    forms = dict.fromkeys((domain, dns.name.from_text(domain).to_unicode(omit_final_dot=True)))
+    spellings = "|".join(re.escape(form) for form in forms)
     return re.compile(
-        rf"(?<![{_NAME_CHARACTERS}]){re.escape(domain)}(?![{_NAME_CHARACTERS}])", re.IGNORECASE
+        rf"(?<![{_NAME_CHARACTERS}])(?:{spellings})(?![{_NAME_CHARACTERS}])", re.IGNORECASE
     )
 
 

@@ -133,13 +133,19 @@ _SETTINGS_KEY_BY_MODEL_TITLE: Final[dict[str, str]] = {
 
 
 def configured_domains(settings: Settings) -> dict[str, str]:
-    """The value of each of `k8s.domain` and `cloudflare.domain` that `settings` sets, by settings
-    key, in that order."""
+    """The domain of each of `k8s.domain` and `cloudflare.domain` that `settings` sets, by settings
+    key, in that order. The setting keeps the text of the config, so dnspython gives each domain as
+    a host name spells it: ASCII, with no blank space and no final dot (` example.net. ` gives
+    `example.net`, `bücher.example` gives `xn--bcher-kva.example`)."""
     values = {
         _SETTINGS_KEY_BY_MODEL_TITLE["KubernetesConfig"]: settings.k8s.domain,
         _SETTINGS_KEY_BY_MODEL_TITLE["CloudflareConfig"]: settings.cloudflare.domain,
     }
-    return {key: value for key, value in values.items() if value}
+    return {
+        key: _parse_non_root_dns_name(value).to_text(omit_final_dot=True)
+        for key, value in values.items()
+        if value
+    }
 
 
 def validate_configured_domain(value: str, info: ValidationInfo) -> str:

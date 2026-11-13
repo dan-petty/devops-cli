@@ -11,6 +11,10 @@ The table of `devops ci` SHALL hold a row `domain` that runs the `main` of `test
 - **WHEN** `k8s.domain` is `example.net`, and the commits of the branch add `example.com`, `notexample.net` and `example.network`, and remove a line that names `api.example.net`
 - **THEN** the check gives no finding
 
+#### Scenario: The config spells the domain with a final dot
+- **WHEN** `k8s.domain` is `example.net.` with a final dot, and a commit of the branch adds the line `host: api.example.net`
+- **THEN** the check gives a finding for the line, because the row reads the domain in its ASCII form with no blank space and no final dot, and finds a Unicode label in its ASCII form and as Unicode
+
 #### Scenario: A domain is configured
 - **WHEN** the config sets `k8s.domain` to `example.net`, and `devops ci --only domain` runs
 - **THEN** the row starts `uv run python -c` with the `main` of `tests.gate.configured_domain`

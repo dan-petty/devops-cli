@@ -8,6 +8,8 @@ Kind: behavior. Reads: `tests/gate/swallowed_failures.py`, `tests/commands/test_
   - Verification: `$ uv run devops ci test tests/invariants/test_configured_domain_check.py tests/commands/test_ci_domain_row.py tests/commands/test_ci_gate_rows.py`
 - [x] 1.2 Add `configured_domains` to `devops_cli.core.dns_names`, the module `tests/gate/configured_domain.py`, the row `domain` with its title and skip cause, and the row as a reason for `python` and `git` in the runner tools
   - Verification: `$ uv run devops ci test tests/invariants/test_configured_domain_check.py tests/commands/test_ci_domain_row.py tests/commands/test_ci_gate_rows.py tests/roadmap/test_roadmap_runner_tools.py`
+- [x] 1.3 Read each configured domain as a host name spells it: ASCII, with no blank space and no final dot, and find a Unicode label in both forms. Before this, `example.net.` in the config found no host under `example.net`
+  - Verification: `$ uv run devops ci test tests/invariants/test_configured_domain_check.py`
 
 ## 2. Run the row before each push
 
