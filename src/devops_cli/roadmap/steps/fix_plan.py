@@ -968,11 +968,12 @@ def _killed(attempt: _Attempt, comment: int, kill: AttemptKill) -> None:
     """Write the marks of a kill of the class `kill` on the attempt `attempt`, log one warning,
     and count the result. A deadline kill also logs its result line with `comment`, the open
     findings of the last plan comment. The kill writes in the grace period of the pod, so it
-    reads the item once and posts no comment."""
+    makes only the read and the write of `set_marks`, which writes the marks on the issue as it
+    is now, and posts no comment."""
     store, target = attempt.store, attempt.target
     number, head = target.item.number, target.status.head_sha
     marks = _kill_marks(target, kill)
-    store.set_marks(store.item(number) or target.item, marks)
+    store.set_marks(target.item, marks)
     texts = MESSAGES.roadmap
     before = _Marks.of(target.item.job_record)
     if FixPlanRecordKey.EVICTED in marks:
