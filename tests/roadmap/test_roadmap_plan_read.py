@@ -35,7 +35,11 @@ GOLDEN = REPO_ROOT / "tests" / "fixtures" / "roadmap_eval" / "stage"
 PLAN_HEADS = REPO_ROOT / "tests" / "fixtures" / "roadmap" / "plan_heads"
 # The spec deltas of two archived changes of the repository: #5150 renames and modifies a
 # requirement, and #4798 removes two requirements, each with a reason and a migration.
-SPEC_DELTAS = REPO_ROOT / "tests" / "fixtures" / "roadmap" / "spec_deltas"
+ARCHIVE = REPO_ROOT / "openspec" / "changes" / "archive"
+DELTA_5150 = (
+    ARCHIVE / "2026-11-12-5150-fix-plan-compares-the-revision-with" / "specs" / "roadmap-stage"
+)
+DELTA_4798 = ARCHIVE / "2026-11-12-4798-refine-judge-refusal-agent-round" / "specs"
 TASKS = f"openspec/changes/{CHANGE}/tasks.md"
 DESIGN = f"openspec/changes/{CHANGE}/design.md"
 
@@ -269,7 +273,7 @@ def _with_delta(capability: str, delta: str) -> dict[str, str]:
 
 
 def test_the_real_renamed_delta_of_5150_reads_back() -> None:
-    delta = (SPEC_DELTAS / "5150-renamed.md").read_text(encoding="utf-8")
+    delta = (DELTA_5150 / "fix-plan" / "spec.md").read_text(encoding="utf-8")
 
     (spec,) = read_change(_with_delta("roadmap-stage/fix-plan", delta)).specs
 
@@ -281,7 +285,7 @@ def test_the_real_renamed_delta_of_5150_reads_back() -> None:
 
 
 def test_the_real_removed_delta_of_4798_reads_back() -> None:
-    delta = (SPEC_DELTAS / "4798-removed.md").read_text(encoding="utf-8")
+    delta = (DELTA_4798 / "roadmap-refine" / "spec.md").read_text(encoding="utf-8")
 
     (spec,) = read_change(_with_delta("roadmap-refine", delta)).specs
 
