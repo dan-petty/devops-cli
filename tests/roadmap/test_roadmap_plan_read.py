@@ -17,6 +17,8 @@ from devops_cli.roadmap.stage.stage_change import (
     GroupKind,
     StageGroup,
     StageProposal,
+    StageRemoval,
+    StageRename,
     render_change,
 )
 from devops_cli.roadmap.stage.stage_criteria import PENDING_PERSON
@@ -31,6 +33,13 @@ CHANGE = "1-keep-the-last-comment"
 NESTED = "roadmap-stage/paths-gate"
 GOLDEN = REPO_ROOT / "tests" / "fixtures" / "roadmap_eval" / "stage"
 PLAN_HEADS = REPO_ROOT / "tests" / "fixtures" / "roadmap" / "plan_heads"
+# The spec deltas of two archived changes of the repository: #5150 renames and modifies a
+# requirement, and #4798 removes two requirements, each with a reason and a migration.
+ARCHIVE = REPO_ROOT / "openspec" / "changes" / "archive"
+DELTA_5150 = (
+    ARCHIVE / "2026-11-12-5150-fix-plan-compares-the-revision-with" / "specs" / "roadmap-stage"
+)
+DELTA_4798 = ARCHIVE / "2026-11-12-4798-refine-judge-refusal-agent-round" / "specs"
 TASKS = f"openspec/changes/{CHANGE}/tasks.md"
 DESIGN = f"openspec/changes/{CHANGE}/design.md"
 
@@ -250,6 +259,70 @@ def test_a_change_folder_with_no_proposal_is_refused() -> None:
         read_change(files)
 
     assert found.value.path == f"openspec/changes/{CHANGE}/proposal.md"
+
+
+# ── RENAMED and REMOVED deltas (#5340) ────────────────────────────────────────
+
+
+def _with_delta(capability: str, delta: str) -> dict[str, str]:
+    """The files of a rendered change whose only spec delta is `delta`, for `capability`."""
+    files = _files(make_stage_proposal())
+    del files[f"openspec/changes/{CHANGE}/specs/comment-thread/spec.md"]
+    files[f"openspec/changes/{CHANGE}/specs/{capability}/spec.md"] = delta
+    return files
+
+
+def test_the_real_renamed_delta_of_5150_reads_back() -> None:
+    delta = (DELTA_5150 / "fix-plan" / "spec.md").read_text(encoding="utf-8")
+
+    (spec,) = read_change(_with_delta("roadmap-stage/fix-plan", delta)).specs
+
+    new = "The review of the head counts the open findings before the repair"
+    assert spec.renamed == [
+        StageRename(from_name="The open findings come from the last plan comment", to_name=new)
+    ]
+    assert new in [requirement.name for requirement in spec.modified]
+
+
+def test_the_real_removed_delta_of_4798_reads_back() -> None:
+    delta = (DELTA_4798 / "roadmap-refine" / "spec.md").read_text(encoding="utf-8")
+
+    (spec,) = read_change(_with_delta("roadmap-refine", delta)).specs
+
+    assert spec.removed == [
+        StageRemoval(
+            name="A refusal keeps the item New and lists each finding",
+            reason="A refusal no longer waits on a person. It is a job failure, and the next "
+            "round refines the item again with the findings (#4798).",
+            migration='Read "A refusal of the review is a job failure that a later round fixes".',
+        ),
+        StageRemoval(
+            name="The review looks again only after the body changes",
+            reason="After a refusal, the next round reviews a new proposal on the same body. "
+            "Only an approval of an unchanged body holds with no review call.",
+            migration='Read "The review keeps the approval of an unchanged body" and "A refusal '
+            'of the review is a job failure that a later round fixes".',
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    "delta",
+    [
+        "## RENAMED Requirements\n\n- FROM: `### Requirement: Old name`\n",
+        "## RENAMED Requirements\n\n- TO: `### Requirement: New name`\n",
+        "## RENAMED Requirements\n\n- FROM: `### Requirement: A`\n- FROM: `### Requirement: B`\n"
+        "- TO: `### Requirement: C`\n",
+        "## REMOVED Requirements\n\n### Requirement: Old name\n",
+        "## REMOVED Requirements\n\n### Requirement: Old name\n**Migration**: Read X.\n",
+    ],
+    ids=["from-alone", "to-alone", "two-froms", "no-reason", "migration-alone"],
+)
+def test_a_rename_or_a_removal_that_the_reader_cannot_pair_is_refused(delta: str) -> None:
+    with pytest.raises(PlanReadError) as found:
+        read_change(_with_delta("comment-thread", delta))
+
+    assert found.value.path == f"openspec/changes/{CHANGE}/specs/comment-thread/spec.md"
 
 
 def test_a_requirement_with_no_scenario_is_refused() -> None:
@@ -689,11 +762,17 @@ def _spec(draw: st.DrawFn, capability: str) -> dict[str, Any]:
     requirement = st.fixed_dictionaries(
         {"name": texts, "text": texts, "scenarios": st.lists(scenario, min_size=1, max_size=2)}
     )
+    rename = st.fixed_dictionaries({"from_name": texts, "to_name": texts})
+    removal = st.fixed_dictionaries(
+        {"name": texts, "reason": texts, "migration": st.none() | texts}
+    )
     return {
         "capability": capability,
         "purpose": draw(st.none() | texts),
         "added": draw(st.lists(requirement, max_size=2)),
         "modified": draw(st.lists(requirement, max_size=2)),
+        "renamed": draw(st.lists(rename, max_size=2)),
+        "removed": draw(st.lists(removal, max_size=2)),
     }
 
 

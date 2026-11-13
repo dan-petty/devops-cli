@@ -4522,7 +4522,7 @@ class RoadmapMessages:
     )
     stage_problem_modified: str = (
         "The capability {capability} is not in openspec/specs/, so it has no requirement to "
-        "modify. Add the requirements instead."
+        "modify, rename or remove. Add the requirements instead."
     )
     stage_problem_keyword: str = "The requirement {requirement} does not say SHALL or MUST."
     # A requirement text that the strict OpenSpec validation of the spec refuses (#4524).
@@ -4625,6 +4625,21 @@ class RoadmapMessages:
         "The requirement {requirement} is in the added requirements of {capability}, and "
         "openspec/specs/{capability}/spec.md already has it. Change it with modified, or give "
         "the new requirement another name."
+    )
+    # A rename that `openspec archive` refuses, or a removal that it skips, and that `openspec
+    # validate --strict` passes (#5340).
+    stage_problem_rename_unknown: str = (
+        "The renamed requirement {requirement} is not in openspec/specs/{capability}/spec.md. "
+        "Give the exact name of a requirement of that spec as from_name."
+    )
+    stage_problem_rename_taken: str = (
+        "The new name {requirement} of a renamed requirement is in "
+        "openspec/specs/{capability}/spec.md already. Give to_name a name that the spec does not "
+        "have."
+    )
+    stage_problem_remove_unknown: str = (
+        "The removed requirement {requirement} is not in openspec/specs/{capability}/spec.md. "
+        "Give the exact name of a requirement of that spec."
     )
     # An added requirement removes a command or an option, and a base requirement of the capability
     # still names it: the archive would leave both in the living spec (#3287).
@@ -4913,6 +4928,11 @@ class RoadmapMessages:
     )
     plan_read_bad_requirement: str = (
         "`{path}` holds a requirement with no scenario, so the reader cannot read it."
+    )
+    plan_read_bad_rename: str = "`{path}` holds a RENAMED line with no pair: write each FROM line with its TO line after it."
+    plan_read_bad_removal: str = (
+        "`{path}` holds a removed requirement with no `**Reason**:` line, so the reader cannot read "
+        "it."
     )
     plan_read_bad_spec: str = "`{path}` is no spec delta under `specs/<capability>/`."
     plan_check_line: str = "{path}: {rule}: {message}"

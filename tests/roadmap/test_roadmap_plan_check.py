@@ -317,6 +317,65 @@ def test_a_base_spec_that_moved_since_the_plan_is_reported(stage_repo: StageRepo
     assert [p.rule for p in result.problems] == ["spec-moved"]
 
 
+# A base requirement that a plan renames and modifies under its new name (#5340).
+RENAMED_SPEC = "openspec/specs/roadmap-refine/spec.md"
+RENAMED_OLD = "The job stages one item"
+RENAMED_NEW = "The job stages each ready item"
+
+
+def _renamed_base(text: str) -> str:
+    return (
+        "# roadmap-refine Specification\n\n## Requirements\n\n"
+        f"### Requirement: {RENAMED_OLD}\n{text}\n\n"
+        "#### Scenario: One item\n- **WHEN** the job runs\n- **THEN** it stages one\n"
+    )
+
+
+def _renamed_plan() -> StageProposal:
+    return make_stage_proposal(
+        specs=[
+            {
+                "capability": "roadmap-refine",
+                "renamed": [{"from_name": RENAMED_OLD, "to_name": RENAMED_NEW}],
+                "modified": [
+                    {
+                        "name": RENAMED_NEW,
+                        "text": "The job SHALL stage each ready item.",
+                        "scenarios": [
+                            {"name": "One item", "when": "the job runs", "then": "it stages one"}
+                        ],
+                    }
+                ],
+            }
+        ]
+    )
+
+
+@pytest.mark.parametrize("moved", [False, True])
+def test_a_renamed_requirement_is_compared_under_its_old_name(
+    stage_repo: StageRepo, *, moved: bool
+) -> None:
+    (stage_repo.clone / RENAMED_SPEC).write_text(
+        _renamed_base("The job SHALL stage one item."), encoding="utf-8"
+    )
+    stage_repo.git("add", "-A")
+    stage_repo.git("commit", "-q", "-m", "old spec")
+    stage_repo.git("push", "-q", "origin", "main")
+    sha = _push(stage_repo, _change(_renamed_plan(), known={"roadmap-refine"}))
+    if moved:
+        (stage_repo.clone / RENAMED_SPEC).write_text(
+            _renamed_base("The job SHALL stage two items."), encoding="utf-8"
+        )
+        stage_repo.git("add", "-A")
+        stage_repo.git("commit", "-q", "-m", "move the base spec")
+        stage_repo.git("push", "-q", "origin", "main")
+
+    result = _run(stage_repo, _facts(stage_repo, sha=sha))
+
+    moved_problems = [p for p in result.problems if p.rule == "spec-moved"]
+    assert [RENAMED_OLD in p.message for p in moved_problems] == ([True] if moved else [])
+
+
 def test_an_unreadable_tasks_file_is_reported(stage_repo: StageRepo) -> None:
     files = _change()
     tasks = files[f"openspec/changes/{CHANGE}/tasks.md"]

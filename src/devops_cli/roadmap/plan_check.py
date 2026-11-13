@@ -335,8 +335,11 @@ def _moved_problems(
             continue
         planned = _spec_requirements(source, plan_rev, spec.capability)
         base = _spec_requirements(source, base_rev, spec.capability)
+        # The archive applies a rename before a MODIFIED block, so a requirement under the new
+        # name of a rename replaces the base text of the old name (#5340).
+        base_names = spec.base_names()
         for requirement in spec.modified:
-            name = requirement.name.strip()
+            name = base_names.get(requirement.name.strip(), requirement.name.strip())
             before = planned.get(name, "")
             after = base.get(name)
             if after is None:
