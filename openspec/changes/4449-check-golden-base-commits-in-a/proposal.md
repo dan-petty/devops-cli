@@ -32,6 +32,10 @@ None.
 - Documents: `docs/TESTING.md`
 - Tests: `tests/invariants/test_roadmap_stage_eval_commits_check.py`, `tests/gate/roadmap_stage_eval_commits.py`, `tests/commands/test_ci_gate_rows.py`, `tests/roadmap/stage/test_roadmap_stage_eval_cases.py`
 
+## Weakened checks
+
+- **`tests/roadmap/stage/test_roadmap_stage_eval_cases.py::test_each_base_commit_of_the_set_is_a_full_hash_of_a_real_commit_or_the_case_reads_none`**: Stopped: a golden case whose base commit is not a full hash of a commit of the repository, and a `NO_COMMIT` case with no note that it reads no commit. Safeguard: The `devops ci` row `roadmap-stage-eval-commits` makes the same checks on the git history and fails on a shallow clone. `tests/invariants/test_roadmap_stage_eval_commits_check.py` proves each verdict of the row with canned git answers.
+
 ## Feasibility
 
 - The premise of the issue is the test that starts git in the eval case file. The probes confirm the paths of the change, word for word: "The path `tests/roadmap/stage/test_roadmap_stage_eval_cases.py` is a file of the staging commit.", "The path `docs/TESTING.md` is a file of the staging commit." and "The path `tests/gate/roadmap_stage_eval_commits.py` is no file of the staging commit." So group 1 creates the check module and group 2 changes the cited test file.
