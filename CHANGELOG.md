@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.132.1](https://github.com/dan-petty/devops-cli/compare/v0.132.0...v0.132.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* **cli:** cluster service reads retry a transient 503 ([#5549](https://github.com/dan-petty/devops-cli/issues/5549)) ([0ae1ce5](https://github.com/dan-petty/devops-cli/commit/0ae1ce51f1262ceed47476e8ba8960767899d7c3))
+
 ## [0.132.0](https://github.com/dan-petty/devops-cli/compare/v0.131.0...v0.132.0) (2026-11-13)
 
 
