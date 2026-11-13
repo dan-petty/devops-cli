@@ -1225,7 +1225,7 @@ Bootstrap homelab Kubernetes cluster with Minikube, Calico, and ingress.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `k8s_dir` | `string` | No | `k8s` | Directory containing Kubernetes manifests. |
+| `k8s_dir` | `string` | No | - | The environment tree: the Kubernetes folder of the infra repo (default: kubernetes.dir of the project profile). |
 | `auto_start` | `boolean` | No | `True` | Auto-start minikube if stopped. |
 | `stack` | `string` | No | `all` | Stack to operate on: infra | llm | logging | devops | gitea | chat | all. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
@@ -1275,7 +1275,8 @@ Right after the namespaces, it pushes the Secrets of the base rows, its stacks a
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `k8s_dir` | `string` | No | `k8s` | Path to k8s/ config directory. |
+| `k8s_dir` | `string` | No | - | The environment tree: the Kubernetes folder of the infra repo. Default: kubernetes.dir of the project profile of the current repository, else of the one infra repo that gives it. |
+| `product_dir` | `string` | No | - | The product base that devops-cli ships (default: k8s/devops of the current repository). |
 | `stack` | `string` | No | `infra` | Stack to operate on: infra | llm | logging | devops | gitea | chat | all. |
 | `context` | `string` | No | - | Kubernetes cluster context name. |
 | `domain` | `string` | No | - | Domain to substitute for template (defaults to k8s.domain in config.yaml). |
@@ -1345,7 +1346,7 @@ Validate K8s manifests and Helm charts using Red Hat Kube-linter.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `target` | `string` | No | `.` | Target K8s manifest file or directory to lint. |
+| `target` | `string` | No | - | Target K8s manifest file or directory to lint (default: the environment tree). |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `k8s_logs`
@@ -1428,7 +1429,8 @@ Uninstall the k8s infrastructure / LLM stack and delete namespaces.
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `k8s_dir` | `string` | No | `k8s` | Path to k8s/ config directory. |
+| `k8s_dir` | `string` | No | - | The environment tree: the Kubernetes folder of the infra repo. Default: kubernetes.dir of the project profile of the current repository, else of the one infra repo that gives it. |
+| `product_dir` | `string` | No | - | The product base that devops-cli ships (default: k8s/devops of the current repository). |
 | `stack` | `string` | No | `infra` | Stack to operate on: infra | llm | logging | devops | gitea | chat | all. |
 | `context` | `string` | No | - | Kubernetes cluster context name. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -18,6 +18,7 @@ from devops_cli.commands.k8s.stack_lifecycle import (
     _HELM_REPOS,
     HELM_RELEASES_BY_STACK,
 )
+from tests.support.k8s_tree import release_values
 from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
@@ -1182,15 +1183,15 @@ def _debug_log_settings(node: Any, path: str = "") -> list[str]:
 def test_no_stack_values_file_sets_a_debug_log_level() -> None:
     """No values file the stack lifecycle installs sets a debug log level (#1133)."""
     values_by_file = {
-        value: yaml.safe_load(Path(value).read_text(encoding="utf-8")) or {}
+        str(value.relative_to(REPO_ROOT)): yaml.safe_load(value.read_text(encoding="utf-8")) or {}
         for releases in HELM_RELEASES_BY_STACK.values()
         for release in releases
-        for value in release["values"]
+        for value in release_values(release)
     }
     debug_in_repo = {
         name: hits for name, doc in values_by_file.items() if (hits := _debug_log_settings(doc))
     }
-    pyroscope = values_by_file[str(Path("k8s") / "monitoring" / "pyroscope-values.yaml")]
+    pyroscope = values_by_file["k8s/monitoring/pyroscope-values.yaml"]
     mutated_pyroscope = {
         **pyroscope,
         "pyroscope": {

@@ -15,8 +15,6 @@ from devops_cli.cloudflare.client import (
     _is_uuid,
 )
 from devops_cli.config.constants import (
-    CONST_CLOUDFLARE_ALLOW_POLICY_NAME,
-    CONST_CLOUDFLARE_BYPASS_POLICY_NAME,
     CONST_CLOUDFLARE_CATCHALL_SERVICE,
     CONST_CLOUDFLARE_CFARGOTUNNEL_SUFFIX,
     CONST_CLOUDFLARE_DEFAULT_SERVICE,
@@ -26,6 +24,7 @@ from devops_cli.config.constants import (
     CONST_URL_CLOUDFLARE_API_BASE,
 )
 from devops_cli.dry_run.requests import PlannedRequest
+from devops_cli.models.cloudflare import AccessNames
 from devops_cli.telemetry.service_status import service_status_requests
 
 
@@ -270,6 +269,8 @@ def plan_cloudflare_access_sync(
     allowed_emails: Sequence[str] | None = None,
     bypass_ips: Sequence[str] | None = None,
     account_id: str | None = None,
+    *,
+    names: AccessNames,
 ) -> list[PlannedRequest]:
     """Generate planned requests for synchronizing Cloudflare Access application and policies."""
     aid = account_id or "<account-id>"
@@ -283,7 +284,7 @@ def plan_cloudflare_access_sync(
 
     app_payload = json.dumps(
         {
-            "name": "Homelab Ingress",
+            "name": names.application,
             "domain": domain,
             "type": "self_hosted",
             "session_duration": CONST_CLOUDFLARE_DEFAULT_SESSION_DURATION,
@@ -309,7 +310,7 @@ def plan_cloudflare_access_sync(
     allow_rules = _build_policy_include_rules(allowed_emails, None)
     allow_payload = json.dumps(
         {
-            "name": CONST_CLOUDFLARE_ALLOW_POLICY_NAME,
+            "name": names.allow_policy,
             "decision": "allow",
             "include": allow_rules,
         },
@@ -320,7 +321,7 @@ def plan_cloudflare_access_sync(
             method="POST",
             target=f"{CONST_URL_CLOUDFLARE_API_BASE}/accounts/{aid}/access/apps/<app-id>/policies",
             stdin=allow_payload,
-            condition=f"when policy '{CONST_CLOUDFLARE_ALLOW_POLICY_NAME}' does not exist",
+            condition=f"when policy '{names.allow_policy}' does not exist",
         )
     )
     requests.append(
@@ -328,7 +329,7 @@ def plan_cloudflare_access_sync(
             method="PUT",
             target=f"{CONST_URL_CLOUDFLARE_API_BASE}/accounts/{aid}/access/apps/<app-id>/policies/<policy-id>",
             stdin=allow_payload,
-            condition=f"when policy '{CONST_CLOUDFLARE_ALLOW_POLICY_NAME}' exists",
+            condition=f"when policy '{names.allow_policy}' exists",
         )
     )
 
@@ -336,7 +337,7 @@ def plan_cloudflare_access_sync(
         bypass_rules = _build_policy_include_rules(None, bypass_ips)
         bypass_payload = json.dumps(
             {
-                "name": CONST_CLOUDFLARE_BYPASS_POLICY_NAME,
+                "name": names.bypass_policy,
                 "decision": "bypass",
                 "include": bypass_rules,
             },
@@ -347,7 +348,7 @@ def plan_cloudflare_access_sync(
                 method="POST",
                 target=f"{CONST_URL_CLOUDFLARE_API_BASE}/accounts/{aid}/access/apps/<app-id>/policies",
                 stdin=bypass_payload,
-                condition=f"when policy '{CONST_CLOUDFLARE_BYPASS_POLICY_NAME}' does not exist",
+                condition=f"when policy '{names.bypass_policy}' does not exist",
             )
         )
         requests.append(
@@ -355,7 +356,7 @@ def plan_cloudflare_access_sync(
                 method="PUT",
                 target=f"{CONST_URL_CLOUDFLARE_API_BASE}/accounts/{aid}/access/apps/<app-id>/policies/<bypass-policy-id>",
                 stdin=bypass_payload,
-                condition=f"when policy '{CONST_CLOUDFLARE_BYPASS_POLICY_NAME}' exists",
+                condition=f"when policy '{names.bypass_policy}' exists",
             )
         )
 

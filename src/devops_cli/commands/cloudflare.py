@@ -21,7 +21,6 @@ from devops_cli.cloudflare.cloudflare_plans import (
 )
 from devops_cli.cloudflare.dns import delete_dns_records
 from devops_cli.config.constants import (
-    CONST_CLOUDFLARE_BYPASS_POLICY_NAME,
     CONST_CLOUDFLARE_CATCHALL_SERVICE,
     CONST_CLOUDFLARE_DEFAULT_SERVICE,
     CONST_CLOUDFLARE_DEFAULT_SUBDOMAINS,
@@ -34,6 +33,7 @@ from devops_cli.dry_run import dry_run_class, is_dry_run, set_dry_run
 from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions.cloudflare import CloudflareAuthError
 from devops_cli.lang import HELP
+from devops_cli.models.cloudflare import AccessNames
 from devops_cli.output import (
     print_error,
     print_info,
@@ -813,7 +813,7 @@ def _render_access_sync_results(
         print_info(f"Authorized emails: {', '.join(summary['allowed_emails'])}")
     if summary.get("bypass_ips"):
         print_info(
-            f"Public IP bypass: {', '.join(summary['bypass_ips'])} (policy '{CONST_CLOUDFLARE_BYPASS_POLICY_NAME}')"
+            f"Public IP bypass: {', '.join(summary['bypass_ips'])} (policy '{summary['bypass_policy_name']}')"
         )
 
 
@@ -876,6 +876,12 @@ def access_sync(
         )
         raise typer.Exit(1)
 
+    access = settings.cloudflare.access
+    names = AccessNames(
+        application=access.application_name,
+        allow_policy=access.allow_policy_name,
+        bypass_policy=access.bypass_policy_name,
+    )
     resolved = resolve_format(output_format, json_output=json_output)
     if is_dry_run():
         plan = plan_cloudflare_access_sync(
@@ -883,19 +889,21 @@ def access_sync(
             allowed_emails=emails,
             bypass_ips=eff_bypass_ips,
             account_id=account_id or settings.cloudflare.account_id,
+            names=names,
         )
         if resolved != CONST_OUTPUT_FORMAT_TABLE:
             payload: dict[str, Any] = {
                 "dry_run": True,
                 "requests": [r.__dict__ for r in plan],
                 "app_id": "<app-id>",
-                "app_name": "Homelab Ingress",
+                "app_name": names.application,
                 "domain": eff_domain,
                 "app_action": "created",
                 "policy_id": "<policy-id>",
                 "allowed_emails": emails,
                 "bypass_ips": eff_bypass_ips,
                 "bypass_policy_id": "<bypass-policy-id>" if eff_bypass_ips else None,
+                "bypass_policy_name": names.bypass_policy,
             }
             emit_serialized(payload, resolved)
             return
@@ -909,6 +917,7 @@ def access_sync(
         domain=eff_domain,
         allowed_emails=emails,
         bypass_ips=eff_bypass_ips,
+        names=names,
         account_id=account_id,
     )
     _render_access_sync_results(summary, output_format, json_output)

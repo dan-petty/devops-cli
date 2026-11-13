@@ -3,18 +3,24 @@ Argo CD Application installs. They read files only and render no chart."""
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import re
+from collections.abc import Iterable, Iterator, Mapping
 from functools import cache
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from devops_cli.k8s.environment import EnvironmentTree
 from tests.support.paths import REPO_ROOT
 
 K8S = REPO_ROOT / "k8s"
+# The environment tree of this repository, as `.devops/project.toml` declares it (#5131).
+TREE = EnvironmentTree(K8S, REPO_ROOT)
 APPLICATIONS = K8S / "argocd" / "apps"
-VALUES_PREFIX = "$values/"
+# A value file `$<ref>/<path>` names a file of the source whose `ref` is `<ref>`. Every ref source
+# of this tree names this repository, whatever its ref (#5131).
+REF_VALUE_FILE = re.compile(r"^\$(?P<ref>[^/]+)/(?P<path>.+)$")
 
 # Where each workload kind keeps its pod spec.
 POD_SPEC_PATHS: dict[str, tuple[str, ...]] = {
@@ -66,11 +72,51 @@ def pinned_charts() -> frozenset[tuple[str, str]]:
     )
 
 
+def release_values(release: Mapping[str, Any]) -> list[Path]:
+    """The values files of a release of `HELM_RELEASES_BY_STACK`, in their order: the files of the
+    environment tree, then the files of the product base `k8s/devops` (#5131)."""
+    return [
+        *(TREE.path(value) for value in release["values"]),
+        *(TREE.path("devops") / value for value in release.get("product_values", [])),
+    ]
+
+
+def deploy_stack_manifests(stacks: Iterable[str] | None = None) -> list[Path]:
+    """The manifest paths that deploy-stack applies before the charts, for `stacks` (every stack
+    when None), in its order: the files of the product base `k8s/devops`, then the paths of the
+    environment tree (#5131)."""
+    from devops_cli.commands.k8s.stack_lifecycle import (
+        MANIFESTS_BY_STACK,
+        PRODUCT_MANIFESTS_BY_STACK,
+    )
+
+    product = TREE.path("devops")
+    selected = (
+        list(stacks)
+        if stacks is not None
+        else sorted(MANIFESTS_BY_STACK.keys() | PRODUCT_MANIFESTS_BY_STACK.keys())
+    )
+    return [
+        path
+        for stack in selected
+        for path in (
+            *(product / p for p in PRODUCT_MANIFESTS_BY_STACK.get(stack, [])),
+            *(TREE.path(p) for p in MANIFESTS_BY_STACK.get(stack, [])),
+        )
+    ]
+
+
+def value_file_path(value_file: str) -> str:
+    """The path in this repository of a value file of a chart source: `$<ref>/<path>` for any
+    ref, else the path as written."""
+    match = REF_VALUE_FILE.match(value_file)
+    return match["path"] if match else value_file
+
+
 def _value_files(source: dict[str, Any]) -> list[str]:
     """The values files of a chart source, relative to the repository, in their order."""
     return [
-        value_file.removeprefix(VALUES_PREFIX)
-        for value_file in source.get("helm", {}).get("valueFiles", [])
+        value_file_path(value_file) for value_file in source.get("helm", {}).get("valueFiles", [])
     ]
 
 

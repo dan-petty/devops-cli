@@ -82,6 +82,23 @@ Argo CD server endpoint, authentication, TLS, and service addressing settings.
 | `url` | `Union` | - | `DEVOPS_CLI_ARGOCD_URL` | ArgoCD service URL |
 | `github_app_id` | `Union` | - | `DEVOPS_CLI_ARGOCD_GITHUB_APP_ID` | ID of the GitHub App that Argo CD's GitHub notifier acts as |
 | `github_app_installation_id` | `Union` | - | `DEVOPS_CLI_ARGOCD_GITHUB_APP_INSTALLATION_ID` | ID of the installation of Argo CD's notifier App on the managed repositories |
+| `root_applications` | `list` | `['bootstrap', 'cluster']` | `DEVOPS_CLI_ARGOCD_ROOT_APPLICATIONS` | The Argo CD Applications that sync the other Applications (app of apps), the outer one first. A volume move pauses them before the Applications of the claim, and the last one is the Application that 'devops argo gitops watch' and 'sync' sync when no --app-name is given |
+
+## Gitea Configuration (`gitea`)
+
+gitea configuration settings.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `applications` | `list` | `['gitea', 'gitea-manifests']` | `DEVOPS_CLI_GITEA_APPLICATIONS` | The Argo CD Applications of the Gitea stack, which 'devops k8s doctor --stack gitea' checks |
+
+## Mattermost Configuration (`mattermost`)
+
+mattermost configuration settings.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `team` | `str` | `homelab` | `DEVOPS_CLI_MATTERMOST_TEAM` | The Mattermost team that 'devops k8s bootstrap-mattermost' makes or reuses when no --team is given |
 
 ## Qdrant Vector Store (`qdrant`)
 
@@ -172,7 +189,7 @@ Cloudflare API token and zone settings.
 | `account_id` | `Union` | - | `DEVOPS_CLI_CLOUDFLARE_ACCOUNT_ID` | Cloudflare Account ID |
 | `zone_id` | `Union` | - | `DEVOPS_CLI_CLOUDFLARE_ZONE_ID` | Cloudflare Zone ID |
 | `public_ip_bypass` | `Union` | - | `DEVOPS_CLI_CLOUDFLARE_PUBLIC_IP_BYPASS` | Homelab public IP address or CIDR block permitted to bypass Cloudflare Access authentication |
-| `access` | `CloudflareAccessConfig` | `allowed_emails=[] bypass_ips=[] public_ip_bypass=None` | - | Cloudflare Zero Trust Access application and policy configuration |
+| `access` | `CloudflareAccessConfig` | `allowed_emails=[] bypass_ips=[] public_ip_bypass=None application_name='Homelab Ingress' allow_policy_name='Allow homelab authorized emails' bypass_policy_name='homelab-public-ip-bypass'` | - | Cloudflare Zero Trust Access application and policy configuration |
 
 ## Sandbox Configuration (`sandbox`)
 

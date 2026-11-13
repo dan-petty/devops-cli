@@ -33,7 +33,7 @@ from tests.support.k8s_commands import (
     name_contexts,
     stock_push_keyring,
 )
-from tests.support.k8s_tree import pinned_charts
+from tests.support.k8s_tree import TREE, pinned_charts, release_values
 from tests.support.paths import FIXTURES, REPO_ROOT
 from tests.support.tcp_probe import TcpProbe
 
@@ -395,7 +395,8 @@ def test_deploy_stack_gives_the_prometheus_chart_the_environment_values_then_the
     cli: Callable[..., Any],
 ) -> None:
     """The helm command of the prometheus release names each values file in the order of the
-    Application `prometheus`: the environment values, then the product alert rules (#5292)."""
+    Application `prometheus`: the environment values, then the product alert rules (#5292). The
+    product file is under the product base of the current repository (#5131)."""
     res = cli("k8s", "deploy-stack", "--stack", "infra", "--k8s-dir", "k8s", "--dry-run")
     (upgrade,) = [
         cmd
@@ -410,7 +411,7 @@ def test_deploy_stack_gives_the_prometheus_chart_the_environment_values_then_the
         0,
         [
             str(Path("k8s") / "monitoring" / "prometheus-values.yaml"),
-            str(Path("k8s") / "devops" / "monitoring" / "prometheus-rules-values.yaml"),
+            str(TREE.path("devops") / "monitoring" / "prometheus-rules-values.yaml"),
         ],
     )
 
@@ -1517,8 +1518,7 @@ def test_pyroscope_helm_release_and_grafana_datasource() -> None:
     )
     assert pyro_release is not None
 
-    (values_file,) = pyro_release["values"]
-    values_path = Path(values_file)
+    values_path = release_values(pyro_release)[0]
     assert values_path.is_file()
     pyro_values = yaml.safe_load(values_path.read_text(encoding="utf-8"))
 
@@ -2102,9 +2102,9 @@ def test_deploy_stack_on_a_native_cluster_applies_the_rendered_config_map_and_no
         [cmd for cmd in applied if any("configmap" in part for part in cmd)],
     ) == (
         0,
-        [["kubectl", "apply", "-k", "k8s", *_CONTEXT], _APPLY_STDIN],
+        [["kubectl", "apply", "-k", str(TREE.root), *_CONTEXT], _APPLY_STDIN],
         "devops-cli-config",
-        [["kubectl", "apply", "-f", "k8s/devops/searxng/configmap.yaml", *_CONTEXT]],
+        [["kubectl", "apply", "-f", str(TREE.path("devops/searxng/configmap.yaml")), *_CONTEXT]],
     )
 
 

@@ -91,8 +91,8 @@ devops argo cd gitops watch [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--path`, `-p` | `string` | `k8s` | Comma-separated paths or directories of manifests to monitor |
-| `--app-name`, `-a` | `string` | `cluster` | Application name. |
+| `--path`, `-p` | `string` | - | Comma-separated paths or directories of manifests to monitor (default: the environment tree) |
+| `--app-name`, `-a` | `string` | - | Name of the ArgoCD Application to sync (default: the last of argocd.root_applications). |
 | `--debounce-ms` | `integer` | `500` | Debounce delay in milliseconds to aggregate rapid modifications |
 | `--interval`, `-i` | `float` | `1.0` | Watch polling interval in seconds |
 | `--max-events` | `integer` | - | Maximum change events to process before exiting |
@@ -116,7 +116,7 @@ devops argo cd gitops drift [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--path`, `-p` | `string` | `k8s` | Comma-separated paths or directories of manifests to inspect |
+| `--path`, `-p` | `string` | - | Comma-separated paths or directories of manifests to inspect (default: the environment tree) |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
@@ -132,7 +132,7 @@ devops argo cd gitops sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--app-name`, `-a` | `string` | `cluster` | Application name. |
+| `--app-name`, `-a` | `string` | - | Name of the ArgoCD Application to sync (default: the last of argocd.root_applications). |
 | `--mode`, `-m` | `string` | `api` | Synchronization trigger mode ('api' or 'webhook') |
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |
@@ -228,7 +228,7 @@ devops argo cd apps bootstrap-gitops [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--root-app`, `-f` | `path` | `k8s/argocd/bootstrap/bootstrap.yaml` | Path to root ArgoCD App-of-Apps manifest. |
+| `--root-app`, `-f` | `path` | - | Path to root ArgoCD App-of-Apps manifest (default: argocd/bootstrap/bootstrap.yaml of the environment tree). |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -510,8 +510,8 @@ devops argo gitops watch [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--path`, `-p` | `string` | `k8s` | Comma-separated paths or directories of manifests to monitor |
-| `--app-name`, `-a` | `string` | `cluster` | Application name. |
+| `--path`, `-p` | `string` | - | Comma-separated paths or directories of manifests to monitor (default: the environment tree) |
+| `--app-name`, `-a` | `string` | - | Name of the ArgoCD Application to sync (default: the last of argocd.root_applications). |
 | `--debounce-ms` | `integer` | `500` | Debounce delay in milliseconds to aggregate rapid modifications |
 | `--interval`, `-i` | `float` | `1.0` | Watch polling interval in seconds |
 | `--max-events` | `integer` | - | Maximum change events to process before exiting |
@@ -535,7 +535,7 @@ devops argo gitops drift [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--path`, `-p` | `string` | `k8s` | Comma-separated paths or directories of manifests to inspect |
+| `--path`, `-p` | `string` | - | Comma-separated paths or directories of manifests to inspect (default: the environment tree) |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 
@@ -551,7 +551,7 @@ devops argo gitops sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--app-name`, `-a` | `string` | `cluster` | Application name. |
+| `--app-name`, `-a` | `string` | - | Name of the ArgoCD Application to sync (default: the last of argocd.root_applications). |
 | `--mode`, `-m` | `string` | `api` | Synchronization trigger mode ('api' or 'webhook') |
 | `--prune` | `boolean` | - | Allow deletion of resources omitted from the source repository. |
 | `--force` | `boolean` | - | Force execution ignoring non-blocking warnings. |

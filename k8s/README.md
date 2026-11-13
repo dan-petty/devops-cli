@@ -7,6 +7,8 @@ Kustomize + Helm-based configurations for deploying infrastructure management (`
 
 `devops k8s deploy-stack` deploys the same configurations to either cluster.
 
+This folder is the environment tree of the homelab: what one cluster runs. `k8s/devops/` is the product base that devops-cli ships. A command that reads the environment tree (`deploy-stack`, `teardown-stack`, `bootstrap`, `image-pins`, `lint`, `check-deprecated`, `ollama prune`, `devops grafana dashboards`, `devops ai gateway render`, `devops argo cd apps bootstrap-gitops` and `devops argo gitops`) takes its root from `--k8s-dir`, else from the project profile fact `kubernetes.dir` of the repository of the current folder (`.devops/project.toml` of this repository declares `k8s`), else from the one entry of `infra.repos` whose checkout gives `kubernetes.dir`. `deploy-stack` and `teardown-stack` read the product base from `--product-dir`, else from `k8s/devops` of the repository of the current folder. A path in the tree is relative to its root, such as `llm/gateway/config.yaml`.
+
 ## Stacks Overview
 
 | Stack | Components | Namespaces | Default Ports |
@@ -18,7 +20,7 @@ Kustomize + Helm-based configurations for deploying infrastructure management (`
 | **`chat`** | Mattermost Team Edition on CloudNativePG ([Mattermost](#mattermost)) | `mattermost`, `mattermost-operator` | `8065` (Mattermost HTTP, in the cluster) |
 | **`all`** | All components from the stacks above, and the `devops` stack ([docs/CLUSTER.md](../docs/CLUSTER.md)) | `argocd`, `argo-workflows`, `monitoring`, `otel`, `llm`, `logging`, `gitea`, `devops`, `mattermost`, `cnpg-system`, `mattermost-operator`, `cert-manager` | All ports above |
 
-Register each manifest, Helm release and post-Helm step that runs in the cluster in `MANIFESTS_BY_STACK`, `HELM_RELEASES_BY_STACK` or `POST_HELM_BY_STACK` (`src/devops_cli/commands/k8s/stack_lifecycle.py`), so that `devops k8s deploy-stack --stack all` deploys it with the `infra`, `llm`, `logging`, `devops`, `gitea` and `chat` stacks. deploy-stack applies a file of `MANIFESTS_BY_STACK` with `kubectl apply -f` and a kustomization directory with `kubectl apply -k`.
+Register each manifest, Helm release and post-Helm step that runs in the cluster in `MANIFESTS_BY_STACK`, `HELM_RELEASES_BY_STACK` or `POST_HELM_BY_STACK` (`src/devops_cli/commands/k8s/stack_lifecycle.py`), with a path in the environment tree, or a file of the product base in `PRODUCT_MANIFESTS_BY_STACK` or `PRODUCT_POST_HELM_BY_STACK`, with a path in `k8s/devops`, so that `devops k8s deploy-stack --stack all` deploys it with the `infra`, `llm`, `logging`, `devops`, `gitea` and `chat` stacks. deploy-stack applies a file of `MANIFESTS_BY_STACK` with `kubectl apply -f` and a kustomization directory with `kubectl apply -k`.
 
 ## Prerequisites
 
@@ -445,7 +447,7 @@ devops k8s volume move logging/storage-loki-0 --to-node <worker-node>
 
 The move does these steps, and prints each one:
 
-1. It pauses automated sync from the top down: `bootstrap`, `cluster`, then each Application that tracks the claim or the workloads that mount it (Pausing an Application, below). If it did not, self-heal would start the workload again during the copy.
+1. It pauses automated sync from the top down: the root Applications of the setting `argocd.root_applications` (`bootstrap`, `cluster`), then each Application that tracks the claim or the workloads that mount it (Pausing an Application, below). If it did not, self-heal would start the workload again during the copy.
 2. It makes the claim `<claim>-move`, with the size and the class of the old claim, and the pod `<claim>-dst` on the target node. local-path binds the new volume on that node.
 3. It scales the workloads that mount the claim to zero. It finds them from the volumes of the pod specs, not from labels. Then it starts the pod `<claim>-src`, which mounts the old claim read-only. Its volume keeps it on the old node, so one pod cannot mount the two claims.
 4. It copies through the API server with GNU tar in `debian:trixie-slim`, which keeps the owners, the modes and the sparse files. The source keeps its stdout open until the destination has ended, because the end of that stdout loses the data that still waits on the path to a slower destination. The extract ends at the end-of-archive marker, and a named pipe from the stdout of the destination to the stdin of the source then ends the source. When the exec stream stops (`connection reset by peer`), it empties the destination and copies one more time.
@@ -798,7 +800,7 @@ Argo CD's Application `gitea` installs chart `gitea` 12.7.0 from `https://dl.git
 Nothing new is configured in Cloudflare when the wildcard route and the wildcard Access application are in place:
 
 - The tunnel's wildcard public hostname goes to Traefik, and the wildcard DNS record exists. `devops cloudflare tunnel routes` and `devops cloudflare dns list` show them, and `devops cloudflare tunnel sync` and `devops cloudflare dns sync` make them.
-- The Access application of the wildcard has the policy `homelab-public-ip-bypass` with the current public address of the workstation. `devops cloudflare access status --json` gives the ID of the application, and `devops cloudflare access policies <app-id>` lists its policies.
+- The Access application of the wildcard has the policy `homelab-public-ip-bypass` (the setting `cloudflare.access.bypass_policy_name`) with the current public address of the workstation. `devops cloudflare access status --json` gives the ID of the application, and `devops cloudflare access policies <app-id>` lists its policies.
 
 Git over HTTPS cannot follow the Access login redirect, and a git credential helper gives only a user name and a password, not headers. Thus git gets through Access by the bypass policy, and then Gitea's own token authenticates the request. No Access service token goes into git config. A browser on another network signs in through Access first, and then through Gitea.
 
@@ -879,7 +881,7 @@ Mattermost Team Edition runs under Argo CD from the Mattermost Operator on Cloud
    kubectl patch pv "$(kubectl -n mattermost get pvc -l cnpg.io/cluster=mattermost-db -o jsonpath='{.items[0].spec.volumeName}')" -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
    kubectl patch pv "$(kubectl -n mattermost get pvc mattermost-files -o jsonpath='{.spec.volumeName}')" -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
    ```
-5. Run `uv run devops k8s bootstrap-mattermost --admin-user <user> --context <context>`. It creates the team (`--team`, default `homelab`), the channels `alerts` and `deploys`, an incoming webhook for each channel that is locked to its channel (#1390), and the slash command `/roadmap`. It saves the tokens in the keyring and pushes the Secrets.
+5. Run `uv run devops k8s bootstrap-mattermost --admin-user <user> --context <context>`. It creates the team (`--team`, default the setting `mattermost.team`, `homelab`), the channels `alerts` and `deploys`, an incoming webhook for each channel that is locked to its channel (#1390), and the slash command `/roadmap`. It saves the tokens in the keyring and pushes the Secrets.
 
 ### Operations
 
@@ -963,7 +965,7 @@ The cluster Jobs act as the same App as the Service, and they do not count in `s
 
 The row Roadmap Service of that dashboard charts the rounds, the budget, the queues, the stops and the inputs of the Service.
 
-The rest of ConfigMap `devops-cli-config` (gateway URL, models, context windows, telemetry) comes from `k8s/devops/configmap.example.yaml` in the checkout deploy-stack runs from (`--k8s-dir`, default `./k8s`), so run it from a checkout of `main`, the revision the cluster runs.
+The rest of ConfigMap `devops-cli-config` (gateway URL, models, context windows, telemetry) comes from `configmap.example.yaml` of the product base that deploy-stack reads (`--product-dir`, default `k8s/devops` of the current checkout), so run it from a checkout of `main`, the revision the cluster runs.
 
 Unlike the ConfigMap, the host patches do not depend on the checkout. deploy-stack derives them from what each Application renders at the revision Argo CD builds: it fetches the Application's `targetRevision` from its `repoURL` into a temporary directory and builds its path with Kustomize, whichever branch is checked out locally. The fetch gets the credential of the GitHub session from `gh auth git-credential`, so an Application can name a private repository on github.com. The dry run lists the Applications and fetches nothing. `--argocd-revision <ref>` builds another revision instead, to stage hosts before a pull request merges.
 

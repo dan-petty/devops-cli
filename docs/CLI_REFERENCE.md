@@ -115,12 +115,14 @@ The command groups of `devops` and their commands. The page of each group in `co
 |  | `devops k8s lint [OPTIONS] <target>` | Validate K8s manifests and Helm charts using Red Hat Kube-linter. |
 |  | `devops k8s audit [OPTIONS]` | Sanitize active K8s/Minikube cluster resource health using Derailed Popeye. |
 |  | `devops k8s check-deprecated [OPTIONS] <target>` | Scan manifests for deprecated/removed K8s API versions using Fairwinds Pluto. |
-|  | `devops k8s image-pins [OPTIONS] <root>` | Render each Argo CD Application of the repository and resolve each image it pins in its
-registry, as an anonymous client, without pulling it: a HEAD request of its manifest, which
-Docker Hub does not count against the anonymous allowance of the network's public address.
-Exits 1, before it resolves an image, when an image has no digest and the latest tag or no tag,
-unless Image Updater moves it. Exits 1 when a registry does not hold an image or refuses the
-read. The CI job `image-pins` runs the check on a pull request that changes k8s/. |
+|  | `devops k8s image-pins [OPTIONS] <target>` | Render each Argo CD Application of the environment tree, or the kustomization folder
+TARGET, and resolve each image it pins in its registry, as an anonymous client, without pulling
+it: a HEAD request of its manifest, which Docker Hub does not count against the anonymous
+allowance of the network's public address. A git source of another public repository is
+fetched at its revision. Exits 1, before it resolves an image, when an image has no digest and
+the latest tag or no tag, unless Image Updater moves it or --managed names its repository.
+Exits 1 when a registry does not hold an image or refuses the read. The CI job `image-pins`
+runs the check on a pull request that changes k8s/. |
 |  | `devops k8s crawl4ai-check [OPTIONS]` | Check that the Crawl4AI service refuses internal targets. It sends each of five routes
 (/md, /html, /screenshot, /pdf and /llm) to each of five internal targets (the metadata
 address, localhost, the Kubernetes API, the service itself and the roadmap Service) with the

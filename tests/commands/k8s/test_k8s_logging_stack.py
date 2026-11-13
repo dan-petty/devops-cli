@@ -15,7 +15,6 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
 from devops_cli.commands.k8s.networking import VALID_STACKS
-from devops_cli.config.defaults import DEFAULT_K8S_DIR
 from devops_cli.dry_run import set_dry_run
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.kubernetes import FakeCluster
@@ -96,7 +95,7 @@ def test_deploy_stack_installs_loki_from_the_grafana_community_chart(
         "grafana-community/loki",
         "21.2.1",
         "logging",
-        str(DEFAULT_K8S_DIR / "logging" / "loki-values.yaml"),
+        "k8s/logging/loki-values.yaml",
         "https://grafana-community.github.io/helm-charts",
     )
 

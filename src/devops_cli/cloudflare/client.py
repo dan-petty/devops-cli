@@ -14,8 +14,6 @@ import httpx2
 import tenacity
 
 from devops_cli.config.constants import (
-    CONST_CLOUDFLARE_ALLOW_POLICY_NAME,
-    CONST_CLOUDFLARE_BYPASS_POLICY_NAME,
     CONST_CLOUDFLARE_CATCHALL_SERVICE,
     CONST_CLOUDFLARE_CFARGOTUNNEL_SUFFIX,
     CONST_CLOUDFLARE_DEFAULT_SERVICE,
@@ -35,6 +33,7 @@ from devops_cli.exceptions.cloudflare import CloudflareAPIError, CloudflareAuthE
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client
 from devops_cli.models.cloudflare import (
+    AccessNames,
     CloudflareAccessApplication,
     CloudflareAccessPolicy,
     CloudflareDNSRecord,
@@ -792,13 +791,14 @@ class CloudflareClient:
         app_id: str,
         bypass_ips: Sequence[str] | None,
         account_id: str,
+        name: str,
     ) -> str | None:
-        """Create or update bypass policy when bypass IPs are provided."""
+        """Create or update the bypass policy `name` when bypass IPs are provided."""
         if not bypass_ips:
             return None
         policy = self.create_or_update_access_policy(
             app_id=app_id,
-            name=CONST_CLOUDFLARE_BYPASS_POLICY_NAME,
+            name=name,
             bypass_ips=bypass_ips,
             decision="bypass",
             account_id=account_id,
@@ -845,21 +845,23 @@ class CloudflareClient:
         domain: str,
         allowed_emails: Sequence[str],
         bypass_ips: Sequence[str] | None = None,
-        name: str = "Homelab Ingress",
+        names: AccessNames,
         session_duration: str = CONST_CLOUDFLARE_DEFAULT_SESSION_DURATION,
         account_id: str | None = None,
     ) -> dict[str, Any]:
-        """Ensure an Access application, allow policy, and optional IP bypass policy protect the domain."""
+        """Ensure an Access application, allow policy, and optional IP bypass policy protect the
+        domain. `names` gives the name of a new application and the names of the two policies,
+        which the sync finds by name."""
         aid = self._require_account(account_id)
         app, app_action = self._ensure_access_application(
             domain=domain,
-            name=name,
+            name=names.application,
             session_duration=session_duration,
             account_id=aid,
         )
         allow_policy = self.create_or_update_access_policy(
             app_id=app.id,
-            name=CONST_CLOUDFLARE_ALLOW_POLICY_NAME,
+            name=names.allow_policy,
             allowed_emails=allowed_emails,
             decision="allow",
             account_id=aid,
@@ -868,6 +870,7 @@ class CloudflareClient:
             app_id=app.id,
             bypass_ips=bypass_ips,
             account_id=aid,
+            name=names.bypass_policy,
         )
         return {
             "app_id": app.id,
@@ -878,6 +881,7 @@ class CloudflareClient:
             "allowed_emails": list(allowed_emails),
             "bypass_ips": list(bypass_ips) if bypass_ips else [],
             "bypass_policy_id": bypass_policy_id,
+            "bypass_policy_name": names.bypass_policy,
         }
 
 

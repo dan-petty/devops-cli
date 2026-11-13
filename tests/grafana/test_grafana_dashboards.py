@@ -381,9 +381,9 @@ def test_cli_lints_the_repository_dashboards() -> None:
 def test_cli_with_no_path_lints_the_environment_and_the_product_dashboards(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """With no path, the lint command reads `k8s/monitoring/dashboards` and
-    `k8s/devops/dashboards` of the current directory, so a uid that two folders share is an
-    error too (#5292)."""
+    """With no path, the lint command reads `monitoring/dashboards` of the environment tree and
+    `dashboards` of the product base `k8s/devops` of the current repository, so a uid that two
+    folders share is an error too (#5292, #5131)."""
     monkeypatch.chdir(REPO_ROOT)
     result = runner.invoke(grafana_app, ["dashboards", "lint", "--json"])
 

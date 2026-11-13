@@ -34,8 +34,6 @@ from devops_cli.config.defaults import (
     DEFAULT_BUNDLE_MODELS,
     DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
     DEFAULT_GATEWAY_REVIEW_SLOTS,
-    DEFAULT_LLM_GPU_THRESHOLDS_PATH,
-    DEFAULT_LLM_TIER_TEMPLATES_PATH,
     DEFAULT_OLLAMA_CLUSTER_SERVICE,
     DEFAULT_OLLAMA_CLUSTER_URL,
     DEFAULT_OLLAMA_EMBEDDING_CLUSTER_URL,
@@ -49,6 +47,7 @@ from devops_cli.k8s.gpu_matrix import (
     get_service_aliases,
     list_gpu_profiles,
 )
+from tests.support.k8s_tree import TREE
 from tests.support.markdown_examples import (
     YAML_FENCE_LANGUAGES,
     code_snippets,
@@ -1036,9 +1035,7 @@ class TestK8sLLMGatewayManifests:
         """Verify the 48 GiB template of the old-GPU tiers keeps one model loaded for good, since
         it is the 48 GiB tier that the thresholds can turn back into a chat tier (#3567)."""
         template = yaml.safe_load(
-            (Path(DEFAULT_LLM_TIER_TEMPLATES_PATH) / "ollama-48gib-slow.yaml").read_text(
-                encoding="utf-8"
-            )
+            (TREE.tier_templates / "ollama-48gib-slow.yaml").read_text(encoding="utf-8")
         )
         env = {
             var["name"]: var["value"]
@@ -1212,13 +1209,16 @@ class TestK8sLLMGatewayManifests:
                 for kustomization in llm_dir.rglob("kustomization.yaml")
                 for path in _kustomized_files(kustomization.parent)
             }
-            | set(MANIFESTS_BY_STACK["llm"])
+            | {Path("k8s") / path for path in MANIFESTS_BY_STACK["llm"]}
             | {
-                Path(value)
+                Path("k8s", value)
                 for release in HELM_RELEASES_BY_STACK["llm"]
                 for value in release["values"]
             }
-            | {DEFAULT_LLM_GPU_THRESHOLDS_PATH, *DEFAULT_LLM_TIER_TEMPLATES_PATH.glob("*.yaml")}
+            | {
+                Path("k8s/llm/profiles/gpu-thresholds.yaml"),
+                *Path("k8s/llm/profiles/tier-templates").glob("*.yaml"),
+            }
         )
 
         assert sorted(manifests - applied) == []

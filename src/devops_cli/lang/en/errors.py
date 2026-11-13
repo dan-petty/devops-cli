@@ -187,6 +187,18 @@ class K8sErrorMessages:
     volume_reclaim_non_interactive: str = (
         "Non-interactive session requires --yes to confirm PersistentVolume reclaim."
     )
+    environment_root_not_found: str = (
+        "No environment tree is known. Give {option} with the Kubernetes folder of the infra "
+        'repo, or declare it in {file} of the repository ([kubernetes] dir = "k8s").'
+    )
+    environment_root_ambiguous: str = (
+        "Two or more infra repos give an environment tree: {roots}. Give {option} with the one "
+        "to read."
+    )
+    product_root_not_found: str = (
+        "The product base of devops-cli is not at {path}. Run the command in a checkout of "
+        "devops-cli, or give {option} with its k8s/devops folder."
+    )
 
 
 @dataclass(frozen=True)

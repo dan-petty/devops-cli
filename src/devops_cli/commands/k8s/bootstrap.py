@@ -10,10 +10,7 @@ import typer
 import devops_cli.commands.k8s.cluster_runtime as runtime
 import devops_cli.commands.k8s.networking as net
 import devops_cli.commands.k8s.stack_lifecycle as stack_life
-from devops_cli.config.defaults import (
-    DEFAULT_K8S_ALL_STACK,
-    DEFAULT_K8S_DIR,
-)
+from devops_cli.config.defaults import DEFAULT_K8S_ALL_STACK
 from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import (
@@ -26,8 +23,8 @@ from devops_cli.output import (
 @dry_run_class("request-plan")
 def bootstrap(
     k8s_dir: Annotated[
-        Path, typer.Option("--dir", "-d", help=HELP.k8s.manifests_dir)
-    ] = DEFAULT_K8S_DIR,
+        Path | None, typer.Option("--dir", "-d", help=HELP.k8s.manifests_dir)
+    ] = None,
     auto_start: Annotated[
         bool, typer.Option("--auto-start/--no-auto-start", help=HELP.k8s.auto_start)
     ] = True,
@@ -41,11 +38,14 @@ def bootstrap(
     ] = False,
 ) -> None:
     """Bootstrap homelab Kubernetes cluster with Minikube, Calico, and ingress."""
+    from devops_cli.k8s.environment import resolve_environment
+
+    env = resolve_environment(k8s_dir)
     if dry_run or is_dry_run():
         from devops_cli.dry_run.requests import render_request_plan
         from devops_cli.k8s.manifest_plans import plan_k8s_bootstrap
 
-        requests = plan_k8s_bootstrap(k8s_dir=k8s_dir, stack=stack, auto_start=auto_start)
+        requests = plan_k8s_bootstrap(k8s_dir=env.root, stack=stack, auto_start=auto_start)
         render_request_plan("devops k8s bootstrap", requests)
         return
 
@@ -66,5 +66,5 @@ def bootstrap(
     else:
         runtime._run_cmd(["minikube", "update-context"], check=False)
 
-    stack_life.deploy_stack(k8s_dir=k8s_dir, stack=stack)
+    stack_life.deploy_stack(k8s_dir=env.root, stack=stack)
     net.configure_urls(stack=stack, context="minikube")

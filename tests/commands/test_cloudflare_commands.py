@@ -12,9 +12,16 @@ import pytest
 
 from devops_cli.cloudflare.client import CloudflareClient
 from devops_cli.exceptions.cloudflare import CloudflareAPIError, CloudflareAuthError
+from devops_cli.models.cloudflare import AccessNames
 from tests.support.fakes.dial import record_connects
 from tests.support.fakes.dns import DnsFake
 from tests.support.fakes.http import RecordedRequest, WebFake
+
+ACCESS_NAMES = AccessNames(
+    application="Example Ingress",
+    allow_policy="Allow example authorized emails",
+    bypass_policy="example-public-ip-bypass",
+)
 
 API_PATH = "/client/v4"
 ACCOUNT = "test-account-123"
@@ -774,6 +781,7 @@ def test_cloudflare_client_sync_access_application(web: WebFake) -> None:
     )
 
     res = client.sync_access_application(
+        names=ACCESS_NAMES,
         domain="example.com",
         allowed_emails=["user@example.com"],
     )
@@ -873,10 +881,11 @@ def test_normalize_ip_cidr_variants(web: WebFake) -> None:
 
 
 def test_cloudflare_client_sync_access_with_bypass_ips(web: WebFake) -> None:
-    """Verify synchronizing an Access application creates bypass policy for homelab IP."""
+    """Verify synchronizing an Access application creates the bypass policy for the public IP, and
+    names each policy as the settings name it (#5131)."""
     client = CloudflareClient(token="test-token", account_id="acc-1")
     policies = "/accounts/acc-1/access/apps/app-1/policies"
-    ids = {"Allow homelab authorized emails": "pol-allow", "homelab-public-ip-bypass": "pol-bypass"}
+    ids = {ACCESS_NAMES.allow_policy: "pol-allow", ACCESS_NAMES.bypass_policy: "pol-bypass"}
 
     def create_policy(request: httpx2.Request) -> httpx2.Response:
         body = json.loads(request.content)
@@ -893,6 +902,7 @@ def test_cloudflare_client_sync_access_with_bypass_ips(web: WebFake) -> None:
     )
 
     res = client.sync_access_application(
+        names=ACCESS_NAMES,
         domain="example.com",
         allowed_emails=["user@example.com"],
         bypass_ips=["198.51.100.1"],
@@ -904,6 +914,7 @@ def test_cloudflare_client_sync_access_with_bypass_ips(web: WebFake) -> None:
         res.get("policy_id"),
         res.get("bypass_policy_id"),
         res.get("bypass_ips"),
+        res.get("bypass_policy_name"),
         len(sent(web, "POST")),
     ) == (
         "app-1",
@@ -911,6 +922,7 @@ def test_cloudflare_client_sync_access_with_bypass_ips(web: WebFake) -> None:
         "pol-allow",
         "pol-bypass",
         ["198.51.100.1"],
+        "example-public-ip-bypass",
         2,
     )
 
@@ -1088,6 +1100,7 @@ def test_cloudflare_client_sync_access_application_finds_page_two_app(web: WebFa
 
     web.serve(serve)
     res = client.sync_access_application(
+        names=ACCESS_NAMES,
         domain="example.com",
         allowed_emails=["admin@example.com"],
     )

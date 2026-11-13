@@ -451,10 +451,19 @@ class K8sCommandHelp:
     )
     render: str = "Render Kubernetes manifest templates with domain and variables substituted."
     pod_name: str = "Pod name."
-    manifests_dir: str = "Directory containing Kubernetes manifests."
+    manifests_dir: str = (
+        "The environment tree: the Kubernetes folder of the infra repo (default: kubernetes.dir "
+        "of the project profile)."
+    )
     auto_start: str = "Auto-start minikube if stopped."
     stack: str = f"Stack to operate on: {' | '.join(CONST_K8S_VALID_STACKS)}."
-    k8s_dir: str = "Path to k8s/ config directory."
+    k8s_dir: str = (
+        "The environment tree: the Kubernetes folder of the infra repo. Default: kubernetes.dir of "
+        "the project profile of the current repository, else of the one infra repo that gives it."
+    )
+    product_dir: str = (
+        "The product base that devops-cli ships (default: k8s/devops of the current repository)."
+    )
     email: str = "Admin email address."
     admin_name: str = "Admin display name."
     password: str = "Admin password."
@@ -472,11 +481,24 @@ class K8sCommandHelp:
     qdrant_port: str = "Local port for Qdrant HTTP."
     valkey_port: str = "Local port for Valkey."
     bind_address: str = "Local address to bind for port-forwarding."
-    lint_target: str = "Target K8s manifest file or directory to lint."
-    pluto_target: str = "Target manifest file or directory to scan for deprecated APIs."
+    lint_target: str = (
+        "Target K8s manifest file or directory to lint (default: the environment tree)."
+    )
+    pluto_target: str = (
+        "Target manifest file or directory to scan for deprecated APIs (default: the environment "
+        "tree)."
+    )
     crawl4ai_check_local_port: str = "Local port of the kubectl port-forward to Service crawl4ai. Use a port that no program holds."
     searxng_check_local_port: str = "Local port of the kubectl port-forward to Service searxng. Use a port that no program holds."
-    image_pins_root: str = "Repository root whose Argo CD Applications in k8s/argocd/ are rendered."
+    image_pins_managed: str = (
+        "A repository whose tag the deploy sets, as Image Updater does, such as "
+        "ghcr.io/example/service. The check does not refuse or resolve its images. Repeat the "
+        "option for each repository."
+    )
+    image_pins_target: str = (
+        "A kustomization folder to render in place of the Argo CD Applications of the environment "
+        "tree, such as k8s/devops."
+    )
     rbac_namespace: str = (
         "Audit only this namespace's RoleBindings and Roles; ClusterRoleBindings are always read."
     )
@@ -826,7 +848,13 @@ class ArgoCommandHelp:
     apps_sync: str = "Trigger sync for an ArgoCD application."
     apps_get: str = "Get details of an ArgoCD application."
     app_of_apps: str = "Deploy complete homelab stack via root App-of-Apps pattern."
-    app_of_apps_manifest: str = "Path to root ArgoCD App-of-Apps manifest."
+    root_app_name: str = (
+        "Name of the ArgoCD Application to sync (default: the last of argocd.root_applications)."
+    )
+    app_of_apps_manifest: str = (
+        "Path to root ArgoCD App-of-Apps manifest (default: argocd/bootstrap/bootstrap.yaml of "
+        "the environment tree)."
+    )
     app_name: str = "Application name."
     workflow_file: str = "Workflow YAML file."
     workflow_name: str = "Workflow name."
@@ -1025,7 +1053,7 @@ class DockerCommandHelp:
 @dataclass(frozen=True)
 class GrafanaCommandHelp:
     app: str = "Grafana dashboard and alert management."
-    lint_path: str = "Dashboard JSON files or directories to lint. Default: k8s/monitoring/dashboards and k8s/devops/dashboards."
+    lint_path: str = "Dashboard JSON files or directories to lint. Default: monitoring/dashboards of the environment tree, and dashboards of the product base k8s/devops when the current repository holds it."
     dashboards: str = "Manage Grafana dashboards."
     search: str = "Search Grafana dashboards and folders by query string."
     datasources: str = "List configured datasources."
@@ -1034,7 +1062,7 @@ class GrafanaCommandHelp:
     file: str = "Dashboard JSON file."
     dir: str = "Directory containing dashboard JSON files."
     query: str = "Search query."
-    dashboards_dir: str = "Directory of dashboard JSON files. Default: k8s/monitoring/dashboards and k8s/devops/dashboards."
+    dashboards_dir: str = "Directory of dashboard JSON files. Default: monitoring/dashboards of the environment tree, and dashboards of the product base k8s/devops when the current repository holds it."
     folder_id: str = "Target Grafana folder ID for dashboard import."
     import_file: str = "Path to dashboard JSON file to import."
 

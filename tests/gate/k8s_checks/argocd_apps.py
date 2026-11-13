@@ -9,6 +9,7 @@ from typing import Any
 import yaml
 
 from tests.gate.k8s_render import kustomize, kustomized_objects
+from tests.support.k8s_tree import TREE
 from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
@@ -45,7 +46,7 @@ def check_rendered_raw_objects_single_ownership() -> None:
     from devops_cli.k8s.argocd_gate import discover_path_applications
 
     apps = _all_applications()
-    raw_leaf_apps = discover_path_applications(REPO_ROOT, APPS_DIR)
+    raw_leaf_apps = discover_path_applications(TREE, APPS_DIR)
 
     seen_objects: dict[tuple[str, str, str, str], str] = {}
     namespaces_declared: list[str] = []
@@ -89,7 +90,7 @@ def check_rendered_raw_objects_single_ownership() -> None:
 def check_namespace_and_pvc_data_safety() -> None:
     from devops_cli.k8s.argocd_gate import discover_path_applications
 
-    raw_leaf_apps = list(discover_path_applications(REPO_ROOT, APPS_DIR).values())
+    raw_leaf_apps = list(discover_path_applications(TREE, APPS_DIR).values())
 
     for dir_path in raw_leaf_apps:
         proc = kustomize(dir_path)

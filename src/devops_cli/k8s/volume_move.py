@@ -32,7 +32,6 @@ from typing import Any
 from devops_cli.config.commands import BIN_BASH, build_kubectl_cmd
 from devops_cli.config.constants import (
     CONST_ARGOCD_TRACKING_ID_ANNOTATION,
-    CONST_K8S_ARGOCD_PAUSE_PARENTS,
     CONST_K8S_CLAIM_CONTROLLER_ANNOTATIONS,
     CONST_K8S_CLAIM_PHASE_BOUND,
     CONST_K8S_CONTROL_PLANE_LABEL,
@@ -675,9 +674,10 @@ def _automated(application: dict[str, Any]) -> bool:
 
 
 def _pause_order(
-    applications: Sequence[str], context: str | None
+    applications: Sequence[str], parents: Sequence[str], context: str | None
 ) -> tuple[tuple[str, ...], list[str]]:
-    """The Applications to pause, top down, and a problem for each tracked one that is missing."""
+    """The Applications to pause, top down (the root Applications `parents` first), and a problem
+    for each tracked one that is missing."""
     if not applications:
         return (), []
     items = (
@@ -694,14 +694,20 @@ def _pause_order(
         for name in applications
         if name not in automated
     ]
-    order = dict.fromkeys((*CONST_K8S_ARGOCD_PAUSE_PARENTS, *applications))
+    order = dict.fromkeys((*parents, *applications))
     return tuple(name for name in order if automated.get(name)), problems
 
 
 def plan_volume_move(
-    namespace: str, claim: str, *, to_node: str | None = None, context: str | None = None
+    namespace: str,
+    claim: str,
+    *,
+    parents: Sequence[str],
+    to_node: str | None = None,
+    context: str | None = None,
 ) -> VolumeMovePlan:
     """Read what the move needs and return its plan; refuse a move that cannot run safely.
+    `parents` are the root Applications (`argocd.root_applications`), paused first.
 
     Raises `VolumeMoveRefusedError` with every problem it finds, and `VolumeMoveError` when a
     read fails. It changes nothing either way.
@@ -741,7 +747,7 @@ def plan_volume_move(
             }
         )
     )
-    paused, missing = _pause_order(applications, context)
+    paused, missing = _pause_order(applications, parents, context)
     problems += missing
     if isinstance(target, str) or problems:
         raise _refuse(namespace, claim, problems)
@@ -1184,7 +1190,9 @@ def run_volume_move(
 # ── The dry run ──────────────────────────────────────────────────────────────
 
 
-def _placeholder_plan(namespace: str, claim: str, to_node: str | None) -> VolumeMovePlan:
+def _placeholder_plan(
+    namespace: str, claim: str, to_node: str | None, parents: Sequence[str]
+) -> VolumeMovePlan:
     return VolumeMovePlan(
         namespace=namespace,
         claim=claim,
@@ -1201,7 +1209,7 @@ def _placeholder_plan(namespace: str, claim: str, to_node: str | None) -> Volume
         workloads=(Workload(kind="<kind>", name="<workload>", replicas=0),),
         pods=("<pod>",),
         applications=("<application>",),
-        paused=(*CONST_K8S_ARGOCD_PAUSE_PARENTS, "<application>"),
+        paused=(*parents, "<application>"),
     )
 
 
@@ -1453,10 +1461,15 @@ def _dry_run_writes(plan: VolumeMovePlan, context: str | None) -> list[PlannedRe
 
 
 def dry_run_volume_move(
-    namespace: str, claim: str, *, to_node: str | None = None, context: str | None = None
+    namespace: str,
+    claim: str,
+    *,
+    parents: Sequence[str],
+    to_node: str | None = None,
+    context: str | None = None,
 ) -> tuple[PlannedRequest, ...]:
     """The requests a move would make, in order, making none: not even the claim is read."""
-    plan = _placeholder_plan(namespace, claim, to_node)
+    plan = _placeholder_plan(namespace, claim, to_node, parents)
     return (*_dry_run_reads(plan, to_node, context), *_dry_run_writes(plan, context))
 
 

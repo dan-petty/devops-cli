@@ -89,7 +89,19 @@ class CloudflareAccessPolicy(BaseModel):
     include: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class AccessNames(BaseModel):
+    """The name of a new Access application and the names of its allow and bypass policies, from
+    the settings `cloudflare.access.*_name` (#5131)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    application: str
+    allow_policy: str
+    bypass_policy: str
+
+
 __all__ = [
+    "AccessNames",
     "CloudflareAccessApplication",
     "CloudflareAccessPolicy",
     "CloudflareDNSRecord",

@@ -202,8 +202,11 @@ def _plan_or_exit(
     namespace: str, claim: str, to_node: str | None, context: str | None
 ) -> VolumeMovePlan:
     """The plan, or exit 1 naming each problem: the plan only reads, so nothing changed."""
+    from devops_cli.config.settings import load_settings
+
+    parents = load_settings().argocd.root_applications
     try:
-        return plan_volume_move(namespace, claim, to_node=to_node, context=context)
+        return plan_volume_move(namespace, claim, parents=parents, to_node=to_node, context=context)
     except VolumeMoveRefusedError as exc:
         print_error(str(exc), prefix=False, safe=True)
         for problem in exc.problems:
@@ -267,9 +270,17 @@ def volume_move_cmd(
         print_error(str(exc), prefix=False, safe=True)
         raise typer.Exit(2) from exc
     if dry_run or is_dry_run():
+        from devops_cli.config.settings import load_settings
+
         render_request_plan(
             MESSAGES.k8s.volume_move_dry_run_heading,
-            dry_run_volume_move(namespace, name, to_node=to_node, context=effective_context),
+            dry_run_volume_move(
+                namespace,
+                name,
+                parents=load_settings().argocd.root_applications,
+                to_node=to_node,
+                context=effective_context,
+            ),
             (
                 MESSAGES.k8s.volume_move_dry_run_undo.format(
                     claim=f"{name}{CONST_K8S_VOLUME_MOVE_CLAIM_SUFFIX}"

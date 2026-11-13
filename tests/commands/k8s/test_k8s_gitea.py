@@ -21,7 +21,6 @@ from devops_cli.config.constants import (
     CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK,
     CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER,
 )
-from devops_cli.config.defaults import DEFAULT_K8S_DIR
 from devops_cli.k8s.cluster_secrets import DETACHED_STACKS
 from tests.support.paths import REPO_ROOT
 
@@ -120,7 +119,7 @@ def test_the_gitea_application_runs_the_pinned_chart_that_deploy_stack_installs(
             "name": "gitea",
             "chart": "gitea-charts/gitea",
             "namespace": "gitea",
-            "values": [str(DEFAULT_K8S_DIR / "gitea" / "values.yaml")],
+            "values": ["gitea/values.yaml"],
             "version": CHART_VERSION,
         },
         {"gitea-charts": CHART_REPO},
@@ -146,7 +145,7 @@ def test_the_gitea_manifests_application_renders_the_perimeter_deploy_stack_appl
         {"server": CLUSTER, "namespace": "gitea"},
         LEAF_SYNC_POLICY,
         ["networkpolicy.yaml"],
-        [DEFAULT_K8S_DIR / "gitea" / "networkpolicy.yaml"],
+        [Path("gitea", "networkpolicy.yaml")],
         None,
     )
 

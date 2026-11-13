@@ -81,12 +81,6 @@ DEFAULT_INFRA_DRAIN_CHECK_TIMEOUT_SECONDS: int = 30
 DEFAULT_INFRA_DRAIN_MARGIN_SECONDS: int = 60
 DEFAULT_INFRA_NODE_POLL_SECONDS: float = 10.0
 DEFAULT_DOCS_DIR = CONST_DOCS_DIR_PATH
-# The dashboard folders that `devops grafana dashboards sync` and `lint` read when no folder is
-# given: the environment dashboards, then the product dashboards of devops-cli (#5292).
-DEFAULT_GRAFANA_DASHBOARDS_DIRS: tuple[Path, ...] = (
-    Path("k8s/monitoring/dashboards"),
-    Path("k8s/devops/dashboards"),
-)
 DEFAULT_WORKSPACE_FILE = Path(".code-workspace")
 DEFAULT_AI_PROVIDER = "ollama"
 # A model that the gateway config sends to the tier of the default Ollama Service, and a gateway
@@ -532,7 +526,16 @@ DEFAULT_CURRENT_PATH: Path = Path(".")
 DEFAULT_WORKFLOWS_SCAN_PATH: Path = Path(".github")
 
 # ── Kubernetes, Port Forward & Homelab Defaults ───────────────────────────────
-DEFAULT_K8S_DIR: Path = Path("k8s")
+# The names of the live objects of the homelab, which the settings of the same names take as
+# their default (#5131): the root Applications of Argo CD (app of apps, the outer one first), the
+# Applications of the Gitea stack, the Mattermost team, and the Cloudflare Access application and
+# its two policies, which a sync finds by name.
+DEFAULT_ARGOCD_ROOT_APPLICATIONS: tuple[str, ...] = ("bootstrap", "cluster")
+DEFAULT_GITEA_APPLICATIONS: tuple[str, ...] = ("gitea", "gitea-manifests")
+DEFAULT_MATTERMOST_TEAM: str = "homelab"
+DEFAULT_CLOUDFLARE_ACCESS_APPLICATION_NAME: str = "Homelab Ingress"
+DEFAULT_CLOUDFLARE_ACCESS_ALLOW_POLICY_NAME: str = "Allow homelab authorized emails"
+DEFAULT_CLOUDFLARE_ACCESS_BYPASS_POLICY_NAME: str = "homelab-public-ip-bypass"
 DEFAULT_K8S_NAMESPACE: str = "default"
 DEFAULT_OBSERVABILITY_NAMESPACE: str = "observability"
 DEFAULT_K8S_STACK: str = "infra"
@@ -1151,14 +1154,6 @@ DEFAULT_AI_RESEARCH_DIR: Final[str] = ".data/research"
 # ── AI Research Analogies Defaults ─────────────────────────────────────────────
 DEFAULT_AI_ANALOGIES_MIN_SCORE: Final[float] = 0.5
 DEFAULT_AI_ANALOGIES_LIMIT: Final[int] = 10
-
-# ── LLM Gateway Tuning & Rendering Defaults ─────────────────────────────────
-# The gateway's LiteLLM config; k8s/llm/gateway/kustomization.yaml generates its ConfigMap from it.
-DEFAULT_LLM_GATEWAY_CONFIG_PATH: Final[Path] = Path("k8s/llm/gateway/config.yaml")
-DEFAULT_LLM_PROFILES_PATH: Final[Path] = Path("k8s/llm/profiles/ollama-profiles.yaml")
-DEFAULT_LLM_GPU_THRESHOLDS_PATH: Final[Path] = Path("k8s/llm/profiles/gpu-thresholds.yaml")
-DEFAULT_LLM_TIER_TEMPLATES_PATH: Final[Path] = Path("k8s/llm/profiles/tier-templates")
-DEFAULT_LLM_SERVICES_PATH: Final[Path] = Path("k8s/llm/profiles/services.yaml")
 
 # ── Review Finding Group Model Analysis Defaults (#1147) ────────────────────
 DEFAULT_ANALYSIS_ANCHOR_CONTEXT_LINES: Final[int] = 10

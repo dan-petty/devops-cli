@@ -1051,8 +1051,6 @@ CONST_CLOUDFLARE_DEFAULT_SUBDOMAINS: tuple[str, ...] = ("*", "@")
 # The only wildcard a tunnel ingress hostname takes: a leading `*.` (cloudflared ingress/rule.go).
 CONST_CLOUDFLARE_WILDCARD_PREFIX = "*."
 CONST_CLOUDFLARE_RECORD_COMMENT: Final[str] = "Managed by devops-cli"
-CONST_CLOUDFLARE_BYPASS_POLICY_NAME: Final[str] = "homelab-public-ip-bypass"
-CONST_CLOUDFLARE_ALLOW_POLICY_NAME: Final[str] = "Allow homelab authorized emails"
 CONST_CLOUDFLARE_DEFAULT_SESSION_DURATION: Final[str] = "24h"
 CONST_URL_GITHUB_STATUS_SUMMARY: Final[str] = "https://www.githubstatus.com/api/v2/summary.json"
 CONST_URL_CLOUDFLARE_STATUS_SUMMARY: Final[str] = (
@@ -1127,7 +1125,6 @@ CONST_K8S_GPU_ARCHITECTURES: Final[tuple[str, ...]] = (
     "blackwell",
 )
 CONST_K8S_OLLAMA_PROVIDER_LABEL: Final[tuple[str, str]] = ("llm.devops.io/provider", "ollama")
-CONST_K8S_OLLAMA_PROFILES_PATH: Final[str] = "llm/profiles/ollama-profiles.yaml"
 CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER: Final[str] = "example.com"
 CONST_K8S_TEMPLATE_DOMAIN_VARS: Final[tuple[str, ...]] = ("DOMAIN", "K8S_DOMAIN")
 CONST_INLINE_SUPPRESSION_MARKERS: Final[dict[str, tuple[str, ...]]] = {
@@ -1162,11 +1159,6 @@ CONST_K8S_VALID_STACKS: Final[tuple[str, ...]] = (*CONST_K8S_STACKS, CONST_K8S_A
 CONST_K8S_MATTERMOST_URL: Final[str] = "http://mattermost.mattermost.svc.cluster.local:8065"
 """Mattermost's base URL inside the cluster, which the derived hook URLs of the push table start
 with (#1391, #1392, #1393)."""
-CONST_K8S_ARGOCD_APPLICATION_DIRS: Final[tuple[Path, ...]] = (
-    Path("k8s/argocd/apps"),
-    Path("k8s/argocd/bootstrap"),
-)
-"""Directories scanned for Argo CD Applications (#1343)."""
 CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK: Final[dict[str, tuple[str, ...]]] = {
     "infra": ("ingress",),
     "devops": ("devops", "ingress"),
@@ -4174,8 +4166,6 @@ CONST_K8S_DOCTOR_CHECK_NO_EGRESS: Final[str] = "no-egress"
 CONST_K8S_GITEA_NAMESPACE: Final[str] = "gitea"
 CONST_K8S_GITEA_ADMIN_USER: Final[str] = "gitea_admin"
 """Gitea's admin user, the chart's default, which push-secrets writes to Secret gitea-admin."""
-CONST_K8S_GITEA_APPLICATIONS: Final[tuple[str, ...]] = ("gitea", "gitea-manifests")
-"""The Argo CD Applications of the Gitea stack: the chart and the perimeter."""
 CONST_K8S_GITEA_CLAIM: Final[str] = "gitea-shared-storage"
 CONST_K8S_GITEA_INGRESS: Final[str] = "gitea-ingress"
 CONST_K8S_GITEA_DEPLOYMENT: Final[str] = "gitea"
@@ -4227,8 +4217,6 @@ CONST_K8S_LAST_APPLIED_ANNOTATION: Final[str] = "kubectl.kubernetes.io/last-appl
 """Where a client-side apply, Argo CD's included, keeps the object it applied last."""
 CONST_ARGOCD_TRACKING_ID_ANNOTATION: Final[str] = "argocd.argoproj.io/tracking-id"
 """Argo CD's annotation tracking: `<application>:<group>/<kind>:<namespace>/<name>`."""
-CONST_K8S_ARGOCD_PAUSE_PARENTS: Final[tuple[str, ...]] = ("bootstrap", "cluster")
-"""The parent Applications paused, top down, before a child (k8s/README.md, Pausing an Application)."""
 CONST_K8S_CLAIM_CONTROLLER_ANNOTATIONS: Final[frozenset[str]] = frozenset(
     {
         "pv.kubernetes.io/bind-completed",

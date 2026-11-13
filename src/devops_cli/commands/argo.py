@@ -384,13 +384,14 @@ def _pin_check_line(check: PinCheck) -> tuple[bool, str]:
 @dry_run_class("request-plan")
 def cd_apps_bootstrap_gitops(
     root_app_path: Annotated[
-        Path,
+        Path | None,
         typer.Option(
             "--root-app",
             "-f",
             help=HELP.argo.app_of_apps_manifest,
+            show_default=False,
         ),
-    ] = Path("k8s/argocd/bootstrap/bootstrap.yaml"),
+    ] = None,
     context: Annotated[
         str | None,
         typer.Option("--context", "-c", help=HELP.options.context),
@@ -401,6 +402,12 @@ def cd_apps_bootstrap_gitops(
     ] = False,
 ) -> None:
     """Apply the GitOps root Application to bootstrap local project orchestration."""
+    tree_repo: Path | None = None
+    if root_app_path is None:
+        from devops_cli.k8s.environment import resolve_environment
+
+        env = resolve_environment()
+        root_app_path, tree_repo = env.root_application, env.repo
     if dry_run or is_dry_run():
         from devops_cli.argo.argo_plans import plan_argocd_bootstrap_gitops
 
@@ -432,6 +439,7 @@ def cd_apps_bootstrap_gitops(
         resolved_manifest.is_relative_to(repo_root)
         or resolved_manifest.is_relative_to(cwd_root)
         or resolved_manifest.is_relative_to(temp_root)
+        or (tree_repo is not None and resolved_manifest.is_relative_to(tree_repo))
     ):
         print_error(
             f"Root app manifest '{root_app_path}' resolves outside allowed workspace or temporary directory",
@@ -1137,9 +1145,24 @@ def rollouts_analyze(
 # =============================================================================
 
 
-def _parse_manifest_paths(path: str) -> list[str]:
-    """Parse comma-separated manifest paths into a sanitized path list."""
-    return [p.strip() for p in path.split(",") if p.strip()] or ["k8s"]
+def _parse_manifest_paths(path: str | None) -> list[str]:
+    """Parse comma-separated manifest paths into a sanitized path list: the environment tree when
+    no path is given."""
+    paths = [p.strip() for p in (path or "").split(",") if p.strip()]
+    if paths:
+        return paths
+    from devops_cli.k8s.environment import resolve_environment
+
+    return [str(resolve_environment().root)]
+
+
+def _root_application(app_name: str | None) -> str:
+    """`app_name`, else the last root Application of the setting `argocd.root_applications`."""
+    if app_name:
+        return app_name
+    from devops_cli.config.settings import load_settings
+
+    return load_settings().argocd.root_applications[-1]
 
 
 def _handle_gitops_once(
@@ -1214,17 +1237,18 @@ def _handle_gitops_continuous(
 @dry_run_class("request-plan")
 def gitops_watch(
     path: Annotated[
-        str,
+        str | None,
         typer.Option(
             "--path",
             "-p",
-            help="Comma-separated paths or directories of manifests to monitor",
+            help="Comma-separated paths or directories of manifests to monitor (default: the environment tree)",
+            show_default=False,
         ),
-    ] = "k8s",
+    ] = None,
     app_name: Annotated[
-        str,
-        typer.Option("--app-name", "-a", help=HELP.argo.app_name),
-    ] = "cluster",
+        str | None,
+        typer.Option("--app-name", "-a", help=HELP.argo.root_app_name, show_default=False),
+    ] = None,
     debounce_ms: Annotated[
         int,
         typer.Option(
@@ -1263,6 +1287,7 @@ def gitops_watch(
     ] = False,
 ) -> None:
     """Monitor Kubernetes and Helm manifests for drift and trigger instant ArgoCD sync."""
+    app_name = _root_application(app_name)
     _validate_k8s_name(app_name, "application name")
     if mode not in ("api", "webhook"):
         print_error(f"Unsupported GitOps sync mode '{mode}'. Allowed: api, webhook")
@@ -1301,20 +1326,21 @@ def gitops_watch(
     if once:
         _handle_gitops_once(watcher, output_format, json_output)
     else:
-        _handle_gitops_continuous(watcher, path, app_name, max_events, json_output)
+        _handle_gitops_continuous(watcher, ",".join(paths), app_name, max_events, json_output)
 
 
 @gitops_app.command("drift")
 @dry_run_class("no-external-request")
 def gitops_drift(
     path: Annotated[
-        str,
+        str | None,
         typer.Option(
             "--path",
             "-p",
-            help="Comma-separated paths or directories of manifests to inspect",
+            help="Comma-separated paths or directories of manifests to inspect (default: the environment tree)",
+            show_default=False,
         ),
-    ] = "k8s",
+    ] = None,
     output_format: Annotated[
         str,
         typer.Option("--format", "-f", help=HELP.options.format_type),
@@ -1356,9 +1382,9 @@ def gitops_drift(
 @dry_run_class("request-plan")
 def gitops_sync(
     app_name: Annotated[
-        str,
-        typer.Option("--app-name", "-a", help=HELP.argo.app_name),
-    ] = "cluster",
+        str | None,
+        typer.Option("--app-name", "-a", help=HELP.argo.root_app_name, show_default=False),
+    ] = None,
     mode: Annotated[
         str,
         typer.Option("--mode", "-m", help="Synchronization trigger mode ('api' or 'webhook')"),
@@ -1375,6 +1401,7 @@ def gitops_sync(
     ] = False,
 ) -> None:
     """Trigger an immediate GitOps synchronization for an ArgoCD application."""
+    app_name = _root_application(app_name)
     _validate_k8s_name(app_name, "application name")
     if mode not in ("api", "webhook"):
         print_error(f"Unsupported GitOps sync mode '{mode}'. Allowed: api, webhook")

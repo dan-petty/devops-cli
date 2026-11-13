@@ -802,8 +802,10 @@ def render_cmd(
         Path | None,
         typer.Option("--tier-templates", help="Directory of the Ollama tier templates."),
     ] = None,
+    k8s_dir: Annotated[Path | None, typer.Option("--k8s-dir", help=HELP.k8s.k8s_dir)] = None,
 ) -> None:
-    """Render the Ollama tiers of the GPU thresholds and the LLM gateway configuration, showing unified diff."""
+    """Render the Ollama tiers of the GPU thresholds and the LLM gateway configuration, showing
+    unified diff. Each file that no option names is the file of the environment tree."""
     import sys
 
     from devops_cli.ai.gateway_render import (
@@ -812,13 +814,7 @@ def render_cmd(
         service_context_lengths,
         tier_context_lengths,
     )
-    from devops_cli.config.defaults import (
-        DEFAULT_LLM_GATEWAY_CONFIG_PATH,
-        DEFAULT_LLM_GPU_THRESHOLDS_PATH,
-        DEFAULT_LLM_PROFILES_PATH,
-        DEFAULT_LLM_SERVICES_PATH,
-        DEFAULT_LLM_TIER_TEMPLATES_PATH,
-    )
+    from devops_cli.k8s.environment import resolve_environment
     from devops_cli.k8s.gpu_thresholds import (
         TierManifests,
         load_gpu_thresholds,
@@ -826,9 +822,17 @@ def render_cmd(
         render_tier_manifests,
     )
 
-    target_config = config_path or DEFAULT_LLM_GATEWAY_CONFIG_PATH
-    target_prof = profiles_path or DEFAULT_LLM_PROFILES_PATH
-    target_svc = services_path or DEFAULT_LLM_SERVICES_PATH
+    # The tree is resolved only when an option leaves a file to it.
+    if config_path and profiles_path and services_path and thresholds_path and tier_templates_path:
+        target_config, target_prof, target_svc = config_path, profiles_path, services_path
+        target_thresholds, target_templates = thresholds_path, tier_templates_path
+    else:
+        env = resolve_environment(k8s_dir)
+        target_config = config_path or env.gateway_config
+        target_prof = profiles_path or env.ollama_profiles
+        target_svc = services_path or env.llm_services
+        target_thresholds = thresholds_path or env.gpu_thresholds
+        target_templates = tier_templates_path or env.tier_templates
 
     if not target_config.is_file():
         print_error(f"Gateway config file not found: {target_config}", prefix=False)
@@ -848,8 +852,8 @@ def render_cmd(
     try:
         tiers = render_tier_manifests(
             current,
-            load_gpu_thresholds(thresholds_path or DEFAULT_LLM_GPU_THRESHOLDS_PATH),
-            load_tier_templates(tier_templates_path or DEFAULT_LLM_TIER_TEMPLATES_PATH),
+            load_gpu_thresholds(target_thresholds),
+            load_tier_templates(target_templates),
         )
     except DevOpsCLIError as exc:
         print_error(str(exc), prefix=False)

@@ -9,7 +9,7 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Final, TypedDict, assert_never
+from typing import TYPE_CHECKING, Annotated, Any, Final, NotRequired, TypedDict, assert_never
 
 import typer
 from packaging.version import InvalidVersion, Version
@@ -31,12 +31,8 @@ from devops_cli.config.constants import (
     CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS,
     CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK,
     CONST_K8S_DEVOPS_CONFIGMAP,
-    CONST_K8S_OLLAMA_PROFILES_PATH,
 )
-from devops_cli.config.defaults import (
-    DEFAULT_K8S_DIR,
-    DEFAULT_K8S_STACK,
-)
+from devops_cli.config.defaults import DEFAULT_K8S_STACK
 from devops_cli.dry_run import dry_run_class, is_dry_run, render_dry_run_result
 from devops_cli.exceptions.argo import ArgoError, ArgoResourceNotFoundError
 from devops_cli.exceptions.k8s import (
@@ -56,9 +52,15 @@ from devops_cli.k8s.cluster_secrets import (
     secrets_for_stacks,
 )
 from devops_cli.k8s.configmap import render_active_devops_configmap
+from devops_cli.k8s.environment import (
+    PRODUCT_OPTION,
+    EnvironmentTree,
+    resolve_environment,
+    resolve_product_root,
+)
 from devops_cli.k8s.gpu_placement import ollama_tiers, placement_warnings
 from devops_cli.k8s.secret_push import namespace_exists
-from devops_cli.lang import HELP, MESSAGES
+from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
     print_error,
     print_info,
@@ -114,8 +116,10 @@ class StackRelease(TypedDict):
     chart: str
     namespace: str
     # The values files, in the order of the `valueFiles` of the Application: a later file
-    # overrides an earlier one.
+    # overrides an earlier one. A path in the environment tree (#5131).
     values: list[str]
+    # The values files of the product base `k8s/devops`, after `values`.
+    product_values: NotRequired[list[str]]
     version: str
 
 
@@ -129,9 +133,7 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "name": "prometheus-operator-crds",
             "chart": "prometheus-community/prometheus-operator-crds",
             "namespace": "monitoring",
-            "values": [
-                str(DEFAULT_K8S_DIR / "monitoring" / "prometheus-operator-crds-values.yaml")
-            ],
+            "values": ["monitoring/prometheus-operator-crds-values.yaml"],
             "version": "33.0.2",
         },
         # The database operator of every stack that holds a CloudNativePG Cluster: the gateway
@@ -140,7 +142,7 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "name": "cloudnative-pg",
             "chart": "cloudnative-pg/cloudnative-pg",
             "namespace": "cnpg-system",
-            "values": [str(DEFAULT_K8S_DIR / "mattermost" / "cloudnative-pg-values.yaml")],
+            "values": ["mattermost/cloudnative-pg-values.yaml"],
             "version": "0.29.1",
         },
         # The TLS certificates of the Barman Cloud plugin. Its start-up check Job holds `--wait`
@@ -149,7 +151,7 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "name": "cert-manager",
             "chart": "jetstack/cert-manager",
             "namespace": "cert-manager",
-            "values": [str(DEFAULT_K8S_DIR / "cert-manager" / "values.yaml")],
+            "values": ["cert-manager/values.yaml"],
             "version": "v1.21.3",
         },
         # The backup plugin of CloudNativePG runs in the operator's namespace, and its chart renders
@@ -158,28 +160,28 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "name": "plugin-barman-cloud",
             "chart": "cloudnative-pg/plugin-barman-cloud",
             "namespace": "cnpg-system",
-            "values": [str(DEFAULT_K8S_DIR / "cnpg-system" / "plugin-barman-cloud-values.yaml")],
+            "values": ["cnpg-system/plugin-barman-cloud-values.yaml"],
             "version": "0.9.0",
         },
         {
             "name": "argocd",
             "chart": "argo/argo-cd",
             "namespace": "argocd",
-            "values": [str(DEFAULT_K8S_DIR / "argocd" / "values.yaml")],
+            "values": ["argocd/values.yaml"],
             "version": "10.18.0",
         },
         {
             "name": "argo-workflows",
             "chart": "argo/argo-workflows",
             "namespace": "argo-workflows",
-            "values": [str(DEFAULT_K8S_DIR / "argo-workflows" / "values.yaml")],
+            "values": ["argo-workflows/values.yaml"],
             "version": "2.0.18",
         },
         {
             "name": "k8s-monitoring",
             "chart": "grafana/k8s-monitoring",
             "namespace": "monitoring",
-            "values": [str(DEFAULT_K8S_DIR / "monitoring" / "k8s-monitoring-values.yaml")],
+            "values": ["monitoring/k8s-monitoring-values.yaml"],
             "version": "4.6.0",
         },
         {
@@ -187,24 +189,22 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "chart": "prometheus-community/prometheus",
             "namespace": "monitoring",
             # The environment values, then the alert rules of devops-cli (#5292).
-            "values": [
-                str(DEFAULT_K8S_DIR / "monitoring" / "prometheus-values.yaml"),
-                str(DEFAULT_K8S_DIR / "devops" / "monitoring" / "prometheus-rules-values.yaml"),
-            ],
+            "values": ["monitoring/prometheus-values.yaml"],
+            "product_values": ["monitoring/prometheus-rules-values.yaml"],
             "version": "29.47.2",
         },
         {
             "name": "grafana",
             "chart": "grafana-community/grafana",
             "namespace": "monitoring",
-            "values": [str(DEFAULT_K8S_DIR / "monitoring" / "grafana-values.yaml")],
+            "values": ["monitoring/grafana-values.yaml"],
             "version": "14.4.1",
         },
         {
             "name": "dcgm-exporter",
             "chart": "nvidia-dcgm/dcgm-exporter",
             "namespace": "monitoring",
-            "values": [str(DEFAULT_K8S_DIR / "monitoring" / "dcgm-exporter-values.yaml")],
+            "values": ["monitoring/dcgm-exporter-values.yaml"],
             "version": "4.8.4",
         },
         # tempo first: the collector's trace exporter has a Tempo to reach when it starts (#409)
@@ -212,28 +212,28 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "name": "tempo",
             "chart": "grafana-community/tempo",
             "namespace": "otel",
-            "values": [str(DEFAULT_K8S_DIR / "otel" / "tempo-values.yaml")],
+            "values": ["otel/tempo-values.yaml"],
             "version": "3.2.1",
         },
         {
             "name": "otel-collector",
             "chart": "open-telemetry/opentelemetry-collector",
             "namespace": "otel",
-            "values": [str(DEFAULT_K8S_DIR / "otel" / "values.yaml")],
+            "values": ["otel/values.yaml"],
             "version": "0.178.3",
         },
         {
             "name": "pyroscope",
             "chart": "grafana/pyroscope",
             "namespace": "monitoring",
-            "values": [str(DEFAULT_K8S_DIR / "monitoring" / "pyroscope-values.yaml")],
+            "values": ["monitoring/pyroscope-values.yaml"],
             "version": "2.4.3",
         },
         {
             "name": "traefik",
             "chart": "traefik/traefik",
             "namespace": "kube-system",
-            "values": [str(DEFAULT_K8S_DIR / "ingress" / "traefik-values.yaml")],
+            "values": ["ingress/traefik-values.yaml"],
             "version": "42.3.2",
         },
     ],
@@ -242,14 +242,14 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "name": "open-webui",
             "chart": "open-webui/open-webui",
             "namespace": "llm",
-            "values": [str(DEFAULT_K8S_DIR / "llm" / "values-open-webui.yaml")],
+            "values": ["llm/values-open-webui.yaml"],
             "version": "18.3.0",
         },
         {
             "name": "qdrant",
             "chart": "qdrant/qdrant",
             "namespace": "llm",
-            "values": [str(DEFAULT_K8S_DIR / "llm" / "values-qdrant.yaml")],
+            "values": ["llm/values-qdrant.yaml"],
             "version": "1.20.0",
         },
     ],
@@ -258,7 +258,7 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "name": "loki",
             "chart": "grafana-community/loki",
             "namespace": "logging",
-            "values": [str(DEFAULT_K8S_DIR / "logging" / "loki-values.yaml")],
+            "values": ["logging/loki-values.yaml"],
             "version": "21.2.1",
         },
     ],
@@ -269,7 +269,7 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "name": "gitea",
             "chart": "gitea-charts/gitea",
             "namespace": "gitea",
-            "values": [str(DEFAULT_K8S_DIR / "gitea" / "values.yaml")],
+            "values": ["gitea/values.yaml"],
             "version": "12.7.0",
         },
     ],
@@ -278,7 +278,7 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "name": "mattermost-operator",
             "chart": "mattermost/mattermost-operator",
             "namespace": "mattermost-operator",
-            "values": [str(DEFAULT_K8S_DIR / "mattermost" / "mattermost-operator-values.yaml")],
+            "values": ["mattermost/mattermost-operator-values.yaml"],
             "version": "1.0.5",
         },
     ],
@@ -286,66 +286,74 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
 
 _HELM_RELEASES: list[StackRelease] = HELM_RELEASES_BY_STACK["infra"]
 
-# Paths applied right after the Secret push, before any chart: a directory with `kubectl apply -k`
-# and a file with `kubectl apply -f`, in order, and deleted in reverse order before the charts
-# uninstall. `llm/gateway` is a kustomization: it generates the gateway's ConfigMap from its
-# config.yaml with a content-hash name, so a changed config rolls the gateway (#1929).
+# Paths under --k8s-dir, the environment tree (#5131), applied right after the Secret push, before
+# any chart: a directory with `kubectl apply -k` and a file with `kubectl apply -f`, in order, and
+# deleted in reverse order before the charts uninstall. `llm/gateway` is a kustomization: it
+# generates the gateway's ConfigMap from its config.yaml with a content-hash name, so a changed
+# config rolls the gateway (#1929).
 MANIFESTS_BY_STACK: dict[str, list[Path]] = {
     "infra": [
-        DEFAULT_K8S_DIR / "argocd" / "networkpolicy.yaml",
-        DEFAULT_K8S_DIR / "argo-workflows" / "networkpolicy.yaml",
-        DEFAULT_K8S_DIR / "otel" / "networkpolicy.yaml",
-        DEFAULT_K8S_DIR / "ingress" / "ingress-routes.yaml",
+        Path("argocd", "networkpolicy.yaml"),
+        Path("argo-workflows", "networkpolicy.yaml"),
+        Path("otel", "networkpolicy.yaml"),
+        Path("ingress", "ingress-routes.yaml"),
     ],
     "llm": [
-        DEFAULT_K8S_DIR / "llm" / "networkpolicy.yaml",
-        DEFAULT_K8S_DIR / "llm" / "valkey.yaml",
-        DEFAULT_K8S_DIR / "llm" / "valkey-runs.yaml",
-        DEFAULT_K8S_DIR / "llm" / "valkey-devops.yaml",
-        DEFAULT_K8S_DIR / "llm" / "profiles" / "services.yaml",
-        DEFAULT_K8S_DIR / "llm" / "profiles" / "ollama-profiles.yaml",
-        DEFAULT_K8S_DIR / "llm" / "gateway",
-        DEFAULT_K8S_DIR / "llm" / "portkey" / "deployment.yaml",
-        DEFAULT_K8S_DIR / "llm" / "portkey" / "service.yaml",
-        DEFAULT_K8S_DIR / "llm" / "portkey" / "networkpolicy.yaml",
+        Path("llm", "networkpolicy.yaml"),
+        Path("llm", "valkey.yaml"),
+        Path("llm", "valkey-runs.yaml"),
+        Path("llm", "valkey-devops.yaml"),
+        Path("llm", "profiles", "services.yaml"),
+        Path("llm", "profiles", "ollama-profiles.yaml"),
+        Path("llm", "gateway"),
+        Path("llm", "portkey", "deployment.yaml"),
+        Path("llm", "portkey", "service.yaml"),
+        Path("llm", "portkey", "networkpolicy.yaml"),
     ],
     "logging": [
-        DEFAULT_K8S_DIR / "logging" / "networkpolicy.yaml",
+        Path("logging", "networkpolicy.yaml"),
     ],
     "gitea": [
-        DEFAULT_K8S_DIR / "gitea" / "networkpolicy.yaml",
+        Path("gitea", "networkpolicy.yaml"),
     ],
     "devops": [
-        DEFAULT_K8S_DIR / "devops" / "networkpolicy.yaml",
-        DEFAULT_K8S_DIR / "devops" / "networkpolicy-rag-ingest.yaml",
-        DEFAULT_K8S_DIR / "devops" / "serviceaccount.yaml",
-        DEFAULT_K8S_DIR / "devops" / "cronjob.yaml",
-        DEFAULT_K8S_DIR / "devops" / "cronjob-runner.yaml",
-        DEFAULT_K8S_DIR / "devops" / "crawl4ai" / "deployment.yaml",
-        DEFAULT_K8S_DIR / "devops" / "crawl4ai" / "networkpolicy-client.yaml",
-        DEFAULT_K8S_DIR / "devops" / "crawl4ai" / "networkpolicy.yaml",
-        DEFAULT_K8S_DIR / "devops" / "crawl4ai" / "service.yaml",
-        DEFAULT_K8S_DIR / "devops" / "mcp-server" / "deployment.yaml",
-        DEFAULT_K8S_DIR / "devops" / "mcp-server" / "networkpolicy-client.yaml",
-        DEFAULT_K8S_DIR / "devops" / "mcp-server" / "networkpolicy.yaml",
-        DEFAULT_K8S_DIR / "devops" / "mcp-server" / "service.yaml",
-        DEFAULT_K8S_DIR / "devops" / "searxng" / "configmap.yaml",
-        DEFAULT_K8S_DIR / "devops" / "searxng" / "deployment.yaml",
-        DEFAULT_K8S_DIR / "devops" / "searxng" / "networkpolicy-client.yaml",
-        DEFAULT_K8S_DIR / "devops" / "searxng" / "networkpolicy.yaml",
-        DEFAULT_K8S_DIR / "devops" / "searxng" / "service.yaml",
-        DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "serviceaccount.yaml",
-        DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "role.yaml",
-        DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "admissionpolicy.yaml",
-        DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "pvc.yaml",
-        DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "service.yaml",
-        DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "deployment.yaml",
-        DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "middleware.yaml",
-        DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "ingress.yaml",
-        DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "networkpolicy.yaml",
-        DEFAULT_K8S_DIR / "devops" / "roadmap-service" / "networkpolicy-egress.yaml",
-        DEFAULT_K8S_DIR / "agents" / "serviceaccount.yaml",
-        DEFAULT_K8S_DIR / "agents" / "clusterrolebinding.yaml",
+        Path("agents", "serviceaccount.yaml"),
+        Path("agents", "clusterrolebinding.yaml"),
+    ],
+}
+
+# Paths under --product-dir, the product base `k8s/devops` that devops-cli ships (#5131), applied
+# and deleted as the paths above, before the paths of the environment tree of the same stack.
+PRODUCT_MANIFESTS_BY_STACK: dict[str, list[Path]] = {
+    "devops": [
+        Path("networkpolicy.yaml"),
+        Path("networkpolicy-rag-ingest.yaml"),
+        Path("serviceaccount.yaml"),
+        Path("cronjob.yaml"),
+        Path("cronjob-runner.yaml"),
+        Path("crawl4ai", "deployment.yaml"),
+        Path("crawl4ai", "networkpolicy-client.yaml"),
+        Path("crawl4ai", "networkpolicy.yaml"),
+        Path("crawl4ai", "service.yaml"),
+        Path("mcp-server", "deployment.yaml"),
+        Path("mcp-server", "networkpolicy-client.yaml"),
+        Path("mcp-server", "networkpolicy.yaml"),
+        Path("mcp-server", "service.yaml"),
+        Path("searxng", "configmap.yaml"),
+        Path("searxng", "deployment.yaml"),
+        Path("searxng", "networkpolicy-client.yaml"),
+        Path("searxng", "networkpolicy.yaml"),
+        Path("searxng", "service.yaml"),
+        Path("roadmap-service", "serviceaccount.yaml"),
+        Path("roadmap-service", "role.yaml"),
+        Path("roadmap-service", "admissionpolicy.yaml"),
+        Path("roadmap-service", "pvc.yaml"),
+        Path("roadmap-service", "service.yaml"),
+        Path("roadmap-service", "deployment.yaml"),
+        Path("roadmap-service", "middleware.yaml"),
+        Path("roadmap-service", "ingress.yaml"),
+        Path("roadmap-service", "networkpolicy.yaml"),
+        Path("roadmap-service", "networkpolicy-egress.yaml"),
     ],
 }
 
@@ -364,9 +372,13 @@ POST_HELM_BY_STACK: dict[str, tuple[Path, ...]] = {
     "infra": (Path("argo-workflows", "workflowtemplate-version.yaml"),),
     "llm": (Path("llm", "gateway-db.yaml"), Path("llm", "gateway", "servicemonitor.yaml")),
     "chat": (Path("mattermost"),),
+}
+
+# Paths under --product-dir applied and deleted as the post-Helm paths above.
+PRODUCT_POST_HELM_BY_STACK: dict[str, tuple[Path, ...]] = {
     "devops": (
-        Path("devops", "workflowtemplate-rag-ingest.yaml"),
-        Path("devops", "cronworkflow-rag-ingest.yaml"),
+        Path("workflowtemplate-rag-ingest.yaml"),
+        Path("cronworkflow-rag-ingest.yaml"),
     ),
 }
 
@@ -935,10 +947,10 @@ def _homelab_applications(selected_stacks: Sequence[str]) -> list[str]:
     return [app for app in CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS if app in wanted]
 
 
-def _render_devops_configmap(k8s_dir: Path) -> str:
+def _render_devops_configmap(product: Path) -> str:
     """ConfigMap devops-cli-config rendered from the active config, or exit naming what is missing."""
     try:
-        return render_active_devops_configmap(k8s_dir=k8s_dir)
+        return render_active_devops_configmap(product)
     except (FileNotFoundError, KubernetesContextError, ValidationError) as exc:
         print_error(f"Cannot render ConfigMap {CONST_K8S_DEVOPS_CONFIGMAP}: {exc}", prefix=False)
         raise typer.Exit(1) from exc
@@ -1057,7 +1069,7 @@ def _apply_kustomizations(kustomizations: Sequence[Path], kubectl_ctx: list[str]
         runtime._run_cmd(["kubectl", "apply", "-k", str(kustomization)] + kubectl_ctx)
 
 
-def _warn_about_gpu_placement(k8s_dir: Path, context: str | None) -> None:
+def _warn_about_gpu_placement(env: EnvironmentTree, context: str | None) -> None:
     """Warn about every GPU node no Ollama tier accepts, and say so when none is placed.
 
     The accepted labels come from the tiers' own node affinity. The deploy goes on in every
@@ -1067,7 +1079,7 @@ def _warn_about_gpu_placement(k8s_dir: Path, context: str | None) -> None:
     if nodes is None:
         print_warning(MESSAGES.k8s.gpu_nodes_unreadable)
         return
-    tiers = ollama_tiers(k8s_dir / CONST_K8S_OLLAMA_PROFILES_PATH)
+    tiers = ollama_tiers(env.ollama_profiles)
     for warning in placement_warnings(nodes, tiers):
         print_warning(warning)
 
@@ -1180,23 +1192,43 @@ def _delete_post_helm_paths(paths: Sequence[Path], kubectl_ctx: list[str]) -> No
 
 
 def _collect_deploy_targets(
-    selected_stacks: Sequence[str], k8s_dir: Path
+    selected_stacks: Sequence[str], env: EnvironmentTree, product: Path
 ) -> tuple[list[StackRelease], list[str], list[Path], list[Path]]:
-    """Collect Helm releases, pre-Helm manifests, kustomizations, and post-Helm paths for stacks."""
+    """Collect Helm releases, pre-Helm manifests, kustomizations, and post-Helm paths for stacks:
+    the values files and the environment paths under `env`, the product paths under `product`."""
     all_releases: list[StackRelease] = []
     all_manifests: list[str] = []
     all_kustomizations: list[Path] = []
     all_post_helm: list[Path] = []
     for s_name in selected_stacks:
-        all_releases.extend(HELM_RELEASES_BY_STACK.get(s_name, []))
-        all_manifests.extend([str(p) for p in MANIFESTS_BY_STACK.get(s_name, [])])
-        all_kustomizations.extend(k8s_dir / k for k in KUSTOMIZATIONS_BY_STACK.get(s_name, ()))
-        all_post_helm.extend(k8s_dir / p for p in POST_HELM_BY_STACK.get(s_name, ()))
+        all_releases.extend(
+            _release_at(release, env, product) for release in HELM_RELEASES_BY_STACK.get(s_name, [])
+        )
+        all_manifests.extend(str(product / p) for p in PRODUCT_MANIFESTS_BY_STACK.get(s_name, []))
+        all_manifests.extend(str(env.path(p)) for p in MANIFESTS_BY_STACK.get(s_name, []))
+        all_kustomizations.extend(env.path(k) for k in KUSTOMIZATIONS_BY_STACK.get(s_name, ()))
+        all_post_helm.extend(env.path(p) for p in POST_HELM_BY_STACK.get(s_name, ()))
+        all_post_helm.extend(product / p for p in PRODUCT_POST_HELM_BY_STACK.get(s_name, ()))
     return all_releases, all_manifests, all_kustomizations, all_post_helm
 
 
+def _release_at(release: StackRelease, env: EnvironmentTree, product: Path) -> StackRelease:
+    """`release` with each values file as a path: the environment files under `env`, then the
+    product files under `product`."""
+    return StackRelease(
+        name=release["name"],
+        chart=release["chart"],
+        namespace=release["namespace"],
+        values=[
+            *(str(env.path(values)) for values in release["values"]),
+            *(str(product / values) for values in release.get("product_values", [])),
+        ],
+        version=release["version"],
+    )
+
+
 def _collect_teardown_targets(
-    selected_stacks: Sequence[str], k8s_dir: Path
+    selected_stacks: Sequence[str], env: EnvironmentTree, product: Path
 ) -> tuple[list[StackRelease], list[Path], list[str]]:
     """Collect Helm uninstalls, post-Helm deletes, and manifest deletes in reverse stack order."""
     all_uninstalls: list[StackRelease] = []
@@ -1209,10 +1241,40 @@ def _collect_teardown_targets(
             if release["name"] not in CONST_HELM_TEARDOWN_RETAINED_RELEASES
         )
         all_post_helm_deletes.extend(
-            k8s_dir / p for p in reversed(POST_HELM_BY_STACK.get(s_name, ()))
+            product / p for p in reversed(PRODUCT_POST_HELM_BY_STACK.get(s_name, ()))
         )
-        all_manifest_deletes.extend([str(p) for p in reversed(MANIFESTS_BY_STACK.get(s_name, []))])
+        all_post_helm_deletes.extend(
+            env.path(p) for p in reversed(POST_HELM_BY_STACK.get(s_name, ()))
+        )
+        all_manifest_deletes.extend(
+            str(env.path(p)) for p in reversed(MANIFESTS_BY_STACK.get(s_name, []))
+        )
+        all_manifest_deletes.extend(
+            str(product / p) for p in reversed(PRODUCT_MANIFESTS_BY_STACK.get(s_name, []))
+        )
     return all_uninstalls, all_post_helm_deletes, all_manifest_deletes
+
+
+def _stack_roots(
+    k8s_dir: Path | None, product_dir: Path | None, selected_stacks: Sequence[str]
+) -> tuple[EnvironmentTree, Path]:
+    """The environment tree and the product base that the stacks read, or exit naming the option
+    when a stack with product paths selects a product base that is not a folder."""
+    env = resolve_environment(k8s_dir)
+    product = resolve_product_root(product_dir)
+    wanted = any(
+        PRODUCT_MANIFESTS_BY_STACK.get(s)
+        or PRODUCT_POST_HELM_BY_STACK.get(s)
+        or any(r.get("product_values") for r in HELM_RELEASES_BY_STACK.get(s, []))
+        for s in selected_stacks
+    )
+    if wanted and not product.is_dir():
+        print_error(
+            ERRORS.k8s.product_root_not_found.format(path=product, option=PRODUCT_OPTION),
+            prefix=False,
+        )
+        raise typer.Exit(1)
+    return env, product
 
 
 def _deploy_native_manifests(
@@ -1305,7 +1367,8 @@ def _apply_stack_config_writes(selected_stacks: Sequence[str]) -> None:
 
 def _render_deploy_stack_dry_run(
     *,
-    k8s_dir: Path,
+    env: EnvironmentTree,
+    product: Path,
     stack: str,
     domain: str | None,
     selected_stacks: Sequence[str],
@@ -1336,10 +1399,11 @@ def _render_deploy_stack_dry_run(
     ]
     render_dry_run_result(
         command="devops k8s deploy-stack",
-        target=str(k8s_dir),
+        target=str(env.root),
         action="deploy_k8s_stack",
         details={
-            "kustomize_dir": str(k8s_dir),
+            "kustomize_dir": str(env.root),
+            "product_dir": str(product),
             "stack": stack,
             "domain": domain,
             "stacks": selected_stacks,
@@ -1372,7 +1436,10 @@ def _render_deploy_stack_dry_run(
 
 @dry_run_class("request-plan")
 def deploy_stack(
-    k8s_dir: Annotated[Path, typer.Option("--k8s-dir", help=HELP.k8s.k8s_dir)] = DEFAULT_K8S_DIR,
+    k8s_dir: Annotated[Path | None, typer.Option("--k8s-dir", help=HELP.k8s.k8s_dir)] = None,
+    product_dir: Annotated[
+        Path | None, typer.Option(PRODUCT_OPTION, help=HELP.k8s.product_dir)
+    ] = None,
     stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.k8s.stack)] = DEFAULT_K8S_STACK,
     context: Annotated[
         str | None, typer.Option("--context", "-c", help=HELP.options.context)
@@ -1420,19 +1487,21 @@ def deploy_stack(
         runtime._validate_kubeconfig_context_name(effective_context, "context")
 
     selected_stacks = net._resolve_stacks(stack)
+    env, product = _stack_roots(k8s_dir, product_dir, selected_stacks)
     all_releases, all_manifests, all_kustomizations, all_post_helm = _collect_deploy_targets(
-        selected_stacks, k8s_dir
+        selected_stacks, env, product
     )
 
     # 1. Render what git does not hold before anything else: a missing setting stops a dry run
     # and a deploy alike, before either touches the cluster
-    config_map = _render_devops_configmap(k8s_dir) if "devops" in selected_stacks else None
+    config_map = _render_devops_configmap(product) if "devops" in selected_stacks else None
 
     helm_ctx = ["--kube-context", effective_context] if effective_context else []
 
     if dry_run or is_dry_run():
         _render_deploy_stack_dry_run(
-            k8s_dir=k8s_dir,
+            env=env,
+            product=product,
             stack=stack,
             domain=domain,
             selected_stacks=selected_stacks,
@@ -1461,7 +1530,7 @@ def deploy_stack(
     _verify_cluster_ready(effective_context)
     _warn_about_version_skew(effective_context)
     if "llm" in selected_stacks:
-        _warn_about_gpu_placement(k8s_dir, effective_context)
+        _warn_about_gpu_placement(env, effective_context)
 
     try:
         is_argo = _is_cluster_argo_managed(effective_context)
@@ -1483,7 +1552,7 @@ def deploy_stack(
 
     # 4. Apply kustomize base (namespaces), then the stacks' kustomizations the base leaves out
     print_info("[bold]Applying namespaces...[/bold]", prefix=False)
-    _apply_kustomizations([k8s_dir, *all_kustomizations], kubectl_ctx)
+    _apply_kustomizations([env.root, *all_kustomizations], kubectl_ctx)
 
     # 5. Push the stacks' Secrets before anything reads them
     if push_secrets:
@@ -1602,7 +1671,10 @@ def _teardown_namespaces(stack: str, k8s_dir: Path, kubectl_ctx: list[str]) -> N
 
 @dry_run_class("request-plan")
 def teardown_stack(
-    k8s_dir: Annotated[Path, typer.Option("--k8s-dir", help=HELP.k8s.k8s_dir)] = DEFAULT_K8S_DIR,
+    k8s_dir: Annotated[Path | None, typer.Option("--k8s-dir", help=HELP.k8s.k8s_dir)] = None,
+    product_dir: Annotated[
+        Path | None, typer.Option(PRODUCT_OPTION, help=HELP.k8s.product_dir)
+    ] = None,
     stack: Annotated[str, typer.Option("--stack", "-s", help=HELP.k8s.stack)] = DEFAULT_K8S_STACK,
     context: Annotated[
         str | None, typer.Option("--context", "-c", help=HELP.options.context)
@@ -1615,17 +1687,19 @@ def teardown_stack(
         runtime._validate_kubeconfig_context_name(effective_context, "context")
 
     selected_stacks = net._resolve_stacks(stack)
+    env, product = _stack_roots(k8s_dir, product_dir, selected_stacks)
     all_uninstalls, all_post_helm_deletes, all_manifest_deletes = _collect_teardown_targets(
-        selected_stacks, k8s_dir
+        selected_stacks, env, product
     )
 
     if dry_run or is_dry_run():
         render_dry_run_result(
             command="devops k8s teardown-stack",
-            target=str(k8s_dir),
+            target=str(env.root),
             action="teardown_k8s_stack",
             details={
-                "kustomize_dir": str(k8s_dir),
+                "kustomize_dir": str(env.root),
+                "product_dir": str(product),
                 "stack": stack,
                 "stacks": selected_stacks,
                 "context": effective_context,
@@ -1706,6 +1780,6 @@ def teardown_stack(
         )
 
     # 4. Clean up namespaces
-    _teardown_namespaces(stack, k8s_dir, kubectl_ctx)
+    _teardown_namespaces(stack, env.root, kubectl_ctx)
 
     print_success(f"Kubernetes stack ({stack}) torn down.")

@@ -13,6 +13,7 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
 from tests.gate.k8s_render import applied_documents
+from tests.support.k8s_tree import TREE, release_values
 from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
@@ -29,7 +30,7 @@ def check_llm_stack_applies_the_gateway_policy_before_the_gateway_and_deletes_it
     and teardown-stack deletes it (#795). Without Argo CD the gateway ran with no policy, so its
     egress was unrestricted. Both apply the gateway kustomization, whose render puts the policy
     first (#1929). Neither dry run makes a request."""
-    gateway = Path("k8s", "llm", "gateway")
+    gateway = TREE.path(Path("llm", "gateway"))
     deploy = runner.invoke(app, ["deploy-stack", "--stack", "llm", "--dry-run"])
     teardown = runner.invoke(app, ["teardown-stack", "--stack", "llm", "--dry-run"])
     rendered = [
@@ -78,10 +79,10 @@ def check_prometheus_operator_crds_install_before_every_service_monitor() -> Non
     """
     from devops_cli.commands.k8s.stack_lifecycle import (
         _HELM_REPOS_BY_STACK,
-        DEFAULT_K8S_DIR,
         HELM_RELEASES_BY_STACK,
         MANIFESTS_BY_STACK,
         POST_HELM_BY_STACK,
+        PRODUCT_MANIFESTS_BY_STACK,
     )
 
     crds = HELM_RELEASES_BY_STACK["infra"][0]
@@ -90,24 +91,35 @@ def check_prometheus_operator_crds_install_before_every_service_monitor() -> Non
         for stack, releases in HELM_RELEASES_BY_STACK.items()
         for release in releases
         if any(
-            _renders_service_monitor(yaml.safe_load(Path(value).read_text("utf-8")))
-            for value in release["values"]
+            _renders_service_monitor(yaml.safe_load(value.read_text("utf-8")))
+            for value in release_values(release)
         )
+    ]
+    pre_helm_paths = [
+        *(
+            (stack, TREE.path(path))
+            for stack, paths in MANIFESTS_BY_STACK.items()
+            for path in paths
+        ),
+        *(
+            (stack, TREE.path("devops") / path)
+            for stack, paths in PRODUCT_MANIFESTS_BY_STACK.items()
+            for path in paths
+        ),
     ]
     pre_helm_monitors = [
         (stack, path.as_posix())
-        for stack, paths in MANIFESTS_BY_STACK.items()
-        for path in paths
+        for stack, path in pre_helm_paths
         if any(doc.get("kind") == "ServiceMonitor" for doc in applied_documents(path))
     ]
     post_helm_monitors = [
         (stack, path.as_posix())
         for stack, paths in POST_HELM_BY_STACK.items()
         for path in paths
-        if (DEFAULT_K8S_DIR / path).is_file()
+        if TREE.path(path).is_file()
         and any(
             isinstance(doc, dict) and doc.get("kind") == "ServiceMonitor"
-            for doc in yaml.safe_load_all((DEFAULT_K8S_DIR / path).read_text("utf-8"))
+            for doc in yaml.safe_load_all(TREE.path(path).read_text("utf-8"))
         )
     ]
 

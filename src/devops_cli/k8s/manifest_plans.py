@@ -127,7 +127,7 @@ def plan_k8s_bootstrap(
 
 
 def plan_k8s_bootstrap_mattermost(
-    team: str = "homelab",
+    team: str,
     context: str | None = None,
     push_secrets: bool = True,
 ) -> list[PlannedRequest]:
@@ -167,6 +167,7 @@ def plan_k8s_bootstrap_mattermost(
             method="kubectl",
             target="exec",
             argv=tuple(exec_cmd),
+            condition=f"team {team} or one of its channels, webhooks or slash commands is missing",
         ),
     ]
     if push_secrets:

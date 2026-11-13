@@ -23,6 +23,13 @@ from devops_cli.cloudflare.client import (
     _parse_retry_after,
 )
 from devops_cli.exceptions.cloudflare import CloudflareAPIError, CloudflareAuthError
+from devops_cli.models.cloudflare import AccessNames
+
+ACCESS_NAMES = AccessNames(
+    application="Example Ingress",
+    allow_policy="Allow example authorized emails",
+    bypass_policy="example-public-ip-bypass",
+)
 
 
 def test_cloudflare_client_uses_custom_transport() -> None:
@@ -118,7 +125,11 @@ def test_cloudflare_client_uses_custom_transport() -> None:
         ),
         (
             "sync_access_application",
-            {"domain": "app.example.com", "allowed_emails": ["user@example.com"]},
+            {
+                "domain": "app.example.com",
+                "allowed_emails": ["user@example.com"],
+                "names": ACCESS_NAMES,
+            },
             "Account ID is required",
         ),
     ],
@@ -733,6 +744,7 @@ def test_sync_access_application() -> None:
     )
 
     result = client.sync_access_application(
+        names=ACCESS_NAMES,
         domain="example.com",
         allowed_emails=["user@example.com"],
         bypass_ips=["192.0.2.0/24"],

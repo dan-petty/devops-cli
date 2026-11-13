@@ -1802,7 +1802,8 @@ devops ai gateway load [OPTIONS]
 
 ### `devops ai gateway render`
 
-**Render the Ollama tiers of the GPU thresholds and the LLM gateway configuration, showing unified diff.**
+**Render the Ollama tiers of the GPU thresholds and the LLM gateway configuration, showing
+unified diff. Each file that no option names is the file of the environment tree.**
 
 ```bash
 devops ai gateway render [OPTIONS]
@@ -1818,6 +1819,7 @@ devops ai gateway render [OPTIONS]
 | `--services` | `path` | - | Path to LLM services YAML. |
 | `--thresholds` | `path` | - | Path to the GPU architecture thresholds YAML. |
 | `--tier-templates` | `path` | - | Directory of the Ollama tier templates. |
+| `--k8s-dir` | `path` | - | The environment tree: the Kubernetes folder of the infra repo. Default: kubernetes.dir of the project profile of the current repository, else of the one infra repo that gives it. |
 
 ---
 

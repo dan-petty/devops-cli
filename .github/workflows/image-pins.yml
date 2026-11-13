@@ -2,6 +2,7 @@ name: Image Pins
 
 # Resolves each image that an Argo CD Application pins when a pull request changes the manifests,
 # the command or this workflow, so a wrong tag fails the pull request and not the sync (#1994).
+# The command reads the environment tree that `.devops/project.toml` names (#5131).
 # The native `paths` filter stops the run before a runner starts, so a pull request that changes
 # none of the paths starts no job and shows no check (#4653). The check is not required.
 on:
@@ -11,7 +12,10 @@ on:
     paths:
       - "k8s/**"
       - "src/devops_cli/**/image_pins.py"
+      - "src/devops_cli/k8s/app_sources.py"
+      - "src/devops_cli/k8s/environment.py"
       - "src/devops_cli/docker/registry.py"
+      - ".devops/project.toml"
       - ".github/workflows/image-pins.yml"
 
 permissions: {}

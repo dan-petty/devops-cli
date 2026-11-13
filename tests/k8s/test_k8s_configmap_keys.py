@@ -26,7 +26,7 @@ APP = GitHubAppConfig(app_id=1001, installation_id=42, slug="devops-roadmap")
 def _example_config() -> dict[str, Any]:
     """The settings that the example ConfigMap holds, as a deploy renders them."""
     rendered = render_active_devops_configmap(
-        k8s_dir=REPO_ROOT / "k8s",
+        REPO_ROOT / "k8s" / "devops",
         settings=Settings(service=ServiceConfig(repos=["example-org/repo"], github_app=APP)),
     )
     config: dict[str, Any] = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])

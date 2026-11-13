@@ -54,11 +54,15 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_ARGOCD_GITHUB_APP_INSTALLATION_ID` | `argocd.github_app_installation_id` | No | ID of the installation of Argo CD's notifier App on the managed repositories |
 | `DEVOPS_CLI_ARGOCD_GITHUB_APP_PRIVATE_KEY` | `argocd.github_app_private_key` | 🔒 Yes | PEM private key of the GitHub App that Argo CD's GitHub notifier acts as (stored in OS keyring) |
 | `DEVOPS_CLI_ARGOCD_PASSWORD` | `argocd.password` | 🔒 Yes | ArgoCD admin password (stored in OS keyring) |
+| `DEVOPS_CLI_ARGOCD_ROOT_APPLICATIONS` | `argocd.root_applications` | No | The Argo CD Applications that sync the other Applications (app of apps), the outer one first. A volume move pauses them before the Applications of the claim, and the last one is the Application that 'devops argo gitops watch' and 'sync' sync when no --app-name is given |
 | `DEVOPS_CLI_ARGOCD_TOKEN` | `argocd.token` | 🔒 Yes | ArgoCD API token (stored in OS keyring) |
 | `DEVOPS_CLI_ARGOCD_URL` | `argocd.url` | No | ArgoCD service URL |
 | `DEVOPS_CLI_CI_GATE_SLOTS` | `ci.gate_slots` | No | Number of CPU-heavy devops ci gates that run at once on this host (default: one for each 16 CPUs) |
 | `DEVOPS_CLI_CLOUDFLARE_ACCESS_ALLOWED_EMAILS` | `cloudflare.access.allowed_emails` | No | List of email addresses permitted to authenticate through Cloudflare Access |
+| `DEVOPS_CLI_CLOUDFLARE_ACCESS_ALLOW_POLICY_NAME` | `cloudflare.access.allow_policy_name` | No | The name of the Access policy that allows the authorized emails. The sync finds the policy by this name |
+| `DEVOPS_CLI_CLOUDFLARE_ACCESS_APPLICATION_NAME` | `cloudflare.access.application_name` | No | The name that 'devops cloudflare access sync' gives a new Access application. The sync finds an existing application by its domain |
 | `DEVOPS_CLI_CLOUDFLARE_ACCESS_BYPASS_IPS` | `cloudflare.access.bypass_ips` | No | List of public IP addresses or CIDR blocks permitted to bypass Cloudflare Access authentication |
+| `DEVOPS_CLI_CLOUDFLARE_ACCESS_BYPASS_POLICY_NAME` | `cloudflare.access.bypass_policy_name` | No | The name of the Access policy that lets the public IP addresses bypass the login. The sync finds the policy by this name |
 | `DEVOPS_CLI_CLOUDFLARE_ACCESS_PUBLIC_IP_BYPASS` | `cloudflare.access.public_ip_bypass` | No | Homelab public IP address or CIDR block permitted to bypass Cloudflare Access authentication |
 | `DEVOPS_CLI_CLOUDFLARE_ACCOUNT_ID` | `cloudflare.account_id` | No | Cloudflare Account ID |
 | `DEVOPS_CLI_CLOUDFLARE_API_TOKEN` | `cloudflare.api_token` | 🔒 Yes | Cloudflare API Token (stored in OS keyring) Also read from `CLOUDFLARE_API_TOKEN`. |
@@ -86,6 +90,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_FIRECRAWL_API_KEY` | `firecrawl.api_key` | 🔒 Yes | API key for the Firecrawl web search API Also read from `FIRECRAWL_API_KEY`. |
 | `DEVOPS_CLI_GEMINI_API_KEY` | `gemini.api_key` | 🔒 Yes | Google Gemini API key that `devops k8s push-secrets` writes to the LLM gateway Secret (stored in OS keyring) |
 | `DEVOPS_CLI_GITEA_ADMIN_PASSWORD` | `gitea.admin_password` | 🔒 Yes | Password of Gitea's admin user, which `devops k8s push-secrets` writes to Secret gitea/gitea-admin (stored in OS keyring) |
+| `DEVOPS_CLI_GITEA_APPLICATIONS` | `gitea.applications` | No | The Argo CD Applications of the Gitea stack, which 'devops k8s doctor --stack gitea' checks |
 | `DEVOPS_CLI_GITHUB_DEFAULT_ORG` | `github.default_org` | No | Default GitHub organization |
 | `DEVOPS_CLI_GRAFANA_PASSWORD` | `grafana.password` | 🔒 Yes | Grafana admin password (stored in OS keyring) |
 | `DEVOPS_CLI_GRAFANA_TOKEN` | `grafana.token` | 🔒 Yes | Grafana API token (stored in OS keyring) |
@@ -100,6 +105,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_MATTERMOST_ALERTS_HOOK` | `mattermost.alerts_hook` | 🔒 Yes | Mattermost incoming webhook token for the alerts channel (stored in OS keyring) |
 | `DEVOPS_CLI_MATTERMOST_COMMAND_TOKEN` | `mattermost.command_token` | 🔒 Yes | Mattermost slash command token for the /roadmap command (stored in OS keyring) |
 | `DEVOPS_CLI_MATTERMOST_DEPLOYS_HOOK` | `mattermost.deploys_hook` | 🔒 Yes | Mattermost incoming webhook token for the deploys channel (stored in OS keyring) |
+| `DEVOPS_CLI_MATTERMOST_TEAM` | `mattermost.team` | No | The Mattermost team that 'devops k8s bootstrap-mattermost' makes or reuses when no --team is given |
 | `DEVOPS_CLI_MCP_IMPLEMENT_TOKEN` | `mcp.implement_token` | 🔒 Yes | Bearer token for the implement job MCP client to connect to the MCP server's implementation role (stored in OS keyring) |
 | `DEVOPS_CLI_MCP_STAGE_TOKEN` | `mcp.stage_token` | 🔒 Yes | Bearer token for the stage job MCP client to connect to the MCP server's planning role (stored in OS keyring) |
 | `DEVOPS_CLI_MCP_TOKEN` | `mcp.token` | 🔒 Yes | Bearer token that `devops mcp serve --transport streamable-http` requires from every request, and refuses to start without. `devops k8s push-secrets` writes it to Secret devops/mcp-server and to the stage and implement client keys of Secret devops/devops-cli (stored in OS keyring) |

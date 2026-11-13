@@ -54,6 +54,8 @@ argocd:
   # Note: set DEVOPS_CLI_AI_ALLOW_PRIVATE_NETWORK=true for cluster-internal URLs.
   url: null
   # Token: devops config set argocd.token <value>
+  # The Applications that sync the other Applications (app of apps), the outer one first.
+  root_applications: [bootstrap, cluster]
 
 # ── Qdrant Vector Store ───────────────────────────────────────────────────────
 qdrant:
@@ -198,6 +200,10 @@ cloudflare:
     bypass_ips: []
     # Homelab public IP address or CIDR permitted to bypass Cloudflare Access.
     public_ip_bypass: null
+    # The name of a new Access application, and the names that find its two policies.
+    application_name: Homelab Ingress
+    allow_policy_name: Allow homelab authorized emails
+    bypass_policy_name: homelab-public-ip-bypass
 
 
 # ── Sandbox ───────────────────────────────────────────────────────────────────

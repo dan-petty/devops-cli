@@ -35,7 +35,6 @@ def _names_jaeger_outside_datasource_deletions(path: Path) -> bool:
 def test_tempo_stack_contract_and_datasource_links() -> None:
     """Verify Tempo Helm release, values, collector exporter, Grafana links, and zero Jaeger in k8s/."""
     from devops_cli.commands.k8s.stack_lifecycle import HELM_RELEASES_BY_STACK
-    from devops_cli.config.defaults import DEFAULT_K8S_DIR
 
     infra_releases = HELM_RELEASES_BY_STACK["infra"]
     tempo_release = next((r for r in infra_releases if r["name"] == "tempo"), None)
@@ -80,7 +79,7 @@ def test_tempo_stack_contract_and_datasource_links() -> None:
             "name": "tempo",
             "chart": "grafana-community/tempo",
             "namespace": "otel",
-            "values": [str(DEFAULT_K8S_DIR / "otel" / "tempo-values.yaml")],
+            "values": ["otel/tempo-values.yaml"],
             "version": "3.2.1",
         },
         "local-path",

@@ -105,9 +105,9 @@ def rbac_audit(
 @dry_run_class("no-external-request")
 def k8s_lint(
     target: Annotated[
-        Path,
-        typer.Argument(help=HELP.k8s.lint_target),
-    ] = DEFAULT_CURRENT_PATH,
+        Path | None,
+        typer.Argument(help=HELP.k8s.lint_target, show_default=False),
+    ] = None,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
@@ -115,9 +115,12 @@ def k8s_lint(
 ) -> None:
     """Validate K8s manifests and Helm charts using Red Hat Kube-linter."""
     from devops_cli.dry_run.state import set_dry_run
+    from devops_cli.k8s.environment import resolve_environment
     from devops_cli.security.kubelinter import run_kubelinter_scan
 
     set_dry_run(dry_run)
+    if target is None:
+        target = resolve_environment().root
     target_abs = target.resolve() if target.exists() else target
     if not is_dry_run():
         print_info(
@@ -202,15 +205,19 @@ def k8s_audit(
 @dry_run_class("request-plan")
 def k8s_check_deprecated(
     target: Annotated[
-        Path,
-        typer.Argument(help=HELP.k8s.pluto_target),
-    ] = DEFAULT_CURRENT_PATH,
+        Path | None,
+        typer.Argument(help=HELP.k8s.pluto_target, show_default=False),
+    ] = None,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
     """Scan manifests for deprecated/removed K8s API versions using Fairwinds Pluto."""
+    from devops_cli.k8s.environment import resolve_environment
+
+    if target is None:
+        target = resolve_environment().root
     if dry_run or is_dry_run():
         from devops_cli.dry_run.requests import render_request_plan
         from devops_cli.k8s.manifest_plans import plan_k8s_check_deprecated

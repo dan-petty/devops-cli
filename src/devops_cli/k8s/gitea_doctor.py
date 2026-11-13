@@ -55,7 +55,6 @@ from devops_cli.config.constants import (
     CONST_K8S_DOCTOR_CHECK_TUNNEL_HOST,
     CONST_K8S_DOCTOR_CHECK_VOLUME_RETAINED,
     CONST_K8S_GITEA_ADMIN_USER,
-    CONST_K8S_GITEA_APPLICATIONS,
     CONST_K8S_GITEA_CLAIM,
     CONST_K8S_GITEA_CONTAINER,
     CONST_K8S_GITEA_DEPLOYMENT,
@@ -173,7 +172,7 @@ def _repository_path(name: str) -> str:
     return CONST_GITEA_REPO_PATH_TEMPLATE.format(owner=CONST_K8S_GITEA_ADMIN_USER, name=name)
 
 
-def plan_gitea_requests(context: str | None) -> list[PlannedRequest]:
+def plan_gitea_requests(context: str | None, applications: Sequence[str]) -> list[PlannedRequest]:
     """The requests of the Gitea checks, in order, for a dry run that makes none of them."""
 
     def kubectl(args: Sequence[str], condition: str = "") -> PlannedRequest:
@@ -191,7 +190,7 @@ def plan_gitea_requests(context: str | None) -> list[PlannedRequest]:
     has_host = "the Ingress has a host"
     name = f"{CONST_GITEA_TEMPORARY_REPO_PREFIX}<random>"
     return [
-        *(kubectl(_application_args(app)) for app in CONST_K8S_GITEA_APPLICATIONS),
+        *(kubectl(_application_args(app)) for app in applications),
         kubectl(_claim_args()),
         kubectl(
             _volume_args(f"<volume of claim {CONST_K8S_GITEA_CLAIM}>"),
@@ -576,7 +575,7 @@ def _tunnel_checks(host: str | None, why: str) -> list[DoctorCheck]:
         return [*checks, *_repository_checks(tunnel)]
 
 
-def run_gitea_checks(context: str | None) -> list[DoctorCheck]:
+def run_gitea_checks(context: str | None, applications: Sequence[str]) -> list[DoctorCheck]:
     """Run every check of the live Gitea stack, in order, and return each result."""
     checks = [
         _check(
@@ -584,7 +583,7 @@ def run_gitea_checks(context: str | None) -> list[DoctorCheck]:
             f"Application/{DEFAULT_ARGOCD_NAMESPACE}/{name}",
             partial(_application, name, context),
         )
-        for name in CONST_K8S_GITEA_APPLICATIONS
+        for name in applications
     ]
     checks.append(
         _check(
