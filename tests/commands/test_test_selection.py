@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 from pathlib import Path
 from typing import NoReturn
 
@@ -15,6 +16,7 @@ from devops_cli.commands.ci import get_check_spec
 from devops_cli.config.constants import (
     CONST_CI_SLOWEST_TESTS_SHOWN,
     CONST_CONFTEST_FILENAME,
+    CONST_EXIT_CANCELLED,
     CONST_FULL_RUN_TRIGGER_NAMES,
     CONST_TESTS_ROOT_DIR,
 )
@@ -677,6 +679,61 @@ def test_a_failed_collection_falls_back_to_the_file_count_with_a_warning(
         [[["-n", str(DEFAULT_CI_TEST_NARROWED_WORKERS)]]],
     )
     assert _COLLECTION_WARNING in " ".join(result.output.split())
+
+
+def test_a_collection_that_times_out_falls_back_to_the_file_count_with_a_warning(
+    monkeypatch: pytest.MonkeyPatch, project: Path
+) -> None:
+    """A collection that outlives its timeout prints a warning that names it and keeps the
+    file-count rule, so the run still starts: 13 test modules take
+    DEFAULT_CI_TEST_NARROWED_WORKERS workers, where a count of zero would run serially (#4472)."""
+    modules = _test_modules(project, DEFAULT_CI_TEST_SERIAL_MAX_FILES + 1)
+
+    async def outlive_the_timeout(spawn: RecordedSpawn) -> None:
+        if _COLLECTION_MARK in spawn.argv:
+            raise TimeoutError
+
+    monkeypatch.chdir(project)
+    spawns = record_spawns(monkeypatch, on_communicate=outlive_the_timeout)
+    result = runner.invoke(ci_app, ["test", *modules])
+
+    runs = [spawn for spawn in spawns if _COLLECTION_MARK not in spawn.argv]
+    assert (result.exit_code, [_worker_options(spawn.argv) for spawn in runs]) == (
+        0,
+        [[["-n", str(DEFAULT_CI_TEST_NARROWED_WORKERS)]]],
+    )
+    assert _COLLECTION_WARNING in " ".join(result.output.split())
+
+
+def test_a_collection_cancelled_by_a_stop_signal_exits_as_cancelled(
+    monkeypatch: pytest.MonkeyPatch, project: Path
+) -> None:
+    """Ctrl-C, SIGTERM or SIGHUP during the collection exits as cancelled, as it does during the
+    run, so a stopped collection is no failed collection that falls back (#4472)."""
+
+    async def cancel_the_collection(spawn: RecordedSpawn) -> None:
+        if _COLLECTION_MARK in spawn.argv:
+            raise asyncio.CancelledError
+
+    monkeypatch.chdir(project)
+    spawns = record_spawns(monkeypatch, on_communicate=cancel_the_collection)
+    result = runner.invoke(ci_app, ["test", "src/devops_cli/security/secrets.py"])
+
+    assert (result.exit_code, [_COLLECTION_MARK in spawn.argv for spawn in spawns]) == (
+        CONST_EXIT_CANCELLED,
+        [True],
+    )
+
+
+def test_a_dry_run_plans_the_workers_without_collecting(
+    process_fake: ProcessFake, project: Path
+) -> None:
+    """A dry run starts no child, so it cannot count the collected tests: it plans the run with
+    the worker count that the file count gives and starts no collection (#4472)."""
+    result = runner.invoke(ci_app, ["test", "--dry-run", "src/devops_cli/security/secrets.py"])
+
+    assert (result.exit_code, _collection_calls(process_fake)) == (0, [])
+    assert "pytest -n 0" in " ".join(result.stdout.split())
 
 
 @pytest.mark.parametrize(
