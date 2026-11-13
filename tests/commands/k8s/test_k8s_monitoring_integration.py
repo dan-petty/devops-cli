@@ -1239,12 +1239,12 @@ def test_profiling_runs_on_k8s_monitoring_alloy_profiles() -> None:
     )
 
 
-def test_the_ebpf_profiler_runs_on_every_node_except_hawk() -> None:
-    """The `alloy-profiles` DaemonSet keeps off the node `hawk` (#3784). That node reboots on its
-    own, and its kernel log of 2026-11-05 names the eBPF map free of the profiler before the
-    reboot. The profiler is the only eBPF loader on the nodes. The affinity stays until the cause
-    of the crashes is found (#3785). The other nodes keep the profiler, and no other collector
-    carries the exclusion."""
+def test_the_ebpf_profiler_runs_on_every_node() -> None:
+    """The `alloy-profiles` DaemonSet runs on every node, so its eBPF profiler profiles every
+    pod (#3785). It stayed off one node while the cause of that node's crashes was open (#3784),
+    and the node then hung after 3 days without the profiler, with the same kernel state
+    corruption as the boots that had it, so the profiler is not the cause. `alloy-metrics` keeps
+    its one control-plane term, which keeps its write-ahead log off that node (#1634)."""
     collectors = _k8s_monitoring_values()["collectors"]
     required = "requiredDuringSchedulingIgnoredDuringExecution"
 
@@ -1255,23 +1255,16 @@ def test_the_ebpf_profiler_runs_on_every_node_except_hawk() -> None:
     } == {
         "alloy-singleton": None,
         "alloy-logs": None,
-        "alloy-profiles": {
-            "nodeAffinity": {
-                required: {
-                    "nodeSelectorTerms": [
-                        {
-                            "matchExpressions": [
-                                {
-                                    "key": "kubernetes.io/hostname",
-                                    "operator": "NotIn",
-                                    "values": ["hawk"],
-                                }
-                            ]
-                        }
-                    ]
-                }
+        "alloy-profiles": None,
+    }
+    assert collectors["alloy-metrics"]["controller"]["affinity"] == {
+        "nodeAffinity": {
+            required: {
+                "nodeSelectorTerms": [
+                    {"matchExpressions": [{"key": CONTROL_PLANE_LABEL, "operator": "DoesNotExist"}]}
+                ]
             }
-        },
+        }
     }
 
 
