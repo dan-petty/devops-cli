@@ -11,18 +11,18 @@ Kind: behavior. Reads: `src/devops_cli/github/pages.py`, `src/devops_cli/command
 
 ## 2. Delete the legacy build commands
 
-Kind: behavior. Reads: `src/devops_cli/commands/gh.py`, `src/devops_cli/config/constants.py`. Changes: `src/devops_cli/github/pages.py`, `src/devops_cli/commands/gh.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/ai/mcp/server.py`, `tests/github/test_github_pages.py`, `tests/commands/test_gh_cmd.py`, `tests/github/test_gh_project_views_pages_dry_run.py`, `tests/ai/mcp/test_mcp_tool_registry.py`, `tests/ai/mcp/__snapshots__/test_mcp_tool_listing/test_the_tool_listing_matches_the_snapshot.json`, `tests/fixtures/swallowed_failures_ceilings.json`, `docs/MCP_TOOLS.md`, `docs/commands/gh.md`, `docs/CLI_REFERENCE.md`.
+Kind: behavior. Reads: `src/devops_cli/commands/gh.py`, `src/devops_cli/config/constants.py`. Changes: `src/devops_cli/github/pages.py`, `src/devops_cli/commands/gh.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/ai/mcp/server.py`, `tests/github/test_github_pages.py`, `tests/commands/test_gh_cmd.py`, `tests/github/test_gh_project_views_pages_dry_run.py`, `tests/ai/mcp/test_mcp_tool_registry.py`, `tests/ai/mcp/__snapshots__/test_mcp_tool_listing/test_the_tool_listing_matches_the_snapshot.json`, `tests/roadmap/stage/test_stage_run_allowlist.py`, `tests/fixtures/swallowed_failures_ceilings.json`, `docs/MCP_TOOLS.md`, `docs/commands/gh.md`, `docs/CLI_REFERENCE.md`.
 
 - [x] 2.1 Write `test_the_pages_group_has_status_and_verify_only` in `tests/commands/test_gh_cmd.py` and `test_the_pages_tools_are_status_and_verify` in `tests/ai/mcp/test_mcp_tool_registry.py`, and remove `gh_pages_build` from the expected tools of that file
   - Verification: `$ uv run devops ci fail-to-pass --base origin/main`
-- [x] 2.2 Delete `devops gh pages build`, `devops gh pages builds`, their model, request functions, help texts and tests, and the MCP row `("gh", "pages", "build")`; remove "branch", "builds" and "build health" from the Pages help texts and docstrings and the tool count from the docstring of `DomainGateMiddleware`; lower the swallowed-failures ceiling of `src/devops_cli/github/pages.py` with `--lower`; update the MCP listing snapshot and regenerate the documents
+- [x] 2.2 Delete `devops gh pages build`, `devops gh pages builds`, their model, request functions, help texts and tests, and the MCP row `("gh", "pages", "build")`; remove "branch", "builds" and "build health" from the Pages help texts and docstrings and the tool count from the docstring of `DomainGateMiddleware`; lower the swallowed-failures ceiling of `src/devops_cli/github/pages.py` with `--lower`; set `ROW_COUNT` of the stage allow-list census to 144; update the MCP listing snapshot and regenerate the documents
   - Verification: `$ uv run devops ci test tests/github/test_github_pages.py tests/commands/test_gh_cmd.py tests/github/test_gh_project_views_pages_dry_run.py tests/github/test_github_contract.py tests/ai/mcp tests/docs/test_docs_knowledge_base_argv.py`
 
 ## 3. Remove the YAML guard of docs/
 
 Kind: other. Changes: `tests/github/test_github_pages.py`.
 
-- [x] 3.1 Remove the `docs/*.y*ml` assertion and the Jekyll sentence of `test_the_repository_site_settings_pass_the_check`, and keep its check of `zensical.toml`
+- [x] 3.1 Remove the `docs/*.y*ml` assertion and the Jekyll sentence of `test_the_repository_site_settings_pass_the_check`, and keep its check of `zensical.toml` and `docs/` by value
   - Verification: `$ uv run devops ci test tests/github/test_github_pages.py`
 
 ## 4. Correct the text

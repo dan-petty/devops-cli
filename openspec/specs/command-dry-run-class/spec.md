@@ -45,17 +45,6 @@ The `no-external-request` class SHALL name external requests only. An entry of `
 - **WHEN** the ratchet audits a table in which the entry of a `no-external-request` command outside the set of local writers is not read-only
 - **THEN** the audit reports that command
 
-### Requirement: gh-project-views-pages-request-plans
-The ten external-request commands in `gh project`, `gh views`, and `gh pages` SHALL carry the `request-plan` dry-run class. Each command SHALL expose `--dry-run`, make zero external requests during a dry run, and output its planned requests.
-
-#### Scenario: Dry run on gh pages build
-- **WHEN** user executes `devops gh pages build --dry-run`
-- **THEN** no external request is made and the planned build request is printed
-
-#### Scenario: Dry run on gh project sync
-- **WHEN** user executes `devops gh project sync --dry-run`
-- **THEN** no external request is made and the planned board, field, and view requests are printed
-
 ### Requirement: gh-project-views-pages-no-external-request
 The five local commands in `gh project`, `gh views`, and `gh pages` SHALL carry the `no-external-request` dry-run class, allowing execution under `devops --dry-run <command>` without external requests.
 
@@ -1033,3 +1022,14 @@ The help of each command with the dry-run class `no-external-request`, and the h
 
 - **WHEN** the check reads every command that `devops` reaches
 - **THEN** it returns no error
+
+### Requirement: gh-project-views-pages-dry-run-request-plans
+The eight external-request commands in `gh project`, `gh views`, and `gh pages` SHALL carry the `request-plan` dry-run class. Each command SHALL expose `--dry-run`, make zero external requests during a dry run, and output its planned requests.
+
+#### Scenario: Dry run on gh pages status
+- **WHEN** user executes `devops gh pages status --dry-run`
+- **THEN** no external request is made and the planned status request is printed
+
+#### Scenario: Dry run on gh project sync
+- **WHEN** user executes `devops gh project sync --dry-run`
+- **THEN** no external request is made and the planned board, field, and view requests are printed
