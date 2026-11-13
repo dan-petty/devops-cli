@@ -3655,6 +3655,9 @@ CONST_ROADMAP_IMPLEMENT_READ_PIPE_PROGRAMS: Final[tuple[str, ...]] = ("head", "t
 CONST_ROADMAP_RUN_STATE_FILENAME: Final[str] = "schedule.json"
 # The Service's intake record beside schedule.json: what intake decided and left (#1360).
 CONST_ROADMAP_INTAKE_RECORD_FILENAME: Final[str] = "intake.json"
+# The record beside schedule.json of the queue that the last round of each row with a cadence
+# counted, which the next round reads for the backlog rule (#5470).
+CONST_ROADMAP_ROW_QUEUES_FILENAME: Final[str] = "queues.json"
 # The release_comments row's ledger beside schedule.json: which releases hold their comments (#2917).
 CONST_ROADMAP_RELEASE_LEDGER_FILENAME: Final[str] = "release_comments.json"
 # The pr_conflicts row's ledger beside schedule.json: the head commit of each pull request that it

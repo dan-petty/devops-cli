@@ -14,6 +14,7 @@ import pytest
 
 from devops_cli.ai.client.models import AIClientError
 from devops_cli.config.constants import CONST_ROADMAP_STATUS_NEW
+from devops_cli.config.settings import RoadmapConfig
 from devops_cli.exceptions import GitOperationError
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap import run
@@ -84,16 +85,18 @@ def test_the_row_follows_retitle_before_refine_runs_on_a_clone_and_is_due_every_
 ):
     """The stage row runs after retitle and before refine, so a new pod's first round stages
     first; a refine that set an item Ready makes it due through `stage_due`, not in the same
-    round (#2659, #4796). Only the row fix_plan is between stage and refine (#5061)."""
+    round (#2659, #4796). Only the row fix_plan is between stage and refine (#5061). Its interval
+    is the setting `roadmap.stage.interval_minutes`, 37 minutes by default (#5470)."""
     names = [row.name for row in MODEL_LANE_ROWS]
+    cadence = STAGE_ROW.cadence
     assert (
         names[names.index("retitle") + 1],
         names[names.index("stage") + 1 : names.index("refine")],
         STAGE_ROW.needs_clone,
         STAGE_ROW.first_run_due,
-        STAGE_ROW.interval,
+        None if cadence is None else cadence(RoadmapConfig()).interval_minutes,
         STAGE_ROW.cross_job_predicate,
-    ) == ("stage", ["fix_plan"], True, True, timedelta(minutes=37), None)
+    ) == ("stage", ["fix_plan"], True, True, 37, None)
 
 
 def test_a_round_stages_the_items_the_settings_name_and_counts_each_once(
@@ -118,7 +121,7 @@ def test_a_round_stages_the_items_the_settings_name_and_counts_each_once(
 
     outcome = _round(store, stage_repo)
 
-    assert outcome == JobOutcome()
+    assert outcome == JobOutcome(queue=1)
     assert _pushed(stage_repo) == ["feat/2-the-job-drops-a-label", "main"]
     assert _counted(otlp) == [("staged", 1.0)]
 
@@ -169,7 +172,7 @@ def test_a_round_plans_with_the_model_of_the_stage_task_as_a_toolbox_model(
     outcome = _round(store, stage_repo)
 
     assert (outcome, tasks, script.tools_offered[0][:2], review.tools_offered[0][:1]) == (
-        JobOutcome(),
+        JobOutcome(queue=1),
         ["stage", "verification"],
         ["list_files", "read_file"],
         ["list_files"],
@@ -207,7 +210,7 @@ def test_a_round_counts_staged_needs_split_failed_and_skipped_items_once_each(
     failed = store.item(3)
     assert failed is not None
     assert (outcome, failed.job_record[StageRecordKey.FAILED_ERROR]) == (
-        JobOutcome(),
+        JobOutcome(queue=4),
         "RoadmapStageError",
     )
     assert _pushed(stage_repo) == ["fix/1-the-job-drops-a-comment", "main"]
@@ -222,7 +225,7 @@ def test_a_round_counts_staged_needs_split_failed_and_skipped_items_once_each(
 def test_a_round_with_nothing_to_stage_counts_nothing(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, otlp: FakeCollector
 ) -> None:
-    assert _round(store, stage_repo) == JobOutcome()
+    assert _round(store, stage_repo) == JobOutcome(queue=0)
     assert _counted(otlp) == []
 
 
@@ -240,7 +243,7 @@ def test_a_round_sets_planned_for_an_item_whose_plan_is_on_the_default_branch(
 
     held = store.item(number)
     assert held is not None
-    assert (outcome, held.status) == (JobOutcome(), "Planned")
+    assert (outcome, held.status) == (JobOutcome(queue=1), "Planned")
 
 
 def test_a_round_without_a_clone_fails_naming_the_job(store: InMemoryRoadmapStore) -> None:
@@ -532,7 +535,7 @@ def test_a_round_in_a_repository_without_openspec_holds_each_item_and_reports_th
         outcome = _round(store, stage_repo)
 
     lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("stage left out")]
-    assert outcome == JobOutcome(missing=("openspec/config.yaml",))
+    assert outcome == JobOutcome(missing=("openspec/config.yaml",), queue=1)
     assert _pushed(stage_repo) == ["main"]
     assert model_fake.calls == []
     assert _labelled(otlp) == [("skipped", "no_openspec", 1.0)]

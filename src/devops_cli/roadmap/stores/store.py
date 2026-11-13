@@ -988,6 +988,10 @@ class RoadmapStore(Protocol):
     def open_pulls(self) -> list[OpenPull]:
         """The open pull requests, with their branches and draft state (#2915)."""
 
+    def labelled_pulls(self, label: str) -> list[int]:
+        """The numbers of the open pull requests that hold `label`, lowest first, from the listing
+        of every issue that `items` reads: after that read it sends no request (#5470)."""
+
     def failed_checks(self, head_sha: str) -> bool:
         """Whether a check of the commit `head_sha` failed in its latest run. A read that GitHub
         does not answer raises (#3494)."""

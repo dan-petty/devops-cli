@@ -15,15 +15,20 @@ kept beside the repositories' schedules (`service_state_dir`), so a restart keep
 Each row is due by its interval, by a webhook hint in the batch, or by its due rule, which
 judges the changes made since the row last succeeded: intake's is an issue reopened, or a fresh
 candidate its last round left (`IntakeRecord`, kept beside `schedule.json`). A round's intake
-decides at most `DEFAULT_ROADMAP_INTAKE_LIMIT` candidates. Refine is due every 17 minutes, on a first
-run, and in a round where intake placed a critical fix or a P0 item (#1515). Stage, the row before
-refine, is due every 37 minutes, on a first run, and after a round in which refine set an item Ready
-(#2659): that round stamps `stage_due` in `schedule.json`. Stage runs before refine, so the first
-round of a new pod stages before refine takes its items (#4796).
+decides at most `DEFAULT_ROADMAP_INTAKE_LIMIT` candidates. Refine is due every 17 minutes by default, on
+a first run, and in a round where intake placed a critical fix or a P0 item (#1515). Stage, the row
+before refine, is due every 37 minutes by default, on a first run, and after a round in which refine
+set an item Ready (#2659): that round stamps `stage_due` in `schedule.json`. Stage runs before refine,
+so the first round of a new pod stages before refine takes its items (#4796).
+The rows intake, stage, fix_plan, refine and alternatives read their interval at each round from
+`roadmap.<row>.interval_minutes`, and use `roadmap.<row>.backlog_interval_minutes` while the queue
+that their last round counted holds `roadmap.<row>.backlog_threshold` or more items (#5470). Each
+runner counts its queue from the listing that its round reads, and the round keeps it in
+`queues.json` beside `schedule.json`.
 Retitle, the row before stage, is due every 61 minutes and on a first run. It examines at most
 `DEFAULT_ROADMAP_RETITLE_LIMIT` items: it shortens a long title summary (#3535) and corrects a title
 type that the branch types do not list (#4508), so stage reads the new titles.
-The alternatives row is due every 719 minutes and on a first run, and checks at most
+The alternatives row is due every 719 minutes by default and on a first run, and checks at most
 `roadmap.alternatives.first_pass_limit` items while an item has no check, else
 `roadmap.alternatives.limit` items after (#2652). Every clone tracks origin's default branch.
 
@@ -47,6 +52,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from functools import cache, partial
 from itertools import islice
+from operator import attrgetter
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
@@ -62,6 +68,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_BATCH_KEYS,
     CONST_ROADMAP_REFINE_DUE_STAMP,
     CONST_ROADMAP_RETITLE_BATCH_KEYS,
+    CONST_ROADMAP_ROW_QUEUES_FILENAME,
     CONST_ROADMAP_RUN_CLONE_DIRNAME,
     CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
     CONST_ROADMAP_RUN_STATE_FILENAME,
@@ -83,18 +90,13 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_GH_REST_PER_PAGE,
-    DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES,
-    DEFAULT_ROADMAP_FIX_PLAN_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES,
-    DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_INTAKE_LIMIT,
     DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_PR_CONFLICTS_INTERVAL_MINUTES,
-    DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_RELEASE_COMMENTS_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_RETITLE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_RETITLE_LIMIT,
-    DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES,
 )
 from devops_cli.config.settings import load_settings
@@ -179,10 +181,16 @@ from devops_cli.server.service import (
     keep_state_record,
     read_state_record,
 )
-from devops_cli.telemetry.instruments import ROADMAP_ROW_SECONDS, emit
+from devops_cli.telemetry.instruments import (
+    ROADMAP_ROW_INTERVAL_SECONDS,
+    ROADMAP_ROW_QUEUE_ITEMS,
+    ROADMAP_ROW_SECONDS,
+    emit,
+)
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 
 if TYPE_CHECKING:
+    from devops_cli.config.settings import RoadmapConfig, RowCadenceConfig
     from devops_cli.roadmap.intake.intake_model import IntakeModel
 
 logger = logging.getLogger(__name__)
@@ -210,11 +218,14 @@ class JobOutcome:
     whether it set an item Ready (refine), and the project files that the default branch of the
     repository lacks (stage, #4629). A later row of the round reads the outcome, so `missing` is
     the record that can start the onboarding of the repository (#4664). An outcome that set an
-    item Ready stamps `stage_due` (#4796)."""
+    item Ready stamps `stage_due` (#4796). `queue` is the size of the queue of the row, which the
+    runner counted from the listing that its round read, or None when it read no listing: the
+    round records it for the backlog rule of the row (#5470)."""
 
     placed_critical_or_p0: bool = False
     set_ready: bool = False
     missing: tuple[str, ...] = ()
+    queue: int | None = None
 
 
 @dataclass(frozen=True)
@@ -233,10 +244,12 @@ class DueCheck:
 
 @dataclass(frozen=True)
 class JobRow:
-    """One row in the roadmap due table."""
+    """One row in the roadmap due table. A row with a `cadence` takes its interval from that
+    section of the `roadmap` settings at each round, and not from `interval` (#5470)."""
 
     name: str
     interval: timedelta | None = None
+    cadence: Callable[[RoadmapConfig], RowCadenceConfig] | None = None
     batch_keys: tuple[tuple[str, str, str], ...] = ()
     runner: Callable[..., JobOutcome] = field(default_factory=lambda: lambda **_: JobOutcome())
     needs_clone: bool = False
@@ -298,6 +311,93 @@ def _record_success(schedule_path: Path, job: str, at: datetime) -> None:
         schedule = _read_schedule(schedule_path)
         schedule[job] = at
         _write_schedule(schedule_path, schedule)
+
+
+_Queues = TypeAdapter(dict[str, int])
+
+
+def _read_queues(record: Path) -> dict[str, int]:
+    """The queue that the last round of each row counted, from `queues.json` (#5470). A missing
+    file reads as empty: each row runs at its interval. A file that exists and can't be read
+    raises, naming it and the remedy, as the schedule does (#4042)."""
+    if not record.is_file():
+        return {}
+    try:
+        return _Queues.validate_json(record.read_text(encoding="utf-8"), strict=True)
+    except (OSError, MalformedRecordError) as exc:
+        reason = str(exc).splitlines()[0][:200]
+        raise RoadmapRunError(
+            MESSAGES.roadmap.run_queues_unreadable.format(path=record, reason=reason),
+            details={"path": str(record)[:256]},
+        ) from exc
+
+
+def _record_queue(record: Path, row: str, queue: int) -> None:
+    """Record `queue` as the queue of `row` in `queues.json`, and keep the queue of each other row
+    as the file holds it now: the triage and the model lane write the same file."""
+    from devops_cli.output.file_writer import write_json_file
+
+    with _SCHEDULE_LOCK:
+        queues = _read_queues(record)
+        queues[row] = queue
+        write_json_file(record, queues, indent=2, atomic=True)
+
+
+@dataclass(frozen=True)
+class _Cadences:
+    """The cadence of each row of a round that has one (#5470): its section of the `roadmap`
+    settings, read at the start of the round, so a change of the settings needs no restart, and
+    the queue that the last round of each row recorded in `record`."""
+
+    record: Path
+    sections: Mapping[str, RowCadenceConfig] = field(default_factory=dict)
+    queues: Mapping[str, int] = field(default_factory=dict)
+
+    @classmethod
+    def read(cls, rows: Sequence[JobRow], repo_dir: Path) -> _Cadences:
+        """The cadences of `rows`. A table with no row that has a cadence, such as the status
+        lane's, reads no settings and no record."""
+        record = repo_dir / CONST_ROADMAP_ROW_QUEUES_FILENAME
+        cadenced = [(row.name, row.cadence) for row in rows if row.cadence is not None]
+        if not cadenced:
+            return cls(record)
+        roadmap = load_settings().roadmap
+        sections = {name: cadence(roadmap) for name, cadence in cadenced if cadence is not None}
+        return cls(record, sections, _read_queues(record))
+
+    def interval(self, row: JobRow) -> timedelta | None:
+        """The interval of `row` in this round: the minutes of its section for its last recorded
+        queue, or its fixed `interval` when it has no cadence."""
+        section = self.sections.get(row.name)
+        if section is None:
+            return row.interval
+        return timedelta(minutes=section.minutes_for(self.queues.get(row.name)))
+
+    def keep(self, repo: str, row: str, queue: int | None) -> None:
+        """Record the queue that a successful round of `row` counted, log it with the interval
+        that the next round uses, and send both gauges. A row with no cadence, and an outcome
+        with no queue, keep the last record and send nothing."""
+        section = self.sections.get(row)
+        if section is None or queue is None:
+            return
+        _record_queue(self.record, row, queue)
+        minutes = section.minutes_for(queue)
+        texts = MESSAGES.roadmap
+        line = (
+            texts.run_row_queue_backlog.format(
+                row=row,
+                repo=repo,
+                queue=queue,
+                threshold=section.backlog_threshold,
+                minutes=minutes,
+            )
+            if section.in_backlog(queue)
+            else texts.run_row_queue.format(row=row, repo=repo, queue=queue, minutes=minutes)
+        )
+        logger.info(line, extra={"repo": repo})
+        labels = {"repo": repo, "row": row}
+        emit(ROADMAP_ROW_QUEUE_ITEMS, queue, labels)
+        emit(ROADMAP_ROW_INTERVAL_SECONDS, minutes * 60, labels)
 
 
 def read_intake_record(path: Path) -> IntakeRecord:
@@ -516,7 +616,8 @@ def _run_intake_adapter(
     The record of what it decided is written before any placement, so intake keeps the round's
     skips when a placement raises, and a candidate whose placement raised is
     decided again after the fresh ones. A candidate whose write fails is skipped, the round's
-    others are placed, and the job then fails naming it (#1443)."""
+    others are placed, and the job then fails naming it (#1443). The outcome holds the candidates
+    of the round as the queue of the row (#5470)."""
     from devops_cli.roadmap.intake.intake_model import build_intake_model
 
     record_path = repo_dir / CONST_ROADMAP_INTAKE_RECORD_FILENAME
@@ -533,9 +634,10 @@ def _run_intake_adapter(
     )
     after = record.after(plan, now, newest=newest)
     _write_intake_record(record_path, after)
-    return _apply_round(
+    outcome = _apply_round(
         store, plan, record=after, record_path=record_path, repo=repo, repo_dir=repo_dir, now=now
     )
+    return replace(outcome, queue=plan.queue)
 
 
 @dataclass(frozen=True)
@@ -607,7 +709,8 @@ def _run_refine_adapter(
     """Run refine job and return JobOutcome; each item is written when it is done, so the stop
     of the Service loses at most the item in progress (#3631). The job fails, once the other
     items are written, when the model call or the write failed for any item. The stop ends the
-    run, but the items that failed before it still fail the run (#2753)."""
+    run, but the items that failed before it still fail the run (#2753). The outcome holds the
+    items that the selection ordered as the queue of the row (#5470)."""
     source = _job_clone("refine", clone_path)
     writer = RefineWriter(store, repo)
     try:
@@ -619,7 +722,7 @@ def _run_refine_adapter(
         raise
     writer.end()
     writer.raise_for_failures()
-    return JobOutcome(set_ready=writer.readied_count > 0)
+    return JobOutcome(set_ready=writer.readied_count > 0, queue=plan.queue)
 
 
 def _run_retitle_adapter(store: RoadmapStore, repo: str = "", **_: Any) -> JobOutcome:
@@ -648,7 +751,8 @@ def _run_stage_adapter(
     when it tried items and handled none (#3493). A failure that no item explains, such as an
     outage, ends the run at once. Each item is written when it is planned, so a stop of the
     Service loses at most the item in progress (#4034). The outcome names the project files that
-    the default branch lacks, such as `openspec/config.yaml`, for onboarding (#4629)."""
+    the default branch lacks, such as `openspec/config.yaml`, for onboarding (#4629), and the open
+    items that the filter names as the queue of the row (#5470)."""
     source = _job_clone("stage", clone_path)
     writer = StageWriter(store, source)
     plan = plan_stage(
@@ -670,7 +774,7 @@ def _run_stage_adapter(
     raise_for_failed_round(plan, applied)
     if synced is not None:
         raise_for_failed(synced.failed, summary=MESSAGES.roadmap.status_sync_failed)
-    return JobOutcome(missing=plan.missing)
+    return JobOutcome(missing=plan.missing, queue=plan.queue)
 
 
 def _run_fix_plan_adapter(
@@ -682,7 +786,9 @@ def _run_fix_plan_adapter(
     """Run the step fix-plan in the mode of `roadmap.fix_plan.mode` (#5061): `off` sends no
     request, `plan` selects and logs one plan pull request with `plan/needs-fix` and makes no model
     call and no write, and `on` runs one attempt on it in the job's clone, with the models of the
-    tasks `stage` and `verification`. A round takes at most one plan."""
+    tasks `stage` and `verification`. A round takes at most one plan. Its queue is the open pull
+    requests with `plan/needs-fix` in the listing that the selection read, so the count sends no
+    request; the mode `off` reads nothing and gives no queue (#5470)."""
     mode = load_settings().roadmap.fix_plan.mode
     if mode == "off":
         return JobOutcome()
@@ -695,7 +801,7 @@ def _run_fix_plan_adapter(
         model=ToolboxModel(get_task_model("stage")) if acts else None,
         verifier=ToolboxModel(get_task_model("verification")) if acts else None,
     )
-    return JobOutcome()
+    return JobOutcome(queue=len(store.labelled_pulls(PLAN_NEEDS_FIX_LABEL)))
 
 
 def _run_implement_adapter(
@@ -781,7 +887,8 @@ def _run_alternatives_adapter(
     progress, and a rate limit on a write ends the round with the checks that are written
     (#4034). The row sends the coverage gauges of the round after the checks, also when it
     writes nothing (#2950). The deployed paths of the lane's clone name the tools in use (#4661);
-    a call that gives no clone reads the SBOM only."""
+    a call that gives no clone reads the SBOM only. The outcome holds the unchecked items as the
+    queue of the row, and no queue while the check is off (#5470)."""
     plan = plan_alternatives(
         store, repo=repo, writer=AlternativesWriter(store, repo), source=clone_path
     )
@@ -789,7 +896,7 @@ def _run_alternatives_adapter(
     if plan.off_reason:
         logger.info("The alternatives check of %s is off: %s", repo, plan.off_reason)
     raise_for_failed_checks(plan)
-    return JobOutcome()
+    return JobOutcome(queue=plan.queue)
 
 
 def _run_metrics_adapter(
@@ -922,7 +1029,7 @@ come last: they wait for no other row, and a slow read delays no other row."""
 TRIAGE_LANE_ROWS: tuple[JobRow, ...] = (
     JobRow(
         name="intake",
-        interval=timedelta(minutes=DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES),
+        cadence=attrgetter("intake"),
         batch_keys=CONST_ROADMAP_INTAKE_BATCH_KEYS,
         runner=_run_intake_adapter,
         first_run_due=True,
@@ -941,7 +1048,7 @@ MODEL_LANE_ROWS: tuple[JobRow, ...] = (
     ),
     JobRow(
         name="stage",
-        interval=timedelta(minutes=DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES),
+        cadence=attrgetter("stage"),
         batch_keys=CONST_ROADMAP_STAGE_BATCH_KEYS,
         runner=_run_stage_adapter,
         needs_clone=True,
@@ -949,14 +1056,14 @@ MODEL_LANE_ROWS: tuple[JobRow, ...] = (
     ),
     JobRow(
         name="fix_plan",
-        interval=timedelta(minutes=DEFAULT_ROADMAP_FIX_PLAN_INTERVAL_MINUTES),
+        cadence=attrgetter("fix_plan"),
         runner=_run_fix_plan_adapter,
         needs_clone=True,
         first_run_due=True,
     ),
     JobRow(
         name="refine",
-        interval=timedelta(minutes=DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES),
+        cadence=attrgetter("refine"),
         batch_keys=CONST_ROADMAP_REFINE_BATCH_KEYS,
         runner=_run_refine_adapter,
         needs_clone=True,
@@ -965,7 +1072,7 @@ MODEL_LANE_ROWS: tuple[JobRow, ...] = (
     ),
     JobRow(
         name="alternatives",
-        interval=timedelta(minutes=DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES),
+        cadence=attrgetter("alternatives"),
         runner=_run_alternatives_adapter,
         needs_clone=True,
         first_run_due=True,
@@ -1119,13 +1226,14 @@ def _is_interval_due(
     row: JobRow,
     last_run: datetime | None,
     now: datetime,
+    interval: timedelta | None,
 ) -> bool:
-    """Whether row is due by interval."""
+    """Whether row is due by `interval`, its interval in this round."""
     if last_run is None:
         return row.first_run_due
-    if row.interval is None:
+    if interval is None:
         return False
-    return (now - last_run) >= row.interval
+    return (now - last_run) >= interval
 
 
 def _oldest_cutoff(
@@ -1142,8 +1250,9 @@ def _oldest_cutoff(
 @dataclass(frozen=True)
 class _Poll:
     """What every row of one round is judged by: the schedule, the batch, the changes read, the
-    time, the repository's data directory and the read of its newest issue, which reads nothing
-    in a round with no trigger."""
+    time, the repository's data directory, the read of its newest issue, which reads nothing
+    in a round with no trigger, and the interval of each row in this round (#5470). A row that
+    `intervals` does not name has its fixed `interval`."""
 
     schedule: Mapping[str, datetime]
     batch: Mapping[tuple[str, str, str], int]
@@ -1151,6 +1260,7 @@ class _Poll:
     now: datetime
     repo_dir: Path
     newest_issue: Callable[[], int | None] = lambda: None
+    intervals: Mapping[str, timedelta | None] = field(default_factory=dict)
 
     def is_due(self, row: JobRow) -> bool:
         """Whether `row` is due before any other row runs: by its interval, a hint in the
@@ -1159,7 +1269,8 @@ class _Poll:
         success. Refine runs after stage, so a `stage_due` of the round in which stage last
         succeeded still makes stage due (#4796)."""
         last = self.schedule.get(row.name)
-        if _is_interval_due(row, last, self.now) or _batch_matches(self.batch, row):
+        interval = self.intervals.get(row.name, row.interval)
+        if _is_interval_due(row, last, self.now, interval) or _batch_matches(self.batch, row):
             return True
         if row.name == "refine":
             refine_due = self.schedule.get(CONST_ROADMAP_REFINE_DUE_STAMP)
@@ -1587,6 +1698,7 @@ def _execute_due_rows(
     failures: FailureLedger,
     lane: str | None,
     comment_stamps: Mapping[str, datetime],
+    cadences: _Cadences,
 ) -> tuple[str, ...]:
     """Execute all due jobs in order with failure tracking, the clone rows in `clone_dirname`.
     Each runner also gets the repository's data directory and the round's time. With the
@@ -1596,7 +1708,8 @@ def _execute_due_rows(
     request. Each row runs in the request scope of its name, so its GitHub requests count under
     it (#2475). Once the Service stops, no due row starts: the round ends with the stop, and the
     rows it did not start stay due for the next pod (#4485). A row whose outcome set an item Ready,
-    also a failed one, stamps `stage_due` (#2659, #4796)."""
+    also a failed one, stamps `stage_due` (#2659, #4796). A row with a cadence that succeeds keeps
+    the queue of its outcome in `cadences` (#5470)."""
     succeeded_jobs: list[str] = []
     failed_jobs: list[str] = []
     outcomes: dict[str, JobOutcome] = {}
@@ -1641,6 +1754,7 @@ def _execute_due_rows(
                 )
             outcomes[row.name] = outcome or JobOutcome()
             _stamp_stage_due(schedule_path, outcomes[row.name], current_time)
+            cadences.keep(repo, row.name, outcomes[row.name].queue)
             succeeded_jobs.append(row.name)
             _record_success(schedule_path, row.name, current_time)
             failures.succeeded(repo, row.name)
@@ -1719,11 +1833,19 @@ def run_due_jobs(
     )
     schedule = _read_schedule(schedule_path)
     rows = table if table is not None else DEFAULT_DUE_TABLE
+    cadences = _Cadences.read(rows, schedule_path.parent)
 
     batch_counts = batch.counts if isinstance(batch, TriggerBatch) else dict(batch or {})
     active_batch = {k: v for k, v in batch_counts.items() if v > 0}
 
-    quiet = _Poll(schedule, active_batch, (), current_time, schedule_path.parent)
+    quiet = _Poll(
+        schedule,
+        active_batch,
+        (),
+        current_time,
+        schedule_path.parent,
+        intervals={row.name: cadences.interval(row) for row in rows},
+    )
     if not active_batch and not any(quiet.is_due(row) for row in rows):
         return ()
 
@@ -1755,6 +1877,7 @@ def run_due_jobs(
         ledger,
         lane,
         comment_stamps,
+        cadences,
     )
 
 

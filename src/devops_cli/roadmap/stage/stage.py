@@ -522,11 +522,14 @@ def unmatched_items(store: RoadmapStore, filters: StageFilter) -> tuple[LeftOut,
 @dataclass(frozen=True)
 class StageSelection:
     """The items one run stages, and those it leaves out with their reasons. `beyond` holds the
-    numbers of the items that pass every rule but come after the limit (see `walk_named`)."""
+    numbers of the items that pass every rule but come after the limit (see `walk_named`).
+    `queue` counts the open items that the filter names, before the rules of each item and the
+    limit: the queue of the stage row (#5470). The selection of a named item has none."""
 
     selected: tuple[StageTarget, ...] = ()
     left_out: tuple[LeftOut, ...] = ()
     beyond: tuple[int, ...] = ()
+    queue: int = 0
 
 
 class _Judge:
@@ -832,7 +835,7 @@ def select_stageable(
     named = [item for item in opened if filters.matches(item)]
     walked = walk_named(named, verdict, limit, probe=probe)
     left_out = tuple(replace(left, kind=kinds[left.number]) for left in walked.left_out)
-    return StageSelection(walked.taken, left_out, walked.beyond)
+    return StageSelection(walked.taken, left_out, walked.beyond, len(named))
 
 
 # ── The plan of one item ──────────────────────────────────────────────────────
@@ -1068,7 +1071,8 @@ class StagePlan:
     """What a run does: the changes ready to write, the items stopped on a group over the budget,
     the items that failed, and the issues left out with their reasons. `missing` holds the project
     files that the default branch lacks, which onboarding adds (#4629). `attempts` holds the
-    counts of each item that the planner tried (#4845)."""
+    counts of each item that the planner tried (#4845). `queue` is the queue of the selection
+    (`StageSelection.queue`, #5470)."""
 
     repo: str
     sha: str = ""
@@ -1089,6 +1093,7 @@ class StagePlan:
     rejections: tuple[Rejection, ...] = ()
     missing: tuple[str, ...] = ()
     attempts: tuple[StageAttempt, ...] = ()
+    queue: int = 0
 
 
 def _stage_error(message: str, target: StageTarget) -> RoadmapStageError:
@@ -2673,6 +2678,7 @@ def plan_stage(
         failed=tuple(_write_failure(f.item, f.error) for f in rejections.failures),
         rejections=rejections.found,
         missing=missing,
+        queue=selection.queue,
     )
     if writer is not None:
         writer.begin(plan, {target.item.number for target in selection.selected})

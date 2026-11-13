@@ -531,6 +531,9 @@ class RefinePlan:
     requests: tuple[PlannedRequest, ...] = ()
     write_requests: tuple[PlannedRequest, ...] = ()
     web_search_off: str | None = None
+    queue: int = 0
+    """The items that the selection ordered before the rules of each item and the limit: the
+    queue of the refine row (#5470). A run for a named item has none."""
 
 
 @dataclass(frozen=True)
@@ -2352,8 +2355,19 @@ def select_candidates(
     """Selects up to `limit` items to refine, nearest place first as the module's docstring
     orders them, returning (selected, waiting): each item it leaves out waits on its next step.
     The number of Ready items does not stop it (#2004)."""
+    selected, waiting, _ = _select_round(store, item_number=item_number, limit=limit)
+    return selected, waiting
+
+
+def _select_round(
+    store: RoadmapStore, *, item_number: int | None, limit: int
+) -> tuple[list[Item], list[WaitingItem], int]:
+    """The selection of `select_candidates`, and the count of the items that it ordered before
+    the rules of each item and the limit: the queue of the refine row (#5470). The selection of a
+    named item counts none."""
     if item_number is not None:
-        return _select_single_candidate(store, item_number)
+        selected, waiting = _select_single_candidate(store, item_number)
+        return selected, waiting, 0
 
     open_milestones = [m for m in store.milestones() if m.state is GitHubState.OPEN]
     milestone_items = [store.items(milestone=m.number) for m in open_milestones]
@@ -2380,7 +2394,7 @@ def select_candidates(
         if len(selection.selected) >= limit:
             break
         selection.consider(it)
-    return selection.selected, selection.waiting
+    return selection.selected, selection.waiting, len(ordered)
 
 
 # ── Refine Engine ─────────────────────────────────────────────────────────────
@@ -2893,12 +2907,14 @@ def plan_refine(
     source_path = Path(source)
     sha = inspect_checkout(source_path, repo)
 
-    candidates, waiting = select_candidates(store, item_number=item_number, limit=limit)
+    candidates, waiting, queue = _select_round(store, item_number=item_number, limit=limit)
     if writer is not None:
         writer.begin(len(candidates))
     waiting_writes = any(w.cap_stop is not None or w.notice for w in waiting)
     if not candidates:
-        return RefinePlan(repo=repo, sha=sha, waiting_items=waiting, has_writes=waiting_writes)
+        return RefinePlan(
+            repo=repo, sha=sha, waiting_items=waiting, has_writes=waiting_writes, queue=queue
+        )
 
     settings = load_settings()
     ai_config = settings.ai
@@ -2954,6 +2970,7 @@ def plan_refine(
         has_writes=has_writes,
         failed_items=failed,
         web_search_off=web.off_reason,
+        queue=queue,
     )
 
 
