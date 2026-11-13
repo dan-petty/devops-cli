@@ -357,8 +357,10 @@ ROADMAP_FIX_PLAN_TOTAL = Instrument(
     "a head with no open finding (the label goes, no push), unchanged for a revision that is not "
     "better, stopped for a false premise, an open blocker or a head over the budget, failed for a "
     "step that failed before a plan to push existed, unreadable for a plan that the plan reader "
-    "refused (no attempt and no result line), and timeout for an attempt that spent the time "
-    "budget of the step (no push)",
+    "refused (no attempt and no result line), timeout for an attempt that spent the time budget "
+    "of the step or that SIGTERM ended after the budget, at the deadline of its Job (no push), and "
+    "evicted for an attempt that an eviction, a node drain or a stop of the Service ended (no "
+    "result line; the first 3 on a head use no attempt)",
 )
 ROADMAP_STAGE_PLAN_RECORD_TOTAL = Instrument(
     "devops_cli_roadmap_stage_plan_record_total",

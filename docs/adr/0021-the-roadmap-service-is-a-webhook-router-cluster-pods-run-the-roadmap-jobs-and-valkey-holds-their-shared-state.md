@@ -323,3 +323,5 @@ The naming record of #4533 owns the object names, the labels, the Valkey key for
 2026-11-12: Living detail moved to tracker #4517 (the step order), to the OpenSpec change of each new row, and to [ADR 0022](0022-one-repository-reference-names-the-objects-labels-and-keys-of-each-repository.md) (the names) (#4617).
 
 2026-11-12: Fact out of date: section 8, row `fix-plan`, Work and Marker. [The fix-plan step](../roadmap/stage.md#the-fix-plan-step) holds the results and the read before the marks (#5213).
+
+2026-11-13: Fact out of date: section 8, row `fix-plan`, Marker. [The fix-plan step](../roadmap/stage.md#the-fix-plan-step) holds the keys `fix_plan.version` and `fix_plan.evicted` and the kill classes (#5413).

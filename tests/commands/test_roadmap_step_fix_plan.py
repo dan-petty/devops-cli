@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import signal
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL, Verification
+from devops_cli.roadmap.stores.store import FixPlanRecordKey
 from tests.support.roadmap_fix_plan import PLAN_PATH, needs_fix_plan, valid_changes
 from tests.support.roadmap_stage import STAGE_REPO
 
@@ -127,3 +129,55 @@ def test_dry_run_and_confirm_together_are_refused(cli: Cli, github_api: GitHubAp
 
     assert result.exit_code == 1
     assert github_api.requested == []
+
+
+@pytest.mark.parametrize(
+    "args",
+    [("--skip-wait", "--pull", "5"), ("--skip-wait", "--confirm")],
+    ids=["no confirm", "no item"],
+)
+def test_skip_wait_needs_confirm_and_a_named_item(
+    cli: Cli, github_api: GitHubApiFake, model_fake: ModelFake, args: tuple[str, ...]
+) -> None:
+    result = cli("roadmap", "step", "fix-plan", "--repo", STAGE_REPO, *args)
+
+    assert result.exit_code == 1
+    assert "--skip-wait" in result.output
+    assert (github_api.requested, model_fake.call_count) == ([], 0)
+
+
+def test_sigterm_during_the_attempt_exits_75_and_records_the_eviction(
+    cli: Cli,
+    roadmap_store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+    openspec_fake: OpenSpecFake,
+) -> None:
+    """Kubernetes sends SIGTERM to the pod of a Job for an eviction or a node drain. The command
+    ends the attempt in the grace period: the attempt does not count, and the exit status 75 tells
+    a retry policy that a new attempt is safe (#5413)."""
+    valid_changes(openspec_fake)
+    plan = needs_fix_plan(roadmap_store, stage_repo, github_api)
+    before = signal.getsignal(signal.SIGTERM)
+
+    def sigterm(_prompt: str) -> Verification:
+        # Raise SIGTERM only under the handler of the command, so a defect does not end the worker.
+        assert signal.getsignal(signal.SIGTERM) not in (before, signal.SIG_DFL, None)
+        signal.raise_signal(signal.SIGTERM)
+        return Verification()
+
+    model_fake.answer(sigterm)
+
+    result = _fix_plan(cli, stage_repo, "--confirm", "--pull", str(plan.pull))
+
+    assert result.exit_code == 75, result.output
+    item = roadmap_store.item(plan.number)
+    assert item is not None
+    assert (
+        item.job_record.get(FixPlanRecordKey.RESULT),
+        item.job_record.get(FixPlanRecordKey.ATTEMPTS),
+        item.job_record.get(FixPlanRecordKey.EVICTED),
+    ) == ("evicted", "0", "1")
+    assert PLAN_NEEDS_FIX_LABEL in roadmap_store._roadmap.issues[plan.pull].labels
+    assert signal.getsignal(signal.SIGTERM) == before

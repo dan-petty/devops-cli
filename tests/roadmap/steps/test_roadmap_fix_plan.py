@@ -15,15 +15,22 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from devops_cli import __version__
 from devops_cli.ai.client.models import AIClientError
 from devops_cli.config.constants import CONST_AI_JEV_MODEL, CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER
 from devops_cli.exceptions import ServiceStoppingError
+from devops_cli.roadmap.run import MODEL_LANE_ROWS
 from devops_cli.roadmap.service_stop import begin_service_stop
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType
 from devops_cli.roadmap.stage.stage_jev_screen import QUESTIONS, VERIFY_SCREEN
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL, Verification
-from devops_cli.roadmap.steps.fix_plan import FixPlanResult, FixPlanRun, run_fix_plan
+from devops_cli.roadmap.steps.fix_plan import (
+    FixPlanResult,
+    FixPlanRun,
+    render_fix_plan,
+    run_fix_plan,
+)
 from devops_cli.roadmap.stores.store import (
     FixPlanRecordKey,
     ImplementRecordKey,
@@ -66,7 +73,7 @@ from tests.support.roadmap_stage import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
     from pathlib import Path
 
     from devops_cli.roadmap.decision_point import DecisionPoint
@@ -172,6 +179,7 @@ def test_a_revision_with_no_open_finding_is_pushed_on_the_latest_main_and_clears
         FixPlanRecordKey.REVISIONS: "1",
         FixPlanRecordKey.AT: NOW.isoformat(),
         FixPlanRecordKey.RESULT: "cleared",
+        FixPlanRecordKey.VERSION: __version__,
     }
     (comment,) = _comments(store)
     assert CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER in comment
@@ -292,6 +300,7 @@ def test_a_revision_that_is_not_better_writes_nothing_to_github_but_the_record(
         FixPlanRecordKey.ATTEMPTS: "1",
         FixPlanRecordKey.AT: NOW.isoformat(),
         FixPlanRecordKey.RESULT: "unchanged",
+        FixPlanRecordKey.VERSION: __version__,
     }
 
 
@@ -635,6 +644,197 @@ def test_pull_names_the_one_plan_pull_request_to_judge(
     assert named.target is not None
     assert (named.target.item.number, other.target) == (plan.number, None)
     assert [left.number for left in other.left_out] == [6]
+
+
+def _named(
+    store: InMemoryRoadmapStore,
+    repo: StageRepo,
+    verifier: ModelFake,
+    pull: int,
+    *,
+    confirm: bool = False,
+) -> FixPlanRun:
+    """A run that names plan pull request `pull` with `skip_wait`, as `--pull <n> --skip-wait`
+    gives it (#5413)."""
+    return run_fix_plan(
+        store,
+        repo=STAGE_REPO,
+        source=repo.clone,
+        confirm=confirm,
+        pull=pull,
+        skip_wait=True,
+        now=NOW,
+        verifier=ToolboxModel(verifier),
+    )
+
+
+def _mark_head(
+    store: InMemoryRoadmapStore, pull: int, head: str, marks: Mapping[str, str | None]
+) -> None:
+    """Give item #1 the fix-plan marks `marks` on head `head` of plan pull request `pull`."""
+    item = store.item(1)
+    assert item is not None
+    keyed = {FixPlanRecordKey(key): value for key, value in marks.items()}
+    store.set_marks(item, {FixPlanRecordKey.KEY: f"{pull}:{head}", **keyed})
+
+
+def test_skip_wait_selects_a_named_plan_within_the_wait(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    verifier: ModelFake,
+    github_api: GitHubApiFake,
+) -> None:
+    plan = needs_fix_plan(store, stage_repo, github_api)
+    _mark_head(
+        store,
+        plan.pull,
+        plan.head,
+        {
+            FixPlanRecordKey.ATTEMPTS: "1",
+            FixPlanRecordKey.AT: (NOW - timedelta(hours=1)).isoformat(),
+        },
+    )
+
+    plain = run_fix_plan(
+        store, repo=STAGE_REPO, source=stage_repo.clone, confirm=False, pull=plan.pull, now=NOW
+    )
+    named = _named(store, stage_repo, verifier, plan.pull)
+
+    assert plain.target is None
+    assert [left.number for left in plain.left_out] == [plan.number]
+    assert named.target is not None
+    assert (named.target.pull, named.target.extra, named.left_out) == (plan.pull, "", ())
+    assert (model_fake.call_count, verifier.call_count) == (0, 0)
+
+
+@pytest.mark.parametrize(
+    "marks",
+    [
+        {"fix_plan.attempts": "2", "fix_plan.version": __version__},
+        {"fix_plan.revisions": "3"},
+    ],
+    ids=["attempts", "revisions"],
+)
+def test_skip_wait_keeps_the_attempt_cap(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    verifier: ModelFake,
+    github_api: GitHubApiFake,
+    marks: dict[str, str | None],
+) -> None:
+    plan = needs_fix_plan(store, stage_repo, github_api)
+    _mark_head(
+        store,
+        plan.pull,
+        plan.head,
+        {FixPlanRecordKey.AT: (NOW - timedelta(hours=1)).isoformat(), **marks},
+    )
+
+    run = _named(store, stage_repo, verifier, plan.pull, confirm=True)
+
+    assert (run.target, run.attempt) == (None, None)
+    assert [left.number for left in run.left_out] == [plan.number]
+    assert (model_fake.call_count, verifier.call_count) == (0, 0)
+    assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) == plan.head
+
+
+def test_the_row_keeps_the_wait(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+    config: Callable[..., Path],
+) -> None:
+    """The row of the Service names no item and passes no `skip_wait`, so an attempt 1 hour old
+    holds the plan, also in mode `on`."""
+    plan = needs_fix_plan(store, stage_repo, github_api)
+    at = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+    _mark_head(store, plan.pull, plan.head, {FixPlanRecordKey.AT: at})
+    config(roadmap={"fix_plan": {"mode": "on"}})
+    row = next(each for each in MODEL_LANE_ROWS if each.name == "fix_plan")
+
+    row.runner(store=store, repo=STAGE_REPO, clone_path=stage_repo.clone)
+
+    assert model_fake.call_count == 0
+    assert github_api.requested == []
+    assert _record(store)[FixPlanRecordKey.AT] == at
+    assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) == plan.head
+
+
+@pytest.mark.parametrize(
+    ("version", "selected"),
+    [(None, True), ("0.1.0", True), (__version__, False), ("not a release", False)],
+    ids=["no release", "older release", "this release", "unreadable release"],
+)
+def test_skip_wait_takes_one_more_attempt_on_a_head_of_an_older_release(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    verifier: ModelFake,
+    github_api: GitHubApiFake,
+    caplog: pytest.LogCaptureFixture,
+    version: str | None,
+    selected: bool,
+) -> None:
+    """The record of #5272 held 2 attempts on the head of #5390 from releases before 0.129.1, and
+    no `fix_plan.version`. A named run with `skip_wait` takes such a head once more, and logs why."""
+    plan = needs_fix_plan(store, stage_repo, github_api)
+    _mark_head(
+        store,
+        plan.pull,
+        plan.head,
+        {
+            FixPlanRecordKey.ATTEMPTS: "2",
+            FixPlanRecordKey.AT: (NOW - timedelta(hours=1)).isoformat(),
+            FixPlanRecordKey.RESULT: "timeout",
+            FixPlanRecordKey.VERSION: version,
+        },
+    )
+
+    with caplog.at_level(logging.INFO):
+        named = _named(store, stage_repo, verifier, plan.pull)
+    plain = run_fix_plan(
+        store,
+        repo=STAGE_REPO,
+        source=stage_repo.clone,
+        confirm=False,
+        pull=plan.pull,
+        now=NOW + timedelta(hours=6),
+    )
+
+    assert (named.target is not None) is selected
+    assert plain.target is None
+    extra = [
+        record.getMessage()
+        for record in caplog.records
+        if "one more attempt" in record.getMessage()
+    ]
+    if selected:
+        assert named.target is not None
+        assert extra == [named.target.extra]
+        assert f"#{plan.pull}" in named.target.extra
+        assert __version__ in named.target.extra
+        assert named.target.extra in render_fix_plan(named).splitlines()
+    else:
+        assert extra == []
+        assert [left.number for left in named.left_out] == [plan.number]
+
+
+def test_an_attempt_records_its_release(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    verifier: ModelFake,
+    github_api: GitHubApiFake,
+) -> None:
+    needs_fix_plan(store, stage_repo, github_api)
+    verifier.answer(Verification())
+
+    run = _run(store, stage_repo, verifier)
+
+    assert run.attempt is not None
+    assert _record(store)[FixPlanRecordKey.VERSION] == __version__
+    assert _record(store)[FixPlanRecordKey.ATTEMPTS] == "1"
 
 
 # A group that changes a path that is no file of the default branch and that no group creates: the

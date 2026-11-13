@@ -867,9 +867,9 @@ def fix_plan_requests(
     Else the attempt moves the clone to the default branch, reads the open findings of the last
     plan comment of the item, reads the open plans on the default branch when the premise cites a
     missing path, and calls the review and the planner. The writes are the attempt marks, the
-    commit on the default branch, its push with a lease, the title and the body of the pull
-    request, the label, the comment and the result marks. `item` changes no request: it names the
-    one item to judge."""
+    marks of a kill of the attempt (#5413), the commit on the default branch, its push with a
+    lease, the title and the body of the pull request, the label, the comment and the result
+    marks. `item` changes no request: it names the one item to judge."""
     del item
     store = StoreRequests(repo)
     texts = MESSAGES.roadmap
@@ -930,6 +930,7 @@ def fix_plan_requests(
     writes = [
         *within(store.set_marks(_p("item")), cond["unreadable"]),
         *within(store.set_marks(_p("item")), cond["marks"]),
+        *within(store.set_marks(_p("item")), cond["killed"]),
         git("worktree", clone, "worktree", "add", "--detach", tree, "origin/main", when=push),
         git("commit", tree, "commit", "-q", "-m", _p("title"), when=push),
         git("rebase", tree, "rebase", "-q", "origin/main", when=push),

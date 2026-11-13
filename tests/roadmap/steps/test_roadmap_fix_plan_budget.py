@@ -10,19 +10,24 @@ round.
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
 
+from devops_cli import __version__
 from devops_cli.config.constants import CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER
 from devops_cli.core import clock as clock_seam
+from devops_cli.exceptions import ServiceStoppingError
+from devops_cli.roadmap.attempt_kill import AttemptKill, AttemptKilled
 from devops_cli.roadmap.failure import FailureClass
+from devops_cli.roadmap.service_stop import begin_service_stop
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL, Verification, finding_line
 from devops_cli.roadmap.steps.fix_plan import FixPlanResult, FixPlanRun, run_fix_plan
 from devops_cli.roadmap.stores.store import FixPlanRecordKey
+from devops_cli.telemetry.instruments import ROADMAP_FIX_PLAN_TOTAL
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.model import ModelFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -34,7 +39,7 @@ from tests.support.roadmap_fix_plan import (
     valid_changes,
 )
 from tests.support.roadmap_job_result import result_fields
-from tests.support.roadmap_stage import GONE, STAGE_REPO, StageRepo, later_review
+from tests.support.roadmap_stage import GONE, HOLDS, STAGE_REPO, StageRepo, later_review
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -42,6 +47,7 @@ if TYPE_CHECKING:
 
     from tests.support.fakes.github import GitHubApiFake
     from tests.support.fakes.openspec import OpenSpecFake
+    from tests.support.fakes.otlp import FakeCollector
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -243,3 +249,201 @@ def test_each_review_of_an_attempt_logs_one_progress_line(
     ]
     assert all(line["budget"] == str(BUDGET) for line in lines)
     assert all({"tokens", "seconds"} <= set(line) for line in lines)
+
+
+def _killed(
+    store: InMemoryRoadmapStore, repo: StageRepo, verifier: ModelFake, now: datetime = NOW
+) -> AttemptKilled:
+    """The kill that ends a run of the step, which the test makes the verifier raise."""
+    with pytest.raises(AttemptKilled) as killed:
+        run_fix_plan(
+            store,
+            repo=STAGE_REPO,
+            source=repo.clone,
+            confirm=True,
+            now=now,
+            verifier=ToolboxModel(verifier),
+        )
+    return killed.value
+
+
+def _fix_plan_record(store: InMemoryRoadmapStore) -> dict[str, str]:
+    item = store.item(1)
+    assert item is not None
+    return {
+        str(key): value
+        for key, value in item.job_record.items()
+        if str(key).startswith("fix_plan.") and value is not None
+    }
+
+
+@pytest.mark.usefixtures("step_clock")
+def test_a_kill_before_the_budget_is_evicted_and_does_not_count(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    verifier: ModelFake,
+    github_api: GitHubApiFake,
+    config: Callable[..., Path],
+    otlp: FakeCollector,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """SIGTERM before the budget is spent comes from an eviction, a node drain or a rollout: the
+    record keeps the marks of the attempt before it, and the attempt writes no result line."""
+    config(roadmap={"fix_plan": {"time_budget_seconds": BUDGET}})
+    plan = needs_fix_plan(store, stage_repo, github_api)
+    before = (NOW - timedelta(hours=7)).isoformat()
+    item = store.item(plan.number)
+    assert item is not None
+    store.set_marks(
+        item,
+        {
+            FixPlanRecordKey.KEY: f"{plan.pull}:{plan.head}",
+            FixPlanRecordKey.ATTEMPTS: "1",
+            FixPlanRecordKey.AT: before,
+            FixPlanRecordKey.RESULT: "unchanged",
+            FixPlanRecordKey.VERSION: "0.1.0",
+        },
+    )
+    verifier.answer(AttemptKilled())
+
+    with caplog.at_level(logging.INFO):
+        killed = _killed(store, stage_repo, verifier)
+
+    assert killed.kill is AttemptKill.EVICTED
+    assert _fix_plan_record(store) == {
+        "fix_plan.key": f"{plan.pull}:{plan.head}",
+        "fix_plan.attempts": "1",
+        "fix_plan.at": before,
+        "fix_plan.version": "0.1.0",
+        "fix_plan.evicted": "1",
+        "fix_plan.result": "evicted",
+    }
+    assert result_fields(caplog) == []
+    assert store.comments_on(plan.number) == []
+    assert (model_fake.call_count, verifier.call_count) == (0, 1)
+    assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) == plan.head
+    points = otlp.points(ROADMAP_FIX_PLAN_TOTAL.name)
+    assert [(attrs["result"], value) for attrs, value in points] == [("evicted", 1.0)]
+
+
+def test_a_kill_after_the_budget_is_a_deadline_and_counts(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    verifier: ModelFake,
+    github_api: GitHubApiFake,
+    step_clock: StepClock,
+    config: Callable[..., Path],
+    otlp: FakeCollector,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The budget is below the deadline of the Job, so SIGTERM after the budget is the deadline:
+    the attempt spent its tokens and counts, and its result line says so."""
+    config(roadmap={"fix_plan": {"time_budget_seconds": BUDGET}})
+    plan = needs_fix_plan(store, stage_repo, github_api)
+
+    def slow_review(_prompt: str) -> object:
+        step_clock.shift(BUDGET + 1)
+        return AttemptKilled()
+
+    verifier.answer(slow_review)
+
+    with caplog.at_level(logging.INFO):
+        killed = _killed(store, stage_repo, verifier)
+
+    assert killed.kill is AttemptKill.DEADLINE
+    assert _fix_plan_record(store) == {
+        "fix_plan.key": f"{plan.pull}:{plan.head}",
+        "fix_plan.attempts": "1",
+        "fix_plan.at": NOW.isoformat(),
+        "fix_plan.version": __version__,
+        "fix_plan.result": "timeout",
+    }
+    (line,) = result_fields(caplog)
+    assert {key: line.get(key) for key in ("result", "success", "class", "kill")} == {
+        "result": "timeout",
+        "success": "false",
+        "class": "timeout",
+        "kill": "deadline",
+    }
+    assert store.comments_on(plan.number) == []
+    assert model_fake.call_count == 0
+    points = otlp.points(ROADMAP_FIX_PLAN_TOTAL.name)
+    assert [(attrs["result"], value) for attrs, value in points] == [("timeout", 1.0)]
+
+
+@pytest.mark.usefixtures("step_clock")
+def test_a_stop_of_the_service_during_the_attempt_is_evicted(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    verifier: ModelFake,
+    github_api: GitHubApiFake,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A rollout or a node drain stops the Service during the review of the head, and the planner
+    stops before the next repair round: the attempt does not count, and the stop of the Service
+    goes on."""
+    plan = needs_fix_plan(store, stage_repo, github_api)
+
+    def review_then_stop(_prompt: str) -> Verification:
+        begin_service_stop()
+        return Verification(findings=[finding(DefectType.CRITERION_DROPPED)])
+
+    verifier.answer(review_then_stop, later_review(HOLDS))
+    model_fake.answer(make_stage_proposal(why=REPAIRED_WHY))
+
+    with caplog.at_level(logging.INFO), pytest.raises(ServiceStoppingError) as stopped:
+        run_fix_plan(
+            store,
+            repo=STAGE_REPO,
+            source=stage_repo.clone,
+            confirm=True,
+            now=NOW,
+            verifier=ToolboxModel(verifier),
+        )
+
+    assert stopped.value.error_code == "SERVICE_STOPPING"
+    record = _fix_plan_record(store)
+    assert (record["fix_plan.attempts"], record["fix_plan.evicted"]) == ("0", "1")
+    assert (record["fix_plan.result"], "fix_plan.at" in record) == ("evicted", False)
+    assert result_fields(caplog) == []
+    assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) == plan.head
+
+
+@pytest.mark.usefixtures("step_clock")
+def test_a_unit_that_a_kill_always_ends_stops_at_the_cap(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    verifier: ModelFake,
+    github_api: GitHubApiFake,
+) -> None:
+    """3 evicted attempts on one head are free, and each later one counts, so an attempt that a
+    kill always ends stops at the cap of 2 attempts: 5 attempts on the head in all."""
+    plan = needs_fix_plan(store, stage_repo, github_api)
+    verifier.answer(AttemptKilled())
+
+    kills = []
+    for round_ in range(6):
+        now = NOW + timedelta(hours=6 * round_)
+        try:
+            run = run_fix_plan(
+                store,
+                repo=STAGE_REPO,
+                source=stage_repo.clone,
+                confirm=True,
+                now=now,
+                verifier=ToolboxModel(verifier),
+            )
+        except AttemptKilled as killed:
+            kills.append(killed.kill)
+            continue
+        assert (run.target, run.attempt) == (None, None)
+        assert [left.number for left in run.left_out] == [plan.number]
+        break
+
+    assert kills == [AttemptKill.EVICTED] * 5
+    record = _fix_plan_record(store)
+    assert (record["fix_plan.attempts"], record["fix_plan.evicted"]) == ("2", "3")
+    assert verifier.call_count == 5

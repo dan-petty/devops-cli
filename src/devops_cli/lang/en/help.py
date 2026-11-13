@@ -1513,6 +1513,12 @@ class RoadmapCommandHelp:
         "Run the attempt: call the models, push a better revision, and write the label, the comment "
         "and the record. It acts in every mode of roadmap.fix_plan.mode."
     )
+    step_fix_plan_skip_wait: str = (
+        "Leave out the wait of 6 hours after the last attempt, for the one item that --item or "
+        "--pull names. Needs --confirm. The limits of 2 attempts on the head and 3 revisions stay, "
+        "but a head whose counted attempts ran on an older release gets one more attempt. The "
+        "Service never uses it."
+    )
     eval_app: str = (
         "Score the roadmap jobs. grades reads the live result lines of each job in Loki. Each "
         "other command runs a job's real code on committed cases with a chosen model. Each is on "

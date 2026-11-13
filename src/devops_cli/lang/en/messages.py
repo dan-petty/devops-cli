@@ -4219,6 +4219,25 @@ class RoadmapMessages:
     fix_plan_left_attempts: str = (
         "The step tried head {head} of pull request #{pull} {count} times, which is the limit."
     )
+    # A named run with --skip-wait over the attempt cap (#5413).
+    fix_plan_extra_attempt: str = (
+        "Head {head} of pull request #{pull} has {count} counted attempt(s), which is the limit, "
+        "and the record gives their release as {version}, older than this release {current}. "
+        "The named run with --skip-wait makes one more attempt."
+    )
+    fix_plan_no_release: str = "none"
+    fix_plan_skip_wait_needs: str = "--skip-wait needs --confirm and one of --item or --pull."
+    # A kill that ended an attempt (#5413).
+    fix_plan_killed_free: str = (
+        "A kill of the class evicted ended the fix-plan attempt on pull request #{pull} of item "
+        "#{number}. The attempt does not count: it is evicted attempt {evicted} of {limit} on head "
+        "{head} that do not count."
+    )
+    fix_plan_killed_counted: str = (
+        "A kill of the class {kill} ended the fix-plan attempt on pull request #{pull} of item "
+        "#{number}. The attempt counts as attempt {count} on head {head}."
+    )
+    fix_plan_sigterm: str = "SIGTERM ended fix-plan. The class of the kill: {kill}."
     fix_plan_left_branch: str = (
         "The branch {branch} of pull request #{pull} does not name the item."
     )
@@ -4358,6 +4377,7 @@ class RoadmapMessages:
             "attempt": "--confirm, and the round selects a plan pull request",
             "marks": "the plan reader reads the plan of the head: the attempt marks",
             "unreadable": "the plan reader refuses the plan of the head: only fix_plan.at and fix_plan.result, and no attempt",
+            "killed": "SIGTERM or a stop of the Service ends the attempt: the result evicted, which does not count for 3 evicted attempts on a head, or timeout after the time budget",
             "open_pulls": "the plan reader reads the plan of the head, and the item cites a path",
             "open_plans": "the premise of the item cites a path that the default branch does not have",
             "review": "the plan reader reads the plan of the head, and the checks pass it or a new plan",
