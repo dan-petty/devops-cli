@@ -37,9 +37,12 @@ def runner_cronjob_manifest() -> dict[str, Any]:
     return cronjob
 
 
-STAGE_CRONJOB = yaml.safe_load(
-    (REPO_ROOT / "k8s" / "devops" / "cronjob-stage.yaml").read_text(encoding="utf-8")
-)
+def stage_cronjob_manifest() -> dict[str, Any]:
+    """CronJob roadmap-stage as the manifest names it (#5483)."""
+    loaded: dict[str, Any] = yaml.safe_load(
+        (REPO_ROOT / "k8s" / "devops" / "cronjob-stage.yaml").read_text(encoding="utf-8")
+    )
+    return loaded
 
 
 @dataclass
@@ -48,9 +51,8 @@ class FakeJobs:
 
     cronjob: dict[str, Any] | None = field(default_factory=lambda: copy.deepcopy(CRONJOB))
     runner_cronjob: dict[str, Any] | None = field(default_factory=runner_cronjob_manifest)
-    stage_cronjob: dict[str, Any] | None = field(
-        default_factory=lambda: copy.deepcopy(STAGE_CRONJOB)
-    )
+    # Read from the manifest at the first lookup of CronJob roadmap-stage when a test sets none.
+    stage_cronjob: dict[str, Any] | None = None
     phases: list[str] = field(default_factory=lambda: ["Pending", "Running"])
     exit_code: str = "0"
     listed: list[dict[str, Any]] = field(default_factory=list)
@@ -67,10 +69,7 @@ class FakeJobs:
     def _answer(self, argv: list[str], stdin: str | None) -> str:
         verb = argv[3:5]
         if verb == ["get", "cronjob"]:
-            held = {
-                "devops-cli-runner": self.runner_cronjob,
-                "roadmap-stage": self.stage_cronjob,
-            }.get(argv[5], self.cronjob)
+            held = self._cronjob(argv[5])
             return json.dumps(held) if held else ""
         if verb == ["get", "jobs"]:
             return json.dumps({"items": self._matching(argv)})
@@ -82,6 +81,14 @@ class FakeJobs:
         if verb == ["get", "pods"]:
             return self.exit_code
         return ""
+
+    def _cronjob(self, name: str) -> dict[str, Any] | None:
+        """The CronJob that `kubectl get cronjob <name>` finds."""
+        if name == "devops-cli-runner":
+            return self.runner_cronjob
+        if name == "roadmap-stage":
+            return self.stage_cronjob or stage_cronjob_manifest()
+        return self.cronjob
 
     def _matching(self, argv: list[str]) -> list[dict[str, Any]]:
         """The listed Jobs that carry every label of the `-l` selector, as the API server selects
