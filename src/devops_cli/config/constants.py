@@ -1163,6 +1163,8 @@ CONST_K8S_MATTERMOST_URL: Final[str] = "http://mattermost.mattermost.svc.cluster
 """Mattermost's base URL inside the cluster, which the derived hook URLs of the push table start
 with (#1391, #1392, #1393)."""
 CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK: Final[dict[str, tuple[str, ...]]] = {
+    # Application `ingress` also renders the CORS origins of Open WebUI, which follow the hosts of
+    # its Ingress (k8s/ingress/open-webui-origins.yaml, #5306).
     "infra": ("ingress",),
     "devops": ("devops", "ingress"),
     # Application `ingress` renders the Ingress of the git host (k8s/ingress/ingress-routes.yaml).

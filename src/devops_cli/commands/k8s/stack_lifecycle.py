@@ -309,6 +309,9 @@ MANIFESTS_BY_STACK: dict[str, list[Path]] = {
         Path("llm", "portkey", "deployment.yaml"),
         Path("llm", "portkey", "service.yaml"),
         Path("llm", "portkey", "networkpolicy.yaml"),
+        # Open WebUI reads its CORS origins from this ConfigMap at start, so it goes before the
+        # chart. Argo CD's `ingress` Application renders it beside the Ingress hosts (#5306).
+        Path("ingress", "open-webui-origins.yaml"),
     ],
     "logging": [
         Path("logging", "networkpolicy.yaml"),

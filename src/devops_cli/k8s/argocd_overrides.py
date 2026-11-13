@@ -1,7 +1,8 @@
 """Argo CD Application overrides that carry the homelab's hosts from the active config.
 
 The repository names every Ingress and IngressRoute host, and each Deployment environment value
-that holds a host, under the placeholder domain (``CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER``).
+and ConfigMap data value that holds a host, under the placeholder domain
+(``CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER``).
 ``devops k8s deploy-stack`` builds what each homelab Application renders at the revision Argo CD
 builds, and writes the configured domain onto the Application as Kustomize JSON patches in
 ``spec.source.kustomize``, which the ``cluster`` app-of-apps leaves alone
@@ -131,10 +132,27 @@ def _env_fields(pod_spec: dict[str, Any]) -> list[tuple[str, str]]:
     ]
 
 
+def _data_fields(config_map: dict[str, Any]) -> list[tuple[str, str]]:
+    """The JSON pointer and value of each ConfigMap ``data`` value that holds the placeholder.
+
+    A ConfigMap key holds only letters, digits, ``-``, ``_`` and ``.``, so it needs no JSON
+    pointer escape.
+    """
+    data = config_map.get("data") or {}
+    return [
+        (f"/data/{key}", value)
+        for key, value in data.items()
+        if isinstance(value, str) and holds_template_domain_value(value)
+    ]
+
+
 def _host_fields(doc: dict[str, Any]) -> list[tuple[str, str]]:
     """The JSON pointer and value of every host an Ingress, IngressRoute, or Mattermost routes,
-    and of each environment value of a Deployment's containers that holds the placeholder (#4542).
+    of each environment value of a Deployment's containers that holds the placeholder (#4542),
+    and of each ConfigMap data value that holds it, such as the CORS origins of Open WebUI (#5306).
     """
+    if doc.get("kind") == "ConfigMap":
+        return _data_fields(doc)
     spec = doc.get("spec") or {}
     if doc.get("kind") == "Deployment":
         return _env_fields((spec.get("template") or {}).get("spec") or {})
@@ -176,7 +194,8 @@ def _target(doc: dict[str, Any]) -> dict[str, str]:
 
 def host_patches(rendered: str, domain: str) -> list[dict[str, Any]]:
     """One Kustomize JSON patch per object in `rendered` that routes a host under the placeholder,
-    or whose containers hold the placeholder in an environment value.
+    whose containers hold the placeholder in an environment value, or, for a ConfigMap, whose
+    data holds it.
 
     Each such host or value is first tested, then replaced by the same text under `domain`,
     substituted as ``render_manifest_template`` does for native deploys. A host or value that git

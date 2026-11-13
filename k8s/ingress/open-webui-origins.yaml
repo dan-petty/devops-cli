@@ -1,0 +1,20 @@
+# The browser origins that Open WebUI allows: the hosts of Ingress llm/open-webui-ingress
+# (ingress-routes.yaml), over HTTPS, in the same order. Open WebUI reads CORS_ALLOW_ORIGIN at start
+# (k8s/llm/values-open-webui.yaml, extraEnvFrom). It allows these origins for its API and its
+# Socket.IO connections, and refuses a Socket.IO connection from any other origin. Without the
+# variable, it allows every origin.
+#
+# The hosts are under the placeholder domain, as the Ingress hosts are. `devops k8s deploy-stack`
+# sets the configured domain: on the homelab as a Kustomize patch on Application `ingress`, and
+# without Argo CD when it applies this file with the llm stack (k8s/README.md, Homelab Values at
+# Deploy Time). Open WebUI reads the value only at start, so restart it after the value changes.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: open-webui-origins
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: open-webui
+    app.kubernetes.io/part-of: devops-cli-stack
+data:
+  CORS_ALLOW_ORIGIN: "https://chat.example.com;https://homelab.example.com"

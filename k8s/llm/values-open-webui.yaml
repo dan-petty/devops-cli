@@ -83,14 +83,21 @@ websocket:
     enabled: false # Embedded Redis subchart disabled in favor of standalone Valkey service
 
 # VALKEY_PASSWORD, the only key of the Secret that `devops k8s push-secrets` writes (k8s/README.md,
-# Cluster Secrets).
+# Cluster Secrets). CORS_ALLOW_ORIGIN comes from ConfigMap open-webui-origins
+# (k8s/ingress/open-webui-origins.yaml): the HTTPS origins of the Ingress hosts of Open WebUI,
+# under the configured domain that deploy-stack sets. The pod does not start until the ConfigMap
+# exists, so Open WebUI never starts with its default, which allows every origin (#5306).
 extraEnvFrom:
   - secretRef:
       name: valkey-auth
+  - configMapRef:
+      name: open-webui-origins
 
 service:
   # NodePort: on minikube, `minikube service open-webui -n llm --url` gives its URL. On the homelab,
-  # Ingress llm/open-webui-ingress (k8s/ingress/ingress-routes.yaml) routes chat.<domain> to it.
+  # Ingress llm/open-webui-ingress (k8s/ingress/ingress-routes.yaml) routes chat.<domain> and
+  # homelab.<domain> to it. Open WebUI refuses a Socket.IO connection from an origin that is not an
+  # Ingress host, such as this NodePort URL or a port-forward to localhost.
   type: NodePort
   port: 8080
 

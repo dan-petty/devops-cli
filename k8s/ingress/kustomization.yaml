@@ -3,3 +3,4 @@ kind: Kustomization
 
 resources:
   - ingress-routes.yaml
+  - open-webui-origins.yaml

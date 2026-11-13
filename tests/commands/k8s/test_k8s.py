@@ -1627,6 +1627,13 @@ def _ingress(name: str, namespace: str, *hosts: str) -> str:
     )
 
 
+_ORIGINS = (
+    "---\napiVersion: v1\nkind: ConfigMap\n"
+    "metadata:\n  name: open-webui-origins\n  namespace: llm\n"
+    "data:\n  CORS_ALLOW_ORIGIN: https://chat.example.com\n"
+)
+
+
 @pytest.fixture
 def applications_repo(tmp_path: Path) -> Path:
     """The repository the Applications render."""
@@ -1721,6 +1728,8 @@ class _Cluster:
             out = _ingress("chat", "llm", "chat.example.org")
         elif self.revision == "release":
             out = _ingress("chat", "llm", "chat.example.com", "ai.example.com")
+        elif self.revision == "origins":
+            out = _ingress("open-webui-ingress", "llm", "chat.example.com") + _ORIGINS
         else:
             out = _ingress("chat", "llm", "chat.example.com")
         return subprocess.CompletedProcess(cmd, 0, out, "")
@@ -1905,6 +1914,55 @@ def test_deploy_stack_llm_on_argo_cd_changes_nothing_itself(make_cluster: Cluste
         0,
         [],
         True,
+    )
+
+
+def test_deploy_stack_on_argo_cd_sets_the_open_webui_origins_under_the_configured_domain(
+    make_cluster: ClusterFactory,
+) -> None:
+    """Open WebUI allows only the origins of its Ingress hosts: the ConfigMap that holds them
+    gets the configured domain as a Kustomize patch on Application `ingress`, with the hosts
+    (#5306)."""
+    cluster = make_cluster()
+    res = _deploy(cluster, "--stack", "infra", "--domain", _DOMAIN, "--argocd-revision", "origins")
+    (sent,) = cluster.writes()
+    patches = json.loads(sent[sent.index("-p") + 1])["spec"]["source"]["kustomize"]["patches"]
+    origins = next(p for p in patches if p["target"]["kind"] == "ConfigMap")
+    assert (res.exit_code, sent[:4], origins["target"]["name"], json.loads(origins["patch"])) == (
+        0,
+        ["kubectl", "patch", "application", "ingress"],
+        "open-webui-origins",
+        [
+            {"op": "test", "path": "/data/CORS_ALLOW_ORIGIN", "value": "https://chat.example.com"},
+            {
+                "op": "replace",
+                "path": "/data/CORS_ALLOW_ORIGIN",
+                "value": f"https://chat.{_DOMAIN}",
+            },
+        ],
+    )
+
+
+def test_native_deploy_stack_llm_applies_the_open_webui_origins_before_its_chart(
+    make_cluster: ClusterFactory,
+) -> None:
+    """Without Argo CD, the llm deploy applies the CORS origins of Open WebUI under the
+    configured domain before it installs the chart, so the pod finds its ConfigMap (#5306)."""
+    cluster = make_cluster(argo=False)
+    res = _deploy(cluster, "--stack", "llm", "--k8s-dir", "k8s", "--domain", _DOMAIN, "--no-wait")
+    steps = [
+        ("origins", yaml.safe_load(given)["data"]["CORS_ALLOW_ORIGIN"])
+        if "open-webui-origins" in (given or "")
+        else ("release", next(arg for arg in cmd[3:] if not arg.startswith("--")))
+        for cmd, given in cluster.calls
+        if "open-webui-origins" in (given or "") or cmd[:3] == ["helm", "upgrade", "--install"]
+    ]
+    assert (res.exit_code, steps[:2]) == (
+        0,
+        [
+            ("origins", f"https://chat.{_DOMAIN};https://homelab.{_DOMAIN}"),
+            ("release", "open-webui"),
+        ],
     )
 
 
