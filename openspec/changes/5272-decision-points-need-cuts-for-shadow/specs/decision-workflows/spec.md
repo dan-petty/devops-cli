@@ -19,7 +19,7 @@ Each decision SHALL add one observation to the histogram `devops_cli_decision_po
 - **THEN** The histogram holds one sample for that point with the resolver `fallback`
 
 ### Requirement: Each failed request counts by class
-Each failed request of a point SHALL add one to the counter `devops_cli_decision_point_failed_total`, with the labels `point` and `error`. The value of `error` SHALL be one of `timeout`, `model_error`, `parse`, `secret`, `no_cuts` or `other`, so a point SHALL add at most 6 series to the counter.
+Each failed request of a point SHALL add one to the counter `devops_cli_decision_point_failed_total`, with the labels `point` and `error`. The value of `error` SHALL be one of `timeout`, `model_error`, `parse`, `secret`, `no_cuts`, `model_mismatch` or `other`, so a point SHALL add at most 7 series to the counter.
 
 #### Scenario: A timeout
 - **WHEN** The decision model does not answer within the timeout of the point
@@ -39,6 +39,17 @@ The decision record SHALL hold the model name that the decision model answered w
 #### Scenario: A reply names its dated model
 - **WHEN** The decision model answers with the model name `typesafe/jev-1.14-20261014`
 - **THEN** The record holds that dated name, not the configured name
+
+### Requirement: A cuts file of another model gives the fallback
+The chain SHALL load the cuts of a point before it sends the request. When the `model` of the cuts file differs from the model target of `ai.decision_model`, which is the name after a provider prefix such as `litellm:` or the whole name when it has no prefix, the chain SHALL give the fallback with the band `none`, SHALL send no request, and SHALL add one count with `error` equal to `model_mismatch` to the failed counter.
+
+#### Scenario: Cuts of model A, model B in use
+- **WHEN** The cuts file names `typesafe/jev-1.13` and `ai.decision_model` names `typesafe/jev-1.14`
+- **THEN** The decision is the fallback with the band `none`, no request reaches the model, and the failed counter adds one count with `error` equal to `model_mismatch`
+
+#### Scenario: A gateway route of the model of the cuts
+- **WHEN** The cuts file names `typesafe/jev-1.14` and `ai.decision_model` names the gateway route `litellm:typesafe/jev-1.14`
+- **THEN** The model answers, and the cuts give the band
 
 ## MODIFIED Requirements
 
