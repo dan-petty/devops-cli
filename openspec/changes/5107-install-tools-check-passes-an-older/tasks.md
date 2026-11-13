@@ -4,9 +4,9 @@
 
 Kind: behavior. Reads: `src/devops_cli/core/process.py`, `src/devops_cli/tools_lock/__init__.py`, `tests/tools_lock/test_tools_lock.py`. Changes: `src/devops_cli/tools_lock/versions.py` (new), `tests/tools_lock/test_versions.py` (new).
 
-- [ ] 1.1 `tests/tools_lock/test_versions.py::test_path_version_reads_the_command_on_path` fails until the helper exists
+- [x] 1.1 `tests/tools_lock/test_versions.py::test_path_version_reads_the_command_on_path` fails until the helper exists
   - Verification: `$ uv run devops ci test tests/tools_lock/test_versions.py` fails on the base
-- [ ] 1.2 Add `version_line(output)` and `path_version(command)` to the new `src/devops_cli/tools_lock/versions.py`. `version_line` answers the first non-empty line of the output, stripped, or `None`. `path_version` resolves `command` with `shutil.which(command)`, with no path argument, so it reads the binary that the process PATH names; it answers `None` when PATH resolves nothing, else the path and the version line of `run_subprocess([path, "--version"], local_read=True)` when that run exits 0, and `None` for the version when it does not. Write the failing tests first: the line of a run, no command on PATH, a run that exits 1, and an output whose first lines are empty
+- [x] 1.2 Add `version_line(output)` and `path_version(command)` to the new `src/devops_cli/tools_lock/versions.py`. `version_line` answers the first non-empty line of the output, stripped, or `None`. `path_version` resolves `command` with `shutil.which(command)`, with no path argument, so it reads the binary that the process PATH names; it answers `None` when PATH resolves nothing, else the path and the version line of `run_subprocess([path, "--version"], local_read=True)` when that run exits 0, and `None` for the version when it does not. Write the failing tests first: the line of a run, no command on PATH, a run that exits 1, and an output whose first lines are empty
   - Verification: `$ uv run devops ci test tests/tools_lock/test_versions.py` passes
 
 ## 2. Judge the check and only-missing by the version on PATH
