@@ -789,8 +789,9 @@ class GitHubRoadmapStore(RoadmapStore):
         return [pull.pull() for pull in listing]
 
     def failed_checks(self, head_sha: str) -> bool:
-        """Whether a check run of the commit `head_sha` failed, read through the listing session.
-        A read that GitHub does not answer raises, so no draft shows as passing (#3494)."""
+        """Whether a check of the commit `head_sha` failed in its latest run, read through the
+        listing session. A read that GitHub does not answer raises, so no draft shows as passing
+        (#3494)."""
         owner, _, name = self._repo.partition("/")
         summary = read_check_runs(owner, name, head_sha, session=self._listing_session())
         if summary.unread_reason:

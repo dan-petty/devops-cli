@@ -38,6 +38,7 @@ from tests.support.fakes.roadmap_store import (
     encode_job_record,
     with_record,
 )
+from tests.support.recorded_check_runs import REPLACED_CHECK, pr_5357_head_runs
 
 pytestmark = pytest.mark.usefixtures("roadmap_store")
 
@@ -514,6 +515,31 @@ def test_pr_ready_exits_on_the_checks_of_the_verdict(
         setup(draft)
     exit_code, output = _ready(cli)
     assert (exit_code, _readied(draft)) == (code, marked), output
+
+
+@pytest.mark.parametrize(
+    ("newer_fails", "code"),
+    [(False, 0), (True, 1)],
+    ids=["newer-run-passed", "newer-run-failed"],
+)
+def test_pr_ready_and_check_readiness_agree_on_the_latest_run_of_each_check(
+    cli: Callable[..., Any], draft: _GitHub, newer_fails: bool, code: int
+) -> None:
+    """The head of pull request 5357 had a failed run and a newer passed run of Fail-to-Pass
+    Check in two check suites. `pr ready` and then `check-readiness` judge only the latest run of
+    each check: both pass that head, and both refuse it and name the check when the newer run
+    failed (#5383)."""
+    draft.checks(*pr_5357_head_runs(newer_fails=newer_fails))
+
+    ready_code, ready_output = _ready(cli)
+    readiness_code, readiness_output = _readiness(cli)
+
+    assert (
+        ready_code,
+        readiness_code,
+        REPLACED_CHECK in ready_output,
+        REPLACED_CHECK in readiness_output,
+    ) == (code, code, newer_fails, newer_fails), f"{ready_output}\n{readiness_output}"
 
 
 def test_pr_ready_says_that_a_repository_with_no_ci_has_nothing_to_wait_for(

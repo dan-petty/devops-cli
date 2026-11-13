@@ -21,6 +21,7 @@ from devops_cli.github.check_verdict import (
 )
 from tests.support.fakes.github import JSON_TYPE, GitHubApiFake, github_json, next_page
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.recorded_check_runs import PR_5357_HEAD, REPLACED_CHECK, pr_5357_head_runs
 
 # The REST fallback reads check runs through the GitHub session (#983).
 _NO_RUNS = {"total_count": 0, "check_runs": []}
@@ -586,53 +587,118 @@ def test_fetch_pr_check_verdicts_fails_closed_when_commit_statuses_empty(
     ) == (1, False, True)
 
 
-def _run(conclusion: str, started_at: str) -> dict[str, str]:
+_ACTIONS, _OTHER_APP = 15368, 57789
+
+
+def _run(
+    conclusion: str | None,
+    started_at: str | None,
+    *,
+    status: str = "completed",
+    completed_at: str | None = None,
+    app: int = _ACTIONS,
+) -> dict[str, Any]:
     return {
         "name": "Fail-to-Pass Check",
-        "status": "completed",
+        "status": status,
         "conclusion": conclusion,
         "started_at": started_at,
+        "completed_at": completed_at,
+        "app": {"id": app},
     }
 
 
+_EARLY, _LATE = "2026-11-13T04:32:51Z", "2026-11-13T06:41:35Z"
+
+
 @pytest.mark.parametrize(
-    ("runs", "passing"),
+    ("runs", "buckets"),
     [
+        ([_run("cancelled", _EARLY), _run("success", _LATE)], [CheckBucket.PASS]),
+        ([_run("cancelled", _EARLY)], [CheckBucket.CANCEL]),
+        ([_run("success", _EARLY), _run("cancelled", _LATE)], [CheckBucket.CANCEL]),
+        ([_run("failure", _EARLY), _run("success", _LATE)], [CheckBucket.PASS]),
+        ([_run("success", _EARLY), _run("failure", _LATE)], [CheckBucket.FAIL]),
+        ([_run("success", _LATE), _run("failure", _EARLY)], [CheckBucket.PASS]),
         (
-            [_run("cancelled", "2026-10-16T23:01:07Z"), _run("success", "2026-10-16T23:01:38Z")],
-            True,
+            [_run("success", _EARLY), _run(None, _LATE, status="in_progress")],
+            [CheckBucket.PENDING],
         ),
-        ([_run("cancelled", "2026-10-16T23:01:07Z")], False),
         (
-            [_run("success", "2026-10-16T23:01:07Z"), _run("cancelled", "2026-10-16T23:01:38Z")],
-            False,
+            [_run("failure", None, completed_at=_EARLY), _run("success", None, completed_at=_LATE)],
+            [CheckBucket.PASS],
         ),
-        ([_run("failure", "2026-10-16T23:01:07Z"), _run("success", "2026-10-16T23:01:38Z")], False),
+        ([_run("success", _LATE), _run("failure", None)], [CheckBucket.PASS, CheckBucket.FAIL]),
+        ([_run("failure", _EARLY), _run("success", _EARLY)], [CheckBucket.FAIL, CheckBucket.PASS]),
+        (
+            [_run("failure", _EARLY), _run("success", _LATE, app=_OTHER_APP)],
+            [CheckBucket.FAIL, CheckBucket.PASS],
+        ),
     ],
-    ids=["replaced-cancel", "cancel-only", "cancel-after-pass", "failure-then-pass"],
+    ids=[
+        "replaced-cancel",
+        "cancel-only",
+        "cancel-after-pass",
+        "failure-then-pass",
+        "pass-then-failure",
+        "newest-listed-first",
+        "pass-then-running",
+        "completed-at-when-no-start",
+        "no-time-stays",
+        "same-start-both-stay",
+        "other-app-both-stay",
+    ],
 )
-def test_a_cancelled_run_a_newer_run_of_its_check_replaced_does_not_fail_the_pr(
-    github_api: GitHubApiFake, runs: list[dict[str, str]], passing: bool
+def test_only_the_latest_run_of_each_check_counts(
+    github_api: GitHubApiFake,
+    pin_github_session: str,
+    runs: list[dict[str, Any]],
+    buckets: list[CheckBucket],
 ) -> None:
-    """A workflow that cancels its in-progress run when a newer event starts it leaves the old
-    run, cancelled, beside the new one in the commit's check runs, which the REST API lists
-    across check suites. Only that run is dropped: a failure is never hidden."""
+    """A new event on a pull request starts a new workflow run in a new check suite, and the
+    REST API lists the latest run of a check in each suite. Only the run of a check that started
+    last counts, whatever its conclusion: a newer pass replaces an older failure, and a newer
+    failure or cancel stays a failure (#5383). A run that has no time, and runs that start at the
+    same time or come from two apps, all stay."""
     github_api.route(
-        "GET", _check_runs("sha1599"), github_json({"total_count": len(runs), "check_runs": runs})
+        "GET", _check_runs("sha5383"), github_json({"total_count": len(runs), "check_runs": runs})
     )
-    mock_runner = MagicMock(
-        side_effect=[
-            MagicMock(returncode=1, stdout="", stderr="CLI error"),
-            MagicMock(returncode=0, stdout=json.dumps({"head": {"sha": "sha1599"}}), stderr=""),
-            MagicMock(
-                returncode=0,
-                stdout=json.dumps({"state": "success", "total_count": 0, "statuses": []}),
-                stderr="",
-            ),
-        ]
+
+    verdict = read_check_runs("owner", "repo", "sha5383")
+
+    assert [item.bucket for item in verdict.items] == buckets
+
+
+@pytest.mark.parametrize(
+    ("newer_fails", "passing", "failing"),
+    [(False, True, []), (True, False, [REPLACED_CHECK])],
+    ids=["newer-run-passed", "newer-run-failed"],
+)
+def test_the_recorded_head_of_pr_5357_counts_the_latest_run_of_each_check(
+    github_api: GitHubApiFake,
+    pin_github_session: str,
+    newer_fails: bool,
+    passing: bool,
+    failing: list[str],
+) -> None:
+    """The head of pull request 5357 had two runs of 20 of its 25 checks in two check suites, and
+    its older Fail-to-Pass Check run failed. The latest run of each check passed (20) or was
+    skipped (5), so the head passes (#5383)."""
+    runs = pr_5357_head_runs(newer_fails=newer_fails)
+    github_api.route(
+        "GET",
+        f"/repos/owner/repo/commits/{PR_5357_HEAD}/check-runs?per_page=100",
+        github_json({"total_count": len(runs), "check_runs": runs}),
     )
-    verdict = fetch_pr_check_verdicts(1599, repo="owner/repo", runner=mock_runner)
-    assert verdict.is_passing is passing
+
+    verdict = read_check_runs("owner", "repo", PR_5357_HEAD)
+
+    assert (
+        verdict.is_passing,
+        len(verdict.items),
+        verdict.skipping_count,
+        [item.name for item in verdict.items if item.bucket is CheckBucket.FAIL],
+    ) == (passing, 25, 5, failing)
 
 
 @pytest.mark.parametrize(

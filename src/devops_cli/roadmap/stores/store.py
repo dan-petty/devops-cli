@@ -984,8 +984,8 @@ class RoadmapStore(Protocol):
         """The open pull requests, with their branches and draft state (#2915)."""
 
     def failed_checks(self, head_sha: str) -> bool:
-        """Whether a check run of the commit `head_sha` failed. A read that GitHub does not
-        answer raises (#3494)."""
+        """Whether a check of the commit `head_sha` failed in its latest run. A read that GitHub
+        does not answer raises (#3494)."""
 
     def repository_labels(self) -> list[RepositoryLabel]:
         """The labels the repository holds on GitHub (#2915)."""

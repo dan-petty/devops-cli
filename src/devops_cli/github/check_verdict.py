@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Iterator
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final, Protocol
@@ -235,22 +236,36 @@ def _parse_gh_checks_json(raw_json: str) -> list[PRCheckItem] | None:
     return None
 
 
-def _without_replaced_cancellations(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Drop each cancelled run that a later-started run of the same check replaced (#1599).
+def _run_check(run: dict[str, Any]) -> tuple[str, object]:
+    """The check that `run` is a run of: its name and the id of the app that reports it."""
+    app = run.get("app")
+    return str(run.get("name") or ""), app.get("id") if isinstance(app, dict) else None
 
-    A workflow that cancels its in-progress run when a newer event starts it leaves the old run
-    beside the new one, in another check suite, which the API's `filter=latest` does not
-    collapse. Only cancellations are dropped: a failure stands whatever ran after it.
+
+def _run_time(run: dict[str, Any]) -> datetime | None:
+    """When `run` started, else when it completed, else None."""
+    stamp = run.get("started_at") or run.get("completed_at")
+    return datetime.fromisoformat(stamp) if isinstance(stamp, str) else None
+
+
+def _latest_run_of_each_check(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep the latest run of each check, whatever its conclusion (#5383).
+
+    Each event of a pull request starts its workflows in a new check suite. The REST API lists
+    the latest run of a check in each suite, and `filter=latest` does not collapse the runs of two
+    suites. So a head commit can hold an old failed or cancelled run beside the newer run that
+    replaced it. `gh pr checks` also shows only the newer run. A newer failure or cancel still
+    fails the check. A check is a name and an app, and the time of a run is its `started_at`,
+    else its `completed_at`. A run with no time stays, and each run at the latest time of its
+    check stays, because nothing shows that a newer run replaced it.
     """
-    newest: dict[str, str] = {}
+    latest: dict[tuple[str, object], datetime] = {}
     for run in runs:
-        name, started = str(run.get("name") or ""), str(run.get("started_at") or "")
-        newest[name] = max(newest.get(name, ""), started)
+        if (when := _run_time(run)) is not None:
+            check = _run_check(run)
+            latest[check] = max(latest.get(check, when), when)
     return [
-        run
-        for run in runs
-        if BUCKET_CLASSIFIER_MAP.get(_normalize_token(run.get("conclusion"))) != CheckBucket.CANCEL
-        or str(run.get("started_at") or "") >= newest[str(run.get("name") or "")]
+        run for run in runs if (when := _run_time(run)) is None or when >= latest[_run_check(run)]
     ]
 
 
@@ -340,7 +355,7 @@ def _fetch_check_runs_from_rest(
     except GitHubOperationError as err:
         return [], f"GitHub check-runs API error: {str(err)[:CONST_MAX_ERROR_DETAIL_LENGTH]}"
     readable = [run for run in runs if isinstance(run, dict)]
-    return [_check_run_dict_to_item(cr) for cr in _without_replaced_cancellations(readable)], ""
+    return [_check_run_dict_to_item(cr) for cr in _latest_run_of_each_check(readable)], ""
 
 
 def _fetch_commit_statuses_from_rest(
