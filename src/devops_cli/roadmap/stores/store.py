@@ -273,15 +273,20 @@ class FixPlanRecordKey(StrEnum):
     `fix_plan.attempts` counts the attempts on that head. After a push, the key names the new head
     with 0 attempts. `fix_plan.revisions` counts the revisions that the step pushed to the pull
     request of the key, `fix_plan.at` holds the time of the last attempt, and `fix_plan.result`
-    its result. The step writes the key, the count and the time before its first model call, so a
-    stop of the Service counts the attempt. A plan that the plan reader refuses writes only
-    `fix_plan.at` and `fix_plan.result`, so it uses no attempt (#5213)."""
+    its result. `fix_plan.version` holds the release of devops-cli that ran the last counted
+    attempt (#5413). The step writes the key, the count, the time and the release before its first
+    model call. A kill that ends the attempt has a class: `fix_plan.evicted` counts the evicted
+    attempts on the head of the key that did not count, and a deadline kill counts. A plan that the
+    plan reader refuses writes only `fix_plan.at` and `fix_plan.result`, so it uses no attempt
+    (#5213)."""
 
     KEY = "fix_plan.key"
     ATTEMPTS = "fix_plan.attempts"
     REVISIONS = "fix_plan.revisions"
     AT = "fix_plan.at"
     RESULT = "fix_plan.result"
+    VERSION = "fix_plan.version"
+    EVICTED = "fix_plan.evicted"
 
 
 class ImplementResult(StrEnum):

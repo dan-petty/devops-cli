@@ -15,6 +15,11 @@ last `CONST_ROADMAP_FIX_PLAN_WAIT_HOURS` hours, and fewer than `CONST_ROADMAP_FI
 revisions that the step pushed to the pull request. The highest priority goes first
 (`priority_order`), and a call takes at most one plan. The record rules cost no request. Each
 other item costs one read of its pull request, until one qualifies. `--item` judges one item.
+A run with `skip_wait` (`--skip-wait`, which the command allows only for a named item and with
+`--confirm`) leaves out the wait and keeps the other rules (#5413). It also takes a head over the
+attempt cap when `fix_plan.version` gives an older release than the current one, or no release,
+for its counted attempts, and logs why: a release can fix the cause of those attempts. The Service
+never passes `skip_wait`.
 
 **Attempt.** Only with `--confirm`, or in the mode `on` of the row. No attempt starts once the
 Service stops (#4925). The step fetches the default branch and the branch of the plan, and stops
@@ -23,17 +28,17 @@ the clone identity. It reads the change folder at the head with the plan reader 
 marks (#5213). A plan that the reader refuses is `unreadable`: the step writes only `fix_plan.at`
 and `fix_plan.result`, logs one warning with the file and the masked reason, and writes no result
 line, because the defect is in the writer or the reader of the plan and not in this step. Else the
-step writes the attempt marks and gives the plan to `revise_plan` at the default branch of
-`origin`: the checks judge the plan, and a plan that they refuse gets a new plan from the planner
-(the gated plan). The trace gate judges only a Feasibility sentence that a reply of the planner
-adds or changes, because the gate of the run that wrote the head passed each sentence of it
-(#5391). The review of the plan that passed the checks counts its open findings
-(`before`), the planner gets the plan with those findings and the open findings of the last plan
-comment, and the review judges the revision with the normal repair rounds (`after`). The first
-review of the revision is a later review: it says for each open finding of the head whether it
-still holds, and opens a new finding only in the text that the revision changed (#5409). An
-earlier review wrote the comment, so the count of the comment (`comment`) is only reported
-(#5150).
+step writes the attempt marks, with the release in `fix_plan.version`, and gives the plan to
+`revise_plan` at the default branch of `origin`: the checks judge the plan, and a plan that they
+refuse gets a new plan from the planner (the gated plan). The trace gate judges only a
+Feasibility sentence that a reply of the planner adds or changes, because the gate of the run that
+wrote the head passed each sentence of it (#5391). The review of the plan that passed the checks
+counts its open findings (`before`), the planner gets the plan with those findings and the open
+findings of the last plan comment, and the review judges the revision with the normal repair
+rounds (`after`). The first review of the revision is a later review: it says for each open
+finding of the head whether it still holds, and opens a new finding only in the text that the
+revision changed (#5409). An earlier review wrote the comment, so the count of the comment
+(`comment`) is only reported (#5150).
 
 **Results**, in this order:
 
@@ -53,6 +58,16 @@ earlier review wrote the comment, so the count of the comment (`comment`) is onl
 - `dismissed`: else, the review of the head found no open finding. The label goes, and the comment
   dismisses the open findings of the last plan comment.
 - `unchanged`: else. The label stays.
+
+**Kills.** SIGTERM (`sigterm_raises` of the command) or a stop of the Service can end an attempt
+after its marks (`attempt_kill`). A kill of the class `deadline`, SIGTERM after the time budget is
+spent, counts: the record gets the result `timeout`, and the result line holds the class `timeout`
+and `kill=deadline`. A kill of the class `evicted` does not count while the head has fewer than
+`_HEAD_EVICTIONS` evicted attempts: the record keeps the count, the time and the release of the
+attempt before it, adds 1 to `fix_plan.evicted` and gets the result `evicted`. A later evicted
+attempt counts. An evicted attempt writes no result line, as an attempt that the stop of the
+Service ends wrote none before. A killed attempt posts no comment and pushes nothing, and the kill
+goes on with its class.
 
 **Writes.** A push is one commit on the latest default branch, which the step pushes with
 `--force-with-lease` on the head that it read; the pull request gets the title and the body of the
@@ -84,6 +99,9 @@ from enum import StrEnum
 from functools import cache
 from typing import TYPE_CHECKING, Final
 
+from packaging.version import InvalidVersion, Version
+
+from devops_cli import __version__
 from devops_cli.config.constants import (
     CONST_OPENSPEC_CHANGES_DIR,
     CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER,
@@ -94,10 +112,12 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STATUS_READY,
 )
 from devops_cli.config.settings import load_settings
+from devops_cli.exceptions import ServiceStoppingError
 from devops_cli.git.branch_form import parse_branch
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.agent_run import bounded_text
+from devops_cli.roadmap.attempt_kill import AttemptKill, AttemptKilled, kill_of
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors, checkout_at, default_branch, git
 from devops_cli.roadmap.failure import FailureClass, StepName
@@ -173,6 +193,9 @@ _PLAN_MARKERS: Final[tuple[str, ...]] = (
 _SHORT: Final[int] = 12
 # The setting of the time budget, which its error and its comment name (#5363).
 _BUDGET_SETTING: Final[str] = "roadmap.fix_plan.time_budget_seconds"
+# The evicted attempts on one head that do not count (#5413). A later one counts, so a retry that is
+# free is bounded.
+_HEAD_EVICTIONS: Final[int] = 3
 
 
 class FixPlanResult(StrEnum):
@@ -181,8 +204,9 @@ class FixPlanResult(StrEnum):
     the plan that passed the checks in place of a head that they refused, `dismissed` found no
     open finding in the head (the label goes, no push), `unchanged` made no better plan, `stopped`
     stopped before a gated plan existed, `failed` failed before a plan to push existed,
-    `unreadable` could not read the plan of the head (#5213), and `timeout` spent the time budget
-    before a model call and pushed nothing (#5363)."""
+    `unreadable` could not read the plan of the head (#5213), `timeout` spent the time budget
+    before a model call and pushed nothing (#5363) or met the deadline of its Job, and `evicted`
+    ended for an eviction, a node drain or a stop of the Service (#5413)."""
 
     REVISED = "revised"
     CLEARED = "cleared"
@@ -193,6 +217,7 @@ class FixPlanResult(StrEnum):
     FAILED = "failed"
     UNREADABLE = "unreadable"
     TIMEOUT = "timeout"
+    EVICTED = "evicted"
 
 
 class FixPlanStop(StrEnum):
@@ -207,11 +232,13 @@ class FixPlanStop(StrEnum):
 @dataclass(frozen=True)
 class FixPlanTarget:
     """The plan pull request that the step selected: the item, the number of the pull request and
-    the read of it."""
+    the read of it. `extra` says why a run with `skip_wait` takes a head over the attempt cap, and
+    is empty for any other selection (#5413)."""
 
     item: Item
     pull: int
     status: PullStatus
+    extra: str = ""
 
 
 @dataclass(frozen=True)
@@ -328,13 +355,17 @@ def plan_comment(store: RoadmapStore, number: int, pull: int) -> str:
 @dataclass(frozen=True)
 class _Marks:
     """The fix-plan marks of a record: the pull request and the head of `fix_plan.key`, the
-    attempts on that head, the revisions on that pull request, and the time of the last attempt."""
+    attempts on that head, the revisions on that pull request, the time of the last attempt, the
+    release of the last counted attempt, and the evicted attempts on that head that did not
+    count."""
 
     pull: str = ""
     head: str = ""
     attempts: int = 0
     revisions: int = 0
     at: datetime | None = None
+    version: str = ""
+    evicted: int = 0
 
     @classmethod
     def of(cls, record: JobRecord) -> _Marks:
@@ -345,10 +376,15 @@ class _Marks:
             _count(record.get(FixPlanRecordKey.ATTEMPTS)),
             _count(record.get(FixPlanRecordKey.REVISIONS)),
             _time(record.get(FixPlanRecordKey.AT)),
+            record.get(FixPlanRecordKey.VERSION) or "",
+            _count(record.get(FixPlanRecordKey.EVICTED)),
         )
 
     def attempts_on(self, pull: int, head: str) -> int:
         return self.attempts if (self.pull, self.head) == (str(pull), head) else 0
+
+    def evicted_on(self, pull: int, head: str) -> int:
+        return self.evicted if (self.pull, self.head) == (str(pull), head) else 0
 
     def revisions_on(self, pull: int) -> int:
         return self.revisions if self.pull == str(pull) else 0
@@ -362,8 +398,23 @@ def _staged_pull(item: Item) -> int | None:
     return int(recorded)
 
 
-def _record_reason(item: Item, pull: int | None, now: datetime) -> str | None:
-    """Why the record of `item` leaves it out, before any read, or None."""
+def _older_release(version: str) -> bool:
+    """Whether `version`, the release of the counted attempts on a head, is older than the
+    release that runs. A record with no release is older: `fix_plan.version` came with #5413. A
+    release that does not parse is not older, so the cap holds."""
+    if not version:
+        return True
+    try:
+        return Version(version) < Version(__version__)
+    except InvalidVersion:
+        return False
+
+
+def _record_reason(
+    item: Item, pull: int | None, now: datetime, *, skip_wait: bool = False
+) -> str | None:
+    """Why the record of `item` leaves it out, before any read, or None. `skip_wait` leaves out
+    the wait of `fix_plan.at`."""
     texts = MESSAGES.roadmap
     marks = _Marks.of(item.job_record)
     wait = timedelta(hours=CONST_ROADMAP_FIX_PLAN_WAIT_HOURS)
@@ -373,7 +424,7 @@ def _record_reason(item: Item, pull: int | None, now: datetime) -> str | None:
         return texts.fix_plan_left_runner
     if (owner := claimed_by(item)) is not None:
         return texts.item_left_claimed.format(owner=owner)
-    if marks.at is not None and now - marks.at < wait:
+    if not skip_wait and marks.at is not None and now - marks.at < wait:
         return texts.fix_plan_left_recent.format(
             at=marks.at.isoformat(), hours=CONST_ROADMAP_FIX_PLAN_WAIT_HOURS
         )
@@ -382,18 +433,40 @@ def _record_reason(item: Item, pull: int | None, now: datetime) -> str | None:
     return None
 
 
-def _pull_reason(item: Item, pull: int, status: PullStatus) -> str | None:
-    """Why the read of plan pull request `pull` leaves `item` out, or None."""
+def _pull_reason(
+    item: Item, pull: int, status: PullStatus, *, skip_wait: bool = False
+) -> str | None:
+    """Why the read of plan pull request `pull` leaves `item` out, or None. With `skip_wait`, a
+    head over the attempt cap whose counted attempts ran on an older release is not left out."""
     texts = MESSAGES.roadmap
-    count = _Marks.of(item.job_record).attempts_on(pull, status.head_sha)
+    marks = _Marks.of(item.job_record)
+    count = marks.attempts_on(pull, status.head_sha)
     if not status.is_open_draft:
         return texts.fix_plan_left_not_draft.format(pull=pull)
     if PLAN_NEEDS_FIX_LABEL not in status.labels:
         return texts.fix_plan_left_no_label.format(pull=pull)
-    if count >= CONST_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS:
+    if count >= CONST_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS and not (
+        skip_wait and _older_release(marks.version)
+    ):
         head = status.head_sha[:_SHORT]
         return texts.fix_plan_left_attempts.format(head=head, pull=pull, count=count)
     return None
+
+
+def _extra(item: Item, pull: int, status: PullStatus) -> str:
+    """Why a run with `skip_wait` takes head `status` of plan pull request `pull` over the attempt
+    cap, or an empty text for a head under the cap."""
+    marks = _Marks.of(item.job_record)
+    count = marks.attempts_on(pull, status.head_sha)
+    if count < CONST_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS:
+        return ""
+    return MESSAGES.roadmap.fix_plan_extra_attempt.format(
+        head=status.head_sha[:_SHORT],
+        pull=pull,
+        count=count,
+        version=marks.version or MESSAGES.roadmap.fix_plan_no_release,
+        current=__version__,
+    )
 
 
 def _candidates(
@@ -425,20 +498,25 @@ def select_fix_plan(
     item: int | None = None,
     pull: int | None = None,
     now: datetime | None = None,
+    skip_wait: bool = False,
 ) -> tuple[FixPlanTarget | None, tuple[FixPlanLeftOut, ...]]:
     """The plan pull request that the step takes, and the Staged items it left out before it, as
     the module says. `item` or `pull` names the one item to judge. It reads a pull request only for
-    an item that the record rules keep."""
+    an item that the record rules keep. `skip_wait` leaves out the wait and takes a head of an
+    older release over the attempt cap once, with a warning that says why (#5413)."""
     now = now or datetime.now(UTC)
     candidates, left = _candidates(store, item, pull)
     for each in candidates:
         pull = _staged_pull(each)
-        reason = _record_reason(each, pull, now)
+        reason = _record_reason(each, pull, now, skip_wait=skip_wait)
         if reason is None and pull is not None:
             status = get_github_session().client.get_pull_status(repo, pull)
-            reason = _pull_reason(each, pull, status)
+            reason = _pull_reason(each, pull, status, skip_wait=skip_wait)
             if reason is None:
-                return FixPlanTarget(each, pull, status), tuple(left)
+                extra = _extra(each, pull, status)
+                if extra:
+                    logger.warning(extra)
+                return FixPlanTarget(each, pull, status, extra), tuple(left)
         left.append(FixPlanLeftOut(each.number, reason or ""))
     return None, tuple(left)
 
@@ -727,10 +805,12 @@ def _settle(
     return done
 
 
-def _result_marks(target: FixPlanTarget, done: FixPlanAttempt) -> Mapping[FixPlanRecordKey, str]:
-    """The marks that end an attempt: its result, and after a push the new head with no attempt
-    and one more revision."""
-    marks = {FixPlanRecordKey.RESULT: done.result.value}
+def _result_marks(
+    target: FixPlanTarget, done: FixPlanAttempt
+) -> Mapping[FixPlanRecordKey, str | None]:
+    """The marks that end an attempt: its result, and after a push the new head with no attempt,
+    no evicted attempt and one more revision."""
+    marks: dict[FixPlanRecordKey, str | None] = {FixPlanRecordKey.RESULT: done.result.value}
     if done.head == target.status.head_sha:
         return marks
     revisions = _Marks.of(target.item.job_record).revisions_on(target.pull) + 1
@@ -738,6 +818,7 @@ def _result_marks(target: FixPlanTarget, done: FixPlanAttempt) -> Mapping[FixPla
         FixPlanRecordKey.KEY: f"{target.pull}:{done.head}",
         FixPlanRecordKey.ATTEMPTS: "0",
         FixPlanRecordKey.REVISIONS: str(revisions),
+        FixPlanRecordKey.EVICTED: None,
     }
 
 
@@ -843,6 +924,88 @@ def _open_creates(store: RoadmapStore, source: Path, base: str) -> Callable[[], 
     return cache(read)
 
 
+def _start_marks(target: FixPlanTarget, now: datetime) -> Mapping[FixPlanRecordKey, str | None]:
+    """The marks that start an attempt on the head of `target`: one more attempt on the head, the
+    time, the release that runs, and the evicted attempts of the head, which a new head resets."""
+    marks = _Marks.of(target.item.job_record)
+    head = target.status.head_sha
+    revisions = marks.revisions_on(target.pull)
+    evicted = marks.evicted_on(target.pull, head)
+    return {
+        FixPlanRecordKey.KEY: f"{target.pull}:{head}",
+        FixPlanRecordKey.ATTEMPTS: str(marks.attempts_on(target.pull, head) + 1),
+        FixPlanRecordKey.REVISIONS: str(revisions) if revisions else None,
+        FixPlanRecordKey.AT: now.isoformat(),
+        FixPlanRecordKey.RESULT: None,
+        FixPlanRecordKey.VERSION: __version__,
+        FixPlanRecordKey.EVICTED: str(evicted) if evicted else None,
+    }
+
+
+def _kill_marks(target: FixPlanTarget, kill: AttemptKill) -> Mapping[FixPlanRecordKey, str | None]:
+    """The marks that a kill of the class `kill` writes after the start marks, as the module says.
+    A free evicted attempt gets the count, the time and the release of the record before it back,
+    so no rule counts it. Another kill keeps the start marks, so the attempt counts."""
+    record = target.item.job_record
+    marks = _Marks.of(record)
+    head = target.status.head_sha
+    evicted = marks.evicted_on(target.pull, head)
+    if kill is AttemptKill.DEADLINE:
+        return {FixPlanRecordKey.RESULT: FixPlanResult.TIMEOUT.value}
+    if evicted >= _HEAD_EVICTIONS:
+        return {FixPlanRecordKey.RESULT: FixPlanResult.EVICTED.value}
+    return {
+        FixPlanRecordKey.KEY: f"{target.pull}:{head}",
+        FixPlanRecordKey.ATTEMPTS: str(marks.attempts_on(target.pull, head)),
+        FixPlanRecordKey.AT: record.get(FixPlanRecordKey.AT),
+        FixPlanRecordKey.VERSION: record.get(FixPlanRecordKey.VERSION),
+        FixPlanRecordKey.EVICTED: str(evicted + 1),
+        FixPlanRecordKey.RESULT: FixPlanResult.EVICTED.value,
+    }
+
+
+def _killed(attempt: _Attempt, comment: int, kill: AttemptKill) -> None:
+    """Write the marks of a kill of the class `kill` on the attempt `attempt`, log one warning,
+    and count the result. A deadline kill also logs its result line with `comment`, the open
+    findings of the last plan comment. The kill writes in the grace period of the pod, so it
+    reads the item once and posts no comment."""
+    store, target = attempt.store, attempt.target
+    number, head = target.item.number, target.status.head_sha
+    marks = _kill_marks(target, kill)
+    store.set_marks(store.item(number) or target.item, marks)
+    texts = MESSAGES.roadmap
+    before = _Marks.of(target.item.job_record)
+    if FixPlanRecordKey.EVICTED in marks:
+        line = texts.fix_plan_killed_free.format(
+            pull=target.pull,
+            number=number,
+            head=head[:_SHORT],
+            evicted=before.evicted_on(target.pull, head) + 1,
+            limit=_HEAD_EVICTIONS,
+        )
+    else:
+        line = texts.fix_plan_killed_counted.format(
+            kill=kill.value,
+            pull=target.pull,
+            number=number,
+            head=head[:_SHORT],
+            count=before.attempts_on(target.pull, head) + 1,
+        )
+    logger.warning(line)
+    result = FixPlanResult.TIMEOUT if kill is AttemptKill.DEADLINE else FixPlanResult.EVICTED
+    if kill is AttemptKill.DEADLINE:
+        log_job_result(
+            RoadmapJob.FIX_PLAN,
+            attempt.repo,
+            number,
+            result.value,
+            failure=FailureClass.TIMEOUT,
+            counts={"comment": comment},
+            names={"kill": kill.value},
+        )
+    emit(ROADMAP_FIX_PLAN_TOTAL, 1, {"repo": attempt.repo, "result": result.value})
+
+
 def _attempt(
     attempt: _Attempt,
     now: datetime,
@@ -862,33 +1025,31 @@ def _attempt(
         stage_target, proposal = _head_plan(source, target)
     except PlanReadError as error:
         return _unreadable(attempt, now, error)
-    marks = _Marks.of(target.item.job_record)
-    revisions = marks.revisions_on(target.pull)
-    store.set_marks(
-        target.item,
-        {
-            FixPlanRecordKey.KEY: f"{target.pull}:{status.head_sha}",
-            FixPlanRecordKey.ATTEMPTS: str(marks.attempts_on(target.pull, status.head_sha) + 1),
-            FixPlanRecordKey.REVISIONS: str(revisions) if revisions else None,
-            FixPlanRecordKey.AT: now.isoformat(),
-            FixPlanRecordKey.RESULT: None,
-        },
-    )
-    sha = _git(source, "rev-parse", f"origin/{attempt.base}")
-    listed = comment_open_findings(plan_comment(store, number, target.pull))
-    revision = revise_plan(
-        stage_target,
-        proposal,
-        repo=attempt.repo,
-        checkout=source,
-        sha=sha,
-        verifier=verifier,
-        model=model,
-        findings=listed,
-        open_creates=_open_creates(store, source, attempt.base),
-        screen=screen,
-        time_budget=attempt.budget,
-    )
+    store.set_marks(target.item, _start_marks(target, now))
+    listed: tuple[Finding, ...] = ()
+    try:
+        sha = _git(source, "rev-parse", f"origin/{attempt.base}")
+        listed = comment_open_findings(plan_comment(store, number, target.pull))
+        revision = revise_plan(
+            stage_target,
+            proposal,
+            repo=attempt.repo,
+            checkout=source,
+            sha=sha,
+            verifier=verifier,
+            model=model,
+            findings=listed,
+            open_creates=_open_creates(store, source, attempt.base),
+            screen=screen,
+            time_budget=attempt.budget,
+        )
+    except ServiceStoppingError as stop:
+        _killed(attempt, len(listed), kill_of(attempt.budget, stop))
+        raise
+    except AttemptKilled as killed:
+        kill = kill_of(attempt.budget, killed)
+        _killed(attempt, len(listed), kill)
+        raise AttemptKilled(kill) from killed
     done = _settle(attempt, proposal, listed, revision)
     counts = revision.attempt.counts() if revision.attempt is not None else {}
     done = replace(done, counts=tuple(counts.items()), comment=len(listed))
@@ -909,16 +1070,20 @@ def run_fix_plan(
     model: LLMClient | ToolboxModel | None = None,
     verifier: ToolboxModel | None = None,
     screen: ResolverChain[ScreenCase] | None = None,
+    skip_wait: bool = False,
 ) -> FixPlanRun:
     """Select one plan pull request of `repo` and, with `confirm`, run one attempt on it in the
     clone `source`, as the module says. Without `confirm` the call makes no model call and no
     write. `model`, `verifier` and `screen` are those of `plan_stage`; with no `verifier`, the
-    model of the task `verification` reviews. A failed read or write of GitHub or git raises after
-    the attempt marks. The time budget `roadmap.fix_plan.time_budget_seconds` starts with the call
-    (#5363)."""
+    model of the task `verification` reviews. `skip_wait` is the rule of `select_fix_plan` for a
+    named item (#5413). A failed read or write of GitHub or git raises after the attempt marks, and
+    a kill raises `AttemptKilled` with its class after the marks of the kill. The time budget
+    `roadmap.fix_plan.time_budget_seconds` starts with the call (#5363)."""
     budget = TimeBudget.start(load_settings().roadmap.fix_plan.time_budget_seconds, _BUDGET_SETTING)
     now = now or datetime.now(UTC)
-    target, left = select_fix_plan(store, repo=repo, item=item, pull=pull, now=now)
+    target, left = select_fix_plan(
+        store, repo=repo, item=item, pull=pull, now=now, skip_wait=skip_wait
+    )
     run = FixPlanRun(repo, target, left)
     if target is None:
         logger.info(MESSAGES.roadmap.fix_plan_none.format(repo=repo))
@@ -972,6 +1137,8 @@ def render_fix_plan(run: FixPlanRun) -> str:
             head=target.status.head_sha[:_SHORT],
         )
     ]
+    if target is not None and target.extra:
+        lines.append(target.extra)
     lines += [
         texts.fix_plan_left.format(number=left.number, reason=left.reason) for left in run.left_out
     ]

@@ -34,9 +34,13 @@ class TimeBudget:
         """The seconds since the start."""
         return clock.monotonic() - self.started
 
+    def spent(self) -> bool:
+        """Whether the budget is spent."""
+        return self.elapsed() >= self.seconds
+
     def raise_if_spent(self, work: str) -> None:
         """Raise `RoadmapTimeBudgetError` once the budget is spent, so `work` does not start."""
-        if self.elapsed() >= self.seconds:
+        if self.spent():
             raise RoadmapTimeBudgetError(
                 MESSAGES.roadmap.time_budget_spent.format(
                     seconds=self.seconds, setting=self.setting, work=work

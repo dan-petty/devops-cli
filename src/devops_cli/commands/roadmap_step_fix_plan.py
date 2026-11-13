@@ -5,7 +5,10 @@ command prints the plan pull request that the step selects, calls no model and w
 `--dry-run` makes no request. During an attempt the command writes the line of each round and the
 result line of the step to stderr as they come (#5363): a Job runs the command, and its log is what
 the command writes, so a pod that the deadline of its Job stops still leaves these lines. The
-Service writes the same lines in its own log.
+Service writes the same lines in its own log. `--skip-wait` leaves out the wait of 6 hours for the
+one item that `--item` or `--pull` names, and needs `--confirm` (#5413). While the step runs, the
+first SIGTERM ends the attempt as a kill (`sigterm_raises`): the step writes the class of the kill,
+and the command exits 75 for `evicted` and 143 for `deadline`.
 """
 
 from __future__ import annotations
@@ -77,6 +80,9 @@ def fix_plan_cmd(
     confirm: Annotated[
         bool, typer.Option("--confirm", help=HELP.roadmap.step_fix_plan_confirm)
     ] = False,
+    skip_wait: Annotated[
+        bool, typer.Option("--skip-wait", help=HELP.roadmap.step_fix_plan_skip_wait)
+    ] = False,
 ) -> None:
     """Repair one open plan pull request that holds the label plan/needs-fix."""
     if dry_run and confirm:
@@ -85,6 +91,10 @@ def fix_plan_cmd(
     if item is not None and pull is not None:
         print_error(MESSAGES.roadmap.plan_modes_exclusive.format(modes="--item and --pull"))
         raise typer.Exit(1)
+    if skip_wait and (not confirm or (item is None and pull is None)):
+        print_error(MESSAGES.roadmap.fix_plan_skip_wait_needs)
+        raise typer.Exit(1)
+    from devops_cli.roadmap.attempt_kill import AttemptKilled, sigterm_raises
     from devops_cli.roadmap.request_plan import render_dry_run
     from devops_cli.roadmap.steps.fix_plan import dry_run_fix_plan, render_fix_plan, run_fix_plan
 
@@ -101,7 +111,7 @@ def fix_plan_cmd(
     from devops_cli.roadmap.stores.store import get_roadmap_store
 
     try:
-        with _lines_to_stderr():
+        with _lines_to_stderr(), sigterm_raises():
             run = run_fix_plan(
                 get_roadmap_store(target),
                 repo=target,
@@ -111,10 +121,15 @@ def fix_plan_cmd(
                 pull=pull,
                 model=ToolboxModel(get_task_model("stage")) if confirm else None,
                 verifier=ToolboxModel(get_task_model("verification")) if confirm else None,
+                skip_wait=skip_wait,
             )
     except DevOpsCLIError as exc:
         print_error(f"Could not run fix-plan: {exc}", safe=True)
         raise typer.Exit(1) from exc
+    except AttemptKilled as killed:
+        kill = killed.kill.value if killed.kill is not None else "none"
+        print_error(MESSAGES.roadmap.fix_plan_sigterm.format(kill=kill))
+        raise typer.Exit(killed.exit_status) from None
     write_stdout(render_fix_plan(run) + "\n")
     if not confirm:
         print_info(MESSAGES.roadmap.preview_only)
