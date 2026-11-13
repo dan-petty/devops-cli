@@ -62,7 +62,7 @@ The stage prompt `src/devops_cli/ai/tasks/roadmap_stage_change.md` SHALL require
 - **THEN** the text holds a rule that names `modified`, `removed`, a command or option that the issue removes or renames, and each base requirement that names the old name
 
 ### Requirement: A base requirement that names a removed command is updated or removed
-`check_proposal` SHALL count a command or an option as removed only when MUST NOT or SHALL NOT in an ADDED requirement governs its code span: the span is in the subject of exist, be available or a passive such as be registered, or in the object of a verb that offers a name, such as register, list or support. It SHALL return a problem for each base requirement of the capability that names a removed name and that no `modified` requirement rewrites and no `removed` entry removes, and for each `modified` requirement whose text keeps it. A `modified` requirement under the `to_name` of a rename rewrites the base requirement of its `from_name`.
+`check_proposal` SHALL count a command or an option as removed only when MUST NOT or SHALL NOT in an ADDED requirement governs its code span: the span is in the subject of exist, be available or a passive such as be registered, or in the object of a verb that offers a name, such as register, list or support. It SHALL return a problem for each base requirement that names a removed name and that no `modified` or `removed` entry covers, and for each `modified` requirement whose text keeps it.
 
 #### Scenario: An added removal leaves a base requirement unchanged
 - **WHEN** A proposal adds the requirement "The `devops roadmap intake-eval` command MUST NOT exist.", and the base texts hold an unmodified requirement that names it
