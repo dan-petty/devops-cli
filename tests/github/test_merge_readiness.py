@@ -15,6 +15,7 @@ from typing import Any
 import httpx2
 import pytest
 
+from devops_cli.config.constants import CONST_GITHUB_COMPARE_FILES_LIMIT
 from devops_cli.github.check_verdict import CheckBucket, read_commit_checks
 from devops_cli.github.client import PullRequestFile
 from devops_cli.github.merge_readiness import (
@@ -761,18 +762,75 @@ def test_a_fork_head_is_compared_by_its_commit_sha(github: _GitHub, tmp_path: Pa
     assert (verdict.is_ready, compared) == (True, [f"GET https://api.github.com{_COMPARE}"])
 
 
+_AT_THE_LIMIT = [
+    {"filename": f"src/m{n}.py", "status": "modified"}
+    for n in range(CONST_GITHUB_COMPARE_FILES_LIMIT)
+]
+
+
 def test_a_compare_answer_at_the_file_limit_is_one_blocker_naming_the_limit(
     github: _GitHub, tmp_path: Path
 ) -> None:
     """GitHub lists at most 300 files of one comparison, so a change folder beyond that list is no
-    proof that the PR is not grounded (#2530)."""
-    github.files(*[{"filename": f"src/m{n}.py", "status": "modified"} for n in range(300)])
+    proof that the PR is not grounded. The rules that read the list give no blocker, and one
+    blocker names the limit and a command that lists every file (#2530)."""
+    github.files(*_AT_THE_LIMIT)
     verdict = _assess(tmp_path)
     assert (
         len(verdict.blockers),
         [blocker.kind for blocker in verdict.blocking],
-        ["300" in blocker for blocker in verdict.blockers],
-    ) == (1, [BlockerKind.GROUNDING], [True])
+        ["300 files" in blocker for blocker in verdict.blockers],
+        ["git diff --stat origin/main...HEAD" in blocker for blocker in verdict.blockers],
+    ) == (1, [BlockerKind.GROUNDING], [True], [True])
+
+
+def test_a_compare_answer_at_the_file_limit_keeps_the_rules_that_read_no_file(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    """A truncated file list stops only the rules that read it: the body form and the issue the
+    PR closes are still judged (#2530)."""
+    github.files(*_AT_THE_LIMIT)
+    github.closing(_issue(), _issue(705))
+    verdict = _assess(tmp_path, _pr(body=_TEXT))
+    assert (
+        [blocker.kind for blocker in verdict.blocking],
+        sum("300 files" in blocker for blocker in verdict.blockers),
+        sum("closes 2 issues" in blocker for blocker in verdict.blockers),
+    ) == ([BlockerKind.BODY_FORM] * 2 + [BlockerKind.GROUNDING] * 2, 1, 1), verdict.blockers
+
+
+def test_a_compare_answer_at_the_file_limit_names_no_suppression(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    """The perimeter advisory reads the file list, so it does not judge a list that can be
+    incomplete, and where no item rule applies, a warning names the limit instead (#2530)."""
+    (tmp_path / ".devops").mkdir()
+    (tmp_path / ".devops" / "review.toml").write_text(_REVIEW_TOML, encoding="utf-8")
+    github.answer(_CHANGES_DIR, _NOT_FOUND)
+    github.files({"filename": "src/a.py", "status": "modified"}, *_AT_THE_LIMIT[1:])
+    verdict = _assess(tmp_path)
+    text = " ".join(advisory.text for advisory in verdict.advisories)
+    assert (verdict.blockers, len(verdict.advisories), "300 files" in text, "B602" in text) == (
+        (),
+        1,
+        True,
+        False,
+    ), verdict.advisories
+
+
+def test_a_plan_whose_compare_answer_is_at_the_file_limit_keeps_its_body_rules(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    """A plan's body rules read no file, so a truncated list leaves them, and one blocker names
+    the limit in place of the rules of its change folder (#2530)."""
+    github.files(*_AT_THE_LIMIT)
+    verdict = _assess(tmp_path, _pr(title=_PLAN_TITLE, body="Why and what."))
+    assert (
+        len(verdict.blockers),
+        sum("no single line Plans #3183" in blocker for blocker in verdict.blockers),
+        sum("300 files" in blocker for blocker in verdict.blockers),
+        sum("3183-<slug>" in blocker for blocker in verdict.blockers),
+    ) == (2, 1, 1, 0), verdict.blockers
 
 
 def test_one_compare_answer_holds_more_files_than_a_page_of_the_pulls_files(

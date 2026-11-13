@@ -25,6 +25,18 @@ The command `devops pr check-readiness` SHALL report a compare answer that holds
 - **WHEN** The compare endpoint returns exactly 300 files.
 - **THEN** The readiness output names GitHub's limit of 300 files and holds no grounding blocker that names a change folder missing from the list.
 
+#### Scenario: The rules that read no file still apply
+- **WHEN** The compare endpoint returns exactly 300 files, the body has no `Closes` line, and the pull request closes two issues.
+- **THEN** The verdict holds the blockers of the body form and of the closing issues beside the one blocker that names the limit.
+
+#### Scenario: No suppression is named for a partial list
+- **WHEN** The compare endpoint returns exactly 300 files, one of them is a path that a review.toml suppression covers, and the base keeps no change folders.
+- **THEN** The verdict names no suppression and holds one warning that names the limit.
+
+#### Scenario: An implement draft at the limit
+- **WHEN** The compare answer of an implement pull request holds exactly 300 files.
+- **THEN** The draft readiness refuses the pull request with a reason that names GitHub's limit of 300 files.
+
 ### Requirement: The monitor reads the pull request state on every poll
 The command `devops pr monitor` SHALL read the pull request `state` on every poll and SHALL make no further poll once it reads a merged or a closed pull request.
 

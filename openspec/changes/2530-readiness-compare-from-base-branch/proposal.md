@@ -9,7 +9,8 @@ The issue #2530 reports two wrong states of the `devops pr` commands. `devops pr
 - `devops pr check-readiness` reads the files a pull request changes from the compare endpoint of the tip of the base branch and the head commit, and no request of the run asks for the pulls files path. The run does not compare from the payload's `base.sha`: GitHub does not move that value when a merge commit moves the merge base.
 - `GitHubClient.get_compare_files` returns the compare answer's files with a flag that says the answer holds GitHub's limit of 300 files.
 - `read_changed_files` names the compare head by the head commit sha, for a fork too. GitHub keeps the head commit of a fork's pull request in the base repository, and the checks are read for the same sha.
-- A compare answer at the 300-file limit is one grounding blocker that names the limit, and the rules that read the file list do not run on that partial list.
+- A compare answer at the 300-file limit is one grounding blocker that names the limit and a command that lists every file. The rules that read the file list do not run on that partial list, and the rules of the body and of the issues the pull request closes still run. The perimeter advisory does not judge the partial list, and where the item rules do not apply, a warning names the limit.
+- An implement draft whose compare answer is at the limit is refused with a reason that names the limit, and not as a missing change.
 - `read_draft` reads an implement pull request's files from the compare endpoint of the base branch and the head commit, so the readiness run makes no pulls files request.
 - `devops pr monitor` reads the pull request state on every poll and stops polling a pull request that is merged or closed.
 - A merged pull request prints `PR #<number> is merged.` and exits 0, with no checks line and no ready line.

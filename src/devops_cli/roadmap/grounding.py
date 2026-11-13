@@ -19,6 +19,7 @@ from typing import NamedTuple
 from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.config.constants import (
+    CONST_GITHUB_COMPARE_FILES_LIMIT,
     CONST_ISSUE_STATE_OPEN,
     CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_OPENSPEC_ARCHIVE_DIR,
@@ -35,11 +36,17 @@ from devops_cli.lang import MESSAGES
 
 class ChangedFilesRead(NamedTuple):
     """The files a pull request changes, or why they could not be read. `truncated` says that
-    GitHub listed its limit of files, so the list may be incomplete."""
+    GitHub listed its limit of files, so the list can be incomplete. It has no default: a read
+    that does not say is no complete list (#2530)."""
 
     files: list[PullRequestFile]
+    truncated: bool
     error: str = ""
-    truncated: bool = False
+
+    @property
+    def complete(self) -> bool:
+        """Whether a rule that reads the list can judge it: it was read, and it is whole."""
+        return not self.error and not self.truncated
 
 
 class _GraphModel(BaseModel):
@@ -198,6 +205,21 @@ def changed_files_were_read(grounding: Grounding) -> str | None:
     )
 
 
+def truncated_files_text(pr_num: int, base: str) -> str:
+    """The blocker of a file list that holds GitHub's limit of files of one comparison."""
+    return MESSAGES.pr.grounding_files_truncated.format(
+        number=pr_num, limit=CONST_GITHUB_COMPARE_FILES_LIMIT, base=base
+    )
+
+
+def changed_files_are_whole(grounding: Grounding) -> str | None:
+    """The file list does not hold GitHub's limit of files, so the change-folder rules judge all
+    of it (#2530)."""
+    if grounding.changed.error or not grounding.changed.truncated:
+        return None
+    return truncated_files_text(grounding.pr_num, grounding.base)
+
+
 def _archives(changed: PullRequestFile, issue: int) -> bool:
     """Whether this change adds a file to an archived change folder of `issue`."""
     match = re.fullmatch(CONST_OPENSPEC_ARCHIVED_FOLDER_RE, changed.filename)
@@ -235,7 +257,7 @@ def _archived_folder(change: str) -> str:
 def archives_its_change(grounding: Grounding) -> str | None:
     """The PR adds the archived change folder of the one issue it closes."""
     issue = grounding.own_issue
-    if issue is None or grounding.changed.error:
+    if issue is None or not grounding.changed.complete:
         return None
     files = grounding.changed.files
     if any(_archives(changed, issue.number) for changed in files):
@@ -261,7 +283,7 @@ def writes_only_its_own_record(grounding: Grounding) -> str | None:
     """Only the archive of the change of the issue the PR closes writes the living specs and
     the archive."""
     issue = grounding.own_issue
-    if issue is None or grounding.changed.error:
+    if issue is None or not grounding.changed.complete:
         return None
     files = grounding.changed.files
     archives_its_own = any(_archives(changed, issue.number) for changed in files)
@@ -291,6 +313,7 @@ GROUNDING_RULES: tuple[Callable[[Grounding], str | None], ...] = (
     closes_an_open_issue,
     closes_an_item,
     changed_files_were_read,
+    changed_files_are_whole,
     archives_its_change,
     writes_only_its_own_record,
 )
@@ -313,11 +336,14 @@ def plan_issue(title: str) -> int | None:
     return int(match.group("issue")) if match else None
 
 
-def plan_blockers(pr_num: int, issue: int, body: str, files: list[PullRequestFile]) -> list[str]:
+def plan_blockers(
+    pr_num: int, issue: int, body: str, changed: ChangedFilesRead, base: str
+) -> list[str]:
     """The blocker of each rule of a plan that its body or its files break, in a fixed order.
 
     The body has exactly one line `Plans #<issue>` and no closing keyword. The plan adds a file to
-    the active change folder of the issue and changes nothing under the living specs.
+    the active change folder of the issue and changes nothing under the living specs. A file list
+    that holds GitHub's limit of files is one blocker in place of the file rules (#2530).
     """
     # Imported here: `stage_change` loads the model client, and `pr --help` must not (startup budget).
     from devops_cli.roadmap.stage.stage_change import closing_keyword_in
@@ -329,7 +355,10 @@ def plan_blockers(pr_num: int, issue: int, body: str, files: list[PullRequestFil
         found.append(texts.grounding_plan_no_plans_line.format(number=pr_num, issue=issue))
     if (keyword := closing_keyword_in(body)) is not None:
         found.append(texts.grounding_plan_closes.format(number=pr_num, keyword=keyword))
-    if not any(_adds_to_active_folder(changed, issue) for changed in files):
+    if changed.truncated:
+        return [*found, truncated_files_text(pr_num, base)]
+    files = changed.files
+    if not any(_adds_to_active_folder(entry, issue) for entry in files):
         found.append(
             texts.grounding_plan_no_folder.format(
                 number=pr_num, issue=issue, folder=f"{CONST_OPENSPEC_CHANGES_DIR}/{issue}-<slug>/"

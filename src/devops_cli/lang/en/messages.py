@@ -1743,14 +1743,20 @@ class PRMessages:
         "PR #{number} is not grounded: the files it changes could not be read ({error})."
     )
     grounding_files_truncated: str = (
-        "PR #{number} could not be judged on its change folder: GitHub lists at most 300 files of"
-        " one comparison, and the compare answer holds that limit, so the list of changed files"
-        " may be truncated. Read the full diff of the pull request."
+        "PR #{number} is not judged on its change folder: GitHub lists at most {limit} files of"
+        " one comparison, and the compare answer holds {limit} files, so the list of changed files"
+        " can be incomplete. Run git diff --stat origin/{base}...HEAD in a checkout of the branch"
+        " to see every file."
     )
     grounding_changes_dir_unread: str = (
         "PR #{number} is not grounded: {path}/ could not be read at its base ({error})."
     )
     changed_files_unread: str = "Could not read the files PR #{number} changes ({error})."
+    changed_files_truncated: str = (
+        "The list of the files PR #{number} changes can be incomplete: GitHub lists at most"
+        " {limit} files of one comparison, and the compare answer holds {limit} files. No"
+        " review.toml suppression is named for these files."
+    )
     body_form_problem: str = "PR #{number} body: {problem}"
     hardening_report_title: str = "Defect Pull Request Hardening Audit"
     hardening_report_no_defects: str = "No merged defect pull requests found matching criteria."
@@ -3544,6 +3550,10 @@ class RoadmapMessages:
     draft_unticked_group: str = "Task group {number}, {title}, has a task that is not ticked."
     draft_change_not_archived: str = "The change is not archived."
     draft_change_missing: str = "The change is missing."
+    draft_files_truncated: str = (
+        "The compare answer holds GitHub's limit of {limit} files, so the list of changed files"
+        " can be incomplete and the change folder cannot be found in it."
+    )
     draft_author_not_declared: str = "The author has not declared that the pull request is ready."
     draft_check_runs: str = "A check runs: {name}."
     draft_check_runs_unnamed: str = "A check runs."

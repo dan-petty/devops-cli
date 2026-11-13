@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from devops_cli.config.constants import CONST_GITHUB_COMPARE_FILES_LIMIT
 from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
 from devops_cli.github.client import CompareFiles, PullRequestFile, PullStatus
 from devops_cli.github.session import get_github_session
@@ -346,6 +347,41 @@ def test_read_draft_reads_the_files_from_the_compare_of_the_base_branch_and_head
         f"GET https://api.github.com/repos/{_REPO}/compare/main...{head}",
         f"GET https://api.github.com/repos/{_REPO}/contents/{tasks}",
     ]
+
+
+def test_an_implement_draft_whose_compare_holds_the_file_limit_is_refused_naming_it(
+    github_api: GitHubApiFake,
+) -> None:
+    """A compare answer at GitHub's limit of files can hide the change folder, so the draft is
+    refused with a reason that names the limit, and not as a missing change (#2530)."""
+    store = InMemoryRoadmapStore()
+    issue_num = store.seed_issue(
+        "Issue 1",
+        body=with_record("", encode_job_record({}, {ImplementRecordKey.PR: "335"})),
+        fields={ItemField.PRIORITY: "P2-Medium"},
+    )
+    head = "a" * 40
+    pull = PullStatus.model_validate(
+        {
+            "state": "open",
+            "draft": True,
+            "head": {"ref": f"fix/{issue_num}-feature", "sha": head},
+            "base": {"ref": "main", "sha": "b" * 40},
+        }
+    )
+    files = [
+        pull_request_file_payload(f"src/m{n}.py") for n in range(CONST_GITHUB_COMPARE_FILES_LIMIT)
+    ]
+    route_compare_files(github_api, _REPO, "main", head, *files, merge_base="c" * 40)
+
+    draft = read_draft(_REPO, 335, pull=pull, store=store, client=get_github_session().client)
+    readiness = draft_readiness(draft)
+
+    assert (draft.change, draft.files_truncated, readiness.answer) == (None, True, Answer.REFUSE)
+    assert readiness.reason == (
+        "The compare answer holds GitHub's limit of 300 files, so the list of changed files can "
+        "be incomplete and the change folder cannot be found in it."
+    )
 
 
 def test_read_draft_non_implement_kind_returns_early_without_reading_files() -> None:
