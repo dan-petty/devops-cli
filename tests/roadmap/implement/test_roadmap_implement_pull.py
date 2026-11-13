@@ -66,3 +66,14 @@ def test_the_watch_names_the_failed_shard_and_not_the_join_check(job_world: JobW
     assert watch.check is not None
     assert watch.check.name == "Tests & Coverage (shard 2 of 4)"
     assert "shard 2 of 4" in watch.reason
+
+
+def test_a_pull_request_closed_without_a_merge_stops_the_watch(job_world: JobWorld) -> None:
+    """A pull request closed while the job runs can no longer become ready, so the watch stops the
+    item and does not call it ready (#2530)."""
+    job_world.pull.closed = True
+    watch = watch_pull(STAGE_REPO, PULL, _head(job_world))
+    assert (watch.kind, watch.reason) == (
+        WatchKind.STOPPED,
+        "The pull request was merged or closed while the job ran.",
+    )

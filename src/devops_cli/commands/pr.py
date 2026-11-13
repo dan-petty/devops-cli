@@ -771,8 +771,9 @@ def monitor_pr_command(
 
     While a check runs or a Copilot review is active, it waits. Then it reports the blockers of
     the merge-readiness verdict and of its review gate (requested changes, Copilot's review, an
-    approval of the head with --require-reviews). Exit 0: ready; 1: a check failed or could not
-    be read; 2: another blocker; 3: the timeout passed first.
+    approval of the head with --require-reviews). A merged or closed PR stops the wait at once.
+    Exit 0: ready, or merged; 1: a check failed or could not be read; 2: another blocker, or
+    closed without a merge; 3: the timeout passed first.
     """
     if dry_run or is_dry_run():
         _handle_monitor_dry_run(number, interval, timeout, require_reviews, repo, output_format)

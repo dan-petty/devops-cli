@@ -74,6 +74,15 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/grounding.py`, `src/devops_cli/gi
 - [x] 8.2 Make `ChangedFilesRead.truncated` required, before `error`, and add its `complete` property. Add the rule `changed_files_are_whole` after `changed_files_were_read`, and let `archives_its_change` and `writes_only_its_own_record` judge only a complete list. Give `plan_blockers` the read and the base branch, so a truncated list replaces only the file rules of a plan. Remove the early return of `_judge_grounding`, warn on a truncated list where the item rules do not apply, and run the perimeter advisory only on a whole list. Add `Draft.files_truncated`, and refuse an implement draft at the limit with `draft_files_truncated`. The messages take the limit from `CONST_GITHUB_COMPARE_FILES_LIMIT`
   - Verification: `$ uv run devops ci test tests/github/test_merge_readiness.py tests/github/test_item_grounding.py tests/roadmap/test_roadmap_draft_readiness.py tests/commands/test_pr.py` passes
 
+## 9. Stop the watch and the monitor on a merged or closed pull request
+
+Kind: behavior. Reads: `src/devops_cli/roadmap/implement/implement_pull.py`, `src/devops_cli/github/pr_monitor.py`, `src/devops_cli/commands/pr.py`, `tests/support/roadmap_implement.py`. Changes: `src/devops_cli/roadmap/implement/implement_pull.py`, `src/devops_cli/commands/pr.py`, `docs/commands/pr.md`, `docs/commands/gh.md`, `docs/MCP_TOOLS.md`, `tests/support/roadmap_implement.py`, `tests/roadmap/implement/test_roadmap_implement_pull.py`, `tests/commands/test_pr.py`, `tests/github/test_github_pr_monitor.py`.
+
+- [x] 9.1 `tests/roadmap/implement/test_roadmap_implement_pull.py::test_a_pull_request_closed_without_a_merge_stops_the_watch` fails: `PullFake.closed` answers a closed pull request, and the watch reports it ready. `tests/commands/test_pr.py::test_a_merged_or_closed_pull_request_stops_the_monitor_at_the_first_poll` runs with a settle time of 300 seconds, so it fails when the terminal stop of `monitor_pr` is removed
+  - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_pull.py tests/commands/test_pr.py` fails on the base
+- [x] 9.2 Stop `_judge` on `status.terminal`. `PullFake` answers the compare of `main` and each head in place of the pulls files route. Add the closed row to the markdown test, read the closed poll of `tests/github/test_github_pr_monitor.py` through the shared gh fake, name the merged and closed results in the help of `devops pr monitor`, and run `uv run devops docs generate`
+  - Verification: `$ uv run devops ci test tests/roadmap/implement tests/commands/test_pr.py tests/github/test_github_pr_monitor.py` passes
+
 ## Workflow follow-up
 
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

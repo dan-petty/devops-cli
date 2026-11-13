@@ -8,7 +8,6 @@ tested over GitHub's two edges in `tests/commands/test_pr.py`.
 from __future__ import annotations
 
 import json
-import subprocess
 
 import pytest
 
@@ -511,18 +510,23 @@ def test_a_pending_copilot_request_leaves_the_monitor_waiting_on_nothing(
 _CLOSED_168 = {"number": 168, "state": "closed", "merged": False}
 
 
-def test_a_closed_pull_request_is_read_before_the_verdict(github_api: GitHubApiFake) -> None:
+def test_a_closed_pull_request_is_read_before_the_verdict(
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+) -> None:
     """A closed pull request can no longer become ready, so the poll reads its state and returns
     before the check, review and timeline reads of the verdict (#2530)."""
     from devops_cli.github.pr_monitor import get_pr_monitoring_status
 
-    def read_pr(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(_CLOSED_168))
-
-    status = get_pr_monitoring_status("octo", "repo", 168, runner=read_pr)
-    assert (status.state, status.checks, status.blockers, github_api.requested) == (
+    api, gh = github_api_and_gh
+    gh.answer(
+        lambda call: " ".join(call.argv).endswith("api repos/octo/repo/pulls/168"),
+        ProcessAnswer(stdout=json.dumps(_CLOSED_168)),
+    )
+    status = get_pr_monitoring_status("octo", "repo", 168)
+    assert (status.state, status.checks, status.blockers, api.requested, len(gh.calls)) == (
         "closed",
         [],
         [],
         [],
+        1,
     )

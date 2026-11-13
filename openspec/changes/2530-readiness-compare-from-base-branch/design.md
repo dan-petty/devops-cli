@@ -14,6 +14,7 @@
 - **Keep `GitHubClient.get_pull_files` for the review runner and `devops ai analyze pr`, and change only the readiness reads.**: `search_code` for `get_pull_files` lists those reads outside the readiness run, and the definition stays for them.
 - **Read the state into `PRMonitorStatus` and return before the verdict for a pull request that is not open.**: A merged or closed pull request cannot become ready, so no check read and no review read can change the result.
 - **Print the monitor's result message and exit with its code for a terminal state, before the summary and the ready line.**: The monitor already builds the merged and closed messages and their exit codes, and the command discarded both on exit 0.
+- **Stop the implement watch on any terminal state with the existing stop text.**: `_judge` read only `merged`, so a closed pull request with no check read gave `WatchKind.READY`. `implement_stop_merged` already says "merged or closed".
 - **Exit 2 for a closed unmerged pull request.**: It is neither ready, nor a check failure, nor a timeout, and 2 is the monitor's code for another blocker.
 - **Skip the check-count line of the status callback for a terminal state.**: The callback printed `Checks: 0/0 passed` for a pull request whose checks were never read.
 - **Change the living requirement that holds the monitor's exit codes with the merged and closed cases.**: An unmodified requirement would keep saying that a pull request with no blocker exits 0, which contradicts exit 2 for a closed unmerged pull request.

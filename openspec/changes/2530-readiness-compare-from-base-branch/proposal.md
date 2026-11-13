@@ -15,7 +15,9 @@ The issue #2530 reports two wrong states of the `devops pr` commands. `devops pr
 - `devops pr monitor` reads the pull request state on every poll and stops polling a pull request that is merged or closed.
 - A merged pull request prints `PR #<number> is merged.` and exits 0, with no checks line and no ready line.
 - A closed unmerged pull request prints `PR #<number> is closed.` and exits 2, with no checks line and no ready line.
-- The markdown summary names a merged pull request as merged and calls no merged pull request ready.
+- The markdown summary names a merged pull request as merged and a closed one as closed, and calls neither ready.
+- The help of `devops pr monitor` names the merged result (exit 0) and the closed result (exit 2).
+- The watch of the implement job stops the item on a closed pull request, as on a merged one. Before, a closed pull request read as ready.
 - The dry-run plan of `devops pr check-readiness` lists the compare request `compare/<base-ref>...<head-sha>` and no pulls files request.
 - The living requirement that holds the monitor's exit codes names the merged and closed cases, so the exit code 2 of a closed unmerged pull request does not contradict the 0 of a pull request with no blocker.
 - The change fits one pull request.
@@ -29,11 +31,13 @@ None.
 ### Modified Capabilities
 
 - `pr-merge-readiness`: Readiness reads the file list at the merge base, The compare names the head by its commit sha, A compare answer at the file limit is reported, The monitor reads the pull request state on every poll, The monitor reports a terminal pull request with no check count, The markdown names a merged pull request as merged, The check-readiness plan lists the compare request, The monitor waits until the checks settle and names every blocker
+- `roadmap-implement-job/pull-request`: The watch stops the item on a merged or closed pull request
 
 ## Impact
 
 - Code: `src/devops_cli/config/constants.py`, `src/devops_cli/github/client.py`, `src/devops_cli/github/merge_readiness.py`, `src/devops_cli/roadmap/grounding.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/roadmap/implement/implement_pull.py`, `src/devops_cli/github/pr_monitor.py`, `src/devops_cli/commands/pr.py`, `src/devops_cli/github/pr_plans.py`
-- Tests: `tests/github/test_github_client.py`, `tests/github/test_merge_readiness.py`, `tests/support/fakes/github.py`, `tests/commands/test_pr.py`, `tests/roadmap/test_roadmap_draft_readiness.py`, `tests/github/test_github_pr_monitor.py`, `tests/commands/test_pr_cmd.py`, `tests/commands/test_pr_dry_run.py`
+- Docs: `docs/commands/pr.md`, `docs/commands/gh.md` and `docs/MCP_TOOLS.md`, generated from the help of `devops pr monitor`
+- Tests: `tests/github/test_github_client.py`, `tests/github/test_merge_readiness.py`, `tests/support/fakes/github.py`, `tests/commands/test_pr.py`, `tests/roadmap/test_roadmap_draft_readiness.py`, `tests/github/test_github_pr_monitor.py`, `tests/commands/test_pr_cmd.py`, `tests/commands/test_pr_dry_run.py`, `tests/github/test_item_grounding.py`, `tests/roadmap/implement/test_roadmap_implement_pull.py`, `tests/support/roadmap_implement.py`
 
 ## Feasibility
 

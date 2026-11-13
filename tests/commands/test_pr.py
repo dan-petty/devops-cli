@@ -733,21 +733,31 @@ def test_pr_monitor_exits_on_the_verdict_once_the_checks_settle(
     assert exit_code == code, output
 
 
-def test_a_closed_pull_request_stops_the_monitor_with_exit_2(
-    cli: Callable[..., Any], monitored: _GitHub
+@pytest.mark.parametrize(
+    ("merged", "code", "line"),
+    [(True, 0, "PR #335 is merged."), (False, 2, "PR #335 is closed.")],
+    ids=["merged", "closed"],
+)
+def test_a_merged_or_closed_pull_request_stops_the_monitor_at_the_first_poll(
+    cli: Callable[..., Any], monitored: _GitHub, merged: bool, code: int, line: str
 ) -> None:
-    """A pull request closed without a merge can no longer become ready, so the monitor reads its
-    state, makes one poll, and returns the closed result with exit 2 (#2530)."""
-    monitored.pull(_pr(state="closed", merged=False))
-    exit_code, output = _monitor(cli, "--timeout", "600")
+    """A merged or closed pull request can no longer become ready, so the monitor makes one poll,
+    reads no check and no review, and does not wait out the settle time. It names the state with
+    no check count and no ready line, and exits 0 when merged and 2 when closed (#2530)."""
+    monitored.pull(_pr(state="closed", merged=merged))
+    exit_code, output = _monitor(cli, "--timeout", "600", "--settle-timeout", "300")
     pull_reads = sum(" ".join(call.argv).endswith(_PULL) for call in monitored.gh.calls)
     verdict_reads = [
         request
         for request in monitored.api.requested
         if "check-runs" in request or "/reviews" in request
     ]
-    assert (exit_code, pull_reads) == (2, 1), output
-    assert verdict_reads == [], output
+    assert (exit_code, pull_reads, verdict_reads) == (code, 1, []), output
+    assert (line in output, "Checks:" in output, "READY FOR MERGING" in output) == (
+        True,
+        False,
+        False,
+    ), output
 
 
 def test_the_monitor_waits_for_the_checks_and_names_every_blocker(
@@ -895,12 +905,17 @@ def test_the_monitor_prints_its_result_in_each_format_with_thread_bodies_masked(
     ) == (2, True, False, True), result.output
 
 
-def test_the_markdown_of_a_merged_pull_request_names_it_merged(
-    cli: Callable[..., Any], monitored: _GitHub
+@pytest.mark.parametrize(
+    ("merged", "state", "code"),
+    [(True, "merged", 0), (False, "closed", 2)],
+    ids=["merged", "closed"],
+)
+def test_the_markdown_of_a_merged_or_closed_pull_request_names_its_state(
+    cli: Callable[..., Any], monitored: _GitHub, merged: bool, state: str, code: int
 ) -> None:
-    """A pull request that merged while the monitor waited can no longer be ready for merging, so
-    the state line of its markdown says merged (#2530)."""
-    monitored.pull(_pr(state="closed", merged=True))
+    """A pull request that merged or closed while the monitor waited can no longer be ready for
+    merging, so the state line of its markdown names that state (#2530)."""
+    monitored.pull(_pr(state="closed", merged=merged))
     result = cli(
         "pr",
         "monitor",
@@ -913,11 +928,7 @@ def test_the_markdown_of_a_merged_pull_request_names_it_merged(
         "markdown",
     )
     state_line = next(line for line in result.output.splitlines() if line.startswith("**State**"))
-    assert (
-        result.exit_code,
-        "merged" in state_line,
-        "Ready for Merging" in state_line,
-    ) == (0, True, False), result.output
+    assert (result.exit_code, state_line) == (code, f"**State**: {state}"), result.output
 
 
 def test_the_monitor_finds_the_pull_request_of_the_current_branch(

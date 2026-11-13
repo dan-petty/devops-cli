@@ -344,12 +344,12 @@ def _first_failure(failing: Sequence[PRCheckItem]) -> PRCheckItem:
 
 
 def _judge(result: PRMonitorResult) -> Watch:
-    """The watch's verdict on a settled status: the checks first, then the threads, then the
-    mergeability. A draft and a blocked merge state are not reasons to stop: a person approves
-    the pull request later."""
+    """The watch's verdict on a settled status: a merged or closed pull request stops the item
+    (#2530), then the checks, then the threads, then the mergeability. A draft and a blocked merge
+    state are not reasons to stop: a person approves the pull request later."""
     texts = MESSAGES.roadmap
     status = result.status
-    if status.merged:
+    if status.terminal:
         return Watch(WatchKind.STOPPED, texts.implement_stop_merged)
     if result.exit_code == 3 or status.pending_checks:
         reason = texts.implement_stop_checks_timeout.format(

@@ -41,12 +41,12 @@ The command `devops pr check-readiness` SHALL report a compare answer that holds
 The command `devops pr monitor` SHALL read the pull request `state` on every poll and SHALL make no further poll once it reads a merged or a closed pull request.
 
 #### Scenario: Closed during monitoring
-- **WHEN** A poll reads the state closed and merged false.
-- **THEN** The monitor makes no further poll and returns the closed result.
+- **WHEN** A poll reads the state closed and merged false, and the settle time has not passed.
+- **THEN** The monitor makes no further poll, reads no check and no review, and returns the closed result.
 
 #### Scenario: Merged during monitoring
-- **WHEN** A poll reads merged true.
-- **THEN** The monitor makes no further poll and returns the merged result.
+- **WHEN** A poll reads merged true, and the settle time has not passed.
+- **THEN** The monitor makes no further poll, reads no check and no review, and returns the merged result.
 
 ### Requirement: The monitor reports a terminal pull request with no check count
 The command `devops pr monitor` SHALL report a merged or a closed pull request in one line naming its state, with no check count and no ready line.
@@ -60,11 +60,15 @@ The command `devops pr monitor` SHALL report a merged or a closed pull request i
 - **THEN** The output holds `PR #<number> is closed.`, holds no `Checks:` line and no `READY FOR MERGING`, and the exit code is 2.
 
 ### Requirement: The markdown names a merged pull request as merged
-The command `devops pr monitor --format markdown` SHALL name a merged pull request as merged and MUST NOT call it ready.
+The command `devops pr monitor --format markdown` SHALL name a merged pull request as merged and a closed unmerged pull request as closed, and MUST NOT call either ready.
 
 #### Scenario: Markdown of a merged pull request
 - **WHEN** The monitor's result is a merged pull request and the format is markdown.
-- **THEN** The state line names the pull request merged and holds no ready-for-merging text.
+- **THEN** The state line is `**State**: merged`, and the exit code is 0.
+
+#### Scenario: Markdown of a closed pull request
+- **WHEN** The monitor's result is a closed unmerged pull request and the format is markdown.
+- **THEN** The state line is `**State**: closed`, and the exit code is 2.
 
 ### Requirement: The check-readiness plan lists the compare request
 The command `devops pr check-readiness --dry-run` SHALL list the compare request that reads the file list and MUST NOT list the pulls files request.

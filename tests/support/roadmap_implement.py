@@ -28,7 +28,7 @@ from devops_cli.roadmap.implement.implement_run import ImplementApplied, apply_i
 from devops_cli.roadmap.implement.implement_trace import ImplementTrace
 from devops_cli.roadmap.stores.store import ItemField, StageRecordKey
 from tests.support.fakes.clock import ClockFake
-from tests.support.fakes.github import API, GitHubApiFake, github_json
+from tests.support.fakes.github import API, GitHubApiFake, github_json, route_compare_files
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import WINDOW, command_text, git_for_real
@@ -363,6 +363,8 @@ class PullFake:
     The head is the tip of `BRANCH` on `origin`. The checks of the first head that it sees are
     `runs[0]`, those of the second head `runs[1]`, and the last list repeats. `stale` reads show
     the previous head, `OLD_HEAD`, with a failed check. `gh pr ready` flips the draft flag.
+    `closed` closes the pull request without a merge. The compare of `main` and each head lists
+    the archived change (#2530).
     """
 
     def __init__(self, api: GitHubApiFake, gh: ProcessFake, repo: StageRepo) -> None:
@@ -371,6 +373,7 @@ class PullFake:
         self.heads: list[str] = []
         self.stale = 0
         self.conflict = False
+        self.closed = False
         self.ready_calls: list[tuple[str, ...]] = []
         self.log = "FAILED tests/test_shout.py::test_shout - assert 'A' == 'a'"
         self.run_view_calls: list[tuple[str, ...]] = []
@@ -403,8 +406,6 @@ class PullFake:
             lambda call: call.argv[1:3] == ("run", "view"),
             ProcessAnswer(side_effect=self._run_view),
         )
-        files = f"/repos/{STAGE_REPO}/pulls/{PULL}/files?per_page=100"
-        api.route("GET", files, github_json([_ARCHIVED_FILE]))
         api.route("GET", f"/repos/{STAGE_REPO}/pulls/{PULL}/reviews?per_page=100", github_json([]))
         api.route(
             "GET", f"/repos/{STAGE_REPO}/issues/{PULL}/timeline?per_page=100", github_json([])
@@ -444,12 +445,13 @@ class PullFake:
                 self.heads.append(sha)
             runs = self.runs[min(self.heads.index(sha), len(self.runs) - 1)]
         self._route_checks(sha, runs)
+        route_compare_files(self.api, STAGE_REPO, "main", sha, _ARCHIVED_FILE, merge_base="c" * 40)
         repo = {"full_name": STAGE_REPO, "default_branch": "main"}
         dirty = self.conflict
         payload = {
             "number": PULL,
             "merged": False,
-            "state": "open",
+            "state": "closed" if self.closed else "open",
             "draft": not self.ready_calls,
             "mergeable": not dirty,
             "mergeable_state": "dirty" if dirty else "clean",
