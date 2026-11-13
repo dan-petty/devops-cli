@@ -3,6 +3,7 @@ that fails open, and the cuts as data."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import queue
 import threading
@@ -25,6 +26,8 @@ from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from pydantic_ai.models.decision import DecisionResponse
 
     from tests.support.fakes.jev import JevFake
 
@@ -78,6 +81,24 @@ def test_a_shared_model_serves_every_request_on_one_event_loop(jev: JevFake) -> 
 
     assert len(jev.loops) == 3
     assert len(set(jev.loops)) == 1
+
+
+def test_decide_all_and_adecide_all_answer_inside_a_running_event_loop(jev: JevFake) -> None:
+    """A caller that runs an event loop may call either function: the blocking one sends on the
+    portal of the process, and the async one awaits the same requests (#5272)."""
+    from devops_cli.roadmap.decision_step import adecide_all
+
+    jev.picks = {"a": 0.7, "b": 0.1}
+    requests = [_request("a"), _request("b")]
+
+    async def drive() -> tuple[list[DecisionResponse], list[DecisionResponse]]:
+        awaited = await adecide_all(requests, model=jev.over_loopback())
+        return decide_all(requests, model=jev.model), awaited
+
+    answered, awaited = asyncio.run(drive())
+
+    assert [probabilities_of(response) for response in answered] == [{"a": 0.7}, {"b": 0.1}]
+    assert [probabilities_of(response) for response in awaited] == [{"a": 0.7}, {"b": 0.1}]
 
 
 def test_a_request_that_is_never_answered_ends_in_timeout_error(jev: JevFake) -> None:

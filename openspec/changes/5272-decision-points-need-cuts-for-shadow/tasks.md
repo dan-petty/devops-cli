@@ -33,9 +33,9 @@ Kind: behavior. Reads: `src/devops_cli/telemetry/instruments.py`, `docs/TELEMETR
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/decision_step.py`, `src/devops_cli/ai/jev.py`, `tests/roadmap/test_roadmap_decision_step.py`. Changes: `src/devops_cli/roadmap/decision_step.py`, `src/devops_cli/ai/jev.py`, `tests/roadmap/test_roadmap_decision_step.py`.
 
-- [ ] 4.1 Add `test_decide_all_and_adecide_all_answer_inside_a_running_event_loop` to `tests/roadmap/test_roadmap_decision_step.py`: it runs each of the two from a coroutine that `asyncio.run` drives, with the fake Jev endpoint, and asserts the responses in order
+- [x] 4.1 Add `test_decide_all_and_adecide_all_answer_inside_a_running_event_loop` to `tests/roadmap/test_roadmap_decision_step.py`: it runs each of the two from a coroutine that `asyncio.run` drives, with the fake Jev endpoint, and asserts the responses in order
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_decision_step.py` fails on the base
-- [ ] 4.2 Rename `_jev_portal` to `jev_portal` in `src/devops_cli/ai/jev.py`, add it to `__all__`, and update the one call in `decide_with_jev`. Replace the `asyncio.run` call of `decide_all` with `jev_portal().call(_decide_gathered, requests, model, model_name, settings, timeout)`, import `jev_portal` inside `decide_all` as `create_jev_model` is imported, and add `adecide_all`, which awaits `_decide_gathered`
+- [x] 4.2 Rename `_jev_portal` to `jev_portal` in `src/devops_cli/ai/jev.py`, add it to `__all__`, and update the one call in `decide_with_jev`. Replace the `asyncio.run` call of `decide_all` with `jev_portal().call(_decide_gathered, requests, model, model_name, settings, timeout)`, import `jev_portal` inside `decide_all` as `create_jev_model` is imported, and add `adecide_all`, which awaits `_decide_gathered`
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_decision_step.py` passes
 
 ## 5. Answer a chain decision inside a running event loop

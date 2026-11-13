@@ -7,11 +7,12 @@ questions. The step builds the evidence and the questions. This module holds the
   in the repository with the model, the date and the numbers that gave them.
 - `band_of`: the band for the probabilities of a case. A probability under `continue_below` for
   every question is *continue*. One at or above `flag_at` is *flag*. Any other case is *review*.
-- `decide_all`: one request for each piece of evidence, sent at the same time on one event loop in
-  the calling thread. A model that the requests share binds its lock and its client to the loop
-  that first uses them, so all of its requests stay on that loop (#4513). With no model given,
-  each request builds its own model and closes it on that loop (#4319). `timeout` bounds each
-  request. Any error raises, and the step then fails open to the existing path.
+- `decide_all`: one request for each piece of evidence, sent at the same time on the one blocking
+  portal of the process, which `jev_portal` keeps open. A model that the requests share binds its
+  lock and its client to the loop that first uses them, so all of its requests stay on that loop
+  (#4513). With no model given, each request builds its own model and closes it on that loop
+  (#4319). `timeout` bounds each request. Any error raises, and the step then fails open to the
+  existing path. `adecide_all` awaits the same requests for a caller that runs an event loop.
 
 The module sends no text of an answer anywhere. A Jev answer is evidence and never the only
 control of a path.
@@ -198,13 +199,32 @@ def decide_all(
     settings: Settings | None = None,
     timeout: float = CONST_ROADMAP_JEV_TIMEOUT_SECONDS,
 ) -> list[DecisionResponse]:
-    """The responses of the decision model to `requests`, in order, sent at the same time on one
-    event loop in the calling thread. With no `model`, each request builds its own model, the one
+    """The responses of the decision model to `requests`, in order, sent at the same time on the
+    blocking portal of the process. With no `model`, each request builds its own model, the one
     that `model_name` names, from `settings`. A request that takes longer than `timeout` seconds
     raises `TimeoutError`. The first error raises."""
     if not requests:
         return []
-    return asyncio.run(_decide_gathered(requests, model, model_name, settings, timeout))
+    from devops_cli.ai.jev import jev_portal
+
+    return jev_portal().call(_decide_gathered, requests, model, model_name, settings, timeout)
+
+
+async def adecide_all(
+    requests: Sequence[DecisionRequest],
+    *,
+    model: DecisionModel[Any] | None = None,
+    model_name: str = CONST_AI_JEV_MODEL,
+    settings: Settings | None = None,
+    timeout: float = CONST_ROADMAP_JEV_TIMEOUT_SECONDS,
+) -> list[DecisionResponse]:
+    """The responses of the decision model to `requests`, in order, awaited on the event loop of a
+    caller that runs one. With no `model`, each request builds its own model, the one that
+    `model_name` names, from `settings`. A request that takes longer than `timeout` seconds raises
+    `TimeoutError`. The first error raises."""
+    if not requests:
+        return []
+    return await _decide_gathered(requests, model, model_name, settings, timeout)
 
 
 __all__ = [
@@ -213,6 +233,7 @@ __all__ = [
     "Cut",
     "DecisionStepError",
     "Thresholds",
+    "adecide_all",
     "band_of",
     "decide_all",
     "probabilities_of",

@@ -167,7 +167,7 @@ _portal_stack: ExitStack | None = None
 _portal: BlockingPortal | None = None
 
 
-def _jev_portal() -> BlockingPortal:
+def jev_portal() -> BlockingPortal:
     """The one event loop that runs every Jev request of this process, started on first use.
 
     The HTTP client of a model dials on the event loop of its first request, and its pooled
@@ -216,7 +216,7 @@ def decide_with_jev(
         DecisionModelSettings,
         {**(getattr(decision_model, "settings", None) or {}), **(model_settings or {})},
     )
-    return _jev_portal().call(decision_model.decide, request, effective_settings)
+    return jev_portal().call(decision_model.decide, request, effective_settings)
 
 
 def _effort_for_score(score: float, *, escalated: bool) -> Literal["low", "medium", "high"]:
@@ -593,6 +593,7 @@ __all__ = [
     "decide_with_jev",
     "filter_rag_passages_with_jev",
     "gate_tool_call_with_jev",
+    "jev_portal",
     "judge_with_jev",
     "route_with_jev",
     "select_skill_with_jev",
