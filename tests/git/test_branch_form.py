@@ -18,6 +18,11 @@ from devops_cli.config.constants import CONST_BRANCH_SLUG_PATTERN, CONST_BRANCH_
 from devops_cli.git.branch_form import parse_branch, slug_from_title
 from tests.support.paths import REPO_ROOT
 
+# The second form that the `branch-name` hook accepts: the branch that GitHub gives the Copilot
+# cloud agent, which the agent cannot rename (#5136). No module of `src/` reads it, so it lives
+# here and in the hook (CONTRIBUTING.md, Naming).
+COPILOT_BRANCH_FORM = f"copilot/{CONST_BRANCH_SLUG_PATTERN}"
+
 
 def _branch_name_hook_pattern() -> str:
     """The `--pattern` argument of the `branch-name` hook of `.pre-commit-config.yaml`."""
@@ -45,7 +50,7 @@ def test_the_branch_form_of_the_code_is_the_form_of_the_hook() -> None:
     types = "|".join(CONST_BRANCH_TYPES)
     form = f"(?:{types})/[0-9]+-{CONST_BRANCH_SLUG_PATTERN}"
 
-    assert _branch_name_hook_pattern() == f"^(?!{form}$)"
+    assert _branch_name_hook_pattern() == f"^(?!(?:{form}|{COPILOT_BRANCH_FORM})$)"
 
 
 def test_a_branch_gives_its_type_issue_and_slug() -> None:
