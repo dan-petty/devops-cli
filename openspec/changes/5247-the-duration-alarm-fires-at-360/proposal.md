@@ -7,7 +7,7 @@ AGENTS.md rule 5 makes a check that averages more than 5 minutes a P0 bug. On 20
 ## What Changes
 
 - `devops ci job-time` fails when the mean is over 360 s by default: the 300 s target of AGENTS.md rule 5 (`CONST_CI_TEST_BUDGET_SECONDS`) plus 60 s of tolerance (`CONST_CI_TEST_BUDGET_TOLERANCE_SECONDS`). The warning of a local gate stays at 300 s.
-- `devops ci job-time --file-issue`: when all the wanted runs were read and the mean is over the limit, the command comments on the open issue whose body holds the alarm line of the check, or files one with the labels `type/bug`, `scope/ci` and `priority/p0-critical`. The issue search finds the line, so a changed title or label files no second issue.
+- `devops ci job-time --file-issue`: when all the wanted runs were read and the mean is over the limit, the command comments on the open issue whose body holds the alarm line of the check, or files one with the labels `type/bug`, `scope/ci`, `status/new` and `priority/p0-critical`. The issue holds a Priority, so intake does not place it, and refine reads only the items with the Status New or Ready, so the job sets the Status New that intake gives a new item. The issue search finds the line, so a changed title or label files no second issue.
 - The job `job-time` of `ci.yml` runs with `--file-issue` and gets `issues: write`.
 - `shard_test_files` weighs each test module by its recorded seconds in `tests/module_durations.json`. A module that the record does not hold weighs its lines at the recorded seconds per line. With no record, every module weighs its lines, as before.
 - The new command `devops ci durations` writes the record from the JUnit reports of the shards of the last 20 push runs of `main`, which `ci.yml` already uploads (#4673). `gh run download` gets the artifacts. The JUnit reader of `ci/fail_to_pass.py` now keeps the time of each test.
@@ -37,9 +37,10 @@ AGENTS.md rule 5 makes a check that averages more than 5 minutes a P0 bug. On 20
 - Replay of the 20 runs (scratch script over the downloaded reports): each shard keeps the setup and the residual of its own runner, and only its modules change. The split of each run reproduces the 316 s. The split by lines of the current tree gives 298 s. The split by recorded seconds, with the weights of each run taken from the other 19 runs, gives 284 s. A perfect balance gives about 274 s.
 - `gh run download --pattern` unpacks each matched artifact into a folder of its name. The run of `uv run devops ci durations --runs 20` that wrote the committed record used it.
 - The issue search finds text inside an HTML comment of a body (#2419). `review/filed_findings.py` and `research/sweep.py` find their issues the same way.
+- Source of the roadmap at `main`: intake decides only an open issue that holds no Priority (`_is_candidate` in `roadmap/intake/intake.py`), and refine reads only the open items with the Status New or Ready (`_refinable` in `roadmap/refine/refine.py`). So an alarm issue with a Priority and no Status would stay outside the roadmap. It gets `status/new`.
 - The owner's words of 2026-10-23, which #4250 quotes: a mean over 5 minutes, with 1 minute of tolerance for build variation, is a P0 blocking bug.
 - `git grep pytest-split` at `main` finds the pin, the lock entry and a recorded census fixture only. The shard command holds no `--splits` (spec `ci-test-shards`).
-- `tests/invariants/test_agents_md.py` passes with AGENTS.md at 6,500 of 6,500 characters.
+- `tests/invariants/test_agents_md.py` passes with AGENTS.md at 6,499 of 6,500 characters.
 
 ## Existing Tool Considered
 

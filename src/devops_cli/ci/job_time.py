@@ -18,7 +18,14 @@ if TYPE_CHECKING:
     from devops_cli.github.client import GitHubClient, JobRunTime
 
 # The labels of the alarm issue: a mean over the limit is a P0 bug of CI (owner, 2026-10-23).
-_ALARM_LABELS: Final[tuple[str, ...]] = ("type/bug", "scope/ci", "priority/p0-critical")
+# The issue holds a Priority, so intake does not place it. It gets the Status New that intake
+# gives each new item, because refine reads only the items with the Status New or Ready.
+_ALARM_LABELS: Final[tuple[str, ...]] = (
+    "type/bug",
+    "scope/ci",
+    "status/new",
+    "priority/p0-critical",
+)
 # The word that the issue search finds in the body of an alarm issue, inside `alarm_marker`.
 ALARM_MARKER: Final[str] = "devops-ci-job-time"
 _ALARM_TITLE: Final[str] = "fix(ci): {job} averages {mean:.0f} s, over the {limit:.0f} s limit"

@@ -49,11 +49,11 @@ The workflow `ci.yml` SHALL hold a job that runs `devops ci job-time --file-issu
 ## ADDED Requirements
 
 ### Requirement: A mean over the limit has one P0 issue
-With `--file-issue` and a full read over the limit, the command SHALL comment on the lowest open issue whose body holds the line `<!-- devops-ci-job-time: <job> of <workflow> on <branch> -->` of the check, which an issue search for `devops-ci-job-time` finds. With no such open issue, it SHALL file one that ends with that line and has the labels `type/bug`, `scope/ci` and `priority/p0-critical`. It SHALL print the address of the issue and still exit 1.
+With `--file-issue` and a full read over the limit, the command SHALL comment on the lowest open issue whose body holds the line `<!-- devops-ci-job-time: <job> of <workflow> on <branch> -->` of the check, which an issue search for `devops-ci-job-time` finds. With no such open issue, it SHALL file one that ends with that line and has the labels `type/bug`, `scope/ci`, `status/new` and `priority/p0-critical`. It SHALL print the address of the issue and still exit 1.
 
 #### Scenario: No open issue holds the alarm
 - **WHEN** the mean of 20 runs is 400 seconds, and the only issue with the line of the check is closed, and the user runs `devops ci job-time --file-issue`
-- **THEN** the command files one issue titled `fix(ci): Tests & Coverage averages 400 s, over the 360 s limit` with the three labels and a body that ends with the line, and exits 1
+- **THEN** the command files one issue titled `fix(ci): Tests & Coverage averages 400 s, over the 360 s limit` with the four labels and a body that ends with the line, and exits 1
 
 #### Scenario: An open issue holds the alarm
 - **WHEN** the mean is over the limit and an open issue holds the line of the check under a title that a person changed

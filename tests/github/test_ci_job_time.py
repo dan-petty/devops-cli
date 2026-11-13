@@ -543,9 +543,9 @@ def _posted(api: GitHubApiFake) -> list[tuple[str, dict[str, Any]]]:
 def test_a_mean_over_the_limit_files_one_p0_issue_when_none_is_open(
     github_api: GitHubApiFake, cli: Callable[..., Any]
 ) -> None:
-    """No open issue holds the alarm of the check, so the run files one with the priority P0.
-    Its body names the mean, the limit and each run, and ends with the line that finds it the
-    next day (#5247)."""
+    """No open issue holds the alarm of the check, so the run files one with the priority P0 and
+    the Status New, which refine reads, as intake gives a new item. Its body names the mean, the
+    limit and each run, and ends with the line that finds it the next day (#5247)."""
     _route_runs(github_api, [400.0] * 20)
     _route_alarm_search(github_api, _issue(7, "closed", f"Fixed.\n{_ALARM_LINE}"))
     github_api.route("POST", f"/repos/{_REPO}/issues", github_json({"number": 42}, status=201))
@@ -566,7 +566,7 @@ def test_a_mean_over_the_limit_files_one_p0_issue_when_none_is_open(
         1,
         f"/repos/{_REPO}/issues",
         "fix(ci): Tests & Coverage averages 400 s, over the 360 s limit",
-        ["type/bug", "scope/ci", "priority/p0-critical"],
+        ["type/bug", "scope/ci", "status/new", "priority/p0-critical"],
         True,
         True,
         True,
