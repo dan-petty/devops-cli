@@ -395,7 +395,8 @@ def test_deploy_stack_gives_the_prometheus_chart_the_environment_values_then_the
     cli: Callable[..., Any],
 ) -> None:
     """The helm command of the prometheus release names each values file in the order of the
-    Application `prometheus`: the environment values, then the product alert rules (#5292)."""
+    Application `prometheus`: the environment values, then the product alert rules (#5292). The
+    product file is under the product base of the current repository (#5131)."""
     res = cli("k8s", "deploy-stack", "--stack", "infra", "--k8s-dir", "k8s", "--dry-run")
     (upgrade,) = [
         cmd
@@ -410,7 +411,7 @@ def test_deploy_stack_gives_the_prometheus_chart_the_environment_values_then_the
         0,
         [
             str(Path("k8s") / "monitoring" / "prometheus-values.yaml"),
-            str(Path("k8s") / "devops" / "monitoring" / "prometheus-rules-values.yaml"),
+            str(TREE.path("devops") / "monitoring" / "prometheus-rules-values.yaml"),
         ],
     )
 
