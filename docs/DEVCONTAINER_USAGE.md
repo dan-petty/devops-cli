@@ -47,7 +47,7 @@ The published Dev Container image is built on `debian:sid` (Debian Unstable) pro
 - **Why the quota counters cannot assign a cost**: In the same measurement, the `graphql` value of `devops gh rate-limit` went from 51 to 7, so the rate-limit window rolled between the two reads. The `core` value moved by +1, because each run of the command costs 1 core point and 1 GraphQL point. Other tools use the same token. So an earlier jump of +124 GraphQL points in 22 seconds cannot be assigned to `gh-dash`. The counted fetches match the computed cost of about 9 points for the first config.
 - **Sandbox Confinement & Host Isolation**: Linux bubblewrap (`bwrap`) pre-installed for unprivileged namespace confinement of executable verification criteria and untrusted code execution. `socat` is pre-installed for the `kube-api` network profile: it relays the Kubernetes API server into the sandbox of a Popeye scan (`SECURITY.md`). Criteria run the reviewed repository's own `.venv/bin` first on `PATH`, so `python` and `ruff` are the project's; run `uv sync` in that repository before a review, or criteria fall back to the system's `/usr/bin` tools.
 - **Network diagnostics**: The image has `ping`, `tracepath`, `traceroute`, `mtr`, `nc` (OpenBSD netcat), `tcpdump`, `dig` and `nslookup`. The user `vscode` runs each of them with no `sudo`, except `tcpdump`:
-  - `ping` opens an ICMP echo socket and has no file capability. The run argument `--sysctl=net.ipv4.ping_group_range=1000 1000` lets the group of `vscode` (gid 1000) open this socket. `devops devcontainer init` writes the run argument, and a manual configuration must add it to `runArgs`. Without it, use `sudo ping`. When the run argument applies, `cat /proc/sys/net/ipv4/ping_group_range` shows `1000 1000`. Under rootless Podman with `keep-id`, the range must start at 1000, because the kernel compares host group IDs, and gid 1000 maps to a host ID below the host IDs of the other groups of the container. A bound that the user namespace does not map, for example `2147483647`, stops the container at its start.
+  - `ping` opens an ICMP echo socket and has no file capability. The run argument `--sysctl=net.ipv4.ping_group_range=1000 1000` lets the group of `vscode` (gid 1000) open this socket. `devops devcontainer init` and the manual configuration of section 3 write the run argument. When the run argument applies, `cat /proc/sys/net/ipv4/ping_group_range` shows `1000 1000`. Without the run argument, rootless Podman lets only group 0 open the socket, so use `sudo ping`. Also use `sudo ping` when the gid of `vscode` is not 1000: on a Linux host, VS Code can change the gid of `vscode` to the gid of the host user (`updateRemoteUserUID`). Under rootless Podman with `keep-id`, the range must start at 1000, because the kernel compares host group IDs, and gid 1000 maps to a host ID below the host IDs of the other groups of the container. A bound that the user namespace does not map, for example `2147483647`, stops the container at its start.
   - `mtr` opens its raw socket through `mtr-packet`, which gets the `cap_net_raw` file capability from its Debian package.
   - `tcpdump` needs a packet socket, so use `sudo tcpdump`. The image gives `tcpdump` no file capability, because that capability lets every user of the container capture packets.
   - Rootless Podman connects the container to the network through pasta, and pasta sends each ICMP echo through a socket of the host. So the destination answers each ICMP probe, and `mtr` and `traceroute -I` show only the destination. `tracepath` and `traceroute` send UDP probes and show each hop.
@@ -162,14 +162,17 @@ For existing repositories or custom setups, create `.devcontainer/devcontainer.j
       }
     }
   },
+  "runArgs": [
+    "--sysctl=net.ipv4.ping_group_range=1000 1000"
+  ],
   "remoteUser": "vscode"
 }
 ```
 
 > [!TIP]
-> **Optional GPU Acceleration (NVIDIA Hosts)**: If running on a host with an NVIDIA GPU and `nvidia-container-toolkit` installed, pass GPUs to the container by adding:
+> **Optional GPU Acceleration (NVIDIA Hosts)**: If running on a host with an NVIDIA GPU and `nvidia-container-toolkit` installed, pass GPUs to the container by adding `--gpus all` to `runArgs`:
 > ```json
-> "runArgs": ["--gpus", "all"]
+> "runArgs": ["--gpus", "all", "--sysctl=net.ipv4.ping_group_range=1000 1000"]
 > ```
 
 ---

@@ -18,12 +18,21 @@ Kind: behavior. Reads: `.devcontainer/devcontainer.json`, `src/devops_cli/templa
 - [x] 2.2 Add the run argument to `.devcontainer/devcontainer.json` and to `src/devops_cli/templates/devcontainer.json.j2`
   - Verification: `$ uv run devops ci test tests/invariants/test_devcontainer_config.py tests/core/test_template_rendering.py tests/commands/test_devcontainer.py`
 
-## 3. Document the tools and their limits
+## 3. Prove the tools in the built image
+
+Kind: behavior. Reads: `.github/actions/devcontainer-smoke/action.yml`, `tests/invariants/test_workflow_contracts.py`. Changes: both.
+
+- [x] 3.1 Change the contract test of the smoke action to expect the six network commands on the path of `vscode` and `ping -c 1 127.0.0.1` with the run argument
+  - Verification: `$ uv run devops ci test tests/invariants/test_workflow_contracts.py -k smoke`
+- [x] 3.2 Add the commands and the `ping` to the smoke action, and start its `docker run` with `--sysctl "net.ipv4.ping_group_range=1000 1000"`
+  - Verification: `$ uv run devops ci test tests/invariants/test_workflow_contracts.py -k smoke`
+
+## 4. Document the tools and their limits
 
 Kind: documents. Changes: `docs/DEVCONTAINER_USAGE.md`, `CONTRIBUTING.md`.
 
-- [x] 3.1 List the network tools in `docs/DEVCONTAINER_USAGE.md` with the run argument, `sudo tcpdump` and the pasta limit, and name the run argument and the rebuild in `CONTRIBUTING.md`
-  - Verification: `$ git grep -n "ping_group_range=1000 1000" docs/DEVCONTAINER_USAGE.md CONTRIBUTING.md`
+- [x] 4.1 List the network tools in `docs/DEVCONTAINER_USAGE.md` with the run argument, `sudo ping`, `sudo tcpdump` and the pasta limit, add the run argument to its manual configuration, and name the run argument and the rebuild in `CONTRIBUTING.md`
+  - Verification: `$ uv run devops ci docs`
 
 ## Workflow follow-up
 

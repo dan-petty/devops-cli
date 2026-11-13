@@ -10,6 +10,7 @@
 - **Let `tcpdump` pull `systemd` into the step.**: `tcpdump` depends on `systemd | systemd-standalone-sysusers | systemd-sysusers`. `openssh-client` of the common-utils feature has the same dependency and installs `systemd` in the image today, so `systemd` is not new in the final image.
 - **Add no `dnsutils`.**: A feature step installs `bind9-dnsutils`, so `dig` and `nslookup` are in the image.
 - **Put the guards in `tests/invariants/test_devcontainer_config.py`.**: The module reads the committed files of `.devcontainer/` already.
+- **Prove the tools in the smoke action.**: The test of the Dockerfile reads only text. The smoke action starts the built image as `vscode`, so it fails when a package gives no command, or when the run argument does not let `vscode` ping. The ping goes to `127.0.0.1`, so it needs no network access. The smoke action does not run `mtr` or `tcpdump`, because the capabilities of an unprivileged container on the runner are not those of the privileged devcontainer.
 
 ## Rejected alternatives
 

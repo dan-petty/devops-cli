@@ -1536,7 +1536,9 @@ def test_the_devcontainer_image_action_builds_the_features_with_the_locked_cli()
 def test_the_devcontainer_smoke_action_starts_the_pushed_digest_as_vscode() -> None:
     """A child repository that names only the image must open as vscode through the image's
     devcontainer.metadata label, and the image must run as vscode, uid and gid 1000, with a
-    command from each Dev Container Feature on its path (#1895)."""
+    command from each Dev Container Feature on its path (#1895). The network diagnostics
+    commands are on its path, and `ping` works as vscode with the ping_group_range run argument
+    of the workspace (#5343)."""
     action, steps = _composite_steps("devcontainer-smoke")
 
     assert (action["inputs"], steps) == (
@@ -1567,11 +1569,14 @@ def test_the_devcontainer_smoke_action_starts_the_pushed_digest_as_vscode() -> N
                 '"$CHILD/.devcontainer/devcontainer.json"\n'
                 'devcontainer up --workspace-folder "$CHILD" --skip-post-create > /dev/null\n'
                 'test "$(devcontainer exec --workspace-folder "$CHILD" id -un)" = vscode\n'
-                'docker run --rm --user vscode "$REF" sh -ec \'\n'
+                "docker run --rm --user vscode "
+                '--sysctl "net.ipv4.ping_group_range=1000 1000" "$REF" sh -ec \'\n'
                 '  test "$(id -u):$(id -g)" = 1000:1000\n'
-                "  for TOOL in zsh git gh copilot node npm docker kubectl helm minikube claude; do\n"
+                "  for TOOL in zsh git gh copilot node npm docker kubectl helm minikube claude \\\n"
+                "      ping tracepath traceroute mtr nc tcpdump; do\n"
                 '    command -v "$TOOL" > /dev/null || { echo "missing: $TOOL" >&2; exit 1; }\n'
                 "  done\n"
+                "  ping -c 1 127.0.0.1 > /dev/null\n"
                 "  devops --version > /dev/null'\n",
             },
         ],

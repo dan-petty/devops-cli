@@ -10,7 +10,8 @@ The devcontainer image has no basic network diagnostics tools (#5343). `dig`, `n
 - `runArgs` of `.devcontainer/devcontainer.json` and of `src/devops_cli/templates/devcontainer.json.j2` add `--sysctl=net.ipv4.ping_group_range=1000 1000`. Then the user `vscode` can open an ICMP echo socket, and `ping` works with no `sudo`. The value replaces the `0 0` that Podman sets.
 - `mtr` works with no `sudo`, because the `mtr-tiny` package gives `mtr-packet` the `cap_net_raw` file capability. `tcpdump` needs `sudo`.
 - `tests/invariants/test_devcontainer_config.py` fails when the system-package step has no network package, when `runArgs` has no such sysctl, or when the run arguments of a scaffolded devcontainer are not those of the workspace.
-- `docs/DEVCONTAINER_USAGE.md` lists the tools and their limits, and `CONTRIBUTING.md` names the run argument and the rebuild.
+- The smoke action `.github/actions/devcontainer-smoke` starts the built image as `vscode` with the run argument. It fails when a network command is not on the path or when `ping -c 1 127.0.0.1` fails.
+- `docs/DEVCONTAINER_USAGE.md` lists the tools and their limits, and its manual configuration holds the run argument. `CONTRIBUTING.md` names the run argument and the rebuild.
 - The change has a spec delta, because a person in the container sees the tools and the run argument: two ADDED requirements of `devcontainer-image-tools`.
 - The change fits one pull request.
 
@@ -28,9 +29,10 @@ None.
 
 - Image: `.devcontainer/Dockerfile`. The new packages pull `systemd` into the system-package step. The image has `systemd` already, because `openssh-client` of the common-utils feature has the same dependency.
 - Configuration: `.devcontainer/devcontainer.json`, `src/devops_cli/templates/devcontainer.json.j2`
-- Tests: `tests/invariants/test_devcontainer_config.py`
+- Tests: `tests/invariants/test_devcontainer_config.py`, `tests/invariants/test_workflow_contracts.py`
+- CI: `.github/actions/devcontainer-smoke/action.yml`, which the DevContainer Image job and the release run on the built image
 - Documents: `docs/DEVCONTAINER_USAGE.md`, `CONTRIBUTING.md`
-- A person must rebuild the devcontainer after the release publishes the image. No CI runner changes. The DevContainer Image job builds the image, and its smoke test writes its own configuration with no `runArgs`.
+- A person must rebuild the devcontainer after the release publishes the image. No CI runner changes. The DevContainer Image job builds the image, and its smoke test writes its own configuration with no `runArgs`. The smoke test then starts the image with `docker run` and the run argument. It installs nothing on the runner.
 
 ## Feasibility
 
@@ -41,6 +43,7 @@ None.
 - The kernel reads the bounds of `ping_group_range` in the user namespace that owns the network namespace, and refuses a bound that the namespace does not map. Moby (`daemon/oci_linux.go`) sets `0 2147483647` only when the daemon is not in a user namespace, with the comment "We cannot set up ping socket support in a user namespace". A nested Docker in the running container has the same user namespace. There, `0 2147483647` and `0 65537` stop the container at its start, and `0 65536` starts the container but `ping` as uid 1000 fails. `1000 1000` and `1000 65536` let `ping` work as uid 1000. So the value of the issue cannot be used, and the change uses `1000 1000`.
 - A file capability of the image works for uid 1000 under rootless Podman with `keep-id`: `gst-ptp-helper` of `libgstreamer1.0-0` runs with `CapEff` `cap_net_bind_service,cap_net_admin,cap_sys_nice`. So `mtr-packet` gets `cap_net_raw` in the built image.
 - A test image of the pinned `debian:sid` with the new system-package step, privileged, run as uid 1000 with `--sysctl net.ipv4.ping_group_range=1000 1000`: `ping -c 1`, `tracepath -n`, `traceroute -n`, `mtr --report -c 1` and `nc -zv -w 5 github.com 443` pass. `tcpdump -c 1` as uid 1000 fails to open a packet socket, and as root it captures a packet.
+- A nested Docker test with no privilege, as uid 1000, on the pinned `debian:sid` with `iputils-ping`: `ping -c 1 127.0.0.1` works with `--sysctl net.ipv4.ping_group_range=1000 1000` and fails with `0 0`. So the check of the smoke action fails when the run argument does not let `vscode` ping.
 - Pasta connects the running container to the network. UDP probes with a TTL of 1 to 5 get an ICMP "time exceeded" from each hop. An ICMP echo with a TTL of 1, 2 or 3 gets an echo reply from the destination. So `tracepath` and `traceroute` show each hop, and `mtr` and `traceroute -I` show only the destination. The document states this limit.
 
 ## Existing Tool Considered
