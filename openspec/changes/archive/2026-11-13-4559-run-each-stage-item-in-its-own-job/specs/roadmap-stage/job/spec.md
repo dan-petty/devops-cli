@@ -129,10 +129,17 @@ The job grade report and the panels of the job grades SHALL read the result line
 - **WHEN** the report plans its queries
 - **THEN** each query selects the containers `service` and `stage` of the pods `roadmap-service` and `devops-cli-job`
 
+### Requirement: A deadline end of a stage Job fails and counts toward the split
+A `deadline` end of the Job SHALL record the failure with the class `timeout` and count toward `roadmap.stage.plan_defect_limit` on the body of the item. An item that holds its draft at the check-in SHALL check in as `succeeded`, with no failure.
+
+#### Scenario: The deadline
+- **WHEN** SIGTERM comes after the time budget ends.
+- **THEN** the command exits 143, the record holds the result `deadline`, the failure class `timeout` and a count of 1 on the body, and the check-out is clear.
+
 ## MODIFIED Requirements
 
 ### Requirement: The stage Job ends with the exit code of its end and checks in
-The entry point SHALL exit 0 for a result, 1 for a failure of the item, 75 for a SIGTERM before the time budget ends, and 143 for a SIGTERM after it or a time budget that ends before a model call. Except after a SIGTERM before the time budget ends, it SHALL write `stage.job_result`, clear `stage.job`, `stage.job_at` and `stage.job_deadline`, and release the claim `owner/service` in one write, only when `stage.job` names the Job of the pod. A `deadline` end SHALL record the failure with the class `timeout` and count toward `roadmap.stage.plan_defect_limit` on the body of the item.
+The entry point SHALL exit 0 for a result, 1 for a failure of the item, 75 for a SIGTERM before the time budget ends, and 143 for a SIGTERM after it or a time budget that ends before a model call. Except after a SIGTERM before the time budget ends, it SHALL write `stage.job_result`, clear `stage.job`, `stage.job_at` and `stage.job_deadline`, and release the claim `owner/service` in one write, only when `stage.job` names the Job of the pod.
 
 #### Scenario: A normal end
 - **WHEN** the Job stages its item and the check-out names the Job.
@@ -145,10 +152,6 @@ The entry point SHALL exit 0 for a result, 1 for a failure of the item, 75 for a
 #### Scenario: An eviction
 - **WHEN** SIGTERM comes before the time budget ends.
 - **THEN** the command exits 75 and the check-out stays.
-
-#### Scenario: The deadline
-- **WHEN** SIGTERM comes after the time budget ends.
-- **THEN** the command exits 143, the record holds the result `deadline`, the failure class `timeout` and a count of 1 on the body, and the check-out is clear.
 
 #### Scenario: A kill after a GitHub write
 - **WHEN** the Job is killed after the push, after the draft or after the record write, and its pod runs again
