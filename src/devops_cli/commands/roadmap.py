@@ -527,13 +527,15 @@ def stage_cmd(
 
 def _stage_job(target: str, number: int, source: Path | None) -> NoReturn:
     """Run the stage Job of item `number` (`--job-item`), print its plan and its end, and exit
-    with the exit code of the Job (#5483)."""
+    with the exit code of the Job (#5483). The round lines and the result line of the attempt go
+    to stderr, so the log of the pod holds them (#5556)."""
     from devops_cli.ai.client.factory import get_task_model
+    from devops_cli.roadmap.job_result import job_lines_to_stderr
     from devops_cli.roadmap.stage.stage import render_stage_plan
     from devops_cli.roadmap.stage.stage_job import run_stage_job
     from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 
-    with _exit_on_failure("Could not run the stage Job"):
+    with _exit_on_failure("Could not run the stage Job"), job_lines_to_stderr():
         _, store = _open_store(target)
         run = run_stage_job(
             store,

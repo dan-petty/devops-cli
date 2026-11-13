@@ -1,7 +1,9 @@
 """The job grade report reads the result lines in Loki with metric queries (#5165).
 
 The recorded replies of `tests/fixtures/roadmap/job_grades/replies.json` hold a hand count: the
-expected rows below repeat that count, so the report equals it.
+expected rows below repeat that count, so the report equals it. The fake Loki of
+`tests/support/fakes/loki.py` runs the queries on streams of the Service and of the Job pods, so a
+test of the selector and of the parse of the two forms of a line reads the lines (#5556).
 """
 
 from __future__ import annotations
@@ -26,9 +28,23 @@ from devops_cli.roadmap.job_grade_report import (
     plan_grade_queries,
     render_grade_report,
 )
+from devops_cli.roadmap.job_result import RoadmapJob
+from devops_cli.server.json_logs import JsonLogFormatter
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.http import WebFake
-from tests.support.roadmap_job_grades import LOKI_URL, QUERY_PATH, serve_grade_replies
+from tests.support.fakes.loki import LokiFake
+from tests.support.roadmap_job_grades import (
+    FIX_PLAN_STREAM,
+    GRADES_REPO,
+    LOKI_URL,
+    QUERY_PATH,
+    RUNNER_STREAM,
+    SERVICE_STREAM,
+    STAGE_REPORT_STREAM,
+    STAGE_STREAM,
+    serve_grade_replies,
+    written_records,
+)
 
 
 def _row(report: GradeReport, job: str, repo: str | None) -> WorkflowGrade:
@@ -273,17 +289,46 @@ def test_a_repository_filter_reaches_each_query() -> None:
     ] == []
 
 
-def test_each_query_reads_the_service_and_the_stage_job_pods_and_no_runner_pod() -> None:
-    """A stage Job logs the result line of its item in its own pod (#4559). A runner pod has the
-    same name label, and its container `runner` stays out."""
-    selector = (
-        '{namespace="devops", app_kubernetes_io_name=~"roadmap-service|devops-cli-job", '
-        'container=~"service|stage"}'
+def test_the_report_counts_the_json_line_of_the_service_and_the_plain_lines_of_two_job_pods(
+    web: WebFake, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The Service logs a result line as JSON on stdout. A fix-plan Job and a stage Job log it as
+    plain text on stderr (#5556). Each line counts once, in its job."""
+    implement, fix_plan, stage = written_records(
+        caplog,
+        (RoadmapJob.IMPLEMENT, "ready"),
+        (RoadmapJob.FIX_PLAN, "revised"),
+        (RoadmapJob.STAGE, "staged"),
     )
+    loki = LokiFake()
+    loki.push(SERVICE_STREAM, JsonLogFormatter().format(implement))
+    loki.push(FIX_PLAN_STREAM, fix_plan.getMessage())
+    loki.push(STAGE_STREAM, stage.getMessage())
+    loki.serve(web)
 
-    assert [
-        query.key for query in plan_grade_queries(GradeWindow.D7) if selector not in query.expr
-    ] == []
+    report = grade_report(GradeWindow.D7, None, LOKI_URL)
+
+    assert {(row.job, row.repo): row.all_attempts for row in report.workflows if row.repo} == {
+        ("stage", GRADES_REPO): 1,
+        ("implement", GRADES_REPO): 1,
+        ("fix_plan", GRADES_REPO): 1,
+    }
+
+
+def test_a_runner_line_and_a_line_that_names_the_prefix_count_no_attempt(
+    web: WebFake, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The log of a runner pod holds the output of a coding agent and of its tests, and the plan
+    report of a stage Job holds the titles of issues. Neither line is an attempt."""
+    (stage,) = written_records(caplog, (RoadmapJob.STAGE, "staged"))
+    loki = LokiFake()
+    loki.push(RUNNER_STREAM, stage.getMessage())
+    loki.push(STAGE_REPORT_STREAM, f"- #7 fix(roadmap): {stage.getMessage()}")
+    loki.serve(web)
+
+    report = grade_report(GradeWindow.D7, None, LOKI_URL)
+
+    assert [(row.job, row.all_attempts) for row in report.workflows if row.all_attempts] == []
 
 
 def test_a_refused_query_raises_the_loki_error(web: WebFake) -> None:

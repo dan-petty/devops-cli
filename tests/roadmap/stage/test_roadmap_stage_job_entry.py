@@ -4,7 +4,8 @@ The selection is the normal one, narrowed to the item. The entry point holds one
 slot, a request budget and a time budget, and ends with the exit code of the Kubernetes Job:
 0 for a result, 1 for a failure, 75 for an eviction, which the pod failure policy runs again,
 and 143 for the deadline. At its end the Job checks in: it writes its result and clears the
-check-out of the Service, only when the check-out names this Job.
+check-out of the Service, only when the check-out names this Job. Then it writes the result line
+of its attempt to stderr, only when its check-in found its check-out (#5556).
 """
 
 from __future__ import annotations
@@ -12,7 +13,8 @@ from __future__ import annotations
 import ast
 import inspect
 import json
-from collections.abc import Callable
+import logging
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -21,15 +23,20 @@ import pytest
 from pydantic import ValidationError
 
 from devops_cli.ai.client import network
-from devops_cli.config.constants import CONST_GITHUB_APP_PRIVATE_KEY_ENV
+from devops_cli.config.constants import (
+    CONST_GITHUB_APP_PRIVATE_KEY_ENV,
+    CONST_ROADMAP_OWNER_SERVICE,
+)
 from devops_cli.config.settings import RoadmapConfig
 from devops_cli.core import clock as clock_seam
-from devops_cli.exceptions import RoadmapStageError
+from devops_cli.exceptions import GitHubOperationError, RoadmapStageError
 from devops_cli.roadmap.attempt_kill import AttemptKill, AttemptKilled
 from devops_cli.roadmap.body_hash import body_hashes
+from devops_cli.roadmap.job_result import LINE_PREFIX
 from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.stage import stage_job
 from devops_cli.roadmap.stage.stage import parse_filters, select_stageable
+from devops_cli.roadmap.stage.stage_change import StageProposal
 from devops_cli.roadmap.stage.stage_job import (
     StageJobExit,
     job_time_budget,
@@ -38,15 +45,18 @@ from devops_cli.roadmap.stage.stage_job import (
 )
 from devops_cli.roadmap.stage.stage_left_out import LeftOutKind
 from devops_cli.roadmap.stage.stage_rejected import RejectedPlan
-from devops_cli.roadmap.stores.store import StageRecordKey
+from devops_cli.roadmap.stores.store import ItemField, StageRecordKey
+from devops_cli.telemetry.instruments import ROADMAP_STAGE_TOTAL
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import github_json
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.roadmap_job_result import result_lines
 from tests.support.roadmap_stage import (
     STAGE_NAME,
     STAGE_REPO,
     VALID_REPORT,
     StageRepo,
+    no_findings,
     seed_stageable,
     validate_args,
 )
@@ -55,6 +65,7 @@ if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
     from tests.support.fakes.model import ModelFake
     from tests.support.fakes.openspec import OpenSpecFake
+    from tests.support.fakes.otlp import FakeCollector
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -68,6 +79,7 @@ PULLS = f"/repos/{STAGE_REPO}/pulls"
 OPENED = github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201)
 NO_PLANS = PlannedChanges("main", {}, {})
 BUDGET = 9000
+RESULT_LOGGER = "devops_cli.roadmap.job_result"
 
 
 class StepClock:
@@ -288,6 +300,150 @@ def test_a_failed_plan_exits_1_and_checks_in_with_the_failure(
     assert "stage.failed_at" in _record(store)
 
 
+# ── The result line of the Job ────────────────────────────────────────────────
+
+
+class CheckInAtLine(logging.Handler):
+    """The result of each result line, and whether the record of the item held the check-in of
+    the Job when the line was logged."""
+
+    def __init__(self, store: InMemoryRoadmapStore, number: int) -> None:
+        super().__init__(logging.INFO)
+        self.store, self.number = store, number
+        self.lines: list[tuple[str, bool]] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        message = record.getMessage()
+        if not message.startswith(LINE_PREFIX):
+            return
+        fields = dict(field.split("=", 1) for field in message.removeprefix(LINE_PREFIX).split())
+        item = self.store.item(self.number)
+        self.lines.append((fields["result"], item is not None and bool(recorded_check_in(item))))
+
+
+@pytest.fixture
+def check_in_at_line(store: InMemoryRoadmapStore, stageable: int) -> Iterator[CheckInAtLine]:
+    handler = CheckInAtLine(store, stageable)
+    logger = logging.getLogger(RESULT_LOGGER)
+    level = logger.level
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    try:
+        yield handler
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(level)
+
+
+def test_a_normal_end_logs_one_result_line_after_its_check_in(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    stageable: int,
+    check_in_at_line: CheckInAtLine,
+) -> None:
+    """The actor that writes the check-in of an attempt writes its result line, so the Job and
+    the recovery of the Service never both count one attempt (#5556)."""
+    model_fake.answer(make_stage_proposal())
+
+    run_stage_job(store, repo=STAGE_REPO, item=stageable, source=stage_repo.clone, now=NOW)
+
+    assert check_in_at_line.lines == [("staged", True)]
+
+
+def test_a_job_that_the_check_out_does_not_name_logs_no_result_line(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    stageable: int,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """While the Job plans, the Service ends its attempt, writes the line of a failed end, and
+    checks the item out for a new Job. The Job writes no second line."""
+
+    def recovered(_prompt: str) -> StageProposal:
+        _check_out(store, stageable, OTHER_JOB)
+        return make_stage_proposal()
+
+    model_fake.answer(recovered)
+
+    with caplog.at_level(logging.INFO, logger=RESULT_LOGGER):
+        run_stage_job(store, repo=STAGE_REPO, item=stageable, source=stage_repo.clone, now=NOW)
+
+    assert result_lines(caplog) == []
+
+
+def test_a_job_that_a_person_starts_logs_its_result_line(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+    config: Callable[..., Path],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`devops k8s run-job --template stage` names the Job, and no check-out names it. The Service
+    does not know the attempt and cannot recover it, so the Job writes its line (#5556)."""
+    config(roadmap={"stage": {"job": JOB}})
+    number = seed_stageable(store)
+    github_api.route("POST", PULLS, OPENED)
+    model_fake.answer(make_stage_proposal())
+
+    with caplog.at_level(logging.INFO, logger=RESULT_LOGGER):
+        run_stage_job(store, repo=STAGE_REPO, item=number, source=stage_repo.clone, now=NOW)
+
+    assert [line.removeprefix(LINE_PREFIX).split()[:4] for line in result_lines(caplog)] == [
+        ["job=stage", f"repo={STAGE_REPO}", f"item=#{number}", "result=staged"]
+    ]
+
+
+def test_the_counter_counts_the_item_also_when_the_job_logs_no_result_line(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    stageable: int,
+    otlp: FakeCollector,
+) -> None:
+    """Only the result line waits for the check-in. `devops_cli_roadmap_stage_total` counts the
+    item of the plan before the check-in, as a round does, and the recovery of the Service adds
+    to another counter (#5556)."""
+
+    def recovered(_prompt: str) -> StageProposal:
+        _check_out(store, stageable, OTHER_JOB)
+        return make_stage_proposal()
+
+    model_fake.answer(recovered)
+
+    run_stage_job(store, repo=STAGE_REPO, item=stageable, source=stage_repo.clone, now=NOW)
+
+    assert [(attrs["result"], value) for attrs, value in otlp.points(ROADMAP_STAGE_TOTAL.name)] == [
+        ("staged", 1.0)
+    ]
+
+
+def test_a_failed_check_in_logs_no_result_line(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    stageable: int,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The check-out stays, so the recovery of the Service checks in for the `failed` end of the
+    Job and writes its line."""
+    item = store.item(stageable)
+    assert item is not None
+    store.set_field(item, ItemField.OWNER, CONST_ROADMAP_OWNER_SERVICE)
+    store.fail_write(write="set_field", item=stageable)
+    model_fake.answer(make_stage_proposal())
+
+    with (
+        caplog.at_level(logging.INFO, logger=RESULT_LOGGER),
+        pytest.raises(GitHubOperationError, match="HTTP 502"),
+    ):
+        run_stage_job(store, repo=STAGE_REPO, item=stageable, source=stage_repo.clone, now=NOW)
+
+    assert (result_lines(caplog), _check_out_marks(store)[:1]) == ([], ["stage.job"])
+
+
 def test_the_entry_holds_one_model_call_slot(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
@@ -440,6 +596,31 @@ def test_a_job_with_no_time_left_before_its_deadline_makes_no_model_call(
         "deadline",
         0,
     )
+
+
+@pytest.mark.parametrize("checked_out", [True, False], ids=["service-job", "person-job"])
+def test_a_deadline_end_logs_one_result_line(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    config: Callable[..., Path],
+    caplog: pytest.LogCaptureFixture,
+    *,
+    checked_out: bool,
+) -> None:
+    """The check-in of a Job that the Service checked out logs the line of its `deadline` end. A
+    Job that a person starts has no check-in, and logs the same line itself (#5556)."""
+    deadline = NOW + timedelta(seconds=600)
+    config(roadmap={"stage": {"job": JOB, "job_deadline": deadline.isoformat()}})
+    number = seed_stageable(store)
+    if checked_out:
+        _check_out(store, number, JOB)
+
+    with caplog.at_level(logging.INFO, logger=RESULT_LOGGER):
+        run_stage_job(store, repo=STAGE_REPO, item=number, source=stage_repo.clone, now=NOW)
+
+    assert [line.removeprefix(LINE_PREFIX).split()[3:7] for line in result_lines(caplog)] == [
+        ["result=failed", "success=false", "class=timeout", "infra=false"]
+    ]
 
 
 @pytest.mark.parametrize(
@@ -611,6 +792,32 @@ def test_the_command_exits_with_the_code_of_the_job(
 
     assert result.exit_code == StageJobExit.EVICTED, result.output
     assert "evicted" in result.output
+
+
+def test_the_command_writes_the_result_line_to_stderr(
+    cli: Cli,
+    roadmap_store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+    config: Callable[..., Path],
+) -> None:
+    """The log of the pod is what the command writes, and Loki reads the plain line on stderr
+    (#5556)."""
+    config(roadmap={"stage": {"job": JOB}})
+    github_api.route("POST", PULLS, OPENED)
+    number = seed_stageable(roadmap_store)
+    _check_out(roadmap_store, number, JOB)
+    no_findings(model_fake)
+    model_fake.answer(make_stage_proposal())
+
+    result = _stage(cli, stage_repo, "--job-item", str(number), "--confirm")
+
+    assert result.exit_code == StageJobExit.RESULT, result.output
+    lines = [line for line in result.stderr.splitlines() if line.startswith(LINE_PREFIX)]
+    assert [line.removeprefix(LINE_PREFIX).split()[:4] for line in lines] == [
+        ["job=stage", f"repo={STAGE_REPO}", f"item=#{number}", "result=staged"]
+    ]
 
 
 # ── The structure of the entry point ──────────────────────────────────────────

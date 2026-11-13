@@ -8,7 +8,7 @@ The counters of the jobs give no common ratio. Each job counts other results, th
 
 ## The result line
 
-The roadmap Service writes one line for each attempt of a job:
+Each roadmap job writes one line for each attempt:
 
 ```text
 roadmap job result: job=<job> repo=<owner/repo> item=#<n> result=<result> success=<true|false> class=<class> infra=<true|false> <count>=<n> ... version=<version>
@@ -20,13 +20,15 @@ roadmap job result: job=<job> repo=<owner/repo> item=#<n> result=<result> succes
 - `infra` is `true` for a class that a cut of the infrastructure gives: `provider`, `ci_infra`, `oom` and `limit_reached`. The ratio of the dashboard counts these attempts as failures and shows their share apart. The job grade leaves them out of `p`.
 - The counts and the names of the job follow, and the devops-cli version ends the line, so a query can compare two images.
 
+The Service logs the line as JSON on stdout, with the line in the field `message`. A Job pod logs the plain line on stderr: `devops roadmap stage --job-item` and `devops roadmap step fix-plan` write it there, because a CLI process has no handler for the `INFO` records of `roadmap/job_result.py` (#5363, #5556).
+
 A line holds no text of an issue, of a model or of a log. Each value is a number or a fixed name. The writer changes a value with another character than a letter, a digit, `_`, `-` or `.` to `other`. `src/devops_cli/roadmap/job_result.py` holds the form and the table below.
 
 ## The attempt and the intended result of each job
 
 | Job | Where the line comes from | Results | Intended result | Counts and names |
 | :--- | :--- | :--- | :--- | :--- |
-| `stage` | Each item that a round tried. A left-out item writes no line. | `staged`, `needs_split`, `failed`, `degenerate` | `staged`: the plan pull request is open. | `plan_calls`, `gate_returns`, `verify_rounds`, `tokens`, `seconds`. `plan_calls` counts the plan calls that the attempt made to the model, also with a client that keeps no trace. An attempt that starts from a kept plan has no `plan_calls`, also when the checks refuse the kept plan and the attempt asks for a new plan: an earlier attempt made the first calls, so the attempt cannot count all of them (#5166). |
+| `stage` | Each item that a stage Job or a round tried. A stage Job writes the line after its check-in, and the Service writes the line of each failed end that it recovers. A left-out item writes no line. | `staged`, `needs_split`, `failed`, `degenerate` | `staged`: the plan pull request is open. | `plan_calls`, `gate_returns`, `verify_rounds`, `tokens`, `seconds`. `plan_calls` counts the plan calls that the attempt made to the model, also with a client that keeps no trace. An attempt that starts from a kept plan has no `plan_calls`, also when the checks refuse the kept plan and the attempt asks for a new plan: an earlier attempt made the first calls, so the attempt cannot count all of them (#5166). |
 | `implement` | Each runner Job that ended, when the `implement` row reports it. | `ready`, `yielded`, `returned`, `stopped` | `ready`: the pull request is ready. | `repair_rounds`, `tokens`, `seconds` |
 | `refine` | Each item that a round refined. | The next step of the item, or `error` for a failed model call or write | `ready`, `person`, `split` or `blocked` | none |
 | `refine_judge` | Each review of the proposal for an item that a bot opened that calls the model. A kept approval writes no line. | `approved`, `refused` | `approved` | `findings` |
@@ -39,7 +41,7 @@ A `stage` item that is staged with an open finding of the review is `failed` wit
 Some attempts write no line:
 
 - A stop of the Service ends the round, and the attempt in progress writes no line. A stage Job runs outside the Service, so a stop of the Service ends no stage attempt (#4559).
-- A stage Job that ends with no check-in writes no line. The row `stage` of the Service writes the line `failed` for it, with the class `timeout` for a `deadline` end, the class of the exit code or the log for a `failed` end, and `ci_infra` for an eviction past the free count. A free eviction and a lost check-in of a Job that succeeded write no line.
+- The actor that writes the check-in of a stage attempt writes its line, so each attempt counts once (#5556). A stage Job writes its line after its check-in, and only when the check-in found its check-out. A stage Job that a person starts has no check-out, so it writes its line, also at a `deadline` end. A stage Job that ends with no check-in, or whose check-in fails, writes no line. The row `stage` of the Service writes the line `failed` for it, with the class `timeout` for a `deadline` end, the class of the exit code or the log for a `failed` end, and `ci_infra` for an eviction past the free count. A free eviction and a lost check-in of a Job that succeeded write no line. When the check-in of a Job finds no check-out of the Job, the Service ended the attempt, and the Job writes no line.
 - An alternatives check whose body a person changed since the read writes no line. The next round checks the item again.
 - A refine item that a person or another job changed since the read writes no line. Refine does not write the item, the round does not fail, and the next round reads the item again.
 - An intake candidate that another writer changed between the plan and the write writes no line, for example an issue that `devops roadmap intake` in an agent session placed itself. Intake writes nothing for the candidate, the round does not fail, and the next plan decides the candidate again. The candidate still adds 1 to `devops_cli_roadmap_intake_candidates_total` with `result=skipped` (#5166).
@@ -51,12 +53,13 @@ A change that adds a cap extension to a job adds the count `extensions` to the l
 The dashboard `devops-cli Telemetry` has the row `Roadmap Job Success`. It shows the 7-day ratio of each job against the line at 0.80, the attempts of each job with `too few` under 30, the share of the infrastructure cuts, and the ratio at each daily check. Each panel reads the result lines with this base:
 
 ```logql
-{namespace="devops", app_kubernetes_io_name=~"roadmap-service|devops-cli-job", container=~"service|stage"} |= "roadmap job result:"
-  | json message | line_format "{{.message}}"
+{namespace="devops", container=~"service|stage|fix-plan"} |= "roadmap job result:"
+  | json message | drop __error__, __error_details__ | line_format "{{ or .message __line__ }}"
+  |~ "^roadmap job result: "
   | regexp `^roadmap job result: job=(?P<roadmap_job>\S+) repo=\S+ item=\S+ result=(?P<result>\S+) success=(?P<success>\S+) class=(?P<failure_class>\S+) infra=(?P<infra>\S+)`
 ```
 
-The selector reads the stream of the Service and the stream of the pod of each stage Job, which logs the line of its item (#4559). A runner pod has the name label `devops-cli-job` too, and the matcher of the container leaves it out. The label is `roadmap_job`, because the stream already has the label `job`. The ratio of the last 7 days is:
+The selector reads the containers of the units that write the lines: the Service (`service`), the pod of each stage Job (`stage`, #4559) and the pod of each fix-plan Job (`fix-plan`). A runner pod and the other pods that run a coding agent stay out, because their logs hold the output of tests, which can hold copies of result lines. A stream that OpenTelemetry exports has no label `namespace`, so no line counts twice. `json` gives the message of a JSON line. A plain line gets an error label, and `drop` removes it, because Loki refuses a metric query whose lines hold an error. `line_format` then gives the message, or the full plain line. The filter `|~` keeps only a line that starts with the prefix: a line that the `regexp` does not match still counts, with no labels. `RESULT_LINES` of `roadmap/job_grade_report.py` holds this base up to the `regexp`, and a test checks that each count of the dashboard starts with it. The label is `roadmap_job`, because the stream already has the label `job`. The ratio of the last 7 days is:
 
 ```logql
 (
