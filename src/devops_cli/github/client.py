@@ -519,18 +519,10 @@ class GitHubClient:
     def get_compare_diff(self, repo: str, base: str, head: str) -> str:
         """The unified diff of `head` since its merge base with `base`, from the compare endpoint.
 
-        With the merge base that `get_compare_files` gives, this is the diff of the files it lists
-        (#5346). GitHub sends a diff as text; any other answer raises `GitHubUnreadError`.
-        """
-        return self._read_diff(_repo_path(repo, f"compare/{quote(base)}...{quote(head)}"))
-
-    def get_compare_diff(self, repo: str, base: str, head: str) -> str:
-        """The unified diff of `head` since its merge base with `base`, from the compare endpoint.
-
         With the tip of a pull request's base branch as `base`, this is the diff of the files that
         `get_compare_files` lists, and not the diff of the pulls endpoint, which can keep a stale
-        `base.sha` after a merge commit moved the merge base (#5388). GitHub sends a diff as text;
-        any other answer raises `GitHubUnreadError`.
+        `base.sha` after a merge commit moved the merge base (#5346, #5388). GitHub sends a diff as
+        text; any other answer raises `GitHubUnreadError`.
         """
         return self._read_diff(_repo_path(repo, f"compare/{quote(base)}...{quote(head)}"))
 
