@@ -9,33 +9,45 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from devops_cli.ai.endpoints import resolve_ai_endpoint
 from devops_cli.config.settings import load_settings
 from devops_cli.dry_run.requests import PlannedRequest
+from devops_cli.exceptions import ConfigurationError
+
+
+def _resolved_base(task: str | None) -> tuple[str, str]:
+    """The provider and base URL of the configured AI endpoint, as the review run resolves them.
+
+    When a setting is not set, the base URL is that setting as a placeholder, such as
+    `<ai.gateway_url>`, so the plan names it. The review run stops with the same
+    `ConfigurationError` (#1165, #5345).
+    """
+    settings = load_settings()
+    cfg = settings.ai.for_task(task) if task else settings.ai
+    provider = (cfg.provider or "").lower()
+    try:
+        endpoint = resolve_ai_endpoint(cfg, settings=settings)
+    except ConfigurationError as exc:
+        return provider, f"<{exc.key or 'ai.provider'}>"
+    return endpoint.provider, endpoint.primary_url
 
 
 def _get_review_llm_target() -> str:
     """Resolve the target URL for LLM review and evaluation calls."""
-    settings = load_settings()
-    provider = settings.ai.provider
+    provider, base = _resolved_base("analysis")
     if provider == "ollama":
-        endpoint = (settings.ai.get_ollama_urls or ["http://localhost:11434"])[0]
-        return f"{endpoint.rstrip('/')}/api/chat"
-    if provider == "gateway":
-        gw = (settings.ai.gateway_url or "https://ai.retric.click").rstrip("/")
-        return f"{gw}/v1/chat/completions"
-    base = settings.ai.api_base_url or "https://api.openai.com/v1"
-    return f"{base.rstrip('/')}/chat/completions"
+        return f"{base}/api/chat"
+    if provider == "claude":
+        return f"{base}/v1/messages"
+    return f"{base}/chat/completions"
 
 
 def _get_review_embedding_target() -> str:
     """Resolve the target URL for text/code embeddings."""
-    settings = load_settings()
-    provider = settings.ai.provider
+    provider, base = _resolved_base(None)
     if provider == "ollama":
-        endpoint = (settings.ai.get_ollama_urls or ["http://localhost:11434"])[0]
-        return f"{endpoint.rstrip('/')}/api/embeddings"
-    base = settings.ai.api_base_url or "https://api.openai.com/v1"
-    return f"{base.rstrip('/')}/embeddings"
+        return f"{base}/api/embeddings"
+    return f"{base}/embeddings"
 
 
 def plan_review_path(
