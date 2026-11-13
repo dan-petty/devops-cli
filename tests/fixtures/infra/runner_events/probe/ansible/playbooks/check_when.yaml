@@ -1,0 +1,35 @@
+# The probe of the recorded check-mode run `check_when` of `devops infra plan` (#5435): a task and
+# an item of a loop that check mode skips through a `when` that names `ansible_check_mode`, because
+# they need the change of an earlier task, and a task whose first false `when` item does not name
+# check mode.
+# `state_dir` is a scratch folder that the recording gives with -e. tests/support/infra.py says how
+# to record the run again.
+- name: Install the demo package from a new source
+  hosts: check_when
+  gather_facts: false
+  tasks:
+    - name: Add the demo source
+      ansible.builtin.copy:
+        content: "deb https://example.com/demo main\n"
+        dest: "{{ state_dir }}/demo.sources"
+        mode: "0644"
+      register: demo_source
+
+    - name: Install the demo package
+      ansible.builtin.command: /bin/true
+      changed_when: true
+      when: not (ansible_check_mode and demo_source is changed)
+
+    - name: Read the files of the demo package
+      ansible.builtin.command: /bin/true {{ item }}
+      changed_when: false
+      check_mode: false
+      loop: [config, unit]
+      when: item == 'config' or not (ansible_check_mode and demo_source is changed)
+
+    - name: Restart the demo package when a restart is due
+      ansible.builtin.command: /bin/true
+      changed_when: true
+      when:
+        - demo_restart_due | default(false)
+        - not ansible_check_mode

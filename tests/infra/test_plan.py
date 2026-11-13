@@ -3,7 +3,8 @@
 The job events are recorded runs of the pinned `ansible-runner` on the probe in
 `tests/fixtures/infra/runner_events/probe/` (`tests/support/infra.py`): node-3 runs the k3s agent
 role of dan-petty/homelab, node-1 a demo unit with a diff, a hidden diff, a `no_log` change, two
-skips and a restart handler, node-2 a reboot, and node-4 a task that fails.
+skips and a restart handler, node-2 a reboot, node-4 a task that fails, and node-5 the skips by a
+`when` that names check mode.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from tests.support.infra import recorded_events, recorded_read
 
 _K3S_AGENT = "ansible/roles/k3s_agent/tasks/main.yaml"
 _DEMO = "ansible/roles/demo/tasks/main.yaml"
+_CHECK_WHEN = "ansible/playbooks/check_when.yaml"
 
 
 def _hosts(
@@ -102,6 +104,36 @@ def test_each_change_skip_and_handler_of_a_host_is_in_the_plan(tmp_path: Path) -
             ),
         ),
     )
+
+
+def test_a_skip_by_a_when_that_names_check_mode_is_unchecked(tmp_path: Path) -> None:
+    """A task and a loop item that check mode skips through a `when` that names
+    `ansible_check_mode` are unchecked, because they need the change of an earlier task. A task
+    whose first false `when` item does not name check mode is not unchecked (#5435)."""
+    assert _hosts("check_when", tmp_path) == {
+        "node-5.example.com": HostPlan(
+            host="node-5.example.com",
+            changed=(
+                ChangedTask(
+                    name="Add the demo source",
+                    path=f"{_CHECK_WHEN}:11",
+                    action="ansible.builtin.copy",
+                ),
+            ),
+            unchecked=(
+                PlanTask(
+                    name="Install the demo package",
+                    path=f"{_CHECK_WHEN}:18",
+                    action="ansible.builtin.command",
+                ),
+                PlanTask(
+                    name="Read the files of the demo package",
+                    path=f"{_CHECK_WHEN}:23",
+                    action="ansible.builtin.command",
+                ),
+            ),
+        )
+    }
 
 
 def test_a_skip_result_in_color_stays_unchecked(tmp_path: Path) -> None:

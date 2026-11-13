@@ -22,7 +22,10 @@ the repo's YAML:
   count more changes on the host than the other results show: the safe side.
 - **Unchecked**: a `runner_on_skipped` task that check mode skipped. At verbosity 1 the default
   callback prints the result of a skip after `=> `, and a skip by a false `when` has the key
-  `false_condition`. Every other skip, and a result that does not read, is unchecked.
+  `false_condition`, the first false item of the `when` list. A skip by a false `when` is unchecked
+  when that item names `ansible_check_mode`: a task that needs the change of an earlier task, such
+  as an install from an apt source that check mode did not add, has such a `when` (#5435). Every
+  other skip, and a result that does not read, is unchecked. A loop item counts the same way.
 - **Disruptive**: a changed `ansible.builtin.reboot` is `reboot`; a changed
   `kubernetes.core.k8s_drain` with the state `drain` is `drain`; a changed `systemd`,
   `systemd_service` or `service` task with the state `restarted`, `reloaded` or `stopped` is
@@ -50,6 +53,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
+
+from jinja2 import Environment, TemplateSyntaxError, nodes
 
 from devops_cli.config.defaults import (
     DEFAULT_INFRA_GALAXY_TIMEOUT_SECONDS,
@@ -140,6 +145,11 @@ _TIMEOUT: Final[str] = "timeout"
 _CENSORED: Final[str] = "censored"
 _SKIP_MARK: Final[str] = " => "
 _FALSE_CONDITION: Final[str] = "false_condition"
+# The variable that is true in check mode. A false `when` item that names it is a check-mode skip.
+_CHECK_MODE_NAME: Final[str] = "ansible_check_mode"
+# Parses a `when` item to read the names in it. It compiles and renders nothing, so the tests and
+# filters of Ansible need not exist here.
+_CONDITIONS: Final[Environment] = Environment(autoescape=True)
 _BUILTIN: Final[tuple[str, ...]] = ("ansible.builtin", "ansible.legacy")
 _REBOOT_ACTIONS: Final[frozenset[str]] = frozenset(f"{ns}.reboot" for ns in _BUILTIN)
 _SERVICE_ACTIONS: Final[frozenset[str]] = frozenset(
@@ -279,8 +289,8 @@ def _reason(res: Mapping[str, Any]) -> str | None:
 
 
 def _is_check_mode_skip(stdout: str) -> bool:
-    """Whether a skip came from check mode: every skip but one by a false `when`, as the result
-    that the callback prints after `=> ` shows."""
+    """Whether a skip came from check mode: every skip but one by a false `when` that does not
+    name `ansible_check_mode`, as the result that the callback prints after `=> ` shows."""
     _, mark, text = stdout.partition(_SKIP_MARK)
     if not mark:
         return True
@@ -292,13 +302,34 @@ def _is_check_mode_skip(stdout: str) -> bool:
         return True
     items = result.get("results")
     if isinstance(items, list) and items:
-        return any(not isinstance(item, dict) or _FALSE_CONDITION not in item for item in items)
-    return _FALSE_CONDITION not in result
+        return any(not isinstance(item, dict) or _check_mode_caused(item) for item in items)
+    return _check_mode_caused(result)
 
 
 def _is_skipped_item(item: Any) -> bool:
-    """Whether one item of a loop result was skipped by check mode."""
-    return isinstance(item, dict) and bool(item.get("skipped")) and _FALSE_CONDITION not in item
+    """Whether one item of a loop result was skipped by check mode: a skipped item with no false
+    `when`, or an item whose false `when` names `ansible_check_mode`."""
+    if not isinstance(item, dict):
+        return False
+    if _FALSE_CONDITION in item:
+        return _check_mode_caused(item)
+    return bool(item.get("skipped"))
+
+
+def _check_mode_caused(result: Mapping[str, Any]) -> bool:
+    """Whether check mode caused the skip of one result: it has no false `when`, or its false
+    `when` item names `ansible_check_mode` (#5435). A `when` item that does not parse is a
+    check-mode skip: the safe side."""
+    if _FALSE_CONDITION not in result:
+        return True
+    condition = result[_FALSE_CONDITION]
+    if not isinstance(condition, str):
+        return False
+    try:
+        tree = _CONDITIONS.parse(f"{{{{ {condition} }}}}")
+    except TemplateSyntaxError:
+        return True
+    return any(name.name == _CHECK_MODE_NAME for name in tree.find_all(nodes.Name))
 
 
 def _module_args(res: Mapping[str, Any]) -> Mapping[str, Any] | None:
