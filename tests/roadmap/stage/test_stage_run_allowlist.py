@@ -27,7 +27,7 @@ from devops_cli.roadmap.stage.stage_run_allowlist import (
 
 # The rows of the exposure table at this commit. The census fails when a row is added or removed,
 # because each new row needs a decision and the count is the record of that walk.
-ROW_COUNT = 145
+ROW_COUNT = 144
 
 
 def _demo_command() -> Any:

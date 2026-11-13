@@ -176,10 +176,11 @@ def test_verify_pages_configuration_invalid_toml(tmp_path: Path) -> None:
 
 
 def test_the_repository_site_settings_pass_the_check() -> None:
-    """Verify that zensical.toml of this repository passes the check (#5152)."""
+    """Verify that zensical.toml and docs/ of this repository pass both parts of the check
+    (#5152)."""
     valid, diagnostics = verify_pages_configuration(REPO_ROOT)
 
-    assert valid, diagnostics
+    assert (valid, [line[:1] for line in diagnostics]) == (True, ["✓", "✓"]), diagnostics
 
 
 def test_the_repository_site_has_readme_as_its_home_page() -> None:
