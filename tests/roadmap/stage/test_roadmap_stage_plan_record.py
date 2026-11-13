@@ -369,6 +369,26 @@ def test_the_new_first_reply_after_a_refused_kept_plan_gets_the_plan_and_its_pro
     assert _gate_returns_lines(caplog) == []
 
 
+def test_a_new_plan_after_a_refused_kept_plan_has_no_count_of_plan_calls(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    """The attempt starts from a kept plan, so an earlier attempt made the first plan calls of the
+    item. The attempt makes one new plan call after the checks refuse the kept plan, but it cannot
+    count all the calls. So its counts hold no `plan_calls`, and the result line leaves the field
+    out (#5166)."""
+    model_fake.answer(make_stage_proposal())
+    (first,) = _plan(store, stage_repo).attempts
+    _keep_a_plan_that_the_gates_now_refuse()
+    model_fake.reset()
+    model_fake.answer(make_stage_proposal(summary="Planned again"))
+
+    plan = _plan(store, stage_repo)
+
+    (attempt,) = plan.attempts
+    assert (first.plan_calls, len(plan.ready), model_fake.call_count) == (1, 1, 1)
+    assert (attempt.plan_calls, "plan_calls" in attempt.counts()) == (None, False)
+
+
 def test_a_refused_kept_plan_starts_no_planner_run_once_the_service_stops(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,

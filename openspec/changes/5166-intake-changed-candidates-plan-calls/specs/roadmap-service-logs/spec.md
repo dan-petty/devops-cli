@@ -17,3 +17,7 @@ The `plan_calls` count of a `stage` result line SHALL be the number of plan call
 #### Scenario: A kept plan
 - **WHEN** an earlier attempt kept the plan of an item and the next attempt stages that plan with no plan call
 - **THEN** the line holds `result=staged` and no `plan_calls` field
+
+#### Scenario: A new plan after a refused kept plan
+- **WHEN** the checks refuse the kept plan of an item, and the attempt stages a new plan from one plan call
+- **THEN** the counts of the attempt hold no `plan_calls`, so its line holds no `plan_calls` field

@@ -13,8 +13,8 @@ Kind: behavior. Changes: `src/devops_cli/roadmap/intake/intake.py`, `src/devops_
 
 Kind: behavior. Changes: `src/devops_cli/roadmap/stage/stage.py`, `tests/roadmap/stage/test_roadmap_stage_job_result.py`.
 
-- [x] 2.1 Write failing tests: a plain client with no trace stages an item with `plan_calls=1`, and an attempt that stages a kept plan logs no `plan_calls`.
-  - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_job_result.py`
+- [x] 2.1 Write failing tests: a plain client with no trace stages an item with `plan_calls=1`, and an attempt that stages a kept plan logs no `plan_calls`. Add a test that holds the rule for a new plan after a refused kept plan: its counts hold no `plan_calls`.
+  - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_job_result.py tests/roadmap/stage/test_roadmap_stage_plan_record.py`
 - [x] 2.2 Count the plan calls in `_ask_plan`, record a kept start in `plan`, write `plan_calls=None` for a kept start, and leave a None count out of `StageAttempt.counts`.
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_job_result.py tests/roadmap/stage/test_roadmap_stage_plan_record.py tests/roadmap/steps/test_roadmap_fix_plan.py`
 

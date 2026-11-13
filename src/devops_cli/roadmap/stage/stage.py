@@ -917,9 +917,10 @@ class StageAttempt:
     the model, the review runs of the model, the replies that the checks sent back, the input and
     output tokens of the runs, and the seconds of the plan. The planner counts each plan call
     itself, so a client with no trace counts its calls too. An attempt that starts from a kept
-    plan has no count of plan calls (None): the calls that made the plan belong to an earlier
-    attempt, so the line leaves `plan_calls` out and does not write 0 (#5166). A review run of a
-    client with no trace counts no run and no token."""
+    plan has no count of plan calls (None), also when the checks refuse the kept plan and the
+    attempt asks for a new plan: an earlier attempt made the first calls, so the line leaves
+    `plan_calls` out and does not write 0 (#5166). A review run of a client with no trace counts
+    no run and no token."""
 
     number: int
     plan_calls: int | None = 0
