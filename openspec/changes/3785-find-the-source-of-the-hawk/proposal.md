@@ -30,6 +30,10 @@ None.
 - Documents: `k8s/README.md`
 - Tests: `tests/commands/k8s/test_k8s_monitoring_integration.py`, `tests/ai/test_llm_pool_metrics.py`, `tests/commands/k8s/test_k8s.py`, `tests/commands/k8s/test_k8s_logging_stack.py`, `tests/commands/k8s/test_stack_dashboards.py`, `tests/core/test_third_party_telemetry.py`, `tests/prometheus/test_k8s_monitoring_alerting.py`, `tests/prometheus/test_k8s_monitoring_dashboards.py`
 
+## Weakened checks
+
+- **`tests/commands/k8s/test_k8s_monitoring_integration.py::test_the_ebpf_profiler_runs_on_every_node_except_hawk`**: Stopped: a change that removes the node affinity that keeps the `alloy-profiles` collector off the node `hawk`. Safeguard: The plan removes that exclusion, so group 1 renames the test to `test_the_ebpf_profiler_runs_on_every_node`. The renamed test asserts that the profiler runs on every node: no collector except `alloy-metrics` has a `controller.affinity`, and `alloy-metrics` keeps its one control-plane term.
+
 ## Feasibility
 
 - The premise of the issue is that one node stays off the profiler through a node affinity, and the probe confirms the file: "The path `k8s/monitoring/k8s-monitoring-values.yaml` is a file of the staging commit."
