@@ -1,5 +1,5 @@
 {
-  "about": "GitHub's answers about pull request 158 of octocat/Hello-World, GitHub's own example repository, read on 2026-10-22 with a read-only token. The pull request has two changed files and a head repository that was deleted (`head.repo` is null). The files are the two pages of `GET /repos/octocat/Hello-World/pulls/158/files?per_page=1`, with the `Link` header GitHub sent with each, so the listing needs a second request. The pull request lost the objects that name people (its author and its head's), `head.label` and the empty lists of assignees and reviewers; the comparison kept only the merge base commit, without its authors; every other field is as GitHub sent it.",
+  "about": "GitHub's answers about pull request 158 of octocat/Hello-World, GitHub's own example repository, read on 2026-10-22 with a read-only token. The pull request has two changed files and a head repository that was deleted (`head.repo` is null). The pull request lost the objects that name people (its author and its head's), `head.label` and the empty lists of assignees and reviewers; the comparison kept only the merge base commit, without its authors; every other field is as GitHub sent it. `branch_comparison` is the answer to `GET /repos/octocat/Hello-World/compare/master...ec18ca7bca5202d8e139a58b25757dc161255245?per_page=1`, read on 2026-11-13: the compare of the tip of the base branch and the head commit, which lists the two changed files. It lost its list of commits and kept only the sha of its merge base commit; its other fields are as GitHub sent them.",
   "pull_request": {
     "url": "https://api.github.com/repos/octocat/Hello-World/pulls/158",
     "id": 18272016,
@@ -202,42 +202,6 @@
     "deletions": 1,
     "changed_files": 2
   },
-  "files_pages": [
-    {
-      "link": "<https://api.github.com/repositories/1296269/pulls/158/files?per_page=1&page=2>; rel=\"next\", <https://api.github.com/repositories/1296269/pulls/158/files?per_page=1&page=2>; rel=\"last\"",
-      "body": [
-        {
-          "sha": "980a0d5f19a64b4b30a87d4206aade58726b60e3",
-          "filename": "README",
-          "status": "removed",
-          "additions": 0,
-          "deletions": 1,
-          "changes": 1,
-          "blob_url": "https://github.com/octocat/Hello-World/blob/7fd1a60b01f91b314f59955a4e4d4e80d8edf11d/README",
-          "raw_url": "https://github.com/octocat/Hello-World/raw/7fd1a60b01f91b314f59955a4e4d4e80d8edf11d/README",
-          "contents_url": "https://api.github.com/repos/octocat/Hello-World/contents/README?ref=7fd1a60b01f91b314f59955a4e4d4e80d8edf11d",
-          "patch": "@@ -1 +0,0 @@\n-Hello World!"
-        }
-      ]
-    },
-    {
-      "link": "<https://api.github.com/repositories/1296269/pulls/158/files?per_page=1&page=1>; rel=\"prev\", <https://api.github.com/repositories/1296269/pulls/158/files?per_page=1&page=1>; rel=\"first\"",
-      "body": [
-        {
-          "sha": "c6ec10f5e39efe7479feb317b299e93cca5b9129",
-          "filename": "README.md",
-          "status": "added",
-          "additions": 1,
-          "deletions": 0,
-          "changes": 1,
-          "blob_url": "https://github.com/octocat/Hello-World/blob/ec18ca7bca5202d8e139a58b25757dc161255245/README.md",
-          "raw_url": "https://github.com/octocat/Hello-World/raw/ec18ca7bca5202d8e139a58b25757dc161255245/README.md",
-          "contents_url": "https://api.github.com/repos/octocat/Hello-World/contents/README.md?ref=ec18ca7bca5202d8e139a58b25757dc161255245",
-          "patch": "@@ -0,0 +1 @@\n+**Hello World!**"
-        }
-      ]
-    }
-  ],
   "comparison": {
     "url": "https://api.github.com/repos/octocat/Hello-World/compare/7fd1a60b01f91b314f59955a4e4d4e80d8edf11d...ec18ca7bca5202d8e139a58b25757dc161255245",
     "html_url": "https://github.com/octocat/Hello-World/compare/7fd1a60b01f91b314f59955a4e4d4e80d8edf11d...ec18ca7bca5202d8e139a58b25757dc161255245",
@@ -262,6 +226,43 @@
         "url": "https://api.github.com/repos/octocat/Hello-World/git/commits/7fd1a60b01f91b314f59955a4e4d4e80d8edf11d"
       }
     }
+  },
+  "branch_comparison": {
+    "url": "https://api.github.com/repos/octocat/Hello-World/compare/master...ec18ca7bca5202d8e139a58b25757dc161255245",
+    "html_url": "https://github.com/octocat/Hello-World/compare/master...ec18ca7bca5202d8e139a58b25757dc161255245",
+    "status": "ahead",
+    "ahead_by": 1,
+    "behind_by": 0,
+    "total_commits": 1,
+    "merge_base_commit": {
+      "sha": "7fd1a60b01f91b314f59955a4e4d4e80d8edf11d"
+    },
+    "files": [
+      {
+        "additions": 0,
+        "blob_url": "https://github.com/octocat/Hello-World/blob/7fd1a60b01f91b314f59955a4e4d4e80d8edf11d/README",
+        "changes": 1,
+        "contents_url": "https://api.github.com/repos/octocat/Hello-World/contents/README?ref=7fd1a60b01f91b314f59955a4e4d4e80d8edf11d",
+        "deletions": 1,
+        "filename": "README",
+        "patch": "@@ -1 +0,0 @@\n-Hello World!",
+        "raw_url": "https://github.com/octocat/Hello-World/raw/7fd1a60b01f91b314f59955a4e4d4e80d8edf11d/README",
+        "sha": "980a0d5f19a64b4b30a87d4206aade58726b60e3",
+        "status": "removed"
+      },
+      {
+        "additions": 1,
+        "blob_url": "https://github.com/octocat/Hello-World/blob/ec18ca7bca5202d8e139a58b25757dc161255245/README.md",
+        "changes": 1,
+        "contents_url": "https://api.github.com/repos/octocat/Hello-World/contents/README.md?ref=ec18ca7bca5202d8e139a58b25757dc161255245",
+        "deletions": 0,
+        "filename": "README.md",
+        "patch": "@@ -0,0 +1 @@\n+**Hello World!**",
+        "raw_url": "https://github.com/octocat/Hello-World/raw/ec18ca7bca5202d8e139a58b25757dc161255245/README.md",
+        "sha": "c6ec10f5e39efe7479feb317b299e93cca5b9129",
+        "status": "added"
+      }
+    ]
   },
   "readme_contents": {
     "name": "README",

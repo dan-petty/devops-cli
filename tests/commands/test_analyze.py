@@ -19,6 +19,7 @@ from devops_cli.ai.analyze.scanner import (
 from devops_cli.commands.analyze import (
     app as analyze_app,
 )
+from devops_cli.config.constants import CONST_GITHUB_COMPARE_FILES_LIMIT
 from devops_cli.main import app
 from devops_cli.models.ai import AnalysisMetadata, FileAnalysisMeta
 from devops_cli.models.git import ChangedFile
@@ -27,7 +28,9 @@ from tests.support.fakes.github import (
     github_json,
     pull_request_file_payload,
     pull_request_payload,
+    route_compare_files,
     route_pull_request,
+    route_pull_request_changes,
 )
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.github_identity import fail_the_github_lookup
@@ -43,11 +46,13 @@ runner = CliRunner()
 
 
 def _handle_remote_get_url(call: ProcessCall) -> ProcessAnswer:
+    """Answer `git remote get-url origin` with the GitHub URL that the checkout's config holds."""
     cwd = Path(call.cwd) if call.cwd else Path.cwd()
     if (cwd / ".git" / "config").exists():
-        cfg = (cwd / ".git" / "config").read_text(encoding="utf-8")
-        if "github.com" in cfg:
-            return ProcessAnswer(stdout="https://github.com/octocat/Hello-World.git\n")
+        for line in (cwd / ".git" / "config").read_text(encoding="utf-8").splitlines():
+            key, _, url = line.strip().partition(" = ")
+            if key == "url" and "github.com" in url:
+                return ProcessAnswer(stdout=f"{url}\n")
     return ProcessAnswer(returncode=128, stderr="error: No such remote 'origin'\n")
 
 
@@ -392,12 +397,10 @@ def test_ai_analyze_branch_and_pr_execution(
     src_dir.mkdir()
     worker_file = src_dir / "worker.py"
     worker_file.write_text("def do_work(): pass\n", encoding="utf-8")
-    route_pull_request(
-        github_api,
-        "org/repo",
-        42,
-        pull_request_payload(title="Add worker"),
-        files=[pull_request_file_payload("src/worker.py")],
+    pull = pull_request_payload(title="Add worker", base_repo="org/repo")
+    route_pull_request(github_api, "org/repo", 42, pull)
+    route_pull_request_changes(
+        github_api, pull, pull_request_file_payload("src/worker.py"), merge_base="merge789"
     )
 
     git_fake.answer(
@@ -423,7 +426,7 @@ def test_ai_analyze_branch_and_pr_execution(
 
     assert github_api.requested == [
         "GET https://api.github.com/repos/org/repo/pulls/42",
-        "GET https://api.github.com/repos/org/repo/pulls/42/files?per_page=100",
+        "GET https://api.github.com/repos/org/repo/compare/main...abc123?per_page=1",
     ]
 
 
@@ -616,12 +619,13 @@ def test_analyze_pr_command(
     sample_file = tmp_path / "pr_mod.py"
     sample_file.write_text("def pr_func(): pass\n", encoding="utf-8")
 
-    route_pull_request(
+    pull = pull_request_payload(title="Add feature", base_repo="owner/repo")
+    route_pull_request(github_api, "owner/repo", 42, pull)
+    route_pull_request_changes(
         github_api,
-        "owner/repo",
-        42,
-        pull_request_payload(title="Add feature"),
-        files=[pull_request_file_payload("pr_mod.py", additions=5, changes=5)],
+        pull,
+        pull_request_file_payload("pr_mod.py", additions=5, changes=5),
+        merge_base="merge789",
     )
 
     git_fake.answer(
@@ -634,46 +638,51 @@ def test_analyze_pr_command(
     assert res_pr_ok.exit_code == 0
 
 
-def test_analyze_pr_lists_the_title_and_the_files_of_every_page(
+def _a_checkout_of(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, repo: str) -> None:
+    """Work in a checkout under `tmp_path` whose origin is `repo` on GitHub, and keep the
+    analysis under `tmp_path`."""
+    root = tmp_path / "checkout"
+    (root / ".git").mkdir(parents=True)
+    (root / ".git" / "config").write_text(
+        f'[remote "origin"]\n\turl = https://github.com/{repo}.git\n', encoding="utf-8"
+    )
+    monkeypatch.chdir(root)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_ANALYSIS_DIR", str(tmp_path / "analysis"))
+
+
+def _saved_analysis(tmp_path: Path, number: int) -> AnalysisMetadata:
+    """The analysis of pull request `number` that the command saved under `tmp_path`."""
+    return AnalysisMetadata.model_validate_json(
+        (tmp_path / "analysis" / f"pr-{number}-metadata.json").read_text(encoding="utf-8")
+    )
+
+
+def test_analyze_pr_lists_the_title_and_the_files_of_the_recorded_comparison(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     github_api: GitHubApiFake,
     pin_github_session: str,
 ) -> None:
-    """For the recorded pull request, whose second page of files GitHub links, the analysis holds
-    the pull request's title and both changed files, with the token of the session on every read."""
+    """For the recorded pull request, the analysis holds the pull request's title and both files
+    of the recorded compare of its base branch and its head commit, with the token of the session
+    on every read."""
     recorded = json.loads(
         (FIXTURES / "github" / "hello_world_pull_request.json").read_text(encoding="utf-8")
     )
-    first, second = recorded["files_pages"]
+    head = recorded["pull_request"]["head"]["sha"]
     github_api.route(
         "GET", "/repos/octocat/Hello-World/pulls/158", github_json(recorded["pull_request"])
     )
     github_api.route(
         "GET",
-        "/repos/octocat/Hello-World/pulls/158/files?per_page=100",
-        github_json(first["body"], headers={"link": first["link"]}),
+        f"/repos/octocat/Hello-World/compare/master...{head}?per_page=1",
+        github_json(recorded["branch_comparison"]),
     )
-    github_api.route(
-        "GET",
-        "/repositories/1296269/pulls/158/files?per_page=1&page=2",
-        github_json(second["body"], headers={"link": second["link"]}),
-    )
-    root = tmp_path / "checkout"
-    root.mkdir()
-    (root / ".git").mkdir(parents=True, exist_ok=True)
-    (root / ".git" / "config").write_text(
-        '[remote "origin"]\n\turl = https://github.com/octocat/Hello-World.git\n',
-        encoding="utf-8",
-    )
-    monkeypatch.chdir(root)
-    monkeypatch.setenv("DEVOPS_CLI_DATA_ANALYSIS_DIR", str(tmp_path / "analysis"))
+    _a_checkout_of(tmp_path, monkeypatch, "octocat/Hello-World")
 
     result = runner.invoke(analyze_app, ["pr", "158", "--no-enhanced"])
 
-    saved = AnalysisMetadata.model_validate_json(
-        (tmp_path / "analysis" / "pr-158-metadata.json").read_text(encoding="utf-8")
-    )
+    saved = _saved_analysis(tmp_path, 158)
     assert (
         result.exit_code,
         saved.project.title,
@@ -684,12 +693,77 @@ def test_analyze_pr_lists_the_title_and_the_files_of_every_page(
         0,
         "checkout PR #158 analysis: Update and rename README to README.md. Also Added Bolding",
         [("README", "removed"), ("README.md", "added")],
-        3,
+        2,
         {f"token {pin_github_session}"},
     )
 
 
-@pytest.mark.parametrize("unreadable", ["the pull request", "its files"])
+def test_analyze_pr_reads_the_files_at_the_merge_base_of_its_base_branch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, github_api: GitHubApiFake
+) -> None:
+    """A merge of the base branch into the pull request moved its merge base, and GitHub kept
+    the payload's `base.sha` and the pulls files list at the old base (#5346). The analysis holds
+    the files of the compare of the base branch and the head commit, and no request names
+    `base.sha` or the pulls files path."""
+    pull = pull_request_payload(base_sha="stale456", base_repo="owner/repo")
+    route_pull_request(
+        github_api,
+        "owner/repo",
+        42,
+        pull,
+        files=[pull_request_file_payload("pr_mod.py"), pull_request_file_payload("main_only.py")],
+    )
+    route_pull_request_changes(
+        github_api, pull, pull_request_file_payload("pr_mod.py"), merge_base="merge789"
+    )
+    _a_checkout_of(tmp_path, monkeypatch, "owner/repo")
+
+    result = runner.invoke(analyze_app, ["pr", "42", "--no-enhanced"])
+
+    assert (
+        result.exit_code,
+        [meta.path for meta in _saved_analysis(tmp_path, 42).files],
+        github_api.requested,
+    ) == (
+        0,
+        ["pr_mod.py"],
+        [
+            "GET https://api.github.com/repos/owner/repo/pulls/42",
+            "GET https://api.github.com/repos/owner/repo/compare/main...abc123?per_page=1",
+        ],
+    )
+
+
+def test_analyze_pr_warns_that_a_comparison_at_the_file_limit_can_miss_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, github_api: GitHubApiFake
+) -> None:
+    """GitHub lists at most `CONST_GITHUB_COMPARE_FILES_LIMIT` files of one comparison. The
+    analysis of a list at that limit holds the listed files, and a warning names the limit."""
+    pull = pull_request_payload(base_repo="owner/repo")
+    route_pull_request(github_api, "owner/repo", 42, pull)
+    route_compare_files(
+        github_api,
+        "owner/repo",
+        "main",
+        "abc123",
+        *[
+            pull_request_file_payload(f"src/{number}.py")
+            for number in range(CONST_GITHUB_COMPARE_FILES_LIMIT)
+        ],
+        merge_base="merge789",
+    )
+    _a_checkout_of(tmp_path, monkeypatch, "owner/repo")
+
+    result = runner.invoke(analyze_app, ["pr", "42", "--no-enhanced"])
+
+    assert (
+        result.exit_code,
+        len(_saved_analysis(tmp_path, 42).files),
+        f"{CONST_GITHUB_COMPARE_FILES_LIMIT} files" in " ".join(result.output.split()),
+    ) == (0, CONST_GITHUB_COMPARE_FILES_LIMIT, True)
+
+
+@pytest.mark.parametrize("unreadable", ["the pull request", "its comparison"])
 def test_analyze_pr_ends_with_the_github_error_when_the_pull_request_cannot_be_read(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -697,26 +771,21 @@ def test_analyze_pr_ends_with_the_github_error_when_the_pull_request_cannot_be_r
     github_api: GitHubApiFake,
     unreadable: str,
 ) -> None:
-    """A 500 that outlasts the retries, on the pull request or on its files, ends the command with
-    the session's message and status 1, and prints no traceback."""
+    """A 500 that outlasts the retries, on the pull request or on the compare of its base branch
+    and its head, ends the command with the session's message and status 1, and prints no
+    traceback."""
     recorded = json.loads(
         (FIXTURES / "github" / "hello_world_pull_request.json").read_text(encoding="utf-8")
     )
-    pull = "/repos/octocat/Hello-World/pulls/158"
+    repo = "/repos/octocat/Hello-World"
+    head = recorded["pull_request"]["head"]["sha"]
     failure = github_json({"message": "Server Error"}, status=500)
     if unreadable == "the pull request":
-        github_api.route("GET", pull, failure)
+        github_api.route("GET", f"{repo}/pulls/158", failure)
     else:
-        github_api.route("GET", pull, github_json(recorded["pull_request"]))
-        github_api.route("GET", f"{pull}/files?per_page=100", failure)
-    root = tmp_path / "checkout"
-    root.mkdir()
-    (root / ".git").mkdir(parents=True, exist_ok=True)
-    (root / ".git" / "config").write_text(
-        '[remote "origin"]\n\turl = https://github.com/octocat/Hello-World.git\n',
-        encoding="utf-8",
-    )
-    monkeypatch.chdir(root)
+        github_api.route("GET", f"{repo}/pulls/158", github_json(recorded["pull_request"]))
+        github_api.route("GET", f"{repo}/compare/master...{head}?per_page=1", failure)
+    _a_checkout_of(tmp_path, monkeypatch, "octocat/Hello-World")
 
     result = cli("ai", "analyze", "pr", "158", "--no-enhanced")
 

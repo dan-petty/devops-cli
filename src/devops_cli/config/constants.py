@@ -1036,7 +1036,7 @@ CONST_URL_GITHUB_API_BASE = "https://api.github.com"
 CONST_GITHUB_USER_AGENT: Final[str] = CONST_APP_NAME
 CONST_GITHUB_API_VERSION: Final[str] = "2022-11-28"
 CONST_GITHUB_HEADER_API_VERSION: Final[str] = "x-github-api-version"
-# The media type GitHub serves a pull request's unified diff as.
+# The media type GitHub serves the unified diff of a pull request or of a comparison as.
 CONST_GITHUB_DIFF_MEDIA_TYPE: Final[str] = "application/vnd.github.diff"
 # GitHub lists at most this many files of one compare answer, so a list of this length may be
 # truncated (#2530).

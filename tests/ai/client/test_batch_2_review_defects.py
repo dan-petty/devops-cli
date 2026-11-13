@@ -22,7 +22,7 @@ from devops_cli.ai.review_schema import (
     reset_verification_state,
 )
 from devops_cli.config.settings import AIConfig
-from devops_cli.github.client import CommitRef, PullRequest, PullRequestFile
+from devops_cli.github.client import CommitRef, CompareFiles, PullRequest, PullRequestFile
 from devops_cli.github.session import get_github_session
 from devops_cli.models.ai import ChatMessage
 from tests.support.fakes.github import route_file
@@ -133,25 +133,30 @@ def test_format_pr_review_comment_no_static_scanners_empty() -> None:
 def test_pr_review_conventions_loaded_from_base_ref(
     tmp_path: Path, github_api: GitHubApiFake
 ) -> None:
-    """Base branch conventions take precedence over PR head convention files."""
-    route_file(github_api, "org/repo", "AGENTS.md", "base123", "BASE CONVENTIONS")
+    """Base branch conventions, at the merge base of the base branch and the head, take
+    precedence over PR head convention files."""
+    route_file(github_api, "org/repo", "AGENTS.md", "merge123", "BASE CONVENTIONS")
     pull = PullRequest(
         title="Change the conventions",
         head=CommitRef(sha="head123", ref="feature", repository="fork/repo"),
         base=CommitRef(sha="base123", ref="main", repository="org/repo"),
     )
-    pr_files = [
-        PullRequestFile(filename=name, status=status, additions=1, changes=1)
-        for name, status in (
-            ("AGENTS.md", "modified"),
-            ("src/foo.py", "modified"),
-        )
-    ]
+    compared = CompareFiles(
+        files=[
+            PullRequestFile(filename=name, status=status, additions=1, changes=1)
+            for name, status in (
+                ("AGENTS.md", "modified"),
+                ("src/foo.py", "modified"),
+            )
+        ],
+        truncated=False,
+        merge_base="merge123",
+    )
 
     dest_dir = tmp_path / "target"
     dest_dir.mkdir()
 
-    _materialize_pr_head(get_github_session().client, "org/repo", pull, dest_dir, pr_files)
+    _materialize_pr_head(get_github_session().client, "org/repo", pull, dest_dir, compared)
 
     assert (dest_dir / "AGENTS.md").read_text(encoding="utf-8") == "BASE CONVENTIONS"
 

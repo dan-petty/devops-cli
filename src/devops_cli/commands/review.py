@@ -12,7 +12,6 @@ if TYPE_CHECKING:
     from devops_cli.ai.analyze.symbols import BaseRevision
     from devops_cli.ai.review_schema import ReviewResult
     from devops_cli.config.settings import Settings
-    from devops_cli.github.client import PullRequest
     from devops_cli.review.handoff import HandOff
     from devops_cli.review.score import Agreement, ScoreReport
     from devops_cli.roadmap.intake.intake_requests import SpendMeter
@@ -707,7 +706,6 @@ def branch(
 def _run_pr_review_workflow(
     pages: list[str],
     title: str,
-    pull: PullRequest,
     number: int,
     head_dir: Path,
     base_revision: BaseRevision | None,
@@ -724,11 +722,12 @@ def _run_pr_review_workflow(
 ) -> list[ReviewResult | str]:
     """Execute PR review workflow, using detached worktree if available, else partial context.
 
-    `checkout` is the local checkout of the PR's repository, which the command gives."""
+    `checkout` is the local checkout of the PR's repository, which the command gives. The base
+    worktree is at the merge base that `base_revision` names, which the fetch of the PR head
+    brings (#5346)."""
     from devops_cli.core.repo import get_repo_origin_name
     from devops_cli.git.worktree import fetch_pr_head, review_worktrees_context
 
-    base_sha = pull.base.sha
     local_repo = get_repo_origin_name(checkout)
     if repo_arg is not None and local_repo is not None and repo_arg != local_repo:
         pr_commit = None
@@ -759,7 +758,7 @@ def _run_pr_review_workflow(
     with review_worktrees_context(
         checkout,
         commit_rev=pr_commit,
-        base_rev=base_sha,
+        base_rev=base_revision.revision if base_revision is not None else None,
         session_id=session_id,
     ) as rw:
         return execute_review_workflow(
@@ -911,13 +910,12 @@ def pr(
     checkout = find_repo_root(Path.cwd())
     with tempfile.TemporaryDirectory(prefix=f"devops-review-pr-{number}-") as head_parent:
         head_dir = Path(head_parent)
-        pages, title, pull, repo_name, base_revision = _prepare_pr_content(
+        pages, title, _pull, repo_name, base_revision = _prepare_pr_content(
             number, repo, checkout=checkout, head_dir=head_dir
         )
         reviews = _run_pr_review_workflow(
             pages,
             title,
-            pull,
             number,
             head_dir,
             base_revision,
@@ -941,6 +939,7 @@ def pr(
             head_dir=head_dir,
             repo_name=repo_name,
             number=number,
+            base_revision=base_revision,
         )
 
 

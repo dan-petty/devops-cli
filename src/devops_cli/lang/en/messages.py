@@ -58,6 +58,11 @@ class ReviewMessages:
         "is read."
     )
     fetching_pr: str = "Fetching PR #{number} from {repo}..."
+    pr_compare_at_file_limit: str = (
+        "The compare of PR #{number} and its base branch lists {limit} files, GitHub's limit for "
+        "one comparison, so the review cannot read every file of the pull request. Review its "
+        "branch in a local checkout with `devops review branch`."
+    )
     findings_saved: str = "  ✓ findings saved → {path}"
     review_saved: str = "Review saved → {path}"
     session_not_kept: str = (
@@ -1144,6 +1149,11 @@ class AnalyzeMessages:
     path_not_exists: str = "Path '{path}' does not exist."
     git_branch_failed: str = "Could not determine active git branch."
     github_origin_failed: str = "Could not detect GitHub repository origin URL."
+    pr_compare_at_file_limit: str = (
+        "The compare of PR #{number} and its base branch lists {limit} files, GitHub's limit for "
+        "one comparison: the analysis holds these files and can miss other files of the pull "
+        "request."
+    )
     saved_metadata: str = "✓ Analysis metadata saved to [cyan]{path}[/cyan]"
     would_save_metadata: str = (
         "[yellow][dry-run][/yellow] Would write analysis metadata to: [cyan]{path}[/cyan]"

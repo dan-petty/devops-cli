@@ -35,8 +35,8 @@ from tests.support.fakes.github import (
     pull_request_file_payload,
     pull_request_payload,
     route_file,
-    route_merge_base,
     route_pull_request,
+    route_pull_request_changes,
 )
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.fakes.scanners import ScannerFake
@@ -252,21 +252,21 @@ def test_a_pr_review_reaches_the_personas_with_only_reviewable_files(
     tmp_path: Path, github_api: GitHubApiFake
 ) -> None:
     """Verify `devops review pr` pages hold only `src/app.py`, offline against the GitHub API fake."""
-    route_pull_request(
+    pull = pull_request_payload(
+        title="Add the app and its paperwork",
+        head_sha="head",
+        head_repo="o/r",
+        base_sha="base",
+        base_repo="o/r",
+    )
+    route_pull_request(github_api, "o/r", 1, pull)
+    route_pull_request_changes(
         github_api,
-        "o/r",
-        1,
-        pull_request_payload(
-            title="Add the app and its paperwork",
-            head_sha="head",
-            head_repo="o/r",
-            base_sha="base",
-            base_repo="o/r",
-        ),
-        files=[pull_request_file_payload(rel, "added") for rel in _TEXT],
+        pull,
+        *[pull_request_file_payload(rel, "added") for rel in _TEXT],
+        merge_base="base",
         diff=_diff(tuple(_TEXT)),
     )
-    route_merge_base(github_api, "o/r", "base", "head", "base")
     for rel, text in _TEXT.items():
         route_file(github_api, "o/r", rel, "head", text)
 

@@ -38,7 +38,11 @@ from devops_cli.output import (
     render_review_result,
 )
 from devops_cli.review.session import ReviewSessionStore
-from tests.support.fakes.github import pull_request_payload, route_pull_request
+from tests.support.fakes.github import (
+    pull_request_payload,
+    route_pull_request,
+    route_pull_request_changes,
+)
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.paths import REPO_ROOT
 
@@ -152,11 +156,12 @@ def test_prepare_content_helpers(
         )
         assert (len(b_pages) >= 1, "feat/test" in b_title, b_target) == (True, True, "feat/test")
 
-    route_pull_request(
+    pull_payload = pull_request_payload(title="Mock PR Title", base_repo="owner/repo")
+    route_pull_request(github_api, "owner/repo", 123, pull_payload)
+    route_pull_request_changes(
         github_api,
-        "owner/repo",
-        123,
-        pull_request_payload(title="Mock PR Title"),
+        pull_payload,
+        merge_base="merge789",
         diff="diff --git a/test.py b/test.py\n+content\n",
     )
     pr_pages, pr_title, pull, repo, pr_base = _prepare_pr_content(123, repo_arg="owner/repo")
@@ -180,11 +185,12 @@ def test_a_pr_review_with_no_repo_names_the_origin_of_the_checkout_it_gets(
         "git remote get-url origin",
         ProcessAnswer(stdout="git@github.com:example-org/app.git\n"),
     )
-    route_pull_request(
+    pull_payload = pull_request_payload(title="Origin PR", base_repo="example-org/app")
+    route_pull_request(github_api, "example-org/app", 7, pull_payload)
+    route_pull_request_changes(
         github_api,
-        "example-org/app",
-        7,
-        pull_request_payload(title="Origin PR"),
+        pull_payload,
+        merge_base="merge789",
         diff="diff --git a/app.py b/app.py\n+content\n",
     )
     *_, repo, _base = _prepare_pr_content(7, checkout=checkout)

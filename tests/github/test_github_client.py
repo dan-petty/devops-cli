@@ -1,4 +1,4 @@
-"""Tests for the GitHub client: the typed pull request, file, merge base, repository and issue
+"""Tests for the GitHub client: the typed pull request, comparison, file, repository and issue
 comment calls it makes through the GitHub session, and the gh label client (#891)."""
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from devops_cli.exceptions.git import (
 )
 from devops_cli.github.client import (
     CommitRef,
+    CompareFiles,
     GhCliClient,
     PullRequest,
     PullRequestFile,
@@ -41,6 +42,8 @@ from tests.support.github_identity import faked_children, token_seen
 from tests.support.paths import FIXTURES
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from tests.support.fakes.dns import DnsFake
     from tests.support.fakes.github import GitHubApiFake
 
@@ -51,12 +54,12 @@ _REPOSITORIES = json.loads(
     (FIXTURES / "github" / "hello_world_repositories.json").read_text(encoding="utf-8")
 )
 _PULL = "/repos/octocat/Hello-World/pulls/158"
-_FILES = f"{_PULL}/files?per_page=100"
 _BASE_SHA = "7fd1a60b01f91b314f59955a4e4d4e80d8edf11d"
 _HEAD_SHA = "ec18ca7bca5202d8e139a58b25757dc161255245"
 _README = _RECORDED["readme_contents"]
 _README_AT_BASE = f"/repos/octocat/Hello-World/contents/README?ref={_BASE_SHA}"
 _COMPARE = f"/repos/octocat/Hello-World/compare/{_BASE_SHA}...{_HEAD_SHA}?per_page=1"
+_BRANCH_COMPARE = f"/repos/octocat/Hello-World/compare/master...{_HEAD_SHA}?per_page=1"
 _ORG_REPOS = "/orgs/octocat/repos?type=all&per_page=100"
 _USER_OWNED_REPOS = "/user/repos?affiliation=owner&visibility=all&per_page=100"
 
@@ -64,18 +67,6 @@ _USER_OWNED_REPOS = "/user/repos?affiliation=owner&visibility=all&per_page=100"
 def _client() -> Any:
     """The client of the process's GitHub session, as every caller reaches it."""
     return get_github_session().client
-
-
-def _route_the_recorded_pull_request(api: GitHubApiFake) -> None:
-    """Answer the pull request, and its two pages of files with the `Link` GitHub sent."""
-    api.route("GET", _PULL, github_json(_RECORDED["pull_request"]))
-    first, second = _RECORDED["files_pages"]
-    api.route("GET", _FILES, github_json(first["body"], headers={"link": first["link"]}))
-    api.route(
-        "GET",
-        "/repositories/1296269/pulls/158/files?per_page=1&page=2",
-        github_json(second["body"], headers={"link": second["link"]}),
-    )
 
 
 def _carried(api: GitHubApiFake) -> set[str]:
@@ -110,7 +101,7 @@ def test_a_pull_request_is_read_with_its_title_and_both_commits(
     """The recorded pull request has a title, a base in octocat/Hello-World and a head whose
     repository GitHub reports as null, since the fork it came from was deleted: that head has no
     repository rather than a wrong one."""
-    _route_the_recorded_pull_request(github_api)
+    github_api.route("GET", _PULL, github_json(_RECORDED["pull_request"]))
     pull = _client().get_pull("octocat/Hello-World", 158)
     assert (pull, github_api.requested, _carried(github_api)) == (
         PullRequest(
@@ -162,31 +153,33 @@ def test_a_repository_name_is_encoded_in_the_request(github_api: GitHubApiFake) 
     ]
 
 
-def test_the_files_of_a_pull_request_come_from_every_page(
+def test_the_files_of_a_comparison_come_with_its_merge_base(
     github_api: GitHubApiFake, pin_github_session: str
 ) -> None:
-    """The recorded listing links a second page: both files are read, in order, with the token."""
-    _route_the_recorded_pull_request(github_api)
-    files = _client().get_pull_files("octocat/Hello-World", 158)
-    assert (files, github_api.requested, _carried(github_api)) == (
-        [
-            PullRequestFile(filename="README", status="removed", additions=0, changes=1),
-            PullRequestFile(filename="README.md", status="added", additions=1, changes=1),
-        ],
-        [
-            f"GET https://api.github.com{_FILES}",
-            "GET https://api.github.com/repositories/1296269/pulls/158/files?per_page=1&page=2",
-        ],
+    """The recorded compare of the base branch and the head commit lists both files and names
+    the commit GitHub compared from, in one request with the token of the session."""
+    github_api.route("GET", _BRANCH_COMPARE, github_json(_RECORDED["branch_comparison"]))
+    compared = _client().get_compare_files("octocat/Hello-World", "master", _HEAD_SHA)
+    assert (compared, github_api.requested, _carried(github_api)) == (
+        CompareFiles(
+            files=[
+                PullRequestFile(filename="README", status="removed", additions=0, changes=1),
+                PullRequestFile(filename="README.md", status="added", additions=1, changes=1),
+            ],
+            truncated=False,
+            merge_base=_BASE_SHA,
+        ),
+        [f"GET https://api.github.com{_BRANCH_COMPARE}"],
         {f"token {pin_github_session}"},
     )
 
 
 def test_a_renamed_file_names_its_previous_path(github_api: GitHubApiFake) -> None:
     """GitHub sends `previous_filename` for a renamed file only."""
-    renamed = {**_RECORDED["files_pages"][1]["body"][0], "status": "renamed"}
-    renamed["previous_filename"] = "README"
-    github_api.route("GET", _FILES, github_json([renamed]))
-    assert _client().get_pull_files("octocat/Hello-World", 158) == [
+    recorded = _RECORDED["branch_comparison"]
+    renamed = {**recorded["files"][1], "status": "renamed", "previous_filename": "README"}
+    github_api.route("GET", _BRANCH_COMPARE, github_json({**recorded, "files": [renamed]}))
+    assert _client().get_compare_files("octocat/Hello-World", "master", _HEAD_SHA).files == [
         PullRequestFile(
             filename="README.md",
             status="renamed",
@@ -197,12 +190,15 @@ def test_a_renamed_file_names_its_previous_path(github_api: GitHubApiFake) -> No
     ]
 
 
-def test_a_page_with_a_malformed_file_is_unread(github_api: GitHubApiFake) -> None:
+def test_a_comparison_with_a_malformed_file_is_unread(github_api: GitHubApiFake) -> None:
     """A file without a status raises the unread error, so no list that misses it is returned."""
-    github_api.route("GET", _FILES, github_json([{"filename": "README"}]))
+    recorded = _RECORDED["branch_comparison"]
+    github_api.route(
+        "GET", _BRANCH_COMPARE, github_json({**recorded, "files": [{"filename": "README"}]})
+    )
     with pytest.raises(GitHubUnreadError) as raised:
-        _client().get_pull_files("octocat/Hello-World", 158)
-    assert raised.value.details["path"] == _FILES
+        _client().get_compare_files("octocat/Hello-World", "master", _HEAD_SHA)
+    assert raised.value.details["path"] == _BRANCH_COMPARE
 
 
 def test_a_file_is_read_as_the_text_of_its_contents(
@@ -282,20 +278,6 @@ def test_a_file_that_could_not_be_read_raises_instead_of_reading_as_absent(
     assert str(raised.value) != "" or getattr(raised.value, "error_code", None) is not None
 
 
-def test_the_merge_base_is_read_from_the_compare_endpoint(
-    github_api: GitHubApiFake, pin_github_session: str
-) -> None:
-    """The recorded comparison names the commit the pull request branched from, and asks for one
-    commit only."""
-    github_api.route("GET", _COMPARE, github_json(_RECORDED["comparison"]))
-    merge_base = _client().get_merge_base("octocat/Hello-World", _BASE_SHA, _HEAD_SHA)
-    assert (merge_base, github_api.requested, _carried(github_api)) == (
-        _BASE_SHA,
-        [f"GET https://api.github.com{_COMPARE}"],
-        {f"token {pin_github_session}"},
-    )
-
-
 def test_the_compare_files_are_read_with_the_limit_flag(
     github_api: GitHubApiFake, pin_github_session: str
 ) -> None:
@@ -303,11 +285,12 @@ def test_the_compare_files_are_read_with_the_limit_flag(
     GitHub's limit of 300 files is a possibly truncated list."""
     two = [pull_request_file_payload("README"), pull_request_file_payload("README.md", "added")]
     at_the_limit = [pull_request_file_payload(f"docs/{number}.md") for number in range(300)]
+    merge_base = {"merge_base_commit": {"sha": _BASE_SHA}}
     github_api.route(
         "GET",
         _COMPARE,
-        github_json({"files": two}),
-        github_json({"files": at_the_limit}),
+        github_json({**merge_base, "files": two}),
+        github_json({**merge_base, "files": at_the_limit}),
     )
     whole = _client().get_compare_files("octocat/Hello-World", _BASE_SHA, _HEAD_SHA)
     capped = _client().get_compare_files("octocat/Hello-World", _BASE_SHA, _HEAD_SHA)
@@ -334,9 +317,14 @@ def test_a_compare_answer_with_no_files_is_unread(github_api: GitHubApiFake) -> 
         _client().get_compare_files("octocat/Hello-World", _BASE_SHA, _HEAD_SHA)
 
 
-def test_a_comparison_github_does_not_find_has_no_merge_base(github_api: GitHubApiFake) -> None:
-    """GitHub's 404 for two commits it cannot compare is no merge base."""
-    assert _client().get_merge_base("octocat/Hello-World", _BASE_SHA, "unknown") is None
+def test_a_comparison_github_does_not_find_raises_the_not_found_error(
+    github_api: GitHubApiFake,
+) -> None:
+    """GitHub's 404 for two commits it cannot compare is the not-found error, not an empty
+    list of files."""
+    with pytest.raises(GitHubNotFoundError) as raised:
+        _client().get_compare_files("octocat/Hello-World", _BASE_SHA, "unknown")
+    assert raised.value.error_code == "GITHUB_NOT_FOUND"
 
 
 @pytest.mark.parametrize(
@@ -345,7 +333,9 @@ def test_a_comparison_github_does_not_find_has_no_merge_base(github_api: GitHubA
         pytest.param(
             github_json({"message": "Server Error"}, status=502), GitHubUnreadError, id="502"
         ),
-        pytest.param(github_json({"status": "ahead"}), GitHubUnreadError, id="no-merge-base"),
+        pytest.param(
+            github_json({"status": "ahead", "files": []}), GitHubUnreadError, id="no-merge-base"
+        ),
     ],
 )
 def test_a_comparison_that_could_not_be_read_raises(
@@ -354,7 +344,7 @@ def test_a_comparison_that_could_not_be_read_raises(
     """A 5xx that outlasts the retries, or a comparison without its merge base, is unread."""
     github_api.route("GET", _COMPARE, answer)
     with pytest.raises(error) as raised:
-        _client().get_merge_base("octocat/Hello-World", _BASE_SHA, _HEAD_SHA)
+        _client().get_compare_files("octocat/Hello-World", _BASE_SHA, _HEAD_SHA)
     assert str(raised.value) != "" or getattr(raised.value, "error_code", None) is not None
 
 
@@ -512,6 +502,25 @@ def test_get_pr_diff_normal_and_redirect(
     )
 
 
+def test_the_compare_diff_is_read_as_text(
+    github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    """The diff of two commits is one session request to the compare endpoint, with the diff
+    media type: the diff of `head` since its merge base with `base`."""
+    github_api.route(
+        "GET",
+        "/repos/octo/repo/compare/merge789...abc123",
+        github_text("diff --git a/foo b/foo\n+line", media_type=CONST_GITHUB_DIFF_MEDIA_TYPE),
+    )
+    diff = _client().get_compare_diff("octo/repo", "merge789", "abc123")
+    carried = {(r.headers["accept"], r.headers["authorization"]) for r in github_api.sent}
+    assert (diff, github_api.requested, carried) == (
+        "diff --git a/foo b/foo\n+line",
+        ["GET https://api.github.com/repos/octo/repo/compare/merge789...abc123"],
+        {(CONST_GITHUB_DIFF_MEDIA_TYPE, f"token {pin_github_session}")},
+    )
+
+
 def test_get_pr_diff_empty_diff_returns_empty_string(
     github_api: GitHubApiFake, pin_github_session: str
 ) -> None:
@@ -531,14 +540,31 @@ def test_get_pr_diff_empty_diff_returns_empty_string(
         pytest.param(github_json({"number": 42}), id="json"),
     ],
 )
+@pytest.mark.parametrize(
+    ("path", "read"),
+    [
+        pytest.param(
+            "/repos/octo/repo/pulls/42", lambda client: client.get_pr_diff("octo/repo", 42), id="pr"
+        ),
+        pytest.param(
+            "/repos/octo/repo/compare/merge789...abc123",
+            lambda client: client.get_compare_diff("octo/repo", "merge789", "abc123"),
+            id="compare",
+        ),
+    ],
+)
 def test_an_answer_that_is_no_diff_raises_the_unread_error(
-    github_api: GitHubApiFake, pin_github_session: str, answer: httpx2.Response
+    github_api: GitHubApiFake,
+    pin_github_session: str,
+    answer: httpx2.Response,
+    path: str,
+    read: Callable[[Any], str],
 ) -> None:
     """A diff GitHub did not send as text is unread, not an empty or stringified diff."""
-    github_api.route("GET", "/repos/octo/repo/pulls/42", answer)
+    github_api.route("GET", path, answer)
     with pytest.raises(GitHubUnreadError) as raised:
-        _client().get_pr_diff("octo/repo", 42)
-    assert raised.value.details["path"] == "/repos/octo/repo/pulls/42"
+        read(_client())
+    assert raised.value.details["path"] == path
 
 
 @pytest.fixture

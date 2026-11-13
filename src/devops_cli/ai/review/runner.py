@@ -36,6 +36,7 @@ from devops_cli.ai.review_schema import (
 from devops_cli.config.constants import (
     CONST_GIT_MAIN_BRANCH,
     CONST_GIT_NAME_STATUS_CHANGE_TYPES,
+    CONST_GITHUB_COMPARE_FILES_LIMIT,
     CONST_GITHUB_PR_FILE_CHANGE_TYPES,
 )
 from devops_cli.config.defaults import (
@@ -77,7 +78,7 @@ from devops_cli.telemetry import trace_span
 
 if TYPE_CHECKING:
     from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
-    from devops_cli.github.client import GitHubClient, PullRequest, PullRequestFile
+    from devops_cli.github.client import CompareFiles, GitHubClient, PullRequest, PullRequestFile
     from devops_cli.security.tool_executor import SandboxToolExecutor, ToolExecutor
 
 logger = logging.getLogger(__name__)
@@ -266,17 +267,15 @@ def format_pr_review_comment(
     return f"## 🤖 AI Code Review\n\n{sections}\n"
 
 
-def resolve_pr_files(pages: list[str], repo_name: str, number: int) -> list[str]:
-    """Extract changed file paths from PR pages, or from the pull request's files when the diff
-    holds none."""
-    from devops_cli.github.session import get_github_session
+def resolve_pr_files(pages: list[str], base_revision: BaseRevision | None) -> list[str]:
+    """Extract changed file paths from PR pages, or, when the diff holds none, the files of the
+    compare that the review read, less the deleted ones."""
     from devops_cli.review.diff import diff_file_names
 
     all_files = sorted(list({fn for page in pages for fn in diff_file_names(page)}))
-    if all_files:
+    if all_files or base_revision is None:
         return all_files
-    files = get_github_session().client.get_pull_files(repo_name, number)
-    return [f.filename for f in files if f.status != "removed"]
+    return [c.path for c in base_revision.changes if c.change_type != "deleted"]
 
 
 def post_pr_review_comment(
@@ -285,6 +284,7 @@ def post_pr_review_comment(
     head_dir: Path,
     repo_name: str,
     number: int,
+    base_revision: BaseRevision | None,
 ) -> None:
     """Post formatted review comment to GitHub PR."""
     from devops_cli.dry_run import is_dry_run
@@ -292,7 +292,7 @@ def post_pr_review_comment(
     from devops_cli.lang import MESSAGES
     from devops_cli.output import print_success, print_warning
 
-    all_files = resolve_pr_files(pages, repo_name, number)
+    all_files = resolve_pr_files(pages, base_revision)
     comment_body = format_pr_review_comment(
         reviews=reviews,
         files=all_files,
@@ -926,7 +926,11 @@ def _prepare_pr_content(
     """Fetch PR details, diff blocks, and title for PR review target.
 
     The repository is `repo_arg`, or with none, the origin of the repository at `checkout`,
-    which the command gives (#2127). With `head_dir`, the PR head's changed files are written
+    which the command gives (#2127). The files and the diff are those of the compare of the tip of
+    the PR's base branch and its head commit, which is the diff a squash merge applies: the
+    payload's `base.sha` and the pulls files and diff endpoints keep a stale base after a merge
+    commit moves the merge base (#5346). A compare at GitHub's file limit ends the command, since
+    the review cannot read every file. With `head_dir`, the PR head's changed files are written
     under it, and the base revision they are compared with is returned; without it, there is
     none.
     """
@@ -949,14 +953,21 @@ def _prepare_pr_content(
     print_info(fetch_msg, prefix=False)
     gh = get_github_session().client
     pull = gh.get_pull(repo, number)
-    diff = gh.get_pr_diff(repo, number)
+    base_repo = pull.base.repository or repo
+    compared = gh.get_compare_files(base_repo, pull.base.ref, pull.head.sha)
+    if compared.truncated:
+        limit_err = MESSAGES.review.pr_compare_at_file_limit.format(
+            number=number, limit=CONST_GITHUB_COMPARE_FILES_LIMIT
+        )
+        print_error(limit_err, prefix=False)
+        raise typer.Exit(1)
+    diff = gh.get_compare_diff(base_repo, compared.merge_base, pull.head.sha)
     title = f"PR #{number}: {pull.title}"
     head_dir: Path | None = kwargs.get("head_dir")
     base_revision: BaseRevision | None = None
     if head_dir is not None:
-        pr_files = gh.get_pull_files(repo, number)
-        _materialize_pr_head(gh, repo, pull, head_dir, pr_files)
-        base_revision = _pr_base_revision(gh, repo, pull, pr_files)
+        _materialize_pr_head(gh, repo, pull, head_dir, compared)
+        base_revision = _pr_base_revision(gh, base_repo, compared)
     path_classes = load_path_classes(base_revision=base_revision)
     pages = [redact_text(p) for p in diff_blocks(diff, path_classes=path_classes)]
     if base_revision is not None and base_revision.changes:
@@ -974,36 +985,36 @@ def _pr_changed_file(pr_file: PullRequestFile) -> ChangedFile:
     )
 
 
-def _pr_base_revision(
-    gh: GitHubClient, repo: str, pull: PullRequest, pr_files: Sequence[PullRequestFile]
-) -> BaseRevision:
+def _pr_base_revision(gh: GitHubClient, base_repo: str, compared: CompareFiles) -> BaseRevision:
     """The PR's changed files, and a reader for their text at its merge base in the base repo.
 
-    `pull.base.sha` is the base branch's tip, which can be ahead of the merge base: read there,
-    a PR branched earlier would list symbols added on the base since as removed. When GitHub has
-    no merge base for the two commits, nothing is read, and a modified file's delta stays
-    unknown; a comparison that fails to be read raises.
+    The merge base is the one GitHub compared the tip of the base branch from. The tip itself can
+    be ahead of it: read there, a PR branched earlier would list symbols added on the base since
+    as removed. The merge base is also the `revision` of the base worktree, since the fetch of
+    the PR head brings it to the local repository.
     """
-    base_repo = pull.base.repository or repo
-    merge_base = gh.get_merge_base(base_repo, pull.base.sha, pull.head.sha)
-    if merge_base is None:
-        logger.debug("No merge base for %s...%s in %s", pull.base.sha, pull.head.sha, base_repo)
+    merge_base = compared.merge_base
 
     def read(path: str) -> str | None:
-        return gh.get_file_at(base_repo, path, merge_base) if merge_base else None
+        return gh.get_file_at(base_repo, path, merge_base)
 
-    return BaseRevision(changes=tuple(_pr_changed_file(f) for f in pr_files), read=read)
+    return BaseRevision(
+        changes=tuple(_pr_changed_file(f) for f in compared.files),
+        read=read,
+        revision=merge_base,
+    )
 
 
 def _materialize_pr_head(
-    gh: GitHubClient, repo: str, pull: PullRequest, dest: Path, pr_files: Sequence[PullRequestFile]
+    gh: GitHubClient, repo: str, pull: PullRequest, dest: Path, compared: CompareFiles
 ) -> int:
-    """Write PR head's version of changed files, and base conventions, under `dest`."""
+    """Write PR head's version of the changed files of `compared`, and the base conventions at
+    its merge base, under `dest`."""
     from devops_cli.ai.review.review_environment import _TARGET_CONVENTIONS_CANDIDATES
 
     head_repo = pull.head.repository or repo
     base_repo = pull.base.repository or repo
-    changed = [f.filename for f in pr_files if f.status != "removed"]
+    changed = [f.filename for f in compared.files if f.status != "removed"]
     convention_files = set(_TARGET_CONVENTIONS_CANDIDATES)
     root = dest.resolve()
     written = 0
@@ -1012,7 +1023,7 @@ def _materialize_pr_head(
         target = (root / rel).resolve()
         if not target.is_relative_to(root):
             continue
-        text = gh.get_file_at(base_repo, rel, pull.base.sha)
+        text = gh.get_file_at(base_repo, rel, compared.merge_base)
         if text is not None:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(text, encoding="utf-8")

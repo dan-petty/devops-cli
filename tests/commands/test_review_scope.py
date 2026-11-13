@@ -1,5 +1,5 @@
 """A review reads the code under review: the PR's own files, each file's own pages, every lockfile
-(#515), and the PR's base at its merge base (#593)."""
+(#515), and the PR's base at the merge base of its base branch (#593, #5346)."""
 
 from __future__ import annotations
 
@@ -26,17 +26,20 @@ from devops_cli.ai.review.runner import (
     run_orchestrator_review,
 )
 from devops_cli.ai.review_schema import SavedFinding
-from devops_cli.github.client import CommitRef, PullRequest, PullRequestFile
+from devops_cli.config.constants import CONST_GITHUB_COMPARE_FILES_LIMIT
+from devops_cli.github.client import CommitRef, CompareFiles, PullRequest, PullRequestFile
 from devops_cli.github.session import get_github_session
 from devops_cli.models.git import ChangedFile
+from devops_cli.review.diff import diff_file_names
 from tests.support.fakes.github import (
     github_json,
-    github_text,
     pull_request_file_payload,
     pull_request_payload,
+    route_compare_diff,
+    route_compare_files,
     route_file,
-    route_merge_base,
     route_pull_request,
+    route_pull_request_changes,
 )
 from tests.support.paths import FIXTURES
 
@@ -57,6 +60,11 @@ def _pull() -> PullRequest:
     )
 
 
+def _compared(*files: PullRequestFile) -> CompareFiles:
+    """The compare of the base branch of `_pull()` and its head: `files`, from `_MERGE_BASE`."""
+    return CompareFiles(files=list(files), truncated=False, merge_base=_MERGE_BASE)
+
+
 def _read_in(api: GitHubApiFake, repo: str) -> list[tuple[str, str]]:
     """The path and ref of each file of `repo` the fake was asked for, in order."""
     contents = f"/repos/{repo}/contents/"
@@ -71,24 +79,25 @@ def test_a_pr_checkout_carries_no_review_guards_file_from_the_base(
     tmp_path: Path, github_api: GitHubApiFake, pin_github_session: str
 ) -> None:
     """Verify a pull request checkout takes `AGENTS.md` from the base and no `.devops/review.md` (#1916)."""
-    route_file(github_api, "base/app", "AGENTS.md", "base456", "# Conventions\n")
-    route_file(github_api, "base/app", ".devops/review.md", "base456", "# Review rules\n")
+    route_file(github_api, "base/app", "AGENTS.md", _MERGE_BASE, "# Conventions\n")
+    route_file(github_api, "base/app", ".devops/review.md", _MERGE_BASE, "# Review rules\n")
 
-    _materialize_pr_head(get_github_session().client, "base/app", _pull(), tmp_path, [])
+    _materialize_pr_head(get_github_session().client, "base/app", _pull(), tmp_path, _compared())
 
     assert (
         (tmp_path / "AGENTS.md").read_text(encoding="utf-8"),
         (tmp_path / ".devops/review.md").exists(),
-        (".devops/review.md", "base456") in _read_in(github_api, "base/app"),
+        (".devops/review.md", _MERGE_BASE) in _read_in(github_api, "base/app"),
     ) == ("# Conventions\n", False, False)
 
 
 def test_a_pr_review_reads_the_pr_heads_files_and_conventions(
     tmp_path: Path, github_api: GitHubApiFake, pin_github_session: str
 ) -> None:
-    """Verify changed files are written from head repo, and conventions are safely loaded from base (#658)."""
+    """Verify changed files are written from head repo, and conventions are safely loaded from
+    the base at the merge base (#658, #5346)."""
     route_file(github_api, "fork/app", "src/app.py", "abc123", "print('head version')\n")
-    route_file(github_api, "base/app", "AGENTS.md", "base456", "# Conventions\n")
+    route_file(github_api, "base/app", "AGENTS.md", _MERGE_BASE, "# Conventions\n")
     files = [
         PullRequestFile(filename=name, status=status, additions=1, changes=1)
         for name, status in (
@@ -99,7 +108,7 @@ def test_a_pr_review_reads_the_pr_heads_files_and_conventions(
     ]
 
     written = _materialize_pr_head(
-        get_github_session().client, "base/app", _pull(), tmp_path, files
+        get_github_session().client, "base/app", _pull(), tmp_path, _compared(*files)
     )
 
     assert (
@@ -131,23 +140,23 @@ def test_the_pr_command_reviews_against_the_pr_head(
     """Verify the review's target directory holds the PR head's files, not the local checkout."""
     from tests.support.fakes.model import LLMResponse
 
-    route_pull_request(
+    pull = pull_request_payload(
+        title="Change the app",
+        head_sha="abc123",
+        base_sha="base456",
+        head_repo="fork/app",
+        base_repo="base/app",
+    )
+    route_pull_request(github_api, "base/app", 7, pull)
+    route_pull_request_changes(
         github_api,
-        "base/app",
-        7,
-        pull_request_payload(
-            title="Change the app",
-            head_sha="abc123",
-            base_sha="base456",
-            head_repo="fork/app",
-            base_repo="base/app",
-        ),
-        files=[pull_request_file_payload("app.py", "added")],
+        pull,
+        pull_request_file_payload("app.py", "added"),
+        merge_base=_MERGE_BASE,
         diff="diff --git a/app.py b/app.py\n--- /dev/null\n+++ b/app.py\n@@ -0,0 +1 @@\n+head\n",
     )
     route_file(github_api, "fork/app", "app.py", "abc123", "head\n")
-    route_file(github_api, "base/app", "AGENTS.md", "base456", "# Conventions\n")
-    route_merge_base(github_api, "base/app", "base456", "abc123", _MERGE_BASE)
+    route_file(github_api, "base/app", "AGENTS.md", _MERGE_BASE, "# Conventions\n")
 
     model_fake.answer(LLMResponse(content="[]", model="fake-model"))
 
@@ -161,32 +170,27 @@ def test_the_pr_command_reviews_against_the_pr_head(
     assert "Files Reviewed       1" in result.stdout
 
 
-def test_a_pr_review_of_the_recorded_pull_request_reads_both_pages_of_files(
+def test_a_pr_review_of_the_recorded_pull_request_reads_the_compare_of_its_base_branch(
     tmp_path: Path, github_api: GitHubApiFake, pin_github_session: str
 ) -> None:
-    """The recorded pull request lists its files on two pages, and its fork was deleted, so GitHub
-    reports its head repository as null: the review has the title and both files, and reads the
-    head's text from the base repository, at the head commit."""
+    """The recorded compare of the base branch and the head commit lists both files of the pull
+    request, whose fork was deleted, so GitHub reports its head repository as null: the review has
+    the title and both files, and reads the head's text from the base repository, at the head
+    commit."""
     recorded = json.loads(
         (FIXTURES / "github" / "hello_world_pull_request.json").read_text(encoding="utf-8")
     )
-    first, second = recorded["files_pages"]
+    comparison = recorded["branch_comparison"]
     repo = "octocat/Hello-World"
+    github_api.route("GET", f"/repos/{repo}/pulls/158", github_json(recorded["pull_request"]))
     github_api.route(
         "GET",
-        f"/repos/{repo}/pulls/158",
-        github_json(recorded["pull_request"]),
-        github_text("diff --git a/README.md b/README.md\n+x\n", media_type="text/plain"),
+        f"/repos/{repo}/compare/master...{_HEAD_OF_158}?per_page=1",
+        github_json(comparison),
     )
-    github_api.route(
-        "GET",
-        f"/repos/{repo}/pulls/158/files?per_page=100",
-        github_json(first["body"], headers={"link": first["link"]}),
-    )
-    github_api.route(
-        "GET",
-        "/repositories/1296269/pulls/158/files?per_page=1&page=2",
-        github_json(second["body"], headers={"link": second["link"]}),
+    merge_base = comparison["merge_base_commit"]["sha"]
+    route_compare_diff(
+        github_api, repo, merge_base, _HEAD_OF_158, "diff --git a/README.md b/README.md\n+x\n"
     )
     route_file(github_api, repo, "README.md", _HEAD_OF_158, "**Hello World!**\n")
 
@@ -197,6 +201,7 @@ def test_a_pr_review_of_the_recorded_pull_request_reads_both_pages_of_files(
         title,
         pull.head.repository,
         base_revision.changes,
+        base_revision.revision,
         (tmp_path / "README.md").read_text(encoding="utf-8"),
         [path for path, ref in _read_in(github_api, repo) if ref == _HEAD_OF_158],
         {request.headers["authorization"] for request in github_api.sent},
@@ -207,9 +212,107 @@ def test_a_pr_review_of_the_recorded_pull_request_reads_both_pages_of_files(
             ChangedFile(change_type="deleted", path="README"),
             ChangedFile(change_type="added", path="README.md"),
         ),
+        merge_base,
         "**Hello World!**\n",
         ["README.md"],
         {f"token {pin_github_session}"},
+    )
+
+
+def test_a_pr_review_reads_the_changes_at_the_merge_base_of_its_base_branch(
+    tmp_path: Path, github_api: GitHubApiFake
+) -> None:
+    """A merge of the base branch into the pull request moved its merge base, and GitHub kept
+    the payload's `base.sha` and the file list of the pulls endpoints at the old base (#5346).
+    The review reads the files and the diff of the compare of the base branch and the head
+    commit, and the base text and the conventions at the merge base of that compare. No request
+    names `base.sha` or the pulls files path, and the diff of the pulls endpoint is not read."""
+    pull = pull_request_payload(base_sha="stale456")
+    route_pull_request(
+        github_api,
+        "base/app",
+        7,
+        pull,
+        files=[pull_request_file_payload("mod.py"), pull_request_file_payload("main_only.py")],
+        diff="diff --git a/main_only.py b/main_only.py\n@@ -1 +1 @@\n-y = 1\n+y = 2\n",
+    )
+    route_pull_request_changes(
+        github_api,
+        pull,
+        pull_request_file_payload("mod.py"),
+        merge_base=_MERGE_BASE,
+        diff="diff --git a/mod.py b/mod.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n",
+    )
+    route_file(github_api, "fork/app", "mod.py", "abc123", "x = 2\n")
+    for ref, mod, conventions in (
+        (_MERGE_BASE, "x = 1\n", "# Conventions at the merge base\n"),
+        ("stale456", "x = 0\n", "# Conventions at the stale base\n"),
+    ):
+        route_file(github_api, "base/app", "mod.py", ref, mod)
+        route_file(github_api, "base/app", "AGENTS.md", ref, conventions)
+
+    pages, _title, _pull, _repo, base_revision = _prepare_pr_content(
+        7, "base/app", head_dir=tmp_path
+    )
+
+    assert base_revision is not None
+    assert (
+        [name for page in pages for name in diff_file_names(page)],
+        base_revision.changes,
+        base_revision.read("mod.py"),
+        base_revision.revision,
+        (tmp_path / "AGENTS.md").read_text(encoding="utf-8"),
+        (tmp_path / "main_only.py").exists(),
+        [request for request in github_api.requested if "/contents/" not in request],
+        {ref for _path, ref in _read_in(github_api, "base/app")},
+    ) == (
+        ["mod.py"],
+        (ChangedFile(change_type="modified", path="mod.py"),),
+        "x = 1\n",
+        _MERGE_BASE,
+        "# Conventions at the merge base\n",
+        False,
+        [
+            "GET https://api.github.com/repos/base/app/pulls/7",
+            "GET https://api.github.com/repos/base/app/compare/main...abc123?per_page=1",
+            f"GET https://api.github.com/repos/base/app/compare/{_MERGE_BASE}...abc123",
+        ],
+        {_MERGE_BASE},
+    )
+
+
+def test_a_pr_review_refuses_a_comparison_at_the_file_limit(
+    cli: Callable[..., Any], github_api: GitHubApiFake
+) -> None:
+    """GitHub lists at most `CONST_GITHUB_COMPARE_FILES_LIMIT` files of one comparison. A list at
+    that limit can miss files of the pull request, and the review would miss their changes: the
+    command ends with status 1 and a message that names the limit, and reads no diff."""
+    route_pull_request(github_api, "base/app", 7, pull_request_payload())
+    route_compare_files(
+        github_api,
+        "base/app",
+        "main",
+        "abc123",
+        *[
+            pull_request_file_payload(f"src/{number}.py")
+            for number in range(CONST_GITHUB_COMPARE_FILES_LIMIT)
+        ],
+        merge_base=_MERGE_BASE,
+    )
+
+    result = cli("review", "pr", "7", "--repo", "base/app", "--pre-analysis-only")
+
+    output = " ".join(result.output.split())
+    assert (
+        result.exit_code,
+        f"{CONST_GITHUB_COMPARE_FILES_LIMIT} files" in output,
+        "devops review branch" in output,
+        [request for request in github_api.requested if "/compare/" in request],
+    ) == (
+        1,
+        True,
+        True,
+        ["GET https://api.github.com/repos/base/app/compare/main...abc123?per_page=1"],
     )
 
 
@@ -219,24 +322,22 @@ def test_a_pr_review_reads_the_base_at_the_merge_base_and_records_the_delta(
     """Verify a PR review reads each modified or renamed Python file from the base repository at
     the merge base, a renamed one at its old path, and records the delta in the session (#593).
 
-    `pull.base.sha` is the base branch's tip: read there, symbols added on the base since the
-    branch point would count as removed by the PR.
+    `pull.base.sha` is a tip of the base branch that GitHub recorded earlier: read there, symbols
+    added on the base since the branch point would count as removed by the PR.
     """
     monkeypatch.setenv("DEVOPS_CLI_DATA_ANALYSIS_DIR", str(tmp_path / "analysis"))
-    route_pull_request(
+    pull = pull_request_payload()
+    route_pull_request(github_api, "base/app", 7, pull)
+    route_pull_request_changes(
         github_api,
-        "base/app",
-        7,
-        pull_request_payload(),
-        files=[
-            pull_request_file_payload("mod.py", "modified"),
-            pull_request_file_payload("new_name.py", "renamed", previous_filename="old_name.py"),
-            pull_request_file_payload("added.py", "added"),
-            pull_request_file_payload("gone.py", "removed"),
-        ],
+        pull,
+        pull_request_file_payload("mod.py", "modified"),
+        pull_request_file_payload("new_name.py", "renamed", previous_filename="old_name.py"),
+        pull_request_file_payload("added.py", "added"),
+        pull_request_file_payload("gone.py", "removed"),
+        merge_base=_MERGE_BASE,
         diff="diff --git a/mod.py b/mod.py\n@@ -1,5 +1,2 @@\n-def legacy_helper():\n",
     )
-    route_merge_base(github_api, "base/app", "base456", "abc123", _MERGE_BASE)
     for repo, path, ref, text in (
         ("fork/app", "mod.py", "abc123", "def keep():\n    return 1\n"),
         (
@@ -294,7 +395,10 @@ def test_a_pr_review_reads_the_base_at_the_merge_base_and_records_the_delta(
     }
     compared = [r for r in github_api.requested if "/compare/" in r]
     assert (compared, source_base_reads, deltas) == (
-        ["GET https://api.github.com/repos/base/app/compare/base456...abc123?per_page=1"],
+        [
+            "GET https://api.github.com/repos/base/app/compare/main...abc123?per_page=1",
+            f"GET https://api.github.com/repos/base/app/compare/{_MERGE_BASE}...abc123",
+        ],
         [("mod.py", _MERGE_BASE), ("old_name.py", _MERGE_BASE)],
         {
             "mod.py": ([], ["legacy_helper"], ["keep"]),
@@ -308,17 +412,17 @@ def test_a_pr_review_reads_the_merge_base_from_the_base_repository_the_pull_requ
     tmp_path: Path, github_api: GitHubApiFake
 ) -> None:
     """GitHub serves a pull request under the old name of a renamed repository, and reports the
-    base repository by its full name: the merge base and the base files are read there, not under
+    base repository by its full name: the comparison and the base files are read there, not under
     the name the review was asked for."""
-    route_pull_request(
+    pull = pull_request_payload()
+    route_pull_request(github_api, "old/app", 7, pull)
+    route_pull_request_changes(
         github_api,
-        "old/app",
-        7,
-        pull_request_payload(),
-        files=[pull_request_file_payload("mod.py")],
+        pull,
+        pull_request_file_payload("mod.py"),
+        merge_base=_MERGE_BASE,
         diff="diff --git a/mod.py b/mod.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n",
     )
-    route_merge_base(github_api, "base/app", "base456", "abc123", _MERGE_BASE)
     route_file(github_api, "fork/app", "mod.py", "abc123", "x = 2\n")
     route_file(github_api, "base/app", "mod.py", _MERGE_BASE, "x = 1\n")
 
@@ -331,22 +435,25 @@ def test_a_pr_review_reads_the_merge_base_from_the_base_repository_the_pull_requ
         _read_in(github_api, "old/app"),
     ) == (
         "x = 1\n",
-        ["GET https://api.github.com/repos/base/app/compare/base456...abc123?per_page=1"],
+        [
+            "GET https://api.github.com/repos/base/app/compare/main...abc123?per_page=1",
+            f"GET https://api.github.com/repos/base/app/compare/{_MERGE_BASE}...abc123",
+        ],
         [],
     )
 
 
 def _route_a_modified_python_file(api: GitHubApiFake) -> None:
     """Serve pull request 7 of base/app, which modifies mod.py, with its head text and merge base."""
-    route_pull_request(
+    pull = pull_request_payload()
+    route_pull_request(api, "base/app", 7, pull)
+    route_pull_request_changes(
         api,
-        "base/app",
-        7,
-        pull_request_payload(),
-        files=[pull_request_file_payload("mod.py")],
+        pull,
+        pull_request_file_payload("mod.py"),
+        merge_base=_MERGE_BASE,
         diff="diff --git a/mod.py b/mod.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n",
     )
-    route_merge_base(api, "base/app", "base456", "abc123", _MERGE_BASE)
     route_file(api, "fork/app", "mod.py", "abc123", "x = 2\n")
 
 
