@@ -6,14 +6,14 @@ Kind: behavior. Reads: `k8s/otel/values.yaml`, `src/devops_cli/telemetry/tracer.
 
 - [x] 1.1 Add `test_the_collector_deletes_the_host_name_of_devops_cli_metrics_before_it_adds_them_up` to `tests/telemetry/test_telemetry_instruments.py`: the processors before `deltatocumulative` are `memory_limiter` and `transform/metric_resource`, and its one resource statement deletes `host.name` where `telemetry.sdk.name` equals the SDK name of an exported metric
   - Verification: `$ uv run devops ci test tests/telemetry/test_telemetry_instruments.py` fails on the base
-- [x] 1.2 Add `transform/metric_resource` with `error_mode: ignore` to `k8s/otel/values.yaml` and put it in the metrics pipeline after `memory_limiter` and before `deltatocumulative`. Rename `test_counters_are_monotonic_deltas_from_the_host_not_the_process` to `test_counters_are_monotonic_deltas_from_the_workload_not_the_process`
+- [x] 1.2 Add `transform/metric_resource` with `error_mode: ignore` to `k8s/otel/values.yaml` and put it in the metrics pipeline after `memory_limiter` and before `deltatocumulative`. Rename `test_counters_are_monotonic_deltas_from_the_host_not_the_process` to `test_counters_are_monotonic_deltas_from_the_workload_not_the_process`. In `test_otel_collector_sends_metrics_to_the_prometheus_otlp_receiver` of `tests/commands/k8s/test_k8s_monitoring_integration.py`, read only the datapoint statements, because the resource statement has its own test
   - Verification: `$ uv run devops ci test tests/telemetry/test_telemetry_instruments.py` passes
 
 ## 2. Guard the metric Resource of the tracer
 
 Kind: test-only. Reads: `src/devops_cli/telemetry/tracer.py`, `tests/telemetry/test_telemetry.py`. Changes: `tests/telemetry/test_telemetry.py`.
 
-- [ ] 2.1 Add `test_a_workstation_metric_resource_names_its_host_as_the_instance`: with no `OTEL_RESOURCE_ATTRIBUTES` and a known `platform.node()`, the metric Resource equals the literal allowlisted dict with the host name as `service.instance.id`. In `test_two_tracers_with_one_instance_send_equal_metric_resources`, put `host.name` and `k8s.pod.name` of each pod in `OTEL_RESOURCE_ATTRIBUTES`. Prove each test with a mutation of `_ensure_meter` in `src/devops_cli/telemetry/tracer.py` that is not committed: a constant `service.instance.id`, and the Resource built without the filter
+- [x] 2.1 Add `test_a_workstation_metric_resource_names_its_host_as_the_instance`: with no `OTEL_RESOURCE_ATTRIBUTES` and a known `platform.node()`, the metric Resource equals the literal allowlisted dict with the host name as `service.instance.id`. In `test_two_tracers_with_one_instance_send_equal_metric_resources`, put `host.name` and `k8s.pod.name` of each pod in `OTEL_RESOURCE_ATTRIBUTES`. Prove each test with a mutation of `_ensure_meter` in `src/devops_cli/telemetry/tracer.py` that is not committed: a constant `service.instance.id`, and the Resource built without the filter
   - Verification: `$ uv run devops ci test tests/telemetry/test_telemetry.py` passes
 
 ## 3. Rewrite the alert and pin its promtool cases
