@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import functools
+import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -13,6 +14,7 @@ from cel_expr_python import cel
 
 from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS,
+    CONST_ROADMAP_STAGE_JOB_DEADLINE_SECONDS,
     CONST_ROADMAP_STAGE_JOB_SECRET_KEYS,
 )
 from devops_cli.github.repo_ref import RepoRef
@@ -494,6 +496,30 @@ def _set_env_from(source: dict[str, Any]) -> Mutation:
     return lambda job: _container(job).update(envFrom=[source])
 
 
+def _set_arg(index: int, value: str) -> Mutation:
+    return lambda job: _container(job)["args"].__setitem__(index, value)
+
+
+def _add_arg(value: str) -> Mutation:
+    return lambda job: _container(job)["args"].append(value)
+
+
+def _set_plain_env(name: str, value: str | None) -> Mutation:
+    """Set the plain environment value `name` of the container, or remove it when `value` is
+    None."""
+
+    def mutate(job: dict[str, Any]) -> None:
+        container = _container(job)
+        container["env"] = [entry for entry in container["env"] if entry["name"] != name]
+        if value is not None:
+            container["env"].append({"name": name, "value": value})
+
+    return mutate
+
+
+TOKEN_REPOSITORY_ENV = "DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY"
+
+
 def _set_component(value: str | None) -> Mutation:
     def mutate(job: dict[str, Any]) -> None:
         labels = job["spec"]["template"]["metadata"]["labels"]
@@ -538,7 +564,12 @@ def check_the_stage_job_from_the_template_passes_in_every_image_form() -> None:
             _set_env_from({"secretRef": {"name": "devops-cli"}}), "envFrom", id="env-from"
         ),
         pytest.param(
-            _add_secret_key("devops-cli", "DEVOPS_CLI_VALKEY_PASSWORD"), "valueFrom", id="4th-key"
+            _add_secret_key("devops-cli", "DEVOPS_CLI_VALKEY_PASSWORD"), "valueFrom", id="3rd-key"
+        ),
+        pytest.param(
+            _add_secret_key("devops-cli", "DEVOPS_CLI_MCP_STAGE_TOKEN"),
+            "valueFrom",
+            id="mcp-token",
         ),
         pytest.param(
             _add_secret_key("other", "DEVOPS_CLI_AI_API_KEY"), "valueFrom", id="other-secret"
@@ -568,6 +599,31 @@ def check_the_stage_job_from_the_template_passes_in_every_image_form() -> None:
             "deadline",
             id="deadline-over-the-cap",
         ),
+        pytest.param(
+            _set_spec(activeDeadlineSeconds=CONST_ROADMAP_STAGE_JOB_DEADLINE_SECONDS + 1),
+            "deadline",
+            id="deadline-over-the-stage-deadline",
+        ),
+        pytest.param(
+            _set_spec(activeDeadlineSeconds=CONST_ROADMAP_STAGE_JOB_DEADLINE_SECONDS - 1),
+            "deadline",
+            id="deadline-under-the-stage-deadline",
+        ),
+        pytest.param(_set_arg(1, "implement"), "args", id="other-command"),
+        pytest.param(_set_arg(5, "0"), "args", id="item-0"),
+        pytest.param(_set_arg(5, "7 --plan"), "args", id="item-not-a-number"),
+        pytest.param(_add_arg("--plan"), "args", id="extra-arg"),
+        pytest.param(
+            _set_plain_env("DEVOPS_CLI_AI_BASE_URL", "https://example.com"),
+            "plain env",
+            id="extra-plain-env",
+        ),
+        pytest.param(
+            _set_plain_env(TOKEN_REPOSITORY_ENV, "example/other"),
+            "plain env",
+            id="token-for-another-repository",
+        ),
+        pytest.param(_set_plain_env(TOKEN_REPOSITORY_ENV, None), "plain env", id="no-token-repo"),
         pytest.param(_set_resources(cpu="2"), "size", id="other-cpu"),
         pytest.param(_set_resources(limit="4Gi"), "size", id="other-memory-limit"),
         pytest.param(_set_component(None), "label", id="no-component"),
@@ -603,10 +659,14 @@ def _drop_secret_keys(job: dict[str, Any]) -> None:
     container["env"] = [entry for entry in container["env"] if "valueFrom" not in entry]
 
 
-def check_the_stage_job_may_read_exactly_the_three_keys_of_the_secret() -> None:
+def check_the_stage_job_may_read_exactly_the_keys_of_the_constant() -> None:
     """The policy admits each key of `CONST_ROADMAP_STAGE_JOB_SECRET_KEYS`, which the template
-    reads, and refuses a key of the Secret that a stage Job does not need."""
-    keys = (*CONST_ROADMAP_STAGE_JOB_SECRET_KEYS, "DEVOPS_CLI_MCP_IMPLEMENT_TOKEN")
+    reads, and refuses a key of the Secret that a stage Job does not need, such as an MCP token."""
+    keys = (
+        *CONST_ROADMAP_STAGE_JOB_SECRET_KEYS,
+        "DEVOPS_CLI_MCP_STAGE_TOKEN",
+        "DEVOPS_CLI_MCP_IMPLEMENT_TOKEN",
+    )
 
     admitted = [
         key
@@ -615,6 +675,22 @@ def check_the_stage_job_may_read_exactly_the_three_keys_of_the_secret() -> None:
     ]
 
     assert admitted == list(CONST_ROADMAP_STAGE_JOB_SECRET_KEYS)
+
+
+def check_the_plain_env_names_of_a_stage_job_are_those_of_the_template_and_the_service() -> None:
+    """The policy names each plain environment value that a stage Job may set: those of CronJob
+    roadmap-stage and those of `stage_job_env`. A new value in either place needs a row here."""
+    (rule,) = (
+        item["expression"]
+        for item in _object("ValidatingAdmissionPolicy", POLICY_NAME)["spec"]["validations"]
+        if "plain env" in item["message"]
+    )
+    listed = set(re.findall(r'"([A-Z0-9_]+)"', rule.partition("e.name in")[2]))
+    template = _object("CronJob", STAGE_TEMPLATE.cronjob)
+    (container,) = template["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"]
+    plain = {entry["name"] for entry in container["env"] if "valueFrom" not in entry}
+
+    assert listed == plain | set(stage_job_env(STAGE_REPO, "x", STAGE_DEADLINE))
 
 
 def check_the_service_may_delete_a_stage_job_and_no_other_job() -> None:

@@ -3804,12 +3804,12 @@ CONST_ROADMAP_STAGE_ORPHAN_AGE_SECONDS: Final[int] = 3600
 CONST_ROADMAP_STAGE_JOB_DEADLINE_SECONDS: Final[int] = 10800
 CONST_ROADMAP_STAGE_JOB_MARGIN_SECONDS: Final[int] = 1800
 # The keys of Secret devops-cli that a stage Job reads, each in the variable of its name: the
-# private key of the App, the key of the gateway and the token of the stage role of the MCP
-# server. The admission policy `roadmap-service-jobs` admits these keys and no other.
+# private key of the App and the key of the gateway. The admission policy `roadmap-service-jobs`
+# admits these keys and no other. The MCP client of the stage job is off (`roadmap.stage.mcp`),
+# and the MCP server accepts one token for every role, so the pod gets no MCP token.
 CONST_ROADMAP_STAGE_JOB_SECRET_KEYS: Final[tuple[str, ...]] = (
     "DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY",
     "DEVOPS_CLI_AI_API_KEY",
-    "DEVOPS_CLI_MCP_STAGE_TOKEN",
 )
 # The settings whose variables the Service sets on a stage Job: the name of the Job and the time
 # at which its deadline ends.

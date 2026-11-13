@@ -6,7 +6,7 @@ The stage job runs in the pod of the roadmap Service (#5483, part 1 of 2 of #455
 
 ## What Changes
 
-- A suspended CronJob `roadmap-stage` is the template of the stage Job: the Service image in container `stage`, ServiceAccount `devops-cli` with no token, 3 keys of Secret `devops-cli` through `secretKeyRef` and no `envFrom`, 250m CPU and 1 Gi requested and 1 CPU and 2 Gi at most, `activeDeadlineSeconds: 10800`, and `backoffLimit: 2` with a `podFailurePolicy` that ignores a disruption and fails the Job on each exit code but 75.
+- A suspended CronJob `roadmap-stage` is the template of the stage Job: the Service image in container `stage`, ServiceAccount `devops-cli` with no token, 2 keys of Secret `devops-cli` through `secretKeyRef` (the private key of the App and the key of the gateway, no MCP token while `roadmap.stage.mcp` is off) and no `envFrom`, 250m CPU and 1 Gi requested and 1 CPU and 2 Gi at most, `activeDeadlineSeconds: 10800`, and `backoffLimit: 2` with a `podFailurePolicy` that ignores a disruption and fails the Job on each exit code but 75.
 - The admission policy `roadmap-service-jobs` gets the variable `stage` (a name that starts with `devops-cli-stage-`) and checks a stage Job with its own rules for the image, the secret keys, the retries, the resources and the component label. A runner Job keeps every rule, and may not carry the stage component or a `podFailurePolicy`. The new policy `roadmap-service-job-deletes` admits the `DELETE` of a stage Job by the Service and refuses any other.
 - The Role `roadmap-service-jobs` gets `delete` on `jobs` and `get` on CronJob `roadmap-stage`.
 - `searxng-stage-clients` and `searxng-perimeter` admit the pod of a stage Job to SearXNG on TCP 8080, for the tool `search_web` of the planner. A runner Job pod still cannot reach SearXNG.
@@ -35,7 +35,7 @@ None.
 - Code: `src/devops_cli/k8s/cluster_job.py`, `src/devops_cli/k8s/cluster_job_api.py`, `src/devops_cli/k8s/api.py`, `src/devops_cli/commands/k8s/cluster_jobs.py`, `src/devops_cli/commands/roadmap.py`, `src/devops_cli/roadmap/stage/stage.py`, `src/devops_cli/roadmap/stage/stage_pending.py`, `src/devops_cli/roadmap/stage/stage_job.py`, `src/devops_cli/roadmap/stores/store.py`, `src/devops_cli/roadmap/run.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/config/defaults.py`, `src/devops_cli/lang/en/`.
 - Documents: `docs/CLUSTER.md`, `docs/roadmap/stage.md`, `docs/ROADMAP_WORKFLOW.md` and the generated references.
 - Overlap: #4558 labels the runner Job in `cluster_job.py` with the same `RepoRef` builders; #5440 changes the `roadmap.stage` settings; #5411 changes the review gates of `stage.py` in other hunks.
-- Secrets and settings: the 3 keys exist in the live Secret `devops/devops-cli` on 2026-11-13 (the key names only were read). No setting is removed, and the new settings have defaults, so no Secret or ConfigMap change comes before the image rolls.
+- Secrets and settings: the 2 keys exist in the live Secret `devops/devops-cli` on 2026-11-13 (the key names only were read). No setting is removed, and the new settings have defaults, so no Secret or ConfigMap change comes before the image rolls.
 
 ## Feasibility
 

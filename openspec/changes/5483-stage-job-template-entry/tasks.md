@@ -17,6 +17,8 @@ Kind: behavior.
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_job_entry.py tests/roadmap/test_roadmap_run_checkout.py` fails on the base
 - [x] 2.2 Add `src/devops_cli/roadmap/stage/stage_job.py`, `--job-item`, the settings `roadmap.stage.time_budget_seconds`, `github_requests_per_hour`, `job` and `job_deadline`, the record keys of the check-out, the narrowed selection, the own-orphan rule and `ensure_checkout(blobless=True)`
   - Verification: `$ uv run devops ci test tests/roadmap/stage tests/roadmap/test_roadmap_run_checkout.py tests/security/test_config_declarations.py`
+- [x] 2.3 Refuse a stage Job that acts as the App with a token for more than its repository, pin the args, the plain env names, the token repository and the deadline of a stage Job in the admission policy, and take the MCP token out of the pod
+  - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_job_entry.py` and `$ uv run devops ci --check --only k8s`
 
 ## 3. Documents
 
@@ -28,5 +30,5 @@ Kind: documents.
 ## Workflow follow-up
 
 - Part 2, #4559: the Service submits stage Jobs, writes the check-out, recovers a lost Job, and removes the in-pod path.
-- Pending a person: after the release, run one stage Job on a real Ready item with `devops k8s run-job --template stage --repo dan-petty/devops-cli --item <n> -- roadmap stage --repo dan-petty/devops-cli --job-item <n> --confirm`, restart the Service during it, and state the GitHub requests of the Job (`devops_cli_github_requests_total{job="roadmap-stage"}`) on #4559.
+- Pending a person: after the release, while the in-pod stage row cannot take the item (start just after a stage round, or set `roadmap.stage.interval_minutes` high for the test), run one stage Job on a real Ready item with `devops k8s run-job --template stage --repo dan-petty/devops-cli --item <n> -- roadmap stage --repo dan-petty/devops-cli --job-item <n> --confirm`, restart the Service during it, and state the GitHub requests of the Job (`devops_cli_github_requests_total{job="roadmap-stage"}`) on #4559.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).

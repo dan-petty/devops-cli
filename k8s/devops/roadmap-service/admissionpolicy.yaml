@@ -7,9 +7,11 @@
 # against the Jobs that CronJobs `devops-cli-runner` and `roadmap-stage` make
 # (tests/gate/k8s_checks/job_admission_policy.py).
 # A Job whose name starts with `devops-cli-stage-` is a stage Job (#5483, `variables.stage`): the
-# Service image, 3 keys of Secret devops-cli through `secretKeyRef` and no `envFrom`, 2 retries
-# only after exit 75 or a disruption, the stage resources and the component `roadmap-stage`. Every
-# other Job is a runner Job, with every rule that it had before.
+# Service image, 2 keys of Secret devops-cli through `secretKeyRef` and no `envFrom`, the args
+# `roadmap stage --repo <owner/name> --job-item <n> --confirm`, only the plain env values of
+# cronjob-stage.yaml and of `stage_job_env` with a token for the repository of `--repo`, 2 retries
+# only after exit 75 or a disruption, the deadline of the template, the stage resources and the
+# component `roadmap-stage`. Every other Job is a runner Job, with every rule that it had before.
 # The pod keeps the label `app.kubernetes.io/name: devops-cli-job`, because the NetworkPolicies of
 # the stack select pods by that label: a Job pod with the label of the Service would take its
 # egress to the API server. A runner Job runs its pod once, and no Job has a `command`,
@@ -18,9 +20,10 @@
 # (`RUNNER_SIZES` in src/devops_cli/roadmap/implement/implement_size.py, #3193); a gate check holds the two
 # equal. The memory limit is not pinned, because the setting `roadmap.implement.max_memory_limit`
 # raises it.
-# Not pinned: the tag or digest of the image, the args, the plain `env` values but the worker
-# count of a runner Job, the memory limit of a runner Job, `nodeSelector`, `tolerations`,
-# `hostUsers` and the number of Jobs (docs/CLUSTER.md, Runner Jobs and Stage Jobs).
+# Not pinned: the tag or digest of the image, the args and the plain `env` values of a runner Job
+# but its worker count, the values of the plain `env` of a stage Job but its token repository, the
+# memory limit of a runner Job, `nodeSelector`, `tolerations`, `hostUsers` and the number of Jobs
+# (docs/CLUSTER.md, Runner Jobs and Stage Jobs).
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -75,7 +78,7 @@ spec:
         object.spec.template.spec.automountServiceAccountToken == false
       message: The pod must set automountServiceAccountToken to false, so that it has no token.
       reason: Forbidden
-    # A stage Job takes 3 keys of the Secret and no other value of it.
+    # A stage Job takes 2 keys of the Secret and no other value of it.
     - expression: >-
         object.spec.template.spec.containers.all(c, !has(c.envFrom) ||
         c.envFrom.all(e, !variables.stage && has(e.secretRef) && !has(e.configMapRef) &&
@@ -91,9 +94,34 @@ spec:
         !has(e.valueFrom.configMapKeyRef) && !has(e.valueFrom.resourceFieldRef) &&
         e.valueFrom.secretKeyRef.name == "devops-cli" &&
         e.valueFrom.secretKeyRef.key in ["DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY",
-        "DEVOPS_CLI_AI_API_KEY", "DEVOPS_CLI_MCP_STAGE_TOKEN"] &&
+        "DEVOPS_CLI_AI_API_KEY"] &&
         e.name == e.valueFrom.secretKeyRef.key)))
-      message: An env entry must not use valueFrom, but a stage Job reads the keys DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY, DEVOPS_CLI_AI_API_KEY and DEVOPS_CLI_MCP_STAGE_TOKEN of Secret devops-cli, each in the variable of its name.
+      message: An env entry must not use valueFrom, but a stage Job reads the keys DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY and DEVOPS_CLI_AI_API_KEY of Secret devops-cli, each in the variable of its name.
+      reason: Forbidden
+    # A stage Job of the Service runs the stage job of one item and nothing else, with the keys of
+    # the Secret. `devops k8s run-job` of a person is not evaluated, so this rule does not limit it.
+    - expression: >-
+        !variables.stage || object.spec.template.spec.containers.all(c,
+        has(c.args) && size(c.args) == 7 && c.args[0] == "roadmap" && c.args[1] == "stage" &&
+        c.args[2] == "--repo" && c.args[3].matches("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$") &&
+        c.args[4] == "--job-item" && c.args[5].matches("^[1-9][0-9]*$") &&
+        c.args[6] == "--confirm")
+      message: The args of a stage Job must be roadmap stage --repo <owner/name> --job-item <n> --confirm.
+      reason: Forbidden
+    # A plain value can change where a key goes, such as a base URL of the gateway, so a stage Job
+    # sets only the plain env values of cronjob-stage.yaml and of `stage_job_env` (a gate check holds
+    # the list equal to both). Its GitHub token names the repository of `--repo` and no other
+    # (#2667), and the Job refuses to run as the App without it.
+    - expression: >-
+        !variables.stage || object.spec.template.spec.containers.all(c, has(c.env) &&
+        c.env.exists(e, e.name == "DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY" &&
+        has(e.value) && has(c.args) && size(c.args) > 3 && e.value == c.args[3]) &&
+        c.env.all(e, has(e.valueFrom) || e.name in ["DEVOPS_CLI_CONFIG", "DEVOPS_CLI_DATA_DIR",
+        "OTEL_SERVICE_NAME", "OTEL_RESOURCE_ATTRIBUTES", "K8S_CONTEXT", "POD_NAMESPACE",
+        "DO_NOT_TRACK", "OPENSPEC_TELEMETRY", "OPENSPEC_NO_UPDATE_CHECK", "PYDANTIC_AI_NO_BANNER",
+        "DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY", "DEVOPS_CLI_ROADMAP_STAGE_JOB",
+        "DEVOPS_CLI_ROADMAP_STAGE_JOB_DEADLINE"]))
+      message: A stage Job sets only the plain env values of CronJob roadmap-stage and of the Service, and DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY must name the repository of --repo.
       reason: Forbidden
     - expression: >-
         !has(object.spec.template.spec.volumes) ||
@@ -165,13 +193,16 @@ spec:
         (object.spec.backoffLimit == 0 && !has(object.spec.podFailurePolicy)))
       message: backoffLimit must be 0 with no podFailurePolicy for a runner Job, and 2 for a stage Job with a podFailurePolicy that fails the Job on each exit but 75 and ignores only a disruption.
       reason: Forbidden
-    # The Service extends the deadline of its Job while the Job makes progress, up to
+    # The Service extends the deadline of its runner Job while the Job makes progress, up to
     # `roadmap.implement.deadline_ceiling_seconds` (#3063). The cap is the most that setting may be
-    # (`CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS`); a test holds both.
+    # (`CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS`); a test holds both. A stage Job keeps the
+    # deadline of cronjob-stage.yaml (`CONST_ROADMAP_STAGE_JOB_DEADLINE_SECONDS`), so the time
+    # budget and the check-out deadline of the Service stay inside it.
     - expression: >-
-        has(object.spec.activeDeadlineSeconds) && object.spec.activeDeadlineSeconds > 0 &&
-        object.spec.activeDeadlineSeconds <= 14400
-      message: The Job must set a deadline (activeDeadlineSeconds) of 14400 seconds at most.
+        has(object.spec.activeDeadlineSeconds) && (variables.stage ?
+        object.spec.activeDeadlineSeconds == 10800 :
+        (object.spec.activeDeadlineSeconds > 0 && object.spec.activeDeadlineSeconds <= 14400))
+      message: The Job must set a deadline (activeDeadlineSeconds) of 14400 seconds at most, and a stage Job the deadline of 10800 seconds of its template.
       reason: Forbidden
     # The rows of `RUNNER_SIZES`: CPU 1 with 2Gi, and CPU 4 with 6Gi. The CPU request equals the
     # CPU limit, and the worker count of the test runner equals the CPU limit, because

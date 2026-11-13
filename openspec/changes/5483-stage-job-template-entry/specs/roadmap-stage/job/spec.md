@@ -5,11 +5,11 @@ The stage Job of one item: the CronJob template that it comes from, the admissio
 ## ADDED Requirements
 
 ### Requirement: The stage CronJob is the template of a stage Job
-The manifests SHALL hold a suspended CronJob `roadmap-stage` in namespace `devops` whose container `stage` runs the Service image with ServiceAccount `devops-cli` and no token, takes 3 keys of Secret `devops-cli` and no `envFrom`, and runs its pod again only after exit 75 or a disruption.
+The manifests SHALL hold a suspended CronJob `roadmap-stage` in namespace `devops` whose container `stage` runs the Service image with ServiceAccount `devops-cli` and no token, takes 2 keys of Secret `devops-cli` and no `envFrom`, gives its pod 120 s after a SIGTERM, and runs its pod again only after exit 75 or a disruption.
 
 #### Scenario: The rendered template
 - **WHEN** the gate check renders `k8s/devops` with kustomize.
-- **THEN** CronJob `roadmap-stage` holds the keys `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY`, `DEVOPS_CLI_AI_API_KEY` and `DEVOPS_CLI_MCP_STAGE_TOKEN` through `secretKeyRef`, 250m CPU and 1Gi requested, 1 CPU and 2Gi as limits, `activeDeadlineSeconds: 10800`, `backoffLimit: 2`, a `podFailurePolicy` that ignores `DisruptionTarget` and fails the Job on each exit code but 75, the telemetry name `roadmap-stage` and the pod labels `app.kubernetes.io/name: devops-cli-job` and `app.kubernetes.io/component: roadmap-stage`.
+- **THEN** CronJob `roadmap-stage` holds the keys `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY` and `DEVOPS_CLI_AI_API_KEY` through `secretKeyRef` and no MCP token, `terminationGracePeriodSeconds: 120`, 250m CPU and 1Gi requested, 1 CPU and 2Gi as limits, `activeDeadlineSeconds: 10800`, `backoffLimit: 2`, a `podFailurePolicy` that ignores `DisruptionTarget` and fails the Job on each exit code but 75, the telemetry name `roadmap-stage` and the pod labels `app.kubernetes.io/name: devops-cli-job` and `app.kubernetes.io/component: roadmap-stage`.
 
 ### Requirement: The admission policy admits a stage Job of the Service with its own rules
 The policy `roadmap-service-jobs` SHALL check a Job of the Service whose name starts with `devops-cli-stage-` with the rules of a stage Job, and every other Job with the rules of a runner Job.
@@ -19,7 +19,7 @@ The policy `roadmap-service-jobs` SHALL check a Job of the Service whose name st
 - **THEN** no rule refuses it.
 
 #### Scenario: A stage Job that breaks one rule
-- **WHEN** the stage Job has the runner image, an `envFrom`, a fourth key or another Secret in `secretKeyRef`, a `fieldRef` or a `configMapKeyRef`, a token mount, another ServiceAccount, `backoffLimit: 2` with no `podFailurePolicy`, a deadline above 14400, other resources, or no component label.
+- **WHEN** the stage Job has the runner image, an `envFrom`, a third key, an MCP token or another Secret in `secretKeyRef`, a `fieldRef` or a `configMapKeyRef`, a token mount, another ServiceAccount, `backoffLimit: 2` with no `podFailurePolicy`, a deadline other than 10800, other args than `roadmap stage --repo <owner/name> --job-item <n> --confirm`, a plain environment name that is not in the template or in `stage_job_env`, a token repository other than the repository of `--repo` or none, other resources, or no component label.
 - **THEN** one rule refuses it.
 
 #### Scenario: A runner Job with a rule of a stage Job
@@ -72,6 +72,17 @@ The entry point SHALL set one model call slot, install a GitHub request budget o
 #### Scenario: The time that is left
 - **WHEN** the deadline of the Job ends 3000 seconds from now and the setting is 9000.
 - **THEN** the time budget is 1200 seconds.
+
+### Requirement: A stage Job that acts as the App plans only with a token for its repository
+The entry point SHALL refuse to run, before a clone, a model call or a write, when the process holds the private key of the GitHub App and `service.github_app.token_repository` is not the repository of `--repo` (case-insensitive). A process that does not hold the key SHALL run with the token of its person.
+
+#### Scenario: No token repository or another one
+- **WHEN** a stage Job holds the key of the App and its token repository is unset or names another repository.
+- **THEN** it raises an error that names the setting, makes no model call and keeps the check-out.
+
+#### Scenario: A person's run
+- **WHEN** the process does not hold the key of the App.
+- **THEN** the check passes.
 
 ### Requirement: The stage Job ends with the exit code of its end and checks in
 The entry point SHALL exit 0 for a result, 1 for a failure of the item, 75 for a SIGTERM before the time budget ends, and 143 for a SIGTERM after it or a time budget that ends before a model call. Except after a SIGTERM before the time budget ends, it SHALL write `stage.job_result` and clear `stage.job`, `stage.job_at` and `stage.job_deadline` in one write, only when `stage.job` names the Job of the pod. A `deadline` end SHALL record the failure with the class `timeout`.

@@ -101,7 +101,16 @@ def check_the_stage_job_runs_again_only_after_an_eviction_and_ends_by_its_deadli
     )
 
 
-def check_the_stage_container_takes_three_keys_of_the_secret_and_no_other_value() -> None:
+def check_the_stage_pod_has_time_to_check_in_after_a_sigterm() -> None:
+    """After the time budget, a SIGTERM makes the Job check in, with up to 4 GitHub writes in the
+    request budget of the pod. The default grace of 30 s can cut them with a SIGKILL."""
+    assert _pod(STAGE_TEMPLATE.cronjob)["terminationGracePeriodSeconds"] == 120
+
+
+def check_the_stage_container_takes_two_keys_of_the_secret_and_no_other_value() -> None:
+    """The private key of the App and the key of the gateway. The MCP client of the stage job is
+    off (`roadmap.stage.mcp`), so the pod has no MCP token: the server accepts one token for every
+    role."""
     env = _stage_container()["env"]
     sourced = [entry for entry in env if "valueFrom" in entry]
 
@@ -109,6 +118,10 @@ def check_the_stage_container_takes_three_keys_of_the_secret_and_no_other_value(
         (key, {"secretKeyRef": {"name": "devops-cli", "key": key}})
         for key in CONST_ROADMAP_STAGE_JOB_SECRET_KEYS
     ]
+    assert CONST_ROADMAP_STAGE_JOB_SECRET_KEYS == (
+        "DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY",
+        "DEVOPS_CLI_AI_API_KEY",
+    )
 
 
 def check_the_stage_pod_reports_its_telemetry_as_roadmap_stage() -> None:
