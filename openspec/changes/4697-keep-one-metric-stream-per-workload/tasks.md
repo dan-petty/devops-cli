@@ -38,9 +38,9 @@ Kind: other. Reads: `k8s/README.md`, `tests/prometheus/test_k8s_monitoring_alert
 
 Kind: other. Reads: `src/devops_cli/docs/generator.py`, `docs/TELEMETRY.md`. Changes: `src/devops_cli/docs/generator.py`, `docs/TELEMETRY.md`.
 
-- [ ] 5.1 Rewrite the metric Resource paragraphs of `src/devops_cli/docs/generator.py`: the metric Resource holds service.name, service.namespace, service.instance.id, os.type and telemetry.sdk.* only; host.name stays on spans and logs; roadmap-service sets service.instance.id=roadmap-service; both CronJob templates set service.instance.id=devops-cli-job, so the Job pods of the workload share one stream. Run `uv run devops docs generate` and keep the regenerated `docs/TELEMETRY.md`
+- [x] 5.1 Rewrite the metric Resource paragraphs of `src/devops_cli/docs/generator.py`: the metric Resource holds service.name, service.namespace, service.instance.id, os.type and telemetry.sdk.* only; host.name stays on spans and logs; roadmap-service sets service.instance.id=roadmap-service; both CronJob templates set service.instance.id=devops-cli-job, so the Job pods of the workload share one stream. Run `uv run devops docs generate` and keep the regenerated `docs/TELEMETRY.md`
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 5.2 Edit the telemetry section of `src/devops_cli/docs/generator.py` and regenerate `docs/TELEMETRY.md`
+- [x] 5.2 Edit the telemetry section of `src/devops_cli/docs/generator.py` and regenerate `docs/TELEMETRY.md`
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
