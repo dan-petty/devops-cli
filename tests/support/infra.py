@@ -21,15 +21,19 @@ The Ansible reads run in the export, so their answers name the export where the 
 `ansible-runner` (#5124), one event on each line, in the order of their counter. The probe in
 `runner_events/probe/` is a small infra repo with one host for each case: the k3s agent role of
 dan-petty/homelab on node-3, the changes, skips and restart handler of a demo unit on node-1, a
-reboot on node-2 and a failed task on node-4. `agent` is the run with `--limit
-node-3.example.com:!offline` (exit code 0, status `successful`), and `site` is the run on all hosts
-(exit code 2, status `failed`). To record them again, copy the probe to `<scratch>/project`, make
+reboot on node-2, a failed task on node-4 and the skips by a check-mode `when` on node-5. `agent`
+is the run with `--limit node-3.example.com:!offline` (exit code 0, status `successful`), and
+`site` is the run of `site.yaml` on all hosts (exit code 2, status `failed`). To record them again, copy the probe to `<scratch>/project`, make
 the folder `<scratch>/state` with the files `node-token` and `demo.yaml` (`value: 41`), and run
 `ansible-runner run <scratch> --playbook ansible/playbooks/site.yaml --ident <run> --limit <limit>
 --quiet "--cmdline=--check --diff -v -i ansible/inventory/hosts.ini -e state_dir=<scratch>/state"`
 with only `HOME`, `LANG` and the environment of `runner_env` set, and `probe/bin` first on PATH.
 Then put `{project}` in place of `<scratch>/project`, `/srv/example` in place of `<scratch>/state`,
 and `/root` in place of the home folder and its user.
+
+`check_when` is the run of the play `ansible/playbooks/check_when.yaml` of the probe on node-5
+(#5435, `--limit node-5.example.com`, exit code 0, status `successful`): record it as above with
+`--playbook ansible/playbooks/check_when.yaml`.
 
 `site_color` is the run `site` in a color terminal before #5352 (`--limit all:!offline`, exit code 2,
 status `failed`): record it as above with `TERM=xterm-256color` and with no `ANSIBLE_NOCOLOR` in the
@@ -69,6 +73,7 @@ RECORDED_RUNS: Final[dict[str, tuple[int, str]]] = {
     "agent": (0, "successful"),
     "site": (2, "failed"),
     "site_color": (2, "failed"),
+    "check_when": (0, "successful"),
 }
 # The `TERM` of the recorded run `site_color`: a color terminal.
 COLOR_TERM: Final[str] = "xterm-256color"
