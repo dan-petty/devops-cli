@@ -20,9 +20,9 @@ Kind: test-only. Reads: `src/devops_cli/telemetry/tracer.py`, `tests/telemetry/t
 
 Kind: behavior. Reads: `k8s/monitoring/prometheus-values.yaml`, `tests/fixtures/prometheus_rules/metric_streams_tests.yaml`, `tests/prometheus/test_k8s_monitoring_alerting.py`. Changes: `k8s/monitoring/prometheus-values.yaml`, `tests/fixtures/prometheus_rules/metric_streams_tests.yaml`.
 
-- [ ] 3.1 In `tests/fixtures/prometheus_rules/metric_streams_tests.yaml`, set the new description, check the firing case at 29 and 30 minutes, check the pod-change case at 34 minutes, and add a quiet case for the job `llm-gateway` and a firing case for two sparse writers
+- [x] 3.1 In `tests/fixtures/prometheus_rules/metric_streams_tests.yaml`, set the new description, check the firing case at 29 and 30 minutes, check the pod-change case at 34 minutes, and add a quiet case for the job `llm-gateway` and a firing case for two sparse writers
   - Verification: `$ uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py` fails on the base
-- [ ] 3.2 Rewrite the description of `DevopsCliMetricStreamsShareSeries` in `k8s/monitoring/prometheus-values.yaml`
+- [x] 3.2 Rewrite the description of `DevopsCliMetricStreamsShareSeries` in `k8s/monitoring/prometheus-values.yaml`
   - Verification: `$ uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py` passes
 
 ## 4. Render each cell of the Alerting table

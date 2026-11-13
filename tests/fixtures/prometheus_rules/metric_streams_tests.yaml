@@ -1,32 +1,56 @@
 # promtool rule unit tests of the alert group metric-streams in
-# k8s/monitoring/prometheus-values.yaml (#4697). The rule fires when Prometheus holds two
-# target_info series of one job and instance for 30 minutes: the OpenTelemetry collector keys a
-# metric stream by every resource attribute, while Prometheus keeps only job and instance, so two
-# streams write one series and each total of the series starts again at zero. It stays quiet on
-# one stream, and on the ten minutes that two streams overlap at a pod change.
+# k8s/monitoring/prometheus-values.yaml (#4697, #5338). The rule fires when Prometheus holds two
+# target_info series of one job and instance in a 15 minute lookback for 30 minutes: the
+# OpenTelemetry collector keys a metric stream by every resource attribute, while Prometheus keeps
+# only job and instance, so two streams write one series and its totals are wrong. It stays quiet
+# on one stream, on a pod change, and on a job outside devops-cli.* and roadmap-service.
 #
 # tests/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files` names,
 # beside a copy of this file, and runs `promtool test rules` on the copy. promtool starts each
 # series at time 0, with one sample each `interval`. target_info carries the resource attributes
 # that the OTLP receiver of Prometheus writes as labels, so a second stream of one job and
-# instance shows as a second series that differs in `host_name`.
+# instance shows as a second series that differs in a label, such as `host_name` of a devops-cli
+# build from before #4697.
 rule_files:
   - metric-streams.rules.yaml
 
 evaluation_interval: 1m
 
 tests:
-  - name: Two target_info series of one job and instance fire after 30 minutes
+  - name: Two target_info series of one job and instance fire at 30 minutes
     interval: 1m
     input_series:
       - series: 'target_info{job="roadmap-service", instance="roadmap-service", host_name="roadmap-service-6d9c8f7b5-abcde"}'
         values: '1x40'
-      - series: 'target_info{job="roadmap-service", instance="roadmap-service", host_name="roadmap-service-6d9c8f7b5-fghij"}'
+      - series: 'target_info{job="roadmap-service", instance="roadmap-service"}'
         values: '1x40'
     alert_rule_test:
-      - eval_time: 20m
+      # The rule is true from minute 0, so `for: 30m` holds the alert until minute 30.
+      - eval_time: 29m
         alertname: DevopsCliMetricStreamsShareSeries
         exp_alerts: []
+      - eval_time: 30m
+        alertname: DevopsCliMetricStreamsShareSeries
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: roadmap-service
+              instance: roadmap-service
+            exp_annotations:
+              summary: &summary "Two metric streams write the series roadmap-service roadmap-service"
+              description: &description "Prometheus holds two target_info series for job roadmap-service and instance roadmap-service for 30 minutes, so two metric streams write one series and its totals are wrong. Compare the labels of the two series. A different telemetry_sdk_* label means that a second SDK sends with the same service.name and service.instance.id. Any other label that differs means that a devops-cli build with another metric Resource runs next to the current build: stop or update the old process (global install, long-lived MCP server, worktree on an old branch, Job from an old image). A host_name label means that the metrics did not go through transform/metric_resource of the collector (k8s/otel/values.yaml). The alert clears 15 minutes after the old writer stops (k8s/README.md, Alerting)."
+
+  - name: Two sparse writers of one job and instance fire through the 15 minute lookback
+    interval: 1m
+    input_series:
+      # Each writer sends one sample in 15 minutes, such as the gauges that roadmap-service sends
+      # every 15 minutes, at other minutes than the other writer. Only a lookback of 15 minutes
+      # holds a sample of both series at each minute from minute 7, so the alert fires at 37.
+      - series: 'target_info{job="roadmap-service", instance="roadmap-service", host_name="roadmap-service-6d9c8f7b5-abcde"}'
+        values: '1 _x14 1 _x14 1 _x9'
+      - series: 'target_info{job="roadmap-service", instance="roadmap-service"}'
+        values: '_x7 1 _x14 1 _x14 1 _x3'
+    alert_rule_test:
       - eval_time: 40m
         alertname: DevopsCliMetricStreamsShareSeries
         exp_alerts:
@@ -35,32 +59,50 @@ tests:
               job: roadmap-service
               instance: roadmap-service
             exp_annotations:
-              summary: "Two metric streams write the series roadmap-service roadmap-service"
-              description: "Prometheus holds two target_info series for job roadmap-service and instance roadmap-service for 30 minutes. Each stream carries its own metric Resource attributes, so the totals of both streams start again at zero in one series and their counts are lost. Remove the extra stream: a workload sets one service.instance.id in OTEL_RESOURCE_ATTRIBUTES (k8s/README.md, Alerting)."
+              summary: *summary
+              description: *description
 
   - name: One target_info series of one job and instance stays quiet
     interval: 1m
     input_series:
-      - series: 'target_info{job="devops-cli-job", instance="devops-cli-job", host_name="devops-cli-job-abcde"}'
+      - series: 'target_info{job="devops-cli-job", instance="devops-cli-job"}'
         values: '1x40'
     alert_rule_test:
       - eval_time: 40m
         alertname: DevopsCliMetricStreamsShareSeries
         exp_alerts: []
 
-  - name: A ten minute overlap at a pod change stays quiet
+  - name: A pod change stays quiet
     interval: 1m
     input_series:
-      # The old pod sends until minute 20, the new one starts at minute 10: the two streams
-      # overlap for ten minutes, shorter than the 30 minutes the rule waits.
+      # The old pod sends until minute 20, and the new one starts at minute 10. The 15 minute
+      # lookback holds the last sample of the old pod until minute 34, so the rule is true from
+      # minute 10 to minute 34: 25 minutes, shorter than the 30 minutes the rule waits.
       - series: 'target_info{job="devops-cli-job", instance="devops-cli-job", host_name="devops-cli-job-old"}'
         values: '1x20'
-      - series: 'target_info{job="devops-cli-job", instance="devops-cli-job", host_name="devops-cli-job-new"}'
+      - series: 'target_info{job="devops-cli-job", instance="devops-cli-job"}'
         values: '_x10 1x30'
     alert_rule_test:
       - eval_time: 25m
         alertname: DevopsCliMetricStreamsShareSeries
         exp_alerts: []
+      - eval_time: 34m
+        alertname: DevopsCliMetricStreamsShareSeries
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: DevopsCliMetricStreamsShareSeries
+        exp_alerts: []
+
+  - name: Two series of a job outside the matcher stay quiet
+    interval: 1m
+    input_series:
+      # The gateway does not use the devops-cli tracer, and its streams are not the concern of
+      # this alert.
+      - series: 'target_info{job="llm-gateway", instance="llm-gateway", host_name="llm-gateway-abcde"}'
+        values: '1x40'
+      - series: 'target_info{job="llm-gateway", instance="llm-gateway", host_name="llm-gateway-fghij"}'
+        values: '1x40'
+    alert_rule_test:
       - eval_time: 40m
         alertname: DevopsCliMetricStreamsShareSeries
         exp_alerts: []

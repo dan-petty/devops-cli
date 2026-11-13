@@ -620,7 +620,7 @@ serverFiles:
               severity: warning
             annotations:
               summary: "Two metric streams write the series {{ $labels.job }} {{ $labels.instance }}"
-              description: "Prometheus holds two target_info series for job {{ $labels.job }} and instance {{ $labels.instance }} for 30 minutes. Each stream carries its own metric Resource attributes, so the totals of both streams start again at zero in one series and their counts are lost. Remove the extra stream: a workload sets one service.instance.id in OTEL_RESOURCE_ATTRIBUTES (k8s/README.md, Alerting)."
+              description: "Prometheus holds two target_info series for job {{ $labels.job }} and instance {{ $labels.instance }} for 30 minutes, so two metric streams write one series and its totals are wrong. Compare the labels of the two series. A different telemetry_sdk_* label means that a second SDK sends with the same service.name and service.instance.id. Any other label that differs means that a devops-cli build with another metric Resource runs next to the current build: stop or update the old process (global install, long-lived MCP server, worktree on an old branch, Job from an old image). A host_name label means that the metrics did not go through transform/metric_resource of the collector (k8s/otel/values.yaml). The alert clears 15 minutes after the old writer stops (k8s/README.md, Alerting)."
       # Argo CD sync and health, Cloudflare Tunnel HA connectivity, Valkey cache health (#551),
       # and CoreDNS SERVFAIL rate (#822).
       - name: homelab-services
