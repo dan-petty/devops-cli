@@ -365,11 +365,11 @@ def plan_pr_check_readiness(
         ),
         PlannedRequest(
             method="GET",
-            target=f"repos/{target_repo}/compare/<base-sha>...<head-sha>",
+            target=f"repos/{target_repo}/compare/<base-ref>...<head-sha>",
             argv=(
                 CONST_GH_CLI,
                 "api",
-                f"repos/{target_repo}/compare/<base-sha>...<head-sha>?per_page=1",
+                f"repos/{target_repo}/compare/<base-ref>...<head-sha>?per_page=1",
             ),
         ),
     ]

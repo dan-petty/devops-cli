@@ -232,10 +232,10 @@ def test_the_check_readiness_plan_lists_the_compare_request() -> None:
     targets = [request.target for request in plan]
     compare = [request for request in plan if "/compare/" in request.target]
     assert [request.target for request in compare] == [
-        "repos/owner/repo/compare/<base-sha>...<head-sha>"
+        "repos/owner/repo/compare/<base-ref>...<head-sha>"
     ], targets
     assert not any(request.target.endswith("pulls/42/files") for request in plan), targets
     assert compare[0].method == "GET"
-    assert compare[0].argv[-1] == ("repos/owner/repo/compare/<base-sha>...<head-sha>?per_page=1"), (
+    assert compare[0].argv[-1] == ("repos/owner/repo/compare/<base-ref>...<head-sha>?per_page=1"), (
         compare[0].argv
     )

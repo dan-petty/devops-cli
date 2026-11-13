@@ -1,26 +1,22 @@
 ## ADDED Requirements
 
 ### Requirement: Readiness reads the file list at the merge base
-The command `devops pr check-readiness` SHALL read the files a pull request changes from the compare endpoint of the base commit and the head commit.
+The command `devops pr check-readiness` SHALL read the files a pull request changes from the compare endpoint of the tip of the base branch and the head commit, and MUST NOT compare from the `base.sha` of the pull request payload.
 
 #### Scenario: A moved merge base
-- **WHEN** The pull request branch holds a merge commit that moves its merge base and the pulls files endpoint still lists the files of the old base.
-- **THEN** The readiness read asks for the compare of the base commit and the head commit and judges the files of that answer.
+- **WHEN** The pull request branch holds a merge commit that moves its merge base, and the payload's `base.sha` and the pulls files endpoint still name the old base.
+- **THEN** The readiness read asks for the compare of the base branch and the head commit, judges the files of that answer, and no request of the run names the payload's `base.sha`.
 
 #### Scenario: No pulls files request
 - **WHEN** The readiness run reads the changed files of a pull request.
 - **THEN** No request path of the run ends with the pulls files path, and the verdict holds no grounding blocker that names an archived change folder of another issue.
 
-### Requirement: The compare head of a fork is named by owner and branch
-The command `devops pr check-readiness` SHALL name the compare's head as the head owner and the head branch when the head repository differs from the base repository, and by the head commit sha otherwise.
+### Requirement: The compare names the head by its commit sha
+The command `devops pr check-readiness` SHALL name the compare's head by the head commit sha, also when the head repository differs from the base repository.
 
 #### Scenario: A pull request from a fork
 - **WHEN** The pull request payload gives a head repository that is not the base repository.
-- **THEN** The compare request names the head as the head owner, a colon and the head branch.
-
-#### Scenario: A branch of the base repository
-- **WHEN** The pull request payload gives the base repository as the head repository.
-- **THEN** The compare request names the head by its commit sha.
+- **THEN** The compare request names the head by its commit sha, the commit whose checks the run reads.
 
 ### Requirement: A compare answer at the file limit is reported
 The command `devops pr check-readiness` SHALL report a compare answer that holds GitHub's limit of 300 files as a possibly truncated file list, and SHALL name that limit.
@@ -63,7 +59,7 @@ The command `devops pr check-readiness --dry-run` SHALL list the compare request
 
 #### Scenario: Request plan of check-readiness
 - **WHEN** The dry-run plan of the command is rendered.
-- **THEN** The plan holds a request whose target is the compare of the base and the head, and holds no target that ends with the pulls files path.
+- **THEN** The plan holds a request whose target is `compare/<base-ref>...<head-sha>`, and holds no target that ends with the pulls files path.
 
 ## MODIFIED Requirements
 

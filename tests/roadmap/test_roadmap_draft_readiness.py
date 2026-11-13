@@ -14,6 +14,7 @@ import pytest
 
 from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
 from devops_cli.github.client import CompareFiles, PullRequestFile, PullStatus
+from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.implement.implement_pull import (
     Answer,
     ChangeFacts,
@@ -26,6 +27,12 @@ from devops_cli.roadmap.implement.implement_pull import (
     read_draft,
 )
 from devops_cli.roadmap.stores.store import ImplementRecordKey, Item, ItemField, StageRecordKey
+from tests.support.fakes.github import (
+    GitHubApiFake,
+    pull_request_file_payload,
+    route_compare_files,
+    route_file,
+)
 from tests.support.fakes.roadmap_store import (
     InMemoryRoadmapStore,
     encode_job_record,
@@ -36,6 +43,7 @@ _PASSING = CheckVerdictSummary(items=[PRCheckItem(name="Lint", bucket=CheckBucke
 _FAILING = CheckVerdictSummary(items=[PRCheckItem(name="Lint", bucket=CheckBucket.FAIL)])
 _RUNNING = CheckVerdictSummary(items=[PRCheckItem(name="Lint", bucket=CheckBucket.PENDING)])
 
+_REPO = "dan-petty/devops-cli"
 _PULL = PullStatus(state="open", draft=True)
 
 _COMPLETE_TASKS = """\
@@ -296,39 +304,48 @@ def test_read_draft_with_active_change_and_no_pull_arg() -> None:
     assert draft.change.tasks_text == _COMPLETE_TASKS
 
 
-def test_read_draft_reads_the_files_from_the_compare_of_the_base_and_head() -> None:
+def test_read_draft_reads_the_files_from_the_compare_of_the_base_branch_and_head(
+    github_api: GitHubApiFake,
+) -> None:
+    """GitHub does not move `base.sha` when a merge commit moves the merge base, so an implement
+    draft's files are the compare of the base branch and the head commit, and no read names the
+    stale `base.sha` (#2530)."""
     store = InMemoryRoadmapStore()
     issue_num = store.seed_issue(
         "Issue 1",
         body=with_record("", encode_job_record({}, {ImplementRecordKey.PR: "335"})),
         fields={ItemField.PRIORITY: "P2-Medium"},
     )
-    client = MagicMock()
-    pull = PullStatus(
-        state="open",
-        draft=True,
-        head_ref=f"fix/{issue_num}-feature",
-        head_sha="head456",
-        base_sha="base123",
+    head, stale = "a" * 40, "b" * 40
+    pull = PullStatus.model_validate(
+        {
+            "state": "open",
+            "draft": True,
+            "head": {"ref": f"fix/{issue_num}-feature", "sha": head},
+            "base": {"ref": "main", "sha": stale},
+        }
     )
-    client.get_compare_files.return_value = CompareFiles(
-        files=[
-            PullRequestFile(
-                filename=f"openspec/changes/{issue_num}-feature/tasks.md",
-                status="added",
-            ),
-        ],
-        truncated=False,
+    tasks = f"openspec/changes/{issue_num}-feature/tasks.md"
+    route_compare_files(
+        github_api,
+        _REPO,
+        "main",
+        head,
+        pull_request_file_payload(tasks, "added"),
+        merge_base="c" * 40,
     )
-    client.get_file_at.return_value = _COMPLETE_TASKS
+    route_file(github_api, _REPO, tasks, head, _COMPLETE_TASKS)
 
-    draft = read_draft("dan-petty/devops-cli", 335, pull=pull, store=store, client=client)
+    draft = read_draft(_REPO, 335, pull=pull, store=store, client=get_github_session().client)
 
-    client.get_compare_files.assert_called_once_with("dan-petty/devops-cli", "base123", "head456")
-    client.get_pull_files.assert_not_called()
-    assert draft.change is not None
-    assert draft.change.archived is False
-    assert draft.change.tasks_text == _COMPLETE_TASKS
+    assert (draft.change, [request for request in github_api.requested if stale in request]) == (
+        ChangeFacts(archived=False, tasks_text=_COMPLETE_TASKS),
+        [],
+    )
+    assert [request.split("?")[0] for request in github_api.requested] == [
+        f"GET https://api.github.com/repos/{_REPO}/compare/main...{head}",
+        f"GET https://api.github.com/repos/{_REPO}/contents/{tasks}",
+    ]
 
 
 def test_read_draft_non_implement_kind_returns_early_without_reading_files() -> None:

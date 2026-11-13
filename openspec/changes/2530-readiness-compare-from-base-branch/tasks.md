@@ -54,6 +54,17 @@ Kind: behavior. Reads: `src/devops_cli/github/pr_plans.py`, `src/devops_cli/comm
 - [x] 6.2 Replace the pulls files request of `plan_pr_check_readiness` in `src/devops_cli/github/pr_plans.py` with one GET whose target is `repos/{target_repo}/compare/<base>...<head>` and whose argv reads that path with `?per_page=1`
   - Verification: `$ uv run devops ci test tests/commands/test_pr_dry_run.py` passes
 
+## 7. Compare from the tip of the base branch
+
+Kind: behavior. Reads: `src/devops_cli/github/merge_readiness.py`, `src/devops_cli/github/client.py`, `src/devops_cli/roadmap/implement/implement_pull.py`, `src/devops_cli/github/pr_plans.py`, `tests/support/fakes/github.py`. Changes: `src/devops_cli/config/constants.py`, `src/devops_cli/github/merge_readiness.py`, `src/devops_cli/github/client.py`, `src/devops_cli/roadmap/implement/implement_pull.py`, `src/devops_cli/github/pr_plans.py`, `tests/support/fakes/github.py`, `tests/github/test_merge_readiness.py`, `tests/github/test_github_client.py`, `tests/roadmap/test_roadmap_draft_readiness.py`, `tests/commands/test_pr.py`, `tests/commands/test_pr_dry_run.py`.
+
+This group replaces the base of tasks 2.2, 3.2 and 6.2. The vetting review of pull request 4980 found that a compare from the payload's `base.sha` gives the stale list of the issue.
+
+- [x] 7.1 `tests/github/test_merge_readiness.py::test_the_stale_base_sha_of_the_payload_is_not_compared` and `tests/roadmap/test_roadmap_draft_readiness.py::test_read_draft_reads_the_files_from_the_compare_of_the_base_branch_and_head` fail: the payload's `base.sha` differs from the merge base of the compare answer, the stale compare holds archived changes of other issues, and the read still compares from `base.sha`. `route_compare_files` takes the merge base as its own argument
+  - Verification: `$ uv run devops ci test tests/github/test_merge_readiness.py tests/roadmap/test_roadmap_draft_readiness.py` fails on the base
+- [x] 7.2 Give `read_changed_files` the base branch and the head sha, and remove `_base_sha` and `_compare_head`, so a fork's head is its commit sha too. Compare `read_draft` from `PullStatus.base_ref`, and remove `PullStatus.base_sha`. Change the dry-run target to `compare/<base-ref>...<head-sha>`. Correct the docstrings of `read_changed_files`, `get_merge_base` and `get_compare_files`. Move the limit to `CONST_GITHUB_COMPARE_FILES_LIMIT` and make `files` of the compare answer required. Remove the dead pulls files route of `tests/commands/test_pr.py`
+  - Verification: `$ uv run devops ci test tests/github/test_merge_readiness.py tests/github/test_github_client.py tests/roadmap/test_roadmap_draft_readiness.py tests/commands/test_pr.py tests/commands/test_pr_dry_run.py` passes
+
 ## Workflow follow-up
 
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

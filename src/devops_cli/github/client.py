@@ -16,6 +16,7 @@ from pydantic import AliasPath, BaseModel, ConfigDict, Field, ValidationError, f
 from devops_cli.config.constants import (
     CONST_GH_API_GRAPHQL_ENDPOINT,
     CONST_GH_CLI,
+    CONST_GITHUB_COMPARE_FILES_LIMIT,
     CONST_GITHUB_DIFF_MEDIA_TYPE,
     CONST_GITHUB_SEARCH_MAX_RESULTS,
     CONST_MAX_ERROR_DETAIL_LENGTH,
@@ -79,8 +80,7 @@ class PullStatus(BaseModel):
     (#3503). `head_sha` is empty when GitHub names no head, and `closed_at` is None for a pull
     request that is open. `mergeable` and `mergeable_state` are GitHub's merge state, and
     `base_ref` and `default_branch` are the branch it merges into and the default branch of
-    that repository (#4027). `base_sha` is the commit of the base branch, which is the base of
-    the diff that the pull request would merge (#2530)."""
+    that repository (#4027)."""
 
     model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
 
@@ -95,7 +95,6 @@ class PullStatus(BaseModel):
     closed_at: datetime | None = None
     mergeable: bool | None = None
     mergeable_state: str = ""
-    base_sha: str = Field(default="", validation_alias=AliasPath("base", "sha"))
     base_ref: str = Field(default="", validation_alias=AliasPath("base", "ref"))
     default_branch: str = Field(
         default="", validation_alias=AliasPath("base", "repo", "default_branch")
@@ -310,20 +309,16 @@ class _Comparison(BaseModel):
     merge_base: str = Field(validation_alias=AliasPath("merge_base_commit", "sha"))
 
 
-# GitHub lists at most this many files of one compare answer, so a list of this length may be
-# truncated.
-_COMPARE_FILES_LIMIT = 300
-
-
 class _CompareFiles(BaseModel):
-    """What the compare endpoint says of the files of two commits: each file their diff changes."""
+    """What the compare endpoint says of the files of two commits: each file their diff changes.
+    An answer with no `files` is no answer, and not an empty diff."""
 
-    files: list[PullRequestFile] = Field(default_factory=list)
+    files: list[PullRequestFile]
 
 
 class CompareFiles(NamedTuple):
     """The files a compare answer lists, and whether the answer held GitHub's limit of
-    `_COMPARE_FILES_LIMIT` files, so the list may be truncated."""
+    `CONST_GITHUB_COMPARE_FILES_LIMIT` files, so the list may be truncated."""
 
     files: list[PullRequestFile]
     truncated: bool
@@ -498,9 +493,10 @@ class GitHubClient:
     def get_merge_base(self, repo: str, base: str, head: str) -> str | None:
         """The merge base of two commits from the compare endpoint; None when GitHub has none.
 
-        A pull request's `base.sha` is the base branch's tip, which moves on after the branch
-        point; its diff starts here instead. Only a 404 reads as None: any other failure raises
-        the session's error.
+        A pull request's `base.sha` is a tip of the base branch that GitHub recorded earlier. It
+        can be ahead of the merge base, and GitHub does not move it when a merge commit moves the
+        merge base (#2530). So it is neither the merge base nor the current tip of the branch.
+        Only a 404 reads as None: any other failure raises the session's error.
         """
         endpoint = _repo_path(repo, f"compare/{quote(base)}...{quote(head)}?per_page=1")
         try:
@@ -510,16 +506,16 @@ class GitHubClient:
         return _read_as(_Comparison, comparison, path=endpoint).merge_base
 
     def get_compare_files(self, repo: str, base: str, head: str) -> CompareFiles:
-        """The files that differ between the commits `base` and `head`, from the compare endpoint.
+        """The files that `head` changes since its merge base with `base`, from the compare endpoint.
 
-        This is the diff a squash merge applies, and it follows the merge base when a merge commit
-        moves it, unlike the pull request's file list. GitHub lists at most
-        `_COMPARE_FILES_LIMIT` files of one comparison, so a list of that length reads as possibly
-        truncated.
+        `base` is a branch or a commit. GitHub compares from the merge base of the two, so with the
+        tip of a pull request's base branch this is the diff a squash merge applies (#2530). GitHub
+        lists at most `CONST_GITHUB_COMPARE_FILES_LIMIT` files of one comparison, so a list of that
+        length reads as possibly truncated.
         """
         endpoint = _repo_path(repo, f"compare/{quote(base)}...{quote(head)}?per_page=1")
         files = _read_as(_CompareFiles, self._session.rest("GET", endpoint), path=endpoint).files
-        return CompareFiles(files=files, truncated=len(files) >= _COMPARE_FILES_LIMIT)
+        return CompareFiles(files=files, truncated=len(files) >= CONST_GITHUB_COMPARE_FILES_LIMIT)
 
     def get_commit_pulls(self, repo: str, sha: str) -> list[CommitPull]:
         """Every pull request that GitHub associates with the commit `sha`, merged or not.

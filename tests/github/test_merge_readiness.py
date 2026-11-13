@@ -37,10 +37,12 @@ from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 _OWNER, _NAME, _PR = "dan-petty", "devops-cli", 335
 _REPO = f"{_OWNER}/{_NAME}"
-_HEAD, _BASE = "a" * 40, "b" * 40
+# `_BASE` is the payload's `base.sha`. GitHub does not move it when a merge commit moves the merge
+# base, so the compare answers `_MERGE_BASE`, another commit (#2530).
+_HEAD, _BASE, _MERGE_BASE = "a" * 40, "b" * 40, "c" * 40
 _CHECK_RUNS = f"/repos/{_REPO}/commits/{_HEAD}/check-runs?per_page=100"
 _CHECK_RUNS_PAGE_2 = f"/repositories/1/commits/{_HEAD}/check-runs?per_page=100&page=2"
-_COMPARE = f"/repos/{_REPO}/compare/{_BASE}...{_HEAD}?per_page=1"
+_COMPARE = f"/repos/{_REPO}/compare/main...{_HEAD}?per_page=1"
 _STATUS = f"repos/{_REPO}/commits/{_HEAD}/status"
 _CHANGES_DIR = f"repos/{_REPO}/contents/openspec/changes?ref={_BASE}"
 _THREADS = "GetReviewThreads"
@@ -141,7 +143,7 @@ class _GitHub:
         self.answer(_STATUS, ProcessAnswer(stdout=json.dumps(payload)))
 
     def files(self, *files: object) -> None:
-        route_compare_files(self.api, _REPO, _BASE, _HEAD, *files)
+        route_compare_files(self.api, _REPO, "main", _HEAD, *files, merge_base=_MERGE_BASE)
 
     def threads(self, *threads: dict[str, Any]) -> None:
         page = {"nodes": list(threads), "pageInfo": {"hasNextPage": False, "endCursor": None}}
@@ -635,6 +637,9 @@ def test_a_pr_into_another_branch_reads_no_closing_issues(github: _GitHub, tmp_p
         "sha": _BASE,
         "repo": {"full_name": _REPO, "default_branch": "main"},
     }
+    route_compare_files(
+        github.api, _REPO, "feat/stacked", _HEAD, _ARCHIVE_704, merge_base=_MERGE_BASE
+    )
     verdict = _assess(tmp_path, _pr(base=base))
     assert (verdict.blockers, any(_CLOSING in command for command in github.gh_sent())) == (
         (
@@ -712,11 +717,11 @@ def test_a_malformed_files_entry_fails_read(github: _GitHub, tmp_path: Path, ent
     ], blockers
 
 
-def test_the_changed_files_are_read_from_the_compare_of_the_base_and_head(
+def test_the_changed_files_are_read_from_the_compare_of_the_base_branch_and_head(
     github: _GitHub, tmp_path: Path
 ) -> None:
     """A merge commit moves the merge base, and the pulls files list keeps the base of the last
-    push, so the files are the compare of the base commit and the head commit (#2530)."""
+    push, so the files are the compare of the base branch and the head commit (#2530)."""
     github.files(_ARCHIVE_704)
     verdict = _assess(tmp_path)
     assert (
@@ -727,17 +732,33 @@ def test_the_changed_files_are_read_from_the_compare_of_the_base_and_head(
     ) == (True, (), [f"GET https://api.github.com{_COMPARE}"], [])
 
 
-def test_a_fork_head_is_compared_by_its_owner_and_branch(github: _GitHub, tmp_path: Path) -> None:
-    """A fork's head commit is no commit of the base repository, so the compare names the head
-    owner and branch (#2530)."""
-    route_compare_files(github.api, _REPO, _BASE, "octocat:feat/x", _ARCHIVE_704)
+def test_the_stale_base_sha_of_the_payload_is_not_compared(github: _GitHub, tmp_path: Path) -> None:
+    """GitHub does not move `base.sha` when a merge commit moves the merge base. PR #2509 kept
+    base.sha 0137f231: its compare gave 184 files with the archived changes of other issues,
+    and the compare from `main` gave merge base 5c4d24ee and 11 files. So no session read names
+    the stale sha, and the archives of other issues give no blocker (#2530)."""
+    stale = [
+        {"filename": "openspec/changes/archive/2026-10-01-1024-x/proposal.md", "status": "added"},
+        {"filename": "openspec/changes/archive/2026-10-02-1652-y/proposal.md", "status": "added"},
+        _ARCHIVE_704,
+    ]
+    route_compare_files(github.api, _REPO, _BASE, _HEAD, *stale, merge_base=_BASE)
+    verdict = _assess(tmp_path)
+    assert (
+        verdict.is_ready,
+        verdict.blockers,
+        [request for request in github.api.requested if _BASE in request],
+    ) == (True, (), [])
+
+
+def test_a_fork_head_is_compared_by_its_commit_sha(github: _GitHub, tmp_path: Path) -> None:
+    """GitHub keeps the head commit of a fork's pull request in the base repository, so the
+    compare names the head commit that the checks were read for, and not a branch that can move
+    (#2530)."""
     fork = _pr(head={"ref": "feat/x", "sha": _HEAD, "repo": {"full_name": "octocat/devops-cli"}})
     verdict = _assess(tmp_path, fork)
     compared = [request for request in github.api.requested if "/compare/" in request]
-    assert (
-        verdict.is_ready,
-        [httpx2.URL(request.split(" ", 1)[1]).path for request in compared],
-    ) == (True, [f"/repos/{_REPO}/compare/{_BASE}...octocat:feat/x"])
+    assert (verdict.is_ready, compared) == (True, [f"GET https://api.github.com{_COMPARE}"])
 
 
 def test_a_compare_answer_at_the_file_limit_is_one_blocker_naming_the_limit(
@@ -754,12 +775,14 @@ def test_a_compare_answer_at_the_file_limit_is_one_blocker_naming_the_limit(
     ) == (1, [BlockerKind.GROUNDING], [True])
 
 
-def test_the_changed_files_are_read_from_every_linked_page(github: _GitHub) -> None:
+def test_one_compare_answer_holds_more_files_than_a_page_of_the_pulls_files(
+    github: _GitHub,
+) -> None:
     """PR #738 changed 51 files, and a read that stops at GitHub's default page of 30 missed the
     rest. The compare answer lists every file of the diff in one answer (#2530)."""
     files = [{"filename": f"src/m{n}.py", "status": "modified"} for n in range(100)]
     github.files(*files, _ARCHIVE_704)
-    read = read_changed_files(_OWNER, _NAME, _pr())
+    read = read_changed_files(_OWNER, _NAME, "main", _HEAD)
     assert (len(read.files), read.files[-1], read.error, read.truncated) == (
         101,
         PullRequestFile(filename=_ARCHIVE_704["filename"], status="added"),
@@ -771,9 +794,9 @@ def test_the_changed_files_are_read_from_every_linked_page(github: _GitHub) -> N
 def test_a_changed_files_page_that_is_no_list_fails_read(github: _GitHub) -> None:
     """A compare answer whose files are no list is the read's failure, not a shorter file list."""
     github.api.route(
-        "GET", _COMPARE, github_json({"merge_base_commit": {"sha": _BASE}, "files": "bad"})
+        "GET", _COMPARE, github_json({"merge_base_commit": {"sha": _MERGE_BASE}, "files": "bad"})
     )
-    read = read_changed_files(_OWNER, _NAME, _pr())
+    read = read_changed_files(_OWNER, _NAME, "main", _HEAD)
     assert (read.files, "_CompareFiles" in read.error) == ([], True)
 
 

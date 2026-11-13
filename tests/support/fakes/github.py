@@ -210,15 +210,19 @@ def route_merge_base(api: GitHubApiFake, repo: str, base: str, head: str, sha: s
 
 
 def route_compare_files(
-    api: GitHubApiFake, repo: str, base: str, head: str, *files: Mapping[str, Any]
+    api: GitHubApiFake,
+    repo: str,
+    base: str,
+    head: str,
+    *files: Mapping[str, Any],
+    merge_base: str,
 ) -> None:
     """Answer the comparison of `base` and `head` in `repo` with `files` as the files it changes,
-    and `base` as their merge base. `head` is a commit, or `owner:branch` for the head of a fork
-    (#2530)."""
+    and `merge_base` as the commit GitHub compares from. `base` is a branch or a commit (#2530)."""
     api.route(
         "GET",
         f"/repos/{repo}/compare/{quote(base)}...{quote(head)}?per_page=1",
-        github_json({"merge_base_commit": {"sha": base}, "files": list(files)}),
+        github_json({"merge_base_commit": {"sha": merge_base}, "files": list(files)}),
     )
 
 

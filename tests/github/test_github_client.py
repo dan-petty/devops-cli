@@ -326,6 +326,14 @@ def test_the_compare_files_are_read_with_the_limit_flag(
     )
 
 
+def test_a_compare_answer_with_no_files_is_unread(github_api: GitHubApiFake) -> None:
+    """The recorded comparison was cut to its merge base and holds no `files`. Such an answer is
+    no answer, and not an empty diff that reads as clean (#2530)."""
+    github_api.route("GET", _COMPARE, github_json(_RECORDED["comparison"]))
+    with pytest.raises(GitHubUnreadError, match="_CompareFiles"):
+        _client().get_compare_files("octocat/Hello-World", _BASE_SHA, _HEAD_SHA)
+
+
 def test_a_comparison_github_does_not_find_has_no_merge_base(github_api: GitHubApiFake) -> None:
     """GitHub's 404 for two commits it cannot compare is no merge base."""
     assert _client().get_merge_base("octocat/Hello-World", _BASE_SHA, "unknown") is None

@@ -350,37 +350,21 @@ def _gh_failure(res: Any) -> str:
     ]
 
 
-def _base_sha(pr_data: dict[str, Any]) -> str:
-    """The commit of the base branch that the pull request's diff starts at."""
-    return str((pr_data.get("base") or {}).get("sha") or "")
-
-
-def _compare_head(pr_data: dict[str, Any]) -> str:
-    """The end of the compare of a pull request: a fork's head commit is no commit of the base
-    repository, so the owner and the branch of the fork name it there, and any other head names
-    its commit sha."""
-    head = pr_data.get("head") or {}
-    head_repo = str((head.get("repo") or {}).get("full_name") or "")
-    base_repo = str(((pr_data.get("base") or {}).get("repo") or {}).get("full_name") or "")
-    if head_repo and head_repo != base_repo:
-        return f"{head_repo.split('/')[0]}:{head.get('ref') or ''}"
-    return str(head.get("sha") or "")
-
-
 def read_changed_files(
-    owner: str, repo_name: str, pr_data: dict[str, Any], *, session: GitHubSession | None = None
+    owner: str, repo_name: str, base: str, head: str, *, session: GitHubSession | None = None
 ) -> ChangedFilesRead:
     """Read the files a pull request changes, keeping a failure for the caller.
 
-    The files are the compare of the base commit and the head commit: that is the diff a squash
-    merge applies, and it follows the merge base when a merge commit moves it, unlike the pull
-    request's own file list, which keeps the base of the last push (#2530).
+    The files are the compare of the base branch `base` and the head commit `head`. GitHub
+    compares from the merge base of the two, so this is the diff a squash merge applies. The
+    payload's `base.sha` is not used: GitHub does not move it when a merge commit moves the merge
+    base, and the pull request's own file list keeps that stale base too (#2530). GitHub keeps the
+    head commit of a fork's pull request in the base repository, so `head` is a commit sha for a
+    fork too.
     """
     try:
         client = (session or get_github_session()).client
-        compared = client.get_compare_files(
-            f"{owner}/{repo_name}", _base_sha(pr_data), _compare_head(pr_data)
-        )
+        compared = client.get_compare_files(f"{owner}/{repo_name}", base, head)
         return ChangedFilesRead(compared.files, truncated=compared.truncated)
     except GitHubOperationError as exc:
         return ChangedFilesRead([], str(exc))
@@ -620,7 +604,9 @@ def assess_merge_readiness(
     head_sha = str(pr_data.get("head", {}).get("sha") or "")
     _judge_checks(verdict, head_sha, pr_num, owner, repo_name, reads)
     _judge_threads(verdict, pr_num, owner, repo_name, reads)
-    changed = read_changed_files(owner, repo_name, pr_data, session=session)
+    changed = read_changed_files(
+        owner, repo_name, _branch_ref(pr_data, "base"), head_sha, session=session
+    )
     _judge_grounding(verdict, pr_data, pr_num, owner, repo_name, changed, runner)
     if changed.files:
         advisory = perimeter_advisory(changed.files, review_root or find_repo_root())

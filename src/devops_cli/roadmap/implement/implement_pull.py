@@ -273,7 +273,7 @@ def read_draft(
             declared=declared,
         )
 
-    files = client.get_compare_files(repo, pull.base_sha, pull.head_sha).files
+    files = client.get_compare_files(repo, pull.base_ref, pull.head_sha).files
     found = _find_tasks_path(files, issue)
     if found is not None:
         tasks_path, archived = found

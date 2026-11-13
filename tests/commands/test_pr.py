@@ -42,7 +42,8 @@ from tests.support.fakes.roadmap_store import (
 pytestmark = pytest.mark.usefixtures("roadmap_store")
 
 _REPO = "dan-petty/devops-cli"
-_HEAD, _BASE = "a" * 40, "b" * 40
+# `_BASE` is the payload's `base.sha`, which GitHub does not move with the merge base (#2530).
+_HEAD, _BASE, _MERGE_BASE = "a" * 40, "b" * 40, "c" * 40
 _ARCHIVE_704 = {
     "filename": "openspec/changes/archive/2026-10-23-704-x/proposal.md",
     "status": "added",
@@ -138,12 +139,7 @@ class _GitHub:
         )
 
     def files(self, *files: dict[str, str]) -> None:
-        route_compare_files(self.api, _REPO, _BASE, _HEAD, *files)
-        # The draft readiness of an implement pull request still reads the pulls files endpoint
-        # (#2530).
-        self.api.route(
-            "GET", f"/repos/{_REPO}/pulls/335/files?per_page=100", github_json(list(files))
-        )
+        route_compare_files(self.api, _REPO, "main", _HEAD, *files, merge_base=_MERGE_BASE)
 
     def threads(self, *threads: dict[str, Any]) -> None:
         self.answer(_THREADS, ProcessAnswer(stdout=_threads_page(*threads)))
