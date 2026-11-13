@@ -1,4 +1,4 @@
-"""GitHub Pages configuration inspection, build lifecycle, and verification."""
+"""GitHub Pages site status and local verification of the docs site settings."""
 
 from __future__ import annotations
 
@@ -6,12 +6,12 @@ import json
 import logging
 import tomllib
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from devops_cli.dry_run.requests import PlannedRequest
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel
 
 from devops_cli.config.constants import CONST_DOCS_SITE_CONFIG_FILE, CONST_GH_CLI
 from devops_cli.github.rate_limiter import run_gh
@@ -24,25 +24,13 @@ class GitHubPagesInfo(BaseModel):
 
     status: str
     html_url: str
-    build_type: str = "legacy"
-    branch: str = "main"
-    path: str = "/"
+    # GitHub gives `source` also for a `workflow` build, but uses it only for a `legacy` build.
+    build_type: str | None = None
+    branch: str | None = None
+    path: str | None = None
     cname: str | None = None
     custom_404: bool = False
     https_enforced: bool = True
-
-
-class GitHubPagesBuildInfo(BaseModel):
-    """GitHub Pages historical or recent build record."""
-
-    model_config = ConfigDict(populate_by_name=True)
-
-    status: str
-    commit: str = ""
-    duration_ms: int = Field(default=0, alias="duration")
-    error_message: str | None = None
-    created_at: str = ""
-    updated_at: str = ""
 
 
 def pages_status_args(repo: str) -> list[str]:
@@ -66,13 +54,13 @@ def get_pages_status(repo: str) -> GitHubPagesInfo | None:
 
     try:
         data = json.loads(res.stdout)
-        source = data.get("source", {})
+        source = data.get("source") or {}
         return GitHubPagesInfo(
             status=data.get("status", "unknown"),
             html_url=data.get("html_url", ""),
-            build_type=data.get("build_type", "legacy"),
-            branch=source.get("branch", "main"),
-            path=source.get("path", "/"),
+            build_type=data.get("build_type"),
+            branch=source.get("branch"),
+            path=source.get("path"),
             cname=data.get("cname"),
             custom_404=data.get("custom_404", False),
             https_enforced=data.get("https_enforced", True),
@@ -80,68 +68,6 @@ def get_pages_status(repo: str) -> GitHubPagesInfo | None:
     except Exception as exc:
         logger.debug("Failed to parse pages status: %s", exc)
         return None
-
-
-def _parse_single_build(item: dict[str, Any]) -> GitHubPagesBuildInfo:
-    """Transform raw GitHub Pages build payload into a typed model."""
-    err = item.get("error")
-    err_msg = err.get("message") if isinstance(err, dict) else (str(err) if err else None)
-    return GitHubPagesBuildInfo(
-        status=item.get("status", "unknown"),
-        commit=item.get("commit", ""),
-        duration=item.get("duration", 0),
-        error_message=err_msg,
-        created_at=item.get("created_at", ""),
-        updated_at=item.get("updated_at", ""),
-    )
-
-
-def pages_builds_args(repo: str, limit: int = 5) -> list[str]:
-    """Arguments for retrieving historical Pages build records."""
-    return ["api", f"repos/{repo}/pages/builds?per_page={limit}"]
-
-
-def pages_builds_requests(repo: str, limit: int = 5) -> list[PlannedRequest]:
-    """Planned requests for retrieving historical Pages build records."""
-    from devops_cli.roadmap.request_plan import planned_gh
-
-    return [planned_gh(pages_builds_args(repo, limit=limit), f"repos/{repo}/pages/builds")]
-
-
-def get_pages_builds(repo: str, limit: int = 5) -> list[GitHubPagesBuildInfo]:
-    """Retrieve historical Pages build records for the repository."""
-    cmd = [CONST_GH_CLI, *pages_builds_args(repo, limit=limit)]
-    res = run_gh(cmd, check=False, quiet=True)
-    if res.returncode != 0 or not res.stdout.strip():
-        return []
-
-    try:
-        raw_list = json.loads(res.stdout)
-        if not isinstance(raw_list, list):
-            return []
-        return [_parse_single_build(item) for item in raw_list if isinstance(item, dict)]
-    except Exception as exc:
-        logger.debug("Failed to parse pages builds: %s", exc)
-        return []
-
-
-def pages_build_args(repo: str) -> list[str]:
-    """Arguments for requesting a new deployment build for GitHub Pages."""
-    return ["api", "-X", "POST", f"repos/{repo}/pages/builds"]
-
-
-def pages_build_requests(repo: str) -> list[PlannedRequest]:
-    """Planned requests for requesting a new deployment build for GitHub Pages."""
-    from devops_cli.roadmap.request_plan import planned_gh
-
-    return [planned_gh(pages_build_args(repo), f"repos/{repo}/pages/builds")]
-
-
-def request_pages_build(repo: str) -> bool:
-    """Request a new deployment build for GitHub Pages."""
-    cmd = [CONST_GH_CLI, *pages_build_args(repo)]
-    res = run_gh(cmd, check=False, quiet=True)
-    return res.returncode == 0
 
 
 # The settings that the site build needs: the name, the published URL and the repository whose

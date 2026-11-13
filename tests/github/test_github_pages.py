@@ -11,11 +11,8 @@ import pytest
 import yaml
 
 from devops_cli.github.pages import (
-    GitHubPagesBuildInfo,
     GitHubPagesInfo,
-    get_pages_builds,
     get_pages_status,
-    request_pages_build,
     verify_pages_configuration,
 )
 from tests.support.fakes.process import ProcessAnswer
@@ -44,35 +41,18 @@ def _answer_rate_limit(process_fake: ProcessFake) -> None:
 
 
 def test_github_pages_info_model() -> None:
-    """GitHubPagesInfo validates properly and handles optional fields."""
+    """GitHubPagesInfo gives no source branch and no path for a workflow build that names none
+    (#5212)."""
     info = GitHubPagesInfo(
         status="built",
         html_url="https://dan-petty.github.io/devops-cli/",
-        build_type="legacy",
-        branch="main",
-        path="/",
+        build_type="workflow",
         https_enforced=True,
     )
     assert info.status == "built"
     assert info.html_url == "https://dan-petty.github.io/devops-cli/"
-    assert info.branch == "main"
+    assert (info.build_type, info.branch, info.path) == ("workflow", None, None)
     assert info.https_enforced is True
-
-
-def test_github_pages_build_info_model() -> None:
-    """GitHubPagesBuildInfo model parses correctly."""
-    build = GitHubPagesBuildInfo(
-        status="built",
-        commit="b861fc4b957de816aec9b5a650f049efe0251381",
-        duration_ms=45802,
-        error_message=None,
-        created_at="2026-09-09T14:25:58Z",
-        updated_at="2026-09-09T14:26:43Z",
-    )
-    assert build.status == "built"
-    assert build.commit.startswith("b861fc4")
-    assert build.duration_ms == 45802
-    assert build.error_message is None
 
 
 def test_get_pages_status_parses_status_payload(process_fake: ProcessFake) -> None:
@@ -80,8 +60,8 @@ def test_get_pages_status_parses_status_payload(process_fake: ProcessFake) -> No
     payload = {
         "status": "built",
         "html_url": "https://dan-petty.github.io/devops-cli/",
-        "build_type": "legacy",
-        "source": {"branch": "main", "path": "/"},
+        "build_type": "workflow",
+        "source": {"branch": "main", "path": "/docs"},
         "https_enforced": True,
         "cname": None,
         "custom_404": False,
@@ -93,8 +73,21 @@ def test_get_pages_status_parses_status_payload(process_fake: ProcessFake) -> No
     res = get_pages_status("dan-petty/devops-cli")
     assert res is not None
     assert res.status == "built"
-    assert res.branch == "main"
+    assert (res.build_type, res.branch, res.path) == ("workflow", "main", "/docs")
     assert res.https_enforced is True
+
+
+def test_get_pages_status_gives_no_value_for_an_omitted_field(process_fake: ProcessFake) -> None:
+    """get_pages_status invents no legacy build type, source branch or path when the API omits
+    them (#5212)."""
+    payload = {"status": "built", "html_url": "https://dan-petty.github.io/devops-cli/"}
+    process_fake.answer(
+        ["gh", "api", "repos/dan-petty/devops-cli/pages"],
+        ProcessAnswer(returncode=0, stdout=json.dumps(payload)),
+    )
+    res = get_pages_status("dan-petty/devops-cli")
+    assert res is not None
+    assert (res.build_type, res.branch, res.path) == (None, None, None)
 
 
 def test_get_pages_status_returns_none_when_disabled(process_fake: ProcessFake) -> None:
@@ -105,38 +98,6 @@ def test_get_pages_status_returns_none_when_disabled(process_fake: ProcessFake) 
     )
     res = get_pages_status("dan-petty/no-pages")
     assert res is None
-
-
-def test_get_pages_builds_returns_history_records(process_fake: ProcessFake) -> None:
-    """get_pages_builds parses build history records."""
-    builds_payload = [
-        {
-            "status": "built",
-            "commit": "b861fc4b957de816aec9b5a650f049efe0251381",
-            "duration": 45802,
-            "error": {"message": None},
-            "created_at": "2026-09-09T14:25:58Z",
-            "updated_at": "2026-09-09T14:26:43Z",
-        }
-    ]
-    process_fake.answer(
-        ["gh", "api", "repos/dan-petty/devops-cli/pages/builds?per_page=5"],
-        ProcessAnswer(returncode=0, stdout=json.dumps(builds_payload)),
-    )
-    builds = get_pages_builds("dan-petty/devops-cli")
-    assert len(builds) == 1
-    assert builds[0].status == "built"
-    assert builds[0].duration_ms == 45802
-
-
-def test_request_pages_build_triggers_deployment(process_fake: ProcessFake) -> None:
-    """request_pages_build calls GitHub API to request a build."""
-    process_fake.answer(
-        ["gh", "api", "-X", "POST", "repos/dan-petty/devops-cli/pages/builds"],
-        ProcessAnswer(returncode=0, stdout="{}"),
-    )
-    ok = request_pages_build("dan-petty/devops-cli")
-    assert ok is True
 
 
 SITE_SETTINGS = (
@@ -215,14 +176,11 @@ def test_verify_pages_configuration_invalid_toml(tmp_path: Path) -> None:
 
 
 def test_the_repository_site_settings_pass_the_check() -> None:
-    """Verify that zensical.toml of this repository passes the check, and that docs/ holds no
-    settings file of the Jekyll build that the site no longer uses (#5152)."""
+    """Verify that zensical.toml and docs/ of this repository pass both parts of the check
+    (#5152)."""
     valid, diagnostics = verify_pages_configuration(REPO_ROOT)
 
-    assert (valid, sorted(path.name for path in (REPO_ROOT / "docs").glob("*.y*ml"))) == (
-        True,
-        [],
-    ), diagnostics
+    assert (valid, [line[:1] for line in diagnostics]) == (True, ["✓", "✓"]), diagnostics
 
 
 def test_the_repository_site_has_readme_as_its_home_page() -> None:

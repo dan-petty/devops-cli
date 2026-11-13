@@ -75,7 +75,7 @@ Renovate proposes each new release of Style Dictionary, a minor or a patch in th
   5. The sequential ramp has a monotonic lightness (`L*`), and the diverging ramp is red at step 1 and blue at step 9 in both themes.
   6. Each width in an `@media` rule of this spec and of the CSS of the package is `breakpoint.md` or `breakpoint.lg`.
   7. The dash patterns of the package are the patterns of [Line patterns](#line-patterns).
-- **The ast-grep rule `css-color-literal`** rejects a hex color, a call of a CSS color function and a CSS named color in the hand-written CSS of `src/devops_cli/design/css/`. The docs site item (#4745) and the start page item (#4598) extend the rule to their CSS when they remove its color literals.
+- **The ast-grep rule `css-color-literal`** rejects a hex color, a call of a CSS color function and a CSS named color in the hand-written CSS of `src/devops_cli/design/css/`. The docs site item (#4745) extends the rule to the `extra_css` file that it adds. The start page item (#4598) extends the rule to its CSS when it removes its color literals.
 
 ## Palette
 

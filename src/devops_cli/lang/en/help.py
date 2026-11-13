@@ -1289,14 +1289,10 @@ class GHCommandHelp:
     views_spec: str = "Output JSON schema specification for project views."
     views_sync: str = "Synchronize standardized views with the remote GitHub Projects v2 board."
     views_audit: str = "Audit remote project views against standardized template specifications."
-    pages_app: str = (
-        "Inspect GitHub Pages site deployment status, builds, and the local Zensical settings."
-    )
+    pages_app: str = "Inspect the GitHub Pages site status and check the local Zensical settings."
     pages_status: str = (
-        "Inspect GitHub Pages deployment status, URL, branch, and HTTPS enforcement."
+        "Inspect GitHub Pages deployment status, URL, build type, and HTTPS enforcement."
     )
-    pages_builds: str = "List recent GitHub Pages build history and durations."
-    pages_build: str = "Trigger a new deployment build for GitHub Pages."
     pages_verify: str = (
         "Verify that zensical.toml has the settings of the docs site and that docs/ holds Markdown "
         "pages."

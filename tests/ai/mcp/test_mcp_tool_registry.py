@@ -50,6 +50,17 @@ def test_all_tools_have_descriptions() -> None:
     assert missing_desc == [], f"Tools missing descriptions: {missing_desc}"
 
 
+def test_the_pages_tools_are_status_and_verify() -> None:
+    """Verify that the MCP server has no tool that requests a legacy Pages build: a manual run of
+    pages.yml requests a deploy (#5212)."""
+    tool_names = {tool.name for tool in asyncio.run(mcp._list_tools())}
+
+    assert sorted(name for name in tool_names if name.startswith("gh_pages_")) == [
+        "gh_pages_status",
+        "gh_pages_verify",
+    ]
+
+
 def test_ai_architecture_tool_is_removed() -> None:
     """Verify the tool that ran the never-existing `devops analyze architecture` is gone,
     with no shim left behind."""
@@ -166,7 +177,6 @@ def test_fastmcp_tools_registration() -> None:
         # GitHub Projects, Pages, Issues & Views
         "gh_views_sync",
         "gh_pages_status",
-        "gh_pages_build",
         "gh_pages_verify",
         "gh_issue_list",
         "gh_issue_view",

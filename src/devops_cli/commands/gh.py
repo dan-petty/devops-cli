@@ -68,12 +68,8 @@ from devops_cli.github.milestones import (
     calculate_milestone_progress,
 )
 from devops_cli.github.pages import (
-    get_pages_builds,
     get_pages_status,
-    pages_build_requests,
-    pages_builds_requests,
     pages_status_requests,
-    request_pages_build,
     verify_pages_configuration,
 )
 from devops_cli.github.projects import (
@@ -1053,7 +1049,7 @@ def pages_status_cmd(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Inspect GitHub Pages deployment status, URL, branch, and HTTPS enforcement."""
+    """Inspect GitHub Pages deployment status, URL, build type, and HTTPS enforcement."""
     target_repo = repo or _resolve_repo()
     if dry_run or is_dry_run():
         planned = pages_status_requests(target_repo)
@@ -1066,72 +1062,21 @@ def pages_status_cmd(
         )
         return
     https_badge = "[green]ENFORCED[/green]" if info.https_enforced else "[yellow]DISABLED[/yellow]"
+    # GitHub keeps `source` for a workflow build but does not use it, so only a legacy build
+    # names its source branch (#5212).
+    source = {
+        "legacy": f"Source Branch: {info.branch or '—'} (path: {info.path or '—'})\n",
+        "workflow": "Source: a GitHub Actions workflow deploys the site\n",
+    }.get(info.build_type or "", "")
     print_panel(
         f"Deployment Status: [bold cyan]{info.status.upper()}[/bold cyan]\n"
         f"Site URL: [link={info.html_url}]{info.html_url}[/link]\n"
-        f"Source Branch: {info.branch} (path: {info.path})\n"
-        f"Build Type: {info.build_type}\n"
+        f"{source}"
+        f"Build Type: {info.build_type or '—'}\n"
         f"HTTPS Enforced: {https_badge}\n"
         f"Custom Domain: {info.cname or '—'}",
         title=f"GitHub Pages Status ({target_repo})",
     )
-
-
-@pages_app.command("builds", help=HELP.gh.pages_builds)
-@dry_run_class("request-plan")
-def pages_builds_cmd(
-    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
-    limit: Annotated[int, typer.Option("--limit", "-l", help="Number of builds to retrieve")] = 5,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
-) -> None:
-    """List recent GitHub Pages build history and durations."""
-    target_repo = repo or _resolve_repo()
-    if dry_run or is_dry_run():
-        planned = pages_builds_requests(target_repo, limit=limit)
-        render_request_plan(f"Plan for retrieving Pages builds ({target_repo})", planned)
-        return
-    builds = get_pages_builds(target_repo, limit=limit)
-    if not builds:
-        print_info(f"No recent GitHub Pages builds found for '{target_repo}'.")
-        return
-    columns = ["Commit", "Status", "Duration", "Created At", "Error"]
-    rows = [
-        [
-            b.commit[:7] if b.commit else "—",
-            b.status.upper(),
-            f"{b.duration_ms / 1000:.1f}s" if b.duration_ms else "—",
-            b.created_at or "—",
-            b.error_message or "—",
-        ]
-        for b in builds
-    ]
-    print_table(f"GitHub Pages Build History ({target_repo})", columns, rows)
-
-
-@pages_app.command("build", help=HELP.gh.pages_build)
-@dry_run_class("request-plan")
-def pages_build_cmd(
-    repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
-) -> None:
-    """Trigger a new deployment build for GitHub Pages."""
-    target_repo = repo or _resolve_repo()
-    if dry_run or is_dry_run():
-        planned = pages_build_requests(target_repo)
-        render_request_plan(f"Plan for requesting Pages build ({target_repo})", planned)
-        return
-    ok = request_pages_build(target_repo)
-    if ok:
-        print_success(f"Successfully requested GitHub Pages build for '{target_repo}'.")
-    else:
-        print_error(f"Failed to request GitHub Pages build for '{target_repo}'.")
-        raise typer.Exit(1)
 
 
 @pages_app.command("verify", help=HELP.gh.pages_verify)
