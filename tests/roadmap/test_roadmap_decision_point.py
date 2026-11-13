@@ -3,6 +3,7 @@ join of a decision with its outcome, and the registry of the points."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import TYPE_CHECKING, Any
@@ -119,6 +120,32 @@ def test_a_rule_with_no_band_leaves_the_case_to_the_model(tmp_path: Path, jev: J
 
     assert (decision.resolver, decision.band) == (Resolver.MODEL, Band.REVIEW)
     assert jev.asked == [["a", "b"]]
+
+
+def test_decide_and_adecide_answer_inside_a_running_event_loop(
+    tmp_path: Path, jev: JevFake
+) -> None:
+    """A caller that runs an event loop gets the decision of the model from either entry point:
+    `decide` sends on the portal of the process, and `adecide` awaits the same request on the loop
+    of the caller (#5272). Each path builds its own model, because the pooled client of a model
+    belongs to one loop (#4319)."""
+    point = _point(_cuts(tmp_path))
+
+    async def drive() -> tuple[DecisionRecord, DecisionRecord]:
+        blocked = _chain(point, jev).decide({"text": "a plan"}, subject=7)
+        awaited = await ResolverChain(
+            point, Mode.ON, model_name=CONST_AI_JEV_MODEL, model=jev.over_loopback()
+        ).adecide({"text": "a plan"}, subject=7)
+        return blocked, awaited
+
+    blocked, awaited = asyncio.run(drive())
+
+    for decision in (blocked, awaited):
+        assert (decision.resolver, decision.band, decision.cuts) == (
+            Resolver.MODEL,
+            Band.CONTINUE,
+            "2026-11-10",
+        )
 
 
 @pytest.mark.parametrize(

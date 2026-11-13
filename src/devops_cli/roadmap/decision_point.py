@@ -14,6 +14,10 @@ A `ResolverChain` resolves a point in this order and stops at the first resolver
    request, a missing answer or cut, or a digest that holds a secret gives the fallback, and the
    log names the cause.
 
+`ResolverChain.decide` sends the request on the one blocking portal of the process, so a caller
+that runs an event loop may call it. `ResolverChain.adecide` awaits the same request on the loop of
+its caller and uses no portal. Both write the same record and the same count.
+
 The mode of a point (`roadmap.decisions`) says what the band does: with `shadow` the chain runs and
 the workflow acts as with `off`, and with `on` the band acts. `chain_of` gives no chain for the
 mode `off`, nor for a point with no rule while no decision model is configured: then the point
@@ -40,7 +44,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from pydantic_ai.models.decision import DecisionQuestion, DecisionRequest
+from pydantic_ai.models.decision import DecisionQuestion, DecisionRequest, DecisionResponse
 
 from devops_cli.config.constants import CONST_ROADMAP_DECISION_POINT_MAX_SERIES
 from devops_cli.lang import MESSAGES
@@ -50,6 +54,7 @@ from devops_cli.roadmap.decision_step import (
     Band,
     DecisionStepError,
     Thresholds,
+    adecide_all,
     band_of,
     decide_all,
     probabilities_of,
@@ -241,21 +246,46 @@ class ResolverChain[T]:
 
     def decide(self, given: T, *, subject: object) -> DecisionRecord:
         """The decision for `given`, the input of the point for `subject` (the item or the run). It
-        writes the decision record and the count, and it never raises an error of the model."""
+        sends the request on the blocking portal of the process, so it may run in a thread that
+        runs an event loop. It writes the decision record and the count, and it never raises an
+        error of the model."""
         state: dict[str, Any] = {}
         answers: dict[str, float] = {}
         try:
             state = self.point.evidence(given)
             resolved = self._resolve(state, answers)
         except FAILED as exc:
-            logger.warning(
-                MESSAGES.roadmap.decision_point_failed.format(
-                    point=self.point.name,
-                    subject=subject,
-                    error=f"{type(exc).__name__}: {exc}"[:_ERROR_CHARS],
-                )
+            resolved = self._failed(subject, exc)
+        return self._counted(subject, state, resolved, answers)
+
+    async def adecide(self, given: T, *, subject: object) -> DecisionRecord:
+        """The decision for `given`, awaited on the event loop of the caller, which uses no
+        blocking portal. It writes the decision record and the count, and it never raises an error
+        of the model."""
+        state: dict[str, Any] = {}
+        answers: dict[str, float] = {}
+        try:
+            state = self.point.evidence(given)
+            resolved = await self._aresolve(state, answers)
+        except FAILED as exc:
+            resolved = self._failed(subject, exc)
+        return self._counted(subject, state, resolved, answers)
+
+    def _failed(self, subject: object, exc: BaseException) -> _Resolved:
+        """The fallback of an error of the chain, with its cause in the log."""
+        logger.warning(
+            MESSAGES.roadmap.decision_point_failed.format(
+                point=self.point.name,
+                subject=subject,
+                error=f"{type(exc).__name__}: {exc}"[:_ERROR_CHARS],
             )
-            resolved = _Resolved(Resolver.FALLBACK)
+        )
+        return _Resolved(Resolver.FALLBACK)
+
+    def _counted(
+        self, subject: object, state: dict[str, Any], resolved: _Resolved, answers: dict[str, float]
+    ) -> DecisionRecord:
+        """The record of the decision, its log line and its one count."""
         record = self._record(
             f"{self.point.name}/{subject}/{uuid.uuid7()}", subject, state, resolved, answers
         )
@@ -273,12 +303,11 @@ class ResolverChain[T]:
         return record
 
     def _resolve(self, state: dict[str, Any], answers: dict[str, float]) -> _Resolved:
-        """The first resolver that answers. The model puts its answers in `answers` before the
-        cuts give the band, so a record of a fallback keeps them."""
-        if self.point.rule is not None and (band := self.point.rule(state)) is not None:
-            return _Resolved(Resolver.RULE, band)
-        if not self._model_name:
-            return _Resolved(Resolver.FALLBACK)
+        """The first resolver that answers, with the request sent on the blocking portal. The model
+        puts its answers in `answers` before the cuts give the band, so a record of a fallback keeps
+        them."""
+        if (started := self._started(state)) is not None:
+            return started
         (response,) = decide_all(
             [self.point.request(state)],
             model=self._model,
@@ -286,6 +315,32 @@ class ResolverChain[T]:
             settings=self._settings,
             timeout=self.point.timeout,
         )
+        return self._banded(response, answers)
+
+    async def _aresolve(self, state: dict[str, Any], answers: dict[str, float]) -> _Resolved:
+        """The first resolver that answers, with the request awaited on the event loop of the
+        caller. The model puts its answers in `answers` before the cuts give the band, so a record
+        of a fallback keeps them."""
+        if (started := self._started(state)) is not None:
+            return started
+        (response,) = await adecide_all(
+            [self.point.request(state)],
+            model=self._model,
+            model_name=self._model_name,
+            settings=self._settings,
+            timeout=self.point.timeout,
+        )
+        return self._banded(response, answers)
+
+    def _started(self, state: dict[str, Any]) -> _Resolved | None:
+        """The decision that the rule or the fallback gives, or None when the model answers."""
+        if self.point.rule is not None and (band := self.point.rule(state)) is not None:
+            return _Resolved(Resolver.RULE, band)
+        return None if self._model_name else _Resolved(Resolver.FALLBACK)
+
+    def _banded(self, response: DecisionResponse, answers: dict[str, float]) -> _Resolved:
+        """The decision of the model: its answers go into `answers`, and the cuts of the point give
+        the band and the flagged questions."""
         answers.update(probabilities_of(response))
         fitted = self._thresholds
         band = band_of(answers, fitted.cuts)

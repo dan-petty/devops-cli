@@ -42,9 +42,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/decision_step.py`, `src/devops_cl
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/decision_point.py`, `src/devops_cli/roadmap/decision_step.py`, `tests/roadmap/test_roadmap_decision_point.py`. Changes: `src/devops_cli/roadmap/decision_point.py`, `tests/roadmap/test_roadmap_decision_point.py`.
 
-- [ ] 5.1 Add `test_decide_and_adecide_answer_inside_a_running_event_loop` to `tests/roadmap/test_roadmap_decision_point.py`: one coroutine calls `decide` and awaits `adecide` with the fake model, and asserts that each gives the model decision and the band of the cuts
+- [x] 5.1 Add `test_decide_and_adecide_answer_inside_a_running_event_loop` to `tests/roadmap/test_roadmap_decision_point.py`: one coroutine calls `decide` and awaits `adecide` with the fake model, and asserts that each gives the model decision and the band of the cuts
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_decision_point.py` fails on the base
-- [ ] 5.2 Split the band step of `_resolve` into a helper that both paths share, add `_aresolve`, which awaits `adecide_all`, and add `adecide`, which builds the record, logs it and counts it as `decide` does
+- [x] 5.2 Split the band step of `_resolve` into a helper that both paths share, add `_aresolve`, which awaits `adecide_all`, and add `adecide`, which builds the record, logs it and counts it as `decide` does
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_decision_point.py` passes
 
 ## 6. Give the fallback for every error and count its class
