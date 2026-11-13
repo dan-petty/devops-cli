@@ -79,7 +79,8 @@ class PullStatus(BaseModel):
     (#3503). `head_sha` is empty when GitHub names no head, and `closed_at` is None for a pull
     request that is open. `mergeable` and `mergeable_state` are GitHub's merge state, and
     `base_ref` and `default_branch` are the branch it merges into and the default branch of
-    that repository (#4027)."""
+    that repository (#4027). `base_sha` is the commit of the base branch, which is the base of
+    the diff that the pull request would merge (#2530)."""
 
     model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
 
@@ -94,6 +95,7 @@ class PullStatus(BaseModel):
     closed_at: datetime | None = None
     mergeable: bool | None = None
     mergeable_state: str = ""
+    base_sha: str = Field(default="", validation_alias=AliasPath("base", "sha"))
     base_ref: str = Field(default="", validation_alias=AliasPath("base", "ref"))
     default_branch: str = Field(
         default="", validation_alias=AliasPath("base", "repo", "default_branch")

@@ -22,9 +22,9 @@ Kind: behavior. Reads: `src/devops_cli/github/client.py`, `src/devops_cli/github
 
 Kind: behavior. Reads: `src/devops_cli/github/client.py`, `src/devops_cli/roadmap/implement/implement_pull.py`, `tests/roadmap/test_roadmap_draft_readiness.py`. Changes: `src/devops_cli/github/client.py`, `src/devops_cli/roadmap/implement/implement_pull.py`, `tests/roadmap/test_roadmap_draft_readiness.py`.
 
-- [ ] 3.1 `tests/roadmap/test_roadmap_draft_readiness.py::test_read_draft_reads_the_files_from_the_compare_of_the_base_and_head` fails: it gives a pull status with a base sha and a head sha, asserts that `get_compare_files` is called with them and that `get_pull_files` is not, and `read_draft` still asks the pulls files endpoint
+- [x] 3.1 `tests/roadmap/test_roadmap_draft_readiness.py::test_read_draft_reads_the_files_from_the_compare_of_the_base_and_head` fails: it gives a pull status with a base sha and a head sha, asserts that `get_compare_files` is called with them and that `get_pull_files` is not, and `read_draft` still asks the pulls files endpoint
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_draft_readiness.py` fails on the base
-- [ ] 3.2 Add `base_sha` to `PullStatus` in `src/devops_cli/github/client.py`, read from the base sha of the payload. In `read_draft` of `src/devops_cli/roadmap/implement/implement_pull.py`, replace the pulls files read with `client.get_compare_files(repo, pull.base_sha, pull.head_sha).files`. Update the `read_draft` tests of `tests/roadmap/test_roadmap_draft_readiness.py` that stub the pulls files read, so they stub `get_compare_files` with `CompareFiles`
+- [x] 3.2 Add `base_sha` to `PullStatus` in `src/devops_cli/github/client.py`, read from the base sha of the payload. In `read_draft` of `src/devops_cli/roadmap/implement/implement_pull.py`, replace the pulls files read with `client.get_compare_files(repo, pull.base_sha, pull.head_sha).files`. Update the `read_draft` tests of `tests/roadmap/test_roadmap_draft_readiness.py` that stub the pulls files read, so they stub `get_compare_files` with `CompareFiles`
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_draft_readiness.py` passes
 
 ## 4. Read the pull request state on every monitor poll

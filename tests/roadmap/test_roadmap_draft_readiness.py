@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
-from devops_cli.github.client import PullRequestFile, PullStatus
+from devops_cli.github.client import CompareFiles, PullRequestFile, PullStatus
 from devops_cli.roadmap.implement.implement_pull import (
     Answer,
     ChangeFacts,
@@ -277,15 +277,55 @@ def test_read_draft_with_active_change_and_no_pull_arg() -> None:
         head_ref=f"fix/{issue_num}-feature",
         head_sha="sha123",
     )
-    client.get_pull_files.return_value = [
-        PullRequestFile(filename=f"openspec/changes/{issue_num}-feature/tasks.md", status="added"),
-    ]
+    client.get_compare_files.return_value = CompareFiles(
+        files=[
+            PullRequestFile(
+                filename=f"openspec/changes/{issue_num}-feature/tasks.md", status="added"
+            ),
+        ],
+        truncated=False,
+    )
     client.get_file_at.return_value = _COMPLETE_TASKS
 
     draft = read_draft("dan-petty/devops-cli", 335, store=store, client=client)
 
     client.get_pull_status.assert_called_once_with("dan-petty/devops-cli", 335)
     assert draft.kind is DraftKind.IMPLEMENT
+    assert draft.change is not None
+    assert draft.change.archived is False
+    assert draft.change.tasks_text == _COMPLETE_TASKS
+
+
+def test_read_draft_reads_the_files_from_the_compare_of_the_base_and_head() -> None:
+    store = InMemoryRoadmapStore()
+    issue_num = store.seed_issue(
+        "Issue 1",
+        body=with_record("", encode_job_record({}, {ImplementRecordKey.PR: "335"})),
+        fields={ItemField.PRIORITY: "P2-Medium"},
+    )
+    client = MagicMock()
+    pull = PullStatus(
+        state="open",
+        draft=True,
+        head_ref=f"fix/{issue_num}-feature",
+        head_sha="head456",
+        base_sha="base123",
+    )
+    client.get_compare_files.return_value = CompareFiles(
+        files=[
+            PullRequestFile(
+                filename=f"openspec/changes/{issue_num}-feature/tasks.md",
+                status="added",
+            ),
+        ],
+        truncated=False,
+    )
+    client.get_file_at.return_value = _COMPLETE_TASKS
+
+    draft = read_draft("dan-petty/devops-cli", 335, pull=pull, store=store, client=client)
+
+    client.get_compare_files.assert_called_once_with("dan-petty/devops-cli", "base123", "head456")
+    client.get_pull_files.assert_not_called()
     assert draft.change is not None
     assert draft.change.archived is False
     assert draft.change.tasks_text == _COMPLETE_TASKS
@@ -311,7 +351,7 @@ def test_read_draft_non_implement_kind_returns_early_without_reading_files() -> 
 
     assert draft.kind is DraftKind.AGENT
     assert draft.change is None
-    client.get_pull_files.assert_not_called()
+    client.get_compare_files.assert_not_called()
 
 
 def test_read_draft_implement_kind_with_no_change_folder_in_files() -> None:
@@ -328,9 +368,10 @@ def test_read_draft_implement_kind_with_no_change_folder_in_files() -> None:
         head_ref=f"fix/{issue_num}-feature",
         head_sha="sha123",
     )
-    client.get_pull_files.return_value = [
-        PullRequestFile(filename="src/main.py", status="modified"),
-    ]
+    client.get_compare_files.return_value = CompareFiles(
+        files=[PullRequestFile(filename="src/main.py", status="modified")],
+        truncated=False,
+    )
 
     draft = read_draft("dan-petty/devops-cli", 335, pull=pull, store=store, client=client)
 
