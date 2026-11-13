@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.133.0](https://github.com/dan-petty/devops-cli/compare/v0.132.1...v0.133.0) (2026-11-13)
+
+
+### Features
+
+* **roadmap:** run each stage item in its own Job ([#5559](https://github.com/dan-petty/devops-cli/issues/5559)) ([b771fc4](https://github.com/dan-petty/devops-cli/commit/b771fc4ad58ca97e8ead1e8d8d0d5ea704a7b043))
+
+
+### Bug Fixes
+
+* **cli:** Print the elapsed line only on a terminal ([#5554](https://github.com/dan-petty/devops-cli/issues/5554)) ([5dc5882](https://github.com/dan-petty/devops-cli/commit/5dc588289e9b5d0f54854289daee6b296fb3eb17))
+* **roadmap:** only blocker and major review findings block a plan ([#5557](https://github.com/dan-petty/devops-cli/issues/5557)) ([75d45b5](https://github.com/dan-petty/devops-cli/commit/75d45b5f9be118cdeff67e51bc013290a788e6e3))
+
 ## [0.132.1](https://github.com/dan-petty/devops-cli/compare/v0.132.0...v0.132.1) (2026-11-13)
 
 
