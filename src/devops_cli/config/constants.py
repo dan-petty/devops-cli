@@ -2519,6 +2519,14 @@ CONST_PYTHON_PACKAGE_INIT_FILE: Final[str] = "__init__.py"
 CONST_GATE_ROW_SCRIPT: Final[str] = (
     "import sys; from tests.gate.{module} import main; sys.exit(main())"
 )
+# The replay starts a gate row with the interpreter of the running checkout, and the editable
+# install of that interpreter finds `devops_cli` in the `src/` of the checkout. So the script
+# first puts the `src/` of the tree that the row runs in at the start of the import path, as
+# `pythonpath = ["src"]` of `pyproject.toml` does for the pytest replay (#5353).
+CONST_FAIL_TO_PASS_GATE_ROW_SCRIPT: Final[str] = (
+    f"import os, sys; sys.path.insert(0, os.path.abspath({CONST_SOURCE_ROOT_DIR!r})); "
+    + CONST_GATE_ROW_SCRIPT
+)
 # The exit statuses of a gate row run that ran each case: 0 when all pass, 1 when one fails.
 CONST_FAIL_TO_PASS_GATE_ROW_EXIT_STATUSES: Final[frozenset[int]] = frozenset({0, 1})
 

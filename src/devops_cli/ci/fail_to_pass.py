@@ -15,9 +15,10 @@ nothing about the fix and fails too (#3124).
 A changed check module of `tests/gate/<row>_checks/` is a gate check (#4554). For each row of
 these modules, the command runs the gate module `tests.gate.<row>` once on the base tree with the
 head's `tests/` and once on the head tree, and reads the failed cases that `tests/gate/runner.py`
-prints. A case of a changed check module that fails on base and passes on head proves the fix,
-when both trees run the same cases. A row run that could not run, or a base failure of a check
-module that the fix does not change, proves nothing and fails the replay.
+prints. Each run imports `devops_cli` from the `src/` of its own tree (#5353). A case of a
+changed check module that fails on base and passes on head proves the fix, when both trees run the
+same cases. A row run that could not run, or a base failure of a check module that the fix does
+not change, proves nothing and fails the replay.
 
 The run exits non-zero unless no replay fails and at least one changed test fails in the call
 phase on base, or a gate case proves the fix.
@@ -40,13 +41,13 @@ from devops_cli.ci.changed_tests import ParsedTests, is_test_changed, parse_test
 from devops_cli.config.constants import (
     CONST_FAIL_TO_PASS_COULD_NOT_RUN_EXIT_STATUSES,
     CONST_FAIL_TO_PASS_GATE_ROW_EXIT_STATUSES,
+    CONST_FAIL_TO_PASS_GATE_ROW_SCRIPT,
     CONST_FAIL_TO_PASS_HOST_PATH_GUARD_MESSAGE,
     CONST_FAIL_TO_PASS_JUNIT_ROOT_TAG,
     CONST_FAIL_TO_PASS_JUNIT_TAG_STATUS,
     CONST_FAIL_TO_PASS_PYTEST_FLAGS,
     CONST_GATE_CHECKS_PACKAGE_SUFFIX,
     CONST_GATE_DIR,
-    CONST_GATE_ROW_SCRIPT,
     CONST_GIT_NAME_STATUS_CHANGE_TYPES,
     CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_PYTHON_FILE_SUFFIX,
@@ -438,8 +439,12 @@ def pytest_replay_argv(junit_path: Path, test_files: Sequence[str]) -> list[str]
 
 
 def gate_row_argv(row: str) -> list[str]:
-    """The command that runs the gate row `row` with the interpreter of this command (#4554)."""
-    return [sys.executable, "-c", CONST_GATE_ROW_SCRIPT.format(module=row)]
+    """The command that runs the gate row `row` with the interpreter of this command (#4554).
+
+    The editable install of the interpreter finds `devops_cli` in the `src/` of the checkout that
+    runs this command. The script puts the `src/` of the folder that it runs in first on the import
+    path, so the row of each tree imports the source of that tree (#5353)."""
+    return [sys.executable, "-c", CONST_FAIL_TO_PASS_GATE_ROW_SCRIPT.format(module=row)]
 
 
 MERGE_BASE_PLACEHOLDER = "<merge-base>"

@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import shlex
 import shutil
+import subprocess
 import sys
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -26,7 +27,7 @@ from devops_cli.ci.fail_to_pass import (
     run_fail_to_pass,
 )
 from devops_cli.commands.ci import app, get_check_specs
-from devops_cli.core.process import run_subprocess
+from devops_cli.core.process import build_subprocess_env, run_subprocess
 from tests.gate import runner as gate_runner
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
@@ -1305,6 +1306,105 @@ def test_a_named_head_runs_the_gate_row_in_a_worktree_of_that_head(
         True,
         (str(head_tree), "feature"),
         set(),
+    )
+
+
+# =============================================================================
+# The source that a gate row imports (#5353)
+# =============================================================================
+
+ADDED_CHECK = "tests/gate/probe_checks/added.py"
+# The gate row `probe`: the check module `listed` reads the list of manifests in `src/`, and the
+# fix leaves it alone. The fix changes the check module `added`.
+_PROBE_GATE = {
+    "tests/__init__.py": "",
+    "tests/gate/__init__.py": "",
+    "tests/gate/probe.py": (
+        "import tests.gate.probe_checks as probe_checks\n"
+        "from tests.gate.runner import main as run_checks\n\n\n"
+        "def main():\n"
+        '    return run_checks("probe", probe_checks)\n'
+    ),
+    "tests/gate/probe_checks/__init__.py": "",
+    "tests/gate/probe_checks/listed.py": (
+        "from pathlib import Path\n\n"
+        "from devops_cli import MANIFESTS\n\n\n"
+        "def check_each_listed_manifest_exists():\n"
+        '    assert all(Path("k8s", name).is_file() for name in MANIFESTS)\n'
+    ),
+    ADDED_CHECK: (
+        "from pathlib import Path\n\n\n"
+        "def check_the_added_manifest_exists():\n"
+        '    assert Path("k8s", "b.yaml").is_file()\n'
+    ),
+}
+
+
+def _write_files(root: Path, files: dict[str, str]) -> None:
+    """Write each file of `files`, by its path under `root`."""
+    for relative, text in files.items():
+        target = root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+
+
+@pytest.fixture
+def head_source_interpreter(
+    tmp_path: Path, replay_state: _FailToPassState, git_fake: GitFake
+) -> Path:
+    """The checkout of a fix that adds `k8s/b.yaml` and names it in a list of `src/`, as the fix
+    of #5306 does, and changes a check module of the gate row `probe`. The gate row runs for real,
+    with an interpreter that finds `devops_cli` in the `src/` of the head, as the editable install
+    of the checkout does: PYTHONPATH holds that `src/`, after the folder that the row runs in and
+    before `site-packages`. Returns the checkout."""
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    runner_source = (REPO_ROOT / "tests" / "gate" / "runner.py").read_text(encoding="utf-8")
+    _write_files(
+        repo,
+        {
+            "src/devops_cli/__init__.py": 'MANIFESTS = ("a.yaml", "b.yaml")\n',
+            "k8s/a.yaml": "",
+            "k8s/b.yaml": "",
+            "tests/gate/runner.py": runner_source,
+            **_PROBE_GATE,
+        },
+    )
+    replay_state.base_files = {"src/devops_cli/__init__.py": 'MANIFESTS = ("a.yaml",)\n'}
+    replay_state.base_files["k8s/a.yaml"] = ""
+    replay_state.changed_test_files = ("src/devops_cli/__init__.py", "k8s/b.yaml", ADDED_CHECK)
+    head_source = {"PYTHONPATH": str(repo / "src")}
+
+    def run_for_real(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        env = build_subprocess_env(
+            call.env, isolate_env=call.isolate_env, extra_allowed_keys=call.extra_allowed_env
+        )
+        return subprocess.run(
+            call.argv,
+            cwd=call.cwd,
+            env=env | head_source,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    git_fake.answer(_is_gate_row_run, ProcessAnswer(side_effect=run_for_real))
+    return repo
+
+
+@pytest.mark.live("python")
+def test_a_gate_row_on_the_base_tree_imports_the_source_of_the_base_tree(
+    head_source_interpreter: Path,
+) -> None:
+    """The base run of a gate row imports `devops_cli` from the `src/` of the base tree, not from
+    the head that the interpreter finds (#5353). So the check module that the fix leaves alone
+    passes on base, and the changed case that fails on base and passes on head proves the fix."""
+    report = run_fail_to_pass(head_source_interpreter, base="main")
+
+    assert (report.satisfied, format_fail_to_pass_report(report)) == (
+        True,
+        "  failed on base, passed on head: probe added.check_the_added_manifest_exists\n"
+        f"probe gate row: 1 of 2 cases failed on base, 0 of 2 on head ({ADDED_CHECK}).",
     )
 
 
