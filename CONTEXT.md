@@ -288,3 +288,7 @@ _Avoid_: pre-drain, drain test
 **Project profile**:
 The facts of one repository that devops-cli reads: its type and the layout of its files. They merge from the field defaults, the type template in `src/devops_cli/templates/profiles/`, detection in the files of the repository and its own `.devops/project.toml`, and each value records its source. The config of devops-cli holds operational keys only, never a fact of a project.
 _Avoid_: project config, repo settings, manifest
+
+**Environment tree**:
+The Kubernetes folder of an infra repo: what one cluster runs, such as its Argo CD Applications, the values of its charts and its dashboards. A command takes its root from `--k8s-dir`, else from the profile fact `kubernetes.dir` of the repository of the current folder, else of the one infra repo that gives it. The product base `k8s/devops`, which devops-cli ships, is not part of it.
+_Avoid_: homelab config
