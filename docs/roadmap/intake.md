@@ -102,12 +102,12 @@ The Service keeps the failure in its intake record, beside `schedule.json`, and 
 
 The Service runs intake as the row `intake` of the triage lane. A webhook delivery of `issues` `opened`, `edited` or `reopened` runs intake of its one issue at once (ADR 0017). The poll runs the whole job when one of these is true:
 
-- The last run is 29 minutes old or older.
+- The last run is as old as its interval or older: `roadmap.intake.interval_minutes`, 29 minutes by default, or `roadmap.intake.backlog_interval_minutes` while the last run counted `roadmap.intake.backlog_threshold` or more candidates (#5470).
 - An issue reopened since the last run.
 - The last run left a fresh candidate.
 - The repository has an issue newer than the newest issue that a run saw.
 
-The issue events report no opened issue, so the poll reads the newest issue from the first page of the issue listing, newest first, 10 entries a page. The read is conditional, so a page that did not change costs a 304. A pull request does not count. An issue that 10 or more newer pull requests push off the page waits for the 29-minute interval. The intake record keeps the newest issue that a run saw, as it was when the run started. A scoped update does not change it, so the poll still runs intake when a delivery of an older issue was lost. When a scoped update already decided the new issue, the run does not decide it again and sends no model request for it.
+The issue events report no opened issue, so the poll reads the newest issue from the first page of the issue listing, newest first, 10 entries a page. The read is conditional, so a page that did not change costs a 304. A pull request does not count. An issue that 10 or more newer pull requests push off the page waits for the interval of the row. The intake record keeps the newest issue that a run saw, as it was when the run started. A scoped update does not change it, so the poll still runs intake when a delivery of an older issue was lost. When a scoped update already decided the new issue, the run does not decide it again and sends no model request for it.
 
 ## The three modes
 

@@ -14,7 +14,7 @@ import types
 import typing
 from collections.abc import Collection, Iterable, Iterator
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Self
 
 import httpx2
 from pydantic import (
@@ -107,11 +107,13 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
     DEFAULT_REVIEWS_DATA_DIR,
     DEFAULT_ROADMAP_ALTERNATIVES_FIRST_PASS_LIMIT,
+    DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_ALTERNATIVES_INVENTORY_PATHS,
     DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
     DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
     DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS,
     DEFAULT_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS,
+    DEFAULT_ROADMAP_FIX_PLAN_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_FIX_PLAN_MODE,
     DEFAULT_ROADMAP_FIX_PLAN_REVISIONS,
     DEFAULT_ROADMAP_FIX_PLAN_TIME_BUDGET_SECONDS,
@@ -142,11 +144,14 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_TOOL_RETRIES,
     DEFAULT_ROADMAP_INBOX_DRAFT_DAYS,
     DEFAULT_ROADMAP_INBOX_WAIT_DAYS,
+    DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_INTAKE_JEV,
     DEFAULT_ROADMAP_MCP_TIMEOUT_SECONDS,
+    DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_STAGE_FILTER,
     DEFAULT_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS,
     DEFAULT_ROADMAP_STAGE_GATE_RETURNS,
+    DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_STAGE_LIMIT,
     DEFAULT_ROADMAP_STAGE_MAX_REQUESTS,
     DEFAULT_ROADMAP_STAGE_MAX_TOOL_CALLS,
@@ -1066,8 +1071,69 @@ def _check_nested(inner: tuple[int, str], outer: tuple[int, str]) -> None:
         raise ValueError(f"{inner[1]} must not be above {outer[1]}")
 
 
-class RoadmapStageConfig(BaseModel):
+_INTERVAL_MINUTES_TEXT = "The minutes from the start of a round of this row of the Service to the start of its next round, while its queue holds fewer items than `backlog_threshold`. Each round reads it again, so a change needs no restart"
+
+
+def _interval_minutes(default: int) -> Any:
+    """The field `interval_minutes` of a row whose old fixed interval is `default` (#5470)."""
+    return Field(description=_INTERVAL_MINUTES_TEXT, default=default, ge=1)
+
+
+class RowCadenceConfig(BaseModel):
+    """How often the Service runs one row (#5470): its interval, and the shorter interval while the
+    queue that its last round counted holds `backlog_threshold` or more items. The rule applies
+    only when both backlog settings have a value. Each section that holds the cadence of a row
+    sets the default of `interval_minutes` to the old fixed interval of the row."""
+
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    interval_minutes: Annotated[int, Variable()] = Field(description=_INTERVAL_MINUTES_TEXT, ge=1)
+    backlog_interval_minutes: Annotated[int | None, Variable()] = Field(
+        description="The minutes from the start of a round of this row to the start of its next round, while the queue that its last round counted holds `backlog_threshold` or more items. Empty by default, which turns the backlog rule off. It must not be above `interval_minutes`",
+        default=None,
+        ge=1,
+    )
+    backlog_threshold: Annotated[int | None, Variable()] = Field(
+        description="The count of items in the queue of this row from which the row runs at `backlog_interval_minutes`. The row counts its queue from the listing that its round reads. Empty by default, which turns the backlog rule off",
+        default=None,
+        ge=1,
+    )
+
+    @model_validator(mode="after")
+    def _backlog_not_slower(self) -> Self:
+        """A backlog interval is not above the interval: a larger queue never makes a longer
+        loop."""
+        if (
+            self.backlog_interval_minutes is not None
+            and self.backlog_interval_minutes > self.interval_minutes
+        ):
+            raise ValueError("backlog_interval_minutes must not be above interval_minutes")
+        return self
+
+    def minutes_for(self, queue: int | None) -> int:
+        """The minutes between two rounds of the row while its queue holds `queue` items: the
+        backlog interval when the rule has both settings and the queue is at the threshold or
+        above, else the interval. An unknown queue (None) keeps the interval."""
+        if self.in_backlog(queue) and self.backlog_interval_minutes is not None:
+            return self.backlog_interval_minutes
+        return self.interval_minutes
+
+    def in_backlog(self, queue: int | None) -> bool:
+        """Whether the backlog rule applies to a queue of `queue` items."""
+        return (
+            queue is not None
+            and self.backlog_threshold is not None
+            and self.backlog_interval_minutes is not None
+            and queue >= self.backlog_threshold
+        )
+
+
+class RoadmapStageConfig(RowCadenceConfig):
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    interval_minutes: Annotated[int, Variable()] = _interval_minutes(
+        DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES
+    )
 
     filter: Annotated[list[str], Variable()] = Field(
         description="The labels of the items that the stage job takes, as entries `family=value` over the families status, priority, type, value and effort: the values of one family are alternatives, and the families all apply; the job also takes Ready items only",
@@ -1549,10 +1615,15 @@ class ServiceConfig(BaseModel):
         return values
 
 
-class AlternativesConfig(BaseModel):
-    """`devops roadmap alternatives` (#2650) and the Service's row of it (#2652)."""
+class AlternativesConfig(RowCadenceConfig):
+    """`devops roadmap alternatives` (#2650) and the Service's row of it (#2652), with the cadence
+    of that row (#5470)."""
 
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    interval_minutes: Annotated[int, Variable()] = _interval_minutes(
+        DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES
+    )
 
     limit: int = Field(
         description="Most items that one run of the alternatives check, or one Service round of it, checks",
@@ -1601,10 +1672,15 @@ class RoadmapInboxConfig(BaseModel):
     )
 
 
-class RoadmapIntakeConfig(BaseModel):
-    """What `devops roadmap intake` asks of its models (#4298)."""
+class RoadmapIntakeConfig(RowCadenceConfig):
+    """What `devops roadmap intake` asks of its models (#4298), and the cadence of the intake row
+    of the Service (#5470)."""
 
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    interval_minutes: Annotated[int, Variable()] = _interval_minutes(
+        DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES
+    )
 
     jev: Annotated[JevMode, Variable()] = Field(
         description="What TypeSafe Jev (typesafe/jev-1.14) does in intake (ADR 0019). `off` makes no Jev request. `shadow` keeps the triage model for every label and every flag, asks Jev the same fields (one request for each candidate), and records each Jev answer, its probability and the triage answer in the job record of the issue. `on` lets Jev decide the type, the priority, the Value, the Effort and the duplicate flags, and a Jev error, a timeout or a low confidence leaves the proposal to the triage model. Read the shadow records with `devops roadmap eval jev --from-shadow` before you set `on`",
@@ -1612,10 +1688,15 @@ class RoadmapIntakeConfig(BaseModel):
     )
 
 
-class RoadmapFixPlanConfig(BaseModel):
-    """What the step `fix-plan` and its row of the Service do (#5061)."""
+class RoadmapFixPlanConfig(RowCadenceConfig):
+    """What the step `fix-plan` and its row of the Service do (#5061), and the cadence of that row
+    (#5470)."""
 
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    interval_minutes: Annotated[int, Variable()] = _interval_minutes(
+        DEFAULT_ROADMAP_FIX_PLAN_INTERVAL_MINUTES
+    )
 
     mode: Annotated[RowMode, Variable()] = Field(
         description="What the row fix_plan of the Service does with an open plan pull request that holds the label plan/needs-fix (ADR 0021, section 8). `off` sends no request. `plan` selects the pull request and logs it, with no model call and no write. `on` runs the attempt: the stage planner and the verification pass revise the plan, and a better revision is pushed. The command `devops roadmap step fix-plan --confirm` acts in every mode",
@@ -1637,6 +1718,16 @@ class RoadmapFixPlanConfig(BaseModel):
         default=DEFAULT_ROADMAP_FIX_PLAN_REVISIONS,
         ge=1,
         le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_FIX_PLAN_REVISIONS,
+    )
+
+
+class RoadmapRefineConfig(RowCadenceConfig):
+    """The cadence of the refine row of the Service (#5470)."""
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    interval_minutes: Annotated[int, Variable()] = _interval_minutes(
+        DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES
     )
 
 
@@ -1663,6 +1754,7 @@ class RoadmapConfig(BaseModel):
     inbox: RoadmapInboxConfig = Field(default_factory=RoadmapInboxConfig)
     intake: RoadmapIntakeConfig = Field(default_factory=RoadmapIntakeConfig)
     fix_plan: RoadmapFixPlanConfig = Field(default_factory=RoadmapFixPlanConfig)
+    refine: RoadmapRefineConfig = Field(default_factory=RoadmapRefineConfig)
     mcp: RoadmapMcpConfig = Field(default_factory=RoadmapMcpConfig)
     decisions: Annotated[dict[str, DecisionMode], Variable()] = Field(
         default_factory=dict,

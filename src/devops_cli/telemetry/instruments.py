@@ -456,6 +456,24 @@ ROADMAP_ROW_SECONDS = Instrument(
     "that a clone failure keeps from running adds no sample. One repository adds at most 39 "
     "series: 13 rows and 3 results",
 )
+ROADMAP_ROW_QUEUE_ITEMS = Instrument(
+    "devops_cli_roadmap_row_queue_items",
+    InstrumentKind.GAUGE,
+    "1",
+    "Items in the queue of a roadmap row, by repo and row, as the last successful round of the row "
+    "counted them from the listing that it read (#5470). The rows intake, stage, fix_plan, refine "
+    "and alternatives send it. A round that fails or reads no listing sends nothing. One "
+    "repository adds at most 5 series",
+)
+ROADMAP_ROW_INTERVAL_SECONDS = Instrument(
+    "devops_cli_roadmap_row_interval_seconds",
+    InstrumentKind.GAUGE,
+    "s",
+    "Seconds from the start of a round of a roadmap row to the start of its next round, by repo "
+    "and row: the backlog interval while the queue holds the backlog threshold or more items, else "
+    "the interval of the settings of the row (#5470). It is sent with "
+    "devops_cli_roadmap_row_queue_items. One repository adds at most 5 series",
+)
 ROADMAP_STEP_SECONDS = Instrument(
     "devops_cli_roadmap_step_seconds",
     InstrumentKind.HISTOGRAM,
@@ -810,6 +828,8 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_OLDEST_ITEM,
     ROADMAP_CLAIM_AGE,
     ROADMAP_ROW_SECONDS,
+    ROADMAP_ROW_QUEUE_ITEMS,
+    ROADMAP_ROW_INTERVAL_SECONDS,
     ROADMAP_STEP_SECONDS,
     ROADMAP_INTAKE_CANDIDATES_TOTAL,
     ROADMAP_JEV_COMPLETENESS_TOTAL,
@@ -963,6 +983,8 @@ __all__ = [
     "ROADMAP_OLDEST_ITEM",
     "ROADMAP_PAGE_FETCHES_TOTAL",
     "ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL",
+    "ROADMAP_ROW_INTERVAL_SECONDS",
+    "ROADMAP_ROW_QUEUE_ITEMS",
     "ROADMAP_ROW_SECONDS",
     "ROADMAP_STAGE_GATE_EXTENSION_ENDS_TOTAL",
     "ROADMAP_STAGE_GATE_EXTENSION_TOTAL",

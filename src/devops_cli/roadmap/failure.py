@@ -159,9 +159,10 @@ CLASS_BY_EXCEPTION: Final[tuple[tuple[type[DevOpsCLIError], FailureClass], ...]]
 
 # The wait of a failed stage item before the stage job takes it again, for each class that
 # `CLASS_BY_EXCEPTION` gives (#4060). A provider or an infrastructure error is often short, so it
-# waits 1 hour. A refused plan waits 1 hour too (#4802): the stage row runs every 37 minutes, so
-# the item skips one round, and the return to New after `roadmap.stage.plan_defect_limit`
-# refused plans limits its attempts. A parser error waits 6 hours, as one fixed wait did before.
+# waits 1 hour. A refused plan waits 1 hour too (#4802): the stage row runs every 37 minutes by
+# default (`roadmap.stage.interval_minutes`, #5470), so the item skips one round or more, and the
+# return to New after `roadmap.stage.plan_defect_limit` refused plans limits its attempts. A
+# parser error waits 6 hours, as one fixed wait did before.
 # An item that changed while the job worked waits for no time: the next round reads it again.
 RETRY_AFTER: Final[Mapping[FailureClass, timedelta]] = MappingProxyType(
     {

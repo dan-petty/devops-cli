@@ -407,6 +407,12 @@ class IntakePlan:
     def has_writes(self) -> bool:
         return any(decision.has_writes for decision in self.decisions)
 
+    @property
+    def queue(self) -> int:
+        """The candidates of the run: those it decided, those it left for a later run and those
+        it held. The intake row of the Service records it as its queue (#5470)."""
+        return len(self.decisions) + len(self.left) + len(self.held)
+
 
 @dataclass(frozen=True)
 class PlacementFailure:

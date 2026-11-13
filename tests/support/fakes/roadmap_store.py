@@ -789,6 +789,15 @@ class InMemoryRoadmapStore(RoadmapStore):
             if issue.state is GitHubState.OPEN
         ]
 
+    def labelled_pulls(self, label: str) -> list[int]:
+        """The open pull requests that `seed_issue` made with `label`, lowest number first."""
+        issues = (self._read(issue) for issue in self._roadmap.issues.values())
+        return sorted(
+            issue.number
+            for issue in issues
+            if issue.pull_request and issue.state is GitHubState.OPEN and label in issue.labels
+        )
+
     def failed_checks(self, head_sha: str) -> bool:
         """Whether a check run of the commit `head_sha` failed, as the seeded pulls say."""
         return head_sha in self._roadmap.failing

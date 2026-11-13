@@ -6061,6 +6061,20 @@ class RoadmapMessages:
         "The schedule {path} can't be read ({reason}), so no job runs. Repair it, or remove it: "
         "the next poll then takes every job as never run."
     )
+    run_queues_unreadable: str = (
+        "The queue record {path} can't be read ({reason}), so no job of this lane runs. Repair "
+        "it, or remove it: the next round then takes each queue as unknown, and each row runs at "
+        "its interval until its round counts its queue again."
+    )
+    run_row_queue: str = (
+        "The row {row} of {repo} has {queue} items in its queue: its next round is due "
+        "{minutes} minutes after the start of this round."
+    )
+    run_row_queue_backlog: str = (
+        "The row {row} of {repo} has {queue} items in its queue, at or above its backlog "
+        "threshold of {threshold}: its next round is due {minutes} minutes after the start of "
+        "this round."
+    )
     intake_issue_or_title: str = (
         "Pass --issue for existing issues, or --title and --body-file for a new candidate, "
         "not both."

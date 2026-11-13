@@ -580,6 +580,13 @@ class AlternativesPlan:
         """Whether a run with `--confirm` writes anything: a check, or the record of a failure."""
         return bool(self.checks) or bool(self.failures) or bool(self.write_requests)
 
+    @property
+    def queue(self) -> int | None:
+        """The items that the check can take and has not checked, which the Service row records as
+        its queue (#5470), or None for a plan with no coverage: a check that is off, or a named
+        item."""
+        return None if self.coverage is None else self.coverage.unchecked
+
 
 def _person_text(body: str) -> str:
     """`body` outside the job's block and refine's section: what a person wrote. Both blocks name

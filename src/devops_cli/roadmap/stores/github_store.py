@@ -788,6 +788,16 @@ class GitHubRoadmapStore(RoadmapStore):
         listing = self._listing(pulls_endpoint(self._repo), _PULL, "pull requests")
         return [pull.pull() for pull in listing]
 
+    def labelled_pulls(self, label: str) -> list[int]:
+        """The numbers of the open pull requests that hold `label`, lowest first, from the listing
+        of every issue that the store keeps: the issue listing of GitHub holds the pull requests
+        with their labels, so after a read of `items` the count sends no request (#5470)."""
+        return sorted(
+            issue.number
+            for issue in self._every_issue()
+            if issue.pull_request and issue.state is GitHubState.OPEN and label in issue.labels
+        )
+
     def failed_checks(self, head_sha: str) -> bool:
         """Whether a check of the commit `head_sha` failed in its latest run, read through the
         listing session. A read that GitHub does not answer raises, so no draft shows as passing
