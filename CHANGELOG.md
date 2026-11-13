@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.126.1](https://github.com/dan-petty/devops-cli/compare/v0.126.0...v0.126.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* **telemetry:** one metric stream across devops-cli builds ([#5358](https://github.com/dan-petty/devops-cli/issues/5358)) ([19d13d7](https://github.com/dan-petty/devops-cli/commit/19d13d7ca06e4bcf371cfd1fa6943103221989dc))
+
 ## [0.126.0](https://github.com/dan-petty/devops-cli/compare/v0.125.5...v0.126.0) (2026-11-13)
 
 
