@@ -78,9 +78,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/decision_point.py`, `src/devops_c
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/decision_point.py`, `src/devops_cli/telemetry/instruments.py`, `tests/roadmap/test_roadmap_decision_point.py`. Changes: `src/devops_cli/roadmap/decision_point.py`, `tests/roadmap/test_roadmap_decision_point.py`.
 
-- [ ] 9.1 Add `test_one_decision_adds_one_duration_sample` and `test_the_decision_instruments_add_at_most_three_and_seven_series_to_a_point` to `tests/roadmap/test_roadmap_decision_point.py`: the first decides one case and asserts one sample of the histogram with the point and the resolver `model`, and the second runs one point in both modes with the rule, the model and the fallback and counts the label sets of both instruments
+- [x] 9.1 Add `test_one_decision_adds_one_duration_sample` and `test_the_decision_instruments_add_at_most_three_and_seven_series_to_a_point` to `tests/roadmap/test_roadmap_decision_point.py`: the first decides one case and asserts one sample of the histogram with the point and the resolver `model`, and the second runs one point in both modes with the rule, the model and the fallback and counts the label sets of both instruments
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_decision_point.py` fails on the base
-- [ ] 9.2 Time the resolution of each decision with `time.perf_counter` and emit `DECISION_POINT_DURATION` with the point and the resolver of the record, on the path of `decide` and of `adecide`
+- [x] 9.2 Time the resolution of each decision with `time.perf_counter` and emit `DECISION_POINT_DURATION` with the point and the resolver of the record, on the path of `decide` and of `adecide`
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_decision_point.py` passes
 
 ## 10. Raise the series bound to 92

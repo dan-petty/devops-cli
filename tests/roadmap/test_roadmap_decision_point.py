@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from tests.support.fakes.otlp import FakeCollector
 
 COUNTER = "devops_cli_decision_point_total"
+DURATION = "devops_cli_decision_point_duration_seconds"
 FAILED_COUNTER = "devops_cli_decision_point_failed_total"
 BANDS = {Band.CONTINUE: "skip the costly path", Band.REVIEW: "run it", Band.FLAG: "run it, log"}
 SECRET = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
@@ -401,6 +402,68 @@ def test_a_point_writes_only_its_label_sets(
     assert written == point.series()
     assert len(point.series()) == 8
     assert len(_point(_cuts(tmp_path), rule=lambda digest: None).series()) == 14
+
+
+def _histogram(otlp: FakeCollector, name: str) -> list[tuple[dict[str, Any], int, float]]:
+    """Each point of the histogram `name`, as (attributes, count, sum)."""
+    found: list[tuple[dict[str, Any], int, float]] = []
+    for metric in otlp.metrics:
+        if metric["name"] != name:
+            continue
+        for point in metric["exponentialHistogram"]["dataPoints"]:
+            attributes = {
+                attribute["key"]: next(iter(attribute["value"].values()))
+                for attribute in point["attributes"]
+            }
+            found.append((attributes, int(point["count"]), point["sum"]))
+    return found
+
+
+def test_one_decision_adds_one_duration_sample(
+    tmp_path: Path, jev: JevFake, otlp: FakeCollector
+) -> None:
+    """A decision times its resolution and observes the duration once, under its point and the
+    resolver of its record (#5272)."""
+    decision = _chain(_point(_cuts(tmp_path)), jev).decide({"text": "a plan"}, subject=7)
+
+    assert decision.resolver is Resolver.MODEL
+    (sample,) = _histogram(otlp, DURATION)
+    attributes, count, total = sample
+    assert (attributes, count) == ({"point": "demo.point", "resolver": "model"}, 1)
+    assert total > 0
+
+
+def test_the_decision_instruments_add_at_most_three_and_seven_series_to_a_point(
+    tmp_path: Path, jev: JevFake, otlp: FakeCollector
+) -> None:
+    """A point adds at most 3 duration series, one for each resolver of its chain, and at most 7
+    failed series, one for each class of `FailureClass` (#5272)."""
+    from devops_cli.roadmap.decision_step import FailureClass
+
+    rule_answers = {"value": True}
+    point = _point(
+        _cuts(tmp_path), rule=lambda digest: Band.CONTINUE if rule_answers["value"] else None
+    )
+    for mode in (Mode.SHADOW, Mode.ON):
+        _chain(point, jev, mode).decide({"text": "a plan"}, subject=1)
+        rule_answers["value"] = False
+        jev.picks = {"a": 0.3}
+        _chain(point, jev, mode).decide({"text": "a plan"}, subject=1)
+        jev.fail(503)
+        _chain(point, jev, mode).decide({"text": "a plan"}, subject=1)
+        jev.status = None
+
+    duration = {(labels["point"], labels["resolver"]) for labels, _ in otlp.points(DURATION)}
+    failed = {(labels["point"], labels["error"]) for labels, _ in otlp.points(FAILED_COUNTER)}
+
+    assert duration == {
+        ("demo.point", Resolver.RULE.value),
+        ("demo.point", Resolver.MODEL.value),
+        ("demo.point", Resolver.FALLBACK.value),
+    }
+    assert len(duration) <= 3
+    assert failed <= {("demo.point", klass.value) for klass in FailureClass}
+    assert len(failed) <= 7
 
 
 def test_the_registry_refuses_a_catalogue_above_60_series(tmp_path: Path) -> None:

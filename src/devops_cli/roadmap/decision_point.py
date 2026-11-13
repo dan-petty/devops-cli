@@ -25,8 +25,10 @@ the workflow acts as with `off`, and with `on` the band acts. `chain_of` gives n
 mode `off`, nor for a point with no rule while no decision model is configured: then the point
 sends no request, writes no record and counts nothing.
 
-Each decision writes one decision record, a log line, and one count of
-`devops_cli_decision_point_total`. The workflow writes one outcome record with the identifier of
+Each decision writes one decision record, a log line, one count of
+`devops_cli_decision_point_total`, and one observation of
+`devops_cli_decision_point_duration_seconds`, the seconds of its resolution under its point and
+resolver. The workflow writes one outcome record with the identifier of
 the decision when it knows the real result. `join` makes the labelled cases of the next fit
 (`decision_fit.FitCase`) from the two lists of records. A point returns a band and never a text.
 """
@@ -37,6 +39,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 import uuid
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
@@ -64,6 +67,7 @@ from devops_cli.roadmap.decision_step import (
 )
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry.instruments import (
+    DECISION_POINT_DURATION,
     DECISION_POINT_FAILED_TOTAL,
     DECISION_POINT_TOTAL,
     emit,
@@ -264,8 +268,9 @@ class ResolverChain[T]:
     def decide(self, given: T, *, subject: object) -> DecisionRecord:
         """The decision for `given`, the input of the point for `subject` (the item or the run). It
         sends the request on the blocking portal of the process, so it may run in a thread that
-        runs an event loop. It writes the decision record and the count, and it never raises an
-        error of the model."""
+        runs an event loop. It writes the decision record, the count and the duration, and it never
+        raises an error of the model."""
+        started = time.perf_counter()
         state: dict[str, Any] = {}
         answers: dict[str, float] = {}
         try:
@@ -273,12 +278,13 @@ class ResolverChain[T]:
             resolved = self._resolve(state, answers)
         except Exception as exc:
             resolved = self._failed(subject, exc)
-        return self._counted(subject, state, resolved, answers)
+        return self._counted(subject, state, resolved, answers, started)
 
     async def adecide(self, given: T, *, subject: object) -> DecisionRecord:
         """The decision for `given`, awaited on the event loop of the caller, which uses no
-        blocking portal. It writes the decision record and the count, and it never raises an error
-        of the model."""
+        blocking portal. It writes the decision record, the count and the duration, and it never
+        raises an error of the model."""
+        started = time.perf_counter()
         state: dict[str, Any] = {}
         answers: dict[str, float] = {}
         try:
@@ -286,7 +292,7 @@ class ResolverChain[T]:
             resolved = await self._aresolve(state, answers)
         except Exception as exc:
             resolved = self._failed(subject, exc)
-        return self._counted(subject, state, resolved, answers)
+        return self._counted(subject, state, resolved, answers, started)
 
     def _failed(self, subject: object, exc: BaseException) -> _Resolved:
         """The fallback of an error of the chain, with its cause in the log and its class in the
@@ -306,9 +312,15 @@ class ResolverChain[T]:
         return _Resolved(Resolver.FALLBACK)
 
     def _counted(
-        self, subject: object, state: dict[str, Any], resolved: _Resolved, answers: dict[str, float]
+        self,
+        subject: object,
+        state: dict[str, Any],
+        resolved: _Resolved,
+        answers: dict[str, float],
+        started: float,
     ) -> DecisionRecord:
-        """The record of the decision, its log line and its one count."""
+        """The record of the decision, its log line, its one count and its duration, which
+        `started` opened at `time.perf_counter`."""
         record = self._record(
             f"{self.point.name}/{subject}/{uuid.uuid7()}", subject, state, resolved, answers
         )
@@ -322,6 +334,11 @@ class ResolverChain[T]:
                 "band": record.band.value if record.band else NO_BAND,
                 "mode": self.mode.value,
             },
+        )
+        emit(
+            DECISION_POINT_DURATION,
+            time.perf_counter() - started,
+            {"point": self.point.name, "resolver": record.resolver.value},
         )
         return record
 
