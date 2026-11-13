@@ -2100,6 +2100,12 @@ class CIMessages:
     startup_imports: str = "startup imports (modules that each command imports at start)"
     swallowed_failures: str = "swallowed failures (ratchet of blind excepts and unread check=False)"
     bwrap_contract: str = "bwrap contract suites (the tests marked bwrap, in the real sandbox)"
+    configured_domain: str = (
+        "configured domain (no commit of the branch names k8s.domain or cloudflare.domain)"
+    )
+    domain_not_configured: str = (
+        "no k8s.domain or cloudflare.domain is configured, so the row read no commit"
+    )
     row_skipped: str = "skipped: {cause}"
     ci_summary_title: str = "CI Summary"
     col_check: str = "Check"

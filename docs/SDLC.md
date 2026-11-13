@@ -164,6 +164,7 @@ flowchart TD
         P0[branch holds origin/main]
         P1[ruff check]
         P2[ruff format --check]
+        P2b[domain: no commit names a configured domain]
         P3[actionlint]
         P4[zizmor]
     end

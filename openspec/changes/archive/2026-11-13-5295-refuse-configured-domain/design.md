@@ -1,0 +1,27 @@
+# Design
+
+## Decisions
+
+### A row of `devops ci`, run by the pre-push hook
+The check is the row `domain` of `devops ci`. Its code is `tests/gate/configured_domain.py`, because docs/TESTING.md puts the code of a check of committed content in `tests/gate/`, one module for each row. The pre-push hook `devops-ci-pre-push` runs `devops ci --check --only lint,format,domain`, so the row reads the commits before each push of a person, an agent or the runner Job of the implement job, which runs the pre-push stage before it pushes. A full `devops ci` also runs it.
+
+### The commits from `origin/main` to `HEAD`, one patch for each commit
+The row runs `git log -p -U0 --no-color --no-ext-diff --no-renames --no-show-signature --src-prefix=a/ --dst-prefix=b/ --format=%x00%H origin/main..HEAD`. A pull request shows each commit of its branch, so the row reads the patch of each commit and not only the net diff: a name that one commit adds and a later commit removes is still in a public commit. Only added lines and the paths of files that stay count, so a commit that removes a name, or removes a file whose path names the domain, passes: the removal is the fix. The fixed options make the output the same for each git config of a person. The row reads no merge diff and no binary file.
+
+### A name, not a substring
+A line or a path names a domain when it holds the domain, in any case, with no letter, digit or hyphen just before or just after it. The standard `re` module finds `re.escape(domain)` with a negative lookbehind and a negative lookahead for `[a-z0-9-]`, and `re.IGNORECASE`. A dot is no such character: before the domain it starts a name under it, and after the domain it starts a file extension. So `api.example.net`, `https://grafana.example.net/d/x`, `EXAMPLE.NET.`, `user@example.net` and `k8s/grafana.example.net.yaml` name `example.net`, and `notexample.net`, `my-example.net` and `example.network` do not.
+
+### Output with no value
+Each finding is `<path>:<line> in commit <sha> names the value of <setting key>`. When the path of a file names a domain, the finding is `a path in commit <sha> names the value of <setting key>`, with no path. A git failure prints git's error, cut to 256 characters, and a patch that `unidiff` cannot read prints the commit range and the count of commits only, because the message of `UnidiffParseError` can quote a line. The last line gives counts: the commits that the row read, and the findings.
+
+### No configured domain
+`devops_cli.core.dns_names.configured_domains(settings)` gives the set domains of `k8s.domain` and `cloudflare.domain` by settings key. The setting keeps the text of the config, so dnspython gives each domain as a host name spells it: ASCII, with no blank space and no final dot. Without this, `example.net.` in the config found no host under `example.net`. The pattern of the row holds the ASCII form and the Unicode form of the domain, so `xn--bcher-kva.example` and `bücher.example` find each other. The row's `host_refusal` returns a cause when the map is empty, so the row starts no command, passes and shows `[domain] skipped: no k8s.domain or cloudflare.domain is configured, so the row read no commit`. On the GitHub runners no domain is configured, so the row is skipped there. The `main` of the module also prints that line and returns 0 when it reads no domain.
+
+## Rejected alternatives
+
+- **`is_at_or_under` on each run of host characters.** `ai/spend/pricing.py` uses this helper for the configured cluster hosts, and `test_committed_addresses.py` splits a line into such runs. Rejected: the first test run showed that it misses a domain with more labels after it, such as the file name `grafana.example.net.yaml`, because that run is no name under the domain.
+- **A Gitleaks custom rule.** Gitleaks 8.30.1 can scan `gitleaks git --log-opts=origin/main..HEAD --redact` with a rule file that the check writes at run time. Rejected: `NOT_IN_RUNNER` in `src/devops_cli/roadmap/runner_tools.py` keeps Gitleaks out of the runner image, and `HOOK_PROGRAMS` makes the Job leave out a hook whose program is missing, so the runner Job would push with no check. The Static Analysis job installs no scanner. The test floor refuses a real scanner (docs/TESTING.md, Doubles), so a test could only replay a recorded report and could not show that the rule matches a configured domain. git and `unidiff` are the parts that Gitleaks itself uses for this scan: `git log -p -U0` and a diff parser.
+- **A pytest invariant over the tracked files, as `test_committed_addresses.py` does.** Rejected: a pytest run has the hermetic config of the floor, which holds no domain, so the test could never read the configured value.
+- **A search of the whole tree.** Rejected: the issue asks for a check of the diff. A tree search also fails every branch for a name that `main` holds already, which the branch did not add.
+- **A `devops scan` command.** Rejected: the check is for the commits of this repository before a push, which is the work of a gate row, and a new command adds a command page, help text and an MCP decision for no added use.
+- **Reading `PRE_COMMIT_TO_REF` for the pushed ref.** Rejected: `devops ci` starts each row with the isolated environment of `run_subprocess_async`, which drops the variables of pre-commit. A push of the current branch is the usual push, and `branch-current` already reads only the first branch of a push.

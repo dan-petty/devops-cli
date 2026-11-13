@@ -108,6 +108,7 @@ RUNNER_TOOLS: tuple[RunnerTool, ...] = (
             "ci:startup-imports",
             "ci:swallowed-failures",
             "ci:test-tree",
+            "ci:domain",
         ),
         ("python", "--version"),
         pin=f"Python {DEFAULT_PYTHON_VERSION}.",
@@ -119,7 +120,7 @@ RUNNER_TOOLS: tuple[RunnerTool, ...] = (
         ("ci:docs", "ci:openspec", "ci:zizmor", "hook:openspec-gate"),
         ("devops", "--version"),
     ),
-    _apt("git", "ci:git", "ci:lint", "ci:constructs", "job"),
+    _apt("git", "ci:git", "ci:lint", "ci:constructs", "ci:domain", "job"),
     RunnerTool("gh", ToolSource.IMAGE_PIN, ("job",), ("gh", "--version"), pin=GH_VERSION),
     RunnerTool(
         "node",

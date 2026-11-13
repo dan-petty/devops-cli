@@ -15,10 +15,13 @@ if TYPE_CHECKING:
     import dns.name
     import tldextract
 
+    from devops_cli.config.settings import Settings
+
 __all__ = [
     "ConfiguredDomain",
     "OptionalConfiguredDomain",
     "blank_domain_to_none",
+    "configured_domains",
     "get_tld_extractor",
     "is_at_or_under",
     "is_public_dns_name",
@@ -127,6 +130,22 @@ _SETTINGS_KEY_BY_MODEL_TITLE: Final[dict[str, str]] = {
     "KubernetesConfig": "k8s.domain",
     "CloudflareConfig": "cloudflare.domain",
 }
+
+
+def configured_domains(settings: Settings) -> dict[str, str]:
+    """The domain of each of `k8s.domain` and `cloudflare.domain` that `settings` sets, by settings
+    key, in that order. The setting keeps the text of the config, so dnspython gives each domain as
+    a host name spells it: ASCII, with no blank space and no final dot (` example.net. ` gives
+    `example.net`, `bücher.example` gives `xn--bcher-kva.example`)."""
+    values = {
+        _SETTINGS_KEY_BY_MODEL_TITLE["KubernetesConfig"]: settings.k8s.domain,
+        _SETTINGS_KEY_BY_MODEL_TITLE["CloudflareConfig"]: settings.cloudflare.domain,
+    }
+    return {
+        key: _parse_non_root_dns_name(value).to_text(omit_final_dot=True)
+        for key, value in values.items()
+        if value
+    }
 
 
 def validate_configured_domain(value: str, info: ValidationInfo) -> str:
