@@ -18,6 +18,10 @@ group number is the same finding.
 class and its seed fix rate: the findings that the next reply did not have, the findings that had
 a next reply, and the Wilson lower bound of the rate. `finding_classes` makes that file from the
 replies.
+
+`gate_extension` is the rule of the extra return of a reply that the checks refuse at the last
+gate return (#4851). It reads the findings of the last two refused replies and the fix classes, and
+it makes no model call.
 """
 
 from __future__ import annotations
@@ -34,6 +38,7 @@ from typing import TYPE_CHECKING, Final, NamedTuple
 
 from pydantic import BaseModel, ConfigDict
 
+from devops_cli.config.constants import CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS
 from devops_cli.lang import MESSAGES
 
 if TYPE_CHECKING:
@@ -290,6 +295,72 @@ def load_finding_classes(path: Path = CLASSES_FILE) -> FindingClasses:
     return FindingClasses.model_validate_json(path.read_text(encoding="utf-8"))
 
 
+class GateExtension(StrEnum):
+    """The decision at the last gate return of a refused reply (#4851). `extended` gives the reply
+    one more return. Each other value names the stop: `used` (the item used its extra returns),
+    `first` (no reply before it to compare), `stuck` (a finding of the reply before stays) and
+    `never` (a finding has a code that no saved return fixed). The value is a label of the
+    metric."""
+
+    EXTENDED = "extended"
+    USED = "used"
+    FIRST = "first"
+    STUCK = "stuck"
+    NEVER = "never"
+
+
+class ExtensionEnd(StrEnum):
+    """How the extra return of a reply ended (#4851): the checks judged its reply (`passed` or
+    `refused`), or the run ended before that (`ended`). The value is a label of the metric."""
+
+    PASSED = "passed"
+    REFUSED = "refused"
+    ENDED = "ended"
+
+
+class ExtensionDecision(NamedTuple):
+    """The decision of `gate_extension`: the result, the gates of the findings that stop the
+    reply, and the count of the findings of the last reply with the fix class `never`."""
+
+    result: GateExtension
+    gates: tuple[str, ...] = ()
+    never: int = 0
+
+
+def gate_extension(
+    before: Sequence[StageFinding] | None,
+    after: Sequence[StageFinding],
+    *,
+    used: int,
+    classes: FindingClasses,
+) -> ExtensionDecision:
+    """Whether a reply that the checks refused at the last gate return gets one more return. The
+    guard comes first: an item that used `CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS` extra
+    returns gets no other. Then the rule reads the findings of the reply before (`before`, None
+    when no return compares two replies) and of the last reply (`after`): no finding of `before`
+    stays, and no finding of `after` has the fix class `never` in `classes`. With no finding that
+    stays, each finding of the reply before is gone. A code that `classes` does not hold is no
+    `never` code. The rule makes no model call."""
+    never = [
+        finding
+        for finding in after
+        if (seed := classes.codes.get(finding.code)) is not None
+        and seed.fix_class is FixClass.NEVER
+    ]
+    if used >= CONST_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS:
+        return ExtensionDecision(GateExtension.USED, never=len(never))
+    if before is None:
+        return ExtensionDecision(GateExtension.FIRST, never=len(never))
+    kept = {finding.key for finding in before}
+    stuck = sorted({finding.gate for finding in after if finding.key in kept})
+    if stuck:
+        return ExtensionDecision(GateExtension.STUCK, tuple(stuck), len(never))
+    if never:
+        gates = tuple(sorted({finding.gate for finding in never}))
+        return ExtensionDecision(GateExtension.NEVER, gates, len(never))
+    return ExtensionDecision(GateExtension.EXTENDED)
+
+
 __all__ = [
     "BODY_GATE",
     "CLASSES_FILE",
@@ -297,15 +368,19 @@ __all__ = [
     "UNCODED",
     "VALIDATE_GATE",
     "CodeSeed",
+    "ExtensionDecision",
+    "ExtensionEnd",
     "FindingClasses",
     "FixClass",
     "FixCount",
+    "GateExtension",
     "ReturnCounts",
     "StageFinding",
     "check_findings",
     "finding_classes",
     "fix_class",
     "fix_counts",
+    "gate_extension",
     "gate_findings",
     "load_finding_classes",
     "reset_template_cache",
