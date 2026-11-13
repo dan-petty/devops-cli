@@ -13,6 +13,7 @@ from typing import Any
 import httpx2
 import pytest
 
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.dial import record_connects
 from tests.support.fakes.dns import PUBLIC_ADDRESS, DnsFake
 from tests.support.fakes.http import WebFake
@@ -158,6 +159,45 @@ def test_a_server_error_status_in_the_answer_ends_the_query_with_its_message(
     result = cli("prometheus", "query", "up", env=PROMETHEUS_ENV)
 
     assert (result.exit_code, "parse error at char 5" in result.output) == (1, True)
+
+
+def test_a_prometheus_that_stays_down_ends_the_query_with_one_line(
+    cli: Callable[..., Any], web: WebFake, clock: ClockFake
+) -> None:
+    """A 503 on each attempt ends the query with exit 1 and one line, not a traceback (#5532)."""
+    _serve(web, "/api/v1/query", httpx2.Response(503))
+
+    result = cli("prometheus", "query", "up", env=PROMETHEUS_ENV)
+
+    [line] = [text for text in result.output.splitlines() if "Prometheus" in text]
+    assert (result.exit_code, type(result.exception), len(web.sent)) == (1, SystemExit, 4)
+    assert (
+        "HTTP 503 Service Unavailable" in line,
+        "4 attempts" in line,
+        "try again" in line,
+    ) == (True, True, True)
+
+
+def test_a_query_that_prometheus_refuses_prints_its_error(
+    cli: Callable[..., Any], web: WebFake, clock: ClockFake
+) -> None:
+    """A 400 prints the `errorType` and `error` of the reply after one attempt (#5487)."""
+    refused = {
+        "status": "error",
+        "errorType": "bad_data",
+        "error": 'invalid parameter "query": 1:9: parse error: unexpected <by>',
+    }
+    _serve(web, "/api/v1/query", httpx2.Response(400, json=refused))
+
+    result = cli("prometheus", "query", "up", env=PROMETHEUS_ENV)
+
+    assert (result.exit_code, type(result.exception), len(web.sent)) == (1, SystemExit, 1)
+    assert (
+        "HTTP 400 Bad Request: bad_data: invalid parameter" in result.output,
+        "parse error: unexpected <by>" in result.output,
+        "1 attempt" in result.output,
+        "prometheus.example.com" in result.output,
+    ) == (True, True, True, False)
 
 
 def test_a_missing_url_ends_the_query_before_a_request(

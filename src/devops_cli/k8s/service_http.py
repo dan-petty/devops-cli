@@ -3,6 +3,11 @@
 Callers should not have to know whether an endpoint is a plain URL or a `k8s://` Service
 reference. `get_json` accepts either and does the right thing, so a configuration value can
 move between the two without touching the code that reads it.
+
+`get_json` reads with the retry policy of a cluster service (`devops_cli.http.retry`) unless its
+caller passes `retries=None`, and a failed read raises one `ServiceRequestError`.
+`reaches_service` sends one GET: it must tell an API server that cannot dial the Service apart
+from a Service that answers, at once.
 """
 
 from __future__ import annotations
@@ -11,9 +16,12 @@ import json
 import logging
 from typing import Any
 
+import httpx2
+
 from devops_cli.config.defaults import DEFAULT_K8S_PROXY_TIMEOUT_SECONDS
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client
+from devops_cli.http.retry import SERVICE_READ_RETRY, ReadRetryPolicy, service_error
 from devops_cli.k8s.service_proxy import (
     ServiceAddressError,
     is_service_url,
@@ -30,8 +38,6 @@ def transport_key(url: str) -> str:
     The path is deliberately excluded. Every path on one host shares a connection, so
     keying on it would create a client per endpoint and reinstate the churn.
     """
-    import httpx2
-
     origin = httpx2.URL(url).origin
     return str(httpx2.URL(scheme=origin.scheme, host=origin.host, port=origin.port))
 
@@ -42,8 +48,14 @@ def get_json(
     *,
     timeout: float = DEFAULT_K8S_PROXY_TIMEOUT_SECONDS,
     context: str | None = None,
+    retries: ReadRetryPolicy | None = SERVICE_READ_RETRY,
 ) -> Any:
-    """Fetch JSON from a plain URL or a `k8s://` Service reference."""
+    """Fetch JSON from a plain URL or a `k8s://` Service reference.
+
+    The read follows `retries`; a caller that must fall back at once passes None. A failed read
+    raises `ServiceRequestError`, which names the `k8s://` address, or the host and port of a
+    plain URL.
+    """
     from devops_cli.http.urls import append_path
     from devops_cli.k8s.service_proxy import _has_dot_segments
 
@@ -60,18 +72,35 @@ def get_json(
             EgressLevel.PRIVATE,
             key=f"k8s-proxy:{transport_key(target.url)}",
             verify=target.ssl_context,
+            retries=retries,
         )
-        response = client.get(target.url, headers=target.headers, timeout=timeout)
-        response.raise_for_status()
-        return json.loads(response.text)
+        return _read_json(client, target.url, ref.describe(), timeout, headers=target.headers)
 
     # The endpoint is operator-configured and ordinarily private, which is the case SSRF
     # protection is not aimed at. The connect resolves the host once and refuses a cloud
     # metadata address, as it does for the API server proxy above.
     full_url = str(append_path(url, path)) if path else url
-    client = http_client(EgressLevel.PRIVATE, key=f"direct:{transport_key(full_url)}")
-    response = client.get(full_url, timeout=timeout)
-    response.raise_for_status()
+    client = http_client(
+        EgressLevel.PRIVATE, key=f"direct:{transport_key(full_url)}", retries=retries
+    )
+    service = httpx2.URL(full_url).netloc.decode("ascii", errors="replace")
+    return _read_json(client, full_url, service, timeout)
+
+
+def _read_json(
+    client: httpx2.Client,
+    url: str,
+    service: str,
+    timeout: float,
+    *,
+    headers: dict[str, str] | None = None,
+) -> Any:
+    """GET `url` and decode its JSON; a failed request raises the error line of `service`."""
+    try:
+        response = client.get(url, headers=headers, timeout=timeout)
+        response.raise_for_status()
+    except httpx2.HTTPError as exc:
+        raise service_error(service, exc) from exc
     return json.loads(response.text)
 
 

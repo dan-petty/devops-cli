@@ -15,7 +15,9 @@ from typing import Any
 import pytest
 
 from devops_cli.exceptions.k8s import ServiceProbeError
-from devops_cli.k8s.service_probe import PodProbeRow, PodTarget, probe_from_pod
+from devops_cli.k8s.service_probe import PodProbeRow, PodTarget, _answers, probe_from_pod
+from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.http import WebFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.kubectl_calls import (
     after_separator,
@@ -215,3 +217,14 @@ def test_a_probe_that_raises_still_deletes_the_pod(process_fake: ProcessFake) ->
         _probe()
 
     assert verb(kubectl_calls(process_fake)[-1]) == "delete"
+
+
+def test_the_forward_poll_sends_one_request_for_a_503(web: WebFake, clock: ClockFake) -> None:
+    """The wait loop of `forward_service` polls again, so one poll reports down at once (#5532)."""
+    web.answer("http://127.0.0.1:8080/healthz", 503)
+
+    assert (_answers("http://127.0.0.1:8080", "/healthz"), len(web.sent), clock.waits) == (
+        False,
+        1,
+        [],
+    )

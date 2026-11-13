@@ -18,7 +18,7 @@ redirect hop that the request's own egress policy refuses.
 from __future__ import annotations
 
 import ssl
-from typing import Unpack
+from typing import TYPE_CHECKING, Unpack
 
 import httpx2
 
@@ -46,6 +46,9 @@ from devops_cli.http.pool import (
 )
 from devops_cli.telemetry.context import inject_traceparent_headers
 
+if TYPE_CHECKING:
+    from devops_cli.http.retry import ReadRetryPolicy
+
 _POOL_FIXES = "A pooled client fixes its timeout, protocol, limits and transport"
 
 
@@ -53,7 +56,7 @@ def http_client(
     level: EgressLevel,
     *,
     key: str | None = None,
-    retries: int | None = None,
+    retries: int | ReadRetryPolicy | None = None,
     verify: ssl.SSLContext | bool = True,
     read_timeout: float | None = None,
     timeout: httpx2.Timeout | float | None = None,
@@ -70,11 +73,15 @@ def http_client(
     sets its own timeout, protocol, limits and transport, so passing one with a `key` is a
     TypeError. Without a `key` the caller owns the client and closes it.
 
-    `http2` is off unless set. `retries` wraps the transport in the tenacity retry transport for
-    that many attempts. That transport turns every 4xx and 5xx response into
+    `http2` is off unless set. An integer `retries` wraps the transport in the pydantic-ai tenacity
+    retry transport for that many attempts. That transport turns every 4xx and 5xx response into
     `httpx2.HTTPStatusError` and retries 429, 5xx and connect failures, so only a caller built for
-    those semantics, as the AI clients are, passes it. A refusal (`SSRFBlockedError`) is not an
-    httpx2 error and is never retried.
+    those semantics, as the AI clients are, passes it. A `ReadRetryPolicy` (`devops_cli.http.retry`)
+    wraps it in `ReadRetryTransport`, which sends an idempotent read of a cluster service again
+    after 429, 502, 503, 504 or a failed connect or read, and gives the last reply or error as one
+    attempt does. A refusal (`SSRFBlockedError`) is not an httpx2 error and is never retried. A
+    pooled client keys on its `retries` too, so callers with different retry options do not share
+    one.
 
     A pooled client follows redirects unless the caller says otherwise, and uses the default
     timeout and the default connection limits.
@@ -84,7 +91,7 @@ def http_client(
             raise TypeError(f"{_POOL_FIXES}; build an unpooled client to set one")
         options.setdefault("follow_redirects", True)
         return pooled_client(
-            f"{level}:{key}",
+            f"{level}:{key}" if retries is None else f"{level}:{key}:retries={retries!r}",
             lambda: _build_client(
                 level,
                 timeout=request_timeout(),
@@ -116,7 +123,7 @@ def _build_client(
     verify: ssl.SSLContext | bool,
     http2: bool,
     limits: httpx2.Limits | None = None,
-    retries: int | None = None,
+    retries: int | ReadRetryPolicy | None = None,
     transport: httpx2.BaseTransport | None = None,
     **options: Unpack[ClientOptions],
 ) -> httpx2.Client:
@@ -128,7 +135,7 @@ def _build_client(
         if transport is not None
         else egress_transport(level, verify=verify, http2=http2, limits=limits)
     )
-    if retries is not None:
+    if isinstance(retries, int):
         from devops_cli.ai.retries import create_retry_transport
         from devops_cli.ai.spend.transport import AttemptRecordingTransport
 
@@ -136,6 +143,10 @@ def _build_client(
         effective_transport = create_retry_transport(
             max_attempts=retries, wrapped=effective_transport
         )
+    elif retries is not None:
+        from devops_cli.http.retry import ReadRetryTransport
+
+        effective_transport = ReadRetryTransport(effective_transport, retries)
     return httpx2.Client(
         timeout=resolve_client_timeout(timeout, read_timeout),
         transport=effective_transport,

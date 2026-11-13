@@ -10,7 +10,7 @@ import httpx2
 import pytest
 from syrupy.assertion import SnapshotAssertion
 
-from devops_cli.exceptions.k8s import KubernetesLoggingError
+from devops_cli.exceptions import ServiceRequestError
 from devops_cli.github.repo_ref import RepoRef
 from devops_cli.roadmap.job_grade import EfficiencyWork, JobGrade, grade_policy, measure_grade
 from devops_cli.roadmap.job_grade_report import (
@@ -26,6 +26,7 @@ from devops_cli.roadmap.job_grade_report import (
     plan_grade_queries,
     render_grade_report,
 )
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.http import WebFake
 from tests.support.roadmap_job_grades import LOKI_URL, QUERY_PATH, serve_grade_replies
 
@@ -276,24 +277,24 @@ def test_a_refused_query_raises_the_loki_error(web: WebFake) -> None:
     """A query that Loki refuses stops the report with the status of the reply."""
     web.serve(lambda _request: httpx2.Response(400, text="parse error at line 1"))
 
-    with pytest.raises(KubernetesLoggingError) as raised:
+    with pytest.raises(ServiceRequestError) as raised:
         grade_report(GradeWindow.D7, None, LOKI_URL)
 
     assert (raised.value.status_code, raised.value.exit_code) == (400, 1)
 
 
-def test_an_unreachable_loki_raises_the_loki_error(web: WebFake) -> None:
-    """A Loki that refuses the connection stops the report with no status."""
+def test_an_unreachable_loki_raises_the_loki_error(web: WebFake, clock: ClockFake) -> None:
+    """A Loki that refuses the connection on each attempt stops the report with no status."""
 
     def refuse(request: httpx2.Request) -> httpx2.Response:
         raise httpx2.ConnectError("Connection refused", request=request)
 
     web.serve(refuse)
 
-    with pytest.raises(KubernetesLoggingError) as raised:
+    with pytest.raises(ServiceRequestError) as raised:
         grade_report(GradeWindow.D7, None, LOKI_URL)
 
-    assert raised.value.status_code is None
+    assert (raised.value.status_code, raised.value.attempts) == (None, 4)
 
 
 def test_the_table_shows_each_workflow(web: WebFake, snapshot: SnapshotAssertion) -> None:

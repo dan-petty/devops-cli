@@ -78,6 +78,7 @@ from devops_cli.survey.dependencies import _default_pypi_fetcher
 from devops_cli.telemetry.memory_profiler import _exercise_http_pool
 from devops_cli.telemetry.service_status import fetch_statuspage_summary
 from devops_cli.telemetry.waterfall import query_tempo_trace
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.dial import http_response, record_connects
 from tests.support.fakes.dns import PUBLIC_ADDRESS, DnsFake
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
@@ -1048,7 +1049,12 @@ _LEVEL_BY_DIALS = {(False, False): PUBLIC, (True, False): LOOPBACK, (True, True)
 @pytest.mark.parametrize("flag", [False, True], ids=["without-flag", "with-flag"])
 @pytest.mark.parametrize("caller", list(_expected_levels(False)))
 def test_each_caller_dials_at_its_level(
-    monkeypatch: pytest.MonkeyPatch, dns: DnsFake, tmp_path: Path, caller: str, flag: bool
+    monkeypatch: pytest.MonkeyPatch,
+    dns: DnsFake,
+    tmp_path: Path,
+    caller: str,
+    flag: bool,
+    clock: ClockFake,
 ) -> None:
     """Every caller dials what the level the table gives it admits, with and without the flag.
 
@@ -1111,7 +1117,7 @@ def test_each_ai_service_caller_dials_the_address_it_checked(
 @pytest.mark.usefixtures("keyring_store", "process_fake")
 @pytest.mark.parametrize("caller", list(_k8s_service_calls()))
 def test_each_k8s_service_caller_dials_the_address_it_checked(
-    monkeypatch: pytest.MonkeyPatch, dns: DnsFake, caller: str
+    monkeypatch: pytest.MonkeyPatch, dns: DnsFake, caller: str, clock: ClockFake
 ) -> None:
     """Old vs new (#2424): a host that answers cloud metadata after its first lookup is not reached.
 
@@ -1147,7 +1153,8 @@ def test_loki_and_a_direct_service_url_look_up_their_host_once(
     connect resolved it a second time.
     """
     dns.add("example.com", PUBLIC_ADDRESS)
-    recorder = record_connects(monkeypatch, [])
+    # The service answers, so the request is one attempt of the read retry policy.
+    recorder = record_connects(monkeypatch, [http_response(200, "{}")])
 
     _call_ignoring_errors(call)
 

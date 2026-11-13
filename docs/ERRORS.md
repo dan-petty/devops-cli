@@ -135,6 +135,7 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `ServiceAddressError` | `K8S_ERROR` | `1` | Devops_cli.k8s.service_proxy | Raised when a cluster service address cannot be resolved. |
 | `ServiceNotReachableError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.k8s.node_port | A service cannot be reached from outside the cluster. |
 | `ServiceProbeError` | `K8S_SERVICE_PROBE_ERROR` | `1` | K8s | Raised when `devops k8s crawl4ai-check` or `devops k8s searxng-check` cannot probe a service: |
+| `ServiceRequestError` | `SERVICE_REQUEST_ERROR` | `1` | Http | Raised when a request to a cluster service fails after the attempts of its retry policy. |
 | `ServiceStatusError` | `SERVICE_STATUS_ERROR` | `1` | Telemetry | Raised when querying upstream published service status fails. |
 | `ServiceStoppingError` | `SERVICE_STOPPING` | `1` | Roadmap | Raised when a request ends because the Service is stopping (#2753). |
 | `StackCredentialError` | `K8S_STACK_CREDENTIAL_ERROR` | `1` | K8s | Raised when a stack credential cannot be read, checked, minted, revoked or stored (#2156). |

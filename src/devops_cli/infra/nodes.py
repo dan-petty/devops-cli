@@ -429,12 +429,12 @@ class Cluster:
 def critical_alerts(settings: Settings, offline_nodes: frozenset[str] = frozenset()) -> Alerts:
     """Each critical alert that fires, when `prometheus.url` is set. An alert whose node is in
     `offline_nodes` is left out with one line that says why; every other alert is a problem. A
-    query that gets no answer is a problem: the gate does not pass on a read that it could not
-    make."""
+    query that gets no answer after the attempts of the Prometheus client is a problem with the
+    line of its `ServiceRequestError`: the gate does not pass on a read that it could not make,
+    and its own wait loop reads again."""
     if not settings.prometheus.url:
         return Alerts([], [])
-    import httpx2
-
+    from devops_cli.exceptions import ServiceRequestError
     from devops_cli.http.egress import configured_level
     from devops_cli.http.urls import service_base_url
     from devops_cli.prometheus.client import PrometheusClient
@@ -444,7 +444,7 @@ def critical_alerts(settings: Settings, offline_nodes: frozenset[str] = frozense
         base = service_base_url(settings.prometheus.url, "prometheus.url")
         with PrometheusClient(base, configured_level(settings.ai)) as client:
             answer = client.query(CRITICAL_ALERTS_QUERY)
-    except (httpx2.HTTPError, ValueError) as exc:
+    except (ServiceRequestError, ValueError) as exc:
         return Alerts([texts.apply_alerts_unread.format(detail=mask_secrets(str(exc)))], [])
     alerts = Alerts([], [])
     for item in (answer.get("data") or {}).get("result") or ():

@@ -36,6 +36,7 @@ from devops_cli.exceptions.git import (
     GitOperationError,
     InvalidBranchNameError,
 )
+from devops_cli.exceptions.http import ServiceRequestError
 from devops_cli.exceptions.k8s import (
     ChaosExecutionError,
     ClusterJobError,
@@ -170,6 +171,7 @@ __all__ = [
     "SandboxUnavailableError",
     "SandboxValidationError",
     "SecurityError",
+    "ServiceRequestError",
     "ServiceStatusError",
     "ServiceStoppingError",
     "SubprocessError",

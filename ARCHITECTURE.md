@@ -213,6 +213,7 @@ The review workflow runs as `ReviewPipelineOrchestrator` methods (pre-analysis, 
 - Connect-time egress checks by level (public, loopback-allowed, private-allowed), with cloud metadata addresses refused at every level.
 - `request_headers` adds the W3C `traceparent` header for a caller that sends a request itself. Of the other clients, only the LLM gateway client sends trace context (section 7.3, Library spans).
 - A client backs off with jitter on HTTP 429 and obeys `Retry-After`. It caches idempotent reads under `.data/` or in Valkey.
+- A client of a cluster service (Prometheus, Loki, Grafana, `get_json`) reads with `SERVICE_READ_RETRY` (`devops_cli.http.retry`), through the `retries` option of `http_client`. It sends a GET, HEAD or OPTIONS request again after 429, 502, 503, 504 or a failed connect or read, at most 4 times, with jittered backoff, and starts no attempt after 20 s. It sends no other method again, and it gives the last reply or error as one attempt does. `service_error` maps the last failure to one `ServiceRequestError` line: the service, the status or the network error, the attempts, the time and a hint. A probe that must report down fast sends one attempt: `reaches_service`, the forward poll of `service_probe` and the telemetry panel of the dashboard.
 
 ### 6. Files
 Check the size of a file before you read it into memory (`MAX_REPOMAP_FILE_SIZE_BYTES`, 50 MiB). Resolve a path inside a root with `safe_resolve_subpath` (`devops_cli.core.paths`), which refuses a symlink or `..` that leaves the root.
