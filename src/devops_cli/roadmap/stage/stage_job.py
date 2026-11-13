@@ -40,8 +40,10 @@ provider, of GitHub or of the cluster does not count: a split does not help it.
 line of its item after its check-in, and only when the check-in found its check-out, or when the
 pod has no Job name. When the check-in finds no check-out of the Job, the Service ended the attempt
 and wrote the line of a failed end. When the check-in fails, the check-out stays, and the Service
-checks in for the `failed` end and writes its line. `devops roadmap stage --job-item` writes the
-line to stderr as plain text.
+checks in for the `failed` end and writes its line; an item that holds its draft then ends
+`succeeded`, and no actor writes a line. `devops roadmap stage --job-item` writes the line to
+stderr as plain text. `devops_cli_roadmap_stage_total` counts the item before the check-in, as a
+round does.
 
 **A published item.** An item whose record holds its draft (`stage.pr`) at the check-in was
 published by this Job before its end, such as a pod that a SIGTERM ended during the check-in write.
@@ -94,6 +96,7 @@ from devops_cli.roadmap.stage.stage import (
     StageResult,
     StageWriter,
     emit_stage_results,
+    log_stage_attempts,
     parse_filters,
     plan_defects,
     plan_stage,
@@ -396,13 +399,14 @@ def run_stage_job(
     except RoadmapTimeBudgetError:
         return _deadline_end(store, repo, item, settings.job, budget, None, now)
     applied = writer.applied()
+    emit_stage_results(plan, applied, repo=repo, attempt_lines=False)
     for failure in (*plan.failed, *applied.failed):
         log_failed_item(repo, failure.number, failure.step.value, failure.failure_class.value)
     result = stage_results(plan, applied).get(item, StageResult.SKIPPED)
     at = now or datetime.now(UTC)
     written = check_in(store, item, repo=repo, job=settings.job, result=result.value, now=at)
     if written is not None or settings.job is None:
-        emit_stage_results(plan, applied, repo=repo)
+        log_stage_attempts(plan, applied, repo=repo)
     exit_code = StageJobExit.FAILURE if result in _FAILED else StageJobExit.RESULT
     return StageJobRun(exit_code, result.value, budget, plan=plan, applied=applied)
 

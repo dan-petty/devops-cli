@@ -46,6 +46,7 @@ from devops_cli.roadmap.stage.stage_job import (
 from devops_cli.roadmap.stage.stage_left_out import LeftOutKind
 from devops_cli.roadmap.stage.stage_rejected import RejectedPlan
 from devops_cli.roadmap.stores.store import ItemField, StageRecordKey
+from devops_cli.telemetry.instruments import ROADMAP_STAGE_TOTAL
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import github_json
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -64,6 +65,7 @@ if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
     from tests.support.fakes.model import ModelFake
     from tests.support.fakes.openspec import OpenSpecFake
+    from tests.support.fakes.otlp import FakeCollector
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -369,6 +371,30 @@ def test_a_job_that_the_check_out_does_not_name_logs_no_result_line(
         run_stage_job(store, repo=STAGE_REPO, item=stageable, source=stage_repo.clone, now=NOW)
 
     assert result_lines(caplog) == []
+
+
+def test_the_counter_counts_the_item_also_when_the_job_logs_no_result_line(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    stageable: int,
+    otlp: FakeCollector,
+) -> None:
+    """Only the result line waits for the check-in. `devops_cli_roadmap_stage_total` counts the
+    item of the plan before the check-in, as a round does, and the recovery of the Service adds
+    to another counter (#5556)."""
+
+    def recovered(_prompt: str) -> StageProposal:
+        _check_out(store, stageable, OTHER_JOB)
+        return make_stage_proposal()
+
+    model_fake.answer(recovered)
+
+    run_stage_job(store, repo=STAGE_REPO, item=stageable, source=stage_repo.clone, now=NOW)
+
+    assert [(attrs["result"], value) for attrs, value in otlp.points(ROADMAP_STAGE_TOTAL.name)] == [
+        ("staged", 1.0)
+    ]
 
 
 def test_a_failed_check_in_logs_no_result_line(

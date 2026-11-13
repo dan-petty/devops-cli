@@ -3839,18 +3839,28 @@ def skipped_reasons(plan: StagePlan, applied: StageApplied) -> dict[int, tuple[L
     }
 
 
-def emit_stage_results(plan: StagePlan, applied: StageApplied, repo: str = "") -> None:
+def emit_stage_results(
+    plan: StagePlan, applied: StageApplied, repo: str = "", *, attempt_lines: bool = True
+) -> None:
     """Add 1 to `devops_cli_roadmap_stage_total` for each item of a run that wrote, by repository,
     result and the kind of the reason of a skipped item (#2659, #3069, #4521), and log the reason
     of a skipped item when its kind changes. A plan with no write counts nothing. Each item that
-    the round tried, all but the skipped ones, logs one result line with its counts (#4845)."""
+    the round tried, all but the skipped ones, logs one result line with its counts (#4845). With
+    `attempt_lines` False, the caller logs these lines later with `log_stage_attempts`, as the
+    stage Job does after its check-in (#5556)."""
     results = stage_results(plan, applied)
     reasons = skipped_reasons(plan, applied)
     for number, result in results.items():
         kind = reasons[number][0] if number in reasons else LeftOutKind.NONE
         emit(ROADMAP_STAGE_TOTAL, 1, {"result": result.value, "reason": kind.value, "repo": repo})
     log_left_out(repo, reasons, results)
-    _log_attempts(plan, applied, results, repo)
+    if attempt_lines:
+        _log_attempts(plan, applied, results, repo)
+
+
+def log_stage_attempts(plan: StagePlan, applied: StageApplied, repo: str = "") -> None:
+    """Log the result line of each item that the run tried, all but the skipped ones (#4845)."""
+    _log_attempts(plan, applied, stage_results(plan, applied), repo)
 
 
 def _log_attempts(
@@ -4027,6 +4037,7 @@ __all__ = [
     "Walk",
     "dry_run_stage",
     "emit_stage_results",
+    "log_stage_attempts",
     "named_items",
     "openspec_tool",
     "parse_filters",
