@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: A review dry run takes its model endpoint from the configuration
-The dry-run plan of a review command SHALL get the target of each model request from the configured AI endpoint, by the resolver that the review run uses. The model request of a review SHALL use the `analysis` task settings. When the resolver names a setting that is not set, the plan target SHALL start with that setting as a placeholder, such as `<ai.gateway_url>`, and the dry run SHALL make zero requests. A plan target SHALL NOT hold a host that no setting gives.
+The dry-run plan of a review command SHALL get the target of each model request from the configured AI endpoint, by the resolver that the review run uses. The model request of a review SHALL use the `analysis` task settings. When the resolver names a setting that is not set, the plan target SHALL start with that setting as a placeholder, such as `<ai.gateway_url>`, and the dry run SHALL make zero requests. A plan target SHALL NOT hold a gateway, Ollama or loopback address that no setting gives.
 
 #### Scenario: Gateway provider with no gateway URL
 - **WHEN** `ai.provider` is `gateway`, `ai.gateway_url` is not set and `devops review path src --dry-run` runs
