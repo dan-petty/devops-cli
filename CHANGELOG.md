@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.127.1](https://github.com/dan-petty/devops-cli/compare/v0.127.0...v0.127.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* **ci:** alarm at 360 s, one P0 issue, shards by recorded time ([#5377](https://github.com/dan-petty/devops-cli/issues/5377)) ([2abd6ff](https://github.com/dan-petty/devops-cli/commit/2abd6ff6c32d7bfefe2b5dbb3ed8cf24e7499403))
+* **github:** read the plan diff and the release files from the merge base ([#5401](https://github.com/dan-petty/devops-cli/issues/5401)) ([c54e14c](https://github.com/dan-petty/devops-cli/commit/c54e14cd5fb44705028402680841845070f1d9e2))
+* **infra:** turn off the Ansible color of every playbook run ([#5381](https://github.com/dan-petty/devops-cli/issues/5381)) ([5bafb1a](https://github.com/dan-petty/devops-cli/commit/5bafb1a7c77ce7b2050b5772257ee69437d30624)), closes [#5352](https://github.com/dan-petty/devops-cli/issues/5352)
+* install-tools --check passes an older openspec binary ([#5355](https://github.com/dan-petty/devops-cli/issues/5355)) ([625c89d](https://github.com/dan-petty/devops-cli/commit/625c89d774fb4f163f76b5a17cf7f36b8556cacc))
+* **k8s:** allow only the Ingress origins in Open WebUI ([#5357](https://github.com/dan-petty/devops-cli/issues/5357)) ([fdab229](https://github.com/dan-petty/devops-cli/commit/fdab22950396c9fa824ae4831cde6623c06dbe67))
+* **pr:** count only the latest run of each check ([#5393](https://github.com/dan-petty/devops-cli/issues/5393)) ([634dc91](https://github.com/dan-petty/devops-cli/commit/634dc914889663197c4b184510b8d9ff7b57d614))
+* **review:** drop the fixed gateway URL of the review dry run ([#5399](https://github.com/dan-petty/devops-cli/issues/5399)) ([0666d3d](https://github.com/dan-petty/devops-cli/commit/0666d3d656bf836453d443ae85796fc877b04371))
+* **review:** review a pull request at the merge base of its base branch ([#5387](https://github.com/dan-petty/devops-cli/issues/5387)) ([351ba2a](https://github.com/dan-petty/devops-cli/commit/351ba2a18593ac0e88d5885b414599e5a9490066)), closes [#5346](https://github.com/dan-petty/devops-cli/issues/5346)
+* **roadmap:** end fix-plan at a time budget with a result line ([#5380](https://github.com/dan-petty/devops-cli/issues/5380)) ([20468f4](https://github.com/dan-petty/devops-cli/commit/20468f451e6093ccd80de50d9598a9e7fad2eeca)), closes [#5363](https://github.com/dan-petty/devops-cli/issues/5363)
+* **roadmap:** refine skips an item that changed during the write ([#5392](https://github.com/dan-petty/devops-cli/issues/5392)) ([a863dda](https://github.com/dan-petty/devops-cli/commit/a863dda6826e7864594f583807b39a843b5e3b08))
+* **roadmap:** stage writes RENAMED and REMOVED spec deltas ([#5367](https://github.com/dan-petty/devops-cli/issues/5367)) ([4abbbd2](https://github.com/dan-petty/devops-cli/commit/4abbbd2da2d9eeb4e0f21be8c3656db7f0e6e975))
+* **roadmap:** title the delivery by the summary of its plan ([#5376](https://github.com/dan-petty/devops-cli/issues/5376)) ([10e1069](https://github.com/dan-petty/devops-cli/commit/10e1069c81724706ae39202be597f3f96522a700))
+
+
+### Code Refactoring
+
+* **github:** define get_compare_diff once ([#5405](https://github.com/dan-petty/devops-cli/issues/5405)) ([61357b9](https://github.com/dan-petty/devops-cli/commit/61357b9f40ba5fcd07c99d13cea2556136a29a35))
+
 ## [0.127.0](https://github.com/dan-petty/devops-cli/compare/v0.126.1...v0.127.0) (2026-11-13)
 
 
