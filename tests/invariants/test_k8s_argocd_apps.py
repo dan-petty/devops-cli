@@ -917,6 +917,16 @@ def test_the_gvisor_runtime_class_runs_pods_only_on_labelled_nodes() -> None:
     assert "tolerations" not in doc["scheduling"]
 
 
+def test_the_gvisor_runtime_class_declares_the_measured_pod_overhead() -> None:
+    """RuntimeClass gvisor adds the measured memory of the sandbox to each pod (#5434).
+
+    The measurement of runc against runsc gave 15.1 MiB of fixed memory for each pod. It found
+    no CPU overhead. So the class declares memory 16Mi and no cpu key.
+    """
+    doc = _load_yaml(K8S_DIR / "runtimeclass-gvisor.yaml")
+    assert doc.get("overhead") == {"podFixed": {"memory": "16Mi"}}
+
+
 def test_mattermost_operator_run_as_user() -> None:
     """k8s/mattermost/mattermost-operator-values.yaml sets numeric runAsUser and runAsGroup (#2932)."""
     values = _load_yaml(K8S_DIR / "mattermost" / "mattermost-operator-values.yaml")
