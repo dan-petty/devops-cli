@@ -30,7 +30,7 @@ from devops_cli.roadmap.implement.implement import (
     plan_implement,
 )
 from devops_cli.roadmap.implement.implement_run import apply_implement, raise_for_failed
-from devops_cli.roadmap.pull_form import body_problems
+from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, body_problems
 from devops_cli.roadmap.stage.stage_change import closing_keyword_in
 from devops_cli.roadmap.stores.store import ImplementRecordKey
 from tests.support.base_replay import (
@@ -354,6 +354,50 @@ def test_the_title_of_the_pull_request_has_no_scope_that_the_labels_file_lacks(
 
     (patched,) = job_world.sent("PATCH", f"pulls/{PULL}")
     assert patched["title"] == "fix: the job drops a comment"
+
+
+PLAN_SUMMARY = "Keep the last comment of a thread"
+
+
+@pytest.mark.parametrize("plan_subject", [f"docs(openspec): plan #1 {PLAN_SUMMARY}"])
+def test_the_title_of_a_staged_item_names_the_change_of_its_plan(job_world: JobWorld) -> None:
+    """The issue states a goal, and the commit of the stage job that adds the change folder holds
+    the plan title (#5341). The title keeps the type and the scope of the issue and takes the
+    summary of the plan."""
+    job_world.run(two_groups())
+
+    (patched,) = job_world.sent("PATCH", f"pulls/{PULL}")
+    assert patched["title"] == f"fix(roadmap): {PLAN_SUMMARY}"
+
+
+@pytest.mark.parametrize("plan_subject", [f"docs(openspec): plan #1 {PLAN_SUMMARY} (#4)"])
+def test_the_title_of_a_planned_item_names_the_change_of_its_merged_plan(
+    planned_world: JobWorld,
+) -> None:
+    """The squash commit of the plan pull request on `main` holds its title and the ` (#<pull>)`
+    that GitHub adds (#5341). The draft and the final write both take the summary of the plan."""
+    planned_world.run(two_groups())
+
+    (created,) = planned_world.sent("POST", "pulls")
+    (patched,) = planned_world.sent("PATCH", f"pulls/{PULL}")
+    assert (created["title"], patched["title"]) == (f"fix(roadmap): {PLAN_SUMMARY}",) * 2
+
+
+LONG_PLAN_SUMMARY = "Keep the last comment of a thread when the job rewrites the body"
+
+
+@pytest.mark.parametrize("plan_subject", [f"docs(openspec): plan #1 {LONG_PLAN_SUMMARY}"])
+def test_a_plan_summary_that_the_form_refuses_gives_way_to_the_summary_of_the_issue(
+    job_world: JobWorld,
+) -> None:
+    """A person can give the plan pull request a longer title than the stage schema allows. The
+    title with the summary of the plan then breaks the form, so the job writes the title of the
+    issue, as it does for an item with no plan title."""
+    job_world.run(two_groups())
+
+    (patched,) = job_world.sent("PATCH", f"pulls/{PULL}")
+    assert len(LONG_PLAN_SUMMARY) > SUMMARY_MAX_CHARS
+    assert patched["title"] == "fix(roadmap): the job drops a comment"
 
 
 def test_a_title_that_the_check_refuses_stops_the_item_before_the_job_writes_it(

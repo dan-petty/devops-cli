@@ -19,6 +19,7 @@ from devops_cli.roadmap.stage.stage_change import (
     StageProposal,
     content_problems,
     delivery_title,
+    plan_summary,
     staging_title,
 )
 from devops_cli.roadmap.stores.store import ItemField
@@ -408,3 +409,72 @@ def test_the_delivery_title_drops_a_scope_that_no_label_declares() -> None:
         delivery_title("fix(cli, floor): report a clear error", DECLARED),
         delivery_title("fix: report a clear error", DECLARED),
     ) == ("fix: report a clear error",) * 3
+
+
+# Four delivery pull requests of the implement job that took the title of the issue (#5341): the
+# item, the title of the issue, the subject of the commit that added its change folder, and the
+# title that names the change of the plan. The plans of #3785 (#5336, its node name is a role
+# here), #4697 (#5324) and #5107 (#5355) are squash commits on `main`. The plan of #2530 (#4980)
+# is the commit of the stage job on its branch. `.github/labels.yml` declares no `scope/tools`.
+REAL_DECLARED = (*DECLARED, "scope/github", "scope/k8s", "scope/telemetry")
+REAL_DELIVERIES = [
+    (
+        3785,
+        "fix(k8s): find the source of the <gpu-node> host crashes",
+        "docs(openspec): plan #3785 Remove the profiler exclusion of the <gpu-node> node (#5182)",
+        "fix(k8s): Remove the profiler exclusion of the <gpu-node> node",
+    ),
+    (
+        4697,
+        "fix(telemetry): keep one metric stream per workload",
+        "docs(openspec): plan #4697 Keep one metric stream for each workload (#5283)",
+        "fix(telemetry): Keep one metric stream for each workload",
+    ),
+    (
+        5107,
+        "fix(tools): install-tools --check passes an older openspec binary",
+        "docs(openspec): plan #5107 Read the OpenSpec version on PATH in the check (#5333)",
+        "fix: Read the OpenSpec version on PATH in the check",
+    ),
+    (
+        2530,
+        "fix(github): Fix check-readiness base and monitor merged state",
+        "docs(openspec): plan #2530 Fix readiness files and merged monitor output",
+        "fix(github): Fix readiness files and merged monitor output",
+    ),
+]
+
+
+@pytest.mark.parametrize(("number", "issue", "subject", "title"), REAL_DELIVERIES)
+def test_the_delivery_title_names_the_change_of_the_plan_and_not_the_goal_of_the_issue(
+    number: int, issue: str, subject: str, title: str
+) -> None:
+    """The issue states a goal, and the plan states the change that the branch makes (#5341). The
+    title keeps the type and the declared scope of the issue, and the form accepts it."""
+    summary = plan_summary(subject, number)
+
+    assert delivery_title(issue, REAL_DECLARED, summary) == title
+    assert title_problems(title, REAL_DECLARED) == []
+
+
+@pytest.mark.parametrize(
+    "subject",
+    [
+        "fix(roadmap): plan",
+        "fix(k8s): find the source of the host crashes (#5336)",
+        "docs(openspec): plan #3785",
+        "docs(openspec): plan #3785 (#5182)",
+        "docs(openspec): plan #37850 Remove the profiler exclusion (#5182)",
+        "docs(openspec): archive the change (#3785)",
+    ],
+)
+def test_a_subject_that_is_no_plan_title_of_the_item_gives_no_summary(subject: str) -> None:
+    """A commit of a person, the delivery squash, a plan title with no summary and the plan of
+    another item hold no summary of the plan of item 3785."""
+    assert plan_summary(subject, 3785) is None
+
+
+def test_no_plan_summary_keeps_the_summary_of_the_issue() -> None:
+    assert delivery_title("fix(config): report a clear error", DECLARED, None) == (
+        "fix(config): report a clear error"
+    )

@@ -103,6 +103,8 @@ logger = logging.getLogger(__name__)
 # A plan is documentation, not a fix or a feature: only the types feat, fix, perf, refactor and
 # revert add a line to the changelog, so a pull request that only plans an item has this type.
 STAGING_TYPE: Final[str] = "docs(openspec)"
+# The end that GitHub adds to the subject of a squash commit: ` (#<pull>)` (CONTRIBUTING.md).
+_SQUASH_SUFFIX: Final[re.Pattern[str]] = re.compile(r" \(#[0-9]+\)$")
 _ELLIPSIS: Final[str] = "..."
 # A character shows nothing to a reader when its category is a space, a control, a format mark
 # (such as U+200B or U+FEFF), a surrogate, a private use or an unassigned mark, or when it is one
@@ -2914,20 +2916,34 @@ def staging_title(number: int, summary: str) -> str:
     return f"{STAGING_TYPE}: {lead}{shown}"
 
 
-def delivery_title(issue_title: str, declared: Collection[str]) -> str:
+def plan_summary(subject: str, number: int) -> str | None:
+    """The summary of the plan of item `number` in `subject`, the subject of the commit that adds
+    its change folder (#5341). The stage job writes that subject as `staging_title` does, and the
+    squash merge of the plan pull request writes its title and adds ` (#<pull>)`. None when
+    `subject` is no plan title of the item, or holds no summary."""
+    lead = f"{STAGING_TYPE}: {MESSAGES.roadmap.stage_title_lead.format(number=number)}"
+    title = _SQUASH_SUFFIX.sub("", subject.strip())
+    if not title.startswith(lead):
+        return None
+    return title.removeprefix(lead).strip() or None
+
+
+def delivery_title(issue_title: str, declared: Collection[str], summary: str | None = None) -> str:
     """The title of the pull request that delivers the code of an item (#2714): the type and the
-    scope of the issue's title, and its whole summary. It is never cut, because a cut text ends
-    with `...` and hides the summary (#3200): the form check of the pull request judges a long
-    one. The staging pull request has the type `docs(openspec)`, which the delivery must not keep.
-    A mark of a breaking change is dropped: the project has none before 1.0.0. A scope whose
-    `scope/*` label is not in `declared` is dropped too, because the `Semantic PR title` check
-    refuses it (#2800)."""
-    head, _, summary = issue_title.partition(":")
+    scope of the issue's title, and `summary`, the summary of the plan (#5341). The issue states a
+    goal, and the plan states the change that the branch makes. With no `summary`, the title keeps
+    the whole summary of the issue's title. It is never cut, because a cut text ends with `...`
+    and hides the summary (#3200): the form check of the pull request judges a long one. The
+    staging pull request has the type `docs(openspec)`, which the delivery must not keep. A mark
+    of a breaking change is dropped: the project has none before 1.0.0. A scope whose `scope/*`
+    label is not in `declared` is dropped too, because the `Semantic PR title` check refuses it
+    (#2800)."""
+    head, _, issue_summary = issue_title.partition(":")
     head = head.strip().removesuffix("!")
     scope = commit_scope(issue_title)
     if scope and f"{CONST_ROADMAP_SCOPE_LABEL_PREFIX}{scope}" not in declared:
         head = head.partition("(")[0]
-    return f"{head}: {safe_title(summary)}"
+    return f"{head}: {safe_title(issue_summary if summary is None else summary)}"
 
 
 def pull_request_body(number: int, change: str, proposal: StageProposal) -> str:
