@@ -17,13 +17,20 @@ A line holds no text of an issue, of a model or of a log. Each value is a number
 the job, and a name that holds another character than a letter, a digit, `_`, `-` or `.` is
 written as `other`. A run with no repository writes `repo=none`, and a candidate of intake that is
 not an issue yet writes `item=none`.
+
+The Service logs the line as JSON, with the line in `message` (`server/json_logs.py`). A command
+that a Job pod runs writes the line, and the round lines of the attempt, to stderr as plain text
+in `job_lines_to_stderr` (#5363, #5556): the log of the pod is what the command writes, and a CLI
+process has no handler for `INFO` records.
 """
 
 from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Mapping
+import sys
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
@@ -35,6 +42,9 @@ from devops_cli.roadmap.failure import FailureClass
 logger = logging.getLogger(__name__)
 
 LINE_PREFIX: Final = "roadmap job result:"
+# The loggers of the lines of an attempt: one line for each review round and gate return, the
+# progress line of each review (`round_log`), and the result line (this module).
+_LINE_LOGGERS: Final[tuple[str, ...]] = ("devops_cli.roadmap.round_log", __name__)
 
 # A name that a line may hold: an enum value, a class name or a count name of the job.
 _NAME: Final = re.compile(r"[A-Za-z0-9_.-]{1,64}")
@@ -159,6 +169,25 @@ def log_job_result(
     logger.info("%s %s", LINE_PREFIX, " ".join(fields))
 
 
+@contextmanager
+def job_lines_to_stderr() -> Iterator[None]:
+    """Write the `INFO` lines of the round log and the result lines to stderr as plain text while
+    the block runs. The lines hold counts and names, and no text of a model or of an issue."""
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    loggers = [logging.getLogger(name) for name in _LINE_LOGGERS]
+    levels = [each.level for each in loggers]
+    for each in loggers:
+        each.addHandler(handler)
+        each.setLevel(logging.INFO)
+    try:
+        yield
+    finally:
+        for each, level in zip(loggers, levels, strict=True):
+            each.removeHandler(handler)
+            each.setLevel(level)
+
+
 __all__ = [
     "FIRST_PASS_LIMITS",
     "INFRA_CLASSES",
@@ -166,5 +195,6 @@ __all__ = [
     "SUCCESS_RESULTS",
     "CountLimit",
     "RoadmapJob",
+    "job_lines_to_stderr",
     "log_job_result",
 ]

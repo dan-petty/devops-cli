@@ -35,6 +35,14 @@ The end that reaches the limit returns the item to New with a comment that asks 
 a plan that keeps failing is too large for one Job (owner rule, 2026-11-13). An outage of the
 provider, of GitHub or of the cluster does not count: a split does not help it.
 
+**The result line.** The actor that writes the check-in of an attempt writes its result line
+(`roadmap/job_result.py`), so each attempt counts once in the job grades (#5556). The Job logs the
+line of its item after its check-in, and only when the check-in found its check-out, or when the
+pod has no Job name. When the check-in finds no check-out of the Job, the Service ended the attempt
+and wrote the line of a failed end. When the check-in fails, the check-out stays, and the Service
+checks in for the `failed` end and writes its line. `devops roadmap stage --job-item` writes the
+line to stderr as plain text.
+
 **A published item.** An item whose record holds its draft (`stage.pr`) at the check-in was
 published by this Job before its end, such as a pod that a SIGTERM ended during the check-in write.
 Its end is `succeeded`, with no failure.
@@ -388,12 +396,13 @@ def run_stage_job(
     except RoadmapTimeBudgetError:
         return _deadline_end(store, repo, item, settings.job, budget, None, now)
     applied = writer.applied()
-    emit_stage_results(plan, applied, repo=repo)
     for failure in (*plan.failed, *applied.failed):
         log_failed_item(repo, failure.number, failure.step.value, failure.failure_class.value)
     result = stage_results(plan, applied).get(item, StageResult.SKIPPED)
     at = now or datetime.now(UTC)
-    check_in(store, item, repo=repo, job=settings.job, result=result.value, now=at)
+    written = check_in(store, item, repo=repo, job=settings.job, result=result.value, now=at)
+    if written is not None or settings.job is None:
+        emit_stage_results(plan, applied, repo=repo)
     exit_code = StageJobExit.FAILURE if result in _FAILED else StageJobExit.RESULT
     return StageJobRun(exit_code, result.value, budget, plan=plan, applied=applied)
 

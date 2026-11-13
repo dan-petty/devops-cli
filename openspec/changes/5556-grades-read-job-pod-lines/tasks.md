@@ -13,9 +13,9 @@ Kind: behavior.
 
 Kind: behavior.
 
-- [ ] 2.1 Add the tests of the line of the stage Job on stderr, after the check-in, and of no line when the check-out names another Job or the check-in fails
+- [x] 2.1 Add the tests of the line of the stage Job on stderr, after the check-in, and of no line when the check-out names another Job or the check-in fails
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_job_entry.py` fails on the base
-- [ ] 2.2 Move the stderr handler of the fix-plan command to `job_lines_to_stderr` of `job_result.py`, use it in `devops roadmap stage --job-item`, and log the result line of the Job after its check-in
+- [x] 2.2 Move the stderr handler of the fix-plan command to `job_lines_to_stderr` of `job_result.py`, use it in `devops roadmap stage --job-item`, and log the result line of the Job after its check-in
   - Verification: `$ uv run devops ci test tests/roadmap/stage tests/commands/test_roadmap_step_fix_plan.py tests/roadmap/test_job_result.py`
 
 ## 3. The dashboard reads the same lines
