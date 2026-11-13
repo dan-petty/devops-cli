@@ -198,6 +198,25 @@ model_list:
       input_cost_per_token: 7.84e-08
       output_cost_per_token: 2.352e-07
       cache_read_input_token_cost: 2.352e-09
+  # The fallback of deepseek-v4.1-flash-1017 (owner decision of 2026-11-13, #5564). It calls the
+  # undated model with no `floor` route, so OpenRouter balances a call across its providers when
+  # the cheapest provider of the dated model fails. It asks for the same fp8 weights and the same
+  # `data_collection: deny`. Its prices are the list prices of the model in the OpenRouter API on
+  # 2026-11-13, the top of what its providers charge: OpenRouter reports the real cost of a call.
+  # devops-cli prices the group at the same rates (`_HOSTED_GROUP_PRICES`).
+  - model_name: deepseek-v4.1-flash
+    litellm_params:
+      model: openrouter/deepseek/deepseek-v4.1-flash
+      api_key: os.environ/OPENROUTER_API_KEY
+      extra_body:
+        provider:
+          quantizations: [fp8]
+          data_collection: deny
+    model_info:
+      max_input_tokens: 1048576
+      input_cost_per_token: 3.0e-07
+      output_cost_per_token: 1.2e-06
+      cache_read_input_token_cost: 6.0e-09
       supports_response_schema: true
 litellm_settings:
   # Per-deployment requests, failures and latency at /metrics/, scraped by Prometheus. The
@@ -270,6 +289,9 @@ router_settings:
     # the Flash Lite, Gemma and older Gemini models found 7 to 25%, so they are no fallback. The
     # prompt then goes to the OpenRouter provider and not to Anthropic.
     - claude-sonnet-5-5: [deepseek-v4.1-flash-1017]
+    # A failed call of deepseek-v4.1-flash-1017, such as a timeout of its `floor` route, goes to
+    # the undated model through the same provider with the same filters (#5564).
+    - deepseek-v4.1-flash-1017: [deepseek-v4.1-flash]
     # Fallback chain: devops-review -> devops-background -> qwen3.8:27b means background and
     # review work can reach ollama-48gib-fast when the 64gib-standard tier fails. devops-triage
     # falls back to qwen3.8:27b if the standard tier deployment is unavailable.

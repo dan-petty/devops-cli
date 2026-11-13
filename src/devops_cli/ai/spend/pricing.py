@@ -54,6 +54,14 @@ _DEEPSEEK_V4_1_FLASH_1017_PRICE = ModelPricing(
     completion_usd_per_million=0.2352,
     source=_HOSTED_GROUP_PRICE_SOURCE,
 )
+# The list price of the undated model in the OpenRouter API on 2026-11-13, the top of what its
+# providers charge. Its group is the fallback of the dated group (#5564).
+_DEEPSEEK_V4_1_FLASH_PRICE = ModelPricing(
+    prompt_usd_per_million=0.3,
+    cache_read_usd_per_million=0.006,
+    completion_usd_per_million=1.2,
+    source=_HOSTED_GROUP_PRICE_SOURCE,
+)
 # The price of each hosted gateway group that genai-prices does not price, under the route name
 # and under the deployment model of the group. A run of an agent names the route name, which the
 # gateway writes in the reply body; a chat call names the deployment model of the reply header.
@@ -64,6 +72,8 @@ _HOSTED_GROUP_PRICES: Mapping[str, ModelPricing] = MappingProxyType(
     {
         "deepseek-v4.1-flash-1017": _DEEPSEEK_V4_1_FLASH_1017_PRICE,
         "openrouter/deepseek/deepseek-v4.1-flash-1017:floor": _DEEPSEEK_V4_1_FLASH_1017_PRICE,
+        "deepseek-v4.1-flash": _DEEPSEEK_V4_1_FLASH_PRICE,
+        "openrouter/deepseek/deepseek-v4.1-flash": _DEEPSEEK_V4_1_FLASH_PRICE,
     }
 )
 

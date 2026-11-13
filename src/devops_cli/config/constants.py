@@ -2961,6 +2961,7 @@ CONST_AI_GATEWAY_HOSTED_MODELS: Final[tuple[str, ...]] = (
     "claude-sonnet-5-5",
     "claude-haiku-5-5",
     "deepseek-v4.1-flash-1017",
+    "deepseek-v4.1-flash",
 )
 # TypeSafe Jev 1.14 System One decision model constants (https://docs.typesafe.ai/cookbooks).
 CONST_AI_JEV_MODEL: Final[str] = "typesafe/jev-1.14"
