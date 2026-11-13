@@ -1,4 +1,5 @@
-"""The database of the LLM gateway: a CloudNativePG Cluster that the operator fills with a Secret (#1635)."""
+"""The database of the LLM gateway: a CloudNativePG Cluster that the operator fills with a Secret
+(#1635). How the gateway and its database stop, and how long the gateway probes wait (#5301)."""
 
 from __future__ import annotations
 
@@ -30,6 +31,15 @@ DATABASE_PORT = 5432
 EXPORTER_PORT = 9187
 # LiteLLM deletes the rows of its spend-log tables that are older than this (#4994).
 SPEND_LOGS_RETENTION = "30d"
+# After SIGTERM, the old gateway pod has this time to finish its open calls (#5301).
+GATEWAY_STOP_GRACE_SECONDS = 600
+# The smart shutdown of the database instance waits this time for the open sessions (#5301).
+DATABASE_SMART_SHUTDOWN_SECONDS = 15
+# Each probe of the gateway waits this time for an answer. The Kubernetes default is 1 s (#5301).
+GATEWAY_PROBE_TIMEOUT_SECONDS = 5
+KUBERNETES_PROBE_TIMEOUT_SECONDS = 1
+# CloudNativePG gives an instance this time to stop when the Cluster sets no `stopDelay`.
+CNPG_STOP_DELAY_SECONDS = 1800
 
 
 def _documents(path: Path) -> list[dict[str, Any]]:
@@ -155,6 +165,57 @@ def check_the_readiness_of_the_gateway_does_not_depend_on_the_database() -> None
     probe = _gateway_container()["readinessProbe"]
 
     assert probe["httpGet"] == {"path": "/health/liveliness", "port": 4000}
+
+
+def check_a_rollout_lets_the_old_gateway_pod_finish_its_open_calls() -> None:
+    """On SIGTERM, uvicorn stops to accept connections and waits for each open call. LiteLLM gives
+    uvicorn no `timeout_graceful_shutdown`, so only the kubelet ends the wait, at the grace period
+    of the pod. The default of 30 s cut calls that run for minutes. 600 s covers a normal long
+    call and is shorter than the router timeout. The rolling update starts the new pod before it
+    stops the old pod, so the longer wait does not stop the service."""
+    deployment = _gateway_deployment()
+    router_timeout = yaml.safe_load((GATEWAY_DIR / "config.yaml").read_text(encoding="utf-8"))[
+        "router_settings"
+    ]["timeout"]
+    grace = deployment["spec"]["template"]["spec"].get("terminationGracePeriodSeconds")
+
+    assert (
+        grace,
+        grace is not None and grace < router_timeout,
+        deployment["spec"].get("strategy", {}).get("type", "RollingUpdate"),
+    ) == (GATEWAY_STOP_GRACE_SECONDS, True, "RollingUpdate")
+
+
+def check_a_restart_of_the_database_waits_15_s_for_the_open_sessions() -> None:
+    """CloudNativePG stops an instance first with a smart shutdown, which refuses new connections
+    and waits for each open session, and then with a fast shutdown. The old gateway pod keeps its
+    idle sessions open, so the default of 180 s refused the new gateway pod for 3 minutes, and
+    the pod stopped after its 4 tries of the migration check. With 15 s, a restart takes seconds,
+    and the fast shutdown keeps the rest of `stopDelay`."""
+    (cluster,) = _of_kind(_documents(DATABASE_FILE), "Cluster")
+    spec = cluster["spec"]
+    smart = spec.get("smartShutdownTimeout")
+
+    assert (
+        smart,
+        smart is not None and smart < spec.get("stopDelay", CNPG_STOP_DELAY_SECONDS),
+    ) == (DATABASE_SMART_SHUTDOWN_SECONDS, True)
+
+
+def check_one_slow_request_does_not_fail_a_probe_of_the_gateway() -> None:
+    """The gateway runs one uvicorn worker, and one request, such as the unpaginated v1
+    `/spend/logs`, can hold it for some seconds. With the default of 1 s, the probes then failed.
+    Each probe waits 5 s, which is shorter than its period."""
+    container = _gateway_container()
+    probes = {name: container[name] for name in ("startupProbe", "livenessProbe", "readinessProbe")}
+
+    assert {
+        name: (
+            probe.get("timeoutSeconds", KUBERNETES_PROBE_TIMEOUT_SECONDS),
+            probe.get("timeoutSeconds", KUBERNETES_PROBE_TIMEOUT_SECONDS) < probe["periodSeconds"],
+        )
+        for name, probe in probes.items()
+    } == {name: (GATEWAY_PROBE_TIMEOUT_SECONDS, True) for name in probes}
 
 
 def check_the_gateway_refuses_a_key_it_cannot_check_when_the_database_is_down() -> None:
