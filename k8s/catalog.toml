@@ -1,0 +1,178 @@
+# The catalog data of this environment: the owner decisions about each service that no other
+# file holds (README.md, "Service levels"; docs/guidelines/sre.md, "Service catalog").
+#
+# Each [[service]] table is one service:
+#
+# - `name`: the id of the service. The `service` field of its Sloth spec uses the same id.
+# - `applications`: the Argo CD Applications that deploy it.
+# - `workloads`: only when an Application deploys more than one service. Each value is a workload
+#   name or a glob pattern, such as "ollama-*", so a new workload of the same kind needs no edit.
+# - `description`: only for a service with no Homepage UI. A service UI carries the annotation
+#   `gethomepage.dev/description` (#4600), which is its one description.
+# - `tier`: 1, 2 or 3, as the SRE guideline defines them.
+# - `data_class`: the catalog value of its data class in the SRE guideline: "external",
+#   "derived", "owned", "telemetry" or "none".
+# - `depends_on`: the names of the services that it needs to serve its users.
+#
+# The file holds no SLO id and no dashboard uid: a Sloth spec names its service, and
+# monitoring/dashboards/services.toml names the workload of each service dashboard. The
+# namespace, the replicas, the stores and the containers of each service come from the rendered
+# manifests (#5535), so no one copies them here.
+
+[[service]]
+name = "roadmap-service"
+applications = ["devops"]
+workloads = ["roadmap-service"]
+description = "Receives the GitHub webhooks, serves /metrics and the read API, and runs the rows of the roadmap jobs."
+tier = 1
+data_class = "owned"
+depends_on = ["ingress", "valkey", "llm-gateway"]
+
+[[service]]
+name = "runner-jobs"
+applications = ["devops"]
+workloads = ["devops-cli-runner", "roadmap-stage", "devops-cli"]
+description = "Run the implement job, the stage job and the other one-item jobs, each in a Job of its own, from the suspended CronJob templates."
+tier = 1
+data_class = "none"
+depends_on = ["llm-gateway", "mcp-server"]
+
+[[service]]
+name = "llm-gateway"
+applications = ["llm"]
+workloads = ["llm-gateway"]
+tier = 1
+data_class = "none"
+depends_on = ["model-tiers", "gateway-db"]
+
+[[service]]
+name = "model-tiers"
+applications = ["llm"]
+workloads = ["ollama-*"]
+description = "Serve the local models, one DaemonSet for each tier."
+tier = 2
+data_class = "derived"
+
+[[service]]
+name = "gateway-db"
+applications = ["llm"]
+workloads = ["llm-gateway-db"]
+description = "Holds the virtual keys and the spend logs of the gateway."
+tier = 2
+data_class = "owned"
+
+[[service]]
+name = "valkey"
+applications = ["llm"]
+workloads = ["valkey", "valkey-devops", "valkey-runs"]
+description = "Hold the shared coordination, cache and run index state."
+tier = 2
+data_class = "derived"
+
+[[service]]
+name = "mcp-server"
+applications = ["devops"]
+workloads = ["mcp-server"]
+description = "Serves the devops tools to the stage and implement jobs."
+tier = 2
+data_class = "none"
+
+[[service]]
+name = "ingress"
+applications = ["base", "traefik", "ingress"]
+workloads = ["cloudflared", "traefik"]
+tier = 2
+data_class = "none"
+
+[[service]]
+name = "argo-workflows"
+applications = ["argo-workflows", "argo-workflows-manifests"]
+description = "Runs the WorkflowTemplates and the CronWorkflows of the cluster."
+tier = 2
+data_class = "none"
+
+[[service]]
+name = "argocd"
+applications = ["argocd", "argocd-image-updater"]
+tier = 2
+data_class = "external"
+
+[[service]]
+name = "qdrant"
+applications = ["qdrant"]
+tier = 2
+data_class = "derived"
+
+[[service]]
+name = "crawl4ai"
+applications = ["devops"]
+workloads = ["crawl4ai"]
+description = "Renders a web page in Chromium and returns its text for the jobs."
+tier = 3
+data_class = "none"
+
+[[service]]
+name = "searxng"
+applications = ["devops"]
+workloads = ["searxng"]
+description = "Searches the web for the jobs."
+tier = 3
+data_class = "none"
+
+[[service]]
+name = "prometheus"
+applications = ["prometheus"]
+tier = 3
+data_class = "telemetry"
+
+[[service]]
+name = "grafana"
+applications = ["grafana"]
+tier = 3
+data_class = "telemetry"
+
+[[service]]
+name = "alloy"
+applications = ["k8s-monitoring"]
+tier = 3
+data_class = "telemetry"
+
+[[service]]
+name = "loki"
+applications = ["loki", "logging"]
+description = "Keeps the logs of the pods and the journals of the hosts."
+tier = 3
+data_class = "telemetry"
+
+[[service]]
+name = "tempo"
+applications = ["tempo"]
+description = "Keeps the traces."
+tier = 3
+data_class = "telemetry"
+
+[[service]]
+name = "pyroscope"
+applications = ["pyroscope"]
+description = "Keeps the continuous profiles."
+tier = 3
+data_class = "telemetry"
+
+[[service]]
+name = "otel-collector"
+applications = ["otel-collector", "otel"]
+description = "Receives the OTLP spans and metrics of the services and sends them on."
+tier = 3
+data_class = "none"
+
+[[service]]
+name = "gitea"
+applications = ["gitea", "gitea-manifests"]
+tier = 3
+data_class = "owned"
+
+[[service]]
+name = "mattermost"
+applications = ["mattermost", "mattermost-operator"]
+tier = 3
+data_class = "owned"

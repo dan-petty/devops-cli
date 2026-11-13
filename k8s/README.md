@@ -512,9 +512,40 @@ changes(node_boot_time_seconds[30d])                                       # Pro
 node_systemd_unit_state{state="failed"} == 1                               # PromQL: failed host units
 ```
 
+## Service levels
+
+The [SRE guideline](../docs/guidelines/sre.md) sets how a project runs its services, and the [production readiness guideline](../docs/guidelines/production-readiness.md) sets the rows that each service meets. [The guideline index](../docs/guidelines/index.md) lists each guideline. This section holds only the decisions of this cluster. [Tracker #5541](https://github.com/dan-petty/devops-cli/issues/5541) holds the open SRE and production readiness gaps of this cluster, so this section holds no gap row. The service dashboards, `devops prometheus rules` and `devops roadmap review run` give the measured values.
+
+[`catalog.toml`](catalog.toml) is the catalog data: the Applications, the tier, the data class and the dependencies of each service. A service with a Homepage UI takes its description from the `gethomepage.dev/description` annotation of that UI (#4600), so its entry holds no description. A new service adds its entry in the pull request that adds the service (rule SRE1).
+
+**SLOs.** The window of each SLO is 28 days. SLO 5 is the default of the service dashboards (`monitoring/dashboards/services.toml`) until the owner sets another target. The rows stay here until the Sloth specs of #4709 hold them.
+
+| SLO | Service | SLI: good events / valid events | Objective | Error budget |
+| :--- | :--- | :--- | ---: | :--- |
+| 1 | Roadmap Service | Row runs with `result="success"` / row runs with `result` `success` or `error`, for each row and repository (`devops_cli_service_jobs_total`) | 99.0 % | 1 % of the runs of each row and repository |
+| 2 | Runner Jobs | Runner Jobs (`devops-cli-runner-*`) that end in under 3,600 s / runner Jobs that end | 90.0 % | 10 % of the Jobs |
+| 3 | LLM gateway | Gateway requests with no failure / gateway requests (`litellm_proxy_*_requests_metric_total`) | 99.5 % | 0.5 % of the requests |
+| 4 | LLM gateway | Gateway requests that end in under 60 s / gateway requests (`litellm_request_total_latency_metric_bucket`) | 95.0 % | 5 % of the requests |
+| 5 | Roadmap Service | Ingress requests with no 5xx answer / ingress requests (`traefik_service_requests_total`) | 99.9 % | 0.1 % of the requests |
+
+SLO 2 counts only the runner Jobs that end. kube-state-metrics shows a Job only while the Job object exists, and a failed Job has no completion time.
+
+**Owner values.**
+
+- **Incident trigger 1.** A burn rate of 14.4x or more for 1 hour or more, with at least 20 events. 14.4x is the 1-hour page rate of a 30-day window. The default of the guideline for 28 days is 13.44x. The value stays here until the settings of the incident job (#5477) hold it.
+- **Pages.** One owner holds one 12-hour shift each day, so the page budget is 2 pages a day.
+
+**Accepted exceptions.**
+
+- Git does not hold the Secrets ([Cluster Secrets](#cluster-secrets)) or ConfigMap `devops-cli-config` ([Homelab Values at Deploy Time](#homelab-values-at-deploy-time)).
+- The sweep and its Valkey keep state on `local-path` volumes, which stop with their node ([ADR 0021](../docs/adr/0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md)). The off-node backup of owned state limits the loss.
+- The roadmap Service runs one pod with `Recreate` ([Roadmap service](../docs/CLUSTER.md#roadmap-service)).
+
+**Runbooks for the whole system:** the [stop switch](../docs/CLUSTER.md#stop-switch), the [planned maintenance](#planned-maintenance), the [recovery of Argo CD](#recovery) and the [failure recovery matrix](../docs/ROUTINE_TASKS.md#4-failure-recovery--troubleshooting-matrix).
+
 ## Alerting
 
-[docs/SRE.md](../docs/SRE.md) sets the SLOs, the burn-rate alerts, the page and ticket targets and the incident steps. This section holds the rules and the receiver.
+The [SRE guideline](../docs/guidelines/sre.md) sets the method of the SLOs, the burn-rate alerts, the page and ticket targets and the incident steps. [Service levels](#service-levels) holds the decisions of this cluster. This section holds the rules and the receiver.
 
 Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prometheus-values.yaml`), and Grafana reads it as the `Alertmanager` datasource. The environment rules are in the same file, under `serverFiles.alerting_rules.yml`. The product rules, the groups that select a `devops_cli_*` series, are in `devops/monitoring/prometheus-rules-values.yaml`, under `serverFiles.devops_cli_alerting_rules.yml` (#5292). The `prometheus` Application gives the chart this file as its second values file, and `devops k8s deploy-stack` gives `helm upgrade` both files. The chart writes each key of `serverFiles` to the ConfigMap `prometheus-server`, and `serverFiles.prometheus.yml.rule_files` of the environment values names the 4 rule files of the chart and the product file. `tests/prometheus/test_k8s_monitoring_alerting.py` pins the rules and checks that each selects only series that a scrape or the OpenTelemetry collector in `k8s/` serves. No rule watches the controller manager, scheduler or proxy: k3s runs them inside its server process, so nothing scrapes them and such a rule would fire on the missing target.
 
@@ -977,6 +1008,13 @@ This repository is public, so it holds no homelab value. Ingress hosts sit under
 
 To change the hourly GitHub request budget of the Service, run `devops config set service.github_requests_per_hour <n>`, then `devops k8s deploy-stack --stack devops`. The Service shows the budget it runs with in `devops_cli_service_budget_limit_requests{job="roadmap-service"}`, and the alert `RoadmapServiceGitHubRequestsHigh` follows that value.
 
+A change of a live value follows these rules:
+
+- A person changes the value with `devops config set` ([AGENTS.md](../AGENTS.md) rule 12). The command keeps a copy of `config.yaml` and a record of the changed keys, with no value.
+- Do not change ConfigMap `devops-cli-config` with `kubectl edit` or `kubectl apply`. The next deploy-stack replaces such a change, and no record of it stays.
+- deploy-stack also pushes the Secrets of its stack ([Cluster Secrets](#cluster-secrets)). An agent runs it only when `devops k8s push-secrets --stack <stack> --plan` shows each key `unchanged`. If not, a person runs it.
+- Write a comment on the issue of the change. Give the key, the reason and the time in UTC, and no secret value.
+
 The budget counts what GitHub counts against the rate limit of the installation: a conditional request that GitHub answers with 304 (#3497) leaves the budget when its answer comes. A request with no answer stays in it, because GitHub may have counted it, and a gh command has no status to read. `devops_cli_github_requests_total` still counts every request with its `status`, so `sum(increase(devops_cli_github_requests_total{job="roadmap-service", status!="304"}[1h]))` is the budget's measure (#3939).
 
 The cluster Jobs act as the same App as the Service, and they do not count in `service.github_requests_per_hour`. Only the Service keeps this budget, in a record on its volume. A Job pod has no budget and an `emptyDir` home, so the Service does not see the requests of a Job. GitHub counts the requests of both against the one rate limit of the App installation. To read the requests of the Jobs, set the variable `Job` of the `devops-cli Telemetry` dashboard to `devops-cli-job`, and read the row GitHub API. The list of the variable follows the time range of the dashboard. If the list does not show this value, no Job ended or sent a request in that range: make the range wider.
@@ -1233,6 +1271,7 @@ k8s/
 ├── kustomization.yaml        # Root kustomize: applies namespaces, RuntimeClass gvisor, cloudflared, and the perimeters of cert-manager and cnpg-system
 ├── namespaces.yaml           # Namespace definitions with Prune=false,Delete=false
 ├── runtimeclass-gvisor.yaml  # RuntimeClass gvisor (handler runsc) for the nodes with label node-restriction.kubernetes.io/gvisor=true
+├── catalog.toml              # The decisions of each service: Applications, tier, data class and dependencies (Service levels)
 ├── agents/                   # Agent sessions: read-only ServiceAccount and view ClusterRoleBinding under restricted Pod Security
 │   ├── kustomization.yaml
 │   ├── serviceaccount.yaml   # ServiceAccount devops-agent in namespace agents with automount disabled
