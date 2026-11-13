@@ -257,6 +257,11 @@ def _to_otlp_any_value(val: Any) -> dict[str, Any]:
     return {"stringValue": str(val)}
 
 
+_METRIC_RESOURCE_KEYS = frozenset(
+    {"service.name", "service.namespace", "service.instance.id", "os.type"}
+)
+"""The resource attributes that the metric Resource holds, beside the `telemetry.sdk.*` keys."""
+
 _SPAN_KINDS = {
     "internal": "SPAN_KIND_INTERNAL",
     "server": "SPAN_KIND_SERVER",
@@ -1049,22 +1054,32 @@ class OTelTelemetryClient:
                         _Gauge: AggregationTemporality.DELTA,
                     }
                 )
-                # Metrics identify their source by host, not process: every command is a
-                # short-lived process, and the collector adds up each series' deltas across them.
-                # The SDK's detector of the standard OTEL_RESOURCE_ATTRIBUTES and
-                # OTEL_SERVICE_NAME merges last, as in the SDK's Resource.create, so a workload
-                # whose host changes at each start, such as a pod, sets one service.instance.id
-                # there and keeps its series (#1629).
-                resource = Resource(
+                # Metrics identify their source by workload, not by process or host: every
+                # command is a short-lived process, and the collector adds up each series'
+                # deltas across them. The SDK's detector of the standard
+                # OTEL_RESOURCE_ATTRIBUTES and OTEL_SERVICE_NAME merges last, as in the SDK's
+                # Resource.create, so a workload whose host changes at each start, such as a pod,
+                # sets one service.instance.id there and keeps its series (#1629). The metric
+                # Resource keeps only the stable attributes: the collector keys a metric stream
+                # by every resource attribute, while Prometheus names a series by job and
+                # instance alone, so `host.name`, which is the pod name, would split the stream
+                # (#4697).
+                detected = Resource(
                     {
                         "service.name": self.service_name,
                         "service.instance.id": self.host_name,
-                        "host.name": self.host_name,
                         "os.type": self.os_type,
                         "telemetry.sdk.name": "devops-cli-otel",
                         "telemetry.sdk.language": "python",
                     }
                 ).merge(OTELResourceDetector().detect())
+                resource = Resource(
+                    {
+                        key: value
+                        for key, value in detected.attributes.items()
+                        if key in _METRIC_RESOURCE_KEYS or key.startswith("telemetry.sdk.")
+                    }
+                )
                 self._meter_provider = MeterProvider(
                     resource=resource,
                     metric_readers=[self._metric_reader],
