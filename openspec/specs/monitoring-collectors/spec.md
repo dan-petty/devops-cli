@@ -33,7 +33,7 @@ The metrics pipeline of `k8s/otel/values.yaml` SHALL send only to an `otlp_http`
 #### Scenario: The collector values are read
 - **WHEN** a test reads the metrics pipeline of `k8s/otel/values.yaml`
 - **THEN** it has one exporter, of type `otlp_http`, whose `metrics_endpoint` is port 9090 of `prometheus-server.monitoring.svc.cluster.local` with the path `/api/v1/otlp/v1/metrics`
-- **AND** its one transform statement sets the datapoint attribute `cluster` to the cluster name of `k8s/monitoring/k8s-monitoring-values.yaml`
+- **AND** its one datapoint transform statement sets the datapoint attribute `cluster` to the cluster name of `k8s/monitoring/k8s-monitoring-values.yaml`
 
 #### Scenario: The Prometheus server values are read
 - **WHEN** a test reads `server` in `k8s/monitoring/prometheus-values.yaml`
