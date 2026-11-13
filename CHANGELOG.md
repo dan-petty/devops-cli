@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.129.1](https://github.com/dan-petty/devops-cli/compare/v0.129.0...v0.129.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* **ci:** Accept copilot branches in the branch-name hook ([#5407](https://github.com/dan-petty/devops-cli/issues/5407)) ([be2b71c](https://github.com/dan-petty/devops-cli/commit/be2b71cb7a50ed5406187b004cfd3f55f4829f57))
+* **roadmap:** a later plan review judges each earlier finding ([#5423](https://github.com/dan-petty/devops-cli/issues/5423)) ([68227f9](https://github.com/dan-petty/devops-cli/commit/68227f9936c6f5a8bad734a58504582078f31057))
+
 ## [0.129.0](https://github.com/dan-petty/devops-cli/compare/v0.128.0...v0.129.0) (2026-11-13)
 
 
