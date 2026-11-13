@@ -26,7 +26,7 @@ from devops_cli.exceptions import ValidationError
 from devops_cli.exceptions.k8s import KubernetesLoggingError
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client
-from devops_cli.lang import ERRORS
+from devops_cli.http.retry import SERVICE_READ_RETRY, service_error
 from devops_cli.models.prometheus import PrometheusQueryResult
 from devops_cli.telemetry.tracer import trace_span
 
@@ -392,27 +392,21 @@ def query_loki_metrics(expressions: Sequence[str], loki_url: str) -> list[Promet
     (`/loki/api/v1/query`) and return the vector of each, in order.
 
     A metric query counts the lines in Loki, so no line limit applies. One client at the private
-    level sends all the queries. A Loki that does not answer, or that refuses a query, raises
-    `KubernetesLoggingError`.
+    level sends all the queries, with the retry policy of a cluster service, so a Loki that starts
+    again gets more attempts. A Loki that does not answer, or that refuses a query, raises
+    `ServiceRequestError`.
     """
     endpoint = f"{loki_url.strip().rstrip('/')}/loki/api/v1/query"
     results: list[PrometheusQueryResult] = []
-    with http_client(EgressLevel.PRIVATE, timeout=_METRIC_QUERY_TIMEOUT_SECONDS) as client:
+    with http_client(
+        EgressLevel.PRIVATE, timeout=_METRIC_QUERY_TIMEOUT_SECONDS, retries=SERVICE_READ_RETRY
+    ) as client:
         for expression in expressions:
             try:
                 resp = client.get(endpoint, params={"query": expression})
-            except httpx2.TransportError as exc:
-                raise KubernetesLoggingError(
-                    ERRORS.k8s.loki_unreachable.format(url=loki_url, error=exc), query=expression
-                ) from exc
-            if resp.status_code != 200:
-                raise KubernetesLoggingError(
-                    ERRORS.k8s.loki_query_failed.format(
-                        url=loki_url, status=resp.status_code, reply=resp.text.strip()[:500]
-                    ),
-                    status_code=resp.status_code,
-                    query=expression,
-                )
+                resp.raise_for_status()
+            except httpx2.HTTPError as exc:
+                raise service_error("Loki", exc, setting="loki.url") from exc
             results.append(PrometheusQueryResult.from_instant_response(resp.json()))
     return results
 

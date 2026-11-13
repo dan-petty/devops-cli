@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import httpx2
 import pytest
 
 import devops_cli.ui.data_providers as data_providers
 from devops_cli.ui.data_providers import (
     fetch_telemetry_status,
 )
+from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.http import WebFake
 
 
 def test_telemetry_falls_back_to_the_in_process_registry_without_a_backend(
@@ -31,3 +34,17 @@ def test_a_failed_backend_query_names_the_endpoint_that_failed(
     )
     summary = fetch_telemetry_status()
     assert ("http://prom:9090" in summary.error_message, summary.source) == (True, "in-process")
+
+
+def test_a_prometheus_that_answers_503_falls_back_after_one_request(
+    monkeypatch: pytest.MonkeyPatch, web: WebFake, clock: ClockFake
+) -> None:
+    """A refresh does not wait for the attempts of the read retry policy (#5532)."""
+    monkeypatch.setattr(
+        data_providers, "_prometheus_base_url", lambda: "http://prometheus.example.com:9090"
+    )
+    web.serve(lambda request: httpx2.Response(503))
+
+    summary = fetch_telemetry_status()
+
+    assert (summary.source, len(web.sent), clock.waits) == ("in-process", 1, [])

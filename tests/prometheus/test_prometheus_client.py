@@ -10,7 +10,7 @@ from __future__ import annotations
 import httpx2
 import pytest
 
-from devops_cli.exceptions import SSRFBlockedError
+from devops_cli.exceptions import ServiceRequestError, SSRFBlockedError
 from devops_cli.http.egress import EgressLevel
 from devops_cli.prometheus.client import (
     MAX_PROMQL_LENGTH,
@@ -20,6 +20,7 @@ from devops_cli.prometheus.client import (
     expression_problem,
     parse_duration,
 )
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.http import WebFake
 
 BASE = "http://prometheus.example.com:9090"
@@ -90,13 +91,52 @@ def test_a_server_that_answers_with_html_raises_the_content_type_it_sent(web: We
 
 
 def test_a_failed_status_raises_before_the_body_is_read(web: WebFake) -> None:
-    """A 500 is an `httpx2.HTTPStatusError`, so the caller cannot take its body for an answer."""
+    """A 500 is a `ServiceRequestError` after one attempt, so the caller cannot take its body for
+    an answer."""
     _serve(web, "/api/v1/query", httpx2.Response(500, json=VECTOR))
 
-    with pytest.raises(httpx2.HTTPStatusError) as raised, _client() as prometheus:
+    with pytest.raises(ServiceRequestError) as raised, _client() as prometheus:
         prometheus.query("up")
 
-    assert raised.value.response.status_code == 500
+    assert (raised.value.status_code, raised.value.attempts, len(web.sent)) == (500, 1, 1)
+
+
+def test_a_query_answers_after_two_503_replies_in_three_attempts(
+    web: WebFake, clock: ClockFake
+) -> None:
+    """Prometheus answers 503 for some seconds after its pod starts again (#5532)."""
+    answers = iter([httpx2.Response(503), httpx2.Response(503)])
+    web.serve(lambda request: next(answers, httpx2.Response(200, json=VECTOR)))
+
+    with _client() as prometheus:
+        answer = prometheus.query("up")
+
+    assert (answer, len(web.sent), len(clock.waits)) == (VECTOR, 3, 2)
+
+
+def test_a_prometheus_that_stays_down_raises_the_service_error(
+    web: WebFake, clock: ClockFake
+) -> None:
+    """After 4 attempts the error names Prometheus, the status and the attempts."""
+    _serve(web, "/api/v1/query", httpx2.Response(503))
+
+    with pytest.raises(ServiceRequestError) as raised, _client() as prometheus:
+        prometheus.query("up")
+
+    assert (raised.value.status_code, raised.value.attempts, len(web.sent)) == (503, 4, 4)
+    assert raised.value.message.startswith("Prometheus failed after 4 attempts in ")
+
+
+def test_a_prometheus_that_refuses_the_connection_names_its_setting(
+    web: WebFake, clock: ClockFake
+) -> None:
+    """A network error has no status, and the hint names `prometheus.url`."""
+    web.refuse(f"{BASE}/api/v1/query?query=up")
+
+    with pytest.raises(ServiceRequestError) as raised, _client() as prometheus:
+        prometheus.query("up")
+
+    assert (raised.value.status_code, "prometheus.url" in raised.value.message) == (None, True)
 
 
 def test_an_address_the_level_refuses_is_refused_before_a_request(web: WebFake) -> None:

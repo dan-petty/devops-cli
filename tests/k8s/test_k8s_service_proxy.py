@@ -11,6 +11,7 @@ from unittest.mock import patch
 import httpx2
 import pytest
 
+from devops_cli.exceptions import ServiceRequestError
 from devops_cli.k8s.service_http import describe_endpoint, get_json
 from devops_cli.k8s.service_proxy import (
     ServiceAddressError,
@@ -20,6 +21,7 @@ from devops_cli.k8s.service_proxy import (
     resolve_proxy_target,
     ssl_context,
 )
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.kubernetes import FakeCluster
 
@@ -290,10 +292,57 @@ def test_a_failing_request_raises_rather_than_returning_empty(
     )
     web.respond("GET", url, 404)
 
-    with pytest.raises(httpx2.HTTPStatusError, match="404"):
+    with pytest.raises(ServiceRequestError, match="404") as raised:
         get_json(PROM)
 
     assert [request.url for request in web.recorded] == [url]
+    assert raised.value.message.startswith(f"{PROM} failed after 1 attempt")
+
+
+def test_a_service_url_answers_after_a_503(
+    cluster: FakeCluster, web: WebFake, clock: ClockFake
+) -> None:
+    """A Service whose pod starts again answers the second attempt through the API server."""
+    url = (
+        f"{cluster.configuration.host}/api/v1/namespaces/monitoring/services/prometheus:9090/proxy"
+    )
+    answers = iter([httpx2.Response(503)])
+    web.serve(lambda request: next(answers, httpx2.Response(200, json={"status": "success"})))
+
+    payload = get_json(PROM)
+
+    assert (payload, [request.url for request in web.recorded]) == (
+        {"status": "success"},
+        [url, url],
+    )
+
+
+def test_an_ordinary_url_answers_after_a_503(web: WebFake, clock: ClockFake) -> None:
+    """A direct address uses the same policy, and the error names its host and port."""
+    url = "http://prometheus.example.com:9090/api/v1/status"
+    answers = iter([httpx2.Response(503)])
+    web.serve(lambda request: next(answers, httpx2.Response(200, json={"status": "success"})))
+
+    payload = get_json("http://prometheus.example.com:9090", "api/v1/status")
+
+    assert (payload, [request.url for request in web.recorded]) == (
+        {"status": "success"},
+        [url] * 2,
+    )
+
+
+def test_a_caller_with_no_retry_option_sends_one_request(web: WebFake, clock: ClockFake) -> None:
+    """The telemetry panel falls back at once, so it passes `retries=None`."""
+    web.serve(lambda request: httpx2.Response(503))
+
+    with pytest.raises(ServiceRequestError) as raised:
+        get_json("http://prometheus.example.com:9090", "api/v1/status", retries=None)
+
+    assert (raised.value.message.split(" failed")[0], len(web.recorded), clock.waits) == (
+        "prometheus.example.com:9090",
+        1,
+        [],
+    )
 
 
 def test_an_endpoint_is_described_in_its_configuration_form() -> None:
@@ -334,7 +383,7 @@ def test_the_command_still_prints_the_address_when_no_cluster_is_reachable(
 
 
 def test_the_command_reports_a_failed_fetch(
-    cluster: FakeCluster, refusing_port: int, cli: Callable[..., Any]
+    cluster: FakeCluster, refusing_port: int, cli: Callable[..., Any], clock: ClockFake
 ) -> None:
     """A silent failure would read as an empty response."""
     cluster.configuration.host = f"http://127.0.0.1:{refusing_port}"
@@ -349,6 +398,18 @@ def test_the_command_reports_a_failed_fetch(
         "--fetch",
     )
     assert result.exit_code == 1
+
+
+def test_a_fetch_from_a_service_that_stays_down_prints_its_line_once(
+    cluster: FakeCluster, web: WebFake, cli: Callable[..., Any], clock: ClockFake
+) -> None:
+    """The line of `ServiceRequestError` names the address, so the command adds no prefix."""
+    web.serve(lambda request: httpx2.Response(503))
+
+    result = cli("k8s", "service-url", "prometheus", "-n", "monitoring", "-p", "9090", "--fetch")
+
+    output = " ".join(result.output.split())
+    assert (result.exit_code, output.count(PROM), "4 attempts" in output) == (1, 1, True)
 
 
 # =============================================================================

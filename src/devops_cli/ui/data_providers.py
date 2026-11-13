@@ -346,7 +346,8 @@ def _fetch_prometheus_metrics(base_url: str) -> TelemetrySummary:
 
     The endpoint may be an ordinary URL or a `k8s://` service address; `get_json` resolves
     either, so a configuration can move to cluster-native addressing without this code
-    changing.
+    changing. The panel sends one attempt: a refresh falls back to the data of the process at
+    once, and does not wait for the attempts of the read retry policy.
     """
     from devops_cli.k8s.service_http import get_json
 
@@ -354,6 +355,7 @@ def _fetch_prometheus_metrics(base_url: str) -> TelemetrySummary:
         base_url,
         "api/v1/label/__name__/values",
         timeout=DEFAULT_TELEMETRY_QUERY_TIMEOUT_SECONDS,
+        retries=None,
     )
     names = payload.get("data") or []
 

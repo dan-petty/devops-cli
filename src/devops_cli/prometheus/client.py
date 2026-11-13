@@ -2,8 +2,11 @@
 
 `PrometheusClient` sends the instant query, the range query, and the reads of rules and targets.
 It dials only what its egress level allows: the HTTP entry point checks each address at the
-connect (`devops_cli.http.entry`). The commands and the rollout gate share it, so no second copy of
-the instant query exists. A command prints and exits; this module raises.
+connect (`devops_cli.http.entry`). It reads with the retry policy of a cluster service
+(`devops_cli.http.retry`), so a Prometheus that starts again after a node drain gets more attempts,
+and a request that still fails raises one `ServiceRequestError`. The commands, the rollout gate and
+the health gate of `devops infra apply` share it, so no second copy of the instant query exists. A
+command prints and exits; this module raises.
 
 `expression_problem` and `parse_duration` hold the checks that save a round trip: a PromQL
 expression that is too long or malformed, and a relative duration such as `30m`.
@@ -19,6 +22,7 @@ import httpx2
 from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client
+from devops_cli.http.retry import SERVICE_READ_RETRY, service_error
 from devops_cli.lang import ERRORS
 from devops_cli.prometheus.promql import validate_promql
 
@@ -93,7 +97,7 @@ class PrometheusClient:
         self._http: httpx2.Client | None = None
 
     def __enter__(self) -> Self:
-        self._http = http_client(self._level)
+        self._http = http_client(self._level, retries=SERVICE_READ_RETRY)
         return self
 
     def __exit__(
@@ -130,11 +134,17 @@ class PrometheusClient:
     def _get_json(
         self, path: str, params: dict[str, str] | None = None, *, allow_empty: bool = False
     ) -> dict[str, Any]:
-        """GET `path`; raise on a failed status or on an answer that is not JSON."""
+        """GET `path`; raise `ServiceRequestError` for a failed request after its attempts, or
+        `PrometheusContentTypeError` for an answer that is not JSON."""
         if self._http is None:
             raise RuntimeError("PrometheusClient is used outside its `with` block")
-        response = self._http.get(f"{self._base_url}{path}", params=params, timeout=self._timeout)
-        response.raise_for_status()
+        try:
+            response = self._http.get(
+                f"{self._base_url}{path}", params=params, timeout=self._timeout
+            )
+            response.raise_for_status()
+        except httpx2.HTTPError as exc:
+            raise service_error("Prometheus", exc, setting="prometheus.url") from exc
         if allow_empty and not response.content:
             return {}
         content_type = response.headers.get("content-type", "")

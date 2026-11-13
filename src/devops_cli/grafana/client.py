@@ -1,8 +1,10 @@
 """The Grafana HTTP API behind one client: dashboards, datasources, alert rules and the sync.
 
 `GrafanaClient` dials only what its egress level allows: the HTTP entry point checks each address
-at the connect (`devops_cli.http.entry`). A command resolves the base URL and the headers, then
-prints what the client returns. This module raises and prints nothing.
+at the connect (`devops_cli.http.entry`). It sends with the retry policy of a cluster service
+(`devops_cli.http.retry`): a read gets more attempts while Grafana starts again, and a save is sent
+one time. A request that fails raises one `ServiceRequestError`. A command resolves the base URL
+and the headers, then prints what the client returns. This module raises and prints nothing.
 
 `sync_dashboard` holds the rule that a dashboard Grafana holds as provisioned is skipped, not
 failed: Grafana refuses an API save over it with a 400, and `meta.provisioned` of the stored
@@ -22,9 +24,10 @@ from urllib.parse import quote
 import httpx2
 
 from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
-from devops_cli.exceptions import SSRFBlockedError
+from devops_cli.exceptions import ServiceRequestError, SSRFBlockedError
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client
+from devops_cli.http.retry import SERVICE_READ_RETRY, service_error
 from devops_cli.models.grafana import DashboardSyncOutcome, GrafanaDashboardDetail
 
 
@@ -48,7 +51,7 @@ class GrafanaClient:
         self._http: httpx2.Client | None = None
 
     def __enter__(self) -> Self:
-        self._http = http_client(self._level)
+        self._http = http_client(self._level, retries=SERVICE_READ_RETRY)
         return self
 
     def __exit__(
@@ -100,7 +103,7 @@ class GrafanaClient:
             return False
         try:
             return GrafanaDashboardDetail.model_validate(self.dashboard(uid)).meta.provisioned
-        except httpx2.HTTPError, ValueError:
+        except ServiceRequestError, ValueError:
             return False
 
     def sync_dashboard(self, dash_file: Path) -> DashboardSyncResult:
@@ -121,16 +124,14 @@ class GrafanaClient:
                 self._send(
                     "POST", "/api/dashboards/db", body={"dashboard": dashboard, "overwrite": True}
                 )
-            except httpx2.HTTPStatusError as exc:
+            except ServiceRequestError as exc:
                 uid = str(dashboard.get("uid") or "")
-                if exc.response.status_code != HTTPStatus.BAD_REQUEST or not self.is_provisioned(
-                    uid
-                ):
+                if exc.status_code != HTTPStatus.BAD_REQUEST or not self.is_provisioned(uid):
                     raise
                 return DashboardSyncResult(DashboardSyncOutcome.SKIPPED, title, dash_file.name)
         except SSRFBlockedError:
             raise
-        except (OSError, ValueError, httpx2.HTTPError, httpx2.InvalidURL) as exc:
+        except (OSError, ValueError, ServiceRequestError, httpx2.InvalidURL) as exc:
             return DashboardSyncResult(
                 DashboardSyncOutcome.FAILED, title, dash_file.name, error=str(exc)
             )
@@ -147,16 +148,20 @@ class GrafanaClient:
         params: dict[str, str] | None = None,
         body: Any = None,
     ) -> httpx2.Response:
-        """Send one request with the headers of the client; raise on a failed status."""
+        """Send one request with the headers of the client; raise `ServiceRequestError` for a
+        failed request after its attempts."""
         if self._http is None:
             raise RuntimeError("GrafanaClient is used outside its `with` block")
-        response = self._http.request(
-            method,
-            f"{self._base_url}{path}",
-            headers=self._headers,
-            params=params,
-            json=body,
-            timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
+        try:
+            response = self._http.request(
+                method,
+                f"{self._base_url}{path}",
+                headers=self._headers,
+                params=params,
+                json=body,
+                timeout=DEFAULT_HTTP_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+        except httpx2.HTTPError as exc:
+            raise service_error("Grafana", exc, setting="grafana.url") from exc
         return response

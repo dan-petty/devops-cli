@@ -6,13 +6,12 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-import httpx2
-
 from devops_cli.argo.crd import ArgoCRDService, get_argo_crd_service
 from devops_cli.config.defaults import DEFAULT_K8S_NAMESPACE
 from devops_cli.config.settings import load_settings
 from devops_cli.core.validation import validate_k8s_name
 from devops_cli.exceptions.argo import ArgoError
+from devops_cli.exceptions.http import ServiceRequestError
 from devops_cli.http.egress import configured_level
 from devops_cli.models.argo import (
     ArgoRolloutState,
@@ -87,7 +86,9 @@ def _fetch_metric_value(query: str) -> float | None:
     """Query Prometheus or return None when metric is unavailable.
 
     The client dials the configured level: loopback, or private with `ai.allow_private_network`.
-    A refused address (SSRFBlockedError, a ValueError) leaves the metric unavailable.
+    It reads with the retry policy of a cluster service. A request that fails after its attempts
+    (`ServiceRequestError`) or a refused address (SSRFBlockedError, a ValueError) leaves the metric
+    unavailable.
     """
     settings = load_settings()
     if not settings.prometheus.url:
@@ -99,7 +100,7 @@ def _fetch_metric_value(query: str) -> float | None:
         ) as prometheus:
             result = PrometheusQueryResult.from_instant_response(prometheus.query(query))
         return float(result.series[0].value) if result.series else None
-    except (httpx2.HTTPError, ValueError, KeyError, IndexError, TypeError) as exc:
+    except (ServiceRequestError, ValueError, KeyError, IndexError, TypeError) as exc:
         logger.debug("Failed to query Prometheus metric: %s", exc)
         return None
 

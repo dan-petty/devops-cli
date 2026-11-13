@@ -117,14 +117,33 @@ def test_a_critical_alert_that_fires_is_a_problem(
 
 
 def test_a_prometheus_that_does_not_answer_is_a_problem(
-    web: WebFake, config: Callable[..., Path]
+    web: WebFake, config: Callable[..., Path], clock: ClockFake
 ) -> None:
+    """A Prometheus that stays down through each attempt is a problem with the mapped line, so
+    the gate does not pass on a read that it could not make (#5532)."""
     config(prometheus={"url": "http://prometheus.example.com:9090"})
     web.serve(lambda request: httpx2.Response(503, text="unavailable"))
 
     [problem] = critical_alerts(load_settings()).problems
 
-    assert problem.startswith("Prometheus did not answer the query of the critical alerts")
+    assert problem.startswith(
+        "Prometheus did not answer the query of the critical alerts: Prometheus failed after"
+        " 4 attempts in "
+    )
+    assert (": HTTP 503 Service Unavailable" in problem, len(web.sent)) == (True, 4)
+
+
+def test_a_prometheus_that_answers_after_a_503_is_read_in_one_query(
+    web: WebFake, config: Callable[..., Path], clock: ClockFake
+) -> None:
+    """A restart of some seconds does not stop the gate: the query reads again by itself."""
+    config(prometheus={"url": "http://prometheus.example.com:9090"})
+    answers = iter([httpx2.Response(503, text="unavailable")])
+    web.serve(lambda request: next(answers, httpx2.Response(200, json=_ALERTS)))
+
+    alerts = critical_alerts(load_settings())
+
+    assert (alerts.problems, len(web.sent)) == (["the critical alert KubeNodeNotReady fires"], 2)
 
 
 def _firing(*labels: dict[str, str]) -> dict[str, object]:
@@ -294,7 +313,8 @@ def test_the_alert_wait_reads_again_while_prometheus_does_not_answer(
         prometheus={"url": "http://prometheus.example.com:9090"},
         infra={"node_ready_timeout_seconds": 120},
     )
-    answers = iter([httpx2.Response(503, text="unavailable")] * 2)
+    # Two queries get no answer, each after its 4 attempts; the gate's own wait loop reads again.
+    answers = iter([httpx2.Response(503, text="unavailable")] * 8)
 
     def answer(request: httpx2.Request) -> httpx2.Response:
         return next(answers, httpx2.Response(200, json=_NO_ALERT))
@@ -303,8 +323,9 @@ def test_the_alert_wait_reads_again_while_prometheus_does_not_answer(
 
     problems = Cluster(KUBE_CONTEXT, load_settings()).wait_alerts_clear()
 
+    gate_waits = [wait for wait in clock.waits if wait == 10.0]
     assert problems == []
-    assert (len(web.sent), clock.waits) == (4, [10.0] * 4)
+    assert (len(web.sent), gate_waits, len(clock.waits)) == (10, [10.0] * 4, 10)
 
 
 def test_the_node_gate_does_not_read_the_alerts(

@@ -1261,6 +1261,7 @@ def service_url(
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Show, or fetch from, a cluster service address that needs no port-forward."""
+    from devops_cli.exceptions import ServiceRequestError
     from devops_cli.k8s.service_http import get_json
     from devops_cli.k8s.service_proxy import (
         ServiceAddressError,
@@ -1321,7 +1322,8 @@ def service_url(
 
     try:
         payload = get_json(ref.describe(), context=context)
-    except ServiceAddressError as exc:
+    except (ServiceAddressError, ServiceRequestError) as exc:
+        # The line of a `ServiceRequestError` names the address, the attempts and a hint.
         print_error(str(exc))
         raise typer.Exit(1) from exc
     except Exception as exc:

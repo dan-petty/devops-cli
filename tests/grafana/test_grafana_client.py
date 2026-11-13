@@ -13,10 +13,11 @@ from pathlib import Path
 import httpx2
 import pytest
 
-from devops_cli.exceptions import SSRFBlockedError
+from devops_cli.exceptions import ServiceRequestError, SSRFBlockedError
 from devops_cli.grafana.client import GrafanaClient
 from devops_cli.http.egress import EgressLevel
 from devops_cli.models.grafana import DashboardSyncOutcome
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.http import WebFake
 
 BASE = "http://grafana.example.com:3000"
@@ -143,13 +144,38 @@ def test_the_datasources_and_the_alert_rules_come_from_their_endpoints(web: WebF
 
 
 def test_a_failed_status_raises(web: WebFake) -> None:
-    """A 403 is an `httpx2.HTTPStatusError`: the caller never takes its body for a list."""
+    """A 403 is a `ServiceRequestError` after one attempt: the caller never takes its body for a
+    list, and the line holds the `message` of the reply."""
     web.serve(lambda request: httpx2.Response(403, json={"message": "no"}))
 
-    with pytest.raises(httpx2.HTTPStatusError) as raised, _client() as grafana:
+    with pytest.raises(ServiceRequestError) as raised, _client() as grafana:
         grafana.datasources()
 
-    assert raised.value.response.status_code == 403
+    assert (raised.value.status_code, len(web.sent)) == (403, 1)
+    assert raised.value.message.startswith("Grafana failed after 1 attempt in 0.0 s: HTTP 403 ")
+    assert ": no. " in raised.value.message
+
+
+def test_a_read_answers_after_a_503(web: WebFake, clock: ClockFake) -> None:
+    """Grafana that starts again answers the second attempt of a read (#5532)."""
+    answers = iter([httpx2.Response(503)])
+    listed = [{"uid": "a", "title": "A", "type": "dash-db"}]
+    web.serve(lambda request: next(answers, httpx2.Response(200, json=listed)))
+
+    with _client() as grafana:
+        dashboards = grafana.list_dashboards()
+
+    assert (dashboards, len(web.sent), len(clock.waits)) == (listed, 2, 1)
+
+
+def test_an_import_that_gets_a_503_is_sent_once(web: WebFake, clock: ClockFake) -> None:
+    """A POST can have saved the dashboard before it failed, so it is not sent again."""
+    web.serve(lambda request: httpx2.Response(503))
+
+    with pytest.raises(ServiceRequestError) as raised, _client() as grafana:
+        grafana.import_dashboard({"title": "A"}, 0)
+
+    assert (raised.value.status_code, len(web.sent), clock.waits) == (503, 1, [])
 
 
 def test_a_client_outside_its_with_block_cannot_send() -> None:

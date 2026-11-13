@@ -127,11 +127,6 @@ class ConfigErrorMessages:
 
 @dataclass(frozen=True)
 class K8sErrorMessages:
-    loki_unreachable: str = (
-        "Loki at {url} did not answer: {error}. Set loki.url, or give --loki-url with the "
-        "address of a Loki that this host reaches."
-    )
-    loki_query_failed: str = "Loki at {url} refused the query with HTTP {status}: {reply}"
     context_not_found: str = "Kubernetes context '{context}' was not found."
     resource_lookup_failed: str = "Failed to lookup Kubernetes {resource}: {exc}"
     port_forward_failed: str = "Port-forwarding to {service}:{port} failed: {exc}"
@@ -311,6 +306,27 @@ class GrafanaErrorMessages:
     invalid_json_object: str = "Invalid dashboard JSON in '{path}': expected JSON object."
     sync_failed: str = "Failed to sync '{file}': {exc}"
     dashboards_not_found: str = "Dashboard path not found: {path}"
+
+
+@dataclass(frozen=True)
+class HTTPErrorMessages:
+    service_failed: str = "{service} failed after {attempts} in {seconds:.1f} s: {problem}. {hint}"
+    one_attempt: str = "1 attempt"
+    attempts: str = "{count} attempts"
+    status: str = "HTTP {status} {reason}"
+    status_detail: str = "HTTP {status} {reason}: {detail}"
+    network: str = "{error_type}: {error}"
+    hint_rate_limited: str = "The service limits the rate of requests: wait, then try again."
+    hint_refused: str = "The service refused the request: correct the request, then try again."
+    hint_not_ready: str = "The service is not ready: try again, or examine its pod."
+    hint_no_answer: str = (
+        "The service did not answer: make sure that {setting} is correct and that its pod runs, "
+        "then try again."
+    )
+    hint_no_answer_address: str = (
+        "The service did not answer: make sure that its address is correct and that its pod "
+        "runs, then try again."
+    )
 
 
 @dataclass(frozen=True)
@@ -539,6 +555,7 @@ class ErrorCatalog:
     devcontainer: DevcontainerErrorMessages = field(default_factory=DevcontainerErrorMessages)
     docker: DockerErrorMessages = field(default_factory=DockerErrorMessages)
     grafana: GrafanaErrorMessages = field(default_factory=GrafanaErrorMessages)
+    http: HTTPErrorMessages = field(default_factory=HTTPErrorMessages)
     mcp: MCPErrorMessages = field(default_factory=MCPErrorMessages)
     tls: TLSErrorMessages = field(default_factory=TLSErrorMessages)
     prometheus: PrometheusErrorMessages = field(default_factory=PrometheusErrorMessages)
