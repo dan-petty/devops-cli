@@ -35,6 +35,10 @@ None.
 - Documents: `docs/TESTING.md`, `docs/commands/ci.md`
 - Tests: `tests/commands/test_test_selection.py`, `tests/commands/test_ci.py`, `tests/commands/test_ci_repeat.py`
 
+## Weakened checks
+
+- **`tests/commands/test_test_selection.py::test_a_selection_past_the_serial_limit_runs_on_the_capped_workers`**: Stopped: a change that starts workers for a selection of up to `DEFAULT_CI_TEST_SERIAL_MAX_FILES` test modules, or that runs a larger selection on a worker count other than `DEFAULT_CI_TEST_NARROWED_WORKERS`. Safeguard: The collected tests now choose the workers, and the file count chooses them only when the collection fails, so task 1.1 replaces the test with `test_a_selection_past_the_collected_test_limit_runs_on_the_capped_workers`. The cases of task 1.2 assert that a collection of `DEFAULT_CI_TEST_SERIAL_MAX_TESTS` tests runs serially, that one test more runs on `DEFAULT_CI_TEST_NARROWED_WORKERS` workers, and that a failed collection over 13 target files keeps the file-count rule with its cap of `DEFAULT_CI_TEST_NARROWED_WORKERS` workers.
+
 ## Feasibility
 
 - `read_file` on `src/devops_cli/commands/ci.py` lines 1890-2060 showed `src/devops_cli/commands/ci.py:1940:if len(targets) <= DEFAULT_CI_TEST_SERIAL_MAX_FILES:` and `src/devops_cli/commands/ci.py:1942:return str(DEFAULT_CI_TEST_NARROWED_WORKERS)`, so the staged file-count rule gives `-n 0` for up to 12 target paths and `-n 4` above them.
