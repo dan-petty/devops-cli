@@ -11,9 +11,16 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from devops_cli.config.settings import RoadmapConfig
 from devops_cli.exceptions import RoadmapRunError
 from devops_cli.roadmap.alternatives import AlternativesPlan, Coverage
-from devops_cli.roadmap.run import JobOutcome, JobRow, build_stub_table, run_due_jobs
+from devops_cli.roadmap.run import (
+    DEFAULT_DUE_TABLE,
+    JobOutcome,
+    JobRow,
+    build_stub_table,
+    run_due_jobs,
+)
 from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL
 from tests.support.roadmap_jobs import due_job_runner
 from tests.support.roadmap_run import (
@@ -79,6 +86,21 @@ def _round(
 
 
 # ── The interval from the settings ────────────────────────────────────────────
+
+
+def test_each_row_with_a_cadence_reads_the_section_of_its_name() -> None:
+    """The rows intake, stage, fix_plan, refine and alternatives of the lanes have a cadence, and
+    no other row has one. Each row reads the section of `roadmap` that has its name. A change that
+    builds a row again, such as the stage row of #4559, must keep its cadence."""
+    roadmap = RoadmapConfig()
+
+    found = {
+        row.name: row.cadence(roadmap) is getattr(roadmap, row.name)
+        for row in DEFAULT_DUE_TABLE
+        if row.cadence is not None
+    }
+
+    assert found == dict.fromkeys(("intake", "stage", "fix_plan", "refine", "alternatives"), True)
 
 
 def test_a_variable_changes_the_interval_of_the_next_round(

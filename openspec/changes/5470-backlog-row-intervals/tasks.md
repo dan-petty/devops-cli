@@ -46,5 +46,5 @@ Kind: other. Changes: `docs/CLUSTER.md`, `src/devops_cli/lang/en/help.py`, `src/
 
 ## Workflow follow-up
 
-- Pending a person: set the backlog values of the issue in the live ConfigMap `devops-cli-config` after the release, and check the log lines and the rounds per hour of stage and refine.
+- Pending a person: after the release, add the backlog values of the issue to `k8s/devops/configmap.example.yaml` and run `devops k8s deploy-stack --stack devops`, and check the log lines and the rounds per hour of stage and refine.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
