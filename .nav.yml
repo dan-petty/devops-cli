@@ -15,7 +15,6 @@ nav:
       - docs/SELF_IMPROVEMENT.md
       - docs/DEVCONTAINER_USAGE.md
       - docs/DESIGN.md
-      - docs/SRE.md
       - docs/DASHBOARD_TABS_AUDIT.md
       - docs/VISION.md
       - docs/KNOWN_ISSUES.md
@@ -23,6 +22,9 @@ nav:
           - "docs/roadmap/*.md"
       - Cheatsheets:
           - "docs/cheatsheets/*.md"
+  - Guidelines:
+      - Overview: docs/guidelines/index.md
+      - "docs/guidelines/*.md"
   - CLI reference:
       - Index: docs/CLI_REFERENCE.md
       - "docs/commands/*.md"

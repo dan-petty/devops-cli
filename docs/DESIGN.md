@@ -7,7 +7,7 @@ This spec sets the look of every devops-cli artifact: the docs site, the README 
 - **Tokens.** The project owns its tokens in the W3C Design Tokens (DTCG) format 2025.10. The values come from open specs.
 - **Layout.** The layout model of Tufte CSS 1.9.0: a reading column, margin notes and wide figures.
 - **Look.** Measured traits of the Google SRE books and of sre.google: an editorial, calm page that holds much information, with much white space. Headings have the regular weight. The reading text is 18 px on a 28.8 px line. Tables are rules and measured numbers. A caption "Figure N-M." is below each figure, and a caption "Table N-M." is above each table. Diagrams use few colors.
-- **Practice.** The SRE practice ([docs/SRE.md](SRE.md)) gives the dashboard and report patterns: the SLO panel, the error budget, the multiwindow burn rate with one page line for each window, the four golden signals, toil, capacity and the postmortem outline.
+- **Practice.** The SRE practice ([the SRE guideline](guidelines/sre.md)) gives the dashboard and report patterns: the SLO panel, the error budget, the multiwindow burn rate with one page line for each window, the four golden signals, toil, capacity and the postmortem outline.
 - **Type.** The Adobe Source family (OFL-1.1): Source Serif 4, Source Sans 3 and Source Code Pro.
 - **Not used.** The colors of the Google logo, Google marks and logos, and the Google Sans and Product Sans fonts. No artifact looks like a Google product or page.
 
