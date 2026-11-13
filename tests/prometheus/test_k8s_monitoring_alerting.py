@@ -28,6 +28,8 @@ from typing import Any
 
 import pytest
 import yaml
+from markdown_it import MarkdownIt
+from markdown_it.tree import SyntaxTreeNode
 
 from devops_cli.config.constants import (
     CONST_GH_MUTATION_HTTP_METHODS,
@@ -1686,38 +1688,65 @@ def test_each_ai_spend_alert_has_a_row_with_the_first_step_in_the_readme() -> No
     ) == ([], [])
 
 
+@cache
+def _alerting_rows() -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Each body row of the Alerting table of `k8s/README.md`: its source line, and its cells as
+    the GFM table rule of markdown-it-py renders them. The rule keeps as many cells of a row as
+    the header has, and drops the rest."""
+    text = K8S_README.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    nodes = SyntaxTreeNode(MarkdownIt("commonmark").enable("table").parse(text)).children
+    heading = next(
+        index
+        for index, node in enumerate(nodes)
+        if node.tag == "h2" and node.children[0].content == "Alerting"
+    )
+    table = next(node for node in nodes[heading:] if node.type == "table")
+    (body,) = [node for node in table.children if node.type == "tbody"]
+    return tuple(
+        (
+            lines[row.map[0]] if row.map else "",
+            tuple(cell.children[0].content for cell in row.children),
+        )
+        for row in body.children
+    )
+
+
+def test_each_row_of_the_alerting_table_renders_every_cell() -> None:
+    """GFM drops a cell past the last column of the header, so a reader does not see it (#5338).
+    A row renders every cell when its source line ends with its last rendered cell."""
+    rows = _alerting_rows()
+    dropped = [
+        cells[0]
+        for line, cells in rows
+        if not line.rstrip().removesuffix("|").rstrip().endswith(cells[-1])
+    ]
+    assert rows
+    assert dropped == []
+
+
 def test_the_metric_streams_alert_has_a_row_in_the_readme() -> None:
     """The alert table of `k8s/README.md` has a row for `DevopsCliMetricStreamsShareSeries`. The
     row says that two `target_info` series of one `job` and `instance` fire it after 30 minutes at
-    the warning severity, and that the action reads the two series of that job and instance and
-    removes the extra stream (#4697)."""
-    text = K8S_README.read_text(encoding="utf-8")
-    start = text.index("\n## Alerting\n")
-    section = text[start : text.index("\n### ", start)]
-    rows = [
-        line
-        for line in section.splitlines()
-        if line.startswith("| `DevopsCliMetricStreamsShareSeries` |")
+    the warning severity (#4697). Its action, in a cell that GFM renders, compares the labels of
+    the two series and names each cause, and the alert clears 15 minutes after the old writer
+    stops (#5338)."""
+    (row,) = [
+        cells for _, cells in _alerting_rows() if cells[0] == "`DevopsCliMetricStreamsShareSeries`"
     ]
-    assert len(rows) == 1, rows
-    cells = [cell.strip() for cell in rows[0].strip("|").split(" | ")]
-    assert (
-        cells[0],
-        "target_info" in cells[1],
-        "`job`" in cells[1],
-        "`instance`" in cells[1],
-        cells[2],
-        cells[3],
-        "remove the extra stream" in cells[4],
-    ) == (
-        "`DevopsCliMetricStreamsShareSeries`",
-        True,
-        True,
-        True,
-        "30m",
-        "warning",
-        True,
+    name, fires_when, wait, severity = row
+    phrases = (
+        "`target_info`",
+        "`job`",
+        "`instance`",
+        "Compare the labels of the two series",
+        "`telemetry_sdk_*`",
+        "`host_name`",
+        "`transform/metric_resource`",
+        "15 minutes after the old writer stops",
     )
+    assert (name, wait, severity) == ("`DevopsCliMetricStreamsShareSeries`", "30m", "warning")
+    assert [phrase for phrase in phrases if phrase not in fires_when] == []
 
 
 @pytest.mark.live("promtool")

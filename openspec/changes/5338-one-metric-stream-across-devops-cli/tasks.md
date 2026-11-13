@@ -29,9 +29,9 @@ Kind: behavior. Reads: `k8s/monitoring/prometheus-values.yaml`, `tests/fixtures/
 
 Kind: behavior. Reads: `k8s/README.md`, `tests/prometheus/test_k8s_monitoring_alerting.py`. Changes: `k8s/README.md`, `tests/prometheus/test_k8s_monitoring_alerting.py`.
 
-- [ ] 4.1 Add `test_each_row_of_the_alerting_table_renders_every_cell`, and make `test_the_metric_streams_alert_has_a_row_in_the_readme` read the rendered cells of the row, both through markdown-it-py
+- [x] 4.1 Add `test_each_row_of_the_alerting_table_renders_every_cell`, and make `test_the_metric_streams_alert_has_a_row_in_the_readme` read the rendered cells of the row, both through markdown-it-py
   - Verification: `$ uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py` fails on the base
-- [ ] 4.2 Rewrite the row of `DevopsCliMetricStreamsShareSeries` in `k8s/README.md` with the action in the "Fires when" cell, and move the fifth cell of `ResearchCriticalFindings`, `ClaudeSpendDailyHigh` and `HostedSpendDailyHigh` into that cell
+- [x] 4.2 Rewrite the row of `DevopsCliMetricStreamsShareSeries` in `k8s/README.md` with the action in the "Fires when" cell, and move the fifth cell of `ResearchCriticalFindings`, `ClaudeSpendDailyHigh` and `HostedSpendDailyHigh` into that cell
   - Verification: `$ uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py` passes
 
 ## 5. Documents
