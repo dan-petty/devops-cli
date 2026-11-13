@@ -121,6 +121,7 @@ HOSTED_GROUPS = (
     "claude-sonnet-5-5",
     "claude-haiku-5-5",
     "deepseek-v4.1-flash-1017",
+    "deepseek-v4.1-flash",
 )
 HOSTED_SECRET = "llm-gateway-secrets"
 
@@ -434,6 +435,7 @@ class TestK8sLLMGatewayManifests:
                 {"devops-coder": ["devops-chat"]},
                 {"devops-review": ["devops-background"]},
                 {"claude-sonnet-5-5": ["deepseek-v4.1-flash-1017"]},
+                {"deepseek-v4.1-flash-1017": ["deepseek-v4.1-flash"]},
                 {"devops-triage": ["qwen3.8:27b"]},
                 {"devops-background": ["qwen3.8:27b"]},
             ],
@@ -2149,6 +2151,32 @@ def test_every_local_deployment_names_its_backend_so_the_ledger_counts_it_as_loc
     }
 
     assert no_backend == set(HOSTED_GROUPS)
+
+
+def test_the_deepseek_group_falls_back_to_the_undated_model_with_the_same_provider_filter() -> None:
+    """A failed call of `deepseek-v4.1-flash-1017`, such as an OpenRouter timeout of its `floor`
+    route, goes to `deepseek-v4.1-flash` (owner decision of 2026-11-13, #5564). The fallback
+    group calls the undated model with no `floor` route, so OpenRouter balances the call across
+    its providers. It asks for the same fp8 weights and the same `data_collection: deny`, so the
+    privacy control of SECURITY.md item 13 does not change."""
+    config = _full_gateway_config()
+    groups = {m["model_name"]: m for m in config["model_list"]}
+    primary, fallback = groups["deepseek-v4.1-flash-1017"], groups["deepseek-v4.1-flash"]
+
+    assert (
+        {"deepseek-v4.1-flash-1017": ["deepseek-v4.1-flash"]}
+        in config["router_settings"]["fallbacks"],
+        fallback["litellm_params"]["model"],
+        fallback["litellm_params"]["extra_body"]["provider"],
+        primary["litellm_params"]["extra_body"]["provider"],
+        fallback["model_info"]["max_input_tokens"],
+    ) == (
+        True,
+        "openrouter/deepseek/deepseek-v4.1-flash",
+        {"quantizations": ["fp8"], "data_collection": "deny"},
+        {"quantizations": ["fp8"], "data_collection": "deny"},
+        primary["model_info"]["max_input_tokens"],
+    )
 
 
 def test_the_hosted_groups_call_providers_with_optional_keys_and_join_no_pool() -> None:
