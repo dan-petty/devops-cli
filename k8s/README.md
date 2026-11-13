@@ -938,6 +938,8 @@ Argo CD maintains the declared state of the homelab cluster directly from this r
 1. **`bootstrap` (`k8s/argocd/bootstrap/bootstrap.yaml`)**: Tracks `main`. Syncs the root `cluster` Application.
 2. **`cluster` (`k8s/argocd/bootstrap/cluster.yaml`)**: Tracks `main`. Syncs project RBAC boundaries (`k8s/argocd/apps/projects.yaml`) and all 27 leaf Applications (11 raw leaf applications and 16 multi-source Helm applications).
 
+The private repository dan-petty/homelab receives a copy of the environment (dan-petty/homelab#23). The AppProjects `homelab` and `homelab-system` admit it as a source, and they keep this repository. Argo CD reads the homelab repository with the repository credential Secret `repo-homelab` in namespace `argocd`. The owner makes that Secret, and it never goes into git, so project `homelab` ignores it as an orphan. [docs/HOMELAB_REPO_SWITCH.md](../docs/HOMELAB_REPO_SWITCH.md) gives the steps that move the Applications to the homelab repository, with the check and the revert of each step.
+
 When the root `cluster` Application is present in the cluster, `devops k8s deploy-stack` delegates manifest and Helm reconciliation to Argo CD, and `devops k8s teardown-stack` refuses execution to prevent configuration drift.
 
 An object in the cluster that git does not hold is drift: remove it, or add it to git. The packaged add-ons of k3s are the exception (below). Back up the data on a PersistentVolume before you delete its claim. Public access goes through the Cloudflare tunnel and Cloudflare Access, and only the owner changes the Cloudflare configuration.
@@ -974,7 +976,7 @@ The `cluster` Application ignores `spec.source.kustomize` on the two Application
 
 Each patch names one object (an Ingress, an IngressRoute, a Mattermost or a Deployment) and tests the placeholder host or environment value at each position before replacing it, so a value that git reorders or removes within that object fails the Application's manifest generation instead of routing to another backend. Kustomize skips a patch whose object no longer exists, and nothing covers an object, host or environment value that git adds: run `devops k8s deploy-stack --stack devops` again once such a change reaches the Applications' revision. deploy-stack renders everything before it writes anything, so an unset setting stops it with an error naming the setting and changes nothing in the cluster. An unset service setting stops the dry run too; an unset domain stops only an Argo CD-managed deploy, and the dry run says so. A revision whose Application renders no host under the placeholder is refused rather than given an empty patch list.
 
-These values exist only in the cluster and in `config.yaml`, until Argo CD reads the homelab's private configuration from a repository on the in-cluster Gitea (#1291). A sync keeps the host patches, but these actions remove them:
+These values exist only in the cluster and in `config.yaml`, until step 14 of [the switch to the homelab repository](../docs/HOMELAB_REPO_SWITCH.md#step-14-the-live-patches-into-the-homelab-files) puts them into the private homelab repository. A sync keeps the host patches, but these actions remove them:
 
 - The Application `devops` or `ingress` is deleted, and `cluster` creates it again (after `bootstrap-gitops`, for example).
 - A sync of `cluster` with the Replace option and without the Respect Ignore Differences option. Argo CD then replaces each Application with its manifest from git.

@@ -13,7 +13,7 @@ Kind: behavior. Reads: `tests/invariants/test_k8s_argocd_apps.py`. Changes: `k8s
 
 Kind: other. Changes: `docs/HOMELAB_REPO_SWITCH.md`, `.nav.yml`, `k8s/README.md`.
 
-- [ ] 2.1 Add the runbook `docs/HOMELAB_REPO_SWITCH.md` of plan steps 10 to 17, with the work, the check and the revert of each step and roles only, and add it to the Guides tab of `.nav.yml`. Link it from the GitOps section of `k8s/README.md`, and name step 14 of the runbook in place of the in-cluster Gitea of #1291
+- [x] 2.1 Add the runbook `docs/HOMELAB_REPO_SWITCH.md` of plan steps 10 to 17, with the work, the check and the revert of each step and roles only, and add it to the Guides tab of `.nav.yml`. Link it from the GitOps section of `k8s/README.md`, and name step 14 of the runbook in place of the in-cluster Gitea of #1291
   - Verification: `$ uv run devops ci test tests/docs/test_docs_inventory.py tests/docs/test_site.py tests/docs/test_docs.py`
 
 ## Workflow follow-up
