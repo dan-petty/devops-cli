@@ -49,9 +49,9 @@ Kind: behavior. Reads: `src/devops_cli/commands/pr.py`, `src/devops_cli/github/p
 
 Kind: behavior. Reads: `src/devops_cli/github/pr_plans.py`, `src/devops_cli/commands/pr.py`, `tests/commands/test_pr_dry_run.py`. Changes: `src/devops_cli/github/pr_plans.py`, `tests/commands/test_pr_dry_run.py`.
 
-- [ ] 6.1 `tests/commands/test_pr_dry_run.py::test_the_check_readiness_plan_lists_the_compare_request` fails: it asserts that the plan holds a compare target and no pulls files target, and `plan_pr_check_readiness` still lists the pulls files target
+- [x] 6.1 `tests/commands/test_pr_dry_run.py::test_the_check_readiness_plan_lists_the_compare_request` fails: it asserts that the plan holds a compare target and no pulls files target, and `plan_pr_check_readiness` still lists the pulls files target
   - Verification: `$ uv run devops ci test tests/commands/test_pr_dry_run.py` fails on the base
-- [ ] 6.2 Replace the pulls files request of `plan_pr_check_readiness` in `src/devops_cli/github/pr_plans.py` with one GET whose target is `repos/{target_repo}/compare/<base>...<head>` and whose argv reads that path with `?per_page=1`
+- [x] 6.2 Replace the pulls files request of `plan_pr_check_readiness` in `src/devops_cli/github/pr_plans.py` with one GET whose target is `repos/{target_repo}/compare/<base>...<head>` and whose argv reads that path with `?per_page=1`
   - Verification: `$ uv run devops ci test tests/commands/test_pr_dry_run.py` passes
 
 ## Workflow follow-up
