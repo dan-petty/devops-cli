@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.126.0](https://github.com/dan-petty/devops-cli/compare/v0.125.5...v0.126.0) (2026-11-13)
+
+
+### Features
+
+* **security:** refuse a commit that names the configured domain ([#5347](https://github.com/dan-petty/devops-cli/issues/5347)) ([c0a53b7](https://github.com/dan-petty/devops-cli/commit/c0a53b7d5de240c1abb9e6dc819bdf75f6286412))
+
+
+### Bug Fixes
+
+* **github:** correct readiness files and merged monitor output ([#5349](https://github.com/dan-petty/devops-cli/issues/5349)) ([e477ab2](https://github.com/dan-petty/devops-cli/commit/e477ab23b4b5647cae7ce78d8decf91fa8522c56))
+
 ## [0.125.5](https://github.com/dan-petty/devops-cli/compare/v0.125.4...v0.125.5) (2026-11-13)
 
 
