@@ -3,7 +3,7 @@ named after the row, and the setting `service.lanes` that puts rows into a share
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 import pytest
@@ -11,6 +11,7 @@ import pytest
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.roadmap.run import (
     DEFAULT_DUE_TABLE,
+    JobRow,
     lane_of_row,
     lanes_to_wake,
     service_jobs,
@@ -20,8 +21,8 @@ from devops_cli.roadmap.run import (
 ROW_NAMES = [row.name for row in DEFAULT_DUE_TABLE]
 
 
-def _names(lanes: dict[str, tuple[object, ...]]) -> dict[str, list[str]]:
-    return {lane: [row.name for row in rows] for lane, rows in lanes.items()}  # type: ignore[attr-defined]
+def _names(lanes: Mapping[str, Sequence[JobRow]]) -> dict[str, list[str]]:
+    return {lane: [row.name for row in rows] for lane, rows in lanes.items()}
 
 
 def test_the_default_gives_each_row_of_the_due_table_a_lane_of_its_own() -> None:
