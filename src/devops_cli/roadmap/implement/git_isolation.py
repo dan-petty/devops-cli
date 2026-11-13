@@ -14,7 +14,8 @@ the checkout, ends every leftover process again, and makes a new folder with `te
 object folder of the clone as a link, and an empty folder becomes the home folder of the call. A
 fetch first gets the remote-tracking refs of the clone, so that it asks only for the objects that
 the clone lacks. The new folder gets a copy of the `shallow` file of a shallow clone, and a fetch
-that changes it writes it back. The job ends every leftover process again, and then runs the call
+that changes it writes it back. Neither step follows a link at the `shallow` file or at a
+temporary file: a link at `shallow` stops the item with `GitSettingsError`. The job ends every leftover process again, and then runs the call
 with the token
 (`CONST_GIT_TOKEN_CALL_CONFIG`, `CONST_GIT_ISOLATED_CONFIG_ENV`): git reads no global, system or
 clone configuration, no hook and no attribute file, and gets the credential from the trusted helper
@@ -33,8 +34,11 @@ in a runner, as `end_leftover_processes` does: a person can keep a filter of the
 
 from __future__ import annotations
 
+import errno
 import fnmatch
+import os
 import shutil
+import stat
 import tempfile
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
@@ -187,25 +191,64 @@ def origin_url(checkout: Path) -> str:
     return found.strip()
 
 
+def _shallow_refused() -> GitSettingsError:
+    return GitSettingsError(
+        MESSAGES.roadmap.implement_git_settings_refused.format(
+            settings=f"`{CONST_GIT_SHALLOW_FILE}`"
+        ),
+        settings=(CONST_GIT_SHALLOW_FILE,),
+    )
+
+
+def _read_shallow(path: Path) -> bytes | None:
+    """The text of the `shallow` file at `path`, or None when the clone is not shallow. git never
+    makes the file a link, so it is opened with `O_NOFOLLOW` (and `O_NONBLOCK`, so that a FIFO does
+    not block): a link or anything but a regular file raises `GitSettingsError`, which stops the
+    item with the class `git_config`."""
+    try:
+        handle = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        if error.errno == errno.ELOOP:
+            raise _shallow_refused() from error
+        raise
+    with os.fdopen(handle, "rb") as file:
+        if not stat.S_ISREG(os.fstat(file.fileno()).st_mode):
+            raise _shallow_refused()
+        return file.read()
+
+
 @dataclass(frozen=True)
 class _Folder:
-    """The new git folder of one network call, the empty home folder of the call, and the git
-    folder that the clone and its worktrees share."""
+    """The new git folder of one network call, the empty home folder of the call, the git folder
+    that the clone and its worktrees share, and the text of the clone's `shallow` file that the new
+    git folder got (None when the clone is not shallow)."""
 
     git_dir: Path
     home: Path
     common: Path
+    shallow: bytes | None = None
 
     def keep_shallow(self) -> None:
         """Write the `shallow` file of the new git folder into the clone when the call changed it.
-        A new file replaces the old one, so a link in its place is not followed."""
+        The text goes into a new file with a random name (`tempfile.mkstemp`, which makes the file
+        with `O_EXCL` and so follows no link), and `os.replace` then puts that file in the place of
+        `shallow`: a link there is replaced, not followed. The clone's file is not read again."""
         made = self.git_dir / CONST_GIT_SHALLOW_FILE
-        held = self.common / CONST_GIT_SHALLOW_FILE
-        if not made.exists() or (held.exists() and held.read_bytes() == made.read_bytes()):
+        if not made.exists():
             return
-        written = self.common / f"{CONST_GIT_SHALLOW_FILE}.devops-cli"
-        shutil.copyfile(made, written)
-        written.replace(held)
+        text = made.read_bytes()
+        if text == self.shallow:
+            return
+        handle, written = tempfile.mkstemp(prefix=f"{CONST_GIT_SHALLOW_FILE}.", dir=self.common)
+        try:
+            with os.fdopen(handle, "wb") as file:
+                file.write(text)
+            os.replace(written, self.common / CONST_GIT_SHALLOW_FILE)
+        except BaseException:
+            Path(written).unlink(missing_ok=True)
+            raise
 
     def call(self, *args: str) -> str:
         """Run `git <args>` with the token in the new git folder, and give its output."""
@@ -255,15 +298,14 @@ class OriginGit:
         parent = Path(tempfile.mkdtemp(prefix="devops-origin-"))
         try:
             common = _common_dir(self.repository)
-            folder = _Folder(parent / "repo.git", parent / "home", common)
+            shallow = _read_shallow(common / CONST_GIT_SHALLOW_FILE)
+            folder = _Folder(parent / "repo.git", parent / "home", common, shallow)
             folder.home.mkdir()
             _git([], "init", "--quiet", "--bare", str(folder.git_dir))
             shutil.rmtree(folder.git_dir / "objects")
             (folder.git_dir / "objects").symlink_to(common / "objects", target_is_directory=True)
-            if (common / CONST_GIT_SHALLOW_FILE).is_file():
-                shutil.copyfile(
-                    common / CONST_GIT_SHALLOW_FILE, folder.git_dir / CONST_GIT_SHALLOW_FILE
-                )
+            if shallow is not None:
+                (folder.git_dir / CONST_GIT_SHALLOW_FILE).write_bytes(shallow)
             if refs:
                 self._copy_refs(["-C", str(self.repository)], [f"--git-dir={folder.git_dir}"])
             _sweep()

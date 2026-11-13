@@ -7,15 +7,16 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 
 from devops_cli.core.process import run_subprocess, run_subprocess_async
 from tests.support.fakes.process import EndedProcess
+from tests.support.github_identity import faked_children
 from tests.support.hung_children import (
     SUMMARY_LINE,
     HungChildWatch,
+    fake_program,
     hung_script,
     hung_with_grandchild,
     interrupted_like_pytest,
@@ -678,7 +679,7 @@ LOCAL_GIT = (
 
 
 def _tokens_of(argv: list[str]) -> tuple[str | None, str | None]:
-    with patch("subprocess.run", return_value=subprocess.CompletedProcess(argv, 0, "", "")) as run:
+    with faked_children(return_value=subprocess.CompletedProcess(argv, 0, "", "")) as run:
         run_subprocess(argv, env={"GITHUB_TOKEN": "caller"})
     env = run.call_args.kwargs["env"]
     return env.get("GH_TOKEN"), env.get("GITHUB_TOKEN")
@@ -726,7 +727,7 @@ class _GhChild:
 
 
 def _run_gh(child: _GhChild) -> None:
-    with patch("subprocess.run", side_effect=child):
+    with faked_children(side_effect=child):
         run_subprocess(GH_CALL, env={"GITHUB_TOKEN": "caller"})
 
 
@@ -763,7 +764,7 @@ def test_a_gh_child_gets_the_token_in_a_private_folder_that_goes_after_the_run(
         0o600,
         True,
     )
-    assert (folder.parent == tmp_path / "devops-cli" / "gh-config", folder.exists()) == (
+    assert (folder.parent == tmp_path, folder.exists()) == (
         True,
         False,
     )
@@ -821,6 +822,74 @@ def test_a_gh_child_whose_runtime_folder_fails_gets_a_new_folder_of_the_temp_fol
     assert (folder.parent, child.folder_mode, folder.exists()) == (temp, 0o700, False)
 
 
+def test_a_link_below_the_runtime_folder_does_not_move_the_token_folder(
+    pin_github_session: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A link at `<runtime folder>/devops-cli` points into a checkout. The token folder goes
+    directly into the runtime folder, with no folder of devops-cli between them, so the link does
+    not move it."""
+    runtime, checkout = tmp_path / "runtime", tmp_path / "checkout"
+    runtime.mkdir(mode=0o700)
+    (checkout / "sub").mkdir(parents=True)
+    (runtime / "devops-cli").symlink_to(checkout / "sub", target_is_directory=True)
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
+    child = _GhChild()
+
+    _run_gh(child)
+
+    folder = Path(child.env["GH_CONFIG_DIR"])
+    assert (folder.parent, folder.resolve().is_relative_to(checkout)) == (runtime, False)
+
+
+@pytest.mark.parametrize("candidate", ["runtime", "temp"])
+def test_a_runtime_or_temp_folder_in_the_current_folder_gets_no_token_folder(
+    candidate: str,
+    pin_github_session: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    isolate_data_dir: Path,
+) -> None:
+    """tempfile uses the current folder, which can be a working tree, when it can write no temp
+    folder, and the runtime fallback of platformdirs is in the temp folder. A candidate that
+    resolves into the current folder is skipped, so the folder goes to the next candidate."""
+    import platformdirs
+
+    current = tmp_path / "work"
+    current.mkdir()
+    monkeypatch.chdir(current)
+    _temp_folder(monkeypatch, current)
+    if candidate == "runtime":
+        runtime = current / "runtime-1000"
+        runtime.mkdir(mode=0o700)
+        monkeypatch.setattr(platformdirs, "user_runtime_path", lambda *_a, **_k: runtime)
+    else:
+        _no_runtime_folder(monkeypatch, tmp_path)
+    child = _GhChild()
+
+    _run_gh(child)
+
+    folder = Path(child.env["GH_CONFIG_DIR"])
+    assert (folder.parent, folder.is_relative_to(current)) == (
+        isolate_data_dir / "gh-config",
+        False,
+    )
+
+
+def test_the_root_of_the_file_system_as_the_current_folder_skips_no_candidate(
+    pin_github_session: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Every folder is in the root of the file system, so it counts as no current folder."""
+    runtime = tmp_path / "runtime"
+    runtime.mkdir(mode=0o700)
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
+    monkeypatch.chdir("/")
+    child = _GhChild()
+
+    _run_gh(child)
+
+    assert Path(child.env["GH_CONFIG_DIR"]).parent == runtime
+
+
 def test_a_gh_child_gets_a_folder_of_the_absolute_data_directory_when_no_other_folder_works(
     pin_github_session: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolate_data_dir: Path
 ) -> None:
@@ -865,12 +934,13 @@ def test_a_relative_data_directory_gets_no_token_folder_and_the_error_names_the_
     )
 
 
-def test_in_a_runner_the_leftover_processes_end_before_each_child_that_gets_the_token(
+def test_in_a_runner_the_leftover_processes_end_before_and_after_each_child_with_the_token(
     pin_github_session: str, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path]
 ) -> None:
     """The implement job runs code of the checkout (tests, hooks) that can leave a process. In a
     runner, each such process ends before a child that gets the token starts and before the token
-    folder of a gh child exists. A local git child starts no sweep."""
+    folder of a gh child exists, and again after the child ends. A local git child starts no
+    sweep."""
     from devops_cli.core import process_hardening
 
     config(roadmap={"implement": {"in_runner": True}})
@@ -884,13 +954,13 @@ def test_in_a_runner_the_leftover_processes_end_before_each_child_that_gets_the_
         return subprocess.CompletedProcess(argv, 0, "", "")
 
     monkeypatch.setattr(process_hardening, "end_leftover_processes", sweep)
-    with patch("subprocess.run", side_effect=child):
+    with faked_children(side_effect=child):
         run_subprocess(["gh", "api", "rate_limit"])
         run_subprocess(["git", "push", "origin", "feat/184-example"])
         run_subprocess(["git", "status"])
         run_subprocess(["gh", "--version"])
 
-    assert order == ["sweep", "api", "sweep", "push", "status", "--version"]
+    assert order == ["sweep", "api", "sweep", "sweep", "push", "sweep", "status", "--version"]
 
 
 def test_a_process_that_outlives_the_sweep_stops_the_gh_call_before_the_token_is_written(
@@ -915,6 +985,38 @@ def test_a_process_that_outlives_the_sweep_stops_the_gh_call_before_the_token_is
         _run_gh(child)
 
     assert (child.env, list(tmp_path.rglob("hosts.yml"))) == ({}, [])
+
+
+def _popen_once_started(monkeypatch: pytest.MonkeyPatch, watch: HungChildWatch) -> None:
+    """Make each start of a child return only once the hung child has written its pids, as
+    `_spawn_once_started` does for the async run, so the timeout fires after the grandchild
+    exists."""
+
+    class _StartedPopen(subprocess.Popen):  # type: ignore[type-arg]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            assert wait_until(watch.started), "the child wrote no pids"
+
+    monkeypatch.setattr(subprocess, "Popen", _StartedPopen)
+
+
+@pytest.mark.live("sh")
+def test_a_token_child_that_times_out_leaves_no_process_of_its_group(
+    pin_github_session: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A git child that reaches a remote gets the token in its environment, and so does each
+    helper that it starts. The child starts in a session of its own, and a timeout kills its whole
+    process group, not only the child."""
+    with watching(tmp_path / "pids") as watch:
+        git = fake_program(tmp_path / "bin" / "git", watch.pid_file)
+        _popen_once_started(monkeypatch, watch)
+        with pytest.raises(subprocess.TimeoutExpired) as raised:
+            run_subprocess([str(git), "fetch", "origin"], timeout=STARTED_RUN_TIMEOUT_SECONDS)
+
+        assert (raised.value.timeout, wait_until(watch.stopped)) == (
+            STARTED_RUN_TIMEOUT_SECONDS,
+            True,
+        )
 
 
 def test_a_gh_call_cancelled_while_it_looks_up_the_token_leaves_no_token_folder(

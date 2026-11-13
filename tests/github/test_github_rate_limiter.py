@@ -40,7 +40,7 @@ from devops_cli.github.rate_limiter import (
 )
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
-from tests.support.github_identity import token_seen
+from tests.support.github_identity import faked_children, token_seen
 
 
 @pytest.fixture(autouse=True)
@@ -1239,7 +1239,7 @@ def test_each_identity_keeps_its_own_quota_and_response_cache(
 
     reset_process_runner()
     try:
-        with patch("subprocess.run", side_effect=child):
+        with faked_children(side_effect=child):
             for token in tokens:
                 monkeypatch.setattr(process, "_github_token", token)
                 limiter = get_github_rate_limiter()

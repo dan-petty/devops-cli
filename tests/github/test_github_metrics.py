@@ -364,7 +364,7 @@ def test_label_taxonomy_metrics_counts_all_pages_and_skips_pull_requests(
         github.seed_issue(i, f"Issue {i}", labels=["type/bug"])
     github.seed_issue(251, "PR 251", labels=["type/bug"], pull_request=True)
     github.seed_issue(252, "PR 252", labels=["scope/cli"], pull_request=True)
-    monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
+    github.answer_children(monkeypatch)
 
     metrics = get_label_taxonomy_metrics("example/test-repo")
     assert [(m.label, m.count) for m in metrics] == [("type/bug", 250)]
@@ -397,7 +397,7 @@ def test_collect_project_metrics_report(
     github = GitHubFake("example/test-repo", milestones=[milestone])
     github.seed_issue(1, "feat: export", labels=("type/feature", "priority/p2-medium"))
     github.seed_issue(2, "fix: import", state="closed", labels=("type/bug", "priority/p1-high"))
-    monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
+    github.answer_children(monkeypatch)
 
     report = collect_project_metrics_report(
         root=root, repo="example/test-repo", store=_roadmap_store(github)
@@ -486,7 +486,7 @@ def test_issues_that_cannot_be_read_stop_the_collection(
     git_fake.answer(["git", "log"], ProcessAnswer(stdout=""))
     git_fake.answer(["git", "rev-list"], ProcessAnswer(stdout="1\n"))
     github = GitHubFake(REPO)
-    monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
+    github.answer_children(monkeypatch)
 
     def unavailable(args: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(args, 1, "", "HTTP 503: Service Unavailable")
@@ -523,7 +523,7 @@ def test_a_given_root_is_walked_as_it_is_even_inside_another_checkout(
     git_fake.answer(["git", "log"], ProcessAnswer(stdout=""))
     git_fake.answer(["git", "rev-list"], ProcessAnswer(stdout="1\n"))
     github = GitHubFake("example/roadmap")
-    monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
+    github.answer_children(monkeypatch)
     with caplog.at_level(logging.WARNING):
         report = collect_project_metrics_report(
             root=clone, repo="example/roadmap", store=_roadmap_store(github)
@@ -1047,7 +1047,7 @@ def _github(
     """A fake GitHub at the `gh` edge. The collector asks the same paths as the App and as a
     person (#4757); the metrics job test covers the App's token."""
     github = GitHubFake("example/repo", traffic_answer=traffic_answer)
-    monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
+    github.answer_children(monkeypatch)
     monkeypatch.delenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, raising=False)
     return github
 
@@ -1308,7 +1308,7 @@ def _collect(
     root = tmp_path / "repo"
     root.mkdir()
     git_fake.answer(["git", "tag"], ProcessAnswer(stdout=""))
-    monkeypatch.setattr(subprocess, "run", github.process(subprocess.run))
+    github.answer_children(monkeypatch)
     return collect_project_metrics_report(
         root=root, repo=REPO, store=store, item_ages=item_ages, clock=clock
     )

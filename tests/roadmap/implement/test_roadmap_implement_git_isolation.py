@@ -423,6 +423,47 @@ def test_a_fetch_in_a_shallow_clone_gets_the_new_commit(
     ) == (moved, "true")
 
 
+def test_a_link_at_the_shallow_file_of_the_clone_stops_the_fetch(
+    stage_repo: StageRepo, tmp_path: Path
+) -> None:
+    """git never makes `shallow` a link. The copy into the new git folder does not follow a link
+    there: the fetch stops with `GitSettingsError`, which gives the class `git_config`."""
+    url = f"file://{stage_repo.origin}"
+    victim = tmp_path / "victim"
+    victim.write_text(run_git(stage_repo.clone, "rev-parse", "HEAD") + "\n", encoding="utf-8")
+    common = run_git(stage_repo.clone, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    (Path(common) / "shallow").symlink_to(victim)
+
+    with pytest.raises(GitSettingsError) as refused:
+        OriginGit(stage_repo.clone, url).fetch("main")
+
+    assert refused.value.settings == ("shallow",)
+
+
+def test_the_write_back_of_the_shallow_file_follows_no_link_at_a_temporary_name(
+    tmp_path: Path,
+) -> None:
+    """The new text goes into a new file with a random name, so a link that waits at a fixed
+    temporary name, such as `shallow.devops-cli`, is not followed, and no temporary file stays."""
+    common, made = tmp_path / "common", tmp_path / "repo.git"
+    common.mkdir()
+    made.mkdir()
+    victim = tmp_path / "victim"
+    victim.write_text("kept\n", encoding="utf-8")
+    (common / "shallow.devops-cli").symlink_to(victim)
+    (made / "shallow").write_text("a" * 40 + "\n", encoding="utf-8")
+
+    git_isolation._Folder(made, tmp_path / "home", common).keep_shallow()
+
+    held = common / "shallow"
+    assert (
+        victim.read_text(encoding="utf-8"),
+        held.is_symlink(),
+        held.read_text(encoding="utf-8"),
+        sorted(entry.name for entry in common.iterdir()),
+    ) == ("kept\n", False, "a" * 40 + "\n", ["shallow", "shallow.devops-cli"])
+
+
 def test_a_changed_shallow_file_goes_back_into_the_clone_and_replaces_a_link(
     tmp_path: Path,
 ) -> None:

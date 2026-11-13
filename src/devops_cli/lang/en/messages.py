@@ -393,6 +393,9 @@ class ConfigMessages:
     gh_config_root_not_private: str = (
         "the folder is a link, belongs to another user, or others can read it"
     )
+    gh_config_root_in_current_folder: str = (
+        "the folder is in the current folder, which can be a working tree"
+    )
     gh_config_data_dir_relative: str = "the data directory is relative"
     gh_config_folder_failed: str = (
         "devops-cli found no private folder for the gh configuration of a gh call: {reasons}. "
@@ -3462,8 +3465,8 @@ class RoadmapMessages:
         "covers every repository of the installation. This process ran no step."
     )
     implement_leftover_processes: str = (
-        "A process that the agent's shell started is still alive after the step: {names}. The job "
-        "runs no program with the GitHub token while such a process lives, so it stops the item."
+        "A process that the job started is still alive after the job sent it SIGKILL: {names}. The "
+        "job runs no program with the GitHub token while such a process lives, so it stops the item."
     )
     implement_git_settings_refused: str = (
         "The git settings of the checkout hold {settings}, which the implement job does not allow. "

@@ -10,9 +10,12 @@ this suite's own run sees them there too.
 
 from __future__ import annotations
 
+import contextlib
 import json
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -44,6 +47,18 @@ def fail_the_github_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
     unauthenticated = ERRORS.git.github_unauthenticated.format(status=1)
     monkeypatch.setattr(process, "_github_token", None)
     monkeypatch.setattr(process, "_lookup_github_token", lambda: ("", unauthenticated))
+
+
+@contextlib.contextmanager
+def faked_children(**answer: Any) -> Iterator[MagicMock]:
+    """Stand in for each child of the process runner with one mock, which `answer` (`side_effect`
+    or `return_value`) sets up: `subprocess.run`, and `_run_in_own_session`, which starts a child
+    that gets the session's token."""
+    with (
+        patch("subprocess.run", **answer) as run,
+        patch.object(process, "_run_in_own_session", run),
+    ):
+        yield run
 
 
 @pytest.fixture

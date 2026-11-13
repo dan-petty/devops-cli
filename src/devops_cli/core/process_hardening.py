@@ -21,8 +21,10 @@ order instead. The agent controls the agent's shell and the code that the job ru
 checkout: the tests, the hooks of `pre-commit` and the other exit checks. The job ends every
 process it started (`end_leftover_processes`) when a step ends, before the check of the git
 settings and before each git call that reaches `origin` (`roadmap/implement/git_isolation.py`),
-and, in a runner, before each child that gets the token (`core/process.py`). A process that
-survives stops the item. `adopt_orphans` makes the job the parent of a process that the agent or
+and, in a runner, before and after each child that gets the token (`core/process.py`). A process
+that survives stops the item. Each child that gets the token starts in a session of its own, and a
+timeout kills its whole process group, so no helper of a child that ran out of time keeps the
+token. `adopt_orphans` makes the job the parent of a process that the agent or
 that code daemonized, so that none escapes the count.
 
 The order covers only processes. The agent can also write files that a git call reads: the git

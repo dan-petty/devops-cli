@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from devops_cli.config.constants import (
-    CONST_APP_NAME,
     CONST_CODE_LOADING_ENV_PATTERNS,
     CONST_DATA_EGRESS_ENV_VARS,
     CONST_EXIT_COMMAND_NOT_FOUND,
@@ -456,34 +455,67 @@ def git_reaches_remote(args: Sequence[str]) -> bool:
     return False
 
 
-def _private_root(root: Path) -> Path:
-    """A new folder (mode 0700) in `root`, which is made private when it is missing. Raises
-    `OSError` when `root` cannot be made, or is a link, a folder of another user or a folder that
-    others can read."""
-    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+def _refuse_root(root: Path, reason: str) -> None:
+    raise PermissionError(errno.EACCES, reason, str(root))
+
+
+def _check_private(root: Path) -> None:
+    """Raise `OSError` when `root` is a link, no folder, a folder of another user or a folder that
+    others can read. `lstat` reads the entry itself, so a link in its place is not followed."""
     held = root.lstat()
     shared = os.name == "posix" and (held.st_mode & 0o077 or held.st_uid != os.getuid())
     if not stat.S_ISDIR(held.st_mode) or shared:
         from devops_cli.lang import MESSAGES
 
-        raise PermissionError(errno.EACCES, MESSAGES.config.gh_config_root_not_private, str(root))
+        _refuse_root(root, MESSAGES.config.gh_config_root_not_private)
+
+
+def _check_outside_current_folder(root: Path) -> None:
+    """Raise `OSError` when `root` resolves to the current folder or into it. tempfile uses the
+    current folder, which can be a working tree, when it can write no temp folder, and the runtime
+    fallback of platformdirs is in the temp folder. The root of the file system holds every
+    folder, so it counts as no current folder."""
+    try:
+        current = Path.cwd().resolve()
+    except OSError:
+        return
+    if current.parent != current and root.resolve().is_relative_to(current):
+        from devops_cli.lang import MESSAGES
+
+        _refuse_root(root, MESSAGES.config.gh_config_root_in_current_folder)
+
+
+def _private_root(root: Path) -> Path:
+    """A new folder (mode 0700) in `root`, which is made private when it is missing. Raises
+    `OSError` when `root` cannot be made, or is a link, a folder of another user or a folder that
+    others can read."""
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    _check_private(root)
     return Path(tempfile.mkdtemp(prefix="gh-", dir=root))
 
 
 def _runtime_folder() -> Path:
-    """A new folder in `<runtime folder>/devops-cli/gh-config`. platformdirs gives the runtime
-    folder of the user (`$XDG_RUNTIME_DIR` when it is private, else its own fallback)."""
+    """A new folder directly in the runtime folder of the user, with no folder of devops-cli
+    between them, so no link below the runtime folder can move it. platformdirs gives the runtime
+    folder (`$XDG_RUNTIME_DIR` when it is a private folder of the user and no link, else its own
+    fallback). Raises `OSError` when the runtime folder is a link, is not private or resolves into
+    the current folder."""
     import platformdirs
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", platformdirs.RuntimeDirWarning)
-        runtime = platformdirs.user_runtime_path(CONST_APP_NAME, ensure_exists=True)
-    return _private_root(Path(runtime) / CONST_GH_PRIVATE_CONFIG_DIRNAME)
+        runtime = Path(platformdirs.user_runtime_path(ensure_exists=True))
+    _check_private(runtime)
+    _check_outside_current_folder(runtime)
+    return Path(tempfile.mkdtemp(prefix=CONST_GH_TEMP_FOLDER_PREFIX, dir=runtime))
 
 
 def _temp_folder() -> Path:
-    """A new folder (mode 0700) in the temp folder of the system (`TMPDIR`)."""
-    return Path(tempfile.mkdtemp(prefix=CONST_GH_TEMP_FOLDER_PREFIX))
+    """A new folder (mode 0700) directly in the temp folder of the system (`TMPDIR`). Raises
+    `OSError` when the temp folder resolves into the current folder."""
+    temp = Path(tempfile.gettempdir())
+    _check_outside_current_folder(temp)
+    return Path(tempfile.mkdtemp(prefix=CONST_GH_TEMP_FOLDER_PREFIX, dir=temp))
 
 
 def _data_folder() -> Path:
@@ -503,10 +535,12 @@ def _data_folder() -> Path:
 
 def _private_gh_folder() -> Path:
     """A new private folder for the configuration of one gh child: in the runtime folder of the
-    user, else in the temp folder of the system, else in the data directory when it is absolute.
-    None of them depends on the current folder, so no token file goes into a working tree. A
-    candidate that raises `OSError` gives way to the next. Raises `ConfigurationError`, which names
-    the settings, when none works."""
+    user, else in the temp folder of the system, else in `<data directory>/gh-config` when the data
+    directory is absolute. The runtime and the temp candidates are skipped when they resolve into
+    the current folder, which tempfile uses when it can write no temp folder. So a token file goes
+    into the current folder, which can be a working tree, only when `data.dir` names a folder there.
+    A candidate that raises `OSError` gives way to the next. Raises `ConfigurationError`, which
+    names the settings, when none works."""
     reasons: list[str] = []
     for candidate in (_runtime_folder, _temp_folder, _data_folder):
         try:
@@ -585,9 +619,10 @@ def _github_pin(cmd: list[str], caller_env: dict[str, str] | None = None) -> _Gi
 
 
 def _end_leftover_processes_in_runner() -> None:
-    """In a runner, end every process that the job started, before a child that gets the session's
-    token starts. The job runs code of the checkout (tests, hooks, the agent's shell), and a
-    process that such code left would read the token of the child. Raises
+    """In a runner, end every process that the job started, before and after each child that gets
+    the session's token. The job runs code of the checkout (tests, hooks, the agent's shell), and a
+    process that such code left would read the token of the child. The sweep ends every descendant
+    of the job, so a runner runs its children that get the token one at a time. Raises
     `RoadmapImplementError`, which stops the item, when a process survives."""
     from devops_cli.config.settings import load_settings
 
@@ -600,10 +635,10 @@ def _end_leftover_processes_in_runner() -> None:
 @contextlib.contextmanager
 def _pinned(pin: _GitHubPin | None, sub_env: dict[str, str]) -> Iterator[None]:
     """Give the child of `sub_env` the token of `pin`, and no other GitHub token, for the life of
-    the block. Before a child that gets the session's token, the leftover processes end in a
-    runner. A gh child gets a new private configuration folder (`GH_CONFIG_DIR`) whose `hosts.yml`
-    holds the token, and `GH_HOST` set to github.com. The folder goes when the block ends, also
-    after an error, a timeout or a cancel."""
+    the block. Before and after a child that gets the session's token, the leftover processes end
+    in a runner. A gh child gets a new private configuration folder (`GH_CONFIG_DIR`) whose
+    `hosts.yml` holds the token, and `GH_HOST` set to github.com. The folder goes when the block
+    ends, also after an error, a timeout or a cancel."""
     if pin is None:
         yield
         return
@@ -612,16 +647,50 @@ def _pinned(pin: _GitHubPin | None, sub_env: dict[str, str]) -> Iterator[None]:
     if pin.session:
         _end_leftover_processes_in_runner()
     sub_env.update(pin.env)
-    if not pin.gh_token:
-        yield
-        return
-    folder = _private_gh_config(pin.gh_token)
+    folder = _private_gh_config(pin.gh_token) if pin.gh_token else None
     try:
-        sub_env[CONST_GH_CONFIG_DIR_ENV] = str(folder)
-        sub_env[CONST_GH_HOST_ENV] = CONST_GITHUB_HOST
+        if folder is not None:
+            sub_env[CONST_GH_CONFIG_DIR_ENV] = str(folder)
+            sub_env[CONST_GH_HOST_ENV] = CONST_GITHUB_HOST
         yield
     finally:
-        shutil.rmtree(folder, ignore_errors=True)
+        try:
+            if pin.session:
+                _end_leftover_processes_in_runner()
+        finally:
+            if folder is not None:
+                shutil.rmtree(folder, ignore_errors=True)
+
+
+def _run_in_own_session(
+    cmd: list[str],
+    *,
+    input: str | None = None,
+    capture_output: bool = False,
+    timeout: float | None = None,
+    check: bool = False,
+    **kwargs: Any,
+) -> subprocess.CompletedProcess[str]:
+    """`subprocess.run` for a child that gets the session's token: the child starts in a session
+    of its own, and a timeout or another error while it runs kills its whole process group, as
+    `run_async` stops a group. `subprocess.run` kills only the child, and a helper that the child
+    started, such as `git-remote-https`, holds the token in its environment."""
+    if input is not None:
+        kwargs["stdin"] = subprocess.PIPE
+    if capture_output:
+        kwargs["stdout"] = kwargs["stderr"] = subprocess.PIPE
+    with subprocess.Popen(cmd, start_new_session=True, **kwargs) as child:
+        try:
+            stdout, stderr = child.communicate(input, timeout=timeout)
+        except BaseException:
+            if not _signal_process_group(child.pid, signal.SIGKILL):
+                child.kill()
+            child.wait()
+            raise
+        returncode = child.wait()
+    if check and returncode:
+        raise subprocess.CalledProcessError(returncode, cmd, output=stdout, stderr=stderr)
+    return subprocess.CompletedProcess(cmd, returncode, stdout, stderr)
 
 
 class PlannedProcessResult(subprocess.CompletedProcess[str], PlannedRequest):
@@ -831,8 +900,9 @@ class DefaultProcessRunner:
             ) as span_h,
         ):
             get_tracer().inject_trace_env(sub_env)
+            run = _run_in_own_session if pin is not None and pin.session else subprocess.run
             try:
-                proc = subprocess.run(
+                proc = run(
                     full_cmd,
                     input=input,
                     cwd=cwd,

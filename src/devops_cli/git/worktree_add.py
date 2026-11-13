@@ -197,7 +197,9 @@ def _commands(
     A run makes the third only when `origin` holds the branch, and then it takes the branch over
     instead of the fourth (`_take_over`). The fourth starts the new branch at `base`, or at
     `origin/main` when `base` is None. `--no-track` leaves a new branch with no upstream, so
-    that a plain `git push` cannot aim at `main`."""
+    that a plain `git push` cannot aim at `main`. The second line is the short form of the fetch:
+    the run gives the refspec `+refs/heads/main:refs/remotes/origin/main` (`_CloneOrigin.fetch`),
+    which changes `origin/main` in the same way."""
     git = _git(repo_root)
     start = _main_ref() if base is None else base
     return [

@@ -36,7 +36,7 @@ from tests.support.fakes.github import (
     quota_headers,
 )
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
-from tests.support.github_identity import token_seen
+from tests.support.github_identity import faked_children, token_seen
 from tests.support.paths import FIXTURES
 
 if TYPE_CHECKING:
@@ -535,8 +535,6 @@ def test_one_identity_reaches_the_pr_diff_gh_and_the_quota_refresh(
     pin_github_session: str,
 ) -> None:
     """The PR diff, two run_gh calls and the quota refresh all act as token A from `gh auth token`."""
-    from unittest.mock import patch
-
     from devops_cli.core.process import reset_github_token
     from devops_cli.github.rate_limiter import run_gh
     from devops_cli.github.session import get_github_session
@@ -562,7 +560,7 @@ def test_one_identity_reaches_the_pr_diff_gh_and_the_quota_refresh(
             children.append((cmd[1:3], token_seen(env), env.get("GITHUB_TOKEN")))
         return _scripted_gh(cmd, **kwargs)
 
-    with patch("subprocess.run", side_effect=gh):
+    with faked_children(side_effect=gh):
         diff = get_github_session().client.get_pr_diff("octo/repo", 42)
         run_gh(["issue", "list"])
         run_gh(["label", "list"])
