@@ -123,8 +123,8 @@ def _pull_kind(pull: OpenPull, named: Mapping[int, InboxKind | None]) -> InboxKi
 def _failing_drafts(
     store: RoadmapStore, pulls: Sequence[OpenPull], named: Mapping[int, InboxKind | None]
 ) -> frozenset[int]:
-    """The numbers of the drafts of jobs whose head commit has a failed check run. Only the
-    drafts of jobs are read, one check-run read for each (#3494)."""
+    """The numbers of the drafts of jobs whose head commit has a check that failed in its latest
+    run (#5383). Only the drafts of jobs are read, one check-run read for each (#3494)."""
     return frozenset(
         pull.number
         for pull in pulls

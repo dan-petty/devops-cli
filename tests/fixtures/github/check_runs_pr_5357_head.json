@@ -1,0 +1,771 @@
+{
+ "description": "The answer of GET /repos/dan-petty/devops-cli/commits/f7064d0f0cf3803ddf60630afadf38bbaa2b4167/check-runs?per_page=100, read on 2026-11-13, in the order GitHub sent it and cut to the fields devops-cli reads. The head of pull request 5357 has 25 checks. 20 of them have two runs in two check suites: a run of the push from 04:32Z and a run of a close and reopen from 06:41Z. The Fail-to-Pass Check run of 04:32Z failed and its run of 06:41Z passed. The latest run of each check passed (20) or was skipped (5).",
+ "total_count": 45,
+ "check_runs": [
+  {
+   "id": 131738655582,
+   "name": "Tests & Coverage",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T06:46:44Z",
+   "completed_at": "2026-11-13T06:47:48Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43380455554/job/131738655582",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117467460567
+   }
+  },
+  {
+   "id": 131736801188,
+   "name": "Plan Check",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-13T06:41:40Z",
+   "completed_at": "2026-11-13T06:41:39Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43380455712/job/131736801188",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117467461042
+   }
+  },
+  {
+   "id": 131736788198,
+   "name": "Audit Defect PR Hardening",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-13T06:41:37Z",
+   "completed_at": "2026-11-13T06:41:28Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43380448123/job/131736788198",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117467439917
+   }
+  },
+  {
+   "id": 131736757763,
+   "name": "Dependency Freshness",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-13T06:41:32Z",
+   "completed_at": "2026-11-13T06:41:32Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43380455554/job/131736757763",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117467460567
+   }
+  },
+  {
+   "id": 131736757544,
+   "name": "Tests on Main",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-13T06:41:32Z",
+   "completed_at": "2026-11-13T06:41:32Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43380455554/job/131736757544",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117467460567
+   }
+  },
+  {
+   "id": 131736757163,
+   "name": "Image Pins",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T06:41:35Z",
+   "completed_at": "2026-11-13T06:42:12Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43380455721/job/131736757163",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117467461061
+   }
+  },
+  {
+   "id": 131736757106,
+   "name": "Test Job Duration",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-13T06:41:32Z",
+   "completed_at": "2026-11-13T06:41:32Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43380455554/job/131736757106",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117467460567
+   }
+  },
+  {
+   "id": 131736756799,
+   "name": "Analyze (actions)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T06:41:35Z",
+   "completed_at": "2026-11-13T06:42:08Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43380455647/job/131736756799",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117467460850
+   }
+  },
+  {
+   "id": 131736756491,
+   "name": "Semantic PR title",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T06:41:35Z",
+   "completed_at": "2026-11-13T06:41:39Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43380455712/job/131736756491",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117467461042
+   }
+  },
+  {
+   "id": 131736756455,
+   "name": "Analyze (python)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T06:41:35Z",
+   "completed_at": "2026-11-13T06:42:55Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43380455647/job/131736756455",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117467460850
+   }
+  },
+  {
+   "id": 131736756210,
+   "name": "Tests & Coverage (shard 3 of 4)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T06:41:35Z",
+   "completed_at": "2026-11-13T06:44:33Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43380455554/job/131736756210",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117467460567
+   }
+  },
+  {
+   "id": 131736756192,
+   "name": "Service Image",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T06:41:35Z",
+   "completed_at": "2026-11-13T06:44:15Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43380455554/job/131736756192",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117467460567
+   }
+  },
+  {
+   "id": 131736756185,
+   "name": "Changed-Test Independence",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T06:41:35Z",
+   "completed_at": "2026-11-13T06:42:47Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43380455554/job/131736756185",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117467460567
+   }
+  },
+  {
+   "id": 131736756183,
+   "name": "MCP Server Image",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T06:41:35Z",
+   "completed_at": "2026-11-13T06:43:52Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43380455554/job/131736756183",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117467460567
+   }
+  },
+  {
+   "id": 131736756164,
+   "name": "Tests & Coverage (shard 4 of 4)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T06:41:35Z",
+   "completed_at": "2026-11-13T06:45:51Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43380455554/job/131736756164",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117467460567
+   }
+  },
+  {
+   "id": 131736756149,
+   "name": "Runner Image",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T06:41:35Z",
+   "completed_at": "2026-11-13T06:44:30Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43380455554/job/131736756149",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117467460567
+   }
+  },
+  {
+   "id": 131736756115,
+   "name": "Tests & Coverage (shard 2 of 4)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T06:41:34Z",
+   "completed_at": "2026-11-13T06:46:41Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43380455554/job/131736756115",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117467460567
+   }
+  },
+  {
+   "id": 131736756103,
+   "name": "Tests & Coverage (shard 1 of 4)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T06:41:35Z",
+   "completed_at": "2026-11-13T06:45:47Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43380455554/job/131736756103",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117467460567
+   }
+  },
+  {
+   "id": 131736756098,
+   "name": "Design Tokens",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T06:41:35Z",
+   "completed_at": "2026-11-13T06:41:45Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43380455554/job/131736756098",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117467460567
+   }
+  },
+  {
+   "id": 131736755922,
+   "name": "Static Analysis",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T06:41:34Z",
+   "completed_at": "2026-11-13T06:44:19Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43380455554/job/131736755922",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117467460567
+   }
+  },
+  {
+   "id": 131736755682,
+   "name": "Fail-to-Pass Check",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T06:41:35Z",
+   "completed_at": "2026-11-13T06:42:45Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43380455589/job/131736755682",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117467460684
+   }
+  },
+  {
+   "id": 131693562779,
+   "name": "Tests & Coverage",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T04:39:54Z",
+   "completed_at": "2026-11-13T04:40:58Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43366194993/job/131693562779",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117430079540
+   }
+  },
+  {
+   "id": 131692665218,
+   "name": "devops-cli",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T04:37:11Z",
+   "completed_at": "2026-11-13T04:37:16Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/runs/131692665218",
+   "app": {
+    "id": 57789,
+    "slug": "github-advanced-security",
+    "name": "GitHub Advanced Security"
+   },
+   "check_suite": {
+    "id": 117430598251
+   }
+  },
+  {
+   "id": 131692664641,
+   "name": "zizmor",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T04:37:11Z",
+   "completed_at": "2026-11-13T04:37:16Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/runs/131692664641",
+   "app": {
+    "id": 57789,
+    "slug": "github-advanced-security",
+    "name": "GitHub Advanced Security"
+   },
+   "check_suite": {
+    "id": 117430598251
+   }
+  },
+  {
+   "id": 131692663502,
+   "name": "trivy-config",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T04:37:11Z",
+   "completed_at": "2026-11-13T04:37:16Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/runs/131692663502",
+   "app": {
+    "id": 57789,
+    "slug": "github-advanced-security",
+    "name": "GitHub Advanced Security"
+   },
+   "check_suite": {
+    "id": 117430598251
+   }
+  },
+  {
+   "id": 131691705321,
+   "name": "CodeQL",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T04:34:26Z",
+   "completed_at": "2026-11-13T04:34:30Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/runs/131691705321",
+   "app": {
+    "id": 57789,
+    "slug": "github-advanced-security",
+    "name": "GitHub Advanced Security"
+   },
+   "check_suite": {
+    "id": 117430598251
+   }
+  },
+  {
+   "id": 131691118943,
+   "name": "Plan Check",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-13T04:32:45Z",
+   "completed_at": "2026-11-13T04:32:44Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43366195016/job/131691118943",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117430079612
+   }
+  },
+  {
+   "id": 131691069628,
+   "name": "Dependency Freshness",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-13T04:32:36Z",
+   "completed_at": "2026-11-13T04:32:36Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43366194993/job/131691069628",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117430079540
+   }
+  },
+  {
+   "id": 131691069412,
+   "name": "Tests on Main",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-13T04:32:36Z",
+   "completed_at": "2026-11-13T04:32:36Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43366194993/job/131691069412",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117430079540
+   }
+  },
+  {
+   "id": 131691069344,
+   "name": "Test Job Duration",
+   "status": "completed",
+   "conclusion": "skipped",
+   "started_at": "2026-11-13T04:32:36Z",
+   "completed_at": "2026-11-13T04:32:36Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43366194993/job/131691069344",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117430079540
+   }
+  },
+  {
+   "id": 131691068495,
+   "name": "Tests & Coverage (shard 3 of 4)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T04:35:02Z",
+   "completed_at": "2026-11-13T04:38:25Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43366194993/job/131691068495",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117430079540
+   }
+  },
+  {
+   "id": 131691068472,
+   "name": "Tests & Coverage (shard 4 of 4)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T04:34:34Z",
+   "completed_at": "2026-11-13T04:38:15Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43366194993/job/131691068472",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117430079540
+   }
+  },
+  {
+   "id": 131691068450,
+   "name": "Tests & Coverage (shard 2 of 4)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T04:34:58Z",
+   "completed_at": "2026-11-13T04:39:51Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43366194993/job/131691068450",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117430079540
+   }
+  },
+  {
+   "id": 131691068403,
+   "name": "Design Tokens",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T04:34:27Z",
+   "completed_at": "2026-11-13T04:34:31Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43366194993/job/131691068403",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117430079540
+   }
+  },
+  {
+   "id": 131691068395,
+   "name": "Static Analysis",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T04:34:23Z",
+   "completed_at": "2026-11-13T04:37:22Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43366194993/job/131691068395",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117430079540
+   }
+  },
+  {
+   "id": 131691068342,
+   "name": "Changed-Test Independence",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T04:33:53Z",
+   "completed_at": "2026-11-13T04:34:53Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43366194993/job/131691068342",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117430079540
+   }
+  },
+  {
+   "id": 131691068305,
+   "name": "MCP Server Image",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T04:33:30Z",
+   "completed_at": "2026-11-13T04:36:13Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43366194993/job/131691068305",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117430079540
+   }
+  },
+  {
+   "id": 131691068282,
+   "name": "Service Image",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T04:33:46Z",
+   "completed_at": "2026-11-13T04:36:11Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43366194993/job/131691068282",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117430079540
+   }
+  },
+  {
+   "id": 131691068239,
+   "name": "Tests & Coverage (shard 1 of 4)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T04:33:11Z",
+   "completed_at": "2026-11-13T04:35:54Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43366194993/job/131691068239",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117430079540
+   }
+  },
+  {
+   "id": 131691068066,
+   "name": "Runner Image",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T04:33:42Z",
+   "completed_at": "2026-11-13T04:36:16Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43366194993/job/131691068066",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117430079540
+   }
+  },
+  {
+   "id": 131691064368,
+   "name": "Analyze (actions)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T04:33:56Z",
+   "completed_at": "2026-11-13T04:34:36Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43366195022/job/131691064368",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117430079611
+   }
+  },
+  {
+   "id": 131691064106,
+   "name": "Analyze (python)",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T04:33:46Z",
+   "completed_at": "2026-11-13T04:35:02Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43366195022/job/131691064106",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117430079611
+   }
+  },
+  {
+   "id": 131691064085,
+   "name": "Image Pins",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T04:33:23Z",
+   "completed_at": "2026-11-13T04:34:10Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43366194936/job/131691064085",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117430079419
+   }
+  },
+  {
+   "id": 131691064002,
+   "name": "Fail-to-Pass Check",
+   "status": "completed",
+   "conclusion": "failure",
+   "started_at": "2026-11-13T04:32:51Z",
+   "completed_at": "2026-11-13T04:33:53Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43366195015/job/131691064002",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117430079597
+   }
+  },
+  {
+   "id": 131691063735,
+   "name": "Semantic PR title",
+   "status": "completed",
+   "conclusion": "success",
+   "started_at": "2026-11-13T04:32:41Z",
+   "completed_at": "2026-11-13T04:32:44Z",
+   "html_url": "https://github.com/dan-petty/devops-cli/actions/runs/43366195016/job/131691063735",
+   "app": {
+    "id": 15368,
+    "slug": "github-actions",
+    "name": "GitHub Actions"
+   },
+   "check_suite": {
+    "id": 117430079612
+   }
+  }
+ ]
+}
