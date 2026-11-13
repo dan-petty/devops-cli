@@ -327,7 +327,7 @@ def _deadline_end(
 
 
 def _clone(repo: str) -> Path:
-    """The blobless clone of `repo` in the status clone directory of the pod. The roadmap run
+    """The blobless clone of `repo` in the clone directory `clone` of the pod. The roadmap run
     imports the stage row, which imports this module, so the run is imported here."""
     from devops_cli.roadmap.run import status_clone
 

@@ -14,7 +14,6 @@ import pytest
 
 from devops_cli.config.constants import (
     CONST_SERVICE_FAILURES_FILENAME,
-    CONST_SERVICE_LANE_STATUS,
     CONST_SERVICE_METRIC_JOB_SUSPENDED,
     CONST_SERVICE_METRIC_JOBS,
     CONST_URL_CLOUDFLARE_STATUS_SUMMARY,
@@ -69,6 +68,9 @@ reads and the conflict row (#4027) come last, so a slow status page never delays
 
 STATUS_READS = ("github_status", "cloudflare_status")
 
+LANE = "status"
+"""A lane that runs the rows that call no model, as `service.lanes` can group them (#5553)."""
+
 
 def _row(name: str) -> JobRow:
     """The row `name` of the status lane, or a failed assertion that names it."""
@@ -87,7 +89,7 @@ def _jobs(row: str, result: str) -> float:
     """The value of the job counter of the status row `row` under `result`."""
     return GLOBAL_METRICS.get_counter(
         CONST_SERVICE_METRIC_JOBS,
-        labels={"repo": REPO, "lane": CONST_SERVICE_LANE_STATUS, "row": row, "result": result},
+        labels={"repo": REPO, "lane": LANE, "row": row, "result": result},
     )
 
 
@@ -132,7 +134,7 @@ def test_source_failed_github_status_read_counts_an_error_for_its_row_only(
             table=_status_table(),
             data_dir=tmp_path,
             now=NOW,
-            lane=CONST_SERVICE_LANE_STATUS,
+            lane=LANE,
         )
 
     assert (
@@ -173,7 +175,7 @@ def test_source_failed_status_page_error_is_the_error_of_the_read(
             table=_status_table(),
             data_dir=tmp_path,
             now=NOW,
-            lane=CONST_SERVICE_LANE_STATUS,
+            lane=LANE,
         )
 
     cause = raised.value.__cause__
@@ -207,7 +209,7 @@ def test_ledger_per_row_three_failed_cloudflare_reads_suspend_only_that_row(
             data_dir=tmp_path,
             now=NOW + timedelta(minutes=step),
             failures=failures,
-            lane=CONST_SERVICE_LANE_STATUS,
+            lane=LANE,
         )
 
     failed: list[list[str]] = []

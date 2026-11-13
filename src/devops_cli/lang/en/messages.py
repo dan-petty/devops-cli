@@ -6099,6 +6099,9 @@ class RoadmapMessages:
         "The roadmap {job} job reads its repository's clone and was given none: its row in the "
         "due table must set needs_clone."
     )
+    run_lane_state_unremoved: str = (
+        "The Service could not remove {path}, the state of a lane that it does not run: {error}"
+    )
     run_intake_record_unreadable: str = (
         "The intake record {path} can't be read ({reason}), so intake does not run. Repair it, "
         "or remove it: the next intake then starts a new record and takes every candidate as "

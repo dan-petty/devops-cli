@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 import httpx2
 import pytest
 
-from devops_cli.config.constants import CONST_GITHUB_DIFF_MEDIA_TYPE, CONST_SERVICE_LANE_STATUS
+from devops_cli.config.constants import CONST_GITHUB_DIFF_MEDIA_TYPE
 from devops_cli.github import session_transport
 from devops_cli.github.session import get_github_session
 from devops_cli.server.service import RepoWorker, TriggerBatch
@@ -73,7 +73,7 @@ def test_the_heap_at_round_50_is_within_the_byte_budget_of_the_heap_at_round_10(
 
     worker = RepoWorker(
         repo=REPO,
-        lane=CONST_SERVICE_LANE_STATUS,
+        lane="metrics",
         job_func=round_job,
         clock=lambda: datetime.now(UTC),
     )

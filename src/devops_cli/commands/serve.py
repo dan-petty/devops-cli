@@ -128,7 +128,12 @@ def serve(
 
     if service:
         from devops_cli.config.settings import load_settings
-        from devops_cli.roadmap.run import identity_refused, service_jobs, service_state_dir
+        from devops_cli.roadmap.run import (
+            identity_refused,
+            retire_lane_state,
+            service_jobs,
+            service_state_dir,
+        )
         from devops_cli.server.json_logs import service_log_config
         from devops_cli.server.service import create_service_app
 
@@ -145,13 +150,18 @@ def serve(
         # The halt, the budget window and the ledger of failed rounds stay beside the schedules,
         # on the Service's volume, so a restart keeps them (#2474).
         state_dir = service_state_dir()
+        # Each row runs in a lane of its own, with its own clone and snapshot (#5553). The
+        # clones and the snapshots of the lanes that the Service does not run are caches, so the
+        # start removes them.
+        jobs = service_jobs(state_dir, settings.service.lanes)
+        retire_lane_state(state_dir, settings.service.repos, settings.service.lanes)
 
         # uvicorn calls this factory after it applies log_config, so the warnings building the app
         # logs (a managed repository with no webhook secret) are JSON too.
         uvicorn.run(
             partial(
                 create_service_app,
-                jobs=service_jobs(state_dir),
+                jobs=jobs,
                 settings=settings,
                 secrets=parsed_secrets,
                 identity_refused=identity_refused,

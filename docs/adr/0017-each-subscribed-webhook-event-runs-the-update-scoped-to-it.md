@@ -48,3 +48,5 @@ Amended on 2026-11-11 by [ADR 0021](0021-the-roadmap-service-is-a-webhook-router
 This ADR supersedes the webhook clause of [ADR 0003](0003-polling-is-how-the-roadmap-sees-changes.md), "webhooks only cut latency". The poll of ADR 0003 stays.
 
 2026-11-12: Fact out of date: scoped intake runs on the triage lane, and the live poll runs every 300 seconds; `openspec/specs/roadmap-scoped-updates/spec.md` holds the rows (#5225).
+
+2026-11-13: Fact out of date: each row of the due table runs in a lane of its own (#5553), so scoped intake runs on the lane of `intake`, with the intake job, and an update that wakes other rows sends its trigger to each other lane of the repository. The rule of this record stays: the scoped update runs on the lane of its job.

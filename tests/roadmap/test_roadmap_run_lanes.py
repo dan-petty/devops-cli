@@ -1,13 +1,13 @@
-"""The lanes of the service: the status, triage and model lanes run their own rows, keep their own
-schedule and use their own clone (#981). The triage lane reads every issue through the listing
-snapshot (#3670), and the status lane through a snapshot of its own (#4854).
+"""The lanes of the service: each lane runs its own rows, keeps its own schedule and uses its own
+clone (#981, #5553). The lane of intake reads every issue through the listing snapshot (#3670),
+and each other lane through a snapshot of its own (#4854).
 """
 
 from __future__ import annotations
 
 import asyncio
 import threading
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from pathlib import Path
@@ -15,15 +15,7 @@ from typing import Any
 
 import pytest
 
-from devops_cli.config.constants import (
-    CONST_ROADMAP_RUN_CLONE_DIRNAME,
-    CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
-    CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME,
-    CONST_SERVICE_LANE_MODEL,
-    CONST_SERVICE_LANE_STATUS,
-    CONST_SERVICE_LANE_TRIAGE,
-    CONST_SERVICE_METRIC_QUEUE_DEPTH,
-)
+from devops_cli.config.constants import CONST_SERVICE_METRIC_QUEUE_DEPTH
 from devops_cli.config.settings import ServiceConfig
 from devops_cli.roadmap.run import (
     MODEL_LANE_ROWS,
@@ -42,7 +34,7 @@ from devops_cli.roadmap.stores.listing_snapshot import (
     SnapshotStore,
 )
 from devops_cli.roadmap.stores.store import RoadmapStore, install_roadmap_store
-from devops_cli.server.service import ServiceManager
+from devops_cli.server.service import ServiceManager, TriggerBatch
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from tests.support.fakes.github import RunnerSession
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -52,7 +44,6 @@ from tests.support.roadmap_run import (
     POLL,
     POLL_KEY,
     REPO,
-    REPO_DIR,
     bare_remote,
     commit_to_bare,
     head_of_clone,
@@ -61,6 +52,7 @@ from tests.support.roadmap_run import (
     poll_round,
     read_schedule,
     recorded,
+    serve_as,
     serve_over,
     service_github,
     stamp_successes,
@@ -70,24 +62,45 @@ from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
+def _rows_of(job: Any) -> set[str]:
+    """The names of the rows that the lane job `job` of `service_jobs` runs."""
+    return {row.name for row in job.keywords["table"]}
+
+
+def _lanes_within(jobs: Mapping[str, Any], rows: Sequence[JobRow]) -> list[str]:
+    """The lanes of `jobs` that run only rows of `rows`."""
+    names = {row.name for row in rows}
+    return [lane for lane, job in jobs.items() if _rows_of(job) <= names]
+
+
+def _lane_of(jobs: Mapping[str, Any], row: str) -> str:
+    """The lane of `jobs` that runs the row `row`."""
+    (lane,) = (lane for lane, job in jobs.items() if row in _rows_of(job))
+    return lane
+
+
 @pytest.mark.usefixtures("roadmap_bot")
-def test_a_status_lane_poll_reads_no_change_and_sends_no_request(
+def test_a_poll_of_the_lanes_of_the_rows_that_call_no_model_reads_no_change_and_sends_no_request(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """No status-lane row has a due rule, so its poll reads no change: with nothing due by its
-    interval, the round sends no request, and reads no roadmap file as it opens the store."""
+    """No row that calls no model has a due rule, so the poll of their lanes reads no change: with
+    nothing due by its interval, a round sends no request, and reads no roadmap file as it opens
+    the store."""
     github = service_github(labeled_changes(2, "alice"))
     serve_over(tmp_path, monkeypatch, github)
-    service_jobs(tmp_path)[CONST_SERVICE_LANE_STATUS](POLL)
+    jobs = service_jobs(tmp_path)
+    for lane in _lanes_within(jobs, STATUS_LANE_ROWS):
+        jobs[lane](POLL)
     assert [args for args in github.calls if "rate_limit" not in " ".join(args)] == []
 
 
 @pytest.mark.usefixtures("roadmap_bot")
-def test_a_model_lane_poll_when_not_due_reads_no_change_and_sends_no_request(
+def test_a_poll_of_the_lanes_of_the_model_rows_when_not_due_reads_no_change_and_sends_no_request(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """No model-lane row has a due rule, so its poll reads no change: with nothing due by its
-    interval, the round sends no request, and reads no roadmap file as it opens the store (#1534)."""
+    """No model row but intake has a due rule, so the poll of their lanes reads no change: with
+    nothing due by its interval, a round sends no request, and reads no roadmap file as it opens
+    the store (#1534)."""
     github = service_github(labeled_changes(2, "alice"))
     serve_over(tmp_path, monkeypatch, github)
     recent = datetime.now(UTC) - timedelta(minutes=1)
@@ -99,18 +112,20 @@ def test_a_model_lane_poll_when_not_due_reads_no_change_and_sends_no_request(
         fix_plan=recent,
         alternatives=recent,
     )
-    service_jobs(tmp_path)[CONST_SERVICE_LANE_MODEL](POLL)
+    jobs = service_jobs(tmp_path)
+    for lane in _lanes_within(jobs, MODEL_LANE_ROWS):
+        jobs[lane](POLL)
     assert [args for args in github.calls if "rate_limit" not in " ".join(args)] == []
 
 
 @pytest.mark.usefixtures("roadmap_bot")
-def test_the_status_and_triage_lanes_read_every_issue_through_their_own_snapshots(
+def test_each_lane_reads_every_issue_through_its_own_snapshot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test first for #3670 and #4854: the triage lane runs intake, so it opens its store with the
-    listing snapshot that the Service keeps in its state directory, as the scoped intake does. The
-    status lane opens its store with a snapshot in a directory of its own, so each snapshot has one
-    writer. The model lane reads the whole listing."""
+    """Test first for #3670, #4854 and #5553: the lane of intake opens its store with the listing
+    snapshot that the Service keeps in its state directory, as the scoped intake does. Each other
+    lane opens its store with a snapshot in a directory of its own, so each snapshot has one
+    writer."""
     github = service_github([])
     serve_over(tmp_path, monkeypatch, github, stamped=False)
     rows = (*STATUS_LANE_ROWS, *TRIAGE_LANE_ROWS, *MODEL_LANE_ROWS)
@@ -124,22 +139,22 @@ def test_the_status_and_triage_lanes_read_every_issue_through_their_own_snapshot
 
     install_roadmap_store(store)
     jobs = service_jobs(tmp_path)
-    for lane in (CONST_SERVICE_LANE_STATUS, CONST_SERVICE_LANE_TRIAGE, CONST_SERVICE_LANE_MODEL):
-        jobs[lane](POLL)
+    for job in jobs.values():
+        job(POLL)
+    intake_lane = _lane_of(jobs, "intake")
     assert snapshots == [
-        FileSnapshotStore(tmp_path / "listing-status"),
-        FileSnapshotStore(tmp_path / "listing"),
-        None,
+        FileSnapshotStore(tmp_path / ("listing" if lane == intake_lane else f"listing-{lane}"))
+        for lane in jobs
     ]
 
 
 @pytest.mark.usefixtures("roadmap_bot")
-def test_a_status_lane_round_with_a_kept_snapshot_reads_only_the_changed_issues(
+def test_a_lane_round_with_a_kept_snapshot_reads_only_the_changed_issues(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test first for #4854: the first round of the status lane reads the whole listing and keeps
-    a snapshot. The next round reads only the issues changed since its watermark, one request, and
-    not every page again."""
+    """Test first for #4854: the first round of the lane of `stage_ready` reads the whole listing
+    and keeps a snapshot. The next round reads only the issues changed since its watermark, one
+    request, and not every page again."""
     github = service_github([])
     serve_over(tmp_path, monkeypatch, github, stamped=False)
     install_roadmap_store(
@@ -149,10 +164,11 @@ def test_a_status_lane_round_with_a_kept_snapshot_reads_only_the_changed_issues(
     )
     recent = datetime.now(UTC) - timedelta(minutes=1)
     others = {row.name: recent for row in STATUS_LANE_ROWS if row.name != "stage_ready"}
-    status_lane = service_jobs(tmp_path)[CONST_SERVICE_LANE_STATUS]
+    jobs = service_jobs(tmp_path)
+    lane = jobs[_lane_of(jobs, "stage_ready")]
     for _ in range(2):
         stamp_successes(tmp_path, **others)
-        status_lane(POLL)
+        lane(POLL)
     listings = [
         args[-1].partition("?")[2] for args in github.calls if f"repos/{REPO}/issues?" in args[-1]
     ]
@@ -186,19 +202,17 @@ def test_a_blocked_model_lane_holds_back_none_of_the_status_lanes_rounds(
         return JobOutcome()
 
     lanes = {
-        CONST_SERVICE_LANE_STATUS: partial(
+        "status": partial(
             service_job,
             table=lane_table(
                 STATUS_LANE_ROWS,
                 metrics=recorded(measured, "metrics"),
                 implement=recorded(measured, "implement", implement),
             ),
-            clone_dirname=CONST_ROADMAP_RUN_CLONE_DIRNAME,
+            lane="status",
         ),
-        CONST_SERVICE_LANE_MODEL: partial(
-            service_job,
-            table=lane_table(MODEL_LANE_ROWS, refine=refine),
-            clone_dirname=CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
+        "model": partial(
+            service_job, table=lane_table(MODEL_LANE_ROWS, refine=refine), lane="model"
         ),
     }
     manager = ServiceManager(
@@ -220,6 +234,65 @@ def test_a_blocked_model_lane_holds_back_none_of_the_status_lanes_rounds(
         refine_still_running,
         bool(refine_released) and all(refine_released),
     ) == (True, ["metrics", "implement"], [True], True, True)
+
+
+@pytest.mark.parametrize(
+    ("blocked", "other"),
+    [("stage", "refine"), ("refine", "alternatives")],
+    ids=["stage-refine", "refine-alternatives"],
+)
+def test_a_blocked_round_of_one_row_holds_back_no_round_of_another_row_of_the_same_repository(
+    blocked: str,
+    other: str,
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test first for #5553: the lanes that `service_jobs` builds keep each row apart. A round of
+    `blocked` waits on a slow model, and a poll makes `other` due for the same repository: a round
+    of `other` runs and ends while the round of `blocked` still runs. A stage round held back
+    refine before #4559 moved stage, and a refine round still held back alternatives in the one
+    model lane."""
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
+    waiting, model_answers, other_ran = threading.Event(), threading.Event(), threading.Event()
+    released: list[bool] = []
+
+    def slow(**_: Any) -> JobOutcome:
+        waiting.set()
+        # Records that the test, not the bound, ended the wait on the slow model.
+        released.append(model_answers.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS))
+        return JobOutcome()
+
+    def quick(**_: Any) -> JobOutcome:
+        other_ran.set()
+        return JobOutcome()
+
+    built = service_jobs(tmp_path)
+    tables = {lane: job.keywords["table"] for lane, job in built.items()}
+    runners = {blocked: slow, other: quick}
+    lanes = {
+        lane: partial(job, table=lane_table(tables[lane], **runners)) for lane, job in built.items()
+    }
+    manager = ServiceManager(
+        ServiceConfig(repos=[REPO]), {}, lanes, lambda: datetime.now(UTC), asyncio.sleep
+    )
+    for worker in manager.workers.values():
+        worker.start()
+    manager.enqueue_trigger(REPO, "poll", "", "")
+    assert waiting.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
+    ran = other_ran.wait(timeout=THREAD_HANDOFF_BOUND_SECONDS)
+    other_round_ended = manager.workers[(REPO, _lane_of(built, other))].wait_active(
+        THREAD_HANDOFF_BOUND_SECONDS
+    )
+    blocked_still_running = manager.workers[(REPO, _lane_of(built, blocked))].is_active()
+    model_answers.set()
+    asyncio.run(manager.drain_and_stop())
+    assert (
+        ran,
+        other_round_ended,
+        blocked_still_running,
+        bool(released) and all(released),
+    ) == (True, True, True, True)
 
 
 def test_opened_issue_webhook_runs_triage_lane_while_model_lane_blocked_and_reports_queue_depth(
@@ -244,22 +317,18 @@ def test_opened_issue_webhook_runs_triage_lane_while_model_lane_blocked_and_repo
         return JobOutcome()
 
     lanes = {
-        CONST_SERVICE_LANE_TRIAGE: partial(
-            service_job,
-            table=lane_table(TRIAGE_LANE_ROWS, intake=intake),
-            clone_dirname=CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME,
+        "triage": partial(
+            service_job, table=lane_table(TRIAGE_LANE_ROWS, intake=intake), lane="triage"
         ),
-        CONST_SERVICE_LANE_MODEL: partial(
-            service_job,
-            table=lane_table(MODEL_LANE_ROWS, refine=refine),
-            clone_dirname=CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
+        "model": partial(
+            service_job, table=lane_table(MODEL_LANE_ROWS, refine=refine), lane="model"
         ),
     }
     manager = ServiceManager(
         ServiceConfig(repos=[REPO]), {}, lanes, lambda: datetime.now(UTC), asyncio.sleep
     )
-    triage_worker = manager.workers[(REPO, CONST_SERVICE_LANE_TRIAGE)]
-    model_worker = manager.workers[(REPO, CONST_SERVICE_LANE_MODEL)]
+    triage_worker = manager.workers[(REPO, "triage")]
+    model_worker = manager.workers[(REPO, "model")]
     for worker in manager.workers.values():
         worker.start()
 
@@ -276,7 +345,7 @@ def test_opened_issue_webhook_runs_triage_lane_while_model_lane_blocked_and_repo
     asyncio.run(manager.drain_and_stop())
 
     triage_depth = GLOBAL_METRICS.get_gauge_value(
-        CONST_SERVICE_METRIC_QUEUE_DEPTH, labels={"lane": CONST_SERVICE_LANE_TRIAGE, "repo": REPO}
+        CONST_SERVICE_METRIC_QUEUE_DEPTH, labels={"lane": "triage", "repo": REPO}
     )
     assert (
         triage_finished,
@@ -398,15 +467,28 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
     )
 
 
-def test_each_lane_updates_only_its_own_clone(
-    seeded_store: InMemoryRoadmapStore, tmp_path: Path, child_argvs: list[list[str]]
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [("stage", "refine"), ("refine", "alternatives")],
+    ids=["stage-refine", "refine-alternatives"],
+)
+def test_two_lanes_never_use_the_same_working_tree(
+    first: str,
+    second: str,
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    child_argvs: list[list[str]],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The status lane's metrics works in `clone` and the model lane's refine in `model-clone`,
-    each at origin's tip of the default branch. A model-lane round leaves a change in `clone`
-    alone, where a checkout of that clone would discard it."""
-    bare = bare_remote(tmp_path)
-    main_tip = commit_to_bare(bare, "main", "main\n")
+    """Test first for #5553: the lanes of two rows that need files, which `service_jobs` builds,
+    each work in a clone of their own at origin's tip of the default branch. A round of the lane
+    of `second` leaves a change in the clone of `first` alone, where a checkout of that clone
+    would discard it. `refine` and `alternatives` shared the clone of the one model lane before."""
     data_dir = tmp_path / "data"
+    monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(data_dir))
+    bare = bare_remote(tmp_path)
+    serve_as(f"https://github.com/{REPO}.git", bare)
+    main_tip = commit_to_bare(bare, "main", "main\n")
     seen: dict[str, tuple[Path, tuple[str, str]]] = {}
 
     def record(job: str) -> Callable[..., JobOutcome]:
@@ -417,33 +499,28 @@ def test_each_lane_updates_only_its_own_clone(
 
         return run_job
 
-    def lane_round(table: Sequence[JobRow], clone_dirname: str) -> tuple[str, ...]:
-        return run_due_jobs(
-            REPO,
-            seeded_store,
-            batch={OPENED: 1},
-            table=table,
-            data_dir=data_dir,
-            remote_url=str(bare),
-            now=NOW,
-            clone_dirname=clone_dirname,
+    built = service_jobs(data_dir / "roadmap")
+    lanes = {
+        row: partial(
+            built[_lane_of(built, row)],
+            table=lane_table(
+                built[_lane_of(built, row)].keywords["table"],
+                needs_clone=True,
+                **{row: record(row)},
+            ),
         )
-
-    lane_round(
-        lane_table(STATUS_LANE_ROWS, needs_clone=True, metrics=record("metrics")),
-        CONST_ROADMAP_RUN_CLONE_DIRNAME,
-    )
-    in_progress = seen["metrics"][0] / "f.txt"
+        for row in (first, second)
+    }
+    batch = TriggerBatch(repo=REPO, counts={OPENED: 1}, first_at=NOW, last_at=NOW)
+    lanes[first](batch)
+    in_progress = seen[first][0] / "f.txt"
     in_progress.write_text("work in progress\n")
-    lane_round(
-        lane_table(MODEL_LANE_ROWS, needs_clone=True, refine=record("refine")),
-        CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
-    )
-    repo_dir = data_dir / REPO_DIR
-    assert (seen, in_progress.read_text()) == (
-        {
-            "metrics": (repo_dir / "clone", (main_tip, "main")),
-            "refine": (repo_dir / "model-clone", (main_tip, "main")),
-        },
-        "work in progress\n",
-    )
+    lanes[second](batch)
+    first_tree, second_tree = seen[first][0], seen[second][0]
+    assert (
+        first_tree != second_tree,
+        first_tree.parent == second_tree.parent,
+        seen[first][1][0],
+        seen[second][1][0],
+        in_progress.read_text(),
+    ) == (True, True, main_tip, main_tip, "work in progress\n")

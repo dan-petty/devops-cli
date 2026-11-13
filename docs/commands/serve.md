@@ -22,7 +22,7 @@ devops serve [OPTIONS]
 | `--workers`, `-w` | `integer` | `1` | Number of worker processes. |
 | `--log-level`, `-l` | `string` | `info` | Logging level (debug, info, warning, error). |
 | `--docs` / `--no-docs` | `boolean` | `True` | Enable or disable Swagger UI (/docs) and ReDoc (/redoc). |
-| `--service`, `-s` | `boolean` | - | Run continuous background service with GitHub webhook verification and per-repository status, triage and model lanes. |
+| `--service`, `-s` | `boolean` | - | Run continuous background service with GitHub webhook verification and one lane for each roadmap job and repository. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

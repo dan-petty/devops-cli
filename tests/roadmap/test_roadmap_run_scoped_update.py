@@ -11,15 +11,13 @@ import httpx2
 import pytest
 
 from devops_cli.ai.client import LLMClient
-from devops_cli.config.constants import (
-    CONST_SERVICE_LANE_TRIAGE,
-)
 from devops_cli.config.settings import AIConfig
 from devops_cli.roadmap.intake.intake_model import GatewayIntakeModel, ModelProposal
 from devops_cli.roadmap.run import (
     SCOPED_UPDATES,
     JobOutcome,
     WebhookDelivery,
+    lane_of_row,
     read_intake_record,
     run_scoped_update,
     service_state_dir,
@@ -53,13 +51,15 @@ from tests.support.roadmap_run import (
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
-def test_the_issues_actions_run_a_scoped_intake_on_the_triage_lane() -> None:
-    """`issues` opened, edited and reopened each run intake of one issue on the triage lane, and
-    no other event has a scoped update (#1534)."""
-    assert {key: (update.job, update.lane) for key, update in SCOPED_UPDATES.items()} == {
-        ("issues", "opened"): ("intake", CONST_SERVICE_LANE_TRIAGE),
-        ("issues", "edited"): ("intake", CONST_SERVICE_LANE_TRIAGE),
-        ("issues", "reopened"): ("intake", CONST_SERVICE_LANE_TRIAGE),
+def test_the_issues_actions_run_a_scoped_intake_on_the_lane_of_intake() -> None:
+    """`issues` opened, edited and reopened each run intake of one issue, on the lane of intake,
+    and no other event has a scoped update (#1534, #5553)."""
+    assert {
+        key: (update.job, lane_of_row(update.job)) for key, update in SCOPED_UPDATES.items()
+    } == {
+        ("issues", "opened"): ("intake", "intake"),
+        ("issues", "edited"): ("intake", "intake"),
+        ("issues", "reopened"): ("intake", "intake"),
     }
 
 

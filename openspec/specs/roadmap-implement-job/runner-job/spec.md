@@ -122,23 +122,23 @@ The round SHALL record the name of the Job in `implement.job` and the digest of 
 - **WHEN** the API refuses the create
 - **THEN** the round raises `ClusterJobError` and the record of the item holds no Job
 
-### Requirement: A model-lane round that has not ended does not delay the implement row
-The row `implement` SHALL NOT be a row of the model lane. A poll SHALL make it due on the status lane by its interval, whether or not a round of the model lane of the same repository is running. A suspended `implement` row in the ledger of failed rounds SHALL stay suspended on the status lane until the hour ends, and a ledger record that holds an entry of the row SHALL load.
+### Requirement: A round of another lane that has not ended does not delay the implement row
+The row `implement` SHALL run in a lane that holds no row that calls a model. A poll SHALL make it due by its interval, whether or not a round of another lane of the same repository is running. A suspended `implement` row in the ledger of failed rounds SHALL stay suspended until the hour ends, and a ledger record that holds an entry of the row SHALL load.
 
 #### Scenario: The model lane is in a long refine round
-- **WHEN** the model lane runs a refine round that has not ended, and a poll reaches both lanes of the repository
-- **THEN** the status lane runs `metrics` and `implement` while the refine round is still running
+- **WHEN** the lane of `refine`, a row of the earlier model lane, runs a refine round that has not ended, and a poll reaches each lane of the repository
+- **THEN** the lanes of `metrics` and `implement` run their rows while the refine round is still running
 
 #### Scenario: The rows of each lane
-- **WHEN** the due table is read
-- **THEN** the status lane holds `metrics`, `implement`, `stage_ready`, `release_comments`, `github_status`, `cloudflare_status` and `pr_conflicts` in this order, the triage lane holds `intake`, and the model lane holds `refine`, `retitle`, `stage` and `alternatives`
+- **WHEN** the default lanes are read
+- **THEN** the lane `implement` holds the row `implement` alone
 
 #### Scenario: A suspended row keeps its suspension
-- **WHEN** the record of failed rounds holds an entry of the row `implement` at the limit of rounds, and the status lane runs a round on the same input
+- **WHEN** the record of failed rounds holds an entry of the row `implement` at the limit of rounds, and the lane of the row runs a round on the same input
 - **THEN** the record loads, the row does not run, and the gauge `devops_cli_service_job_suspended` for the row is 1
 
 #### Scenario: A suspended row runs again in a later hour
-- **WHEN** the row `implement` failed its limit of rounds in a row, its fault is fixed, and a poll round of a later hour runs on the status lane
+- **WHEN** the row `implement` failed its limit of rounds in a row, its fault is fixed, and a poll round of a later hour runs on the lane of the row
 - **THEN** the row runs, with no webhook
 
 ### Requirement: A workstation starts the runner Job for one Item

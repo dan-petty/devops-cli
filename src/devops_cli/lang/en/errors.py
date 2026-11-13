@@ -105,6 +105,25 @@ class ConfigErrorMessages:
         "The setting service.repos names the repository {key} twice, as '{first}' and "
         "'{second}'. GitHub names ignore case. Give each repository once."
     )
+    service_lane_name_invalid: str = (
+        "The setting service.lanes holds the name '{value}'. Give each lane and each row as a "
+        "lowercase name of letters, digits and underscores that starts with a letter."
+    )
+    service_lane_empty: str = (
+        "The setting service.lanes gives the lane '{lane}' no row. Name at least one row."
+    )
+    service_lane_row_repeated: str = (
+        "The setting service.lanes names the row '{row}' in the lanes '{first}' and '{second}'. "
+        "Give each row in one lane."
+    )
+    service_lane_row_unknown: str = (
+        "The setting service.lanes names the row '{row}' in the lane '{lane}'. The due table has "
+        "no such row. The rows are: {rows}."
+    )
+    service_lane_name_of_row: str = (
+        "The setting service.lanes names the lane '{lane}', which is the name of a row that the "
+        "lane does not hold. Give the lane another name, or put the row '{lane}' into it."
+    )
     infra_repo_invalid: str = (
         "The setting infra.repos holds the repo '{value}'. That is not a GitHub repository as "
         "owner/name."

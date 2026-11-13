@@ -1,7 +1,7 @@
 """Roadmap job evaluation, scheduling, checkout management, and execution.
 
-The due table runs the status lane's rows, metrics, implement, stage_ready, stage,
-release_comments, github_status, cloudflare_status and pr_conflicts, before the model lane's,
+The due table runs the rows that call no model, metrics, implement, stage_ready, stage,
+release_comments, github_status, cloudflare_status and pr_conflicts, before the rows that call it,
 intake, retitle, fix_plan, refine and alternatives, so a burst of candidates never holds back the
 metrics (#1360), and a slow model never holds back the implement, stage_ready or stage row
 (#2757, #2865, #4559). The row stage_ready marks a green stage draft pull request ready. The row
@@ -10,18 +10,21 @@ release_comments comments the version, and the time it runs, on the issues of a 
 The row pr_conflicts comments once on a ready delivery pull request with merge conflicts (#4027).
 The row fix_plan runs the step fix-plan in the mode of `roadmap.fix_plan.mode`: it repairs at most
 one stage plan pull request with the label `plan/needs-fix` in a round (#5061).
-`devops roadmap run` runs the whole table in one round. The Service runs each lane in its own worker and its own clone
-(`service_jobs`), so a status-lane round never waits for a model-bound one (#1532); both lanes
-read and write the repository's one `schedule.json`. The Service's ledger of failed rounds is
-kept beside the repositories' schedules (`service_state_dir`), so a restart keeps it (#2474).
+`devops roadmap run` runs the whole table in one round. The Service runs each row in a lane of its
+own (`service_lanes`, #5553): a lane is one worker with its trigger queue for each repository, its
+own clone `lanes/<lane>` and its own listing snapshot, so a round of one lane never waits for a
+round of another (#1532). The setting `service.lanes` puts rows into a shared lane, whose rows run
+in the order of the table. The lanes read and write the repository's one `schedule.json`. The
+Service's ledger of failed rounds is kept beside the repositories' schedules
+(`service_state_dir`), so a restart keeps it (#2474).
 Each row is due by its interval, by a webhook hint in the batch, or by its due rule, which
 judges the changes made since the row last succeeded: intake's is an issue reopened, or a fresh
 candidate its last round left (`IntakeRecord`, kept beside `schedule.json`). A round's intake
 decides at most `DEFAULT_ROADMAP_INTAKE_LIMIT` candidates. Refine is due every 17 minutes by default, on
 a first run, and in a round where intake placed a critical fix or a P0 item (#1515). Stage is due
 every 37 minutes by default, on a first run, and after a round in which refine set an item Ready
-(#2659): that round stamps `stage_due` in `schedule.json`, and the next round of the status lane
-submits the Job of the item.
+(#2659): that round stamps `stage_due` in `schedule.json`, and the next round of the lane of
+`stage` submits the Job of the item.
 The rows intake, stage, fix_plan, refine and alternatives read their interval at each round from
 `roadmap.<row>.interval_minutes`, and use `roadmap.<row>.backlog_interval_minutes` while the queue
 that their last round counted holds `roadmap.<row>.backlog_threshold` or more items (#5470). Each
@@ -35,7 +38,7 @@ The alternatives row is due every 719 minutes by default and on a first run, and
 `roadmap.alternatives.limit` items after (#2652). Every clone tracks origin's default branch.
 
 A subscribed webhook event runs the update scoped to it at once (`run_scoped_update`, ADR 0017):
-`issues` opened, edited or reopened runs intake of that one issue on the model lane. A scoped
+`issues` opened, edited or reopened runs intake of that one issue on the lane of `intake`. A scoped
 update writes no job's last success, so the poll still judges every change since then; it
 records the issue it decided in `IntakeRecord`, so the poll does not decide it again.
 """
@@ -46,10 +49,11 @@ import hashlib
 import json
 import logging
 import shlex
+import shutil
 import subprocess
 import threading
 from collections import deque
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from functools import cache, partial
@@ -72,9 +76,10 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_RETITLE_BATCH_KEYS,
     CONST_ROADMAP_ROW_QUEUES_FILENAME,
     CONST_ROADMAP_RUN_CLONE_DIRNAME,
+    CONST_ROADMAP_RUN_LANES_DIRNAME,
     CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
+    CONST_ROADMAP_RUN_RETIRED_CLONE_DIRNAMES,
     CONST_ROADMAP_RUN_STATE_FILENAME,
-    CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME,
     CONST_ROADMAP_STAGE_BATCH_KEYS,
     CONST_ROADMAP_STAGE_DUE_STAMP,
     CONST_SERVICE_CAUSE_UNKNOWN,
@@ -82,9 +87,6 @@ from devops_cli.config.constants import (
     CONST_SERVICE_JOB_RESULT_ERROR,
     CONST_SERVICE_JOB_RESULT_STOPPED,
     CONST_SERVICE_JOB_RESULT_SUCCESS,
-    CONST_SERVICE_LANE_MODEL,
-    CONST_SERVICE_LANE_STATUS,
-    CONST_SERVICE_LANE_TRIAGE,
     CONST_SERVICE_METRIC_JOB_RETRY_AFTER_SECONDS,
     CONST_SERVICE_METRIC_JOB_SUSPENDED,
     CONST_SERVICE_METRIC_JOBS,
@@ -110,6 +112,7 @@ from devops_cli.core.paths import (
 )
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import (
+    ConfigurationError,
     DevOpsCLIError,
     GitOperationError,
     RoadmapRefineError,
@@ -120,7 +123,7 @@ from devops_cli.exceptions import (
 )
 from devops_cli.exceptions.git import GitHubUnauthenticatedError
 from devops_cli.github.request_scope import request_scope
-from devops_cli.lang import MESSAGES
+from devops_cli.lang import ERRORS, MESSAGES
 
 # `alternatives` imports pydantic_ai too: import it here for the same reason (#2535).
 from devops_cli.roadmap.alternatives import (
@@ -164,6 +167,7 @@ from devops_cli.roadmap.stores.listing_snapshot import (
     IncrementalListing,
     intake_listing,
     lane_listing,
+    lane_snapshot_dirs,
 )
 from devops_cli.roadmap.stores.store import Change, ChangeKind, RoadmapStore
 from devops_cli.roadmap.trust import is_person_comment
@@ -191,6 +195,9 @@ logger = logging.getLogger(__name__)
 
 _SCHEDULE_LOCK = threading.Lock()
 """Held while a job's success is written to `schedule.json`, which the Service's lanes share."""
+
+_LANES_KEY = "service.lanes"
+"""The setting that puts rows into a shared lane of the Service (#5553)."""
 
 
 def parse_due_tuple(output: str) -> tuple[str, ...]:
@@ -328,7 +335,7 @@ def _read_queues(record: Path) -> dict[str, int]:
 
 def _record_queue(record: Path, row: str, queue: int) -> None:
     """Record `queue` as the queue of `row` in `queues.json`, and keep the queue of each other row
-    as the file holds it now: the triage and the model lane write the same file."""
+    as the file holds it now: the lanes of the Service write the same file."""
     from devops_cli.output.file_writer import write_json_file
 
     with _SCHEDULE_LOCK:
@@ -487,8 +494,9 @@ def ensure_checkout(
     blobless: bool = False,
 ) -> Path:
     """Clone the repository to <data dir>/roadmap/<owner>/<name>/<dirname>, update it, return its
-    path. `clone` is the status lane's and the CLI's, `model-clone` the Service's model lane's,
-    so one lane's update never touches the other's checkout (#1532). With `blobless`, a new clone
+    path. `clone` is the clone of `devops roadmap run`, `model-clone` the one of the commands of
+    the model rows, and `lanes/<lane>` the one of each lane of the Service, so the update of one
+    never touches the checkout of another (#1532, #5553). With `blobless`, a new clone
     takes no blob of the history (`--filter=blob:none`, ADR 0021 section 6): the checkout of the
     default branch fetches the blobs of its commit in one batch, and git fetches an older blob when
     a command reads it. A stage Job reads only the staged commit, so its clone is blobless (#5483).
@@ -535,15 +543,15 @@ def ensure_checkout(
 
 
 def model_clone(repo: str) -> Path:
-    """The model lane's clone of `repo`, cloned or updated: the clone that the commands of the
-    model-lane jobs work in when a person gives no `--source` (#2654)."""
+    """The clone `model-clone` of `repo`, cloned or updated: the clone that the commands of the
+    model rows work in when a person gives no `--source` (#2654)."""
     return ensure_checkout(repo, _resolve_data_dir(), dirname=CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME)
 
 
 def status_clone(repo: str, *, blobless: bool = False) -> Path:
-    """The status lane's clone of `repo`, cloned or updated: the clone of the stage row, and the
-    clone that `devops roadmap stage` works in when a person gives no `--source` (#4559). A stage
-    Job asks for a `blobless` clone in its own pod (#5483)."""
+    """The clone `clone` of `repo`, cloned or updated: the clone that `devops roadmap stage`
+    works in when a person gives no `--source` (#4559). A stage Job asks for a `blobless` clone
+    in its own pod (#5483). The stage row of the Service works in the clone of its lane (#5553)."""
     return ensure_checkout(repo, _resolve_data_dir(), blobless=blobless)
 
 
@@ -1042,7 +1050,7 @@ TRIAGE_LANE_ROWS: tuple[JobRow, ...] = (
         due_rule=_intake_due,
     ),
 )
-"""The row that runs intake in its own triage lane (#1534)."""
+"""The row that runs intake, in a lane of its own in the Service (#1534, #5553)."""
 
 MODEL_LANE_ROWS: tuple[JobRow, ...] = (
     JobRow(
@@ -1082,20 +1090,65 @@ the daily check for alternative tools (#2652). fix_plan repairs at most one plan
 place on this lane (#4559)."""
 
 DEFAULT_DUE_TABLE: tuple[JobRow, ...] = (*STATUS_LANE_ROWS, *TRIAGE_LANE_ROWS, *MODEL_LANE_ROWS)
-"""Every row, the status lane's first: what `devops roadmap run` runs in one round."""
+"""Every row, the rows that call no model first: what `devops roadmap run` runs in one round. In
+the Service, each row runs in a lane of its own by default (`service_lanes`, #5553)."""
+
+
+def service_lanes(
+    groups: Mapping[str, Sequence[str]] | None = None,
+) -> dict[str, tuple[JobRow, ...]]:
+    """The lanes of the Service and the rows of each, in the order of `DEFAULT_DUE_TABLE` (#5553).
+    Each row is a lane of its own, named after the row, unless a lane of `groups`, the setting
+    `service.lanes`, names it. A lane of `groups` takes the place of its first row in the table,
+    and its rows run in the order of the table. An unknown row, and a lane name that is the name
+    of a row that the lane does not hold, raise `ConfigurationError`."""
+    groups = groups or {}
+    names = [row.name for row in DEFAULT_DUE_TABLE]
+    owner: dict[str, str] = {}
+    for group, members in groups.items():
+        for member in members:
+            if member not in names:
+                raise ConfigurationError(
+                    ERRORS.config.service_lane_row_unknown.format(
+                        row=member, lane=group, rows=", ".join(names)
+                    ),
+                    key=_LANES_KEY,
+                )
+            owner[member] = group
+        if group in names and owner.get(group) != group:
+            raise ConfigurationError(
+                ERRORS.config.service_lane_name_of_row.format(lane=group), key=_LANES_KEY
+            )
+    lanes: dict[str, tuple[JobRow, ...]] = {}
+    for row in DEFAULT_DUE_TABLE:
+        lane = owner.get(row.name, row.name)
+        lanes[lane] = (*lanes.get(lane, ()), row)
+    return lanes
+
+
+def lane_of_row(row: str, groups: Mapping[str, Sequence[str]] | None = None) -> str:
+    """The name of the lane that runs `row`: the lane of `groups` that names it, else the row's
+    own lane, which has its name (#5553)."""
+    return next((lane for lane, rows in (groups or {}).items() if row in rows), row)
+
+
+def lane_clone_dirname(lane: str) -> str:
+    """The clone of the Service lane `lane` in the repository directory, `lanes/<lane>`, so no two
+    lanes share a working tree (#5553)."""
+    return f"{CONST_ROADMAP_RUN_LANES_DIRNAME}/{lane}"
 
 
 @dataclass(frozen=True)
 class ScopedUpdate:
     """The update that one subscribed event runs at once, scoped to its delivery: the job whose
-    decision code it narrows, the lane it runs on, and its runner (ADR 0017)."""
+    decision code it narrows, and its runner (ADR 0017). It runs on the lane of its job
+    (`lane_of_row`)."""
 
     job: str
-    lane: str
     runner: Callable[..., JobOutcome]
 
 
-_SCOPED_INTAKE = ScopedUpdate(job="intake", lane=CONST_SERVICE_LANE_TRIAGE, runner=_intake_one)
+_SCOPED_INTAKE = ScopedUpdate(job="intake", runner=_intake_one)
 
 SCOPED_UPDATES: Mapping[tuple[str, str], ScopedUpdate] = MappingProxyType(
     {("issues", action): _SCOPED_INTAKE for action in ("opened", "edited", "reopened")}
@@ -1104,12 +1157,25 @@ SCOPED_UPDATES: Mapping[tuple[str, str], ScopedUpdate] = MappingProxyType(
 is not here keeps its delivery a hint that makes a whole round due."""
 
 
-def scoped_update_wakes_model_lane(delivery: WebhookDelivery, outcome: JobOutcome | None) -> bool:
-    """Whether the model lane runs a round after the scoped update of `delivery` (#4412): after an
-    edit, which changes the text that refine and retitle read, and after a placement of a critical
-    fix or a P0 item, which stamps `refine_due`. The triage lane's scoped update wakes no other
-    lane itself."""
+def scoped_update_wakes_lanes(delivery: WebhookDelivery, outcome: JobOutcome | None) -> bool:
+    """Whether the lanes of `lanes_to_wake` run a round after the scoped update of
+    `delivery` (#4412, #5553): after an edit, which changes the text that refine and retitle
+    read, and after a placement of a critical fix or a P0 item, which stamps `refine_due`. A lane
+    whose rows the trigger does not make due runs a round that sends no request."""
     return delivery.action == "edited" or (outcome is not None and outcome.placed_critical_or_p0)
+
+
+def lanes_to_wake(
+    job: str, lanes: Iterable[str], groups: Mapping[str, Sequence[str]] | None = None
+) -> tuple[str, ...]:
+    """The lanes of `lanes` that the wake after a scoped update of `job` reaches (#4412, #5553):
+    each lane but the lane that ran the update, so that `intake` does not run a whole round for
+    the same delivery. When `groups`, the setting `service.lanes`, puts other rows into the lane
+    of `job`, such as `refine`, the wake reaches that lane too, because the wake is for those
+    rows."""
+    own = lane_of_row(job, groups)
+    shared = len(service_lanes(groups).get(own, ())) > 1
+    return tuple(lane for lane in lanes if lane != own or shared)
 
 
 def run_scoped_update(
@@ -1119,6 +1185,7 @@ def run_scoped_update(
     data_dir: Path | str | None = None,
     now: datetime | None = None,
     model: IntakeModel | None = None,
+    lane: str | None = None,
 ) -> JobOutcome | None:
     """Run the update scoped to `delivery` on `store`, the roadmap of its repository, or return
     None when its event and action have none (ADR 0017).
@@ -1126,10 +1193,12 @@ def run_scoped_update(
     The update reads the repository's intake record beside its `schedule.json` in `data_dir`,
     and writes no job's last success: the reconciling poll still judges every change made since
     each job's last round, so a scoped update never hides a change it did not handle. Its model
-    and GitHub requests name its job as their row, as the job counter does (#4522)."""
+    and GitHub requests name its job as their row, as the job counter does (#4522). The counter
+    names `lane`, the lane it runs on, or the default lane of its job."""
     update = SCOPED_UPDATES.get((delivery.event, delivery.action))
     if update is None:
         return None
+    counted_lane = lane or lane_of_row(update.job)
     schedule_path = _resolve_roadmap_repo_path(
         _resolve_data_dir(data_dir),
         delivery.repo,
@@ -1146,9 +1215,9 @@ def run_scoped_update(
                 model=model,
             )
     except Exception as exc:
-        _count_job(delivery.repo, update.lane, update.job, _failed_result(exc))
+        _count_job(delivery.repo, counted_lane, update.job, _failed_result(exc))
         raise
-    _count_job(delivery.repo, update.lane, update.job, CONST_SERVICE_JOB_RESULT_SUCCESS)
+    _count_job(delivery.repo, counted_lane, update.job, CONST_SERVICE_JOB_RESULT_SUCCESS)
     return outcome
 
 
@@ -1297,7 +1366,7 @@ def _fetch_filtered_changes(
 ) -> list[Change]:
     """Fetch recent store changes excluding writes authored by the current session, which the
     store leaves out before it reads any job record (#1361). Only a due rule judges changes, so
-    a lane with no row that has one, such as the status lane, reads none."""
+    a lane with no row that has one, such as the lane of `metrics`, reads none."""
     if not _lane_reads_changes(rows):
         return []
     cutoff = _oldest_cutoff(rows, schedule, current_time)
@@ -1660,17 +1729,17 @@ def _count_job(repo: str, lane: str | None, row: str, result: str) -> None:
         )
 
 
-def _observe_row(repo: str, row: str, started: float | None, result: str) -> None:
+def _observe_row(repo: str, lane: str | None, row: str, started: float | None, result: str) -> None:
     """Send the seconds that a row ran, since `started` on the monotonic clock, under its
-    repository, row and result (#4058). The run of the command line sends it too. A row that
-    failed before its runner started, such as in its clone, has no `started` and sends nothing."""
+    repository, row and result, and its lane in a round of the Service (#4058, #5553). The run of
+    the command line sends it too, with no lane. A row that failed before its runner started,
+    such as in its clone, has no `started` and sends nothing."""
     if started is None:
         return
-    emit(
-        ROADMAP_ROW_SECONDS,
-        clock.monotonic() - started,
-        {"repo": repo, "row": row, "result": result},
-    )
+    labels = {"repo": repo, "row": row, "result": result}
+    if lane is not None:
+        labels["lane"] = lane
+    emit(ROADMAP_ROW_SECONDS, clock.monotonic() - started, labels)
 
 
 def _stamp_stage_due(schedule_path: Path, outcome: JobOutcome, at: datetime) -> None:
@@ -1756,11 +1825,11 @@ def _execute_due_rows(
             _record_success(schedule_path, row.name, current_time)
             failures.succeeded(repo, row.name)
             _count_job(repo, lane, row.name, CONST_SERVICE_JOB_RESULT_SUCCESS)
-            _observe_row(repo, row.name, started, CONST_SERVICE_JOB_RESULT_SUCCESS)
+            _observe_row(repo, lane, row.name, started, CONST_SERVICE_JOB_RESULT_SUCCESS)
         except Exception as exc:
             failed_jobs.append(row.name)
             _count_job(repo, lane, row.name, _failed_result(exc))
-            _observe_row(repo, row.name, started, _failed_result(exc))
+            _observe_row(repo, lane, row.name, started, _failed_result(exc))
             outcomes[row.name] = _outcome_of_failure(exc)
             _stamp_stage_due(schedule_path, outcomes[row.name], current_time)
             _count_failure(failures, repo, row.name, inputs[row.name], exc, current_time)
@@ -1882,16 +1951,16 @@ def service_job(
     batch: TriggerBatch,
     *,
     table: Sequence[JobRow],
-    clone_dirname: str,
-    lane: str | None = None,
+    lane: str,
     failures: FailureLedger | None = None,
     listing: IncrementalListing | None = None,
 ) -> None:
-    """Service mode adapter that runs one lane's due roadmap jobs, `table`, in its clone
-    `clone_dirname` for a coalesced trigger batch, on the roadmap store of the batch's
-    repository, counting its failed rounds in `failures`. The store reads every issue through
-    `listing` when one is given, else the whole listing. The store reads no repository file: a
-    repository needs no roadmap configuration (ADR 0016)."""
+    """Service mode adapter that runs the due roadmap jobs of the lane `lane`, `table`, for a
+    coalesced trigger batch, on the roadmap store of the batch's repository, counting its failed
+    rounds in `failures`. The clone rows work in the clone of the lane, `lanes/<lane>`, so no two
+    lanes share a working tree (#5553). The store reads every issue through `listing` when one is
+    given, else the whole listing. The store reads no repository file: a repository needs no
+    roadmap configuration (ADR 0016)."""
     from devops_cli.roadmap.stores import store as roadmap_store
 
     repo = batch.repo
@@ -1900,46 +1969,70 @@ def service_job(
         roadmap_store.get_roadmap_store(repo, listing=listing),
         batch=batch,
         table=table,
-        clone_dirname=clone_dirname,
+        clone_dirname=lane_clone_dirname(lane),
         failures=failures,
         lane=lane,
     )
 
 
-def service_jobs(state_dir: Path) -> Mapping[str, LaneJob]:
+def service_jobs(
+    state_dir: Path, lanes: Mapping[str, Sequence[str]] | None = None
+) -> Mapping[str, LaneJob]:
     """Each lane's job, which `devops serve --service` runs in one worker per lane of each
-    repository (#1532). Every lane of every repository shares one ledger of failed rounds, kept
-    in `state_dir`, so a restart keeps it (#2474). The triage lane, which runs intake, reads every
-    issue through the listing snapshot in `state_dir`, as the scoped intake of a delivery does
-    (#3670); its rounds and the scoped updates run one at a time on its worker, so one writer
-    keeps the snapshot of each repository. The status lane reads every issue through a snapshot
-    of its own, which only its worker writes (#4854)."""
+    repository (#1532): one lane for each row, unless `lanes`, else the setting `service.lanes`,
+    puts rows into a shared lane (`service_lanes`, #5553). Every lane of every repository shares
+    one ledger of failed rounds, kept in `state_dir`, so a restart keeps it (#2474). The lane
+    that holds `intake` reads every issue through the listing snapshot in `state_dir`, as the
+    scoped intake of a delivery does (#3670); its rounds and the scoped updates run one at a time
+    on its worker, so one writer keeps the snapshot of each repository. Each other lane reads
+    every issue through a snapshot of its own, which only its worker writes (#4854)."""
+    groups = load_settings().service.lanes if lanes is None else lanes
     failures = FailureLedger(record=state_dir / CONST_SERVICE_FAILURES_FILENAME)
     return {
-        CONST_SERVICE_LANE_STATUS: partial(
+        lane: partial(
             service_job,
-            table=STATUS_LANE_ROWS,
-            clone_dirname=CONST_ROADMAP_RUN_CLONE_DIRNAME,
-            lane=CONST_SERVICE_LANE_STATUS,
+            table=rows,
+            lane=lane,
             failures=failures,
-            listing=lane_listing(state_dir, CONST_SERVICE_LANE_STATUS),
-        ),
-        CONST_SERVICE_LANE_TRIAGE: partial(
-            service_job,
-            table=TRIAGE_LANE_ROWS,
-            clone_dirname=CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME,
-            lane=CONST_SERVICE_LANE_TRIAGE,
-            failures=failures,
-            listing=intake_listing(state_dir),
-        ),
-        CONST_SERVICE_LANE_MODEL: partial(
-            service_job,
-            table=MODEL_LANE_ROWS,
-            clone_dirname=CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
-            lane=CONST_SERVICE_LANE_MODEL,
-            failures=failures,
-        ),
+            listing=(
+                intake_listing(state_dir)
+                if any(row.name == _SCOPED_INTAKE.job for row in rows)
+                else lane_listing(state_dir, lane)
+            ),
+        )
+        for lane, rows in service_lanes(groups).items()
     }
+
+
+def _report_unremoved(function: Callable[..., Any], path: str, error: BaseException) -> None:
+    """Log a path of a retired lane that the start of the Service could not remove."""
+    logger.warning(MESSAGES.roadmap.run_lane_state_unremoved.format(path=path, error=error))
+
+
+def retire_lane_state(
+    state_dir: Path, repos: Sequence[str], lanes: Mapping[str, Sequence[str]] | None = None
+) -> tuple[Path, ...]:
+    """Remove the clones and the snapshots of the lanes that the Service does not run, and give
+    the paths it removed (#5553): in the directory of each repository of `repos`, each clone
+    under `lanes/` whose lane is not a lane of `lanes` (`service_lanes`) and the clones of the
+    three earlier lanes; in `state_dir`, each snapshot directory `listing-<name>` whose lane is
+    not a lane. They are caches: a lane clones again, and reads the whole listing once. A path
+    that cannot be removed goes to the log, and the rest go on."""
+    running = set(service_lanes(lanes))
+    retired: list[Path] = []
+    for repo in repos:
+        repo_dir = _resolve_roadmap_repo_path(
+            state_dir.parent, repo, CONST_ROADMAP_RUN_STATE_FILENAME, error_cls=GitOperationError
+        ).parent
+        lanes_dir = repo_dir / CONST_ROADMAP_RUN_LANES_DIRNAME
+        clones = [repo_dir / name for name in CONST_ROADMAP_RUN_RETIRED_CLONE_DIRNAMES]
+        if lanes_dir.is_dir():
+            clones += [path for path in lanes_dir.iterdir() if path.name not in running]
+        retired += [path for path in clones if path.is_dir()]
+    retired += [path for lane, path in lane_snapshot_dirs(state_dir).items() if lane not in running]
+    for path in retired:
+        shutil.rmtree(path, onexc=_report_unremoved)
+    return tuple(retired)
 
 
 __all__ = [
@@ -1956,12 +2049,17 @@ __all__ = [
     "build_stub_table",
     "ensure_checkout",
     "identity_refused",
+    "lane_clone_dirname",
+    "lane_of_row",
+    "lanes_to_wake",
     "model_clone",
     "parse_due_tuple",
+    "retire_lane_state",
     "run_due_jobs",
     "run_scoped_update",
-    "scoped_update_wakes_model_lane",
+    "scoped_update_wakes_lanes",
     "service_job",
     "service_jobs",
+    "service_lanes",
     "service_state_dir",
 ]

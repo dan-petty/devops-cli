@@ -11,7 +11,7 @@ from devops_cli.roadmap.run import (
     DEFAULT_DUE_TABLE,
     JobOutcome,
     build_stub_table,
-    scoped_update_wakes_model_lane,
+    scoped_update_wakes_lanes,
 )
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_run import (
@@ -66,12 +66,12 @@ def test_an_issues_key_makes_due_only_the_rows_that_declare_it(
         ("opened", None, False),
     ],
 )
-def test_a_scoped_update_wakes_the_model_lane_for_an_edit_or_a_critical_placement(
+def test_a_scoped_update_wakes_the_other_lanes_for_an_edit_or_a_critical_placement(
     action: str, outcome: JobOutcome | None, wakes: bool
 ) -> None:
-    """An edit of an Item, and a placement of a critical fix or a P0 item, wake the model lane;
-    another scoped update does not (#4412)."""
-    assert scoped_update_wakes_model_lane(webhook_delivery(action, 7), outcome) is wakes
+    """An edit of an Item, and a placement of a critical fix or a P0 item, wake the other lanes;
+    another scoped update does not (#4412, #5553)."""
+    assert scoped_update_wakes_lanes(webhook_delivery(action, 7), outcome) is wakes
 
 
 def test_a_critical_placement_stamps_refine_due_and_the_model_lane_round_runs_refine(
