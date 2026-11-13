@@ -1268,7 +1268,7 @@ class RoadmapImplementConfig(BaseModel):
         ge=1,
     )
     step_token_ceiling: Annotated[int | None, Variable()] = Field(
-        description="The most new tokens (see `step_token_budget`) that one implementation step may reach with its one extension. A step that reaches `step_token_budget` gets one extension of half the budget when its last 20 tool calls hold at least one successful edit and at most 3 refused commands (the rule `implement.extension`), and the extension stops at this ceiling. It must not be below `step_token_budget`. When no config file and no variable sets it, it is twice `step_token_budget`, also after a change of the budget. The item budget still holds",
+        description="The most new tokens (see `step_token_budget`) that one implementation step may reach with its one extension. A step that reaches `step_token_budget` gets one extension of half the budget when its last `extension_calls` tool calls hold at least one successful edit and at most `extension_max_refused` refused commands (the rule `implement.extension`), and the extension stops at this ceiling. It must not be below `step_token_budget`. When no config file and no variable sets it, it is twice `step_token_budget`, also after a change of the budget. The item budget still holds",
         default=None,
         ge=1,
     )
