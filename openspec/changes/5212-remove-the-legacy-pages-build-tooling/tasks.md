@@ -4,9 +4,9 @@
 
 Kind: behavior. Reads: `src/devops_cli/github/pages.py`, `src/devops_cli/commands/gh.py`. Changes: `src/devops_cli/github/pages.py`, `src/devops_cli/commands/gh.py`, `tests/github/test_github_pages.py`, `tests/commands/test_gh_cmd.py`.
 
-- [ ] 1.1 Write `test_get_pages_status_gives_no_value_for_an_omitted_field` and change the payload of `test_get_pages_status_parses_status_payload` to a `workflow` build in `tests/github/test_github_pages.py`, and write `test_gh_pages_status_of_a_workflow_build_names_the_workflow` and `test_gh_pages_status_of_a_legacy_build_names_the_source_branch` in `tests/commands/test_gh_cmd.py`
+- [x] 1.1 Write `test_get_pages_status_gives_no_value_for_an_omitted_field`, and change `test_github_pages_info_model` and `test_get_pages_status_parses_status_payload` to a `workflow` build in `tests/github/test_github_pages.py`; change `test_gh_pages_status` to a `workflow` build that names the workflow and no source branch, and write `test_gh_pages_status_of_a_legacy_build_names_the_source_branch` in `tests/commands/test_gh_cmd.py`
   - Verification: `$ uv run devops ci fail-to-pass --base origin/main`
-- [ ] 1.2 Give `build_type`, `branch` and `path` of `GitHubPagesInfo` no default value, and print the source branch only for a `legacy` build in `devops gh pages status`
+- [x] 1.2 Give `build_type`, `branch` and `path` of `GitHubPagesInfo` no default value, and print the source branch only for a `legacy` build in `devops gh pages status`
   - Verification: `$ uv run devops ci test tests/github/test_github_pages.py tests/commands/test_gh_cmd.py`
 
 ## 2. Delete the legacy build commands

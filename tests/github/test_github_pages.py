@@ -44,18 +44,17 @@ def _answer_rate_limit(process_fake: ProcessFake) -> None:
 
 
 def test_github_pages_info_model() -> None:
-    """GitHubPagesInfo validates properly and handles optional fields."""
+    """GitHubPagesInfo gives no source branch and no path for a workflow build that names none
+    (#5212)."""
     info = GitHubPagesInfo(
         status="built",
         html_url="https://dan-petty.github.io/devops-cli/",
-        build_type="legacy",
-        branch="main",
-        path="/",
+        build_type="workflow",
         https_enforced=True,
     )
     assert info.status == "built"
     assert info.html_url == "https://dan-petty.github.io/devops-cli/"
-    assert info.branch == "main"
+    assert (info.build_type, info.branch, info.path) == ("workflow", None, None)
     assert info.https_enforced is True
 
 
@@ -80,8 +79,8 @@ def test_get_pages_status_parses_status_payload(process_fake: ProcessFake) -> No
     payload = {
         "status": "built",
         "html_url": "https://dan-petty.github.io/devops-cli/",
-        "build_type": "legacy",
-        "source": {"branch": "main", "path": "/"},
+        "build_type": "workflow",
+        "source": {"branch": "main", "path": "/docs"},
         "https_enforced": True,
         "cname": None,
         "custom_404": False,
@@ -93,8 +92,21 @@ def test_get_pages_status_parses_status_payload(process_fake: ProcessFake) -> No
     res = get_pages_status("dan-petty/devops-cli")
     assert res is not None
     assert res.status == "built"
-    assert res.branch == "main"
+    assert (res.build_type, res.branch, res.path) == ("workflow", "main", "/docs")
     assert res.https_enforced is True
+
+
+def test_get_pages_status_gives_no_value_for_an_omitted_field(process_fake: ProcessFake) -> None:
+    """get_pages_status invents no legacy build type, source branch or path when the API omits
+    them (#5212)."""
+    payload = {"status": "built", "html_url": "https://dan-petty.github.io/devops-cli/"}
+    process_fake.answer(
+        ["gh", "api", "repos/dan-petty/devops-cli/pages"],
+        ProcessAnswer(returncode=0, stdout=json.dumps(payload)),
+    )
+    res = get_pages_status("dan-petty/devops-cli")
+    assert res is not None
+    assert (res.build_type, res.branch, res.path) == (None, None, None)
 
 
 def test_get_pages_status_returns_none_when_disabled(process_fake: ProcessFake) -> None:

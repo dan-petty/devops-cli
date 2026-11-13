@@ -129,23 +129,42 @@ def test_gh_views_spec() -> None:
     assert "layout" in result.output
 
 
-def test_gh_pages_status(gh_edge: ProcessFake) -> None:
-    """devops gh pages status outputs site deployment panel."""
+def _pages_status_output(gh_edge: ProcessFake, build_type: str, path: str) -> Result:
+    """The result of `devops gh pages status` for a site of the build type with the source
+    branch `main` at the path."""
     payload = {
         "status": "built",
         "html_url": "https://dan-petty.github.io/devops-cli/",
-        "build_type": "legacy",
-        "source": {"branch": "main", "path": "/"},
+        "build_type": build_type,
+        "source": {"branch": "main", "path": path},
         "https_enforced": True,
     }
     gh_edge.answer(
         ["gh", "api", "repos/dan-petty/devops-cli/pages"],
         ProcessAnswer(stdout=json.dumps(payload)),
     )
-    result = runner.invoke(app, ["pages", "status", "--repo", "dan-petty/devops-cli"])
+    return runner.invoke(app, ["pages", "status", "--repo", "dan-petty/devops-cli"])
+
+
+def test_gh_pages_status(gh_edge: ProcessFake) -> None:
+    """devops gh pages status outputs site deployment panel. For a workflow build it names the
+    workflow and no source branch, which GitHub does not use for that build (#5212)."""
+    result = _pages_status_output(gh_edge, "workflow", "/docs")
     assert result.exit_code == 0
     assert "BUILT" in result.output
     assert "https://dan-petty.github.io/devops-cli/" in result.output
+    assert "Build Type: workflow" in result.output
+    assert "a GitHub Actions workflow deploys the site" in result.output
+    assert "Source Branch" not in result.output
+
+
+def test_gh_pages_status_of_a_legacy_build_names_the_source_branch(gh_edge: ProcessFake) -> None:
+    """devops gh pages status names the source branch and its path for a legacy build (#5212)."""
+    result = _pages_status_output(gh_edge, "legacy", "/")
+    assert result.exit_code == 0
+    assert "Source Branch: main (path: /)" in result.output
+    assert "Build Type: legacy" in result.output
+    assert "GitHub Actions workflow" not in result.output
 
 
 def test_gh_pages_builds(gh_edge: ProcessFake) -> None:

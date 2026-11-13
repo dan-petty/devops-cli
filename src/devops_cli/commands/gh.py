@@ -1066,11 +1066,17 @@ def pages_status_cmd(
         )
         return
     https_badge = "[green]ENFORCED[/green]" if info.https_enforced else "[yellow]DISABLED[/yellow]"
+    # GitHub keeps `source` for a workflow build but does not use it, so only a legacy build
+    # names its source branch (#5212).
+    source = {
+        "legacy": f"Source Branch: {info.branch or '—'} (path: {info.path or '—'})\n",
+        "workflow": "Source: a GitHub Actions workflow deploys the site\n",
+    }.get(info.build_type or "", "")
     print_panel(
         f"Deployment Status: [bold cyan]{info.status.upper()}[/bold cyan]\n"
         f"Site URL: [link={info.html_url}]{info.html_url}[/link]\n"
-        f"Source Branch: {info.branch} (path: {info.path})\n"
-        f"Build Type: {info.build_type}\n"
+        f"{source}"
+        f"Build Type: {info.build_type or '—'}\n"
         f"HTTPS Enforced: {https_badge}\n"
         f"Custom Domain: {info.cname or '—'}",
         title=f"GitHub Pages Status ({target_repo})",

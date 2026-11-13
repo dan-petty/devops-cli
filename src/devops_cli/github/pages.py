@@ -24,9 +24,10 @@ class GitHubPagesInfo(BaseModel):
 
     status: str
     html_url: str
-    build_type: str = "legacy"
-    branch: str = "main"
-    path: str = "/"
+    # GitHub gives `source` also for a `workflow` build, but uses it only for a `legacy` build.
+    build_type: str | None = None
+    branch: str | None = None
+    path: str | None = None
     cname: str | None = None
     custom_404: bool = False
     https_enforced: bool = True
@@ -66,13 +67,13 @@ def get_pages_status(repo: str) -> GitHubPagesInfo | None:
 
     try:
         data = json.loads(res.stdout)
-        source = data.get("source", {})
+        source = data.get("source") or {}
         return GitHubPagesInfo(
             status=data.get("status", "unknown"),
             html_url=data.get("html_url", ""),
-            build_type=data.get("build_type", "legacy"),
-            branch=source.get("branch", "main"),
-            path=source.get("path", "/"),
+            build_type=data.get("build_type"),
+            branch=source.get("branch"),
+            path=source.get("path"),
             cname=data.get("cname"),
             custom_404=data.get("custom_404", False),
             https_enforced=data.get("https_enforced", True),
