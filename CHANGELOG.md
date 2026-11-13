@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.125.1](https://github.com/dan-petty/devops-cli/compare/v0.125.0...v0.125.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* **security:** give the GitHub token only to the calls that need it ([#5266](https://github.com/dan-petty/devops-cli/issues/5266)) ([38266c7](https://github.com/dan-petty/devops-cli/commit/38266c735b830ecb055a794231fdba47164d03aa)), closes [#5265](https://github.com/dan-petty/devops-cli/issues/5265)
+
 ## [0.125.0](https://github.com/dan-petty/devops-cli/compare/v0.124.0...v0.125.0) (2026-11-12)
 
 
