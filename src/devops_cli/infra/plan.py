@@ -7,7 +7,11 @@ the inventory in the export, installs the pinned collections of `collections/req
 once for each version of the file, and runs `ansible-runner run <folder> --playbook <playbook>`
 with `--check --diff -v` and the limit `<limit>:!<offline group>`. The run gets the repo's
 `ansible.cfg`, the key of `devops ssh` as `ansible_ssh_private_key_file`, host key checks on, and
-the environment of the process runner, so no `ANSIBLE_` variable of the person reaches it.
+the environment of the process runner, so no `ANSIBLE_` variable of the person reaches it. The
+`TERM` of the person reaches it, and ansible-runner gives the run a pseudo-terminal, so in a color
+terminal the default callback puts color codes around the text of each event. Every run sets
+`ANSIBLE_NOCOLOR` (#5352): the event text, and so the plan, is the same in a color terminal and with
+no terminal.
 
 The job events (`artifacts/<ident>/job_events/*.json`) give the plan of each host, with no read of
 the repo's YAML:
@@ -115,11 +119,13 @@ _CHECK_OPTIONS: Final[tuple[str, ...]] = ("--check", "--diff", "-v")
 # that changes a file with a secret do not hold its text.
 _RUN_OPTIONS: Final[tuple[str, ...]] = ("-v",)
 # What the run adds to the environment of `ping_env`: the rendered arguments in each result, the
-# results as JSON, and a line for each skipped host.
+# results as JSON, a line for each skipped host, and no color. A skip result in color does not read
+# as JSON, and the plan counts it as unchecked (#5352).
 _PLAN_ENV: Final[dict[str, str]] = {
     "ANSIBLE_INJECT_INVOCATION": "True",
     "ANSIBLE_CALLBACK_RESULT_FORMAT": "json",
     "ANSIBLE_DISPLAY_SKIPPED_HOSTS": "True",
+    "ANSIBLE_NOCOLOR": "True",
 }
 
 _EVENT_OK: Final[str] = "runner_on_ok"
@@ -414,7 +420,7 @@ def _config_env(project: Path) -> dict[str, str]:
 def runner_env(tool: AnsibleTool, project: Path, collections: Path | None) -> dict[str, str]:
     """The environment that the run adds: the tool environment first on PATH, host key checks on,
     the repo's `ansible.cfg`, the rendered arguments in each result, the results as JSON, a line
-    for each skipped host, and the pinned collections."""
+    for each skipped host, no color, and the pinned collections."""
     env = ping_env(tool) | _PLAN_ENV | _config_env(project)
     if collections is not None:
         env["ANSIBLE_COLLECTIONS_PATH"] = str(collections)

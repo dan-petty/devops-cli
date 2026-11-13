@@ -104,6 +104,27 @@ def test_each_change_skip_and_handler_of_a_host_is_in_the_plan(tmp_path: Path) -
     )
 
 
+def test_a_skip_result_in_color_stays_unchecked(tmp_path: Path) -> None:
+    """In a color terminal the callback puts color codes around the text of each skip, so the
+    result after `=> ` does not read as JSON, and a skip by a false `when` is unchecked: the safe
+    side. The run turns the color off (#5352), so a plan does not read such a skip."""
+    remove_unit = PlanTask(
+        name="Remove the old demo unit", path=f"{_DEMO}:27", action="ansible.builtin.command"
+    )
+    install_agent = PlanTask(
+        name="Download and execute K3s agent installation script",
+        path=f"{_K3S_AGENT}:31",
+        action="ansible.builtin.shell",
+    )
+    added = {"node-1.example.com": (remove_unit,), "node-3.example.com": (install_agent,)}
+    plain = _hosts("site", tmp_path)
+
+    assert _hosts("site_color", tmp_path) == {
+        host: plan.model_copy(update={"unchecked": plan.unchecked + added.get(host, ())})
+        for host, plan in plain.items()
+    }
+
+
 def test_a_reboot_task_is_disruptive(tmp_path: Path) -> None:
     assert _hosts("site", tmp_path)["node-2.example.com"] == HostPlan(
         host="node-2.example.com",

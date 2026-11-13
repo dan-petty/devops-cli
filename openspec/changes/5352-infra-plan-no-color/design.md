@@ -1,0 +1,19 @@
+# Design
+
+## Decisions
+
+- `_PLAN_ENV` holds `ANSIBLE_NOCOLOR=True`. `runner_env` adds `_PLAN_ENV` after the allowlist of the process runner, so every run of `Playbook.run` gets it: the plan, the fresh check and the run of an apply. The status ping (`ping_env`) parses no skip result and does not change.
+- `_is_check_mode_skip` does not change. A skip result that does not read as JSON stays unchecked: the safe side.
+- The tests use a real recording. `tests/fixtures/infra/runner_events/site_color.jsonl` holds the job events of the run `site` of the probe again, with `TERM=xterm-256color` and no `ANSIBLE_NOCOLOR`, as a color terminal gave them before this change. The answer of the fake `ansible-runner` (`terminal_events` in `tests/support/infra.py`) gives that recording to a run whose environment is the environment of the recording, and the recording `site` to every other run. It reads the environment of the run with `build_subprocess_env`, the function that the process runner uses, so the `TERM` of the person reaches the decision as it reaches the real run.
+- Acceptance criterion 1 of the issue asks for the same plan "with and without the color codes in `stdout`". The proposed fix of the issue removes the color codes and keeps the safe side for a result that does not read. Thus the test of the plan reader shows that a skip in color stays unchecked, and the test of the apply shows that a plan with no `TERM` and its apply with `TERM=xterm-256color` get the same plan (criteria 1 and 3). The tests of the plan run and of the apply runs find `ANSIBLE_NOCOLOR=True` in the environment of each `ansible-runner` run (criterion 2).
+
+## Rejected alternatives
+
+- **Remove the color codes in the plan reader.** The cause is the color of the event text, and Ansible has a setting that turns it off. The recorded run with `TERM=xterm-256color` and `ANSIBLE_NOCOLOR=True` holds no escape code and gives the same plan as the run with no `TERM`. A reader of terminal codes is a second fix for the same cause and more code to keep, and the issue asks to keep the safe side for a result that does not read.
+- **Set `ANSIBLE_NOCOLOR` in the environment of the caller.** The process runner drops it: `DEFAULT_ALLOWED_ENV_VARS` holds `TERM` and `COLORTERM`, and no allowed name or prefix matches an `ANSIBLE_` variable. The second apply of the owner with `ANSIBLE_NOCOLOR=1` stopped the same way.
+- **Remove `TERM` and `COLORTERM` from the environment of the run.** The allowlist of the process runner is shared by every child. A removal for one caller needs a new option of the process runner, and Ansible has its own setting for this.
+- **Read the skip result from the event data.** ansible-runner 2.4.3 puts no result in the event data of `runner_on_skipped` (`v2_runner_on_skipped` in `awx_display.py`), so the event `stdout` is the only source.
+
+## Limits
+
+- `ansible/utils/color.py` applies `ANSIBLE_FORCE_COLOR` after `ANSIBLE_NOCOLOR`. A repo whose `ansible.cfg` sets `force_color` thus gets color in every run. The plan and the fresh check then read the same text in each caller environment and agree, and each skip by a false `when` is unchecked: the safe side.
