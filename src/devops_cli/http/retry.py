@@ -76,8 +76,8 @@ _TEXT_MEDIA_TYPE: Final = "text/plain"
 class ReadRetryPolicy:
     """How a client sends a read again: the attempts, the waits and the time bound.
 
-    The wait before attempt n + 1 is `first_wait_seconds * 2 ** (n - 1)`, at most
-    `max_wait_seconds`, plus a jitter of up to `jitter_seconds`, and at least the delay of a
+    The wait before attempt n + 1 is `first_wait_seconds * 2 ** (n - 1)` plus a jitter of up to
+    `jitter_seconds`, at most `max_wait_seconds` with the jitter, and at least the delay of a
     `Retry-After` header. No attempt starts when the time since the first attempt plus the next
     wait is `budget_seconds` or more.
     """
@@ -228,7 +228,7 @@ def service_error(
         problem = _status_problem(error.response)
     else:
         problem = texts.network.format(
-            error_type=type(error).__name__, error=str(error) or type(error).__name__
+            error_type=type(error).__name__, error=_one_line(str(error)) or type(error).__name__
         )
     count = (
         texts.one_attempt if attempts.count == 1 else texts.attempts.format(count=attempts.count)
@@ -269,7 +269,13 @@ def _reply_detail(response: httpx2.Response) -> str | None:
         text = _json_error(response)
     elif media_type == _TEXT_MEDIA_TYPE:
         text = next(iter(response.text.strip().splitlines()), None)
+    text = _one_line(text or "")
     return text[:CONST_MAX_ERROR_DETAIL_LENGTH] if text else None
+
+
+def _one_line(text: str) -> str:
+    """`text` as one line with no full stop at its end, because the error line adds its own."""
+    return " ".join(text.split()).rstrip(".")
 
 
 def _json_error(response: httpx2.Response) -> str | None:

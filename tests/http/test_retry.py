@@ -316,6 +316,20 @@ def test_a_message_field_and_a_plain_text_reply_are_the_detail(
     ) == (True, True)
 
 
+def test_an_error_text_with_line_breaks_is_one_sentence_of_the_line(
+    web: WebFake, clock: ClockFake
+) -> None:
+    """An error text of more lines, or with its own full stop, stays in one line with one stop."""
+    web.respond("GET", _URL, 422, {"message": "Bad dashboard.\n  The panel 3 has no query."})
+
+    error = service_error("Grafana", _status_error(_client()))
+
+    assert (
+        "\n" in error.message,
+        ": Bad dashboard. The panel 3 has no query. The service refused" in error.message,
+    ) == (False, True)
+
+
 def test_a_rate_limit_hint_asks_to_wait(web: WebFake, clock: ClockFake) -> None:
     """A 429 that stays after the attempts asks the person to wait."""
     web.answer(_URL, 429)

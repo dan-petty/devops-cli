@@ -400,6 +400,18 @@ def test_the_command_reports_a_failed_fetch(
     assert result.exit_code == 1
 
 
+def test_a_fetch_from_a_service_that_stays_down_prints_its_line_once(
+    cluster: FakeCluster, web: WebFake, cli: Callable[..., Any], clock: ClockFake
+) -> None:
+    """The line of `ServiceRequestError` names the address, so the command adds no prefix."""
+    web.serve(lambda request: httpx2.Response(503))
+
+    result = cli("k8s", "service-url", "prometheus", "-n", "monitoring", "-p", "9090", "--fetch")
+
+    output = " ".join(result.output.split())
+    assert (result.exit_code, output.count(PROM), "4 attempts" in output) == (1, 1, True)
+
+
 # =============================================================================
 # Kubeconfig Bootstrap
 # =============================================================================
