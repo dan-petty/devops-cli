@@ -21,7 +21,7 @@ The module `devops_cli.release.merge_candidate` reads the open pull requests tha
 | Origin | The release App opened it, from a `release-please--branches--main` branch of this repository into `main`. |
 | Labels | It has `autorelease: pending` and does not have `hold-release`. |
 | Title | The title is `chore(main): release <version>`. |
-| Files | It changes only `.release-please-manifest.json`, `CHANGELOG.md`, `pyproject.toml` and `uv.lock`, and it adds, removes and renames none of them. |
+| Files | It changes only `.release-please-manifest.json`, `CHANGELOG.md`, `pyproject.toml` and `uv.lock`, and it adds, removes and renames none of them. The guard reads the files from the compare of `main` and the head commit, which is the diff that the squash merge applies. It does not read the file list of the pull request, because that list can hold files of `main` after the merge base moved. |
 | Checks | Every check that the ruleset of `main` requires passed on its head commit. No other check failed there, because the publish jobs of the release run the same scans. |
 | `main` | No required check failed on the head of `main`. |
 | Mergeable | GitHub reports it as mergeable. |

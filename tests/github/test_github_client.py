@@ -567,6 +567,28 @@ def test_an_answer_that_is_no_diff_raises_the_unread_error(
     assert raised.value.details["path"] == path
 
 
+def test_get_compare_diff_reads_the_three_dot_compare_of_the_base_branch_in_the_diff_media_type(
+    github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    """The diff of a head since its merge base with the base branch is one request to the compare
+    endpoint in the diff media type, and not a read of the pulls endpoint (#5388)."""
+    head = "a" * 40
+    github_api.route(
+        "GET",
+        f"/repos/octo/repo/compare/main...{head}",
+        github_text("diff --git a/foo b/foo\n+line", media_type=CONST_GITHUB_DIFF_MEDIA_TYPE),
+    )
+
+    diff = _client().get_compare_diff("octo/repo", "main", head)
+
+    accepts = {request.headers["accept"] for request in github_api.sent}
+    assert (diff, github_api.requested, accepts) == (
+        "diff --git a/foo b/foo\n+line",
+        [f"GET https://api.github.com/repos/octo/repo/compare/main...{head}"],
+        {CONST_GITHUB_DIFF_MEDIA_TYPE},
+    )
+
+
 @pytest.fixture
 def gh_process(process_fake: ProcessFake) -> ProcessFake:
     """A process fake answering rate limit checks with fresh quota."""

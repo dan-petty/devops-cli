@@ -1,4 +1,9 @@
-"""The pick of the release pull request that the scheduled merge merges (#3921)."""
+"""The pick of the release pull request that the scheduled merge merges (#3921).
+
+The pick reads the files of a pull request from the compare of its base branch and its head
+commit (#5388). The payload `base.sha` of each pull request here is a stale commit of `main`, and
+its pulls files list holds a file of `main` that the release does not change.
+"""
 
 from __future__ import annotations
 
@@ -17,13 +22,20 @@ from devops_cli.release.merge_candidate import (
     main,
     pick,
 )
-from tests.support.fakes.github import GitHubApiFake, github_json
+from tests.support.fakes.github import (
+    GitHubApiFake,
+    github_json,
+    pull_request_file_payload,
+    route_compare_files,
+)
 from tests.support.paths import REPO_ROOT
 
 APP = "example-release[bot]"
 REPO = "example/project"
 RELEASE_HEAD = "a" * 40
 BASE_HEAD = "b" * 40
+STALE_BASE = "d" * 40
+MAIN_FILE = "src/devops_cli/main.py"
 REQUIRED = ("Static Analysis", "Tests & Coverage", "Semantic PR title")
 
 
@@ -59,7 +71,7 @@ def _detail(
             "sha": sha,
             "repo": {"full_name": REPO},
         },
-        "base": {"ref": "main"},
+        "base": {"ref": "main", "sha": STALE_BASE},
         "labels": [{"name": label} for label in labels],
         "mergeable": True,
         "mergeable_state": "clean",
@@ -68,7 +80,9 @@ def _detail(
 
 def _serve_repository(api: GitHubApiFake, *, pulls: dict[int, dict[str, Any]]) -> None:
     """Route the reads of the pick: the open pull requests, the rules, `main`, and the checks,
-    files and detail of each pull request."""
+    files and detail of each pull request. The compare of `main` and the head lists the files of
+    the release. The pulls files list and the compare from the stale `base.sha` also hold
+    `MAIN_FILE`, as GitHub answers after the merge base moved."""
     api.route(
         "GET",
         f"/repos/{REPO}/pulls?state=open&base=main&per_page=100",
@@ -95,13 +109,12 @@ def _serve_repository(api: GitHubApiFake, *, pulls: dict[int, dict[str, Any]]) -
     api.route("GET", _runs(BASE_HEAD), github_json(_check_runs(*REQUIRED)))
     for number, detail in pulls.items():
         api.route("GET", f"/repos/{REPO}/pulls/{number}", github_json(detail))
-        api.route(
-            "GET",
-            f"/repos/{REPO}/pulls/{number}/files?per_page=100",
-            github_json(
-                [{"filename": path, "status": "modified"} for path in sorted(RELEASE_FILES)]
-            ),
-        )
+        head = detail["head"]["sha"]
+        release = [pull_request_file_payload(path) for path in sorted(RELEASE_FILES)]
+        stale = [*release, pull_request_file_payload(MAIN_FILE)]
+        api.route("GET", f"/repos/{REPO}/pulls/{number}/files?per_page=100", github_json(stale))
+        route_compare_files(api, REPO, "main", head, *release, merge_base=BASE_HEAD)
+        route_compare_files(api, REPO, STALE_BASE, head, *stale, merge_base=STALE_BASE)
         api.route("GET", _runs(detail["head"]["sha"]), github_json(_check_runs(*REQUIRED, "Docs")))
 
 
@@ -115,6 +128,20 @@ def test_the_pick_returns_the_release_pull_request_that_passes_every_guard(
 
     assert picked == Candidate(number=41, head_sha=RELEASE_HEAD)
     assert lines == []
+
+
+def test_the_pick_reads_the_files_of_the_release_since_the_merge_base_with_main(
+    github_api: GitHubApiFake,
+) -> None:
+    """The payload `base.sha` is not the merge base: the pick reads the compare of the base branch
+    and the head commit, and not the pulls files list that holds a file of `main` (#5388)."""
+    _serve_repository(github_api, pulls={41: _detail(41)})
+    lines: list[str] = []
+
+    picked = pick(get_github_session(), REPO, APP, lines.append)
+
+    assert (picked, lines) == (Candidate(number=41, head_sha=RELEASE_HEAD), [])
+    assert not any(url.endswith("/files?per_page=100") for url in github_api.requested)
 
 
 def test_the_pick_skips_a_pull_request_without_the_release_label_and_does_not_read_it(
