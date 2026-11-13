@@ -24,7 +24,13 @@ from devops_cli.roadmap.stage.stage_eval_cases import (
     load_cases,
 )
 from devops_cli.roadmap.stage.stage_eval_gates import DefectStatus, replay_case
-from devops_cli.roadmap.stage.stage_verify import Finding, VerificationInput, open_findings
+from devops_cli.roadmap.stage.stage_verify import (
+    Finding,
+    Locator,
+    PlanPart,
+    VerificationInput,
+    open_findings,
+)
 from tests.support.paths import REPO_ROOT
 
 DROPPED = "3410-the-eval-field-group-is-dropped"
@@ -119,7 +125,7 @@ def test_a_quoted_dropped_criterion_finding_on_the_dropped_case_keeps_the_plan_i
     )
     finding = Finding(
         type=DefectType.CRITERION_DROPPED,
-        where="group 3",
+        where=Locator(part=PlanPart.ISSUE, section=CRITERION),
         problem="The group writes only a fixture and a test, and no group adds the field.",
         quote=CRITERION,
     )

@@ -9,12 +9,17 @@ of the golden set (`stage_eval_cases.DefectType`). A reply with another type fai
 also reads the repository with the read tools of the planner, and a quote may come from the answer
 of a tool (#3039). The review of refine (`refine_judge`) sends the same request with no tool.
 
-A finding is open when its type is in `OPEN_TYPES` and its `quote` is a text of the input or of
-a tool answer (`VerificationInput.contains`), or when it reports a placeholder that the request
-holds (#3264). Each open finding returns the plan to the planner (#5059). It does so
-`roadmap.stage.verify_repair_rounds` times, and once more for each review that fixes more earlier
-findings than it adds, up to `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING` rounds
-(`repair_round_due`, #3039, #5066, #5409). An open finding of the last review keeps the plan in
+A finding names its place with a structured locator (`Locator`, #5410): a part of the plan
+(`proposal`, `design`, `tasks` or `spec`) or the issue, and a section of that part. A finding is
+open when the input holds its place (`VerificationInput.holds`) and when its type is in
+`OPEN_TYPES` and its `quote` is a text of the input or of a tool answer
+(`VerificationInput.contains`), or it reports a placeholder that the request holds (#3264). A
+finding on a requirement, a group or a key that the plan does not hold is advice, whatever its
+quote: a reviewer can quote a base spec that the plan does not change. Each open finding returns
+the plan to the planner (#5059). It does so `roadmap.stage.verify_repair_rounds` times, and once
+more for each review that fixes more earlier findings than it adds, up to
+`CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING` rounds (`repair_round_due`, #3039, #5066,
+#5409). An open finding of the last review keeps the plan in
 draft with the label `plan/needs-fix` (#3264). Every other finding is advice: the job lists it in
 its comment. The pass never merges and never marks a pull request ready. `devops roadmap eval
 verify` scores the first review of a plan on the golden set (`stage_verify_eval`).
@@ -96,16 +101,70 @@ VERIFY_TYPES: Final[frozenset[DefectType]] = OPEN_TYPES | {
 PLAN_NEEDS_FIX_LABEL: Final[str] = "plan/needs-fix"
 # The keys of a group of the plan that name files.
 _FILE_KEYS: Final[tuple[str, ...]] = ("reads", "changes")
+# The keys of the plan that the design, the task groups and the spec delta hold. Each other key of
+# the plan, such as `why` or `feasibility`, or a key of a proposal of refine, is a key of the
+# proposal (#5410).
+_DESIGN_KEYS: Final[frozenset[str]] = frozenset({"decisions", "rejected"})
+_GROUPS_KEY: Final[str] = "groups"
+_SPECS_KEY: Final[str] = "specs"
+_NOT_PROPOSAL_KEYS: Final[frozenset[str]] = _DESIGN_KEYS | {_GROUPS_KEY, _SPECS_KEY}
+# The key of the plan that copies the acceptance criteria of the issue.
+_CRITERIA_KEY: Final[str] = "criteria"
+# The keys of an entry of the spec delta that name a requirement.
+_REQUIREMENT_KEYS: Final[tuple[str, ...]] = ("added", "modified", "removed", "renamed")
+_NAME_KEYS: Final[tuple[str, ...]] = ("name", "from_name", "to_name")
+# A task group as a finding names it: its number from 1, with `group` before it or the number of a
+# task after it, such as `2`, `group 2` or `2.1`.
+_GROUP_NUMBER: Final[re.Pattern[str]] = re.compile(r"(?:group\s*)?(\d+)(?:\.\d+)?")
+# The marks that a model may put around a name that it copies.
+_NAME_MARKS: Final[str] = "`'\" "
+_KEY_JOINS: Final[re.Pattern[str]] = re.compile(r"[\s-]+")
+
+
+class PlanPart(StrEnum):
+    """The part that a finding names (#5410): a file of the plan, its spec delta or the
+    issue."""
+
+    PROPOSAL = "proposal"
+    DESIGN = "design"
+    TASKS = "tasks"
+    SPEC = "spec"
+    ISSUE = "issue"
+
+
+class Locator(BaseModel):
+    """The place of a finding (#5410). `section` is a key of the plan for the proposal or the
+    design (such as `feasibility` or `decisions`) or a text of that part, the number of a task
+    group, the name of a requirement of the spec delta, or a text of the issue such as an
+    acceptance criterion. `capability` names the capability of the requirement, for the part
+    `spec` only."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    part: PlanPart
+    section: str = Field(min_length=1)
+    capability: str = ""
+
+    def text(self) -> str:
+        """The place as a comment line shows it: the part, the capability when it has one, and
+        the section in brackets."""
+        texts = MESSAGES.roadmap
+        if self.capability:
+            return texts.stage_finding_where_capability.format(
+                part=self.part.value, capability=self.capability, section=self.section
+            )
+        return texts.stage_finding_where.format(part=self.part.value, section=self.section)
 
 
 class Finding(BaseModel):
-    """One defect that the model found in a plan. `quote` is a text of the issue, the plan or a
-    cited file that shows the defect, or empty when no text shows it."""
+    """One defect that the model found in a plan. `where` is the part of the plan or of the
+    issue that holds the defect. `quote` is a text of the issue, the plan or a cited file that
+    shows the defect, or empty when no text shows it."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     type: DefectType
-    where: str = Field(min_length=1)
+    where: Locator
     problem: str = Field(min_length=1)
     quote: str = ""
 
@@ -168,6 +227,69 @@ class Judgement:
 def _folded(text: str) -> str:
     """`text` with each run of white space as one space, so a quote survives a line break."""
     return " ".join(text.split())
+
+
+def _name(text: str) -> str:
+    """`text` as a name to compare: white space folded, no mark around it, and in one case."""
+    return _folded(text).strip(_NAME_MARKS).casefold()
+
+
+def _holds_text(texts: Iterable[str], section: str) -> bool:
+    """Whether a text of `texts` holds `section`, compared as a name."""
+    wanted = _name(section)
+    return bool(wanted) and any(wanted in _name(text) for text in texts)
+
+
+def _holds_key(plan: Mapping[str, Any], keys: Iterable[str], section: str) -> bool:
+    """Whether `section` names one of `keys` that `plan` has, with a space or a hyphen for each
+    `_` (such as `What Changes`), or is a text of the value of such a key."""
+    present = [key for key in keys if key in plan]
+    key = _KEY_JOINS.sub("_", _name(section))
+    return key in present or _holds_text(_strings([plan[name] for name in present]), section)
+
+
+def _holds_group(groups: Any, section: str) -> bool:
+    """Whether `section` names a group of `groups`: its number from 1, or its title."""
+    if not isinstance(groups, list):
+        return False
+    number = _GROUP_NUMBER.fullmatch(_name(section))
+    if number is not None:
+        return 1 <= int(number[1]) <= len(groups)
+    titles = (group.get("title") for group in groups if isinstance(group, Mapping))
+    return any(isinstance(title, str) and _name(title) == _name(section) for title in titles)
+
+
+def _requirement_names(spec: Mapping[str, Any]) -> set[str]:
+    """The names of the requirements that the delta of one capability adds, modifies, removes
+    or renames, with each rename by its old and its new name."""
+    entries = [
+        entry
+        for key in _REQUIREMENT_KEYS
+        for entry in spec.get(key) or ()
+        if isinstance(entry, Mapping)
+    ]
+    return {
+        _name(entry[key])
+        for entry in entries
+        for key in _NAME_KEYS
+        if isinstance(entry.get(key), str)
+    }
+
+
+def _holds_requirement(specs: Any, place: Locator) -> bool:
+    """Whether the spec delta `specs` holds the requirement that `place` names, in the capability
+    of `place` or, when it names none, in any capability. A section that names the capability
+    itself names its whole delta."""
+    wanted = _name(place.section)
+    for spec in specs if isinstance(specs, list) else ():
+        if not isinstance(spec, Mapping):
+            continue
+        capability = _name(str(spec.get("capability", "")))
+        if place.capability and capability != _name(place.capability):
+            continue
+        if wanted == capability or wanted in _requirement_names(spec):
+            return True
+    return False
 
 
 def _strings(value: Any) -> Iterator[str]:
@@ -345,6 +467,28 @@ class VerificationInput:
         wanted = _folded(quote)
         return bool(wanted) and any(wanted in _folded(text) for text in self.request_texts())
 
+    def holds(self, place: Locator) -> bool:
+        """Whether the plan or the issue of the request holds `place` (#5410). The names compare
+        with white space folded and in one case. A group is a number of `groups` or a title of one.
+        A requirement is a name that the spec delta of its capability adds, modifies, removes or
+        renames. A section of the proposal or the design is one of its keys, or a text of their
+        values. A section of the issue is a text of its title, its body or the criteria of the
+        plan. A tool answer holds no place: a reviewer can read a base spec that the plan does not
+        change."""
+        plan = self.plan
+        match place.part:
+            case PlanPart.TASKS:
+                return _holds_group(plan.get(_GROUPS_KEY), place.section)
+            case PlanPart.SPEC:
+                return _holds_requirement(plan.get(_SPECS_KEY), place)
+            case PlanPart.DESIGN:
+                return _holds_key(plan, _DESIGN_KEYS, place.section)
+            case PlanPart.PROPOSAL:
+                return _holds_key(plan, set(plan) - _NOT_PROPOSAL_KEYS, place.section)
+            case PlanPart.ISSUE:
+                criteria = _strings(plan.get(_CRITERIA_KEY) or ())
+                return _holds_text((self.title, self.body, *criteria), place.section)
+
 
 def agent_instructions(system: str) -> str:
     """The instructions of an agent run of the pass: `system`, the pass, and the rules of a run
@@ -412,15 +556,18 @@ def open_findings(
     *,
     types: frozenset[DefectType] = OPEN_TYPES,
 ) -> list[Finding]:
-    """The findings that return the plan to the planner and keep it in draft: a type of `types`
-    with a quote that is in the input or in a tool answer, or a placeholder that the request holds
-    (#3264, #5059). A placeholder in a file that a tool read is no defect of the plan. Any other
-    finding is advice."""
+    """The findings that return the plan to the planner and keep it in draft: a finding whose
+    place the plan or the issue holds (#5410), with a type of `types` and a quote that is in the
+    input or in a tool answer, or with a placeholder that the request holds (#3264, #5059). A
+    placeholder in a file that a tool read is no defect of the plan. Any other finding is advice."""
     return [
         f
         for f in findings
-        if (f.type in types and given.contains(f.quote))
-        or (_reports_placeholder(f) and given.requests(f.quote))
+        if given.holds(f.where)
+        and (
+            (f.type in types and given.contains(f.quote))
+            or (_reports_placeholder(f) and given.requests(f.quote))
+        )
     ]
 
 
@@ -478,7 +625,7 @@ def finding_line(finding: Finding) -> str:
     )
     return MESSAGES.roadmap.stage_finding.format(
         type=finding.type.value,
-        where=safe_text(finding.where),
+        where=safe_text(finding.where.text()),
         problem=safe_text(finding.problem),
         quote=quote,
     )
@@ -514,6 +661,8 @@ __all__ = [
     "Finding",
     "Judgement",
     "LaterVerification",
+    "Locator",
+    "PlanPart",
     "Verdict",
     "Verification",
     "VerificationInput",

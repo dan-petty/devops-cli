@@ -4108,6 +4108,10 @@ class RoadmapMessages:
     # The model review of the plan (#3153): a finding, its evidence, what goes back to the planner,
     # and the section of the comment.
     stage_finding: str = "- `{type}` at {where}: {problem}{quote}"
+    # The place of a finding (#5410): its part and its section, with the capability of a
+    # requirement after the part.
+    stage_finding_where: str = "{part} ({section})"
+    stage_finding_where_capability: str = "{part} {capability} ({section})"
     stage_finding_quote: str = ' Evidence: "{quote}"'
     stage_verify_return: str = (
         "A model review of the plan found these defects. Fix each one, or show with a quote "

@@ -33,11 +33,13 @@ from tests.support.fakes.model import ModelFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.paths import FIXTURES
 from tests.support.roadmap_fix_plan import (
+    ISSUE_QUOTE,
     PLAN_BRANCH,
     REPAIRED_WHY,
     SAMPLE_QUOTE,
     finding,
     needs_fix_plan,
+    place,
     planner_requests,
     stage_comment,
     valid_changes,
@@ -51,6 +53,7 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
+# A real stage comment. Each finding line names its place as `<part> (<section>)` (#5410).
 STAGE_COMMENT = (FIXTURES / "roadmap_fix_plan" / "stage_comment.txt").read_text(encoding="utf-8")
 # The plan pull request that the real stage comment names.
 STAGE_COMMENT_PULL = 4980
@@ -67,7 +70,7 @@ def test_the_reader_reads_the_open_findings_of_a_real_stage_comment() -> None:
 
     assert (read.type, read.where) == (
         DefectType.CRITERION_DROPPED,
-        "specs (Readiness reads the file list at the merge base)",
+        place("spec", "Readiness reads the file list at the merge base"),
     )
     assert read.problem.startswith("The issue's criterion that no request path")
     assert read.quote.startswith("No request path of the readiness run ends with")
@@ -76,11 +79,31 @@ def test_the_reader_reads_the_open_findings_of_a_real_stage_comment() -> None:
 def test_the_reader_reads_back_each_open_finding_and_no_point() -> None:
     open_ = [
         finding(DefectType.TASK_ORDER),
-        finding(DefectType.CRITERION_DROPPED, quote="", where="criteria (criterion 2)"),
+        finding(DefectType.CRITERION_DROPPED, quote="", where=place("issue", ISSUE_QUOTE)),
+        finding(
+            DefectType.SPEC_DELTA_WRONG,
+            where=place("spec", "A release (of a claim) keeps it", "a/b"),
+        ),
     ]
-    point = finding(DefectType.OTHER, where="group 2")
+    point = finding(DefectType.OTHER, where=place("tasks", "2"))
 
     assert comment_open_findings(stage_comment(5, open_, [point])) == tuple(open_)
+
+
+def test_the_reader_leaves_out_a_line_whose_place_names_no_part(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    kept = finding(DefectType.TASK_ORDER)
+    body = stage_comment(5, [kept]).replace(
+        "\n- `task_order`",
+        "\n- `other` at decisions (the dry run): The dry run lists no read.\n- `task_order`",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        read = comment_open_findings(body)
+
+    assert read == (kept,)
+    assert "read 1 of the 2 lines" in caplog.text
 
 
 @pytest.mark.parametrize(

@@ -22,6 +22,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING,
 )
 from devops_cli.exceptions.roadmap import RoadmapStageError
+from devops_cli.roadmap.plan_read import read_change
 from devops_cli.roadmap.refine.refine_investigation import tool_stop
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType, load_cases
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient, review
@@ -42,10 +43,13 @@ from devops_cli.roadmap.stage.stage_verify import (
     verify,
 )
 from devops_cli.roadmap.stage.stage_verify import Verification as VerificationReply
+from tests.support.paths import FIXTURES
+from tests.support.roadmap_fix_plan import head_files, place
 from tests.support.scripted_model import Script, call
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.stage.stage import StageClient
+    from devops_cli.roadmap.stage.stage_verify import Locator
 
 PLAN = {
     "summary": "Stop the job dropping a comment",
@@ -71,8 +75,10 @@ def _input(root: Path | None = None, plan: dict[str, object] | None = None) -> V
     )
 
 
-def _finding(kind: DefectType, quote: str = "") -> Finding:
-    return Finding(type=kind, where="group 1", problem="The plan is wrong.", quote=quote)
+def _finding(kind: DefectType, quote: str = "", where: Locator | None = None) -> Finding:
+    """A finding of `kind` on `where`, by default the first task group of the plan."""
+    place_ = place("tasks", "1") if where is None else where
+    return Finding(type=kind, where=place_, problem="The plan is wrong.", quote=quote)
 
 
 def test_the_prompt_names_the_nine_types_and_no_other() -> None:
@@ -285,7 +291,7 @@ def test_a_dropped_criterion_finding_of_a_test_only_group_with_a_quote_in_the_in
     given = _test_only_input()
     finding = Finding(
         type=DefectType.CRITERION_DROPPED,
-        where="group 2",
+        where=place("issue", CRITERION),
         problem="The group writes only a fixture and a test, and no group adds the field.",
         quote=CRITERION,
     )
@@ -297,12 +303,14 @@ def test_a_dropped_criterion_finding_with_no_quote_in_the_input_is_advice() -> N
     given = _test_only_input()
     invented = Finding(
         type=DefectType.CRITERION_DROPPED,
-        where="group 2",
+        where=place("issue", CRITERION),
         problem="The group writes only a test.",
         quote="The case MUST hold a field that the issue never names.",
     )
     unquoted = Finding(
-        type=DefectType.CRITERION_DROPPED, where="group 2", problem="The group writes only a test."
+        type=DefectType.CRITERION_DROPPED,
+        where=place("issue", CRITERION),
+        problem="The group writes only a test.",
     )
 
     assert open_findings([invented, unquoted], given) == []
@@ -321,6 +329,190 @@ def test_the_dropped_criterion_type_names_a_test_only_group_and_one_that_deliver
     assert "is no `criterion_dropped`" in line
 
 
+# The plan pull request #5350 (item #5118) at its head ccfbab2e9586. Its spec delta changes three
+# requirements of `roadmap-item-claim`. Its one open finding named a fourth requirement, and quoted
+# the base spec of `roadmap-item-labels`, which the reviewer read with the tool `read_spec` (#5410).
+HEAD_5350 = FIXTURES / "roadmap" / "plan_heads" / "5350-ccfbab2e9586"
+READ_SPEC_5350 = (FIXTURES / "roadmap_fix_plan" / "read_spec_5350.txt").read_text(encoding="utf-8")
+CLAIM = "roadmap-item-claim"
+BASE_RULE = (
+    "Every job and command that sets the Status of an item SHALL write it through `write_status` "
+    "of `src/devops_cli/roadmap/status_sync.py`."
+)
+
+
+def _input_5350() -> VerificationInput:
+    (folder,) = HEAD_5350.iterdir()
+    return VerificationInput.of(
+        number=5118,
+        title="fix(roadmap): a claim release leaves the item In Progress",
+        body="`devops roadmap release` removes only the `owner/*` label. The Status stays put.",
+        plan=read_change(head_files(folder)).model_dump(mode="json"),
+        source=Path("/nonexistent"),
+    ).with_reads([READ_SPEC_5350])
+
+
+def _spec_finding(where: Locator, quote: str) -> Finding:
+    return Finding(
+        type=DefectType.SPEC_DELTA_WRONG,
+        where=where,
+        problem="The requirement repeats a rule of the base spec.",
+        quote=quote,
+    )
+
+
+def test_a_finding_on_a_requirement_that_the_plan_does_not_hold_is_advice() -> None:
+    given = _input_5350()
+    named = "A release writes through one Status writer"
+    places = [
+        place("spec", named, CLAIM),
+        place("spec", named),
+        place("spec", "Every job writes the Status through one writer", "roadmap-item-labels"),
+        place("spec", CLAIM, "roadmap-item-labels"),
+    ]
+
+    findings = [_spec_finding(where, BASE_RULE) for where in places]
+
+    assert given.contains(BASE_RULE)
+    assert open_findings(findings, given) == []
+
+
+def test_a_finding_on_a_requirement_of_the_plan_stays_open() -> None:
+    given = _input_5350()
+    quote = "The issue holds no `owner/*` label, still holds `status/planned`"
+    places = [
+        place("spec", "A release keeps a Status that a job did not set", CLAIM),
+        place("spec", "`a claim records the status it replaces`"),
+        place("spec", CLAIM, CLAIM),
+    ]
+
+    findings = [_spec_finding(where, quote) for where in places]
+
+    assert open_findings(findings, given) == findings
+
+
+def test_criterion_dropped_names_the_criterion_of_the_issue() -> None:
+    line = next(
+        line
+        for line in load_task_prompt("roadmap_stage_verify.md").splitlines()
+        if line.startswith("- `criterion_dropped`")
+    )
+    given = _test_only_input()
+    finding = Finding(
+        type=DefectType.CRITERION_DROPPED,
+        where=place("issue", CRITERION),
+        problem="No group changes the code that gives the case its field.",
+        quote=CRITERION,
+    )
+    elsewhere = _finding(
+        DefectType.CRITERION_DROPPED,
+        CRITERION,
+        place("issue", "The case MUST name a field."),
+    )
+
+    assert "`part` `issue`" in line
+    assert open_findings([finding, elsewhere], given) == [finding]
+
+
+def test_a_finding_on_a_group_that_the_plan_does_not_hold_is_advice() -> None:
+    given = _input()
+    quote = "The job drops the last comment"
+    held = [
+        _finding(DefectType.MISSING_PATH, quote, place("tasks", section))
+        for section in ("2", "group 2", "Group 1", "2.1", "second")
+    ]
+    absent = [
+        _finding(DefectType.MISSING_PATH, quote, place("tasks", section))
+        for section in ("3", "0", "group three", "the last group")
+    ]
+
+    assert open_findings([*held, *absent], given) == held
+
+
+def test_a_finding_on_a_key_of_the_proposal_or_the_design_that_the_plan_holds_is_open() -> None:
+    plan = {
+        **PLAN,
+        "what_changes": ["The job keeps the last comment."],
+        "decisions": [{"decision": "The dry run lists one read.", "reason": "It sends none."}],
+    }
+    given = _input(plan=plan)
+    quote = "The job drops the last comment"
+    held = [
+        place("proposal", "why"),
+        place("proposal", "What Changes"),
+        place("design", "decisions"),
+        place("design", "the dry run"),
+    ]
+    absent = [
+        place("proposal", "feasibility"),
+        place("proposal", "groups"),
+        place("proposal", "the dry run"),
+        place("design", "rejected"),
+        place("design", "why"),
+    ]
+
+    findings = [_finding(DefectType.FALSE_PREMISE, quote, where) for where in (*held, *absent)]
+
+    assert open_findings(findings, given) == findings[: len(held)]
+
+
+def test_a_finding_on_a_text_that_the_issue_does_not_hold_is_advice() -> None:
+    given = _input()
+    quote = "The job drops the last comment"
+    held = _finding(
+        DefectType.FALSE_PREMISE,
+        quote,
+        place("issue", "it happens on a  long thread"),
+    )
+    absent = _finding(DefectType.FALSE_PREMISE, quote, place("issue", "criterion 2"))
+
+    assert open_findings([held, absent], given) == [held]
+
+
+def test_a_placeholder_finding_on_a_part_that_the_plan_does_not_hold_is_advice() -> None:
+    given = _input(plan={"groups": [{"title": "placeholder"}]})
+    held = _finding(DefectType.OTHER, "placeholder", place("tasks", "1"))
+    absent = _finding(DefectType.OTHER, "placeholder", place("tasks", "2"))
+
+    assert open_findings([held, absent], given) == [held]
+
+
+def test_a_finding_on_a_refine_proposal_names_a_key_of_the_proposal() -> None:
+    given = _input(plan={"problem_statement": "The job drops the last comment of a thread."})
+    quote = "The job drops the last comment"
+    held = _finding(
+        DefectType.FALSE_PREMISE,
+        quote,
+        place("proposal", "problem_statement"),
+    )
+    absent = [
+        _finding(DefectType.FALSE_PREMISE, quote, where)
+        for where in (place("tasks", "1"), place("spec", "A requirement"))
+    ]
+
+    assert open_findings([held, *absent], given) == [held]
+
+
+def test_the_prompt_names_the_five_parts_of_a_place() -> None:
+    line = next(
+        line
+        for line in load_task_prompt("roadmap_stage_verify.md").splitlines()
+        if line.startswith("  - `part`:")
+    )
+    parts = Verification.model_json_schema()["$defs"]["PlanPart"]["enum"]
+
+    assert set(re.findall(r"`([a-z]+)`", line)) - {"part"} == set(parts)
+
+
+def test_a_finding_line_shows_the_part_the_capability_and_the_section() -> None:
+    finding = _spec_finding(place("spec", "A release keeps a Status", CLAIM), "")
+
+    assert findings_section([finding]).splitlines()[-1] == (
+        f"- `spec_delta_wrong` at spec {CLAIM} (A release keeps a Status): "
+        "The requirement repeats a rule of the base spec."
+    )
+
+
 def test_the_open_findings_section_lists_each_open_finding_first() -> None:
     finding = _finding(DefectType.OTHER, "placeholder")
 
@@ -335,7 +527,7 @@ def test_the_problem_that_goes_back_to_the_planner_names_each_finding() -> None:
     problem = return_problem([_finding(DefectType.FALSE_PREMISE, "The job drops the last comment")])
 
     assert "false_premise" in problem
-    assert "group 1" in problem
+    assert "tasks (1)" in problem
     assert "The job drops the last comment" in problem
 
 
@@ -346,7 +538,7 @@ def test_the_findings_section_is_empty_without_findings() -> None:
 def test_the_findings_section_puts_each_finding_on_one_line_without_a_ping() -> None:
     finding = Finding(
         type=DefectType.CONTRIVED_TEST,
-        where="group 2",
+        where=place("tasks", "2"),
         problem="The test\nasks @octocat to read https://example.com/x.",
         quote="a  quote",
     )
@@ -355,7 +547,7 @@ def test_the_findings_section_puts_each_finding_on_one_line_without_a_ping() -> 
 
     (line,) = [line for line in section.splitlines() if "contrived_test" in line]
     assert "@octocat" not in line.replace("`@octocat`", "")
-    assert "group 2" in line
+    assert "tasks (2)" in line
     assert "\n" not in line
 
 

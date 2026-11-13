@@ -1,0 +1,22 @@
+# Design
+
+## Decisions
+
+- **The place stays under the key `where`, as an object with `part`, `section` and `capability`.**: The reply keeps its four keys, so the prompt, the comment and each reader of a finding change only in the form of one key. `capability` is empty for each part other than `spec`.
+- **The parts follow the files of a change and the issue: `proposal`, `design`, `tasks`, `spec` and `issue`.**: The design holds the keys `decisions` and `rejected`, the task groups are `groups`, and the spec delta is `specs`. Each other key of the plan is a key of the proposal. So a proposal of refine, which has keys such as `problem_statement`, has the part `proposal` and no group and no spec delta.
+- **`VerificationInput.holds` checks the place against the plan of the request and the issue, never against a tool answer.**: #5350 shows that a reviewer reads a base spec that the plan does not change, and quotes it. A quote may still come from a tool answer, as #3039 allows.
+- **The check compares names leniently.**: White space folds, case does not count, and quote marks around a name go. A group is `2`, `group 2`, a task number such as `2.1`, or the title of the group. A key of the proposal or the design may have spaces or hyphens for `_` (`What Changes`), or the section may be a text of that part. A requirement must have the name that the delta writes, in the named capability or, with no capability, in any capability of the delta. A section that names the capability itself names its whole delta. So a place that the plan holds is not lost to a small change of form.
+- **The schema accepts any place, and the check makes a finding on a part that the plan does not hold advice.**: A reply that the schema refuses goes back to the model once, and a second refusal fails the item with `StructuredOutputValidationError`. A wrong place must not stop the stage job.
+- **The code does not tie a type to a part. The prompt says which part a type that reports a missing part names.**: A `criterion_dropped` finding names the criterion of the issue (`part` `issue`), and a `missing_path` finding names the group that names or needs the file. A missing part has no place in the plan, so the finding names the part that needs it.
+- **The place rule applies to a placeholder finding too.**: The rule of #5410 covers each finding: a finding whose part the plan does not hold is advice.
+- **The comment line shows the place as `<part> (<section>)`, with the capability after the part for a requirement.**: A capability name holds no space, so the reader of `fix-plan` splits the part, the capability and the section with one regular expression. The two forms are message templates (`stage_finding_where`, `stage_finding_where_capability`), as the line itself is.
+- **The comment reader reads only this place form.**: A line of another form is left out, and the step logs how many lines it read, as for any line that does not read as a finding. The review of the head runs in each attempt, so the planner still gets the open findings of that review.
+- **The stage comment fixtures use the new place form.**: The replays of fix-plan read the open findings of the comment, and a comment that the stage job writes now holds this form.
+
+## Rejected alternatives
+
+- **Keep the free text and read a part from it with rules.**: The real comments of the fixtures name places such as "criteria (criterion 3) / group 4" and "specs (metric-instruments) and the rejected alternatives of group 2". No rule reads such text as one part of the plan.
+- **Refuse a place that the plan does not hold in a validator of the schema.**: A second refused reply fails the item with `StructuredOutputValidationError` (`verify` in `stage_verify.py`), so one wrong place would stop the stage job instead of making advice.
+- **Ask a decision model whether the plan holds the finding, as #5215 does in fix-plan.**: It costs one model call for each finding, and the plan of the request already holds the groups, the keys and the requirement names that answer the question with no call.
+- **Accept a place that a tool answer holds.**: The finding of #5350 named a requirement of `roadmap-item-labels` that the reviewer read with `read_spec`. A tool answer holds the whole repository, so this rule would keep the false blocker.
+- **Flat keys `part`, `section` and `capability` on the finding in place of `where`.**: The reply, the comment line and the record of refine would lose the one key that names the place, and each reader would change in more places.

@@ -35,6 +35,7 @@ from tests.support.fakes.model import ModelFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.paths import FIXTURES
 from tests.support.roadmap_fix_plan import (
+    ISSUE_QUOTE,
     PLAN_BRANCH,
     PLAN_CHANGE,
     PLAN_PATH,
@@ -44,6 +45,7 @@ from tests.support.roadmap_fix_plan import (
     head_files,
     needs_fix_plan,
     no_open_pulls,
+    place,
     plan_files,
     planner_requests,
     route_plan_pull,
@@ -302,7 +304,7 @@ def test_a_clean_head_with_listed_findings_is_dismissed(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     plan = needs_fix_plan(store, stage_repo, github_api)
-    listed = finding(DefectType.CRITERION_DROPPED, where="criteria (criterion 2)")
+    listed = finding(DefectType.CRITERION_DROPPED, where=place("issue", ISSUE_QUOTE))
     store.seed_comment(plan.number, stage_comment(plan.pull, [listed]))
     verifier.answer(Verification())
 
@@ -323,7 +325,7 @@ def test_a_clean_head_with_listed_findings_is_dismissed(
     assert "after" not in line
     (_, comment) = _comments(store)
     assert "dismisses" in comment
-    assert "criteria (criterion 2)" in comment
+    assert f"issue ({ISSUE_QUOTE})" in comment
 
 
 @pytest.mark.parametrize(
@@ -651,6 +653,7 @@ Reads: `src/devops_cli/sample.py`. Changes: `{NEW_MODULE}` (new).
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_stage_constants.py`
 """
 PLAN_HEADS = FIXTURES / "roadmap" / "plan_heads"
+# Real stage comments. Each finding line names its place as `<part> (<section>)` (#5410).
 COMMENTS = FIXTURES / "roadmap_fix_plan"
 
 

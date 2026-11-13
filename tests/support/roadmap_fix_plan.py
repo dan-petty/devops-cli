@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from devops_cli.roadmap.stage.stage_change import StageProposal
+    from devops_cli.roadmap.stage.stage_verify import Locator
     from tests.support.fakes.github import GitHubApiFake
     from tests.support.fakes.model import ModelFake
     from tests.support.fakes.openspec import OpenSpecFake
@@ -64,9 +65,24 @@ class PlanPull:
     head: str
 
 
-def finding(kind: DefectType, quote: str = ISSUE_QUOTE, where: str = "group 1") -> Finding:
-    """A finding of `kind` whose quote is a text of the input, so an open type makes it open."""
-    return Finding(type=kind, where=where, problem=f"Problem of {kind.value}.", quote=quote)
+def place(part: str, section: str, capability: str = "") -> Locator:
+    """The place of a finding (#5410): `part` is a value of `PlanPart`, such as `tasks`."""
+    # Imported here: this module loads as a pytest plugin, and the fail-to-pass replay loads it
+    # against a base tree that has no `Locator` yet.
+    from devops_cli.roadmap.stage.stage_verify import Locator, PlanPart
+
+    return Locator(part=PlanPart(part), section=section, capability=capability)
+
+
+def finding(kind: DefectType, quote: str = ISSUE_QUOTE, where: Locator | None = None) -> Finding:
+    """A finding of `kind` whose quote is a text of the input, so an open type makes it open. Its
+    place is `where`, by default the first task group of the plan."""
+    return Finding(
+        type=kind,
+        where=place("tasks", "1") if where is None else where,
+        problem=f"Problem of {kind.value}.",
+        quote=quote,
+    )
 
 
 def plan_files(proposal: StageProposal | None = None) -> dict[str, str]:

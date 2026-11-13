@@ -19,7 +19,7 @@ from devops_cli.roadmap.service_stop import begin_service_stop
 from devops_cli.roadmap.stage.stage import StagePlan, parse_filters, plan_stage
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
-from devops_cli.roadmap.stage.stage_verify import Finding, Verification
+from devops_cli.roadmap.stage.stage_verify import Finding, Locator, PlanPart, Verification
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.model import ModelFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -76,7 +76,7 @@ def _review(count: int) -> Verification:
         findings=[
             Finding(
                 type=DefectType.FALSE_PREMISE,
-                where=f"group {number}",
+                where=Locator(part=PlanPart.PROPOSAL, section="why"),
                 problem=f"The premise of group {number} is wrong.",
                 quote=ISSUE_QUOTE,
             )

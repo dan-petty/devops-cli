@@ -39,7 +39,7 @@ from devops_cli.roadmap.refine.refine import (
 )
 from devops_cli.roadmap.refine.refine_judge import judge
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType
-from devops_cli.roadmap.stage.stage_verify import Finding, Verification
+from devops_cli.roadmap.stage.stage_verify import Finding, Locator, PlanPart, Verification
 from devops_cli.roadmap.stores.store import ItemField, JudgeVerdict, RefineRecordKey
 from devops_cli.roadmap.trust import is_approved
 from tests.support.fakes.model import ModelFake
@@ -65,17 +65,19 @@ _READY = RefinementProposal(
 )
 _FALSE_PREMISE = Finding(
     type=DefectType.FALSE_PREMISE,
-    where="problem_statement",
+    where=Locator(part=PlanPart.PROPOSAL, section="problem_statement"),
     problem="The issue does not say that the item needs a design.",
     quote=PREMISE,
 )
 _ADVICE = Finding(
-    type=DefectType.CONTRIVED_TEST, where="criterion 1", problem="A test repeats the code."
+    type=DefectType.CONTRIVED_TEST,
+    where=Locator(part=PlanPart.PROPOSAL, section="acceptance_criteria"),
+    problem="A test repeats the code.",
 )
 # The line of `_FALSE_PREMISE` that the job record keeps and the next request gives (#4798).
 _FALSE_PREMISE_LINE = (
-    "`false_premise` at problem_statement: The issue does not say that the item needs a design. "
-    f'Evidence: "{PREMISE}"'
+    "`false_premise` at proposal (problem_statement): The issue does not say that the item "
+    f'needs a design. Evidence: "{PREMISE}"'
 )
 _NOW = datetime(2026, 11, 11, 12, 0, tzinfo=UTC)
 _LABELS = "- name: type/bug\n  color: D73A4A\n  description: A defect\n"
@@ -556,6 +558,20 @@ def test_a_finding_on_tasks_is_advice_because_a_proposal_has_no_task_groups(
 ) -> None:
     number = _seed(store)
     finding = _FALSE_PREMISE.model_copy(update={"type": kind})
+
+    _round(store, git_repo, _Proposer(), _Verifier(finding))
+
+    assert (_status(store, number), _record(store, number, RefineRecordKey.JUDGE)) == (
+        "Ready",
+        "approved",
+    )
+
+
+def test_a_finding_on_a_task_group_is_advice_because_a_proposal_has_no_task_groups(
+    store: InMemoryRoadmapStore, git_repo: Path
+) -> None:
+    number = _seed(store)
+    finding = _FALSE_PREMISE.model_copy(update={"where": Locator(part=PlanPart.TASKS, section="1")})
 
     _round(store, git_repo, _Proposer(), _Verifier(finding))
 
