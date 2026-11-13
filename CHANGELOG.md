@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.125.5](https://github.com/dan-petty/devops-cli/compare/v0.125.4...v0.125.5) (2026-11-13)
+
+
+### Bug Fixes
+
+* **k8s:** let gateway rollouts and database restarts finish open calls ([#5342](https://github.com/dan-petty/devops-cli/issues/5342)) ([1f928c1](https://github.com/dan-petty/devops-cli/commit/1f928c1401b97b2864783ba0af2e6020d0ea1f72))
+
 ## [0.125.4](https://github.com/dan-petty/devops-cli/compare/v0.125.3...v0.125.4) (2026-11-13)
 
 
