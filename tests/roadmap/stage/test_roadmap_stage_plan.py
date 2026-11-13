@@ -804,7 +804,7 @@ def test_the_rules_of_a_spec_delta_are_checked() -> None:
         "The capability comment-thread is not in openspec/specs/, so its entry needs a purpose "
         "of at least 50 characters.",
         "The capability comment-thread is not in openspec/specs/, so it has no requirement to "
-        "modify. Add the requirements instead.",
+        "modify, rename or remove. Add the requirements instead.",
         "The requirement The job keeps every comment does not say SHALL or MUST.",
     ]
 

@@ -2,8 +2,9 @@
 change it renders, and the measure of each task group against the step budget.
 
 The reply is one `StageProposal`. `check_proposal` finds what the rules of `openspec/config.yaml`
-ask and a schema cannot say: a Purpose on a new capability, a MODIFIED requirement only on a
-capability that exists, a spec delta only when the change is observable, a requirement text no
+ask and a schema cannot say: a Purpose on a new capability, a MODIFIED, RENAMED or REMOVED entry
+only on a capability that exists and only for a requirement of its base spec (#5340), a spec delta
+only when the change is observable, a requirement text no
 longer than the limit of OpenSpec (#4524), a base requirement that still names a command that an added requirement removes (#3287), a path that is a file of the
 staged commit or that a group creates (`stage_paths`), and a citation of a line or a symbol that
 the staged file does not hold (#3422). `render_change` turns the reply into the files of
@@ -424,6 +425,23 @@ class StageRequirement(_Reply):
     scenarios: list[StageScenario] = Field(min_length=1)
 
 
+class StageRename(_Reply):
+    """One rename of a base requirement (#5340). The archive applies a rename before a MODIFIED
+    block, so a `modified` entry of the requirement takes `to_name`."""
+
+    from_name: Text
+    to_name: Text
+
+
+class StageRemoval(_Reply):
+    """One removal of a base requirement, with the reason and, when another requirement holds the
+    rule now, the migration (#5340)."""
+
+    name: Text
+    reason: Text
+    migration: Text | None = None
+
+
 class StageSpec(_Reply):
     """The delta of one capability. `purpose` is set for a new capability only."""
 
@@ -431,6 +449,13 @@ class StageSpec(_Reply):
     purpose: LineStart | None = None
     added: list[StageRequirement] = Field(default_factory=list)
     modified: list[StageRequirement] = Field(default_factory=list)
+    renamed: list[StageRename] = Field(default_factory=list)
+    removed: list[StageRemoval] = Field(default_factory=list)
+
+    def base_names(self) -> dict[str, str]:
+        """The base name of each requirement of the delta, by its name in the delta: the
+        `from_name` of each rename by its `to_name`."""
+        return {rename.to_name: rename.from_name for rename in self.renamed}
 
 
 class StageDecision(_Reply):
@@ -710,7 +735,7 @@ def _spec_problems(spec: StageSpec, known: Collection[str]) -> list[str]:
         problems.append(
             texts.stage_problem_purpose.format(capability=spec.capability, count=PURPOSE_MIN_CHARS)
         )
-    if not exists and spec.modified:
+    if not exists and (spec.modified or spec.renamed or spec.removed):
         problems.append(texts.stage_problem_modified.format(capability=spec.capability))
     problems.extend(
         texts.stage_problem_keyword.format(requirement=requirement.name)
@@ -744,6 +769,35 @@ def _duplicate_problems(spec: StageSpec, requirements: Mapping[str, Collection[s
         )
         for requirement in spec.added
         if requirement.name.strip() in taken
+    ]
+
+
+def _base_name_problems(spec: StageSpec, requirements: Mapping[str, Collection[str]]) -> list[str]:
+    """One problem for each `from_name` and each removed `name` of `spec` that the base spec of
+    the capability does not have, and for each `to_name` that it has (#5340). `openspec validate`
+    does not compare these names with the base spec, and `openspec archive` refuses them. A caller
+    that gives no names for the capability skips the check."""
+    if spec.capability not in requirements:
+        return []
+    texts = MESSAGES.roadmap
+    base = {name.strip() for name in requirements[spec.capability]}
+    names = {"capability": spec.capability}
+    return [
+        *(
+            texts.stage_problem_rename_unknown.format(requirement=rename.from_name, **names)
+            for rename in spec.renamed
+            if rename.from_name not in base
+        ),
+        *(
+            texts.stage_problem_rename_taken.format(requirement=rename.to_name, **names)
+            for rename in spec.renamed
+            if rename.to_name in base
+        ),
+        *(
+            texts.stage_problem_remove_unknown.format(requirement=removal.name, **names)
+            for removal in spec.removed
+            if removal.name not in base
+        ),
     ]
 
 
@@ -875,14 +929,18 @@ def _names(text: str, name: str) -> bool:
 
 def _stale_command_problems(spec: StageSpec, texts: Mapping[str, str]) -> list[str]:
     """One problem for each base requirement of `spec.capability` that names a command or an option
-    that an ADDED requirement removes and that no `modified` requirement rewrites, and one for each
-    `modified` requirement whose text keeps the name (#3287). `texts` maps the name of each base
-    requirement to its statement, and a caller that gives none skips the check."""
+    that an ADDED requirement removes and that no `modified` requirement rewrites and no `removed`
+    entry removes, and one for each `modified` requirement whose text keeps the name (#3287). A
+    `modified` requirement under the new name of a rename rewrites the base requirement of the old
+    name (#5340). `texts` maps the name of each base requirement to its statement, and a caller
+    that gives none skips the check."""
     removed = {name for requirement in spec.added for name in _removed_names(requirement.text)}
     if not removed:
         return []
     messages = MESSAGES.roadmap
-    rewritten = {requirement.name.strip() for requirement in spec.modified}
+    base_names = spec.base_names()
+    rewritten = {base_names.get(r.name.strip(), r.name.strip()) for r in spec.modified}
+    rewritten.update(removal.name for removal in spec.removed)
     problems = [
         messages.stage_problem_stale_command.format(
             requirement=requirement, capability=spec.capability, command=name
@@ -929,6 +987,7 @@ def _delta_problems(
         problems.extend(_spec_problems(spec, known))
         problems.extend(_length_problems(spec))
         problems.extend(_duplicate_problems(spec, requirements))
+        problems.extend(_base_name_problems(spec, requirements))
         problems.extend(
             _stale_command_problems(spec, (requirement_texts or {}).get(spec.capability, {}))
         )
@@ -1207,11 +1266,17 @@ def _spec_texts(spec: Any) -> list[str]:
     if isinstance(spec, dict):
         texts = [spec.get("purpose", "")]
         reqs = (*spec.get("added", []), *spec.get("modified", []))
+        changes = (*spec.get("renamed", []), *spec.get("removed", []))
     else:
         texts = [getattr(spec, "purpose", "")]
         reqs = (*getattr(spec, "added", ()), *getattr(spec, "modified", ()))
+        changes = (*getattr(spec, "renamed", ()), *getattr(spec, "removed", ()))
     for req in reqs:
         texts.extend(_req_texts(req))
+    # The names of a rename, and the name, the reason and the migration of a removal (#5340).
+    for change in changes:
+        values = change.values() if isinstance(change, dict) else change.model_dump().values()
+        texts.extend(value for value in values if isinstance(value, str))
     return texts
 
 
@@ -2539,6 +2604,12 @@ def omitted_scenarios(
     return [(name, raw) for name, raw in base if name.strip() not in named]
 
 
+# The header of a requirement. A rename holds it in a code span, as the OpenSpec documents write it:
+# the span keeps a name that ends with a code span whole, as OpenSpec strips one closing backtick of
+# the line (#5340).
+_REQUIREMENT_HEADER: Final[str] = "### Requirement: "
+
+
 def _requirement_lines(
     requirement: StageRequirement, omitted: Sequence[tuple[str, str]] = ()
 ) -> str:
@@ -2549,7 +2620,24 @@ def _requirement_lines(
         ]
         + [f"#### Scenario: {name.strip()}\n{raw.strip()}" for name, raw in omitted]
     )
-    return f"### Requirement: {requirement.name.strip()}\n{requirement.text.strip()}\n\n{scenarios}"
+    return f"{_REQUIREMENT_HEADER}{requirement.name.strip()}\n{requirement.text.strip()}\n\n{scenarios}"
+
+
+def _removal_lines(removal: StageRemoval) -> str:
+    """The block of one removal: the header, the reason and the migration, in the form of the
+    OpenSpec documents (#5340)."""
+    lines = [f"{_REQUIREMENT_HEADER}{removal.name}", f"**Reason**: {removal.reason}"]
+    if removal.migration:
+        lines.append(f"**Migration**: {removal.migration}")
+    return "\n".join(lines)
+
+
+def _rename_lines(rename: StageRename) -> str:
+    """The FROM line and the TO line of one rename, each header in a code span (#5340)."""
+    return (
+        f"- FROM: `{_REQUIREMENT_HEADER}{rename.from_name}`\n"
+        f"- TO: `{_REQUIREMENT_HEADER}{rename.to_name}`"
+    )
 
 
 def spec_file_path(change: str, capability: str) -> str:
@@ -2559,7 +2647,9 @@ def spec_file_path(change: str, capability: str) -> str:
 
 def spec_file(spec: StageSpec, omitted: OmittedScenarios | None = None) -> str:
     """The text of the spec delta of `spec`. `omitted` gives, by the name of a MODIFIED
-    requirement, the base scenarios that its block adds after the scenarios of the reply (#4310)."""
+    requirement, the base scenarios that its block adds after the scenarios of the reply (#4310).
+    The REMOVED and RENAMED sections follow the ADDED and MODIFIED sections, as in the template of
+    OpenSpec, and a delta with neither writes the same text as before (#5340)."""
     parts: list[str] = []
     if spec.purpose:
         parts.append(f"## Purpose\n{spec.purpose.strip()}")
@@ -2571,6 +2661,12 @@ def spec_file(spec: StageSpec, omitted: OmittedScenarios | None = None) -> str:
             _requirement_lines(r, (omitted or {}).get(r.name.strip(), ())) for r in spec.modified
         )
         parts.append(f"## MODIFIED Requirements\n\n{body}")
+    if spec.removed:
+        body = "\n\n".join(_removal_lines(r) for r in spec.removed)
+        parts.append(f"## REMOVED Requirements\n\n{body}")
+    if spec.renamed:
+        body = "\n\n".join(_rename_lines(r) for r in spec.renamed)
+        parts.append(f"## RENAMED Requirements\n\n{body}")
     return "\n\n".join(parts) + "\n"
 
 
@@ -2595,14 +2691,14 @@ def _impact(groups: Sequence[StageGroup]) -> str:
 def _capabilities(specs: Sequence[StageSpec], known: Collection[str]) -> str:
     texts = MESSAGES.roadmap
 
+    def names(spec: StageSpec) -> str:
+        changed = [r.name.strip() for r in (*spec.added, *spec.modified)]
+        changed.extend(r.to_name for r in spec.renamed)
+        changed.extend(r.name for r in spec.removed)
+        return ", ".join(dict.fromkeys(changed))
+
     def listed(chosen: Sequence[StageSpec]) -> str:
-        return (
-            "\n".join(
-                f"- `{s.capability}`: {', '.join(r.name.strip() for r in (*s.added, *s.modified))}"
-                for s in chosen
-            )
-            or texts.stage_none
-        )
+        return "\n".join(f"- `{s.capability}`: {names(s)}" for s in chosen) or texts.stage_none
 
     return (
         f"### New Capabilities\n\n{listed([s for s in specs if s.capability not in known])}\n\n"

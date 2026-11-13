@@ -8,7 +8,7 @@ The nine types are `missing_path`, `false_premise`, `spec_delta_wrong`, `verify_
 
 - `missing_path`: the plan names a file that does not exist and that no earlier group creates, or a code change needs a file that the plan does not change.
 - `false_premise`: the plan claims a fact about the code, a tool or the system that `files` or the issue contradict, or that nothing in the input supports.
-- `spec_delta_wrong`: the spec delta changes a requirement that does not exist, adds one that duplicates another, or has a scenario that no test can assert.
+- `spec_delta_wrong`: the spec delta changes a requirement that does not exist, adds one that duplicates another, keeps a modified requirement whose name no longer fits its text (for example a name that says the opposite of the new text) with no `renamed` entry, or has a scenario that no test can assert.
 - `verify_form`: the verification command of a group does not run the work of the group, or gives a different answer on each run.
 - `task_order`: a task needs the result of a later task, or a test comes after the code it tests in a group of new behavior.
 - `criterion_dropped`: an acceptance criterion of the issue has no task in the plan, or the group that holds its task changes only test files while no group of the plan changes the code or the data that the criterion needs. A group that changes only test files delivers its criterion when an earlier group changes that code or data. That group is no `criterion_dropped`. Quote the text of the criterion.

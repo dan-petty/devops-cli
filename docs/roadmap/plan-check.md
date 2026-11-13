@@ -66,6 +66,8 @@ commit, whatever the working tree of the checkout holds.
   before an issue reference.
 - The check `Semantic PR title`: it must exist and it must pass.
 - A `MODIFIED` requirement whose text in the base spec changed, or went, since the plan commit.
+  For a requirement under the new name of a `RENAMED` entry, the command compares the base text
+  under the old name, because the archive renames before it modifies.
 
 A pull request that the implement job has taken over is the delivery of the item: its body closes
 the issue and holds no `Plans #<issue>` line. The command does not judge a delivery, so it prints

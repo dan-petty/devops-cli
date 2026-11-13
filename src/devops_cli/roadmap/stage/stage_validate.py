@@ -69,19 +69,21 @@ def restore_omitted_scenarios(
     """`files` with each base scenario that a MODIFIED requirement omits added at the end of its
     block, with the raw text that OpenSpec gives (#4310). A MODIFIED block replaces the whole
     requirement, so `openspec archive` refuses a block that omits a scenario, and a scenario cannot
-    be dropped on purpose. The scenarios of the reply stay as they are. A requirement that the base
-    spec lacks, and a capability with no base spec, are left to `validate_change`, which reports
-    them."""
+    be dropped on purpose. The scenarios of the reply stay as they are. The archive applies a rename
+    before a MODIFIED block, so a requirement under the new name of a rename gets the scenarios of
+    the old name (#5340). A requirement that the base spec lacks, and a capability with no base
+    spec, are left to `validate_change`, which reports them."""
     repaired = dict(files)
     for spec in proposal.specs:
         base = _base_scenarios(tool, source, spec.capability) if spec.modified else None
         if base is None:
             continue
+        base_names = spec.base_names()
         omitted: OmittedScenarios = {
             name: found
             for requirement in spec.modified
             if (name := requirement.name.strip())
-            and (found := omitted_scenarios(requirement, base.get(name, ())))
+            and (found := omitted_scenarios(requirement, base.get(base_names.get(name, name), ())))
         }
         if omitted:
             repaired[spec_file_path(change, spec.capability)] = spec_file(spec, omitted)

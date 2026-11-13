@@ -49,6 +49,8 @@ from devops_cli.roadmap.stage.stage_change import (
     StageProposal,
     StageReference,
     StageRejection,
+    StageRemoval,
+    StageRename,
     StageRequirement,
     StageScenario,
     StageSpec,
@@ -75,6 +77,13 @@ _REQUIREMENT: Final[re.Pattern[str]] = re.compile(r"^### Requirement: (?P<name>.
 _SCENARIO: Final[re.Pattern[str]] = re.compile(r"^#### Scenario: (?P<name>.+?)[ \t]*$", re.M)
 _WHEN: Final[re.Pattern[str]] = re.compile(r"^- \*\*WHEN\*\* (?P<text>.+?)[ \t]*$", re.M)
 _THEN: Final[re.Pattern[str]] = re.compile(r"^- \*\*THEN\*\* (?P<text>.+?)[ \t]*$", re.M)
+# A line of `## RENAMED Requirements` in the pattern of OpenSpec 1.17.0 (`requirement-blocks.js`):
+# any list marker or none, and the header in a code span or bare (#5340).
+_RENAME_LINE: Final[re.Pattern[str]] = re.compile(
+    r"^\s*[-*+]?\s*(?P<side>FROM|TO):\s*`?###\s*Requirement:\s*(?P<name>.+?)`?\s*$"
+)
+_REASON_MARK: Final[str] = "**Reason**:"
+_MIGRATION_MARK: Final[str] = "**Migration**:"
 _TASK_LINE: Final[re.Pattern[str]] = re.compile(r"^\[[ xX]\] (?P<number>\d+\.\d+) (?P<text>.*)$")
 _INLINE_VERIFY: Final[re.Pattern[str]] = re.compile(
     r"(?:,\s*and\s+)?[Vv]erify that `(?P<command>[^`]+)` (?P<suffix>fails on the base|passes)\s*$"
@@ -211,6 +220,58 @@ def _requirements(text: str, path: str) -> list[StageRequirement]:
     return found
 
 
+def _renames(text: str, path: str) -> list[StageRename]:
+    """The renames of a `## RENAMED Requirements` section: each FROM line with the TO line after
+    it. A line with no pair, and a section that holds no pair, raise `PlanReadError` (#5340)."""
+    refused = PlanReadError(path, MESSAGES.roadmap.plan_read_bad_rename.format(path=path))
+    found: list[StageRename] = []
+    pending: str | None = None
+    for line in text.splitlines():
+        match = _RENAME_LINE.match(line)
+        if match is None:
+            continue
+        # A FROM line needs no open FROM line before it, and a TO line needs one.
+        if (match["side"] == "FROM") != (pending is None):
+            raise refused
+        if pending is None:
+            pending = match["name"]
+            continue
+        try:
+            found.append(StageRename(from_name=pending, to_name=match["name"]))
+        except ValidationError as exc:
+            raise refused from exc
+        pending = None
+    if pending is not None or (text and not found):
+        raise refused
+    return found
+
+
+def _removals(text: str, path: str) -> list[StageRemoval]:
+    """The removals of a `## REMOVED Requirements` section: each requirement header with the text
+    after its `**Reason**:` mark and after its `**Migration**:` mark, each on one line. A header with
+    no reason, and a section that holds no header, raise `PlanReadError` (#5340)."""
+    refused = PlanReadError(path, MESSAGES.roadmap.plan_read_bad_removal.format(path=path))
+    matches = list(_REQUIREMENT.finditer(text))
+    if text and not matches:
+        raise refused
+    found: list[StageRemoval] = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        _, marked, rest = text[match.end() : end].partition(_REASON_MARK)
+        reason, _, migration = rest.partition(_MIGRATION_MARK)
+        try:
+            found.append(
+                StageRemoval(
+                    name=match["name"],
+                    reason=_one_line(reason) if marked else "",
+                    migration=_one_line(migration) or None,
+                )
+            )
+        except ValidationError as exc:
+            raise refused from exc
+    return found
+
+
 def _spec(path: str, text: str) -> StageSpec:
     match = _SPEC.match(path)
     if match is None:
@@ -221,6 +282,8 @@ def _spec(path: str, text: str) -> StageSpec:
         purpose=_one_line(purpose) or None,
         added=_requirements(_section(text, "ADDED Requirements"), path),
         modified=_requirements(_section(text, "MODIFIED Requirements"), path),
+        renamed=_renames(_section(text, "RENAMED Requirements"), path),
+        removed=_removals(_section(text, "REMOVED Requirements"), path),
     )
 
 

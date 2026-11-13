@@ -29,6 +29,8 @@ from devops_cli.roadmap.stage.stage_change import (
     StageProposal,
     StageReference,
     StageRejection,
+    StageRemoval,
+    StageRename,
     StageRequirement,
     StageScenario,
     StageSpec,
@@ -109,6 +111,8 @@ def test_the_top_level_keys_of_the_reply_are_the_fields_of_the_proposal() -> Non
         StageScenario,
         StageCriterion,
         StageReference,
+        StageRename,
+        StageRemoval,
     ],
 )
 def test_each_list_of_keys_of_the_reply_is_the_fields_of_a_model(model: type[BaseModel]) -> None:
@@ -670,6 +674,42 @@ def test_the_stage_prompt_gives_the_removal_sentence_that_the_check_reads() -> N
 
     assert len(problems) == 1
     assert f"`{old}`" in problems[0]
+
+
+# ── A requirement whose name no longer fits its text (#5340) ─────────────────
+
+
+def test_the_stage_prompt_lets_a_stale_requirement_go_with_removed() -> None:
+    """A base requirement that only states the removed command can go as a whole (#5340)."""
+    (rule,) = re.findall(r"- When the issue removes or renames[^\n]*", _PROMPT)
+
+    assert "`removed`" in rule
+
+
+def test_the_stage_prompt_tells_when_to_rename_and_when_to_remove() -> None:
+    """Plan #5182 kept a name that says the opposite of its new text, and its design said that a
+    delta refuses a new name (#5340). The prompt gives the planner the rename and the removal."""
+    (rule,) = re.findall(r"- Reuse a capability from `capabilities`[^\n]*", _PROMPT)
+
+    assert "`renamed`" in rule
+    assert "`to_name`" in rule
+    assert "the `modified` entry takes the new name" in rule
+    assert "`removed`" in rule
+    assert "reason" in rule
+
+
+def test_the_stage_prompt_fixes_a_name_finding_with_a_rename() -> None:
+    problem = _PROMPT.split("\n\n", 1)[0]
+    (fix,) = re.findall(r"For a `spec_delta_wrong` finding,[^\n]*", problem)
+
+    assert "`renamed`" in fix
+
+
+def test_the_review_makes_a_name_that_no_longer_fits_a_spec_delta_finding() -> None:
+    verify = load_task_prompt("roadmap_stage_verify.md")
+    (definition,) = re.findall(r"^- `spec_delta_wrong`:[^\n]*", verify, flags=re.MULTILINE)
+
+    assert "modified requirement whose name no longer fits its text" in definition
 
 
 # ── A plan that changes a planner prompt (#3347) ──────────────────────────────
