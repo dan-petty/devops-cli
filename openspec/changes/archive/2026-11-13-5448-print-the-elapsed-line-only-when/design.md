@@ -2,7 +2,7 @@
 
 ## Decisions
 
-- **Guard `_print_elapsed` with `sys.stderr.isatty()`.**: It reads the stderr file descriptor, so `FORCE_COLOR` and `TTY_COMPATIBLE` cannot make a pipe look like a terminal, and `src/devops_cli/telemetry/tracer.py` already guards its export warning with the same call.
+- **Guard `print_elapsed` with `sys.stderr.isatty()`.**: It reads the stderr file descriptor, so `FORCE_COLOR` and `TTY_COMPATIBLE` cannot make a pipe look like a terminal, and `src/devops_cli/telemetry/tracer.py` already guards its export warning with the same call.
 - **Keep the elapsed line on stderr and keep it for a terminal.**: A person at a terminal still sees the duration, and stdout stays valid JSON for a pipe.
 - **Run the CLI as a python child in the new tests, marked `@pytest.mark.live("python")`.**: The line comes from an `atexit` hook, which `CliRunner` and the in-process `cli` fixture never run, and `docs/TESTING.md:85` forbids a test that imports a private name from `devops_cli`.
 - **Give the child `PYTHONPATH` set to `src` under `REPO_ROOT`.**: The editable install names the head checkout, so without the variable the replay of `devops ci fail-to-pass --base origin/main` would import the head source and the new cases would pass on the base.
@@ -18,12 +18,13 @@
 - **Modify the `command-error-exit` requirement that says the entry point prints its `Elapsed` line, and keep all three of its scenarios.**: That sentence becomes false for a piped stderr, and `openspec/specs/command-error-exit/spec.md` must hold the new rule after the archive.
 - **Add the terminal rule as a new requirement of the `console-output` capability.**: That capability owns the console streams and their routing, and the new requirement describes where the elapsed line goes.
 
+- **Make the hook public as `print_elapsed` and also test it in process.**: The changed-line coverage gate (`diff-cover --fail-under 90` in `.github/workflows/ci.yml`) does not measure child processes, because `pyproject.toml` has no coverage patch for `subprocess`. With only the child cases, the changed lines of `src/devops_cli/main.py` have 37.5 % coverage. So the hook is public, and two in-process tests in `tests/invariants/test_cli_elapsed_line.py` import it. `docs/TESTING.md:85` forbids only private names.
+
 ## Rejected alternatives
 
 - **Remove the elapsed line entirely.**: The issue keeps the duration for a person at a terminal, and its acceptance criteria require the line on a pseudo-terminal.
 - **Use Rich `Console.is_terminal` as the guard.**: Rich treats `FORCE_COLOR` and `TTY_COMPATIBLE` as a terminal, so a pipe in such a shell would get the line again, which the third acceptance criterion refuses.
 - **Keep the `Elapsed:` workaround in `CONTRIBUTING.md`.**: After the change the CLI writes no line to a pipe, so the workaround would tell agents to filter a line that cannot appear.
-- **Call the hook in process by importing `_print_elapsed` and setting the start time in `_timing`.**: `docs/TESTING.md:85` forbids a test that imports a private name from `devops_cli`, so the tests reach the hook through the CLI child.
 - **Replace `emit` with a recorder for the duration case.**: `docs/TESTING.md:85` refuses that patch, and `docs/TESTING.md:248` gives the `otlp` fake that reads the metric.
 - **Add a helper module, a setting or a constant for the guard.**: The guard is one condition, and `src/devops_cli/telemetry/tracer.py:1665:if not sys.stderr.isatty():` already calls it inline.
 - **Keep the pseudo-terminal case in a group of its own, after the group that changes the code.**: That group changes only the test module that group 1 creates and packs no file of the head commit, so the plan check refuses it; the three CLI cases also share one child helper.

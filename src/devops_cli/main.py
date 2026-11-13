@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import atexit
 import contextlib
+import sys
 import time
 from importlib import import_module
 from typing import Final
@@ -24,15 +25,22 @@ def reset_timing() -> None:
     _timing.clear()
 
 
-def _print_elapsed() -> None:
-    if "start" in _timing:
-        elapsed = time.monotonic() - _timing["start"]
-        from devops_cli.output import format_duration, print_muted
+def print_elapsed() -> None:
+    """Write the elapsed time of the run to stderr, and only when stderr is a terminal.
 
-        print_muted(f"Elapsed: {format_duration(elapsed)}", to_stderr=True)
+    An agent tool captures stdout and stderr together, so the line put a `2>&1` JSON pipe after
+    the JSON and the parser failed (#5448). `isatty` reads the stderr descriptor itself, so
+    `FORCE_COLOR` and `TTY_COMPATIBLE` cannot make a pipe look like a terminal.
+    """
+    if "start" not in _timing or not sys.stderr.isatty():
+        return
+    elapsed = time.monotonic() - _timing["start"]
+    from devops_cli.output import format_duration, print_muted
+
+    print_muted(f"Elapsed: {format_duration(elapsed)}", to_stderr=True)
 
 
-atexit.register(_print_elapsed)
+atexit.register(print_elapsed)
 
 # command -> (module path, help text)
 _COMMAND_SPECS: Final[dict[str, tuple[str, str]]] = {

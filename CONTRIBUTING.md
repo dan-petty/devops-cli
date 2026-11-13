@@ -128,7 +128,7 @@ In bash, `${=F}`, `${(f)...}` and `print -r --` fail. The forms `printf '%s'`, `
    printf '%s\n' '-----'    # right
    ```
 
-3. **JSON from `uv run devops gh api` breaks in two ways.** The command writes an `Elapsed:` line to stderr. In a shell that has the environment of the devcontainer image, `uv run` also writes a `Bytecode compiled` line, because the image sets `UV_COMPILE_BYTECODE=1`. The Bash tool shows these lines around the reply, and a `2>&1` pipe mixes them into the JSON.
+3. **JSON from `uv run devops gh api` can break.** In a shell that has the environment of the devcontainer image, `uv run` writes a `Bytecode compiled` line to stderr, because the image sets `UV_COMPILE_BYTECODE=1`. The Bash tool shows this line around the reply, and a `2>&1` pipe mixes it into the JSON.
 
    The `env` of `.claude/settings.json` sets `UV_COMPILE_BYTECODE` to `0` and `VIRTUAL_ENV` to an empty value, which uv reads as unset. The VS Code extension of Claude Code starts the session with `VIRTUAL_ENV` set to the main `.venv`, so without this value `uv run` in a git worktree writes a `warning: VIRTUAL_ENV` line. The warning advises `--active`. Do not use it: it points the editable install of the main `.venv` at the worktree.
 
@@ -137,7 +137,7 @@ In bash, `${=F}`, `${(f)...}` and `print -r --` fail. The forms `printf '%s'`, `
    ```zsh
    P=$(uv run devops gh api repos/dan-petty/devops-cli/pulls/<n>)
    echo "$P" | python3 -m json.tool >/dev/null                                              # wrong: echo expands \n
-   uv run devops gh api repos/dan-petty/devops-cli/pulls/<n> 2>&1 | python3 -m json.tool    # wrong: stderr lines in the JSON
+   uv run devops gh api repos/dan-petty/devops-cli/pulls/<n> 2>&1 | python3 -m json.tool    # wrong: the uv line in the JSON
    print -r -- "$P" | python3 -m json.tool >/dev/null                                       # right, zsh only
    printf '%s' "$P" | python3 -m json.tool >/dev/null                                       # right, zsh and bash
    uv run devops gh api repos/dan-petty/devops-cli/pulls/<n> | python3 -m json.tool         # right: a direct pipe carries stdout only

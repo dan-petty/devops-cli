@@ -66,7 +66,8 @@ from devops_cli.telemetry.instruments import (
     emit,
 )
 from devops_cli.telemetry.tracer import OTelTelemetryClient
-from tests.support.fakes.otlp import FakeCollector
+from tests.support.fakes.keyring import FakeKeyring
+from tests.support.fakes.otlp import FakeCollector, plain_attributes
 from tests.support.paths import REPO_ROOT
 from tests.support.trees import ParsedTreeMap
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
@@ -1047,6 +1048,25 @@ def test_a_histogram_observation_lands_in_its_bucket(otlp: FakeCollector) -> Non
         low < 992.0 <= high,
         (high - low) / 992.0 < 0.10,
     ) == (1, 1, 992.0, True, True)
+
+
+def test_a_piped_command_still_emits_its_subcommand_duration(
+    cli: Callable[..., Any], otlp: FakeCollector, keyring_store: FakeKeyring
+) -> None:
+    """Verify a command whose stderr is the runner's pipe still sends its sub-command duration
+    (#5448). The terminal guard of the printed elapsed line removes no measurement."""
+    result = cli("config", "show", "--format", "json")
+
+    (metric,) = [
+        metric
+        for metric in otlp.metrics
+        if metric["name"] == "devops_cli_subcommand_duration_seconds"
+    ]
+    (point,) = metric["exponentialHistogram"]["dataPoints"]
+    assert (result.exit_code, plain_attributes(point["attributes"])) == (
+        0,
+        {"command": "config", "sub_command": "config show", "status": "ok"},
+    )
 
 
 def test_ai_calls_count_requests_tokens_and_spend_by_backend(
