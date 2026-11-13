@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.134.0](https://github.com/dan-petty/devops-cli/compare/v0.133.0...v0.134.0) (2026-11-13)
+
+
+### Features
+
+* **service:** each roadmap job runs in its own lane ([#5563](https://github.com/dan-petty/devops-cli/issues/5563)) ([268938a](https://github.com/dan-petty/devops-cli/commit/268938abcef5bd0c04a2f527727344f4b772cb58))
+
 ## [0.133.0](https://github.com/dan-petty/devops-cli/compare/v0.132.1...v0.133.0) (2026-11-13)
 
 
