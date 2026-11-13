@@ -136,6 +136,50 @@ def test_a_skip_by_a_when_that_names_check_mode_is_unchecked(tmp_path: Path) -> 
     }
 
 
+def _skip(result: dict[str, Any]) -> dict[str, Any]:
+    data = {
+        "host": "node-1.example.com",
+        "task": "Read the unit",
+        "task_path": "/repo/site.yaml:9",
+        "resolved_action": "ansible.builtin.command",
+    }
+    text = f"skipping: [node-1.example.com] => {json.dumps(result)}"
+    return {"event": "runner_on_skipped", "counter": 1, "stdout": text, "event_data": data}
+
+
+@pytest.mark.parametrize(
+    ("result", "unchecked"),
+    [
+        pytest.param(
+            {"results": [{"false_condition": "not ansible_check_mode"}]}, 1, id="loop-check-mode"
+        ),
+        pytest.param({"results": [{"false_condition": "unit_due"}]}, 0, id="loop-false-when"),
+        pytest.param({"false_condition": "unit_due and ("}, 1, id="does-not-parse"),
+        pytest.param({"false_condition": "my_ansible_check_mode"}, 0, id="longer-name"),
+    ],
+)
+def test_the_false_when_of_a_skip_decides_whether_it_is_unchecked(
+    tmp_path: Path, result: dict[str, Any], unchecked: int
+) -> None:
+    """A false `when` item that names `ansible_check_mode`, or that does not parse, makes the
+    skip unchecked; another name, also a longer name that holds it, does not (#5435)."""
+    (plan,) = host_plans([_skip(result)], tmp_path, {})
+
+    assert len(plan.unchecked) == unchecked
+
+
+def test_a_loop_item_that_check_mode_skips_is_unchecked(tmp_path: Path) -> None:
+    """An item that a `when` with `ansible_check_mode` skips makes the loop unchecked; an item
+    that is not a mapping does not (#5435)."""
+    res = {"changed": False, "results": ["text", {"false_condition": "not ansible_check_mode"}]}
+
+    (plan,) = host_plans([_event("ansible.builtin.command", res)], tmp_path, {})
+
+    assert plan.unchecked == (
+        PlanTask(name="Drain the node", path="/repo/site.yaml:5", action="ansible.builtin.command"),
+    )
+
+
 def test_a_skip_result_in_color_stays_unchecked(tmp_path: Path) -> None:
     """In a color terminal the callback puts color codes around the text of each skip, so the
     result after `=> ` does not read as JSON, and a skip by a false `when` is unchecked: the safe
