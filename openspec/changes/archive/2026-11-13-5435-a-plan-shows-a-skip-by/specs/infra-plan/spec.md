@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Hidden diffs and unchecked tasks
-A change SHALL have its diff hidden when its result holds an empty diff (`diff: false`) or is censored (`no_log`). A `no_log` result SHALL count as a change only when the stats of the host count more changes than the other results show. A skipped task SHALL be unchecked unless its skip result names a false `when` (`false_condition`) that does not name `ansible_check_mode`. A skip by a false `when` that names `ansible_check_mode` SHALL be unchecked, and a loop item SHALL count the same way. A `when` item that does not parse SHALL be unchecked.
+A change SHALL have its diff hidden when its result holds an empty diff (`diff: false`) or is censored (`no_log`). A `no_log` result SHALL count as a change only when the stats of the host count more changes than the other results show. A skipped task or loop item SHALL be unchecked, except when its skip result names a false `when` item (`false_condition`) that does not name `ansible_check_mode`.
 
 #### Scenario: Changes, skips and a handler
 - **WHEN** the recorded run of node-1 changes a template with a diff, a copy with `diff: false` and a `no_log` copy that the stats count, skips a `command` in check mode and a `command` with a false `when`, and runs the notified restart handler
