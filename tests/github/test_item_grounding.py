@@ -19,6 +19,7 @@ from devops_cli.roadmap.grounding import (
     ClosingRead,
     Grounding,
     archives_its_change,
+    changed_files_are_whole,
     changed_files_were_read,
     closes_an_issue_of_its_repository,
     closes_an_item,
@@ -71,10 +72,12 @@ def _grounding(
     base: str = "main",
     default: str = "main",
     files_error: str = "",
+    truncated: bool = False,
 ) -> Grounding:
     """PR #335 into `base`, changing `files` (by default it archives #704's change), and closing
-    open Item #704 unless `closing` says otherwise."""
-    changed = ChangedFilesRead([_ARCHIVE_704] if files is None else files, files_error)
+    open Item #704 unless `closing` says otherwise. `truncated` says that the list of `files`
+    held GitHub's limit of files."""
+    changed = ChangedFilesRead([_ARCHIVE_704] if files is None else files, truncated, files_error)
     return Grounding(
         335,
         "dan-petty",
@@ -171,13 +174,28 @@ _Rule = Callable[[Grounding], str | None]
             "PR #335 is not grounded: the files it changes could not be read "
             "(gh: Server Error (HTTP 500)).",
         ),
+        (changed_files_are_whole, _grounding(), None),
+        (
+            changed_files_are_whole,
+            _grounding([_file("src/x.py")], truncated=True),
+            "PR #335 is not judged on its change folder: GitHub lists at most 300 files of one "
+            "comparison, and the compare answer holds 300 files, so the list of changed files can "
+            "be incomplete. Run git diff --stat origin/main...HEAD in a checkout of the branch to "
+            "see every file.",
+        ),
         (archives_its_change, _grounding(), None),
         (archives_its_change, _grounding([_file("src/x.py")]), _not_archived()),
+        (archives_its_change, _grounding([_file("src/x.py")], truncated=True), None),
         (writes_only_its_own_record, _grounding(), None),
         (
             writes_only_its_own_record,
             _grounding([_file("openspec/specs/widget/spec.md")]),
             _writes_a_record("openspec/specs/widget/spec.md"),
+        ),
+        (
+            writes_only_its_own_record,
+            _grounding([_file("openspec/specs/widget/spec.md")], truncated=True),
+            None,
         ),
     ],
     ids=[
@@ -198,10 +216,14 @@ _Rule = Callable[[Grounding], str | None]
         "unknown-priority-label",
         "files-read",
         "files-unread",
+        "files-whole",
+        "files-truncated",
         "archived",
         "not-archived",
+        "archive-not-judged-on-a-truncated-list",
         "own-record",
         "a-spec-without-the-archive",
+        "record-not-judged-on-a-truncated-list",
     ],
 )
 def test_each_item_rule_names_what_is_missing_or_nothing(
@@ -300,7 +322,10 @@ def test_a_pr_that_does_not_archive_its_change_names_the_folder(
         _grounding(closing=_closing(_issue(labels=("type/feature",)))),
         _grounding([], files_error="gh: Server Error (HTTP 500)"),
         _grounding(closing=_closing(error="Something went wrong")),
-        Grounding(335, "dan-petty", _REPO, "feat/stacked", "main", ChangedFilesRead([])),
+        Grounding(
+            335, "dan-petty", _REPO, "feat/stacked", "main", ChangedFilesRead([], truncated=False)
+        ),
+        _grounding([_file("src/x.py")], truncated=True),
     ],
     ids=[
         "no-closing-reference",
@@ -311,6 +336,7 @@ def test_a_pr_that_does_not_archive_its_change_names_the_folder(
         "files-unreadable",
         "closing-issues-unreadable",
         "another-branch",
+        "files-truncated",
     ],
 )
 def test_each_way_a_pr_is_ungrounded_is_exactly_one_blocker(grounding: Grounding) -> None:
@@ -329,6 +355,7 @@ def test_the_rules_run_in_the_order_their_blockers_are_reported() -> None:
         "closes_an_open_issue",
         "closes_an_item",
         "changed_files_were_read",
+        "changed_files_are_whole",
         "archives_its_change",
         "writes_only_its_own_record",
     ]

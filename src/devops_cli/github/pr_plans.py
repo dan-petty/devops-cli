@@ -365,8 +365,12 @@ def plan_pr_check_readiness(
         ),
         PlannedRequest(
             method="GET",
-            target=f"repos/{target_repo}/pulls/{num_str}/files",
-            argv=(CONST_GH_CLI, "api", f"repos/{target_repo}/pulls/{num_str}/files"),
+            target=f"repos/{target_repo}/compare/<base-ref>...<head-sha>",
+            argv=(
+                CONST_GH_CLI,
+                "api",
+                f"repos/{target_repo}/compare/<base-ref>...<head-sha>?per_page=1",
+            ),
         ),
     ]
     if auto_resolve:

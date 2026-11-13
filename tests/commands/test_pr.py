@@ -31,7 +31,7 @@ from tests.support.copilot_review_payloads import (
     work_started,
 )
 from tests.support.fakes.clock import ClockFake
-from tests.support.fakes.github import GitHubApiFake, github_json, route_file
+from tests.support.fakes.github import GitHubApiFake, github_json, route_compare_files, route_file
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import (
     InMemoryRoadmapStore,
@@ -42,7 +42,8 @@ from tests.support.fakes.roadmap_store import (
 pytestmark = pytest.mark.usefixtures("roadmap_store")
 
 _REPO = "dan-petty/devops-cli"
-_HEAD, _BASE = "a" * 40, "b" * 40
+# `_BASE` is the payload's `base.sha`, which GitHub does not move with the merge base (#2530).
+_HEAD, _BASE, _MERGE_BASE = "a" * 40, "b" * 40, "c" * 40
 _ARCHIVE_704 = {
     "filename": "openspec/changes/archive/2026-10-23-704-x/proposal.md",
     "status": "added",
@@ -138,11 +139,7 @@ class _GitHub:
         )
 
     def files(self, *files: dict[str, str]) -> None:
-        self.api.route(
-            "GET",
-            f"/repos/{_REPO}/pulls/335/files?per_page=100",
-            github_json(list(files)),
-        )
+        route_compare_files(self.api, _REPO, "main", _HEAD, *files, merge_base=_MERGE_BASE)
 
     def threads(self, *threads: dict[str, Any]) -> None:
         self.answer(_THREADS, ProcessAnswer(stdout=_threads_page(*threads)))
@@ -274,6 +271,14 @@ def _running(github: _GitHub) -> None:
             1,
             "PR #335 is not grounded: it adds no openspec/changes/archive/<date>-704-<slug>/ for #704.",
         ),
+        (
+            lambda g: g.files(
+                *[{"filename": f"src/m{n}.py", "status": "modified"} for n in range(300)]
+            ),
+            (),
+            1,
+            "GitHub lists at most 300 files of one comparison",
+        ),
     ],
     ids=[
         "ready",
@@ -295,6 +300,7 @@ def _running(github: _GitHub) -> None:
         "unreplied-thread",
         "threads-unread",
         "not-grounded",
+        "compare-at-the-file-limit",
     ],
 )
 def test_check_readiness_prints_the_verdict_and_exits_on_it(
@@ -727,6 +733,33 @@ def test_pr_monitor_exits_on_the_verdict_once_the_checks_settle(
     assert exit_code == code, output
 
 
+@pytest.mark.parametrize(
+    ("merged", "code", "line"),
+    [(True, 0, "PR #335 is merged."), (False, 2, "PR #335 is closed.")],
+    ids=["merged", "closed"],
+)
+def test_a_merged_or_closed_pull_request_stops_the_monitor_at_the_first_poll(
+    cli: Callable[..., Any], monitored: _GitHub, merged: bool, code: int, line: str
+) -> None:
+    """A merged or closed pull request can no longer become ready, so the monitor makes one poll,
+    reads no check and no review, and does not wait out the settle time. It names the state with
+    no check count and no ready line, and exits 0 when merged and 2 when closed (#2530)."""
+    monitored.pull(_pr(state="closed", merged=merged))
+    exit_code, output = _monitor(cli, "--timeout", "600", "--settle-timeout", "300")
+    pull_reads = sum(" ".join(call.argv).endswith(_PULL) for call in monitored.gh.calls)
+    verdict_reads = [
+        request
+        for request in monitored.api.requested
+        if "check-runs" in request or "/reviews" in request
+    ]
+    assert (exit_code, pull_reads, verdict_reads) == (code, 1, []), output
+    assert (line in output, "Checks:" in output, "READY FOR MERGING" in output) == (
+        True,
+        False,
+        False,
+    ), output
+
+
 def test_the_monitor_waits_for_the_checks_and_names_every_blocker(
     cli: Callable[..., Any], monitored: _GitHub
 ) -> None:
@@ -870,6 +903,32 @@ def test_the_monitor_prints_its_result_in_each_format_with_thread_bodies_masked(
         _TOKEN in result.output,
         "<masked-github-token>" in result.output,
     ) == (2, True, False, True), result.output
+
+
+@pytest.mark.parametrize(
+    ("merged", "state", "code"),
+    [(True, "merged", 0), (False, "closed", 2)],
+    ids=["merged", "closed"],
+)
+def test_the_markdown_of_a_merged_or_closed_pull_request_names_its_state(
+    cli: Callable[..., Any], monitored: _GitHub, merged: bool, state: str, code: int
+) -> None:
+    """A pull request that merged or closed while the monitor waited can no longer be ready for
+    merging, so the state line of its markdown names that state (#2530)."""
+    monitored.pull(_pr(state="closed", merged=merged))
+    result = cli(
+        "pr",
+        "monitor",
+        "335",
+        "--repo",
+        _REPO,
+        "--settle-timeout",
+        "0",
+        "--format",
+        "markdown",
+    )
+    state_line = next(line for line in result.output.splitlines() if line.startswith("**State**"))
+    assert (result.exit_code, state_line) == (code, f"**State**: {state}"), result.output
 
 
 def test_the_monitor_finds_the_pull_request_of_the_current_branch(

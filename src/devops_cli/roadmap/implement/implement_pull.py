@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 from devops_cli.config.constants import (
     CONST_CI_TEST_JOB_NAME,
     CONST_GH_CLI,
+    CONST_GITHUB_COMPARE_FILES_LIMIT,
     CONST_OPENSPEC_ARCHIVE_DIR,
     CONST_OPENSPEC_ARCHIVED_FOLDER_RE,
     CONST_OPENSPEC_CHANGE_FOLDER_RE,
@@ -89,7 +90,9 @@ class ChangeFacts:
 
 @dataclass(frozen=True)
 class Draft:
-    """What the decision reads about a draft pull request."""
+    """What the decision reads about a draft pull request. `files_truncated` says that the
+    compare answer of an implement pull request held GitHub's limit of files, so its change was
+    not looked for in that list (#2530)."""
 
     kind: DraftKind
     pull: PullStatus
@@ -97,6 +100,7 @@ class Draft:
     checks: CheckVerdictSummary | None = None
     change: ChangeFacts | None = None
     declared: bool = False
+    files_truncated: bool = False
 
 
 def kind_of(item: Item | None, pull: int | None = None) -> DraftKind:
@@ -130,6 +134,29 @@ def _stage_summary(title: str, item: Item | None) -> str:
     return text
 
 
+def _judge_implement_change(draft: Draft) -> Readiness | None:
+    """An implement pull request is complete when its change is found, every task group is
+    ticked, and the change is archived where the target requires it."""
+    texts = MESSAGES.roadmap
+    if draft.files_truncated:
+        return Readiness(
+            Answer.REFUSE,
+            texts.draft_files_truncated.format(limit=CONST_GITHUB_COMPARE_FILES_LIMIT),
+        )
+    if draft.change is None:
+        return Readiness(Answer.REFUSE, texts.draft_change_missing)
+    groups = parse_task_groups(draft.change.tasks_text)
+    unticked = [g for g in groups if any(not t.ticked for t in g.tasks)]
+    if unticked:
+        reason = "\n".join(
+            texts.draft_unticked_group.format(number=g.number, title=g.title) for g in unticked
+        )
+        return Readiness(Answer.REFUSE, reason)
+    if draft.change.archive_required and not draft.change.archived:
+        return Readiness(Answer.REFUSE, texts.draft_change_not_archived)
+    return None
+
+
 def _judge_completeness(draft: Draft) -> Readiness | None:
     texts = MESSAGES.roadmap
     match draft.kind:
@@ -145,19 +172,7 @@ def _judge_completeness(draft: Draft) -> Readiness | None:
                     )
             return None
         case DraftKind.IMPLEMENT:
-            if draft.change is None:
-                return Readiness(Answer.REFUSE, texts.draft_change_missing)
-            groups = parse_task_groups(draft.change.tasks_text)
-            unticked = [g for g in groups if any(not t.ticked for t in g.tasks)]
-            if unticked:
-                reason = "\n".join(
-                    texts.draft_unticked_group.format(number=g.number, title=g.title)
-                    for g in unticked
-                )
-                return Readiness(Answer.REFUSE, reason)
-            if draft.change.archive_required and not draft.change.archived:
-                return Readiness(Answer.REFUSE, texts.draft_change_not_archived)
-            return None
+            return _judge_implement_change(draft)
         case DraftKind.AGENT | DraftKind.PERSON:
             if not draft.declared:
                 return Readiness(Answer.WAIT, texts.draft_author_not_declared)
@@ -243,7 +258,12 @@ def read_draft(
     store: RoadmapStore | None = None,
     client: GitHubClient | None = None,
 ) -> Draft:
-    """Read a draft pull request and its context for draft_readiness."""
+    """Read a draft pull request and its context for draft_readiness.
+
+    An implement pull request's files are the compare of its base branch and its head commit,
+    which is the diff a squash merge applies (#2530). A compare answer that holds GitHub's limit
+    of files can hide the change folder, so the change is not looked for in it.
+    """
     if client is None:
         client = get_github_session().client
     if pull is None:
@@ -273,8 +293,8 @@ def read_draft(
             declared=declared,
         )
 
-    files = client.get_pull_files(repo, number)
-    found = _find_tasks_path(files, issue)
+    compared = client.get_compare_files(repo, pull.base_ref, pull.head_sha)
+    found = None if compared.truncated else _find_tasks_path(compared.files, issue)
     if found is not None:
         tasks_path, archived = found
         tasks_text = client.get_file_at(repo, tasks_path, pull.head_sha) or ""
@@ -289,6 +309,7 @@ def read_draft(
         checks=checks,
         change=change,
         declared=declared,
+        files_truncated=compared.truncated,
     )
 
 
@@ -323,12 +344,12 @@ def _first_failure(failing: Sequence[PRCheckItem]) -> PRCheckItem:
 
 
 def _judge(result: PRMonitorResult) -> Watch:
-    """The watch's verdict on a settled status: the checks first, then the threads, then the
-    mergeability. A draft and a blocked merge state are not reasons to stop: a person approves
-    the pull request later."""
+    """The watch's verdict on a settled status: a merged or closed pull request stops the item
+    (#2530), then the checks, then the threads, then the mergeability. A draft and a blocked merge
+    state are not reasons to stop: a person approves the pull request later."""
     texts = MESSAGES.roadmap
     status = result.status
-    if status.merged:
+    if status.terminal:
         return Watch(WatchKind.STOPPED, texts.implement_stop_merged)
     if result.exit_code == 3 or status.pending_checks:
         reason = texts.implement_stop_checks_timeout.format(

@@ -26,6 +26,7 @@ from pydantic import ValidationError as MalformedPayloadError
 
 from devops_cli.config.constants import (
     CONST_GH_CLI,
+    CONST_GITHUB_COMPARE_FILES_LIMIT,
     CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_OPENSPEC_CHANGES_DIR,
     CONST_PR_CLOSING_ISSUE_LABELS_PAGE,
@@ -351,14 +352,23 @@ def _gh_failure(res: Any) -> str:
 
 
 def read_changed_files(
-    owner: str, repo_name: str, pr_num: int, *, session: GitHubSession | None = None
+    owner: str, repo_name: str, base: str, head: str, *, session: GitHubSession | None = None
 ) -> ChangedFilesRead:
-    """Read the files a pull request changes, every page, keeping a failure for the caller."""
+    """Read the files a pull request changes, keeping a failure for the caller.
+
+    The files are the compare of the base branch `base` and the head commit `head`. GitHub
+    compares from the merge base of the two, so this is the diff a squash merge applies. The
+    payload's `base.sha` is not used: GitHub does not move it when a merge commit moves the merge
+    base, and the pull request's own file list keeps that stale base too (#2530). GitHub keeps the
+    head commit of a fork's pull request in the base repository, so `head` is a commit sha for a
+    fork too.
+    """
     try:
         client = (session or get_github_session()).client
-        return ChangedFilesRead(client.get_pull_files(f"{owner}/{repo_name}", pr_num))
+        compared = client.get_compare_files(f"{owner}/{repo_name}", base, head)
+        return ChangedFilesRead(compared.files, compared.truncated)
     except GitHubOperationError as exc:
-        return ChangedFilesRead([], str(exc))
+        return ChangedFilesRead([], truncated=False, error=str(exc))
 
 
 def _base_has_change_folders(
@@ -478,7 +488,11 @@ def _judge_grounding(
 
     A lookup of the change directory that fails for any reason but a 404 can't rule grounding
     out, so the rules still apply and the failure is a blocker. Where grounding does not apply,
-    an unread file list is a warning, since only the perimeter advisory reads it.
+    an unread or a truncated file list is a warning, since only the perimeter advisory reads it.
+
+    A compare answer that holds GitHub's limit of files can be truncated, so no rule that reads
+    the file list judges it: one blocker names the limit, and the rules of the body and of the
+    issues the PR closes still apply (#2530).
     """
     try:
         applies = _base_has_change_folders(pr_data, owner, repo_name, runner)
@@ -495,6 +509,12 @@ def _judge_grounding(
             verdict.warn(
                 MESSAGES.pr.changed_files_unread.format(number=pr_num, error=changed.error)
             )
+        elif changed.truncated:
+            verdict.warn(
+                MESSAGES.pr.changed_files_truncated.format(
+                    number=pr_num, limit=CONST_GITHUB_COMPARE_FILES_LIMIT
+                )
+            )
         return
     repo = f"{owner}/{repo_name}"
     grounding = Grounding(
@@ -506,7 +526,9 @@ def _judge_grounding(
         texts = (
             [MESSAGES.pr.grounding_files_unread.format(number=pr_num, error=changed.error)]
             if changed.error
-            else plan_blockers(pr_num, planned, str(pr_data.get("body") or ""), changed.files)
+            else plan_blockers(
+                pr_num, planned, str(pr_data.get("body") or ""), changed, grounding.base
+            )
         )
         for text in texts:
             verdict.block(BlockerKind.GROUNDING, text)
@@ -574,6 +596,7 @@ def assess_merge_readiness(
     where the item rules apply, the base's change directory and the issues the PR closes.
     `review_root` is the checkout whose review.toml suppressions the perimeter advisory reads;
     without it, the repository of the working directory, found only when the PR changes a file.
+    The advisory does not judge a file list that holds GitHub's limit of files (#2530).
     With `commit_statuses` off, the checks are the check runs only, for a token that holds no
     `statuses` permission. A merged PR is ready and nothing is read.
     """
@@ -586,9 +609,11 @@ def assess_merge_readiness(
     head_sha = str(pr_data.get("head", {}).get("sha") or "")
     _judge_checks(verdict, head_sha, pr_num, owner, repo_name, reads)
     _judge_threads(verdict, pr_num, owner, repo_name, reads)
-    changed = read_changed_files(owner, repo_name, pr_num, session=session)
+    changed = read_changed_files(
+        owner, repo_name, _branch_ref(pr_data, "base"), head_sha, session=session
+    )
     _judge_grounding(verdict, pr_data, pr_num, owner, repo_name, changed, runner)
-    if changed.files:
+    if changed.files and not changed.truncated:
         advisory = perimeter_advisory(changed.files, review_root or find_repo_root())
         if advisory is not None:
             verdict.advisories.append(advisory)

@@ -57,6 +57,7 @@ class PRMonitorStatus(BaseModel):
     number: int
     title: str = ""
     head_sha: str = ""
+    state: str = ""
     is_draft: bool = False
     merged: bool = False
     mergeable: bool | None = None
@@ -91,6 +92,11 @@ class PRMonitorStatus(BaseModel):
     def settled(self) -> bool:
         """Whether no check runs and no Copilot review is active, so the blockers are final."""
         return not self.pending_checks and not self.copilot_status.is_active
+
+    @property
+    def terminal(self) -> bool:
+        """Whether the pull request can no longer become ready: it merged or it closed."""
+        return self.merged or self.state == "closed"
 
 
 class PRMonitorResult(BaseModel):
@@ -530,13 +536,14 @@ def get_pr_monitoring_status(
         number=pr_number,
         title=str(pr_data.get("title", "")),
         head_sha=head_sha,
+        state=str(pr_data.get("state") or "").lower(),
         is_draft=bool(pr_data.get("draft", False)),
         merged=pr_data.get("merged") is True,
         mergeable=pr_data.get("mergeable"),
         mergeable_state=str(pr_data.get("mergeable_state") or "unknown").lower(),
         require_reviews=require_reviews,
     )
-    if status.merged:
+    if status.terminal:
         return status
     verdict = assess_merge_readiness(
         pr_data, owner, repo_name, pr_number, runner=runner, commit_statuses=commit_statuses
@@ -569,10 +576,14 @@ def get_pr_monitoring_status(
 
 
 def _settled_result(status: PRMonitorStatus, pr_number: int) -> PRMonitorResult:
-    """The result once no check runs: ready, or every blocker the poll found."""
+    """The result once no check runs: ready, merged, closed, or every blocker the poll found."""
     if status.merged:
         return PRMonitorResult(
             success=True, exit_code=0, message=f"PR #{pr_number} is merged.", status=status
+        )
+    if status.state == "closed":
+        return PRMonitorResult(
+            success=False, exit_code=2, message=f"PR #{pr_number} is closed.", status=status
         )
     if not status.blockers:
         return PRMonitorResult(
@@ -652,7 +663,7 @@ def monitor_pr(
         if status_callback:
             status_callback(latest_status, elapsed)
 
-        if latest_status.merged or (
+        if latest_status.terminal or (
             latest_status.settled and (now >= settle_deadline or not require_reviews)
         ):
             return _settled_result(latest_status, pr_number)

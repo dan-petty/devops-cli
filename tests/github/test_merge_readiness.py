@@ -15,6 +15,7 @@ from typing import Any
 import httpx2
 import pytest
 
+from devops_cli.config.constants import CONST_GITHUB_COMPARE_FILES_LIMIT
 from devops_cli.github.check_verdict import CheckBucket, read_commit_checks
 from devops_cli.github.client import PullRequestFile
 from devops_cli.github.merge_readiness import (
@@ -27,16 +28,22 @@ from devops_cli.github.merge_readiness import (
     closing_issues_args,
     read_changed_files,
 )
-from tests.support.fakes.github import GitHubApiFake, github_json, next_page
+from tests.support.fakes.github import (
+    GitHubApiFake,
+    github_json,
+    next_page,
+    route_compare_files,
+)
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 _OWNER, _NAME, _PR = "dan-petty", "devops-cli", 335
 _REPO = f"{_OWNER}/{_NAME}"
-_HEAD, _BASE = "a" * 40, "b" * 40
+# `_BASE` is the payload's `base.sha`. GitHub does not move it when a merge commit moves the merge
+# base, so the compare answers `_MERGE_BASE`, another commit (#2530).
+_HEAD, _BASE, _MERGE_BASE = "a" * 40, "b" * 40, "c" * 40
 _CHECK_RUNS = f"/repos/{_REPO}/commits/{_HEAD}/check-runs?per_page=100"
 _CHECK_RUNS_PAGE_2 = f"/repositories/1/commits/{_HEAD}/check-runs?per_page=100&page=2"
-_FILES = f"/repos/{_REPO}/pulls/{_PR}/files?per_page=100"
-_FILES_PAGE_2 = f"/repositories/1/pulls/{_PR}/files?per_page=100&page=2"
+_COMPARE = f"/repos/{_REPO}/compare/main...{_HEAD}?per_page=1"
 _STATUS = f"repos/{_REPO}/commits/{_HEAD}/status"
 _CHANGES_DIR = f"repos/{_REPO}/contents/openspec/changes?ref={_BASE}"
 _THREADS = "GetReviewThreads"
@@ -137,7 +144,7 @@ class _GitHub:
         self.answer(_STATUS, ProcessAnswer(stdout=json.dumps(payload)))
 
     def files(self, *files: object) -> None:
-        self.api.route("GET", _FILES, github_json(list(files)))
+        route_compare_files(self.api, _REPO, "main", _HEAD, *files, merge_base=_MERGE_BASE)
 
     def threads(self, *threads: dict[str, Any]) -> None:
         page = {"nodes": list(threads), "pageInfo": {"hasNextPage": False, "endCursor": None}}
@@ -602,19 +609,21 @@ def test_review_threads_that_cannot_be_read_block_naming_the_error(
 def test_readiness_reads_the_files_the_base_and_the_closing_issues_once_each(
     github: _GitHub, tmp_path: Path
 ) -> None:
-    """The files are one session listing at `per_page=100` (GitHub's default page is 30), then gh
-    reads the base's change directory and the issues the PR closes, with their labels, in one
-    GraphQL request. No project board is read."""
+    """The files are one compare of the base branch and the head commit, then gh reads the base's
+    change directory and the issues the PR closes, with their labels, in one GraphQL request. No
+    project board and no pulls files request is read (#2530)."""
     verdict = _assess(tmp_path)
     sent = github.gh_sent()
     assert (
-        [request for request in github.api.requested if "/files" in request],
+        [request for request in github.api.requested if "/compare/" in request],
+        [request for request in github.api.requested if request.endswith(f"pulls/{_PR}/files")],
         [command for command in sent if "contents/openspec" in command],
         [command for command in sent if _CLOSING in command],
         any("projectItems" in command for command in sent),
         verdict.grounding is not None and verdict.grounding.own_issue is not None,
     ) == (
-        [f"GET https://api.github.com{_FILES}"],
+        [f"GET https://api.github.com{_COMPARE}"],
+        [],
         [f"gh api --silent {_CHANGES_DIR}"],
         [" ".join(closing_issues_args(_OWNER, _NAME, _PR))],
         False,
@@ -629,6 +638,9 @@ def test_a_pr_into_another_branch_reads_no_closing_issues(github: _GitHub, tmp_p
         "sha": _BASE,
         "repo": {"full_name": _REPO, "default_branch": "main"},
     }
+    route_compare_files(
+        github.api, _REPO, "feat/stacked", _HEAD, _ARCHIVE_704, merge_base=_MERGE_BASE
+    )
     verdict = _assess(tmp_path, _pr(base=base))
     assert (verdict.blockers, any(_CLOSING in command for command in github.gh_sent())) == (
         (
@@ -643,7 +655,7 @@ def test_a_base_without_change_folders_holds_no_item_rule(github: _GitHub, tmp_p
     """A 404 for `openspec/changes` means the repository keeps none, so nothing is required, and
     a file list that can't be read there is a warning, not a blocker."""
     github.answer(_CHANGES_DIR, _NOT_FOUND)
-    github.api.route("GET", _FILES, github_json({"message": "Server Error"}, status=500))
+    github.api.route("GET", _COMPARE, github_json({"message": "Server Error"}, status=500))
     verdict = _assess(tmp_path)
     assert (
         verdict.blockers,
@@ -701,34 +713,147 @@ def test_closing_issues_that_cannot_be_read_are_one_blocker(
 def test_a_malformed_files_entry_fails_read(github: _GitHub, tmp_path: Path, entry: object) -> None:
     github.files(entry)
     blockers = _assess(tmp_path).blockers
-    assert ["is no PullRequestFile: 1 invalid field(s)" in blocker for blocker in blockers] == [
-        True
-    ], blockers
+    assert ["compare/main" in b and "1 invalid field(s)" in b for b in blockers] == [True], blockers
 
 
-def test_the_changed_files_are_read_from_every_linked_page(github: _GitHub) -> None:
-    """PR #738 changed 51 files; a read stopping at GitHub's default page of 30 missed the rest."""
-    first = [{"filename": f"src/m{n}.py", "status": "modified"} for n in range(100)]
-    github.api.route("GET", _FILES, github_json(first, headers=next_page(_FILES_PAGE_2)))
-    github.api.route("GET", _FILES_PAGE_2, github_json([_ARCHIVE_704]))
-    read = read_changed_files(_OWNER, _NAME, _PR)
-    assert (len(read.files), read.files[-1], read.error) == (
+def test_the_changed_files_are_read_from_the_compare_of_the_base_branch_and_head(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    """A merge commit moves the merge base, and the pulls files list keeps the base of the last
+    push, so the files are the compare of the base branch and the head commit (#2530)."""
+    github.files(_ARCHIVE_704)
+    verdict = _assess(tmp_path)
+    assert (
+        verdict.is_ready,
+        verdict.blockers,
+        [request for request in github.api.requested if "/compare/" in request],
+        [request for request in github.api.requested if request.endswith(f"pulls/{_PR}/files")],
+    ) == (True, (), [f"GET https://api.github.com{_COMPARE}"], [])
+
+
+def test_the_stale_base_sha_of_the_payload_is_not_compared(github: _GitHub, tmp_path: Path) -> None:
+    """GitHub does not move `base.sha` when a merge commit moves the merge base. PR #2509 kept
+    base.sha 0137f231: its compare gave 184 files with the archived changes of other issues,
+    and the compare from `main` gave merge base 5c4d24ee and 11 files. So no session read names
+    the stale sha, and the archives of other issues give no blocker (#2530)."""
+    stale = [
+        {"filename": "openspec/changes/archive/2026-10-01-1024-x/proposal.md", "status": "added"},
+        {"filename": "openspec/changes/archive/2026-10-02-1652-y/proposal.md", "status": "added"},
+        _ARCHIVE_704,
+    ]
+    route_compare_files(github.api, _REPO, _BASE, _HEAD, *stale, merge_base=_BASE)
+    verdict = _assess(tmp_path)
+    assert (
+        verdict.is_ready,
+        verdict.blockers,
+        [request for request in github.api.requested if _BASE in request],
+    ) == (True, (), [])
+
+
+def test_a_fork_head_is_compared_by_its_commit_sha(github: _GitHub, tmp_path: Path) -> None:
+    """GitHub keeps the head commit of a fork's pull request in the base repository, so the
+    compare names the head commit that the checks were read for, and not a branch that can move
+    (#2530)."""
+    fork = _pr(head={"ref": "feat/x", "sha": _HEAD, "repo": {"full_name": "octocat/devops-cli"}})
+    verdict = _assess(tmp_path, fork)
+    compared = [request for request in github.api.requested if "/compare/" in request]
+    assert (verdict.is_ready, compared) == (True, [f"GET https://api.github.com{_COMPARE}"])
+
+
+_AT_THE_LIMIT = [
+    {"filename": f"src/m{n}.py", "status": "modified"}
+    for n in range(CONST_GITHUB_COMPARE_FILES_LIMIT)
+]
+
+
+def test_a_compare_answer_at_the_file_limit_is_one_blocker_naming_the_limit(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    """GitHub lists at most 300 files of one comparison, so a change folder beyond that list is no
+    proof that the PR is not grounded. The rules that read the list give no blocker, and one
+    blocker names the limit and a command that lists every file (#2530)."""
+    github.files(*_AT_THE_LIMIT)
+    verdict = _assess(tmp_path)
+    assert (
+        len(verdict.blockers),
+        [blocker.kind for blocker in verdict.blocking],
+        ["300 files" in blocker for blocker in verdict.blockers],
+        ["git diff --stat origin/main...HEAD" in blocker for blocker in verdict.blockers],
+    ) == (1, [BlockerKind.GROUNDING], [True], [True])
+
+
+def test_a_compare_answer_at_the_file_limit_keeps_the_rules_that_read_no_file(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    """A truncated file list stops only the rules that read it: the body form and the issue the
+    PR closes are still judged (#2530)."""
+    github.files(*_AT_THE_LIMIT)
+    github.closing(_issue(), _issue(705))
+    verdict = _assess(tmp_path, _pr(body=_TEXT))
+    assert (
+        [blocker.kind for blocker in verdict.blocking],
+        sum("300 files" in blocker for blocker in verdict.blockers),
+        sum("closes 2 issues" in blocker for blocker in verdict.blockers),
+    ) == ([BlockerKind.BODY_FORM] * 2 + [BlockerKind.GROUNDING] * 2, 1, 1), verdict.blockers
+
+
+def test_a_compare_answer_at_the_file_limit_names_no_suppression(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    """The perimeter advisory reads the file list, so it does not judge a list that can be
+    incomplete, and where no item rule applies, a warning names the limit instead (#2530)."""
+    (tmp_path / ".devops").mkdir()
+    (tmp_path / ".devops" / "review.toml").write_text(_REVIEW_TOML, encoding="utf-8")
+    github.answer(_CHANGES_DIR, _NOT_FOUND)
+    github.files({"filename": "src/a.py", "status": "modified"}, *_AT_THE_LIMIT[1:])
+    verdict = _assess(tmp_path)
+    text = " ".join(advisory.text for advisory in verdict.advisories)
+    assert (verdict.blockers, len(verdict.advisories), "300 files" in text, "B602" in text) == (
+        (),
+        1,
+        True,
+        False,
+    ), verdict.advisories
+
+
+def test_a_plan_whose_compare_answer_is_at_the_file_limit_keeps_its_body_rules(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    """A plan's body rules read no file, so a truncated list leaves them, and one blocker names
+    the limit in place of the rules of its change folder (#2530)."""
+    github.files(*_AT_THE_LIMIT)
+    verdict = _assess(tmp_path, _pr(title=_PLAN_TITLE, body="Why and what."))
+    assert (
+        len(verdict.blockers),
+        sum("no single line Plans #3183" in blocker for blocker in verdict.blockers),
+        sum("300 files" in blocker for blocker in verdict.blockers),
+        sum("3183-<slug>" in blocker for blocker in verdict.blockers),
+    ) == (2, 1, 1, 0), verdict.blockers
+
+
+def test_one_compare_answer_holds_more_files_than_a_page_of_the_pulls_files(
+    github: _GitHub,
+) -> None:
+    """PR #738 changed 51 files, and a read that stops at GitHub's default page of 30 missed the
+    rest. The compare answer lists every file of the diff in one answer (#2530)."""
+    files = [{"filename": f"src/m{n}.py", "status": "modified"} for n in range(100)]
+    github.files(*files, _ARCHIVE_704)
+    read = read_changed_files(_OWNER, _NAME, "main", _HEAD)
+    assert (len(read.files), read.files[-1], read.error, read.truncated) == (
         101,
         PullRequestFile(filename=_ARCHIVE_704["filename"], status="added"),
         "",
+        False,
     )
 
 
 def test_a_changed_files_page_that_is_no_list_fails_read(github: _GitHub) -> None:
-    """A malformed second page is the read's failure, not a shorter file list."""
-    github.api.route("GET", _FILES, github_json([_ARCHIVE_704], headers=next_page(_FILES_PAGE_2)))
+    """A compare answer whose files are no list is the read's failure, not a shorter file list."""
     github.api.route(
-        "GET",
-        _FILES_PAGE_2,
-        httpx2.Response(200, headers={"content-type": "text/html"}, content=b"<html></html>"),
+        "GET", _COMPARE, github_json({"merge_base_commit": {"sha": _MERGE_BASE}, "files": "bad"})
     )
-    read = read_changed_files(_OWNER, _NAME, _PR)
-    assert (read.files, "page 2" in read.error) == ([], True)
+    read = read_changed_files(_OWNER, _NAME, "main", _HEAD)
+    assert (read.files, "1 invalid field(s)" in read.error) == ([], True)
 
 
 def test_the_closing_issues_read_asks_for_the_pr_and_both_page_sizes() -> None:

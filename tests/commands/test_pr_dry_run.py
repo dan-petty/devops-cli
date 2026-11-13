@@ -220,3 +220,22 @@ def test_dry_run_plans_match_dispatched_arguments() -> None:
     # 7. pr close
     plan_close = plan_pr_close(42, "closing", True, "owner/repo")
     assert plan_close[0].argv == tuple(pr_close_args(42, "closing", True, "owner/repo"))
+
+
+def test_the_check_readiness_plan_lists_the_compare_request() -> None:
+    """The check-readiness plan lists the compare request that reads the file list, and no pulls
+    files request (#2530)."""
+    from devops_cli.github.pr_plans import plan_pr_check_readiness
+
+    plan = plan_pr_check_readiness(42, repo="owner/repo")
+
+    targets = [request.target for request in plan]
+    compare = [request for request in plan if "/compare/" in request.target]
+    assert [request.target for request in compare] == [
+        "repos/owner/repo/compare/<base-ref>...<head-sha>"
+    ], targets
+    assert not any(request.target.endswith("pulls/42/files") for request in plan), targets
+    assert compare[0].method == "GET"
+    assert compare[0].argv[-1] == ("repos/owner/repo/compare/<base-ref>...<head-sha>?per_page=1"), (
+        compare[0].argv
+    )

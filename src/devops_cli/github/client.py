@@ -8,7 +8,7 @@ import json
 from collections.abc import Mapping
 from datetime import datetime
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 from urllib.parse import quote, urlencode
 
 from pydantic import AliasPath, BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -16,6 +16,7 @@ from pydantic import AliasPath, BaseModel, ConfigDict, Field, ValidationError, f
 from devops_cli.config.constants import (
     CONST_GH_API_GRAPHQL_ENDPOINT,
     CONST_GH_CLI,
+    CONST_GITHUB_COMPARE_FILES_LIMIT,
     CONST_GITHUB_DIFF_MEDIA_TYPE,
     CONST_GITHUB_SEARCH_MAX_RESULTS,
     CONST_MAX_ERROR_DETAIL_LENGTH,
@@ -308,6 +309,21 @@ class _Comparison(BaseModel):
     merge_base: str = Field(validation_alias=AliasPath("merge_base_commit", "sha"))
 
 
+class _CompareFiles(BaseModel):
+    """What the compare endpoint says of the files of two commits: each file their diff changes.
+    An answer with no `files` is no answer, and not an empty diff."""
+
+    files: list[PullRequestFile]
+
+
+class CompareFiles(NamedTuple):
+    """The files a compare answer lists, and whether the answer held GitHub's limit of
+    `CONST_GITHUB_COMPARE_FILES_LIMIT` files, so the list may be truncated."""
+
+    files: list[PullRequestFile]
+    truncated: bool
+
+
 def _read_as[M: BaseModel](model: type[M], answer: Any, *, path: str) -> M:
     """`answer` as a `model`, raising `GitHubUnreadError` naming `path` when it is none."""
     try:
@@ -477,9 +493,10 @@ class GitHubClient:
     def get_merge_base(self, repo: str, base: str, head: str) -> str | None:
         """The merge base of two commits from the compare endpoint; None when GitHub has none.
 
-        A pull request's `base.sha` is the base branch's tip, which moves on after the branch
-        point; its diff starts here instead. Only a 404 reads as None: any other failure raises
-        the session's error.
+        A pull request's `base.sha` is a tip of the base branch that GitHub recorded earlier. It
+        can be ahead of the merge base, and GitHub does not move it when a merge commit moves the
+        merge base (#2530). So it is neither the merge base nor the current tip of the branch.
+        Only a 404 reads as None: any other failure raises the session's error.
         """
         endpoint = _repo_path(repo, f"compare/{quote(base)}...{quote(head)}?per_page=1")
         try:
@@ -487,6 +504,18 @@ class GitHubClient:
         except GitHubNotFoundError:
             return None
         return _read_as(_Comparison, comparison, path=endpoint).merge_base
+
+    def get_compare_files(self, repo: str, base: str, head: str) -> CompareFiles:
+        """The files that `head` changes since its merge base with `base`, from the compare endpoint.
+
+        `base` is a branch or a commit. GitHub compares from the merge base of the two, so with the
+        tip of a pull request's base branch this is the diff a squash merge applies (#2530). GitHub
+        lists at most `CONST_GITHUB_COMPARE_FILES_LIMIT` files of one comparison, so a list of that
+        length reads as possibly truncated.
+        """
+        endpoint = _repo_path(repo, f"compare/{quote(base)}...{quote(head)}?per_page=1")
+        files = _read_as(_CompareFiles, self._session.rest("GET", endpoint), path=endpoint).files
+        return CompareFiles(files=files, truncated=len(files) >= CONST_GITHUB_COMPARE_FILES_LIMIT)
 
     def get_commit_pulls(self, repo: str, sha: str) -> list[CommitPull]:
         """Every pull request that GitHub associates with the commit `sha`, merged or not.

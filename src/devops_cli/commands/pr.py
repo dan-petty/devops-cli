@@ -544,6 +544,16 @@ def _render_unresolved_threads_summary(threads: list[Any]) -> None:
     )
 
 
+def _report_terminal_monitor_result(result: PRMonitorResult) -> None:
+    """Report a pull request that merged or closed while the monitor waited, with no check count
+    and no ready line, and exit with its code (#2530)."""
+    if result.status.merged:
+        print_success(result.message)
+    else:
+        print_error(result.message, safe=True)
+    raise typer.Exit(result.exit_code)
+
+
 def _handle_monitor_exit(result: PRMonitorResult, pr_number: int) -> None:
     """Print every blocker the monitor found, with the hint for each kind, and exit with its
     code: 1 for a failed or unread check, 2 for any other blocker, 3 on the timeout."""
@@ -602,12 +612,22 @@ def _format_markdown_threads_section(threads: list[Any]) -> list[str]:
     return lines
 
 
+def _monitor_state_label(result: PRMonitorResult) -> str:
+    """The state line of the markdown summary: a terminal pull request is merged or closed, and
+    only a pull request that can still merge is ready for merging (#2530)."""
+    if result.status.merged:
+        return "merged"
+    if result.status.state == "closed":
+        return "closed"
+    return "Ready for Merging" if result.success else "Action Required"
+
+
 def _format_markdown_monitor_summary(result: Any, pr_number: int) -> str:
     """Format markdown output representation for PR monitoring."""
     md_lines = [
         f"# PR #{pr_number} Monitoring Status",
         "",
-        f"**State**: {'Ready for Merging' if result.success else 'Action Required'}",
+        f"**State**: {_monitor_state_label(result)}",
         f"**Exit Code**: {result.exit_code}",
         f"**Message**: {result.message}",
         "",
@@ -751,8 +771,9 @@ def monitor_pr_command(
 
     While a check runs or a Copilot review is active, it waits. Then it reports the blockers of
     the merge-readiness verdict and of its review gate (requested changes, Copilot's review, an
-    approval of the head with --require-reviews). Exit 0: ready; 1: a check failed or could not
-    be read; 2: another blocker; 3: the timeout passed first.
+    approval of the head with --require-reviews). A merged or closed PR stops the wait at once.
+    Exit 0: ready, or merged; 1: a check failed or could not be read; 2: another blocker, or
+    closed without a merge; 3: the timeout passed first.
     """
     if dry_run or is_dry_run():
         _handle_monitor_dry_run(number, interval, timeout, require_reviews, repo, output_format)
@@ -771,6 +792,8 @@ def monitor_pr_command(
 
     def _status_cb(st: Any, elapsed: int) -> None:
         nonlocal last_reported
+        if st.terminal:
+            return
         if st.completed_checks != last_reported:
             last_reported = st.completed_checks
             copilot_info = (
@@ -797,6 +820,9 @@ def monitor_pr_command(
     if output_format in {"json", "yaml", "markdown"}:
         _emit_structured_monitor_result(output_format, result, pr_number)
         return
+
+    if result.status.terminal:
+        _report_terminal_monitor_result(result)
 
     _render_monitor_summary(result.status)
 
