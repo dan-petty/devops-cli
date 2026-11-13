@@ -31,9 +31,9 @@ Kind: behavior. Reads: `src/devops_cli/openspec/gate.py`, `src/devops_cli/opensp
 
 Kind: other. Reads: `src/devops_cli/lang/en/help.py`, `docs/SDLC.md`, `README.md`, `docs/commands/install-tools.md`. Changes: `docs/commands/install-tools.md`, `docs/SDLC.md`, `README.md`.
 
-- [ ] 4.1 Run `uv run devops docs generate` to rewrite `docs/commands/install-tools.md` from the new help of `--check` and `--only-missing`. Add the version read and the passing version line to the `openspec` row of `docs/SDLC.md` and to the `install-tools --check` sentence of `README.md`
+- [x] 4.1 Run `uv run devops docs generate` to rewrite `docs/commands/install-tools.md` from the new help of `--check` and `--only-missing`. Add the version read and the passing version line to the `openspec` row of `docs/SDLC.md` and to the `install-tools --check` sentence of `README.md`
   - Verification: `$ uv run devops ci --only docs` passes
-- [ ] 4.2 Edit `docs/commands/install-tools.md`, `docs/SDLC.md` and `README.md`
+- [x] 4.2 Edit `docs/commands/install-tools.md`, `docs/SDLC.md` and `README.md`
   - Verification: `$ uv run devops ci docs` passes
 
 ## Workflow follow-up
