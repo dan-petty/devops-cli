@@ -32,7 +32,7 @@ Every app that a `devops` command group registers SHALL be a `new_typer()` app, 
 - **THEN** none passes `exit_on=`, names `exit_on_error`, or raises `typer.Exit(<error>.exit_code)` in an `except`
 
 ### Requirement: A command run from a deleted working directory stops with one error line
-When a command registered on a `new_typer()` app starts, or a person runs a command group that the `devops` entry point loads, and the working directory of the process no longer exists, the command SHALL print one error line that says so, SHALL exit with status 1, and SHALL print no traceback and run no body. The entry point then prints its `Elapsed` line. A help query SHALL skip the check.
+When a command registered on a `new_typer()` app starts, or a person runs a command group that the `devops` entry point loads, and the working directory of the process no longer exists, the command SHALL print one error line that says so, SHALL exit with status 1, and SHALL print no traceback and run no body. The entry point then prints its `Elapsed` line when stderr is a terminal. A help query SHALL skip the check.
 
 #### Scenario: A command starts after its working directory was removed
 - **WHEN** the working directory of the process is removed and a person runs a command of a `new_typer()` app
