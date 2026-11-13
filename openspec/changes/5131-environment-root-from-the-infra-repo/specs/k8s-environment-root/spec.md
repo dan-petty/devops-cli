@@ -37,6 +37,10 @@ A command that reads the environment tree (the `devops k8s` stack, pin, lint and
 - **WHEN** `devops grafana dashboards lint --json` runs once with no option and once with `--k8s-dir` at a copy of `k8s/`
 - **THEN** both give the same report and exit code
 
+#### Scenario: The default dashboard folders
+- **WHEN** `devops grafana dashboards lint` runs with no path in a checkout of devops-cli
+- **THEN** it lints `monitoring/dashboards` of the tree and `dashboards` of the product base `k8s/devops` together
+
 #### Scenario: A gateway render of another tree
 - **WHEN** `devops ai gateway render --k8s-dir <copy>` runs with no file option
 - **THEN** it reads and names the gateway config of the copy

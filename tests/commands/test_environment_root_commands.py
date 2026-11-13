@@ -96,6 +96,28 @@ def test_a_profile_of_another_repository_gives_the_tree(
     assert (result.exit_code, str(repo / "cluster") in result.output) == (0, True)
 
 
+def test_dashboards_lint_in_an_infra_repo_reads_only_its_tree(
+    cli: Callable[..., Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An infra repo holds no product base, so the lint with no path reads the dashboards of the
+    tree alone."""
+    repo = tmp_path / "infra"
+    (repo / ".git").mkdir(parents=True)
+    (repo / ".devops").mkdir()
+    (repo / ".devops" / "project.toml").write_text('[kubernetes]\ndir = "k8s"\n', "utf-8")
+    dashboards = repo / "k8s" / "monitoring" / "dashboards"
+    dashboards.mkdir(parents=True)
+    shutil.copy(TREE.dashboards / "coredns.json", dashboards / "coredns.json")
+    monkeypatch.chdir(repo)
+
+    result = cli("grafana", "dashboards", "lint", "--json")
+
+    assert (result.exit_code, [r["source_file"] for r in json.loads(result.output)]) == (
+        0,
+        ["coredns.json"],
+    )
+
+
 def test_no_tree_names_the_option_and_the_project_file(
     cli: Callable[..., Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

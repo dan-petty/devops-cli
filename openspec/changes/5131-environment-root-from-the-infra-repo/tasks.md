@@ -11,7 +11,7 @@
 
 - [x] 2.1 Write failing command tests: a copy of the tree gives the same `deploy-stack --dry-run` and `dashboards lint`, a profile of another repository, no tree, `gateway render`, `ollama prune`, `bootstrap-gitops`, `gitops sync`, `bootstrap-mattermost`, `cloudflare access sync` and `doctor --stack gitea`
   - Verification: `$ uv run devops ci test tests/commands/test_environment_root_commands.py`
-- [x] 2.2 Make the stack tables relative to the tree, split the product paths into `PRODUCT_MANIFESTS_BY_STACK` and `PRODUCT_POST_HELM_BY_STACK`, add `--product-dir`, and read the ConfigMap template from the product base
+- [x] 2.2 Make the stack tables relative to the tree, split the product paths into `PRODUCT_MANIFESTS_BY_STACK`, `PRODUCT_POST_HELM_BY_STACK` and the `product_values` of a release, add `--product-dir`, and read the ConfigMap template from the product base
   - Verification: `$ uv run devops ci test tests/commands/k8s tests/k8s/test_k8s_configmap.py tests/k8s/test_k8s_configmap_keys.py`
 - [x] 2.3 Read the tree in `bootstrap`, `image-pins`, `lint`, `check-deprecated`, `ollama prune`, `devops grafana dashboards`, `devops ai gateway render` and `devops argo`, and confine `--product-dir` for the MCP server
   - Verification: `$ uv run devops ci test tests/commands/test_environment_root_commands.py tests/ai/mcp/test_path_confinement.py tests/ai/mcp/test_mcp_tool_listing.py`
@@ -30,7 +30,7 @@
 - [x] 4.1 Make `tests/support/k8s_tree.py` read a value file of any ref and give `TREE`, and move each test and gate check that read a deleted constant to `TREE` or to the product tables
   - Verification: `$ uv run devops ci test tests/invariants tests/gate tests/ai/benchmark/test_k8s_llm_gateway.py tests/ai/test_ai_gateway_render.py tests/k8s/test_gpu_thresholds.py tests/k8s/test_k8s_ollama_prune.py`
 - [x] 4.2 Confirm that no environment constant of the issue is in `src/`
-  - Verification: `$ ! git grep -n -w -e DEFAULT_K8S_DIR -e CONST_K8S_ARGOCD_APPLICATION_DIRS -e CONST_K8S_ARGOCD_PAUSE_PARENTS -e CONST_K8S_GITEA_APPLICATIONS -e CONST_K8S_OLLAMA_PROFILES_PATH -e DEFAULT_GRAFANA_DASHBOARDS_DIR -e DEFAULT_LLM_GATEWAY_CONFIG_PATH -e DEFAULT_LLM_PROFILES_PATH -e CONST_CLOUDFLARE_BYPASS_POLICY_NAME -e CONST_CLOUDFLARE_ALLOW_POLICY_NAME -- src`
+  - Verification: `$ ! git grep -n -w -e DEFAULT_K8S_DIR -e CONST_K8S_ARGOCD_APPLICATION_DIRS -e CONST_K8S_ARGOCD_PAUSE_PARENTS -e CONST_K8S_GITEA_APPLICATIONS -e CONST_K8S_OLLAMA_PROFILES_PATH -e DEFAULT_GRAFANA_DASHBOARDS_DIR -e DEFAULT_GRAFANA_DASHBOARDS_DIRS -e DEFAULT_LLM_GATEWAY_CONFIG_PATH -e DEFAULT_LLM_PROFILES_PATH -e CONST_CLOUDFLARE_BYPASS_POLICY_NAME -e CONST_CLOUDFLARE_ALLOW_POLICY_NAME -- src`
 
 ## 5. Workflows (workflow)
 
