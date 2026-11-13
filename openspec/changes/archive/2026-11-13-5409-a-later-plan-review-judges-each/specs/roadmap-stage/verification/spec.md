@@ -6,13 +6,13 @@
 ## MODIFIED Requirements
 
 ### Requirement: One more repair round follows while a review fixes more findings than it adds
-After the last repair round of the setting, the stage SHALL start one more round only while the last review marked more earlier open findings `gone` than it opened new findings. The check SHALL read the verdicts of that one review, SHALL NOT compare the counts of two reviews, and SHALL make no model call. No item SHALL get more repair rounds than `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING`. No repair round SHALL start after the Service stops. Each round past the setting SHALL log the line `stage review extended:` with the round, the earlier findings that the last review fixed and the new open findings that it added.
+After the last repair round of the setting, the stage SHALL start one more round only while the last review marked more earlier findings `gone` than it opened new findings, with no model call. No item SHALL get more repair rounds than `CONST_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING`, and no round SHALL start after the Service stops. Each round past the setting SHALL log `stage review extended:` with the round and the counts of fixed and added findings.
 
-#### Scenario: The open count drops after the last round
+#### Scenario: A review fixes an earlier finding after the last round
 - **WHEN** the setting is 2, the first review opens 3 findings, the second review marks each of them `holds`, the third review marks one `gone` and opens no new finding, and the fourth review marks each finding `gone`
 - **THEN** the planner gets 4 requests, the staged change holds no open finding, the job logs one `stage review extended:` line with `round=3 fixed=1 added=0`, and the result line counts 4 review runs
 
-#### Scenario: The open count stays the same
+#### Scenario: A review fixes as many findings as it adds
 - **WHEN** the setting is 2, the first review opens 3 findings, the second review marks one `gone`, and the third review marks one `gone` and opens 1 new finding in the changed text
 - **THEN** the planner gets 3 requests, the staged change holds 2 open findings, and the job logs no `stage review extended:` line
 
@@ -43,6 +43,10 @@ The reply of a later review SHALL give one verdict, `holds` or `gone`, for each 
 #### Scenario: No verdict keeps a finding
 - **WHEN** the first review opens two findings and the review of the revision gives a verdict only for the first, `gone`
 - **THEN** the second finding stays open
+
+#### Scenario: Two verdicts keep a finding
+- **WHEN** the review of the revision marks one earlier finding both `gone` and `holds`
+- **THEN** the finding stays open
 
 ### Requirement: The first review of a plan keeps its request
 The first review of a plan SHALL get no `earlier` and no `answer` key, the reply schema with only `findings`, and the prompt of the pass with no text of a later review. So the golden set of `devops roadmap eval verify`, which scores a first review, keeps its request.

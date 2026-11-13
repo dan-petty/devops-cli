@@ -6,7 +6,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The step repairs the plan with the stage planner
-The step SHALL read the plan of the head of the pull request with `read_change` and give it to the stage planner at the latest default branch. The planner SHALL get the plan as `previous` and each open finding of the review of the head and of the last plan comment as `problem`, and the revision SHALL pass the gates and the verification repair rounds of the stage job. The first review of the revision SHALL be a later review: its `earlier` key SHALL hold each open finding of the review of the head, and its `answer` key SHALL hold the text that the revision changed in the plan that passed the checks.
+The step SHALL read the plan of the head of the pull request with `read_change` and give it to the stage planner at the latest default branch. The planner SHALL get the plan as `previous` and each open finding of the review of the head and of the last plan comment as `problem`, and the revision SHALL pass the gates and the verification repair rounds of the stage job. The first review of the revision SHALL be a later review of the open findings of the review of the head.
 
 #### Scenario: The open findings of the stage comment
 - **WHEN** the stage comment of the item lists an open finding for the pull request, and the review of the head plan has another open finding
@@ -17,7 +17,7 @@ The step SHALL read the plan of the head of the pull request with `read_change` 
 - **THEN** the request of the review of the revision holds that finding in `earlier` and the new `why` in `answer`
 
 ### Requirement: The step pushes a revision that fixes more findings of the head than it adds
-When the revision of a repair is not the same plan as the plan that passed the checks, and the reviews of the revision fixed more open findings of the review of the head than they added, the step SHALL write the change folder as one commit on the latest default branch, push it to the branch of the pull request with `--force-with-lease` on the head that it read, and set the title and the body of the pull request to those of the revision. A finding of the head is fixed when it is not open in the last review of the revision. An added finding is an open finding of the last review of the revision that is no open finding of the head. The step SHALL NOT compare the counts of two independent reviews.
+When the revision of a repair is not the same plan as the plan that passed the checks, and its reviews fixed more open findings of the head than they added, the step SHALL write the change folder as one commit on the latest default branch, push it with `--force-with-lease` on the head that it read, and set the title and the body of the pull request to those of the revision. A finding of the head is fixed when the last review of the revision does not keep it open.
 
 #### Scenario: A revision with fewer open findings
 - **WHEN** the review of the head has two open findings, and the review of the revision marks one `gone` and the other `holds`
