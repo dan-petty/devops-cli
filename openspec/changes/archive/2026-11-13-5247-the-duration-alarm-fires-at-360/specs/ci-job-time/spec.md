@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The mean time of the test job over its last runs is checked
-The `devops ci job-time` command SHALL read from the GitHub Actions API the time of a named check in the last completed `push` runs of a workflow on a branch. By default it SHALL read the check `Tests & Coverage` of `ci.yml` on `main`, 20 runs, with a limit of 360 seconds: the 300 seconds of AGENTS.md rule 5 and 60 seconds of tolerance for the variation of the runners. The command SHALL exit 0 when the mean of the runs is not over the limit, and exit 1 when it is. It SHALL print the time of each run read and the mean.
+The `devops ci job-time` command SHALL read from the GitHub Actions API the time of a named check in the last completed `push` runs of a workflow on a branch. By default it SHALL read the check `Tests & Coverage` of `ci.yml` on `main`, 20 runs, with a limit of 360 seconds: 300 seconds and 60 seconds of tolerance. The command SHALL exit 0 when the mean of the runs is not over the limit, and exit 1 when it is. It SHALL print the time of each run read and the mean.
 
 #### Scenario: The mean is inside the limit
 - **WHEN** the last 20 runs of the job took 100 seconds each and the user runs `devops ci job-time`
