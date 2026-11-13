@@ -10,7 +10,7 @@ The job grade report and the panels of the job grades SHALL read the result line
 ## ADDED Requirements
 
 ### Requirement: The stage Job writes one result line for its attempt after its check-in
-`devops roadmap stage --job-item` SHALL write the result line of its attempt as plain text to stderr. The Job SHALL write the line after its check-in, and only when the check-in found the check-out of the Job, or when the pod has no Job name. When the check-in finds no check-out of the Job, or fails, the Job SHALL write no result line.
+`devops roadmap stage --job-item` SHALL write the result line of its attempt as plain text to stderr. The Job SHALL write the line after its check-in, and only when the check-in found the check-out of the Job, or when no check-out named the Job at its start. When the check-in of a Job that the check-out named at its start finds no check-out of the Job, or fails, the Job SHALL write no result line.
 
 #### Scenario: A normal end
 - **WHEN** the Job stages its item and the check-out names the Job
@@ -20,6 +20,17 @@ The job grade report and the panels of the job grades SHALL read the result line
 - **WHEN** the check-out names another Job at the end of the Job
 - **THEN** the Job writes no result line
 
+#### Scenario: A Job that a person starts
+- **WHEN** no check-out names the Job at its start, and the Job stages its item or reaches its deadline
+- **THEN** the Job writes one result line for its attempt
+
 #### Scenario: The check-in fails
 - **WHEN** the write of the check-in fails
 - **THEN** the Job writes no result line, and the check-out stays, so the recovery of the Service checks in for the `failed` end and writes its line
+
+### Requirement: The stage Job counts its item before its check-in
+The stage Job SHALL count its item in `devops_cli_roadmap_stage_total` before its check-in, as a round does, also when it writes no result line.
+
+#### Scenario: The Service ended the attempt
+- **WHEN** the check-out names another Job at the end of the Job
+- **THEN** `devops_cli_roadmap_stage_total` counts the item of the Job once
