@@ -25,10 +25,20 @@ Kind: other. Reads: `docs/roadmap/stage.md`. Changes: `docs/roadmap/stage.md`.
 - [x] 3.1 Describe the place of a finding and the open rule in the review paragraph of `docs/roadmap/stage.md`
   - Verification: `$ uv run devops docs check`
 
+## 4. Refuse a stored eval report in the old form
+
+Kind: behavior. Reads: `src/devops_cli/commands/roadmap_eval_screen.py`. Changes: `src/devops_cli/roadmap/stage/stage_verify_eval.py`, `src/devops_cli/roadmap/stage/stage_screen_eval.py`, `src/devops_cli/lang/en/messages.py`, `tests/commands/test_roadmap_eval_screen.py`, `docs/ROADMAP_WORKFLOW.md`.
+
+- [x] 4.1 Write `test_a_reviewer_report_in_an_old_form_exits_1_and_makes_no_request` in `tests/commands/test_roadmap_eval_screen.py`, with a stored report whose finding names its place as text
+  - Verification: `$ uv run devops ci test tests/commands/test_roadmap_eval_screen.py`
+- [x] 4.2 Read each `--reviewer` report through `stored_cases`, which `resumed_outcomes` shares, so a report in the old form raises `ConfigurationError` with the name of the file; say in the message and in `docs/ROADMAP_WORKFLOW.md` that a new run gives a report in the new form
+  - Verification: `$ uv run devops ci test tests/commands/test_roadmap_eval_screen.py tests/roadmap/stage/test_roadmap_stage_verify_eval.py`
+
 ## Criteria
 
 - Group 1: `uv run devops ci fail-to-pass --base origin/main` shows that `test_a_finding_on_a_requirement_that_the_plan_does_not_hold_is_advice` fails on the base and passes on the head.
 - Group 2: the replays of fix-plan read the open findings of the stage comment fixtures.
 - Group 3: `uv run devops docs check` passes.
+- Group 4: `devops roadmap eval screen --reviewer` with a report in the old form exits 1 and names the file.
 - Pending a person: run `uv run devops roadmap eval verify` on the base and on the head with the same cases and model, and compare the recall of the blocker and major defects. The base does not reach `CONST_ROADMAP_VERIFY_RECALL_FLOOR`, so the comparison shows only whether the prompt lowers the recall.
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

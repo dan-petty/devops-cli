@@ -5804,7 +5804,8 @@ class RoadmapMessages:
         "this file to --resume."
     )
     verify_eval_resume_unread: str = (
-        "The file {path} is not a report of devops roadmap eval verify."
+        "The file {path} is not a report of devops roadmap eval verify in the form of this "
+        "version. Run the eval again to get one."
     )
     verify_eval_resume_model: str = (
         "The report {path} is of the model {stored}, not of {model}. The scores of two models must "
