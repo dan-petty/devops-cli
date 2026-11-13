@@ -2020,16 +2020,22 @@ _TOOL_CALL: Final[re.Pattern[str]] = re.compile(
 )
 
 
+# The start and the end line after the path of a toolbox tool, as in `read_file path 50 215`
+# (#5391).
+_LINE_ARGUMENTS: Final[re.Pattern[str]] = re.compile(r"(?:\s+\d+){1,2}$")
+
+
 def _citation(span: str, stage_tools: Collection[str]) -> str:
-    """The citation of a code span: the span without a toolbox tool name before it, as in
-    `read_file path`, the first string argument of a toolbox tool call, as in
-    `read_file("path", 60, 80)`, and without a leading `./` (#4463)."""
+    """The citation of a code span, without a leading `./` (#4463): the first string argument of
+    a toolbox tool call, as in `read_file("path", 60, 80)`, else the span without a toolbox tool
+    name before it, as in `read_file path`, and without the start and end line after that path,
+    as in `read_file path 50 215` (#5391)."""
     call = _TOOL_CALL.match(span)
     if call and call["tool"] in stage_tools:
         return (call["double"] or call["single"]).removeprefix("./")
     tool, _, rest = span.partition(" ")
     if tool in stage_tools and rest.strip():
-        span = rest.strip()
+        span = _LINE_ARGUMENTS.sub("", rest.strip())
     return span.removeprefix("./")
 
 
@@ -2260,12 +2266,22 @@ def _sentences(text: str) -> list[str]:
     return [s for s in re.split(r"(?<=[.!?])\s+", _squash(text)) if s]
 
 
+def feasibility_sentences(proposal: StageProposal) -> frozenset[str]:
+    """The sentences of the Feasibility section of `proposal`, in the form that the trace gate
+    reads them (#5391)."""
+    return frozenset(s for line in proposal.feasibility for s in _sentences(line))
+
+
 def _trace_problems(
-    proposal: StageProposal, trace: TraceFacts | None, probes: Sequence[str] = ()
+    proposal: StageProposal,
+    trace: TraceFacts | None,
+    probes: Sequence[str] = (),
+    judged: Collection[str] = (),
 ) -> list[str]:
     """What is wrong with the claims of `proposal.feasibility` compared to `trace` (#3266). A
     sentence of `probes` that the plan quotes is the text of the probe and no claim of the plan,
-    so the gate removes it before it reads the claim (#4463)."""
+    so the gate removes it before it reads the claim (#4463). A sentence of `judged` passed the
+    gate of the run that wrote it, so the gate does not judge it again (#5391)."""
     if trace is None:
         return []
     stage_tools = set(tool_names(HOLDER_STAGE_EXTENDED))
@@ -2273,6 +2289,8 @@ def _trace_problems(
     problems: list[str] = []
     for line in proposal.feasibility:
         for sentence in _sentences(line):
+            if sentence in judged:
+                continue
             claim = reduce(lambda text, probe: text.replace(probe, ""), quoted, sentence)
             if problem := _sentence_trace_problem(claim, stage_tools, trace):
                 problems.append(problem)
@@ -2380,6 +2398,7 @@ def check_gates(
     manifest_references: Mapping[str, Sequence[str]] | None = None,
     module_tests: Mapping[str, Sequence[str]] | None = None,
     trace: TraceFacts | None = None,
+    judged: Collection[str] = (),
 ) -> dict[ProposalGate, list[str]]:
     """What each gate of `check_proposal` finds wrong in `proposal`, one sentence each, under the
     name of the gate. Every gate has a key, and a gate that finds nothing has an empty list. The
@@ -2419,7 +2438,7 @@ def check_gates(
             registry if registry is not None else registry_table(Path.cwd()),
         ),
         ProposalGate.CONSTANTS: constant_problems(plan_texts(proposal), constants or {}),
-        ProposalGate.TRACE: _trace_problems(proposal, trace, probes),
+        ProposalGate.TRACE: _trace_problems(proposal, trace, probes, judged),
     }
 
 
@@ -2444,6 +2463,7 @@ def check_proposal(
     manifest_references: Mapping[str, Sequence[str]] | None = None,
     module_tests: Mapping[str, Sequence[str]] | None = None,
     trace: TraceFacts | None = None,
+    judged: Collection[str] = (),
 ) -> list[str]:
     """What the rules of `openspec/config.yaml` and the files of the commit find wrong in
     `proposal`, one sentence each. `known` holds the names of the capabilities under
@@ -2467,8 +2487,12 @@ def check_proposal(
     case, and a caller that gives none judges no test of a manifest (#3972). `module_tests` maps
     each Python module under `src/` that a behavior group changes to the existing tests of that
     module: the job records it from its checkout, the recheck reads it from the tree it holds, and
-    a caller that gives none judges no test of a module (#3414). The problems are those of
-    `check_gates`, joined in the order of the gates."""
+    a caller that gives none judges no test of a module (#3414). `trace` holds the facts of the
+    plan runs for the trace gate, and a caller that gives none judges no claim of a run (#3266).
+    `judged` holds the Feasibility sentences that the trace gate of an earlier run passed: the
+    step `fix-plan` gives the sentences of the plan that it repairs, and the gate does not judge
+    them again (#5391). The problems are those of `check_gates`, joined in the order of the
+    gates."""
     found = check_gates(
         proposal,
         known,
@@ -2489,6 +2513,7 @@ def check_proposal(
         manifest_references=manifest_references,
         module_tests=module_tests,
         trace=trace,
+        judged=judged,
     )
     return joined_problems(found)
 

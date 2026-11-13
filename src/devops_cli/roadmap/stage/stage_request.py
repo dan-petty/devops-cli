@@ -78,6 +78,7 @@ def gate_arguments(
     manifest_references: Mapping[str, Sequence[str]] | None = None,
     module_tests: Mapping[str, Sequence[str]] | None = None,
     trace: TraceFacts | None = None,
+    judged: Collection[str] = (),
 ) -> dict[str, Any]:
     """The keyword arguments of `check_proposal` and `check_gates` after the proposal. The request
     gives the inputs that the item fixes; the other inputs depend on the commit and on the
@@ -100,4 +101,5 @@ def gate_arguments(
         "manifest_references": manifest_references,
         "module_tests": module_tests,
         "trace": trace,
+        "judged": judged,
     }

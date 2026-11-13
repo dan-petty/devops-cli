@@ -162,6 +162,31 @@ def test_the_refusal_of_a_line_range_names_the_path() -> None:
     assert f"`{other}`" in problems[0]
 
 
+# The form of a `read_file` call with its start and end line after the path, as the fix-plan run
+# on #5390 wrote it on 2026-11-13: `read_file src/devops_cli/config/constants.py 3915 3935` (#5391).
+@pytest.mark.parametrize("lines", ["3915 3935", "3915"])
+def test_the_line_arguments_after_a_read_path_are_no_part_of_the_path(lines: str) -> None:
+    sentence = f"`read_file {CONSTANTS} {lines}` gives the limit of the point."
+
+    assert _problems(sentence, READ_CONSTANTS) == []
+
+
+def test_the_refusal_of_a_read_with_line_arguments_names_the_path() -> None:
+    other = "src/devops_cli/config/other.py"
+
+    problems = _problems(f"`read_file {other} 3915 3935` gives the limit.", READ_CONSTANTS)
+
+    assert len(problems) == 1
+    assert f"`{other}` was read" in problems[0]
+
+
+def test_numbers_after_a_word_that_is_no_toolbox_tool_stay_in_the_path() -> None:
+    problems = _problems(f"The run read `cat {CONSTANTS} 3915 3935` and found it.", READ_CONSTANTS)
+
+    assert len(problems) == 1
+    assert f"cat {CONSTANTS} 3915 3935" in problems[0]
+
+
 @pytest.mark.parametrize(
     ("span", "listed"),
     [

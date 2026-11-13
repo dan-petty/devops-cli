@@ -25,7 +25,9 @@ and `fix_plan.result`, logs one warning with the file and the masked reason, and
 line, because the defect is in the writer or the reader of the plan and not in this step. Else the
 step writes the attempt marks and gives the plan to `revise_plan` at the default branch of
 `origin`: the checks judge the plan, and a plan that they refuse gets a new plan from the planner
-(the gated plan). The review of the plan that passed the checks counts its open findings
+(the gated plan). The trace gate judges only a Feasibility sentence that a reply of the planner
+adds or changes, because the gate of the run that wrote the head passed each sentence of it
+(#5391). The review of the plan that passed the checks counts its open findings
 (`before`), the planner gets the plan with those findings and the open findings of the last plan
 comment, and the review judges the revision with the normal repair rounds (`after`). An earlier
 review wrote the comment, so the count of the comment (`comment`) is only reported (#5150).
