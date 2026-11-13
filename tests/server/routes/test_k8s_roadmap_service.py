@@ -179,27 +179,32 @@ def test_every_pod_of_the_deployment_exports_its_metrics_under_one_series_identi
     """Prometheus names a series by its `service.name` (`job`) and `service.instance.id`
     (`instance`). The host name of the pod changes at each restart, so the Deployment sets one
     instance id in the standard `OTEL_RESOURCE_ATTRIBUTES`: the series of a new pod continues the
-    series of the pod before it, and `host.name` still names the pod (#1629)."""
+    series of the pod before it. The metric Resource keeps no `host.name`, which the collector
+    would key a metric stream by (#1629, #4697)."""
     env = {e["name"]: e.get("value") for e in _container()["env"]}
     monkeypatch.setenv("OTEL_SERVICE_NAME", env["OTEL_SERVICE_NAME"])
     monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", env["OTEL_RESOURCE_ATTRIBUTES"])
     pods = ("roadmap-service-5557bc6b97-4m96n", "roadmap-service-7fcb98569d-2szh4")
-    identities = []
+    resources = []
     for pod in pods:
         collector = FakeCollector()
         client = collector.client(service_name=env["OTEL_SERVICE_NAME"])
         client.host_name = pod
         client.increment_counter("devops_cli_ai_requests_total", 1, attributes={})
         (payload,) = collector.payloads(OtlpSignal.METRICS)
-        resource = {
-            a["key"]: next(iter(a["value"].values()))
-            for a in payload["resourceMetrics"][0]["resource"]["attributes"]
-        }
-        identities.append(
-            (resource["service.name"], resource["service.instance.id"], resource["host.name"])
+        resources.append(
+            {
+                a["key"]: next(iter(a["value"].values()))
+                for a in payload["resourceMetrics"][0]["resource"]["attributes"]
+            }
         )
 
-    assert identities == [("roadmap-service", "roadmap-service", pod) for pod in pods]
+    assert resources[0] == resources[1]
+    assert (
+        resources[0]["service.name"],
+        resources[0]["service.instance.id"],
+        "host.name" in resources[0],
+    ) == ("roadmap-service", "roadmap-service", False)
 
 
 def test_pod_annotations_name_port_8000() -> None:

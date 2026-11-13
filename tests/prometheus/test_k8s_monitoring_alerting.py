@@ -120,6 +120,7 @@ VALKEY_MEMORY_RULE_TESTS = FIXTURES / "prometheus_rules" / "valkey_memory_tests.
 RESEARCH_RULE_TESTS = FIXTURES / "prometheus_rules" / "research_tests.yaml"
 AI_SPEND_RULE_TESTS = FIXTURES / "prometheus_rules" / "ai_spend_tests.yaml"
 GATEWAY_DATABASE_RULE_TESTS = FIXTURES / "prometheus_rules" / "llm_gateway_db_tests.yaml"
+METRIC_STREAMS_RULE_TESTS = FIXTURES / "prometheus_rules" / "metric_streams_tests.yaml"
 
 # The job of every series the roadmap Service sends, by the scrape and by OTLP alike (#2472).
 ROADMAP_SERVICE_JOB = "roadmap-service"
@@ -153,6 +154,8 @@ VALKEY_MEMORY_GROUP = "valkey-memory"
 RESEARCH_GROUP = "research"
 # The rules over the daily USD spend of the hosted models (#4222).
 AI_SPEND_GROUP = "ai-spend"
+# The rule of two metric streams that write one Prometheus series (#4697).
+METRIC_STREAMS_GROUP = "metric-streams"
 # The rules of the database of the LLM gateway, a CloudNativePG Cluster of one instance (#4994).
 GATEWAY_DATABASE_GROUP = "llm-gateway-db"
 # Each group whose rules have promtool unit tests, with a file of its tests.
@@ -164,6 +167,7 @@ RULE_GROUP_TESTS = (
     (RESEARCH_GROUP, RESEARCH_RULE_TESTS),
     (AI_SPEND_GROUP, AI_SPEND_RULE_TESTS),
     (GATEWAY_DATABASE_GROUP, GATEWAY_DATABASE_RULE_TESTS),
+    (METRIC_STREAMS_GROUP, METRIC_STREAMS_RULE_TESTS),
 )
 RULE_TEST_IDS = [rule_tests.stem for _, rule_tests in RULE_GROUP_TESTS]
 # promtool evaluates the rules of a group once each `evaluation_interval` of a file, from 0 to
@@ -291,6 +295,9 @@ SERVED_SERIES = frozenset(
         ROADMAP_TOOL_CALLS_TOTAL.name,
         # Freshness of the in-cluster RAG ingest runs (#1653).
         RAG_INGEST_LAST_SUCCESS_TIMESTAMP.name,
+        # The resource attributes of each stream that the OTLP receiver of Prometheus writes, one
+        # series for each stream of a job and instance (#4697).
+        "target_info",
     }
 )
 SEVERITIES = frozenset({"critical", "warning"})
@@ -427,7 +434,8 @@ def test_the_baseline_rule_set() -> None:
     #550's two volume rules (`LogOrMetricVolumeDiskLow`, `PrometheusNearRetentionSizeCap`), and
     the roadmap Service's rules (#2472, #2475) with the rule of its webhook route (#2476), the
     Crawl4AI rules (#3893), the OpenTelemetry collector's export rules (#1642), the Valkey memory
-    rule (#2094), the daily spend rules (#4222) and the gateway database rules (#4994).
+    rule (#2094), the daily spend rules (#4222), the gateway database rules (#4994) and the rule of
+    two metric streams that write one series (#4697).
 
     A rule with a warning and a critical threshold is one alert name at two severities, so
     Alertmanager's critical-over-warning inhibition hides the warning while both fire.
@@ -447,6 +455,7 @@ def test_the_baseline_rule_set() -> None:
         ("CoreDnsServfailResponses", "warning"),
         ("Crawl4AIFetchesFailing", "warning"),
         ("Crawl4AIUnavailable", "warning"),
+        ("DevopsCliMetricStreamsShareSeries", "warning"),
         ("GatewayDatabaseConnectionsNearMax", "warning"),
         ("GatewayDatabaseDown", "warning"),
         ("GatewayDatabaseNearClaim", "warning"),
@@ -1677,6 +1686,40 @@ def test_each_ai_spend_alert_has_a_row_with_the_first_step_in_the_readme() -> No
     ) == ([], [])
 
 
+def test_the_metric_streams_alert_has_a_row_in_the_readme() -> None:
+    """The alert table of `k8s/README.md` has a row for `DevopsCliMetricStreamsShareSeries`. The
+    row says that two `target_info` series of one `job` and `instance` fire it after 30 minutes at
+    the warning severity, and that the action reads the two series of that job and instance and
+    removes the extra stream (#4697)."""
+    text = K8S_README.read_text(encoding="utf-8")
+    start = text.index("\n## Alerting\n")
+    section = text[start : text.index("\n### ", start)]
+    rows = [
+        line
+        for line in section.splitlines()
+        if line.startswith("| `DevopsCliMetricStreamsShareSeries` |")
+    ]
+    assert len(rows) == 1, rows
+    cells = [cell.strip() for cell in rows[0].strip("|").split(" | ")]
+    assert (
+        cells[0],
+        "target_info" in cells[1],
+        "`job`" in cells[1],
+        "`instance`" in cells[1],
+        cells[2],
+        cells[3],
+        "remove the extra stream" in cells[4],
+    ) == (
+        "`DevopsCliMetricStreamsShareSeries`",
+        True,
+        True,
+        True,
+        "30m",
+        "warning",
+        True,
+    )
+
+
 @pytest.mark.live("promtool")
 def test_promtool_accepts_every_alert_rule(tmp_path: Path) -> None:
     """`promtool check rules` accepts each rule file the server loads, with each expression and
@@ -1737,7 +1780,7 @@ def test_each_unit_tested_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_ser
     `roadmap-service-webhooks` (#2476), of `roadmap-service-activity` (#2475), of
     `roadmap-service-items` (#2919), of `roadmap-service-tools` (#3240), of `crawl4ai` (#3893), of
     `otel-collector` (#1642), of `valkey-memory` (#2094), of `research` (#3899), of `ai-spend`
-    (#4222) and of `llm-gateway-db` (#4994).
+    (#4222), of `llm-gateway-db` (#4994) and of `metric-streams` (#4697).
 
     Each alert fires on a sample series with the labels and annotations it pins, and stays quiet
     on a normal series, before its wait ends, and on the series it must not count. Each file

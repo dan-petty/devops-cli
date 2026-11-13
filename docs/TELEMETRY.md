@@ -19,14 +19,24 @@ resource, scope, metric and attributes) into a running total before Prometheus s
 it. Prometheus names a series by `service.name` (`job`), `service.instance.id`
 (`instance`) and the metric's attributes. Prometheus sets `job` and `instance` from
 the resource after it copies the attributes. So an attribute with either name is lost.
-A job row is the `row` attribute. The `service.instance.id` is the host name,
-which every command on the host shares. The standard `OTEL_RESOURCE_ATTRIBUTES` sets
-another one: roadmap-service sets `service.instance.id=roadmap-service`, so on the OTLP
-path a new pod continues the series of the pod before it. The `/metrics` scrape adds the
+A job row is the `row` attribute. The metric Resource holds `service.name`,
+`service.namespace`, `service.instance.id`, `os.type` and the `telemetry.sdk.*` keys
+only (#4697). The collector keys a metric stream by every resource attribute, while
+Prometheus keeps only `job` and `instance`, so a resource attribute such as
+`host.name`, the pod name, would split one series into a stream that starts at zero
+again. The span and log Resource also holds `host.name`, which finds the pod of a
+trace or a log line and splits no metric stream.
+The standard `OTEL_RESOURCE_ATTRIBUTES` sets `service.instance.id`, and the metric
+Resource keeps the value. Without that variable, `service.instance.id` is the host
+name, which every command on the host shares. roadmap-service sets
+`service.instance.id=roadmap-service`, so on the OTLP path a new pod continues the
+series of the pod before it. Both CronJob templates set
+`service.instance.id=devops-cli-job`, so the Job pods of the workload share one stream
+and the series of `devops-cli-job` continues across them. The `/metrics` scrape adds the
 label `pod`, so each pod has its own series there. A running total that starts again from
 zero, for a new pod or for a stream that gets no delta for `max_stale` (`1h` in
 `k8s/otel/values.yaml`), is a counter reset to `rate()` and `increase()`.
-Cluster job pods have unique instance names and export metrics only once when they exit.
+A Job pod exports its metrics once, when it exits.
 PromQL functions like `increase()` and `rate()` drop series that contain only one sample.
 So the collector sends the running totals to the OTLP receiver of Prometheus
 (`otlp_http/prometheus` in `k8s/otel/values.yaml`), which gets the start time of each point.

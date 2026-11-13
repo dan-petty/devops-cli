@@ -24,6 +24,11 @@ from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.waits import POLL_INTERVAL_SECONDS
 
+METRIC_RESOURCE_KEYS = frozenset(
+    {"service.name", "service.namespace", "service.instance.id", "os.type"}
+)
+"""The resource attributes that the metric Resource may hold, beside `telemetry.sdk.*`."""
+
 
 @pytest.fixture
 def collector(unserved_side_channel_port: int) -> str:
@@ -511,6 +516,57 @@ def test_cached_resource_attributes_enrichment() -> None:
         "process.pid",
         "process.executable.name",
     }.issubset(res_keys)
+
+
+def _metric_resource(collector: FakeCollector) -> dict[str, str]:
+    """The resource of the one metric batch that a client exported."""
+    (payload,) = collector.payloads(OtlpSignal.METRICS)
+    return {
+        attribute["key"]: next(iter(attribute["value"].values()))
+        for attribute in payload["resourceMetrics"][0]["resource"]["attributes"]
+    }
+
+
+def test_two_tracers_with_one_instance_send_equal_metric_resources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The metric Resource holds only the stable attributes, so the two pods of one workload
+    send one metric stream (#4697)."""
+    monkeypatch.delenv("OTEL_SERVICE_NAME", raising=False)
+    monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", "service.instance.id=devops-cli-job")
+    resources = []
+    for pod in ("devops-cli-job-abcde", "devops-cli-job-fghij"):
+        monkeypatch.setattr("platform.node", lambda pod=pod: pod)
+        collector = FakeCollector()
+        client = collector.client(service_name="devops-cli-job")
+        client.increment_counter("devops_cli_command_total", 1, attributes={})
+        resources.append(_metric_resource(collector))
+
+    assert resources[0] == resources[1]
+    assert resources[0]["service.instance.id"] == "devops-cli-job"
+    assert {
+        key for key in resources[0] if not key.startswith("telemetry.sdk.")
+    } <= METRIC_RESOURCE_KEYS
+
+
+def test_a_span_resource_names_the_host_while_the_metric_resource_does_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The pod name finds a trace, and a span or a log line does not split a metric series
+    (#4697)."""
+    monkeypatch.delenv("OTEL_SERVICE_NAME", raising=False)
+    monkeypatch.delenv("OTEL_RESOURCE_ATTRIBUTES", raising=False)
+    monkeypatch.setattr("platform.node", lambda: "devops-cli-job-abcde")
+    collector = FakeCollector()
+    client = collector.client(service_name="devops-cli-job")
+    with client.span("pod_span"):
+        pass
+    client.increment_counter("devops_cli_command_total", 1, attributes={})
+
+    assert (
+        client.resource_attributes()["host.name"],
+        "host.name" in _metric_resource(collector),
+    ) == ("devops-cli-job-abcde", False)
 
 
 def test_a_new_tracer_starts_no_process(monkeypatch: pytest.MonkeyPatch) -> None:

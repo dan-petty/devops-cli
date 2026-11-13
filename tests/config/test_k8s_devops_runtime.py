@@ -109,6 +109,47 @@ def test_cluster_jobs_report_under_a_service_name_of_their_own() -> None:
     ) == ("devops-cli-job", "devops-cli", "roadmap-service")
 
 
+def test_both_cronjob_templates_set_the_runner_instance() -> None:
+    """Both cluster job templates name one metric stream for their workload, so the stream of
+    `devops-cli-job` continues across the Job pods instead of starting again at zero in the same
+    Prometheus series (#4697). The value is plain: it names a stream and holds no secret."""
+    documents = {name: _doc(name) for name in ("cronjob.yaml", "cronjob-runner.yaml")}
+    envs = {
+        name: {
+            entry["name"]: entry
+            for entry in document["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][
+                0
+            ]["env"]
+        }
+        for name, document in documents.items()
+    }
+    entries = {name: envs[name].get("OTEL_RESOURCE_ATTRIBUTES") for name in envs}
+    credential_names = {"GH_TOKEN", "GITHUB_TOKEN"} | {
+        variable for credential in CREDENTIALS for variable in credential.env_vars
+    }
+    assert (
+        entries,
+        [name for name, entry in entries.items() if "valueFrom" in (entry or {})],
+        [
+            secret
+            for secret in credential_names
+            if any(secret in (entry or {}).get("value", "") for entry in entries.values())
+        ],
+        {name: envs[name].get("OTEL_SERVICE_NAME", {}).get("value") for name in envs},
+    ) == (
+        {
+            name: {
+                "name": "OTEL_RESOURCE_ATTRIBUTES",
+                "value": "service.instance.id=devops-cli-job",
+            }
+            for name in documents
+        },
+        [],
+        [],
+        {name: "devops-cli-job" for name in documents},
+    )
+
+
 def test_security_context_is_restricted() -> None:
     pod_context = _pod_spec()["securityContext"]
     container_context = _container()["securityContext"]

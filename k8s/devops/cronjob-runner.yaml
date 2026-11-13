@@ -65,6 +65,11 @@ spec:
                 # jobs.
                 - name: OTEL_SERVICE_NAME
                   value: devops-cli-job
+                # Every Job pod of the workload sends this one instance, so its metric stream
+                # continues across the Job pods instead of starting again at zero in the same
+                # Prometheus series (#4697).
+                - name: OTEL_RESOURCE_ATTRIBUTES
+                  value: service.instance.id=devops-cli-job
                 # The spans and the log records name the cluster (`k8s.cluster.name`) and the
                 # namespace (`k8s.namespace.name`) from these two values. The cluster name is the
                 # name in k8s/monitoring/k8s-monitoring-values.yaml; without it, they name

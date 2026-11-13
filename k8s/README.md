@@ -536,6 +536,7 @@ Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prome
 | `PodLogsNotShipped` | An `alloy-logs` pod has sent 0 log entries to Loki (`node` joined from `kube_pod_info`) | 30m | warning |
 | `OtelCollectorExportFailing` | An exporter of the OpenTelemetry collector failed to send spans, metric points or log records to Tempo, Prometheus or Loki in each of two 15-minute periods in a row; it names the exporter and the signal | 15m | warning |
 | `OtelCollectorExportQueueFull` | An exporter queue of the OpenTelemetry collector is at 90% or more of its capacity; a full queue drops new data | 15m | warning |
+| `DevopsCliMetricStreamsShareSeries` | Two metric streams write one Prometheus series: Prometheus holds two `target_info` series with the same `job` and `instance`. Each stream carries its own metric Resource attributes, so the totals of both streams start again at zero in that series and their counts are lost (#4697) | 30m | warning | Read the two `target_info` series of that job and instance (`target_info{job="<job>", instance="<instance>"}`), find the workload that sets a second `service.instance.id` in its `OTEL_RESOURCE_ATTRIBUTES`, and remove the extra stream. |
 | `ArgoCdApplicationOutOfSync` | An Argo CD Application's `sync_status` is not `Synced` | 15m | warning |
 | `ArgoCdApplicationUnhealthy` | An Argo CD Application's `health_status` is neither `Healthy` nor `Progressing` | 15m | warning |
 | `ArgoCdAutoSyncDisabled` | An Argo CD Application's `autosync_enabled` is `false` | 15m | warning |

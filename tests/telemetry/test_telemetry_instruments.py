@@ -940,9 +940,14 @@ def test_each_table_of_quantiles_states_the_count_of_its_calls() -> None:
     assert (len(tables), len(duration_panels), misplaced) == (4, 5, [])
 
 
-def test_counters_are_monotonic_deltas_from_the_host_not_the_process(otlp: FakeCollector) -> None:
-    """Verify a counter is a delta sum whose resource names the host and no process, so the
-    collector adds up every command's deltas into one series per host."""
+def test_counters_are_monotonic_deltas_from_the_host_not_the_process(
+    otlp: FakeCollector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a counter is a delta sum whose resource names the workload and no process, so the
+    collector adds up every command's deltas into one series per workload. The instance comes
+    from the standard variable, and the metric Resource holds no `host.name`, which is the pod
+    name and would split the stream (#4697)."""
+    monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", "service.instance.id=devops-cli-job")
     tracer_module.get_tracer().increment_counter("devops_cli_command_total", 1, attributes={})
 
     (metric,) = otlp.metrics
@@ -957,9 +962,10 @@ def test_counters_are_monotonic_deltas_from_the_host_not_the_process(otlp: FakeC
     assert (
         (metric["sum"]["aggregationTemporality"], metric["sum"]["isMonotonic"]),
         "process.pid" in resource or "service.version" in resource,
-        resource["service.instance.id"] == resource["host.name"],
+        "host.name" in resource,
+        resource["service.instance.id"],
         int(point["startTimeUnixNano"]) < int(point["timeUnixNano"]),
-    ) == ((1, True), False, True, True)
+    ) == ((1, True), False, False, "devops-cli-job", True)
 
 
 def test_flushes_from_two_threads_send_their_deltas_in_the_order_they_collected_them(
