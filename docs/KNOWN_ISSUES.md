@@ -31,7 +31,7 @@ Captures operational edge cases, intentional design trade-offs, and mitigations 
 - **Mitigation**: Pinned keys are automatically seeded into `~/.ssh/known_hosts` once per process. For third-party or custom git hosts, pre-populate `~/.ssh/known_hosts` on developer workstations or container build images.
 
 ### 7. AI Review False-Positive Detection & Invalidation Feedback Loop
-- **Context**: Review and analysis stages may occasionally flag legacy syntax (e.g. Python 2 comma-separated exception handling), flag pre-submission secret redaction placeholders (`<masked-*>`, `[REDACTED]`, `{% raw %}${{ secrets.* }}{% endraw %}`), or cite historical research/evidence notes (`evidence/`, `docs/agent/archive/`) as live vulnerabilities.
+- **Context**: Review and analysis stages may occasionally flag legacy syntax (e.g. Python 2 comma-separated exception handling), flag pre-submission secret redaction placeholders (`<masked-*>`, `[REDACTED]`, `${{ secrets.* }}`), or cite historical research/evidence notes (`evidence/`, `docs/agent/archive/`) as live vulnerabilities.
 - **Mitigation**: A person records the verdict with `devops ai review verify <session> --index <n> --status INVALIDATED --reason "..."`, with the number `devops ai review findings` shows; it labels that session and nothing else, since there is no learned catalog. A false positive that recurs becomes a `[[suppressions]]` entry in `.devops/review.toml` with a rule, a path, a reason and an expiry, or a change to the tool's configuration or the prompt that let it through. `devops ai review export-feedback` appends the verdicts to `.data/feedback_dataset.jsonl`.
 
 ### 8. Python 3.14 PEP 758 Multi-Exception Syntax & Pydantic Mutable Default Invariants

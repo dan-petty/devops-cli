@@ -139,7 +139,7 @@ Executed at the final stage of work after all iterative feature modifications an
    - Review execution durations, OpenTelemetry spans, metric gauges, and application log output generated during test runs and CLI executions.
    - Verify absence of performance bottlenecks, resource leaks, configuration warnings, or suppressed exceptions.
 4. **Validate GitHub Governance, Pages Readiness & Issues Triage**:
-   - Verify the syntax and the required keys of `zensical.toml`, the one file of site settings that the site build reads, and the `docs/` publishing root, with `devops gh pages verify`. Build the site with `devops docs site build --strict`.
+   - Verify the syntax and the required keys of `zensical.toml`, the one file of site settings that the site build reads, and that `docs/` holds Markdown pages, with `devops gh pages verify`. Build the site with `devops docs site build --strict`.
    - Audit open issues for mandatory taxonomy labels (`type/*`, `scope/*`) and a `priority/*` label via `devops gh issue triage`, and run `devops roadmap intake` for those it reports as awaiting intake.
    - Inspect issue portfolio distribution via `devops gh issue status`.
 

@@ -29,7 +29,7 @@ Kind: other. Changes: `tests/github/test_github_pages.py`.
 
 Kind: other. Changes: `src/devops_cli/ai/knowledge_base/devops_cli/tasks/github_project_management.md`, `docs/ROUTINE_TASKS.md`, `docs/DESIGN.md`, `docs/KNOWN_ISSUES.md`, `README.md`.
 
-- [ ] 4.1 Replace the build commands of the knowledge base with a manual run of `pages.yml`, and remove "build history", "manual build dispatching", "publishing root", `enforce_https`, `gh_pages_build` and "build health" from it; correct `docs/ROUTINE_TASKS.md`, `docs/DESIGN.md`, `docs/KNOWN_ISSUES.md` and `README.md`
+- [x] 4.1 Replace the build commands of the knowledge base with a manual run of `pages.yml`, and remove "build history", "manual build dispatching", "publishing root", `enforce_https`, `gh_pages_build` and "build health" from it; correct `docs/ROUTINE_TASKS.md`, `docs/DESIGN.md`, `docs/KNOWN_ISSUES.md` and `README.md`
   - Verification: `$ uv run devops docs check`
 
 ## Criteria

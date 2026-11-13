@@ -3,7 +3,7 @@
 ## 1. Overview & Purpose
 
 GitHub project governance in `devops-cli` standardizes repository metadata across six foundational pillars:
-1. **GitHub Pages Publishing**: Inspection of deployment health, custom domain status, HTTPS enforcement, build history, manual build dispatching, and readiness verification of `zensical.toml`, the one file of site settings that the site build reads, and `docs/`.
+1. **GitHub Pages Publishing**: Inspection of deployment status, build type, custom domain status and HTTPS enforcement, a manual deploy with the `pages.yml` workflow, and readiness verification of `zensical.toml`, the one file of site settings that the site build reads, and `docs/`.
 2. **GitHub Issues Lifecycle & Triage**: Intake (`devops roadmap intake`), the one way new work becomes an item, taxonomy label enforcement (`type/*`, `scope/*`, `priority/*`), and proactive triage auditing to guarantee zero unclassified open issues; a backlog item has no milestone. The labels of an item hold its Status, Priority, Value and Effort (`status/*`, `priority/*`, `value/*`, `effort/*`; ADR 0016), and no roadmap job reads or writes a project board.
 3. **GitHub Projects v2 Lifecycle**: Board creation, multi-board listing, reconciliation of Status and Priority on the board's cards from issue and pull request state and labels, and automated drift auditing against standardized template schemas.
 4. **Standardized Projects v2 Views**: Continuous auditing and synchronization of the 4 canonical views (`Sprint Kanban`, `Roadmap Timeline`, `Triage & Quality Table`, and `Value vs Effort Priority Matrix`) ensuring full alignment across `https://github.com/dan-petty/devops-cli/projects` and `https://github.com/dan-petty/devops-cli/issues/views`.
@@ -18,7 +18,7 @@ GitHub project governance in `devops-cli` standardizes repository metadata acros
 graph TD
     A[Declarative Schemas<br/>.github/labels.yml & project-template.json] -->|devops gh label sync| B[Remote GitHub Labels]
     E[Issues placed by devops roadmap intake] -->|devops gh project sync| F[GitHub Projects v2 Items]
-    G[zensical.toml] -->|devops gh pages verify| H[GitHub Pages Deployment]
+    G[zensical.toml] -->|pages.yml: devops docs site build --strict| H[GitHub Pages Deployment]
     I[Open Issues Queue] -->|devops gh issue triage| J[Triage Audit & Taxonomies]
     B --> K[devops gh label audit]
     D[Remote GitHub Milestones<br/>planning buckets set by a person] --> L[devops gh milestones list]
@@ -47,11 +47,8 @@ graph TD
 # Inspect GitHub Pages deployment status, URL, custom domain, and HTTPS enforcement
 devops gh pages status
 
-# View recent GitHub Pages build history and statuses
-devops gh pages builds --limit 10
-
-# Request a new GitHub Pages deployment build
-devops gh pages build
+# Deploy the site again: run the pages.yml workflow on main
+devops gh api -X POST 'repos/{owner}/{repo}/actions/workflows/pages.yml/dispatches' -f ref=main
 
 # Verify local repository readiness (checks zensical.toml and the docs/ directory)
 devops gh pages verify
@@ -128,8 +125,8 @@ devops gh milestones list
 ## 4. Best Practice Guidance
 
 1. **GitHub Pages Deployment Readiness**:
-   - Before you push a documentation change, run `devops gh pages verify` to check `zensical.toml` (its TOML syntax and its `site_name`, `site_url` and `repo_url` settings) and to confirm that the `docs/` publishing root exists, and run `devops docs site build --strict`. The `pages.yml` workflow builds the site with Zensical and deploys it: the Pages source of the repository is GitHub Actions. `devops docs site build` reads `zensical.toml` only, so put every site setting in that file.
-   - Verify that HTTPS is strictly enforced (`enforce_https: true`) and custom domains have valid SSL certificates via `devops gh pages status`.
+   - Before you push a documentation change, run `devops gh pages verify` to check `zensical.toml` (its TOML syntax and its `site_name`, `site_url` and `repo_url` settings) and to confirm that `docs/` holds Markdown pages, and run `devops docs site build --strict`. The `pages.yml` workflow builds the site with Zensical and deploys it: the Pages source of the repository is GitHub Actions. `devops docs site build` reads `zensical.toml` only, so put every site setting in that file.
+   - Verify that HTTPS is strictly enforced (`https_enforced: true`) and custom domains have valid SSL certificates via `devops gh pages status`.
 2. **Issue Triage & Zero-Untracked Defect Policy**:
    - Every open issue must have at least one `type/*` label, at least one `scope/*` label, and one `priority/*` label.
    - New feature or defect issues enter through intake (`devops roadmap intake --title … --body-file … --confirm`), which sets their `priority/*` label and puts them in the backlog; nobody sets a milestone or priority on a new issue by hand.
@@ -180,7 +177,7 @@ devops gh milestones list
 AI coding agents have native access to GitHub project management through the FastMCP `gh_*` tools (including those listed below) and the server's resources:
 
 ### Registered FastMCP Tools
-- **Pages**: `gh_pages_status`, `gh_pages_build`, `gh_pages_verify`
+- **Pages**: `gh_pages_status`, `gh_pages_verify`
 - **Issues**: `gh_issue_list`, `gh_issue_view`, `gh_issue_create`, `gh_issue_edit`, `gh_issue_triage`, `gh_issue_status`
 - **Projects**: `gh_project_list`, `gh_project_status`, `gh_project_audit`, `gh_project_sync`, `gh_project_reconcile` (`mode="plan"` by default; `"write"` makes the changes and `"dry-run"` makes no request)
 - **Views**: `gh_views_audit`, `gh_views_sync`, `gh_views_spec`
@@ -189,7 +186,7 @@ AI coding agents have native access to GitHub project management through the Fas
 - **Labels**: `gh_label_list`, `gh_label_sync`
 
 ### Registered Dynamic System Resources
-- `resource://gh/pages/status`: Real-time GitHub Pages publishing status and build health.
+- `resource://gh/pages/status`: Real-time GitHub Pages publishing status, build type and custom domain.
 - `resource://gh/issue/status`: Live issue distribution across priorities, types, and milestones.
 - `resource://gh/project/status`: GitHub Projects v2 board configuration and field definitions.
 - `resource://gh/views/status`: Remote project views synchronization and schema audit status.
