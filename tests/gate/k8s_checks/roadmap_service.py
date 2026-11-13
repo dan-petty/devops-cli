@@ -35,13 +35,12 @@ def _roadmap_ingress(documents: list[dict[str, Any]]) -> dict[str, Any]:
 def check_each_webhook_ingress_names_the_rate_limit_that_the_devops_stack_renders() -> None:
     """Traefik limits the deliveries of the webhook route (#2476). Argo CD renders the Middleware
     and the Ingress from the homelab overlay of `devops`. deploy-stack applies the Ingress from
-    `roadmap-service/ingress.yaml` and from its copy in `ingress/ingress-routes.yaml`, and each
-    names the Middleware, so no apply removes the limit."""
+    `roadmap-service/ingress.yaml`, the one file that holds it (#5292), and each names the
+    Middleware, so no apply removes the limit."""
     rendered = applied_documents(K8S_DIR / "overlays" / "homelab" / "devops")
     applies = [
         rendered,
         applied_documents(ROADMAP_SERVICE_DIR / "ingress.yaml"),
-        applied_documents(K8S_DIR / "ingress" / "ingress-routes.yaml"),
     ]
     middlewares = {
         (document["metadata"]["namespace"], document["metadata"]["name"]): (
@@ -58,7 +57,7 @@ def check_each_webhook_ingress_names_the_rate_limit_that_the_devops_stack_render
         ],
         middlewares,
     ) == (
-        ["devops-roadmap-service-rate-limit@kubernetescrd"] * 3,
+        ["devops-roadmap-service-rate-limit@kubernetescrd"] * 2,
         {
             ("devops", "roadmap-service-rate-limit"): (
                 "traefik.io/v1alpha1",

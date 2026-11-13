@@ -70,7 +70,9 @@ from tests.support.paths import REPO_ROOT
 from tests.support.trees import ParsedTreeMap
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
-DASHBOARDS = REPO_ROOT / "k8s" / "monitoring" / "dashboards"
+# The product dashboards of devops-cli (#5292), and the dashboards of the environment.
+DASHBOARDS = REPO_ROOT / "k8s" / "devops" / "dashboards"
+ENVIRONMENT_DASHBOARDS = REPO_ROOT / "k8s" / "monitoring" / "dashboards"
 SERIES_NAME = re.compile(r"devops_cli_[a-z0-9_]+")
 REGISTRY_COUNTS: Final[tuple[tuple[str, str, str], ...]] = (
     ("table", "INSTRUMENTS", "src/devops_cli/telemetry/instruments.py"),
@@ -141,7 +143,7 @@ _PURE_DEVOPS_CLI_DASHBOARDS: frozenset[str] = frozenset(
 
 
 def _devops_cli_dashboards() -> list[Path]:
-    """The shipped dashboards dedicated to devops-cli metrics."""
+    """The shipped dashboards dedicated to devops-cli metrics: each one of the product folder."""
     return [
         dashboard
         for dashboard in sorted(DASHBOARDS.glob("*.json"))
@@ -171,9 +173,13 @@ def _outermost(query: str) -> str:
 
 
 def test_the_devops_cli_dashboards_are_found_by_their_queries() -> None:
-    """Verify the glob the query checks run over finds both devops-cli dashboards."""
+    """Verify the glob the query checks run over finds the devops-cli dashboards, and that the
+    product folder holds only them (#5292)."""
     names = {dashboard.name for dashboard in _devops_cli_dashboards()}
-    assert {"devops-cli.json", "ai-spend.json", "project-metrics.json"} <= names
+    assert (names, {path.name for path in DASHBOARDS.glob("*.json")}) == (
+        _PURE_DEVOPS_CLI_DASHBOARDS,
+        _PURE_DEVOPS_CLI_DASHBOARDS,
+    )
 
 
 # The AI spend dashboard also reads the gateway's request and token series, which count every
@@ -250,7 +256,7 @@ def test_a_counter_name_ends_in_total_and_no_other_name_does() -> None:
 
 def test_all_dashboards_referencing_devops_cli_metrics_name_sent_series() -> None:
     """Verify any dashboard in the repo that queries a devops_cli_* metric names a valid sent series."""
-    for dashboard in sorted(DASHBOARDS.glob("*.json")):
+    for dashboard in sorted([*DASHBOARDS.glob("*.json"), *ENVIRONMENT_DASHBOARDS.glob("*.json")]):
         queries = _queries(dashboard)
         unsent = {name for query in queries for name in SERIES_NAME.findall(query)} - SENT_SERIES
         assert unsent == set(), f"{dashboard.name} queries unsent devops-cli metrics: {unsent}"
@@ -1365,9 +1371,9 @@ def test_a_stream_with_no_delta_for_an_hour_starts_again_from_zero() -> None:
     values = yaml.safe_load(
         (REPO_ROOT / "k8s" / "otel" / "values.yaml").read_text(encoding="utf-8")
     )
-    rules = (REPO_ROOT / "k8s" / "monitoring" / "prometheus-values.yaml").read_text(
-        encoding="utf-8"
-    )
+    rules = (
+        REPO_ROOT / "k8s" / "devops" / "monitoring" / "prometheus-rules-values.yaml"
+    ).read_text(encoding="utf-8")
 
     assert (
         values["config"]["processors"]["deltatocumulative"]["max_stale"],

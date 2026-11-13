@@ -1025,7 +1025,7 @@ class DockerCommandHelp:
 @dataclass(frozen=True)
 class GrafanaCommandHelp:
     app: str = "Grafana dashboard and alert management."
-    lint_path: str = "Dashboard JSON file or directory to lint."
+    lint_path: str = "Dashboard JSON files or directories to lint. Default: k8s/monitoring/dashboards and k8s/devops/dashboards."
     dashboards: str = "Manage Grafana dashboards."
     search: str = "Search Grafana dashboards and folders by query string."
     datasources: str = "List configured datasources."
@@ -1034,7 +1034,7 @@ class GrafanaCommandHelp:
     file: str = "Dashboard JSON file."
     dir: str = "Directory containing dashboard JSON files."
     query: str = "Search query."
-    dashboards_dir: str = "Directory path containing dashboard definitions."
+    dashboards_dir: str = "Directory of dashboard JSON files. Default: k8s/monitoring/dashboards and k8s/devops/dashboards."
     folder_id: str = "Target Grafana folder ID for dashboard import."
     import_file: str = "Path to dashboard JSON file to import."
 

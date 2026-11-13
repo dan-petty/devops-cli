@@ -15,7 +15,7 @@ from devops_cli.config.constants import (
     CONST_OUTPUT_FORMAT_TABLE,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_GRAFANA_DASHBOARDS_DIR,
+    DEFAULT_GRAFANA_DASHBOARDS_DIRS,
     DEFAULT_GRAFANA_FOLDER_ID,
     DEFAULT_TABLE_FORMAT,
 )
@@ -297,11 +297,17 @@ def dashboards_sync(
 ) -> None:
     """Sync every dashboard JSON file in a directory to Grafana.
 
+    With no directory, syncs the files of the environment and the product dashboard folders.
     Tries every file, then exits 1 if any failed. A dashboard Grafana holds as provisioned,
     such as one the dashboard sidecar loads from a ConfigMap, is skipped rather than failed.
     """
-    search_dir = dir_path or DEFAULT_GRAFANA_DASHBOARDS_DIR
-    json_files = sorted(search_dir.glob("*.json")) if search_dir.exists() else []
+    search_dirs = (dir_path,) if dir_path else DEFAULT_GRAFANA_DASHBOARDS_DIRS
+    json_files = [
+        path
+        for search_dir in search_dirs
+        if search_dir.exists()
+        for path in sorted(search_dir.glob("*.json"))
+    ]
 
     if dry_run or is_dry_run():
         render_request_plan(
@@ -310,12 +316,17 @@ def dashboards_sync(
         )
         return
 
-    if not search_dir.exists():
+    missing = [search_dir for search_dir in search_dirs if not search_dir.exists()]
+    for search_dir in missing:
         print_warning(MESSAGES.grafana.dir_not_found.format(path=search_dir), prefix=False)
+    if missing:
         raise typer.Exit(1)
 
     if not json_files:
-        print_warning(MESSAGES.grafana.no_json_files.format(path=search_dir), prefix=False)
+        print_warning(
+            MESSAGES.grafana.no_json_files.format(path=", ".join(map(str, search_dirs))),
+            prefix=False,
+        )
         return
 
     settings = load_settings()
@@ -386,9 +397,9 @@ def _print_lint_results(reports: list[DashboardLintReport]) -> None:
 @dashboards_app.command("lint")
 @dry_run_class("no-external-request")
 def dashboards_lint(
-    path: Annotated[
-        Path, typer.Argument(help=HELP.grafana.lint_path)
-    ] = DEFAULT_GRAFANA_DASHBOARDS_DIR,
+    paths: Annotated[
+        list[Path] | None, typer.Argument(help=HELP.grafana.lint_path, show_default=False)
+    ] = None,
     output_format: Annotated[
         str,
         typer.Option("--format", "-f", help=HELP.options.format_type),
@@ -399,22 +410,27 @@ def dashboards_lint(
 
     Catches overlapping panels, duplicate ids, unbound datasources, malformed PromQL, and a
     uid two dashboards share before a dashboard reaches Grafana, where the only symptom is a
-    blank, wrong, or overwritten dashboard.
+    blank, wrong, or overwritten dashboard. With no path, lints the environment and the
+    product dashboard folders together, so a uid that two folders share is an error too.
     """
     from devops_cli.grafana import lint_dashboard_files
 
-    target = path.resolve()
-
-    if target.is_dir():
-        files = sorted(target.glob("*.json"))
-    elif target.is_file():
-        files = [target]
-    else:
-        print_error(ERRORS.grafana.dashboards_not_found.format(path=path), prefix=False)
-        raise typer.Exit(1)
+    targets = paths or list(DEFAULT_GRAFANA_DASHBOARDS_DIRS)
+    files: list[Path] = []
+    for path in targets:
+        target = path.resolve()
+        if target.is_dir():
+            files.extend(sorted(target.glob("*.json")))
+        elif target.is_file():
+            files.append(target)
+        else:
+            print_error(ERRORS.grafana.dashboards_not_found.format(path=path), prefix=False)
+            raise typer.Exit(1)
 
     if not files:
-        print_warning(MESSAGES.grafana.no_dashboards_found.format(path=path))
+        print_warning(
+            MESSAGES.grafana.no_dashboards_found.format(path=", ".join(map(str, targets)))
+        )
         return
 
     reports = lint_dashboard_files(files)

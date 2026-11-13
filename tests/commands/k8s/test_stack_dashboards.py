@@ -33,6 +33,8 @@ from tests.support.paths import FIXTURES, REPO_ROOT
 
 K8S = REPO_ROOT / "k8s"
 DASHBOARDS = K8S / "monitoring" / "dashboards"
+# The product dashboards of devops-cli (#5292).
+PRODUCT_DASHBOARDS = K8S / "devops" / "dashboards"
 CAPTURES = FIXTURES / "metrics"
 CLUSTER_METRICS_ALLOWLISTS = FIXTURES / "k8s_monitoring" / "cluster_metrics"
 TUNED_CLUSTER_EXPORTERS = frozenset({"cadvisor", "kube-state-metrics", "kubelet"})
@@ -391,8 +393,8 @@ def dashboard_violations(
     ]
 
 
-def _dashboard(name: str) -> dict[str, Any]:
-    loaded: dict[str, Any] = json.loads((DASHBOARDS / name).read_text(encoding="utf-8"))
+def _dashboard(name: str, directory: Path = DASHBOARDS) -> dict[str, Any]:
+    loaded: dict[str, Any] = json.loads((directory / name).read_text(encoding="utf-8"))
     return loaded
 
 
@@ -461,7 +463,7 @@ def test_the_ai_spend_dashboard_reads_only_gateway_series_the_gateway_serves() -
     known = known_series(("litellm",))
     gateway = [
         expression
-        for expression in _expressions(_dashboard("ai-spend.json"))
+        for expression in _expressions(_dashboard("ai-spend.json", PRODUCT_DASHBOARDS))
         if GATEWAY_SERIES.search(expression)
     ]
     litellm = EXPORTERS["litellm"]

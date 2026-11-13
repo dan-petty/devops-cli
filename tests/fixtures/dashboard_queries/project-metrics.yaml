@@ -1,4 +1,4 @@
-# Cases of the panels of k8s/monitoring/dashboards/project-metrics.json, which
+# Cases of the panels of k8s/devops/dashboards/project-metrics.json, which
 # tests/prometheus/test_dashboard_queries.py evaluates with promtool (#4680). The test module tells
 # the format, and docs/TESTING.md tells how to add a case.
 #

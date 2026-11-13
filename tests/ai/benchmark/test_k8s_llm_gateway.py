@@ -1213,7 +1213,11 @@ class TestK8sLLMGatewayManifests:
                 for path in _kustomized_files(kustomization.parent)
             }
             | set(MANIFESTS_BY_STACK["llm"])
-            | {Path(release["values"]) for release in HELM_RELEASES_BY_STACK["llm"]}
+            | {
+                Path(value)
+                for release in HELM_RELEASES_BY_STACK["llm"]
+                for value in release["values"]
+            }
             | {DEFAULT_LLM_GPU_THRESHOLDS_PATH, *DEFAULT_LLM_TIER_TEMPLATES_PATH.glob("*.yaml")}
         )
 

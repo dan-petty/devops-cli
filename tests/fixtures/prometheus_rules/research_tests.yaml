@@ -1,7 +1,8 @@
-# promtool rule unit tests of the alert group research in k8s/monitoring/prometheus-values.yaml
-# (#3899). The alert fires when the last value of the gauge of critical open findings, in the last
-# 7 days, is above zero. It stays quiet when a later sweep set zero, when only findings of a lower
-# severity exist, and when the last value is older than 7 days.
+# promtool rule unit tests of the alert group research in
+# k8s/devops/monitoring/prometheus-rules-values.yaml (#3899). The alert fires when the last value of
+# the gauge of critical open findings, in the last 7 days, is above zero. It stays quiet when a
+# later sweep set zero, when only findings of a lower severity exist, and when the last value is
+# older than 7 days.
 #
 # tests/prometheus/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files`
 # names, beside a copy of this file, and runs `promtool test rules` on the copy. promtool starts each

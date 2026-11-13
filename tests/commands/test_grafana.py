@@ -18,12 +18,15 @@ from tests.support.fakes.keyring import FakeKeyring
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
+# The folders that `grafana dashboards sync` and `lint` read when no folder is given (#5292).
+DASHBOARD_DIRS = (Path("k8s/monitoring/dashboards"), Path("k8s/devops/dashboards"))
+
+
 def test_dashboard_json_templates_valid() -> None:
     """Verify built-in Grafana dashboard templates are valid JSON."""
-    dashboard_dir = Path("k8s/monitoring/dashboards")
-    assert dashboard_dir.exists()
+    assert [d for d in DASHBOARD_DIRS if not d.is_dir()] == []
 
-    json_files = list(dashboard_dir.glob("*.json"))
+    json_files = [f for d in DASHBOARD_DIRS for f in d.glob("*.json")]
     assert len(json_files) >= 3
 
     for f in json_files:
@@ -53,7 +56,8 @@ def test_grafana_dashboards_sync_dry_run(cli: Callable[..., Any], web: WebFake) 
 
 
 def test_grafana_dashboards_sync_success(cli: Callable[..., Any], web: WebFake) -> None:
-    """Verify successful sync of the built-in dashboards: one save for each file."""
+    """Verify successful sync of the built-in dashboards: one save for each file of the
+    environment folder and of the product folder (#5292)."""
     web.serve(
         lambda request: httpx2.Response(200, json={"slug": "test-dashboard", "status": "success"})
     )
@@ -64,9 +68,18 @@ def test_grafana_dashboards_sync_success(cli: Callable[..., Any], web: WebFake) 
     assert (
         result.exit_code,
         "Dashboard sync completed" in result.output,
-        len(saves) >= 3,
+        sorted(request.json["dashboard"]["uid"] for request in saves),
         {request.headers["authorization"] for request in saves},
-    ) == (0, True, True, {BEARER})
+    ) == (
+        0,
+        True,
+        sorted(
+            json.loads(f.read_text(encoding="utf-8"))["uid"]
+            for d in DASHBOARD_DIRS
+            for f in d.glob("*.json")
+        ),
+        {BEARER},
+    )
 
 
 def _sync_against(

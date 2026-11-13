@@ -3,8 +3,10 @@
 Only the four Kubernetes views reached the sidecar, through hand-copied ConfigMaps that nothing
 applied, and devops-cli's own dashboards reached Grafana only through `grafana dashboards sync`.
 A `configMapGenerator` now builds the ConfigMaps from the dashboard files, and the root
-kustomization that `devops k8s deploy-stack` applies includes it. These tests read the
-kustomizations in Python; they never run kustomize or kubectl.
+kustomization that `devops k8s deploy-stack` applies includes it. The product dashboards of
+devops-cli have their own generator in `k8s/devops/dashboards/`, which the environment generator
+in `k8s/monitoring/dashboards/` lists as a resource (#5292). These tests read the kustomizations
+in Python; they never run kustomize or kubectl.
 """
 
 from __future__ import annotations
@@ -35,6 +37,10 @@ from tests.support.paths import FIXTURES, REPO_ROOT
 K8S_DIR = REPO_ROOT / "k8s"
 MONITORING_DIR = K8S_DIR / "monitoring"
 DASHBOARDS_DIR = MONITORING_DIR / "dashboards"
+DEVOPS_DIR = K8S_DIR / "devops"
+PRODUCT_DASHBOARDS_DIR = DEVOPS_DIR / "dashboards"
+# The dashboards that read the `devops_cli_` series: product content of devops-cli (#5292).
+PRODUCT_CONFIGMAP = "grafana-devops-cli-dashboards"
 
 # Today's ConfigMap names and groupings, so a re-apply updates them in place.
 PROVISIONED = {
@@ -103,8 +109,11 @@ def _generator_options(kustomization: dict[str, Any], generator: dict[str, Any])
     }
 
 
-def _configmap(kustomization: dict[str, Any], generator: dict[str, Any]) -> dict[str, Any]:
-    """The ConfigMap one generator produces, built as kustomize builds it."""
+def _configmap(
+    directory: Path, kustomization: dict[str, Any], generator: dict[str, Any]
+) -> dict[str, Any]:
+    """The ConfigMap one generator of the kustomization in `directory` produces, built as
+    kustomize builds it."""
     return {
         "apiVersion": "v1",
         "kind": "ConfigMap",
@@ -114,26 +123,45 @@ def _configmap(kustomization: dict[str, Any], generator: dict[str, Any]) -> dict
             "labels": _generator_options(kustomization, generator)["labels"],
         },
         "data": {
-            name: (DASHBOARDS_DIR / name).read_text(encoding="utf-8") for name in generator["files"]
+            name: (directory / name).read_text(encoding="utf-8") for name in generator["files"]
         },
     }
 
 
+def _generator_dirs() -> list[Path]:
+    """The dashboards kustomization of `k8s/monitoring`, then each kustomization it lists."""
+    resources = _kustomization(DASHBOARDS_DIR).get("resources", [])
+    return [DASHBOARDS_DIR, *((DASHBOARDS_DIR / resource).resolve() for resource in resources)]
+
+
+def _generators() -> Iterator[tuple[Path, dict[str, Any], dict[str, Any]]]:
+    """Each ConfigMap generator of the dashboards, with its directory and its kustomization."""
+    for directory in _generator_dirs():
+        kustomization = _kustomization(directory)
+        for generator in kustomization["configMapGenerator"]:
+            yield directory, kustomization, generator
+
+
 def _generated_configmaps() -> list[dict[str, Any]]:
-    """The ConfigMaps the dashboards generator produces."""
-    kustomization = _kustomization(DASHBOARDS_DIR)
-    return [
-        _configmap(kustomization, generator) for generator in kustomization["configMapGenerator"]
-    ]
+    """The ConfigMaps the dashboards generators produce."""
+    return [_configmap(*generator) for generator in _generators()]
 
 
 def _hashed_names() -> list[bool]:
     """Whether kustomize appends a content hash to each generated ConfigMap's name."""
-    kustomization = _kustomization(DASHBOARDS_DIR)
     return [
         _generator_options(kustomization, generator).get("disableNameSuffixHash") is not True
-        for generator in kustomization["configMapGenerator"]
+        for _, kustomization, generator in _generators()
     ]
+
+
+def _dashboard_files() -> list[Path]:
+    """Each dashboard file of the environment folder and of the product folder."""
+    return sorted(
+        path
+        for directory in (DASHBOARDS_DIR, PRODUCT_DASHBOARDS_DIR)
+        for path in directory.glob("*.json")
+    )
 
 
 def test_the_generator_provisions_all_dashboards_under_todays_configmap_names() -> None:
@@ -156,7 +184,7 @@ def test_the_generator_provisions_all_dashboards_under_todays_configmap_names() 
 def test_every_other_dashboard_is_left_to_sync_by_name() -> None:
     """Verify a dashboard added to the directory cannot be left out of the generator unnoticed."""
     generated = {name for cm in _generated_configmaps() for name in cm["data"]}
-    shipped = {path.name for path in DASHBOARDS_DIR.glob("*.json")}
+    shipped = {path.name for path in _dashboard_files()}
 
     assert sorted(shipped - generated - SYNC_ONLY) == []
 
@@ -184,6 +212,47 @@ def test_the_monitoring_kustomization_takes_its_dashboards_from_the_generator() 
         "dashboards" in resources,
         [resource for resource in resources if not (MONITORING_DIR / resource).exists()],
     ) == (True, [])
+
+
+def test_the_product_dashboards_have_their_own_generator_that_monitoring_lists() -> None:
+    """`k8s/devops/dashboards` generates the ConfigMap of the product dashboards in namespace
+    `monitoring`, and the dashboards kustomization of `k8s/monitoring` lists it, so Application
+    `monitoring` stays its owner (#5292)."""
+    product = _kustomization(PRODUCT_DASHBOARDS_DIR)
+
+    assert (
+        _generator_dirs(),
+        product["namespace"],
+        [generator["name"] for generator in product["configMapGenerator"]],
+        sorted(path.name for path in PRODUCT_DASHBOARDS_DIR.glob("*.json")),
+    ) == (
+        [DASHBOARDS_DIR, PRODUCT_DASHBOARDS_DIR],
+        "monitoring",
+        [PRODUCT_CONFIGMAP],
+        sorted(PROVISIONED[PRODUCT_CONFIGMAP]),
+    )
+
+
+def _kustomization_dirs(directory: Path) -> set[Path]:
+    """`directory` and each kustomization directory that its resources reach."""
+    found = {directory.resolve()}
+    for resource in _kustomization(directory).get("resources", []):
+        path = (directory / resource).resolve()
+        if (path / "kustomization.yaml").is_file():
+            found |= _kustomization_dirs(path)
+    return found
+
+
+def test_the_devops_root_leaves_the_product_dashboards_to_monitoring() -> None:
+    """Neither `k8s/devops` nor the overlay of Application `devops` reaches
+    `k8s/devops/dashboards`. Else Application `devops` takes the ConfigMap that Application
+    `monitoring` owns, and the two Applications sync it in turn (#5292)."""
+    overlay = K8S_DIR / "overlays" / "homelab" / "devops"
+
+    assert (
+        DEVOPS_DIR.resolve() in _kustomization_dirs(overlay),
+        PRODUCT_DASHBOARDS_DIR.resolve() in _kustomization_dirs(overlay),
+    ) == (True, False)
 
 
 def test_root_kustomization_leaves_dashboards_to_monitoring_stack() -> None:
@@ -222,7 +291,7 @@ def test_no_query_matches_a_multi_value_variable_exactly() -> None:
     variable, and nine of its panels were empty (#1955)."""
     exact = {
         (path.name, variable)
-        for path in sorted(DASHBOARDS_DIR.glob("*.json"))
+        for path in _dashboard_files()
         for dashboard in [json.loads(path.read_text(encoding="utf-8"))]
         for variable in _multi_value_variables(dashboard)
         for expr in _expressions(dashboard)
@@ -240,7 +309,7 @@ def test_no_query_selects_the_container_series_the_chart_drops() -> None:
     tuning = values["clusterMetrics"]["cadvisor"].get("metricsTuning", {})
     selecting = sorted(
         path.name
-        for path in DASHBOARDS_DIR.glob("*.json")
+        for path in _dashboard_files()
         if any('image=""' in expr for expr in _expressions(json.loads(path.read_text("utf-8"))))
     )
     assert (tuning.get("dropEmptyImageLabels", True), selecting) == (True, [])
@@ -248,7 +317,7 @@ def test_no_query_selects_the_container_series_the_chart_drops() -> None:
 
 def _ai_spend_dashboard() -> dict[str, Any]:
     loaded: dict[str, Any] = json.loads(
-        (DASHBOARDS_DIR / "ai-spend.json").read_text(encoding="utf-8")
+        (PRODUCT_DASHBOARDS_DIR / "ai-spend.json").read_text(encoding="utf-8")
     )
     return loaded
 
@@ -293,12 +362,17 @@ def _reference_prices() -> dict[tuple[str, str], Decimal]:
 
 
 def _price_rules() -> list[str]:
-    """The recording rules of the Prometheus values that record a price."""
-    values = yaml.safe_load((MONITORING_DIR / "prometheus-values.yaml").read_text("utf-8"))
-    groups = values["serverFiles"].get("recording_rules.yml", {}).get("groups", [])
+    """The recording rules of the Prometheus values that record a price, in the environment
+    values and in the product values."""
+    files = [
+        MONITORING_DIR / "prometheus-values.yaml",
+        DEVOPS_DIR / "monitoring" / "prometheus-rules-values.yaml",
+    ]
     return [
         rule["record"]
-        for group in groups
+        for path in files
+        for rules in yaml.safe_load(path.read_text("utf-8"))["serverFiles"].values()
+        for group in (rules or {}).get("groups", [])
         for rule in group["rules"]
         if "price" in rule.get("record", "")
     ]
@@ -532,7 +606,9 @@ TRAFFIC_SOURCES = (
 def test_each_traffic_panel_names_the_senders_of_its_numbers() -> None:
     """The roadmap Service and a person's workstation send the traffic gauges (#2752, #4757). A
     repository whose traffic GitHub refused has no series. Each traffic panel says so."""
-    dashboard = json.loads((DASHBOARDS_DIR / "project-metrics.json").read_text(encoding="utf-8"))
+    dashboard = json.loads(
+        (PRODUCT_DASHBOARDS_DIR / "project-metrics.json").read_text(encoding="utf-8")
+    )
     descriptions = {
         panel["title"]: panel.get("description", "")
         for panel in dashboard["panels"]
@@ -545,7 +621,7 @@ def test_each_traffic_panel_names_the_senders_of_its_numbers() -> None:
     } == dict.fromkeys(TRAFFIC_PANELS, True)
 
 
-CLI_DASHBOARD = DASHBOARDS_DIR / "devops-cli.json"
+CLI_DASHBOARD = PRODUCT_DASHBOARDS_DIR / "devops-cli.json"
 # The rows of devops-cli.json that #4718 makes readable with the same chart rules. The rules
 # check each other panel of the dashboard (#4707).
 SERVICE_ROWS = frozenset(

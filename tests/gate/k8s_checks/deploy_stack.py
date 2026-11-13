@@ -89,7 +89,10 @@ def check_prometheus_operator_crds_install_before_every_service_monitor() -> Non
         (stack, release["name"])
         for stack, releases in HELM_RELEASES_BY_STACK.items()
         for release in releases
-        if _renders_service_monitor(yaml.safe_load(Path(release["values"]).read_text("utf-8")))
+        if any(
+            _renders_service_monitor(yaml.safe_load(Path(value).read_text("utf-8")))
+            for value in release["values"]
+        )
     ]
     pre_helm_monitors = [
         (stack, path.as_posix())

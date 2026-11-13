@@ -1181,18 +1181,20 @@ def _debug_log_settings(node: Any, path: str = "") -> list[str]:
 
 def test_no_stack_values_file_sets_a_debug_log_level() -> None:
     """No values file the stack lifecycle installs sets a debug log level (#1133)."""
-    values_by_release = {
-        release["name"]: yaml.safe_load(Path(release["values"]).read_text(encoding="utf-8")) or {}
+    values_by_file = {
+        value: yaml.safe_load(Path(value).read_text(encoding="utf-8")) or {}
         for releases in HELM_RELEASES_BY_STACK.values()
         for release in releases
+        for value in release["values"]
     }
     debug_in_repo = {
-        name: hits for name, doc in values_by_release.items() if (hits := _debug_log_settings(doc))
+        name: hits for name, doc in values_by_file.items() if (hits := _debug_log_settings(doc))
     }
+    pyroscope = values_by_file[str(Path("k8s") / "monitoring" / "pyroscope-values.yaml")]
     mutated_pyroscope = {
-        **values_by_release["pyroscope"],
+        **pyroscope,
         "pyroscope": {
-            **values_by_release["pyroscope"].get("pyroscope", {}),
+            **pyroscope.get("pyroscope", {}),
             "extraArgs": {"log.level": "debug"},
         },
     }

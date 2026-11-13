@@ -1,7 +1,8 @@
-# promtool rule unit tests of the alert group ai-spend in k8s/monitoring/prometheus-values.yaml
-# (#4222). ClaudeSpendDailyHigh fires when the 24 hour increase of the spend of claude-sonnet-5-5 is
-# above 15 USD. HostedSpendDailyHigh fires when the 24 hour increase of the spend of all models is
-# above 25 USD, and a local model adds 0 to the counter.
+# promtool rule unit tests of the alert group ai-spend in
+# k8s/devops/monitoring/prometheus-rules-values.yaml (#4222). ClaudeSpendDailyHigh fires when the 24
+# hour increase of the spend of claude-sonnet-5-5 is above 15 USD. HostedSpendDailyHigh fires when
+# the 24 hour increase of the spend of all models is above 25 USD, and a local model adds 0 to the
+# counter.
 #
 # tests/prometheus/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files`
 # names, beside a copy of this file, and runs `promtool test rules` on the copy. promtool starts each

@@ -896,9 +896,10 @@ def _secret_references(node: Any) -> Iterator[str]:
 
 def _values_namespaces() -> dict[str, str]:
     return {
-        str(Path(release["values"]).resolve()): release["namespace"]
+        str(Path(value).resolve()): release["namespace"]
         for releases in HELM_RELEASES_BY_STACK.values()
         for release in releases
+        for value in release["values"]
     }
 
 

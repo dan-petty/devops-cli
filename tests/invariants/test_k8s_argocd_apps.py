@@ -16,6 +16,7 @@ from devops_cli.commands.k8s.stack_lifecycle import (
     HELM_RELEASES_BY_STACK,
     KUSTOMIZATIONS_BY_STACK,
     MANIFESTS_BY_STACK,
+    StackRelease,
 )
 from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS
 from tests.support.paths import REPO_ROOT
@@ -180,9 +181,7 @@ def test_git_sources_and_revisions() -> None:
         _assert_app_git_sources(name, app["spec"])
 
 
-def _assert_helm_app_matches_release(
-    app: dict[str, Any], release: dict[str, str], name: str
-) -> None:
+def _assert_helm_app_matches_release(app: dict[str, Any], release: StackRelease, name: str) -> None:
     # cert-manager publishes its chart versions with a leading `v` (v1.21.3).
     semver_re = re.compile(r"^v?\d+\.\d+\.\d+$")
     sources = app.get("spec", {}).get("sources", [])
@@ -198,11 +197,14 @@ def _assert_helm_app_matches_release(
     assert h["chart"] == expected_chart_name
     assert app["spec"]["destination"]["namespace"] == release["namespace"]
 
+    # The chart gets the same values files in the same order from Argo CD and from deploy-stack.
     value_files = h.get("helm", {}).get("valueFiles", [])
-    raw_val = Path(release["values"])
-    rel_val = raw_val.relative_to(REPO_ROOT) if raw_val.is_absolute() else raw_val
-    expected_rel_path = f"$values/{rel_val.as_posix()}"
-    assert value_files == [expected_rel_path]
+    expected = []
+    for raw in release["values"]:
+        raw_val = Path(raw)
+        rel_val = raw_val.relative_to(REPO_ROOT) if raw_val.is_absolute() else raw_val
+        expected.append(f"$values/{rel_val.as_posix()}")
+    assert value_files == expected, name
 
 
 def _kustomization_manifest_files(kust_dir: Path) -> list[Path]:
@@ -223,7 +225,7 @@ def _kustomization_manifest_files(kust_dir: Path) -> list[Path]:
 
 def test_helm_sources_pinned_versions() -> None:
     apps = _all_applications()
-    helm_releases_map: dict[str, dict[str, str]] = {
+    helm_releases_map: dict[str, StackRelease] = {
         r["name"]: r for releases in HELM_RELEASES_BY_STACK.values() for r in releases
     }
 
@@ -239,7 +241,7 @@ def test_every_application_in_argocd_apps_maps_to_deploy_stack_counterpart() -> 
     to a deploy-stack manifest list or kustomization. argocd-image-updater is the only allowed
     exception (k8s/README.md Service Image Updates; task-1485).
     """
-    helm_releases_map: dict[str, dict[str, str]] = {
+    helm_releases_map: dict[str, StackRelease] = {
         r["name"]: r for releases in HELM_RELEASES_BY_STACK.values() for r in releases
     }
     post_helm_by_stack: dict[str, tuple[Path, ...]] = getattr(

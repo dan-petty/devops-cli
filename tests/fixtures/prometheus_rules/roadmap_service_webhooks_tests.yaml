@@ -1,9 +1,9 @@
 # promtool rule unit tests of the alert group roadmap-service-webhooks in
-# k8s/monitoring/prometheus-values.yaml (#2476). RoadmapServiceWebhooksRejected fires on a burst
-# of rejected deliveries and stays quiet on a few. Accepted deliveries, and the rejected
-# deliveries of another job (a workstation as job="devops-cli"), are in each case, and the rule
-# must not count them. RoadmapServiceWebhookDeliveriesFailed fires when GitHub records more than 5
-# failed deliveries of one repository in 15 minutes (#5017).
+# k8s/devops/monitoring/prometheus-rules-values.yaml (#2476). RoadmapServiceWebhooksRejected fires
+# on a burst of rejected deliveries and stays quiet on a few. Accepted deliveries, and the rejected
+# deliveries of another job (a workstation as job="devops-cli"), are in each case, and the rule must
+# not count them. RoadmapServiceWebhookDeliveriesFailed fires when GitHub records more than 5 failed
+# deliveries of one repository in 15 minutes (#5017).
 #
 # tests/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files` names,
 # beside a copy of this file, and runs `promtool test rules` on the copy. promtool starts each

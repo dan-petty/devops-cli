@@ -70,7 +70,7 @@ The open tool is Grafana with committed dashboards. The chart version is 14.4.1 
 
 ### Gap Analysis
 
-The repository provides 15 dashboards in `k8s/monitoring/dashboards/`. The `TelemetryPanel` renders CPU and memory summaries in the terminal. Grafana dashboards cover every metric with rich graphs and query interfaces. Grafana does not render inside the terminal console.
+The repository provides 17 dashboards: 14 in `k8s/monitoring/dashboards/` and the 3 product dashboards in `k8s/devops/dashboards/`. The `TelemetryPanel` renders CPU and memory summaries in the terminal. Grafana dashboards cover every metric with rich graphs and query interfaces. Grafana does not render inside the terminal console.
 
 ### Deleted Code
 

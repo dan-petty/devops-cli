@@ -121,6 +121,7 @@ devops grafana dashboards import [OPTIONS] <file>
 
 Sync every dashboard JSON file in a directory to Grafana.
 
+With no directory, syncs the files of the environment and the product dashboard folders.
 Tries every file, then exits 1 if any failed. A dashboard Grafana holds as provisioned,
 such as one the dashboard sidecar loads from a ConfigMap, is skipped rather than failed.
 
@@ -132,7 +133,7 @@ devops grafana dashboards sync [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--dir`, `-d` | `path` | - | Directory path containing dashboard definitions. |
+| `--dir`, `-d` | `path` | - | Directory of dashboard JSON files. Default: k8s/monitoring/dashboards and k8s/devops/dashboards. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ### `devops grafana dashboards lint`
@@ -143,17 +144,18 @@ Statically check dashboard JSON for layout, query, and binding defects.
 
 Catches overlapping panels, duplicate ids, unbound datasources, malformed PromQL, and a
 uid two dashboards share before a dashboard reaches Grafana, where the only symptom is a
-blank, wrong, or overwritten dashboard.
+blank, wrong, or overwritten dashboard. With no path, lints the environment and the
+product dashboard folders together, so a uid that two folders share is an error too.
 
 ```bash
-devops grafana dashboards lint [OPTIONS] <path>
+devops grafana dashboards lint [OPTIONS] <paths>
 ```
 
 **Arguments:**
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<path>` | `path` | No | Dashboard JSON file or directory to lint. |
+| `<paths>` | `path` | No | Dashboard JSON files or directories to lint. Default: k8s/monitoring/dashboards and k8s/devops/dashboards. |
 
 **Options:**
 

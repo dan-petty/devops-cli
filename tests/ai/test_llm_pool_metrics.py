@@ -107,14 +107,18 @@ def test_the_dcgm_exporter_runs_on_every_gpu_node_without_extra_privileges() -> 
         values["securityContext"]["capabilities"].get("add", []),
         values["rollingUpdate"]["maxUnavailable"],
         values["serviceMonitor"]["enabled"],
-        (release["namespace"], Path(release["values"]).name, repo in HELM_REPOS_BY_STACK["infra"]),
+        (
+            release["namespace"],
+            [Path(value).name for value in release["values"]],
+            repo in HELM_REPOS_BY_STACK["infra"],
+        ),
     ) == (
         ("nvidia", {"nvidia.com/gpu.present": "true"}),
         True,
         ["SYS_ADMIN"],
         "50%",
         False,
-        ("monitoring", "dcgm-exporter-values.yaml", True),
+        ("monitoring", ["dcgm-exporter-values.yaml"], True),
     )
 
 

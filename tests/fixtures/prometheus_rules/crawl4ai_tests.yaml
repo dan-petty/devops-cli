@@ -1,7 +1,7 @@
-# promtool rule unit tests of the alert group crawl4ai in k8s/monitoring/prometheus-values.yaml
-# (#3893). Each alert fires on a sample series and stays quiet on a normal one. The series of a
-# workstation (job="devops-cli", from `devops ai fetch-page`) and of another Deployment are in
-# the quiet cases, and the rules must not count them.
+# promtool rule unit tests of the alert group crawl4ai in
+# k8s/devops/monitoring/prometheus-rules-values.yaml (#3893). Each alert fires on a sample series
+# and stays quiet on a normal one. The series of a workstation (job="devops-cli", from `devops ai
+# fetch-page`) and of another Deployment are in the quiet cases, and the rules must not count them.
 #
 # tests/prometheus/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files`
 # names, beside a copy of this file, and runs `promtool test rules` on the copy. promtool starts

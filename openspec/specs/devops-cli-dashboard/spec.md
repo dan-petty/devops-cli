@@ -1,7 +1,7 @@
 # devops-cli-dashboard Specification
 
 ## Purpose
-How the Grafana dashboard `k8s/monitoring/dashboards/devops-cli.json` shows the devops commands and the GitHub API: the golden signals row first, breakdown tables that link to it, and the chart rules that each panel follows.
+How the Grafana dashboard `k8s/devops/dashboards/devops-cli.json` shows the devops commands and the GitHub API: the golden signals row first, breakdown tables that link to it, and the chart rules that each panel follows.
 
 ## Requirements
 

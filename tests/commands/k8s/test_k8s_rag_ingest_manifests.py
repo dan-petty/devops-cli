@@ -15,7 +15,6 @@ from tests.support.paths import REPO_ROOT
 K8S_DIR = REPO_ROOT / "k8s"
 DEVOPS_DIR = K8S_DIR / "devops"
 LLM_DIR = K8S_DIR / "llm"
-MONITORING_DIR = K8S_DIR / "monitoring"
 
 runner = CliRunner()
 
@@ -99,10 +98,11 @@ def test_ingest_template_sets_embedding_concurrency_to_one() -> None:
 
 
 def test_rag_ingest_behind_alert_rule() -> None:
-    """The stack ships a RagIngestBehind alert that fires after two schedule periods without success."""
-    values_file = MONITORING_DIR / "prometheus-values.yaml"
+    """The product rules ship a RagIngestBehind alert that fires after two schedule periods
+    without success (#1653, #5292)."""
+    values_file = DEVOPS_DIR / "monitoring" / "prometheus-rules-values.yaml"
     values = yaml.safe_load(values_file.read_text(encoding="utf-8"))
-    groups = values["serverFiles"]["alerting_rules.yml"]["groups"]
+    groups = values["serverFiles"]["devops_cli_alerting_rules.yml"]["groups"]
 
     alert = next(
         (

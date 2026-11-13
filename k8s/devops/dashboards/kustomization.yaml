@@ -1,0 +1,29 @@
+# The Grafana dashboards of devops-cli: the dashboards that read the `devops_cli_*` series that the
+# devops commands and the roadmap Service send. They are product content, so they stay in
+# devops-cli (#5292).
+# Applied through k8s/monitoring/dashboards/kustomization.yaml, which lists this folder: by Argo
+# CD's `monitoring` Application, or by `kubectl apply -k k8s/monitoring` in `devops k8s
+# deploy-stack --stack infra` without Argo CD. Application `monitoring` owns the ConfigMap. Do not
+# list this folder in k8s/devops/kustomization.yaml: then Application `devops` takes the ConfigMap
+# too, and the two Applications sync it in turn.
+#
+# The options are those of k8s/monitoring/dashboards/kustomization.yaml: no content hash, so a
+# re-apply updates the ConfigMap in place, and the label that the Grafana dashboard sidecar loads.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: monitoring
+
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/part-of: devops-cli-stack
+
+configMapGenerator:
+  - name: grafana-devops-cli-dashboards
+    files:
+      - devops-cli.json
+      - ai-spend.json
+      - project-metrics.json

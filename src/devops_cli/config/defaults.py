@@ -81,7 +81,12 @@ DEFAULT_INFRA_DRAIN_CHECK_TIMEOUT_SECONDS: int = 30
 DEFAULT_INFRA_DRAIN_MARGIN_SECONDS: int = 60
 DEFAULT_INFRA_NODE_POLL_SECONDS: float = 10.0
 DEFAULT_DOCS_DIR = CONST_DOCS_DIR_PATH
-DEFAULT_GRAFANA_DASHBOARDS_DIR = Path("k8s/monitoring/dashboards")
+# The dashboard folders that `devops grafana dashboards sync` and `lint` read when no folder is
+# given: the environment dashboards, then the product dashboards of devops-cli (#5292).
+DEFAULT_GRAFANA_DASHBOARDS_DIRS: tuple[Path, ...] = (
+    Path("k8s/monitoring/dashboards"),
+    Path("k8s/devops/dashboards"),
+)
 DEFAULT_WORKSPACE_FILE = Path(".code-workspace")
 DEFAULT_AI_PROVIDER = "ollama"
 # A model that the gateway config sends to the tier of the default Ollama Service, and a gateway

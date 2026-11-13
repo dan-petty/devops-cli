@@ -248,7 +248,7 @@ def test_a_file_outside_the_source_tree_forces_a_full_run(tmp_path: Path) -> Non
         covering_tests={"src/devops_cli/a.py": ["tests/test_a.py"]}, test_files=["tests/test_a.py"]
     )
     assert (
-        select_from_index(index, ["k8s/monitoring/dashboards/ai-spend.json"], repo).needs_full_run
+        select_from_index(index, ["k8s/devops/dashboards/ai-spend.json"], repo).needs_full_run
         is True
     )
 
