@@ -43,6 +43,15 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/stage/stage.py`. Changes: `src/de
 - [x] 5.2 Say in the docstring of `judge_later` and in `docs/roadmap/stage.md` that a new finding of a later review follows the place rule and that an earlier finding keeps its locator
   - Verification: `$ uv run devops docs check`
 
+## 6. Keep a place that names the other file, another form of a name or a criterion of refine
+
+Kind: behavior. Reads: `src/devops_cli/roadmap/refine/refine.py`, `src/devops_cli/roadmap/refine/refine_judge.py`. Changes: `src/devops_cli/roadmap/stage/stage_verify.py`, `src/devops_cli/roadmap/stage/stage_change.py`, `src/devops_cli/roadmap/steps/fix_plan.py`, `src/devops_cli/ai/tasks/roadmap_stage_verify.md`, `docs/roadmap/stage.md`, `tests/roadmap/stage/test_roadmap_stage_verify.py`, `tests/roadmap/steps/test_roadmap_fix_plan_comment.py`, `tests/roadmap/refine/test_roadmap_refine_trust.py`.
+
+- [x] 6.1 Write `test_a_finding_that_names_the_design_for_a_key_of_the_proposal_stays_open` and `test_a_place_in_another_form_of_its_name_stays_open` with case 2166 of the golden set, `test_a_capability_with_a_space_or_a_bracket_is_refused` and `test_a_finding_on_a_criterion_of_a_refine_proposal_names_the_issue` in `tests/roadmap/stage/test_roadmap_stage_verify.py`, add heading forms to `test_a_finding_on_a_key_of_the_proposal_or_the_design_that_the_plan_holds_is_open`, write `test_the_reader_reads_back_a_section_with_brackets_and_no_capability` in `tests/roadmap/steps/test_roadmap_fix_plan_comment.py` and `test_a_finding_on_a_criterion_of_the_proposal_with_the_part_issue_refuses_the_item` in `tests/roadmap/refine/test_roadmap_refine_trust.py`
+  - Verification: `$ uv run devops ci fail-to-pass --base origin/main`
+- [x] 6.2 Check the proposal and the design against one set of keys, compare names by their words, read the scenario names and the end segments of a capability, read `acceptance_criteria` for the part `issue`, refuse a capability that is not a capability name, end the section of a comment line at the first `): ` outside a pair of brackets, and say in the prompt and in `docs/roadmap/stage.md` which keys each file holds
+  - Verification: `$ uv run devops ci test tests/roadmap/stage tests/roadmap/steps tests/roadmap/refine`
+
 ## Criteria
 
 - Group 1: `uv run devops ci fail-to-pass --base origin/main` shows that `test_a_finding_on_a_requirement_that_the_plan_does_not_hold_is_advice` fails on the base and passes on the head.
@@ -50,5 +59,6 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/stage/stage.py`. Changes: `src/de
 - Group 3: `uv run devops docs check` passes.
 - Group 4: `devops roadmap eval screen --reviewer` with a report in the old form exits 1 and names the file.
 - Group 5: `uv run devops ci fail-to-pass --base origin/main` shows that `test_a_new_finding_of_a_later_review_on_a_place_that_the_plan_does_not_hold_is_advice` fails on the base and passes on the head.
+- Group 6: `uv run devops ci fail-to-pass --base origin/main` shows that `test_a_finding_that_names_the_design_for_a_key_of_the_proposal_stays_open` fails on the base and passes on the head.
 - The eval: `uv run devops roadmap eval verify --case 2166 --case 2169 --model deepseek-v4.1-flash-1017` gives on the head a recall that is not lower than on the base, and the pull request comment gives both numbers. The base does not reach `CONST_ROADMAP_VERIFY_RECALL_FLOOR`, so the comparison shows only whether the prompt lowers the recall.
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

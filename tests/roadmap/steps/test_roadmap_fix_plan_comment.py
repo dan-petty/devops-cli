@@ -90,6 +90,16 @@ def test_the_reader_reads_back_each_open_finding_and_no_point() -> None:
     assert comment_open_findings(stage_comment(5, open_, [point])) == tuple(open_)
 
 
+def test_the_reader_reads_back_a_section_with_brackets_and_no_capability() -> None:
+    open_ = [
+        finding(DefectType.FALSE_PREMISE, where=place("proposal", "what_changes (item 2)")),
+        finding(DefectType.CRITERION_DROPPED, where=place("issue", "The row runs (fast): yes")),
+        finding(DefectType.OTHER, where=place("spec", "A release (of a claim)", "a/b")),
+    ]
+
+    assert comment_open_findings(stage_comment(5, open_)) == tuple(open_)
+
+
 def test_the_reader_leaves_out_a_line_whose_place_names_no_part(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

@@ -34,6 +34,21 @@ A finding whose place the plan or the issue of the request does not hold SHALL b
 - **WHEN** a later review marks `holds` an earlier finding on group 2, and the revision has one group
 - **THEN** the finding stays open
 
+### Requirement: The place check reads a name in another form
+A key of the proposal or of the design SHALL be a place of both parts. The check SHALL compare the words of a name, so a heading sign, a title after a group number, a scenario name or a cut requirement name SHALL keep the place. The capability of a place SHALL be empty or a capability name, as a spec delta writes it.
+
+#### Scenario: A finding that names the design for a key of the proposal
+- **WHEN** the review of case 2166 of the golden set returns a `false_premise` finding on `design` (`feasibility`) that quotes the first line of `feasibility`
+- **THEN** `open_findings` returns the finding
+
+#### Scenario: A place in another form of its name
+- **WHEN** the review of case 2166 returns findings with a quote of the plan on `task 2.1`, on `Requirement: F401 re-import ceiling check` of `ci-gate-admission`, on `## Feasibility` and on `Rejected alternatives`
+- **THEN** `open_findings` returns each finding
+
+#### Scenario: A capability with a space
+- **WHEN** a finding names the capability `roadmap item claim`
+- **THEN** the finding fails the schema
+
 ## MODIFIED Requirements
 
 ### Requirement: An evidence-backed finding returns the plan for the set repair rounds

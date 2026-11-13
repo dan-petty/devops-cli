@@ -440,20 +440,96 @@ def test_a_finding_on_a_key_of_the_proposal_or_the_design_that_the_plan_holds_is
     held = [
         place("proposal", "why"),
         place("proposal", "What Changes"),
+        place("proposal", "## What Changes"),
         place("design", "decisions"),
         place("design", "the dry run"),
+        place("design", "The dry run lists one read."),
     ]
     absent = [
         place("proposal", "feasibility"),
         place("proposal", "groups"),
-        place("proposal", "the dry run"),
+        place("proposal", "specs"),
         place("design", "rejected"),
-        place("design", "why"),
+        place("design", "Rejected alternatives"),
+        place("design", "the dry run lists two reads"),
     ]
 
     findings = [_finding(DefectType.FALSE_PREMISE, quote, where) for where in (*held, *absent)]
 
     assert open_findings(findings, given) == findings[: len(held)]
+
+
+def _input_2166() -> VerificationInput:
+    """The input of case 2166 of the golden set: three task groups, the requirement `F401 re-import
+    ceiling check` of `ci-gate-admission`, and the keys of the proposal and the design."""
+    (case,) = (case for case in load_cases() if case.issue == 2166)
+    return VerificationInput.of(
+        number=case.issue,
+        title=case.title,
+        body=case.issue_body,
+        plan=case.plan,
+        source=Path("/nonexistent"),
+    )
+
+
+def test_a_finding_that_names_the_design_for_a_key_of_the_proposal_stays_open() -> None:
+    # The review of case 2166 on the head of #5418 named `design (feasibility)` for the labeled
+    # blocker, and quoted the first line of `feasibility`, a key of the proposal.
+    given = _input_2166()
+    feasibility = given.plan["feasibility"][0]
+    findings = [
+        Finding(
+            type=DefectType.FALSE_PREMISE,
+            where=place("design", "feasibility"),
+            problem="security/ruff.py:23 is not a run_subprocess re-import.",
+            quote=feasibility,
+        ),
+        _finding(DefectType.FALSE_PREMISE, feasibility, place("proposal", "decisions")),
+        _finding(DefectType.FALSE_PREMISE, feasibility, place("design", "why")),
+    ]
+
+    assert open_findings(findings, given) == findings
+
+
+def test_a_place_in_another_form_of_its_name_stays_open() -> None:
+    given = _input_2166()
+    named = "F401 re-import ceiling check"
+    capability = "ci-gate-admission"
+    held = [
+        place("tasks", "task 2.1"),
+        place("tasks", "Group 2: Remove _prepare_cmd alias and update tests"),
+        place("tasks", "group 2 (the alias)"),
+        place("tasks", "Task group 3"),
+        place("tasks", "the group `Add F401 re-import ceiling CI row`"),
+        place("spec", f"Requirement: {named}", capability),
+        place("spec", f"{named}.", capability),
+        place("spec", "F401 re-import ceiling", capability),
+        place("spec", named, f"openspec/specs/{capability}"),
+        place("spec", "New re-import exceeds ceiling", capability),
+        place("proposal", "Existing Tool Considered"),
+        place("proposal", "Feasibility section"),
+        place("proposal", "## Feasibility"),
+        place("design", "Rejected alternatives"),
+    ]
+    absent = [
+        place("tasks", "task 4.1"),
+        place("tasks", "Group 4: Add a test"),
+        place("spec", named, "ci-gate"),
+        place("spec", "Every job writes the Status through one writer", capability),
+        place("proposal", "Dependencies"),
+    ]
+
+    findings = [
+        _finding(DefectType.FALSE_PREMISE, given.plan["why"], where) for where in (*held, *absent)
+    ]
+
+    assert open_findings(findings, given) == findings[: len(held)]
+
+
+@pytest.mark.parametrize("capability", ["roadmap item claim", "roadmap-item-claim(spec)"])
+def test_a_capability_with_a_space_or_a_bracket_is_refused(capability: str) -> None:
+    with pytest.raises(ValidationError, match="is not a name"):
+        place("spec", "A requirement", capability)
 
 
 def test_a_finding_on_a_text_that_the_issue_does_not_hold_is_advice() -> None:
@@ -491,6 +567,29 @@ def test_a_finding_on_a_refine_proposal_names_a_key_of_the_proposal() -> None:
     ]
 
     assert open_findings([held, *absent], given) == [held]
+
+
+def test_a_finding_on_a_criterion_of_a_refine_proposal_names_the_issue() -> None:
+    criterion = {
+        "name": "The job keeps the last comment",
+        "requirement": "The job SHALL keep the last comment of a thread.",
+        "scenario": "A long thread",
+        "when": "a thread has 40 comments",
+        "then": "the job keeps the last comment",
+    }
+    given = _input(
+        plan={
+            "problem_statement": "The job drops the last comment of a thread.",
+            "acceptance_criteria": [criterion],
+        }
+    )
+    held = _finding(
+        DefectType.FALSE_PREMISE,
+        "The job drops the last comment",
+        place("issue", "The job SHALL keep the last comment of a thread."),
+    )
+
+    assert open_findings([held], given) == [held]
 
 
 def test_the_prompt_names_the_five_parts_of_a_place() -> None:

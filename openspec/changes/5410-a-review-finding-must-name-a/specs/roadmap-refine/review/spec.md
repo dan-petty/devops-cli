@@ -30,3 +30,7 @@ A finding of the type `missing_path`, `false_premise`, `ignores_existing_code` o
 #### Scenario: A finding on a key that the proposal does not have
 - **WHEN** the review finds a `false_premise` that quotes the problem statement and names a task group as its place
 - **THEN** the finding is advice, because a proposal holds no task group, and the item is Ready with `refine.judge` `approved`
+
+#### Scenario: A finding on a criterion of the proposal
+- **WHEN** the review finds a `false_premise` that quotes the problem statement and names the part `issue` with the text of an acceptance criterion of the proposal
+- **THEN** the item stays New and its job record holds `refine.judge` `refused`

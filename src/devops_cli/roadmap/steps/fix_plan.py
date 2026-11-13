@@ -163,9 +163,12 @@ logger = logging.getLogger(__name__)
 _GIT_OPERATION: Final[str] = "roadmap.fix_plan"
 # One line of `finding_line`: "- `<type>` at <part> (<section>): <problem>", with the capability of
 # a requirement after the part (#5410), and ' Evidence: "<quote>"' after it when the finding has a
-# quote.
+# quote. A capability holds no space and no bracket (`Locator`). The section ends at the first `): `
+# outside a pair of brackets in it, so `what_changes (item 2)` and `The row runs (fast): yes` read
+# back whole. A section with a bracket that has no pair ends at the first `): `.
 _FINDING_LINE: Final[re.Pattern[str]] = re.compile(
-    r"- `(?P<type>[a-z_]+)` at (?P<part>[a-z]+)(?: (?P<capability>\S+))? \((?P<section>.+?)\): "
+    r"- `(?P<type>[a-z_]+)` at (?P<part>[a-z]+)(?: (?P<capability>[^\s()]+))? "
+    r"\((?P<section>(?:[^()]|\([^()]*\))+?|.+?)\): "
     r'(?P<problem>.+?)(?: Evidence: "(?P<quote>.*)")?'
 )
 # The comments that list the open findings of a plan: the stage comment and this step's comment.

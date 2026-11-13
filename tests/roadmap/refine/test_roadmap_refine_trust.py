@@ -581,6 +581,22 @@ def test_a_finding_on_a_task_group_is_advice_because_a_proposal_has_no_task_grou
     )
 
 
+def test_a_finding_on_a_criterion_of_the_proposal_with_the_part_issue_refuses_the_item(
+    store: InMemoryRoadmapStore, git_repo: Path
+) -> None:
+    number = _seed(store)
+    finding = _FALSE_PREMISE.model_copy(
+        update={"where": Locator(part=PlanPart.ISSUE, section=_CRITERION.requirement)}
+    )
+
+    _round(store, git_repo, _Proposer(), _Verifier(finding))
+
+    assert (_status(store, number), _record(store, number, RefineRecordKey.JUDGE)) == (
+        "New",
+        "refused",
+    )
+
+
 # ── The other accounts ────────────────────────────────────────────────────────
 
 

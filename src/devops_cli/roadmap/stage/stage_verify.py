@@ -60,7 +60,7 @@ from devops_cli.config.constants import (
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.pull_form import is_placeholder
 from devops_cli.roadmap.refine.refine_investigation import tokens_of, tool_stop
-from devops_cli.roadmap.stage.stage_change import safe_text
+from devops_cli.roadmap.stage.stage_change import capability_name, safe_text
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType
 from devops_cli.security.sanitizer import mask_secrets
 
@@ -102,24 +102,29 @@ VERIFY_TYPES: Final[frozenset[DefectType]] = OPEN_TYPES | {
 PLAN_NEEDS_FIX_LABEL: Final[str] = "plan/needs-fix"
 # The keys of a group of the plan that name files.
 _FILE_KEYS: Final[tuple[str, ...]] = ("reads", "changes")
-# The keys of the plan that the design, the task groups and the spec delta hold. Each other key of
-# the plan, such as `why` or `feasibility`, or a key of a proposal of refine, is a key of the
-# proposal (#5410).
-_DESIGN_KEYS: Final[frozenset[str]] = frozenset({"decisions", "rejected"})
+# The keys of the plan that the task groups and the spec delta hold. Each other key of the plan,
+# such as `why`, `feasibility` or `decisions`, or a key of a proposal of refine, is a key of the
+# proposal or the design (#5410). The design holds `decisions` and `rejected`, but a section of
+# either file is a key of both: a finding that names the wrong file of the two keeps its place.
 _GROUPS_KEY: Final[str] = "groups"
 _SPECS_KEY: Final[str] = "specs"
-_NOT_PROPOSAL_KEYS: Final[frozenset[str]] = _DESIGN_KEYS | {_GROUPS_KEY, _SPECS_KEY}
-# The key of the plan that copies the acceptance criteria of the issue.
-_CRITERIA_KEY: Final[str] = "criteria"
-# The keys of an entry of the spec delta that name a requirement.
+_NOT_FILE_KEYS: Final[frozenset[str]] = frozenset({_GROUPS_KEY, _SPECS_KEY})
+# The keys of the plan that hold acceptance criteria: `criteria` of a stage plan and
+# `acceptance_criteria` of a proposal of refine.
+_CRITERIA_KEYS: Final[tuple[str, ...]] = ("criteria", "acceptance_criteria")
+# The keys of an entry of the spec delta that name a requirement, and the key of its scenarios.
 _REQUIREMENT_KEYS: Final[tuple[str, ...]] = ("added", "modified", "removed", "renamed")
 _NAME_KEYS: Final[tuple[str, ...]] = ("name", "from_name", "to_name")
-# A task group as a finding names it: its number from 1, with `group` before it or the number of a
-# task after it, such as `2`, `group 2` or `2.1`.
-_GROUP_NUMBER: Final[re.Pattern[str]] = re.compile(r"(?:group\s*)?(\d+)(?:\.\d+)?")
+_SCENARIOS_KEY: Final[str] = "scenarios"
+# A task group as a finding names it: its number from 1, with `group`, `task` or both before it,
+# the number of a task and a title after it, such as `2`, `group 2: Title`, `task 2.1` or
+# `task group 2`.
+_GROUP_NUMBER: Final[re.Pattern[str]] = re.compile(r"(?:(?:task|group)s?\s*)*(\d+)(?:\.\d+)?\b")
 # The marks that a model may put around a name that it copies.
 _NAME_MARKS: Final[str] = "`'\" "
-_KEY_JOINS: Final[re.Pattern[str]] = re.compile(r"[\s-]+")
+# A word of a name: letters and digits. So `_`, `-`, `#`, `:` and a mark split words and count for
+# nothing, and `existing_tool` and `## Existing Tool Considered` share the words `existing tool`.
+_WORD: Final[re.Pattern[str]] = re.compile(r"[^\W_]+")
 
 
 class PlanPart(StrEnum):
@@ -145,6 +150,13 @@ class Locator(BaseModel):
     part: PlanPart
     section: str = Field(min_length=1)
     capability: str = ""
+
+    @field_validator("capability")
+    @classmethod
+    def _check_capability(cls, value: str) -> str:
+        """An empty capability, or the name of a capability as a spec delta writes it: so the
+        comment line holds no space and no bracket in it, and `fix-plan` reads the line back."""
+        return value and capability_name(value)
 
     def text(self) -> str:
         """The place as a comment line shows it: the part, the capability when it has one, and
@@ -235,60 +247,96 @@ def _name(text: str) -> str:
     return _folded(text).strip(_NAME_MARKS).casefold()
 
 
+def _phrase(text: str) -> str:
+    """The words of `text` in one case, with one space before and after each word, so that `in`
+    compares whole words: ` f401 re import ceiling check `. A text with no word gives ``."""
+    words = _WORD.findall(text.casefold())
+    return f" {' '.join(words)} " if words else ""
+
+
+def _within(part: str, whole: str) -> bool:
+    """Whether the words of `part` are a run of the words of `whole`. A part with no word is in
+    no text."""
+    wanted = _phrase(part)
+    return bool(wanted) and wanted in _phrase(whole)
+
+
 def _holds_text(texts: Iterable[str], section: str) -> bool:
-    """Whether a text of `texts` holds `section`, compared as a name."""
-    wanted = _name(section)
-    return bool(wanted) and any(wanted in _name(text) for text in texts)
+    """Whether a text of `texts` holds the words of `section`."""
+    return any(_within(section, text) for text in texts)
 
 
 def _holds_key(plan: Mapping[str, Any], keys: Iterable[str], section: str) -> bool:
-    """Whether `section` names one of `keys` that `plan` has, with a space or a hyphen for each
-    `_` (such as `What Changes`), or is a text of the value of such a key."""
+    """Whether `section` holds the words of one of `keys` that `plan` has, such as `What Changes`
+    or `## Existing Tool Considered` for `existing_tool`, or is a text of the value of such a
+    key."""
     present = [key for key in keys if key in plan]
-    key = _KEY_JOINS.sub("_", _name(section))
-    return key in present or _holds_text(_strings([plan[name] for name in present]), section)
+    return any(_within(key, section) for key in present) or _holds_text(
+        _strings([plan[name] for name in present]), section
+    )
 
 
 def _holds_group(groups: Any, section: str) -> bool:
-    """Whether `section` names a group of `groups`: its number from 1, or its title."""
+    """Whether `section` names a group of `groups`: its number from 1 at the start, or the words
+    of its title."""
     if not isinstance(groups, list):
         return False
-    number = _GROUP_NUMBER.fullmatch(_name(section))
+    number = _GROUP_NUMBER.match(_name(section))
     if number is not None:
         return 1 <= int(number[1]) <= len(groups)
     titles = (group.get("title") for group in groups if isinstance(group, Mapping))
-    return any(isinstance(title, str) and _name(title) == _name(section) for title in titles)
+    return any(isinstance(title, str) and _within(title, section) for title in titles)
 
 
-def _requirement_names(spec: Mapping[str, Any]) -> set[str]:
+def _delta_names(spec: Mapping[str, Any]) -> list[str]:
     """The names of the requirements that the delta of one capability adds, modifies, removes
-    or renames, with each rename by its old and its new name."""
+    or renames, with each rename by its old and its new name, and the names of their
+    scenarios."""
     entries = [
         entry
         for key in _REQUIREMENT_KEYS
         for entry in spec.get(key) or ()
         if isinstance(entry, Mapping)
     ]
-    return {
-        _name(entry[key])
+    scenarios = [
+        scenario
         for entry in entries
+        for scenario in entry.get(_SCENARIOS_KEY) or ()
+        if isinstance(scenario, Mapping)
+    ]
+    return [
+        item[key]
+        for item in (*entries, *scenarios)
         for key in _NAME_KEYS
-        if isinstance(entry.get(key), str)
-    }
+        if isinstance(item.get(key), str)
+    ]
+
+
+def _same_capability(named: str, capability: str) -> bool:
+    """Whether `named` names `capability`: the shorter of the two paths is the end of the longer,
+    by whole segments. So `openspec/specs/roadmap-stage/verification` and `verification` name
+    `roadmap-stage/verification`, and `ci-gate` does not name `ci-gate-admission`."""
+    first, second = (tuple(_name(path).strip("/").split("/")) for path in (named, capability))
+    shorter, longer = sorted((first, second), key=len)
+    return all(shorter) and longer[len(longer) - len(shorter) :] == shorter
 
 
 def _holds_requirement(specs: Any, place: Locator) -> bool:
     """Whether the spec delta `specs` holds the requirement that `place` names, in the capability
-    of `place` or, when it names none, in any capability. A section that names the capability
+    of `place` or, when it names none, in any capability. The words of the section hold the words
+    of the name of a requirement or a scenario of the delta, or the reverse, so `Requirement:
+    <name>.` and a name with its last word cut both name it. A section that names the capability
     itself names its whole delta."""
-    wanted = _name(place.section)
     for spec in specs if isinstance(specs, list) else ():
         if not isinstance(spec, Mapping):
             continue
-        capability = _name(str(spec.get("capability", "")))
-        if place.capability and capability != _name(place.capability):
+        capability = str(spec.get("capability", ""))
+        if place.capability and not _same_capability(place.capability, capability):
             continue
-        if wanted == capability or wanted in _requirement_names(spec):
+        if _same_capability(place.section, capability) or any(
+            _within(name, place.section) or _within(place.section, name)
+            for name in _delta_names(spec)
+        ):
             return True
     return False
 
@@ -470,10 +518,12 @@ class VerificationInput:
 
     def holds(self, place: Locator) -> bool:
         """Whether the plan or the issue of the request holds `place` (#5410). The names compare
-        with white space folded and in one case. A group is a number of `groups` or a title of one.
-        A requirement is a name that the spec delta of its capability adds, modifies, removes or
-        renames. A section of the proposal or the design is one of its keys, or a text of their
-        values. A section of the issue is a text of its title, its body or the criteria of the
+        by their words, in one case, so a mark, a heading sign or a small change of form does not
+        lose a place. A group is a number of `groups` or the title of one. A requirement is a name
+        of a requirement or a scenario that the spec delta of its capability adds, modifies,
+        removes or renames. A section of the proposal or the design is a key of either file, or a
+        text of their values: a finding that names the wrong file of the two keeps its place. A
+        section of the issue is a text of its title, its body or the acceptance criteria of the
         plan. A tool answer holds no place: a reviewer can read a base spec that the plan does not
         change."""
         plan = self.plan
@@ -482,12 +532,10 @@ class VerificationInput:
                 return _holds_group(plan.get(_GROUPS_KEY), place.section)
             case PlanPart.SPEC:
                 return _holds_requirement(plan.get(_SPECS_KEY), place)
-            case PlanPart.DESIGN:
-                return _holds_key(plan, _DESIGN_KEYS, place.section)
-            case PlanPart.PROPOSAL:
-                return _holds_key(plan, set(plan) - _NOT_PROPOSAL_KEYS, place.section)
+            case PlanPart.PROPOSAL | PlanPart.DESIGN:
+                return _holds_key(plan, set(plan) - _NOT_FILE_KEYS, place.section)
             case PlanPart.ISSUE:
-                criteria = _strings(plan.get(_CRITERIA_KEY) or ())
+                criteria = _strings([plan.get(key) or () for key in _CRITERIA_KEYS])
                 return _holds_text((self.title, self.body, *criteria), place.section)
 
 

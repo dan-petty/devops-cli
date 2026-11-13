@@ -21,7 +21,7 @@ Report only a defect that you can show. For each finding give:
 - `type`: one of the nine types.
 - `where`: the place of the defect, as an object with the keys `part`, `section` and `capability`:
   - `part`: `proposal`, `design`, `tasks`, `spec` or `issue`.
-  - `section`: for `tasks`, the number of the group, such as `2`. For `spec`, the name of a requirement of the spec delta, as the delta writes it. For `proposal` and `design`, the key of `plan` that holds the defect, such as `feasibility` or `decisions`. For `issue`, the text of the issue that the finding is about, such as an acceptance criterion.
+  - `section`: for `tasks`, the number of the group, such as `2`. For `spec`, the name of a requirement of the spec delta, as the delta writes it. For `design`, the key of `plan` that holds the defect: `decisions` or `rejected`. For `proposal`, each other key of `plan` except `groups` and `specs`, such as `why` or `feasibility`. For `issue`, the text of the issue that the finding is about, such as an acceptance criterion.
   - `capability`: for `spec`, the capability of the requirement, such as `roadmap-stage/verification`. Leave it empty for each other part.
 - `problem`: what is wrong, in one or two short sentences in the active voice.
 - `quote`: a short quote, copied exactly, from the issue, the plan or a file in `files`, that shows the defect. For a `missing_path`, quote the line of the plan that names the path. When no text shows the defect, leave `quote` empty. Never invent a quote.
