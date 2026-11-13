@@ -24,12 +24,16 @@
   - Verification: `$ uv run devops ci test tests/k8s/test_image_pins.py tests/k8s/test_k8s_argocd_gate.py`
 - [x] 3.2 Add `devops_cli.k8s.app_sources` and `ApplicationSourceError`, use it in `image_pins.py` and `argocd_gate.py`, and add `collect_kustomization_pins`
   - Verification: `$ uv run devops ci test tests/k8s/test_image_pins.py tests/k8s/test_k8s_argocd_gate.py`
+- [x] 3.3 Write a failing test, then add `--managed`: the product base names the images of devops-cli with no tag, because Image Updater of the infra repo sets them, and a folder holds no `ImageUpdater` object
+  - Verification: `$ uv run devops ci test tests/k8s/test_image_pins.py`
 
 ## 4. Test readers of the tree (refactor)
 
 - [x] 4.1 Make `tests/support/k8s_tree.py` read a value file of any ref and give `TREE`, and move each test and gate check that read a deleted constant to `TREE` or to the product tables
   - Verification: `$ uv run devops ci test tests/invariants tests/gate tests/ai/benchmark/test_k8s_llm_gateway.py tests/ai/test_ai_gateway_render.py tests/k8s/test_gpu_thresholds.py tests/k8s/test_k8s_ollama_prune.py`
-- [x] 4.2 Confirm that no environment constant of the issue is in `src/`
+- [x] 4.2 Run the gate rows that read the stack tables and the test files
+  - Verification: `$ uv run devops ci --check --only k8s,test-tree`
+- [x] 4.3 Confirm that no environment constant of the issue is in `src/`
   - Verification: `$ ! git grep -n -w -e DEFAULT_K8S_DIR -e CONST_K8S_ARGOCD_APPLICATION_DIRS -e CONST_K8S_ARGOCD_PAUSE_PARENTS -e CONST_K8S_GITEA_APPLICATIONS -e CONST_K8S_OLLAMA_PROFILES_PATH -e DEFAULT_GRAFANA_DASHBOARDS_DIR -e DEFAULT_GRAFANA_DASHBOARDS_DIRS -e DEFAULT_LLM_GATEWAY_CONFIG_PATH -e DEFAULT_LLM_PROFILES_PATH -e CONST_CLOUDFLARE_BYPASS_POLICY_NAME -e CONST_CLOUDFLARE_ALLOW_POLICY_NAME -- src`
 
 ## 5. Workflows (workflow)
@@ -39,12 +43,12 @@
 
 ## 6. Documents
 
-- [x] 6.1 Regenerate the reference documents, and describe the environment tree in `k8s/README.md`, `CONTEXT.md`, `docs/SDLC.md` and `config.example.yaml`
+- [x] 6.1 Regenerate the reference documents, and describe the environment tree in `k8s/README.md`, `docs/CLUSTER.md` (Image Pins, which #5312 moved there), `CONTEXT.md`, `docs/SDLC.md` and `config.example.yaml`
   - Verification: `$ uv run devops docs generate --check`
 
 ## Workflow follow-up
 
 - The product-contract tests on a fixture tree are #5298.
-- The fetch of a private Application repository is #5294.
+- #5294 gave the fetch of `render_at_revision` the GitHub credential of the session. The fetch of `image-pins` and the gate adds no credential of its own.
 - The environment tests move to homelab CI in #5296.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).

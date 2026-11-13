@@ -13,7 +13,7 @@ When `devops k8s bootstrap-mattermost` runs, it SHALL verify that the Mattermost
 - **THEN** the command exits with an error indicating Mattermost workload is unavailable
 
 ### Requirement: mattermost-bootstrap-team-and-channels
-The command SHALL ensure that the specified team exists (defaulting to `homelab`) and that public channels `alerts` and `deploys` exist in the team.
+The command SHALL ensure that the specified team exists (`--team`, defaulting to the setting `mattermost.team`, whose default is `homelab`) and that public channels `alerts` and `deploys` exist in the team.
 
 #### Scenario: Target team and channels exist
 - **WHEN** team `homelab` and channels `alerts` and `deploys` already exist
@@ -22,6 +22,10 @@ The command SHALL ensure that the specified team exists (defaulting to `homelab`
 #### Scenario: Channels missing
 - **WHEN** channels `alerts` or `deploys` are missing
 - **THEN** the command creates the missing channels via `mmctl --local channel create`
+
+#### Scenario: The team of the settings
+- **WHEN** `mattermost.team` is `example-team` and the command runs with `--dry-run` and no `--team`
+- **THEN** the plan names the team `example-team`
 
 ### Requirement: mattermost-bootstrap-webhooks-and-slash-command
 The command SHALL ensure that incoming webhooks for `Alertmanager` (locked to `alerts`) and `Argo CD` (locked to `deploys`) exist, and that custom slash command `/roadmap` exists pointing to the in-cluster roadmap service webhook URL.

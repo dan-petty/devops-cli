@@ -27,11 +27,15 @@ The Argo CD gate (`check_argocd_gate`) SHALL check the Applications of an enviro
 - **THEN** the gate fails the Application with `The fetch of <repository> at main failed:` and git's error
 
 ### Requirement: A kustomization folder renders in place of the Applications
-`devops k8s image-pins <folder>` SHALL build the kustomization folder `<folder>`, such as the product base `k8s/devops`, as a path source of an Application builds, and SHALL check and resolve its images with the folder as the name of the Application. It SHALL read no environment tree.
+`devops k8s image-pins <folder>` SHALL build the kustomization folder `<folder>`, such as the product base `k8s/devops`, as a path source of an Application builds, and SHALL check and resolve its images with the folder as the name of the Application. It SHALL read no environment tree. A folder holds no `ImageUpdater` object, so the option `--managed <repository>` SHALL name a repository whose tag the deploy sets: the command SHALL NOT refuse or resolve its images, and SHALL name the repository.
 
 #### Scenario: The product base alone
 - **WHEN** `devops k8s image-pins k8s/devops` runs, and the registry holds the image of its Deployment
 - **THEN** the command exits 0 and names the folder as the Application of the image
+
+#### Scenario: An image whose tag the deploy sets
+- **WHEN** the Deployment of the folder names `ghcr.io/example/service` with no tag, and `devops k8s image-pins <folder>` runs once with no option and once with `--managed ghcr.io/example/service`
+- **THEN** the first run exits 1, and the second exits 0, sends no request to a registry and names the repository
 
 ## MODIFIED Requirements
 
