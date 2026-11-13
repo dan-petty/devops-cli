@@ -41,6 +41,10 @@ def k8s_image_pins(
         Path | None, typer.Argument(help=HELP.k8s.image_pins_target, show_default=False)
     ] = None,
     k8s_dir: Annotated[Path | None, typer.Option("--k8s-dir", help=HELP.k8s.k8s_dir)] = None,
+    managed: Annotated[
+        list[str] | None,
+        typer.Option("--managed", help=HELP.k8s.image_pins_managed, show_default=False),
+    ] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Render each Argo CD Application of the environment tree, or the kustomization folder
@@ -48,14 +52,14 @@ def k8s_image_pins(
     it: a HEAD request of its manifest, which Docker Hub does not count against the anonymous
     allowance of the network's public address. A git source of another public repository is
     fetched at its revision. Exits 1, before it resolves an image, when an image has no digest and
-    the latest tag or no tag, unless Image Updater moves it. Exits 1 when a registry does not hold
-    an image or refuses the read. The CI job `image-pins` runs the check on a pull request that
-    changes k8s/."""
+    the latest tag or no tag, unless Image Updater moves it or --managed names its repository.
+    Exits 1 when a registry does not hold an image or refuses the read. The CI job `image-pins`
+    runs the check on a pull request that changes k8s/."""
     set_dry_run(dry_run)
     pins = (
-        collect_kustomization_pins(target)
+        collect_kustomization_pins(target, managed=managed or ())
         if target is not None
-        else collect_image_pins(resolve_environment(k8s_dir))
+        else collect_image_pins(resolve_environment(k8s_dir), managed=managed or ())
     )
     if pins.latest:
         raise ImagePinError(

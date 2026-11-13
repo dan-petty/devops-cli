@@ -5,8 +5,8 @@ Argo CD renders it: a path source with the builder of the Argo CD gate (`kubectl
 chart source with `helm template` and the value files that its `$ref` sources name. A git source of
 the repository that holds the tree reads the checkout, and a source of another public repository is
 fetched at its revision (`devops_cli.k8s.app_sources`). A kustomization folder, such as the product
-base `k8s/devops`, renders the same way in place of the Applications. Helm's output then passes through `kubectl kustomize` too, which
-reads YAML as Kubernetes does: a chart can write YAML that PyYAML refuses, such as a tab after a
+base `k8s/devops`, renders the same way in place of the Applications. Helm's output then passes
+through `kubectl kustomize` too, which reads YAML as Kubernetes does: a chart can write YAML that PyYAML refuses, such as a tab after a
 value (the Alertmanager StatefulSet of the `prometheus` chart). The chart render leaves out the
 chart's test manifests (`--skip-tests`): Argo CD does not apply a Helm test hook, so the image of a
 test pod is never pulled.
@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import ipaddress
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -285,10 +285,12 @@ def _render_application(
     return _Render(name, tuple(images), tuple(managed), tuple(planned))
 
 
-def collect_image_pins(env: EnvironmentTree, *, origin_url: str | None = None) -> ImagePins:
+def collect_image_pins(
+    env: EnvironmentTree, *, origin_url: str | None = None, managed: Iterable[str] = ()
+) -> ImagePins:
     """Render every Argo CD Application of the environment tree `env`, a few at a time, and sort
     the images they name. A git source of the origin of `env.repo` (or `origin_url`) reads the
-    checkout."""
+    checkout. `managed` names more repositories whose tag the deploy sets."""
     documents = sorted(discover_argocd_applications(env.application_dirs).items())
     origin = normalize_git_url(origin_url or repository_origin(env.repo))
     with tempfile.TemporaryDirectory(prefix="image-pins-") as tmp:
@@ -300,14 +302,15 @@ def collect_image_pins(env: EnvironmentTree, *, origin_url: str | None = None) -
                     documents,
                 )
             )
-    pins = _sorted_pins(renders)
+    pins = _sorted_pins(renders, managed)
     return replace(pins, planned=(*trees.planned, *pins.planned))
 
 
-def collect_kustomization_pins(path: Path) -> ImagePins:
+def collect_kustomization_pins(path: Path, *, managed: Iterable[str] = ()) -> ImagePins:
     """Build the kustomization folder `path`, such as the product base `k8s/devops`, as a path
     source of an Application builds, and sort the images it names. The folder is the name of the
-    Application in the result."""
+    Application in the result. A folder holds no `ImageUpdater` object, so `managed` names each
+    repository whose tag the deploy sets."""
     target = path.resolve()
     rendered = build_manifest_path(target)
     planned = () if rendered else ((*_KUSTOMIZE, str(target)),)
@@ -317,13 +320,14 @@ def collect_kustomization_pins(path: Path) -> ImagePins:
         tuple(updater_repositories(rendered)),
         planned,
     )
-    return _sorted_pins([render])
+    return _sorted_pins([render], managed)
 
 
-def _sorted_pins(renders: list[_Render]) -> ImagePins:
-    """The images of the renders, sorted: managed, `latest`, local and pinned."""
+def _sorted_pins(renders: list[_Render], extra_managed: Iterable[str] = ()) -> ImagePins:
+    """The images of the renders, sorted: managed, `latest`, local and pinned. A repository of
+    `extra_managed` is managed, as a repository that an `ImageUpdater` object names."""
     named: dict[str, set[str]] = {}
-    managed: set[str] = set()
+    managed = {"/".join(image_reference(name)) for name in extra_managed}
     planned: list[tuple[str, ...]] = []
     for render in renders:
         for image in render.images:

@@ -521,8 +521,7 @@ def test_the_command_reports_each_pin_and_passes_when_each_resolves(
         sorted({r.url.host for r in web.sent}),
         {r.method for r in manifests},
         "Each of the 2 image(s) that the Argo CD Applications pin resolves" in result.output,
-        f"Image Updater moves these repositories, so they are not pins: {_SERVICE}"
-        in result.output,
+        f"so they are not pins: {_SERVICE}" in " ".join(result.output.split()),
         _LOCAL in result.output,
     ) == (0, ["quay.io", _HUB], {"HEAD"}, True, True, True)
 
@@ -804,3 +803,23 @@ def test_a_kustomization_folder_renders_in_place_of_the_applications(
         "Each of the 1 image(s) that the Argo CD Applications pin resolves" in result.output,
         collect_kustomization_pins(base).pinned,
     ) == (0, True, {"ghcr.io/example/product:2.0": (str(base),)})
+
+
+def test_managed_names_a_repository_whose_tag_the_deploy_sets(
+    tmp_path: Path, web: WebFake, cli: Callable[..., Any]
+) -> None:
+    """The product base names its own images with no tag, because Image Updater of the infra repo
+    sets them. The folder holds no `ImageUpdater` object, so `--managed` names such a repository:
+    the command does not refuse or resolve its images, and it names the repository (#5131)."""
+    _product_files(tmp_path, _SERVICE)
+    base = tmp_path / "k8s" / "devops"
+
+    refused = cli("k8s", "image-pins", str(base))
+    result = cli("k8s", "image-pins", str(base), "--managed", _SERVICE)
+
+    assert (
+        refused.exit_code,
+        result.exit_code,
+        web.sent,
+        f"so they are not pins: {_SERVICE}" in " ".join(result.output.split()),
+    ) == (1, 0, [], True)

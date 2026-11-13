@@ -120,9 +120,9 @@ TARGET, and resolve each image it pins in its registry, as an anonymous client, 
 it: a HEAD request of its manifest, which Docker Hub does not count against the anonymous
 allowance of the network's public address. A git source of another public repository is
 fetched at its revision. Exits 1, before it resolves an image, when an image has no digest and
-the latest tag or no tag, unless Image Updater moves it. Exits 1 when a registry does not hold
-an image or refuses the read. The CI job `image-pins` runs the check on a pull request that
-changes k8s/. |
+the latest tag or no tag, unless Image Updater moves it or --managed names its repository.
+Exits 1 when a registry does not hold an image or refuses the read. The CI job `image-pins`
+runs the check on a pull request that changes k8s/. |
 |  | `devops k8s crawl4ai-check [OPTIONS]` | Check that the Crawl4AI service refuses internal targets. It sends each of five routes
 (/md, /html, /screenshot, /pdf and /llm) to each of five internal targets (the metadata
 address, localhost, the Kubernetes API, the service itself and the roadmap Service) with the

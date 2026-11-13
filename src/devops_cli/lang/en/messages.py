@@ -773,7 +773,8 @@ class K8sMessages:
     image_pins_latest: str = "{count} image(s) that the Argo CD Applications name use the latest tag and no digest, so each pull can get a different image. Set a version tag or a digest: {detail}"
     image_pins_latest_image: str = "{image} (Application {applications})"
     image_pins_managed: str = (
-        "Image Updater moves these repositories, so they are not pins: {repositories}"
+        "An ImageUpdater object or --managed names these repositories: the deploy sets their "
+        "tags, so they are not pins: {repositories}"
     )
     image_pins_local: str = "Only the cluster or this host reaches the registry of these images, so they are not resolved: {images}"
     image_pins_dry_run: str = "Each image that the renders name is then resolved with this request: HEAD https://<registry>/v2/<repository>/manifests/<reference>"

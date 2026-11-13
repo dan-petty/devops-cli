@@ -513,9 +513,9 @@ TARGET, and resolve each image it pins in its registry, as an anonymous client, 
 it: a HEAD request of its manifest, which Docker Hub does not count against the anonymous
 allowance of the network's public address. A git source of another public repository is
 fetched at its revision. Exits 1, before it resolves an image, when an image has no digest and
-the latest tag or no tag, unless Image Updater moves it. Exits 1 when a registry does not hold
-an image or refuses the read. The CI job `image-pins` runs the check on a pull request that
-changes k8s/.**
+the latest tag or no tag, unless Image Updater moves it or --managed names its repository.
+Exits 1 when a registry does not hold an image or refuses the read. The CI job `image-pins`
+runs the check on a pull request that changes k8s/.**
 
 ```bash
 devops k8s image-pins [OPTIONS] <target>
@@ -532,6 +532,7 @@ devops k8s image-pins [OPTIONS] <target>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--k8s-dir` | `path` | - | The environment tree: the Kubernetes folder of the infra repo. Default: kubernetes.dir of the project profile of the current repository, else of the one infra repo that gives it. |
+| `--managed` | `string` | - | A repository whose tag the deploy sets, as Image Updater does, such as ghcr.io/example/service. The check does not refuse or resolve its images. Repeat the option for each repository. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

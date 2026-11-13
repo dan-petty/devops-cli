@@ -490,6 +490,11 @@ class K8sCommandHelp:
     )
     crawl4ai_check_local_port: str = "Local port of the kubectl port-forward to Service crawl4ai. Use a port that no program holds."
     searxng_check_local_port: str = "Local port of the kubectl port-forward to Service searxng. Use a port that no program holds."
+    image_pins_managed: str = (
+        "A repository whose tag the deploy sets, as Image Updater does, such as "
+        "ghcr.io/example/service. The check does not refuse or resolve its images. Repeat the "
+        "option for each repository."
+    )
     image_pins_target: str = (
         "A kustomization folder to render in place of the Argo CD Applications of the environment "
         "tree, such as k8s/devops."
