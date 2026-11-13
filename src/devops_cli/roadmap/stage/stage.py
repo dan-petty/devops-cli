@@ -842,7 +842,7 @@ def select_stageable(
     matched = [item for item in opened if filters.matches(item)]
     walked = walk_named(matched, verdict, limit, probe=probe)
     left_out = tuple(replace(left, kind=kinds[left.number]) for left in walked.left_out)
-    return StageSelection(walked.taken, left_out, walked.beyond, len(named))
+    return StageSelection(walked.taken, left_out, walked.beyond, len(matched))
 
 
 # ── The plan of one item ──────────────────────────────────────────────────────
