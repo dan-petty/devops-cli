@@ -330,7 +330,7 @@ def test_a_compare_answer_with_no_files_is_unread(github_api: GitHubApiFake) -> 
     """The recorded comparison was cut to its merge base and holds no `files`. Such an answer is
     no answer, and not an empty diff that reads as clean (#2530)."""
     github_api.route("GET", _COMPARE, github_json(_RECORDED["comparison"]))
-    with pytest.raises(GitHubUnreadError, match="_CompareFiles"):
+    with pytest.raises(GitHubUnreadError, match=r"compare/.* 1 invalid field"):
         _client().get_compare_files("octocat/Hello-World", _BASE_SHA, _HEAD_SHA)
 
 

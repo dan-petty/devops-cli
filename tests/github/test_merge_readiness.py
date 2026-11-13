@@ -713,9 +713,7 @@ def test_closing_issues_that_cannot_be_read_are_one_blocker(
 def test_a_malformed_files_entry_fails_read(github: _GitHub, tmp_path: Path, entry: object) -> None:
     github.files(entry)
     blockers = _assess(tmp_path).blockers
-    assert ["is no _CompareFiles: 1 invalid field(s)" in blocker for blocker in blockers] == [
-        True
-    ], blockers
+    assert ["compare/main" in b and "1 invalid field(s)" in b for b in blockers] == [True], blockers
 
 
 def test_the_changed_files_are_read_from_the_compare_of_the_base_branch_and_head(
@@ -855,7 +853,7 @@ def test_a_changed_files_page_that_is_no_list_fails_read(github: _GitHub) -> Non
         "GET", _COMPARE, github_json({"merge_base_commit": {"sha": _MERGE_BASE}, "files": "bad"})
     )
     read = read_changed_files(_OWNER, _NAME, "main", _HEAD)
-    assert (read.files, "_CompareFiles" in read.error) == ([], True)
+    assert (read.files, "1 invalid field(s)" in read.error) == ([], True)
 
 
 def test_the_closing_issues_read_asks_for_the_pr_and_both_page_sizes() -> None:
