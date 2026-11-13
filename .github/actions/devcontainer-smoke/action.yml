@@ -4,7 +4,8 @@ description: >-
   it (#1895). `devcontainer up` on a configuration that names only the image proves that the
   image's devcontainer.metadata label gives the remote user vscode, and the image then runs as
   vscode, uid and gid 1000, with a command from each Dev Container Feature on its path. The
-  docker-in-docker feature makes the container privileged, so the caller's job holds no write
+  network diagnostics commands are on its path, and `ping` works as vscode with the
+  ping_group_range run argument of the workspace (#5343). The docker-in-docker feature makes the container privileged, so the caller's job holds no write
   scope and no OIDC token. The caller checks out the repository, installs uv with the project
   synchronized, and logs in to the registry that holds the image.
 
@@ -37,9 +38,11 @@ runs:
         jq -n --arg image "$REF" '{image: $image, updateRemoteUserUID: false}' > "$CHILD/.devcontainer/devcontainer.json"
         devcontainer up --workspace-folder "$CHILD" --skip-post-create > /dev/null
         test "$(devcontainer exec --workspace-folder "$CHILD" id -un)" = vscode
-        docker run --rm --user vscode "$REF" sh -ec '
+        docker run --rm --user vscode --sysctl "net.ipv4.ping_group_range=1000 1000" "$REF" sh -ec '
           test "$(id -u):$(id -g)" = 1000:1000
-          for TOOL in zsh git gh copilot node npm docker kubectl helm minikube claude; do
+          for TOOL in zsh git gh copilot node npm docker kubectl helm minikube claude \
+              ping tracepath traceroute mtr nc tcpdump; do
             command -v "$TOOL" > /dev/null || { echo "missing: $TOOL" >&2; exit 1; }
           done
+          ping -c 1 127.0.0.1 > /dev/null
           devops --version > /dev/null'

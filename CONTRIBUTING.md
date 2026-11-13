@@ -58,6 +58,8 @@ The devcontainer installs the hooks at each start. A Claude Code cloud session i
 
 The container has a limit of 8192 processes and threads (`--pids-limit=8192` in `runArgs` of `.devcontainer/devcontainer.json`). Rootless Podman sets 2048 when the option is absent, and a burst of VS Code file searches filled that limit: the tools of agent sessions then failed with exit code 1 or `can't start new thread` (#3722). The extension `ms-python.vscode-python-envs` starts one `rg` search, with one thread for each CPU, for each file that a new worktree or virtual environment creates. A new limit takes effect only after a person rebuilds the container (`Dev Containers: Rebuild Container`). A restart or a reload does not apply it. `cat /sys/fs/cgroup/pids.max` shows the limit that applies.
 
+The run argument `--sysctl=net.ipv4.ping_group_range=1000 1000` lets the user `vscode` run `ping` with no `sudo`. [docs/DEVCONTAINER_USAGE.md](docs/DEVCONTAINER_USAGE.md#2-pre-installed-tooling--capabilities) ("Network diagnostics") gives the network tools of the image and their limits. A changed run argument and a new tool of the image also take effect only after a person rebuilds the container.
+
 The project settings of Claude Code, `.claude/settings.json`, turn off the plugins `cloudflare`, `mcp-server-dev` and `playwright`. To use one of them, turn it on in `.claude/settings.local.json`, which git ignores. Keep the permissions of agents permissive: do not add a broad deny list to `.claude/settings.json`. Put the guard against a real risk in the code or in the test floor.
 
 The `allow` list of `.claude/settings.json` lets an agent run the standard project commands with no check by the auto-mode classifier:

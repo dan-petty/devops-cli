@@ -223,6 +223,7 @@
   "runArgs": [
     "--gpus",
     "all",
-    "--pids-limit=8192"
+    "--pids-limit=8192",
+    "--sysctl=net.ipv4.ping_group_range=1000 1000"
   ]
 }
