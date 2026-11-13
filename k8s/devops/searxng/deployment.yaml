@@ -2,7 +2,7 @@
 # Helm chart and no Kubernetes manifest, only a compose file, so this file follows that file:
 # the image runs as user 977, reads /etc/searxng/settings.yml, and writes under /var/cache/searxng.
 # The image is a pin: Renovate bumps the tag and the digest together. Follow the bump steps in
-# k8s/README.md ("SearXNG") before you merge a bump. The image is used as it is, with no patch.
+# docs/CLUSTER.md ("SearXNG") before you merge a bump. The image is used as it is, with no patch.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -96,7 +96,7 @@ spec:
           # Measured with the pinned image under these controls: 20 queries one after another
           # peaked at 117 MiB, and 10 at once at 122 MiB and 0.8 CPU. The limit holds the main
           # process, the resource tracker and a worker at GRANIAN_WORKERS_MAX_RSS, with room for
-          # the new worker while Granian replaces it (k8s/README.md, "SearXNG").
+          # the new worker while Granian replaces it (docs/CLUSTER.md, "SearXNG").
           resources:
             requests:
               cpu: 50m

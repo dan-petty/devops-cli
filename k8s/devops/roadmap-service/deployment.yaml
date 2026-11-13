@@ -9,7 +9,7 @@ metadata:
 spec:
   # One pod. The Service acts as GitHub App devops-cli-service (ADR 0015) on each repository
   # in service.repos. Argo CD self-heals this value, so a scale by hand does not stay. To stop
-  # the Service, do the stop switch in k8s/README.md, "Roadmap service".
+  # the Service, do the stop switch in docs/CLUSTER.md, "Roadmap service".
   replicas: 1
   strategy:
     type: Recreate

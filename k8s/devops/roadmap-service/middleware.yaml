@@ -3,7 +3,7 @@
 # Each request comes in through the Cloudflare tunnel, so its remote address is a cloudflared
 # pod: one bucket for the request host bounds what gets to the Service. Traefik answers a request
 # above the limit with HTTP 429. The next poll of the Service starts the round that a refused
-# delivery would have started (k8s/README.md, Roadmap service, Webhook route).
+# delivery would have started (docs/CLUSTER.md, Roadmap service, Webhook route).
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:

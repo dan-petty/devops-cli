@@ -51,11 +51,11 @@ The settings SHALL keep no engine that `tests/fixtures/searxng/engines_that_neve
 - **WHEN** a test reads `keep_only` and `tests/fixtures/searxng/engines_that_never_answer.txt`
 - **THEN** no kept name is in that file, the first name in that file is `pypi`, each line has a date and a reason, and every name is an engine of the default settings
 
-### Requirement: The README lists the kept engines
-The list of engines in `k8s/README.md` SHALL name the same engines as `keep_only`.
+### Requirement: The cluster document lists the kept engines
+The list of engines in `docs/CLUSTER.md` SHALL name the same engines as `keep_only`.
 
 #### Scenario: The README lists other engines than the settings
-- **WHEN** a test reads the sentence "The engines." of `k8s/README.md` and `keep_only`
+- **WHEN** a test reads the sentence "The engines." of `docs/CLUSTER.md` and `keep_only`
 - **THEN** the names in backticks in the sentence equal the names in `keep_only`
 
 ### Requirement: Only the roadmap Service calls the pod

@@ -37,7 +37,7 @@ tests:
               identity: devops-cli-service
             exp_annotations:
               summary: "GitHub refused the identity devops-cli-service of the roadmap Service"
-              description: "The roadmap Service stopped all rounds and starts no round, also after a restart, until a person removes its halt record. Its health check stays healthy. Repair the GitHub App, remove the halt record, then restart the Service (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service stopped all rounds and starts no round, also after a restart, until a person removes its halt record. Its health check stays healthy. Repair the GitHub App, remove the halt record, then restart the Service (docs/CLUSTER.md, Roadmap service)."
 
   - name: One throttle fires for 15 minutes; a workstation's throttle does not count
     interval: 1m
@@ -55,7 +55,7 @@ tests:
               resource: graphql
             exp_annotations:
               summary: "GitHub throttled graphql requests of the roadmap Service"
-              description: "In the last 15 minutes GitHub refused a graphql request of the roadmap Service with a rate limit, or gave a 5xx for a read. The Service waited and sent the request again (k8s/README.md, Roadmap service)."
+              description: "In the last 15 minutes GitHub refused a graphql request of the roadmap Service with a rate limit, or gave a 5xx for a read. The Service waited and sent the request again (docs/CLUSTER.md, Roadmap service)."
       - eval_time: 20m
         alertname: RoadmapServiceGitHubThrottled
         exp_alerts: []
@@ -90,7 +90,7 @@ tests:
               row: refine
             exp_annotations:
               summary: "All refine jobs of example/app failed in the last hour, on the model lane"
-              description: '{namespace="devops"} | json | repo="example/app" | lane="model" (k8s/README.md, Roadmap service)'
+              description: '{namespace="devops"} | json | repo="example/app" | lane="model" (docs/CLUSTER.md, Roadmap service)'
 
   - name: An error series with no sample near the start of the hour counts only the errors of the hour
     interval: 10m
@@ -110,7 +110,7 @@ tests:
               row: refine
             exp_annotations:
               summary: "All refine jobs of example/app failed in the last hour, on the model lane"
-              description: '{namespace="devops"} | json | repo="example/app" | lane="model" (k8s/README.md, Roadmap service)'
+              description: '{namespace="devops"} | json | repo="example/app" | lane="model" (docs/CLUSTER.md, Roadmap service)'
 
   - name: A new error series with one sample of 3 fires
     interval: 10m
@@ -132,7 +132,7 @@ tests:
               row: refine
             exp_annotations:
               summary: "All refine jobs of example/app failed in the last hour, on the model lane"
-              description: '{namespace="devops"} | json | repo="example/app" | lane="model" (k8s/README.md, Roadmap service)'
+              description: '{namespace="devops"} | json | repo="example/app" | lane="model" (docs/CLUSTER.md, Roadmap service)'
 
   - name: A row that fails each round fires while another row of its lane succeeds
     interval: 1m
@@ -154,7 +154,7 @@ tests:
               row: implement
             exp_annotations:
               summary: "All implement jobs of example/app failed in the last hour, on the status lane"
-              description: '{namespace="devops"} | json | repo="example/app" | lane="status" (k8s/README.md, Roadmap service)'
+              description: '{namespace="devops"} | json | repo="example/app" | lane="status" (docs/CLUSTER.md, Roadmap service)'
 
   - name: A lane with no job start for over 2 hours fires after 10 minutes while a replica is available
     interval: 1m
@@ -182,7 +182,7 @@ tests:
               lane: model
             exp_annotations:
               summary: "No model job of example/app started for 2h 15m 0s"
-              description: "The roadmap Service has an available replica, but no model job of example/app started for over 2 hours (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service has an available replica, but no model job of example/app started for over 2 hours (docs/CLUSTER.md, Roadmap service)."
 
   - name: A lane with no job start stays quiet while no replica is available
     interval: 1m
@@ -220,7 +220,7 @@ tests:
               lane: model
             exp_annotations:
               summary: "No model job of example/app started for 2h 49m 0s"
-              description: "The roadmap Service has an available replica, but no model job of example/app started for over 2 hours (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service has an available replica, but no model job of example/app started for over 2 hours (docs/CLUSTER.md, Roadmap service)."
 
   - name: A restart of the service container fires; a pod with no restart and another namespace do not
     interval: 1m
@@ -245,7 +245,7 @@ tests:
               container: service
             exp_annotations:
               summary: "The roadmap Service container in roadmap-service-7d9f8b6c5-x2x4z restarted"
-              description: "The restart count of container service of pod devops/roadmap-service-7d9f8b6c5-x2x4z increased by 1 in the last hour (k8s/README.md, Roadmap service)."
+              description: "The restart count of container service of pod devops/roadmap-service-7d9f8b6c5-x2x4z increased by 1 in the last hour (docs/CLUSTER.md, Roadmap service)."
 
   - name: The memory near the limit fires after 10 minutes; another namespace or container does not count
     interval: 1m
@@ -275,7 +275,7 @@ tests:
               pod: roadmap-service-7d9f8b6c5-x2x4z
             exp_annotations:
               summary: "The roadmap Service container in roadmap-service-7d9f8b6c5-x2x4z uses 90% of its memory limit"
-              description: "The working set of container service of pod devops/roadmap-service-7d9f8b6c5-x2x4z has been above 85% of its memory limit for 10 minutes, and the kernel kills the container at 100% (k8s/README.md, Roadmap service)."
+              description: "The working set of container service of pod devops/roadmap-service-7d9f8b6c5-x2x4z has been above 85% of its memory limit for 10 minutes, and the kernel kills the container at 100% (docs/CLUSTER.md, Roadmap service)."
 
   - name: An unavailable replica fires after 10 minutes; another deployment does not count
     interval: 1m
@@ -297,7 +297,7 @@ tests:
               deployment: roadmap-service
             exp_annotations:
               summary: "The roadmap Service has an unavailable replica"
-              description: "Deployment devops/roadmap-service has had an unavailable replica for 10 minutes (k8s/README.md, Roadmap service)."
+              description: "Deployment devops/roadmap-service has had an unavailable replica for 10 minutes (docs/CLUSTER.md, Roadmap service)."
 
   - name: A rollout with no available replica for 4 minutes stays quiet
     interval: 1m
@@ -326,7 +326,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: "The roadmap Service sent 600 GitHub requests in the last hour"
-              description: "The roadmap Service sent more than 90% of its hourly GitHub request budget in one hour (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service sent more than 90% of its hourly GitHub request budget in one hour (docs/CLUSTER.md, Roadmap service)."
 
   - name: 600 GitHub requests in an hour with 480 answered 304 stay quiet
     interval: 1m
@@ -363,7 +363,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: "The roadmap Service sent 520 GitHub requests in the last hour"
-              description: "The roadmap Service sent more than 90% of its hourly GitHub request budget in one hour (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service sent more than 90% of its hourly GitHub request budget in one hour (docs/CLUSTER.md, Roadmap service)."
 
   - name: A GitHub request stream from before the hour counts only the requests of the hour
     interval: 10m
@@ -456,7 +456,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: "The roadmap Service sent 1900 GitHub requests in the last hour"
-              description: "The roadmap Service sent more than 90% of its hourly GitHub request budget in one hour (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service sent more than 90% of its hourly GitHub request budget in one hour (docs/CLUSTER.md, Roadmap service)."
 
   - name: A Service that reports no limit raises no volume alert; RoadmapServiceUnavailable covers a Service that is down
     interval: 5m
@@ -481,7 +481,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: "The roadmap Service sent 420 model requests in the last hour"
-              description: "The roadmap Service sent more than 352 model requests in one hour (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service sent more than 352 model requests in one hour (docs/CLUSTER.md, Roadmap service)."
 
   - name: A model request stream that starts in the hour counts its first flush; cached answers do not count
     interval: 5m
@@ -500,7 +500,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: "The roadmap Service sent 415 model requests in the last hour"
-              description: "The roadmap Service sent more than 352 model requests in one hour (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service sent more than 352 model requests in one hour (docs/CLUSTER.md, Roadmap service)."
 
   - name: 300 model requests in an hour stay quiet; cached answers and a workstation's requests do not count
     interval: 1m
@@ -560,7 +560,7 @@ tests:
               record: ledger
             exp_annotations:
               summary: "The roadmap Service could not write its ledger record"
-              description: "The roadmap Service could not write its ledger record to its volume, so a restart loses what the record holds. The Service goes on with memory only. Check the free space and the permissions of the volume, and the log line that starts with Could not write (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service could not write its ledger record to its volume, so a restart loses what the record holds. The Service goes on with memory only. Check the free space and the permissions of the volume, and the log line that starts with Could not write (docs/CLUSTER.md, Roadmap service)."
       - eval_time: 44m
         alertname: RoadmapServiceStateUnkept
         exp_alerts:
@@ -569,7 +569,7 @@ tests:
               record: ledger
             exp_annotations:
               summary: "The roadmap Service could not write its ledger record"
-              description: "The roadmap Service could not write its ledger record to its volume, so a restart loses what the record holds. The Service goes on with memory only. Check the free space and the permissions of the volume, and the log line that starts with Could not write (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service could not write its ledger record to its volume, so a restart loses what the record holds. The Service goes on with memory only. Check the free space and the permissions of the volume, and the log line that starts with Could not write (docs/CLUSTER.md, Roadmap service)."
 
   - name: A record that is written again before 15 minutes pass stays quiet
     interval: 1m
@@ -610,7 +610,7 @@ tests:
               class: provider
             exp_annotations:
               summary: "The row intake of example/app stays suspended after a provider failure"
-              description: "The roadmap Service did not run the row intake of example/app for 3 hours, because it failed its limit of rounds in a row (setting service.max_failed_rounds) with the failure class provider. The row runs one probe round when its retry time comes, or at once when its input changes. The gauge devops_cli_service_job_retry_after_seconds shows the seconds before the next probe round (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service did not run the row intake of example/app for 3 hours, because it failed its limit of rounds in a row (setting service.max_failed_rounds) with the failure class provider. The row runs one probe round when its retry time comes, or at once when its input changes. The gauge devops_cli_service_job_retry_after_seconds shows the seconds before the next probe round (docs/CLUSTER.md, Roadmap service)."
       - eval_time: 300m
         alertname: RoadmapServiceRowSuspended
         exp_alerts:
@@ -621,7 +621,7 @@ tests:
               class: provider
             exp_annotations:
               summary: "The row intake of example/app stays suspended after a provider failure"
-              description: "The roadmap Service did not run the row intake of example/app for 3 hours, because it failed its limit of rounds in a row (setting service.max_failed_rounds) with the failure class provider. The row runs one probe round when its retry time comes, or at once when its input changes. The gauge devops_cli_service_job_retry_after_seconds shows the seconds before the next probe round (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service did not run the row intake of example/app for 3 hours, because it failed its limit of rounds in a row (setting service.max_failed_rounds) with the failure class provider. The row runs one probe round when its retry time comes, or at once when its input changes. The gauge devops_cli_service_job_retry_after_seconds shows the seconds before the next probe round (docs/CLUSTER.md, Roadmap service)."
 
   - name: A row whose class changes keeps one alert, for the class that is 1
     interval: 1m
@@ -641,4 +641,4 @@ tests:
               class: ci_infra
             exp_annotations:
               summary: "The row intake of example/app stays suspended after a ci_infra failure"
-              description: "The roadmap Service did not run the row intake of example/app for 3 hours, because it failed its limit of rounds in a row (setting service.max_failed_rounds) with the failure class ci_infra. The row runs one probe round when its retry time comes, or at once when its input changes. The gauge devops_cli_service_job_retry_after_seconds shows the seconds before the next probe round (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service did not run the row intake of example/app for 3 hours, because it failed its limit of rounds in a row (setting service.max_failed_rounds) with the failure class ci_infra. The row runs one probe round when its retry time comes, or at once when its input changes. The gauge devops_cli_service_job_retry_after_seconds shows the seconds before the next probe round (docs/CLUSTER.md, Roadmap service)."

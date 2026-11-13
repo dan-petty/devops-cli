@@ -117,9 +117,12 @@ def test_the_testing_sections_hold_the_text_of_the_document() -> None:
 
 
 def test_a_group_that_names_only_a_manifest_gets_no_testing_document() -> None:
-    documents = _documents(_group("k8s/llm/sample.yaml"))
+    group = _group("k8s/llm/sample.yaml")
 
-    assert documents == ["k8s/README.md"]
+    assert (_documents(group), "## Image Pins" in rules_sections(REPO_ROOT, group)[-1]) == (
+        ["k8s/README.md", "docs/CLUSTER.md"],
+        True,
+    )
 
 
 def test_a_group_that_changes_source_gets_the_standards_and_the_contributing_guide() -> None:

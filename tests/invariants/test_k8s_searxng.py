@@ -20,9 +20,9 @@ from tests.support.paths import REPO_ROOT
 SEARXNG_DIR = K8S / "devops" / "searxng"
 ENGINE_NAMES = REPO_ROOT / "tests" / "fixtures" / "searxng" / "default_engine_names.txt"
 DEAD_ENGINES = REPO_ROOT / "tests" / "fixtures" / "searxng" / "engines_that_never_answer.txt"
-K8S_README = K8S / "README.md"
-# The sentence of the README that lists the kept engines, each name in backticks.
-README_ENGINES = re.compile(
+CLUSTER_DOC = REPO_ROOT / "docs" / "CLUSTER.md"
+# The sentence of docs/CLUSTER.md that lists the kept engines, each name in backticks.
+DOCUMENTED_ENGINES = re.compile(
     r"\*\*The engines\.\*\* `keep_only` in `searxng-settings` keeps \w+ engines? that need no key: (?P<names>[^.]+)\."
 )
 # One line of the dead-engines file: the name, then `# <date>: <reason>`.
@@ -287,11 +287,11 @@ def test_the_dead_engines_file_gives_a_date_and_a_reason_for_real_engines() -> N
     ) == (["pypi"], [], [])
 
 
-def test_the_readme_lists_the_engines_that_the_settings_keep() -> None:
-    """The README names the kept engines in one sentence. An edit of `keep_only` that leaves the
-    sentence behind fails here."""
+def test_the_cluster_document_lists_the_engines_that_the_settings_keep() -> None:
+    """docs/CLUSTER.md names the kept engines in one sentence. An edit of `keep_only` that leaves
+    the sentence behind fails here."""
     kept = _settings()["use_default_settings"]["engines"]["keep_only"]
-    match = README_ENGINES.search(K8S_README.read_text(encoding="utf-8"))
+    match = DOCUMENTED_ENGINES.search(CLUSTER_DOC.read_text(encoding="utf-8"))
     assert match is not None
 
     assert sorted(re.findall(r"`([^`]+)`", match["names"])) == sorted(kept)

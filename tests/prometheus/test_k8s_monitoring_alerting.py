@@ -63,6 +63,7 @@ from tests.support.promtool import promtool
 
 K8S = REPO_ROOT / "k8s"
 K8S_README = K8S / "README.md"
+CLUSTER_DOC = REPO_ROOT / "docs" / "CLUSTER.md"
 PROMETHEUS_VALUES = K8S / "monitoring" / "prometheus-values.yaml"
 PRODUCT_RULES_VALUES = K8S / "devops" / "monitoring" / "prometheus-rules-values.yaml"
 # The key of `serverFiles` that holds the product rules. The chart writes each key to the
@@ -1182,7 +1183,7 @@ def test_roadmap_service_jobs_failing_rule_groups_and_joins_on_repo_lane_and_row
         "{{ $labels.repo }}" in rule["annotations"]["summary"],
         "{{ $labels.lane }}" in rule["annotations"]["summary"],
         "{{ $labels.row }}" in rule["annotations"]["summary"],
-        '{namespace="devops"} | json | repo="{{ $labels.repo }}" | lane="{{ $labels.lane }}" (k8s/README.md, Roadmap service)',
+        '{namespace="devops"} | json | repo="{{ $labels.repo }}" | lane="{{ $labels.lane }}" (docs/CLUSTER.md, Roadmap service)',
     ) == (
         "30m",
         "warning",
@@ -1471,14 +1472,22 @@ def _readme_section(heading: str) -> str:
     return text[start : end if end != -1 else len(text)]
 
 
+def _cluster_section(heading: str) -> str:
+    """The text of one `##` section of docs/CLUSTER.md, its subsections included."""
+    text = CLUSTER_DOC.read_text(encoding="utf-8")
+    start = text.index(f"\n## {heading}\n")
+    end = text.find("\n## ", start + 1)
+    return text[start : end if end != -1 else len(text)]
+
+
 @pytest.mark.parametrize("group", ROADMAP_SERVICE_GROUPS)
-def test_each_roadmap_service_alert_points_to_its_step_in_the_readme(group: str) -> None:
-    """Each description names `k8s/README.md, Roadmap service`, that section says what to do for
+def test_each_roadmap_service_alert_points_to_its_step_in_the_cluster_document(group: str) -> None:
+    """Each description names `docs/CLUSTER.md, Roadmap service`, that section says what to do for
     each alert, and it says that no alert leaves the cluster without the Mattermost Secret (#2472,
     #2476)."""
-    section = _readme_section("Roadmap service")
+    section = _cluster_section("Roadmap service")
     rules = _group(group)
-    pointer = "(k8s/README.md, Roadmap service)"
+    pointer = "(docs/CLUSTER.md, Roadmap service)"
     assert (
         [r["alert"] for r in rules if pointer not in r["annotations"]["description"]],
         [r["alert"] for r in rules if f"`{r['alert']}`" not in section],
@@ -1586,17 +1595,17 @@ def test_the_crawl4ai_fetch_alert_names_the_label_and_the_log_commands() -> None
             "`result`",
             "kubectl -n devops logs deployment/roadmap-service",
             "kubectl -n devops logs deployment/crawl4ai",
-            "(k8s/README.md, Crawl4AI)",
+            "(docs/CLUSTER.md, Crawl4AI)",
         )
         if needle not in text
     ] == []
 
 
-def test_each_crawl4ai_alert_points_to_its_row_in_the_readme() -> None:
-    """Each description names `k8s/README.md, Crawl4AI`, and that section lists each alert."""
-    section = _readme_section("Crawl4AI")
+def test_each_crawl4ai_alert_points_to_its_row_in_the_cluster_document() -> None:
+    """Each description names `docs/CLUSTER.md, Crawl4AI`, and that section lists each alert."""
+    section = _cluster_section("Crawl4AI")
     rules = _group(CRAWL4AI_GROUP)
-    pointer = "(k8s/README.md, Crawl4AI)"
+    pointer = "(docs/CLUSTER.md, Crawl4AI)"
     assert (
         [r["alert"] for r in rules if pointer not in r["annotations"]["description"]],
         [r["alert"] for r in rules if f"`{r['alert']}`" not in section],
@@ -1753,10 +1762,10 @@ def test_each_unit_tested_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_ser
 def test_github_requests_high_action_does_not_lower_budget() -> None:
     """The action of `RoadmapServiceGitHubRequestsHigh` names no lower budget. The alert follows
     the budget, so a lower budget makes the alert fire sooner (#3495)."""
-    readme = (K8S / "README.md").read_text(encoding="utf-8")
+    document = CLUSTER_DOC.read_text(encoding="utf-8")
     row = next(
         line
-        for line in readme.splitlines()
+        for line in document.splitlines()
         if line.startswith("| `RoadmapServiceGitHubRequestsHigh` |")
     )
 

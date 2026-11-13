@@ -508,6 +508,7 @@ _AGENT_INSTRUCTION_GLOBS = (
     "CONTRIBUTING.md",
     "RELEASE_CYCLE.md",
     "SECURITY.md",
+    "docs/CLUSTER.md",
     "docs/ROUTINE_TASKS.md",
     "docs/SDLC.md",
     "docs/TESTING.md",

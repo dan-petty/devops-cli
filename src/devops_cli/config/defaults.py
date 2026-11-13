@@ -636,7 +636,7 @@ DEFAULT_CRAWL4AI_MAX_REPLY_BYTES: int = 2 * 1024 * 1024  # 2 MiB
 
 # ── Crawl4AI Check Defaults (`devops k8s crawl4ai-check`, #3894) ────────────────
 # Local port of the `kubectl port-forward` to Service `crawl4ai`. It differs from the port 11235
-# that the README gives for `devops ai fetch-page`, so the check never meets a forward of a person.
+# that docs/CLUSTER.md gives for `devops ai fetch-page`, so the check never meets a forward of a person.
 DEFAULT_CRAWL4AI_CHECK_LOCAL_PORT: int = 11236
 # Seconds that one request of the check may take. A refusal is fast; a slow reply is a failure.
 DEFAULT_CRAWL4AI_CHECK_TIMEOUT_SECONDS: float = 30.0

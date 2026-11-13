@@ -34,7 +34,7 @@ tests:
               repo: example/app
             exp_annotations:
               summary: "The alternatives check of example/app ran no web search in 3 days, and 2 open items have no check"
-              description: "The roadmap Service made no web search for 3 days, while example/app has open items with no alternatives check. A search of refine counts too. The check can be off, suspended or failing (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service made no web search for 3 days, while example/app has open items with no alternatives check. A search of refine counts too. The check can be off, suspended or failing (docs/CLUSTER.md, Roadmap service)."
 
   - name: A search one day before stays quiet
     interval: 1h
@@ -62,7 +62,7 @@ tests:
               repo: example/app
             exp_annotations:
               summary: "The alternatives check of example/app ran no web search in 3 days, and 2 open items have no check"
-              description: "The roadmap Service made no web search for 3 days, while example/app has open items with no alternatives check. A search of refine counts too. The check can be off, suspended or failing (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service made no web search for 3 days, while example/app has open items with no alternatives check. A search of refine counts too. The check can be off, suspended or failing (docs/CLUSTER.md, Roadmap service)."
 
   - name: No unchecked item stays quiet
     interval: 1h
@@ -105,7 +105,7 @@ tests:
               repo: example/app
             exp_annotations:
               summary: "The alternatives check of example/app ran no web search in 3 days, and 2 open items have no check"
-              description: "The roadmap Service made no web search for 3 days, while example/app has open items with no alternatives check. A search of refine counts too. The check can be off, suspended or failing (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service made no web search for 3 days, while example/app has open items with no alternatives check. A search of refine counts too. The check can be off, suspended or failing (docs/CLUSTER.md, Roadmap service)."
 
   - name: A gauge sample 100 hours old still fires, and one 180 hours old does not
     interval: 1h
@@ -126,4 +126,4 @@ tests:
               repo: example/app
             exp_annotations:
               summary: "The alternatives check of example/app ran no web search in 3 days, and 2 open items have no check"
-              description: "The roadmap Service made no web search for 3 days, while example/app has open items with no alternatives check. A search of refine counts too. The check can be off, suspended or failing (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service made no web search for 3 days, while example/app has open items with no alternatives check. A search of refine counts too. The check can be off, suspended or failing (docs/CLUSTER.md, Roadmap service)."

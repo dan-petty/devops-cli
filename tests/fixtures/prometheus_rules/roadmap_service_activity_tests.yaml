@@ -39,7 +39,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: "The roadmap Service sent 360 GitHub writes in the last hour"
-              description: "The roadmap Service sent more than 300 GitHub writes, such as comments, labels and issue edits, in one hour (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service sent more than 300 GitHub writes, such as comments, labels and issue edits, in one hour (docs/CLUSTER.md, Roadmap service)."
 
   - name: A write stream that starts in the hour counts its first flush
     interval: 5m
@@ -56,7 +56,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: "The roadmap Service sent 360 GitHub writes in the last hour"
-              description: "The roadmap Service sent more than 300 GitHub writes, such as comments, labels and issue edits, in one hour (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service sent more than 300 GitHub writes, such as comments, labels and issue edits, in one hour (docs/CLUSTER.md, Roadmap service)."
 
   - name: Requests of a series with no method label do not count as writes
     interval: 1m
@@ -100,7 +100,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: "The roadmap Service got 180 deliveries of its own writes in the last hour"
-              description: "The roadmap Service got more than 150 webhook deliveries of its own writes in one hour (k8s/README.md, Roadmap service)."
+              description: "The roadmap Service got more than 150 webhook deliveries of its own writes in one hour (docs/CLUSTER.md, Roadmap service)."
 
   - name: 120 deliveries of the Service's own writes in an hour stay quiet
     interval: 1m
@@ -136,7 +136,7 @@ tests:
               result: "402"
             exp_annotations:
               summary: "The provider firecrawl refused web searches of the roadmap Service with HTTP 402 in the last hour"
-              description: "The provider firecrawl refused a web search of the roadmap Service with HTTP 402: 402 when the account has no credits, 429 at its rate limit. The search goes on to the next provider (k8s/README.md, Roadmap service)."
+              description: "The provider firecrawl refused a web search of the roadmap Service with HTTP 402: 402 when the account has no credits, 429 at its rate limit. The search goes on to the next provider (docs/CLUSTER.md, Roadmap service)."
       - eval_time: 125m
         alertname: RoadmapServiceWebSearchRefused
         exp_alerts: []
@@ -161,7 +161,7 @@ tests:
               result: "429"
             exp_annotations:
               summary: "The provider firecrawl refused web searches of the roadmap Service with HTTP 429 in the last hour"
-              description: "The provider firecrawl refused a web search of the roadmap Service with HTTP 429: 402 when the account has no credits, 429 at its rate limit. The search goes on to the next provider (k8s/README.md, Roadmap service)."
+              description: "The provider firecrawl refused a web search of the roadmap Service with HTTP 429: 402 when the account has no credits, 429 at its rate limit. The search goes on to the next provider (docs/CLUSTER.md, Roadmap service)."
 
   - name: A refusal of another provider fires with the name of that provider
     interval: 1m
@@ -180,4 +180,4 @@ tests:
               result: "429"
             exp_annotations:
               summary: "The provider duckduckgo refused web searches of the roadmap Service with HTTP 429 in the last hour"
-              description: "The provider duckduckgo refused a web search of the roadmap Service with HTTP 429: 402 when the account has no credits, 429 at its rate limit. The search goes on to the next provider (k8s/README.md, Roadmap service)."
+              description: "The provider duckduckgo refused a web search of the roadmap Service with HTTP 429: 402 when the account has no credits, 429 at its rate limit. The search goes on to the next provider (docs/CLUSTER.md, Roadmap service)."

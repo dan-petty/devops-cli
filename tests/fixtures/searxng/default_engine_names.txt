@@ -1,4 +1,4 @@
-# Engine names of searx/settings.yml in image docker.io/searxng/searxng:2026.10.23-629368e40. A bump of the image refreshes this file (k8s/README.md, "SearXNG").
+# Engine names of searx/settings.yml in image docker.io/searxng/searxng:2026.10.23-629368e40. A bump of the image refreshes this file (docs/CLUSTER.md, "SearXNG").
 1337x
 1x
 360search

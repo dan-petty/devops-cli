@@ -183,7 +183,7 @@ The long-running devops-cli deployment that runs the roadmap jobs when they are 
 _Avoid_: runner, bot, daemon, worker
 
 **Lane**:
-One of the Service's three paths for a repository's jobs, each running one round at a time: the triage lane, the model lane and the status lane. [k8s/README.md](k8s/README.md), Roadmap service step 17, lists the rows of each lane.
+One of the Service's three paths for a repository's jobs, each running one round at a time: the triage lane, the model lane and the status lane. [docs/CLUSTER.md](docs/CLUSTER.md#roadmap-service), Roadmap service step 17, lists the rows of each lane.
 _Avoid_: queue, track, worker
 
 ## Code review

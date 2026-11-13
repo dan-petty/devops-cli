@@ -1,7 +1,7 @@
 """What counts as a refusal of an internal target by the Crawl4AI service (#3894).
 
 The pinned image answers a blocked URL with HTTP 400 and the body `{"detail": "URL blocked (SSRF
-protection): URL blocked"}` (k8s/README.md, Crawl4AI). A second source reports 403, so both are
+protection): URL blocked"}` (docs/CLUSTER.md, Crawl4AI). A second source reports 403, so both are
 refusals. A refusal holds no page content: its body is a JSON object with the one key `detail`.
 """
 

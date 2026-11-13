@@ -36,7 +36,7 @@ tests:
               tool: repo_map
             exp_annotations:
               summary: "Tool repo_map of the toolset base had no call in 7 days"
-              description: "No run of the row stage called the tool repo_map of the toolset base in 7 days, and the Service made runs of that row in that time. Read the Planner Tools row of the devops-cli Telemetry dashboard, and decide to change the tool description or to remove the tool (k8s/README.md, Roadmap service)."
+              description: "No run of the row stage called the tool repo_map of the toolset base in 7 days, and the Service made runs of that row in that time. Read the Planner Tools row of the devops-cli Telemetry dashboard, and decide to change the tool description or to remove the tool (docs/CLUSTER.md, Roadmap service)."
 
   - name: A tool with calls of an error outcome only counts as called
     interval: 1h
@@ -118,7 +118,7 @@ tests:
               tool: repo_map
             exp_annotations:
               summary: "Tool repo_map of the toolset base had no call in 7 days"
-              description: "No run of the row implement called the tool repo_map of the toolset base in 7 days, and the Service made runs of that row in that time. Read the Planner Tools row of the devops-cli Telemetry dashboard, and decide to change the tool description or to remove the tool (k8s/README.md, Roadmap service)."
+              description: "No run of the row implement called the tool repo_map of the toolset base in 7 days, and the Service made runs of that row in that time. Read the Planner Tools row of the devops-cli Telemetry dashboard, and decide to change the tool description or to remove the tool (docs/CLUSTER.md, Roadmap service)."
 
   - name: A series of another job stays quiet
     interval: 1h

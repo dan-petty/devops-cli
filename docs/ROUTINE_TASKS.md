@@ -279,8 +279,8 @@ Executed on workspace initialization (DevContainer startup) or on-demand.
   ```
 
 #### 5. Roadmap Implement Job (Runner)
-- **Frequency**: Continuous. The Service's row `implement` is due every 7 minutes ([k8s/README.md](../k8s/README.md), Roadmap service step 16).
-- **Methodology**: The Service makes one runner Job for the first Staged or Planned item of a repository, and makes no second Job while one runs. [k8s/README.md](../k8s/README.md), Runner Jobs, gives the image, the size, the deadline, the Role and the guarantees. [ROADMAP_WORKFLOW.md](ROADMAP_WORKFLOW.md), The stop and retry path, gives the stops and the retries.
+- **Frequency**: Continuous. The Service's row `implement` is due every 7 minutes ([docs/CLUSTER.md](CLUSTER.md#roadmap-service), Roadmap service step 16).
+- **Methodology**: The Service makes one runner Job for the first Staged or Planned item of a repository, and makes no second Job while one runs. [docs/CLUSTER.md](CLUSTER.md#runner-jobs), Runner Jobs, gives the image, the size, the deadline, the Role and the guarantees. [ROADMAP_WORKFLOW.md](ROADMAP_WORKFLOW.md), The stop and retry path, gives the stops and the retries.
 - **Commands**:
   ```bash
   kubectl -n devops get jobs -l implement-repo

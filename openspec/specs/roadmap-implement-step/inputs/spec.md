@@ -114,7 +114,7 @@ The step SHALL add the named sections of a routed document to the message when a
 
 #### Scenario: A group that changes only a manifest
 - **WHEN** a group names only `k8s/sample.yaml`
-- **THEN** the message holds a section of `k8s/README.md` and holds nothing of `docs/TESTING.md`
+- **THEN** the message holds a section of `k8s/README.md` and the section "Image Pins" of `docs/CLUSTER.md`, and holds nothing of `docs/TESTING.md`
 
 #### Scenario: A route drifts from AGENTS.md
 - **WHEN** a route names a "When you" cell that the table lacks, or a document that the row does not link

@@ -14,7 +14,7 @@
 # equal. The memory limit is not pinned, because the setting `roadmap.implement.max_memory_limit`
 # raises it.
 # Not pinned: the tag or digest of the image, the args and the plain `env` values but one, the
-# memory limit, `nodeSelector`, `tolerations`, `hostUsers` and the number of Jobs (k8s/README.md,
+# memory limit, `nodeSelector`, `tolerations`, `hostUsers` and the number of Jobs (docs/CLUSTER.md,
 # Runner Jobs).
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
