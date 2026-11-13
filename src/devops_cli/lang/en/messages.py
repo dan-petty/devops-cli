@@ -4116,9 +4116,9 @@ class RoadmapMessages:
     # The line after the list of calls (#3240): the calls and the empty answers of each tool.
     stage_comment_tool_counts: str = "\n\nTool calls: {counts}"
     stage_comment_tool_count: str = "{name}={calls} (empty={empty})"
-    # The model review of the plan (#3153): a finding, its evidence, what goes back to the planner,
-    # and the section of the comment.
-    stage_finding: str = "- `{type}` at {where}: {problem}{quote}"
+    # The model review of the plan (#3153): a finding with its severity (#5411), its evidence, what
+    # goes back to the planner, and the section of the comment.
+    stage_finding: str = "- {severity} `{type}` at {where}: {problem}{quote}"
     # The place of a finding (#5410): its part and its section, with the capability of a
     # requirement after the part.
     stage_finding_where: str = "{part} ({section})"
@@ -4345,7 +4345,7 @@ class RoadmapMessages:
     )
     fix_plan_dismissed_findings: str = (
         "\n\nThe step dismisses these open findings of the last plan comment, because the review "
-        "of the plan did not find them:\n\n{findings}"
+        "of the plan found no blocker or major defect:\n\n{findings}"
     )
     fix_plan_comment_stopped: str = (
         "{marker}\nThe step fix-plan stopped before the review of the plan of #{pull} ({head}). "
@@ -5829,6 +5829,19 @@ class RoadmapMessages:
     verify_eval_good: str = (
         "Findings on the good plans: {findings} on {cases} plan(s). {returning} of them would "
         "return a plan to the planner."
+    )
+    # The ceiling of the findings that return a good plan, as a mean for each good plan (#5411).
+    verify_eval_ceiling_met: str = (
+        "Ceiling of the findings that return a good plan: {ceiling} for each good plan. The mean "
+        "of {mean} does not pass it."
+    )
+    verify_eval_ceiling_missed: str = (
+        "Ceiling of the findings that return a good plan: {ceiling} for each good plan. The mean "
+        "of {mean} is above it."
+    )
+    verify_eval_ceiling_unscored: str = (
+        "Ceiling of the findings that return a good plan: {ceiling} for each good plan. The run "
+        "verified no good plan, so the ceiling is not scored."
     )
     verify_eval_ended: str = "Cases by end: {ended}."
     verify_eval_dry_run: str = (

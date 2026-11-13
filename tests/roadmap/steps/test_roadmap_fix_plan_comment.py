@@ -15,7 +15,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
 )
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.stage.stage_eval_cases import DefectType
+from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.stage.stage_verify import (
     PLAN_NEEDS_FIX_LABEL,
@@ -76,9 +76,18 @@ def test_the_reader_reads_the_open_findings_of_a_real_stage_comment() -> None:
     assert read.quote.startswith("No request path of the readiness run ends with")
 
 
+def test_a_line_from_before_5411_names_no_severity_and_reads_as_major() -> None:
+    """The real stage comment names no severity: each open finding of that release kept the
+    draft, so it reads as a major finding (#5411)."""
+    (read,) = comment_open_findings(STAGE_COMMENT)
+
+    assert "- `criterion_dropped` at spec" in STAGE_COMMENT
+    assert read.severity is Severity.MAJOR
+
+
 def test_the_reader_reads_back_each_open_finding_and_no_point() -> None:
     open_ = [
-        finding(DefectType.TASK_ORDER),
+        finding(DefectType.TASK_ORDER, severity=Severity.BLOCKER),
         finding(DefectType.CRITERION_DROPPED, quote="", where=place("issue", ISSUE_QUOTE)),
         finding(
             DefectType.SPEC_DELTA_WRONG,
@@ -105,8 +114,9 @@ def test_the_reader_leaves_out_a_line_whose_place_names_no_part(
 ) -> None:
     kept = finding(DefectType.TASK_ORDER)
     body = stage_comment(5, [kept]).replace(
-        "\n- `task_order`",
-        "\n- `other` at decisions (the dry run): The dry run lists no read.\n- `task_order`",
+        "\n- major `task_order`",
+        "\n- major `other` at decisions (the dry run): The dry run lists no read.\n"
+        "- major `task_order`",
     )
 
     with caplog.at_level(logging.WARNING):

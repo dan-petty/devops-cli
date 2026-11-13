@@ -15,7 +15,7 @@ from devops_cli.config.settings import RoadmapStageConfig
 from devops_cli.exceptions import ServiceStoppingError, ended_by_stop
 from devops_cli.roadmap.service_stop import begin_service_stop
 from devops_cli.roadmap.stage.stage import StagePlan, parse_filters, plan_stage
-from devops_cli.roadmap.stage.stage_eval_cases import DefectType
+from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity
 from devops_cli.roadmap.stage.stage_plan_record import RefusedRecord, refused_record_path
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.stage.stage_verify import Finding, Locator, PlanPart, Verification
@@ -81,6 +81,7 @@ def _returns_plan() -> Verification:
         findings=[
             Finding(
                 type=DefectType.FALSE_PREMISE,
+                severity=Severity.MAJOR,
                 where=Locator(part=PlanPart.TASKS, section="1"),
                 problem="The premise is wrong.",
                 quote=ISSUE_QUOTE,

@@ -3,8 +3,9 @@
 The Service App and the workflows of the repository open items that no person wrote, so refine
 sets such an item Ready only when a review approves the issue and the proposal. The review is the
 verification pass of the stage job (`stage_verify`) with the task slot `ai.tasks.verification`:
-it gets the issue and the proposal with no tool, and an open finding, one of `JUDGE_OPEN_TYPES` or a
-placeholder, that quotes a text of its input, refuses the item. A refusal keeps the item New and is
+it gets the issue and the proposal with no tool, and an open finding, a blocker or a major finding
+(#5411) of one of `JUDGE_OPEN_TYPES` or a placeholder, that quotes a text of its input, refuses the
+item. A minor or a nit finding refuses no item. A refusal keeps the item New and is
 a job failure of refine: the next round refines the item again with the findings, until the limit
 of tries (#4798). An approval is recorded in the
 job record of the item (`RefineRecordKey.JUDGE`), and the stage job, the implement job and the

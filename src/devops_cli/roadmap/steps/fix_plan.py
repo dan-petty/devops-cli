@@ -38,7 +38,9 @@ findings of the last plan comment, and the review judges the revision with the n
 rounds (`after`). The first review of the revision is a later review: it says for each open
 finding of the head whether it still holds, and opens a new finding only in the text that the
 revision changed (#5409). An earlier review wrote the comment, so the count of the comment
-(`comment`) is only reported (#5150).
+(`comment`) is only reported (#5150). Only a blocker or a major finding is open (#5411), so each
+count and each result below counts only those. A line of a comment from before #5411 names no
+severity, and it reads as a major finding.
 
 **Results**, in this order:
 
@@ -73,7 +75,9 @@ goes on with its class.
 `--force-with-lease` on the head that it read; the pull request gets the title and the body of the
 plan. The step posts one comment with `CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER` on the issue for
 each attempt that ends `revised`, `cleared`, `regated`, `dismissed`, `stopped` or `timeout`, and
-writes only its own record keys (`FixPlanRecordKey`, ADR 0021 section 8).
+writes only its own record keys (`FixPlanRecordKey`, ADR 0021 section 8). The comment of a pushed
+revision, or of a plan that loses the label, also lists the other findings of its reviews as
+advice, such as a minor or a nit finding (#5411).
 
 **Budget.** The setting `roadmap.fix_plan.time_budget_seconds` starts with the call (#5363). The
 planner compares the time with it before each plan run and each review run, and starts no run once
@@ -144,13 +148,14 @@ from devops_cli.roadmap.stage.stage import (
     same_plan,
 )
 from devops_cli.roadmap.stage.stage_change import safe_text, write_change_files
-from devops_cli.roadmap.stage.stage_eval_cases import DefectType
+from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity
 from devops_cli.roadmap.stage.stage_verify import (
     PLAN_NEEDS_FIX_LABEL,
     Finding,
     Locator,
     PlanPart,
     finding_line,
+    findings_section,
     open_findings_section,
 )
 from devops_cli.roadmap.stores.store import (
@@ -179,16 +184,21 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _GIT_OPERATION: Final[str] = "roadmap.fix_plan"
-# One line of `finding_line`: "- `<type>` at <part> (<section>): <problem>", with the capability of
-# a requirement after the part (#5410), and ' Evidence: "<quote>"' after it when the finding has a
-# quote. A capability holds no space and no bracket (`Locator`). The section ends at the first `): `
-# outside a pair of brackets in it, so `what_changes (item 2)` and `The row runs (fast): yes` read
-# back whole. A section with a bracket that has no pair ends at the first `): `.
+# One line of `finding_line`: "- <severity> `<type>` at <part> (<section>): <problem>", with the
+# capability of a requirement after the part (#5410), and ' Evidence: "<quote>"' after it when the
+# finding has a quote. A capability holds no space and no bracket (`Locator`). The section ends at
+# the first `): ` outside a pair of brackets in it, so `what_changes (item 2)` and `The row runs
+# (fast): yes` read back whole. A section with a bracket that has no pair ends at the first `): `.
+# A line that a release before #5411 wrote has no severity (`_UNGRADED_SEVERITY`).
 _FINDING_LINE: Final[re.Pattern[str]] = re.compile(
-    r"- `(?P<type>[a-z_]+)` at (?P<part>[a-z]+)(?: (?P<capability>[^\s()]+))? "
+    r"- (?:(?P<severity>[a-z]+) )?`(?P<type>[a-z_]+)` at (?P<part>[a-z]+)"
+    r"(?: (?P<capability>[^\s()]+))? "
     r"\((?P<section>(?:[^()]|\([^()]*\))+?|.+?)\): "
     r'(?P<problem>.+?)(?: Evidence: "(?P<quote>.*)")?'
 )
+# The severity of an open finding on a line with no severity. A release before #5411 wrote such a
+# line, and each open finding of that release kept the draft, as a major finding does now.
+_UNGRADED_SEVERITY: Final[Severity] = Severity.MAJOR
 # The comments that list the open findings of a plan: the stage comment and this step's comment.
 _PLAN_MARKERS: Final[tuple[str, ...]] = (
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
@@ -307,13 +317,15 @@ def _time(text: str | None) -> datetime | None:
 
 def _finding_of(line: str) -> Finding | None:
     """The finding that one line of `finding_line` holds, or None for a line of another form, or
-    for a type or a part that the review does not name."""
+    for a severity, a type or a part that the review does not name. A line with no severity gives
+    a major finding (`_UNGRADED_SEVERITY`)."""
     found = _FINDING_LINE.fullmatch(line)
     if found is None:
         return None
     try:
         return Finding(
             type=DefectType(found["type"]),
+            severity=Severity(found["severity"] or _UNGRADED_SEVERITY),
             where=Locator(
                 part=PlanPart(found["part"]),
                 section=found["section"],
@@ -697,6 +709,20 @@ def _counts_text(counts: Iterable[tuple[str, int]]) -> str:
     return ", ".join(f"{name} {value}" for name, value in counts)
 
 
+def _advice(revision: PlanRevision, decision: _Decision) -> tuple[Finding, ...]:
+    """The advice of the reviews of the attempt (#5411): each finding of the outcome that is no
+    open finding of the outcome and no open finding of the head, such as a minor or a nit finding.
+    Only when the outcome is the plan that the branch keeps: the revision that the step pushes, or
+    the plan of the head or the gated plan that loses the label. Else none: the reviews of a failed
+    or a worse revision judged no plan of the branch."""
+    outcome = revision.outcome
+    if not isinstance(outcome, StagedChange) or not (decision.push is outcome or decision.unlabel):
+        return ()
+    return tuple(
+        f for f in outcome.findings if f not in outcome.open_findings and f not in revision.before
+    )
+
+
 def _comment(
     target: FixPlanTarget,
     done: FixPlanAttempt,
@@ -708,7 +734,23 @@ def _comment(
     """The comment of an attempt, or None for an attempt that posts none. A comment that keeps the
     label lists the open findings that keep it: those of the last review, or those of the last
     plan comment when no review ran, so the next attempt reads them (`comment_open_findings`).
-    `budget` is the time budget of the step in seconds, which a `timeout` comment names."""
+    A comment of a pushed revision, or of a plan that loses the label, then lists the advice of
+    its reviews, as the stage comment does (`_advice`, #5411). `budget` is the time budget of the
+    step in seconds, which a `timeout` comment names."""
+    text = _result_comment(target, done, decision, revision, listed, budget)
+    return None if text is None else text + findings_section(_advice(revision, decision))
+
+
+def _result_comment(
+    target: FixPlanTarget,
+    done: FixPlanAttempt,
+    decision: _Decision,
+    revision: PlanRevision,
+    listed: tuple[Finding, ...],
+    budget: int,
+) -> str | None:
+    """The comment of the result of an attempt, with no advice, or None for an attempt that posts
+    none."""
     texts = MESSAGES.roadmap
     values = {
         "marker": CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER,

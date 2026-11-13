@@ -5,7 +5,11 @@ commit, makes the request of the pass (`VerificationInput`) and asks the model f
 finding matches at most one labeled defect of its type, the most serious first, so one finding of
 a common type does not cover every defect of that type. The match is by type and not by text. The
 recall is the matched defects over the labeled ones. A finding on a `good` plan is a false alarm,
-and the score counts those that would return the plan to the planner.
+and the score counts those that would return the plan to the planner: the open findings, so only a
+blocker or a major finding (#5411). The report states whether the recall of the blocker and major
+defects reaches `CONST_ROADMAP_VERIFY_RECALL_FLOOR`, and whether the mean of those findings for each
+good plan stays within `CONST_ROADMAP_VERIFY_GOOD_RETURNING_CEILING`, so a pass that finds more
+defects does not get there by returning good plans.
 
 pydantic-evals runs the cases, and its per-case hook (`CaseLifecycle.teardown`) gives each case to
 the caller when the case ends, so the caller stores the report after each case and a stop keeps
@@ -25,7 +29,10 @@ from typing import TYPE_CHECKING, Any, Final
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from devops_cli.ai.client.models import AICredentialsError
-from devops_cli.config.constants import CONST_ROADMAP_VERIFY_RECALL_FLOOR
+from devops_cli.config.constants import (
+    CONST_ROADMAP_VERIFY_GOOD_RETURNING_CEILING,
+    CONST_ROADMAP_VERIFY_RECALL_FLOOR,
+)
 from devops_cli.dry_run import PlannedRequest
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.lang import MESSAGES
@@ -163,6 +170,12 @@ class VerifyScore:
     def good_returning(self) -> int:
         """The findings on the good plans that would return the plan to the planner."""
         return sum(case.returning for case in self.cases if case.good)
+
+    @property
+    def good_returning_mean(self) -> float | None:
+        """The findings that would return a good plan, for each good plan that the run verified,
+        or None when it verified none (#5411)."""
+        return self.good_returning / self.good_cases if self.good_cases else None
 
 
 def verify_score(
@@ -345,7 +358,7 @@ class _StoredReport(BaseModel):
 def _stored_report(path: Path) -> _StoredReport:
     """The report in `path`, which `verify_json` wrote. A file that is not such a report raises
     `ConfigurationError`. A report from before #5410 is not one: its findings name their place as
-    text."""
+    text. Nor is a report from before #5411: its findings have no severity."""
     try:
         return _StoredReport.model_validate_json(path.read_text(encoding="utf-8"))
     except ValidationError as exc:
@@ -394,9 +407,25 @@ def _floor_line(score: VerifyScore) -> str:
     return template.format(floor=floor, rate=_percent(score.serious_recall))
 
 
+def _ceiling_line(score: VerifyScore) -> str:
+    """Whether the mean of the findings that return a good plan stays within the ceiling
+    (#5411)."""
+    texts = MESSAGES.roadmap
+    ceiling = f"{CONST_ROADMAP_VERIFY_GOOD_RETURNING_CEILING:.2f}"
+    mean = score.good_returning_mean
+    if mean is None:
+        return texts.verify_eval_ceiling_unscored.format(ceiling=ceiling)
+    template = (
+        texts.verify_eval_ceiling_met
+        if mean <= CONST_ROADMAP_VERIFY_GOOD_RETURNING_CEILING
+        else texts.verify_eval_ceiling_missed
+    )
+    return template.format(ceiling=ceiling, mean=f"{mean:.2f}")
+
+
 def render_verify(score: VerifyScore, *, gateway: str) -> str:
-    """The score as text: the recall by type, the two totals, the findings on the good plans and
-    how the cases ended."""
+    """The score as text: the recall by type, the two totals with the floor, the findings on the
+    good plans with the ceiling, and how the cases ended."""
     texts = MESSAGES.roadmap
     lines = [
         texts.verify_eval_title.format(cases=len(score.cases), model=score.model, gateway=gateway),
@@ -421,6 +450,7 @@ def render_verify(score: VerifyScore, *, gateway: str) -> str:
         texts.verify_eval_good.format(
             findings=score.good_findings, cases=score.good_cases, returning=score.good_returning
         ),
+        _ceiling_line(score),
         texts.verify_eval_ended.format(
             ended=f"verified {len(score.cases) - score.failed}, failed {score.failed}"
         ),
@@ -446,6 +476,7 @@ def verify_json(score: VerifyScore, *, gateway: str, taken: str) -> str:
         "good_cases": score.good_cases,
         "good_findings": score.good_findings,
         "good_returning": score.good_returning,
+        "good_returning_mean": score.good_returning_mean,
         "failed": score.failed,
         "left_out": list(score.left_out),
         "rows": [

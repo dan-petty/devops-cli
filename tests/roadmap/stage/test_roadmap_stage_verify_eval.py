@@ -16,6 +16,7 @@ from devops_cli.ai.client import factory
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.commands.roadmap_eval_verify import _review_model
 from devops_cli.config import settings
+from devops_cli.config.constants import CONST_ROADMAP_VERIFY_GOOD_RETURNING_CEILING
 from devops_cli.roadmap.stage.stage_eval_cases import (
     CASES_DIRECTORY,
     NO_COMMIT,
@@ -36,10 +37,12 @@ from devops_cli.roadmap.stage.stage_verify import (
     VerificationInput,
 )
 from devops_cli.roadmap.stage.stage_verify_eval import (
+    CaseOutcome,
     VerifyScore,
     evaluate_cases,
     matched_defects,
     planned_verify_calls,
+    render_verify,
 )
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.model import ModelFake
@@ -115,6 +118,7 @@ def _defect(kind: DefectType, severity: Severity = Severity.MAJOR) -> Defect:
 def _finding(kind: DefectType) -> Finding:
     return Finding(
         type=kind,
+        severity=Severity.MAJOR,
         where=Locator(part=PlanPart.TASKS, section="1"),
         problem="The plan is wrong.",
         quote=SAMPLE_QUOTE,
@@ -826,6 +830,32 @@ def test_a_run_states_the_recall_floor_of_the_blocker_and_major_defects(
         "Floor of the blocker and major defects: 90%. The recall of 100% reaches it."
         in result.output
     )
+
+
+def _good_report(*returning: int) -> str:
+    """The report of a run on one good plan for each count of `returning` findings."""
+    cases = tuple(
+        CaseOutcome(f"good-{number}", True, 0, 0, returning=count)
+        for number, count in enumerate(returning)
+    )
+    score = VerifyScore("m-1", (), 0, 0, cases)
+    return render_verify(score, gateway="https://gateway.example.com")
+
+
+def test_the_report_gates_good_returning() -> None:
+    """The report states the ceiling of the findings that return a good plan, as a mean for each
+    good plan, next to the recall floor (#5411): a mean above the ceiling gives the missed line."""
+    ceiling = CONST_ROADMAP_VERIFY_GOOD_RETURNING_CEILING
+    over = int(ceiling) + 1
+    head = f"Ceiling of the findings that return a good plan: {ceiling:.2f} for each good plan."
+
+    missed = _good_report(over, over)
+    met = _good_report(0, 0)
+
+    assert f"{head} The mean of {over:.2f} is above it." in missed
+    assert f"{head} The mean of 0.00 does not pass it." in met
+    assert "the ceiling is not scored" in _good_report()
+    assert missed.index("Floor of the blocker") < missed.index("Ceiling of the findings")
 
 
 def test_the_dry_run_names_an_agent_run_for_each_case() -> None:
