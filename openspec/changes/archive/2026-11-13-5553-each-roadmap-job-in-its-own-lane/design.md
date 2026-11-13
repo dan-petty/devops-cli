@@ -63,13 +63,15 @@ Memory, measured on 2026-11-13: 744 MiB now, and the largest working set of one 
 
 Disk, measured on 2026-11-13: 588 MB used on a claim of 1 GiB. With the default lanes: the devops-cli clones take about 0.9 GB (D2), the clones of the 6 other repositories about 0.24 GB, and the snapshots up to 11 x 28 MB, about 0.3 GB, so about 1.45 GB. The class `local-path` keeps a volume in a directory of the node, does not hold it to its size and cannot grow a claim in place (`k8s/README.md`). A change of the claim size is refused for a bound claim of this class, so the manifest keeps 1 GiB.
 
-Threads: 14 lanes for each of 7 repositories make 98 worker threads in place of 21. Each waits on a condition with a 0.2 s timeout.
+Threads: 13 lanes for each of 7 repositories make 91 worker threads in place of 21. Each waits on a condition with a 0.2 s timeout.
 
 ### D9. Overlap with the stage Job (#4559 part 2)
 
 The branch `feat/4559-run-each-stage-item-in-its-own-job` moves the row `stage` from `MODEL_LANE_ROWS` to `STATUS_LANE_ROWS` and changes `_run_stage_adapter`, `model_clone` and the module docstring of `run.py`. This change keeps `_run_stage_adapter`, `model_clone` and the three row tuples. It changes the module docstring and `service_jobs`. With one lane for each row, the move of `stage` changes only the order of `DEFAULT_DUE_TABLE`. #5411 changes the review gate of `stage.py`, not the lanes.
 
-The specs that name the status lane or the model lane for the order of rows (`roadmap-retitle`, `roadmap-stage/round`, `roadmap-stage/fix-plan`, `roadmap-stage/ready`, `roadmap-pr-conflicts`) mean the row groups `STATUS_LANE_ROWS` and `MODEL_LANE_ROWS` of the table, which keep their names. #4559 part 2 changes two of those specs, so this change leaves them; the follow-up that renames the row groups also changes their wording.
+#4559 part 2 merged first, as #5559: the row `stage` now submits one stage Job for each Ready item and comes after `stage_ready` in `STATUS_LANE_ROWS`, and `status_clone` is the clone `clone` of the stage command. The rebase kept both: the row `stage` runs in its lane `stage` and works in `lanes/stage`. A stage round now ends in minutes, so the tests of a blocked round and of the working trees also run on `refine` and `alternatives`, which shared the model lane and its clone before this change.
+
+The specs that name the status lane or the model lane for the order of rows (`roadmap-retitle`, `roadmap-stage/round`, `roadmap-stage/fix-plan`, `roadmap-stage/ready`, `roadmap-pr-conflicts`) mean the row groups `STATUS_LANE_ROWS` and `MODEL_LANE_ROWS` of the table, which keep their names. #4559 part 2 changes two of those specs, so this change leaves them; #5560 renames the row groups and changes that wording.
 
 ## Rejected alternatives
 

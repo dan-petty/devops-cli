@@ -28,5 +28,6 @@
 
 ## Workflow follow-up
 
+- #5560 renames the row groups `STATUS_LANE_ROWS`, `TRIAGE_LANE_ROWS` and `MODEL_LANE_ROWS` and the spec text that names the earlier lanes, after #4559 part 2 merges.
 - Pending a person: after the release rolls the Service image, check in Loki that refine rounds of devops-cli start at their interval while a stage round runs, and that the queue lines of #5470 show each row due on its own cadence. Check the largest working set of the first day against the limit of 3 GiB, and the use of the volume.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).

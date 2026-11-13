@@ -35,7 +35,7 @@ The owner asked on 2026-11-13 for a lane for each Service job, and for jobs that
 
 - `src/devops_cli/roadmap/run.py`, `src/devops_cli/server/service.py`, `src/devops_cli/server/routes/webhooks.py`, `src/devops_cli/server/counter_series.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/telemetry/instruments.py`, `src/devops_cli/lang/en/`.
 - Deleted: the constants `CONST_SERVICE_LANE_STATUS`, `CONST_SERVICE_LANE_TRIAGE`, `CONST_SERVICE_LANE_MODEL` and `CONST_ROADMAP_RUN_TRIAGE_CLONE_DIRNAME`, the field `ScopedUpdate.lane`, and the parameter `clone_dirname` of `service_job`.
-- Workers: 14 lanes for each repository in place of 3, so 98 worker threads for 7 repositories in place of 21. Each poll starts a round on each lane. A round with no due row sends no GitHub request, and the budget sets the poll interval from the mean cost of a round, so the requests of a poll do not change.
+- Workers: 13 lanes for each repository in place of 3, so 91 worker threads for 7 repositories in place of 21. Each poll starts a round on each lane. A round with no due row sends no GitHub request, and the budget sets the poll interval from the mean cost of a round, so the requests of a poll do not change.
 - Disk and memory: see the design. No manifest changes: the limits hold the measured and the expected use.
 - This change fits one pull request.
 
