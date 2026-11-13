@@ -4,8 +4,7 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -24,6 +23,9 @@ from devops_cli.roadmap.stage.stage_specs import BaseSpec
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient
 from devops_cli.roadmap.stores.store import Item
 from tests.support.builders import make_stage_proposal
+
+if TYPE_CHECKING:
+    from tests.support.roadmap_stage import StageRepo
 
 PLAN_ROW = "stage"  # The job row of a plan run.
 TREE_FILES = ["src/devops_cli/sample.py"]
@@ -117,7 +119,7 @@ class _FakeToolboxClient(ToolboxClient):
         return self._proposal
 
 
-def test_planner_gates_proposal_with_trace_facts() -> None:
+def test_planner_gates_proposal_with_trace_facts(stage_repo: StageRepo) -> None:
     path = "src/devops_cli/roadmap/agent_run.py"
     proposal = make_stage_proposal(feasibility=[f"The run read `{path}` to confirm the facts."])
     item = Item(
@@ -145,7 +147,7 @@ def test_planner_gates_proposal_with_trace_facts() -> None:
     client_with_calls = _FakeToolboxClient(proposal, call_trace)
     planner_with_calls = _Planner(
         client=client_with_calls,
-        source=Path("."),
+        source=stage_repo.clone,
         sha="",
         specs=specs,
         tree=tree,
@@ -163,7 +165,7 @@ def test_planner_gates_proposal_with_trace_facts() -> None:
     client_zero = _FakeToolboxClient(proposal, zero_trace)
     planner_zero = _Planner(
         client=client_zero,
-        source=Path("."),
+        source=stage_repo.clone,
         sha="",
         specs=specs,
         tree=tree,

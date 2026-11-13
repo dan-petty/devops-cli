@@ -157,6 +157,7 @@ from devops_cli.roadmap.decision_step import Band
 from devops_cli.roadmap.digest_clears import has_digest_clear
 from devops_cli.roadmap.failure import FailureClass, StepName, failure_class_of, retry_after
 from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
+from devops_cli.roadmap.plan_check import PlanFolder, staged_problems
 from devops_cli.roadmap.planned import (
     PlannedChanges,
     open_plan_creates,
@@ -215,6 +216,7 @@ from devops_cli.roadmap.stage.stage_context_facts import collect_stage_facts_con
 from devops_cli.roadmap.stage.stage_filter import split_filter_entry
 from devops_cli.roadmap.stage.stage_findings import (
     BODY_GATE,
+    PLAN_CHECK_GATE,
     TITLE_GATE,
     VALIDATE_GATE,
     ExtensionEnd,
@@ -2048,9 +2050,8 @@ class _Planner:
         for path, text in files.items():
             if redact_text(text) != text:
                 raise _stage_error(MESSAGES.roadmap.stage_secret.format(path=path), target)
-        problem = self._validate(target.change, files)
-        if problem is not None:
-            return self._refusal(check_findings(VALIDATE_GATE, [problem]), proposal)
+        if findings := self._file_findings(target, title, body, files):
+            return self._refusal(findings, proposal)
         warnings = _check_removal_references(self._source, target, files)
         return StagedChange(
             target,
@@ -2209,6 +2210,40 @@ class _Planner:
         if self._tool is None:
             return dict(files)
         return restore_omitted_scenarios(self._tool, self._source, change, proposal, files)
+
+    def _file_findings(
+        self, target: StageTarget, title: str, body: str, files: Mapping[str, str]
+    ) -> list[StageFinding]:
+        """The findings of the checks of the files that the job writes: `openspec validate`, and
+        then the rules of `devops roadmap plan-check` (#4725). The first check that finds a problem
+        gives the findings."""
+        problem = self._validate(target.change, files)
+        if problem is not None:
+            return check_findings(VALIDATE_GATE, [problem])
+        return check_findings(PLAN_CHECK_GATE, self._plan_check(target, title, body, files))
+
+    def _plan_check(
+        self, target: StageTarget, title: str, body: str, files: Mapping[str, str]
+    ) -> list[str]:
+        """The line of each problem that `devops roadmap plan-check` finds in the plan before its
+        push (#4725): the rules of the title and the body, the plan reader, the stage gates and the
+        size of each group, on the files that the job writes and the checkout of the staged
+        commit. The CI job `Plan Check` refuses a pull request for these rules, so a plan that
+        they refuse goes back to the model, as a refusal of any other check does."""
+        folder = PlanFolder(
+            root=f"{_CHANGES_DIRECTORY}/{target.change}",
+            files=files,
+            checkout=self._source,
+            tree=self._tree.with_files(files),
+            known=self._known,
+            requirements=self._requirements,
+            item_title=target.item.title,
+            item_body=target.item.body,
+            budget=self._budget,
+            registry=registry_table(self._source),
+        )
+        found = staged_problems(folder, number=target.item.number, title=title, body=body)
+        return [problem.line for problem in found]
 
     def _validate(self, change: str, files: Mapping[str, str]) -> str | None:
         """The problems that `openspec validate` finds in `files`, or None when it finds none or
