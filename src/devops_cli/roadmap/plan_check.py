@@ -222,12 +222,12 @@ def is_plan(facts: PullFacts) -> bool:
 
 def _pull_problems(facts: PullFacts, checks: CheckVerdictSummary) -> list[PlanProblem]:
     return [
-        *form_problems(facts.title, facts.body, number=facts.number),
+        *title_body_problems(facts.title, facts.body, number=facts.number),
         *_check_problems(checks),
     ]
 
 
-def form_problems(title: str, body: str, *, number: int) -> list[PlanProblem]:
+def title_body_problems(title: str, body: str, *, number: int) -> list[PlanProblem]:
     """The problems of the title and the body of a plan: the plan title of the issue that the
     body plans and the length of its summary, the `Plans #<issue>` line, no closing keyword and
     the length of the body. `number` is the number that a problem names when the body plans no
@@ -499,7 +499,7 @@ def staged_problems(folder: PlanFolder, *, number: int, title: str, body: str) -
     runs `validate_change`, the OpenSpec rule of the command, on the same files before this
     check."""
     _, problems = folder_problems(folder)
-    return [*form_problems(title, body, number=number), *problems]
+    return [*title_body_problems(title, body, number=number), *problems]
 
 
 def _validate_problems(
