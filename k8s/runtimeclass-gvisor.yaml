@@ -1,0 +1,17 @@
+# RuntimeClass gvisor: a pod with runtimeClassName gvisor runs in gVisor (runsc), a user-space kernel.
+# The pod reaches the host kernel only through a small, filtered set of system calls of the gVisor
+# Sentry, so most defects of the host kernel are out of its reach (ADR 0018).
+# The infra repository installs runsc on a node and then sets the node label, so a pod of this
+# class goes only to a node where containerd has runsc. No other node gets such a pod. The
+# NodeRestriction admission plugin stops a kubelet from setting a label under
+# node-restriction.kubernetes.io/, so a node cannot label itself to attract these pods.
+# No workload uses the class before #5434 measures runc against runsc and sets overhead.podFixed.
+# Applied by: kubectl apply -k k8s/
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: gvisor
+handler: runsc
+scheduling:
+  nodeSelector:
+    node-restriction.kubernetes.io/gvisor: "true"

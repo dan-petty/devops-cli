@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
   - namespaces.yaml
   - mattermost-operator-limitrange.yaml
+  - runtimeclass-gvisor.yaml
   - cloudflared
   - cert-manager
   - cnpg-system
