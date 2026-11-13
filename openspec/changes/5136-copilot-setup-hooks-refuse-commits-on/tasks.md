@@ -13,7 +13,7 @@ Kind: manifest. Reads: `.pre-commit-config.yaml`, `tests/git/test_branch_form.py
 
 Kind: other. Reads: `tests/invariants/test_workflow_contracts.py`, `.pre-commit-config.yaml`, `.github/workflows/copilot-setup-steps.yml`. Changes: `tests/invariants/test_workflow_contracts.py`.
 
-- [ ] 2.1 In `test_a_commit_on_a_branch_that_breaks_the_naming_form_is_refused`, add `copilot/fix-login-bug`, `copilot/sub-pr-12` and `copilot/fix-4773` to `accepted`, and add `copilot/`, `copilot/Fix-login`, `copilot/fix_login` and `Copilot/fix-login` to `refused`. In `test_copilot_setup_steps_installs_the_pinned_openspec_with_the_opt_outs`, add the assertion that the step named `Install the git hooks` holds the run `uv run pre-commit install --install-hooks`, so the setup steps keep the hook installation
+- [x] 2.1 In `test_a_commit_on_a_branch_that_breaks_the_naming_form_is_refused`, add `copilot/fix-login-bug`, `copilot/sub-pr-12` and `copilot/fix-4773` to `accepted`, and add `copilot/`, `copilot/Fix-login`, `copilot/fix_login` and `Copilot/fix-login` to `refused`. In `test_copilot_setup_steps_installs_the_pinned_openspec_with_the_opt_outs`, add the assertion that the step named `Install the git hooks` holds the run `uv run pre-commit install --install-hooks`, so the setup steps keep the hook installation
   - Verification: `$ uv run devops ci test tests/invariants/test_workflow_contracts.py` passes
 
 ## 3. State both accepted branch forms in the Naming table
