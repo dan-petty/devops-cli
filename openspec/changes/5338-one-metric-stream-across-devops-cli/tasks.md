@@ -38,7 +38,7 @@ Kind: behavior. Reads: `k8s/README.md`, `tests/prometheus/test_k8s_monitoring_al
 
 Kind: documents. Reads: `src/devops_cli/docs/generator.py`, `docs/TELEMETRY.md`. Changes: `src/devops_cli/docs/generator.py`, `docs/TELEMETRY.md`.
 
-- [ ] 5.1 Add the collector rule and the note on Job pods that send at the same time to the metric paragraph of `src/devops_cli/docs/generator.py`, and regenerate `docs/TELEMETRY.md` with `uv run devops docs generate`
+- [x] 5.1 Add the collector rule and the note on Job pods that send at the same time to the metric paragraph of `src/devops_cli/docs/generator.py`, and regenerate `docs/TELEMETRY.md` with `uv run devops docs generate`
   - Verification: `$ uv run devops ci docs`
 
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
