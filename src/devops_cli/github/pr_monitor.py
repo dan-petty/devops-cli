@@ -29,6 +29,8 @@ from devops_cli.github.merge_readiness import (
 from devops_cli.github.pr_threads import GhRun, ReviewThread
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.session import get_github_session
+from devops_cli.lang import MESSAGES
+from devops_cli.output import print_warning
 
 logger = logging.getLogger(__name__)
 
@@ -625,6 +627,10 @@ def _build_monitor_timeout_result(
     )
 
 
+# A monitor stops when this many polls in a row fail to read the pull request (#4838).
+_MAX_CONSECUTIVE_READ_FAILURES = 3
+
+
 def monitor_pr(
     owner: str,
     repo: str,
@@ -652,13 +658,36 @@ def monitor_pr(
     start_time = clock.monotonic()
     settle_deadline = start_time + valid_settle
     max_deadline = start_time + valid_timeout
+    failures = 0
 
     while True:
         now = clock.monotonic()
         elapsed = int(now - start_time)
-        latest_status = get_pr_monitoring_status(
-            owner, repo, pr_number, require_reviews=require_reviews, commit_statuses=commit_statuses
-        )
+        try:
+            latest_status = get_pr_monitoring_status(
+                owner,
+                repo,
+                pr_number,
+                require_reviews=require_reviews,
+                commit_statuses=commit_statuses,
+            )
+        except GitHubOperationError:
+            # One slow read is no verdict: count it, say so, and poll again. A run of failures
+            # ends the watch with the last error (#4838).
+            failures += 1
+            if failures >= _MAX_CONSECUTIVE_READ_FAILURES:
+                raise
+            print_warning(
+                MESSAGES.pr.monitor_read_failed.format(
+                    failure=failures, limit=_MAX_CONSECUTIVE_READ_FAILURES
+                )
+            )
+            time_left = max_deadline - clock.monotonic()
+            if time_left <= 0:
+                raise
+            clock.sleep(min(float(valid_interval), time_left))
+            continue
+        failures = 0
 
         if status_callback:
             status_callback(latest_status, elapsed)
