@@ -157,7 +157,9 @@ class TestPrCommands:
         ) == (0, 1, True, True)
 
     def test_edit_pr(self, runner: CliRunner, gh_edge: ProcessFake) -> None:
-        result = runner.invoke(app, ["edit", "13", "--base", "main", "--title", "New Title"])
+        result = runner.invoke(
+            app, ["edit", "13", "--base", "main", "--title", "fix(pr): update the title"]
+        )
         assert result.exit_code == 0
         assert "Successfully updated PR #13" in result.output
         args = gh_argv(gh_edge)[0]
@@ -427,14 +429,24 @@ class TestPrCommands:
         answer_origin(gh_edge, "owner/repo")
         script_gh(gh_edge, GH_FAILED, ProcessAnswer())
         res = runner.invoke(
-            app, ["edit", "184", "--title", "New Title", "--body", "New Body", "--base", "main"]
+            app,
+            [
+                "edit",
+                "184",
+                "--title",
+                "fix(pr): update the title",
+                "--body",
+                "New Body",
+                "--base",
+                "main",
+            ],
         )
         assert res.exit_code == 0
         assert "Successfully updated PR #184" in res.output
         assert len(gh_argv(gh_edge)) == 2
         patch_cmd = gh_argv(gh_edge)[1]
         assert "PATCH" in patch_cmd
-        assert "title=New Title" in patch_cmd
+        assert "title=fix(pr): update the title" in patch_cmd
 
     def test_pr_edit_no_changes(self, runner: CliRunner, gh_edge: ProcessFake) -> None:
         """devops pr edit warns when no options are provided."""

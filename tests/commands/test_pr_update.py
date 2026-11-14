@@ -7,6 +7,7 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+import pytest
 from typer.testing import CliRunner
 
 from devops_cli.ai.mcp.server import pr_update
@@ -539,7 +540,7 @@ def test_pr_edit_fallback_patch_title_body_base_milestone(
         "edit",
         "184",
         "--title",
-        "New Title",
+        "fix(pr): update the title",
         "--body",
         "New Body",
         "--base",
@@ -563,7 +564,7 @@ def test_pr_edit_fallback_patch_title_body_base_milestone(
         "--base",
         "main",
         "--title",
-        "New Title",
+        "fix(pr): update the title",
         "--body",
         "New Body",
         "--repo",
@@ -578,7 +579,7 @@ def test_pr_edit_fallback_patch_title_body_base_milestone(
         "PATCH",
         "repos/owner/repo/pulls/184",
         "-f",
-        "title=New Title",
+        "title=fix(pr): update the title",
         "-f",
         "body=New Body",
         "-f",
@@ -625,7 +626,7 @@ def test_pr_edit_fallback_milestone_failure_fails_with_message(
         "edit",
         "184",
         "--title",
-        "New Title",
+        "fix(pr): update the title",
         "--milestone",
         "2026-11",
         "--repo",
@@ -634,3 +635,22 @@ def test_pr_edit_fallback_milestone_failure_fails_with_message(
 
     assert result.exit_code != 0
     assert "Milestone '2026-11' does not exist." in result.output
+
+
+@pytest.mark.parametrize(
+    ("title", "problem"),
+    [
+        ("fix(pr)!: add the check", "The title has `!`."),
+        ("fix(pr): " + "a" * 70, "The summary has 70 characters"),
+    ],
+)
+def test_pr_edit_refuses_a_title_that_the_title_check_refuses(
+    cli: Callable[..., Any], process_fake: ProcessFake, title: str, problem: str
+) -> None:
+    """An edited title keeps the form of `pr create` (#4782)."""
+    result = cli("pr", "edit", "184", "--title", title)
+
+    assert (result.exit_code, problem in result.output) == (1, True)
+    assert all(
+        "pr" != call.argv[1:2][0] for call in process_fake.calls if call.argv[:2] == ["gh", "pr"]
+    )

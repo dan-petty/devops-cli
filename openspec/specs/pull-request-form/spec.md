@@ -321,3 +321,18 @@ When the summary of a title holds a word and an issue number (`<word> #<number>`
 #### Scenario: The REST fallback
 - **WHEN** `gh pr create` fails, `--head feat/19-x` is given, and the checkout is on `main`
 - **THEN** the fallback looks for an open pull request of `example:feat/19-x` and posts `head=feat/19-x`
+
+### Requirement: devops pr edit refuses a title that the title check refuses
+`devops pr edit --title` SHALL run `title_problems` on the title and SHALL refuse the edit with the message of `devops pr create` when it returns a problem, before it sends the edit.
+
+#### Scenario: A title with a breaking marker
+- **WHEN** the user runs `devops pr edit 184 --title "fix(pr)!: add the check"`
+- **THEN** the command exits 1, prints the problem about `!`, and sends no edit
+
+#### Scenario: A long summary
+- **WHEN** the title summary holds 70 characters
+- **THEN** the command exits 1 and prints the summary limit
+
+#### Scenario: A valid title
+- **WHEN** the title passes `title_problems`
+- **THEN** the command sends the edit
