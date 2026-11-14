@@ -1584,6 +1584,10 @@ class ServiceConfig(BaseModel):
         default=DEFAULT_SERVICE_POLL_INTERVAL_IDLE_SECONDS,
         ge=60,
     )
+    webhook_url: Annotated[str, Variable()] = Field(
+        description="Public URL of the Service's GitHub webhook route, which onboarding compares with the repository hooks",
+        default="https://hooks.example.com/webhooks/github",
+    )
     github_requests_per_hour: Annotated[int, Variable()] = Field(
         description="The most GitHub requests the Service sends in one hour, not counting those that GitHub answers with 304, as GitHub does not count them against its rate limit; a request that the last hour has no room for waits. The alert RoadmapServiceGitHubRequestsHigh follows this limit",
         default=DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR,

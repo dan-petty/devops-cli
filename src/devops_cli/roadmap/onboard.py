@@ -19,11 +19,15 @@ from typing import Final
 import yaml
 from pydantic import ValidationError
 
-from devops_cli.config.constants import CONST_ROADMAP_LABELS_PATH
+from devops_cli.config.constants import (
+    CONST_ROADMAP_LABELS_PATH,
+    CONST_ROADMAP_WEBHOOK_EVENTS,
+)
 from devops_cli.config.settings import Settings, load_settings
 from devops_cli.core.process import acts_as_github_app
 from devops_cli.exceptions import DevOpsCLIError
-from devops_cli.exceptions.git import GitHubFileNotFoundError
+from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
+from devops_cli.github.client import RepositoryHook
 from devops_cli.github.labels import LabelSpec, diff_labels
 from devops_cli.github.session import GitHubSession, get_github_session
 from devops_cli.lang import MESSAGES
@@ -40,6 +44,7 @@ _ROW_4_PREREQUISITE: Final[str] = (
 )
 _ROW_5_PREREQUISITE: Final[str] = ".github/workflows/clear-status.yml is on the default branch"
 _ROW_6_PREREQUISITE: Final[str] = "The repository is in service.repos"
+_ROW_7_PREREQUISITE: Final[str] = "The repository webhook posts the roadmap events to the Service"
 
 
 @dataclass(frozen=True)
@@ -227,6 +232,62 @@ def _check_row_6(repo: str, settings: Settings) -> OnboardingRow:
     return OnboardingRow(6, _ROW_6_PREREQUISITE, "missing", step=step)
 
 
+def webhook_step(settings: Settings) -> str:
+    """The step for a person that adds the repository webhook (#3772). It names no secret."""
+    events = ", ".join(sorted(CONST_ROADMAP_WEBHOOK_EVENTS))
+    return (
+        f"Add the webhook {settings.service.webhook_url} with content type application/json and "
+        f"the events {events}, set it active, and store its secret with "
+        "`devops config set service.webhook_secrets`."
+    )
+
+
+def _check_row_7(session: GitHubSession, repo: str, settings: Settings) -> OnboardingRow:
+    """The repository webhook: present, missing, wrong, or not readable without administration
+    read (#3772)."""
+    step = webhook_step(settings)
+    try:
+        hooks = session.client.get_repository_hooks(repo)
+    except GitHubOperationError as exc:
+        return OnboardingRow(
+            7,
+            _ROW_7_PREREQUISITE,
+            f"not readable as {session.login}",
+            reason=str(exc),
+            step=step,
+        )
+    if not hooks:
+        return OnboardingRow(7, _ROW_7_PREREQUISITE, "missing", step=step)
+    url = settings.service.webhook_url
+    events = set(CONST_ROADMAP_WEBHOOK_EVENTS)
+    matching = [hook for hook in hooks if hook.url == url]
+    if any(
+        hook.active and hook.content_type == "json" and set(hook.events) == events
+        for hook in matching
+    ):
+        return OnboardingRow(7, _ROW_7_PREREQUISITE, "present")
+    wrong = _wrong_webhook_fields(
+        matching[0] if matching else hooks[0], known_url=bool(matching), events=events
+    )
+    return OnboardingRow(
+        7, _ROW_7_PREREQUISITE, "wrong", reason=f"Wrong: {', '.join(wrong)}.", step=step
+    )
+
+
+def _wrong_webhook_fields(hook: RepositoryHook, *, known_url: bool, events: set[str]) -> list[str]:
+    """The fields of `hook` that do not match, with `url` when no hook holds the Service URL."""
+    wrong = []
+    if not known_url:
+        wrong.append("url")
+    if not hook.active:
+        wrong.append("active")
+    if hook.content_type != "json":
+        wrong.append("content_type")
+    if set(hook.events) != events:
+        wrong.append("events")
+    return wrong
+
+
 def check_onboarding(
     store: RoadmapStore,
     repo: str,
@@ -234,7 +295,7 @@ def check_onboarding(
     session: GitHubSession | None = None,
     settings: Settings | None = None,
 ) -> OnboardingReport:
-    """Check the six roadmap prerequisites for `repo`."""
+    """Check the seven roadmap prerequisites for `repo`."""
     active_session = session or get_github_session()
     active_settings = settings or load_settings()
 
@@ -244,8 +305,9 @@ def check_onboarding(
     row_4, missing_labels, differing_labels = _check_row_4(store, specs)
     row_5 = _check_row_5(store)
     row_6 = _check_row_6(repo, active_settings)
+    row_7 = _check_row_7(active_session, repo, active_settings)
 
-    rows = (row_1, row_2, row_3, row_4, row_5, row_6)
+    rows = (row_1, row_2, row_3, row_4, row_5, row_6, row_7)
     return OnboardingReport(
         repo=repo,
         rows=rows,
