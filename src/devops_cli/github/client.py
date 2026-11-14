@@ -74,6 +74,25 @@ class PullRequest(BaseModel):
         return tuple(item["name"] if isinstance(item, dict) else str(item) for item in value)
 
 
+class RepositoryHook(BaseModel):
+    """One webhook of a repository, with the URL and the content type of its configuration."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: int
+    active: bool = False
+    events: tuple[str, ...] = ()
+    config: dict[str, Any] = Field(default_factory=dict)
+
+    @property
+    def url(self) -> str:
+        return str(self.config.get("url") or "")
+
+    @property
+    def content_type(self) -> str:
+        return str(self.config.get("content_type") or "")
+
+
 class PullStatus(BaseModel):
     """Whether a pull request is open, a draft, or merged (#2665), the commit of its head
     (#2865), the labels it holds (#3264), its title and body (#3395), and when it closed
@@ -431,6 +450,12 @@ class GitHubClient:
         ]
 
     # ── Pull requests ─────────────────────────────────────────────────────────
+
+    def get_repository_hooks(self, repo: str) -> list[RepositoryHook]:
+        """The webhooks of `repo` (#3772). An installation token without administration read
+        raises `GitHubUnreadError`."""
+        path = _repo_path(repo, "hooks")
+        return [_read_as(RepositoryHook, item, path=path) for item in self._session.paginate(path)]
 
     def get_pull(self, repo: str, number: int) -> PullRequest:
         """The pull request's title, and the commit, branch and repository of its head and base."""

@@ -11,6 +11,7 @@ import pytest
 from devops_cli.config.constants import (
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
     CONST_ROADMAP_LABELS_PATH,
+    CONST_ROADMAP_WEBHOOK_EVENTS,
 )
 from devops_cli.roadmap.workflow_labels import WORKFLOW_LABELS
 from tests.support.fakes.github import (
@@ -30,6 +31,13 @@ VALID_LABELS_YAML = """
 ROW_3 = "3. .github/labels.yml is on the default branch and is valid"
 ROW_4 = "4. Every workflow label and every label of .github/labels.yml exists on GitHub"
 WORKFLOW = [(spec.name, spec.color, spec.description) for spec in WORKFLOW_LABELS]
+WEBHOOK_URL = "https://hooks.example.com/webhooks/github"
+MATCHING_HOOK = {
+    "id": 1,
+    "active": True,
+    "events": ["issues"],
+    "config": {"url": WEBHOOK_URL, "content_type": "json"},
+}
 
 
 def _seed_valid_repo(
@@ -51,6 +59,7 @@ def _seed_valid_repo(
         store.seed_file(CONST_ROADMAP_LABELS_PATH, labels_yml)
     if include_clear_status:
         store.seed_file(".github/workflows/clear-status.yml", "name: Clear Status\n")
+    api.route("GET", f"/repos/{REPO}/hooks", github_json([MATCHING_HOOK]))
     seeded = [*WORKFLOW, ("scope/cli", "dcdcd6", "CLI")] if repo_labels is None else repo_labels
     for name, color, desc in seeded:
         store.seed_label(name, color, desc)
@@ -79,6 +88,10 @@ def test_onboard_all_prerequisites_present_exits_0(
         "5. .github/workflows/clear-status.yml is on the default branch: present" in result.stdout
     )
     assert "6. The repository is in service.repos: present" in result.stdout
+    assert (
+        "7. The repository webhook posts the roadmap events to the Service: present"
+        in result.stdout
+    )
     assert "Not readable rows: 0." in result.stdout
 
 
@@ -319,3 +332,114 @@ def test_onboard_exit_code_0_when_no_missing_even_with_not_readable(
     assert result.exit_code == 0, result.output
     assert "not readable as human" in result.stdout
     assert "Not readable rows: 1." in result.stdout
+
+
+ROW_7 = "7. The repository webhook posts the roadmap events to the Service"
+
+
+def test_onboard_row_7_is_missing_with_no_hook(
+    cli: Callable[..., Any],
+    roadmap_store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    config: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("devops_cli.roadmap.onboard.acts_as_github_app", lambda: True)
+    _seed_valid_repo(roadmap_store, github_api)
+    github_api.route("GET", f"/repos/{REPO}/hooks", github_json([]))
+    route_installation_repositories(github_api, [REPO])
+    config(service={"repos": [REPO]})
+
+    result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
+
+    assert result.exit_code == 1, result.output
+    assert f"{ROW_7}: missing" in result.stdout
+    assert WEBHOOK_URL in result.stdout
+    assert "application/json" in result.stdout
+    assert "issues" in result.stdout
+    assert "devops config set service.webhook_secrets" in result.stdout
+
+
+def test_onboard_row_7_names_each_wrong_field(
+    cli: Callable[..., Any],
+    roadmap_store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    config: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("devops_cli.roadmap.onboard.acts_as_github_app", lambda: True)
+    _seed_valid_repo(roadmap_store, github_api)
+    github_api.route(
+        "GET",
+        f"/repos/{REPO}/hooks",
+        github_json(
+            [
+                {
+                    "id": 1,
+                    "active": True,
+                    "events": ["push"],
+                    "config": {"url": "https://other.example.com/hook", "content_type": "form"},
+                }
+            ]
+        ),
+    )
+    route_installation_repositories(github_api, [REPO])
+    config(service={"repos": [REPO]})
+
+    result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
+
+    assert f"{ROW_7}: wrong" in result.stdout
+    assert "url, content_type, events" in result.stdout
+
+
+def test_onboard_row_7_names_an_inactive_hook(
+    cli: Callable[..., Any],
+    roadmap_store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    config: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("devops_cli.roadmap.onboard.acts_as_github_app", lambda: True)
+    _seed_valid_repo(roadmap_store, github_api)
+    github_api.route(
+        "GET", f"/repos/{REPO}/hooks", github_json([{**MATCHING_HOOK, "active": False}])
+    )
+    route_installation_repositories(github_api, [REPO])
+    config(service={"repos": [REPO]})
+
+    result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
+
+    assert f"{ROW_7}: wrong" in result.stdout
+    assert "Wrong: active." in result.stdout
+
+
+def test_onboard_row_7_is_not_readable_without_administration_read(
+    cli: Callable[..., Any],
+    roadmap_store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    config: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("devops_cli.roadmap.onboard.acts_as_github_app", lambda: True)
+    _seed_valid_repo(roadmap_store, github_api)
+    github_api.route(
+        "GET", f"/repos/{REPO}/hooks", github_json({"message": "Forbidden"}, status=403)
+    )
+    route_installation_repositories(github_api, [REPO])
+    config(service={"repos": [REPO]})
+
+    result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
+
+    assert result.exit_code == 0, result.output
+    assert f"{ROW_7}: not readable as" in result.stdout
+    assert "devops config set service.webhook_secrets" in result.stdout
+
+
+def test_the_service_step_and_the_webhook_row_name_the_same_events() -> None:
+    step = Path("docs/CLUSTER.md").read_text(encoding="utf-8")
+    section = step.split("8. Add each repo's webhook:", 1)[1].split("\n", 1)[0]
+
+    assert (
+        "only the Issues event" in section,
+        CONST_ROADMAP_WEBHOOK_EVENTS == frozenset({"issues"}),
+    ) == (True, True)
