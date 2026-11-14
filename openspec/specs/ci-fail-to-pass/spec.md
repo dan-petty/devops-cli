@@ -64,11 +64,19 @@ When the replay's pytest is interrupted, stops with an internal or usage error, 
 - **WHEN** a changed test fails on base with `Failed: process edge reached without a fake: gh api user`
 - **THEN** the replay is satisfied
 
-### Requirement: A failed test that the fix does not change refuses the replay
-`devops ci fail-to-pass` SHALL treat a replay as not satisfied when a test fails on base in a changed test file though the function of that test and the rest of its file have the same syntax tree in the replay tree and at the merge base, and its report SHALL name that test.
+### Requirement: An unchanged test that still fails on the head refuses the replay
+`devops ci fail-to-pass` SHALL treat a replay as not satisfied when an unchanged test fails on base and does not pass on the head, or when it passes on the plain merge base. It SHALL NOT refuse the replay for an unchanged test that fails on the plain merge base and passes on the head.
 
 #### Scenario: An unchanged test fails
-- **WHEN** a changed test file holds one changed test that fails on base and one unchanged test that also fails on base
+- **WHEN** a changed test file holds one changed test that fails on base and one unchanged test that fails on base and does not pass on the head
+- **THEN** the command exits 1, and its report says that a test the fix does not change does not pass on the head and names the unchanged test
+
+#### Scenario: An unchanged test that the head repairs
+- **WHEN** a changed test file holds one changed test that fails on base and one unchanged test that fails on base, fails on the plain merge base, and passes on the head
+- **THEN** the command exits 0, and its report names the unchanged test as repaired on the head
+
+#### Scenario: An unchanged test that passes on the plain merge base refuses the replay
+- **WHEN** a changed test file holds one changed test that fails on base and one unchanged test that fails on base, passes on the plain merge base, and passes on the head
 - **THEN** the command exits 1, and its report says that a test the fix does not change fails on base and names the unchanged test
 
 #### Scenario: A comment changes no test
@@ -127,11 +135,19 @@ When the replay's pytest is interrupted, stops with an internal or usage error, 
 - **THEN** the command exits 1, and the report names the row, the base tree, the exit status and the last lines of the output
 
 ### Requirement: The head run of a named head uses a worktree of that head
-For `--head HEAD`, `devops ci fail-to-pass` SHALL run the head row in the working tree, so a change that is not committed counts. For another head, it SHALL run the head row in a detached worktree of that head, and remove that worktree after the run.
+For `--head HEAD`, `devops ci fail-to-pass` SHALL run the head row and the head replay of the unchanged failures in the working tree, so an uncommitted change counts. For another head, it SHALL run both in one detached worktree of that head, and remove that worktree after the runs.
 
 #### Scenario: A named head
 - **WHEN** the command runs with `--head feature` for a fix that changes a gate check
-- **THEN** it adds a detached worktree of `feature`, runs the head row there, and removes the worktree
+- **THEN** it adds one detached worktree of `feature`, runs the head row there, and removes the worktree
+
+#### Scenario: A named head with an unchanged failure
+- **WHEN** the command runs with `--head feature` for a fix whose base replay holds an unchanged failure
+- **THEN** it runs the head replay of those test files in the same worktree
+
+#### Scenario: The default head
+- **WHEN** the command runs with the default `--head HEAD` and the base replay holds an unchanged failure
+- **THEN** it runs the head replay in the working tree and adds no worktree
 
 ### Requirement: The dry run lists the gate row runs
 `devops ci fail-to-pass --dry-run` SHALL list the base and head runs of a gate row with the condition `a changed gate check exists`, and SHALL start no process.
@@ -150,3 +166,24 @@ For `--head HEAD`, `devops ci fail-to-pass` SHALL run the head row in the workin
 #### Scenario: The interpreter names the head source
 - **WHEN** the interpreter that runs the command finds `devops_cli` in the `src/` of the head checkout
 - **THEN** the gate row run on the base tree still imports `devops_cli` from the `src/` of the base tree
+
+### Requirement: The report names a repaired test
+`devops ci fail-to-pass` SHALL name in its report each test that the fix does not change, that fails on the plain merge base and that passes on the head, as repaired on the head.
+
+#### Scenario: A repaired test in the report
+- **WHEN** an unchanged test fails on base, fails on the plain merge base, and passes on the head
+- **THEN** the report holds a line that names the test and says that the head repairs it
+
+### Requirement: A head replay that cannot run refuses the replay
+`devops ci fail-to-pass` SHALL treat a replay as not satisfied when the head replay of the test files that hold an unchanged failure is interrupted, stops with an internal or usage error, or writes no complete JUnit report. Its report SHALL name the head run and pytest's exit status.
+
+#### Scenario: A head replay that writes no complete report
+- **WHEN** the head replay of the test files that hold an unchanged failure writes no complete JUnit report
+- **THEN** the command exits 1, and its report says that the replay could not run on the head and names pytest's exit status
+
+### Requirement: The dry run lists the head replay
+`devops ci fail-to-pass --dry-run` SHALL list the head replay of the test files that hold an unchanged failure with the condition `a test that failed on base is unchanged`, and SHALL start no process.
+
+#### Scenario: A dry run of the head replay
+- **WHEN** `devops ci fail-to-pass --dry-run` runs
+- **THEN** the plan lists the head pytest run with the condition `a test that failed on base is unchanged`, and the process fake records no call

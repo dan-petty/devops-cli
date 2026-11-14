@@ -2317,8 +2317,12 @@ class CIMessages:
         "no fake: fake that path in the test."
     )
     fail_to_pass_unchanged_failed: str = (
-        "A test that the fix does not change fails on base ({tests}). A test that fails on base "
-        "must be one that the fix adds or changes."
+        "A test that the fix does not change does not pass on the head ({tests}). A test that fails "
+        "on base must be one that the fix adds or changes."
+    )
+    fail_to_pass_repaired: str = "The head repairs {tests}."
+    fail_to_pass_head_could_not_run: str = (
+        "The fail-to-pass replay could not run on the head: pytest exited with status {status}."
     )
     fail_to_pass_could_not_run: str = (
         "The fail-to-pass replay could not run on base: pytest exited with status {status} "

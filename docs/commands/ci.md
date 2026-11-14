@@ -422,7 +422,7 @@ devops ci fail-to-pass [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
-| `--head` | `string` | `HEAD` | Head git revision supplying the overlaid tests/ tree and the head tree of a gate row run. |
+| `--head` | `string` | `HEAD` | Head git revision supplying the overlaid tests/ tree, the head replay tree and the head tree of a gate row run. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

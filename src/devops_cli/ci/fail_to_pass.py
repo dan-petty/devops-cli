@@ -31,7 +31,8 @@ import shutil
 import sys
 import tarfile
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from html.parser import HTMLParser
 from pathlib import Path, PurePath, PurePosixPath
 
@@ -193,11 +194,23 @@ class FailToPassReport(BaseModel):
     unchanged_failed: tuple[str, ...] = ()
     changed_gate_checks: tuple[str, ...] = ()
     gate_rows: tuple[GateRowReplay, ...] = ()
+    repaired: tuple[TestCaseOutcome, ...] = ()
+    head_could_not_run: int | None = None
 
     @property
     def failed_count(self) -> int:
         """Number of tests that failed in the call phase on base."""
         return sum(1 for outcome in self.outcomes if outcome.status == "failed")
+
+    @property
+    def changed_failed_count(self) -> int:
+        """Number of changed tests that failed in the call phase on base."""
+        excluded = set(self.unchanged_failed) | {outcome.test_id for outcome in self.repaired}
+        return sum(
+            1
+            for outcome in self.outcomes
+            if outcome.status == "failed" and outcome.test_id not in excluded
+        )
 
     @property
     def passed_count(self) -> int:
@@ -226,6 +239,7 @@ class FailToPassReport(BaseModel):
         on base (#3124)."""
         return (
             self.could_not_run is not None
+            or self.head_could_not_run is not None
             or bool(self.host_path_guard_failures)
             or bool(self.unchanged_failed)
         )
@@ -237,7 +251,7 @@ class FailToPassReport(BaseModel):
         passes on head (#4554)."""
         if self.tests_refused or any(row.refused for row in self.gate_rows):
             return False
-        return self.failed_count > 0 or any(row.proved for row in self.gate_rows)
+        return self.changed_failed_count > 0 or any(row.proved for row in self.gate_rows)
 
 
 class _JUnitHTMLParser(HTMLParser):
@@ -432,6 +446,29 @@ def remove_materialised_base(root: Path, dest: Path) -> None:
     run_subprocess(worktree_prune_argv(), cwd=root, quiet=True)
 
 
+@contextmanager
+def _plain_base_tree(root: Path, merge_base: str, dest: Path) -> Iterator[Path]:
+    """A detached git worktree of `merge_base` with no head tests overlaid."""
+    _add_worktree(root, merge_base, dest)
+    try:
+        yield dest
+    finally:
+        remove_materialised_base(root, dest)
+
+
+@contextmanager
+def _head_tree(root: Path, head: str, dest: Path) -> Iterator[Path]:
+    """The head tree: the working tree for `HEAD`, else a detached worktree at `dest`."""
+    if head == "HEAD":
+        yield root
+    else:
+        _add_worktree(root, head, dest)
+        try:
+            yield dest
+        finally:
+            remove_materialised_base(root, dest)
+
+
 def pytest_replay_argv(junit_path: Path, test_files: Sequence[str]) -> list[str]:
     """Construct the pytest argv for replaying `test_files` against the materialised base tree."""
     return [
@@ -462,6 +499,9 @@ UNCHANGED_CHECK = "a test that failed on base is in a changed test file"
 TEST_REPLAY = "a changed test file exists"
 GATE_REPLAY = "a changed gate check exists"
 EACH_GATE_ROW = "for each row of a changed gate check"
+UNCHANGED_REPLAY = "a test that failed on base is unchanged"
+HEAD_RUN = "a changed gate check exists or a test that failed on base is unchanged"
+UNCHANGED_TESTS_PLACEHOLDER = "<unchanged test files>"
 
 
 def plan_fail_to_pass(base: str, head: str = "HEAD") -> list[PlannedRequest]:
@@ -484,6 +524,14 @@ def plan_fail_to_pass(base: str, head: str = "HEAD") -> list[PlannedRequest]:
             argv=tuple(gate_row_argv(GATE_ROW_PLACEHOLDER)),
             condition=GATE_REPLAY,
             repeat=EACH_GATE_ROW,
+        )
+
+    def head_pytest(target: str) -> PlannedRequest:
+        return PlannedRequest(
+            method="pytest",
+            target=target,
+            argv=tuple(pytest_replay_argv(Path(tmp / "junit.xml"), [UNCHANGED_TESTS_PLACEHOLDER])),
+            condition=UNCHANGED_REPLAY,
         )
 
     requests = [
@@ -522,14 +570,19 @@ def plan_fail_to_pass(base: str, head: str = "HEAD") -> list[PlannedRequest]:
         git(worktree_prune_argv(), replay),
     ]
     if diff_head is None:
-        return [*requests, gate_row("the working tree")]
+        return [
+            *requests,
+            head_pytest("the working tree"),
+            gate_row("the working tree"),
+        ]
     head_tree = tmp / "head"
     return [
         *requests,
-        git(worktree_add_argv(head_tree, diff_head), GATE_REPLAY),
+        git(worktree_add_argv(head_tree, diff_head), HEAD_RUN),
+        head_pytest(str(head_tree)),
         gate_row(str(head_tree)),
-        git(worktree_remove_argv(head_tree), GATE_REPLAY),
-        git(worktree_prune_argv(), GATE_REPLAY),
+        git(worktree_remove_argv(head_tree), HEAD_RUN),
+        git(worktree_prune_argv(), HEAD_RUN),
     ]
 
 
@@ -553,7 +606,7 @@ def _read_junit_report(junit_path: Path) -> tuple[TestCaseOutcome, ...] | None:
     return tuple(parser.outcomes) if parser.root_closed else None
 
 
-def _run_pytest_on_base(
+def _run_pytest_replay(
     tree_dir: Path, junit_path: Path, test_files: Sequence[str]
 ) -> BaseReplayRun:
     """Run pytest on `test_files` inside `tree_dir` and parse its JUnit XML report.
@@ -587,7 +640,7 @@ def replay_on_base(
         tree_dir = tmp_path / "tree"
         try:
             materialise_base_with_head_tests(root, merge_base, head, tree_dir)
-            return _run_pytest_on_base(tree_dir, tmp_path / "junit.xml", test_files)
+            return _run_pytest_replay(tree_dir, tmp_path / "junit.xml", test_files)
         finally:
             remove_materialised_base(root, tree_dir)
 
@@ -637,6 +690,50 @@ def _unchanged_failures(
         if not is_test_changed(classes, name, *parses[path]):
             unchanged.append(outcome.test_id)
     return tuple(dict.fromkeys(unchanged))
+
+
+def _files_holding(
+    ids: Sequence[str], outcomes: Sequence[TestCaseOutcome], files: Sequence[str]
+) -> tuple[str, ...]:
+    """The changed test files that hold the tests named by `ids`."""
+    id_set = set(ids)
+    holding: list[str] = []
+    for outcome in outcomes:
+        if outcome.test_id in id_set and (location := _test_location(outcome, files)) is not None:
+            path, _, _ = location
+            if path not in holding:
+                holding.append(path)
+    return tuple(holding)
+
+
+def _repaired_and_refused(
+    unchanged: Sequence[str],
+    plain_base_outcomes: Sequence[TestCaseOutcome],
+    head_outcomes: Sequence[TestCaseOutcome],
+) -> tuple[tuple[TestCaseOutcome, ...], tuple[str, ...]]:
+    """Split `unchanged` failed test IDs into repaired outcomes and refused test IDs.
+
+    A test is repaired only when it fails on the plain merge base and passes on the head.
+    An unchanged test that passes on the plain merge base or that does not pass on the head
+    is refused.
+    """
+    plain_map = {o.test_id: o for o in plain_base_outcomes}
+    head_map = {o.test_id: o for o in head_outcomes}
+    repaired: list[TestCaseOutcome] = []
+    refused: list[str] = []
+    for test_id in unchanged:
+        pb = plain_map.get(test_id)
+        h = head_map.get(test_id)
+        if (
+            pb is not None
+            and pb.status in ("failed", "errored")
+            and h is not None
+            and h.status == "passed"
+        ):
+            repaired.append(h)
+        else:
+            refused.append(test_id)
+    return tuple(repaired), tuple(refused)
 
 
 def parse_gate_row_output(status: int, stdout: str, stderr: str) -> GateRowRun | None:
@@ -697,7 +794,7 @@ def _replay_tests(
     the fix does not change them. No changed test file starts no pytest."""
     if not test_files:
         return None, ()
-    run = _run_pytest_on_base(tree_dir, tree_dir.parent / "junit.xml", test_files)
+    run = _run_pytest_replay(tree_dir, tree_dir.parent / "junit.xml", test_files)
     if run.could_not_run is not None:
         return run, ()
     return run, _unchanged_failures(root, merge_base, tree_dir, test_files, run.outcomes)
@@ -713,7 +810,8 @@ def run_fail_to_pass(root: Path, *, base: str, head: str = "HEAD") -> FailToPass
         )
     rows = _check_modules_by_row(changed.gate_checks)
     with tempfile.TemporaryDirectory() as tmp:
-        tree_dir = Path(tmp) / "tree"
+        tmp_path = Path(tmp)
+        tree_dir = tmp_path / "tree"
         try:
             materialise_base_with_head_tests(root, changed.merge_base, head, tree_dir)
             run, unchanged_failed = _replay_tests(
@@ -722,9 +820,37 @@ def run_fail_to_pass(root: Path, *, base: str, head: str = "HEAD") -> FailToPass
             base_runs = {row: _run_gate_row(tree_dir, row) for row in rows}
         finally:
             remove_materialised_base(root, tree_dir)
-        head_runs = (
-            _run_gate_rows_on_head(root, head, list(rows), Path(tmp) / "head") if rows else {}
+
+        repaired: tuple[TestCaseOutcome, ...] = ()
+        head_could_not_run: int | None = None
+        has_guard_failure = run is not None and any(
+            outcome.status in ("failed", "errored")
+            and CONST_FAIL_TO_PASS_HOST_PATH_GUARD_MESSAGE in outcome.message
+            for outcome in run.outcomes
         )
+        if run is not None and unchanged_failed and not has_guard_failure:
+            replay_files = _files_holding(unchanged_failed, run.outcomes, changed.test_files)
+            with _plain_base_tree(root, changed.merge_base, tmp_path / "plain_base") as plain_dir:
+                plain_run = _run_pytest_replay(
+                    plain_dir, tmp_path / "plain_junit.xml", replay_files
+                )
+            with _head_tree(root, head, tmp_path / "head") as head_dir:
+                head_run = _run_pytest_replay(head_dir, tmp_path / "head_junit.xml", replay_files)
+                if head_run.could_not_run is not None:
+                    head_could_not_run = head_run.could_not_run.exit_status
+                    refused = unchanged_failed
+                else:
+                    repaired, refused = _repaired_and_refused(
+                        unchanged_failed, plain_run.outcomes, head_run.outcomes
+                    )
+                unchanged_failed = refused
+                head_runs = {row: _run_gate_row(head_dir, row) for row in rows}
+        elif rows:
+            with _head_tree(root, head, tmp_path / "head") as head_dir:
+                head_runs = {row: _run_gate_row(head_dir, row) for row in rows}
+        else:
+            head_runs = {}
+
     return FailToPassReport(
         merge_base=changed.merge_base,
         head=head,
@@ -737,6 +863,8 @@ def run_fail_to_pass(root: Path, *, base: str, head: str = "HEAD") -> FailToPass
             GateRowReplay(row=row, check_modules=modules, base=base_runs[row], head=head_runs[row])
             for row, modules in rows.items()
         ),
+        repaired=repaired,
+        head_could_not_run=head_could_not_run,
     )
 
 
@@ -810,6 +938,10 @@ def _unsatisfied_reasons(report: FailToPassReport, files_label: str) -> list[str
     if report.host_path_guard_failures:
         guarded = dict.fromkeys(outcome.test_id for outcome in report.host_path_guard_failures)
         return [MESSAGES.ci.fail_to_pass_guard_failed.format(tests=", ".join(guarded))]
+    if report.head_could_not_run is not None:
+        return [
+            MESSAGES.ci.fail_to_pass_head_could_not_run.format(status=report.head_could_not_run)
+        ]
     if report.unchanged_failed:
         return [
             MESSAGES.ci.fail_to_pass_unchanged_failed.format(
@@ -842,6 +974,12 @@ def format_fail_to_pass_report(report: FailToPassReport) -> str:
         )
         for outcome in report.outcomes
     ]
+    if report.repaired:
+        lines.append(
+            MESSAGES.ci.fail_to_pass_repaired.format(
+                tests=", ".join(outcome.test_id for outcome in report.repaired)
+            )
+        )
     files_label = (
         ", ".join(report.changed_test_files)
         if report.changed_test_files
