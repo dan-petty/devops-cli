@@ -74,7 +74,7 @@ def test_the_reply_schema_lists_the_values_of_each_fixed_field() -> None:
     ) == (
         {
             "type": ["type/bug", "type/feature"],
-            "priority": ["P1-High", "P2-Medium", "P3-Low"],
+            "priority": ["P0-Critical", "P1-High", "P2-Medium", "P3-Low"],
             "value": ["High", "Medium", "Low"],
             "effort": ["High", "Medium", "Low"],
         },

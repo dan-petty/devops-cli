@@ -95,6 +95,7 @@ from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.github.repo_ref import RepoRef
 from devops_cli.k8s.cluster_job import (
+    ITEM_LABEL,
     RUNNER_TEMPLATE,
     image_digest,
     repository_label,
@@ -446,9 +447,14 @@ def _emit_implement_metrics(
 def _report_ended(
     store: RoadmapStore, jobs: ClusterJobs, held: Mapping[str, ClusterJob], repo: str
 ) -> tuple[str, ...]:
+    """Report each ended Job of an item that has not been reported, as the module says. A held Job
+    whose item label does not name the item is not the Job of that item: the round leaves it and the
+    item alone (#5551)."""
     reported: list[str] = []
     for item, name in _unreported(store, held):
         job = held.get(name)
+        if job is not None and job.labels.get(ITEM_LABEL) != str(item.number):
+            continue
         if job is not None and job.state is JobState.RUNNING:
             continue
         _report(store, jobs, repo, item, name, job)

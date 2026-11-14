@@ -3929,8 +3929,13 @@ CONST_ROADMAP_COMMIT_TYPE_LABELS: Final[dict[str, str]] = {
 }
 # The label of a candidate an agent files.
 CONST_ROADMAP_SOURCE_AGENT_LABEL: Final[str] = "source/agent"
-# The Priority options the model may propose; only verified evidence sets P0-Critical.
-CONST_ROADMAP_MODEL_PRIORITIES: Final[tuple[str, ...]] = ("P1-High", "P2-Medium", "P3-Low")
+# The Priority options the model may propose.
+CONST_ROADMAP_MODEL_PRIORITIES: Final[tuple[str, ...]] = (
+    CONST_ROADMAP_CRITICAL_PRIORITY,
+    CONST_ROADMAP_P1_PRIORITY,
+    CONST_ROADMAP_P2_PRIORITY,
+    CONST_ROADMAP_P3_PRIORITY,
+)
 # The Value and Effort values, in the order of their labels' families (`value/high`, ...).
 CONST_ROADMAP_SIZE_OPTIONS: Final[tuple[str, ...]] = ("High", "Medium", "Low")
 # ── Jev decides the proposal fields of intake (#4298) ───────────────────────
@@ -3985,7 +3990,16 @@ CONST_ROADMAP_JEV_DUPLICATE_NO: Final[str] = (
 )
 # The answer options of the priority question, with what each one means.
 CONST_ROADMAP_JEV_PRIORITY_CRITERIA: Final[dict[str, str]] = {
-    "P1-High": "The change fixes a defect or closes a gap that blocks users or other work now.",
+    "P0-Critical": (
+        "User-facing problem on a website or service, data corruption, SRE SLI/SLO threshold "
+        "violation, live critical security defect, failing service job, blocking another P0 "
+        "issue, or failing or very slow CI."
+    ),
+    "P1-High": (
+        "Increased error rate or performance degradation, retries or multiple attempts, "
+        "increased AI spend without equivalent benefit, blocking another P1 issue, or live "
+        "high security defect."
+    ),
     "P2-Medium": "The change is useful and has no deadline: a normal item of the backlog.",
     "P3-Low": "The change is a small improvement or an idea that nothing waits for.",
 }
