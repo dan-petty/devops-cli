@@ -146,7 +146,7 @@ def test_both_cronjob_templates_set_the_runner_instance() -> None:
         },
         [],
         [],
-        {name: "devops-cli-job" for name in documents},
+        {"cronjob.yaml": "devops-cli-job", "cronjob-runner.yaml": "roadmap-implement"},
     )
 
 

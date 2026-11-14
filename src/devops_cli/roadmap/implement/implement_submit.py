@@ -93,7 +93,13 @@ from devops_cli.config.env import setting_variables
 from devops_cli.config.settings import load_settings
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.exceptions.roadmap import RoadmapImplementError
-from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, image_digest, job_name, repository_label
+from devops_cli.github.repo_ref import RepoRef
+from devops_cli.k8s.cluster_job import (
+    RUNNER_TEMPLATE,
+    image_digest,
+    repository_label,
+    runner_job_name,
+)
 from devops_cli.k8s.cluster_job_api import ClusterJob, ClusterJobs, JobState
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.claim import claimed_by, service_claim, service_release
@@ -475,7 +481,7 @@ def _create(
     None, with nothing written, when an agent or a person claimed the item since the plan."""
     number = target.item.number
     settings = load_settings().roadmap.implement
-    name = job_name(template=RUNNER_TEMPLATE)
+    name = runner_job_name(RepoRef(repo), number)
     cronjob = jobs.cronjob(RUNNER_TEMPLATE)
     marks = {
         ImplementRecordKey.JOB: name,
@@ -500,6 +506,8 @@ def _create(
                     int(datetime.now(UTC).timestamp())
                 )
             },
+            repo=repo,
+            item=number,
         )
     except ClusterJobError:
         service_release(store, number, {ImplementRecordKey.JOB: None})

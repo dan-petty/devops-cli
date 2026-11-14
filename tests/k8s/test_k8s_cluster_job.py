@@ -13,9 +13,12 @@ import yaml
 
 from devops_cli.github.repo_ref import RepoRef
 from devops_cli.k8s.cluster_job import (
+    RUNNER_TEMPLATE,
     STAGE_TEMPLATE,
     TemplateName,
     build_job,
+    runner_job_labels,
+    runner_job_name,
     stage_job_env,
     stage_job_labels,
     stage_job_name,
@@ -103,3 +106,61 @@ def test_the_job_names_itself_its_deadline_and_the_repository_of_its_token() -> 
         env["DEVOPS_CLI_ROADMAP_STAGE_JOB_DEADLINE"],
         env["DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY"],
     ) == (job["metadata"]["name"], "2026-11-13T15:00:00+00:00", "Example/Project")
+
+
+def test_runner_job_labels_and_annotation_reach_job_and_pod() -> None:
+    cronjob = yaml.safe_load(
+        (REPO_ROOT / "k8s/devops/cronjob-runner.yaml").read_text(encoding="utf-8")
+    )
+    repo = RepoRef("Dan-Petty/DevOps-CLI")
+    item = 4558
+    name = runner_job_name(repo, item)
+    job = build_job(
+        cronjob,
+        ["roadmap", "implement", "--repo", repo.display, "--item", str(item), "--confirm"],
+        name,
+        template=RUNNER_TEMPLATE,
+        repo=repo,
+        item=item,
+    )
+    wanted_labels = {
+        "app.kubernetes.io/name": "devops-cli-job",
+        "app.kubernetes.io/component": "roadmap-implement",
+        "app.kubernetes.io/part-of": "devops-cli-stack",
+        "app.kubernetes.io/managed-by": "devops-cli",
+        "roadmap.devops-cli/owner": "dan-petty",
+        "roadmap.devops-cli/repo": "devops-cli",
+        "roadmap.devops-cli/item": "4558",
+        "implement-repo": repo.id,
+    }
+    wanted_annotation = {"roadmap.devops-cli/repository": "dan-petty/devops-cli"}
+
+    assert (
+        wanted_labels.items() <= job["metadata"]["labels"].items(),
+        wanted_labels.items() <= job["spec"]["template"]["metadata"]["labels"].items(),
+        wanted_annotation.items() <= job["metadata"].get("annotations", {}).items(),
+        wanted_annotation.items()
+        <= job["spec"]["template"]["metadata"].get("annotations", {}).items(),
+    ) == (True, True, True, True)
+
+
+@pytest.mark.parametrize("name", ["devops-cli", "a-very-long-repository-name-" * 4])
+def test_runner_job_name_matches_adhoc_naming_rules(name: str) -> None:
+    repo = RepoRef(f"dan-petty/{name}")
+    job_name = runner_job_name(repo, 4558)
+
+    assert (len(job_name) <= 63, job_name.startswith("devops-cli-implement-")) == (True, True)
+
+
+def test_runner_job_labels_builds_expected_labels() -> None:
+    repo = RepoRef("Dan-Petty/DevOps-CLI")
+    labels = runner_job_labels(repo, 4558)
+    assert labels == {
+        "app.kubernetes.io/component": "roadmap-implement",
+        "app.kubernetes.io/part-of": "devops-cli-stack",
+        "app.kubernetes.io/managed-by": "devops-cli",
+        "roadmap.devops-cli/owner": "dan-petty",
+        "roadmap.devops-cli/repo": "devops-cli",
+        "roadmap.devops-cli/item": "4558",
+        "implement-repo": repo.id,
+    }

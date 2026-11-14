@@ -186,7 +186,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "The GitHub requests of the Service in the last hour, beside its limit service.github_requests_per_hour. The cluster Jobs do not count in this budget. To see their requests, set the variable Job to devops-cli-job and read the row GitHub API. If the list does not show this value, no Job ended or sent a request in the time range: make the range wider.",
+      "description": "The GitHub requests of the Service in the last hour, beside its limit service.github_requests_per_hour. The cluster Jobs do not count in this budget. To see their requests, set the variable Job to devops-cli-job or roadmap-implement and read the row GitHub API. If the list does not show this value, no Job ended or sent a request in the time range: make the range wider.",
       "fieldConfig": {
         "defaults": {
           "color": {

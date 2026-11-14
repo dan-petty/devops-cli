@@ -75,7 +75,7 @@ def test_confirm_starts_the_runner_job_with_the_args_and_the_repository(
     (container,) = job["spec"]["template"]["spec"]["containers"]
     assert (
         result.exit_code,
-        job["metadata"]["name"].startswith("devops-cli-runner-"),
+        job["metadata"]["name"].startswith("devops-cli-implement-"),
         container["name"],
         container["args"],
         {entry["name"]: entry["value"] for entry in container["env"]}[REPO_ENV],
