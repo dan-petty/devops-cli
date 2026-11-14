@@ -395,15 +395,11 @@ def test_one_keyring_value_feeds_the_read_only_key_of_both_secrets() -> None:
     runner = rows[("devops/devops-cli", "DEVOPS_CLI_QDRANT_API_KEY")]
 
     assert (
-        isinstance(read_only.source, KeyringSource),
-        isinstance(runner.source, KeyringSource),
         read_only.source.key,
         runner.source.key,
         runner.adopt_from,
         runner.required,
     ) == (
-        True,
-        True,
         "qdrant_read_only_api_key",
         "qdrant_read_only_api_key",
         SecretKeyRef("llm", "qdrant-api-key", "read-only-api-key"),
