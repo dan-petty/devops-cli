@@ -155,6 +155,28 @@ class RoadmapStatusLostError(GitHubOperationError):
         )
 
 
+class RoadmapRecordMarkLostError(GitHubOperationError):
+    """Raised after a job record write when a mark remains missing after two rewrites (#4555).
+
+    Another writer repeatedly overwrote the mark between the write and the read-back.
+    """
+
+    error_code = "ROADMAP_RECORD_MARK_LOST"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        operation: str = "roadmap.item.set_marks",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            operation=operation,
+            details=details,
+        )
+
+
 class RoadmapClaimError(DevOpsCLIError):
     """Raised when a claim of a roadmap Item is refused, because another owner holds it or
     because the issue is no Item (#2910).

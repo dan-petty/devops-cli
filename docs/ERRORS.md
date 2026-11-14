@@ -115,6 +115,7 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `RoadmapItemChangedError` | `ROADMAP_ITEM_CHANGED` | `1` | Roadmap | Raised before a job's field write that would revert a change made since it read the Item. |
 | `RoadmapMcpUnavailableError` | `ROADMAP_MCP_UNAVAILABLE` | `1` | Roadmap | Raised when the MCP server is unavailable at job start (#3221). |
 | `RoadmapPlanRewriteError` | `ROADMAP_PLAN_REWRITE_REFUSED` | `1` | Roadmap | Raised when `devops roadmap plan-recheck --confirm` refuses to write a rewritten plan (#3556). |
+| `RoadmapRecordMarkLostError` | `ROADMAP_RECORD_MARK_LOST` | `1` | Roadmap | Raised after a job record write when a mark remains missing after two rewrites (#4555). |
 | `RoadmapRefineError` | `ROADMAP_REFINE_FAILED` | `1` | Roadmap | Raised after a refine run in which the model call failed for one or more items. |
 | `RoadmapReviewError` | `ROADMAP_REVIEW_FAILED` | `1` | Roadmap | Raised when `devops roadmap review run` cannot resolve its window or read git (#4686). |
 | `RoadmapRunError` | `DEVOPS_CLI_ERROR` | `1` | Roadmap | Raised when one or more roadmap jobs fail during execution. |

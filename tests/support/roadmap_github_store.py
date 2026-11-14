@@ -69,6 +69,19 @@ class RecordedGh:
     def __call__(self, args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         self.calls.append((args, kwargs))
         command = " ".join(args)
+        if "-X" in args and "PATCH" in args and kwargs.get("input"):
+            try:
+                patch_data = json.loads(kwargs["input"])
+                if "labels" in patch_data and isinstance(patch_data["labels"], list):
+                    patch_data["labels"] = [
+                        {"name": label} if isinstance(label, str) else label
+                        for label in patch_data["labels"]
+                    ]
+                for issue_key, issue_val in list(self.replies.items()):
+                    if issue_key in command and isinstance(issue_val, dict):
+                        self.replies[issue_key] = issue_val | patch_data
+            except Exception:
+                pass
         key = next((key for key in self.replies if key in command), None)
         assert key is not None, f"no recorded reply for: {command}"
         reply = self.replies[key]
