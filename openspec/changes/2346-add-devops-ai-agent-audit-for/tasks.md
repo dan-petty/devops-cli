@@ -31,9 +31,9 @@ Kind: behavior. Reads: `src/devops_cli/ai/agent_audit/signature.py`. Changes: `s
 
 Kind: behavior. Reads: `src/devops_cli/core/repo.py`, `src/devops_cli/ai/agent_audit/finding.py`. Changes: `src/devops_cli/ai/agent_audit/store.py` (new), `tests/ai/agent_audit/test_store.py` (new).
 
-- [ ] 4.1 Write `tests/ai/agent_audit/test_store.py::test_a_second_run_keeps_the_count` first: it fails because a second run increments counts
+- [x] 4.1 Write `tests/ai/agent_audit/test_store.py::test_a_second_run_keeps_the_count` first: it fails because a second run increments counts
   - Verification: `$ uv run devops ci test tests/ai/agent_audit/test_store.py` fails on the base
-- [ ] 4.2 Add `src/devops_cli/ai/agent_audit/store.py`. `store_path(day)` resolves date files under store name `agent/audit` via `resolve_store_path`. `merge_counts(path, findings)` adds only unseen session files and line numbers, preserving existing counts idempotently. The file holds signatures, counts, and pointers without raw lines, and text is sanitized before writing
+- [x] 4.2 Add `src/devops_cli/ai/agent_audit/store.py`. `store_path(day)` resolves date files under store name `agent/audit` via `resolve_store_path`. `merge_counts(path, findings)` adds only unseen session files and line numbers, preserving existing counts idempotently. The file holds signatures, counts, and pointers without raw lines, and text is sanitized before writing
   - Verification: `$ uv run devops ci test tests/ai/agent_audit/test_store.py` passes
 
 ## 5. Mark a warning that an open issue names as tracked
