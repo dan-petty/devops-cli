@@ -513,28 +513,35 @@ def _change_one_character(path: Path) -> None:
     path.write_text(("Y" if text[0] == "X" else "X") + text[1:], encoding="utf-8")
 
 
-def test_the_prompt_digest_changes_with_any_review_prompt_and_nothing_else(tmp_path: Path) -> None:
-    """Verify the digest is 16 stable hex characters, moves with one character of a task or
-    persona prompt, and ignores files that are not prompts (#413)."""
-    personas_dir = Path(personas.__file__).parent
-    tasks, roles = tmp_path / "tasks", tmp_path / "personas"
-    shutil.copytree(personas_dir.parent / "tasks", tasks)
-    shutil.copytree(personas_dir, roles, ignore=shutil.ignore_patterns("__pycache__"))
+def test_the_prompt_digest_changes_with_a_review_prompt_and_ignores_the_personas(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The digest is 16 stable hex characters, moves with one character of a review prompt,
+    ignores a chat persona and ignores files that are not prompts (#413, #4829)."""
+    tasks = tmp_path / "tasks"
+    shutil.copytree(Path(personas.__file__).parent.parent / "tasks", tasks)
+    persona = tmp_path / "personas" / "challenger"
+    persona.mkdir(parents=True)
+    (persona / "prompt.md").write_text("a chat persona\n", encoding="utf-8")
+    monkeypatch.setattr(personas, "_PERSONAS_DIR", persona.parent)
+    import inspect
+
+    assert "personas_dir" not in inspect.signature(review_prompt_digest).parameters
     package = review_prompt_digest()
-    copy = review_prompt_digest(tasks, roles)
+    copy = review_prompt_digest(tasks)
     _change_one_character(tasks / "review.md")
-    task_edit = review_prompt_digest(tasks, roles)
-    _change_one_character(roles / "devsecops" / "prompt.md")
-    persona_edit = review_prompt_digest(tasks, roles)
+    task_edit = review_prompt_digest(tasks)
+    _change_one_character(persona / "prompt.md")
+    persona_edit = review_prompt_digest(tasks)
     (tasks / "helper.py").write_text("x = 1\n", encoding="utf-8")
-    (roles / "helper.py").write_text("x = 1\n", encoding="utf-8")
 
     assert (
         (len(package), int(package, 16) >= 0, review_prompt_digest() == package),
         copy == package,
-        len({copy, task_edit, persona_edit}),
-        review_prompt_digest(tasks, roles) == persona_edit,
-    ) == ((16, True, True), True, 3, True)
+        task_edit != copy,
+        persona_edit == task_edit,
+        review_prompt_digest(tasks) == task_edit,
+    ) == ((16, True, True), True, True, True, True)
 
 
 def test_a_profile_records_the_digest_of_the_prompts_it_ran_with() -> None:
@@ -573,21 +580,17 @@ def test_a_review_warns_when_prompts_change_during_the_run(
     tasks = tmp_path / "tasks"
     tasks.mkdir()
     (tasks / "review.md").write_text("initial prompt\n", encoding="utf-8")
-    personas_dir = tmp_path / "personas"
-    personas_dir.mkdir()
-    (personas_dir / "role.md").write_text("initial role\n", encoding="utf-8")
-
     monkeypatch.setattr(
         profile_module,
         "review_prompt_digest",
-        lambda: personas.review_prompt_digest(tasks_dir=tasks, personas_dir=personas_dir),
+        lambda: personas.review_prompt_digest(tasks_dir=tasks),
     )
     warnings: list[str] = []
     monkeypatch.setattr(runner, "print_warning", lambda message, **kwargs: warnings.append(message))
     session = ReviewSession(tmp_path / "session")
     orchestrator = MagicMock(session_id="s1", session=session)
 
-    start_digest = personas.review_prompt_digest(tasks_dir=tasks, personas_dir=personas_dir)
+    start_digest = personas.review_prompt_digest(tasks_dir=tasks)
     with profiling() as profiler:
         if mutation == "edited":
             (tasks / "review.md").write_text("modified prompt\n", encoding="utf-8")
