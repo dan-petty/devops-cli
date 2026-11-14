@@ -2,7 +2,7 @@
 
 This guideline sets how a managed project runs its services by SRE practice. It covers the service catalog, the SLOs and error budgets, and the alerts. It also covers the incidents, the postmortems, the change safety, the backups, the capacity and the runbooks. For each topic, it gives the target, the method and the rules. It applies with no change to each managed project. The README of the environment tree of a project holds the decisions of its environment. These are the catalog data, the SLO objectives and the owner values that differ from a default of this guideline. They also include the accepted exceptions and the link to the gap tracker of the environment.
 
-Other guidelines share the area. The [production readiness guideline](production-readiness.md) sets the rows that a service and a repository meet before a launch. The Kubernetes guideline owns the requests, the limits, the placement and the runtimes of the pods. The agentic jobs guideline owns the success, the limits and the tuning of an agentic job. [The guideline index](index.md) lists each guideline.
+Other guidelines share the area. The [production readiness guideline](production-readiness.md) sets the rows that a service and a repository meet before a launch. The [Kubernetes guideline](kubernetes.md) owns the requests, the limits, the placement and the runtimes of the pods. The agentic jobs guideline owns the success, the limits and the tuning of an agentic job. [The guideline index](index.md) lists each guideline.
 
 ## Scope
 
@@ -117,7 +117,7 @@ Write a postmortem for each incident that used more than 20 % of the 28-day budg
 - The request paths of tier 1 stay up when one worker node stops. The catalog gives the tier 1 services.
 - State on a node-local volume stops with its node. The README of the environment tree lists each service that the owner accepts this for. The off-node backup of [Table 3](#backups-and-restores) limits the loss.
 - A tier 2 service that holds only derived data can stop until a scheduled run builds it again on another node. While a shared cache is down, each read goes to the next tier or to the source.
-- The requests of the pods that can move fit on the other nodes. The Kubernetes guideline holds that check, and it owns the requests and limits of each pod.
+- The requests of the pods that can move fit on the other nodes. Target T6 of the [Kubernetes guideline](kubernetes.md#targets) holds that check, and that guideline owns the requests and limits of each pod.
 
 ## Method
 
@@ -212,7 +212,7 @@ A project with no compatibility guarantee removes the old path and adds no shim.
 - Read the use, the request and the limit of each tier 1 and tier 2 service. Its dashboard shows them ([the design spec](../DESIGN.md#chart-rules) C12 (f)).
 - Check the loss of one worker node by the [Capacity](#capacity) target. A pod with a node-local volume cannot move to another node.
 - Label a projection as a projection.
-- Change a request or a limit by the tuning loop of the Kubernetes guideline.
+- Change a request or a limit by [the tuning loop](kubernetes.md#the-tuning-loop) of the Kubernetes guideline.
 
 ### Runbooks
 
