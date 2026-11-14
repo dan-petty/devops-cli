@@ -6209,6 +6209,15 @@ class RoadmapMessages:
             ),
         }
     )
+    # The report of `devops roadmap registries` (#3332).
+    registries_title: str = "Test registry declarations"
+    registries_col_token: str = "Token"
+    registries_col_kind: str = "Kind"
+    registries_col_target: str = "Target path"
+    registries_col_source: str = "Source"
+    registries_valid: str = (
+        "All {count} registry declarations are valid. The audit reports no finding."
+    )
 
 
 @dataclass(frozen=True)

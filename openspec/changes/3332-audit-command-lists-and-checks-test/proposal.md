@@ -11,7 +11,7 @@ The stage job reads the module-level `REGISTRY_COUNTS` declarations of the test 
 - Add the `registries` subcommand to the `roadmap` group in `src/devops_cli/commands/roadmap.py`, with a table, `--format`/`-f`, `--json`/`-j`, `--path`, the count of valid declarations on exit 0 and exit 1 on a finding.
 - Report a `len(<name>) == <int>` assertion and a tuple of upper-case constant names compared with plain integers, in any test module whose declarations cover no such name, with its `path:line`, and exit 1.
 - Declare the `no-external-request` dry-run class on the subcommand, so the dry-run ratchet reports no unclassified command.
-- Add the help texts of the subcommand and of its `--path` option to `src/devops_cli/lang/en/help.py`.
+- Add the help texts of the subcommand and of its `--path` option to `src/devops_cli/lang/en/help.py`, and the title, the column names and the valid-audit line of the report to `src/devops_cli/lang/en/messages.py`.
 - Add `tests/roadmap/test_registry_audit.py` for the scan and `tests/commands/test_roadmap_registries.py` for the command, with the exit codes, the printed count and the JSON output.
 - Regenerate `docs/CLI_REFERENCE.md` and `docs/commands/roadmap.md` with `uv run devops docs generate`, and pass `uv run devops docs check`.
 - The change fits one pull request.
@@ -28,7 +28,7 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/stage/stage_registry.py`, `src/devops_cli/roadmap/registry_audit.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/commands/roadmap.py`
+- Code: `src/devops_cli/roadmap/stage/stage_registry.py`, `src/devops_cli/roadmap/registry_audit.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/commands/roadmap.py`
 - Documents: `docs/CLI_REFERENCE.md`, `docs/commands/roadmap.md`
 - Tests: `tests/roadmap/test_registry_audit.py`, `tests/commands/test_roadmap_registries.py`
 

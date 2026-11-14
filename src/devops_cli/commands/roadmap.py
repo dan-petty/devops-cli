@@ -46,7 +46,16 @@ from devops_cli.dry_run import PlannedRequest, dry_run_class, is_dry_run
 from devops_cli.exceptions import DevOpsCLIError, RoadmapRunError
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.lang import HELP, MESSAGES
-from devops_cli.output import print_error, print_info, print_success, write_stdout
+from devops_cli.output import (
+    print_error,
+    print_info,
+    print_success,
+    print_table,
+    print_warning,
+    render_table,
+    write_stderr,
+    write_stdout,
+)
 from devops_cli.roadmap.claim import (
     Claimant,
     apply_claim,
@@ -1088,6 +1097,57 @@ def _inbox_repos(repo: str | None, configured: Sequence[str]) -> list[str]:
     if not configured:
         raise ConfigurationError(MESSAGES.roadmap.inbox_no_repos, key="service.repos")
     return list(configured)
+
+
+@app.command("registries", help=HELP.roadmap.registries)
+@dry_run_class("no-external-request")
+def registries_cmd(
+    path: Annotated[Path | None, typer.Option("--path", help=HELP.roadmap.registries_path)] = None,
+    output_format: Annotated[
+        str, typer.Option("--format", "-f", help=HELP.options.format_type)
+    ] = DEFAULT_TABLE_FORMAT,
+    json_output: Annotated[
+        bool, typer.Option("--json", "-j", help=HELP.options.json_output)
+    ] = False,
+) -> None:
+    """List the test registry declarations of a checkout and audit them (#3332)."""
+    from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
+    from devops_cli.output.serialization import emit_serialized, resolve_format
+    from devops_cli.roadmap.registry_audit import CONST_SEVERITY_ERROR, audit_registries
+
+    fmt = resolve_format(output_format, json_output=json_output)
+    root = path if path is not None else find_repo_root(Path.cwd())
+    audit = audit_registries(root)
+    rows = [
+        {
+            "token": entry.token,
+            "kind": entry.kind,
+            "path": entry.path,
+            "source": f"{entry.declaring_path}:{entry.line}",
+        }
+        for entry in audit.entries
+    ]
+    if fmt == CONST_OUTPUT_FORMAT_TABLE:
+        print_table(
+            render_table(
+                title=MESSAGES.roadmap.registries_title,
+                columns=[
+                    MESSAGES.roadmap.registries_col_token,
+                    MESSAGES.roadmap.registries_col_kind,
+                    MESSAGES.roadmap.registries_col_target,
+                    MESSAGES.roadmap.registries_col_source,
+                ],
+                rows=[[row["token"], row["kind"], row["path"], row["source"]] for row in rows],
+            )
+        )
+    else:
+        emit_serialized(rows, fmt)
+    for finding in audit.findings:
+        report = print_error if finding.severity == CONST_SEVERITY_ERROR else print_warning
+        report(f"{finding.location}: {finding.message}", safe=True, to_stderr=True)
+    if audit.findings:
+        raise typer.Exit(1)
+    write_stderr(MESSAGES.roadmap.registries_valid.format(count=audit.declarations) + "\n")
 
 
 @app.command("onboard", help=HELP.roadmap.onboard)
