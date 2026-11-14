@@ -43,6 +43,7 @@ USER_DATA_ROOT_VARIABLE = "DEVOPS_CLI_USER_DATA_ROOT"
 UV_VERSION = "0.13.7"
 GH_VERSION = "2.103.3"
 NODE_MAJOR = "24"
+ACTIONLINT_VERSION = "1.17.1"
 
 
 class ToolSource(StrEnum):
@@ -141,6 +142,15 @@ RUNNER_TOOLS: tuple[RunnerTool, ...] = (
     _apt("curl", "test:live"),
     _apt("jq", "test:live"),
     _locked("promtool", "gate:test"),
+    RunnerTool(
+        "actionlint",
+        ToolSource.IMAGE_PIN,
+        ("ci:actionlint", "gate:static", "hook:devops-ci-workflows-pre-push"),
+        ("actionlint", "--version"),
+        pin=ACTIONLINT_VERSION,
+    ),
+    _apt("shellcheck", "ci:actionlint"),
+    _locked("trivy", "gate:static"),
     _base("nice", "ci:security"),
     _base(
         "timeout",
@@ -170,18 +180,12 @@ _SCANNER = (
     "gate (#2165). The runner does the same as the gate."
 )
 _NO_GATE_STEP = "No step of a required job of `ci.yml` runs it."
-_IMAGE_SCAN = (
-    "The image scan of `ci.yml` and `release.yml` fails on the HIGH findings that the newest "
-    "release holds: {finding}. The scan stays as it is, so the image waits for a release without "
-    "them (#3108). A Job cannot run the {rows}, so the pull request checks it."
-)
-# A hook of `.pre-commit-config.yaml` that runs a program from `NOT_IN_RUNNER`, with the programs
-# it runs. The Job leaves the hook out of the configuration it gives `pre-commit` when one of its
-# programs is not on PATH, because no agent can repair a missing program. The checks of the pull
-# request run the hook (#3134). A test holds that each program is in `NOT_IN_RUNNER`.
-HOOK_PROGRAMS: dict[str, tuple[str, ...]] = {
-    "devops-ci-workflows-pre-push": ("actionlint",),
-}
+# A hook of `.pre-commit-config.yaml` that runs a program that the image does not hold, with the
+# programs it runs. The Job leaves the hook out of the configuration it gives `pre-commit` when one
+# of its programs is not on PATH, because no agent can repair a missing program. The checks of the
+# pull request run the hook (#3134). The image holds actionlint since 1.17.1 (#3108), so no hook
+# needs this table today; a test holds that each program here is in `NOT_IN_RUNNER`.
+HOOK_PROGRAMS: dict[str, tuple[str, ...]] = {}
 
 
 def hooks_without_programs(search_path: str | None = None) -> tuple[str, ...]:
@@ -221,17 +225,6 @@ NOT_IN_RUNNER: dict[str, str] = {
     ),
     "ansible-core": (
         "No gate row, hook or job starts Ansible. Only `devops infra` starts it, on a workstation."
-    ),
-    "actionlint": _IMAGE_SCAN.format(
-        finding="Go standard library 1.27.0 (four CVEs) in actionlint 1.17.0",
-        rows="`actionlint` row",
-    ),
-    "shellcheck": (
-        "Only actionlint runs it, and the image scan keeps actionlint out (see `actionlint`)."
-    ),
-    "trivy": _IMAGE_SCAN.format(
-        finding="go-jose 4.1.5 (CVE-2026-116587, fixed in 4.1.6) in Trivy 0.76.1",
-        rows="IaC scan of the Security Scan step",
     ),
     "gh-dash": _NO_GATE_STEP,
     "tuicr": _NO_GATE_STEP,
