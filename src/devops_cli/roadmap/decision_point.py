@@ -13,9 +13,9 @@ A `ResolverChain` resolves a point in this order and stops at the first resolver
 3. the fallback: no band, and the workflow does what it did before the point. An error of the
    request, a missing answer or cut, a digest that holds a secret, or a cuts file of another model
    than the model in use gives the fallback, and the log names the cause. The failed counter counts
-   the class of the error. An error that no class names is a defect, so its log line also holds
-   its trace. The chain loads the cuts of the point before the request, so no request goes to a
-   model that the cuts do not cover.
+   the class of the error. An error that `FAILED` does not name is a defect, so its log line also
+   holds its trace. The chain loads the cuts of the point before the request, so no request goes
+   to a model that the cuts do not cover.
 
 `ResolverChain.decide` sends the request on the one blocking portal of the process, so a caller
 that runs an event loop may call it. `ResolverChain.adecide` awaits the same request on the loop of
@@ -282,7 +282,7 @@ class ResolverChain[T]:
             logger.warning(self._failure_line(subject, exc))
             resolved = self._failed(exc)
         except Exception as exc:
-            # No class names this error, so it is a defect and the log keeps its trace.
+            # `FAILED` does not name this error, so it is a defect and the log keeps its trace.
             logger.warning(self._failure_line(subject, exc), exc_info=exc)
             resolved = self._failed(exc)
         return self._counted(subject, state, resolved, answers, started)
@@ -301,7 +301,7 @@ class ResolverChain[T]:
             logger.warning(self._failure_line(subject, exc))
             resolved = self._failed(exc)
         except Exception as exc:
-            # No class names this error, so it is a defect and the log keeps its trace.
+            # `FAILED` does not name this error, so it is a defect and the log keeps its trace.
             logger.warning(self._failure_line(subject, exc), exc_info=exc)
             resolved = self._failed(exc)
         return self._counted(subject, state, resolved, answers, started)
@@ -316,7 +316,7 @@ class ResolverChain[T]:
 
     def _failed(self, exc: BaseException) -> _Resolved:
         """The fallback of an error of the chain, with its class in the failed counter. The caller
-        logs the cause, and the trace of an error that no class of `FAILED` names."""
+        logs the cause, and the trace of an error that `FAILED` does not name."""
         emit(
             DECISION_POINT_FAILED_TOTAL,
             1,

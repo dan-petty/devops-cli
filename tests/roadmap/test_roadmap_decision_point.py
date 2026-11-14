@@ -309,9 +309,9 @@ def _broken_rule(digest: Mapping[str, Any]) -> Band | None:
 def test_an_error_that_no_class_names_logs_its_trace(
     tmp_path: Path, jev: JevFake, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """An error that no class of `FAILED` names is a defect, so `decide` and `adecide` log the
-    line of the fallback with the trace of the error. A known error, such as a question with no
-    cut, logs its line with no trace (#5272)."""
+    """An error that `FAILED` does not name is a defect, so `decide` and `adecide` log the line of
+    the fallback with the trace of the error. An error of `FAILED`, such as a cut that the model
+    does not answer, logs its line with no trace (#5272)."""
     broken = _chain(_point(_cuts(tmp_path), rule=_broken_rule), jev)
 
     with caplog.at_level(logging.WARNING):
