@@ -572,7 +572,7 @@ def test_a_run_on_a_claude_group_sums_and_prices_the_cache_tokens_of_its_replies
     )
 
     record_run_spend(
-        _GatewayModel(sonnet),  # type: ignore[arg-type]
+        _GatewayModel(sonnet),
         [ModelRequest(parts=[UserPromptPart("go")]), reply, reply],
         0.5,
         stage="stage",
