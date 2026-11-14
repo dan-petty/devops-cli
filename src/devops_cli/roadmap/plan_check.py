@@ -464,6 +464,7 @@ def _size_problems(proposal: StageProposal, folder: PlanFolder) -> list[PlanProb
     measured = measure_groups(folder.checkout, proposal.groups, shared=shared)
     path = f"{folder.root}/tasks.md"
     problems: list[PlanProblem] = []
+    created: set[str] = set()
     for number, item in enumerate(measured, start=1):
         title = item.group.title
         if item.tokens > folder.budget:
@@ -471,9 +472,12 @@ def _size_problems(proposal: StageProposal, folder: PlanFolder) -> list[PlanProb
                 number=number, title=title, tokens=item.tokens, budget=folder.budget
             )
             problems.append(PlanProblem(path, "group-over-budget", message))
-        if item.files == 0 and not set(item.group.changes) <= set(item.group.creates):
+        # A later group can change a file that an earlier group of the same plan creates, and
+        # that file is not in the tree yet (#3973).
+        if item.files == 0 and not set(item.group.changes) <= set(item.group.creates) | created:
             message = texts.plan_check_group_no_files.format(number=number, title=title)
             problems.append(PlanProblem(path, "group-no-files", message))
+        created.update(item.group.creates)
     return problems
 
 

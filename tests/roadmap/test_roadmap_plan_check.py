@@ -689,3 +689,34 @@ def test_a_group_that_packs_no_file_is_reported(stage_repo: StageRepo) -> None:
     assert problem.message == MESSAGES.roadmap.plan_check_group_no_files.format(
         number=1, title=group.title
     )
+
+
+def test_a_group_that_changes_a_file_an_earlier_group_creates_is_not_reported(
+    stage_repo: StageRepo,
+) -> None:
+    """A file that a prior group of the same plan creates is not in the tree, but the later group
+    that changes it packs no file of its own (#3973)."""
+    base = make_stage_proposal().groups[0]
+    created = "src/devops_cli/new_module.py"
+    first = base.model_copy(
+        update={
+            "changes": [*base.changes, created],
+            "creates": [created],
+            "creates_lines": {created: 20},
+        }
+    )
+    second = base.model_copy(
+        update={
+            "title": "Change the new module",
+            "test": "Write the test of the new module",
+            "implementation": "Keep the new module",
+            "changes": [created],
+            "creates": [],
+            "creates_lines": {},
+        }
+    )
+    sha = _push(stage_repo, _change(make_stage_proposal(groups=[first, second])))
+
+    result = _run(stage_repo, _facts(stage_repo, sha=sha))
+
+    assert [problem.rule for problem in result.problems if problem.rule == "group-no-files"] == []
