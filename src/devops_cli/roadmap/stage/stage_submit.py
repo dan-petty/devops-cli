@@ -86,6 +86,7 @@ from devops_cli.k8s.cluster_job_api import ClusterJob, ClusterJobs, JobState
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.claim import service_claim, service_release
 from devops_cli.roadmap.failure import FailureClass, FailureEvidence, classify_failure
+from devops_cli.roadmap.job_result import LINE_PREFIX
 from devops_cli.roadmap.round_log import log_failed_item
 from devops_cli.roadmap.stage.stage import (
     StageFailure,
@@ -267,6 +268,7 @@ def _recover(
             now=now,
             failure=failure,
             marks=marks,
+            log_line=not (job is not None and LINE_PREFIX in _log_tail(api, job.name)),
         )
         if written is None:
             continue

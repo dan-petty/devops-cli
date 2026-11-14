@@ -1806,8 +1806,8 @@ class RoadmapCommandHelp:
     stage_job_item: str = (
         "Run as the stage Job of the one issue this number names: keep every rule of a round, "
         "plan and write that issue alone, and end with the exit code of the Job (0 result, "
-        "1 failure, 75 evicted, 143 deadline). Needs --confirm and no --item. The pod of a Job "
-        "from CronJob roadmap-stage runs it. Details: docs/roadmap/stage.md."
+        "1 non-retryable failure, 75 evicted or retryable failure, 143 deadline). Needs --confirm "
+        "and no --item. The pod of a Job from CronJob roadmap-stage runs it. Details: docs/roadmap/stage.md."
     )
     stage_filter: str = (
         "A label filter in the form family=value, over the families status, priority, type, "
