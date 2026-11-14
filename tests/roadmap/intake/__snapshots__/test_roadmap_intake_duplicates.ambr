@@ -23,7 +23,25 @@
   - `related_reason`: one line that says what the two items share and how their changes differ, or an empty string.
   - `type`: exactly one of the `types` values. Code takes the type from the Conventional Commit prefix of the title, and uses your `type` only for a title with no such prefix.
   - `type_reason`: one line.
-  - `priority`: exactly one of `P1-High`, `P2-Medium` or `P3-Low`. Never anything else: a person, or verified evidence, decides P0.
+  - `priority`: exactly one of `P0-Critical`, `P1-High`, `P2-Medium` or `P3-Low`.
+    Choose `P0-Critical` for:
+    - an issue that is causing user-facing problems on a website or a service;
+    - anything causing data corruption;
+    - problems causing violations of the SLI/SLO thresholds for SRE standards;
+    - live critical security vulnerabilities or issues;
+    - any issue causing service jobs to fail;
+    - any issue that is blocking another P0 issue;
+    - any issue causing CI to fail or be very slow.
+    Choose `P1-High` for:
+    - any issue causing increased error rates or performance degradation;
+    - any issue causing an increased need for retries or multiple attempts;
+    - any issue causing increased AI spend without an equivalent benefit to the performance of the task;
+    - any issue blocking another P1 issue;
+    - live high security vulnerabilities or issues.
+    Choose `P2-Medium` for:
+    - a normal item of the backlog with no immediate blocker or deadline.
+    Choose `P3-Low` for:
+    - a small improvement or an idea that nothing waits for.
   - `priority_reason`: one line.
   - `value`: `High`, `Medium` or `Low`: how much the change is worth to the project's users.
   - `value_reason`: one line.
