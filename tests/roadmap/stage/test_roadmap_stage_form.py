@@ -11,8 +11,9 @@ import pytest
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.stage.stage_change import (
+    STAGE_EVAL_GATE_PATHS,
+    STAGE_EVAL_LIVE,
     STAGE_EVAL_REPLAY,
-    STAGE_EVAL_TRIGGER_PATHS,
     StageGroup,
     StageProposal,
     StageRequirement,
@@ -494,7 +495,7 @@ def _with_task(plan: StageProposal, text: str) -> StageProposal:
     return plan.model_copy(update={"groups": [group]})
 
 
-@pytest.mark.parametrize("path", STAGE_EVAL_TRIGGER_PATHS)
+@pytest.mark.parametrize("path", STAGE_EVAL_GATE_PATHS)
 def test_a_plan_that_changes_a_trigger_path_with_no_replay_task_is_refused(path: str) -> None:
     (problem,) = _problems(_plan(path))
 
@@ -524,10 +525,20 @@ def test_a_replay_task_without_the_score_is_refused() -> None:
 
 
 def test_a_replay_task_with_the_score_passes() -> None:
-    path = "src/devops_cli/ai/tasks/roadmap_stage_change.md"
+    path = "src/devops_cli/roadmap/stage/stage_change.py"
     plan = _with_task(
         _plan(path),
         f"Run `{STAGE_EVAL_REPLAY}` and state {_REPLAY_SCORE}.",
+    )
+
+    assert _problems(plan) == []
+
+
+def test_a_live_task_with_the_score_passes() -> None:
+    path = "src/devops_cli/ai/tasks/roadmap_stage_change.md"
+    plan = _with_task(
+        _plan(path),
+        f"Run `{STAGE_EVAL_LIVE} 3` and state {_REPLAY_SCORE}.",
     )
 
     assert _problems(plan) == []

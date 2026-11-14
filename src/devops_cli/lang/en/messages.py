@@ -4966,6 +4966,14 @@ class RoadmapMessages:
         "and its literal `{literal}` names one module of the moved prefix. Search the dotted "
         "prefix, such as `{expected}`, so the check covers every module."
     )
+    stage_problem_eval_live: str = (
+        "Group {group} changes the stage prompt `{path}`, so a task must run the live score "
+        "`{command} <n>` with the words score, before and after."
+    )
+    stage_problem_eval_live_score: str = (
+        "Group {group} runs the live score `{command} <n>` of `{path}`, so that task must also "
+        "state the score before and after the change."
+    )
     stage_problem_eval_replay: str = (
         "Group {group} changes `{path}`. A plan that changes the stage prompt or a check of the "
         "stage job must run `{command}` in one group task and state the score before and after "
