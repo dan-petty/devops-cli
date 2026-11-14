@@ -29,9 +29,9 @@ Kind: other. Reads: `docs/ENV_VARS.md`, `src/devops_cli/config/settings.py`. Cha
 
 Kind: other. Reads: `docs/CLUSTER.md`, `tests/config/test_k8s_devops_runtime.py`, `k8s/devops/configmap.example.yaml`. Changes: `docs/CLUSTER.md`, `tests/config/test_k8s_devops_runtime.py`.
 
-- [ ] 4.1 Add the case `test_the_size_section_names_the_default_and_the_example_limit` to `tests/config/test_k8s_devops_runtime.py` first: read the Size and Deadline lines of `docs/CLUSTER.md` and assert that the example ConfigMap sets `16Gi` with #5484 and that the Deadline paragraph reflects the 16Gi template limit; it fails until the update is there. Then update both sections in `docs/CLUSTER.md`
+- [x] 4.1 Add the case `test_the_size_section_names_the_default_and_the_example_limit` to `tests/config/test_k8s_devops_runtime.py` first: read the Size and Deadline lines of `docs/CLUSTER.md` and assert that the example ConfigMap sets `16Gi` with #5484 and that the Deadline paragraph reflects the 16Gi template limit; it fails until the update is there. Then update both sections in `docs/CLUSTER.md`
   - Verification: `$ uv run devops ci test tests/config/test_k8s_devops_runtime.py` passes
-- [ ] 4.2 Edit `docs/CLUSTER.md` so the Size and Deadline sections state the 16Gi template limit
+- [x] 4.2 Edit `docs/CLUSTER.md` so the Size and Deadline sections state the 16Gi template limit
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
