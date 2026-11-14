@@ -375,3 +375,34 @@ def test_a_staged_item_clears_its_count(
     assert StageRecordKey.BRANCH.value in record
     assert StageRecordKey.PLAN_DEFECTS.value not in record
     assert StageRecordKey.PLAN_DEFECTS_BODY.value not in record
+
+
+def test_a_degenerate_reply_at_the_limit_gives_one_bullet(
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+    openspec_fake: OpenSpecFake,
+) -> None:
+    """The degenerate reply is a refused reply, so its problem is the reason and appears once
+    (#4618)."""
+    from tests.roadmap.stage.test_roadmap_stage_refused_reply import _placeholders
+
+    store = _two_items(InMemoryRoadmapStore(repo=STAGE_REPO), openspec_fake, github_api)
+    _fail_to_the_limit(store, 1, less=1)
+
+    def plan(prompt: str) -> Any:
+        request = json.loads(prompt)
+        if "plan" not in request and request["number"] == 1:
+            return _placeholders()
+        return make_stage_proposal()
+
+    no_findings(model_fake)
+    model_fake.answer(plan)
+
+    stage_round(store, stage_repo)
+
+    assert _status(store, 1) == "New"
+    [comment] = _stage_comments(store, 1)
+    bullets = _bullets(comment)
+    assert bullets
+    assert len(bullets) == len(set(bullets))
