@@ -365,6 +365,9 @@ def test_grafana_pins_each_drilldown_app_at_its_release_for_grafana_13() -> None
     assert {
         app: _pinned_major(pinned.get(app, "")) for app in GRAFANA_DRILLDOWN_APPS
     } == dict.fromkeys(GRAFANA_DRILLDOWN_APPS, GRAFANA_13_DRILLDOWN_MAJOR)
+    assert {app: pinned.get(app) for app in GRAFANA_DRILLDOWN_APPS} == dict.fromkeys(
+        GRAFANA_DRILLDOWN_APPS, "3.2.0"
+    )
 
 
 def test_grafana_pins_the_llm_app_at_its_release_for_grafana_13() -> None:

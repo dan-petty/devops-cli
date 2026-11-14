@@ -107,9 +107,9 @@ grafana.ini:
 # installed version (#2022). Renovate proposes each new release of a plugin in its own pull
 # request, held to this major (#2054).
 plugins:
-  - grafana-lokiexplore-app@3.1.0
-  - grafana-metricsdrilldown-app@3.1.0
-  - grafana-pyroscope-app@3.1.0
+  - grafana-lokiexplore-app@3.2.0
+  - grafana-metricsdrilldown-app@3.2.0
+  - grafana-pyroscope-app@3.2.0
   - grafana-exploretraces-app@3.2.0
   - grafana-llm-app@1.2.0
 
