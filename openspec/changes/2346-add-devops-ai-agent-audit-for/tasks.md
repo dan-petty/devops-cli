@@ -13,9 +13,9 @@ Kind: behavior. Reads: `src/devops_cli/security/sanitizer.py`. Changes: `src/dev
 
 Kind: behavior. Reads: `src/devops_cli/ai/agent_audit/transcript.py`. Changes: `src/devops_cli/ai/agent_audit/signature.py` (new), `tests/ai/agent_audit/test_signature.py` (new).
 
-- [ ] 2.1 Write `tests/ai/agent_audit/test_signature.py::test_paths_and_numbers_are_replaced` first: it fails because two commands differing in a path and number produce distinct signatures
+- [x] 2.1 Write `tests/ai/agent_audit/test_signature.py::test_paths_and_numbers_are_replaced` first: it fails because two commands differing in a path and number produce distinct signatures
   - Verification: `$ uv run devops ci test tests/ai/agent_audit/test_signature.py` fails on the base
-- [ ] 2.2 Add `src/devops_cli/ai/agent_audit/signature.py`. `command_signature(text)` retains the program, subcommand, and flags while replacing numbers, paths, and values with placeholders. `error_signature(exit_status, first_error_line)` normalizes the first error line and retains the exit code. Extract exit status from `tool_result` content blocks using `is_error` and exit code lines. Write `test_tool_result_exit_status_extraction`
+- [x] 2.2 Add `src/devops_cli/ai/agent_audit/signature.py`. `command_signature(text)` retains the program, subcommand, and flags while replacing numbers, paths, and values with placeholders. `error_signature(exit_status, first_error_line)` normalizes the first error line and retains the exit code. Extract exit status from `tool_result` content blocks using `is_error` and exit code lines. Write `test_tool_result_exit_status_extraction`
   - Verification: `$ uv run devops ci test tests/ai/agent_audit/test_signature.py` passes
 
 ## 3. Count the findings across sessions and rank them
