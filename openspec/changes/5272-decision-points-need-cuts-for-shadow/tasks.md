@@ -105,9 +105,9 @@ Kind: other. Reads: `src/devops_cli/config/constants.py`, `tests/roadmap/test_ro
 
 Kind: other. Reads: `docs/CONFIGURATION.md`, `docs/ENV_VARS.md`, `src/devops_cli/config/settings.py`. Changes: `docs/CONFIGURATION.md`, `docs/ENV_VARS.md`.
 
-- [ ] 12.1 Regenerate the rows of `roadmap.decisions` in `docs/CONFIGURATION.md` and in `docs/ENV_VARS.md` from the description of the field, so that both state that a point in `shadow` or `on` needs a cuts file
+- [x] 12.1 Regenerate the rows of `roadmap.decisions` in `docs/CONFIGURATION.md` and in `docs/ENV_VARS.md` from the description of the field, so that both state that a point in `shadow` or `on` needs a cuts file
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 12.2 Edit `docs/CONFIGURATION.md` and `docs/ENV_VARS.md` with the output of the docs generator
+- [x] 12.2 Edit `docs/CONFIGURATION.md` and `docs/ENV_VARS.md` with the output of the docs generator
   - Verification: `$ uv run devops ci docs` passes
 
 ## 13. Record the instruments in the Status History of ADR 0020
