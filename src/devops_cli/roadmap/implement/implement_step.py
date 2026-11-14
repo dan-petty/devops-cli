@@ -1844,7 +1844,7 @@ def _extra_turn(
     _remove_strays(source, inputs, log)
     foreign = _foreign_change(source, inputs, tree, ask)
     if foreign:
-        return run, _Failure(foreign)
+        return run, _Failure(foreign, klass=FailureClass.OUTSIDE_PLAN)
     return run, _exit_failure(source, inputs, keeper, log)
 
 
