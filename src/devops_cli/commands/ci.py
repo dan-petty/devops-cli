@@ -1013,6 +1013,13 @@ def get_check_specs() -> list[CheckSpec]:
             metric_step="domain",
             host_refusal=_domain_host_refusal,
         ),
+        CheckSpec(
+            name="roadmap-stage-eval-commits",
+            display_title=MESSAGES.ci.roadmap_stage_eval_commits,
+            cmd=_python_check_cmd("roadmap_stage_eval_commits"),
+            span_name="ci.step.roadmap_stage_eval_commits",
+            metric_step="roadmap_stage_eval_commits",
+        ),
     ]
 
 

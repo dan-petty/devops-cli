@@ -2154,6 +2154,9 @@ class CIMessages:
     domain_not_configured: str = (
         "no k8s.domain or cloudflare.domain is configured, so the row read no commit"
     )
+    roadmap_stage_eval_commits: str = (
+        "golden stage eval base commits (each case names a commit of the repository)"
+    )
     row_skipped: str = "skipped: {cause}"
     ci_summary_title: str = "CI Summary"
     col_check: str = "Check"
