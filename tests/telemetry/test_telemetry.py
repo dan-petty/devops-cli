@@ -332,6 +332,9 @@ def test_tracer_lifecycle_reset_and_shutdown() -> None:
     assert tracer.endpoint.startswith("http")
     shutdown_tracer()
     assert tracer._executor is None
+    # Leave a fresh tracer for the next test: a shut global tracer logs "Processor is already
+    # shutdown, ignoring call" when a later test exports a span (#4062).
+    reset_tracer()
 
 
 def test_telemetry_traceparent_helpers() -> None:
