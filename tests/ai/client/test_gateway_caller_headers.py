@@ -29,14 +29,18 @@ END_USER_HEADER = "x-litellm-end-user-id"
 USER_AGENT = f"devops-cli/{__version__}"
 
 
-@pytest.fixture(params=[None, "roadmap-service"], ids=["default-service", "named-service"])
+@pytest.fixture(
+    params=[None, "roadmap-service", ""],
+    ids=["default-service", "named-service", "empty-service"],
+)
 def service_name(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> str:
-    """The OTel `service.name` of the process: devops-cli's own, or the one a workload sets."""
+    """The OTel `service.name` of the process: devops-cli's own, the one a workload sets, or an
+    empty value, which the client replaces with devops-cli's own (#3578)."""
     if request.param is None:
         monkeypatch.delenv("OTEL_SERVICE_NAME", raising=False)
         return "devops-cli"
     monkeypatch.setenv("OTEL_SERVICE_NAME", request.param)
-    return str(request.param)
+    return str(request.param) or "devops-cli"
 
 
 def _caller(request: httpx2.Request) -> tuple[str | None, str | None]:
