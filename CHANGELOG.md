@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.141.0](https://github.com/dan-petty/devops-cli/compare/v0.140.0...v0.141.0) (2026-11-14)
+
+
+### Features
+
+* **roadmap:** check the repository webhook on onboarding ([#5706](https://github.com/dan-petty/devops-cli/issues/5706)) ([eddffb1](https://github.com/dan-petty/devops-cli/commit/eddffb14a36fcca9db7fa4348b7bda8cac5d98d1))
+
+
+### Bug Fixes
+
+* **ci:** Accept a repaired base test in fail-to-pass ([#5715](https://github.com/dan-petty/devops-cli/issues/5715)) ([a0c2343](https://github.com/dan-petty/devops-cli/commit/a0c234342e297d602abc3a07fcd33eef81a2b624))
+* **monitoring:** use custom provider for grafana-llm-app litellm gateway ([#5718](https://github.com/dan-petty/devops-cli/issues/5718)) ([e71bc5f](https://github.com/dan-petty/devops-cli/commit/e71bc5f409207872f7db5968ef07bac58126d405))
+* **roadmap:** Set the runner memory limit in the template ([#5708](https://github.com/dan-petty/devops-cli/issues/5708)) ([2f657c5](https://github.com/dan-petty/devops-cli/commit/2f657c5a9ea9b6b5e63d899eb09619b60d0b0b9a))
+
 ## [0.140.0](https://github.com/dan-petty/devops-cli/compare/v0.139.0...v0.140.0) (2026-11-14)
 
 
