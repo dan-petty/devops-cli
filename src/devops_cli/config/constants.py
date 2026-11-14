@@ -3379,6 +3379,13 @@ CONST_ROADMAP_LIMIT_CEILING_FACTOR: Final[int] = 4
 # characters of the answer of `read_spec`, which a whole requirement can pass the limit of the other
 # tools. The tool calls and the model requests of a run are settings (`roadmap.stage.max_tool_calls`
 # and `roadmap.stage.max_requests`, #5440).
+# A new roadmap Job pod can fail its first MCP connection until kube-router programs the network
+# policy of the pod. The client retries a refused connection for this total budget, with this
+# initial delay and this cap between attempts (#4372).
+ROADMAP_MCP_CONNECT_RETRY_SECONDS: Final[float] = 30.0
+ROADMAP_MCP_CONNECT_RETRY_INITIAL_SECONDS: Final[float] = 1.0
+ROADMAP_MCP_CONNECT_RETRY_MAX_SECONDS: Final[float] = 8.0
+
 CONST_ROADMAP_STAGE_LOG_MAX_COUNT: Final[int] = 40
 CONST_ROADMAP_STAGE_MAP_MAX_FILES: Final[int] = 40
 CONST_ROADMAP_STAGE_MAP_LINE_CHARS: Final[int] = 180
