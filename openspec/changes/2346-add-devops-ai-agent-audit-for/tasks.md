@@ -67,9 +67,9 @@ Kind: behavior. Reads: `src/devops_cli/ai/agent_audit/transcript.py`. Changes: `
 
 Kind: behavior. Reads: `src/devops_cli/commands/roadmap.py`, `src/devops_cli/ai/agent_audit/grouping.py`. Changes: `src/devops_cli/ai/agent_audit/filing.py` (new), `src/devops_cli/exceptions/__init__.py`, `tests/ai/agent_audit/test_filing.py` (new).
 
-- [ ] 8.1 Write `tests/ai/agent_audit/test_filing.py::test_confirm_files_one_draft_for_each_group` first: it fails because no drafts are filed
+- [x] 8.1 Write `tests/ai/agent_audit/test_filing.py::test_confirm_files_one_draft_for_each_group` first: it fails because no drafts are filed
   - Verification: `$ uv run devops ci test tests/ai/agent_audit/test_filing.py` fails on the base
-- [ ] 8.2 Add `src/devops_cli/ai/agent_audit/filing.py` and define typed exception `AgentAuditFilingError` in `src/devops_cli/exceptions/__init__.py`. `file_drafts(drafts, runner)` writes temporary body files and invokes bounded `devops roadmap intake --title <title> --body-file <file> --confirm` processes, reporting filed issue numbers. On failure, raise `AgentAuditFilingError` and stop
+- [x] 8.2 Add `src/devops_cli/ai/agent_audit/filing.py` and define typed exception `AgentAuditFilingError` in `src/devops_cli/exceptions/__init__.py`. `file_drafts(drafts, runner)` writes temporary body files and invokes bounded `devops roadmap intake --title <title> --body-file <file> --confirm` processes, reporting filed issue numbers. On failure, raise `AgentAuditFilingError` and stop
   - Verification: `$ uv run devops ci test tests/ai/agent_audit/test_filing.py` passes
 
 ## 9. Add the agent-audit command with its modes
