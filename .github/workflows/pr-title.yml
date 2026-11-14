@@ -94,14 +94,15 @@ jobs:
             The summary after "<type>(<scope>): " has more than 60 characters. Shorten it to 60
             characters or fewer (CONTRIBUTING.md section 4).
 
-  # `always()` lets the job run after a failed title check: the command then reports that check
+  # `!cancelled()` lets the job run after a failed title check, and skips it in a cancelled run;
+  # the command then reports that check. #3975
   # as a problem. Without it, GitHub skips a job whose needed job failed. The condition reads the
   # author of the pull request, not `github.actor`, because a person who pushes to the branch of
   # the Service becomes the actor. GitHub compares both operators with no regard to case.
   plan-check:
     name: Plan Check
     needs: semantic-title
-    if: "${{ always() && github.event.pull_request.user.login == 'devops-cli-service[bot]' && startsWith(github.event.pull_request.title, 'docs(openspec): plan #') }}"
+    if: "${{ !cancelled() && github.event.pull_request.user.login == 'devops-cli-service[bot]' && startsWith(github.event.pull_request.title, 'docs(openspec): plan #') }}"
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:

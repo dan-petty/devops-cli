@@ -17,7 +17,7 @@ from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PR
 from devops_cli.github.client import CommitRef, IssueView, PullRequest
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
-from devops_cli.roadmap.plan_check import PlanCheckResult, plan_check
+from devops_cli.roadmap.plan_check import CheckReader, PlanCheckResult, plan_check
 from devops_cli.roadmap.stage.stage_change import (
     REQUIREMENT_MAX_CHARS,
     StageGroup,
@@ -71,14 +71,17 @@ class _Reads:
 
 
 def _checks(
-    *, conclusion: str | None = "success", name: str = "Semantic PR title"
+    *,
+    conclusion: str | None = "success",
+    name: str = "Semantic PR title",
+    bucket: CheckBucket | None = None,
 ) -> CheckVerdictSummary:
     if conclusion is None:
         return CheckVerdictSummary()
     item = PRCheckItem(
         name=name,
         state=conclusion,
-        bucket=CheckBucket.PASS if conclusion == "success" else CheckBucket.FAIL,
+        bucket=bucket or (CheckBucket.PASS if conclusion == "success" else CheckBucket.FAIL),
     )
     return CheckVerdictSummary(items=[item])
 
@@ -127,7 +130,10 @@ def _run(
     reads: _Reads,
     *,
     checks: CheckVerdictSummary | None = None,
+    reader: CheckReader | None = None,
     tool: _Tool | None = None,
+    wait_seconds: float = 120.0,
+    poll_seconds: float = 5.0,
 ) -> PlanCheckResult:
     return plan_check(
         "example/roadmap",
@@ -135,7 +141,9 @@ def _run(
         repo.clone,
         tool=cast("OpenSpecTool", tool or _Tool()),
         client=reads,
-        check_reader=lambda owner, name, sha: checks or _checks(),
+        check_reader=reader or (lambda owner, name, sha: checks or _checks()),
+        wait_seconds=wait_seconds,
+        poll_seconds=poll_seconds,
     )
 
 
@@ -271,6 +279,41 @@ def test_a_failed_semantic_title_check_is_reported(stage_repo: StageRepo) -> Non
     result = _run(stage_repo, _facts(stage_repo, sha=sha), checks=_checks(conclusion="failure"))
 
     assert [p.rule for p in result.problems] == ["semantic-pr-title"]
+
+
+def test_a_pending_title_check_that_becomes_success_is_no_problem(stage_repo: StageRepo) -> None:
+    """The command waits for the required title check and reports no problem when it passes
+    (#3975)."""
+    sha = _push(stage_repo, _change())
+    pending = _checks(conclusion="in_progress", bucket=CheckBucket.PENDING)
+    passed = _checks()
+    answers = iter([pending, passed])
+
+    result = _run(
+        stage_repo,
+        _facts(stage_repo, sha=sha),
+        reader=lambda owner, name, sha: next(answers),
+        wait_seconds=1,
+        poll_seconds=0,
+    )
+
+    assert (result.problems, result.notes) == ((), ())
+
+
+def test_a_pending_title_check_at_the_wait_limit_is_a_note(stage_repo: StageRepo) -> None:
+    """A title check that is still pending at the wait limit is a note, and the required check
+    gates the merge on its own (#3975)."""
+    sha = _push(stage_repo, _change())
+    pending = _checks(conclusion="in_progress", bucket=CheckBucket.PENDING)
+
+    result = _run(
+        stage_repo,
+        _facts(stage_repo, sha=sha),
+        reader=lambda owner, name, sha: pending,
+        wait_seconds=0,
+    )
+
+    assert ([p.rule for p in result.problems], len(result.notes)) == ([], 1)
 
 
 def test_a_missing_semantic_title_check_is_reported(stage_repo: StageRepo) -> None:

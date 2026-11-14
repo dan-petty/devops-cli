@@ -5071,6 +5071,10 @@ class RoadmapMessages:
     plan_check_check_failed: str = (
         "The check `{name}` has the state `{state}`, and it needs `success`."
     )
+    plan_check_check_pending: str = (
+        "The check `{name}` was still in progress at the wait limit. The required check gates the"
+        " merge, so the plan check reports no problem for it."
+    )
     plan_check_check_unread: str = "The check `{name}` could not be read: {reason}."
     plan_check_folder_none: str = "The head holds no change folder `openspec/changes/{issue}-*/`."
     plan_check_folder_many: str = (
