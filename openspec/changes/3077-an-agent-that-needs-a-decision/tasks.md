@@ -31,9 +31,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/refine/refine.py`, `src/devops_cl
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/stage/stage.py`, `src/devops_cli/roadmap/owner_question.py`, `src/devops_cli/roadmap/stores/store.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/stage/test_roadmap_stage_apply.py`, `tests/roadmap/stage/test_roadmap_stage_item_writes.py`. Changes: `src/devops_cli/roadmap/stage/stage.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/stage/test_roadmap_stage_owner_question.py` (new).
 
-- [ ] 4.1 Add a case in `tests/roadmap/stage/test_roadmap_stage_owner_question.py` for a group that is still over the budget, where the stage step posts the owner-question form through the module and records the hash and the question
+- [x] 4.1 Add a case in `tests/roadmap/stage/test_roadmap_stage_owner_question.py` for a group that is still over the budget, where the stage step posts the owner-question form through the module and records the hash and the question
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_owner_question.py` fails on the base
-- [ ] 4.2 In `_stop_on_budget` of `src/devops_cli/roadmap/stage/stage.py`, post the `OwnerQuestion` frame with `CONST_ROADMAP_STAGE_COMMENT_MARKER` and the question whether to split the group or raise its budget, with the group title and its tokens as the evidence. Record `OwnerQuestionRecordKey.HASH` and `OwnerQuestionRecordKey.TEXT` in the marks that the step already writes. The stage step asks one question and ends
+- [x] 4.2 In `_stop_on_budget` of `src/devops_cli/roadmap/stage/stage.py`, post the `OwnerQuestion` frame with `CONST_ROADMAP_STAGE_COMMENT_MARKER` and the question whether to split the group or raise its budget, with the group title and its tokens as the evidence. Record `OwnerQuestionRecordKey.HASH` and `OwnerQuestionRecordKey.TEXT` in the marks that the step already writes. The stage step asks one question and ends
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_owner_question.py` passes
 
 ## 5. Post the form from the implement step

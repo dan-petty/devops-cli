@@ -4162,12 +4162,25 @@ class RoadmapMessages:
     )
     stage_comment_warnings: str = "\n\nWarnings:\n{warnings}"
     stage_problem_unhandled_test_reference: str = "{path}: unhandled reference to {name!r}."
-    stage_comment_over_budget: str = (
-        '{marker}\nThe stage job stopped. The inputs of the step of the task group "{title}" '
-        "hold {tokens} tokens, over the budget of {budget} tokens, also after the model split "
-        "the groups once. A person decides how to split the item. The job stages the item again "
-        "when a person runs it with --item {number}.\n\nThe task groups:\n\n{groups}"
+    # The owner question that a stop on the budget asks (#3077): the group that is still over the
+    # budget, the two answers and what the job does with each, the answer that the job recommends,
+    # and the evidence that the owner reads. The question and the option texts make the hash, so
+    # two items that ask one question share a frame.
+    stage_owner_question: str = (
+        'The inputs of the step of the task group "{title}" hold {tokens} tokens, over the '
+        "budget of {budget} tokens, also after the model split the groups once. Split the group "
+        "or raise the budget of the step?"
     )
+    stage_owner_question_options: dict[str, str] = field(
+        default_factory=lambda: {
+            "Split the group": "A person splits the group and runs the item again.",
+            "Raise the budget": "A person raises the budget of the step and runs the item again.",
+        }
+    )
+    stage_owner_question_recommendation: str = (
+        "Split the group: the plan check keeps the budget of the step."
+    )
+    stage_owner_question_evidence: str = 'The task group "{title}" holds {tokens} tokens: {url}'
     stage_split_record: str = "{title} ({tokens} tokens)"
     stage_probe_path_present: str = "The path `{path}` is a file of the staging commit."
     stage_probe_path_missing: str = "The path `{path}` is no file of the staging commit. {removal}"

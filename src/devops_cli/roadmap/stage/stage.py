@@ -158,6 +158,7 @@ from devops_cli.roadmap.decision_step import Band
 from devops_cli.roadmap.digest_clears import has_digest_clear
 from devops_cli.roadmap.failure import FailureClass, StepName, failure_class_of, retry_after
 from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
+from devops_cli.roadmap.owner_question import OwnerQuestion, QuestionOption
 from devops_cli.roadmap.plan_check import PlanFolder, staged_problems
 from devops_cli.roadmap.planned import (
     PlannedChanges,
@@ -313,6 +314,7 @@ from devops_cli.roadmap.stores.store import (
     STAGE_REMOVAL_KEYS,
     GitHubState,
     Item,
+    OwnerQuestionRecordKey,
     RefineRecordKey,
     RoadmapStore,
     StageRecordKey,
@@ -3400,24 +3402,39 @@ def _stage_one(
     )
 
 
+def _budget_question(stopped: OverBudget, worst: MeasuredGroup) -> OwnerQuestion:
+    """The one owner question of a stop on the budget (#3077): split the group that is over it or
+    raise the budget of the step, with the group and its tokens as the evidence."""
+    texts = MESSAGES.roadmap
+    title = safe_text(worst.group.title)
+    return OwnerQuestion(
+        marker=CONST_ROADMAP_STAGE_COMMENT_MARKER,
+        question=texts.stage_owner_question.format(
+            title=title, tokens=worst.tokens, budget=stopped.budget
+        ),
+        options=tuple(
+            QuestionOption(text=text, result=result)
+            for text, result in texts.stage_owner_question_options.items()
+        ),
+        recommendation=texts.stage_owner_question_recommendation,
+        evidence=(
+            texts.stage_owner_question_evidence.format(
+                title=title, tokens=worst.tokens, url=stopped.target.item.url
+            ),
+        ),
+    )
+
+
 def _stop_on_budget(store: RoadmapStore, stopped: OverBudget) -> None:
-    """Tell a person that a group is still over the budget, then record it: the job leaves the
-    item alone until a person decides. The comment goes first, so a failed write never leaves a
-    record that no one was told about."""
+    """Ask the owner whether to split the group that is still over the budget or raise its budget,
+    then record the question: the job leaves the item alone until a person answers. The frame is
+    the one comment of the stop, so the step asks one question and ends (#3077). The comment goes
+    first, so a failed write never leaves a record that no one was told about."""
     worst = stopped.worst
     texts = MESSAGES.roadmap
     number = stopped.target.item.number
-    store.comment(
-        number,
-        texts.stage_comment_over_budget.format(
-            marker=CONST_ROADMAP_STAGE_COMMENT_MARKER,
-            title=safe_text(worst.group.title),
-            tokens=worst.tokens,
-            budget=stopped.budget,
-            number=number,
-            groups=_groups_listed(stopped.groups),
-        ),
-    )
+    question = _budget_question(stopped, worst)
+    store.comment(number, question.render())
     store.set_marks(
         stopped.target.item,
         {
@@ -3430,6 +3447,9 @@ def _stop_on_budget(store: RoadmapStore, stopped: OverBudget) -> None:
             StageRecordKey.FAILED_ERROR: None,
             StageRecordKey.FAILED_STEP: None,
             StageRecordKey.FAILED_CLASS: None,
+            OwnerQuestionRecordKey.HASH: question.hash,
+            OwnerQuestionRecordKey.TEXT: question.question,
+            OwnerQuestionRecordKey.ANSWER: None,
         },
     )
 
