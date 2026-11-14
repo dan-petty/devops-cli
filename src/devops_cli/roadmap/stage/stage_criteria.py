@@ -217,6 +217,10 @@ def acceptance_criteria(body: str) -> list[str]:
         elif level and token.type == "list_item_open" and token.level == _ITEM_LEVEL:
             inline = next(t for t in tokens[index + 1 :] if t.type == "inline")
             text = _one_line(_TASK_MARK.sub("", inline.content.strip()))
+            # A strikethrough that wraps the item cancels it (#4024). An inline span in an active
+            # item does not start or end the text, so it stays.
+            if text.startswith("~~") and text.endswith("~~") and len(text) > 4:
+                continue
             if text and text not in found:
                 found.append(text)
     return found
