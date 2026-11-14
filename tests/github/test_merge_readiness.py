@@ -27,7 +27,6 @@ from devops_cli.github.merge_readiness import (
     assess_merge_readiness,
     closing_issues_args,
     read_changed_files,
-    stage_eval_problems,
 )
 from tests.support.fakes.github import (
     GitHubApiFake,
@@ -299,6 +298,8 @@ def test_a_stage_change_with_live_evidence_is_ready(github: _GitHub, tmp_path: P
 def test_each_missing_part_of_the_stage_eval_evidence_is_refused(
     evidence: str, problem: str
 ) -> None:
+    from devops_cli.github.merge_readiness import stage_eval_problems
+
     assert problem in " ".join(stage_eval_problems(f"{_BODY}\n\n{evidence}"))
 
 
