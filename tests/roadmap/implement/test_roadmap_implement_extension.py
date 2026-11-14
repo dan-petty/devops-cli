@@ -19,10 +19,10 @@ from typing import Any
 
 import pytest
 import yaml
-from pydantic import ValidationError
 
 from devops_cli.config import constants, env
 from devops_cli.config.settings import load_settings, setting_default
+from devops_cli.exceptions import ConfigurationError
 from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement.implement_limits import (
     BudgetExtension,
@@ -183,7 +183,7 @@ def test_the_ceiling_has_a_variable_named_after_its_setting(
 def test_a_ceiling_below_the_step_budget_is_refused(config: Callable[..., Path]) -> None:
     config(roadmap={"implement": {"step_token_budget": 5000, "step_token_ceiling": 4999}})
 
-    with pytest.raises(ValidationError, match="step_token_ceiling"):
+    with pytest.raises(ConfigurationError, match="step_token_ceiling"):
         load_settings()
 
 
