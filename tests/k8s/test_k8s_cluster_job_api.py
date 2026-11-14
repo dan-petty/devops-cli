@@ -551,11 +551,13 @@ def test_the_exit_status_names_the_job_in_the_pod_selector(kube: FakeCluster) ->
     assert call[1]["label_selector"] == "batch.kubernetes.io/job-name=devops-cli-stage-a-1"
 
 
-def test_the_exit_status_raises_when_the_api_refuses(kube: FakeCluster) -> None:
+def test_the_exit_status_raises_when_the_api_refuses(
+    kube: FakeCluster, monkeypatch: pytest.MonkeyPatch
+) -> None:
     def refuse(*_: Any, **__: Any) -> Any:
         raise api_exception(403, "Forbidden")
 
-    kube.core.list_namespaced_pod = refuse  # type: ignore[method-assign]
+    monkeypatch.setattr(kube.core, "list_namespaced_pod", refuse)
 
     with pytest.raises(
         ClusterJobError, match="read the status of a Job pod in namespace devops: HTTP 403"
