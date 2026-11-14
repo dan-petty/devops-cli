@@ -1630,7 +1630,12 @@ def _exit_failure(
         no_change = (
             FailureClass.NO_CHANGE_IN_FIX if inputs.fix is not None else FailureClass.PLAN_DEFECT
         )
-        return _Failure(MESSAGES.roadmap.implement_stop_no_change, klass=no_change)
+        return _Failure(
+            MESSAGES.roadmap.implement_stop_no_change.format(
+                group=inputs.group.number, title=inputs.group.title
+            ),
+            klass=no_change,
+        )
     outside = _plan_failure(source, inputs, keeper)
     if outside is not None:
         return outside

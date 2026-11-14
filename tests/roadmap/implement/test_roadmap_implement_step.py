@@ -59,6 +59,7 @@ from devops_cli.roadmap.implement.implement_step import (
     shell_environment,
 )
 from devops_cli.roadmap.implement.implement_tool_log import ToolCallLog, logged_program
+from devops_cli.roadmap.implement.implement_trace import ImplementTrace, TraceEventKind
 from devops_cli.roadmap.step_files import parse_task_groups
 from tests.support.builders import make_item
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
@@ -484,7 +485,7 @@ def test_a_group_whose_tasks_are_ticked_and_that_changes_no_file_stops_the_step(
 
     assert (outcome.status, outcome.reason, outcome.last_message) == (
         StepStatus.STOPPED,
-        "The agent changed no file.",
+        MESSAGES.roadmap.implement_stop_no_change.format(group=2, title="The second group"),
         "Nothing to do.",
     )
 
@@ -2156,10 +2157,11 @@ def test_a_fix_step_that_changes_no_file_stops(
 ) -> None:
     outcome = _fix(store, checkout, ModelScript(say("Nothing to fix.")))
 
-    assert (outcome.status, outcome.reason) == (
-        StepStatus.STOPPED,
-        "The agent changed no file.",
-    )
+    assert (
+        outcome.status,
+        "changed no file" in outcome.reason,
+        outcome.failure_class,
+    ) == (StepStatus.STOPPED, True, FailureClass.NO_CHANGE_IN_FIX)
 
 
 # ── No process of the agent lives when the job runs a program with the token ──────────────
@@ -2427,3 +2429,48 @@ def test_the_issue_section_holds_each_refined_requirement_and_its_scenario(name:
 @pytest.mark.parametrize("name", ["refined", "form-with-criteria", "no-section"])
 def test_the_issue_section_holds_no_html_comment(name: str) -> None:
     assert "<!--" not in issue_inputs(make_item(body=_issue_body(name)))
+
+
+# ── A group that changes no file asks for a smaller one (#3576) ──────────────
+
+
+def test_a_group_that_changes_no_file_stops_with_its_number_and_a_smaller_replacement(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    outcome = _step(store, checkout, ModelScript(say("Done.")))
+
+    assert outcome.status is StepStatus.STOPPED
+    assert outcome.failure_class is FailureClass.PLAN_DEFECT
+    assert "1 (The first group)" in outcome.reason
+    assert "smaller replacement" in outcome.reason
+
+
+def test_the_trace_holds_plan_defect_for_the_group_that_changed_no_file_only(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    trace = ImplementTrace()
+    run_step(
+        store,
+        item=1,
+        group=1,
+        source=checkout,
+        model=ModelScript(say("Done.")).model(),
+        window=WINDOW,
+        trace=trace,
+    )
+    run_step(
+        store,
+        item=1,
+        group=1,
+        source=checkout,
+        model=ModelScript(tool_calls(*the_whole_group()), say("Done.")).model(),
+        window=WINDOW,
+        trace=trace,
+    )
+
+    classes = [
+        event.fields.get("class", "")
+        for event in trace.events
+        if event.kind is TraceEventKind.ATTEMPT
+    ]
+    assert classes == ["plan_defect", ""]

@@ -77,11 +77,11 @@ def test_a_fix_step_that_changes_no_file_is_no_change_in_fix_whatever_the_agent_
 ) -> None:
     outcome = _fix(store, checkout, ModelScript(say(CLAIM)))
 
-    assert (outcome.status, outcome.reason, outcome.failure_class) == (
-        StepStatus.STOPPED,
-        "The agent changed no file.",
-        FailureClass.NO_CHANGE_IN_FIX,
-    )
+    assert (
+        outcome.status,
+        "changed no file" in outcome.reason,
+        outcome.failure_class,
+    ) == (StepStatus.STOPPED, True, FailureClass.NO_CHANGE_IN_FIX)
 
 
 def test_a_group_step_that_changes_no_file_is_a_plan_defect(
@@ -91,7 +91,9 @@ def test_a_group_step_that_changes_no_file_is_a_plan_defect(
 
     assert (outcome.status, outcome.reason, outcome.failure_class) == (
         StepStatus.STOPPED,
-        "The agent changed no file.",
+        "The group 2 (The second group) changed no file. The group may be too large or already "
+        "done. Return the item for a smaller replacement of group 2, or amend the plan with a "
+        "request of kind `group` that keeps the number and has fewer tasks.",
         FailureClass.PLAN_DEFECT,
     )
 

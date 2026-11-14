@@ -26,7 +26,7 @@ from devops_cli.roadmap.step_files import (
 )
 from devops_cli.security.sanitizer import mask_secrets
 
-Kind = Literal["path", "command", "task", "premise", "scope"]
+Kind = Literal["path", "command", "task", "premise", "scope", "group"]
 
 
 class PlanRequest(BaseModel):
@@ -242,13 +242,58 @@ def _record_amendment(tasks_md: str, bullet: str) -> str:
     return f"{tasks_md.rstrip()}\n\n## Amendments\n\n{bullet}\n"
 
 
-def judge(request: PlanRequest, tasks_md: str, tree: StagedTree) -> Applied | Refused:
-    """Judge a plan amendment request against the repository tree and tasks.md."""
+def _judge_group(request: PlanRequest, target: TaskGroup) -> tuple[str, Amendment] | Refused:
+    """A smaller replacement of a whole group (#3576): one group of the same number, with fewer
+    tasks and no path that the group does not name."""
+    texts = MESSAGES.roadmap
+    replacement = parse_task_groups(request.new or "")
+    if len(replacement) != 1 or replacement[0].number != target.number:
+        return Refused(
+            texts.implement_amend_refused_group_number.format(
+                number=replacement[0].number if replacement else "none", group=target.number
+            ),
+            request=request,
+        )
+    new = replacement[0]
+    if len(new.tasks) >= len(target.tasks):
+        return Refused(
+            texts.implement_amend_refused_group_tasks.format(
+                group=target.number, count=len(new.tasks), current=len(target.tasks)
+            ),
+            request=request,
+        )
+    known = set(target.named_paths)
+    added = [path for path in new.named_paths if path not in known]
+    if added:
+        return Refused(
+            texts.implement_amend_refused_group_paths.format(group=target.number, path=added[0]),
+            request=request,
+        )
+    return new.text, Amendment(
+        group=target.number,
+        kind="group",
+        defect=request.defect,
+        evidence=request.evidence,
+        old=target.title,
+        new=new.title,
+    )
+
+
+def _structural_refusal(request: PlanRequest) -> Refused | None:
+    """The refusal of a request that no amendment covers, or None."""
     texts = MESSAGES.roadmap
     if request.kind == "scope":
         return Refused(texts.implement_amend_refused_scope, request=request)
     if request.kind == "premise":
         return Refused(texts.implement_amend_refused_premise, request=request)
+    return None
+
+
+def judge(request: PlanRequest, tasks_md: str, tree: StagedTree) -> Applied | Refused:
+    """Judge a plan amendment request against the repository tree and tasks.md."""
+    texts = MESSAGES.roadmap
+    if (refused := _structural_refusal(request)) is not None:
+        return refused
 
     groups = parse_task_groups(tasks_md)
     target = next((g for g in groups if g.number == request.group), None)
@@ -273,6 +318,8 @@ def judge(request: PlanRequest, tasks_md: str, tree: StagedTree) -> Applied | Re
             result = _judge_command(request, target, tree)
         case "task":
             result = _judge_task(request, target)
+        case "group":
+            result = _judge_group(request, target)
         case _:
             return Refused(texts.implement_amend_refused_scope, request=request)
 

@@ -326,7 +326,7 @@ def test_a_stopped_step_still_resets_the_checkout_after_it_removed_a_stray_file(
     assert (outcome.status, outcome.removed, outcome.reason) == (
         StepStatus.STOPPED,
         ("tmp_test_x.py",),
-        "The agent changed no file.",
+        "The group 1 (The first group) changed no file. The group may be too large or already done. Return the item for a smaller replacement of group 1, or amend the plan with a request of kind `group` that keeps the number and has fewer tasks.",
     )
     assert is_clean_at(checkout, head)
 

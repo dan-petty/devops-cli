@@ -679,7 +679,7 @@ def test_a_step_that_stops_blocks_the_item_with_a_comment_and_a_record(
     assert len(comments) == 1
     assert comments[0].startswith(MARKER)
     assert "Stopped at group 2." in comments[0]
-    assert "The agent changed no file." in comments[0]
+    assert "The group 2 (The second group) changed no file." in comments[0]
     assert "I could not do group 2." in comments[0]
     assert "The job discarded" not in comments[0]
     assert "implement: retry" in comments[0]
