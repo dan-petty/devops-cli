@@ -9,4 +9,4 @@ The example ConfigMap SHALL set `roadmap.implement.max_memory_limit` to 16Gi, wi
 
 #### Scenario: The comment names the two kills
 - **WHEN** a test reads the comment above the setting in the example ConfigMap
-- **THEN** the comment names 2026-11-12, 2026-11-13 and the two killed Jobs
+- **THEN** the comment names 2026-11-12, 2026-11-13, #5484 and #3727

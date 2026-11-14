@@ -2,9 +2,9 @@
 
 ## 1. Put the runner memory limit in the example ConfigMap
 
-Kind: other. Reads: `k8s/devops/configmap.example.yaml`, `tests/k8s/test_k8s_configmap_keys.py`, `src/devops_cli/k8s/configmap.py`. Changes: `k8s/devops/configmap.example.yaml`, `tests/k8s/test_k8s_configmap_keys.py`, `tests/ai/benchmark/test_k8s_llm_gateway.py`, `tests/ai/spend/test_hosted_group_prices.py`, `tests/invariants/test_workflow_contracts.py`, `tests/k8s/test_k8s_configmap.py`, `tests/k8s/test_k8s_valkey_stack.py`, `tests/roadmap/implement/test_roadmap_implement_step_classes.py`, `tests/roadmap/stage/test_roadmap_stage_settings.py`, `tests/roadmap/stage/test_roadmap_stage_submit.py`, `tests/roadmap/stage/test_roadmap_stage_window.py`, `tests/roadmap/test_roadmap_limit_classes.py`, `tests/server/routes/test_k8s_roadmap_service.py`.
+Kind: other. Reads: `k8s/devops/configmap.example.yaml`, `tests/k8s/test_k8s_configmap_keys.py`, `src/devops_cli/k8s/configmap.py`. Changes: `k8s/devops/configmap.example.yaml`, `tests/k8s/test_k8s_configmap_keys.py`.
 
-- [ ] 1.1 Add the case `test_the_example_holds_the_runner_memory_limit` to `tests/k8s/test_k8s_configmap_keys.py` first: render the example through `_example_config()` and assert that `config["roadmap"]["implement"]["max_memory_limit"]` is `16Gi`, then read the template text and assert that the comment above the setting names 2026-11-12, 2026-11-13 and the two killed Jobs. It fails while the template sets nothing. Then add `max_memory_limit: 16Gi` under `roadmap.implement` in `k8s/devops/configmap.example.yaml`, after `ladder`, with that comment. Edit one of the other listed test modules only when the new setting breaks it, and keep each such edit to that failure
+- [ ] 1.1 Add the case `test_the_example_holds_the_runner_memory_limit` to `tests/k8s/test_k8s_configmap_keys.py` first: render the example through `_example_config()` and assert that `config["roadmap"]["implement"]["max_memory_limit"]` is `16Gi`, then read the template text and assert that the comment above the setting names 2026-11-12, 2026-11-13, #5484 and #3727. It fails while the template sets nothing. Then add `max_memory_limit: 16Gi` under `roadmap.implement` in `k8s/devops/configmap.example.yaml`, after `ladder`, with that comment
   - Verification: `$ uv run devops ci test tests/k8s/test_k8s_configmap_keys.py` passes
 
 ## 2. Name the node that bounds the limit in the setting description
@@ -25,13 +25,13 @@ Kind: other. Reads: `docs/ENV_VARS.md`, `src/devops_cli/config/settings.py`. Cha
 - [ ] 3.2 Edit `docs/ENV_VARS.md` with the output of `uv run devops docs generate`
   - Verification: `$ uv run devops ci docs` passes
 
-## 4. State both limits in the Size line of the cluster document
+## 4. State both limits in the Size and Deadline lines of the cluster document
 
 Kind: other. Reads: `docs/CLUSTER.md`, `tests/config/test_k8s_devops_runtime.py`, `k8s/devops/configmap.example.yaml`. Changes: `docs/CLUSTER.md`, `tests/config/test_k8s_devops_runtime.py`.
 
-- [ ] 4.1 Add the case `test_the_size_section_names_the_default_and_the_example_limit` to `tests/config/test_k8s_devops_runtime.py` first: read the Size line of `docs/CLUSTER.md` and assert that it holds `8Gi` and `16Gi`; it fails until the sentence is there. Then state in that line that the example ConfigMap sets `16Gi`, with the two kills of 2026-11-12 and 2026-11-13 as the reason and #5484
+- [ ] 4.1 Add the case `test_the_size_section_names_the_default_and_the_example_limit` to `tests/config/test_k8s_devops_runtime.py` first: read the Size and Deadline lines of `docs/CLUSTER.md` and assert that the example ConfigMap sets `16Gi` with #5484 and that the Deadline paragraph reflects the 16Gi template limit; it fails until the update is there. Then update both sections in `docs/CLUSTER.md`
   - Verification: `$ uv run devops ci test tests/config/test_k8s_devops_runtime.py` passes
-- [ ] 4.2 Edit `docs/CLUSTER.md` so the Size line states the default 8Gi and the 16Gi of the example ConfigMap
+- [ ] 4.2 Edit `docs/CLUSTER.md` so the Size and Deadline sections state the 16Gi template limit
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria

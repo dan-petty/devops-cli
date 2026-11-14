@@ -6,14 +6,13 @@ Each `devops k8s deploy-stack --stack devops` renders ConfigMap `devops-cli-conf
 
 ## What Changes
 
-- Set `roadmap.implement.max_memory_limit: 16Gi` under `roadmap.implement` in `k8s/devops/configmap.example.yaml`, with a comment that names the two kills of 2026-11-12 and 2026-11-13.
+- Set `roadmap.implement.max_memory_limit: 16Gi` under `roadmap.implement` in `k8s/devops/configmap.example.yaml`, with a comment that names the two kills of 2026-11-12 and 2026-11-13 (#5484, #3727).
 - Hold the value with `test_the_example_holds_the_runner_memory_limit` in `tests/k8s/test_k8s_configmap_keys.py`, which renders the example through `render_active_devops_configmap`.
-- List each test module that reads the example ConfigMap in the `changes` of the group that changes the template, so the step may edit one that the new setting breaks.
 - Keep the code default `DEFAULT_ROADMAP_IMPLEMENT_MAX_MEMORY_LIMIT` at 8Gi, so a cluster whose nodes cannot allocate 16Gi keeps the product default.
 - Change the description of `roadmap.implement.max_memory_limit` in `src/devops_cli/config/settings.py` to name the smallest node that can run a runner Job as the bound.
 - Hold the description with `test_the_description_names_the_smallest_node_that_can_run_a_runner_job` in `tests/roadmap/implement/test_roadmap_implement_size.py`.
 - Regenerate `docs/ENV_VARS.md` with `uv run devops docs generate`, so its row of the setting states the new bound.
-- State the default 8Gi and the example's 16Gi in the Size line of `docs/CLUSTER.md`, and hold the statement with `test_the_size_section_names_the_default_and_the_example_limit` in `tests/config/test_k8s_devops_runtime.py`.
+- State the default 8Gi and the example's 16Gi in the Size and Deadline sections of `docs/CLUSTER.md`, and hold the statement with `test_the_size_section_names_the_default_and_the_example_limit` in `tests/config/test_k8s_devops_runtime.py`.
 - Leave the other doubled values that the live ConfigMap holds (#5440) out of this change: no acceptance criterion of #5484 names them, and each needs its own proof.
 - The change fits one pull request.
 
@@ -32,7 +31,7 @@ None.
 
 - Code: `k8s/devops/configmap.example.yaml`, `src/devops_cli/config/settings.py`
 - Documents: `docs/ENV_VARS.md`, `docs/CLUSTER.md`
-- Tests: `tests/k8s/test_k8s_configmap_keys.py`, `tests/ai/benchmark/test_k8s_llm_gateway.py`, `tests/ai/spend/test_hosted_group_prices.py`, `tests/invariants/test_workflow_contracts.py`, `tests/k8s/test_k8s_configmap.py`, `tests/k8s/test_k8s_valkey_stack.py`, `tests/roadmap/implement/test_roadmap_implement_step_classes.py`, `tests/roadmap/stage/test_roadmap_stage_settings.py`, `tests/roadmap/stage/test_roadmap_stage_submit.py`, `tests/roadmap/stage/test_roadmap_stage_window.py`, `tests/roadmap/test_roadmap_limit_classes.py`, `tests/server/routes/test_k8s_roadmap_service.py`, `tests/roadmap/implement/test_roadmap_implement_size.py`, `tests/config/test_k8s_devops_runtime.py`
+- Tests: `tests/k8s/test_k8s_configmap_keys.py`, `tests/roadmap/implement/test_roadmap_implement_size.py`, `tests/config/test_k8s_devops_runtime.py`
 
 ## Feasibility
 

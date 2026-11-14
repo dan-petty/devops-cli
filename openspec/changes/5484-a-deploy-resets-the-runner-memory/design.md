@@ -4,9 +4,9 @@
 
 - **Set `roadmap.implement.max_memory_limit: 16Gi` in the example ConfigMap and keep the code default at 8Gi.**: The value belongs to this cluster and the deploy renders the template, so git holds the limit that the runner Jobs use. The code default stays the product default for every cluster, at `src/devops_cli/config/defaults.py:1054:DEFAULT_ROADMAP_IMPLEMENT_MAX_MEMORY_LIMIT: str = "8Gi"`.
 - **Name the smallest node that can run a runner Job as the bound in the description of the setting.**: The parked node is cordoned (#5143) and runs no runner Job, so its 12.8 GiB bounds nothing, and 16Gi is above it. The memory request sets the placement of a Job, so the limit does not place it.
-- **List each test module that reads the example ConfigMap in the `changes` of the group that changes the template.**: The implement job edits no test outside the `changes` of its group, and these tests read the template's config, so the new `roadmap.implement` value must not break one of them without the step that caused it.
-- **Leave the Deadline line of `docs/CLUSTER.md` and the CronJob template as they are.**: They state the memory limit of the CronJob `k8s/devops/cronjob-runner.yaml`, which a manual run keeps, and not the setting of the Jobs that the Service creates.
-- **Keep the other doubled values that the live ConfigMap holds (#5440) out of this change.**: No acceptance criterion of #5484 names them, and each value needs its own proof that the order checks of the settings accept it. The plan records them here so a follow-up takes them with their own criteria.
+- **Update both the Size and Deadline sections of `docs/CLUSTER.md`.**: The Deadline section explicitly describes Service-created Jobs, which run under the 16Gi limit configured in the template.
+- **Reference 2026-11-12, 2026-11-13, #5484 and #3727 in the template comment.**: Telemetry does not preserve the specific Job ID for the 2026-11-12 kill, so referencing the dates and issue numbers provides complete provenance.
+- **Keep the other doubled values that the live ConfigMap holds (#5440) out of this change.**: Follow-up issue #5583 handles the other doubled values with their own criteria.
 - **Prove the live ConfigMap after the merge with a person's deploy and read, not with a test.**: The runner pod holds no Kubernetes token and no test of the repository reaches the cluster, so the third acceptance criterion is a person's step after the merge.
 
 ## Rejected alternatives
