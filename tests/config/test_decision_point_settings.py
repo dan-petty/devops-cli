@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
-from devops_cli.config.settings import RoadmapStageConfig, Settings, load_settings
+from devops_cli.config.settings import RoadmapConfig, RoadmapStageConfig, Settings, load_settings
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.roadmap.decision_point import chain_of
 from devops_cli.roadmap.decision_registry import REGISTRY
@@ -105,6 +105,14 @@ def test_the_verify_screen_takes_each_mode_because_its_cuts_are_fitted(mode: str
     settings = Settings(roadmap={"decisions": {"stage.verify_screen": mode}})
 
     assert settings.roadmap.decisions == {"stage.verify_screen": mode}
+
+
+def test_the_decisions_description_names_the_shadow_rule() -> None:
+    description = RoadmapConfig.model_fields["decisions"].description or ""
+
+    assert "`shadow`" in description
+    assert "`on`" in description
+    assert "needs a cuts file in the repository" in description
 
 
 def test_a_mode_that_is_not_off_shadow_or_on_is_refused() -> None:

@@ -19,6 +19,8 @@ if TYPE_CHECKING:
 
 _ROADMAP_DIR: Final[Path] = Path(__file__).parent
 _SHOWN_FROM: Final[Path] = Path(__file__).resolve().parents[2]
+# The modes that need a fitted cuts file: only `off` runs a point with no cuts file (#5272).
+_FITTED_MODES: Final[frozenset[str]] = frozenset({"shadow", "on"})
 
 POINT_CUTS: Final[Mapping[str, Path]] = MappingProxyType(
     {"stage.verify_screen": _ROADMAP_DIR / "stage" / "jev_screen_cuts.json"}
@@ -31,8 +33,9 @@ def _shown(path: Path) -> str:
 
 
 def check_modes(modes: Mapping[str, str], cuts: Mapping[str, Path] = POINT_CUTS) -> None:
-    """Refuse a key of `modes` that names no point of `cuts`, and the mode `on` for a point whose
-    cuts file is not in the repository. The error names the key or the point and the file."""
+    """Refuse a key of `modes` that names no point of `cuts`, and the fitted modes `shadow` and `on`
+    for a point whose cuts file is not in the repository: only `off` runs a point with no cuts file.
+    The error names the key or the point and the file."""
     unknown = sorted(set(modes) - set(cuts))
     if unknown:
         raise ValueError(
@@ -41,7 +44,7 @@ def check_modes(modes: Mapping[str, str], cuts: Mapping[str, Path] = POINT_CUTS)
             )
         )
     for name, mode in modes.items():
-        if mode == "on" and not cuts[name].is_file():
+        if mode in _FITTED_MODES and not cuts[name].is_file():
             raise ValueError(
                 MESSAGES.roadmap.decision_point_unfitted.format(point=name, path=_shown(cuts[name]))
             )

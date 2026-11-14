@@ -1817,7 +1817,7 @@ class RoadmapConfig(BaseModel):
     mcp: RoadmapMcpConfig = Field(default_factory=RoadmapMcpConfig)
     decisions: Annotated[dict[str, DecisionMode], Variable()] = Field(
         default_factory=dict,
-        description='The mode of each decision point of the roadmap jobs (ADR 0020), by the name of the point, as a JSON object such as `{"stage.verify_screen": "shadow"}`. `off` runs nothing. `shadow` runs the resolver chain (a proven rule, then the model of `ai.decision_model`, then the current behavior), records its band and the real result, and changes nothing. `on` lets the band act. A point that is not in the mapping is off. A key that names no registered point stops the settings from loading, and so does `on` for a point whose fitted cuts file is not in the repository',
+        description='The mode of each decision point of the roadmap jobs (ADR 0020), by the name of the point, as a JSON object such as `{"stage.verify_screen": "shadow"}`. `off` runs nothing. `shadow` runs the resolver chain (a proven rule, then the model of `ai.decision_model`, then the current behavior), records its band and the real result, and changes nothing. `on` lets the band act. A point that is not in the mapping is off. A key that names no registered point stops the settings from loading. A point in `shadow` or in `on` needs a cuts file in the repository for its fitted cuts, and the load stops when the file is absent',
     )
 
     @model_validator(mode="after")

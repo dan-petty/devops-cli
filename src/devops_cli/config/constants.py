@@ -3929,8 +3929,9 @@ CONST_ROADMAP_JEV_EVAL_MAX_CALLS: Final[int] = 160
 # The Jev requests of one decision step that run at the same time (ADR 0019).
 CONST_ROADMAP_DECISION_STEP_CONCURRENCY: Final[int] = 8
 # The most label sets of `devops_cli_decision_point_total` that the registry of decision points
-# may write: the bound of the catalogue of ADR 0020 (four points of 8 series and two of 14).
-CONST_ROADMAP_DECISION_POINT_MAX_SERIES: Final[int] = 60
+# may write: the bound of ADR 0020 section 7, which allows 60 series for the first catalogue, 24
+# for the three `brain.*` points and 8 for `resolve.question_class`.
+CONST_ROADMAP_DECISION_POINT_MAX_SERIES: Final[int] = 92
 # The timeout in seconds of the Jev request of the verify screen (#4282).
 CONST_ROADMAP_STAGE_JEV_TIMEOUT_SECONDS: Final[float] = 30.0
 # The price of Jev in USD for a million input tokens, from the owner on 2026-11-09, for the cost

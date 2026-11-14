@@ -5670,8 +5670,13 @@ class RoadmapMessages:
         "are: {points}."
     )
     decision_point_unfitted: str = (
-        "The decision point {point} has no fitted cuts at {path}, so its mode cannot be on. Use "
-        "shadow until a fit writes the file."
+        "The decision point {point} has no fitted cuts at {path}. Its mode cannot be shadow or on. "
+        "Use off to run the point with no cuts file."
+    )
+    decision_point_cuts_model: str = (
+        "The cuts of the decision point {point} were fitted for the model {cuts}, but the model in "
+        "use is {model}, so no request goes to it and the current behavior runs. Set the full name "
+        "of the model that the cuts were fitted for."
     )
     decision_step_no_cut: str = "A decision step has answers with no cut: {names}."
     decision_step_no_answer: str = "Jev gave no answer for: {names}."

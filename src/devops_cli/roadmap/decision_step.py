@@ -7,11 +7,12 @@ questions. The step builds the evidence and the questions. This module holds the
   in the repository with the model, the date and the numbers that gave them.
 - `band_of`: the band for the probabilities of a case. A probability under `continue_below` for
   every question is *continue*. One at or above `flag_at` is *flag*. Any other case is *review*.
-- `decide_all`: one request for each piece of evidence, sent at the same time on one event loop in
-  the calling thread. A model that the requests share binds its lock and its client to the loop
-  that first uses them, so all of its requests stay on that loop (#4513). With no model given,
-  each request builds its own model and closes it on that loop (#4319). `timeout` bounds each
-  request. Any error raises, and the step then fails open to the existing path.
+- `decide_all`: one request for each piece of evidence, sent at the same time on the one blocking
+  portal of the process, which `jev_portal` keeps open. A model that the requests share binds its
+  lock and its client to the loop that first uses them, so all of its requests stay on that loop
+  (#4513). With no model given, each request builds its own model and closes it on that loop
+  (#4319). `timeout` bounds each request. Any error raises, and the step then fails open to the
+  existing path. `adecide_all` awaits the same requests for a caller that runs an event loop.
 
 The module sends no text of an answer anywhere. A Jev answer is evidence and never the only
 control of a path.
@@ -60,6 +61,50 @@ class Band(StrEnum):
 
 class DecisionStepError(ValueError):
     """The answers of Jev do not give a band: a question has no answer or no cut."""
+
+
+class SecretInDigestError(DecisionStepError):
+    """The digest of a decision point holds a secret, so no request goes to the decision model."""
+
+
+class CutsModelMismatchError(DecisionStepError):
+    """The cuts of a decision point were fitted for another model than the model in use, so no
+    request goes to that model."""
+
+
+class FailureClass(StrEnum):
+    """The class of a failed request of a decision point. The value is a label of the metric.
+    `SENSITIVE_DIGEST` is a digest that holds a secret, with the label `secret`."""
+
+    TIMEOUT = "timeout"
+    MODEL_ERROR = "model_error"
+    PARSE = "parse"
+    SENSITIVE_DIGEST = "secret"
+    NO_CUTS = "no_cuts"
+    MODEL_MISMATCH = "model_mismatch"
+    OTHER = "other"
+
+
+# The class of an error of a decision point, read by `isinstance` from the first entry that matches.
+# A subclass comes before its parent, so a secret keeps its own class and not the class `parse` of
+# `DecisionStepError`. An error that no entry names is `other`.
+CLASS_BY_ERROR: Final[tuple[tuple[type[BaseException], FailureClass], ...]] = (
+    (SecretInDigestError, FailureClass.SENSITIVE_DIGEST),
+    (CutsModelMismatchError, FailureClass.MODEL_MISMATCH),
+    (TimeoutError, FailureClass.TIMEOUT),
+    (ModelAPIError, FailureClass.MODEL_ERROR),
+    (UnexpectedModelBehavior, FailureClass.PARSE),
+    (DecisionStepError, FailureClass.PARSE),
+    (FileNotFoundError, FailureClass.NO_CUTS),
+)
+
+
+def failure_class(error: BaseException) -> FailureClass:
+    """The class of `error`, from the first entry of `CLASS_BY_ERROR` that it is an instance of.
+    Pure: it reads the type, never the text. An error that no entry names is `other`."""
+    return next(
+        (klass for kind, klass in CLASS_BY_ERROR if isinstance(error, kind)), FailureClass.OTHER
+    )
 
 
 # The errors of a Jev request that make a step fail open.
@@ -198,22 +243,46 @@ def decide_all(
     settings: Settings | None = None,
     timeout: float = CONST_ROADMAP_JEV_TIMEOUT_SECONDS,
 ) -> list[DecisionResponse]:
-    """The responses of the decision model to `requests`, in order, sent at the same time on one
-    event loop in the calling thread. With no `model`, each request builds its own model, the one
+    """The responses of the decision model to `requests`, in order, sent at the same time on the
+    blocking portal of the process. With no `model`, each request builds its own model, the one
     that `model_name` names, from `settings`. A request that takes longer than `timeout` seconds
     raises `TimeoutError`. The first error raises."""
     if not requests:
         return []
-    return asyncio.run(_decide_gathered(requests, model, model_name, settings, timeout))
+    from devops_cli.ai.jev import jev_portal
+
+    return jev_portal().call(_decide_gathered, requests, model, model_name, settings, timeout)
+
+
+async def adecide_all(
+    requests: Sequence[DecisionRequest],
+    *,
+    model: DecisionModel[Any] | None = None,
+    model_name: str = CONST_AI_JEV_MODEL,
+    settings: Settings | None = None,
+    timeout: float = CONST_ROADMAP_JEV_TIMEOUT_SECONDS,
+) -> list[DecisionResponse]:
+    """The responses of the decision model to `requests`, in order, awaited on the event loop of a
+    caller that runs one. With no `model`, each request builds its own model, the one that
+    `model_name` names, from `settings`. A request that takes longer than `timeout` seconds raises
+    `TimeoutError`. The first error raises."""
+    if not requests:
+        return []
+    return await _decide_gathered(requests, model, model_name, settings, timeout)
 
 
 __all__ = [
     "FAILED",
     "Band",
     "Cut",
+    "CutsModelMismatchError",
     "DecisionStepError",
+    "FailureClass",
+    "SecretInDigestError",
     "Thresholds",
+    "adecide_all",
     "band_of",
     "decide_all",
+    "failure_class",
     "probabilities_of",
 ]

@@ -3,6 +3,7 @@ join of a decision with its outcome, and the registry of the points."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import TYPE_CHECKING, Any
@@ -14,6 +15,7 @@ from devops_cli.config.constants import (
     CONST_AI_JEV_MODEL,
     CONST_ROADMAP_DECISION_POINT_MAX_SERIES,
 )
+from devops_cli.config.settings import Settings
 from devops_cli.roadmap.decision_fit import FitCase
 from devops_cli.roadmap.decision_point import (
     DecisionPoint,
@@ -39,19 +41,23 @@ if TYPE_CHECKING:
     from tests.support.fakes.otlp import FakeCollector
 
 COUNTER = "devops_cli_decision_point_total"
+DURATION = "devops_cli_decision_point_duration_seconds"
+FAILED_COUNTER = "devops_cli_decision_point_failed_total"
 BANDS = {Band.CONTINUE: "skip the costly path", Band.REVIEW: "run it", Band.FLAG: "run it, log"}
 SECRET = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
 
 type Rule = Callable[[Mapping[str, Any]], Band | None]
 
 
-def _cuts(directory: Path, names: tuple[str, ...] = ("a", "b")) -> Path:
+def _cuts(
+    directory: Path, names: tuple[str, ...] = ("a", "b"), *, model: str = CONST_AI_JEV_MODEL
+) -> Path:
     path = directory / "cuts.json"
     path.write_text(
         json.dumps(
             {
                 "step": "demo.point",
-                "model": CONST_AI_JEV_MODEL,
+                "model": model,
                 "fitted": "2026-11-10",
                 "cases": 40,
                 "cuts": {name: {"continue_below": 0.3, "flag_at": 0.8} for name in names},
@@ -70,6 +76,7 @@ def _point(
     rule: Rule | None = None,
     asks_model: bool = True,
     counts_only: bool = False,
+    timeout: float = 30.0,
 ) -> DecisionPoint[dict[str, Any]]:
     return DecisionPoint(
         name=name,
@@ -83,13 +90,18 @@ def _point(
         rule=rule,
         asks_model=asks_model,
         counts_only=counts_only,
+        timeout=timeout,
     )
 
 
 def _chain(
-    point: DecisionPoint[dict[str, Any]], jev: JevFake, mode: Mode = Mode.ON
+    point: DecisionPoint[dict[str, Any]],
+    jev: JevFake,
+    mode: Mode = Mode.ON,
+    *,
+    model_name: str = CONST_AI_JEV_MODEL,
 ) -> ResolverChain[dict[str, Any]]:
-    return ResolverChain(point, mode, model_name=CONST_AI_JEV_MODEL, model=jev.model)
+    return ResolverChain(point, mode, model_name=model_name, model=jev.model)
 
 
 def _records(caplog: pytest.LogCaptureFixture) -> list[DecisionRecord | OutcomeRecord]:
@@ -121,6 +133,32 @@ def test_a_rule_with_no_band_leaves_the_case_to_the_model(tmp_path: Path, jev: J
     assert jev.asked == [["a", "b"]]
 
 
+def test_decide_and_adecide_answer_inside_a_running_event_loop(
+    tmp_path: Path, jev: JevFake
+) -> None:
+    """A caller that runs an event loop gets the decision of the model from either entry point:
+    `decide` sends on the portal of the process, and `adecide` awaits the same request on the loop
+    of the caller (#5272). Each path builds its own model, because the pooled client of a model
+    belongs to one loop (#4319)."""
+    point = _point(_cuts(tmp_path))
+
+    async def drive() -> tuple[DecisionRecord, DecisionRecord]:
+        blocked = _chain(point, jev).decide({"text": "a plan"}, subject=7)
+        awaited = await ResolverChain(
+            point, Mode.ON, model_name=CONST_AI_JEV_MODEL, model=jev.over_loopback()
+        ).adecide({"text": "a plan"}, subject=7)
+        return blocked, awaited
+
+    blocked, awaited = asyncio.run(drive())
+
+    for decision in (blocked, awaited):
+        assert (decision.resolver, decision.band, decision.cuts) == (
+            Resolver.MODEL,
+            Band.CONTINUE,
+            "2026-11-10",
+        )
+
+
 @pytest.mark.parametrize(
     ("picks", "band", "flagged"),
     [
@@ -150,6 +188,54 @@ def test_the_model_answers_all_questions_in_one_request_and_the_cuts_give_the_ba
         "2026-11-10",
         flagged,
     )
+
+
+def test_the_record_holds_the_dated_model_that_answered(tmp_path: Path, jev: JevFake) -> None:
+    """The record names the dated snapshot that served the request, not the configured name
+    (#5272)."""
+    jev.answered = "typesafe/jev-1.14-20261014"
+
+    decision = _chain(_point(_cuts(tmp_path)), jev).decide({"text": "a plan"}, subject=7)
+
+    assert decision.model == "typesafe/jev-1.14-20261014"
+    assert decision.model != CONST_AI_JEV_MODEL
+
+
+def test_cuts_of_another_model_give_the_fallback_and_count_model_mismatch(
+    tmp_path: Path, jev: JevFake, otlp: FakeCollector
+) -> None:
+    """The chain gives the fallback and sends no request when the cuts of the point were fitted for
+    another model than the one `ai.decision_model` names (#5272). A gateway route of the model of
+    the cuts is the same model, so the model answers."""
+    other = tmp_path / "other"
+    other.mkdir()
+    mismatched = _chain(
+        _point(_cuts(other, model="typesafe/jev-1.13")),
+        jev,
+        model_name=Settings(ai={"decision_model": "typesafe/jev-1.14"}).ai.decision_model,
+    )
+
+    decision = mismatched.decide({"text": "a plan"}, subject=7)
+
+    assert (decision.resolver, decision.band) == (Resolver.FALLBACK, None)
+    assert jev.requests == []
+    assert otlp.points(FAILED_COUNTER) == [({"point": "demo.point", "error": "model_mismatch"}, 1)]
+
+    otlp.clear()
+    routed = tmp_path / "routed"
+    routed.mkdir()
+    answered = _chain(
+        _point(_cuts(routed)),
+        jev,
+        model_name=Settings(ai={"decision_model": "litellm:typesafe/jev-1.14"}).ai.decision_model,
+    ).decide({"text": "a plan"}, subject=7)
+
+    assert (answered.resolver, answered.band, answered.cuts) == (
+        Resolver.MODEL,
+        Band.CONTINUE,
+        "2026-11-10",
+    )
+    assert otlp.points(FAILED_COUNTER) == []
 
 
 def test_shadow_records_the_band_and_the_decision_does_not_act(
@@ -192,6 +278,70 @@ def test_a_model_error_falls_back_and_names_the_error(
     assert otlp.points(COUNTER) == [
         ({"point": "demo.point", "resolver": "fallback", "band": "none", "mode": "on"}, 1)
     ]
+
+
+def test_a_failed_request_gives_the_fallback_and_counts_its_class(
+    tmp_path: Path, jev: JevFake, otlp: FakeCollector
+) -> None:
+    """A model that raises an error no class of `FAILED` names gives the fallback, and the failed
+    counter holds the class `other`. A request that the timeout ends counts the class `timeout`
+    (#5272)."""
+    jev.unreachable(RuntimeError("the decision model broke"))
+
+    broken = _chain(_point(_cuts(tmp_path)), jev).decide({"text": "a plan"}, subject=7)
+
+    assert (broken.resolver, broken.band) == (Resolver.FALLBACK, None)
+    assert otlp.points(FAILED_COUNTER) == [({"point": "demo.point", "error": "other"}, 1)]
+
+    otlp.clear()
+    jev.error = None
+    jev.hold()
+    slow = _chain(_point(_cuts(tmp_path), timeout=0.01), jev).decide({"text": "a plan"}, subject=7)
+
+    assert (slow.resolver, slow.band) == (Resolver.FALLBACK, None)
+    assert otlp.points(FAILED_COUNTER) == [({"point": "demo.point", "error": "timeout"}, 1)]
+
+
+def _broken_rule(digest: Mapping[str, Any]) -> Band | None:
+    raise RuntimeError("the rule broke")
+
+
+def test_an_error_that_no_class_names_logs_its_trace(
+    tmp_path: Path, jev: JevFake, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An error that `FAILED` does not name is a defect, so `decide` and `adecide` log the line of
+    the fallback with the trace of the error. An error of `FAILED`, such as a cut that the model
+    does not answer, logs its line with no trace (#5272)."""
+    broken = _chain(_point(_cuts(tmp_path), rule=_broken_rule), jev)
+
+    with caplog.at_level(logging.WARNING):
+        broken.decide({"text": "a plan"}, subject=7)
+        asyncio.run(broken.adecide({"text": "a plan"}, subject=8))
+
+    traced = [record.exc_info[1] for record in caplog.records if record.exc_info]
+    assert [(type(error), str(error)) for error in traced] == [(RuntimeError, "the rule broke")] * 2
+    assert all("current behavior runs" in record.getMessage() for record in caplog.records)
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        _chain(_point(_cuts(tmp_path, ("a", "b", "c"))), jev).decide({"text": "a plan"}, subject=9)
+
+    assert "current behavior runs" in caplog.text
+    assert not any(record.exc_info for record in caplog.records)
+
+
+def test_the_failure_classes_are_seven() -> None:
+    from devops_cli.roadmap.decision_step import FailureClass
+
+    assert {klass.value for klass in FailureClass} == {
+        "timeout",
+        "model_error",
+        "parse",
+        "secret",
+        "no_cuts",
+        "model_mismatch",
+        "other",
+    }
 
 
 def test_a_question_with_no_answer_falls_back_and_keeps_the_answers(
@@ -282,11 +432,95 @@ def test_a_point_writes_only_its_label_sets(
     assert len(_point(_cuts(tmp_path), rule=lambda digest: None).series()) == 14
 
 
-def test_the_registry_refuses_a_catalogue_above_60_series(tmp_path: Path) -> None:
-    points = [_point(_cuts(tmp_path), name=f"demo.point_{index}") for index in range(8)]
+def _histogram(otlp: FakeCollector, name: str) -> list[tuple[dict[str, Any], int, float]]:
+    """Each point of the histogram `name`, as (attributes, count, sum)."""
+    found: list[tuple[dict[str, Any], int, float]] = []
+    for metric in otlp.metrics:
+        if metric["name"] != name:
+            continue
+        for point in metric["exponentialHistogram"]["dataPoints"]:
+            attributes = {
+                attribute["key"]: next(iter(attribute["value"].values()))
+                for attribute in point["attributes"]
+            }
+            found.append((attributes, int(point["count"]), point["sum"]))
+    return found
 
-    with pytest.raises(ValueError, match="60"):
-        Registry(points)
+
+def test_one_decision_adds_one_duration_sample(
+    tmp_path: Path, jev: JevFake, otlp: FakeCollector
+) -> None:
+    """A decision times its resolution and observes the duration once, under its point and the
+    resolver of its record (#5272)."""
+    decision = _chain(_point(_cuts(tmp_path)), jev).decide({"text": "a plan"}, subject=7)
+
+    assert decision.resolver is Resolver.MODEL
+    (sample,) = _histogram(otlp, DURATION)
+    attributes, count, total = sample
+    assert (attributes, count) == ({"point": "demo.point", "resolver": "model"}, 1)
+    assert total > 0
+
+
+def test_the_decision_instruments_add_at_most_three_and_seven_series_to_a_point(
+    tmp_path: Path, jev: JevFake, otlp: FakeCollector
+) -> None:
+    """A point adds at most 3 duration series, one for each resolver of its chain, and at most 7
+    failed series, one for each class of `FailureClass` (#5272)."""
+    from devops_cli.roadmap.decision_step import FailureClass
+
+    rule_answers = {"value": True}
+    point = _point(
+        _cuts(tmp_path), rule=lambda digest: Band.CONTINUE if rule_answers["value"] else None
+    )
+    for mode in (Mode.SHADOW, Mode.ON):
+        _chain(point, jev, mode).decide({"text": "a plan"}, subject=1)
+        rule_answers["value"] = False
+        jev.picks = {"a": 0.3}
+        _chain(point, jev, mode).decide({"text": "a plan"}, subject=1)
+        jev.fail(503)
+        _chain(point, jev, mode).decide({"text": "a plan"}, subject=1)
+        jev.status = None
+
+    duration = {(labels["point"], labels["resolver"]) for labels, _ in otlp.points(DURATION)}
+    failed = {(labels["point"], labels["error"]) for labels, _ in otlp.points(FAILED_COUNTER)}
+
+    assert duration == {
+        ("demo.point", Resolver.RULE.value),
+        ("demo.point", Resolver.MODEL.value),
+        ("demo.point", Resolver.FALLBACK.value),
+    }
+    assert len(duration) <= 3
+    assert failed <= {("demo.point", klass.value) for klass in FailureClass}
+    assert len(failed) <= 7
+
+
+def test_the_registry_accepts_a_catalogue_at_the_bound_and_refuses_one_above_it(
+    tmp_path: Path,
+) -> None:
+    """ADR 0020 section 7 allows 92 series: 60 for the first catalogue, 24 for the three `brain.*`
+    points and 8 for `resolve.question_class` (#5272). A point writes 8 label sets with one
+    resolver and 14 with a rule and a model, so the test reads the bound for both catalogues."""
+
+    def rule(digest: Mapping[str, Any]) -> Band:
+        return Band.CONTINUE
+
+    cuts = _cuts(tmp_path)
+    at_bound = [
+        *(_point(cuts, name=f"demo.model_{index}") for index in range(8)),
+        *(_point(cuts, name=f"demo.rule_{index}", rule=rule) for index in range(2)),
+    ]
+    above_bound = [
+        *(_point(cuts, name=f"demo.model_{index}") for index in range(10)),
+        *(_point(cuts, name=f"demo.rule_{index}", rule=rule) for index in range(1)),
+    ]
+    count = sum(len(point.series()) for point in at_bound)
+    above = sum(len(point.series()) for point in above_bound)
+
+    assert count == CONST_ROADMAP_DECISION_POINT_MAX_SERIES
+    assert above > CONST_ROADMAP_DECISION_POINT_MAX_SERIES
+    assert Registry(at_bound).series_count == count
+    with pytest.raises(ValueError, match=f"{above} label sets"):
+        Registry(above_bound)
 
 
 def test_the_registry_gives_the_fitted_cuts_of_a_point(tmp_path: Path) -> None:
@@ -342,5 +576,6 @@ def test_one_counter_counts_the_decisions_and_states_the_bound_of_the_catalogue(
         }
         & names
     )
-    assert "60 series" in DECISION_POINT_TOTAL.description
-    assert REGISTRY.series_count <= CONST_ROADMAP_DECISION_POINT_MAX_SERIES == 60
+    assert f"{CONST_ROADMAP_DECISION_POINT_MAX_SERIES} series" in DECISION_POINT_TOTAL.description
+    assert CONST_ROADMAP_DECISION_POINT_MAX_SERIES == 92
+    assert REGISTRY.series_count <= CONST_ROADMAP_DECISION_POINT_MAX_SERIES

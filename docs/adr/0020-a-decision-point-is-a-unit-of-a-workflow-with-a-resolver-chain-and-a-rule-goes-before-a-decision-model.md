@@ -244,3 +244,5 @@ The merge of the pull request that adds this record is the approval of this reco
 This record **amends ADR 0019** in three places and no other. The seven rules of ADR 0019 stay in force. (1) The table of ranked decision points and the section of the pilots in ADR 0019 are replaced by the catalogue below. (2) Rule 6 of ADR 0019 says that a switch is off by default. This record says where the switch is: the mode of the point in `roadmap.decisions`, and the setting `ai.decision_model` that names the model. (3) The text of pilot 2 in ADR 0019 is replaced by its measured result (see the catalogue).
 
 The pull request of #4792 amends the catalogue on 2026-11-12. It adds the point `resolve.question_class` of the row `resolve` (ADR 0021 section 8), in `shadow` only. The merge of that pull request is the approval of the point.
+
+2026-11-14: Living detail moved to `docs/TELEMETRY.md` and to `openspec/specs/decision-workflows/spec.md`: the two decision-point instruments and their series bounds (#5272).

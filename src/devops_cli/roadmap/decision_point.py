@@ -11,16 +11,25 @@ A `ResolverChain` resolves a point in this order and stops at the first resolver
 2. the decision model that `ai.decision_model` names, with all questions in one request, and the
    cuts of the point (`decision_step.band_of`) for the band;
 3. the fallback: no band, and the workflow does what it did before the point. An error of the
-   request, a missing answer or cut, or a digest that holds a secret gives the fallback, and the
-   log names the cause.
+   request, a missing answer or cut, a digest that holds a secret, or a cuts file of another model
+   than the model in use gives the fallback, and the log names the cause. The failed counter counts
+   the class of the error. An error that `FAILED` does not name is a defect, so its log line also
+   holds its trace. The chain loads the cuts of the point before the request, so no request goes
+   to a model that the cuts do not cover.
+
+`ResolverChain.decide` sends the request on the one blocking portal of the process, so a caller
+that runs an event loop may call it. `ResolverChain.adecide` awaits the same request on the loop of
+its caller and uses no portal. Both write the same record and the same count.
 
 The mode of a point (`roadmap.decisions`) says what the band does: with `shadow` the chain runs and
 the workflow acts as with `off`, and with `on` the band acts. `chain_of` gives no chain for the
 mode `off`, nor for a point with no rule while no decision model is configured: then the point
 sends no request, writes no record and counts nothing.
 
-Each decision writes one decision record, a log line, and one count of
-`devops_cli_decision_point_total`. The workflow writes one outcome record with the identifier of
+Each decision writes one decision record, a log line, one count of
+`devops_cli_decision_point_total`, and one observation of
+`devops_cli_decision_point_duration_seconds`, the seconds of its resolution under its point and
+resolver. The workflow writes one outcome record with the identifier of
 the decision when it knows the real result. `join` makes the labelled cases of the next fit
 (`decision_fit.FitCase`) from the two lists of records. A point returns a band and never a text.
 """
@@ -31,6 +40,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 import uuid
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
@@ -40,7 +50,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from pydantic_ai.models.decision import DecisionQuestion, DecisionRequest
+from pydantic_ai.models.decision import DecisionQuestion, DecisionRequest, DecisionResponse
 
 from devops_cli.config.constants import CONST_ROADMAP_DECISION_POINT_MAX_SERIES
 from devops_cli.lang import MESSAGES
@@ -48,14 +58,22 @@ from devops_cli.roadmap.decision_fit import FitCase
 from devops_cli.roadmap.decision_step import (
     FAILED,
     Band,
-    DecisionStepError,
+    CutsModelMismatchError,
+    SecretInDigestError,
     Thresholds,
+    adecide_all,
     band_of,
     decide_all,
+    failure_class,
     probabilities_of,
 )
 from devops_cli.security.sanitizer import mask_secrets
-from devops_cli.telemetry.instruments import DECISION_POINT_TOTAL, emit
+from devops_cli.telemetry.instruments import (
+    DECISION_POINT_DURATION,
+    DECISION_POINT_FAILED_TOTAL,
+    DECISION_POINT_TOTAL,
+    emit,
+)
 
 if TYPE_CHECKING:
     from pydantic_ai.models.decision import DecisionModel
@@ -90,6 +108,12 @@ class Resolver(StrEnum):
 
 
 type Rule = Callable[[Mapping[str, Any]], Band | None]
+
+
+def _model_target(name: str) -> str:
+    """The model that a configured name sends its requests to: the name after a provider prefix
+    such as `litellm:`, or the whole name when it has no prefix."""
+    return name.partition(":")[2] or name
 
 
 @dataclass(frozen=True)
@@ -146,11 +170,13 @@ class DecisionPoint[T]:
 
     def request(self, state: dict[str, Any]) -> DecisionRequest:
         """The one request of the point: the digest `state` and the questions. A digest that holds
-        a secret raises `DecisionStepError`, because the request leaves the cluster for the hosted
+        a secret raises `SecretInDigestError`, because the request leaves the cluster for the hosted
         model (SECURITY.md)."""
         text = json.dumps(state, ensure_ascii=False, default=str)
         if mask_secrets(text) != text:
-            raise DecisionStepError(MESSAGES.roadmap.decision_point_secret.format(point=self.name))
+            raise SecretInDigestError(
+                MESSAGES.roadmap.decision_point_secret.format(point=self.name)
+            )
         return DecisionRequest(state=state, questions=dict(self.questions))
 
 
@@ -204,12 +230,14 @@ class OutcomeRecord(BaseModel):
 
 @dataclass(frozen=True)
 class _Resolved:
-    """What a resolver gave: the resolver, the band, the day of the cuts and the flagged questions."""
+    """What a resolver gave: the resolver, the band, the day of the cuts, the flagged questions and
+    the model name of the answer, which is empty when no model answered."""
 
     resolver: Resolver
     band: Band | None = None
     cuts: str = ""
     flagged: tuple[str, ...] = ()
+    model: str = ""
 
 
 class ResolverChain[T]:
@@ -241,21 +269,71 @@ class ResolverChain[T]:
 
     def decide(self, given: T, *, subject: object) -> DecisionRecord:
         """The decision for `given`, the input of the point for `subject` (the item or the run). It
-        writes the decision record and the count, and it never raises an error of the model."""
+        sends the request on the blocking portal of the process, so it may run in a thread that
+        runs an event loop. It writes the decision record, the count and the duration, and it never
+        raises an error of the model."""
+        started = time.perf_counter()
         state: dict[str, Any] = {}
         answers: dict[str, float] = {}
         try:
             state = self.point.evidence(given)
             resolved = self._resolve(state, answers)
         except FAILED as exc:
-            logger.warning(
-                MESSAGES.roadmap.decision_point_failed.format(
-                    point=self.point.name,
-                    subject=subject,
-                    error=f"{type(exc).__name__}: {exc}"[:_ERROR_CHARS],
-                )
-            )
-            resolved = _Resolved(Resolver.FALLBACK)
+            logger.warning(self._failure_line(subject, exc))
+            resolved = self._failed(exc)
+        except Exception as exc:
+            # `FAILED` does not name this error, so it is a defect and the log keeps its trace.
+            logger.warning(self._failure_line(subject, exc), exc_info=exc)
+            resolved = self._failed(exc)
+        return self._counted(subject, state, resolved, answers, started)
+
+    async def adecide(self, given: T, *, subject: object) -> DecisionRecord:
+        """The decision for `given`, awaited on the event loop of the caller, which uses no
+        blocking portal. It writes the decision record, the count and the duration, and it never
+        raises an error of the model."""
+        started = time.perf_counter()
+        state: dict[str, Any] = {}
+        answers: dict[str, float] = {}
+        try:
+            state = self.point.evidence(given)
+            resolved = await self._aresolve(state, answers)
+        except FAILED as exc:
+            logger.warning(self._failure_line(subject, exc))
+            resolved = self._failed(exc)
+        except Exception as exc:
+            # `FAILED` does not name this error, so it is a defect and the log keeps its trace.
+            logger.warning(self._failure_line(subject, exc), exc_info=exc)
+            resolved = self._failed(exc)
+        return self._counted(subject, state, resolved, answers, started)
+
+    def _failure_line(self, subject: object, exc: BaseException) -> str:
+        """The log line of an error of the chain: the point, the subject and the cause."""
+        return MESSAGES.roadmap.decision_point_failed.format(
+            point=self.point.name,
+            subject=subject,
+            error=f"{type(exc).__name__}: {exc}"[:_ERROR_CHARS],
+        )
+
+    def _failed(self, exc: BaseException) -> _Resolved:
+        """The fallback of an error of the chain, with its class in the failed counter. The caller
+        logs the cause, and the trace of an error that `FAILED` does not name."""
+        emit(
+            DECISION_POINT_FAILED_TOTAL,
+            1,
+            {"point": self.point.name, "error": failure_class(exc).value},
+        )
+        return _Resolved(Resolver.FALLBACK)
+
+    def _counted(
+        self,
+        subject: object,
+        state: dict[str, Any],
+        resolved: _Resolved,
+        answers: dict[str, float],
+        started: float,
+    ) -> DecisionRecord:
+        """The record of the decision, its log line, its one count and its duration, which
+        `started` opened at `time.perf_counter`."""
         record = self._record(
             f"{self.point.name}/{subject}/{uuid.uuid7()}", subject, state, resolved, answers
         )
@@ -270,15 +348,20 @@ class ResolverChain[T]:
                 "mode": self.mode.value,
             },
         )
+        emit(
+            DECISION_POINT_DURATION,
+            time.perf_counter() - started,
+            {"point": self.point.name, "resolver": record.resolver.value},
+        )
         return record
 
     def _resolve(self, state: dict[str, Any], answers: dict[str, float]) -> _Resolved:
-        """The first resolver that answers. The model puts its answers in `answers` before the
-        cuts give the band, so a record of a fallback keeps them."""
-        if self.point.rule is not None and (band := self.point.rule(state)) is not None:
-            return _Resolved(Resolver.RULE, band)
-        if not self._model_name:
-            return _Resolved(Resolver.FALLBACK)
+        """The first resolver that answers, with the request sent on the blocking portal. The model
+        puts its answers in `answers` before the cuts give the band, so a record of a fallback keeps
+        them."""
+        if (started := self._started(state)) is not None:
+            return started
+        self._check_cuts_model()
         (response,) = decide_all(
             [self.point.request(state)],
             model=self._model,
@@ -286,11 +369,52 @@ class ResolverChain[T]:
             settings=self._settings,
             timeout=self.point.timeout,
         )
+        return self._banded(response, answers)
+
+    async def _aresolve(self, state: dict[str, Any], answers: dict[str, float]) -> _Resolved:
+        """The first resolver that answers, with the request awaited on the event loop of the
+        caller. The model puts its answers in `answers` before the cuts give the band, so a record
+        of a fallback keeps them."""
+        if (started := self._started(state)) is not None:
+            return started
+        self._check_cuts_model()
+        (response,) = await adecide_all(
+            [self.point.request(state)],
+            model=self._model,
+            model_name=self._model_name,
+            settings=self._settings,
+            timeout=self.point.timeout,
+        )
+        return self._banded(response, answers)
+
+    def _check_cuts_model(self) -> None:
+        """Refuse the cuts of another model than the model in use, before any request goes to that
+        model. It raises `CutsModelMismatchError`, so the chain gives the fallback with no
+        request."""
+        fitted = self._thresholds
+        target = _model_target(self._model_name)
+        if fitted.model != target:
+            raise CutsModelMismatchError(
+                MESSAGES.roadmap.decision_point_cuts_model.format(
+                    point=self.point.name, cuts=fitted.model, model=target
+                )
+            )
+
+    def _started(self, state: dict[str, Any]) -> _Resolved | None:
+        """The decision that the rule or the fallback gives, or None when the model answers."""
+        if self.point.rule is not None and (band := self.point.rule(state)) is not None:
+            return _Resolved(Resolver.RULE, band)
+        return None if self._model_name else _Resolved(Resolver.FALLBACK)
+
+    def _banded(self, response: DecisionResponse, answers: dict[str, float]) -> _Resolved:
+        """The decision of the model: its answers go into `answers`, and the cuts of the point give
+        the band and the flagged questions. The record names the model of the answer, the dated
+        snapshot that served the request."""
         answers.update(probabilities_of(response))
         fitted = self._thresholds
         band = band_of(answers, fitted.cuts)
         flagged = tuple(name for name, cut in fitted.cuts.items() if answers[name] >= cut.flag_at)
-        return _Resolved(Resolver.MODEL, band, fitted.fitted, flagged)
+        return _Resolved(Resolver.MODEL, band, fitted.fitted, flagged, model=response.model_name)
 
     def _record(
         self,
@@ -301,6 +425,7 @@ class ResolverChain[T]:
         answers: dict[str, float],
     ) -> DecisionRecord:
         text = json.dumps(state, ensure_ascii=False, sort_keys=True, default=str)
+        configured = self._model_name if answers or resolved.resolver is Resolver.MODEL else ""
         return DecisionRecord(
             id=identifier,
             point=self.point.name,
@@ -308,7 +433,7 @@ class ResolverChain[T]:
             mode=self.mode,
             resolver=resolved.resolver,
             band=resolved.band,
-            model=self._model_name if answers or resolved.resolver is Resolver.MODEL else "",
+            model=resolved.model or configured,
             cuts=resolved.cuts,
             answers=answers,
             flagged=list(resolved.flagged),
