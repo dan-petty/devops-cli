@@ -1994,6 +1994,15 @@ class RoadmapCommandHelp:
     inbox_dry_run: str = (
         "Make no request: print the reads that a run makes, in order, with placeholders."
     )
+    registries: str = (
+        "List the registry and ratchet declarations of the test modules, each with its token, "
+        "its kind, its target path and its source path:line. Report a declaration that is not a "
+        "tuple of literals and a ratchet assertion that no declaration covers, and exit 1."
+    )
+    registries_path: str = (
+        "Checkout whose tests folder the audit reads (default: the repository root of the "
+        "current folder)."
+    )
     repair: str = (
         "Find the items that a placeholder reply of a model stalled. A returned item goes back "
         "to Ready. A stub refine item loses its stub section and its refine block. An item that "
