@@ -11,9 +11,9 @@ Kind: other. Reads: `k8s/devops/configmap.example.yaml`, `tests/k8s/test_k8s_con
 
 Kind: behavior. Reads: `src/devops_cli/config/settings.py`, `tests/roadmap/implement/test_roadmap_implement_size.py`. Changes: `src/devops_cli/config/settings.py`, `tests/roadmap/implement/test_roadmap_implement_size.py`.
 
-- [ ] 2.1 `test_the_description_names_the_smallest_node_that_can_run_a_runner_job` in `tests/roadmap/implement/test_roadmap_implement_size.py`
+- [x] 2.1 `test_the_description_names_the_smallest_node_that_can_run_a_runner_job` in `tests/roadmap/implement/test_roadmap_implement_size.py`
   - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_size.py` fails on the base
-- [ ] 2.2 Write the case first: read `settings.RoadmapImplementConfig.model_fields["max_memory_limit"].description` and assert that it holds `smallest node that can run a runner Job` and not `smallest node of the cluster`. It fails on the staged description. Then change the `description` of `max_memory_limit` in `src/devops_cli/config/settings.py` so the bound is the smallest node that can run a runner Job, and keep the pattern and the default as they are
+- [x] 2.2 Write the case first: read `settings.RoadmapImplementConfig.model_fields["max_memory_limit"].description` and assert that it holds `smallest node that can run a runner Job` and not `smallest node of the cluster`. It fails on the staged description. Then change the `description` of `max_memory_limit` in `src/devops_cli/config/settings.py` so the bound is the smallest node that can run a runner Job, and keep the pattern and the default as they are
   - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_size.py` passes
 
 ## 3. Regenerate the environment variable table from the new description
