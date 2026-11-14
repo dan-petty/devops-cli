@@ -323,4 +323,7 @@ def test_quiet_logfire_turns_the_console_and_the_pydantic_ai_instrumentation_off
 
     quiet_logfire()
 
-    assert calls == [("configure", {"console": False}), ("instrument_all", False)]
+    assert calls == [
+        ("configure", {"console": False, "service_version": "test-suite"}),
+        ("instrument_all", False),
+    ]

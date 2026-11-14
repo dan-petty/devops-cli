@@ -18,7 +18,8 @@ def quiet_logfire() -> None:
     """
     logfire = sys.modules.get("logfire")
     if logfire is not None:
-        logfire.configure(console=False)
+        # An explicit service version keeps configure from running `git rev-parse HEAD` for one.
+        logfire.configure(console=False, service_version="test-suite")
     pydantic_ai = sys.modules.get("pydantic_ai")
     agent = getattr(pydantic_ai, "Agent", None)
     if agent is not None:
