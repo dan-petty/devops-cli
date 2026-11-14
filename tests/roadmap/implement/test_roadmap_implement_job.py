@@ -61,6 +61,7 @@ from tests.support.roadmap_implement import (
     TASKS_PATH,
     TICKED_FIRST,
     JobWorld,
+    advance_main,
     archive_effect,
     branch_of,
     docs_effect,
@@ -931,6 +932,77 @@ def test_a_conflict_on_the_rebase_stops_the_item_before_any_step(job_world: JobW
     assert "The job discarded" not in job_world.issue_comments()[0]
     assert job_world.repo.git("worktree", "list").count("\n") == 0
     assert job_world.origin_log() == ["fix(roadmap): plan"]
+
+
+THREE_GROUP_TASKS_CONTEXT = """\
+# Tasks
+
+## 1. The first group
+
+Reads: `CONTEXT.md`. Changes: `CONTEXT.md`.
+
+- [ ] 1.1 Document in `CONTEXT.md`
+  - Verification: `$ uv run devops docs check`
+
+## 2. The second group
+
+Reads: `CONTEXT.md`. Changes: `src/devops_cli/shout.py` (new), `tests/test_shout.py` (new).
+
+- [ ] 2.1 Add `src/devops_cli/shout.py`
+  - Verification: `$ uv run devops ci test tests/test_shout.py`
+
+## 3. The third group
+
+Reads: `src/devops_cli/shout.py`. Changes: `src/devops_cli/shout.py`.
+
+- [ ] 3.1 Update `src/devops_cli/shout.py`
+  - Verification: `$ uv run devops ci test tests/test_shout.py`
+
+## Criteria
+
+- Group 1: The job keeps every comment.
+
+## Workflow follow-up
+
+- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
+"""
+TICKED_G1 = THREE_GROUP_TASKS_CONTEXT.replace("- [ ] 1.1 Document", "- [x] 1.1 Document")
+TICKED_G2 = TICKED_G1.replace("- [ ] 2.1 Add", "- [x] 2.1 Add")
+TICKED_G3 = TICKED_G2.replace("- [ ] 3.1 Update", "- [x] 3.1 Update")
+
+
+@pytest.mark.parametrize("staged_tasks", [THREE_GROUP_TASKS_CONTEXT])
+def test_a_conflict_at_a_checkpoint_keeps_the_later_group_on_the_branch(
+    job_world: JobWorld,
+) -> None:
+    """A rebase conflict at a checkpoint aborts the rebase and keeps the passed groups (#5615)."""
+    script = ModelScript(
+        tool_calls(
+            ("write_file", {"path": "CONTEXT.md", "content": "# Updated context\n"}),
+            ("write_file", {"path": TASKS_PATH, "content": TICKED_G1}),
+        ),
+        say("Group 1 is done."),
+        tool_calls(
+            ("write_file", {"path": "src/devops_cli/shout.py", "content": SHOUT}),
+            ("write_file", {"path": "tests/test_shout.py", "content": TEST_BODY}),
+            ("write_file", {"path": TASKS_PATH, "content": TICKED_G2}),
+        ),
+        say("Group 2 is done."),
+        tool_calls(
+            ("write_file", {"path": "src/devops_cli/shout.py", "content": SHOUT + "\n"}),
+            ("write_file", {"path": TASKS_PATH, "content": TICKED_G3}),
+        ),
+        say("Group 3 is done."),
+        effects={1: lambda: advance_main(job_world, "CONTEXT.md", "Main context.\n")},
+    )
+
+    applied = job_world.run(script)
+
+    status, record = _item(job_world)
+    assert (applied.stopped, status, record.get("implement.stopped")) == ((1,), "Blocked", "push")
+    assert record.get("implement.failure") == "conflict"
+    assert record.get("implement.conflict") == '["CONTEXT.md"]'
+    assert "fix(roadmap): The second group (#1)" in job_world.origin_log()
 
 
 def test_a_conflict_on_the_rebase_before_the_push_pushes_nothing(job_world: JobWorld) -> None:

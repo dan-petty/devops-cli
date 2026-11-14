@@ -330,8 +330,8 @@ The job SHALL write `implement.checked_sha` with the head after the scoped check
 - **WHEN** `read_draft` reads a stage plan pull status with title `docs(openspec): plan #3321 x` and body `x`
 - **THEN** `draft.pull.title` is the title and `draft.pull.body` is the body
 
-### Requirement: Every push holds the default branch
-The job SHALL fetch `origin/<default>` before each push of the item branch, and SHALL push a commit that holds it. Between steps and at a stop the job SHALL rebase the checkout. During a step the job SHALL rebase a copy of `HEAD` in a detached worktree and push the tip of the copy with a lease on the remote tip that it has seen, and the checkout MUST stay as it is. A conflict SHALL abort the rebase and go to the log, and the job SHALL push nothing.
+### Requirement: A push rebases onto the default branch
+The job SHALL fetch `origin/<default>` before each push of the item branch, and SHALL push a commit that holds it. Between steps and at a stop the job SHALL rebase the checkout. During a step the job SHALL rebase a copy of `HEAD` in a detached worktree and push the tip of the copy with a lease on the remote tip that it has seen, and the checkout MUST stay as it is.
 
 #### Scenario: The first push of a Planned item
 - **WHEN** `main` gains a commit while the first step runs, and the step commits its first `wip:` commit
@@ -347,11 +347,11 @@ The job SHALL fetch `origin/<default>` before each push of the item branch, and 
 
 #### Scenario: A stop
 - **WHEN** `main` gains a commit and the step stops
-- **THEN** the push of the stop holds that commit, and `implement.wip` names the last `wip:` commit of the branch on `origin`
+- **THEN** the push of the stop holds that commit
 
 #### Scenario: A conflict during a step
 - **WHEN** `main` of a Planned item gains a commit that conflicts with the first `wip:` commit, and the step then stops
-- **THEN** `origin` has no item branch, the log holds the text of the rebase conflict, and no rebase stays in progress
+- **THEN** the job aborts the rebase, and no rebase stays in progress
 
 ### Requirement: The watch stops the item on a merged or closed pull request
 The implement job watch SHALL stop the item when the pull request is merged or closed without a merge, and MUST NOT report such a pull request as ready.
@@ -374,3 +374,18 @@ The summary of the plan SHALL be the text after `docs(openspec): plan #<issue>` 
 #### Scenario: A plan summary that the form refuses
 - **WHEN** the summary of the plan has 64 characters, and the title of the issue is `fix(roadmap): the job drops a comment`
 - **THEN** the title of the pull request is `fix(roadmap): the job drops a comment`, and the job does not stop the item
+
+### Requirement: A conflicting push keeps the head on the item branch
+A checkpoint, `wip:` or stop push whose rebase conflicts SHALL abort the rebase, push the head of the checkout to the item branch with a lease, and record the conflicting paths in `implement.conflict`. The run SHALL make its next checkpoint push. The final push whose rebase conflicts MUST push nothing, MUST keep the item branch on `origin`, and SHALL stop the item with the class `conflict`, naming the conflicting paths in its comment.
+
+#### Scenario: A conflict at a checkpoint
+- **WHEN** `main` gains a commit that changes `CONTEXT.md` after group 1 passed, and the checkpoint push before group 2 conflicts
+- **THEN** the checkpoint push before group 3 puts the commit of group 2 on the item branch, and `implement.conflict` names `CONTEXT.md`
+
+#### Scenario: A conflict at a work-in-progress push
+- **WHEN** `main` of a Planned item gains a commit that conflicts with the first `wip:` commit of a step
+- **THEN** the `wip:` push puts that commit on the item branch, and no rebase stays in progress
+
+#### Scenario: A conflict at the final push
+- **WHEN** the final push rebases onto a `main` that conflicts with the branch after a checkpoint kept the passed groups
+- **THEN** the item stops with the class `conflict`, the comment names the conflicting path, and `origin` keeps the item branch
