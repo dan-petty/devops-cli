@@ -16,7 +16,14 @@ import yaml
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE
 from devops_cli.k8s.cluster_job_api import ClusterJobs, JobState, job_state
-from tests.support.fakes.kubernetes import FakeCluster, api_exception, pod
+from tests.support.fakes.kubernetes import (
+    FakeCluster,
+    api_exception,
+    pod,
+    running,
+    status,
+    terminated,
+)
 from tests.support.paths import REPO_ROOT
 
 JOBS = ("batch", "v1", "jobs")
@@ -506,3 +513,51 @@ def test_a_listed_job_carries_its_labels_and_the_reason_and_message_of_its_failu
         ),
         ({}, "", ""),
     ]
+
+
+def test_the_exit_status_of_a_job_pod_is_the_terminated_code(kube: FakeCluster) -> None:
+    """The report of an ended Job reads the terminated code of the pod of its Job (#3727)."""
+    kube.core.answers["list_namespaced_pod"] = [
+        pod("runner", namespace="devops", statuses=[status("runner", terminated(137, "OOMKilled"))])
+    ]
+
+    assert ClusterJobs().exit_status("devops-cli-stage-a-1") == 137
+
+
+def test_the_exit_status_uses_the_last_state_of_a_restarted_container(kube: FakeCluster) -> None:
+    kube.core.answers["list_namespaced_pod"] = [
+        pod(
+            "runner",
+            namespace="devops",
+            statuses=[status("runner", running(), restarts=1, last=terminated(137))],
+        )
+    ]
+
+    assert ClusterJobs().exit_status("devops-cli-stage-a-1") == 137
+
+
+def test_the_exit_status_is_none_without_a_terminated_container(kube: FakeCluster) -> None:
+    kube.core.answers["list_namespaced_pod"] = [
+        pod("runner", namespace="devops", statuses=[status("runner", running())])
+    ]
+
+    assert ClusterJobs().exit_status("devops-cli-stage-a-1") is None
+
+
+def test_the_exit_status_names_the_job_in_the_pod_selector(kube: FakeCluster) -> None:
+    ClusterJobs().exit_status("devops-cli-stage-a-1")
+
+    call = next(c for c in kube.core.calls if c[0] == "list_namespaced_pod")
+    assert call[1]["label_selector"] == "batch.kubernetes.io/job-name=devops-cli-stage-a-1"
+
+
+def test_the_exit_status_raises_when_the_api_refuses(kube: FakeCluster) -> None:
+    def refuse(*_: Any, **__: Any) -> Any:
+        raise api_exception(403, "Forbidden")
+
+    kube.core.list_namespaced_pod = refuse  # type: ignore[method-assign]
+
+    with pytest.raises(
+        ClusterJobError, match="read the status of a Job pod in namespace devops: HTTP 403"
+    ):
+        ClusterJobs().exit_status("devops-cli-stage-a-1")
