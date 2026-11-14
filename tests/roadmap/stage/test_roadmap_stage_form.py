@@ -703,3 +703,27 @@ def test_an_other_group_that_runs_no_test_module_is_accepted() -> None:
     group = _group(kind="other", test=None, verify="uv run devops ci docs")
 
     assert form_problems([group]) == []
+
+
+def test_a_manifest_verify_that_names_no_path_of_the_group_is_refused() -> None:
+    group = _group(
+        kind="manifest",
+        reads=["docs/manifest.yaml"],
+        changes=["src/devops_cli/sample.py", "tests/test_sample.py", "docs/manifest.yaml"],
+        verify="uv run devops ci test tests/other/test_x.py",
+    )
+
+    (problem,) = [text for text in form_problems([group]) if "manifest group must be" in text]
+
+    assert "tests/other/test_x.py" in problem
+
+
+def test_a_manifest_verify_that_names_the_folder_of_its_path_is_accepted() -> None:
+    group = _group(
+        kind="manifest",
+        reads=["docs/manifest.yaml"],
+        changes=["src/devops_cli/sample.py", "tests/test_sample.py", "docs/manifest.yaml"],
+        verify="uv run devops ci test docs/",
+    )
+
+    assert [text for text in form_problems([group]) if "manifest group must be" in text] == []
