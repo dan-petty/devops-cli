@@ -391,3 +391,67 @@ def test_skill_points_to_command() -> None:
     for skill_text in (claude_skill, agents_skill):
         assert "devops openspec new" in skill_text
         assert "openspec new change" not in skill_text
+
+
+def test_the_output_names_the_branch_of_the_checkout_and_its_slug(
+    cli: Cli, openspec_fake: OpenSpecFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The folder takes the slug of the branch of the same issue, and the output names that
+    branch (#4593)."""
+    tree = _clean_tree(openspec_fake)
+    monkeypatch.chdir(tree)
+    monkeypatch.setattr(
+        "devops_cli.openspec.scaffold.current_branch", lambda root: "fix/3203-alpha"
+    )
+
+    result = cli("openspec", "new", "3203", "--title", "fix(openspec): beta")
+
+    assert "Created openspec/changes/3203-alpha on branch fix/3203-alpha." in result.output
+    assert "3203-beta" not in result.output
+
+
+def test_a_branch_of_another_issue_is_a_suggestion(
+    cli: Cli, openspec_fake: OpenSpecFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree = _clean_tree(openspec_fake)
+    monkeypatch.chdir(tree)
+    current = "docs/5225-adr-front-matter-and-rules"
+    monkeypatch.setattr("devops_cli.openspec.scaffold.current_branch", lambda root: current)
+
+    result = cli("openspec", "new", "3203", "--title", "fix(openspec): alpha")
+
+    assert f"Branch:  {current}" in result.output
+    assert (
+        "The branch fix/3203-alpha is a suggestion for this change. This checkout is not on it."
+        in result.output
+    )
+
+
+def test_a_detached_head_names_no_branch(
+    cli: Cli, openspec_fake: OpenSpecFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree = _clean_tree(openspec_fake)
+    monkeypatch.chdir(tree)
+    monkeypatch.setattr("devops_cli.openspec.scaffold.current_branch", lambda root: "")
+
+    result = cli("openspec", "new", "3203", "--title", "fix(openspec): alpha")
+
+    assert "Branch:  HEAD detached" in result.output
+    assert "on branch" not in result.output
+    assert (tree / "openspec/changes/3203-alpha").is_dir()
+
+
+def test_the_dry_run_names_the_folder_and_branch_of_a_real_run(
+    cli: Cli, openspec_fake: OpenSpecFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree = _clean_tree(openspec_fake)
+    monkeypatch.chdir(tree)
+    monkeypatch.setattr(
+        "devops_cli.openspec.scaffold.current_branch", lambda root: "fix/3203-alpha"
+    )
+
+    result = cli("openspec", "new", "3203", "--dry-run", "--title", "fix(openspec): beta")
+
+    assert "Would create openspec/changes/3203-alpha on branch fix/3203-alpha." in result.output
+    assert "Branch: fix/3203-alpha" in result.output
+    assert not (tree / "openspec/changes/3203-alpha").exists()
