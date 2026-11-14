@@ -714,6 +714,58 @@ def test_llm_stack_dashboard_shows_latency_per_output_token_beside_time_to_first
     )
 
 
+def test_llm_stack_dashboard_shows_top_overview_gauges() -> None:
+    """Verify `llm-stack.json` has an Overview row at y=0 with three top gauge panels for GPU compute,
+    GPU memory, and gateway request success rate (#5727)."""
+    dashboard = _dashboard("llm-stack.json")
+    rows = [p for p in dashboard["panels"] if p.get("type") == "row"]
+    assert rows[0]["title"] == "Overview"
+    assert (
+        rows[0]["gridPos"]["x"],
+        rows[0]["gridPos"]["y"],
+        rows[0]["gridPos"]["w"],
+        rows[0]["gridPos"]["h"],
+    ) == (0, 0, 24, 1)
+
+    overview_panels = _row_panels(dashboard, "Overview")
+    assert [p["title"] for p in overview_panels] == [
+        "Cluster GPU Compute Utilization",
+        "Cluster GPU Memory Utilization",
+        "Gateway Request Success Rate",
+    ]
+    assert [p.get("type") for p in overview_panels] == ["gauge", "gauge", "gauge"]
+    assert [
+        (p["gridPos"]["x"], p["gridPos"]["y"], p["gridPos"]["w"], p["gridPos"]["h"])
+        for p in overview_panels
+    ] == [
+        (0, 1, 8, 6),
+        (8, 1, 8, 6),
+        (16, 1, 8, 6),
+    ]
+    assert [p.get("fieldConfig", {}).get("defaults", {}).get("unit") for p in overview_panels] == [
+        "percent",
+        "percent",
+        "percent",
+    ]
+    dcgm_series, _ = _capture("dcgm-exporter")
+    litellm_series, _ = _capture("litellm")
+    compute_expr = overview_panels[0]["targets"][0]["expr"]
+    mem_expr = overview_panels[1]["targets"][0]["expr"]
+    gw_expr = overview_panels[2]["targets"][0]["expr"]
+    assert compute_expr == "avg(DCGM_FI_DEV_GPU_UTIL)"
+    assert (
+        mem_expr
+        == "100 * sum(DCGM_FI_DEV_FB_USED) / sum(DCGM_FI_DEV_FB_USED + DCGM_FI_DEV_FB_FREE)"
+    )
+    assert (
+        gw_expr
+        == '100 * sum(rate(litellm_deployment_success_responses_total{api_base!=""}[$__rate_interval])) / sum(rate(litellm_deployment_total_requests_total{api_base!=""}[$__rate_interval]))'
+    )
+    assert all(s.metric in dcgm_series for s in selectors(compute_expr))
+    assert all(s.metric in dcgm_series for s in selectors(mem_expr))
+    assert all(s.metric in litellm_series for s in selectors(gw_expr))
+
+
 def _row_panels(dashboard: dict[str, Any], title: str) -> list[dict[str, Any]]:
     """The panels between the row `title` and the next row, by position."""
     rows = sorted(p["gridPos"]["y"] for p in dashboard["panels"] if p.get("type") == "row")
