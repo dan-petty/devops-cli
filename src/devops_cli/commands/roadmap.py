@@ -28,13 +28,14 @@ from collections.abc import Collection, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
-from typing import Annotated, NoReturn
+from typing import TYPE_CHECKING, Annotated, Final, NoReturn
 
 import typer
 
 from devops_cli.commands.roadmap_eval import eval_app
 from devops_cli.commands.roadmap_review import review_app
 from devops_cli.commands.roadmap_step import step_app
+from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
 from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_LIMIT,
     DEFAULT_ROADMAP_REFINE_LIMIT,
@@ -46,7 +47,17 @@ from devops_cli.dry_run import PlannedRequest, dry_run_class, is_dry_run
 from devops_cli.exceptions import DevOpsCLIError, RoadmapRunError
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.lang import HELP, MESSAGES
-from devops_cli.output import print_error, print_info, print_success, write_stdout
+from devops_cli.output import (
+    print_error,
+    print_info,
+    print_success,
+    print_table,
+    print_warning,
+    render_table,
+    write_stderr,
+    write_stdout,
+)
+from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.roadmap.claim import (
     Claimant,
     apply_claim,
@@ -72,6 +83,9 @@ from devops_cli.roadmap.request_plan import render_dry_run
 from devops_cli.roadmap.stores import store as roadmap_store
 from devops_cli.roadmap.stores.listing_snapshot import intake_listing
 from devops_cli.roadmap.stores.store import RoadmapStore
+
+if TYPE_CHECKING:
+    from devops_cli.roadmap.registry_audit import RegistryAudit, RegistryFinding
 
 app = new_typer(help=HELP.roadmap.app, no_args_is_help=True)
 app.add_typer(eval_app, name="eval", help=HELP.roadmap.eval_app)
@@ -1088,6 +1102,90 @@ def _inbox_repos(repo: str | None, configured: Sequence[str]) -> list[str]:
     if not configured:
         raise ConfigurationError(MESSAGES.roadmap.inbox_no_repos, key="service.repos")
     return list(configured)
+
+
+# The columns of the registries table: the name of the column, its style, and the row key it shows.
+_REGISTRY_COLUMNS: Final[tuple[tuple[str, str, str], ...]] = (
+    ("Token", "cyan", "registry_token"),
+    ("Kind", "green", "kind"),
+    ("Target", "white", "path"),
+    ("Source", "magenta", "source"),
+)
+_REGISTRY_ERROR_SEVERITY: Final[str] = "error"
+
+
+@app.command("registries", help=HELP.roadmap.registries)
+@dry_run_class("no-external-request")
+def registries_cmd(
+    path: Annotated[
+        Path | None,
+        typer.Option("--path", exists=True, file_okay=False, help=HELP.roadmap.registries_path),
+    ] = None,
+    output_format: Annotated[
+        str, typer.Option("--format", "-f", help=HELP.options.format_type)
+    ] = DEFAULT_TABLE_FORMAT,
+    json_output: Annotated[
+        bool, typer.Option("--json", "-j", help=HELP.options.json_output)
+    ] = False,
+) -> None:
+    """List each module-level REGISTRY_COUNTS entry of the test modules and audit them."""
+    from devops_cli.roadmap.registry_audit import audit_registries
+
+    fmt = resolve_format(output_format, json_output=json_output)
+    audit = audit_registries(path if path is not None else find_repo_root())
+    _print_registries(audit, fmt)
+    if not audit.ok:
+        raise typer.Exit(1)
+
+
+def _registry_rows(audit: RegistryAudit) -> list[dict[str, str]]:
+    """Each declared entry of `audit` as one row: its token, its kind, its target path and its
+    source `path:line`.
+
+    The key of the token is `registry_token`, not `token`: the secret masker rewrites a value
+    after the keyword `token` and a colon, so a `token` key would replace a token with
+    `<masked-token>` in the JSON and the YAML."""
+    return [
+        {
+            "registry_token": entry.token,
+            "kind": entry.kind,
+            "path": entry.path,
+            "source": f"{entry.declaring_path}:{entry.line}",
+        }
+        for entry in audit.entries
+    ]
+
+
+def _print_registries(audit: RegistryAudit, fmt: str) -> None:
+    """Print the declared entries in `fmt`, then each finding and the count of valid declarations.
+    A machine-readable format keeps standard output to the rows alone."""
+    rows = _registry_rows(audit)
+    if fmt == CONST_OUTPUT_FORMAT_TABLE:
+        print_table(
+            render_table(
+                title="Test registry declarations",
+                columns=[(name, style) for name, style, _key in _REGISTRY_COLUMNS],
+                rows=[[row[key] for _name, _style, key in _REGISTRY_COLUMNS] for row in rows],
+            )
+        )
+    else:
+        emit_serialized(rows, fmt)
+    _print_registry_findings(audit.findings)
+    count = f"Valid declarations: {len(audit.valid_declarations)}"
+    if fmt == CONST_OUTPUT_FORMAT_TABLE:
+        print_success(count)
+    else:
+        write_stderr(count + "\n")
+
+
+def _print_registry_findings(findings: Sequence[RegistryFinding]) -> None:
+    """Report each finding of the audit as one line, with its `path:line`."""
+    for finding in findings:
+        line = f"{finding.source}: {finding.message}"
+        if finding.severity == _REGISTRY_ERROR_SEVERITY:
+            print_error(line, safe=True)
+        else:
+            print_warning(line, to_stderr=True, safe=True)
 
 
 @app.command("onboard", help=HELP.roadmap.onboard)
