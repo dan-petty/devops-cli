@@ -122,6 +122,7 @@ jobs:
         uses: ./.github/actions/setup-toolchain
         with:
           save-uv-cache: "false"
+          compile-bytecode: "false"
           # The suite runs in the image, so no tool of the runner reads a tooling cache.
           tooling-cache-paths: ""
 
