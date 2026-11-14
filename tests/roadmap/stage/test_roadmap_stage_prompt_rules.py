@@ -152,6 +152,15 @@ def test_the_prompts_name_the_kinds_of_a_group_as_the_enum_does(task: str) -> No
     assert "uv run devops ci test" in prompt
 
 
+def test_the_prompt_names_the_live_score_of_a_prompt_change_and_the_replay_of_a_gate() -> None:
+    """A prompt change moves only the live score, and a gate change moves only the replay
+    (#3830)."""
+    assert (
+        "uv run devops roadmap eval stage --limit" in _PROMPT,
+        "uv run devops roadmap eval stage --replay" in _PROMPT,
+    ) == (True, True)
+
+
 def test_the_prompt_names_the_value_of_a_criterion_that_only_a_person_delivers() -> None:
     assert f"`{PENDING_PERSON}`" in _PROMPT
 

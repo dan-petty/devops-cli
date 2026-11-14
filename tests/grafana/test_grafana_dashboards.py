@@ -1015,14 +1015,25 @@ def test_each_prometheus_query_of_the_cli_dashboard_filters_by_job() -> None:
 
 
 def _cli_dashboard_row(title: str) -> list[dict[str, Any]]:
-    """The panels of the row `title` of devops-cli.json, in the order of the file."""
-    cli_dash = json.loads((_PRODUCT_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
-    panels: list[dict[str, Any]] = cli_dash["panels"]
-    start = next(i for i, p in enumerate(panels) if p.get("type") == "row" and p["title"] == title)
-    end = next(
-        (i for i in range(start + 1, len(panels)) if panels[i].get("type") == "row"), len(panels)
-    )
-    return panels[start + 1 : end]
+    """The panels of the row `title` across product dashboards, in the order of the file."""
+    for dash_name in ("devops-cli.json", "roadmap-service-telemetry.json", "devops-ai-rag.json"):
+        path = _PRODUCT_DASHBOARDS / dash_name
+        if not path.is_file():
+            continue
+        cli_dash = json.loads(path.read_text(encoding="utf-8"))
+        panels: list[dict[str, Any]] = cli_dash["panels"]
+        try:
+            start = next(
+                i for i, p in enumerate(panels) if p.get("type") == "row" and p["title"] == title
+            )
+        except StopIteration:
+            continue
+        end = next(
+            (i for i in range(start + 1, len(panels)) if panels[i].get("type") == "row"),
+            len(panels),
+        )
+        return panels[start + 1 : end]
+    raise ValueError(f"Row {title!r} not found in product dashboards")
 
 
 def test_cli_dashboard_service_row_charts_the_state_of_the_service() -> None:
@@ -1121,22 +1132,31 @@ def test_cli_dashboard_service_row_reads_each_series_of_the_service() -> None:
 
 
 def test_cli_dashboard_panels_do_not_overlap() -> None:
-    """The panels fill a grid of 24 columns, and no two panels hold the same cell, so the row
-    "Roadmap Service" keeps its place below the row before it (#2479)."""
-    cli_dash = json.loads((_PRODUCT_DASHBOARDS / "devops-cli.json").read_text(encoding="utf-8"))
-    cells: list[tuple[int, int]] = []
-    for panel in cli_dash["panels"]:
-        grid = panel["gridPos"]
-        cells.extend(
-            (grid["x"] + x, grid["y"] + y) for x in range(grid["w"]) for y in range(grid["h"])
-        )
-    ids = [panel["id"] for panel in cli_dash["panels"]]
+    """The panels fill a grid of 24 columns, and no two panels hold the same cell."""
+    for dash_name in ("devops-cli.json", "roadmap-service-telemetry.json", "devops-ai-rag.json"):
+        dash = json.loads((_PRODUCT_DASHBOARDS / dash_name).read_text(encoding="utf-8"))
+        cells: list[tuple[int, int]] = []
+        for panel in dash["panels"]:
+            grid = panel["gridPos"]
+            cells.extend(
+                (grid["x"] + x, grid["y"] + y) for x in range(grid["w"]) for y in range(grid["h"])
+            )
+        ids = [panel["id"] for panel in dash["panels"]]
 
-    assert (
-        len(cells) == len(set(cells)),
-        max(x for x, _ in cells) < 24,
-        len(ids) == len(set(ids)),
-    ) == (True, True, True)
+        assert (
+            len(cells) == len(set(cells)),
+            max(x for x, _ in cells) < 24,
+            len(ids) == len(set(ids)),
+        ) == (True, True, True)
+
+
+def test_product_dashboards_have_top_bar_links() -> None:
+    """Verify each product dashboard defines top-bar links to sibling dashboards."""
+    for dash_name in ("devops-cli.json", "roadmap-service-telemetry.json", "devops-ai-rag.json"):
+        dash = json.loads((_PRODUCT_DASHBOARDS / dash_name).read_text(encoding="utf-8"))
+        links = dash.get("links", [])
+        assert len(links) >= 2
+        assert all(link.get("type") == "link" for link in links)
 
 
 def test_cli_dashboard_shows_the_selected_sub_commands_in_one_table() -> None:

@@ -4977,6 +4977,14 @@ class RoadmapMessages:
     plan_drift_failed: str = (
         "The plan drift row of {repo} labelled pull request #{pull} with {problems} problem(s)."
     )
+    stage_problem_eval_live: str = (
+        "Group {group} changes the stage prompt `{path}`, so a task must run the live score "
+        "`{command} <n>` with the words score, before and after."
+    )
+    stage_problem_eval_live_score: str = (
+        "Group {group} runs the live score `{command} <n>` of `{path}`, so that task must also "
+        "state the score before and after the change."
+    )
     stage_problem_eval_replay: str = (
         "Group {group} changes `{path}`. A plan that changes the stage prompt or a check of the "
         "stage job must run `{command}` in one group task and state the score before and after "

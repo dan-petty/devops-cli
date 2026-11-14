@@ -262,19 +262,31 @@ _SECURITY_WORD_PATTERNS: Final[tuple[re.Pattern[str], ...]] = tuple(
 _ISSUE_DEPENDENCY: Final[re.Pattern[str]] = re.compile(r"^#(?P<number>[0-9]+):")
 _SENTENCE_END: Final[str] = f"{string.whitespace}."
 REGENERATE_DOCUMENTS: Final[str] = "uv run devops docs generate"
-# The stage prompt and each module that holds a check of `check_proposal` or of the gates it
-# calls. A plan that changes one of these paths must measure the stage job (#3331).
-STAGE_EVAL_TRIGGER_PATHS: Final[tuple[str, ...]] = (
-    "src/devops_cli/ai/tasks/roadmap_stage_change.md",
+# The stage prompt alone: a change to it moves the score of a live run, and the replay calls no
+# model (#3830).
+STAGE_EVAL_PROMPT_PATH: Final[str] = "src/devops_cli/ai/tasks/roadmap_stage_change.md"
+# Each module that holds a check of `check_proposal` or of the gates it calls. A plan that
+# changes one of these paths must replay the golden set through the gates (#3331).
+STAGE_EVAL_GATE_PATHS: Final[tuple[str, ...]] = (
     "src/devops_cli/roadmap/stage/stage_change.py",
     "src/devops_cli/roadmap/stage/stage_form.py",
     "src/devops_cli/roadmap/stage/stage_paths.py",
     "src/devops_cli/roadmap/stage/stage_criteria.py",
     "src/devops_cli/roadmap/stage/stage_eval_gates.py",
 )
+STAGE_EVAL_TRIGGER_PATHS: Final[tuple[str, ...]] = (
+    STAGE_EVAL_PROMPT_PATH,
+    *STAGE_EVAL_GATE_PATHS,
+)
 # The command that replays the golden set through the gates of the stage job.
 STAGE_EVAL_REPLAY: Final[str] = "uv run devops roadmap eval stage --replay"
-# The words that show that the replay task states the score before and after the change.
+# The command that scores the stage job with a live model call, bounded by `--limit <n>` or
+# `--case <n>`: the only measure that a prompt change can move (#3830).
+STAGE_EVAL_LIVE: Final[str] = "uv run devops roadmap eval stage --limit"
+_STAGE_EVAL_LIVE: Final[re.Pattern[str]] = re.compile(
+    r"uv run devops roadmap eval stage\b[^\n]*?--(?:limit[ \t]+[0-9]+|case[ \t]+\S+)"
+)
+# The words that show that a task states the score before and after the change.
 _STAGE_EVAL_SCORE_WORDS: Final[tuple[str, ...]] = ("score", "before", "after")
 # The gate files whose changes must quote the defect the gate refuses (#3386).
 GATE_DEFECT_PATHS: Final[tuple[str, ...]] = (
@@ -1660,20 +1672,50 @@ def _group_task_texts(group: StageGroup) -> list[str]:
 
 
 def eval_replay_problems(groups: Sequence[StageGroup]) -> list[str]:
-    """One problem when a group changes a path of `STAGE_EVAL_TRIGGER_PATHS` and no group task
-    runs the replay with the score before and after the change (#3331). A plan that changes no
-    trigger path adds no problem. The check reads the first changed trigger path and the group
-    that holds the replay command, so one plan gets one problem."""
+    """One problem when a group changes the stage prompt or a gate of the stage job and no group
+    task gives the measure that the change can move, with the score before and after (#3331,
+    #3830). A prompt change needs the live run with a case limit; a gate change needs the replay.
+    A plan that changes both needs both commands. The check reads the first changed path of each
+    kind and the group that holds its command, so one plan gets one problem."""
     texts = MESSAGES.roadmap
-    triggers = [
+    prompts = [
         (number, path)
         for number, group in enumerate(groups, start=1)
         for path in group.changes
-        if path in STAGE_EVAL_TRIGGER_PATHS
+        if path == STAGE_EVAL_PROMPT_PATH
     ]
-    if not triggers:
+    gates = [
+        (number, path)
+        for number, group in enumerate(groups, start=1)
+        for path in group.changes
+        if path in STAGE_EVAL_GATE_PATHS
+    ]
+    if prompts:
+        number, path = prompts[0]
+        lives = [
+            (number, text)
+            for number, group in enumerate(groups, start=1)
+            for text in _group_task_texts(group)
+            if _STAGE_EVAL_LIVE.search(text)
+        ]
+        if not lives:
+            return [
+                texts.stage_problem_eval_live.format(
+                    group=number, path=path, command=STAGE_EVAL_LIVE
+                )
+            ]
+        if not any(
+            all(word in text.casefold() for word in _STAGE_EVAL_SCORE_WORDS) for _, text in lives
+        ):
+            live_number = lives[0][0]
+            return [
+                texts.stage_problem_eval_live_score.format(
+                    group=live_number, path=path, command=STAGE_EVAL_LIVE
+                )
+            ]
+    if not gates:
         return []
-    number, path = triggers[0]
+    number, path = gates[0]
     replays = [
         (number, text)
         for number, group in enumerate(groups, start=1)

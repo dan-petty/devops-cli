@@ -1,0 +1,28 @@
+# Cases of the panels of k8s/devops/dashboards/roadmap-service-telemetry.json, which
+# tests/prometheus/test_dashboard_queries.py evaluates with promtool (#4680). The test module tells
+# the format, and docs/TESTING.md tells how to add a case.
+#
+# Each test group models one series shape that the telemetry writes (#4675). Its series start at
+# 0 and have one sample each `interval`. A range selector holds the samples after its start and
+# up to its end, so `[86400s]` at 48h reads the samples from 24h15m to 48h.
+tests:
+  - name: the alternatives check writes its coverage gauge once each 15 min
+    shape: snapshot_gauge
+    interval: 15m
+    input_series:
+      - series: 'devops_cli_roadmap_alternatives_unchecked_items{job="roadmap-service", repo="example/one"}'
+        values: '9 8 8 7 5 3'
+      - series: 'devops_cli_roadmap_alternatives_unchecked_items{job="roadmap-service", repo="example/two"}'
+        values: '2 2 2 2 1 1'
+    promql_expr_test:
+      # At 80m, 5 min after the last snapshot, each repository shows its last value.
+      - panel: Alternatives Unchecked Items
+        ref_id: A
+        variables: {job: roadmap-service}
+        expr: 'sum by (repo) (last_over_time(devops_cli_roadmap_alternatives_unchecked_items{job=~"$job"}[1d]))'
+        eval_time: 80m
+        exp_samples:
+          - labels: '{repo="example/one"}'
+            value: 3
+          - labels: '{repo="example/two"}'
+            value: 1

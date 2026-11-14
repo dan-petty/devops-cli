@@ -122,8 +122,6 @@ def _score(
 def _duplicate(
     request: ProposalRequest, response: DecisionResponse, original: int | None
 ) -> ShadowAnswer:
-    for each in request.shortlist:
-        _answer_of(response, f"duplicate_of_{each.number}", object)
     near, probability = best_neighbour(request, response)
     flagged = near is not None and probability >= CONST_ROADMAP_JEV_DUPLICATE_THRESHOLD
     return ShadowAnswer(
@@ -141,7 +139,8 @@ def observation_of(
     at: datetime,
 ) -> ShadowObservation:
     """The observation for the `response` of Jev and the `triage` reply, whose checked possible
-    original is `original`. A missing answer raises `ShadowError`."""
+    original is `original`. A missing or wrong-kind choice or score answer raises `ShadowError`;
+    the decision model refuses a partial reply."""
     answers: dict[str, ShadowAnswer] = {}
     if request.needs_type:
         answers[JevField.TYPE] = _choice(response, JevField.TYPE, triage.type)

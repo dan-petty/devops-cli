@@ -141,7 +141,13 @@ def _queries(dashboard: Path) -> list[str]:
 
 
 _PURE_DEVOPS_CLI_DASHBOARDS: frozenset[str] = frozenset(
-    {"ai-spend.json", "devops-cli.json", "project-metrics.json"}
+    {
+        "ai-spend.json",
+        "devops-ai-rag.json",
+        "devops-cli.json",
+        "project-metrics.json",
+        "roadmap-service-telemetry.json",
+    }
 )
 
 
@@ -830,7 +836,7 @@ def test_the_embedding_hit_share_panel_divides_hits_by_lookups_over_the_rate_int
     """Verify the embedding cache hit share is the hits of each window over its lookups, and
     shows 0 for a window with lookups and no hits (#817). The window is `$__rate_interval` with
     a Min step of 15 min, so it holds the samples of at least an hour (#4707)."""
-    panels = {panel["title"]: panel for panel in _panels(DASHBOARDS / "devops-cli.json")}
+    panels = {panel["title"]: panel for panel in _panels(DASHBOARDS / "devops-ai-rag.json")}
     (target,) = panels["Cache: share of embedding lookups that hit"]["targets"]
 
     assert (target["expr"], target["interval"]) == (
@@ -847,7 +853,7 @@ def test_the_alternatives_check_row_charts_the_coverage_and_the_searches_of_a_ch
     """The row Alternatives Check shows the items with no check, the age of the oldest check, and
     the searches of a check by verdict (#2950). The gauges are read over a day, as long as two
     rounds of the row, because the row sends them twice a day."""
-    panels = _row_panels(DASHBOARDS / "devops-cli.json", "Alternatives Check")
+    panels = _row_panels(DASHBOARDS / "roadmap-service-telemetry.json", "Alternatives Check")
 
     assert {panel["title"]: _panel_queries(panel) for panel in panels} == {
         "Alternatives Unchecked Items": (
@@ -970,7 +976,8 @@ def test_each_table_of_quantiles_states_the_count_of_its_calls() -> None:
     and a duration do not share a y axis (#4707)."""
     duration_panels = [
         panel
-        for panel in _panels(DASHBOARDS / "devops-cli.json")
+        for path in (DASHBOARDS / "devops-cli.json", DASHBOARDS / "devops-ai-rag.json")
+        for panel in _panels(path)
         if "histogram_quantile(" in _panel_queries(panel)
     ]
     tables = [panel["title"] for panel in duration_panels if panel["type"] == "table"]
@@ -1636,7 +1643,7 @@ def test_the_planner_tool_panel_charts_the_calls_and_the_answer_size_of_the_stag
     stage row by outcome, and the mean size of its answers on a second axis. It is in the row
     "Planner Tools" of the `devops-cli Telemetry` dashboard, which holds the other counters of
     the Service, below the rows of #4707. No panel of the dashboard overlaps another."""
-    dashboard = DASHBOARDS / "devops-cli.json"
+    dashboard = DASHBOARDS / "devops-ai-rag.json"
     (panel,) = [
         panel
         for panel in _panels(dashboard)
@@ -1653,6 +1660,6 @@ def test_the_planner_tool_panel_charts_the_calls_and_the_answer_size_of_the_stag
             "histogram_avg(sum by (tool) "
             f"(increase(devops_cli_roadmap_tool_answer_chars{selector}[1h])))",
         ],
-        {"x": 0, "y": 108, "w": 24, "h": 8},
+        {"h": 8, "w": 24, "x": 0, "y": 42},
         [],
     )

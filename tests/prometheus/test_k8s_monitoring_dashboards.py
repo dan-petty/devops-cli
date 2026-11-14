@@ -47,7 +47,13 @@ PRODUCT_CONFIGMAP = "grafana-devops-cli-dashboards"
 PROVISIONED = {
     "grafana-k8s-global-dashboards": ["k8s-views-global.json", "k8s-views-pods.json"],
     "grafana-k8s-node-dashboards": ["k8s-views-nodes.json", "k8s-views-namespaces.json"],
-    "grafana-devops-cli-dashboards": ["devops-cli.json", "ai-spend.json", "project-metrics.json"],
+    "grafana-devops-cli-dashboards": [
+        "ai-spend.json",
+        "devops-ai-rag.json",
+        "devops-cli.json",
+        "project-metrics.json",
+        "roadmap-service-telemetry.json",
+    ],
     "grafana-service-dashboards": ["devops-roadmap-service.json", "devops-sre-service.json"],
     "grafana-stack-dashboards": [
         "ingress-tunnel.json",
@@ -971,7 +977,9 @@ def test_each_count_of_the_result_lines_starts_with_the_base_of_the_job_grades()
     count of the dashboard starts with the one base of the report (#5556)."""
     from devops_cli.roadmap.job_grade_report import RESULT_LINES
 
-    dashboard = json.loads(CLI_DASHBOARD.read_text(encoding="utf-8"))
+    dashboard = json.loads(
+        (PRODUCT_DASHBOARDS_DIR / "roadmap-service-telemetry.json").read_text(encoding="utf-8")
+    )
     counts = [
         count
         for expr in _expressions(dashboard)
@@ -983,16 +991,58 @@ def test_each_count_of_the_result_lines_starts_with_the_base_of_the_job_grades()
     assert [count for count in counts if not count.startswith(f"{RESULT_LINES} | regexp ")] == []
 
 
+def test_devops_cli_dashboards_are_partitioned_and_linked() -> None:
+    """Verify devops-cli, roadmap-service-telemetry, and devops-ai-rag exist and link together."""
+    cli_dash = json.loads((PRODUCT_DASHBOARDS_DIR / "devops-cli.json").read_text(encoding="utf-8"))
+    roadmap_dash = json.loads(
+        (PRODUCT_DASHBOARDS_DIR / "roadmap-service-telemetry.json").read_text(encoding="utf-8")
+    )
+    ai_dash = json.loads(
+        (PRODUCT_DASHBOARDS_DIR / "devops-ai-rag.json").read_text(encoding="utf-8")
+    )
+
+    assert cli_dash["uid"] == "devops-cli-telemetry"
+    assert roadmap_dash["uid"] == "devops-roadmap-service-telemetry"
+    assert ai_dash["uid"] == "devops-ai-rag"
+
+    cli_link_urls = [link.get("url") for link in cli_dash.get("links", [])]
+    assert "/d/devops-roadmap-service-telemetry" in cli_link_urls
+    assert "/d/devops-ai-rag" in cli_link_urls
+
+    roadmap_link_urls = [link.get("url") for link in roadmap_dash.get("links", [])]
+    assert "/d/devops-cli-telemetry" in roadmap_link_urls
+    assert "/d/devops-ai-rag" in roadmap_link_urls
+
+    ai_link_urls = [link.get("url") for link in ai_dash.get("links", [])]
+    assert "/d/devops-cli-telemetry" in ai_link_urls
+    assert "/d/devops-roadmap-service-telemetry" in ai_link_urls
+
+
 def test_system_topology_dashboard_has_network_service_map_and_brain_panels() -> None:
-    """Verify system-topology.json defines network, service map, and brain rows with nodeGraph."""
+    """Verify system-topology.json defines network, service map, brain, and status rows
+    with nodeGraph, stat, state-timeline, and status-history panel types."""
     dashboard = json.loads((DASHBOARDS_DIR / "system-topology.json").read_text(encoding="utf-8"))
     assert dashboard["uid"] == "system-topology"
     assert dashboard["title"] == "System Topology & Service Map"
 
     row_titles = [panel["title"] for panel in dashboard["panels"] if panel.get("type") == "row"]
+    assert "System Overview" in row_titles
     assert "Network & Ingress Topology" in row_titles
     assert "Distributed Trace Service Map" in row_titles
     assert "Project Brain & Decision Flow" in row_titles
+    assert "Component State & Status History" in row_titles
+
+    panel_types = {panel.get("type") for panel in dashboard["panels"]}
+    assert {"nodeGraph", "stat", "state-timeline", "status-history"}.issubset(panel_types)
+
+    stats = [p for p in dashboard["panels"] if p.get("type") == "stat"]
+    assert len(stats) >= 4
+
+    state_timelines = [p for p in dashboard["panels"] if p.get("type") == "state-timeline"]
+    assert len(state_timelines) >= 1
+
+    status_histories = [p for p in dashboard["panels"] if p.get("type") == "status-history"]
+    assert len(status_histories) >= 1
 
     node_graphs = [panel for panel in dashboard["panels"] if panel.get("type") == "nodeGraph"]
     assert len(node_graphs) >= 1
