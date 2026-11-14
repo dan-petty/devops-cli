@@ -72,10 +72,49 @@ spec:
             capabilities:
               drop:
                 - ALL
-          envFrom:
-            - secretRef:
-                name: devops-cli
           env:
+            # The Service mints its own LiteLLM virtual key, with a budget and a requests-per-minute
+            # limit, so it never holds the gateway master key (#3685). A person creates this Secret
+            # from the key; k8s/README.md gives the step.
+            - name: DEVOPS_CLI_AI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: roadmap-service-llm-key
+                  key: api-key
+            - name: DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: devops-cli
+                  key: DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY
+            - name: DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS
+              valueFrom:
+                secretKeyRef:
+                  name: devops-cli
+                  key: DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS
+            - name: DEVOPS_CLI_FIRECRAWL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: devops-cli
+                  key: DEVOPS_CLI_FIRECRAWL_API_KEY
+                  optional: true
+            - name: DEVOPS_CLI_VALKEY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: devops-cli
+                  key: DEVOPS_CLI_VALKEY_PASSWORD
+                  optional: true
+            - name: DEVOPS_CLI_MATTERMOST_COMMAND_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: devops-cli
+                  key: DEVOPS_CLI_MATTERMOST_COMMAND_TOKEN
+                  optional: true
+            - name: DEVOPS_CLI_CRAWL4AI_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: devops-cli
+                  key: DEVOPS_CLI_CRAWL4AI_API_TOKEN
+                  optional: true
             - name: DEVOPS_CLI_CONFIG
               value: /config/devops-cli.yaml
             - name: DEVOPS_CLI_DATA_DIR
