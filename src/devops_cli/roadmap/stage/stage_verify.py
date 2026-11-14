@@ -94,6 +94,8 @@ OPEN_TYPES: Final[frozenset[DefectType]] = frozenset(
         DefectType.VERIFY_FORM,
         DefectType.SPEC_DELTA_WRONG,
         DefectType.CRITERION_DROPPED,
+        DefectType.CONTRIVED_TEST,
+        DefectType.OTHER,
     }
 )
 # The severities of an open finding (#5411): a blocker or a major defect returns the plan and, in
@@ -101,10 +103,7 @@ OPEN_TYPES: Final[frozenset[DefectType]] = frozenset(
 # minor `spec_delta_wrong` finding, which one line of the plan fixes, kept the plan in draft.
 OPEN_SEVERITIES: Final[frozenset[Severity]] = frozenset({Severity.BLOCKER, Severity.MAJOR})
 # The nine types that the verification prompt and reply schema name.
-VERIFY_TYPES: Final[frozenset[DefectType]] = OPEN_TYPES | {
-    DefectType.CONTRIVED_TEST,
-    DefectType.OTHER,
-}
+VERIFY_TYPES: Final[frozenset[DefectType]] = OPEN_TYPES
 # The label of a plan pull request with an open finding (#3264).
 PLAN_NEEDS_FIX_LABEL: Final[str] = "plan/needs-fix"
 # The keys of a group of the plan that name files.
@@ -626,8 +625,8 @@ def open_findings(
         if f.severity in OPEN_SEVERITIES
         and given.holds(f.where)
         and (
-            (f.type in types and given.contains(f.quote))
-            or (_reports_placeholder(f) and given.requests(f.quote))
+            (_reports_placeholder(f) and given.requests(f.quote))
+            or (not _reports_placeholder(f) and f.type in types and given.contains(f.quote))
         )
     ]
 

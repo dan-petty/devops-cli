@@ -304,7 +304,7 @@ def test_a_revision_that_is_not_better_writes_nothing_to_github_but_the_record(
     }
 
 
-def test_a_clean_head_with_listed_findings_is_dismissed(
+def test_a_clean_head_with_no_open_findings_is_dismissed(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
     model_fake: ModelFake,
@@ -313,8 +313,7 @@ def test_a_clean_head_with_listed_findings_is_dismissed(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     plan = needs_fix_plan(store, stage_repo, github_api)
-    listed = finding(DefectType.CRITERION_DROPPED, where=place("issue", ISSUE_QUOTE))
-    store.seed_comment(plan.number, stage_comment(plan.pull, [listed]))
+    store.seed_comment(plan.number, stage_comment(plan.pull, []))
     verifier.answer(Verification())
 
     with caplog.at_level(logging.INFO):
@@ -333,8 +332,37 @@ def test_a_clean_head_with_listed_findings_is_dismissed(
     assert (line["result"], line["success"], line["before"]) == ("dismissed", "false", "0")
     assert "after" not in line
     (_, comment) = _comments(store)
-    assert "dismisses" in comment
-    assert f"issue ({ISSUE_QUOTE})" in comment
+    assert "reviewed the plan" in comment
+    assert "found no open finding" in comment
+
+
+def test_an_open_finding_of_an_old_form_comment_keeps_the_label(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    verifier: ModelFake,
+    github_api: GitHubApiFake,
+) -> None:
+    plan = needs_fix_plan(store, stage_repo, github_api)
+    order = finding(DefectType.TASK_ORDER)
+    body = (
+        stage_comment(plan.pull, [order])
+        .replace(
+            "at tasks (1):",
+            "at group 3 (and group 1):",
+        )
+        .replace(
+            "`task_order`",
+            "`other`",
+        )
+    )
+    store.seed_comment(plan.number, body)
+    verifier.answer(Verification())
+
+    run = _run(store, stage_repo, verifier)
+
+    assert run.attempt is not None
+    assert run.attempt.result is FixPlanResult.UNCHANGED
+    assert PLAN_NEEDS_FIX_LABEL in store._roadmap.issues[plan.pull].labels
 
 
 def test_a_head_with_only_a_minor_finding_is_dismissed_and_lists_it_as_advice(
@@ -348,11 +376,10 @@ def test_a_head_with_only_a_minor_finding_is_dismissed_and_lists_it_as_advice(
     review finds a quoted minor defect gets no repair, loses the label, and the comment lists the
     defect as advice."""
     plan = needs_fix_plan(store, stage_repo, github_api)
-    listed = finding(DefectType.SPEC_DELTA_WRONG, where=place("issue", ISSUE_QUOTE))
-    store.seed_comment(plan.number, stage_comment(plan.pull, [listed]))
     minor = finding(
         DefectType.SPEC_DELTA_WRONG, where=place("issue", ISSUE_QUOTE), severity=Severity.MINOR
     )
+    store.seed_comment(plan.number, stage_comment(plan.pull, [], other=[minor]))
     verifier.answer(Verification(findings=[minor]))
 
     run = _run(store, stage_repo, verifier)
@@ -363,9 +390,8 @@ def test_a_head_with_only_a_minor_finding_is_dismissed_and_lists_it_as_advice(
     assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) == plan.head
     assert PLAN_NEEDS_FIX_LABEL not in store._roadmap.issues[plan.pull].labels
     (_, comment) = _comments(store)
-    dismissed, advice = comment.split("They stop no draft")
-    assert f"- major `spec_delta_wrong` at issue ({ISSUE_QUOTE})" in dismissed
-    assert f"- minor `spec_delta_wrong` at issue ({ISSUE_QUOTE})" in advice
+    assert "They stop no draft" in comment
+    assert f"- minor `spec_delta_wrong` at issue ({ISSUE_QUOTE})" in comment
 
 
 @pytest.mark.parametrize(

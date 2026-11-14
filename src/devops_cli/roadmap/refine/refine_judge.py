@@ -25,7 +25,6 @@ from devops_cli.roadmap.body_hash import extract_section_and_outside
 from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType
 from devops_cli.roadmap.stage.stage_verify import (
-    OPEN_TYPES,
     VerificationInput,
     finding_line,
     open_findings,
@@ -40,11 +39,14 @@ if TYPE_CHECKING:
 # The open types of this review (#3039). A proposal of refine holds no task group and no verify
 # command, so a `task_order`, a `verify_form` or a `criterion_dropped` finding on it is advice and
 # refuses no item (#3448).
-JUDGE_OPEN_TYPES: Final[frozenset[DefectType]] = OPEN_TYPES - {
-    DefectType.TASK_ORDER,
-    DefectType.VERIFY_FORM,
-    DefectType.CRITERION_DROPPED,
-}
+JUDGE_OPEN_TYPES: Final[frozenset[DefectType]] = frozenset(
+    {
+        DefectType.MISSING_PATH,
+        DefectType.FALSE_PREMISE,
+        DefectType.IGNORES_EXISTING_CODE,
+        DefectType.SPEC_DELTA_WRONG,
+    }
+)
 
 
 def judge(

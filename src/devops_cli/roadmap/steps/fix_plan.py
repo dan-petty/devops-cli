@@ -97,6 +97,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -169,7 +170,7 @@ from devops_cli.roadmap.trust import trusted_replies
 from devops_cli.telemetry.instruments import ROADMAP_FIX_PLAN_TOTAL, emit
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Mapping
+    from collections.abc import Callable, Iterable
     from pathlib import Path
 
     from devops_cli.ai.client import LLMClient
@@ -196,6 +197,27 @@ _FINDING_LINE: Final[re.Pattern[str]] = re.compile(
     r"\((?P<section>(?:[^()]|\([^()]*\))+?|.+?)\): "
     r'(?P<problem>.+?)(?: Evidence: "(?P<quote>.*)")?'
 )
+# A line of `finding_line` from before #5418, which named no part in its locator: "- `<type>` at <where>: <problem>".
+_OLD_FINDING_LINE: Final[re.Pattern[str]] = re.compile(
+    r"- (?:(?P<severity>[a-z]+) )?`(?P<type>[a-z_]+)` at (?P<where>.+?): "
+    r'(?P<problem>.+?)(?: Evidence: "(?P<quote>.*)")?'
+)
+# The parts that the first word of an old place names.
+_OLD_PLACE_PARTS: Final[Mapping[str, PlanPart]] = {
+    "group": PlanPart.TASKS,
+    "groups": PlanPart.TASKS,
+    "tasks": PlanPart.TASKS,
+    "task": PlanPart.TASKS,
+    "spec": PlanPart.SPEC,
+    "specs": PlanPart.SPEC,
+    "criterion": PlanPart.ISSUE,
+    "criteria": PlanPart.ISSUE,
+    "issue": PlanPart.ISSUE,
+    "decisions": PlanPart.DESIGN,
+    "decision": PlanPart.DESIGN,
+    "design": PlanPart.DESIGN,
+    "proposal": PlanPart.PROPOSAL,
+}
 # The severity of an open finding on a line with no severity. A release before #5411 wrote such a
 # line, and each open finding of that release kept the draft, as a major finding does now.
 _UNGRADED_SEVERITY: Final[Severity] = Severity.MAJOR
@@ -219,7 +241,8 @@ class FixPlanResult(StrEnum):
     the plan that passed the checks in place of a head that they refused, `dismissed` found no
     open finding in the head (the label goes, no push), `unchanged` made no better plan, `stopped`
     stopped before a gated plan existed, `failed` failed before a plan to push existed,
-    `unreadable` could not read the plan of the head (#5213), `timeout` spent the time budget
+    `unreadable` could not read the plan of the head (#5213), `unreadable_findings` could not read
+    one or more finding lines of the comment (#5579), `timeout` spent the time budget
     before a model call and pushed nothing (#5363) or met the deadline of its Job, and `evicted`
     ended for an eviction, a node drain or a stop of the Service (#5413)."""
 
@@ -231,6 +254,7 @@ class FixPlanResult(StrEnum):
     STOPPED = "stopped"
     FAILED = "failed"
     UNREADABLE = "unreadable"
+    UNREADABLE_FINDINGS = "unreadable_findings"
     TIMEOUT = "timeout"
     EVICTED = "evicted"
 
@@ -272,7 +296,8 @@ class FixPlanAttempt:
     the open findings that the last plan comment lists (#5150). `before` is None when the review of
     the head did not run, and `after` when no review of a revision ran (#5213). `step` is the step
     of a failure, `stop` the kind of a stop of the planner, and `reason` the masked reason of a
-    failure or of a plan that the reader refused."""
+    failure or of a plan that the reader refused. `unreadable` is the count of finding lines that
+    the reader could not read (#5579)."""
 
     number: int
     pull: int
@@ -286,6 +311,7 @@ class FixPlanAttempt:
     step: StepName | None = None
     stop: FixPlanStop | None = None
     reason: str = ""
+    unreadable: int | None = None
 
 
 @dataclass(frozen=True)
@@ -320,25 +346,70 @@ def _finding_of(line: str) -> Finding | None:
     for a severity, a type or a part that the review does not name. A line with no severity gives
     a major finding (`_UNGRADED_SEVERITY`)."""
     found = _FINDING_LINE.fullmatch(line)
-    if found is None:
+    if found is not None:
+        try:
+            return Finding(
+                type=DefectType(found["type"]),
+                severity=Severity(found["severity"] or _UNGRADED_SEVERITY),
+                where=Locator(
+                    part=PlanPart(found["part"]),
+                    section=found["section"],
+                    capability=found["capability"] or "",
+                ),
+                problem=found["problem"],
+                quote=found["quote"] or "",
+            )
+        except ValueError:
+            pass
+    old = _OLD_FINDING_LINE.fullmatch(line)
+    if old is None:
+        return None
+    where_text = old["where"].strip()
+    first_word = where_text.split()[0].lower() if where_text else ""
+    part = _OLD_PLACE_PARTS.get(first_word)
+    if part is None:
         return None
     try:
         return Finding(
-            type=DefectType(found["type"]),
-            severity=Severity(found["severity"] or _UNGRADED_SEVERITY),
+            type=DefectType(old["type"]),
+            severity=Severity(old["severity"] or _UNGRADED_SEVERITY),
             where=Locator(
-                part=PlanPart(found["part"]),
-                section=found["section"],
-                capability=found["capability"] or "",
+                part=part,
+                section=where_text,
+                capability="",
             ),
-            problem=found["problem"],
-            quote=found["quote"] or "",
+            problem=old["problem"],
+            quote=old["quote"] or "",
         )
     except ValueError:
         return None
 
 
-def comment_open_findings(body: str) -> tuple[Finding, ...]:
+@dataclass(frozen=True)
+class CommentFindings:
+    """The open findings that the comment `body` lists first, and any lines that could not be read."""
+
+    findings: tuple[Finding, ...] = ()
+    unreadable: tuple[str, ...] = ()
+
+    def __iter__(self) -> Iterator[Finding]:
+        return iter(self.findings)
+
+    def __len__(self) -> int:
+        return len(self.findings)
+
+    def __getitem__(self, index: int) -> Finding:
+        return self.findings[index]
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, tuple):
+            return self.findings == other
+        if isinstance(other, CommentFindings):
+            return self.findings == other.findings and self.unreadable == other.unreadable
+        return False
+
+
+def comment_open_findings(body: str) -> CommentFindings:
     """The open findings that the comment `body` lists first, in the section that
     `open_findings_section` writes (#3264): the stage comment, or the comment of an attempt of
     this step that kept the label. A comment with no such section gives none. A line of the section
@@ -346,20 +417,27 @@ def comment_open_findings(body: str) -> tuple[Finding, ...]:
     heading = MESSAGES.roadmap.stage_comment_open_findings.split("{findings}")[0].strip()
     _, found, rest = body.partition(heading)
     if not found:
-        return ()
+        return CommentFindings()
     lines = []
     for line in rest.lstrip("\n").splitlines():
         if not line.startswith("- "):
             break
         lines.append(line)
-    findings = tuple(f for f in map(_finding_of, lines) if f is not None)
-    if len(findings) < len(lines):
+    findings: list[Finding] = []
+    unreadable: list[str] = []
+    for line in lines:
+        finding = _finding_of(line)
+        if finding is not None:
+            findings.append(finding)
+        else:
+            unreadable.append(line)
+    if unreadable:
         logger.warning(
             "fix-plan read %d of the %d lines of the open findings of a comment",
             len(findings),
             len(lines),
         )
-    return findings
+    return CommentFindings(findings=tuple(findings), unreadable=tuple(unreadable))
 
 
 def plan_comment(store: RoadmapStore, number: int, pull: int) -> str:
@@ -645,7 +723,9 @@ def _stop_of(outcome: object) -> FixPlanStop | None:
     return None
 
 
-def _decide(revision: PlanRevision, head: StageProposal) -> _Decision:
+def _decide(
+    revision: PlanRevision, head: StageProposal, findings: Sequence[Finding] = ()
+) -> _Decision:
     """The result of `revision` of the plan `head`, in the order of the module (#5213). A spent
     time budget pushes nothing (#5363). A revision is better when its reviews fixed more open
     findings of the head than they added: the later reviews judged each finding of the head, so
@@ -670,7 +750,7 @@ def _decide(revision: PlanRevision, head: StageProposal) -> _Decision:
     clean = revision.reviewed and not revision.before and not failed
     if gated is not None:
         return _Decision(FixPlanResult.REGATED, gated, unlabel=clean)
-    if clean:
+    if clean and not findings:
         return _Decision(FixPlanResult.DISMISSED, unlabel=True)
     return _Decision(FixPlanResult.UNCHANGED)
 
@@ -839,7 +919,7 @@ def _settle(
     """Write what `revision` makes of the plan `head_plan`, as the module says, and the attempt it
     was. `listed` are the open findings of the last plan comment."""
     target = attempt.target
-    decision = _decide(revision, head_plan)
+    decision = _decide(revision, head_plan, listed)
     head = target.status.head_sha
     pushed = decision.push
     if pushed is not None:
@@ -879,6 +959,8 @@ def _detail(done: FixPlanAttempt) -> str:
     if done.result is FixPlanResult.STOPPED:
         stop = done.stop.value if done.stop is not None else ""
         return texts.fix_plan_detail_stopped.format(stop=stop)
+    if done.result is FixPlanResult.UNREADABLE_FINDINGS:
+        return texts.fix_plan_detail_unreadable_findings.format(unreadable=done.unreadable or 0)
     if done.step is not None:
         failure = done.failure.value if done.failure is not None else ""
         if done.before is None:
@@ -924,6 +1006,8 @@ def _report(repo: str, done: FixPlanAttempt) -> None:
         counts["before"] = done.before
     if done.after is not None:
         counts["after"] = done.after
+    if done.unreadable is not None:
+        counts["unreadable"] = done.unreadable
     names = {
         key: value.value
         for key, value in (("stop", done.stop), ("step", done.step))
@@ -939,6 +1023,21 @@ def _report(repo: str, done: FixPlanAttempt) -> None:
         names=names,
     )
     emit(ROADMAP_FIX_PLAN_TOTAL, 1, {"repo": repo, "result": done.result.value})
+
+
+def _unreadable_findings(attempt: _Attempt, findings: CommentFindings) -> FixPlanAttempt:
+    """The attempt on a plan whose last comment holds an unreadable finding line (#5579)."""
+    target = attempt.target
+    for line in findings.unreadable:
+        logger.warning("The fix-plan step cannot read the comment finding line: %s", line)
+    return FixPlanAttempt(
+        number=target.item.number,
+        pull=target.pull,
+        result=FixPlanResult.UNREADABLE_FINDINGS,
+        head=target.status.head_sha,
+        comment=len(findings.findings),
+        unreadable=len(findings.unreadable),
+    )
 
 
 def _unreadable(attempt: _Attempt, now: datetime, error: PlanReadError) -> FixPlanAttempt:
@@ -1081,7 +1180,13 @@ def _attempt(
     listed: tuple[Finding, ...] = ()
     try:
         sha = _git(source, "rev-parse", f"origin/{attempt.base}")
-        listed = comment_open_findings(plan_comment(store, number, target.pull))
+        comment_findings = comment_open_findings(plan_comment(store, number, target.pull))
+        if comment_findings.unreadable:
+            done = _unreadable_findings(attempt, comment_findings)
+            store.set_marks(store.item(number) or target.item, _result_marks(target, done))
+            _report(attempt.repo, done)
+            return done
+        listed = tuple(comment_findings.findings)
         revision = revise_plan(
             stage_target,
             proposal,
@@ -1207,6 +1312,7 @@ def render_fix_plan(run: FixPlanRun) -> str:
 
 
 __all__ = [
+    "CommentFindings",
     "FixPlanAttempt",
     "FixPlanLeftOut",
     "FixPlanResult",
