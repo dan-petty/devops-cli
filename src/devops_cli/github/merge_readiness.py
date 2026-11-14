@@ -14,11 +14,12 @@ a caller (and a test) gives both, as `GitHubRoadmapStore` takes them.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, Final, NamedTuple
 from urllib.parse import urlencode
 
 from pydantic import AliasPath, BaseModel, ConfigDict, Field
@@ -96,6 +97,7 @@ class BlockerKind(StrEnum):
     THREADS_UNREAD = "threads_unread"
     GROUNDING = "grounding"
     BODY_FORM = "body_form"
+    STAGE_EVAL = "stage_eval"
     READINESS = "readiness"
 
 
@@ -473,6 +475,80 @@ def _default_branch(pr_data: dict[str, Any]) -> str:
     return str((base.get("repo") or {}).get("default_branch") or "")
 
 
+# The paths that change the stage prompt or a check of the stage job. A pull request that changes
+# one states the stage eval evidence of the change (#3398).
+STAGE_CHANGE_TRIGGER_PATHS: frozenset[str] = frozenset(
+    {
+        "src/devops_cli/ai/tasks/roadmap_stage_change.md",
+        "src/devops_cli/roadmap/stage_change.py",
+        "src/devops_cli/roadmap/stage_form.py",
+        "src/devops_cli/roadmap/stage_paths.py",
+        "src/devops_cli/roadmap/stage_criteria.py",
+        "src/devops_cli/roadmap/stage_eval_gates.py",
+        "src/devops_cli/roadmap/stage_move.py",
+    }
+)
+_REPLAY_COMMAND: Final[re.Pattern[str]] = re.compile(r"uv run devops roadmap eval stage\b[^\n`]*")
+_MODEL_FLAG: Final[re.Pattern[str]] = re.compile(r"--model(?:=|\s+)(\S+)")
+_MODEL_WORD: Final[re.Pattern[str]] = re.compile(r"--model\b")
+_NUMBER: Final[str] = r"\d+(?:[./]\d+)?%?"
+
+
+def _score_after(word: str, body: str) -> bool:
+    """Whether a number stands beside `word` on its line, within the text that states a score."""
+    pattern = re.compile(rf"\b{word}\b[^\n]{{0,60}}?{_NUMBER}", re.IGNORECASE)
+    return pattern.search(body) is not None
+
+
+def stage_eval_problems(body: str) -> tuple[str, ...]:
+    """The problems of the stage eval evidence in `body`, or none (#3398).
+
+    A body that changes a stage trigger path gives one of two forms. A replay holds
+    `uv run devops roadmap eval stage --replay` and a number before and after. A live run holds a
+    score before and after and one `--model` name. A number must stand beside its word, and two
+    different models do not pass."""
+    commands = _REPLAY_COMMAND.findall(body)
+    if not commands:
+        return ("the body holds no `uv run devops roadmap eval stage` command",)
+    replays = [command for command in commands if "--replay" in command]
+    if replays and _score_after("before", body) and _score_after("after", body):
+        return ()
+    live = [command for command in commands if "--replay" not in command]
+    problems: list[str] = []
+    models = [name for command in live for name in _MODEL_FLAG.findall(command)]
+    if any(_MODEL_WORD.search(command) and not _MODEL_FLAG.search(command) for command in live):
+        problems.append("the `--model` flag names no model")
+    if len(set(models)) > 1:
+        problems.append("the body names more than one model")
+    if not problems and models and _score_after("before", body) and _score_after("after", body):
+        return ()
+    if not _score_after("before", body) or not _score_after("after", body):
+        problems.append("the body states no number before and after")
+    return tuple(problems) or ("the body holds no live `--model` name",)
+
+
+def _judge_stage_eval(
+    verdict: _Verdict, pr_data: dict[str, Any], pr_num: int, changed: ChangedFilesRead
+) -> None:
+    """Hold a pull request that changes a stage trigger path to its stage eval evidence (#3398)."""
+    if changed.error or changed.truncated:
+        return
+    path = next(
+        (entry.filename for entry in changed.files if entry.filename in STAGE_CHANGE_TRIGGER_PATHS),
+        None,
+    )
+    if path is None:
+        return
+    problems = stage_eval_problems(str(pr_data.get("body") or ""))
+    if problems:
+        verdict.block(
+            BlockerKind.STAGE_EVAL,
+            MESSAGES.pr.stage_eval_evidence_missing.format(
+                number=pr_num, path=path, problem=problems[0]
+            ),
+        )
+
+
 def _judge_grounding(
     verdict: _Verdict,
     pr_data: dict[str, Any],
@@ -612,6 +688,7 @@ def assess_merge_readiness(
     changed = read_changed_files(
         owner, repo_name, _branch_ref(pr_data, "base"), head_sha, session=session
     )
+    _judge_stage_eval(verdict, pr_data, pr_num, changed)
     _judge_grounding(verdict, pr_data, pr_num, owner, repo_name, changed, runner)
     if changed.files and not changed.truncated:
         advisory = perimeter_advisory(changed.files, review_root or find_repo_root())

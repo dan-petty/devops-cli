@@ -27,6 +27,7 @@ from devops_cli.github.merge_readiness import (
     assess_merge_readiness,
     closing_issues_args,
     read_changed_files,
+    stage_eval_problems,
 )
 from tests.support.fakes.github import (
     GitHubApiFake,
@@ -243,6 +244,62 @@ def test_a_merged_pull_request_is_ready_and_nothing_is_read(
 ) -> None:
     verdict = _assess(tmp_path, _pr(merged=True, state="closed"))
     assert (verdict, github.gh.calls, github.api.sent) == (MergeReadiness(), [], [])
+
+
+_REPLAY = "uv run devops roadmap eval stage --replay"
+_EVIDENCE = f"{_REPLAY}\nbefore: 12/20\nafter: 15/20"
+
+
+def test_a_stage_change_without_eval_evidence_is_not_ready(github: _GitHub, tmp_path: Path) -> None:
+    """A pull request that changes a stage check names the evidence of its stage eval (#3398)."""
+    github.files({"filename": "src/devops_cli/roadmap/stage_change.py", "status": "modified"})
+
+    verdict = _assess(tmp_path, _pr(body=_BODY))
+
+    found = [blocker for blocker in verdict.blocking if blocker.kind is BlockerKind.STAGE_EVAL]
+    assert (len(found), verdict.is_ready) == (1, False)
+    assert ("stage_change.py" in found[0].text, "eval stage" in found[0].text) == (True, True)
+
+
+def test_a_stage_change_with_replay_evidence_is_ready(github: _GitHub, tmp_path: Path) -> None:
+    github.files(
+        _ARCHIVE_704,
+        {"filename": "src/devops_cli/roadmap/stage_eval_gates.py", "status": "modified"},
+    )
+
+    verdict = _assess(tmp_path, _pr(body=f"{_BODY}\n\n{_EVIDENCE}"))
+
+    assert (verdict.blockers, verdict.is_ready) == ((), True)
+
+
+def test_a_stage_change_with_live_evidence_is_ready(github: _GitHub, tmp_path: Path) -> None:
+    github.files(
+        _ARCHIVE_704, {"filename": "src/devops_cli/roadmap/stage_move.py", "status": "modified"}
+    )
+    live = "uv run devops roadmap eval stage --model gpt-5\nbefore: 60%\nafter: 70%"
+
+    verdict = _assess(tmp_path, _pr(body=f"{_BODY}\n\n{live}"))
+
+    assert (verdict.blockers, verdict.is_ready) == ((), True)
+
+
+@pytest.mark.parametrize(
+    ("evidence", "problem"),
+    [
+        (_REPLAY + "\nbefore\nafter", "no number before and after"),
+        (_REPLAY + "\nbefore: 12/20", "no number before and after"),
+        (
+            "uv run devops roadmap eval stage --model gpt-5\nbefore: 60\nafter: 70\n"
+            "uv run devops roadmap eval stage --model o3",
+            "more than one model",
+        ),
+        ("uv run devops roadmap eval stage --model\nbefore: 60\nafter: 70", "names no model"),
+    ],
+)
+def test_each_missing_part_of_the_stage_eval_evidence_is_refused(
+    evidence: str, problem: str
+) -> None:
+    assert problem in " ".join(stage_eval_problems(f"{_BODY}\n\n{evidence}"))
 
 
 @pytest.mark.parametrize(
