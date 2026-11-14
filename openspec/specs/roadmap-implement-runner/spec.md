@@ -224,11 +224,15 @@ The smoke test of the runner image in `ci.yml` and in `release.yml` SHALL be the
 - **THEN** the two texts are equal, they run the check module and the size bound, and no line runs `--entrypoint <tool> "$IMAGE" --version`
 
 ### Requirement: The runner image passes the image scan
-The runner image SHALL pass the scan of `ci.yml` and `release.yml` (Trivy, `HIGH,CRITICAL`, fixed findings only) with no `.trivyignore` entry. A tool whose newest release fails the scan SHALL be in `NOT_IN_RUNNER`, with the finding as the reason.
+The runner image SHALL pass the scan of `ci.yml` and `release.yml` (Trivy, `HIGH,CRITICAL`, fixed findings only) with no `.trivyignore` entry. A tool whose newest release fails the scan SHALL be in `NOT_IN_RUNNER`, with the finding as the reason. A tool whose newest release passes the scan SHALL be in `RUNNER_TOOLS`, and the `runner` stage SHALL install it.
 
 #### Scenario: A tool fails the scan
-- **WHEN** the newest release of `actionlint` (Go 1.27.0) and of Trivy (go-jose 4.1.5) hold a fixed HIGH finding
-- **THEN** the table `NOT_IN_RUNNER` names `actionlint`, `shellcheck` and `trivy` with the image scan as the reason, and the `runner` stage installs none of them
+- **WHEN** the newest release of a tool that the gate needs holds a fixed HIGH finding
+- **THEN** the table `NOT_IN_RUNNER` names the tool with the image scan as the reason, and the `runner` stage installs neither it nor a tool that only serves it
+
+#### Scenario: The scanned tools return
+- **WHEN** the newest releases of actionlint and Trivy pass the scan
+- **THEN** `RUNNER_TOOLS` holds `actionlint`, `shellcheck` and `trivy`, and the `runner` stage installs all three
 
 #### Scenario: The image is scanned
 - **WHEN** `trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1` runs on the built `runner` target

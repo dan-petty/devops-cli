@@ -22,6 +22,7 @@ import yaml
 from devops_cli.commands.ci import get_check_specs
 from devops_cli.config.defaults import DEFAULT_PYTHON_VERSION
 from devops_cli.roadmap.runner_tools import (
+    ACTIONLINT_VERSION,
     GH_VERSION,
     HOOK_PROGRAMS,
     NODE_MAJOR,
@@ -257,18 +258,23 @@ def test_the_pins_of_the_table_are_the_pins_of_the_dockerfile() -> None:
     ) == (True, True, True, True, NODE_MAJOR, True, True)
 
 
-def test_a_tool_whose_release_fails_the_scan_of_the_image_is_left_out_with_the_reason() -> None:
-    """The scan of the image fails on a fixed HIGH finding in a Go binary, and the owner alone may
-    lower it. Trivy, actionlint and shellcheck (which only actionlint uses) wait for a release
-    that the scan accepts."""
-    held = set(tool_names())
-    scan = ("trivy", "actionlint", "shellcheck")
+def test_the_scanned_tools_are_in_the_runner_with_the_pins_of_their_images() -> None:
+    """actionlint 1.17.1 holds a fixed Go toolchain and Trivy 0.76.2 holds go-jose 4.1.6, so the
+    scan accepts both and the runner image holds actionlint, shellcheck and Trivy (#3108)."""
+    tools = {tool.name: tool for tool in RUNNER_TOOLS}
+    dockerfile = _text("Dockerfile")
+    actionlint = f"docker.io/kjanat/actionlint:{ACTIONLINT_VERSION}@sha256:"
 
     assert (
-        held.isdisjoint(scan),
-        all("image scan" in NOT_IN_RUNNER[name] for name in scan),
-        "FROM docker.io/kjanat/actionlint" in _text("Dockerfile"),
-    ) == (True, True, False)
+        not {"trivy", "actionlint", "shellcheck"} & set(NOT_IN_RUNNER),
+        tools["actionlint"].source is ToolSource.IMAGE_PIN,
+        tools["trivy"].source is ToolSource.TOOLS_LOCK,
+        tools["shellcheck"].source is ToolSource.APT,
+        actionlint in dockerfile,
+        actionlint in _text(".devcontainer/Dockerfile"),
+        "--tool trivy" in dockerfile,
+        "shellcheck" in dockerfile,
+    ) == (True, True, True, True, True, True, True, True)
 
 
 def test_the_apt_packages_of_the_runner_are_the_apt_tools_of_the_table() -> None:
