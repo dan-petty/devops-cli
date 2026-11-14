@@ -713,6 +713,7 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `devops/qdrant-api-key` | `api-key` | keyring `qdrant_api_key` | yes | adopt from `llm/qdrant-api-key api-key`; else generate `token_urlsafe(32)` | devops | none |
 | `monitoring/grafana-admin` | `admin-user` | literal | yes | fail | infra | `deployment/grafana` |
 | `monitoring/grafana-admin` | `admin-password` | keyring `grafana_password` | yes | adopt from `monitoring/grafana admin-password`; else generate `token_urlsafe(32)` | infra | `deployment/grafana` |
+| `monitoring/grafana-admin` | `secret-key` | keyring `grafana_secret_key` | yes | adopt the live value; else generate `token_urlsafe(32)` | infra | `deployment/grafana` |
 | `monitoring/grafana-image-renderer` | `token` | keyring `grafana_renderer_token` | yes | adopt the live value; else generate `token_urlsafe(32)` | infra | `deployment/grafana`, `deployment/grafana-image-renderer` |
 | `monitoring/alertmanager-mattermost` | `url` | derived from keyring mattermost_alerts_hook | no | skip with a warning | infra | none |
 | `argocd/argocd-notifications-secret` | `github-appID` | setting argocd.github_app_id | yes | fail | infra | none |
