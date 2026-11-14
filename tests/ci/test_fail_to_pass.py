@@ -8,6 +8,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tarfile
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -141,6 +142,10 @@ class _FailToPassState:
     junit_xml: str | None = None
     stdout: str = ""
     stderr: str = ""
+    plain_base_junit_xml: str | None = None
+    plain_base_exit_status: int = 0
+    head_junit_xml: str | None = None
+    head_exit_status: int = 0
     changed_test_files: tuple[str, ...] = ("tests/test_mod.py",)
     base_files: dict[str, str] = field(default_factory=dict)
     base_tests: dict[str, str] = field(default_factory=dict)
@@ -159,10 +164,22 @@ def _handle_worktree_add(replay_state: _FailToPassState, argv: list[str]) -> Pro
     dest = Path(argv[argv.index("add") + 3])
     dest.mkdir(parents=True, exist_ok=True)
     replay_state.active_worktrees.add(dest.resolve())
-    for rel, text in replay_state.base_files.items():
+    for rel, text in {**replay_state.base_files, **replay_state.base_tests}.items():
         target = dest / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="utf-8")
+    return ProcessAnswer(returncode=0, stdout="")
+
+
+def _handle_archive(call: ProcessCall) -> ProcessAnswer:
+    for arg in call.argv:
+        if arg.startswith("--output="):
+            tar_path = Path(arg.removeprefix("--output="))
+            tar_path.parent.mkdir(parents=True, exist_ok=True)
+            tests_dir = Path(call.cwd or ".") / "tests"
+            if tests_dir.is_dir():
+                with tarfile.open(tar_path, "w") as tar:
+                    tar.add(tests_dir, arcname="tests")
     return ProcessAnswer(returncode=0, stdout="")
 
 
@@ -189,14 +206,33 @@ def _worktree_answer(replay_state: _FailToPassState, call: ProcessCall) -> Proce
 
 
 def _pytest_answer(replay_state: _FailToPassState, call: ProcessCall) -> ProcessAnswer:
+    cwd_name = Path(call.cwd).name if call.cwd else ""
+    if cwd_name == "plain_base":
+        xml = (
+            replay_state.plain_base_junit_xml
+            if replay_state.plain_base_junit_xml is not None
+            else replay_state.junit_xml
+        )
+        status = replay_state.plain_base_exit_status
+    elif cwd_name != "tree":
+        xml = (
+            replay_state.head_junit_xml
+            if replay_state.head_junit_xml is not None
+            else replay_state.junit_xml
+        )
+        status = replay_state.head_exit_status
+    else:
+        xml = replay_state.junit_xml
+        status = replay_state.exit_status
+
     for arg in call.argv:
         if arg.startswith("--junitxml="):
             report_path = Path(arg.removeprefix("--junitxml="))
             report_path.parent.mkdir(parents=True, exist_ok=True)
-            if replay_state.junit_xml is not None:
-                report_path.write_text(replay_state.junit_xml, encoding="utf-8")
+            if xml is not None:
+                report_path.write_text(xml, encoding="utf-8")
     return ProcessAnswer(
-        returncode=replay_state.exit_status,
+        returncode=status,
         stdout=replay_state.stdout,
         stderr=replay_state.stderr,
     )
@@ -253,7 +289,7 @@ def _setup_fail_to_pass_fake(git_fake: GitFake, replay_state: _FailToPassState) 
     git_fake.answer(
         lambda call: "cat-file" in call.argv, lambda call: _cat_file_answer(replay_state, call)
     )
-    git_fake.answer(lambda call: "archive" in call.argv, ProcessAnswer(returncode=0, stdout=""))
+    git_fake.answer(lambda call: "archive" in call.argv, _handle_archive)
     git_fake.answer(
         lambda call: "worktree" in call.argv,
         lambda call: _worktree_answer(replay_state, call),
@@ -287,6 +323,8 @@ def _replay_report(
     *,
     outcomes: tuple[dict[str, str], ...] = (),
     could_not_run: dict[str, object] | None = None,
+    repaired: tuple[dict[str, str], ...] = (),
+    head_could_not_run: int | None = None,
 ) -> dict[str, object]:
     """The whole dump of a feature's report replaying `tests/test_mod.py` in `repo`, whose
     merge base is the commit `main` names."""
@@ -299,6 +337,8 @@ def _replay_report(
         "unchanged_failed": (),
         "changed_gate_checks": (),
         "gate_rows": (),
+        "repaired": repaired,
+        "head_could_not_run": head_could_not_run,
     }
 
 
@@ -861,6 +901,26 @@ def test_an_edge_guard_message_in_a_changed_test_keeps_the_replay_satisfied(
     assert replay_state.satisfied is True
 
 
+def test_an_unchanged_test_that_the_head_repairs_does_not_refuse_the_replay(
+    tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """An unchanged test that was red on the plain merge base and passes on head is repaired."""
+    replay_state.plain_base_junit_xml = _junit(("test_kept", "failure", "assert 0"))
+    replay_state.head_junit_xml = _junit(("test_fixed", "passed", ""), ("test_kept", "passed", ""))
+    text = _replay_of_test_mod(
+        tmp_path,
+        replay_state,
+        base=BASE_TESTS,
+        head=HEAD_TESTS,
+        junit=_junit(
+            ("test_fixed", "failure", "assert 1 == 2"), ("test_kept", "failure", "assert 0")
+        ),
+    )
+
+    assert replay_state.satisfied is True
+    assert "The head repairs tests.test_mod::test_kept." in text
+
+
 def test_a_test_that_the_fix_leaves_alone_and_that_fails_on_base_refuses_the_replay(
     tmp_path: Path, replay_state: _FailToPassState
 ) -> None:
@@ -878,9 +938,128 @@ def test_a_test_that_the_fix_leaves_alone_and_that_fails_on_base_refuses_the_rep
 
     assert (replay_state.satisfied, text.splitlines()[-1]) == (
         False,
-        "A test that the fix does not change fails on base (tests.test_mod::test_kept). "
+        "A test that the fix does not change does not pass on the head (tests.test_mod::test_kept). "
         "A test that fails on base must be one that the fix adds or changes.",
     )
+
+
+def test_an_unchanged_failure_that_passes_on_the_plain_merge_base_refuses_the_replay(
+    tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """An unchanged failure that passes on the plain merge base was broken by head tests."""
+    replay_state.plain_base_junit_xml = _junit(("test_kept", "passed", ""))
+    replay_state.head_junit_xml = _junit(("test_fixed", "passed", ""), ("test_kept", "passed", ""))
+    text = _replay_of_test_mod(
+        tmp_path,
+        replay_state,
+        base=BASE_TESTS,
+        head=HEAD_TESTS,
+        junit=_junit(
+            ("test_fixed", "failure", "assert 1 == 2"), ("test_kept", "failure", "assert 0")
+        ),
+    )
+
+    assert replay_state.satisfied is False
+    assert (
+        "A test that the fix does not change does not pass on the head (tests.test_mod::test_kept)."
+        in text
+    )
+
+
+def test_a_repair_alone_does_not_satisfy_the_replay(
+    tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """A repaired test removes its refusal, but alone does not satisfy the replay."""
+    replay_state.plain_base_junit_xml = _junit(("test_kept", "failure", "assert 0"))
+    replay_state.head_junit_xml = _junit(("test_fixed", "passed", ""), ("test_kept", "passed", ""))
+    text = _replay_of_test_mod(
+        tmp_path,
+        replay_state,
+        base=BASE_TESTS,
+        head=HEAD_TESTS,
+        junit=_junit(("test_fixed", "passed", ""), ("test_kept", "failure", "assert 0")),
+    )
+
+    assert replay_state.satisfied is False
+    assert "The head repairs tests.test_mod::test_kept." in text
+    assert "A fix needs at least one changed test that fails in the call phase on base" in text
+
+
+def test_a_head_replay_that_could_not_run_refuses_the_replay(
+    tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """A head replay that could not run on head refuses the replay."""
+    replay_state.plain_base_junit_xml = _junit(("test_kept", "failure", "assert 0"))
+    replay_state.head_exit_status = 2
+    replay_state.head_junit_xml = None
+    text = _replay_of_test_mod(
+        tmp_path,
+        replay_state,
+        base=BASE_TESTS,
+        head=HEAD_TESTS,
+        junit=_junit(
+            ("test_fixed", "failure", "assert 1 == 2"), ("test_kept", "failure", "assert 0")
+        ),
+    )
+
+    assert replay_state.satisfied is False
+    assert "The fail-to-pass replay could not run on the head: pytest exited with status 2." in text
+
+
+def test_a_named_head_with_an_unchanged_failure_runs_the_replay_in_a_worktree_of_that_head(
+    tmp_path: Path, replay_state: _FailToPassState, git_fake: GitFake
+) -> None:
+    """A named head runs the head replay in a detached worktree of that head."""
+    repo = _branch_changing_a_test(tmp_path)
+    (repo / "tests" / "test_mod.py").write_text(HEAD_TESTS, encoding="utf-8")
+    replay_state.base_tests["tests/test_mod.py"] = BASE_TESTS
+    replay_state.junit_xml = _junit(
+        ("test_fixed", "failure", "assert 1 == 2"), ("test_kept", "failure", "assert 0")
+    )
+    replay_state.plain_base_junit_xml = _junit(("test_kept", "failure", "assert 0"))
+    replay_state.head_junit_xml = _junit(("test_fixed", "passed", ""), ("test_kept", "passed", ""))
+    replay_state.exit_status = 1
+
+    report = run_fail_to_pass(repo, base="main", head="feature")
+
+    pytest_calls = [c for c in git_fake.calls if "-m" in c.argv and "pytest" in c.argv]
+    head_calls = [c for c in pytest_calls if c.cwd and Path(c.cwd).name == "head"]
+    assert report.satisfied is True
+    assert len(head_calls) == 1
+    worktree_adds = [
+        c
+        for c in git_fake.calls
+        if tuple(c.argv[:3]) == ("git", "worktree", "add") and "feature" in c.argv
+    ]
+    assert len(worktree_adds) == 1
+
+
+def test_the_default_head_with_an_unchanged_failure_runs_the_replay_in_the_working_tree(
+    tmp_path: Path, replay_state: _FailToPassState, git_fake: GitFake
+) -> None:
+    """The default HEAD runs the head replay in the working tree and adds no worktree."""
+    repo = _branch_changing_a_test(tmp_path)
+    (repo / "tests" / "test_mod.py").write_text(HEAD_TESTS, encoding="utf-8")
+    replay_state.base_tests["tests/test_mod.py"] = BASE_TESTS
+    replay_state.junit_xml = _junit(
+        ("test_fixed", "failure", "assert 1 == 2"), ("test_kept", "failure", "assert 0")
+    )
+    replay_state.plain_base_junit_xml = _junit(("test_kept", "failure", "assert 0"))
+    replay_state.head_junit_xml = _junit(("test_fixed", "passed", ""), ("test_kept", "passed", ""))
+    replay_state.exit_status = 1
+
+    report = run_fail_to_pass(repo, base="main", head="HEAD")
+
+    pytest_calls = [c for c in git_fake.calls if "-m" in c.argv and "pytest" in c.argv]
+    head_calls = [c for c in pytest_calls if c.cwd == repo]
+    assert report.satisfied is True
+    assert len(head_calls) == 1
+    head_worktree_adds = [
+        c
+        for c in git_fake.calls
+        if tuple(c.argv[:3]) == ("git", "worktree", "add") and "HEAD" in c.argv
+    ]
+    assert len(head_worktree_adds) == 0
 
 
 def test_a_test_that_fails_on_base_after_a_changed_helper_does_not_refuse_the_replay(
@@ -947,6 +1126,20 @@ def _plan_lines(output: str) -> list[str]:
     return [line.split(". ", 1)[1] for line in output.splitlines() if re.match(r"^\s*\d+\. ", line)]
 
 
+def test_fail_to_pass_dry_run_lists_the_head_replay(cli: Any, process_fake: ProcessFake) -> None:
+    """The dry run lists the head pytest run for unchanged failures and starts no process."""
+    result = cli(["ci", "fail-to-pass", "--base", "main", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert process_fake.calls == []
+    head_pytest = [
+        line
+        for line in _plan_lines(result.output)
+        if " -m pytest " in line and "only if a test that failed on base is unchanged" in line
+    ]
+    assert len(head_pytest) == 1
+
+
 @pytest.mark.parametrize("flag_first", [True, False])
 def test_fail_to_pass_dry_run_lists_the_replay_and_starts_nothing(
     cli: Any, process_fake: ProcessFake, flag_first: bool
@@ -976,8 +1169,11 @@ def test_fail_to_pass_dry_run_lists_the_replay_and_starts_nothing(
         gate_row,
         "git worktree remove --force '<temp-dir>/tree'",
         "git worktree prune",
+        lines[13],
         gate_row,
     ]
+    assert " -m pytest " in lines[13]
+    assert lines[13].endswith("'<unchanged test files>'")
     conditions = [line.split("  [", 1)[1] for line in _plan_lines(result.output)[5:]]
     replay = "only if a changed test file or gate check exists]"
     gate = "only if a changed gate check exists]  [repeated for each row of a changed gate check]"
@@ -985,7 +1181,8 @@ def test_fail_to_pass_dry_run_lists_the_replay_and_starts_nothing(
     assert all(
         condition.startswith("only if a changed test file exists") for condition in conditions[2:5]
     )
-    assert [conditions[5], conditions[8]] == [gate, gate]
+    assert conditions[8] == "only if a test that failed on base is unchanged]"
+    assert [conditions[5], conditions[9]] == [gate, gate]
 
 
 def test_fail_to_pass_dry_run_of_a_head_lists_the_fallback_diff(
@@ -1002,13 +1199,18 @@ def test_fail_to_pass_dry_run_of_a_head_lists_the_fallback_diff(
         "  [only if the three-dot diff fails]"
     )
     assert not [line for line in lines if "ls-files" in line]
+    head_run = "  [only if a changed gate check exists or a test that failed on base is unchanged]"
     gate = "  [only if a changed gate check exists]"
-    assert lines[-4:] == [
-        f"git worktree add --quiet --detach '<temp-dir>/head' feature{gate}",
+    unchanged = "  [only if a test that failed on base is unchanged]"
+    assert lines[-5:] == [
+        f"git worktree add --quiet --detach '<temp-dir>/head' feature{head_run}",
+        lines[-4],
         f"{shlex.join(fail_to_pass.gate_row_argv('<gate row>'))}{gate}  [repeated for each row of a changed gate check]",
-        f"git worktree remove --force '<temp-dir>/head'{gate}",
-        f"git worktree prune{gate}",
+        f"git worktree remove --force '<temp-dir>/head'{head_run}",
+        f"git worktree prune{head_run}",
     ]
+    assert " -m pytest " in lines[-4]
+    assert lines[-4].endswith(f"'<unchanged test files>'{unchanged}")
 
 
 @pytest.mark.parametrize(

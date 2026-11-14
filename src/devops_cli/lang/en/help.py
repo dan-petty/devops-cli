@@ -968,7 +968,8 @@ class CICommandHelp:
         "proves the fix."
     )
     fail_to_pass_head: str = (
-        "Head git revision supplying the overlaid tests/ tree and the head tree of a gate row run."
+        "Head git revision supplying the overlaid tests/ tree, the head replay tree and the head "
+        "tree of a gate row run."
     )
     job_time: str = (
         "Fail when the last runs of a CI job took more than the limit on average. Reads the job "
