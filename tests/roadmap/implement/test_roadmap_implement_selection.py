@@ -396,7 +396,6 @@ def test_a_person_merge_that_resolves_a_conflict_leaves_the_branch_out_and_names
 @pytest.mark.parametrize(
     "status",
     [
-        {"state": "open", "draft": False, "merged": False},
         {"state": "closed", "draft": False, "merged": False},
         {"state": "closed", "draft": False, "merged": True},
     ],
@@ -413,6 +412,20 @@ def test_an_item_whose_pull_request_is_not_an_open_draft_is_left_out(
     plan = _plan(store, staged_repo)
 
     assert _reasons(plan) == {number: f"Its pull request #{PULL} is not an open draft."}
+
+
+def test_an_open_plan_pull_request_ready_for_review_names_its_merge_wait(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, github_api: GitHubApiFake
+) -> None:
+    """A plan that stage_ready marked ready is not a broken draft: it waits for a person (#3971)."""
+    route_pull_status(github_api, {"state": "open", "draft": False, "merged": False})
+    number = seed_staged(store)
+
+    plan = _plan(store, staged_repo)
+
+    assert _reasons(plan) == {
+        number: f"Its plan pull request #{PULL} is ready for review and awaiting merge."
+    }
 
 
 def test_an_item_whose_draft_holds_the_label_plan_needs_fix_is_left_out_with_the_label_as_reason(
