@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.140.0](https://github.com/dan-petty/devops-cli/compare/v0.139.0...v0.140.0) (2026-11-14)
+
+
+### Features
+
+* **monitoring:** enable dashboard generative ai features in grafana ([#5714](https://github.com/dan-petty/devops-cli/issues/5714)) ([5cb6550](https://github.com/dan-petty/devops-cli/commit/5cb65508deeb149d0f7b88d9297f07416ffcd625))
+* **monitoring:** provision grafana-llm-app for litellm gateway ([#5712](https://github.com/dan-petty/devops-cli/issues/5712)) ([15dcca8](https://github.com/dan-petty/devops-cli/commit/15dcca8f1baa36d23b2bb89255a4c9a9926bbc4c))
+* **service:** give the Service its own gateway key ([#5703](https://github.com/dan-petty/devops-cli/issues/5703)) ([c942c95](https://github.com/dan-petty/devops-cli/commit/c942c95c5fd9f6e53d8fd868be709a26727a7f59))
+
+
+### Bug Fixes
+
+* **roadmap:** Keep passed groups when a rebase conflicts ([#5709](https://github.com/dan-petty/devops-cli/issues/5709)) ([a5aeffc](https://github.com/dan-petty/devops-cli/commit/a5aeffc50f9cba7b4e7f20343caf64759ee5bdb5))
+
 ## [0.139.0](https://github.com/dan-petty/devops-cli/compare/v0.138.1...v0.139.0) (2026-11-14)
 
 
