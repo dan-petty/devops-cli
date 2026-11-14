@@ -10,8 +10,9 @@ are enough.
 requests (G1), ready implementation pull requests (G2), the release pull request (G3), items in
 `status/blocked` with their cause, New items that wait on a person in refine (one line for each,
 from the job record alone, #3483), New items with an unapplied split, New items with an
-alternatives question (#3494), New items whose refine job failed at the try limit (#3632), drafts
-of jobs, old claims, labels that the repository lacks, and
+alternatives question (#3494), New items whose refine job failed at the try limit (#3632), Ready
+items whose stage job failed, which the stage job takes again when the wait of the failure class
+ends (#2968), drafts of jobs, old claims, labels that the repository lacks, and
 the Planned queue when it is at the limit of the stage job (#3487). A pull request is a job's when
 the job record of an open item names it: `implement.pr` makes it an implementation, `stage.pr` a
 plan, and `implement.pr` wins because a staged branch keeps one pull request through both jobs. A
@@ -45,6 +46,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_RELEASE_BRANCH_PREFIX,
     CONST_ROADMAP_STATUS_BLOCKED,
     CONST_ROADMAP_STATUS_NEW,
+    CONST_ROADMAP_STATUS_READY,
 )
 from devops_cli.git.branch_form import issue_of_branch
 from devops_cli.github.labels import diff_labels
@@ -340,6 +342,29 @@ def _failed_lines(items: Iterable[Item], repo: str, now: datetime) -> list[Inbox
     return lines
 
 
+def _stage_retry_lines(items: Iterable[Item], repo: str, now: datetime) -> list[InboxLine]:
+    """One line for each open Ready item whose stage job failed with a class (#2968). The stage
+    job takes the item again when the wait of the class ends, so the line asks nothing of a
+    person. An item that a person moved back to New keeps the class of its last failure with no
+    line: the stage job holds it by that class, not by a retry that a person waits for."""
+    texts = MESSAGES.roadmap
+    lines: list[InboxLine] = []
+    for item in items:
+        failed_class = item.job_record.get(StageRecordKey.FAILED_CLASS)
+        if item.status != CONST_ROADMAP_STATUS_READY or not failed_class:
+            continue
+        subject = texts.inbox_subjects["stage_retry"].format(
+            title=item.title, failure_class=failed_class
+        )
+        clear = texts.inbox_clears["stage_retry"].format(number=item.number, repo=repo)
+        lines.append(
+            InboxLine(
+                InboxKind.STAGE_RETRY, item.number, _age(now, item.updated_at), subject, clear
+            )
+        )
+    return lines
+
+
 def _owner_lines(items: Iterable[Item], now: datetime) -> list[InboxLine]:
     """One line for each open item whose job record holds an owner question that no trusted
     reply answered (#3077). The open frame is the marker of the wait, so no status label is
@@ -469,6 +494,7 @@ def read_inbox(
         *_split_lines(items, now),
         *_alternatives_lines(items, now),
         *_failed_lines(items, repo, now),
+        *_stage_retry_lines(items, repo, now),
         *_owner_lines(items, now),
         *_claim_lines(items, pulls, repo, now),
         *_label_lines(store, repo, now),

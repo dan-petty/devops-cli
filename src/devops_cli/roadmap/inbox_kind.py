@@ -19,6 +19,7 @@ class InboxKind(StrEnum):
     SPLIT = "split"
     ALTERNATIVES = "alternatives"
     FAILED = "failed"
+    STAGE_RETRY = "stage_retry"
     DRAFT = "draft"
     CLAIM = "claim"
     LABELS = "labels"
