@@ -47,6 +47,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_BANDIT_SEVERITY,
     DEFAULT_CI_BANDIT_NICENESS,
+    DEFAULT_CI_COVERAGE_INDEX_TIMEOUT_SECONDS,
     DEFAULT_CI_JOB_TIME_RUNS,
     DEFAULT_CI_MUTATE_TIMEOUT_SECONDS,
     DEFAULT_CI_TEST_COLLECTION_TIMEOUT_SECONDS,
@@ -54,6 +55,7 @@ from devops_cli.config.defaults import (
     DEFAULT_CI_TEST_REPEAT_RUNS,
     DEFAULT_CI_TEST_SERIAL_MAX_FILES,
     DEFAULT_CI_TEST_SERIAL_MAX_TESTS,
+    DEFAULT_CI_TEST_SHARD_TIMEOUT_SECONDS,
     DEFAULT_PYTHON_VERSION,
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
 )
@@ -171,6 +173,9 @@ class CheckSpec(BaseModel):
     # Whether the commands are dependency audits, whose failure is read by the kind of command
     # (`devops_cli.core.dependency_audit`) and reported as a finding or an audit that did not run.
     dependency_audit: bool = False
+    # The bound of the check, or None for `DEFAULT_SUBPROCESS_TIMEOUT_SECONDS`. A row inside a
+    # shorter job bound sets its own, so its timeout fires before the job limit (#4683).
+    timeout_seconds: float | None = None
     # Whether the check keeps the host's CPUs busy for minutes: a p90 above 200 s in the CI cache
     # of the host (#2336). A run that selects one waits for a gate slot (`_gate_slot`).
     heavy: bool = False
@@ -537,6 +542,9 @@ async def _execute_check_async(
     apply_fix: bool = False,
 ) -> CheckResult:
     """Execute an individual CI verification step asynchronously and record telemetry."""
+    bound = spec.timeout_seconds if isinstance(spec, CheckSpec) else None
+    if bound is not None:
+        timeout = bound
     if isinstance(spec, str):
         check_spec = CheckSpec(
             name=spec,
@@ -709,7 +717,12 @@ def _resolve_pytest_cmd(*, shard: int = 1, shards: int = 1) -> list[str]:
 def _with_test_shard(specs: Sequence[CheckSpec], *, shard: int, shards: int) -> list[CheckSpec]:
     """The rows `specs`, with the command of the `test` row set to run its part of the suite."""
     return [
-        spec.model_copy(update={"cmd": _resolve_pytest_cmd(shard=shard, shards=shards)})
+        spec.model_copy(
+            update={
+                "cmd": _resolve_pytest_cmd(shard=shard, shards=shards),
+                "timeout_seconds": DEFAULT_CI_TEST_SHARD_TIMEOUT_SECONDS,
+            }
+        )
         if spec.name == "test"
         else spec
         for spec in specs
@@ -2133,7 +2146,7 @@ def _handle_coverage_index_build(cmd: list[str]) -> None:
 
     hashes_before = filter_coverage_source_hashes(compute_worktree_blob_hashes(root))
     env = {"COVERAGE_CORE": "ctrace"}
-    if not _run(index_cmd, env=env):
+    if not _run(index_cmd, env=env, timeout=DEFAULT_CI_COVERAGE_INDEX_TIMEOUT_SECONDS):
         raise typer.Exit(1)
 
     hashes_after = filter_coverage_source_hashes(compute_worktree_blob_hashes(root))

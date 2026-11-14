@@ -367,3 +367,17 @@ def test_a_shard_changes_the_test_row_and_no_other_row() -> None:
         without_test_row(unsharded),
         True,
     )
+
+
+def test_a_shard_test_row_stops_before_the_job_limit() -> None:
+    """The test row of a shard has its own 900 s bound inside the 20-minute job (#4683)."""
+    from devops_cli.commands.ci import _with_test_shard
+    from devops_cli.config.defaults import DEFAULT_CI_TEST_SHARD_TIMEOUT_SECONDS
+
+    spec = get_check_spec("test")
+    (sharded,) = _with_test_shard([spec], shard=2, shards=4)
+
+    assert (spec.timeout_seconds, sharded.timeout_seconds) == (
+        None,
+        DEFAULT_CI_TEST_SHARD_TIMEOUT_SECONDS,
+    )

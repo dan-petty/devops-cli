@@ -2568,3 +2568,17 @@ def test_the_alert_workflow_runs_the_filer_command() -> None:
     text = ALERTS_PATH.read_text(encoding="utf-8")
 
     assert "uv run devops scan alerts" in text
+
+
+def test_the_service_image_test_run_has_a_timeout_inside_the_job_limit() -> None:
+    """A hung suite ends at 900 s, before the 20-minute job limit (#4683)."""
+    workflow = _load_workflow(WORKFLOWS_DIR / "service-image-test.yml")
+
+    runs = [
+        step.get("run", "")
+        for job in workflow["jobs"].values()
+        for step in job.get("steps", [])
+        if "docker run" in step.get("run", "")
+    ]
+
+    assert any("timeout --kill-after=30 900 docker run" in run for run in runs)
