@@ -367,6 +367,15 @@ def test_grafana_pins_each_drilldown_app_at_its_release_for_grafana_13() -> None
     } == dict.fromkeys(GRAFANA_DRILLDOWN_APPS, GRAFANA_13_DRILLDOWN_MAJOR)
 
 
+def test_grafana_pins_the_llm_app_at_its_release_for_grafana_13() -> None:
+    """Grafana preinstalls grafana-llm-app pinned at 1.2.0 for Grafana 13 (#5696)."""
+    plugins = _k8s_yaml("monitoring/grafana-values.yaml").get("plugins", [])
+    pinned = {
+        plugin_id: version for plugin_id, _, version in (entry.partition("@") for entry in plugins)
+    }
+    assert pinned.get("grafana-llm-app") == "1.2.0"
+
+
 def test_grafana_runs_the_image_renderer_of_its_chart_at_a_release_tag() -> None:
     """With no renderer, the render API of Grafana returned HTTP 500, so no panel image could be
     made (#5185). The renderer of the chart runs its image at a release tag, not `latest`, with
