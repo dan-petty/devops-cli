@@ -57,15 +57,15 @@ class DriftReads(PlanReads, Protocol):
 
     def list_issue_comments(self, repo: str, number: int) -> list[IssueComment]:
         """The comments of issue or pull request `number`."""
-        ...
+        ...  # pragma: no cover - a protocol stub runs no code
 
     def create_issue_comment(self, repo: str, number: int, body: str) -> None:
         """Post `body` on issue or pull request `number`."""
-        ...
+        ...  # pragma: no cover - a protocol stub runs no code
 
     def update_issue_comment(self, repo: str, comment_id: int, body: str) -> None:
         """Replace the body of comment `comment_id`."""
-        ...
+        ...  # pragma: no cover - a protocol stub runs no code
 
 
 @dataclass(frozen=True)

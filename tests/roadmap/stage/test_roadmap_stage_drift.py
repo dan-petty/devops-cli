@@ -29,11 +29,11 @@ CHANGE = "1-keep-the-last-comment"
 NOW = datetime(2026, 11, 14, tzinfo=UTC)
 
 
-def _pull(title: str, number: int = PULL) -> PullRequest:
+def _pull(title: str, number: int = PULL, *, base: str = "main") -> PullRequest:
     return PullRequest(
         title=title,
         head=CommitRef(sha="a" * 40, ref=BRANCH),
-        base=CommitRef(sha="b" * 40, ref="main"),
+        base=CommitRef(sha="b" * 40, ref=base),
     )
 
 
@@ -217,3 +217,106 @@ def test_a_plan_that_cites_a_path_moved_on_the_default_branch_is_a_problem(
     )
 
     assert any("src/devops_cli/sample.py" in problem.message for problem in problems)
+
+
+def test_the_row_posts_a_new_comment_and_skips_a_plan_of_another_base_and_no_issue(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    problem = PlanProblem("src/a.py", "paths", "not a file on the default branch")
+    reads = _Reads(
+        {
+            PULL: _pull("docs(openspec): plan #1 Keep the comment"),
+            9: _pull("docs(openspec): plan #1 Keep the comment", number=9, base="release"),
+            10: _pull("docs(openspec): plan #1 Keep the comment", number=10),
+        },
+        {
+            PULL: IssueView(number=PULL, state="open", title="plans", body="Plans #1"),
+            9: IssueView(number=9, state="open", title="plans", body="Plans #1"),
+            10: IssueView(number=10, state="open", title="plans", body="No plan line"),
+            ISSUE: IssueView(number=ISSUE, state="open", title="An issue", body=""),
+        },
+    )
+    store = _Store(
+        [
+            _open(PULL, "docs(openspec): plan #1 Keep the comment"),
+            _open(9, "docs(openspec): plan #1 Keep the comment"),
+            _open(10, "docs(openspec): plan #1 Keep the comment"),
+        ]
+    )
+    monkeypatch.setattr(plan_drift, "default_branch", lambda *args, **kwargs: "main")
+    monkeypatch.setattr(plan_drift, "plan_drift_problems", lambda *args, **kwargs: [problem])
+
+    run = run_plan_drift(store, repo=REPO, source=tmp_path, reads=reads)
+
+    assert (run.checked, run.failing, [number for number, _ in reads.created]) == (
+        (PULL,),
+        (PULL,),
+        [PULL],
+    )
+    assert reads.updated == []
+    assert PLAN_DRIFT_MARKER in reads.created[0][1]
+
+
+def test_the_row_takes_the_github_client_when_no_reads_is_given(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _Session:
+        client = _Reads({}, {})
+
+    monkeypatch.setattr("devops_cli.github.session.get_github_session", lambda: _Session())
+    monkeypatch.setattr(plan_drift, "default_branch", lambda *args, **kwargs: "main")
+
+    run = run_plan_drift(_Store([]), repo=REPO, source=tmp_path)
+
+    assert run.checked == ()
+
+
+def test_a_plan_head_without_a_change_folder_is_a_problem(stage_repo: StageRepo) -> None:
+    stage_repo.git("switch", "-q", "-c", BRANCH)
+    (stage_repo.clone / "README.md").write_text("No change folder.\n", encoding="utf-8")
+    stage_repo.git("add", "-A")
+    stage_repo.git("commit", "-q", "-m", "no plan")
+    stage_repo.git("push", "-q", "origin", BRANCH)
+    sha = stage_repo.origin_git("rev-parse", BRANCH)
+    stage_repo.origin_git("update-ref", f"refs/pull/{PULL}/head", sha)
+    facts = PullFacts(
+        number=PULL,
+        title="docs(openspec): plan #1 Keep the comment",
+        body="Plans #1",
+        head_sha=sha,
+        base_sha="b" * 40,
+        base_ref="main",
+    )
+
+    problems = plan_drift_problems(
+        stage_repo.clone,
+        repo=REPO,
+        number=PULL,
+        facts=facts,
+        issue=ISSUE,
+        reads=_Reads({}, {}),
+        branch="main",
+    )
+
+    assert [problem.rule for problem in problems] == ["change-folder"]
+
+
+def test_the_adapter_runs_the_round_on_the_job_clone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from devops_cli.roadmap import run as roadmap_run
+    from devops_cli.roadmap.run import JobOutcome
+    from devops_cli.roadmap.stage.plan_drift import PlanDriftRun
+
+    seen: list[tuple[str, str]] = []
+
+    def fake_run(store: object, *, repo: str, source: Path) -> PlanDriftRun:
+        seen.append((repo, str(source)))
+        return PlanDriftRun(checked=(7,), failing=())
+
+    monkeypatch.setattr(roadmap_run, "_job_clone", lambda name, clone: tmp_path)
+    monkeypatch.setattr(roadmap_run, "run_plan_drift", fake_run)
+
+    outcome = roadmap_run._run_plan_drift_adapter(_Store([]), repo=REPO, clone_path=tmp_path)
+
+    assert (seen, outcome) == ([(REPO, str(tmp_path))], JobOutcome())
