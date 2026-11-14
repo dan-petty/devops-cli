@@ -1799,7 +1799,10 @@ class _Planner:
         proposal: StageProposal,
         floor: int,
     ) -> NoReturn:
-        """End the item for a reply that is a placeholder in every text, with no second request."""
+        """End the item for a reply that is a placeholder in every text, with no second request.
+        The reply is one that the job refused and kept, so its problem is the failure reason, and
+        the return comment must not repeat it (#4618)."""
+        self._stopped_by_checks = True
         self._note_refused(target, floor, "degenerate")
         refused.append((proposal, MESSAGES.roadmap.stage_degenerate))
         self._keep_refused(target, key, refused)
