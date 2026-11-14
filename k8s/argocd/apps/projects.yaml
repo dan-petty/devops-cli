@@ -86,6 +86,9 @@ spec:
         kind: Secret
         name: devops-cli
       - group: ''
+        kind: Secret
+        name: roadmap-service-llm-key
+      - group: ''
         kind: ConfigMap
         name: devops-cli-config
       - group: ''
