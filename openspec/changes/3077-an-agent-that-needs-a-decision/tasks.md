@@ -67,9 +67,9 @@ Kind: other. Reads: `docs/commands/roadmap.md`, `src/devops_cli/commands/roadmap
 
 Kind: other. Reads: `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/inbox.md`, `docs/roadmap/refine.md`, `tests/invariants/test_roadmap_workflow_doc.py`. Changes: `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/inbox.md`, `docs/roadmap/refine.md`.
 
-- [ ] 8.1 Describe the owner question in the Refine step of `docs/ROADMAP_WORKFLOW.md` and name the `owner_question` record keys there. Add the `owner` kind and the answer command to `docs/roadmap/inbox.md`, and the one-question rule and the answer path to `docs/roadmap/refine.md`. The status family keeps its six labels, and no label is declared for the owner question
+- [x] 8.1 Describe the owner question in the Refine step of `docs/ROADMAP_WORKFLOW.md` and name the `owner_question` record keys there. Add the `owner` kind and the answer command to `docs/roadmap/inbox.md`, and the one-question rule and the answer path to `docs/roadmap/refine.md`. The status family keeps its six labels, and no label is declared for the owner question
   - Verification: `$ uv run devops ci test tests/invariants/test_roadmap_workflow_doc.py` passes
-- [ ] 8.2 Edit `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/inbox.md` and `docs/roadmap/refine.md`
+- [x] 8.2 Edit `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/inbox.md` and `docs/roadmap/refine.md`
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
