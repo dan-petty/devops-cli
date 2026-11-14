@@ -455,6 +455,51 @@ def test_a_job_that_succeeded_is_reported_on_its_item_with_the_tail_of_its_log(
     )
 
 
+def test_a_record_naming_another_items_job_is_skipped_and_reads_no_log(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """The record block is text of the issue, which its author can edit. A record on item A that
+    names the runner Job of item B leaves that Job alone: the round acts on a Job only for the
+    item that its item label names (#5551)."""
+    number_b = seed_staged(store)
+    _round(store, staged_repo)
+    name_b = _jobs(kube)[0]["metadata"]["name"]
+    item_b = store.item(number_b)
+    assert item_b is not None
+    store.set_field(item_b, ItemField.STATUS, "In Review")
+    _end(kube, "Complete")
+    kube.core.answers["list_namespaced_pod"] = [pod(f"{name_b}-x1", namespace="devops")]
+    kube.core.answers["read_namespaced_pod_log"] = "Finished successfully.\n"
+
+    number_a = store.seed_issue(
+        "fix(roadmap): hostile edit of record",
+        fields={ItemField.STATUS: "In Progress", ItemField.PRIORITY: "P1-High"},
+        labels=("type/bug", "effort/low"),
+    )
+    item_a = store.item(number_a)
+    assert item_a is not None
+    store.set_marks(item_a, {ImplementRecordKey.JOB: name_b})
+
+    kube.core.calls.clear()
+    _round(store, staged_repo)
+
+    assert (
+        [c for c in _comments(store, number_a) if c.startswith(MARKER)],
+        "implement.job_state" in _record(store, number_a),
+        _record(store, number_b)["implement.job_state"],
+        len([c for c in kube.core.calls if c[0] == "read_namespaced_pod_log"]),
+    ) == ([], False, "succeeded", 1)
+
+    kube.core.calls.clear()
+    _round(store, staged_repo)
+
+    assert (
+        [c for c in _comments(store, number_a) if c.startswith(MARKER)],
+        "implement.job_state" in _record(store, number_a),
+        [c for c in kube.core.calls if c[0] == "read_namespaced_pod_log"],
+    ) == ([], False, [])
+
+
 def _fences_of_the_report(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, kube: FakeCluster, written: bytes
 ) -> tuple[str, list[Any]]:
