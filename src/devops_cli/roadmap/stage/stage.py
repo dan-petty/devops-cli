@@ -109,6 +109,8 @@ from devops_cli.ai.context_budget import truncate_to_token_limit
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.commands import BIN_OPENSPEC
 from devops_cli.config.constants import (
+    CONST_CI_WORKFLOW_FILE,
+    CONST_GIT_MAIN_BRANCH,
     CONST_OPENSPEC_CONFIG_PATH,
     CONST_ROADMAP_EPIC_LABEL,
     CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
@@ -120,6 +122,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_REFUSED_PROBLEM_MAX_CHARS,
     CONST_ROADMAP_STATUS_READY,
 )
+from devops_cli.config.defaults import DEFAULT_CI_JOB_TIME_RUNS
 from devops_cli.config.settings import load_settings
 from devops_cli.core import clock
 from devops_cli.dry_run.requests import PlannedRequest
@@ -283,6 +286,7 @@ from devops_cli.roadmap.stage.stage_removal_references import scan_removal_refer
 from devops_cli.roadmap.stage.stage_request import StageRequest, gate_arguments
 from devops_cli.roadmap.stage.stage_specs import BaseSpec, read_base_specs
 from devops_cli.roadmap.stage.stage_split import ask_split
+from devops_cli.roadmap.stage.stage_time import job_time_failure, job_time_premise
 from devops_cli.roadmap.stage.stage_toolbox import (
     PLAN_ROW,
     REVIEW_ROW,
@@ -2384,9 +2388,52 @@ def openspec_tool() -> Iterator[OpenSpecTool | None]:
         yield tool
 
 
+def _time_premise_of(repo: str | None) -> Callable[[StageTarget], FalsePremise | None] | None:
+    """The CI job-time premise of an item (#4026): a check before the planner call that returns
+    the item to New with the evidence when the item's own limit is below the mean of the job's
+    last runs. A read of the job time is a GitHub read, so its error records the `ci_infra`
+    failure of the item through `_failure_of`."""
+    if repo is None:
+        return None
+
+    from devops_cli.ci.job_time import check_job_time
+    from devops_cli.github.session import get_github_session
+
+    def premise_of(target: StageTarget) -> FalsePremise | None:
+        premise = job_time_premise(target.item.body)
+        if premise is None:
+            return None
+        last: GitHubOperationError | None = None
+        for _ in range(2):
+            try:
+                report = check_job_time(
+                    get_github_session().client,
+                    repo,
+                    workflow=CONST_CI_WORKFLOW_FILE,
+                    branch=CONST_GIT_MAIN_BRANCH,
+                    job=premise.check,
+                    wanted=DEFAULT_CI_JOB_TIME_RUNS,
+                    limit_seconds=premise.limit_seconds,
+                )
+                break
+            except GitHubOperationError as exc:
+                last = exc
+        else:
+            assert last is not None
+            raise last
+        failure = job_time_failure(premise, report)
+        return None if failure is None else FalsePremise(target, (failure,))
+
+    return premise_of
+
+
 def _failure_of(
     target: StageTarget,
-    exc: AIClientError | RoadmapStageError | RoadmapTimeBudgetError | ToolExecutionError,
+    exc: AIClientError
+    | GitHubOperationError
+    | RoadmapStageError
+    | RoadmapTimeBudgetError
+    | ToolExecutionError,
     refused: Sequence[str] = (),
     *,
     stopped_by_checks: bool = False,
@@ -2440,7 +2487,10 @@ def _call_reason(exc: AIClientError) -> str:
 
 
 def _plan_each(
-    planner: _Planner, targets: Iterable[StageTarget], writer: StageWriter | None = None
+    planner: _Planner,
+    targets: Iterable[StageTarget],
+    writer: StageWriter | None = None,
+    time_premise: Callable[[StageTarget], FalsePremise | None] | None = None,
 ) -> tuple[
     list[StagedChange], list[OverBudget], list[StageFailure], list[Blocked], list[FalsePremise]
 ]:
@@ -2457,10 +2507,11 @@ def _plan_each(
         result: StagedChange | OverBudget | Blocked | FalsePremise | StageFailure
         started = clock.monotonic()
         try:
-            result = planner.plan(target)
+            checked = None if time_premise is None else time_premise(target)
+            result = planner.plan(target) if checked is None else checked
         except AICredentialsError:
             raise
-        except (AIClientError, RoadmapStageError, ToolExecutionError) as exc:
+        except (AIClientError, GitHubOperationError, RoadmapStageError, ToolExecutionError) as exc:
             result = _failure_of(
                 target,
                 exc,
@@ -2862,7 +2913,9 @@ def plan_stage(
             },
             time_budget=time_budget,
         )
-        ready, stopped, failed, blocked, premise = _plan_each(planner, read.selected, writer)
+        ready, stopped, failed, blocked, premise = _plan_each(
+            planner, read.selected, writer, _time_premise_of(repo)
+        )
     return replace(
         plan,
         ready=tuple(ready),

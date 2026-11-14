@@ -4013,6 +4013,10 @@ class RoadmapMessages:
     )
     stage_heading_returned: str = "## Returned to New"
     stage_returned_line: str = "- #{number} {title}: waits for {issues}."
+    stage_job_time_premise: str = (
+        "The item states that `{check}` stays under {limit:.0f} s, but its last {runs} "
+        "runs average {mean:.0f} s."
+    )
     stage_returned_premise: str = (
         "The body of this item says that a class field is absent, and the staging commit "
         "defines it: {evidence} The stage job returns this item to New and plans no change. A "
