@@ -23,7 +23,7 @@ Kind: other. Reads: `tests/gate/k8s_checks/stage_job.py`, `docs/CLUSTER.md`, `do
 - Group 1: A test with a stage attempt that ends with class `provider` gets the retry exit code and a result line with `infra=true` (`devops ci fail-to-pass`).
 - Group 1: A retried stage attempt after a provider timeout plans and stages the item.
 - Group 1: A test with class `plan_defect` keeps exit code 1.
-- Group 2: The k8s gate check docstrings and manifests consistently state exit 75 semantics.
+- Group 2: The policy test (`tests/gate/k8s_checks/job_admission_policy.py`) admits the stage Job with the new failure policy rule.
 
 ## Workflow follow-up
 
