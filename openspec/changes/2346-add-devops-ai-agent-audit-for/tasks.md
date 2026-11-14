@@ -40,9 +40,9 @@ Kind: behavior. Reads: `src/devops_cli/core/repo.py`, `src/devops_cli/ai/agent_a
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/stores/store.py`, `src/devops_cli/ai/agent_audit/finding.py`. Changes: `src/devops_cli/ai/agent_audit/tracked.py` (new), `tests/ai/agent_audit/test_tracked.py` (new).
 
-- [ ] 5.1 Write `tests/ai/agent_audit/test_tracked.py::test_warning_named_by_an_open_issue_is_tracked` first: it fails because tracked warnings are reported as new
+- [x] 5.1 Write `tests/ai/agent_audit/test_tracked.py::test_warning_named_by_an_open_issue_is_tracked` first: it fails because tracked warnings are reported as new
   - Verification: `$ uv run devops ci test tests/ai/agent_audit/test_tracked.py` fails on the base
-- [ ] 5.2 Add `src/devops_cli/ai/agent_audit/tracked.py`. Define `TrackedIssues` protocol with `open_issues()`. `GitHubTrackedIssues` reads open issues via `get_roadmap_store`. `mark_tracked(findings, issues)` normalizes warning and issue text, marking matching findings as tracked so they render separately
+- [x] 5.2 Add `src/devops_cli/ai/agent_audit/tracked.py`. Define `TrackedIssues` protocol with `open_issues()`. `GitHubTrackedIssues` reads open issues via `get_roadmap_store`. `mark_tracked(findings, issues)` normalizes warning and issue text, marking matching findings as tracked so they render separately
   - Verification: `$ uv run devops ci test tests/ai/agent_audit/test_tracked.py` passes
 
 ## 6. Group the findings with one model call at a time
