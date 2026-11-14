@@ -701,12 +701,10 @@ def test_a_refused_value_fails_only_the_clone_url_check(
 
     checks, _ = _run(process_fake, web)
 
-    assert _failures(checks) == {
-        "clone-url": (
-            "the configuration does not load, so the password is not read: ai.context_window: "
-            "Input should be greater than 0"
-        )
-    }
+    [(name, message)] = _failures(checks).items()
+    assert name == "clone-url"
+    assert "ai.context_window" in message
+    assert "greater than 0" in message
     assert [r.method for r in web.sent] == ["GET", "GET", "GET"]
 
 

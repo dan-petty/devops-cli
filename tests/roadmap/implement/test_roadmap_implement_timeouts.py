@@ -13,12 +13,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic import ValidationError
 from pydantic_ai.workspaces import CommandResult
 from pydantic_ai.workspaces.local import LocalWorkspaceBackend
 
 from devops_cli.config import env
 from devops_cli.config.settings import load_settings
+from devops_cli.exceptions import ConfigurationError
 from devops_cli.github.pr_monitor import PRMonitorResult, PRMonitorStatus
 from devops_cli.roadmap.implement import implement_pull
 from devops_cli.roadmap.implement.implement_pull import WatchKind, watch_pull
@@ -71,7 +71,7 @@ def test_a_variable_and_the_config_file_set_the_limits(
 def test_a_limit_of_zero_is_refused(config: Callable[..., Path], name: str) -> None:
     config(roadmap={"implement": {name: 0}})
 
-    with pytest.raises(ValidationError, match=name):
+    with pytest.raises(ConfigurationError, match=name):
         load_settings()
 
 

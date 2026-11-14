@@ -374,6 +374,7 @@ class ConfigMessages:
     unknown_key: str = "Unknown config key: '{key}'"
     similar_keys: str = "Known keys with a similar name: {keys}"
     value_required: str = "{key} needs a VALUE; only a credential may be typed at a hidden prompt."
+    file_value_error: str = "Config file {path} cannot set {key}: {location}: {reason}"
     secret_prompt: str = "{key} (typing hidden)"
     from_file_not_secret: str = (
         "{key} is not a credential. Only a credential comes from a file or stdin; give its VALUE."

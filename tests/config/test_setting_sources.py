@@ -8,7 +8,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from pydantic import ValidationError
 
 from devops_cli.config.constants import CONST_CONFIG_PATH
 from devops_cli.config.defaults import DEFAULT_RAG_EMBEDDING_MODEL
@@ -149,13 +148,13 @@ def test_a_config_file_value_that_does_not_validate_names_no_variable(
     monkeypatch.setenv("DEVOPS_CLI_AI_REFERENCE_MODEL", "variable-model")
     config(qdrant={"timeout": 0})
 
-    with pytest.raises(ValidationError) as refused:
+    with pytest.raises(ConfigurationError) as refused:
         load_settings()
 
     assert (
-        [error["loc"] for error in refused.value.errors()],
+        refused.value.key,
         "DEVOPS_CLI" in str(refused.value),
-    ) == ([("qdrant", "timeout")], False)
+    ) == ("qdrant.timeout", False)
 
 
 @pytest.mark.parametrize(

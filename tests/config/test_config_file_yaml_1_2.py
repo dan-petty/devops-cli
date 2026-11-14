@@ -12,7 +12,6 @@ import traceback
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
 
 from devops_cli.config.settings import load_settings, reset_settings_cache
 from devops_cli.exceptions import ConfigurationError
@@ -47,10 +46,10 @@ def test_a_bare_off_for_a_decision_point_loads_as_the_mode_off(
 def test_a_yaml_bool_for_the_intake_mode_is_refused(isolate_devops_cli_config: Path) -> None:
     _add(isolate_devops_cli_config, "roadmap:\n  intake:\n    jev: true\n")
 
-    with pytest.raises(ValidationError) as refused:
+    with pytest.raises(ConfigurationError) as refused:
         load_settings()
 
-    assert [error["loc"] for error in refused.value.errors()] == [("roadmap", "intake", "jev")]
+    assert refused.value.key == "roadmap.intake.jev"
 
 
 def test_a_key_that_a_mapping_holds_two_times_stops_the_load_and_quotes_no_text(

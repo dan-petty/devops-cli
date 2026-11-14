@@ -14,9 +14,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic import ValidationError
 
 from devops_cli.config.settings import Settings, load_settings, setting_default
+from devops_cli.exceptions import ConfigurationError
 
 # Each new setting and the value of the constant that it replaces.
 OLD_VALUES: dict[str, int] = {
@@ -98,7 +98,7 @@ def test_a_value_above_the_ceiling_is_refused_with_the_name_of_the_setting(
 ) -> None:
     config(_nested({path: CEILINGS[path] + 1}))
 
-    with pytest.raises(ValidationError) as refused:
+    with pytest.raises(ConfigurationError) as refused:
         load_settings()
 
     assert path in str(refused.value)
@@ -150,7 +150,7 @@ def test_an_inner_limit_above_its_outer_limit_is_refused_with_both_names(
 ) -> None:
     config(_nested(values))
 
-    with pytest.raises(ValidationError) as refused:
+    with pytest.raises(ConfigurationError) as refused:
         load_settings()
 
     assert f"{inner} must not be above {outer}" in str(refused.value)
