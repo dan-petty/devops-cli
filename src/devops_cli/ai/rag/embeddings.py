@@ -629,9 +629,15 @@ class EmbeddingsEngine:
                 self._consecutive_successes = 0
 
     def _valkey_key(self, text: str, model: str, *, is_query: bool = False) -> str:
-        """Generate namespaced deterministic Valkey cache key; hashes text after prompt is applied."""
+        """Generate namespaced deterministic Valkey cache key; hashes text after prompt is applied.
+
+        The key holds the provider and the model name that the request sends, as the disk tier
+        does (#4569): a direct OpenAI request sends another name than the gateway for the same
+        configured model, and one vector is no hit for the other."""
         sent_text = self._apply_model_prefix([text], is_query=is_query)[0]
-        h = hashlib.sha256(f"{model}\x00{sent_text}".encode()).hexdigest()
+        h = hashlib.sha256(
+            f"{self._disk_cache_model()}\x00{model}\x00{sent_text}".encode()
+        ).hexdigest()
         return f"{CONST_VALKEY_EMBEDDING_PREFIX}:{h}"
 
     def _get_valkey_embedding(

@@ -276,3 +276,29 @@ def test_a_text_that_only_valkey_holds_counts_as_a_valkey_hit(
     )
 
     assert _lookups(otlp) == [({"result": "hit", "tier": "valkey"}, 1.0)]
+
+
+def test_a_direct_openai_key_is_no_hit_for_the_gateway(
+    valkey_client: ValkeyClient, web: WebFake
+) -> None:
+    """A direct OpenAI request sends `text-embedding-3-small`, and the gateway sends the
+    configured name, so the direct vector is no hit for the gateway (#4569)."""
+    from devops_cli.config.settings import AIConfig
+
+    sent = serve(web, gateway_reply)
+    direct = AIConfig(
+        provider="openai", api_base_url="http://example.com:1234/v1", allow_private_network=True
+    )
+    direct.tasks.embedding.model = "qwen3-embedding:0.6b"
+    gateway = gateway_config()
+    gateway.tasks.embedding.model = "qwen3-embedding:0.6b"
+
+    EmbeddingsEngine(direct, valkey_client=valkey_client).embed_texts(["same text"])
+    EmbeddingsEngine(gateway, api_key="sk-gateway", valkey_client=valkey_client).embed_texts(
+        ["same text"]
+    )
+
+    assert [json.loads(request.content)["model"] for request in sent] == [
+        "text-embedding-3-small",
+        "qwen3-embedding:0.6b",
+    ]
