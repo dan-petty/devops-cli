@@ -4,6 +4,10 @@ FROM ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b98
 # The Node runtime of the pinned OpenSpec. Its major version is the one of `.node-version`.
 FROM node:24-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0 AS node
 
+# The maintained actionlint fork that knows current runner labels, pinned by digest (#1501,
+# #3108). Its 1.17.1 release holds a fixed Go toolchain, so the image scan accepts it.
+FROM docker.io/kjanat/actionlint:1.17.1@sha256:c0a63b3e5c974c2466ead39404b70e448176beaff8c5ec7af0b2e96191aea661 AS actionlint
+
 # The requirements of `uv.lock`, with their hashes and without the project (#4550). A release
 # changes the project version in `pyproject.toml` and `uv.lock`, but not these two files, and BuildKit
 # keys the cache of a `COPY --from` on the content of the files that it copies. So the dependency
@@ -84,15 +88,16 @@ RUN DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools /app/.venv/bin/devops install-to
 FROM builder AS runner-tools
 RUN DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools /app/.venv/bin/devops install-tools \
       --tool promtool --target-dir /opt/devops-tools/bin && \
+    DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools /app/.venv/bin/devops install-tools \
+      --tool trivy --target-dir /opt/devops-tools/bin && \
     chmod -R a+rX /opt/devops-tools
 
 # The runner: the pod of a cluster Job in which `devops roadmap implement` runs its steps (#2667).
 # `runner-deps` adds to the venv of `deps` the dev requirements that the steps' tests and checks
 # run (pytest, ruff, mypy, pre-commit and the rest of the dev group), and git, which a step and
 # the job need. `deps` holds uv and gh. The stage adds the tools that the gate and the hooks need
-# (#3072): curl and jq from apt, the Node runtime, and OpenSpec and promtool at their pins in
-# `tools.lock`. actionlint, shellcheck and Trivy are not here: the image scan fails on the newest
-# release of each (see `NOT_IN_RUNNER`). The list of the tools is `RUNNER_TOOLS` in
+# (#3072): curl, jq and shellcheck from apt, the Node runtime, and actionlint, OpenSpec, promtool
+# and Trivy at their pins. The list of the tools is `RUNNER_TOOLS` in
 # `src/devops_cli/roadmap/runner_tools.py`, and the last step of the `runner` stage checks every
 # one of them. A Job installs no tool, so the image holds no npm, and pip goes (it vendors
 # `certifi`, `urllib3` and `msgpack`), as in the service stage: the scan of the image reports them.
@@ -103,6 +108,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     ca-certificates \
     curl \
     jq \
+    shellcheck \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /usr/local/lib/python3.14/site-packages/pip* /usr/local/bin/pip*
 
@@ -115,6 +121,7 @@ RUN git config --system credential.https://github.com.helper '!gh auth git-crede
     git config --system credential.https://gist.github.com.helper '!gh auth git-credential'
 
 COPY --from=runner-tools /opt/devops-tools /opt/devops-tools
+COPY --from=actionlint /usr/local/bin/actionlint /usr/local/bin/actionlint
 
 COPY --from=lock /lock/dev.txt /lock/dev.txt
 RUN --mount=type=cache,target=/root/.cache/uv \
