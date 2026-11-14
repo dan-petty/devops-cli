@@ -21,7 +21,7 @@ generatorOptions:
     app.kubernetes.io/name: grafana
     app.kubernetes.io/part-of: devops-cli-stack
   annotations:
-    grafana_folder: "DevOps Services"
+    grafana_folder: "dan-petty/devops-cli"
 
 configMapGenerator:
   - name: grafana-devops-cli-dashboards

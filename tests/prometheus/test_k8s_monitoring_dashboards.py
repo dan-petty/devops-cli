@@ -1049,3 +1049,34 @@ def test_system_topology_dashboard_has_network_service_map_and_brain_panels() ->
     ng = node_graphs[0]
     assert ng.get("datasource", {}).get("type") == "tempo"
     assert any(target.get("queryType") == "serviceMap" for target in ng.get("targets", []))
+
+
+def test_dashboard_folders_are_divided_by_repo_and_platform() -> None:
+    """Verify product dashboards are organized under repo folder dan-petty/devops-cli
+    and monitoring/cluster dashboards are organized under folder Platform."""
+    devops_kust = yaml.safe_load(
+        (PRODUCT_DASHBOARDS_DIR / "kustomization.yaml").read_text(encoding="utf-8")
+    )
+    assert devops_kust.get("generatorOptions", {}).get("annotations", {}).get("grafana_folder") == (
+        "dan-petty/devops-cli"
+    )
+
+    monitoring_kust = yaml.safe_load(
+        (DASHBOARDS_DIR / "kustomization.yaml").read_text(encoding="utf-8")
+    )
+    assert monitoring_kust.get("generatorOptions", {}).get("annotations", {}).get(
+        "grafana_folder"
+    ) == ("Platform")
+
+
+def test_roadmap_service_dashboard_has_repo_variable() -> None:
+    """Verify roadmap-service-telemetry dashboard defines a repo template variable."""
+    roadmap_dash = json.loads(
+        (PRODUCT_DASHBOARDS_DIR / "roadmap-service-telemetry.json").read_text(encoding="utf-8")
+    )
+    variables = roadmap_dash.get("templating", {}).get("list", [])
+    repo_vars = [v for v in variables if v.get("name") == "repo"]
+    assert len(repo_vars) == 1
+    repo_var = repo_vars[0]
+    assert repo_var.get("type") == "query"
+    assert "repo" in repo_var.get("definition", "")
