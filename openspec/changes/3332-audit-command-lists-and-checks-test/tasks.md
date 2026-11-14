@@ -13,9 +13,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/stage/stage_registry.py`, `tests/
 
 Kind: behavior. Reads: `src/devops_cli/lang/en/help.py`, `tests/ai/mcp/test_ai_benchmark_mcp_tool.py`. Changes: `src/devops_cli/lang/en/help.py`, `tests/commands/test_roadmap_registries.py` (new).
 
-- [ ] 2.1 In `tests/commands/test_roadmap_registries.py`, `test_the_registries_help_texts_exist` asserts that `HELP.roadmap.registries` and `HELP.roadmap.registries_path` are non-empty; it fails before the help texts exist
+- [x] 2.1 In `tests/commands/test_roadmap_registries.py`, `test_the_registries_help_texts_exist` asserts that `HELP.roadmap.registries` and `HELP.roadmap.registries_path` are non-empty; it fails before the help texts exist
   - Verification: `$ uv run devops ci test tests/commands/test_roadmap_registries.py` fails on the base
-- [ ] 2.2 Add the help texts `registries` and `registries_path` to the catalog `src/devops_cli/lang/en/help.py:class RoadmapCommandHelp`, next to `inbox`, and create `tests/commands/test_roadmap_registries.py` with the help text test. Read `tests/ai/mcp/test_ai_benchmark_mcp_tool.py`, the existing test that imports the catalog at `tests/ai/mcp/test_ai_benchmark_mcp_tool.py:15:from devops_cli.lang import ERRORS, HELP`: the two new attributes change none of its rows, and the step edits no line of it
+- [x] 2.2 Add the help texts `registries` and `registries_path` to the catalog `src/devops_cli/lang/en/help.py:class RoadmapCommandHelp`, next to `inbox`, and create `tests/commands/test_roadmap_registries.py` with the help text test. Read `tests/ai/mcp/test_ai_benchmark_mcp_tool.py`, the existing test that imports the catalog at `tests/ai/mcp/test_ai_benchmark_mcp_tool.py:15:from devops_cli.lang import ERRORS, HELP`: the two new attributes change none of its rows, and the step edits no line of it
   - Verification: `$ uv run devops ci test tests/commands/test_roadmap_registries.py` passes
 
 ## 3. Add the roadmap registries subcommand with its table, JSON output and exit codes
