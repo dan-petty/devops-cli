@@ -163,7 +163,17 @@ def _validate_public_whitelist_item(item: str) -> None:
     that is not public.
     """
     host, _port = _parse_whitelist_entry(item)
-    if is_loopback_or_private_host(host):
+    try:
+        network = ipaddress.ip_network(host, strict=False)
+    except ValueError:
+        network = None
+    if network is None:
+        if is_loopback_or_private_host(host):
+            raise ValueError(
+                f"Public whitelist entry '{item}' (host '{host}') cannot be private, loopback, or metadata."
+            )
+        return
+    if is_cloud_metadata_host(network) or is_non_public_ip(network):
         raise ValueError(
             f"Public whitelist entry '{item}' (host '{host}') cannot be private, loopback, or metadata."
         )

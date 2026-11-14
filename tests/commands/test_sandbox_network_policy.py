@@ -861,3 +861,21 @@ def test_the_mcp_tool_asks_for_the_collector_lane_only_when_told_to() -> None:
         with_lane["metadata"]["name"],
         with_lane["metadata"]["namespace"],
     ) == ([_COLLECTOR_RULE], [], "app-sandbox-network-policy", "sandbox")
+
+
+def test_cli_sandbox_network_policy_prints_a_public_ipv6_cidr(
+    cli: Callable[..., Any],
+) -> None:
+    """The command accepts a public IPv6 CIDR and exits 0 (#3776)."""
+    res = cli(
+        "sandbox",
+        "network-policy",
+        "--network-mode",
+        "public_whitelist",
+        "--public-whitelist",
+        "2606:4700::/48",
+    )
+
+    egress = yaml.safe_load(res.stdout)["spec"]["egress"]
+
+    assert (res.exit_code, _tcp_rule(["2606:4700::/48"], 443) in egress) == (0, True)

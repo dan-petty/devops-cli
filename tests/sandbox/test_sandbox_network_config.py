@@ -248,3 +248,41 @@ def test_sandbox_engine_whitelist_fail_closed_without_proxy(
     with pytest.raises(SandboxValidationError, match="cannot enforce egress whitelist boundaries"):
         WorkloadSandboxEngine().deploy(deploy_cfg)
     assert "containers.create" not in docker_daemon.call_names()
+
+
+@pytest.mark.parametrize(
+    ("entry", "cidr"),
+    [
+        ("2606:4700::/48", "2606:4700::/48"),
+        ("2606:4700::1/48", "2606:4700::/48"),
+        ("2606:4700::1111", "2606:4700::1111/128"),
+    ],
+)
+def test_a_public_ipv6_whitelist_entry_is_accepted(entry: str, cidr: str) -> None:
+    """A public IPv6 address or CIDR gives one ipBlock on 443, as an IPv4 CIDR does (#3776)."""
+    config = SandboxNetworkConfig(mode="public_whitelist", public_whitelist=[entry])
+
+    egress = config.to_k8s_network_policy()["spec"]["egress"]
+    whitelist = [rule for rule in egress if any("ipBlock" in peer for peer in rule.get("to", []))]
+
+    assert whitelist == [
+        {"to": [{"ipBlock": {"cidr": cidr}}], "ports": [{"protocol": "TCP", "port": 443}]}
+    ]
+
+
+@pytest.mark.parametrize("entry", ["fd00::/8", "::1/128", "fe80::/10", "fd00:ec2::254"])
+def test_a_non_public_ipv6_whitelist_entry_is_refused(entry: str) -> None:
+    """A private, loopback, link-local or metadata IPv6 entry is refused (#3776)."""
+    with pytest.raises(
+        ValueError,
+        match=f"Public whitelist entry '{entry}'.*cannot be private, loopback, or metadata",
+    ):
+        SandboxNetworkConfig(mode="public_whitelist", public_whitelist=[entry])
+
+
+def test_a_non_public_name_is_refused_with_no_lookup(dns: DnsFake) -> None:
+    """The public whitelist validator refuses a name without a DNS lookup (#3776)."""
+    with pytest.raises(ValueError, match="cannot be private, loopback, or metadata"):
+        SandboxNetworkConfig(mode="public_whitelist", public_whitelist=["localhost"])
+
+    assert dns.lookups == []
