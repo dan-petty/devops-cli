@@ -601,6 +601,7 @@ class _ItemRun:
     returned: bool = False
     checkpoints_off: bool = False
     passed: bool = False
+    conflict_files: tuple[str, ...] = ()
     # The last `wip:` commit of the group that runs (#3054), or None.
     wip: WipCommit | None = None
     # The time at which the run of the item began, for the time limit of the item (#3053).
@@ -823,8 +824,8 @@ class _ItemRun:
         """Rebase the checkout `path` onto `origin/<default>`. The conflict path of `_sync`. A
         rebase that git refuses to start, as in a checkout that holds changes, is no conflict: no
         abort runs, and the stop has the class `ci_infra`, as a new Job starts from a new worktree
-        (#4487). Either stop pushes nothing, because the head does not hold the default branch
-        (#4670)."""
+        (#4487). A rebase conflict aborts the rebase and raises `_StopError` with class `conflict`
+        and the conflicted files (#5615)."""
         try:
             git(path, "rebase", f"origin/{self.default}", operation=GIT_OPERATION)
         except GitOperationError as exc:
@@ -1179,6 +1180,7 @@ class _ItemRun:
 
     def _checkpoint(self) -> None:
         """Push the groups that passed in this run, so that a killed runner loses none (#3677).
+        A rebase conflict pushes the head with a lease, and the run keeps its checkpoints (#5615).
         A failed push goes to the log, and the run makes no more checkpoint pushes."""
         if self.checkpoints_off or not self.passed:
             return
@@ -1381,8 +1383,8 @@ class _ItemRun:
         what no commit holds first (`_drop_uncommitted`), so the job rebases it as `_sync` does. A
         step that runs holds the shas of its `wip:` commits and may hold edits, so `_rebased_copy`
         rebases a copy and leaves the checkout alone. A conflict aborts the rebase and raises
-        `_StopError`, so the job pushes no head that does not hold the default branch (#4670). The
-        sync of `_push` stops the item with the same conflict."""
+        `_StopError`, so `_push_passed` pushes the head with a lease (#5615). The sync of `_push`
+        stops the item with the same conflict."""
         if in_step:
             return self._rebased_copy()
         self._sync()
@@ -1927,8 +1929,10 @@ class _ItemRun:
             ImplementRecordKey.FAILURE: klass.value,
             ImplementRecordKey.CHECK: check or None,
             ImplementRecordKey.CHECK_LOG: check_log or None,
-            ImplementRecordKey.CONFLICT: json.dumps(list(stop.conflict_files))
-            if stop.conflict_files
+            ImplementRecordKey.CONFLICT: json.dumps(
+                list(stop.conflict_files or self.conflict_files)
+            )
+            if (stop.conflict_files or self.conflict_files)
             else None,
             ImplementRecordKey.SPEND: spend,
             ImplementRecordKey.TRACE: self.trace.encode(),
@@ -1966,14 +1970,37 @@ class _ItemRun:
         self._git("reset", "-q", "--hard", "HEAD")
         self._git("clean", "-fdq")
 
+    def _push_head_after_conflict(self, exc: _StopError) -> str:
+        """Push the head of the checkout after a rebase conflict (#5615). It keeps every passed
+        group on origin behind a lease, records the conflicting paths in `implement.conflict`,
+        and prints the conflict to stderr."""
+        texts = MESSAGES.roadmap
+        self.conflict_files = exc.conflict_files
+        self.store.set_marks(
+            self._fresh(),
+            {ImplementRecordKey.CONFLICT: json.dumps(list(exc.conflict_files))},
+        )
+        print_muted(mask_secrets(exc.reason).strip(), to_stderr=True, safe=True)
+        try:
+            if self.pull is not None:
+                self._push_with_lease()
+            else:
+                self._publish()
+        except (GitOperationError, _StopError) as err:
+            output = err.reason if isinstance(err, _StopError) else str(err)
+            return texts.implement_stop_push_failed.format(output=mask_secrets(output))
+        return ""
+
     def _push_passed(self, *, in_step: bool = False, at_stop: bool = False) -> str:
         """Push the commits of the steps that passed, on a branch that holds the default branch
         (`_current_tip`). A Planned item with a commit publishes its branch and opens its draft;
-        with none, nothing is pushed. `in_step` is true for the `wip:` push of a step that runs, and
-        `at_stop` for the push of a stop, which drops what no commit holds first. The text to add to
-        the comment when the push fails or a rebase conflict pushes nothing, else empty. A git
-        setting that the job does not allow raises `GitSettingsError`: the item stops with the
-        class `git_config`, and the job writes no record of the push first."""
+        with none, nothing is pushed. A rebase conflict aborts the rebase, pushes the head with a
+        lease, records the conflicting paths in `implement.conflict`, and returns an empty text
+        (#5615). `in_step` is true for the `wip:` push of a step that runs, and `at_stop` for the
+        push of a stop, which drops what no commit holds first. The text to add to the comment when
+        the push fails, else empty. A git setting that the job does not allow raises
+        `GitSettingsError`: the item stops with the class `git_config`, and the job writes no
+        record of the push first."""
         texts = MESSAGES.roadmap
         try:
             if self.pull is None and not self._has_new_commits():
@@ -1988,6 +2015,8 @@ class _ItemRun:
         except GitOperationError as exc:
             return texts.implement_stop_push_failed.format(output=mask_secrets(str(exc)))
         except _StopError as exc:
+            if exc.failure_class is FailureClass.CONFLICT:
+                return self._push_head_after_conflict(exc)
             return texts.implement_stop_push_failed.format(output=mask_secrets(exc.reason))
         return ""
 

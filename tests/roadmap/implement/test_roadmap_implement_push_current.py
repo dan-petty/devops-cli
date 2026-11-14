@@ -7,12 +7,16 @@ in the 20 minutes of a real run, and an effect of the script reads `origin` at t
 
 from __future__ import annotations
 
+import json
 import subprocess
 from collections.abc import Callable
+from typing import Any
 
 import pytest
 from pydantic_ai.exceptions import ModelAPIError
 
+from devops_cli.exceptions import GitOperationError
+from devops_cli.roadmap.implement.git_isolation import OriginGit
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.implement_step import command_text
 from tests.support.model_script import ModelScript, say, tool_calls
@@ -167,10 +171,10 @@ def test_a_stop_pushes_a_branch_that_holds_the_commit_that_main_gained(
     assert f"The last is `{sha}`." in planned_world.issue_comments()[0]
 
 
-def test_a_conflict_at_a_wip_push_and_at_the_stop_pushes_nothing(
+def test_a_conflict_at_a_wip_push_keeps_the_wip_commit_on_the_branch(
     planned_world: JobWorld, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A head that does not hold `main` never goes to `origin` (#4670)."""
+    """A conflict at a wip push aborts the rebase and keeps the wip commit on origin (#5615)."""
     script = ModelScript(
         *_task(1),
         ModelAPIError("example-model", "The pod died."),
@@ -182,10 +186,47 @@ def test_a_conflict_at_a_wip_push_and_at_the_stop_pushes_nothing(
     applied = planned_world.run(script)
 
     assert applied.stopped == (1,)
-    assert planned_world.repo.origin_git("branch", "--list", BRANCH) == ""
+    subjects = planned_world.origin_log()
+    assert any(subject.startswith("wip:") for subject in subjects)
+    held = planned_world.store.item(1)
+    assert held is not None
+    assert json.loads(held.job_record.get("implement.conflict") or "[]") == ["src/devops_cli/f1.py"]
     assert "The rebase onto origin/main stopped." in capsys.readouterr().err
     status = planned_world.repo.git("worktree", "list")
     assert status.count("\n") == 0
+
+
+def test_a_conflict_push_that_fails_returns_the_failure_note(
+    planned_world: JobWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When the push after a rebase conflict fails, the failure note is returned (#5615)."""
+    push_broken = False
+
+    def break_push() -> None:
+        nonlocal push_broken
+        advance_main(planned_world, "src/devops_cli/f1.py", "VALUE = 99\n")
+        push_broken = True
+
+    script = ModelScript(
+        *_task(1),
+        ModelAPIError("example-model", "The pod died."),
+        effects={1: break_push},
+    )
+
+    real_push = OriginGit.push
+
+    def push_fails(self: OriginGit, *args: Any, **kwargs: Any) -> None:
+        if push_broken:
+            raise GitOperationError("Push failed on network")
+        real_push(self, *args, **kwargs)
+
+    monkeypatch.setattr(OriginGit, "push", push_fails)
+
+    applied = planned_world.run(script)
+
+    assert applied.stopped == (1,)
+    assert "The push of the commits that passed failed too." in planned_world.issue_comments()[0]
+    assert "Push failed on network" in planned_world.issue_comments()[0]
 
 
 def _archive_applied_then_refused(world: JobWorld) -> None:
