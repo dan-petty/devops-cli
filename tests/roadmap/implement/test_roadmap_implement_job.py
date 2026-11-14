@@ -41,7 +41,7 @@ from tests.support.base_replay import (
     answer_pytest_on_base,
     junit,
 )
-from tests.support.fakes.github import GitHubApiFake
+from tests.support.fakes.github import GitHubApiFake, github_json
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import (
@@ -685,6 +685,23 @@ def test_a_step_that_stops_blocks_the_item_with_a_comment_and_a_record(
     assert "implement: retry" in comments[0]
 
 
+def test_a_stop_writes_one_status_comment_to_the_pull_request(job_world: JobWorld) -> None:
+    """A stop after a push leaves the commits on the pull request, so the reviewer reads the
+    stopped step and the failure class there too (#3997)."""
+    script = ModelScript(
+        tool_calls(*group_one_calls()),
+        say("Group 1 is done."),
+        say("I could not do group 2."),
+    )
+
+    job_world.run(script)
+
+    (comment,) = job_world.sent("POST", f"issues/{PULL}/comments")
+    assert "Stopped at group 2." in comment["body"]
+    assert "Failure class:" in comment["body"]
+    assert len(job_world.issue_comments()) == 1
+
+
 def test_the_stop_comment_names_the_failure_class_the_action_taken_and_the_action_left(
     job_world: JobWorld,
 ) -> None:
@@ -1071,6 +1088,16 @@ def test_a_step_that_stops_does_not_stop_the_next_item(job_world: JobWorld) -> N
     second = seed_staged(job_world.store, pull=6)
     push_staged_branch(job_world.repo, number=second)
     route_pull_status(job_world.api, pull=6)
+    job_world.api.route(
+        "GET",
+        f"/repos/{STAGE_REPO}/issues/6/comments?per_page=100",
+        github_json([]),
+    )
+    job_world.api.route(
+        "POST",
+        f"/repos/{STAGE_REPO}/issues/6/comments",
+        github_json({"id": 2}, status=201),
+    )
     script = ModelScript(say("Stuck."))
 
     applied = job_world.run(script, limit=2)
