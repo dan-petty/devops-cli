@@ -70,3 +70,35 @@ def test_the_cli_exits_1_without_a_traceback(cli: Capture, isolate_devops_cli_co
     assert result.exit_code == 1
     assert "roadmap.implement.effort" in result.output
     assert "Traceback (most recent call last):" not in result.output
+
+
+def test_a_refused_global_config_value_names_the_global_file(
+    global_config: Any,
+) -> None:
+    """When the key is in the global file, the error names that file (#4610)."""
+    from devops_cli.config.constants import CONST_CONFIG_PATH
+
+    global_config({"roadmap": {"implement": {"effort": ["huge"]}}})
+    reset_settings_cache()
+
+    error = _load_error()
+
+    assert str(CONST_CONFIG_PATH) in str(error)
+    assert error.key == "roadmap.implement.effort"
+
+
+def test_an_error_from_no_config_key_stays_a_validation_error() -> None:
+    """A model-level error that no config layer names stays the pydantic error (#4610)."""
+    from pydantic import BaseModel, Field, ValidationError
+
+    from devops_cli.config.settings import ConfigLayers, _config_file_error
+
+    class Model(BaseModel):
+        value: int = Field(gt=0)
+
+    with pytest.raises(ValidationError) as raised:
+        Model(value=0)
+
+    layers = ConfigLayers(project_path=None, project={}, global_config={})
+
+    assert _config_file_error(raised.value, layers) is None
