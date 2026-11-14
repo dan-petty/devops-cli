@@ -49,6 +49,7 @@ from devops_cli.config.defaults import (
     DEFAULT_CI_BANDIT_NICENESS,
     DEFAULT_CI_JOB_TIME_RUNS,
     DEFAULT_CI_MUTATE_TIMEOUT_SECONDS,
+    DEFAULT_CI_TEST_COLLECTION_TIMEOUT_SECONDS,
     DEFAULT_CI_TEST_NARROWED_WORKERS,
     DEFAULT_CI_TEST_REPEAT_RUNS,
     DEFAULT_CI_TEST_SERIAL_MAX_FILES,
@@ -108,6 +109,10 @@ app = new_typer(cls=FileOrSubcommandGroup, help=HELP.ci.app)
 # a reviewed nosec marker that names its rules and a reason (#1538). `tests/` keeps
 # DEFAULT_BANDIT_SEVERITY.
 _BANDIT_SOURCE_SEVERITY: Final[str] = "low"
+# syrupy fails a pytest session that leaves a snapshot of a collected module unused. A shard runs a
+# part of the suite and a collection runs no test, so both give this option, which makes that
+# failure a warning (#5606).
+_SNAPSHOT_WARN_UNUSED: Final[str] = "--snapshot-warn-unused"
 
 
 def _get_project_root() -> Path:
@@ -694,7 +699,7 @@ def _resolve_pytest_cmd(*, shard: int = 1, shards: int = 1) -> list[str]:
         *cmd,
         "--cov-report=",
         "--cov-fail-under=0",
-        "--snapshot-warn-unused",
+        _SNAPSHOT_WARN_UNUSED,
         f"-r{CONST_CI_SHARD_SUMMARY_CHARS}",
         f"--junitxml={CONST_CI_SHARD_JUNIT_PATH}",
         *shard_test_files(shard, shards, _get_project_root()),
@@ -1940,8 +1945,16 @@ def _build_test_cmd(
 
 def _collection_cmd(targets: list[str], keyword: str | None) -> list[str]:
     """The command that collects the tests the run selects: the run's own command, serially and
-    quiet, with the same targets and `-k` filter, so the count follows what the run would run."""
-    return [*_build_test_cmd("0", False, keyword, False, None), "--collect-only", "-q", *targets]
+    quiet, with the same targets and `-k` filter, so the count follows what the run would run.
+    A collection runs no test, so syrupy finds each snapshot of a selected module unused, and
+    `--snapshot-warn-unused` keeps that from an exit 1 that hides the count (#5606)."""
+    return [
+        *_build_test_cmd("0", False, keyword, False, None),
+        "--collect-only",
+        "-q",
+        _SNAPSHOT_WARN_UNUSED,
+        *targets,
+    ]
 
 
 def _collected_test_count(targets: list[str], keyword: str | None) -> int | None:
@@ -1955,11 +1968,11 @@ def _collected_test_count(targets: list[str], keyword: str | None) -> int | None
     try:
         result = asyncio.run(
             _run_in_own_session(
-                cmd, _get_project_root(), DEFAULT_SUBPROCESS_TIMEOUT_SECONDS, True, None
+                cmd, _get_project_root(), DEFAULT_CI_TEST_COLLECTION_TIMEOUT_SECONDS, True, None
             )
         )
     except subprocess.TimeoutExpired:
-        reason = f"a timeout after {DEFAULT_SUBPROCESS_TIMEOUT_SECONDS:g}s"
+        reason = f"a timeout after {DEFAULT_CI_TEST_COLLECTION_TIMEOUT_SECONDS:g}s"
     except asyncio.CancelledError:
         raise typer.Exit(CONST_EXIT_CANCELLED) from None
     else:
@@ -1970,25 +1983,52 @@ def _collected_test_count(targets: list[str], keyword: str | None) -> int | None
         if result.returncode == 5:
             return 0
         reason = f"exit code {result.returncode}"
-    print_warning(MESSAGES.ci.test_collection_failed.format(command=shlex.join(cmd), reason=reason))
+    print_warning(
+        MESSAGES.ci.test_collection_failed.format(command=shlex.join(cmd), reason=reason),
+        safe=True,
+    )
     return None
 
 
-def _narrowed_workers(targets: list[str] | None, collected: int | None = None) -> str | None:
+def _worker_cap() -> int:
+    """The most workers of a narrowed run: DEFAULT_CI_TEST_NARROWED_WORKERS, or the value of
+    PYTEST_XDIST_AUTO_NUM_WORKERS when it is smaller. A runner pod sets that variable to its CPU
+    limit, because xdist counts the CPUs of the node, and xdist reads it only for `-n auto` or
+    `-n logical`, never for the explicit `-n` of a narrowed run (#2806, #5606). xdist ignores a
+    value that is no whole number, and so does this."""
+    from devops_cli.roadmap.implement.implement_size import WORKERS_VARIABLE
+
+    try:
+        bound = int(os.environ.get(WORKERS_VARIABLE, ""))
+    except ValueError:
+        return DEFAULT_CI_TEST_NARROWED_WORKERS
+    return min(DEFAULT_CI_TEST_NARROWED_WORKERS, bound)
+
+
+def _narrowed_workers(targets: list[str] | None, keyword: str | None) -> str | None:
     """The `-n` of a run given none (#1669): none for the full suite, so addopts' `-n logical`
     applies; serial for a selection of no more than DEFAULT_CI_TEST_SERIAL_MAX_TESTS collected
-    tests, where each xdist worker's start-up and collection cost more than it saves; and
-    DEFAULT_CI_TEST_NARROWED_WORKERS workers above that. When the collection gave no count, the
-    number of test modules decides, up to DEFAULT_CI_TEST_SERIAL_MAX_FILES (#4472)."""
+    tests, where each xdist worker's start-up and collection cost more than it saves; and the
+    worker cap above that (#4472).
+
+    The collection is a second pytest session, so the run starts it only when its count can
+    change the answer (#5606). A cap of one worker or less is a serial run. Each target module
+    collects one test at least, so more than DEFAULT_CI_TEST_SERIAL_MAX_TESTS target modules with
+    no `-k` filter take the cap. When the collection gives no count, the number of test modules
+    decides, up to DEFAULT_CI_TEST_SERIAL_MAX_FILES."""
     if targets is None:
         return None
-    if collected is not None:
-        if collected <= DEFAULT_CI_TEST_SERIAL_MAX_TESTS:
-            return "0"
-        return str(DEFAULT_CI_TEST_NARROWED_WORKERS)
-    if len(targets) <= DEFAULT_CI_TEST_SERIAL_MAX_FILES:
+    cap = _worker_cap()
+    if cap <= 1:
         return "0"
-    return str(DEFAULT_CI_TEST_NARROWED_WORKERS)
+    if not keyword and len(targets) > DEFAULT_CI_TEST_SERIAL_MAX_TESTS:
+        return str(cap)
+    collected = _collected_test_count(targets, keyword)
+    if collected is None:
+        parallel = len(targets) > DEFAULT_CI_TEST_SERIAL_MAX_FILES
+    else:
+        parallel = collected > DEFAULT_CI_TEST_SERIAL_MAX_TESTS
+    return str(cap) if parallel else "0"
 
 
 def _head_seed(root: Path) -> int:
@@ -2066,10 +2106,7 @@ def test(
         _run_shuffled_repeats(_build_test_cmd("0", verbose, k, x, None), targets, repeat, seed)
         return
 
-    workers = numprocesses
-    if workers is None:
-        collected = _collected_test_count(targets, k) if targets else None
-        workers = _narrowed_workers(targets, collected)
+    workers = numprocesses if numprocesses is not None else _narrowed_workers(targets, k)
     cmd = _build_test_cmd(workers, verbose, k, x, targets)
     with _gate_slot(workers is None):
         passed = _run(cmd, own_session=True)

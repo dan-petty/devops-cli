@@ -32,13 +32,14 @@ from devops_cli.core.test_selection import (
     module_path_for_source,
     select_tests_for_sources,
 )
+from devops_cli.roadmap.implement.implement_size import WORKERS_VARIABLE
 from tests.support.ci_root import tracked_blobs
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.paths import REPO_ROOT, TESTS_ROOT
 from tests.support.session_spawns import RecordedSpawn, record_spawns
 from tests.support.trees import parse_python_file
 
-pytestmark = pytest.mark.usefixtures("refuse_nested_test_runs")
+pytestmark = pytest.mark.usefixtures("refuse_nested_test_runs", "no_worker_bound")
 
 runner = CliRunner()
 
@@ -50,6 +51,18 @@ _COLLECTION_WARNING = "Could not collect the selected tests"
 # 1800 s timeout of `devops ci test`.
 _ISSUE_TEST_MODULES = 7
 _ISSUE_COLLECTED_TESTS = 399
+# The tests that the same 7 modules collected on the base of #5606, where syrupy found 4 unused
+# snapshots and the collection exited 1.
+_ISSUE_COLLECTED_TESTS_ON_THE_BASE = 422
+# syrupy's option that makes a snapshot which no test of the session reads a warning, not exit 1.
+_SNAPSHOT_WARN_UNUSED = "--snapshot-warn-unused"
+
+
+@pytest.fixture
+def no_worker_bound(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Remove the worker bound that a runner pod sets to its CPU limit, so that a narrowed run
+    starts up to DEFAULT_CI_TEST_NARROWED_WORKERS workers unless the test sets the bound (#5606)."""
+    monkeypatch.delenv(WORKERS_VARIABLE, raising=False)
 
 
 @pytest.fixture
@@ -94,12 +107,31 @@ def _collection_calls(process_fake: ProcessFake) -> list[list[str]]:
     return [list(call.argv) for call in process_fake.calls if _COLLECTION_MARK in call.argv]
 
 
+def _collected_ids(tests: int) -> str:
+    """The quiet collection output of `tests` test ids, one on each line."""
+    return "".join(f"tests/test_selected_{number}.py::test_noop\n" for number in range(tests))
+
+
 def _answer_collection(process_fake: ProcessFake, tests: int, *, returncode: int = 0) -> None:
     """Answer the collection with `tests` collected test ids, or with `returncode` and no id."""
-    ids = "".join(f"tests/test_selected_{number}.py::test_noop\n" for number in range(tests))
     process_fake.answer(
         lambda call: _COLLECTION_MARK in call.argv,
-        ProcessAnswer(returncode=returncode, stdout=ids if returncode == 0 else ""),
+        ProcessAnswer(
+            returncode=returncode, stdout=_collected_ids(tests) if returncode == 0 else ""
+        ),
+    )
+
+
+def _answer_collection_with_unused_snapshots(process_fake: ProcessFake, tests: int) -> None:
+    """Answer the collection as syrupy does when a selected module has snapshots: a collection
+    runs no test, so every snapshot is unused, and pytest prints the `tests` ids and exits 1,
+    unless the collection gives `--snapshot-warn-unused` (#5606)."""
+    output = f"{_collected_ids(tests)}4 snapshots unused.\n{tests} tests collected in 0.31s\n"
+    process_fake.answer(
+        lambda call: _COLLECTION_MARK in call.argv,
+        lambda call: ProcessAnswer(
+            returncode=0 if _SNAPSHOT_WARN_UNUSED in call.argv else 1, stdout=output
+        ),
     )
 
 
@@ -624,6 +656,108 @@ def test_a_few_test_modules_that_collect_many_tests_run_on_the_capped_workers(
     )
 
 
+def test_a_selection_with_unused_snapshots_still_runs_on_the_capped_workers(
+    process_fake: ProcessFake, project: Path
+) -> None:
+    """A collection runs no test, so syrupy finds each snapshot of a selected module unused and
+    exits 1, unless the collection gives `--snapshot-warn-unused`. The 7 test modules of #4472 hold
+    such a module and collect 422 tests: the run counts them and takes
+    DEFAULT_CI_TEST_NARROWED_WORKERS workers, with no warning. Before the fix, the exit 1 sent the
+    run back to the file count, which ran the 7 modules serially (#5606)."""
+    modules = _test_modules(project, _ISSUE_TEST_MODULES)
+    _answer_collection_with_unused_snapshots(process_fake, _ISSUE_COLLECTED_TESTS_ON_THE_BASE)
+
+    result = runner.invoke(ci_app, ["test", *modules])
+
+    assert (
+        result.exit_code,
+        [_worker_options(argv) for argv in _pytest_runs(process_fake)],
+        _COLLECTION_WARNING in " ".join(result.output.split()),
+    ) == (0, [[["-n", str(DEFAULT_CI_TEST_NARROWED_WORKERS)]]], False)
+
+
+@pytest.mark.parametrize(
+    ("bound", "collections", "workers"),
+    [
+        pytest.param("1", 0, "0", id="one-cpu"),
+        pytest.param("0", 0, "0", id="zero"),
+        pytest.param("2", 1, "2", id="two-cpus"),
+        pytest.param("16", 1, str(DEFAULT_CI_TEST_NARROWED_WORKERS), id="more-cpus-than-the-cap"),
+        pytest.param("many", 1, str(DEFAULT_CI_TEST_NARROWED_WORKERS), id="not-a-number"),
+    ],
+)
+def test_the_worker_bound_of_the_pod_caps_the_workers_of_a_narrowed_run(
+    monkeypatch: pytest.MonkeyPatch,
+    process_fake: ProcessFake,
+    project: Path,
+    bound: str,
+    collections: int,
+    workers: str,
+) -> None:
+    """A runner pod sets PYTEST_XDIST_AUTO_NUM_WORKERS to its CPU limit, and an explicit `-n`
+    skips that variable, so the run starts the smaller of the variable and
+    DEFAULT_CI_TEST_NARROWED_WORKERS. A bound of one CPU or less runs serially, and a collection
+    cannot change that, so the run makes none. xdist ignores a value that is no whole number, and
+    so does the run (#5606)."""
+    monkeypatch.setenv(WORKERS_VARIABLE, bound)
+    modules = _test_modules(project, _ISSUE_TEST_MODULES)
+    _answer_collection(process_fake, _ISSUE_COLLECTED_TESTS)
+
+    result = runner.invoke(ci_app, ["test", *modules])
+
+    assert (
+        result.exit_code,
+        len(_collection_calls(process_fake)),
+        [_worker_options(argv) for argv in _pytest_runs(process_fake)],
+    ) == (0, collections, [[["-n", workers]]])
+
+
+@pytest.mark.parametrize(
+    ("extra_modules", "keyword", "collections"),
+    [
+        pytest.param(0, (), 1, id="at-the-limit"),
+        pytest.param(1, (), 0, id="past-the-limit"),
+        pytest.param(1, ("-k", "noop"), 1, id="past-the-limit-with-a-keyword"),
+    ],
+)
+def test_more_target_modules_than_the_collected_test_limit_make_no_collection(
+    process_fake: ProcessFake,
+    project: Path,
+    extra_modules: int,
+    keyword: tuple[str, ...],
+    collections: int,
+) -> None:
+    """Each target module collects one test at least, so more than
+    DEFAULT_CI_TEST_SERIAL_MAX_TESTS target modules with no `-k` filter collect more tests than
+    the limit: the file count decides, and the run takes DEFAULT_CI_TEST_NARROWED_WORKERS workers
+    with no collection. A `-k` filter can leave fewer tests, and so can a selection at the limit,
+    so both collect (#5606)."""
+    serial_max_tests = defaults.DEFAULT_CI_TEST_SERIAL_MAX_TESTS
+    modules = _test_modules(project, serial_max_tests + extra_modules)
+    _answer_collection(process_fake, serial_max_tests + 1)
+
+    result = runner.invoke(ci_app, ["test", *keyword, *modules])
+
+    assert (
+        result.exit_code,
+        len(_collection_calls(process_fake)),
+        [_worker_options(argv) for argv in _pytest_runs(process_fake)],
+    ) == (0, collections, [[["-n", str(DEFAULT_CI_TEST_NARROWED_WORKERS)]]])
+
+
+def test_the_collection_warning_shows_the_brackets_of_a_keyword_as_text(
+    process_fake: ProcessFake, project: Path
+) -> None:
+    """The warning of a failed collection names its command as text, so the brackets of a `-k`
+    value or of a target print as they are, and are no Rich markup that hides them or stops the
+    run (#5606)."""
+    _answer_collection(process_fake, 0, returncode=3)
+
+    result = runner.invoke(ci_app, ["test", "-k", "noop[/x]", "tests/test_secrets.py"])
+
+    assert (result.exit_code, "noop[/x]" in " ".join(result.output.split())) == (0, True)
+
+
 def test_a_selection_past_the_collected_test_limit_runs_on_the_capped_workers(
     process_fake: ProcessFake, project: Path
 ) -> None:
@@ -656,7 +790,8 @@ def test_the_collection_repeats_the_targets_and_the_keyword_of_the_run(
     process_fake: ProcessFake, project: Path
 ) -> None:
     """The collection collects the same targets and the same `-k` filter as the run, so it counts
-    the tests the run would collect (#4472)."""
+    the tests the run would collect (#4472), and gives `--snapshot-warn-unused`, so the snapshots
+    that it leaves unused do not fail it (#5606)."""
     _answer_collection(process_fake, 5)
 
     result = runner.invoke(
@@ -668,8 +803,9 @@ def test_the_collection_repeats_the_targets_and_the_keyword_of_the_run(
         result.exit_code,
         _keyword_options(collection),
         sorted(arg for arg in collection if arg.startswith("tests/")),
+        _SNAPSHOT_WARN_UNUSED in collection,
         _keyword_options(_pytest_runs(process_fake)[0]),
-    ) == (0, ["slow"], ["tests/test_secrets.py", "tests/test_unrelated.py"], ["slow"])
+    ) == (0, ["slow"], ["tests/test_secrets.py", "tests/test_unrelated.py"], True, ["slow"])
 
 
 def test_a_collection_that_matches_no_test_runs_serially_without_a_warning(
@@ -688,20 +824,32 @@ def test_a_collection_that_matches_no_test_runs_serially_without_a_warning(
     assert _COLLECTION_WARNING not in result.output
 
 
+@pytest.mark.parametrize(
+    ("modules", "workers"),
+    [
+        pytest.param(DEFAULT_CI_TEST_SERIAL_MAX_FILES, "0", id="at-the-file-limit"),
+        pytest.param(
+            DEFAULT_CI_TEST_SERIAL_MAX_FILES + 1,
+            str(DEFAULT_CI_TEST_NARROWED_WORKERS),
+            id="past-the-file-limit",
+        ),
+    ],
+)
 def test_a_failed_collection_falls_back_to_the_file_count_with_a_warning(
-    process_fake: ProcessFake, project: Path
+    process_fake: ProcessFake, project: Path, modules: int, workers: str
 ) -> None:
-    """A collection that fails prints a warning that names it and keeps the file-count rule: 13
-    test modules are more than DEFAULT_CI_TEST_SERIAL_MAX_FILES, so the run takes
-    DEFAULT_CI_TEST_NARROWED_WORKERS workers, where a count of zero would run serially (#4472)."""
-    modules = _test_modules(project, DEFAULT_CI_TEST_SERIAL_MAX_FILES + 1)
+    """A collection that fails prints a warning that names it and keeps the file-count rule: up
+    to DEFAULT_CI_TEST_SERIAL_MAX_FILES test modules run serially, and one module more takes
+    DEFAULT_CI_TEST_NARROWED_WORKERS workers, where a count of zero would run serially (#1669,
+    #4472)."""
+    paths = _test_modules(project, modules)
     _answer_collection(process_fake, 0, returncode=3)
 
-    result = runner.invoke(ci_app, ["test", *modules])
+    result = runner.invoke(ci_app, ["test", *paths])
 
     assert (result.exit_code, [_worker_options(argv) for argv in _pytest_runs(process_fake)]) == (
         0,
-        [[["-n", str(DEFAULT_CI_TEST_NARROWED_WORKERS)]]],
+        [[["-n", workers]]],
     )
     assert _COLLECTION_WARNING in " ".join(result.output.split())
 
@@ -709,9 +857,12 @@ def test_a_failed_collection_falls_back_to_the_file_count_with_a_warning(
 def test_a_collection_that_times_out_falls_back_to_the_file_count_with_a_warning(
     monkeypatch: pytest.MonkeyPatch, project: Path
 ) -> None:
-    """A collection that outlives its timeout prints a warning that names it and keeps the
-    file-count rule, so the run still starts: 13 test modules take
-    DEFAULT_CI_TEST_NARROWED_WORKERS workers, where a count of zero would run serially (#4472)."""
+    """A collection that outlives its own timeout, DEFAULT_CI_TEST_COLLECTION_TIMEOUT_SECONDS,
+    prints a warning that names it and keeps the file-count rule, so the run still starts: 13
+    test modules take DEFAULT_CI_TEST_NARROWED_WORKERS workers, where a count of zero would run
+    serially (#4472). The test reads the timeout through `defaults` when it runs, so this module
+    also imports on a base that does not have it (#5606)."""
+    timeout = f"a timeout after {defaults.DEFAULT_CI_TEST_COLLECTION_TIMEOUT_SECONDS:g}s"
     modules = _test_modules(project, DEFAULT_CI_TEST_SERIAL_MAX_FILES + 1)
 
     async def outlive_the_timeout(spawn: RecordedSpawn) -> None:
@@ -723,11 +874,12 @@ def test_a_collection_that_times_out_falls_back_to_the_file_count_with_a_warning
     result = runner.invoke(ci_app, ["test", *modules])
 
     runs = [spawn for spawn in spawns if _COLLECTION_MARK not in spawn.argv]
+    output = " ".join(result.output.split())
     assert (result.exit_code, [_worker_options(spawn.argv) for spawn in runs]) == (
         0,
         [[["-n", str(DEFAULT_CI_TEST_NARROWED_WORKERS)]]],
     )
-    assert _COLLECTION_WARNING in " ".join(result.output.split())
+    assert (_COLLECTION_WARNING in output, timeout in output) == (True, True)
 
 
 def test_a_collection_cancelled_by_a_stop_signal_exits_as_cancelled(
@@ -766,13 +918,14 @@ def test_a_dry_run_plans_the_workers_without_collecting(
     [
         pytest.param((), id="full-suite"),
         pytest.param(("-n", "2", "tests/test_secrets.py"), id="workers-given"),
+        pytest.param(("--repeat", "2", "--seed", "1", "tests/test_secrets.py"), id="repeat"),
     ],
 )
 def test_a_run_that_chooses_its_workers_by_other_means_makes_no_collection(
     process_fake: ProcessFake, project: Path, args: tuple[str, ...]
 ) -> None:
-    """A run with no paths keeps addopts' `-n logical`, and a given `-n` is kept as it is, so
-    neither starts a collection (#4472)."""
+    """A run with no paths keeps addopts' `-n logical`, a given `-n` is kept as it is, and a
+    `--repeat` run is serial, so none of them starts a collection (#4472, #5606)."""
     result = runner.invoke(ci_app, ["test", *args])
 
     assert (result.exit_code, _collection_calls(process_fake)) == (0, [])
