@@ -4081,7 +4081,7 @@ class RoadmapMessages:
     # A clone with a commit that origin lacks keeps its HEAD after a fast-forward (#3301).
     stage_clone_ahead: str = (
         "The clone has commits that origin does not have. It cannot move to the staged commit "
-        "{sha}."
+        "{sha}. Its HEAD holds {head} {subject}."
     )
     stage_checkout_dirty: str = (
         "The checkout has changes that are not committed, so the tools would read files that the "
