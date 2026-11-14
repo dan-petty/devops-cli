@@ -22,6 +22,7 @@ from typing import Any
 
 from devops_cli.config.constants import (
     CONST_GITHUB_APP_TOKEN_REPOSITORY_SETTING,
+    CONST_ROADMAP_IMPLEMENT_JOB_LABEL,
     CONST_ROADMAP_STAGE_JOB_DEADLINE_SETTING,
     CONST_ROADMAP_STAGE_JOB_SETTING,
 )
@@ -35,9 +36,14 @@ JOB_NAME_LABEL_VALUE = "devops-cli-job"
 JOB_POD_SELECTOR_LABEL = "batch.kubernetes.io/job-name"
 # The labels of ADR 0022, section 3, on the Job of a row of the Service and on its pod.
 COMPONENT_LABEL = "app.kubernetes.io/component"
+PART_OF_LABEL = "app.kubernetes.io/part-of"
+PART_OF_LABEL_VALUE = "devops-cli-stack"
+MANAGED_BY_LABEL = "app.kubernetes.io/managed-by"
+MANAGED_BY_LABEL_VALUE = "devops-cli"
 OWNER_LABEL = "roadmap.devops-cli/owner"
 REPO_LABEL = "roadmap.devops-cli/repo"
 ITEM_LABEL = "roadmap.devops-cli/item"
+REPOSITORY_ANNOTATION = "roadmap.devops-cli/repository"
 
 
 @dataclass(frozen=True)
@@ -52,7 +58,8 @@ class JobTemplate:
 DEFAULT_TEMPLATE = JobTemplate(cronjob="devops-cli", container="devops-cli")
 RUNNER_TEMPLATE = JobTemplate(cronjob="devops-cli-runner", container="runner")
 STAGE_TEMPLATE = JobTemplate(cronjob="roadmap-stage", container="stage")
-# The component of the stage Job and of its pod: `roadmap-<row>` (ADR 0022).
+# The component of the runner and stage Jobs and of their pods: `roadmap-<row>` (ADR 0022).
+RUNNER_COMPONENT = f"roadmap-{ServiceRow.IMPLEMENT}"
 STAGE_COMPONENT = f"roadmap-{ServiceRow.STAGE}"
 
 
@@ -86,6 +93,28 @@ def repository_label(repo: str) -> str:
     return hashlib.sha256(repo.casefold().encode("utf-8")).hexdigest()[:16]
 
 
+def runner_job_name(repo: RepoRef, item: int | None = None) -> str:
+    """The ad hoc name of the runner Job: `devops-cli-implement-<slug>-<item>-<6 hex>` (or with no
+    item, `devops-cli-implement-<slug>-<6 hex>`), 63 characters at most (ADR 0022)."""
+    return repo.adhoc_name(ServiceRow.IMPLEMENT.value, item)
+
+
+def runner_job_labels(repo: RepoRef, item: int | None = None) -> dict[str, str]:
+    """The labels of the runner Job of `repo` and of its pod: the component, part-of, managed-by,
+    owner, repository, item (when given), and the legacy implement-repo label."""
+    labels = {
+        COMPONENT_LABEL: RUNNER_COMPONENT,
+        PART_OF_LABEL: PART_OF_LABEL_VALUE,
+        MANAGED_BY_LABEL: MANAGED_BY_LABEL_VALUE,
+        OWNER_LABEL: repo.owner_label,
+        REPO_LABEL: repo.repo_label,
+        CONST_ROADMAP_IMPLEMENT_JOB_LABEL: repo.id,
+    }
+    if item is not None:
+        labels[ITEM_LABEL] = str(item)
+    return labels
+
+
 def stage_job_name(repo: RepoRef, item: int, plan_key: str) -> str:
     """The name of the stage Job of `item` for the plan input `plan_key`, such as the hash of the
     text of the item: `devops-cli-stage-<slug>-<item>-<10 hex>`, 63 characters at most. The same
@@ -94,11 +123,12 @@ def stage_job_name(repo: RepoRef, item: int, plan_key: str) -> str:
 
 
 def stage_job_labels(repo: RepoRef, item: int) -> dict[str, str]:
-    """The labels of the stage Job of `item` and of its pod: the component, the owner, the
-    repository and the item. The owner and the repository labels together select `repo` and no
-    other repository."""
+    """The labels of the stage Job of `item` and of its pod: the component, part-of, managed-by,
+    owner, repository and item."""
     return {
         COMPONENT_LABEL: STAGE_COMPONENT,
+        PART_OF_LABEL: PART_OF_LABEL_VALUE,
+        MANAGED_BY_LABEL: MANAGED_BY_LABEL_VALUE,
         OWNER_LABEL: repo.owner_label,
         REPO_LABEL: repo.repo_label,
         ITEM_LABEL: str(item),
@@ -192,27 +222,66 @@ def build_job(
     deadline: int | None = None,
     annotations: Mapping[str, str] | None = None,
     resources: Mapping[str, Mapping[str, str]] | None = None,
+    repo: RepoRef | str | None = None,
+    item: int | None = None,
+    row: ServiceRow | str | None = None,
 ) -> dict[str, Any]:
     """The Job the CronJob's template makes, with only args, name, labels, `env`, the deadline,
     the annotations and the `resources` changed.
 
     The labels go on the Job and on its pods, so `-l app.kubernetes.io/name=devops-cli-job`
-    finds both. The annotations go on the Job only. `deadline` replaces the
-    `activeDeadlineSeconds` of the template. `resources` maps `requests` and `limits` to the values
-    that replace those of the container, such as `{"requests": {"memory": "2Gi"}}`.
+    finds both. With `repo`, the owner, repo and repository annotations are set on the Job and its
+    pod, as are the component and stack labels. `deadline` replaces the `activeDeadlineSeconds` of
+    the template. `resources` maps `requests` and `limits` to the values that replace those of the
+    container, such as `{"requests": {"memory": "2Gi"}}`.
     """
     job_template = cronjob["spec"]["jobTemplate"]
     spec = copy.deepcopy(job_template["spec"])
     pod_template = spec["template"]
-    pod_template["metadata"] = _labelled(pod_template.get("metadata"), labels)
+
+    extra_labels: dict[str, str] = {}
+    extra_annotations: dict[str, str] = {}
+
+    if repo is not None:
+        repo_ref = repo if isinstance(repo, RepoRef) else RepoRef(repo)
+        extra_labels[OWNER_LABEL] = repo_ref.owner_label
+        extra_labels[REPO_LABEL] = repo_ref.repo_label
+        if item is not None:
+            extra_labels[ITEM_LABEL] = str(item)
+        if template == RUNNER_TEMPLATE:
+            extra_labels[CONST_ROADMAP_IMPLEMENT_JOB_LABEL] = repo_ref.id
+        extra_annotations[REPOSITORY_ANNOTATION] = repo_ref.key
+
+    determined_row = row or (
+        ServiceRow.IMPLEMENT.value
+        if template == RUNNER_TEMPLATE
+        else (ServiceRow.STAGE.value if template == STAGE_TEMPLATE else None)
+    )
+    if determined_row:
+        extra_labels[COMPONENT_LABEL] = f"roadmap-{determined_row}"
+        extra_labels[PART_OF_LABEL] = PART_OF_LABEL_VALUE
+        extra_labels[MANAGED_BY_LABEL] = MANAGED_BY_LABEL_VALUE
+
+    merged_labels = {**extra_labels, **(labels or {})}
+    merged_annotations = {**extra_annotations, **(annotations or {})}
+
+    pod_template["metadata"] = _labelled(pod_template.get("metadata"), merged_labels)
+    if merged_annotations:
+        pod_template["metadata"]["annotations"] = {
+            **pod_template["metadata"].get("annotations", {}),
+            **merged_annotations,
+        }
+
     container = template_container(pod_template["spec"], template)
     container["args"] = list(args)
     _with_env(container, env)
     _with_resources(container, resources)
-    metadata = _labelled(job_template.get("metadata"), labels)
+
+    metadata = _labelled(job_template.get("metadata"), merged_labels)
     metadata.update(name=name, namespace=JOB_NAMESPACE)
-    if annotations:
-        metadata["annotations"] = {**metadata.get("annotations", {}), **annotations}
+    if merged_annotations:
+        metadata["annotations"] = {**metadata.get("annotations", {}), **merged_annotations}
+
     if deadline is not None:
         spec["activeDeadlineSeconds"] = deadline
     return {"apiVersion": "batch/v1", "kind": "Job", "metadata": metadata, "spec": spec}

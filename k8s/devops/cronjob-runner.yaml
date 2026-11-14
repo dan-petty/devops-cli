@@ -61,10 +61,9 @@ spec:
                 # runs a step only when it is true.
                 - name: DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER
                   value: "true"
-                # The telemetry of a runner Job reports under the `job` of the other cluster
-                # jobs.
+                # The telemetry of a runner Job reports under the service name `roadmap-implement`.
                 - name: OTEL_SERVICE_NAME
-                  value: devops-cli-job
+                  value: roadmap-implement
                 # Every Job pod of the workload sends this one instance, so its metric stream
                 # continues across the Job pods instead of starting again at zero in the same
                 # Prometheus series (#4697).

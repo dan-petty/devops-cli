@@ -1040,19 +1040,20 @@ def test_cli_dashboard_service_row_charts_the_state_of_the_service() -> None:
     """The row "Roadmap Service" holds a panel for the rounds, the budget, the queues, the stops
     and the inputs of the Service (#2479), and for the failed deliveries of the hooks (#5017)."""
     selector = '{job=~"$job"}'
+    selector_repo = '{job=~"$job",repo=~"$repo"}'
 
     assert {
         p["title"]: [t["expr"] for t in p["targets"]] for p in _cli_dashboard_row("Roadmap Service")
     } == {
         "Service Rounds by Lane and Result": [
-            f"sum by (lane, result) (increase(devops_cli_service_jobs_total{selector}[1h]))"
+            f"sum by (lane, result) (increase(devops_cli_service_jobs_total{selector_repo}[1h]))"
         ],
         "Service Failed Rounds by Repository and Row": [
             "sum by (repo, row) (increase(devops_cli_service_jobs_total"
-            '{job=~"$job",result="error"}[1h]))'
+            '{job=~"$job",repo=~"$repo",result="error"}[1h]))'
         ],
         "Service Round Seconds by Lane": [
-            f"sum by (lane) (increase(devops_cli_service_job_seconds_total{selector}[1h]))"
+            f"sum by (lane) (increase(devops_cli_service_job_seconds_total{selector_repo}[1h]))"
         ],
         "Service GitHub Budget": [
             f"max(last_over_time(devops_cli_service_budget_spent_requests{selector}[5m]))",
@@ -1063,27 +1064,27 @@ def test_cli_dashboard_service_row_charts_the_state_of_the_service() -> None:
         ],
         "Service Time Since Round Start": [
             "time() - max by (repo, lane) "
-            f"(last_over_time(devops_cli_service_job_start_timestamp_seconds{selector}[5m]))"
+            f"(last_over_time(devops_cli_service_job_start_timestamp_seconds{selector_repo}[5m]))"
         ],
         "Service Queue Depth by Lane": [
-            f"sum by (lane) (last_over_time(devops_cli_service_queue_depth{selector}[5m]))"
+            f"sum by (lane) (last_over_time(devops_cli_service_queue_depth{selector_repo}[5m]))"
         ],
         "Service Suspended Rows": [
-            f"max by (repo, row) (last_over_time(devops_cli_service_job_suspended{selector}[5m]))"
+            f"max by (repo, row) (last_over_time(devops_cli_service_job_suspended{selector_repo}[5m]))"
         ],
         "Service Identity Refusals": [
             "max by (identity) "
             f"(last_over_time(devops_cli_service_identity_refused_total{selector}[5m]))"
         ],
         "Service Triggers by Source": [
-            f"sum by (source) (increase(devops_cli_service_triggers_total{selector}[1h]))"
+            f"sum by (source) (increase(devops_cli_service_triggers_total{selector_repo}[1h]))"
         ],
         "Service Webhook Deliveries by Outcome": [
             "sum by (outcome) "
-            f"(increase(devops_cli_service_webhook_deliveries_total{selector}[1h]))"
+            f"(increase(devops_cli_service_webhook_deliveries_total{selector_repo}[1h]))"
         ],
         "Service Implement Failures by Class": [
-            f"sum by (class) (increase(devops_cli_service_implement_failures_total{selector}[1h]))"
+            f"sum by (class) (increase(devops_cli_service_implement_failures_total{selector_repo}[1h]))"
         ],
         "Service Chat Commands by Result": [
             "sum by (command, result) "
@@ -1094,14 +1095,14 @@ def test_cli_dashboard_service_row_charts_the_state_of_the_service() -> None:
         ],
         "Service Retry After Seconds": [
             "max by (repo, row, class) "
-            f"(last_over_time(devops_cli_service_job_retry_after_seconds{selector}[5m]))"
+            f"(last_over_time(devops_cli_service_job_retry_after_seconds{selector_repo}[5m]))"
         ],
         "Service Failed Webhook Deliveries": [
             "max by (repo, code) "
-            f"(last_over_time(devops_cli_service_webhook_delivery_failures{selector}[5m]))"
+            f"(last_over_time(devops_cli_service_webhook_delivery_failures{selector_repo}[5m]))"
         ],
         "Service Stage Jobs by Result": [
-            f"sum by (result) (increase(devops_cli_service_stage_jobs_total{selector}[1h]))"
+            f"sum by (result) (increase(devops_cli_service_stage_jobs_total{selector_repo}[1h]))"
         ],
     }
 

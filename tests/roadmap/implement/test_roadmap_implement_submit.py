@@ -31,6 +31,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.env import setting_variables
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.exceptions.roadmap import RoadmapImplementError
+from devops_cli.github.repo_ref import RepoRef
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement.implement import parse_implement_filters, plan_implement
@@ -201,7 +202,7 @@ def test_a_round_creates_one_job_for_a_staged_item_with_its_args_and_a_token_for
         container["args"],
         env[setting_variables()["service.github_app.token_repository"]],
         env["DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER"],
-        job["metadata"]["name"].startswith("devops-cli-runner-"),
+        job["metadata"]["name"].startswith("devops-cli-implement-"),
         record["implement.job"] == job["metadata"]["name"],
         "implement.job_state" in record and record["implement.job_state"] is not None,
     ) == (
@@ -874,6 +875,43 @@ def test_the_item_records_its_job_before_the_job_is_created(
         [job["metadata"]["name"]],
         job["metadata"]["name"],
     )
+
+
+def test_the_created_runner_job_carries_the_repository_and_item_labels_and_annotations(
+    store: InMemoryRoadmapStore,
+    staged_repo: StageRepo,
+    api: GitHubApiFake,
+    kube: FakeCluster,
+) -> None:
+    """The runner Job and its pod carry the repository labels, stack labels, and repository
+    annotations of ADR 0022 (#4558)."""
+    number = seed_staged(store)
+
+    _round(store, staged_repo)
+
+    (job,) = _jobs(kube)
+    wanted_labels = {
+        "app.kubernetes.io/name": "devops-cli-job",
+        "app.kubernetes.io/component": "roadmap-implement",
+        "app.kubernetes.io/part-of": "devops-cli-stack",
+        "app.kubernetes.io/managed-by": "devops-cli",
+        "roadmap.devops-cli/owner": "example",
+        "roadmap.devops-cli/repo": "roadmap",
+        "roadmap.devops-cli/item": str(number),
+        "implement-repo": RepoRef(STAGE_REPO).id,
+    }
+    wanted_annotations = {
+        "roadmap.devops-cli/repository": "example/roadmap",
+    }
+    assert (
+        job["metadata"]["name"].startswith(f"devops-cli-implement-roadmap-{number}-"),
+        len(job["metadata"]["name"]) <= 63,
+        wanted_labels.items() <= job["metadata"]["labels"].items(),
+        wanted_labels.items() <= job["spec"]["template"]["metadata"]["labels"].items(),
+        wanted_annotations.items() <= job["metadata"].get("annotations", {}).items(),
+        wanted_annotations.items()
+        <= job["spec"]["template"]["metadata"].get("annotations", {}).items(),
+    ) == (True, True, True, True, True, True)
 
 
 def test_the_item_records_the_digest_of_the_template_before_the_job_is_created(

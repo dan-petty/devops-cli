@@ -17,6 +17,7 @@ from enum import StrEnum
 from typing import Any
 
 from devops_cli.exceptions.k8s import ClusterJobError, ClusterJobExistsError
+from devops_cli.github.repo_ref import RepoRef, ServiceRow
 from devops_cli.k8s.api import api_error_type
 from devops_cli.k8s.cluster_job import (
     DEFAULT_TEMPLATE,
@@ -133,6 +134,9 @@ class ClusterJobs:
         deadline: int | None = None,
         annotations: Mapping[str, str] | None = None,
         resources: Mapping[str, Mapping[str, str]] | None = None,
+        repo: RepoRef | str | None = None,
+        item: int | None = None,
+        row: ServiceRow | str | None = None,
     ) -> str:
         """Create a Job from the template's CronJob and return its name: `name`, else a new one.
         `deadline` replaces the `activeDeadlineSeconds` of the template, `annotations` go on
@@ -156,6 +160,9 @@ class ClusterJobs:
             deadline=deadline,
             annotations=annotations,
             resources=resources,
+            repo=repo,
+            item=item,
+            row=row,
         )
         try:
             self._service.custom_objects_api().create_namespaced_custom_object(
