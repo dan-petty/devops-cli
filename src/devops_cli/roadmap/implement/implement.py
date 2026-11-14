@@ -84,6 +84,7 @@ from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import branch_authors
 from devops_cli.roadmap.commit_title import commit_type, unlisted_type_reason
+from devops_cli.roadmap.dependencies import open_dependency, open_issue_dependencies
 from devops_cli.roadmap.plan_read import (
     PlanReadError,
     change_root,
@@ -109,7 +110,7 @@ from devops_cli.roadmap.stage.stage import (
     unmatched_items,
     walk_named,
 )
-from devops_cli.roadmap.stage.stage_change import check_proposal
+from devops_cli.roadmap.stage.stage_change import check_proposal, issue_dependencies
 from devops_cli.roadmap.stage.stage_paths import StagedTree
 from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL
 from devops_cli.roadmap.status_sync import job_holds
@@ -335,6 +336,8 @@ class _Judge:
             return texts.implement_left_not_ready.format(status=item.status or "none")
         if (owner := claimed_by(item)) is not None:
             return texts.item_left_claimed.format(owner=owner)
+        if (dependency := self._dependency(item)) is not None:
+            return dependency
         route = self._route(item)
         if route is None:
             return self._not_taken(item)
@@ -357,6 +360,16 @@ class _Judge:
             or self._pull_reason(item, route.pull)
         )
         return why if why is not None else ImplementTarget(item, route.branch, route.pull, retry)
+
+    @cached_property
+    def _items(self) -> list[Item]:
+        """Every Item, open and closed, read once for the titles that a body names (#4803)."""
+        return self._store.items()
+
+    def _dependency(self, item: Item) -> str | None:
+        """An open issue that the Dependencies section of the body names as `#N` (#2654) or by its
+        quoted title (#4803), from the shared check (#4009)."""
+        return open_dependency(item, self._store, self._items)
 
     def _route(self, item: Item) -> RecordedBranch | _Planned | None:
         """A Staged item keeps its branch while the branch is on `origin`, or while no plan is on
@@ -441,6 +454,12 @@ class _Judge:
             return texts.plan_check_read.format(path=error.path, reason=error.reason)
         except GitOperationError as error:
             return texts.implement_left_plan_git.format(reason=error)
+        if (
+            dependency := open_issue_dependencies(
+                issue_dependencies(proposal.dependencies), self._store
+            )
+        ) is not None:
+            return dependency
         problems = check_proposal(
             proposal, known, StagedTree(files), requirements=requirements, issue_body=item.body
         )
