@@ -2337,6 +2337,48 @@ def setting_sources(layers: ConfigLayers) -> tuple[PydanticBaseSettingsSource, .
     )
 
 
+def _declared_prefix(location: tuple[str, ...], layers: ConfigLayers) -> tuple[int, str] | None:
+    """The project or global layer that holds the longest prefix of `location` as a key, with the
+    length of that prefix, or None when no config file holds one (#4610)."""
+    for size in range(len(location), 0, -1):
+        prefix = location[:size]
+        if _holds(layers.project, prefix) or _holds(layers.global_config, prefix):
+            return size, ".".join(prefix)
+    return None
+
+
+def _holds(mapping: dict[str, Any], path: tuple[str, ...]) -> bool:
+    """Whether `mapping` holds the nested key `path`."""
+    node: Any = mapping
+    for part in path:
+        if not isinstance(node, dict) or part not in node:
+            return False
+        node = node[part]
+    return True
+
+
+def _config_file_error(exc: ValidationError, layers: ConfigLayers) -> ConfigurationError | None:
+    """The error of the first refused value that a config file holds, with the file, the setting
+    and the reason, or None when no config file holds the key of the error (#4610)."""
+    for error in exc.errors(include_url=False, include_input=False):
+        location = tuple(str(part) for part in error["loc"])
+        found = _declared_prefix(location, layers)
+        if found is None:
+            continue
+        _, key = found
+        path = (
+            layers.project_path
+            if layers.project_path is not None and _holds(layers.project, tuple(key.split(".")))
+            else CONFIG_PATH
+        )
+        reason = error["msg"].removeprefix("Value error, ")
+        text = ERRORS.config.file_value_error.format(
+            path=path, key=key, location=".".join(location), reason=reason
+        )
+        return ConfigurationError(text, key=key)
+    return None
+
+
 def _variable_error(
     exc: ValidationError, sources: Iterable[PydanticBaseSettingsSource]
 ) -> ConfigurationError | None:
@@ -2388,13 +2430,18 @@ def load_settings() -> Settings:
         from devops_cli.config import unknown_keys
 
         refused = unknown_keys.refused_keys(exc)
-        if not refused:
-            raise
-        raise unknown_keys.unknown_keys_error(
-            refused,
-            (layers.project_path, CONFIG_PATH),
-            active=layers.project_path or CONFIG_PATH,
-        ) from exc
+        if refused:
+            raise unknown_keys.unknown_keys_error(
+                refused,
+                (layers.project_path, CONFIG_PATH),
+                active=layers.project_path or CONFIG_PATH,
+            ) from exc
+        # A value that a validator refuses becomes one line with the file and the setting, as a
+        # refused variable does (#4610). A validation error from no config-file key stays as it
+        # is: a model-level error can come from a variable.
+        if (file_error := _config_file_error(exc, layers)) is not None:
+            raise file_error from exc
+        raise
     settings._loaded = settings.model_dump(mode="json")
     return settings
 

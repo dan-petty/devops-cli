@@ -13,11 +13,11 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
 from pydantic_ai.usage import RequestUsage
 
 from devops_cli.config import env
 from devops_cli.config.settings import load_settings
+from devops_cli.exceptions import ConfigurationError
 from devops_cli.roadmap.failure import ACTION_BY_CLASS, FailureAction, FailureClass
 from devops_cli.roadmap.implement.implement_limits import ItemSpend, StepBudget, new_tokens
 from devops_cli.roadmap.implement.implement_step import StepOutcome, StepStatus, run_step
@@ -152,7 +152,7 @@ def test_a_variable_sets_a_budget(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_a_budget_of_zero_is_refused(config: Callable[..., Path], name: str) -> None:
     config(roadmap={"implement": {name: 0}})
 
-    with pytest.raises(ValidationError, match=name):
+    with pytest.raises(ConfigurationError, match=name):
         load_settings()
 
 
@@ -161,7 +161,7 @@ def test_an_item_time_limit_above_the_ceiling_of_the_job_is_refused(
 ) -> None:
     config(roadmap={"implement": {"item_time_limit_seconds": 14401}})
 
-    with pytest.raises(ValidationError, match="item_time_limit_seconds"):
+    with pytest.raises(ConfigurationError, match="item_time_limit_seconds"):
         load_settings()
 
 

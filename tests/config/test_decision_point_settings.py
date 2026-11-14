@@ -43,10 +43,10 @@ def test_the_decision_model_takes_the_name_of_a_system_one_model(name: str) -> N
 def test_the_decision_model_refuses_a_model_that_writes_text(config: Callable[..., Path]) -> None:
     config(ai={"decision_model": "deepseek-v4.1-flash-1017"})
 
-    with pytest.raises(ValidationError, match=r"ai\.decision_model") as refused:
+    with pytest.raises(ConfigurationError, match=r"ai\.decision_model") as refused:
         load_settings()
 
-    assert [error["loc"] for error in refused.value.errors()] == [("ai", "decision_model")]
+    assert refused.value.key == "ai.decision_model"
 
 
 def test_the_variables_set_the_decision_model_and_the_mode_of_a_point(
@@ -84,7 +84,7 @@ def test_a_key_that_names_no_point_stops_the_load_and_names_the_points(
 ) -> None:
     config(roadmap={"decisions": {"stage.verify_scren": "shadow"}})
 
-    with pytest.raises(ValidationError, match=r"stage\.verify_scren.*stage\.verify_screen"):
+    with pytest.raises(ConfigurationError, match=r"stage\.verify_scren.*stage\.verify_screen"):
         load_settings()
 
 

@@ -142,6 +142,7 @@ class ConfigErrorMessages:
     not_yaml_save: str = "Cannot save the settings"
     not_yaml_location: str = " at line {line}, column {column}"
     not_mapping: str = "Cannot load the settings: {path} does not hold a mapping of keys to values."
+    file_value_error: str = "Config file {path} cannot set {key}: {location}: {reason}"
 
 
 @dataclass(frozen=True)

@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic import ValidationError
 from typer.testing import CliRunner
 
 from devops_cli.commands.config import app as config_app
@@ -195,9 +194,9 @@ def test_disagreement_urls_refused(
 ) -> None:
     """URLs where Pydantic and httpx2 disagree are refused on load and config set."""
     _set_project_config(tmp_path, monkeypatch, f"ai:\n  gateway_url: {bad_url}\n")
-    with pytest.raises(ValidationError) as raised:
+    with pytest.raises(ConfigurationError) as raised:
         load_settings()
-    assert len(raised.value.errors()) > 0
+    assert raised.value.key == "ai.gateway_url"
 
     settings = Settings()
     with pytest.raises(ValueError, match=r"ai\.gateway_url"):
@@ -210,7 +209,7 @@ def test_url_with_embedded_tab_refused_no_invalidurl_escape(
     """An embedded tab in a URL is refused as a validation error without unhandled InvalidURL."""
     bad_url = "http://exa\tmple.com:11434"
     _set_project_config(tmp_path, monkeypatch, f"ai:\n  gateway_url: '{bad_url}'\n")
-    with pytest.raises(ValidationError) as exc_info:
+    with pytest.raises(ConfigurationError) as exc_info:
         load_settings()
     assert "ai.gateway_url" in str(exc_info.value)
 
@@ -226,7 +225,7 @@ def test_url_with_mismatched_origin_refused(
     """https://api.openai.com\\@example.com/v1 is refused as mismatched origin."""
     bad_url = "https://api.openai.com\\@example.com/v1"
     _set_project_config(tmp_path, monkeypatch, f"ai:\n  api_base_url: '{bad_url}'\n")
-    with pytest.raises(ValidationError) as exc_info:
+    with pytest.raises(ConfigurationError) as exc_info:
         load_settings()
     assert "ai.api_base_url" in str(exc_info.value)
 
@@ -283,7 +282,7 @@ def test_telemetry_endpoint_refuses_grpc_and_bare(
     """
     monkeypatch.delenv("DEVOPS_CLI_TELEMETRY_ENDPOINT", raising=False)
     _set_project_config(tmp_path, monkeypatch, f"telemetry:\n  endpoint: '{endpoint}'\n")
-    with pytest.raises(ValidationError) as exc_info:
+    with pytest.raises(ConfigurationError) as exc_info:
         load_settings()
     assert "telemetry.endpoint" in str(exc_info.value)
 

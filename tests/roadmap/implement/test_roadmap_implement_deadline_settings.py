@@ -10,7 +10,6 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
 
 from devops_cli.config import settings
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS
@@ -24,6 +23,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_SERVICE_POLL_INTERVAL_SECONDS,
 )
+from devops_cli.exceptions import ConfigurationError
 from tests.support.paths import REPO_ROOT
 
 VARIABLES = (
@@ -96,7 +96,7 @@ def test_a_stall_above_the_extension_or_an_extension_above_the_ceiling_is_refuse
         }
     )
 
-    with pytest.raises(ValidationError, match="deadline"):
+    with pytest.raises(ConfigurationError, match="deadline"):
         settings.load_settings()
 
 
