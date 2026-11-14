@@ -408,6 +408,8 @@ def test_grafana_provisions_the_llm_app_for_litellm_gateway() -> None:
     app = next((a for a in apps_yaml.get("apps", []) if a.get("type") == "grafana-llm-app"), None)
     assert app is not None
     assert app.get("jsonData", {}).get("provider") == "custom"
+    assert app.get("jsonData", {}).get("enableDevSandbox") is True
+    assert app.get("jsonData", {}).get("mcp", {}).get("disabled") is False
     assert (
         app.get("jsonData", {}).get("openAI", {}).get("url")
         == "http://llm-gateway.llm.svc.cluster.local:4000"
