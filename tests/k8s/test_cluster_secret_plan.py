@@ -401,6 +401,15 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             ("deployment/grafana",),
         ),
         (
+            "monitoring/grafana-admin",
+            "llm-gateway-key",
+            "infra",
+            True,
+            SecretGenerator("hex", 24, prefix="sk-"),
+            None,
+            ("deployment/grafana",),
+        ),
+        (
             "monitoring/grafana-image-renderer",
             "token",
             "infra",

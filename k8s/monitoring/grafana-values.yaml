@@ -83,6 +83,10 @@ envValueFrom:
     secretKeyRef:
       name: grafana-admin
       key: secret-key
+  GF_LLM_GATEWAY_KEY:
+    secretKeyRef:
+      name: grafana-admin
+      key: llm-gateway-key
 
 grafana.ini:
   security:
@@ -224,3 +228,36 @@ sidecar:
     resource: configmap
   datasources:
     enabled: false
+
+# Provision grafana-llm-app to connect to in-cluster LiteLLM gateway targeting model
+# qwen3.8:27b (#5710). The pod evaluates $__env{GF_LLM_GATEWAY_KEY} from Secret grafana-admin.
+extraConfigmapMounts:
+  - name: grafana-llm-plugin
+    mountPath: /etc/grafana/provisioning/plugins/apps.yaml
+    subPath: apps.yaml
+    configMap: grafana-llm-plugin
+    readOnly: true
+
+extraObjects:
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: grafana-llm-plugin
+    data:
+      apps.yaml: |
+        apiVersion: 1
+        apps:
+          - type: grafana-llm-app
+            org_id: 1
+            disabled: false
+            jsonData:
+              provider: openai
+              openAI:
+                url: http://llm-gateway.llm.svc.cluster.local:4000/v1
+              models:
+                default: base
+                mapping:
+                  base: qwen3.8:27b
+                  large: qwen3.8:27b
+            secureJsonData:
+              openAIKey: $__env{GF_LLM_GATEWAY_KEY}
