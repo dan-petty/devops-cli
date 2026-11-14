@@ -86,3 +86,27 @@ def test_the_quote_block_opens_with_a_fence_longer_than_the_text() -> None:
     assert lines[2] == "exit 1"
     assert lines[-1] == "````"
     assert "```" in lines
+
+
+def test_a_line_over_the_cap_leaves_only_the_trailer() -> None:
+    capped = cap_run_output("x" * 200, limit_bytes=100)
+
+    assert capped.text == "[truncated: 200 bytes and 1 lines omitted]\n"
+
+
+def test_a_trailer_that_pushes_the_text_over_the_cap_drops_kept_lines() -> None:
+    text = "".join(f"line {number:04d}\n" for number in range(1000))
+
+    capped = cap_run_output(text, limit_bytes=100)
+
+    assert (
+        len(capped.text.encode("utf-8")) <= 100,
+        capped.omitted_lines > 0,
+        capped.text.endswith("omitted]\n"),
+    ) == (True, True, True)
+
+
+def test_the_quote_block_joins_stdout_and_stderr_with_a_newline() -> None:
+    block = quote_run(["cmd"], 0, "out", "err\n")
+
+    assert "out\nerr\n" in block
