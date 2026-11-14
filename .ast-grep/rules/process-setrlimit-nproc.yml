@@ -1,0 +1,14 @@
+id: process-setrlimit-nproc
+language: python
+severity: error
+files:
+  - "src/**"
+message: A call sets RLIMIT_NPROC. Never set RLIMIT_NPROC, because Linux counts it for the real user across the container, so it starves VS Code Server and the shells.
+note: |
+  Do not set RLIMIT_NPROC. Linux counts the limit for the real user across the container, not for
+  one process, so a child that lowers it starves every other process of the user, VS Code Server
+  and the shells included (ARCHITECTURE.md, section 7.3, "Shared container").
+rule:
+  any:
+    - pattern: resource.setrlimit(resource.RLIMIT_NPROC, $$$REST)
+    - pattern: setrlimit(RLIMIT_NPROC, $$$REST)

@@ -1,0 +1,23 @@
+id: process-killpg-guarded
+language: python
+severity: error
+files:
+  - "src/**"
+message: A call signals a process group outside the guarded helpers. Stop a process group with terminate_process_group of devops_cli.core.process, which holds the PID 1, own-group and caller-group guards.
+note: |
+  A process group signal needs the PID 1, own-group and caller-group guards, because a signal to
+  the group of the container init or to the group of the caller ends the shared container or the
+  calling program. `_signal_process_group`, `terminate_process_group`,
+  `_terminate_process_group_os` and `_terminate_process_group_async` of
+  `src/devops_cli/core/process.py` hold those guards, so every other module calls
+  `terminate_process_group` (ARCHITECTURE.md, section 7.3, "Process groups").
+rule:
+  all:
+    - pattern: os.killpg($$$ARGS)
+    - not:
+        inside:
+          kind: function_definition
+          has:
+            field: name
+            regex: '^(_signal_process_group|terminate_process_group|_terminate_process_group_os|_terminate_process_group_async)$'
+          stopBy: end

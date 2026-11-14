@@ -1,0 +1,23 @@
+id: process-nonblocking-std-fd
+language: python
+severity: error
+files:
+  - "src/**"
+message: A call sets a standard descriptor non-blocking. Never set O_NONBLOCK on descriptors 0, 1 or 2, because it corrupts the terminal.
+note: |
+  A descriptor 0, 1 or 2 is the terminal of the process. Setting it non-blocking corrupts the
+  terminal of the shared container, so keep the descriptors blocking and set only a descriptor
+  above 2 non-blocking (ARCHITECTURE.md, section 7.3, "Shared container").
+rule:
+  any:
+    - pattern: os.set_blocking($FD, False)
+    - all:
+        - pattern: fcntl.fcntl($FD, $$$REST)
+        - has:
+            stopBy: end
+            any:
+              - pattern: os.O_NONBLOCK
+              - pattern: O_NONBLOCK
+constraints:
+  FD:
+    regex: '^[012]$'

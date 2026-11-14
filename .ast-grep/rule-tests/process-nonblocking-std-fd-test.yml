@@ -1,0 +1,14 @@
+id: process-nonblocking-std-fd
+valid:
+  - 'os.set_blocking(3, False)'
+  - 'os.set_blocking(0, True)'
+  - 'fcntl.fcntl(3, fcntl.F_SETFL, os.O_NONBLOCK)'
+  - 'fcntl.fcntl(1, fcntl.F_GETFL)'
+  - 'flags = os.O_NONBLOCK'
+invalid:
+  - 'os.set_blocking(0, False)'
+  - 'os.set_blocking(1, False)'
+  - 'os.set_blocking(2, False)'
+  - 'fcntl.fcntl(1, fcntl.F_SETFL, os.O_NONBLOCK)'
+  - 'fcntl.fcntl(1, fcntl.F_SETFL, fcntl.O_NONBLOCK)'
+  - 'fcntl.fcntl(2, fcntl.F_SETFL, flags | os.O_NONBLOCK)'

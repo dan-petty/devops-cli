@@ -1,0 +1,19 @@
+id: process-killpg-guarded
+valid:
+  - |
+    def _signal_process_group(pgid, sig):
+        os.killpg(pgid, sig)
+  - |
+    def terminate_process_group(pid, sig):
+        os.killpg(pid, sig)
+  - |
+    def _terminate_process_group_os(pid, sig):
+        os.killpg(pid, sig)
+  - |
+    def _terminate_process_group_async(proc):
+        os.killpg(proc.pid, signal.SIGTERM)
+invalid:
+  - 'os.killpg(os.getpgid(pid), signal.SIGTERM)'
+  - |
+    def _stop(pid, sig):
+        os.killpg(os.getpgid(pid), sig)
