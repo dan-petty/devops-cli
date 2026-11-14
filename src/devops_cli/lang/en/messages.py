@@ -2722,6 +2722,17 @@ class RoadmapMessages:
         "{marker}\nStatus set to Ready at {sha} (see proposed design in issue body)."
     )
     refine_step_comment: str = "{marker}\n{status}{step}\n\n{details}"
+    # The owner question that a wait on a person posts (#3077): the two answers and what the job
+    # does with each, the answer the job recommends, and the evidence that the owner reads. The
+    # question and the option texts make the hash, so two items that ask one question share a frame.
+    refine_owner_question_options: dict[str, str] = field(
+        default_factory=lambda: {
+            "Decide the question": "The job refines the item with your answer.",
+            "Leave it to the job": "The job records the best-practice answer and goes on.",
+        }
+    )
+    refine_owner_question_recommendation: str = "Decide the question: only a person can answer it."
+    refine_owner_question_evidence: str = "The item and its cited evidence: {url}"
     # Deferred parts (#2423): the first line of a new issue, the sentence of the Ready comment,
     # the detail of an item that a part keeps waiting, and the warning of a round that filed
     # only some parts.
