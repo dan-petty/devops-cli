@@ -228,6 +228,9 @@ sidecar:
     labelValue: ""
     searchNamespace: monitoring
     resource: configmap
+    folderAnnotation: grafana_folder
+    provider:
+      foldersFromFilesStructure: true
   datasources:
     enabled: false
 

@@ -48,17 +48,17 @@ The row "Breakdown by command" SHALL hold a sorted bar gauge of the calls of eac
 - **THEN** ci shows 0 errors and an error share of 0
 
 ### Requirement: Each panel outside the Service rows has one unit and one axis
-Each panel of `devops-cli.json` outside the rows "AI Spend & Economics", "Planner Tools", "Roadmap Service", "Alternatives Check" and "Roadmap Job Success" that is not a table SHALL have targets of one unit and no field override of `unit` or `custom.axisPlacement`. A panel with the unit `s` or `ms` SHALL hold no `histogram_count` target.
+Each panel of `devops-cli.json` that is not a table SHALL have targets of one unit and no field override of `unit` or `custom.axisPlacement`. A panel with the unit `s` or `ms` SHALL hold no `histogram_count` target.
 
 #### Scenario: A panel that breaks one rule
 - **WHEN** the chart rule test reads a time series with a quantile target and a `histogram_count` target, or with an override that sets `custom.axisPlacement` to `right`
 - **THEN** it reports one problem that names the rule
 
 ### Requirement: Each panel outside the Service rows names its signal and follows the step
-Each panel of `devops-cli.json` outside the Service rows SHALL have a description, a title in the form "Signal: measure", and no repeat. Only a stat SHALL fall back to `or vector(0)`. A time series target SHALL read only the windows `[$__interval]` and `[$__rate_interval]`, and SHALL NOT group by `command` or `sub_command`.
+Each panel of `devops-cli.json` SHALL have a description, a title in the form "Signal: measure", and no repeat. Only a stat SHALL fall back to `or vector(0)`. A time series target SHALL read only the windows `[$__interval]` and `[$__rate_interval]`, and SHALL NOT group by `command` or `sub_command`.
 
 #### Scenario: The shipped dashboard is checked
-- **WHEN** the chart rule test reads each panel outside the Service rows
+- **WHEN** the chart rule test reads each panel of `devops-cli.json`
 - **THEN** it reports no problem
 
 #### Scenario: The hourly core bars of the Service
@@ -71,3 +71,10 @@ The dashboard SHALL open on `now-24h` and refresh each minute, because an OTLP s
 #### Scenario: The defaults are read
 - **WHEN** a test reads the time and the refresh of `devops-cli.json`
 - **THEN** they are `now-24h` to `now` and `1m`
+
+### Requirement: The devops-cli dashboard provides navigation links to sibling dashboards
+The dashboard `devops-cli.json` SHALL define top-level links pointing to `devops-roadmap-service-telemetry` and `devops-ai-rag` dashboards.
+
+#### Scenario: Top-level links are read
+- **WHEN** the dashboard `devops-cli.json` is loaded
+- **THEN** its `links` list contains links to `/d/devops-roadmap-service-telemetry` and `/d/devops-ai-rag`

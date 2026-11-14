@@ -1,0 +1,1326 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "dashboard",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "CLI Commands",
+      "tooltip": "Open devops-cli Commands Telemetry",
+      "type": "link",
+      "url": "/d/devops-cli-telemetry"
+    },
+    {
+      "asDropdown": false,
+      "icon": "dashboard",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": false,
+      "title": "AI & RAG",
+      "tooltip": "Open AI & RAG Operations",
+      "type": "link",
+      "url": "/d/devops-ai-rag"
+    }
+  ],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 35,
+      "title": "Roadmap Service",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The rows that the Service ran in the last hour, by lane and result. A result of stopped is a row that the stop of the Service ended, and it is no failure.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 1
+      },
+      "id": 36,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Rounds by Lane and Result",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (lane, result) (increase(devops_cli_service_jobs_total{job=~\"$job\"}[1h]))",
+          "legendFormat": "{{lane}} {{result}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The rows that failed in the last hour. The alert RoadmapServiceJobsFailing fires for a row of a repository that has failures and no success in the hour.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 1
+      },
+      "id": 37,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Failed Rounds by Repository and Row",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (repo, row) (increase(devops_cli_service_jobs_total{job=~\"$job\",result=\"error\"}[1h]))",
+          "legendFormat": "{{repo}} {{row}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The seconds of work of each lane in the last hour.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 1
+      },
+      "id": 38,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Round Seconds by Lane",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (lane) (increase(devops_cli_service_job_seconds_total{job=~\"$job\"}[1h]))",
+          "legendFormat": "{{lane}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The GitHub requests of the Service in the last hour, beside its limit service.github_requests_per_hour. The cluster Jobs do not count in this budget. To see their requests, set the variable Job to devops-cli-job and read the row GitHub API. If the list does not show this value, no Job ended or sent a request in the time range: make the range wider.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 9
+      },
+      "id": 39,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service GitHub Budget",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(last_over_time(devops_cli_service_budget_spent_requests{job=~\"$job\"}[5m]))",
+          "legendFormat": "spent",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(last_over_time(devops_cli_service_budget_limit_requests{job=~\"$job\"}[5m]))",
+          "legendFormat": "limit",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The times in the last hour that a hold began: the requests of the last hour used the budget, so no round could start. A request that waits for the budget inside a round does not count.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 9
+      },
+      "id": 40,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Budget Holds",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(devops_cli_service_budget_holds_total{job=~\"$job\"}[1h])) or vector(0)",
+          "legendFormat": "holds",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The seconds since the last round of each lane of each repository started. The alert RoadmapServiceLaneStalled reads the same series.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 9
+      },
+      "id": 41,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Time Since Round Start",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "time() - max by (repo, lane) (last_over_time(devops_cli_service_job_start_timestamp_seconds{job=~\"$job\"}[5m]))",
+          "legendFormat": "{{repo}} {{lane}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The repositories that wait for a round, by lane.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 17
+      },
+      "id": 42,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Queue Depth by Lane",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (lane) (last_over_time(devops_cli_service_queue_depth{job=~\"$job\"}[5m]))",
+          "legendFormat": "{{lane}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "1 while a row of a repository failed its limit of rounds in a row and waits for new input, else 0.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 17
+      },
+      "id": 43,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Suspended Rows",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (repo, row) (last_over_time(devops_cli_service_job_suspended{job=~\"$job\"}[5m]))",
+          "legendFormat": "{{repo}} {{row}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The count of each time that GitHub refused the identity of the Service, on the current pod. A value above 0 means that the Service is halted. The series starts with the first refusal, so the panel shows no data until then. The alert RoadmapServiceIdentityRefused reads the same value.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 17
+      },
+      "id": 44,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Identity Refusals",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (identity) (last_over_time(devops_cli_service_identity_refused_total{job=~\"$job\"}[5m]))",
+          "legendFormat": "{{identity}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The triggers that the Service queued in the last hour, by source: poll or webhook.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 25
+      },
+      "id": 45,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Triggers by Source",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (source) (increase(devops_cli_service_triggers_total{job=~\"$job\"}[1h]))",
+          "legendFormat": "{{source}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The webhook deliveries of the last hour, by outcome.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 25
+      },
+      "id": 46,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Webhook Deliveries by Outcome",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (outcome) (increase(devops_cli_service_webhook_deliveries_total{job=~\"$job\"}[1h]))",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The stops of the implement job in the last hour, by failure class.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 25
+      },
+      "id": 47,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Implement Failures by Class",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (class) (increase(devops_cli_service_implement_failures_total{job=~\"$job\"}[1h]))",
+          "legendFormat": "{{class}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The chat commands of the last hour that the webhook router handled, by command and result.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 25
+      },
+      "id": 48,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Chat Commands by Result",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (command, result) (increase(devops_cli_service_chat_commands_total{job=~\"$job\"}[1h]))",
+          "legendFormat": "{{command}} {{result}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "1 while the Service could not write a state record (budget, halt or ledger) to its disk, else 0. The record then lives in memory only, and a restart loses it. The alert RoadmapServiceStateUnkept needs a value above 0 for 15 minutes.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 33
+      },
+      "id": 53,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Unkept State Records",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (record) (last_over_time(devops_cli_service_state_unkept{job=~\"$job\"}[5m]))",
+          "legendFormat": "{{record}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The seconds before a suspended row runs its next probe round, as of its last failed round or check, by repository, row and failure class; 0 when the row has no retry time (#4065). The alert RoadmapServiceRowSuspended needs the row to stay suspended for 3 hours.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 33
+      },
+      "id": 54,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Retry After Seconds",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (repo, row, class) (last_over_time(devops_cli_service_job_retry_after_seconds{job=~\"$job\"}[5m]))",
+          "legendFormat": "{{repo}} {{row}} {{class}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The deliveries of the hooks of each repository that got no 2xx answer in the last 15 minutes, by repository and status code, as GitHub records them and the metrics row reads them every 13 minutes (#5017). A 403 of the Cloudflare edge never gets to the webhook route. The alert RoadmapServiceWebhookDeliveriesFailed fires above 5 for one repository.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 33
+      },
+      "id": 60,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Failed Webhook Deliveries",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (repo, code) (last_over_time(devops_cli_service_webhook_delivery_failures{job=~\"$job\"}[5m]))",
+          "legendFormat": "{{repo}} {{code}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The stage Jobs of the stage row in the last hour, by result: created, existed (a create that got 409), and the end of a Job that ended with no check-in, which the row recovered: evicted, deadline, failed or succeeded (#4559). A Job that checks in at its end counts its own result in devops_cli_roadmap_stage_total.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 41
+      },
+      "id": 67,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Stage Jobs by Result",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (result) (increase(devops_cli_service_stage_jobs_total{job=~\"$job\"}[1h]))",
+          "legendFormat": "{{result}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 49
+      },
+      "id": 49,
+      "title": "Alternatives Check",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Open items that the alternatives check can take and has no check for, by repository. An item in the retry delay counts. The Service sends the value twice a day, so each query reads the last value of a day. The alert RoadmapServiceAlternativesNotSearching needs a value above 0.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 50
+      },
+      "id": 50,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Alternatives Unchecked Items",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (repo) (last_over_time(devops_cli_roadmap_alternatives_unchecked_items{job=~\"$job\"}[1d]))",
+          "legendFormat": "{{repo}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Age of the oldest alternatives check among the items that the check can take, by repository. No line while no such item has a check.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 50
+      },
+      "id": 51,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Alternatives Oldest Check Age",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (repo) (last_over_time(devops_cli_roadmap_alternatives_oldest_check_age_seconds{job=~\"$job\"}[1d]))",
+          "legendFormat": "{{repo}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Web searches that the tools ran for each check written in the last day, by verdict: the average, and the number of checks. A skip-class check runs none and shows 0 under not-applicable. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 50
+      },
+      "id": 52,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Alternatives Searches per Check",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_avg(sum by (verdict) (increase(devops_cli_roadmap_alternatives_searches{job=~\"$job\"}[1d])))",
+          "legendFormat": "average {{verdict}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_count(sum by (verdict) (increase(devops_cli_roadmap_alternatives_searches{job=~\"$job\"}[1d])))",
+          "legendFormat": "checks {{verdict}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 58
+      },
+      "id": 55,
+      "title": "Roadmap Job Success",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "The share of the attempts of each roadmap job in the last 7 days that ended with the intended result of the job, from the 'roadmap job result' log lines of the Service and of the pods of the stage Jobs and the fix-plan Jobs (#4845, #4559, #5556). A job with fewer than 30 attempts shows no bar: see Job Attempts. A job with 30 attempts or more and no success shows a bar at 0. The 80% rule (docs/roadmap/job-success.md): a job holds 80% when the ratio is 0.80 or more with 30 attempts or more at 3 daily checks in a row.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 2,
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0.8
+              }
+            ]
+          },
+          "unit": "percentunit"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 59
+      },
+      "id": 56,
+      "options": {
+        "displayMode": "basic",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "valueMode": "color"
+      },
+      "title": "Job Success Ratio (7 d)",
+      "type": "bargauge",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "((sum by (roadmap_job) (count_over_time({namespace=\"devops\", container=~\"service|stage|fix-plan\"} |= \"roadmap job result:\" | json message | drop __error__, __error_details__ | line_format \"{{ or .message __line__ }}\" |~ \"^roadmap job result: \" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` | success=\"true\" [7d])) or on (roadmap_job) (sum by (roadmap_job) (count_over_time({namespace=\"devops\", container=~\"service|stage|fix-plan\"} |= \"roadmap job result:\" | json message | drop __error__, __error_details__ | line_format \"{{ or .message __line__ }}\" |~ \"^roadmap job result: \" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d])) * 0)) / sum by (roadmap_job) (count_over_time({namespace=\"devops\", container=~\"service|stage|fix-plan\"} |= \"roadmap job result:\" | json message | drop __error__, __error_details__ | line_format \"{{ or .message __line__ }}\" |~ \"^roadmap job result: \" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d]))) and on (roadmap_job) (sum by (roadmap_job) (count_over_time({namespace=\"devops\", container=~\"service|stage|fix-plan\"} |= \"roadmap job result:\" | json message | drop __error__, __error_details__ | line_format \"{{ or .message __line__ }}\" |~ \"^roadmap job result: \" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d])) >= 30)",
+          "legendFormat": "{{roadmap_job}}",
+          "refId": "A",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "The attempts of each roadmap job in the last 7 days: one 'roadmap job result' log line for each attempt, in the log of the Service, of a stage Job pod or of a fix-plan Job pod (#4845, #4559, #5556). Under 30 attempts the ratio is too few to judge.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "from": 0,
+                "result": {
+                  "color": "orange",
+                  "index": 0,
+                  "text": "too few"
+                },
+                "to": 29
+              },
+              "type": "range"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 30
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 59
+      },
+      "id": 57,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "title": "Job Attempts (7 d)",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum by (roadmap_job) (count_over_time({namespace=\"devops\", container=~\"service|stage|fix-plan\"} |= \"roadmap job result:\" | json message | drop __error__, __error_details__ | line_format \"{{ or .message __line__ }}\" |~ \"^roadmap job result: \" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d]))",
+          "legendFormat": "{{roadmap_job}}",
+          "refId": "A",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "The share of the attempts of each roadmap job in the last 7 days that a cut of the infrastructure ended: the model provider, the CI or the cluster, the memory of a pod, or a used budget (#4845). The ratio counts these attempts as failures.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 2,
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.2
+              }
+            ]
+          },
+          "unit": "percentunit"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 59
+      },
+      "id": 58,
+      "options": {
+        "displayMode": "basic",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "valueMode": "color"
+      },
+      "title": "Infrastructure Cut Share (7 d)",
+      "type": "bargauge",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "(sum by (roadmap_job) (count_over_time({namespace=\"devops\", container=~\"service|stage|fix-plan\"} |= \"roadmap job result:\" | json message | drop __error__, __error_details__ | line_format \"{{ or .message __line__ }}\" |~ \"^roadmap job result: \" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` | infra=\"true\" [7d])) / sum by (roadmap_job) (count_over_time({namespace=\"devops\", container=~\"service|stage|fix-plan\"} |= \"roadmap job result:\" | json message | drop __error__, __error_details__ | line_format \"{{ or .message __line__ }}\" |~ \"^roadmap job result: \" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d]))) or on (roadmap_job) (sum by (roadmap_job) (count_over_time({namespace=\"devops\", container=~\"service|stage|fix-plan\"} |= \"roadmap job result:\" | json message | drop __error__, __error_details__ | line_format \"{{ or .message __line__ }}\" |~ \"^roadmap job result: \" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d])) * 0)",
+          "legendFormat": "{{roadmap_job}}",
+          "refId": "A",
+          "queryType": "instant"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "The 7-day success ratio of each roadmap job at each daily check, with the line at 0.80 (#4845). A day with fewer than 30 attempts in its 7 days still shows its ratio here. A job with attempts and no success shows 0. The 80% rule (docs/roadmap/job-success.md): a job holds 80% when the ratio is 0.80 or more with 30 attempts or more at 3 daily checks in a row.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0.8
+              }
+            ]
+          },
+          "unit": "percentunit"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 67
+      },
+      "id": 59,
+      "interval": "1d",
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Job Success Ratio by Day (7 d)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "((sum by (roadmap_job) (count_over_time({namespace=\"devops\", container=~\"service|stage|fix-plan\"} |= \"roadmap job result:\" | json message | drop __error__, __error_details__ | line_format \"{{ or .message __line__ }}\" |~ \"^roadmap job result: \" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` | success=\"true\" [7d])) or on (roadmap_job) (sum by (roadmap_job) (count_over_time({namespace=\"devops\", container=~\"service|stage|fix-plan\"} |= \"roadmap job result:\" | json message | drop __error__, __error_details__ | line_format \"{{ or .message __line__ }}\" |~ \"^roadmap job result: \" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d])) * 0)) / sum by (roadmap_job) (count_over_time({namespace=\"devops\", container=~\"service|stage|fix-plan\"} |= \"roadmap job result:\" | json message | drop __error__, __error_details__ | line_format \"{{ or .message __line__ }}\" |~ \"^roadmap job result: \" | regexp `^roadmap job result: job=(?P<roadmap_job>\\S+) repo=\\S+ item=\\S+ result=(?P<result>\\S+) success=(?P<success>\\S+) class=(?P<failure_class>\\S+) infra=(?P<infra>\\S+)` [7d])))",
+          "legendFormat": "{{roadmap_job}}",
+          "refId": "A",
+          "queryType": "range"
+        }
+      ]
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": [
+    "devops-cli",
+    "roadmap",
+    "service",
+    "telemetry"
+  ],
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "1m",
+      "5m",
+      "15m",
+      "1h"
+    ]
+  },
+  "timezone": "browser",
+  "title": "Roadmap Service Telemetry",
+  "uid": "devops-roadmap-service-telemetry",
+  "version": 1,
+  "templating": {
+    "list": [
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values({__name__=~\"devops_cli_command_total|devops_cli_github_requests_total\"}, job)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Job",
+        "multi": true,
+        "name": "job",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values({__name__=~\"devops_cli_command_total|devops_cli_github_requests_total\"}, job)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  }
+}
