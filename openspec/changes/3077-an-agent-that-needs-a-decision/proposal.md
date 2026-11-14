@@ -65,5 +65,5 @@ LangGraph (https://github.com/langchain-ai/langgraph, MIT, maintained, last comm
 
 ## Dependencies
 
-- #2968: the inbox gauges send one series for each kind of `InboxKind` and change `src/devops_cli/roadmap/inbox.py`, `src/devops_cli/commands/roadmap.py` and `src/devops_cli/roadmap/inbox_kind.py`, the three files that the owner line also touches, so the gauge set and the new kind meet in the same enum.
-- #4805: the question resolver reads the open question frames and the `owner_question` record keys that this change writes, so it shares `src/devops_cli/roadmap/owner_question.py` with this item and its answer step lands after this item.
+- Pull request #5604 (#2968): the inbox gauges send one series for each kind of `InboxKind` and change `src/devops_cli/roadmap/inbox.py`, `src/devops_cli/commands/roadmap.py` and `src/devops_cli/roadmap/inbox_kind.py`, the three files that the owner line also touches, so the gauge set and the new kind meet in the same enum.
+- Downstream issue #4805: the question resolver reads the open question frames and the `owner_question` record keys that this change writes, so it shares `src/devops_cli/roadmap/owner_question.py` with this item and its answer step lands after this item.
