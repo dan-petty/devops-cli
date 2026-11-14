@@ -89,6 +89,8 @@ envValueFrom:
       key: llm-gateway-key
 
 grafana.ini:
+  feature_toggles:
+    enable: dashgpt
   security:
     allow_embedding: true
   auth.anonymous:

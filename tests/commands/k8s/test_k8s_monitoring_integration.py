@@ -418,6 +418,14 @@ def test_grafana_provisions_the_llm_app_for_litellm_gateway() -> None:
     assert app.get("secureJsonData", {}).get("openAIKey") == "$__env{GF_LLM_GATEWAY_KEY}"
 
 
+def test_grafana_enables_dashgpt_feature_toggle() -> None:
+    """Grafana enables dashgpt feature toggle for dashboard generative AI (#5711)."""
+    values = _k8s_yaml("monitoring/grafana-values.yaml")
+    grafana_ini = values.get("grafana.ini", {})
+    toggles = grafana_ini.get("feature_toggles", {}).get("enable", "")
+    assert "dashgpt" in toggles
+
+
 def test_grafana_runs_the_image_renderer_of_its_chart_at_a_release_tag() -> None:
     """With no renderer, the render API of Grafana returned HTTP 500, so no panel image could be
     made (#5185). The renderer of the chart runs its image at a release tag, not `latest`, with
