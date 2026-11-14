@@ -7,10 +7,12 @@ The stage Job of #5562 exits 1 for an attempt that a provider timeout ends, and 
 ## What Changes
 
 - Map the class of a stage attempt through `ACTION_BY_CLASS` in `src/devops_cli/roadmap/stage/stage_job.py`, and exit 75 for a class whose action is `retry`.
-- Write the result line of that attempt with its class and `infra=true`, and write no check-in, so `stage.job` and the claim `owner/service` stay for the next pod.
+- Write the result line of that attempt with its class and `infra=true` when the class is in `INFRA_CLASSES` (such as `provider` and `ci_infra`, and `infra=false` for `head_moved` and `timeout`), and write no check-in, so `stage.job` and the claim `owner/service` stay for the next pod.
+- In `src/devops_cli/roadmap/stage/stage.py`, make `_failed_lately` pass when the check-out names the Job of the pod, or clear the failure marks on an attempt that exits 75, so the retried pod is not excluded by its failure wait.
+- In `src/devops_cli/roadmap/stage/stage_submit.py`, write no duplicate result line during Job recovery when the pod already wrote one.
 - Keep exit 1 for a class that a retry cannot help, such as `plan_defect`, for a plan that its own checks refused, and for a refused key of the provider, and keep exit 143 for the deadline end.
-- Pin the retry code of the stage Job in `tests/gate/k8s_checks/job_admission_policy.py`, which the `k8s` row of `devops ci` runs: exit 75 is the only code that the pod failure policy and `backoffLimit: 2` retry.
-- State the new end in `docs/CLUSTER.md`, and keep the gateway fallback for `deepseek-v4.1-flash-1017` out of this change.
+- Update `tests/gate/k8s_checks/stage_job.py` docstring to reflect that exit 75 is also used for retryable failures.
+- State the new end in `docs/CLUSTER.md`, `docs/roadmap/stage.md`, `src/devops_cli/lang/en/help.py`, `docs/commands/roadmap.md`, `k8s/devops/cronjob-stage.yaml`, and `k8s/devops/roadmap-service/admissionpolicy.yaml`.
 - The change fits one pull request.
 
 ## Capabilities
@@ -25,9 +27,9 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/stage/stage_job.py`
-- Documents: `docs/CLUSTER.md`
-- Tests: `tests/roadmap/stage/test_roadmap_stage_job_entry.py`, `tests/gate/k8s_checks/job_admission_policy.py`
+- Code: `src/devops_cli/roadmap/stage/stage_job.py`, `src/devops_cli/roadmap/stage/stage.py`, `src/devops_cli/roadmap/stage/stage_submit.py`, `src/devops_cli/lang/en/help.py`
+- Documents: `docs/CLUSTER.md`, `docs/roadmap/stage.md`, `docs/commands/roadmap.md`, `k8s/devops/cronjob-stage.yaml`, `k8s/devops/roadmap-service/admissionpolicy.yaml`
+- Tests: `tests/roadmap/stage/test_roadmap_stage_job_entry.py`, `tests/gate/k8s_checks/stage_job.py`
 
 ## Feasibility
 
