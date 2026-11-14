@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.135.0](https://github.com/dan-petty/devops-cli/compare/v0.134.1...v0.135.0) (2026-11-14)
+
+
+### Features
+
+* **ai:** cache Claude prompts and price the cache tokens ([#5577](https://github.com/dan-petty/devops-cli/issues/5577)) ([a42931c](https://github.com/dan-petty/devops-cli/commit/a42931c73bcffaab69dc1995f3152ec90cefb19d))
+
+
+### Bug Fixes
+
+* **k8s:** the DeepSeek group keeps its structured reply flag ([#5572](https://github.com/dan-petty/devops-cli/issues/5572)) ([ffce5d9](https://github.com/dan-petty/devops-cli/commit/ffce5d999701b70eea375872bbf960c0cef8c081))
+* **security:** bump helm to 4.3.2 and renew the kubectl Trivy ignores ([#5584](https://github.com/dan-petty/devops-cli/issues/5584)) ([7b27444](https://github.com/dan-petty/devops-cli/commit/7b2744463787763e9f86fbe0f808ffa9ae4d415c))
+
 ## [0.134.1](https://github.com/dan-petty/devops-cli/compare/v0.134.0...v0.134.1) (2026-11-13)
 
 
