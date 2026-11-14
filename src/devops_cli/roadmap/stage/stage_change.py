@@ -1589,6 +1589,23 @@ def _plan_citation_problems(
     )
 
 
+_OPEN_CHANGE_EVIDENCE: Final[re.Pattern[str]] = re.compile(
+    r"openspec/changes/(?!archive/)[^/\s`]+/(?:proposal|design)\.md"
+)
+
+
+def proposal_evidence_problems(proposal: StageProposal) -> list[str]:
+    """One problem for each `feasibility` line that cites the `proposal.md` or `design.md` of a
+    change that is not in `openspec/changes/archive/` (#3465): that text is a claim, not the
+    source at the staged commit. A plan that cites the merged plan of an archived change, or the
+    source, adds no problem."""
+    return [
+        MESSAGES.roadmap.stage_problem_open_change_evidence.format(path=match.group(0))
+        for line in proposal.feasibility
+        if (match := _OPEN_CHANGE_EVIDENCE.search(line)) is not None
+    ]
+
+
 def _group_task_texts(group: StageGroup) -> list[str]:
     """The texts of `group` that a task holds: the title and each part of the work."""
     return [text for field in _GROUP_TASK_FIELDS if (text := getattr(group, field)) is not None]
@@ -2412,6 +2429,7 @@ def check_gates(
         ProposalGate.CITATION: [
             *_plan_citation_problems(proposal, read_text),
             *command_citation_problems(proposal),
+            *proposal_evidence_problems(proposal),
         ],
         ProposalGate.FORM: form_problems(proposal.groups),
         ProposalGate.EVAL_REPLAY: eval_replay_problems(proposal.groups),
