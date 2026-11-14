@@ -3274,6 +3274,11 @@ class RoadmapMessages:
     implement_tool_cut: str = " ..."
     implement_tool_reason: str = "{outcome} ({reason})"
     implement_tool_reason_path: str = "Path: {path}"
+    implement_tool_repeat_refusal: str = (
+        "This call failed earlier with the same arguments, and the step did not run it again. "
+        "Earlier result: {reason}. Change the call or take another step."
+    )
+    implement_tool_repeat_no_reason: str = "the call failed"
     implement_tool_path_hidden: str = "<path>"
     implement_stop_retries: str = "Last retries of {tool}: {reasons}"
     implement_stop_reasons_separator: str = " | "
