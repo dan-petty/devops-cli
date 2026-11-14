@@ -377,6 +377,25 @@ def test_a_staged_item_clears_its_count(
     assert StageRecordKey.PLAN_DEFECTS_BODY.value not in record
 
 
+def _placeholders() -> Any:
+    """A reply with `x` or `placeholder` in every text of the plan."""
+    group = (
+        make_stage_proposal()
+        .groups[0]
+        .model_copy(
+            update={
+                "test": "x",
+                "implementation": "placeholder",
+                "documentation": None,
+                "verify": "x",
+            }
+        )
+    )
+    return make_stage_proposal(
+        why="x", existing_tool="placeholder", feasibility=["x"], groups=[group]
+    )
+
+
 def test_a_degenerate_reply_at_the_limit_gives_one_bullet(
     stage_repo: StageRepo,
     model_fake: ModelFake,
@@ -385,8 +404,6 @@ def test_a_degenerate_reply_at_the_limit_gives_one_bullet(
 ) -> None:
     """The degenerate reply is a refused reply, so its problem is the reason and appears once
     (#4618)."""
-    from tests.roadmap.stage.test_roadmap_stage_refused_reply import _placeholders
-
     store = _two_items(InMemoryRoadmapStore(repo=STAGE_REPO), openspec_fake, github_api)
     _fail_to_the_limit(store, 1, less=1)
 
