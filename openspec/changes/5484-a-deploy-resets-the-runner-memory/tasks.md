@@ -20,9 +20,9 @@ Kind: behavior. Reads: `src/devops_cli/config/settings.py`, `tests/roadmap/imple
 
 Kind: other. Reads: `docs/ENV_VARS.md`, `src/devops_cli/config/settings.py`. Changes: `docs/ENV_VARS.md`.
 
-- [ ] 3.1 Run `uv run devops docs generate` with no option, so the row of `DEVOPS_CLI_ROADMAP_IMPLEMENT_MAX_MEMORY_LIMIT` in `docs/ENV_VARS.md` holds the new description of the setting, and keep no other change of the generator
+- [x] 3.1 Run `uv run devops docs generate` with no option, so the row of `DEVOPS_CLI_ROADMAP_IMPLEMENT_MAX_MEMORY_LIMIT` in `docs/ENV_VARS.md` holds the new description of the setting, and keep no other change of the generator
   - Verification: `$ uv run devops docs check` passes
-- [ ] 3.2 Edit `docs/ENV_VARS.md` with the output of `uv run devops docs generate`
+- [x] 3.2 Edit `docs/ENV_VARS.md` with the output of `uv run devops docs generate`
   - Verification: `$ uv run devops ci docs` passes
 
 ## 4. State both limits in the Size and Deadline lines of the cluster document
