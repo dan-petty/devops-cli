@@ -1540,12 +1540,13 @@ def test_a_path_in_a_verify_command_is_checked_and_a_created_path_passes(
     model_fake: ModelFake,
     openspec: OpenSpecFake,
 ) -> None:
-    model_fake.answer(
-        _naming(
-            "src/devops_cli/sample.py", verify="uv run devops ci test tests/old/test_sample.py"
-        ),
-        make_stage_proposal(),
+    naming = _naming(
+        "src/devops_cli/sample.py", verify="uv run devops ci test tests/old/test_sample.py"
     )
+    group = naming.groups[0].model_copy(
+        update={"test": "Run `tests/old/test_sample.py` for the changed path"}
+    )
+    model_fake.answer(make_stage_proposal(groups=[group]), make_stage_proposal())
 
     plan = _plan(store, stage_repo)
 
