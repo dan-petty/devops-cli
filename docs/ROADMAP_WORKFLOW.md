@@ -12,6 +12,8 @@ An issue that the roadmap tracks is an Item ([CONTEXT.md](../CONTEXT.md)). Three
 
 A comment of a Service job or of an agent on an issue gives evidence and its sources. It does not repeat the issue, and it comes once for each change of the facts.
 
+The [agentic jobs guideline](guidelines/agentic-jobs.md) sets how the project builds, measures and tunes the agentic jobs of these steps. [Agentic jobs in devops-cli](#agentic-jobs-in-devops-cli) gives the decisions of devops-cli.
+
 The state of an Item is in labels on its issue ([ADR 0016](adr/0016-labels-hold-the-roadmap-items-fields.md)). Each actor reads the same labels. Each actor follows the same steps. A person makes the three decisions that no other actor makes: the gates.
 
 ## The eight steps
@@ -40,7 +42,7 @@ Notes on the table:
 - The command `devops roadmap repair` lists the Items that a placeholder reply of a model stalled, and with `--confirm` it sets them back. It leaves each Item that a person set or answered. [The repair page](roadmap/repair.md) tells what it lists and writes.
 - The command `devops roadmap return <number> --comment "<evidence>" --confirm` sends an Item back to `status/new` when it cannot be built as written.
 - Refine moves a part of an Item that cannot be built or decided now to new issues when the rest of the Item is Ready (#2423). [The refine page](roadmap/refine.md) tells how.
-- Each Service job logs one result line for each attempt. [The job success page](roadmap/job-success.md) gives the success ratio of each job, the job grades with the action of each grade, and the 80% rule that a job meets before its caps are tuned. `devops roadmap eval grades` prints the grade of each job.
+- Each Service job logs one result line for each attempt. [The job success page](roadmap/job-success.md) gives the success ratio of each job, the job grades with the action of each grade, and the 80% rule that a job meets before its caps go down for cost. `devops roadmap eval grades` prints the grade of each job.
 
 ## The transitions
 
@@ -355,7 +357,7 @@ A plan is acceptable when a person merges it without rework. The golden set meas
 
 - **Recall.** After the gates and the verification pass, the job finds at least 90% of the known defects of the severities `blocker` and `major`. `devops roadmap eval verify` prints this recall and the floor, which is `CONST_ROADMAP_VERIFY_RECALL_FLOOR` (0.9), and states whether the recall reaches it. The verification pass returns a plan `roadmap.stage.verify_repair_rounds` repair rounds (default 2, #3039), and one more round while the last review fixes more earlier findings than it adds, up to `roadmap.stage.verify_repair_rounds_ceiling` rounds (default 4, #5066, #5409, #5440).
 - **Good plans.** The verification pass makes no finding on the good plans of the golden set. `devops roadmap eval verify` prints the mean of the findings that would return a good plan to the planner, for each good plan that it verified, and the ceiling, which is `CONST_ROADMAP_VERIFY_GOOD_RETURNING_CEILING`, and states whether the mean passes it (#5411). Only a blocker or a major finding returns a plan, so a minor or a nit finding does not count. A pass that finds more defects must not get there by returning good plans.
-- **Live plans.** At least 80% of the plan pull requests that the job opens in a period are merged without a hold. A person reads the pull requests and records the share.
+- **Live plans.** At least 80% of the plan pull requests that the job opens in 28 days are merged without a hold. A person reads the pull requests and records the share.
 
 A cheaper model or a lower cap must keep the score of the baseline on the same eval. The score of the current model is no bar, because that model fails the live plans that a person reviewed on 2026-11-02.
 
@@ -439,6 +441,67 @@ The report lists each property as pass, fail or skipped, the tokens, the model r
 The fixtures hold the diffs of real runs: deliveries, and stops with a scratch file in the root. `--check-only` evaluates those recorded diffs with no model and no clone, and exits 1 when a diff fails other properties than its record says. `--check-only --run-commands` also applies each diff in a clone, runs the two properties that run commands, and compares all six with the record. A record may name a command property as failed. `--dry-run` lists the fixtures and the model requests, and makes no request.
 
 A change to the implement prompt (`src/devops_cli/ai/tasks/roadmap_implement_step.md`) or to the tool set of the step states its score before and after in its pull request. Run the command on the base and on the branch with the same model, and give both totals of properties passed. A change that cannot beat the score of the base does not merge.
+
+## Agentic jobs in devops-cli
+
+The roadmap jobs apply the [agentic jobs guideline](guidelines/agentic-jobs.md) with no change. [The guideline index](guidelines/index.md) lists each shared guideline. This section holds the decisions of devops-cli: the targets that devops-cli adds, the document or the code that applies each rule, and the gap tracker. A program gives each measured value, and no document copies one:
+
+- `devops roadmap eval grades` gives the grade, `p`, the interval, the top failure classes and the efficiency of each job ([job success](roadmap/job-success.md)).
+- The dashboard `devops-cli Telemetry` shows the row `Roadmap Job Success` and the AI spend, request and tool call counters.
+- [docs/CONFIGURATION.md](CONFIGURATION.md) gives the default of each setting of the jobs.
+- `devops roadmap review run` gives the git facts of a review window. #4692 and #5219 add the facts of the jobs: the configuration in force, the spend and the grades.
+- `devops roadmap eval <set> --dry-run` lists the cases of an eval set. The fixture folders are under `tests/fixtures/roadmap_eval/`.
+
+The open gaps of the agentic jobs are sub-issues of tracker #5543, or reference lines in it. This page holds no gap row.
+
+### The targets that devops-cli adds
+
+- **Stage.** The golden set and the live plans: [What an acceptable stage score is](#what-an-acceptable-stage-score-is).
+- **Implement.** The golden set: [Measure the implement job](#measure-the-implement-job).
+- **Outer bounds.** The SLOs of the Service and of the LLM gateway (#4709). The admission policy of the runner Jobs sets the ceiling of a Job deadline ([Runner Jobs](CLUSTER.md#runner-jobs)), and the settings model refuses a limit above its bound.
+
+### Where devops-cli applies each rule
+
+A rule with no row applies as the guideline says.
+
+| Rule or part of the guideline | devops-cli applies it in |
+| :--- | :--- |
+| P1, AW-L1, AW-L2 | [ADR 0020](adr/0020-a-decision-point-is-a-unit-of-a-workflow-with-a-resolver-chain-and-a-rule-goes-before-a-decision-model.md#2-the-resolver-chain) (the resolver chain; section 5 gives the modes of a decision point) and [ADR 0019](adr/0019-a-decision-step-asks-jev-short-closed-questions-about-evidence-that-tools-extract.md) (the decision steps). The skill [`ask-jev`](../.agents/skills/ask-jev/SKILL.md) gives the model kind for an agent. |
+| P2 | [ADR 0005](adr/0005-review-findings-come-from-tools-not-models.md) |
+| P3, AW-J1 | The pipeline split into jobs, tracker #5482 |
+| P7 | [ADR 0021](adr/0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md#3-valkey-holds-the-shared-state-and-github-stays-the-source-of-truth), section 3: GitHub is the source of truth, and Valkey holds copies, marks, ledgers and caches |
+| P8, AW-G4 | [SECURITY.md](../SECURITY.md#zero-trust-security--egress-safety-principles), items 11 to 14 |
+| P9 | #5427: a record that picks a tool says how to replace it |
+| P10, AW-J7 | [ADR 0021](adr/0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md#2-each-job-runs-in-a-pod-of-its-own), section 2: only the webhook router and the sweep, a schedule that also reconciles, create units. A unit that makes work due sets a due mark, and a unit name fixed by its input makes a second create get 409. [Stage Jobs](CLUSTER.md#stage-jobs) gives the name of a stage Job. |
+| AW-J2 | [ADR 0021](adr/0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md#rules-of-these-rows), section 8, rule 5 (the modes of a row); [ADR 0020](adr/0020-a-decision-point-is-a-unit-of-a-workflow-with-a-resolver-chain-and-a-rule-goes-before-a-decision-model.md#5-shadow-first), section 5 (the modes of a decision point) |
+| AW-J3 | [CONTEXT.md](../CONTEXT.md), Roadmap step |
+| AW-J4 | [ARCHITECTURE.md](../ARCHITECTURE.md#6-sre-reliability-observability--quality-gates), section 6 (Nested Time Limits) |
+| AW-J5 | [CONTEXT.md](../CONTEXT.md), Branch run. #5533 adds more branch runs and a judge. |
+| AW-J6 | A change of a plan step or a fix step runs first on the recorded heads of real plan pull requests of the Service (`tests/fixtures/roadmap/plan_heads/`) |
+| AW-M1 to AW-M3 | [The success of the roadmap jobs](roadmap/job-success.md) |
+| AW-M4 | #5494: the funnel of each item cohort |
+| AW-T1 to AW-T4 | The settings `roadmap.implement.*`, `roadmap.stage.*` and `roadmap.fix_plan.*` ([docs/CONFIGURATION.md](CONFIGURATION.md)). A trial record goes in a comment on the grade issue of the job that #5173 files, and on tracker #5164 until that issue exists. |
+| AW-T5 | The budget extension of `implement` ([Checks of the implement job](#checks-of-the-implement-job)), the extra round of the stage verification pass ([What an acceptable stage score is](#what-an-acceptable-stage-score-is)) and `roadmap.stage.gate_return_extensions`. #4843 adds a fixable check before each refusal. |
+| AW-T7 | [Go-live check](CLUSTER.md#go-live-check) |
+| AW-L3 | [Find the cheapest model that is acceptable](#find-the-cheapest-model-that-is-acceptable) |
+| AW-L4 | [SECURITY.md](../SECURITY.md#zero-trust-security--egress-safety-principles), item 13: the hosted groups and the hold on a hosted model. [A step](roadmap/implement.md#a-step) of `implement` gives the model ladder. |
+| AW-C1 | [The window of the plan run](roadmap/stage.md#the-window-of-the-plan-run) |
+| AW-C3 | [Feasibility](roadmap/stage.md#feasibility): the stage trace gate. #5466 proposes to count the text that the request gives. |
+| AW-C4 | [Measure the verification pass](#measure-the-verification-pass) |
+| AW-U1 | [The tools of the planner](roadmap/stage.md#the-tools-of-the-planner) |
+| AW-U4 | `devops gh` uses the command names of `gh` |
+| Tool measure | `devops_cli_roadmap_tool_calls_total` counts each call by outcome, and the alert `RoadmapServiceToolUnused` names a tool with no call in 7 days ([Alerts](CLUSTER.md#alerts)) |
+| AW-G1 | #5199 (the shared command gate) and the record of #5241. Until the gate exists, the runner pod is the sandbox ([CONTEXT.md](../CONTEXT.md), Runner). |
+| AW-G2 | [SECURITY.md](../SECURITY.md#zero-trust-security--egress-safety-principles), item 15 |
+| AW-G3 | [ADR 0021](adr/0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md#rules-of-these-rows), section 8, rule 2 |
+| AW-O1 | [docs/TELEMETRY.md](TELEMETRY.md#distributed-tracing--w3c-context-propagation) (LLM Content Gating) and [k8s/README.md](../k8s/README.md#gateway-spans) |
+| AW-O2 | The result lines ([job success](roadmap/job-success.md)). #5168 adds the model calls and the cost to each line. |
+| AW-O3 | #4724: read the AI spend from the gateway counter |
+| Spans | `devops roadmap explain <issue> --trace` prints the trace of the last run of the implement job of an item. No command prints the trace of another job. |
+| AW-E1 | [Measure the stage job](#measure-the-stage-job) and [Measure the implement job](#measure-the-implement-job) |
+| AW-E3 | `devops roadmap eval stage --replay`, `devops roadmap plan-recheck` and `devops roadmap eval implement --check-only` call no model |
+| Evals | [Prompt Benchmarking](SELF_IMPROVEMENT.md#prompt-benchmarking) gives pass@k and pass^k. `src/devops_cli/roadmap/duplicate_eval.py` and `src/devops_cli/roadmap/stage/stage_verify_eval.py` use Pydantic Evals. |
+| Dashboards | [The chart rules](DESIGN.md#chart-rules) |
 
 ## Planned changes
 

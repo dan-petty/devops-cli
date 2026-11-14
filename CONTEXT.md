@@ -170,6 +170,10 @@ _Avoid_: step alone (a step is the work of one task group), action, task
 A unit of work whose pod runs one roadmap step alone for one pull request: `fix-checks` or `fix-conflict` (ADR 0021 section 8). The sweep creates it from the due mark that `watch` sets. A short roadmap step, such as `watch` or `ready`, is no step job: it runs in the sweep, because a pod for each tick costs more than the work. `push` and `open` run inside the unit of their producer.
 _Avoid_: fix job, step pod
 
+**Branch run**:
+One of the runs of one roadmap job for one item. A job has one branch run by default, on the base branch `<type>/<issue>-<slug>`, with no judge. With more than one, the runs work at the same time, each on its branch `<type>/<issue>-<slug>-<n>`, with no pull request. A judge then writes one result to the base branch and its one pull request ([the agentic jobs guideline](docs/guidelines/agentic-jobs.md#the-job-model); #5533 builds the runs and the judge).
+_Avoid_: candidate (a candidate is an issue that intake has not placed), variant
+
 **Project brain**:
 The index of what the alternatives checks found, with the caches of the GitHub answers, the tool facts and the documents that they read (ADR 0023, ADR 0025). The check of one item reads a digest of it before its model call. Two scheduled runs, `brain-daily` and `brain-weekly`, keep it. Valkey holds it. Each entry is derived and has a durable copy: the block of its item, a hidden block on the tracker issue of its repository, or the document on `main` that its citation names. The brain never holds the only copy of a fact.
 _Avoid_: memory, knowledge base (the knowledge base is the reference corpus of the AI commands)

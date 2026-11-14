@@ -1,10 +1,8 @@
 # The success of the roadmap jobs
 
-Each roadmap job gets a job grade from its measured success, and each grade has one action. The owner tunes the caps and the limits of a roadmap job only after the job holds 80% success. This page gives the measure of each job, the log line that counts it, the queries that read it, the job grades and the 80% rule. The rules that a test checks are in the specs named at the end of this page.
+Each roadmap job writes one result line for each attempt and gets a job grade from its lines. Each grade has one action. A job under 80% success gets larger limits, and only a job that holds 80% success gets smaller limits for cost. The [agentic jobs guideline](../guidelines/agentic-jobs.md#measure-the-success-of-a-job) gives the method: why a log line and not a counter, the ratio `p`, the Wilson interval, the efficiency, the 80% rule and [the tuning loop](../guidelines/agentic-jobs.md#the-tuning-loop). This page gives the contract of devops-cli: the result line, the attempt and the intended result of each job, the queries and the grade table. The rules that a test checks are in the specs named at the end of this page.
 
-## Why a log line and not a counter
-
-The counters of the jobs give no common ratio. Each job counts other results, the review of refine counts no approval, and the alternatives check counts no refused reply. Before release 0.116.1, a new series of a counter also lost its first count (#4684). A log line holds the counts of each attempt, such as its tokens and its gate returns, which a metric label cannot hold for each item. So each job writes one log line for each attempt, and Loki counts the lines. Prometheus recording rules can give the same ratio later.
+The counters of the roadmap jobs give no common ratio. Each job counts other results, the review of refine counts no approval, and the alternatives check counts no refused reply. So each job writes a line, and Loki counts the lines.
 
 ## The result line
 
@@ -50,7 +48,9 @@ A change that adds a cap extension to a job adds the count `extensions` to the l
 
 ## The query
 
-The dashboard `devops-cli Telemetry` has the row `Roadmap Job Success`. It shows the 7-day ratio of each job against the line at 0.80, the attempts of each job with `too few` under 30, the share of the infrastructure cuts, and the ratio at each daily check. Each panel reads the result lines with this base:
+The dashboard `devops-cli Telemetry` (`k8s/devops/dashboards/devops-cli.json`) has the row `Roadmap Job Success`. It shows the 7-day ratio of each job against the line at 0.80, the attempts of each job with `too few` under 30, the share of the infrastructure cuts, and the ratio at each daily check. Each panel holds its LogQL query. The label of the job is `roadmap_job`, because the stream already has the label `job`.
+
+Each query reads the result lines with this base:
 
 ```logql
 {namespace="devops", container=~"service|stage|fix-plan"} |= "roadmap job result:"
@@ -59,25 +59,13 @@ The dashboard `devops-cli Telemetry` has the row `Roadmap Job Success`. It shows
   | regexp `^roadmap job result: job=(?P<roadmap_job>\S+) repo=\S+ item=\S+ result=(?P<result>\S+) success=(?P<success>\S+) class=(?P<failure_class>\S+) infra=(?P<infra>\S+)`
 ```
 
-The selector reads the containers of the units that write the lines: the Service (`service`), the pod of each stage Job (`stage`, #4559) and the pod of each fix-plan Job (`fix-plan`). A runner pod and the other pods that run a coding agent stay out, because their logs hold the output of tests, which can hold copies of result lines. A stream that OpenTelemetry exports has no label `namespace`, so no line counts twice. `json` gives the message of a JSON line. A plain line gets an error label, and `drop` removes it, because Loki refuses a metric query whose lines hold an error. `line_format` then gives the message, or the full plain line. The filter `|~` keeps only a line that starts with the prefix: a line that the `regexp` does not match still counts, with no labels. `RESULT_LINES` of `roadmap/job_grade_report.py` holds this base up to the `regexp`, and a test checks that each count of the dashboard starts with it. The label is `roadmap_job`, because the stream already has the label `job`. The ratio of the last 7 days is:
+The selector reads the containers of the units that write the lines: the Service (`service`), the pod of each stage Job (`stage`, #4559) and the pod of each fix-plan Job (`fix-plan`). A runner pod and the other pods that run a coding agent stay out, because their logs hold the output of tests, which can hold copies of result lines. A stream that OpenTelemetry exports has no label `namespace`, so no line counts twice. `json` gives the message of a JSON line. A plain line gets an error label, and `drop` removes it, because Loki refuses a metric query whose lines hold an error. `line_format` then gives the message, or the full plain line. The filter `|~` keeps only a line that starts with the prefix: a line that the `regexp` does not match still counts, with no labels. `RESULT_LINES` of `roadmap/job_grade_report.py` holds this base up to the `regexp`, and a test checks that each count of the dashboard starts with it.
 
-```logql
-(
-  sum by (roadmap_job) (count_over_time(<base> | success="true" [7d]))
-    or on (roadmap_job) (sum by (roadmap_job) (count_over_time(<base> [7d])) * 0)
-)
-  / sum by (roadmap_job) (count_over_time(<base> [7d]))
-```
-
-The `or on (roadmap_job)` part gives 0 successes to a job that has attempts and no success. Without it, the division drops that job, and a job at 0% looks the same as a job with no attempts.
-
-`devops roadmap eval grades` reads the same lines with LogQL metric instant queries, so no line limit applies. Its base also takes `repo` and `version` from the line, and each query groups by the job and the repository. `--dry-run` prints each query and sends no request.
+`devops roadmap eval grades` reads the same lines with LogQL metric instant queries, so no line limit applies. Its base also takes `repo` and `version` from the line, and each query groups by the job and the repository. `--dry-run` prints each query and sends no request. [Count the lines](../guidelines/agentic-jobs.md#count-the-lines) of the guideline gives the form of the ratio.
 
 ## The job grades
 
-Each roadmap workflow gets a job grade from its result lines: `100`, `90`, `80`, `70`, `60`, `<60` or `too few`. Each grade has one action, from the owner request of 2026-11-12. A job grade is not the band of a decision point (ADR 0020). `devops roadmap eval grades` prints the grade of each workflow and repository, and `--format json` gives the same report to an agent.
-
-The ratio `p` is the successes divided by the attempts with `infra=false`. An infrastructure cut is not a fault of the workflow, so `p` does not count it, and one outage does not give each workflow the action of `<60`. The report shows the ratio of all attempts and the infrastructure share beside `p`.
+Each roadmap workflow gets a job grade from its result lines: `100`, `90`, `80`, `70`, `60`, `<60` or `too few`. Each grade has one action. A job grade is not the band of a decision point (ADR 0020). `devops roadmap eval grades` prints the grade of each workflow and repository, and `--format json` gives the same report to an agent. The report gives `p`, its interval and the efficiency of each job as [the guideline](../guidelines/agentic-jobs.md#the-grade) says.
 
 `src/devops_cli/roadmap/job_grade.py` holds the grade table, and `devops docs generate` writes it here:
 
@@ -95,24 +83,15 @@ The ratio `p` is the successes divided by the attempts with `infra=false`. An in
 
 <!-- JOB_GRADES_END -->
 
-- **Interval.** The report gives the Wilson 95% interval of `p` (statsmodels `proportion_confint`), the point grade of `p` and the grades of the two bounds. For example, 22 successes in 25 attempts give `p` 0.88, the interval [0.70, 0.96], the point grade 80 and the range 70 to 90. The grade is `too few`, because 25 attempts are fewer than 30.
 - **First pass.** A first pass is a success with no fix round. The grade `100` needs a first pass for each attempt. Three lines hold the counts of the rule (`FIRST_PASS_LIMITS` in `src/devops_cli/roadmap/job_result.py`): `stage` (`plan_calls` ≤ 1, `gate_returns` = 0, `verify_rounds` ≤ 1), `implement` (`repair_rounds` = 0) and `fix_plan` (`gate_returns` = 0, `verify_rounds` ≤ 1, `after` = 0). A line with no count of the rule is no first pass, such as a `stage` line with no `plan_calls`. The line of another job has no count of its fix rounds, so its first pass is not known, and it cannot get the grade `100`.
 - **Windows.** The 7-day window gives the grade. The report also shows the attempts and the successes of the last 24 hours and of the last 6 hours. 5 attempts or more with no success in 6 hours give the signal `broken`. An infrastructure share over 20% of 10 attempts or more in 24 hours gives the signal `infra`, and not a grade.
 - **Versions.** The report shows each devops-cli version that has 10 attempts or more in the window.
 - **Failure classes.** The report shows the 3 largest failure classes of the attempts with `infra=false`.
-- **Efficiency.** For a job whose line has `tokens` and `seconds`, the report shows the median, the p90 and the max of each attempt, and the tokens and the seconds of all attempts divided by the successes. At the grades `100`, `90` and `80`, the efficiency work is `optimize`. At a lower grade it is `report only`, and the work goes to success first.
+- **Efficiency.** The report shows the efficiency only for a line with `tokens` and `seconds`. The efficiency work of each grade is in the last column of the table.
 
 ### The 80% rule
 
-A job holds 80% when, at 3 daily checks in a row, its 7-day ratio is 0.80 or more and it has 30 attempts or more in the 7 days. Only then does the owner tune the caps of the job from its real performance. Under 30 attempts, the ratio is too few to judge, and the job does not hold 80%.
-
-A job that holds 80% keeps it until the evidence is clear that it fell. At each daily check, compute the Wilson upper bound of the 7-day ratio with z = 1.96 (95%), for `s` successes in `n` attempts and `p = s / n`:
-
-```text
-upper = (p + z²/(2n) + z·√(p(1 − p)/n + z²/(4n²))) / (1 + z²/n)
-```
-
-When the upper bound is under 0.80, the job no longer holds 80%. For example, 20 successes in 30 attempts give an upper bound of 0.81, and the job keeps the hold. 18 successes in 30 attempts give 0.75, and the hold ends.
+The roadmap jobs use [the 80% rule](../guidelines/agentic-jobs.md#the-80-rule) of the guideline with no change. `devops roadmap eval grades` gives its input at each daily check.
 
 ## Specs
 
