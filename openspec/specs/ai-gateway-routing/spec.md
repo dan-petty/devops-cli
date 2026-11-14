@@ -362,7 +362,7 @@ The CLI SHALL set `parallel_tool_calls` to false on every request with tools to 
 - **THEN** the request body holds no `parallel_tool_calls`
 
 ### Requirement: The dated DeepSeek group falls back to the undated model with the same provider filter
-The gateway SHALL send a failed call of the hosted group `deepseek-v4.1-flash-1017` to the hosted group `deepseek-v4.1-flash`, which calls `openrouter/deepseek/deepseek-v4.1-flash` with no `floor` route and with the same fp8 and `data_collection: deny` filters.
+The gateway SHALL send a failed call of the hosted group `deepseek-v4.1-flash-1017` to the hosted group `deepseek-v4.1-flash`, which calls `openrouter/deepseek/deepseek-v4.1-flash` with no `floor` route and with the same fp8 and `data_collection: deny` filters. Both groups SHALL set `supports_response_schema`, so a call that falls back keeps its response format.
 
 #### Scenario: A timeout of the dated group falls back
 - **WHEN** a call of `deepseek-v4.1-flash-1017` fails, for example with an OpenRouter timeout
@@ -371,3 +371,7 @@ The gateway SHALL send a failed call of the hosted group `deepseek-v4.1-flash-10
 #### Scenario: The fallback keeps the privacy filter
 - **WHEN** the gateway config is read
 - **THEN** both DeepSeek groups ask OpenRouter for fp8 weights and `data_collection: deny`
+
+#### Scenario: Both groups take a structured reply
+- **WHEN** the gateway config is read
+- **THEN** both DeepSeek groups set `supports_response_schema: true`

@@ -2158,7 +2158,8 @@ def test_the_deepseek_group_falls_back_to_the_undated_model_with_the_same_provid
     route, goes to `deepseek-v4.1-flash` (owner decision of 2026-11-13, #5564). The fallback
     group calls the undated model with no `floor` route, so OpenRouter balances the call across
     its providers. It asks for the same fp8 weights and the same `data_collection: deny`, so the
-    privacy control of SECURITY.md item 13 does not change."""
+    privacy control of SECURITY.md item 13 does not change. Both groups take a structured reply
+    (`supports_response_schema`), so a call that falls back keeps its response format (#5571)."""
     config = _full_gateway_config()
     groups = {m["model_name"]: m for m in config["model_list"]}
     primary, fallback = groups["deepseek-v4.1-flash-1017"], groups["deepseek-v4.1-flash"]
@@ -2170,12 +2171,16 @@ def test_the_deepseek_group_falls_back_to_the_undated_model_with_the_same_provid
         fallback["litellm_params"]["extra_body"]["provider"],
         primary["litellm_params"]["extra_body"]["provider"],
         fallback["model_info"]["max_input_tokens"],
+        primary["model_info"].get("supports_response_schema"),
+        fallback["model_info"].get("supports_response_schema"),
     ) == (
         True,
         "openrouter/deepseek/deepseek-v4.1-flash",
         {"quantizations": ["fp8"], "data_collection": "deny"},
         {"quantizations": ["fp8"], "data_collection": "deny"},
         primary["model_info"]["max_input_tokens"],
+        True,
+        True,
     )
 
 
