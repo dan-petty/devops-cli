@@ -1,0 +1,22 @@
+# Design
+
+## Decisions
+
+- **Allow `os.killpg` only inside `_signal_process_group`, `_terminate_process_group_os`, `_terminate_process_group_async` and `terminate_process_group`, by function name.**: The staged tree holds one `os.killpg` call, at `src/devops_cli/core/process.py:1205:os.killpg(pgid, sig)`, inside `src/devops_cli/core/process.py:def _signal_process_group`. ast-grep has no relation that holds a file and a function together, and the guard values stay with `test_terminate_process_group_guards_and_lifecycle`.
+- **Hold `src/**` in the `files` of all three rules and add one violation in `src` for each.**: The twin map at `tests/gate/construct_gate.py:97:"src": "tests",` gives each rule a tree that it must not report, and the staged `src/` holds no `setrlimit` call, no `os.set_blocking` call and no `fcntl.fcntl` call that sets `fcntl.O_NONBLOCK`.
+- **Cover `os.set_blocking` and `fcntl.fcntl` only, and not `os.open`.**: The only `O_NONBLOCK` use under `src/` is `src/devops_cli/roadmap/implement/git_isolation.py:209:handle = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)`, which opens a fresh descriptor and cannot target 0 to 2.
+- **Add the delta to the `ci-gate-rows` capability.**: Its purpose covers how `devops ci` checks committed files and the configuration of its tools in rows of its own, and the `constructs` row is the row that runs ast-grep.
+- **Split the construct-gate rule into the reporting requirement and the gate-registration requirement.**: A requirement text holds at most 500 characters, so the calls that the row refuses and the `files`, `severity`, table and case rules of each new rule sit in two requirements.
+- **Name the three rules in `ARCHITECTURE.md` section 7.3 and leave `.pre-commit-config.yaml` as it is.**: The gate compares the `ast-grep-scan` hook `entry` and `args` with `CONST_AST_GREP_SCAN_ARGS`, so the hook needs no edit, and `ARCHITECTURE.md` owns the three process-safety rules.
+- **Keep the PID 1, own-group and caller-group guard values with `test_terminate_process_group_guards_and_lifecycle`.**: ast-grep matches syntax and cannot compare a pid or a process group value, so the rule confines the call to the guard-holding functions and the test holds the values.
+- **Verify the manifest group with `uv run devops ci test tests/gate/construct_gate.py`, a path that the group changes.**: The gate module is the manifest table that the group edits, and `devops ci test` expands a helper module under `tests/` to the test modules that import it, so the run reaches `tests/invariants/test_construct_gate_check.py`.
+
+## Rejected alternatives
+
+- **Allow `os.killpg` by file path, `src/devops_cli/core/process.py`.**: The rule properties are checked only against the rule table, so a file-wide allow would pass a new unguarded call in the same module.
+- **Cover every use of `O_NONBLOCK`, including `os.open`.**: `src/devops_cli/roadmap/implement/git_isolation.py:209:handle = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)` opens a FIFO to prove the link check, and the rule would then fail the source tree.
+- **Hold `src/**` and `tests/**` for each rule.**: The twin map at `tests/gate/construct_gate.py:97:"src": "tests",` gives a rule one other tree, so a rule that holds both trees has no tree that must stay clean.
+- **Enforce the PID 1, own-group and caller-group guard values with an ast-grep rule.**: ast-grep matches syntax, so it cannot read the value of a pid or of a process group; `test_terminate_process_group_guards_and_lifecycle` holds those values.
+- **Write a pytest test that reads `.ast-grep/rules` and asserts the three rules are registered.**: `openspec/specs/ci-gate-rows/spec.md` requires a check of committed files or of tool configuration to be a row of `devops ci`, and `tests/gate/construct_gate.py:def _rule_test_case_escapes` already checks each rule and its cases.
+- **Rename the `ast-grep-scan` pre-commit hook to list the new rules.**: The hook is matched by its id and compared by its `entry` and `args` with `CONST_AST_GREP_SCAN_ARGS`, so a name edit adds no check and only widens the diff.
+- **Verify the manifest group with the invariants test module.**: A `manifest` group verifies with `uv run devops ci test` and a path of its own files, and `tests/invariants/test_construct_gate_check.py` is no path of the group; `devops ci test` reaches it through the helper module that the group changes.
