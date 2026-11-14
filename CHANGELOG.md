@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.136.0](https://github.com/dan-petty/devops-cli/compare/v0.135.0...v0.136.0) (2026-11-14)
+
+
+### Features
+
+* **roadmap:** audit the test registry declarations ([#5594](https://github.com/dan-petty/devops-cli/issues/5594)) ([130e428](https://github.com/dan-petty/devops-cli/commit/130e4284c5f0a921bd4d5989618b1810ba89a28c))
+
+
+### Bug Fixes
+
+* **ci:** Size narrowed test workers by collected tests ([#5547](https://github.com/dan-petty/devops-cli/issues/5547)) ([2126dc6](https://github.com/dan-petty/devops-cli/commit/2126dc6422db0bc3aac8684380a6b454174bb107))
+
 ## [0.135.0](https://github.com/dan-petty/devops-cli/compare/v0.134.1...v0.135.0) (2026-11-14)
 
 
