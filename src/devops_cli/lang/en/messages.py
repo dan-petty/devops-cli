@@ -550,6 +550,7 @@ class OpenSpecMessages:
     archive_dry_run_output: str = "Would archive {change}. The commands above are not run."
     change_folder_exists: str = "The change folder {path} already exists."
     new_dry_run_needs_title: str = "--dry-run requires --title so it makes no external request."
+    new_detached_branch: str = "HEAD detached"
     new_dry_run_output: str = "Would create {folder} on branch {branch}."
     new_next_steps: str = (
         "Created {folder} on branch {branch}.\n\n"
@@ -557,6 +558,16 @@ class OpenSpecMessages:
         "  Branch:  {branch}\n"
         "  Checks:  uv run devops ci\n"
         "  Archive: uv run devops openspec archive {change}"
+    )
+    new_next_steps_detached: str = (
+        "Created {folder}.\n\n"
+        "Next steps:\n"
+        "  Branch:  HEAD detached\n"
+        "  Checks:  uv run devops ci\n"
+        "  Archive: uv run devops openspec archive {change}"
+    )
+    new_suggestion: str = (
+        "The branch {branch} is a suggestion for this change. This checkout is not on it."
     )
 
 

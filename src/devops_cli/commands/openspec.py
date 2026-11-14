@@ -116,15 +116,26 @@ def new_cmd(
         print_error(str(exc), prefix=False)
         raise typer.Exit(1) from exc
 
+    branch = res.current_branch or MESSAGES.openspec.new_detached_branch
+    suggestion = (
+        ""
+        if res.current_branch == res.branch
+        else "\n\n" + MESSAGES.openspec.new_suggestion.format(branch=res.branch)
+    )
     if res.dry_run:
-        print_info(f"Would create {res.folder} on branch {res.branch}.")
+        print_info(
+            MESSAGES.openspec.new_dry_run_output.format(folder=res.folder, branch=branch)
+            + suggestion
+        )
         print_info(f"Folder: {res.folder}")
-        print_info(f"Branch: {res.branch}")
+        print_info(f"Branch: {branch}")
         return
 
-    print_success(
-        f"Created {res.folder} on branch {res.branch}.\n\n"
-        f"Branch:  {res.branch}\n"
-        f"Checks:  uv run devops ci\n"
-        f"Archive: uv run devops openspec archive {res.change}"
+    text = (
+        MESSAGES.openspec.new_next_steps_detached.format(folder=res.folder, change=res.change)
+        if res.current_branch is None
+        else MESSAGES.openspec.new_next_steps.format(
+            folder=res.folder, branch=branch, change=res.change
+        )
     )
+    print_success(text + suggestion)

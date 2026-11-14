@@ -15,7 +15,8 @@ from devops_cli.config.constants import (
 )
 from devops_cli.core.repo import get_repo_origin_name
 from devops_cli.exceptions import DevOpsCLIError
-from devops_cli.git.branch_form import branch_name, slug_from_title
+from devops_cli.git.branch_form import branch_name, parse_branch, slug_from_title
+from devops_cli.git.operations import current_branch
 from devops_cli.github.issues import get_repository_issue
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import isolated_openspec
@@ -24,12 +25,15 @@ from devops_cli.roadmap.commit_title import commit_type
 
 @dataclass(frozen=True)
 class ScaffoldResult:
-    """The result of scaffolding an OpenSpec change folder."""
+    """The result of scaffolding an OpenSpec change folder. `branch` is the computed branch name,
+    which the roadmap jobs use; `current_branch` is the branch of the checkout, or None when HEAD
+    is detached or the checkout is no repository (#4593)."""
 
     folder: str
     branch: str
     change: str
     dry_run: bool = False
+    current_branch: str | None = None
 
 
 def extract_requirement_from_spec(spec_text: str, requirement_name: str) -> str | None:
@@ -140,6 +144,21 @@ def scaffold_spec_delta(root: Path, capability: str, requirement: str | None) ->
     )
 
 
+def _checked_out_branch(root: Path) -> str | None:
+    """The branch of the checkout, or None when HEAD is detached or the directory is no
+    repository (#4593)."""
+    try:
+        return current_branch(root) or None
+    except DevOpsCLIError:
+        return None
+
+
+def _slug_for_issue(branch: str | None, issue: int) -> str | None:
+    """The slug of `branch` when it names `issue` in the project branch form, else None."""
+    parts = parse_branch(branch)
+    return parts.slug if parts is not None and parts.issue == issue else None
+
+
 def scaffold_change(
     root: Path,
     issue: int,
@@ -150,16 +169,25 @@ def scaffold_change(
     dry_run: bool = False,
     repo: str | None = None,
 ) -> ScaffoldResult:
-    """Scaffold an OpenSpec change folder in project form."""
+    """Scaffold an OpenSpec change folder in project form. The slug of the folder comes from the
+    branch of the checkout when that branch names the same issue, so the folder and the worktree
+    branch hold one slug (#4593)."""
+    checked_out = _checked_out_branch(root)
     if dry_run:
         if title is None:
             raise DevOpsCLIError(MESSAGES.openspec.new_dry_run_needs_title)
         type_ = commit_type(title) or "feat"
-        slug = slug_from_title(title)
+        slug = _slug_for_issue(checked_out, issue) or slug_from_title(title)
         change_name = f"{issue}-{slug}"
         branch = branch_name(issue, type_, slug)
         folder = f"{CONST_OPENSPEC_CHANGES_DIR}/{change_name}"
-        return ScaffoldResult(folder=folder, branch=branch, change=change_name, dry_run=True)
+        return ScaffoldResult(
+            folder=folder,
+            branch=branch,
+            change=change_name,
+            dry_run=True,
+            current_branch=checked_out,
+        )
 
     if title is None:
         target_repo = repo or get_repo_origin_name(root) or "unknown/repo"
@@ -167,7 +195,7 @@ def scaffold_change(
         title = issue_view.title
 
     type_ = commit_type(title) or "feat"
-    slug = slug_from_title(title)
+    slug = _slug_for_issue(checked_out, issue) or slug_from_title(title)
     change_name = f"{issue}-{slug}"
     branch = branch_name(issue, type_, slug)
     change_folder = root / CONST_OPENSPEC_CHANGES_DIR / change_name
@@ -204,4 +232,5 @@ def scaffold_change(
         branch=branch,
         change=change_name,
         dry_run=False,
+        current_branch=checked_out,
     )
