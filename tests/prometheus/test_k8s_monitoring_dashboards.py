@@ -60,6 +60,7 @@ PROVISIONED = {
     ],
     # The upstream CloudNativePG dashboard (#4994) fills most of one ConfigMap alone.
     "grafana-database-dashboards": ["cloudnative-pg.json"],
+    "grafana-topology-dashboards": ["system-topology.json"],
 }
 # All dashboards are now provisioned via sidecar ConfigMaps.
 SYNC_ONLY: set[str] = set()
@@ -980,3 +981,21 @@ def test_each_count_of_the_result_lines_starts_with_the_base_of_the_job_grades()
 
     assert len(counts) > 0
     assert [count for count in counts if not count.startswith(f"{RESULT_LINES} | regexp ")] == []
+
+
+def test_system_topology_dashboard_has_network_service_map_and_brain_panels() -> None:
+    """Verify system-topology.json defines network, service map, and brain rows with nodeGraph."""
+    dashboard = json.loads((DASHBOARDS_DIR / "system-topology.json").read_text(encoding="utf-8"))
+    assert dashboard["uid"] == "system-topology"
+    assert dashboard["title"] == "System Topology & Service Map"
+
+    row_titles = [panel["title"] for panel in dashboard["panels"] if panel.get("type") == "row"]
+    assert "Network & Ingress Topology" in row_titles
+    assert "Distributed Trace Service Map" in row_titles
+    assert "Project Brain & Decision Flow" in row_titles
+
+    node_graphs = [panel for panel in dashboard["panels"] if panel.get("type") == "nodeGraph"]
+    assert len(node_graphs) >= 1
+    ng = node_graphs[0]
+    assert ng.get("datasource", {}).get("type") == "tempo"
+    assert any(target.get("queryType") == "serviceMap" for target in ng.get("targets", []))
