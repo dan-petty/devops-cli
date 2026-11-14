@@ -102,6 +102,10 @@ data:
     # DEVOPS_CLI_VALKEY_PASSWORD, never from this ConfigMap.
     valkey:
       url: valkey://valkey-devops.llm.svc.cluster.local:6379/0
+    # Qdrant in namespace llm, the vector store of the RAG index. The pods send the read-only key
+    # from Secret devops-cli as DEVOPS_CLI_QDRANT_API_KEY, never from this ConfigMap (#3823).
+    qdrant:
+      url: http://qdrant.llm.svc.cluster.local:6333
     # The Crawl4AI service in namespace devops, which gives the text of a web page. Its token
     # reaches the pod from Secret devops-cli as DEVOPS_CLI_CRAWL4AI_API_TOKEN, never from this
     # ConfigMap.

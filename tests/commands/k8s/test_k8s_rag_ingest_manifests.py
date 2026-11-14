@@ -97,8 +97,9 @@ def _assert_ingest_args(command: list[str], args: list[str]) -> None:
     )
 
 
-def test_network_policy_selects_only_ingest_pods_for_qdrant_6333() -> None:
-    """NetworkPolicy selects only ingest pods for TCP 6333 egress and ingress."""
+def test_network_policy_selects_ingest_pods_and_the_devops_namespace_for_qdrant_6333() -> None:
+    """NetworkPolicy selects ingest pods for TCP 6333 egress, and the llm perimeter admits the
+    ingest pods and the devops namespace on 6333 for the runner and the roadmap Service (#3823)."""
     egress_policy_file = DEVOPS_DIR / "networkpolicy-rag-ingest.yaml"
     assert egress_policy_file.is_file(), f"Missing {egress_policy_file}"
     egress_policy = yaml.safe_load(egress_policy_file.read_text(encoding="utf-8"))
@@ -117,7 +118,7 @@ def test_network_policy_selects_only_ingest_pods_for_qdrant_6333() -> None:
     )
     assert has_qdrant_egress, "rag-ingest-egress must permit egress to TCP port 6333"
 
-    # Ingress: llm perimeter permits TCP 6333 from devops ingest pods only
+    # Ingress: llm perimeter permits TCP 6333 from the ingest pods and the whole devops namespace
     ingress_rules = llm_policy["spec"].get("ingress", [])
     qdrant_ingress_peers = [
         peer
@@ -125,12 +126,13 @@ def test_network_policy_selects_only_ingest_pods_for_qdrant_6333() -> None:
         if any(p.get("port") == 6333 and p.get("protocol") == "TCP" for p in rule.get("ports", []))
         for peer in rule.get("from", [])
     ]
-    assert len(qdrant_ingress_peers) == 1
-    peer = qdrant_ingress_peers[0]
-    assert peer.get("namespaceSelector") == {
-        "matchLabels": {"kubernetes.io/metadata.name": "devops"}
-    }
-    assert peer.get("podSelector") == {"matchLabels": {"app.kubernetes.io/name": "rag-ingest"}}
+    assert qdrant_ingress_peers == [
+        {
+            "namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "devops"}},
+            "podSelector": {"matchLabels": {"app.kubernetes.io/name": "rag-ingest"}},
+        },
+        {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "devops"}}},
+    ]
 
 
 def test_workflow_template_mutex_and_cronworkflow_concurrency_policy() -> None:

@@ -86,6 +86,7 @@ _VARIABLES_BEFORE = frozenset(
         "DEVOPS_CLI_PROMETHEUS_URL",
         "DEVOPS_CLI_QDRANT_API_KEY",
         "DEVOPS_CLI_QDRANT_COLLECTION_PREFIX",
+        "DEVOPS_CLI_QDRANT_READ_ONLY_API_KEY",  # #3823
         "DEVOPS_CLI_QDRANT_TIMEOUT",
         "DEVOPS_CLI_QDRANT_URL",
         "DEVOPS_CLI_REPOS_BASE_DIR",
@@ -280,6 +281,7 @@ _KEYRING_BEFORE = {
 # Credentials added after the declaration moved onto the fields.
 _KEYRING_OF_LATER_CREDENTIALS = {
     "argocd.github_app_private_key": "argocd_github_app_private_key",  # #2000
+    "qdrant.read_only_api_key": "qdrant_read_only_api_key",  # #3823
     "mattermost.alerts_hook": "mattermost_alerts_hook",  # #1392
     "mattermost.deploys_hook": "mattermost_deploys_hook",  # #1393
     "mattermost.command_token": "mattermost_command_token",  # #1395

@@ -53,6 +53,7 @@ PUSH_COMMAND = typer.main.get_command(_push_app)
 
 GATEWAY_KEY = "sk-keyring-gateway-value-0001"
 QDRANT_KEY = "qdrant-keyring-value-0001"
+QDRANT_READ_ONLY_KEY = "qdrant-read-only-keyring-value-0001"
 RUNS_PASSWORD = "runs-keyring-value-0001"
 CACHE_PASSWORD = "cache-keyring-value-0001"
 DEVOPS_CACHE_PASSWORD = "devops-cache-keyring-value-0001"
@@ -63,6 +64,7 @@ MCP_TOKEN = "mcp-keyring-value-0001"
 FULL_KEYRING = {
     LLM_GATEWAY_MASTER_KEY: GATEWAY_KEY,
     "qdrant_api_key": QDRANT_KEY,
+    "qdrant_read_only_api_key": QDRANT_READ_ONLY_KEY,
     "runs_index_password": RUNS_PASSWORD,
     "valkey_password": CACHE_PASSWORD,
     DEVOPS_CACHE_VALKEY_AUTH_KEY: DEVOPS_CACHE_PASSWORD,
@@ -239,7 +241,7 @@ def test_apply_is_one_server_side_apply_of_a_list_on_stdin(
         "List",
         {
             "llm/llm-gateway-secrets": ["master-key"],
-            "llm/qdrant-api-key": ["api-key"],
+            "llm/qdrant-api-key": ["api-key", "read-only-api-key"],
             "llm/valkey-runs-auth": ["password"],
             "llm/valkey-auth": ["VALKEY_PASSWORD"],
             "llm/valkey-devops-auth": ["password"],
@@ -252,6 +254,7 @@ def test_apply_is_one_server_side_apply_of_a_list_on_stdin(
                 "DEVOPS_CLI_CRAWL4AI_API_TOKEN",
                 "DEVOPS_CLI_MCP_IMPLEMENT_TOKEN",
                 "DEVOPS_CLI_MCP_STAGE_TOKEN",
+                "DEVOPS_CLI_QDRANT_API_KEY",
                 APP_KEY_ENTRY,
                 "DEVOPS_CLI_VALKEY_PASSWORD",
             ],
@@ -283,6 +286,7 @@ def test_keyring_values_without_live_secrets_are_created_and_restart_nothing(
             "DEVOPS_CLI_MCP_IMPLEMENT_TOKEN": MCP_TOKEN,
             "DEVOPS_CLI_MCP_STAGE_TOKEN": MCP_TOKEN,
             "DEVOPS_CLI_VALKEY_PASSWORD": DEVOPS_CACHE_PASSWORD,
+            "DEVOPS_CLI_QDRANT_API_KEY": QDRANT_READ_ONLY_KEY,
         },
         [],
     )
@@ -291,7 +295,9 @@ def test_keyring_values_without_live_secrets_are_created_and_restart_nothing(
 def test_an_equal_live_value_is_unchanged_and_restarts_nothing(
     cluster: FakeCluster, stub_keyring: FakeKeyring
 ) -> None:
-    cluster.add_secret("llm", "qdrant-api-key", {"api-key": QDRANT_KEY})
+    cluster.add_secret(
+        "llm", "qdrant-api-key", {"api-key": QDRANT_KEY, "read-only-api-key": QDRANT_READ_ONLY_KEY}
+    )
     cluster.workloads = {("llm", "statefulset/qdrant")}
     result = _push("--only", "llm/qdrant-api-key")
     assert (result.exit_code, "api-key (keyring qdrant_api_key) unchanged" in result.output) == (
@@ -330,8 +336,14 @@ def test_a_missing_keyring_value_is_adopted_from_the_live_secret(
         cluster.commands("kubectl", "rollout"),
     ) == (
         0,
-        {"qdrant_api_key": "live-qdrant-value-0001"},
-        {"api-key": "live-qdrant-value-0001"},
+        {
+            "qdrant_api_key": "live-qdrant-value-0001",
+            "qdrant_read_only_api_key": backend.writes["qdrant_read_only_api_key"],
+        },
+        {
+            "api-key": "live-qdrant-value-0001",
+            "read-only-api-key": backend.writes["qdrant_read_only_api_key"],
+        },
         True,
         [],
     )
@@ -359,6 +371,7 @@ def test_a_generated_value_is_stored_in_the_keyring_before_the_apply(
         [
             LLM_GATEWAY_MASTER_KEY,
             "qdrant_api_key",
+            "qdrant_read_only_api_key",
             "runs_index_password",
             DEVOPS_CACHE_VALKEY_AUTH_KEY,
             "valkey_password",
@@ -389,6 +402,7 @@ def test_the_devops_api_key_is_adopted_from_the_gateway_secret_never_generated(
         {
             LLM_GATEWAY_MASTER_KEY: "sk-live-gateway-0001",
             DEVOPS_CACHE_VALKEY_AUTH_KEY: "live-devops-cache-0001",
+            "qdrant_read_only_api_key": backend.writes["qdrant_read_only_api_key"],
         },
         {
             APP_KEY_ENTRY: APP_KEY,
@@ -397,6 +411,7 @@ def test_the_devops_api_key_is_adopted_from_the_gateway_secret_never_generated(
             "DEVOPS_CLI_MCP_IMPLEMENT_TOKEN": MCP_TOKEN,
             "DEVOPS_CLI_MCP_STAGE_TOKEN": MCP_TOKEN,
             "DEVOPS_CLI_VALKEY_PASSWORD": "live-devops-cache-0001",
+            "DEVOPS_CLI_QDRANT_API_KEY": backend.writes["qdrant_read_only_api_key"],
         },
     )
 
@@ -540,7 +555,7 @@ def test_only_applies_one_secret_and_reads_only_its_source(
         result.exit_code,
         [f"{i['metadata']['namespace']}/{i['metadata']['name']}" for i in cluster.applied_items()],
         stub_keyring.secret_reads(),
-    ) == (0, ["llm/qdrant-api-key"], {"qdrant_api_key"})
+    ) == (0, ["llm/qdrant-api-key"], {"qdrant_api_key", "qdrant_read_only_api_key"})
 
 
 def test_an_unknown_only_name_exits_2_listing_the_table(
@@ -577,6 +592,7 @@ def test_stack_devops_reads_the_app_key_gateway_key_and_webhook_secrets_and_runs
             "searxng_secret_key",
             "mcp_token",
             "qdrant_api_key",
+            "qdrant_read_only_api_key",
         },
         [],
         APP_KEY,
@@ -723,10 +739,10 @@ def test_a_failed_apply_echoes_no_kubectl_output_and_names_what_was_written(
         result.exit_code,
         quoted[0] in result.output,
         "nothing was written" in output,
-        "keyring entries stored: qdrant_api_key" in output,
+        "keyring entries stored: qdrant_api_key, qdrant_read_only_api_key" in output,
         "llm/qdrant-api-key" in output,
         sorted(backend.writes),
-    ) == (1, False, False, True, True, ["qdrant_api_key"])
+    ) == (1, False, False, True, True, ["qdrant_api_key", "qdrant_read_only_api_key"])
 
 
 def test_a_live_value_that_is_not_utf8_is_never_adopted(
@@ -753,7 +769,10 @@ def test_a_keyring_value_against_a_non_utf8_live_value_differs(
     held = _push("--only", "llm/qdrant-api-key")
     rotated = _push("--only", "llm/qdrant-api-key", "--rotate")
     assert (held.exit_code, "--rotate" in held.output, rotated.exit_code) == (1, True, 0)
-    assert cluster.live_data("llm", "qdrant-api-key") == {"api-key": QDRANT_KEY}
+    assert cluster.live_data("llm", "qdrant-api-key") == {
+        "api-key": QDRANT_KEY,
+        "read-only-api-key": QDRANT_READ_ONLY_KEY,
+    }
 
 
 def test_an_adopted_value_without_the_prefix_names_the_live_secret(
