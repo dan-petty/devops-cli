@@ -4,14 +4,18 @@ How the mutation run selects the tests it runs inside its copy of the tree, so t
 ## ADDED Requirements
 
 ### Requirement: The mutation selection names test paths of this tree
-The mutation run MUST select only test paths that a file of this tree holds.
+The mutation run MUST select only test paths that a file of this tree holds, and MUST leave out only tests that those files define.
 
 #### Scenario: A selection path that no file holds
 - **WHEN** the mutation test selection names a path that no file of this tree holds
 - **THEN** the selection check fails and names that path
 
+#### Scenario: A left-out test that its module does not define
+- **WHEN** the mutation test selection leaves out a test by name, and its module defines no test of that name
+- **THEN** the selection check fails and names that entry
+
 #### Scenario: Every selection path holds a test
-- **WHEN** every path of the mutation test selection is a file of this tree
+- **WHEN** every path of the mutation test selection is a file of this tree, and each test that the selection leaves out by name is a test of its module
 - **THEN** the selection check passes with no finding
 
 ### Requirement: The mutation run copies the living specs
