@@ -849,12 +849,12 @@ def test_grafana_plugin_updates_stay_on_the_pinned_major_one_plugin_a_pull_reque
     gets its own pull request, held to the pinned major, with a note that links the release's
     record. A custom manager of a file under `k8s/` carries the infra label."""
     manager = _grafana_plugin_manager()
-    (rule,) = [
-        rule for rule in _rules() if rule.get("matchDatasources") == [manager["datasourceTemplate"]]
+    (base_rule,) = [
+        rule
+        for rule in _rules()
+        if rule.get("matchDatasources") == [manager["datasourceTemplate"]]
+        and "matchPackageNames" not in rule
     ]
-    majors = {
-        int(version.split(".", 1)[0]) for _, version in _expected_custom_deps()[_GRAFANA_VALUES]
-    }
     (infra,) = [
         rule
         for rule in _rules()
@@ -862,14 +862,23 @@ def test_grafana_plugin_updates_stay_on_the_pinned_major_one_plugin_a_pull_reque
     ]
 
     assert (
-        len(majors),
-        rule["allowedVersions"],
-        "groupName" in rule,
-        any("grafanaDependency" in note for note in rule["prBodyNotes"]),
-        any("{{{depName}}}/versions/{{{newVersion}}}" in note for note in rule["prBodyNotes"]),
+        "groupName" in base_rule,
+        any("grafanaDependency" in note for note in base_rule["prBodyNotes"]),
+        any("{{{depName}}}/versions/{{{newVersion}}}" in note for note in base_rule["prBodyNotes"]),
         infra["matchFileNames"],
         infra["addLabels"],
-    ) == (1, f"<{max(majors) + 1}.0.0", False, True, True, ["k8s/**"], ["scope/infra"])
+    ) == (False, True, True, ["k8s/**"], ["scope/infra"])
+
+    allowed = {
+        pkg: rule["allowedVersions"]
+        for rule in _rules()
+        if rule.get("matchDatasources") == [manager["datasourceTemplate"]]
+        and "allowedVersions" in rule
+        for pkg in rule.get("matchPackageNames", [])
+    }
+    for plugin, version in _expected_custom_deps()[_GRAFANA_VALUES]:
+        major = int(version.split(".", 1)[0])
+        assert allowed.get(plugin) == f"<{major + 1}.0.0"
 
 
 def test_opentofu_providers_come_from_the_opentofu_registry() -> None:
