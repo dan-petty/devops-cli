@@ -46,7 +46,7 @@ SEARXNG_SERVER_KEY = "searxng_secret_key"
 # the two pods do.
 GRAFANA_RENDERER_AUTH_KEY = "grafana_renderer_token"
 # The secret_key that Grafana uses to sign session cookies and CSRF tokens (#5697).
-GRAFANA_SECRET_KEY = "grafana_secret_key"
+GRAFANA_SECURITY_KEY = "grafana_secret_key"
 
 
 @dataclass(frozen=True)
@@ -466,7 +466,7 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
             ),
             SecretEntry(
                 "secret-key",
-                KeyringSource(GRAFANA_SECRET_KEY),
+                KeyringSource(GRAFANA_SECURITY_KEY),
                 generator=SecretGenerator("urlsafe", 32),
             ),
         ),
