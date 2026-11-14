@@ -302,6 +302,34 @@ def test_a_failed_request_gives_the_fallback_and_counts_its_class(
     assert otlp.points(FAILED_COUNTER) == [({"point": "demo.point", "error": "timeout"}, 1)]
 
 
+def _broken_rule(digest: Mapping[str, Any]) -> Band | None:
+    raise RuntimeError("the rule broke")
+
+
+def test_an_error_that_no_class_names_logs_its_trace(
+    tmp_path: Path, jev: JevFake, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An error that no class of `FAILED` names is a defect, so `decide` and `adecide` log the
+    line of the fallback with the trace of the error. A known error, such as a question with no
+    cut, logs its line with no trace (#5272)."""
+    broken = _chain(_point(_cuts(tmp_path), rule=_broken_rule), jev)
+
+    with caplog.at_level(logging.WARNING):
+        broken.decide({"text": "a plan"}, subject=7)
+        asyncio.run(broken.adecide({"text": "a plan"}, subject=8))
+
+    traced = [record.exc_info[1] for record in caplog.records if record.exc_info]
+    assert [(type(error), str(error)) for error in traced] == [(RuntimeError, "the rule broke")] * 2
+    assert all("current behavior runs" in record.getMessage() for record in caplog.records)
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        _chain(_point(_cuts(tmp_path, ("a", "b", "c"))), jev).decide({"text": "a plan"}, subject=9)
+
+    assert "current behavior runs" in caplog.text
+    assert not any(record.exc_info for record in caplog.records)
+
+
 def test_the_failure_classes_are_seven() -> None:
     from devops_cli.roadmap.decision_step import FailureClass
 

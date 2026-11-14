@@ -13,8 +13,9 @@ A `ResolverChain` resolves a point in this order and stops at the first resolver
 3. the fallback: no band, and the workflow does what it did before the point. An error of the
    request, a missing answer or cut, a digest that holds a secret, or a cuts file of another model
    than the model in use gives the fallback, and the log names the cause. The failed counter counts
-   the class of the error. The chain loads the cuts of the point before the request, so no request
-   goes to a model that the cuts do not cover.
+   the class of the error. An error that no class names is a defect, so its log line also holds
+   its trace. The chain loads the cuts of the point before the request, so no request goes to a
+   model that the cuts do not cover.
 
 `ResolverChain.decide` sends the request on the one blocking portal of the process, so a caller
 that runs an event loop may call it. `ResolverChain.adecide` awaits the same request on the loop of
@@ -55,6 +56,7 @@ from devops_cli.config.constants import CONST_ROADMAP_DECISION_POINT_MAX_SERIES
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.decision_fit import FitCase
 from devops_cli.roadmap.decision_step import (
+    FAILED,
     Band,
     CutsModelMismatchError,
     SecretInDigestError,
@@ -276,8 +278,13 @@ class ResolverChain[T]:
         try:
             state = self.point.evidence(given)
             resolved = self._resolve(state, answers)
+        except FAILED as exc:
+            logger.warning(self._failure_line(subject, exc))
+            resolved = self._failed(exc)
         except Exception as exc:
-            resolved = self._failed(subject, exc)
+            # No class names this error, so it is a defect and the log keeps its trace.
+            logger.warning(self._failure_line(subject, exc), exc_info=exc)
+            resolved = self._failed(exc)
         return self._counted(subject, state, resolved, answers, started)
 
     async def adecide(self, given: T, *, subject: object) -> DecisionRecord:
@@ -290,20 +297,26 @@ class ResolverChain[T]:
         try:
             state = self.point.evidence(given)
             resolved = await self._aresolve(state, answers)
+        except FAILED as exc:
+            logger.warning(self._failure_line(subject, exc))
+            resolved = self._failed(exc)
         except Exception as exc:
-            resolved = self._failed(subject, exc)
+            # No class names this error, so it is a defect and the log keeps its trace.
+            logger.warning(self._failure_line(subject, exc), exc_info=exc)
+            resolved = self._failed(exc)
         return self._counted(subject, state, resolved, answers, started)
 
-    def _failed(self, subject: object, exc: BaseException) -> _Resolved:
-        """The fallback of an error of the chain, with its cause in the log and its class in the
-        failed counter."""
-        logger.warning(
-            MESSAGES.roadmap.decision_point_failed.format(
-                point=self.point.name,
-                subject=subject,
-                error=f"{type(exc).__name__}: {exc}"[:_ERROR_CHARS],
-            )
+    def _failure_line(self, subject: object, exc: BaseException) -> str:
+        """The log line of an error of the chain: the point, the subject and the cause."""
+        return MESSAGES.roadmap.decision_point_failed.format(
+            point=self.point.name,
+            subject=subject,
+            error=f"{type(exc).__name__}: {exc}"[:_ERROR_CHARS],
         )
+
+    def _failed(self, exc: BaseException) -> _Resolved:
+        """The fallback of an error of the chain, with its class in the failed counter. The caller
+        logs the cause, and the trace of an error that no class of `FAILED` names."""
         emit(
             DECISION_POINT_FAILED_TOTAL,
             1,
