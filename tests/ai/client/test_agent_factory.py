@@ -124,7 +124,7 @@ def test_a_request_on_the_deepseek_group_costs_its_cached_and_new_input_and_its_
         )
 
     model = FunctionModel(reply, model_name=deepseek)
-    setattr(model, "served_by", _GATEWAY_URL)
+    setattr(model, "served_by", "https://api.openai.com")
     build_agent(model).run_sync("Hi")
 
     with contextlib.closing(sqlite3.connect(spend_ledger.db_path)) as conn:
@@ -151,7 +151,7 @@ def test_a_request_on_a_claude_group_costs_its_cache_reads_and_writes_at_the_cac
         )
 
     model = FunctionModel(reply, model_name=sonnet)
-    setattr(model, "served_by", _GATEWAY_URL)
+    setattr(model, "served_by", "https://api.openai.com")
     build_agent(model).run_sync("Hi")
 
     with contextlib.closing(sqlite3.connect(spend_ledger.db_path)) as conn:
@@ -275,3 +275,26 @@ def test_the_backend_report_averages_the_recorded_durations(spend_ledger: SpendL
     report = spend_ledger.get_lifetime_report()
 
     assert [backend.mean_duration_seconds for backend in report.backends] == [0.2]
+
+
+def test_the_backend_report_counts_a_build_agent_request_with_a_served_by(
+    spend_ledger: SpendLedger, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The spend hook of `build_agent` passes `served_by`, so the backend breakdown counts the
+    request and prices it at the gateway (#4716)."""
+    from pydantic_ai.models.function import FunctionModel
+
+    class Served(FunctionModel):
+        served_by = "http://backend.example.com"
+
+    def reply(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        return ModelResponse(parts=[TextPart("ok")], usage=RequestUsage(input_tokens=100))
+
+    _clock(monkeypatch, 0.0, 0.5)
+    build_agent(Served(reply, model_name="served-model"), request_type="chat_test").run_sync("Hi")
+
+    report = spend_ledger.get_lifetime_report()
+
+    assert [(backend.served_by, backend.request_count) for backend in report.backends] == [
+        ("http://backend.example.com", 1)
+    ]

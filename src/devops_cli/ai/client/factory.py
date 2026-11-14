@@ -219,6 +219,7 @@ def _spend_capability(request_type: str, stage: str | None) -> Any:
             else str(getattr(m, "system", "") or getattr(m, "provider", "") or "unknown"),
             model=asked,
             server=urlsplit(served_by).netloc if served_by else "unknown",
+            served_by=served_by,
             served_model=answered,
             prompt_tokens=getattr(response.usage, "input_tokens", 0),
             completion_tokens=getattr(response.usage, "output_tokens", 0),
