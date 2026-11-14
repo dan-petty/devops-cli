@@ -364,6 +364,14 @@ Each line shows `200 image/png`. Open the two files, and make sure that the text
 max_over_time(container_memory_working_set_bytes{namespace="monitoring", container="grafana-image-renderer"}[30m]) / (1536 * 1024 * 1024)
 ```
 
+## Grafana LLM Plugin
+
+Grafana preinstalls the `grafana-llm-app` plugin pinned at release `1.2.0` (`monitoring/grafana-values.yaml`). The plugin provides LLM features across Grafana, such as panel explanations and query generation.
+
+- Grafana routes requests to the in-cluster LiteLLM AI Gateway at `http://llm-gateway.llm.svc.cluster.local:4000/v1` targeting model `qwen3.8:27b`.
+- The network policy `monitoring-default-perimeter` admits egress to port 4000 of namespace `llm`.
+- The operator configures the gateway connection under **Administration** > **Plugins** > **LLM** in the Grafana web console, using the LiteLLM master key from the keyring.
+
 ## Log and Metric Retention
 
 Logs and metrics are kept for 30 days:

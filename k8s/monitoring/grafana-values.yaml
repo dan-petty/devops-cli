@@ -105,6 +105,7 @@ plugins:
   - grafana-metricsdrilldown-app@3.1.0
   - grafana-pyroscope-app@3.1.0
   - grafana-exploretraces-app@3.2.0
+  - grafana-llm-app@1.2.0
 
 datasources:
   datasources.yaml:

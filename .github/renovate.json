@@ -176,10 +176,26 @@
     {
       "description": "Each Grafana plugin release names the Grafana it needs as grafanaDependency, which Renovate cannot read. A minor release can need a newer Grafana minor, so each plugin gets its own pull request, held to the major that the running Grafana major needs.",
       "matchDatasources": ["custom.grafana_plugins"],
-      "allowedVersions": "<4.0.0",
       "prBodyNotes": [
         "Before the merge, check that the Grafana image of the `grafana` chart meets the `grafanaDependency` of this release: https://grafana.com/api/plugins/{{{depName}}}/versions/{{{newVersion}}}. Grafana installs the pinned version at start."
       ]
+    },
+    {
+      "description": "The Grafana drilldown app plugins stay on major 3.",
+      "matchDatasources": ["custom.grafana_plugins"],
+      "matchPackageNames": [
+        "grafana-lokiexplore-app",
+        "grafana-metricsdrilldown-app",
+        "grafana-pyroscope-app",
+        "grafana-exploretraces-app"
+      ],
+      "allowedVersions": "<4.0.0"
+    },
+    {
+      "description": "The grafana-llm-app plugin stays on major 1.",
+      "matchDatasources": ["custom.grafana_plugins"],
+      "matchPackageNames": ["grafana-llm-app"],
+      "allowedVersions": "<2.0.0"
     },
     {
       "description": "SearXNG publishes many tags a day, and the tests hold the engine names of the pinned image. A tag has no minimum release age (CONTRIBUTING.md, Dependency Versions), so a person refreshes the engine names at each bump. Each tag ends in a commit hash, which the versioning ignores.",
