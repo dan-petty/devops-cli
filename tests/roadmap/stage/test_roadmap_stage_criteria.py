@@ -99,3 +99,27 @@ def test_a_pending_person_entry_needs_a_reason() -> None:
 def test_a_group_number_starts_at_one() -> None:
     with pytest.raises(ValidationError, match="A criterion group is a number from 1, not 0"):
         _entry("A criterion.", 0)
+
+
+def test_a_struck_through_unchecked_item_is_no_criterion() -> None:
+    body = "## Acceptance criteria\n\n- ~~[ ] Dropped criterion~~\n"
+
+    assert acceptance_criteria(body) == []
+
+
+def test_a_struck_through_checked_item_is_no_criterion() -> None:
+    body = "## Acceptance criteria\n\n- ~~[x] Dropped criterion~~\n"
+
+    assert acceptance_criteria(body) == []
+
+
+def test_active_items_beside_a_struck_item_keep_their_order() -> None:
+    body = "## Acceptance criteria\n\n- ~~[ ] Dropped~~\n- [ ] Kept one\n- [x] Kept two\n"
+
+    assert acceptance_criteria(body) == ["Kept one", "Kept two"]
+
+
+def test_an_inline_strikethrough_in_an_active_item_keeps_the_item() -> None:
+    body = "## Acceptance criteria\n\n- [ ] Keep ~~this~~ text\n"
+
+    assert acceptance_criteria(body) == ["Keep ~~this~~ text"]
