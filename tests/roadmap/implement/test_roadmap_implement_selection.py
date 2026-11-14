@@ -10,6 +10,7 @@ import pytest
 
 from devops_cli.config import settings
 from devops_cli.config.constants import CONST_ROADMAP_ACTIONS_BOT_LOGIN
+from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement.implement import (
     DEFAULT_IMPLEMENT_FILTERS,
@@ -27,6 +28,7 @@ from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_implement import (
     BRANCH,
     NEEDS_FIX_DRAFT,
+    OPEN_DRAFT,
     PULL,
     push_staged_branch,
     route_pull_status,
@@ -56,6 +58,7 @@ def _plan(
     item: int | None = None,
     limit: int = 1,
     probe: int | None = None,
+    check_reader: Callable[..., CheckVerdictSummary] | None = None,
 ) -> ImplementPlan:
     return plan_implement(
         store,
@@ -65,6 +68,7 @@ def _plan(
         item_number=item,
         limit=limit,
         probe=probe,
+        **({"check_reader": check_reader} if check_reader is not None else {}),
     )
 
 
@@ -674,3 +678,71 @@ def test_a_run_of_an_explicit_effort_filter_names_its_pass_and_no_fallback(
 
     assert (plan.effort, plan.fallback, "Effort pass: high." in report) == ("high", False, True)
     assert "fallback pass" not in report
+
+
+def _checks(bucket: CheckBucket, name: str = "Plan Check") -> CheckVerdictSummary:
+    return CheckVerdictSummary(items=[PRCheckItem(name=name, state="failure", bucket=bucket)])
+
+
+def _with_head(api: GitHubApiFake, *, head: str = "head-sha") -> None:
+    route_pull_status(api, {**OPEN_DRAFT, "head": {"sha": head}})
+
+
+@pytest.mark.parametrize(
+    ("bucket", "reason"),
+    [
+        (CheckBucket.FAIL, "The check Plan Check failed."),
+        (CheckBucket.CANCEL, "The check Plan Check of its plan pull request was cancelled."),
+        (CheckBucket.PENDING, "The check Plan Check of its plan pull request still runs."),
+    ],
+)
+def test_a_plan_check_that_did_not_pass_leaves_the_item_out(
+    store: InMemoryRoadmapStore,
+    staged_repo: StageRepo,
+    api: GitHubApiFake,
+    bucket: CheckBucket,
+    reason: str,
+) -> None:
+    """A failed, cancelled or pending check of the plan pull request holds the item back
+    (#3976)."""
+    _with_head(api)
+    number = seed_staged(store)
+
+    plan = _plan(store, staged_repo, check_reader=lambda owner, name, sha: _checks(bucket))
+
+    assert _reasons(plan) == {number: reason}
+    assert plan.selected == ()
+
+
+def test_an_unread_plan_check_leaves_the_item_out(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    _with_head(api)
+    number = seed_staged(store)
+    unread = CheckVerdictSummary(unread_reason="GitHub is not reachable")
+
+    plan = _plan(store, staged_repo, check_reader=lambda owner, name, sha: unread)
+
+    assert _reasons(plan) == {
+        number: "The checks of its plan pull request cannot be read: GitHub is not reachable."
+    }
+
+
+def test_every_passing_plan_check_selects_the_item_and_reads_the_head_once(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    _with_head(api)
+    number = seed_staged(store)
+    calls: list[tuple[str, str, str]] = []
+    passed = _checks(CheckBucket.PASS)
+
+    def read(owner: str, name: str, sha: str) -> CheckVerdictSummary:
+        calls.append((owner, name, sha))
+        return passed
+
+    plan = _plan(store, staged_repo, check_reader=read)
+
+    assert ([target.item.number for target in plan.selected], calls) == (
+        [number],
+        [(STAGE_REPO.split("/", 1)[0], STAGE_REPO.split("/", 1)[1], "head-sha")],
+    )

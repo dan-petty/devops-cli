@@ -3510,6 +3510,11 @@ class RoadmapMessages:
         "Its pull request #{pull} holds the label `{label}`: the review of its plan found an open "
         "finding. The job takes the item again when the label is gone."
     )
+    implement_left_check_unread: str = (
+        "The checks of its plan pull request cannot be read: {reason}."
+    )
+    implement_left_check_running: str = "The check {name} of its plan pull request still runs."
+    implement_left_check_cancelled: str = "The check {name} of its plan pull request was cancelled."
     implement_left_plan: str = "Its plan fails the stage check: {problem}"
     implement_left_plan_git: str = "Its plan cannot be read from git: {reason}"
     implement_job_title: str = "# Implement plan for {repo}"

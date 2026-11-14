@@ -78,6 +78,7 @@ from devops_cli.git.worktree_add import (
     stray_branch_reason,
     worktree_directory,
 )
+from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, read_check_runs
 from devops_cli.github.client import PullStatus
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
@@ -317,14 +318,17 @@ class _Judge:
         remote_heads: str,
         planned: PlannedChanges,
         pull_status: Callable[[int], PullStatus],
+        check_reader: Callable[[str, str, str], CheckVerdictSummary] = read_check_runs,
     ) -> None:
         self._store = store
+        self._repo = repo
         self._source = source
         self._heads = remote_heads
         self._pushed = frozenset(remote_branches(remote_heads))
         self._planned = planned
         self._default_rev = f"origin/{planned.default}"
         self._pull_status = pull_status
+        self._check_reader = check_reader
         self._bot = load_settings().service.github_app.bot_login
         self.needs_fix: dict[int, NeedsFix] = {}
 
@@ -485,7 +489,29 @@ class _Judge:
         if PLAN_NEEDS_FIX_LABEL in status.labels:
             self.needs_fix[item.number] = NeedsFix(item, pull)
             return texts.implement_left_needs_fix.format(pull=pull, label=PLAN_NEEDS_FIX_LABEL)
+        if status.head_sha:
+            owner, name = self._repo.split("/", 1)
+            reason = _check_reason(self._check_reader(owner, name, status.head_sha))
+            if reason is not None:
+                return reason
         return None
+
+
+def _check_reason(checks: CheckVerdictSummary) -> str | None:
+    """Why the checks of a plan pull request hold its item back, or None when every check settled
+    as a pass or a skip (#3976). An unread or pending verdict is no proof of a good plan, and a
+    wrong selection costs a runner Job."""
+    texts = MESSAGES.roadmap
+    if checks.unread_reason:
+        return texts.implement_left_check_unread.format(reason=checks.unread_reason)
+    for check in checks.items:
+        if check.bucket is CheckBucket.FAIL:
+            return texts.implement_stop_check_failed.format(name=check.name)
+        if check.bucket is CheckBucket.CANCEL:
+            return texts.implement_left_check_cancelled.format(name=check.name)
+        if check.bucket is CheckBucket.PENDING:
+            return texts.implement_left_check_running.format(name=check.name)
+    return None
 
 
 def _left(item: Item, why: str) -> LeftOut:
@@ -554,6 +580,7 @@ def plan_implement(
     why: bool = False,
     probe: int | None = None,
     remote_heads: str | None = None,
+    check_reader: Callable[[str, str, str], CheckVerdictSummary] = read_check_runs,
 ) -> ImplementPlan:
     """Plans a run without a write to git or to GitHub: up to `limit` Staged or Planned items that
     `filters` name, and the named items that the job leaves out. `source` is the clone of the
@@ -573,6 +600,7 @@ def plan_implement(
             read_planned_changes(checkout, operation=GIT_OPERATION) if planned is None else planned
         ),
         pull_status=lambda pull: client.get_pull_status(repo, pull),
+        check_reader=check_reader,
     )
     if item_number is not None:
         selected, left_out = _named(judge, store, item_number)
