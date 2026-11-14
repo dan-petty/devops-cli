@@ -175,7 +175,7 @@ jobs:
           chmod -R a+rX "$GITHUB_WORKSPACE"
           SHARD_FILE="$SHARD_FILE" uv run python -c 'import os, pathlib; from devops_cli.core.test_selection import shard_test_files; files = shard_test_files(int(os.environ["SHARD"]), int(os.environ["SHARDS"]), pathlib.Path(".")); assert files; pathlib.Path(os.environ["SHARD_FILE"]).write_text("\n".join(files) + "\n", encoding="utf-8")'
           readarray -t TEST_FILES < "$SHARD_FILE"
-          docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
+          timeout --kill-after=30 900 docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges \
             -v "$GITHUB_WORKSPACE:/checkout:ro" \
             -v "$WORKSPACE_DIR:/workspace:rw" \
             --entrypoint sh \
