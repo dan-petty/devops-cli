@@ -6,10 +6,11 @@ The stage job leaves out an item whose branch is on origin, so a draft plan that
 
 ## What Changes
 
-- Add the member `RESTAGE` with the value `stage.restage` to `class StageRecordKey` in `src/devops_cli/roadmap/stores/store.py`, with its sentence in the class docstring.
-- Add `src/devops_cli/roadmap/stage/stage_held.py` with the pure rule that decides whether the draft plan of a held item is replaced, and with the record of one re-stage.
-- Read the one draft pull request of a held item in `src/devops_cli/roadmap/stage/stage_held.py` with `held_draft`: its draft state, its unresolved review threads, the paths of its branch outside the change folder, and the problems that the plan check finds in its change files.
+- Add the member `RESTAGE` with the value `stage.restage` to `class StageRecordKey` in `src/devops_cli/roadmap/stores/store.py`, with its sentence in the class docstring and row in `docs/ROADMAP_WORKFLOW.md`.
+- Add `src/devops_cli/roadmap/stage/stage_held.py` with the pure rule that decides whether the draft plan of a held item is replaced, and with the record of one re-stage. The rule requires that the branch tip matches `stage.sha`, all commits are App-authored, no unresolved review threads exist, and no paths outside the change folder exist (branches with extra commits or App wip commits remain held).
+- Read the one draft pull request of a held item in `src/devops_cli/roadmap/stage/stage_held.py` with `held_draft`: its draft state, its unresolved review threads, the paths of its branch outside the change folder, and the problems that the plan check finds in its change files against the full tracked repository tree.
 - Narrow `_held` in `src/devops_cli/roadmap/stage/stage.py` so that a failing draft no longer holds the item, and carry the replaced draft on `class StageTarget`.
+- Clean the old change folder before `write_change_files` so stale files of the old plan do not remain in the new commit.
 - Push the new plan commit to the taken-over branch with a lease on the recorded `stage.sha`, because `_rebase_onto_default` can rewrite the branch tip, and set the title and body of the same draft with `update_pull`.
 - Name the replaced draft in the comment of the item and record the re-stage in `stage.restage`, so that one re-stage is the bound.
 - Add the cases of the re-stage and of the three holds to `tests/roadmap/stage/test_roadmap_stage_selection.py`.
@@ -31,7 +32,7 @@ None.
 
 - Code: `src/devops_cli/roadmap/stores/store.py`, `src/devops_cli/roadmap/stage/stage_held.py`, `src/devops_cli/roadmap/stage/stage.py`, `src/devops_cli/lang/en/messages.py`
 - Documents: `docs/ROADMAP_WORKFLOW.md`, `CONTEXT.md`
-- Tests: `tests/roadmap/stage/test_roadmap_stage_held.py`, `tests/roadmap/stage/test_roadmap_stage_held_read.py`, `tests/roadmap/stage/test_roadmap_stage_selection.py`, `tests/roadmap/stage/test_roadmap_stage_restage.py`
+- Tests: `tests/roadmap/stage/test_roadmap_stage_held.py`, `tests/roadmap/stage/test_roadmap_stage_held_read.py`, `tests/roadmap/stage/test_roadmap_stage_selection.py`, `tests/roadmap/stage/test_roadmap_stage_restage.py`, `tests/invariants/test_roadmap_workflow_doc.py`
 
 ## Feasibility
 
