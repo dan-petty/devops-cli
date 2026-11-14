@@ -469,6 +469,23 @@ def _kind(group: TaskGroup, first: _Task, changes: Sequence[str]) -> GroupKind:
     return GroupKind.BEHAVIOR if changes_source(changes) else GroupKind.MANIFEST
 
 
+def _unmarked_verification(group: TaskGroup) -> str | None:
+    """The reason of a code span on a `Verification:` line of `group` that does not start with
+    `$ `, or None when every span marks its command (#4010).
+
+    The reader takes a span without the marker as prose, so the group looks like an `other` group
+    with no command. The marker error names the cause instead."""
+    for line in group.text.splitlines():
+        if not line.strip().startswith("- Verification:"):
+            continue
+        for span in re.findall(r"`([^`]*)`", line):
+            if not span.startswith("$ "):
+                return MESSAGES.roadmap.plan_read_unmarked_verification.format(
+                    group=group.number, command=shown(span)
+                )
+    return None
+
+
 def _verification_problems(group: TaskGroup, first: _Task) -> list[str]:
     """The reason for each verification command of `group` that the step cannot run. The step runs
     every code span of every `Verification:` line (`step_files`), so the reader judges all of
@@ -492,6 +509,8 @@ def _group(group: TaskGroup) -> StageGroup:
     first = _task(group, 0)
     if not first.text:
         raise PlanReadError(_TASKS, MESSAGES.roadmap.plan_read_bad_task.format(text=first.text))
+    if unmarked := _unmarked_verification(group):
+        raise PlanReadError(_TASKS, unmarked)
     if problems := _verification_problems(group, first):
         raise PlanReadError(_TASKS, " ".join(problems))
     kind = _kind(group, first, files.changes)
