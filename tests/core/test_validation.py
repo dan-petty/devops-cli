@@ -614,21 +614,20 @@ def test_is_at_or_under_matches_whole_labels_and_equal_ip_literals() -> None:
 
 def test_settings_domain_validation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """k8s.domain / cloudflare.domain refuse invalid names while blank loads as None (#887)."""
-    from pydantic import ValidationError as PydanticValidationError
-
     from devops_cli.config.settings import load_settings, reset_settings_cache
+    from devops_cli.exceptions import ConfigurationError
 
     cfg_path = tmp_path / "config.yaml"
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(cfg_path))
 
     cfg_path.write_text("k8s:\n  domain: '.'\n", encoding="utf-8")
     reset_settings_cache()
-    with pytest.raises(PydanticValidationError, match=r"k8s\.domain"):
+    with pytest.raises(ConfigurationError, match=r"k8s\.domain"):
         load_settings()
 
     cfg_path.write_text("cloudflare:\n  domain: '.example.com'\n", encoding="utf-8")
     reset_settings_cache()
-    with pytest.raises(PydanticValidationError, match=r"cloudflare\.domain"):
+    with pytest.raises(ConfigurationError, match=r"cloudflare\.domain"):
         load_settings()
 
     cfg_path.write_text("k8s:\n  domain: ''\ncloudflare:\n  domain: '  '\n", encoding="utf-8")
