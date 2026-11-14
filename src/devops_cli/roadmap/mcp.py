@@ -22,7 +22,9 @@ from pydantic_ai.exceptions import AgentRunError, ModelRetry, ToolFailedError, U
 from pydantic_ai.mcp import MCPToolset
 from pydantic_ai.messages import ToolReturn
 from pydantic_ai.toolsets import ToolsetTool
+from tenacity import AsyncRetrying, retry_if_exception, stop_after_delay, wait_exponential
 
+from devops_cli.config import constants
 from devops_cli.config.settings import (
     Settings,
     get_mcp_implement_token,
@@ -34,6 +36,15 @@ from devops_cli.exceptions.roadmap import RoadmapMcpUnavailableError
 from devops_cli.roadmap.agent_run import ToolOutcome
 
 logger = logging.getLogger(__name__)
+
+
+def _connection_refused(exc: BaseException) -> bool:
+    """Whether `exc` is a refused or failed connection that the start delay can cause (#4372)."""
+    return (
+        isinstance(exc, (ConnectionRefusedError, OSError))
+        or "connect" in type(exc).__name__.lower()
+    )
+
 
 ROLE_PLANNING: Final[str] = "planning"
 ROLE_IMPLEMENTATION: Final[str] = "implementation"
@@ -76,10 +87,26 @@ class RoadmapMcpToolset(MCPToolset):
         self.tool_names: set[str] = set()
 
     async def __aenter__(self) -> Self:
+        """Enter the toolset, and retry a refused first connection for a short, bounded time
+        (#4372). A new Job pod can meet a network policy that kube-router has not programmed yet,
+        and the connection is refused at once. An authentication failure is not refused, so it
+        goes to `RoadmapMcpUnavailableError` at once."""
         try:
-            return await super().__aenter__()
+            async for attempt in AsyncRetrying(
+                retry=retry_if_exception(_connection_refused),
+                stop=stop_after_delay(constants.ROADMAP_MCP_CONNECT_RETRY_SECONDS),
+                wait=wait_exponential(
+                    multiplier=1,
+                    min=constants.ROADMAP_MCP_CONNECT_RETRY_INITIAL_SECONDS,
+                    max=constants.ROADMAP_MCP_CONNECT_RETRY_MAX_SECONDS,
+                ),
+                reraise=True,
+            ):
+                with attempt:
+                    return await super().__aenter__()
         except Exception as exc:
             raise RoadmapMcpUnavailableError(self._target_url, message=str(exc)) from exc
+        raise RoadmapMcpUnavailableError(self._target_url, message="No connection attempt ran.")
 
     async def list_tools(self) -> list[mcp_types.Tool]:
         tools = await super().list_tools()
