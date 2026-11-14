@@ -1795,6 +1795,12 @@ class PRMessages:
         " review.toml suppression is named for these files."
     )
     body_form_problem: str = "PR #{number} body: {problem}"
+    stage_eval_evidence_missing: str = (
+        "PR #{number} changes the stage prompt or a stage check ({path}) but its body holds no"
+        " stage eval evidence: {problem}. Add `uv run devops roadmap eval stage --replay` with a"
+        " number before and after, or a live run with one `--model` name and a score before and"
+        " after."
+    )
     hardening_report_title: str = "Defect Pull Request Hardening Audit"
     hardening_report_no_defects: str = "No merged defect pull requests found matching criteria."
     hardening_report_pr_not_defect: str = "PR #{number} is not classified as a defect PR."
