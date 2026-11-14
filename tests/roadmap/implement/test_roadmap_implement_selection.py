@@ -20,13 +20,14 @@ from devops_cli.roadmap.implement.implement import (
     plan_implement,
     render_implement_plan,
 )
-from devops_cli.roadmap.stores.store import ImplementRecordKey
+from devops_cli.roadmap.stores.store import GitHubState, ImplementRecordKey
 from tests.support.fakes.github import GitHubApiFake
 from tests.support.fakes.process import ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_implement import (
     BRANCH,
     NEEDS_FIX_DRAFT,
+    PROPOSAL,
     PULL,
     push_staged_branch,
     route_pull_status,
@@ -87,6 +88,59 @@ def test_a_staged_low_effort_p1_bug_is_selected_with_its_branch_and_pull_request
     assert held is not None
     assert plan.selected == (ImplementTarget(held, BRANCH, PULL),)
     assert plan.left_out == ()
+
+
+def test_an_item_with_an_open_body_dependency_is_left_out(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    """The body names `#N` in its Dependencies section and issue #N is open (#4009)."""
+    blocker = seed_staged(store)
+    number = seed_staged(store, body=f"## Dependencies\n\n#{blocker}\n")
+    push_staged_branch(stage_repo, number=number)
+
+    plan = _plan(store, stage_repo)
+
+    assert _reasons(plan).get(number) == MESSAGES.roadmap.stage_left_dependency.format(
+        issues=f"#{blocker}"
+    )
+    assert number not in [target.item.number for target in plan.selected]
+
+
+def test_an_item_with_an_open_plan_dependency_is_left_out(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    """The plan proposal names `#N` in its Dependencies section and issue #N is open (#4009)."""
+    blocker = seed_staged(store)
+    number = seed_staged(store)
+    proposal = f"openspec/changes/{number}-the-job-drops-a-comment/proposal.md"
+    push_staged_branch(
+        stage_repo,
+        number=number,
+        files={proposal: f"{PROPOSAL}\n## Dependencies\n\n- #{blocker}: the prerequisite\n"},
+    )
+
+    plan = _plan(store, stage_repo)
+
+    assert _reasons(plan).get(number) == MESSAGES.roadmap.stage_left_dependency.format(
+        issues=f"#{blocker}"
+    )
+    assert number not in [target.item.number for target in plan.selected]
+
+
+def test_an_item_whose_dependencies_are_closed_is_selected(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    blocker = store.seed_issue(
+        "A prerequisite",
+        state=GitHubState.CLOSED,
+        labels=("priority/p2-medium", "status/ready"),
+    )
+    number = seed_staged(store, body=f"## Dependencies\n\n#{blocker}\n")
+    push_staged_branch(stage_repo, number=number)
+
+    plan = _plan(store, stage_repo)
+
+    assert [target.item.number for target in plan.selected] == [number]
 
 
 def test_an_item_that_the_filter_does_not_name_is_not_in_the_plan(
