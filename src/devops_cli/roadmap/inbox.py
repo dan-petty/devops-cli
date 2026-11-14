@@ -21,7 +21,9 @@ The release pull request is the open one whose head branch starts with the prefi
 release-please.
 
 **The people's lines** are every other open pull request, so a person's own pull requests are
-apart from the jobs'. A draft is marked as a draft.
+apart from the jobs'. A draft is marked as a draft. The open owner question of an item (#3077)
+joins them: its job record holds `owner_question.hash` and no `owner_question.answer`, and the
+comment that answers it clears the line.
 
 **Age.** The time since the last update of the pull request or the issue. For a claim it is the
 time since the newest update of the issue and of each open pull request on a branch that names
@@ -33,6 +35,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
+from typing import Final
 
 from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_RETRY_COMMENT,
@@ -57,10 +60,14 @@ from devops_cli.roadmap.stores.store import (
     ImplementRecordKey,
     Item,
     OpenPull,
+    OwnerQuestionRecordKey,
     RefineRecordKey,
     RoadmapStore,
     StageRecordKey,
 )
+
+# The kinds whose lines wait on a person: they go in the people's list, apart from the jobs'.
+_PEOPLE_KINDS: Final[tuple[InboxKind, ...]] = (InboxKind.PERSON, InboxKind.OWNER)
 
 
 @dataclass(frozen=True)
@@ -303,6 +310,26 @@ def _failed_lines(items: Iterable[Item], repo: str, now: datetime) -> list[Inbox
     return lines
 
 
+def _owner_lines(items: Iterable[Item], now: datetime) -> list[InboxLine]:
+    """One line for each open item whose job record holds an owner question that no trusted
+    reply answered (#3077). The open frame is the marker of the wait, so no status label is
+    added, and the comment that answers it clears the line."""
+    texts = MESSAGES.roadmap
+    lines: list[InboxLine] = []
+    for item in items:
+        record = item.job_record
+        if not record.get(OwnerQuestionRecordKey.HASH) or record.get(OwnerQuestionRecordKey.ANSWER):
+            continue
+        subject = texts.inbox_subjects["owner"].format(
+            title=item.title, question=record.get(OwnerQuestionRecordKey.TEXT) or ""
+        )
+        clear = texts.inbox_clears["owner"].format(number=item.number)
+        lines.append(
+            InboxLine(InboxKind.OWNER, item.number, _age(now, item.updated_at), subject, clear)
+        )
+    return lines
+
+
 def _activity(item: Item, pulls: Sequence[OpenPull]) -> datetime | None:
     """The newest update of the issue of `item` and of each open pull request on a branch that
     names the issue."""
@@ -405,14 +432,15 @@ def read_inbox(
         *_split_lines(items, now),
         *_alternatives_lines(items, now),
         *_failed_lines(items, repo, now),
+        *_owner_lines(items, now),
         *_claim_lines(items, pulls, repo, now),
         *_label_lines(store, repo, now),
         *_queue_lines(items, repo, planned_limit),
     ]
     ordered = sorted((_marked(line, wait_days) for line in lines), key=_order)
     return Inbox(
-        jobs=tuple(line for line in ordered if line.kind is not InboxKind.PERSON),
-        people=tuple(line for line in ordered if line.kind is InboxKind.PERSON),
+        jobs=tuple(line for line in ordered if line.kind not in _PEOPLE_KINDS),
+        people=tuple(line for line in ordered if line.kind in _PEOPLE_KINDS),
     )
 
 

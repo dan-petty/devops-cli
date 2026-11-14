@@ -1064,7 +1064,8 @@ def inbox_cmd(
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.inbox_dry_run)] = False,
 ) -> None:
     """List what waits for a person in each repository, each line with its age and the step
-    that clears it. Without --repo, the repositories are those of service.repos."""
+    that clears it. Without --repo, the repositories are those of service.repos. A line of kind
+    `owner` is an open owner question, and its step is the comment that answers it."""
     from datetime import UTC, datetime
 
     from devops_cli.config.settings import load_settings
