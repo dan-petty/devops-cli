@@ -23,6 +23,24 @@ The stage reply SHALL hold a `criteria` list in which each entry gives the text 
 #### Scenario: A pending-person entry has no reason
 - **WHEN** An entry of `criteria` gives `pending-person` and a blank reason
 - **THEN** the reply breaks the schema and goes back to the model
+### Requirement: A pending-person criterion resolves through the issue's own text
+`criterion_problems` SHALL resolve a `pending-person` entry whose criterion the reader cut at a comma to the longest acceptance criterion of the issue that the entry's criterion and reason start with, and the rest of the text SHALL be the reason.
+
+#### Scenario: A pending-person criterion with a comma
+- **WHEN** the entry's criterion is `Add the label` and its reason is `keep the title, because the label is missing`, and the issue criterion is `Add the label, keep the title`
+- **THEN** the entry maps to `Add the label, keep the title` with no problem
+
+#### Scenario: A pending-person reason with a comma
+- **WHEN** the entry's criterion is `Add the label` and its reason is `because the label is missing, and the title is short`, and the issue criterion is `Add the label`
+- **THEN** the entry keeps the whole reason and maps with no problem
+
+#### Scenario: The longest criterion wins
+- **WHEN** the issue holds `Add the label` and `Add the label, keep the title`, and the entry reads `Add the label` with the reason `keep the title, because the label is missing`
+- **THEN** the entry maps to `Add the label, keep the title`
+
+#### Scenario: No criterion matches
+- **WHEN** the entry reads `Unknown text` and the issue holds no such criterion
+- **THEN** `criterion_problems` reports the unmatched entry
 
 ### Requirement: An unmapped criterion is refused
 `check_proposal` SHALL refuse a reply that leaves an acceptance criterion of the issue with no entry in `criteria`, and an entry that names a group the plan does not have. The problem SHALL quote the exact text of the criterion. The check SHALL read the whole body of the issue.

@@ -222,6 +222,31 @@ def acceptance_criteria(body: str) -> list[str]:
     return found
 
 
+def _resolved(criteria: Sequence[StageCriterion], accepted: Sequence[str]) -> list[StageCriterion]:
+    """`criteria` with each pending-person entry that a comma of the criterion cut, against the
+    acceptance criteria of the issue (#4023).
+
+    The reader splits the line at the first comma, so a criterion with a comma moves part of its
+    text into the reason. The entry resolves when the joined text starts with an acceptance
+    criterion of the issue and a comma. The longest such criterion wins, so a short criterion
+    that is a prefix of a longer one does not cut the longer one."""
+    resolved: list[StageCriterion] = []
+    for entry in criteria:
+        if entry.group == "pending-person":
+            joined = f"{entry.criterion}, {entry.reason}"
+            match = max(
+                (text for text in accepted if joined.startswith(f"{text}, ")),
+                key=len,
+                default=None,
+            )
+            if match is not None:
+                entry = entry.model_copy(
+                    update={"criterion": match, "reason": joined[len(match) + 2 :]}
+                )
+        resolved.append(entry)
+    return resolved
+
+
 def criterion_problems(
     criteria: Sequence[StageCriterion], issue_body: str, group_count: int
 ) -> list[str]:
@@ -229,10 +254,11 @@ def criterion_problems(
     and for each entry that names a group the plan does not have. A problem quotes the exact text
     to copy."""
     texts = MESSAGES.roadmap
-    mapped = {_one_line(entry.criterion) for entry in criteria}
+    accepted = acceptance_criteria(issue_body)
+    mapped = {_one_line(entry.criterion) for entry in _resolved(criteria, accepted)}
     problems = [
         texts.stage_problem_criterion.format(criterion=criterion)
-        for criterion in acceptance_criteria(issue_body)
+        for criterion in accepted
         if criterion not in mapped
     ]
     problems.extend(
