@@ -5334,6 +5334,7 @@ class RoadmapMessages:
             "labels": "Repository state that a person owns",
             "queue": "The stage job waits for deliveries",
             "person": "Pull requests of people and agents",
+            "owner": "Open owner questions",
         }
     )
     inbox_line: str = "  {number}  {age}  {subject}"
@@ -5366,6 +5367,7 @@ class RoadmapMessages:
                 "The count of Planned items is {count}, and roadmap.stage.planned_limit is "
                 "{limit}. The stage job plans only items with the priority {priorities}."
             ),
+            "owner": "{title}: the owner question waits: {question}",
         }
     )
     inbox_clears: dict[str, str] = field(
@@ -5407,6 +5409,9 @@ class RoadmapMessages:
             "queue": (
                 "Deliver Planned items with `devops roadmap implement --repo {repo}`, "
                 "or raise roadmap.stage.planned_limit."
+            ),
+            "owner": (
+                'Answer it in a comment on #{number}: `gh issue comment {number} --body "<answer>"`'
             ),
         }
     )
