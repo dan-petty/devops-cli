@@ -1358,19 +1358,64 @@ def _lane_reads_changes(rows: Sequence[JobRow]) -> bool:
     return any(row.due_rule is not None for row in rows)
 
 
+class PollCache:
+    """The issue changes that one poll of a repository reads, shared by every lane of that poll
+    (#3942).
+
+    The lanes of a repository run on separate workers and each opens its own store, so only an
+    object that the lane partials share can serve all lanes one request. The cache holds one
+    entry for each repository, keyed by the time of the poll. A round of the next poll replaces
+    the entry, so no event is hidden from the next poll. A lane whose cutoff is earlier than the
+    cached cutoff sends a new read and replaces the entry: the one listing must hold every event
+    at or after each lane's cutoff. The lock covers the read, so two lanes of one poll never
+    send the same request.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._entries: dict[str, tuple[datetime, datetime, list[Change]]] = {}
+
+    def changes_since(
+        self,
+        repo: str,
+        poll: datetime,
+        cutoff: datetime,
+        read: Callable[[datetime], list[Change]],
+    ) -> list[Change]:
+        """The changes at or after `cutoff` for the poll at `poll`, from the cached listing of
+        `repo` when it covers `cutoff`, else from `read(cutoff)`."""
+        with self._lock:
+            entry = self._entries.get(repo)
+            if entry is not None and entry[0] == poll and entry[1] <= cutoff:
+                return [change for change in entry[2] if change.at >= cutoff]
+            changes = read(cutoff)
+            self._entries[repo] = (poll, cutoff, changes)
+            return changes
+
+
 def _fetch_filtered_changes(
     rows: Sequence[JobRow],
     schedule: Mapping[str, datetime],
     store: RoadmapStore,
     current_time: datetime,
+    *,
+    repo: str,
+    poll: datetime,
+    cache: PollCache | None,
 ) -> list[Change]:
     """Fetch recent store changes excluding writes authored by the current session, which the
     store leaves out before it reads any job record (#1361). Only a due rule judges changes, so
-    a lane with no row that has one, such as the lane of `metrics`, reads none."""
+    a lane with no row that has one, such as the lane of `metrics`, reads none. The lanes of one
+    poll share the read through `cache` (#3942)."""
     if not _lane_reads_changes(rows):
         return []
     cutoff = _oldest_cutoff(rows, schedule, current_time)
-    return store.changes_since(cutoff, except_actor=_current_actor(store))
+    actor = _current_actor(store)
+    if cache is None:
+        return store.changes_since(cutoff, except_actor=actor)
+    return cache.changes_since(
+        repo, poll, cutoff, lambda since: store.changes_since(since, except_actor=actor)
+    )
 
 
 def _simulate_dry_run(rows: Sequence[JobRow], initially_due: Mapping[str, bool]) -> tuple[str, ...]:
@@ -1882,6 +1927,7 @@ def run_due_jobs(
     clone_dirname: str = CONST_ROADMAP_RUN_CLONE_DIRNAME,
     failures: FailureLedger | None = None,
     lane: str | None = None,
+    polls: PollCache | None = None,
 ) -> tuple[str, ...]:
     """Evaluate and execute due roadmap jobs, the clone rows in `clone_dirname`.
 
@@ -1915,7 +1961,10 @@ def run_due_jobs(
     if not active_batch and not any(quiet.is_due(row) for row in rows):
         return ()
 
-    changes = _fetch_filtered_changes(rows, schedule, store, current_time)
+    poll = batch.first_at if isinstance(batch, TriggerBatch) else current_time
+    changes = _fetch_filtered_changes(
+        rows, schedule, store, current_time, repo=repo, poll=poll, cache=polls
+    )
     polled = replace(quiet, changes=changes, newest_issue=cache(store.newest_issue_number))
     initially_due = {row.name: polled.is_due(row) for row in rows}
     if not any(initially_due.values()):
@@ -1954,6 +2003,7 @@ def service_job(
     lane: str,
     failures: FailureLedger | None = None,
     listing: IncrementalListing | None = None,
+    polls: PollCache | None = None,
 ) -> None:
     """Service mode adapter that runs the due roadmap jobs of the lane `lane`, `table`, for a
     coalesced trigger batch, on the roadmap store of the batch's repository, counting its failed
@@ -1972,6 +2022,7 @@ def service_job(
         clone_dirname=lane_clone_dirname(lane),
         failures=failures,
         lane=lane,
+        polls=polls,
     )
 
 
@@ -1988,6 +2039,7 @@ def service_jobs(
     every issue through a snapshot of its own, which only its worker writes (#4854)."""
     groups = load_settings().service.lanes if lanes is None else lanes
     failures = FailureLedger(record=state_dir / CONST_SERVICE_FAILURES_FILENAME)
+    cache = PollCache()
     return {
         lane: partial(
             service_job,
@@ -1999,6 +2051,7 @@ def service_jobs(
                 if any(row.name == _SCOPED_INTAKE.job for row in rows)
                 else lane_listing(state_dir, lane)
             ),
+            polls=cache,
         )
         for lane, rows in service_lanes(groups).items()
     }
