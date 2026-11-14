@@ -198,6 +198,7 @@ model_list:
       input_cost_per_token: 7.84e-08
       output_cost_per_token: 2.352e-07
       cache_read_input_token_cost: 2.352e-09
+      supports_response_schema: true
   # The fallback of deepseek-v4.1-flash-1017 (owner decision of 2026-11-13, #5564). It calls the
   # undated model with no `floor` route, so OpenRouter balances a call across its providers when
   # the cheapest provider of the dated model fails. It asks for the same fp8 weights and the same
