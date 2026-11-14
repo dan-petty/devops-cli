@@ -481,6 +481,11 @@ class _Judge:
         except GitHubNotFoundError:
             return texts.implement_left_pull.format(pull=pull)
         if not status.is_open_draft:
+            plan = item.job_record.get(StageRecordKey.PR) == str(pull) or status.title.startswith(
+                "docs(openspec): plan #"
+            )
+            if status.state == "open" and plan:
+                return texts.implement_left_plan_ready.format(pull=pull)
             return texts.implement_left_pull.format(pull=pull)
         if PLAN_NEEDS_FIX_LABEL in status.labels:
             self.needs_fix[item.number] = NeedsFix(item, pull)
