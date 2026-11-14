@@ -3125,9 +3125,13 @@ def _move_clone(checkout: Path, sha: str) -> None:
     plans on a commit it did not read.
     """
     _git(checkout, "merge", "--ff-only", "-q", sha)
-    if _git(checkout, "rev-parse", "HEAD") != sha:
+    if (head := _git(checkout, "rev-parse", "HEAD")) != sha:
+        # Name the commit that the clone kept, so the log says why the merge did nothing (#3592).
+        short = _git(checkout, "rev-parse", "--short", head)
+        subject = _git(checkout, "log", "-1", "--format=%s", head)
         raise GitOperationError(
-            MESSAGES.roadmap.stage_clone_ahead.format(sha=sha), operation=_GIT_OPERATION
+            MESSAGES.roadmap.stage_clone_ahead.format(sha=sha, head=short, subject=subject),
+            operation=_GIT_OPERATION,
         )
 
 
