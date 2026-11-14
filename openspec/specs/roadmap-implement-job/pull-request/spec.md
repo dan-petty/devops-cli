@@ -28,7 +28,7 @@ After the last group the job SHALL run `uv run devops docs generate` and commit 
 - **THEN** the item stops, `origin` holds the commit of the group and the commit of the documentation, and `main` has no commit that the branch on `origin` lacks
 
 ### Requirement: The job rewrites the pull request after the push
-After the push the job SHALL build the body of the pull request with `build_body` and set it, in this order: the why of the `proposal.md`, the line `Closes #N`, and the line `Change:` with the folder of the change in a code span. The job SHALL NOT cut the why, and SHALL post the outcome of each step as one comment on the pull request, and put nothing of it in the body.
+Once the job has finished the change and before it pushes the commits, it SHALL set the title and the body of the pull request, with `build_body` for the body: the why of the `proposal.md`, `Closes #N`, and `Change:` with the change folder in a code span. It SHALL NOT cut the why. One pull request SHALL take one update, so a second call sends no `PATCH` and adds no label again. It SHALL post the outcome of each step as one comment after the push, and put nothing of it in the body.
 
 #### Scenario: The body
 - **WHEN** the job finishes the change of item 7
@@ -49,6 +49,14 @@ After the push the job SHALL build the body of the pull request with `build_body
 #### Scenario: A refused body stops the item
 - **WHEN** `build_body` refuses the body, for a title of the issue that is a placeholder
 - **THEN** the job stops the item at the step `pull request`, makes no `PATCH` of the pull request, and the stop comment names the problem
+
+#### Scenario: The metadata comes before the archived push
+- **WHEN** a Staged item archives its change and a scoped check fails before the push
+- **THEN** the `PATCH` of the title and the body came before the push of the archived commit, and the pull request holds the delivery title and a body that holds `Closes #1`
+
+#### Scenario: One update for one pull request
+- **WHEN** the run calls the metadata write twice for the same pull request
+- **THEN** the job sends one `PATCH` and one label write, and the pull request holds each label once
 
 ### Requirement: A pull request that passes its checks is marked ready
 When `draft_readiness` answers ready for the implement pull request and no review thread is open, the job SHALL run `gh pr ready`, set Status to In Review, record `implement.group`, `implement.sha`, `implement.pr` and `implement.spend`, and post one comment on the issue with the pull request and the spend. When it answers wait or refuse, the job SHALL stop the item with the reason and SHALL NOT run `gh pr ready`. The job SHALL NOT merge.

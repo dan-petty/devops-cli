@@ -17,7 +17,7 @@ from pydantic_ai.messages import ModelResponse
 
 from devops_cli.roadmap.stores.store import ImplementRecordKey, ItemField
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
-from tests.support.implement_step import command_text
+from tests.support.implement_step import command_text, git_for_real
 from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_implement import (
     BRANCH,
@@ -26,6 +26,7 @@ from tests.support.roadmap_implement import (
     JobWorld,
     group_one_calls,
     group_two_calls,
+    route_pull_status,
     two_groups,
 )
 
@@ -570,3 +571,58 @@ def test_a_change_that_no_test_covers_runs_no_test_and_the_comment_says_so(
         "- scoped check tests: not run, because no test covers the changed files"
         in (comment["body"])
     )
+
+
+def test_a_scoped_check_that_fails_writes_the_delivery_metadata_before_the_push(
+    job_world: JobWorld,
+) -> None:
+    """The archive lands on the branch before `_push` runs the scoped checks, and a failure there
+    stops the item and pushes the branch. The pull request already holds the delivery title, the
+    closing body and the delivery labels when that push leaves (#3991)."""
+    staging = {
+        "state": "open",
+        "draft": True,
+        "merged": False,
+        "title": "docs(openspec): plan #1 the job drops a comment",
+        "head": {"ref": BRANCH, "sha": ""},
+        "base": {"ref": "main", "sha": ""},
+        "labels": [{"name": "type/docs"}, {"name": "scope/openspec"}],
+    }
+    route_pull_status(job_world.api, staging)
+    pr_issue = job_world.store._roadmap.issues[PULL]
+    job_world.store._roadmap.issues[PULL] = pr_issue.model_copy(
+        update={"labels": ("type/docs", "scope/openspec")}
+    )
+    _fails_until(job_world, PRE_PUSH, "ruff-check....Failed", times=99)
+    checked: list[int] = []
+
+    def push_and_check(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        if _count(job_world, PRE_PUSH) > 0:
+            (patched,) = job_world.sent("PATCH", f"pulls/{PULL}")
+            assert patched["title"] == "fix(roadmap): the job drops a comment"
+            assert "Closes #1" in str(patched["body"])
+            assert set(job_world.store._roadmap.issues[PULL].labels) == {
+                "type/bug",
+                "scope/roadmap",
+            }
+            checked.append(1)
+        return git_for_real(call)
+
+    job_world.programs.answer(
+        lambda call: call.argv[0] == "git" and "push" in call.argv,
+        ProcessAnswer(side_effect=push_and_check),
+    )
+
+    job_world.run(two_groups(*_fix(1), *_fix(2), *_fix(3)))
+
+    assert checked
+
+
+def test_the_delivery_metadata_is_written_once_for_one_pull_request(job_world: JobWorld) -> None:
+    """`execute` writes the metadata after the archive, and `_pull_request` asks for it again on a
+    finished item, so the helper records the pull request it wrote and sends one PATCH (#3991)."""
+    job_world.run(two_groups())
+
+    assert len(job_world.sent("PATCH", f"pulls/{PULL}")) == 1
+    labeled = [w for w in job_world.store._roadmap.job_writes if w.operation == "label_issue"]
+    assert len(labeled) == len({w.value for w in labeled})

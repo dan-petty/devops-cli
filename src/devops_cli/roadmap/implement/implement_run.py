@@ -597,6 +597,9 @@ class _ItemRun:
     # the comments were listed already (#4070).
     comment_id: int | None = field(default=None, init=False)
     comments_listed: bool = field(default=False, init=False)
+    # The pull request that holds the delivery title, body and labels (#3991), so a second call
+    # writes nothing.
+    metadata_written: int | None = field(default=None, init=False)
     # The stop of the earlier Job, which the first step of the run gets once (#4071).
     handoff: EarlierStop | None = field(default=None, init=False)
     returned: bool = False
@@ -747,6 +750,7 @@ class _ItemRun:
             return
         self._finish_change()
         self._require_unclaimed(MESSAGES.roadmap.implement_boundary_end)
+        self._delivery_metadata()
         pull = self._push()
         self._pull_request(pull)
         self._checks(pull)
@@ -1518,11 +1522,16 @@ class _ItemRun:
                 push=False,
             ) from exc
 
-    def _pull_request(self, pull: int) -> None:
-        """Set the title and the body of the pull request. The title has the type of the issue and
-        the summary of the plan (`_delivery_title`): the staging pull request of a Staged item has
-        the type `docs(openspec)` (#2714). The body is built with `build_body`, so a body that
-        breaks the form stops the item (#3215)."""
+    def _delivery_metadata(self) -> None:
+        """Set the title and the body of the pull request, and replace its labels. The title has
+        the type of the issue and the summary of the plan (`_delivery_title`): the staging pull
+        request of a Staged item has the type `docs(openspec)` (#2714). The body is built with
+        `build_body`, so a body that breaks the form stops the item (#3215). The call follows the
+        archive and comes before every push of the archived change, so a stop in the scoped checks
+        never pushes the staging form (#3991). One pull request takes one write."""
+        pull = self.pull
+        if pull is None or self.metadata_written == pull:
+            return
         self.step = MESSAGES.roadmap.implement_step_names["pull_request"]
         texts = MESSAGES.roadmap
         archived = self._archived_name()
@@ -1541,7 +1550,6 @@ class _ItemRun:
         before = client.get_pull(self.repo, pull)
         delivery_title = self._delivery_title()
         client.update_pull(self.repo, pull, title=delivery_title, body=body)
-        self._comment(pull)
         try:
             declared = declared_labels(self.store, ref=None)
             old = title_labels(before.title, declared)
@@ -1554,6 +1562,13 @@ class _ItemRun:
             client.comment_on_pull(
                 self.repo, pull, texts.implement_pull_labels_failed.format(error=exc)
             )
+        self.metadata_written = pull
+
+    def _pull_request(self, pull: int) -> None:
+        """Write the delivery metadata (`_delivery_metadata`) and then the comment of the steps on
+        the pull request."""
+        self._delivery_metadata()
+        self._comment(pull)
 
     def _comment(self, pull: int, *, extra: str = "") -> None:
         """Write the comment of this run on the pull request: the table of the steps of this Job,
