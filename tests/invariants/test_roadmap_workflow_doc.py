@@ -186,6 +186,17 @@ def _document() -> str:
     return DOCUMENT.read_text(encoding="utf-8")
 
 
+def test_the_stage_eval_rule_names_the_live_run_for_a_prompt_change() -> None:
+    """The workflow page states the live run for a prompt change and the replay for a gate
+    change (#3830)."""
+    text = DOCUMENT.read_text(encoding="utf-8")
+
+    assert (
+        "uv run devops roadmap eval stage --limit" in text,
+        "uv run devops roadmap eval stage --replay" in text,
+    ) == (True, True)
+
+
 def test_the_package_declares_the_status_and_owner_values_of_the_code() -> None:
     assert _declared_labels() == _code_labels()
 

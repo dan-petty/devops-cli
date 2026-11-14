@@ -11,6 +11,7 @@ import pytest
 from devops_cli.roadmap.agent_run import RunTrace, ToolCallRecord
 from devops_cli.roadmap.stage.stage import RoadmapStageError, StageTarget, _Planner, _Refused
 from devops_cli.roadmap.stage.stage_change import (
+    STAGE_EVAL_LIVE,
     STAGE_EVAL_REPLAY,
     ProposalGate,
     StageProposal,
@@ -31,6 +32,9 @@ PLAN_ROW = "stage"  # The job row of a plan run.
 TREE_FILES = ["src/devops_cli/sample.py"]
 TREE = StagedTree(TREE_FILES)
 STAGE_CHANGE = "src/devops_cli/roadmap/stage/stage_change.py"
+STAGE_PROMPT = "src/devops_cli/ai/tasks/roadmap_stage_change.md"
+PROMPT_RULES = "tests/roadmap/stage/test_roadmap_stage_prompt_rules.py"
+STAGE_TREE = StagedTree([*TREE_FILES, STAGE_CHANGE, STAGE_PROMPT, PROMPT_RULES])
 KNOWN = ["comment-thread"]
 MISSING = "src/devops_cli/missing.py"
 NO_SPEC_DELTA = "skip_specs is false, and the reply gives no spec delta."
@@ -82,6 +86,75 @@ def test_a_stage_check_change_with_no_replay_task_is_a_problem_of_the_gate_eval_
     (problem,) = found[ProposalGate.EVAL_REPLAY]
     assert STAGE_EVAL_REPLAY in problem
     assert [gate for gate, problems in found.items() if problems] == [ProposalGate.EVAL_REPLAY]
+
+
+def _prompt_plan(*commands: str) -> StageProposal:
+    group = make_stage_proposal().groups[0]
+    update = {
+        "changes": [*group.changes, STAGE_PROMPT],
+        "reads": [*group.reads, PROMPT_RULES],
+        "test": (
+            "Build a `StageProposal` and assert that `content_problems` finds no problem, "
+            "and that `src/devops_cli/sample.py` fails on the base"
+        ),
+        "implementation": " ".join(commands),
+        "verify": "uv run devops ci test tests/roadmap/stage/test_roadmap_stage_prompt_rules.py",
+    }
+    return make_stage_proposal(groups=[group.model_copy(update=update)])
+
+
+def test_a_prompt_change_with_the_replay_names_the_live_command() -> None:
+    plan = _prompt_plan(
+        "Run `uv run devops roadmap eval stage --replay` and state the score before and after."
+    )
+
+    found = check_gates(plan, KNOWN, STAGE_TREE, registry=())
+
+    (problem,) = found[ProposalGate.EVAL_REPLAY]
+    assert STAGE_EVAL_LIVE in problem
+    assert [gate for gate, problems in found.items() if problems] == [ProposalGate.EVAL_REPLAY]
+
+
+def test_a_prompt_change_with_a_bounded_live_run_is_accepted() -> None:
+    for command in (
+        "Run `uv run devops roadmap eval stage --limit 3` and state the score before and after.",
+        "Run `uv run devops roadmap eval stage --case 2260` and state the score before and after.",
+    ):
+        plan = _prompt_plan(command)
+
+        found = check_gates(plan, KNOWN, STAGE_TREE, registry=())
+
+        assert found[ProposalGate.EVAL_REPLAY] == []
+
+
+def test_a_prompt_change_that_states_no_score_is_a_problem_that_names_the_live_command() -> None:
+    plan = _prompt_plan("Run `uv run devops roadmap eval stage --limit 3`.")
+
+    found = check_gates(plan, KNOWN, STAGE_TREE, registry=())
+
+    (problem,) = found[ProposalGate.EVAL_REPLAY]
+    assert STAGE_EVAL_LIVE in problem
+
+
+def test_a_plan_that_changes_the_prompt_and_a_gate_needs_both_commands() -> None:
+    group = make_stage_proposal().groups[0]
+    plan = _prompt_plan(
+        "Run `uv run devops roadmap eval stage --replay` and state the score before and after."
+    )
+    plan = plan.model_copy(
+        update={
+            "groups": [
+                plan.groups[0].model_copy(
+                    update={"changes": [*group.changes, STAGE_PROMPT, STAGE_CHANGE]}
+                )
+            ]
+        }
+    )
+
+    found = check_gates(plan, KNOWN, STAGE_TREE, registry=())
+
+    (problem,) = found[ProposalGate.EVAL_REPLAY]
+    assert STAGE_EVAL_LIVE in problem
 
 
 def test_check_proposal_joins_the_problems_of_the_gates_in_the_order_of_the_gates() -> None:
