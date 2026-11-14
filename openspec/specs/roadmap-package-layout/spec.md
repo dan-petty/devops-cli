@@ -20,11 +20,11 @@ The roadmap package SHALL hold the store interface and the GitHub adapter in `sr
 - **THEN** The `stores` folder holds `store.py` and `github_store.py`, and the top level holds no module with one of those names.
 
 ### Requirement: Every caller imports a roadmap module by its path
-Every import of a roadmap module under `src/` and `tests/` SHALL name the module path in the package.
+Every import of a roadmap module under `src/`, and every import in `tests/` that runs, SHALL name the module path in the package. An import in an `if TYPE_CHECKING:` block of `tests/` is out of scope.
 
 #### Scenario: No old roadmap module path remains
-- **WHEN** A test parses each import of `devops_cli.roadmap` in `src/` and `tests/`.
-- **THEN** Each imported module file or package folder exists, and each name imported from a package that holds only a docstring is a submodule.
+- **WHEN** `mypy --strict` checks `src/` and pytest collects and runs `tests/`
+- **THEN** mypy reports no `import-not-found` or `attr-defined` error for `devops_cli.roadmap`, and no test fails on an import of a roadmap module.
 
 ### Requirement: The roadmap package module exports no name
 The module `src/devops_cli/roadmap/__init__.py` SHALL hold its docstring and SHALL NOT import or re-export a moved module.
