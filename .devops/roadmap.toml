@@ -1,6 +1,4 @@
-# The project steps that the implement job runs in this repository (#3484). The job reads this file
-# from the default branch. A repository with no such file runs neither step.
+# The toolchain preset of this repository (#4635). The implement job reads this file from the default branch.
 
-[implement.steps]
-docs = true
-archive = true
+[project]
+toolchain = "devops-cli"

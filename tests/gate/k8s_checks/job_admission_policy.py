@@ -21,6 +21,7 @@ from devops_cli.github.repo_ref import RepoRef
 from devops_cli.k8s.cluster_job import (
     RUNNER_TEMPLATE,
     STAGE_TEMPLATE,
+    JobTemplate,
     build_job,
     stage_job_env,
     stage_job_labels,
@@ -732,3 +733,79 @@ def check_the_delete_policy_covers_the_delete_of_jobs_in_namespace_devops_and_fa
         ["Deny", "Audit"],
         {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "devops"}}},
     )
+
+
+PLANNER_TEMPLATE = JobTemplate(cronjob="devops-cli-planner-run", container="runner")
+
+
+def _planner_job() -> dict[str, Any]:
+    """The Job that the Service makes from the planner's CronJob template."""
+    return build_job(
+        _object("CronJob", "devops-cli-planner-run"),
+        ["--version"],
+        "devops-cli-planner-run-20261114-120000-ab12",
+        template=PLANNER_TEMPLATE,
+    )
+
+
+def check_the_planner_job_from_the_template_passes() -> None:
+    assert _refusals(_planner_job()) == []
+
+
+def check_the_planner_template_has_the_controls_of_adr_0018() -> None:
+    cronjob = _object("CronJob", "devops-cli-planner-run")
+    spec = cronjob["spec"]
+    pod = spec["jobTemplate"]["spec"]["template"]["spec"]
+    (container,) = pod["containers"]
+    (policy,) = (
+        document
+        for document in applied_documents(DEVOPS_DIR)
+        if document["kind"] == "NetworkPolicy"
+        and document["metadata"]["name"] == "devops-cli-planner-run"
+    )
+
+    assert (
+        spec["suspend"],
+        spec["jobTemplate"]["spec"]["backoffLimit"],
+        spec["jobTemplate"]["spec"]["activeDeadlineSeconds"],
+        pod["automountServiceAccountToken"],
+        "envFrom" in container,
+        container["resources"]["requests"],
+        container["resources"]["limits"],
+        policy["spec"]["podSelector"]["matchLabels"]["app.kubernetes.io/name"],
+        policy["spec"]["policyTypes"],
+        policy["spec"].get("egress", []),
+    ) == (
+        True,
+        0,
+        120,
+        False,
+        False,
+        {"cpu": "1", "memory": "2Gi"},
+        {"cpu": "1", "memory": "2Gi"},
+        "devops-cli-planner-run",
+        ["Egress"],
+        [],
+    )
+
+
+def check_a_planner_job_with_an_extra_volume_is_refused() -> None:
+    job = _planner_job()
+    _pod(job)["volumes"].append({"name": "data", "emptyDir": {}})
+
+    assert any("volumes" in message for message in _refusals(job))
+
+
+def check_a_planner_job_with_a_writable_repo_is_refused() -> None:
+    job = _planner_job()
+    (repo,) = (volume for volume in _pod(job)["volumes"] if volume["name"] == "repo")
+    repo["persistentVolumeClaim"]["readOnly"] = False
+
+    assert any("repo" in message for message in _refusals(job))
+
+
+def check_a_planner_job_with_a_secret_env_from_is_refused() -> None:
+    job = _planner_job()
+    _container(job)["envFrom"] = [{"secretRef": {"name": "devops-cli"}}]
+
+    assert any("envFrom" in message for message in _refusals(job))

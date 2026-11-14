@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.145.0](https://github.com/dan-petty/devops-cli/compare/v0.144.1...v0.145.0) (2026-11-14)
+
+
+### Features
+
+* **k8s:** Add the planner sandboxed run Job ([#5754](https://github.com/dan-petty/devops-cli/issues/5754)) ([44a72f9](https://github.com/dan-petty/devops-cli/commit/44a72f9b5acbc0b9be841ea37a0d44ccd5bf7e4a))
+* **roadmap:** a toolchain preset sets the implement checks ([#5760](https://github.com/dan-petty/devops-cli/issues/5760)) ([457f840](https://github.com/dan-petty/devops-cli/commit/457f8401a2f6a6109c1df58d575d010a444c4ba5))
+* **roadmap:** define P0 and P1 priority criteria for intake labeling ([#5755](https://github.com/dan-petty/devops-cli/issues/5755)) ([de100a0](https://github.com/dan-petty/devops-cli/commit/de100a01b330076ab074805a43425f92d2acb25b))
+
 ## [0.144.1](https://github.com/dan-petty/devops-cli/compare/v0.144.0...v0.144.1) (2026-11-14)
 
 

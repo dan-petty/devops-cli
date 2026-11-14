@@ -1,0 +1,17 @@
+# The planner's run Job reaches no network (ADR 0018, #4003). The pod carries its own label, so this
+# policy alone selects it: the stack's egress allow policies select devops-cli-job, and a policy
+# with no egress rule denies all egress, DNS included.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: devops-cli-planner-run
+  namespace: devops
+  labels:
+    app.kubernetes.io/name: devops-cli-planner-run
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: devops-cli-planner-run
+  policyTypes:
+    - Egress

@@ -39,7 +39,8 @@ from tests.support.roadmap_stage import StageRepo
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 DOCS = "uv run devops docs generate"
-ARCHIVE = "uv run devops openspec archive"
+ARCHIVE = ("uv run devops openspec archive", "openspec archive")
+HOOK_PRE_PUSH = "uv run pre-commit run --hook-stage pre-push"
 STATIC = "uv run devops ci --check --only constructs,docs,openspec"
 RULE = "ast-grep scan....Failed\nerror: pytest.raises without match\n --> tests/test_shout.py"
 DIGEST_A = "sha256:" + "a" * 64
@@ -50,8 +51,17 @@ LIMITS = ClearLimits(per_class=1, per_item=3, continuations=2)
 HOOKS = "repos:\n  - repo: local\n    hooks: []\n"
 
 
-def _count(world: JobWorld, prefix: str) -> int:
-    return sum(command_text(call).startswith(prefix) for call in world.programs.calls)
+def _count(world: JobWorld, prefix: str | tuple[str, ...]) -> int:
+    prefixes = (prefix,) if isinstance(prefix, str) else prefix
+    return sum(
+        any(command_text(call).startswith(p) for p in prefixes) for call in world.programs.calls
+    )
+
+
+def _remove_openspec(repo: StageRepo) -> None:
+    repo.git("rm", "-q", "openspec/config.yaml")
+    repo.git("commit", "-q", "-m", "Remove openspec")
+    repo.git("push", "-q", "origin", "main")
 
 
 def _fails_once(world: JobWorld, command: str, report: str) -> None:
@@ -95,17 +105,17 @@ def test_a_target_with_no_declaration_skips_the_docs_step_after_a_fix_too(
 ) -> None:
     undeclare_steps(job_world.repo)
     job_world.repo.track({".pre-commit-config.yaml": HOOKS})
-    _fails_once(job_world, STATIC, RULE)
+    _fails_once(job_world, HOOK_PRE_PUSH, "error: pre-push hook failed")
 
     applied = job_world.run(two_groups(*_one_fix()))
 
     assert (applied.ready, applied.stopped) == ((1,), ())
-    assert _count(job_world, STATIC) == 2
+    assert _count(job_world, HOOK_PRE_PUSH) == 2
     assert _count(job_world, DOCS) == 0
 
 
-def test_a_target_with_no_declaration_skips_the_archive_step(job_world: JobWorld) -> None:
-    undeclare_steps(job_world.repo)
+def test_a_target_without_openspec_skips_the_archive_step(job_world: JobWorld) -> None:
+    _remove_openspec(job_world.repo)
 
     applied = job_world.run(two_groups())
 
@@ -123,12 +133,12 @@ def test_a_target_that_declares_the_steps_runs_them(job_world: JobWorld) -> None
     ]
 
 
-def test_a_target_that_declares_one_step_runs_only_that_step(job_world: JobWorld) -> None:
-    job_world.repo.track({STEPS_FILE: "[implement.steps]\ndocs = true\n"})
+def test_a_neutral_target_runs_archive_and_no_docs_step(job_world: JobWorld) -> None:
+    job_world.repo.track({STEPS_FILE: '[project]\ntoolchain = "neutral"\n'})
 
     applied = job_world.run(two_groups())
 
-    assert (applied.ready, _count(job_world, DOCS), _count(job_world, ARCHIVE)) == ((1,), 1, 0)
+    assert (applied.ready, _count(job_world, DOCS), _count(job_world, ARCHIVE)) == ((1,), 0, 1)
 
 
 def test_an_agent_that_adds_the_declaration_in_the_checkout_adds_no_step(
@@ -150,7 +160,7 @@ def test_an_agent_that_adds_the_declaration_in_the_checkout_adds_no_step(
 
     applied = job_world.run(script)
 
-    assert (applied.ready, _count(job_world, DOCS), _count(job_world, ARCHIVE)) == ((1,), 0, 0)
+    assert (applied.ready, _count(job_world, DOCS), _count(job_world, ARCHIVE)) == ((1,), 0, 1)
 
 
 def test_an_agent_that_removes_the_declaration_in_the_checkout_removes_no_step(
@@ -163,7 +173,7 @@ def test_an_agent_that_removes_the_declaration_in_the_checkout_removes_no_step(
                 "write_file",
                 {
                     "path": STEPS_FILE,
-                    "content": "[implement.steps]\ndocs = false\narchive = false\n",
+                    "content": '[project]\ntoolchain = "neutral"\n',
                 },
             ),
         ),
@@ -179,6 +189,7 @@ def test_an_agent_that_removes_the_declaration_in_the_checkout_removes_no_step(
 
 def test_the_comment_of_the_job_names_each_step_that_it_skipped(job_world: JobWorld) -> None:
     undeclare_steps(job_world.repo)
+    _remove_openspec(job_world.repo)
 
     job_world.run(two_groups())
 
@@ -195,7 +206,7 @@ def test_the_comment_of_the_job_names_each_step_that_it_skipped(job_world: JobWo
 def test_a_project_without_the_archive_step_gets_a_body_that_names_the_active_folder(
     job_world: JobWorld,
 ) -> None:
-    undeclare_steps(job_world.repo)
+    _remove_openspec(job_world.repo)
 
     job_world.run(two_groups())
 
@@ -214,7 +225,7 @@ def test_the_comment_of_the_job_names_no_step_that_it_ran(job_world: JobWorld) -
 def test_a_declaration_that_is_not_valid_stops_the_item_and_runs_no_step(
     job_world: JobWorld,
 ) -> None:
-    job_world.repo.track({STEPS_FILE: "[implement.steps]\ndoks = true\n"})
+    job_world.repo.track({STEPS_FILE: '[project]\ntoolchain = "invalid"\n'})
 
     applied = job_world.run(two_groups())
 
@@ -222,32 +233,36 @@ def test_a_declaration_that_is_not_valid_stops_the_item_and_runs_no_step(
     assert STEPS_FILE in job_world.issue_comments()[0]
 
 
-def test_the_declared_steps_are_read_from_the_commit_and_not_from_the_files(
+def test_the_project_profile_is_read_from_the_commit_and_not_from_the_files(
     stage_repo: StageRepo,
 ) -> None:
-    from devops_cli.roadmap.implement.implement_steps import ProjectStep, declared_steps
+    from devops_cli.roadmap.project_profile import resolve_profile
+    from devops_cli.roadmap.toolchains import NEUTRAL_PRESET
 
-    stage_repo.track({STEPS_FILE: "[implement.steps]\ndocs = true\n"})
+    stage_repo.track({STEPS_FILE: '[project]\ntoolchain = "neutral"\n'})
     (stage_repo.clone / STEPS_FILE).write_text(STEPS_DECLARATION, encoding="utf-8")
 
-    found = declared_steps(stage_repo.clone, "origin/main")
+    found = resolve_profile(stage_repo.clone, "origin/main")
 
-    assert found == {ProjectStep.DOCS}
-
-
-def test_a_commit_with_no_declaration_declares_no_step(stage_repo: StageRepo) -> None:
-    from devops_cli.roadmap.implement.implement_steps import declared_steps
-
-    assert declared_steps(stage_repo.clone, "origin/main") == frozenset()
+    assert found == NEUTRAL_PRESET
 
 
-def test_a_declaration_with_a_step_that_does_not_exist_is_refused(stage_repo: StageRepo) -> None:
-    from devops_cli.roadmap.implement.implement_steps import declared_steps
+def test_a_commit_with_no_declaration_resolves_to_neutral_preset(stage_repo: StageRepo) -> None:
+    from devops_cli.roadmap.project_profile import resolve_profile
+    from devops_cli.roadmap.toolchains import NEUTRAL_PRESET
 
-    stage_repo.track({STEPS_FILE: "[implement.steps]\ndoks = true\n"})
+    assert resolve_profile(stage_repo.clone, "origin/main") == NEUTRAL_PRESET
+
+
+def test_a_declaration_with_a_toolchain_that_does_not_exist_is_refused(
+    stage_repo: StageRepo,
+) -> None:
+    from devops_cli.roadmap.project_profile import resolve_profile
+
+    stage_repo.track({STEPS_FILE: '[project]\ntoolchain = "cargo"\n'})
 
     with pytest.raises(ConfigurationError, match=r"roadmap\.toml"):
-        declared_steps(stage_repo.clone, "origin/main")
+        resolve_profile(stage_repo.clone, "origin/main")
 
 
 def _stopped_on_the_docs_step(world: JobWorld, error: str) -> Item:
