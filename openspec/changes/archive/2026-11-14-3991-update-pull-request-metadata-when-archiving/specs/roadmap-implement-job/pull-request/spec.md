@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The job rewrites the pull request after the push
-Once the job has finished the change, it SHALL set the body of the pull request before it pushes the commits, built with `build_body`, in this order: the why of the `proposal.md`, the line `Closes #N`, and the line `Change:` with the folder of the change in a code span. The job SHALL NOT cut the why. It SHALL send one update for one pull request, so a second call in the same run sends no second `PATCH` and adds no label again. It SHALL post the outcome of each step as one comment on the pull request after the push, and put nothing of it in the body.
+Once the job has finished the change and before it pushes the commits, it SHALL set the title and the body of the pull request, with `build_body` for the body: the why of the `proposal.md`, `Closes #N`, and `Change:` with the change folder in a code span. It SHALL NOT cut the why. One pull request SHALL take one update, so a second call sends no `PATCH` and adds no label again. It SHALL post the outcome of each step as one comment after the push, and put nothing of it in the body.
 
 #### Scenario: The body
 - **WHEN** the job finishes the change of item 7
