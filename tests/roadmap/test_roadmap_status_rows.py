@@ -56,6 +56,7 @@ STATUS_PAGE = {
 STATUS_ROW_NAMES = (
     "metrics",
     "implement",
+    "plan_drift",
     "stage_ready",
     "stage",
     "release_comments",
@@ -146,6 +147,7 @@ def test_source_failed_github_status_read_counts_an_error_for_its_row_only(
         {
             "metrics": (1, 0),
             "implement": (1, 0),
+            "plan_drift": (1, 0),
             "stage_ready": (1, 0),
             "stage": (1, 0),
             "release_comments": (1, 0),

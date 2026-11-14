@@ -98,8 +98,8 @@ def _stamp_the_default_table(
 
 
 def test_the_table_runs_the_lanes_in_order_and_names_no_release_job() -> None:
-    """The status lane's metrics, implement, stage_ready, stage, release_comments, github_status,
-    cloudflare_status and pr_conflicts rows run first, then
+    """The status lane's metrics, implement, plan_drift, stage_ready, stage, release_comments,
+    github_status, cloudflare_status and pr_conflicts rows run first, then
     the triage lane's intake row, then the model lane's retitle, fix_plan, refine and
     alternatives rows; no row closes items, cuts or starts a release
     (#1360, #1534, #2652, #2659, #2667, #2757, #2865, #3535, #4559, #5061)."""
@@ -111,6 +111,7 @@ def test_the_table_runs_the_lanes_in_order_and_names_no_release_job() -> None:
         [
             "metrics",
             "implement",
+            "plan_drift",
             "stage_ready",
             "stage",
             "release_comments",
@@ -480,6 +481,7 @@ def test_idle_records_zero_or_one_store_calls(
         retitle=TWENTY_MINUTES_AGO,
         stage=TWENTY_MINUTES_AGO,
         implement=recent,
+        plan_drift=recent,
         stage_ready=recent,
         release_comments=recent,
         github_status=recent,

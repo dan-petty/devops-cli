@@ -242,6 +242,7 @@ def test_the_row_is_a_status_lane_submit_on_the_status_clone_and_no_model_lane_r
         [
             "metrics",
             "implement",
+            "plan_drift",
             "stage_ready",
             "stage",
             "release_comments",

@@ -93,7 +93,7 @@ The devops-cli dashboard SHALL have the row "Alternatives Check" with the panels
 - **THEN** the queries are `sum by (repo) (last_over_time(devops_cli_roadmap_alternatives_unchecked_items{job=~"$job"}[1d]))`, `max by (repo) (last_over_time(devops_cli_roadmap_alternatives_oldest_check_age_seconds{job=~"$job"}[1d]))`, and `histogram_avg(sum by (verdict) (increase(devops_cli_roadmap_alternatives_searches{job=~"$job"}[1d])))` with `histogram_count` of the same selector
 
 ### Requirement: The row seconds histogram is declared and documented
-`INSTRUMENTS` SHALL hold `devops_cli_roadmap_row_seconds` as a histogram with the unit `s` and the attributes `repo`, `row` and `result`, and `lane` in a round of the Service. `docs/TELEMETRY.md` SHALL list it. One repository SHALL add at most 39 series: 13 rows x 3 results, because each row is in one lane only, and the buckets add no series.
+`INSTRUMENTS` SHALL hold `devops_cli_roadmap_row_seconds` as a histogram with the unit `s` and the attributes `repo`, `row` and `result`, and `lane` in a round of the Service. `docs/TELEMETRY.md` SHALL list it. One repository SHALL add at most 42 series: 14 rows x 3 results, because each row is in one lane only, and the buckets add no series.
 
 #### Scenario: The registry and the document list the histogram
 - **WHEN** a test reads `INSTRUMENTS` and `docs/TELEMETRY.md`
@@ -101,7 +101,7 @@ The devops-cli dashboard SHALL have the row "Alternatives Check" with the panels
 
 #### Scenario: The series of one repository are bounded
 - **WHEN** a test counts the rows of the due table and the results of a job
-- **THEN** it finds 13 rows and 3 results
+- **THEN** it finds 14 rows and 3 results
 
 ### Requirement: Each row that ran adds its seconds
 A round of the roadmap SHALL send one sample of `devops_cli_roadmap_row_seconds` for each row that ran, with the seconds of its runner and the attributes `repo`, `row` and `result`, and `lane` when the round has a lane. The `result` SHALL be `success`, `error` or `stopped`, with the same meaning as in `devops_cli_service_jobs_total`. A row that is not due, a row that the failure ledger suspends and a row that a clone failure keeps from running SHALL add no sample.
