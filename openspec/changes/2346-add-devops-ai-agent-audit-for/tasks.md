@@ -49,9 +49,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/stores/store.py`, `src/devops_cli
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/intake/intake_model.py`, `.github/ISSUE_TEMPLATE/feature_request.yml`, `.github/ISSUE_TEMPLATE/bug_report.yml`. Changes: `src/devops_cli/ai/agent_audit/grouping.py` (new), `tests/ai/agent_audit/test_grouping.py` (new).
 
-- [ ] 6.1 Write `tests/ai/agent_audit/test_grouping.py::test_only_masked_signatures_reach_the_model` first: it fails because unmasked signatures reach the model request
+- [x] 6.1 Write `tests/ai/agent_audit/test_grouping.py::test_only_masked_signatures_reach_the_model` first: it fails because unmasked signatures reach the model request
   - Verification: `$ uv run devops ci test tests/ai/agent_audit/test_grouping.py` fails on the base
-- [ ] 6.2 Add `src/devops_cli/ai/agent_audit/grouping.py`. `group_findings(findings, client)` makes one `chat_structured` call at a time with masked signatures, attaching returned groups to findings. `draft_body(group)` produces issue drafts matching issue template structures. The client uses `get_llm_client` with task analysis
+- [x] 6.2 Add `src/devops_cli/ai/agent_audit/grouping.py`. `group_findings(findings, client)` makes one `chat_structured` call at a time with masked signatures, attaching returned groups to findings. `draft_body(group)` produces issue drafts matching issue template structures. The client uses `get_llm_client` with task analysis
   - Verification: `$ uv run devops ci test tests/ai/agent_audit/test_grouping.py` passes
 
 ## 7. Read the shell history and the agent files as named sources
