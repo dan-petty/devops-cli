@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 import pytest
 
 from devops_cli.config import constants
+from devops_cli.roadmap.owner_question import frame_hash
 from devops_cli.roadmap.refine.refine import (
     RefinementProposal,
     inspect_checkout,
@@ -24,6 +25,7 @@ from devops_cli.roadmap.refine.refine import (
     render_refine_plan,
 )
 from devops_cli.roadmap.stores.store import (
+    OwnerQuestionRecordKey,
     RefineRecordKey,
 )
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -101,7 +103,8 @@ def test_an_item_refine_cannot_ready_gets_one_comment_and_a_record_of_its_next_s
 ) -> None:
     """Refine posts one comment that carries its marker and gives the item's next step: the
     question, the proposed split for a person to make, or the open items it waits on. The job
-    record keeps the step, the split and the blockers (#1758)."""
+    record keeps the step, the split and the blockers (#1758). A wait on a person is one owner
+    question with the hidden block of its hash (#3077)."""
     blocker, asked, split, blocked = _seed_waiting_items(store, model_fake)
 
     refine_round(store, git_repo)
@@ -109,8 +112,10 @@ def test_an_item_refine_cannot_ready_gets_one_comment_and_a_record_of_its_next_s
     sha = inspect_checkout(git_repo, REPO)[:12]
     marker = constants.CONST_ROADMAP_REFINE_COMMENT_MARKER
     record_keys = ("refine.next_step", "refine.needs_split", "refine.blocked_by")
+    comments = {number: comment_bodies(store, number) for number in (asked, split, blocked)}
+    (question,) = comments[asked]
     assert (
-        {number: comment_bodies(store, number) for number in (asked, split, blocked)},
+        {number: comments[number] for number in (split, blocked)},
         {
             number: tuple(
                 require_item(store, number).job_record.get(RefineRecordKey(key))
@@ -118,13 +123,15 @@ def test_an_item_refine_cannot_ready_gets_one_comment_and_a_record_of_its_next_s
             )
             for number in (asked, split, blocked)
         },
+        (
+            question.startswith(marker),
+            question.count(_OPEN_QUESTION),
+            frame_hash(question),
+            require_item(store, asked).job_record.get(OwnerQuestionRecordKey.HASH),
+            require_item(store, asked).job_record.get(OwnerQuestionRecordKey.TEXT),
+        ),
     ) == (
         {
-            asked: [
-                f"{marker}\nRefine cannot set this item to Ready at {sha} until a person "
-                "answers the questions below. Reply in a comment or edit the body, and the next "
-                f"refine round looks at the item again.\n\n- {_OPEN_QUESTION}"
-            ],
             split: [
                 f"{marker}\nThe proposal at {sha} needs splitting into 2 items. A person splits "
                 "the item into the items below, or replies in a comment or edits the body to "
@@ -143,6 +150,13 @@ def test_an_item_refine_cannot_ready_gets_one_comment_and_a_record_of_its_next_s
             split: ("split", "true", None),
             blocked: ("blocked", "false", str(blocker)),
         },
+        (
+            True,
+            1,
+            require_item(store, asked).job_record.get(OwnerQuestionRecordKey.HASH),
+            require_item(store, asked).job_record.get(OwnerQuestionRecordKey.HASH),
+            _OPEN_QUESTION,
+        ),
     )
 
 

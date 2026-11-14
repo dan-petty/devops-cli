@@ -23,6 +23,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STATUS_READY,
 )
 from devops_cli.roadmap.body_hash import extract_section_and_outside, hash_text
+from devops_cli.roadmap.owner_question import frame_hash
 from devops_cli.roadmap.refine.refine import (
     RefinementProposal,
     apply_refine,
@@ -33,6 +34,7 @@ from devops_cli.roadmap.refine.refine import (
 )
 from devops_cli.roadmap.stores.store import (
     ItemField,
+    OwnerQuestionRecordKey,
     RefineRecordKey,
 )
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -159,8 +161,8 @@ def test_a_ready_item_refine_finds_not_ready_goes_back_to_new_and_then_waits_on_
     git_repo: Path, store: InMemoryRoadmapStore
 ) -> None:
     """Refine sets a Ready item it never saw back to New when its proposal is not ready, saying so
-    in the one comment that asks a person about the suspected block, and the next round leaves
-    it waiting on that person (#1515, #1758)."""
+    in the one owner question that asks a person about the suspected block, and the next round
+    leaves it waiting on that person (#1515, #1758, #3077)."""
     number = seed_item(store, CONST_ROADMAP_STATUS_READY, "P1-High", milestone=SECOND)
     blocked = RefinementProposal(
         existing_tool=NO_OPEN_TOOL,
@@ -172,19 +174,26 @@ def test_a_ready_item_refine_finds_not_ready_goes_back_to_new_and_then_waits_on_
     apply_refine(store, plan_refine(store, repo=REPO, source=git_repo, model=llm))
     again = plan_refine(store, repo=REPO, source=git_repo, model=llm)
     sha = inspect_checkout(git_repo, REPO)[:12]
+    (comment,) = comment_bodies(store, number)
+    record = require_item(store, number).job_record
     assert (
         require_item(store, number).status,
-        comment_bodies(store, number),
+        comment.startswith(constants.CONST_ROADMAP_REFINE_COMMENT_MARKER),
+        f"Status set back to New at {sha}. " in comment,
+        comment.count("Waiting on the owner"),
+        frame_hash(comment),
+        record.get(OwnerQuestionRecordKey.HASH),
+        record.get(OwnerQuestionRecordKey.TEXT),
         again.refined_items,
         [(w.item.number, w.step) for w in again.waiting_items],
     ) == (
         "New",
-        [
-            f"{constants.CONST_ROADMAP_REFINE_COMMENT_MARKER}\nStatus set back to New at {sha}. "
-            f"Refine cannot set this item to Ready at {sha} until a person answers the questions "
-            "below. Reply in a comment or edit the body, and the next refine round looks at the "
-            "item again.\n\n- Waiting on the owner"
-        ],
+        True,
+        True,
+        1,
+        record.get(OwnerQuestionRecordKey.HASH),
+        frame_hash(comment),
+        "Waiting on the owner",
         [],
         [(number, "person")],
     )
