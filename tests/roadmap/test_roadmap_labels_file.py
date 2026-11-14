@@ -22,6 +22,7 @@ from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL
 from devops_cli.roadmap.stores.store import FIELD_VALUES, ItemField, field_label
 from devops_cli.roadmap.title_labels import declared_label_specs
 from devops_cli.roadmap.workflow_labels import (
+    LABEL_COLOR_TOKENS,
     WORKFLOW_LABELS,
     WORKFLOW_TYPE_LABELS,
     LabelColor,
@@ -98,10 +99,24 @@ def test_a_labels_file_gives_the_workflow_labels_then_its_own() -> None:
 
 
 def test_each_label_color_is_a_design_token_color() -> None:
+    import json
+
+    tokens = {
+        **json.loads(
+            (REPO_ROOT / "src/devops_cli/design/tokens-base.json").read_text(encoding="utf-8")
+        ),
+        **json.loads(
+            (REPO_ROOT / "src/devops_cli/design/tokens-light.json").read_text(encoding="utf-8")
+        ),
+    }
     colors = {spec.color for spec in WORKFLOW_LABELS} | {
         label["color"].upper() for label in _file_labels()
     }
     assert sorted(colors - {color.value for color in LabelColor}) == []
+    assert set(LABEL_COLOR_TOKENS) == set(LabelColor)
+    assert {
+        color: tokens[token].lstrip("#").upper() for color, token in LABEL_COLOR_TOKENS.items()
+    } == {color: color.value for color in LabelColor}
 
 
 def test_each_priority_has_its_own_color() -> None:

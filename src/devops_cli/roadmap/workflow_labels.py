@@ -33,6 +33,20 @@ class LabelColor(StrEnum):
     RECORD = "DCDCD6"  # color-border
 
 
+# The design token of each color, so a test can hold the hex value to the token files (#4786).
+LABEL_COLOR_TOKENS: Final[dict[LabelColor, str]] = {
+    LabelColor.PRIORITY_P0: "color-status-error",
+    LabelColor.PRIORITY_P1: "color-status-warn",
+    LabelColor.PRIORITY_P2: "color-accent",
+    LabelColor.PRIORITY_P3: "color-fg-muted",
+    LabelColor.ADDS_BEHAVIOR: "color-data-cat-1",
+    LabelColor.FIXES_DEFECT: "color-data-cat-2",
+    LabelColor.KEEPS_BEHAVIOR: "color-data-cat-3",
+    LabelColor.STOPS_WORK: "color-border-strong",
+    LabelColor.RECORD: "color-border",
+}
+
+
 def _label(name: str, color: LabelColor, description: str) -> LabelSpec:
     return LabelSpec(name=name, color=color.value, description=description)
 
