@@ -977,6 +977,11 @@ def test_the_decisions_are_cut_by_whole_entries_the_oldest_go_first_and_a_warnin
     script = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
 
     with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.adr"):
+        # A processor that a telemetry test shut down warns from another logger. The cap test
+        # reads only its own logger (#4062).
+        logging.getLogger("opentelemetry.sdk.trace.export").warning(
+            "Processor is already shutdown, ignoring call"
+        )
         _plan(store, script)
 
     decisions = _prompt_of(script.seen[0])["decisions"]
