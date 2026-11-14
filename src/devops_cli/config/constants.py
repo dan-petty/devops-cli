@@ -2953,6 +2953,19 @@ CONST_AI_GATEWAY_VIRTUAL_MODELS: Final[tuple[str, ...]] = (
     "devops-reasoning",
     "devops-embedding",
 )
+# The gateway groups that a local deployment answers, from the `model_list` of
+# `k8s/llm/gateway/config.yaml`. A reply that names one of them is local, and a model with the
+# `ollama/` or `ollama_chat/` prefix is local too (#4886).
+CONST_AI_GATEWAY_LOCAL_GROUPS: Final[tuple[str, ...]] = (
+    "devops-chat",
+    "devops-coder",
+    "devops-reasoning",
+    "devops-review",
+    "devops-background",
+    "devops-triage",
+    "qwen3.8:27b",
+    "qwen3-embedding:0.6b",
+)
 # The gateway groups that call a provider outside the cluster (SECURITY.md item 13). A request
 # reaches one of them only when its caller names it, such as a tier of
 # `roadmap.implement.ladder`.

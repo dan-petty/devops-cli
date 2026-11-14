@@ -455,3 +455,18 @@ The spend hook of `build_agent` SHALL give the cache write tokens of each reply 
 #### Scenario: A blocking or streamed chat call on a Claude group
 - **WHEN** a chat call or a stream on `claude-sonnet-5-5` gets a reply whose usage names 2,000,000 prompt tokens, 1,000,000 `cached_tokens` and 1,000,000 `cache_write_tokens`
 - **THEN** the ledger record stores both counts and costs 2.60 USD
+
+### Requirement: A local gateway group counts as local
+`is_local` SHALL count a gateway reply as local when it names a local group of `k8s/llm/gateway/config.yaml` or a model with the `ollama/`, `ollama_chat/` or `ollama:` prefix, and it SHALL keep a hosted group hosted.
+
+#### Scenario: A local fallback
+- **WHEN** a gateway reply names `ollama_chat/qwen3.8:27b`
+- **THEN** `is_local` is true and the record holds the source `local`
+
+#### Scenario: A local group outside the virtual models
+- **WHEN** a gateway reply names `devops-review`, `devops-background`, `devops-triage`
+- **THEN** `is_local` is true
+
+#### Scenario: A hosted group
+- **WHEN** a gateway reply names `claude-sonnet-5-5`
+- **THEN** `is_local` is false
