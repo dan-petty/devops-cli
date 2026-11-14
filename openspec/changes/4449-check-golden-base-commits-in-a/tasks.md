@@ -18,6 +18,13 @@ Kind: other. Reads: `tests/roadmap/stage/test_roadmap_stage_eval_cases.py`. Chan
 - [x] 2.1 Delete `_git` and `test_each_base_commit_of_the_set_is_a_full_hash_of_a_real_commit_or_the_case_reads_none` from `tests/roadmap/stage/test_roadmap_stage_eval_cases.py`, and delete the `import subprocess` line. Keep `FULL_HASH`, `NO_COMMIT`, `REPO_ROOT`, `pytest` and `test_each_merge_commit_of_the_set_is_a_full_hash_or_the_case_reads_none` as they are, because the merge hash test reads loaded data and no git history
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_eval_cases.py` passes
 
+## 3. Check out the full history in the Static Analysis job
+
+Kind: other. Reads: `.github/workflows/ci.yml`, `tests/invariants/test_workflow_contracts.py`. Changes: `.github/workflows/ci.yml`, `tests/invariants/test_workflow_contracts.py`.
+
+- [ ] 3.1 Add `fetch-depth: 0` to the `Check out repository` step of the `static` job of `.github/workflows/ci.yml`. That job runs `devops ci --check --skip test,outdated,actionlint`, so it runs the new row. Its default checkout is a shallow clone of depth 1, and on it the row fails with the message that names the missing history. The `test-shard`, `test`, `service-image` and `runner-image` jobs already set `fetch-depth: 0`. Above the step, add a comment that the `roadmap-stage-eval-commits` row reads the git history. In `test_the_static_job_installs_the_pinned_node_and_openspec_before_the_gate` of `tests/invariants/test_workflow_contracts.py`, change the expected checkout from shallow to `fetch-depth: 0`. Change its docstring to give the reason: the gate runs the row that reads the git history
+  - Verification: `$ uv run devops ci test tests/invariants/test_workflow_contracts.py` passes, and `$ uv run devops ci --check --no-cache --only zizmor` passes
+
 ## Workflow follow-up
 
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

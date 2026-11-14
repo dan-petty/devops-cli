@@ -23,8 +23,12 @@ The row SHALL fail and SHALL name each case whose base commit is not a full hash
 - **THEN** the row fails and its message names the case
 
 ### Requirement: The roadmap-stage-eval-commits row fails on a shallow clone
-The row SHALL fail when the repository is a shallow clone, with a message that says the clone lacks the history that the golden cases name.
+The row SHALL fail when the repository is a shallow clone, with a message that says the clone lacks the history that the golden cases name. The `static` job of `.github/workflows/ci.yml`, which runs the row, SHALL check out the full history with `fetch-depth: 0`.
 
 #### Scenario: Shallow repository
 - **WHEN** `git rev-parse --is-shallow-repository` prints `true`
 - **THEN** the row fails and the message says that the shallow clone lacks the history that the golden cases need
+
+#### Scenario: The Static Analysis job gives the row the full history
+- **WHEN** a test reads the `Check out repository` step of the `static` job in `.github/workflows/ci.yml`
+- **THEN** the step sets `fetch-depth: 0`
