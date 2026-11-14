@@ -808,6 +808,25 @@ def test_the_collection_repeats_the_targets_and_the_keyword_of_the_run(
     ) == (0, ["slow"], ["tests/test_secrets.py", "tests/test_unrelated.py"], True, ["slow"])
 
 
+def test_the_collection_runs_under_its_own_short_timeout(
+    process_fake: ProcessFake, project: Path
+) -> None:
+    """The collection gets DEFAULT_CI_TEST_COLLECTION_TIMEOUT_SECONDS, not the timeout of the run,
+    so a collection that hangs stops before the run's own limit and the file count decides
+    (#5606). The test reads the timeout through `defaults` when it runs, so this module also
+    imports on a base that does not have it."""
+    _answer_collection(process_fake, 5)
+
+    result = runner.invoke(ci_app, ["test", "tests/test_secrets.py"])
+
+    timeouts = [call.timeout for call in process_fake.calls if _COLLECTION_MARK in call.argv]
+    assert (result.exit_code, timeouts) == (
+        0,
+        [defaults.DEFAULT_CI_TEST_COLLECTION_TIMEOUT_SECONDS],
+    )
+    assert timeouts[0] < defaults.DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+
+
 def test_a_collection_that_matches_no_test_runs_serially_without_a_warning(
     process_fake: ProcessFake, project: Path
 ) -> None:
