@@ -1113,7 +1113,7 @@ def inbox_cmd(
     from datetime import UTC, datetime
 
     from devops_cli.config.settings import load_settings
-    from devops_cli.roadmap.inbox import read_inbox, render_inbox
+    from devops_cli.roadmap.inbox import emit_inbox_counts, read_inbox, render_inbox
     from devops_cli.roadmap.request_plan import inbox_requests
 
     kinds = None if kind is None else frozenset({kind})
@@ -1135,6 +1135,7 @@ def inbox_cmd(
                 draft_days=settings.roadmap.inbox.draft_days,
                 wait_days=settings.roadmap.inbox.wait_days,
             )
+        emit_inbox_counts(inbox, repo=target)
         write_stdout(render_inbox(inbox, repo=target, kinds=kinds) + "\n")
 
 

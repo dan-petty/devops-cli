@@ -14,6 +14,7 @@ import pytest
 
 from devops_cli.config.constants import (
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
+    CONST_ROADMAP_LABELS_PATH,
     CONST_SERVICE_METRIC_WEBHOOK_DELIVERY_FAILURES,
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES
@@ -30,6 +31,7 @@ from devops_cli.telemetry.instruments import (
     PROJECT_RELEASES,
     PROJECT_STARS,
     PROJECT_TRAFFIC_VIEWS,
+    ROADMAP_INBOX_ITEMS,
     ROADMAP_ITEM_AGE,
     ROADMAP_OLDEST_ITEM,
 )
@@ -53,6 +55,9 @@ from tests.support.roadmap_run import (
 )
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
+
+# The labels file of the repository: one label, which the repository holds.
+LABELS = "- name: scope/cli\n  color: DCDCD6\n  description: The CLI\n"
 
 
 # ── The metrics job ───────────────────────────────────────────────────────────
@@ -88,6 +93,7 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
         json.dumps({"id": 4242, "login": "test-bot"}),
         headers={"content-type": "application/json"},
     )
+    seeded_store.seed_file(CONST_ROADMAP_LABELS_PATH, LABELS)
     seeded_store.seed_issue("feat: export", labels=("type/feature",), fields=PLACED)
     seeded_store.seed_issue("A candidate", labels=("type/feature",))
     data_dir = tmp_path / "data"
@@ -140,6 +146,7 @@ def test_the_metrics_row_sends_the_age_of_a_blocked_item_and_logs_no_collection_
     clone.mkdir()
     (clone / ".git").mkdir()
     GitHubFake(REPO).install(process_fake)
+    seeded_store.seed_file(CONST_ROADMAP_LABELS_PATH, LABELS)
     number = seeded_store.seed_issue("ready item", fields=PLACED)
     ready = seeded_store.item(number)
     assert ready is not None
@@ -164,6 +171,70 @@ def test_the_metrics_row_sends_the_age_of_a_blocked_item_and_logs_no_collection_
     ) == (REPO, True, float(number), 0.0, [])
 
 
+def test_metrics_adapter_emits_inbox_counts(
+    process_fake: ProcessFake,
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    web: WebFake,
+    otlp: FakeCollector,
+) -> None:
+    """The metrics row sends the count of each counted kind of the inbox of its repository, so the
+    dashboard shows the counts without a person who runs the command (#2968)."""
+    clone = tmp_path / "clone"
+    clone.mkdir()
+    (clone / ".git").mkdir()
+    GitHubFake(REPO).install(process_fake)
+    seeded_store.seed_file(CONST_ROADMAP_LABELS_PATH, LABELS)
+    number = seeded_store.seed_issue("blocked item", fields=PLACED)
+    item = seeded_store.item(number)
+    assert item is not None
+    seeded_store.set_field(item, ItemField.STATUS, "Blocked")
+
+    run_metrics_adapter(store=seeded_store, repo=REPO, clone_path=clone, now=NOW)
+
+    points = {
+        attrs["kind"]: (attrs["repo"], value)
+        for attrs, value in otlp.points(ROADMAP_INBOX_ITEMS.name)
+    }
+    assert (points["blocked"], points["refine"], len(points)) == ((REPO, 1.0), (REPO, 0.0), 8)
+
+
+def test_the_metrics_row_sends_no_inbox_count_when_the_inbox_cannot_be_read(
+    process_fake: ProcessFake,
+    seeded_store: InMemoryRoadmapStore,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    web: WebFake,
+    otlp: FakeCollector,
+) -> None:
+    """A repository whose labels file the row cannot read sends no inbox count, and one warning
+    names it. The other gauges of the row stay, so a failed section fails no round (#2968)."""
+    clone = tmp_path / "clone"
+    clone.mkdir()
+    (clone / ".git").mkdir()
+    GitHubFake(REPO).install(process_fake)
+
+    with caplog.at_level(logging.WARNING):
+        run_metrics_adapter(store=seeded_store, repo=REPO, clone_path=clone, now=NOW)
+
+    assert (
+        otlp.points(ROADMAP_INBOX_ITEMS.name),
+        otlp.points(PROJECT_STARS.name),
+        [
+            record.getMessage()
+            for record in caplog.records
+            if record.levelno >= logging.WARNING and "inbox count" in record.getMessage()
+        ],
+    ) == (
+        [],
+        [({"repo": REPO}, 0.0)],
+        [
+            f"No inbox count is sent for {REPO} this round, because its inbox could not be "
+            f"read: {REPO} has no .github/labels.yml on its default branch."
+        ],
+    )
+
+
 def test_the_metrics_row_counts_the_failed_deliveries_of_the_hooks_of_its_repository(
     process_fake: ProcessFake,
     seeded_store: InMemoryRoadmapStore,
@@ -186,6 +257,7 @@ def test_the_metrics_row_counts_the_failed_deliveries_of_the_hooks_of_its_reposi
     )
     github.install(process_fake)
     GLOBAL_METRICS.clear_metric(CONST_SERVICE_METRIC_WEBHOOK_DELIVERY_FAILURES)
+    seeded_store.seed_file(CONST_ROADMAP_LABELS_PATH, LABELS)
 
     run_metrics_adapter(store=seeded_store, repo=REPO, clone_path=clone, now=NOW)
 
@@ -235,6 +307,7 @@ def test_the_metrics_job_of_the_app_reads_the_traffic_of_the_repository(
     (clone / ".git").mkdir()
     github = GitHubFake(REPO, traffic_answer=traffic_answer)
     github.install(git_fake)
+    seeded_store.seed_file(CONST_ROADMAP_LABELS_PATH, LABELS)
     config(
         service={"github_app": {"app_id": 1001, "installation_id": 42, "slug": "devops-roadmap"}}
     )

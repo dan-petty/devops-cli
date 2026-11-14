@@ -26,3 +26,19 @@ class InboxKind(StrEnum):
     QUEUE = "queue"
     PERSON = "person"
     OWNER = "owner"
+
+
+COUNTED_KINDS: tuple[InboxKind, ...] = (
+    InboxKind.BLOCKED,
+    InboxKind.REFINE,
+    InboxKind.SPLIT,
+    InboxKind.ALTERNATIVES,
+    InboxKind.FAILED,
+    InboxKind.STAGE_RETRY,
+    InboxKind.CLAIM,
+    InboxKind.LABELS,
+)
+"""The kinds that the inbox gauge counts, in the order of the classes (#2968).
+
+`queue` stays out: it is a state of the queue, and it has no line for each item. Eight kinds over
+the seven repositories of a Service add 56 series, below the cap of 63 (#3077 adds the ninth)."""

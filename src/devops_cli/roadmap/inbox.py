@@ -50,10 +50,11 @@ from devops_cli.config.constants import (
 )
 from devops_cli.git.branch_form import issue_of_branch
 from devops_cli.github.labels import diff_labels
+from devops_cli.github.repo_ref import RepoRef
 from devops_cli.lang import MESSAGES
 from devops_cli.output import format_duration
 from devops_cli.roadmap.follow import follow_command
-from devops_cli.roadmap.inbox_kind import InboxKind
+from devops_cli.roadmap.inbox_kind import COUNTED_KINDS, InboxKind
 from devops_cli.roadmap.planned import planned_count, planned_limit_priorities
 from devops_cli.roadmap.pull_labels import declared_specs
 from devops_cli.roadmap.refine.refine import NextStep
@@ -68,6 +69,7 @@ from devops_cli.roadmap.stores.store import (
     RoadmapStore,
     StageRecordKey,
 )
+from devops_cli.telemetry.instruments import ROADMAP_INBOX_ITEMS, emit
 
 # The kinds whose lines wait on a person: they go in the people's list, apart from the jobs'.
 _PEOPLE_KINDS: Final[tuple[InboxKind, ...]] = (InboxKind.PERSON, InboxKind.OWNER)
@@ -559,4 +561,25 @@ def render_inbox(inbox: Inbox, *, repo: str, kinds: frozenset[InboxKind] | None 
     )
 
 
-__all__ = ["Inbox", "InboxKind", "InboxLine", "read_inbox", "render_inbox"]
+def emit_inbox_counts(inbox: Inbox, *, repo: str) -> None:
+    """Send the count of the lines of each counted kind of `inbox` into OTLP (#2968).
+
+    One gauge value for each kind of `COUNTED_KINDS`, so a kind with no line sends 0: the panel
+    shows every counted kind of the repository, also one that a round clears. The label `repo` is
+    the key of `RepoRef`, so two spellings of one repository add one series.
+    """
+    key = RepoRef(repo).key
+    lines = (*inbox.jobs, *inbox.people)
+    for kind in COUNTED_KINDS:
+        count = sum(1 for line in lines if line.kind is kind)
+        emit(ROADMAP_INBOX_ITEMS, float(count), {"repo": key, "kind": kind.value})
+
+
+__all__ = [
+    "Inbox",
+    "InboxKind",
+    "InboxLine",
+    "emit_inbox_counts",
+    "read_inbox",
+    "render_inbox",
+]
