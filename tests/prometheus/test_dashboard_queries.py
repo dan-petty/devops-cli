@@ -288,13 +288,15 @@ def test_a_changed_query_names_the_dashboard_the_panel_and_the_ref_id() -> None:
     """A change of one character in a covered query fails with the dashboard, the panel title
     and the refId of the target."""
     dashboard = _dashboard("devops-cli")
-    (target,) = _targets(dashboard)[("AI Spend in Range", "A")]
-    target["expr"] = target["expr"].replace("$__range", "$__rang3")
+    (target,) = _targets(dashboard)[("Errors: share of calls that failed", "A")]
+    target["expr"] = target["expr"].replace("$__rate_interval", "$__rate_interva1")
     cases = _cases(_case_file(FIXTURES / "dashboard_queries" / "devops-cli.yaml"))
-    changed = [case for case in cases if case["panel"] == "AI Spend in Range"]
+    changed = [case for case in cases if case["panel"] == "Errors: share of calls that failed"]
     assert (changed != [], query_mismatches("devops-cli", dashboard, cases)) == (
         True,
-        ["devops-cli.json panel 'AI Spend in Range' refId A: the case query is not the panel query"]
+        [
+            "devops-cli.json panel 'Errors: share of calls that failed' refId A: the case query is not the panel query"
+        ]
         * len(changed),
     )
 
