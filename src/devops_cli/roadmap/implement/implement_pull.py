@@ -39,6 +39,7 @@ from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_muted
 from devops_cli.roadmap.pull_form import is_placeholder
+from devops_cli.roadmap.stage.stage_change import STAGE_EVAL_PROMPT_PATH
 from devops_cli.roadmap.step_files import parse_task_groups
 from devops_cli.roadmap.stores import store as roadmap_store
 from devops_cli.roadmap.stores.store import (
@@ -100,6 +101,7 @@ class Draft:
     checks: CheckVerdictSummary | None = None
     change: ChangeFacts | None = None
     declared: bool = False
+    files: tuple[PullRequestFile, ...] = ()
     files_truncated: bool = False
 
 
@@ -155,6 +157,34 @@ def _judge_implement_change(draft: Draft) -> Readiness | None:
     if draft.change.archive_required and not draft.change.archived:
         return Readiness(Answer.REFUSE, texts.draft_change_not_archived)
     return None
+
+
+def _eval_score(body: str, marker: str) -> bool:
+    """Whether the last line of `marker` holds a number (#4005)."""
+    last: str | None = None
+    for line in body.splitlines():
+        name, separator, value = line.partition(":")
+        if separator and name.strip() == marker:
+            last = value.strip()
+    return last is not None and bool(re.search(r"\d", last))
+
+
+def _judge_eval_scores(draft: Draft) -> Readiness | None:
+    """A pull request that changes the stage prompt needs the live base and head scores in its
+    body, because the step shell holds no model key (#4005)."""
+    if not any(changed.filename == STAGE_EVAL_PROMPT_PATH for changed in draft.files):
+        return None
+    missing = [
+        f"`{marker}:`"
+        for marker in ("Base eval score", "Head eval score")
+        if not _eval_score(draft.pull.body, marker)
+    ]
+    if not missing:
+        return None
+    return Readiness(
+        Answer.REFUSE,
+        MESSAGES.roadmap.draft_eval_scores_missing.format(missing=", ".join(missing)),
+    )
 
 
 def _judge_completeness(draft: Draft) -> Readiness | None:
@@ -219,6 +249,10 @@ def draft_readiness(
     if completeness is not None:
         return completeness
 
+    scores = _judge_eval_scores(draft)
+    if scores is not None:
+        return scores
+
     if draft.checks is not None:
         checks_outcome = _judge_checks(draft.checks)
         if checks_outcome is not None:
@@ -269,6 +303,10 @@ def read_draft(
     if pull is None:
         pull = client.get_pull_status(repo, number)
 
+    # The compare is the merge-base diff of the draft, and the changed files decide the eval-score
+    # rule for every kind (#4005).
+    compared = client.get_compare_files(repo, pull.base_ref, pull.head_sha)
+    files = tuple(compared.files)
     issue = issue_of_branch(pull.head_ref)
     if issue is None:
         return Draft(
@@ -278,6 +316,8 @@ def read_draft(
             checks=checks,
             change=None,
             declared=declared,
+            files=files,
+            files_truncated=compared.truncated,
         )
 
     store = store or roadmap_store.get_roadmap_store(repo)
@@ -291,9 +331,10 @@ def read_draft(
             checks=checks,
             change=None,
             declared=declared,
+            files=files,
+            files_truncated=compared.truncated,
         )
 
-    compared = client.get_compare_files(repo, pull.base_ref, pull.head_sha)
     found = None if compared.truncated else _find_tasks_path(compared.files, issue)
     if found is not None:
         tasks_path, archived = found

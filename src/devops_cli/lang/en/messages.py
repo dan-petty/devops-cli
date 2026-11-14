@@ -3685,6 +3685,10 @@ class RoadmapMessages:
     draft_unticked_group: str = "Task group {number}, {title}, has a task that is not ticked."
     draft_change_not_archived: str = "The change is not archived."
     draft_change_missing: str = "The change is missing."
+    draft_eval_scores_missing: str = (
+        "The change edits the stage prompt, so the body must hold the live eval score at the "
+        "base branch and at the head branch. Missing: {missing}."
+    )
     draft_files_truncated: str = (
         "The compare answer holds GitHub's limit of {limit} files, so the list of changed files"
         " can be incomplete and the change folder cannot be found in it."

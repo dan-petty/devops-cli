@@ -27,6 +27,7 @@ from devops_cli.roadmap.implement.implement_pull import (
     kind_of,
     read_draft,
 )
+from devops_cli.roadmap.stage.stage_change import STAGE_EVAL_PROMPT_PATH
 from devops_cli.roadmap.stores.store import ImplementRecordKey, Item, ItemField, StageRecordKey
 from tests.support.fakes.github import (
     GitHubApiFake,
@@ -385,7 +386,7 @@ def test_an_implement_draft_whose_compare_holds_the_file_limit_is_refused_naming
     )
 
 
-def test_read_draft_non_implement_kind_returns_early_without_reading_files() -> None:
+def test_read_draft_non_implement_kind_reads_the_compare_files_once() -> None:
     store = InMemoryRoadmapStore()
     issue_num = store.seed_issue(
         "Issue 1",
@@ -394,18 +395,25 @@ def test_read_draft_non_implement_kind_returns_early_without_reading_files() -> 
         body="",
     )
     client = MagicMock()
+    client.get_compare_files.return_value = CompareFiles(
+        files=(PullRequestFile(filename="src/devops_cli/sample.py", status="modified"),),
+        truncated=False,
+        merge_base="base123",
+    )
     pull = PullStatus(
         state="open",
         draft=True,
         head_ref=f"fix/{issue_num}-agent-task",
         head_sha="sha123",
+        base_ref="main",
     )
 
     draft = read_draft("dan-petty/devops-cli", 335, pull=pull, store=store, client=client)
 
     assert draft.kind is DraftKind.AGENT
     assert draft.change is None
-    client.get_compare_files.assert_not_called()
+    assert [changed.filename for changed in draft.files] == ["src/devops_cli/sample.py"]
+    client.get_compare_files.assert_called_once_with("dan-petty/devops-cli", "main", "sha123")
 
 
 def test_read_draft_implement_kind_with_no_change_folder_in_files() -> None:
@@ -455,3 +463,63 @@ def test_read_draft_keeps_the_title_and_the_body_of_the_stage_plan_pull() -> Non
 
     assert draft.kind is DraftKind.STAGE_PLAN
     assert (draft.pull.title, draft.pull.body) == (pull.title, pull.body)
+
+
+def _prompt_draft(body: str) -> Draft:
+    """A person's draft that changes the stage prompt."""
+    return Draft(
+        kind=DraftKind.PERSON,
+        pull=PullStatus(state="open", draft=True, title="fix(ai): the prompt", body=body),
+        declared=True,
+        checks=_PASSING,
+        files=(PullRequestFile(filename=STAGE_EVAL_PROMPT_PATH, status="modified"),),
+    )
+
+
+def test_a_prompt_change_with_no_score_is_refused_naming_both_scores() -> None:
+    readiness = draft_readiness(_prompt_draft("The change.\n\nCloses #1\n"))
+
+    assert (readiness.answer, "Base eval score" in readiness.reason) == (Answer.REFUSE, True)
+    assert "Head eval score" in readiness.reason
+
+
+def test_a_prompt_change_with_only_a_base_score_names_the_head_score() -> None:
+    body = "The change.\n\nCloses #1\nChange: `x`\nBase eval score: 11\n"
+    readiness = draft_readiness(_prompt_draft(body))
+
+    assert (readiness.answer, "Head eval score" in readiness.reason) == (Answer.REFUSE, True)
+    assert "Base eval score" not in readiness.reason
+
+
+def test_a_prompt_change_with_only_a_head_score_names_the_base_score() -> None:
+    body = "The change.\n\nCloses #1\nChange: `x`\nHead eval score: 12\n"
+    readiness = draft_readiness(_prompt_draft(body))
+
+    assert (readiness.answer, "Base eval score" in readiness.reason) == (Answer.REFUSE, True)
+    assert "Head eval score" not in readiness.reason
+
+
+def test_a_prompt_change_with_both_scores_is_ready() -> None:
+    body = "The change.\n\nCloses #1\nChange: `x`\nBase eval score: 11\nHead eval score: 12\n"
+
+    assert draft_readiness(_prompt_draft(body)).answer is Answer.READY
+
+
+def test_the_score_reader_takes_the_last_marker_and_needs_a_number() -> None:
+    body = "Base eval score: 11\nBase eval score: 13\nHead eval score: a better prompt\n"
+    readiness = draft_readiness(_prompt_draft(body))
+
+    assert (readiness.answer, "Head eval score" in readiness.reason) == (Answer.REFUSE, True)
+    assert "Base eval score" not in readiness.reason
+
+
+def test_a_change_without_the_prompt_file_needs_no_score() -> None:
+    draft = Draft(
+        kind=DraftKind.PERSON,
+        pull=PullStatus(state="open", draft=True, title="fix(pr): a body", body="No score."),
+        declared=True,
+        checks=_PASSING,
+        files=(PullRequestFile(filename="src/devops_cli/commands/pr.py", status="modified"),),
+    )
+
+    assert draft_readiness(draft).answer is Answer.READY

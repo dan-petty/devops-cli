@@ -101,6 +101,7 @@ from devops_cli.exceptions import (
 from devops_cli.exceptions.roadmap import GitSettingsError, OverWindowError
 from devops_cli.git.worktree_add import add_worktree
 from devops_cli.github.check_verdict import PRCheckItem, read_check_runs
+from devops_cli.github.client import PullRequestFile
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_muted
@@ -1797,12 +1798,19 @@ class _ItemRun:
         else:
             change = None
 
+        listed = self._git(
+            "diff", "--name-only", "--diff-filter=ACMR", "-z", f"origin/{self.default}", "HEAD"
+        )
+        changed = [
+            PullRequestFile(filename=name, status="modified") for name in listed.split("\0") if name
+        ]
         draft = Draft(
             kind=DraftKind.IMPLEMENT,
             pull=status,
             item=self.target.item,
             checks=checks,
             change=change,
+            files=tuple(changed),
         )
         readiness = draft_readiness(draft)
         if readiness.answer is not Answer.READY:
