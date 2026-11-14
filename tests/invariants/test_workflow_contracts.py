@@ -2341,11 +2341,12 @@ def _condition_terms(job: dict[str, Any]) -> list[str]:
 
 def _runs(job: dict[str, Any], event: dict[str, str]) -> bool:
     """Whether the `if` of `job` is true for `event`, which maps an expression path to its value.
-    The condition may hold only `always()`, `==` and `startsWith` terms, joined with `&&`: any
-    other term fails the test. GitHub compares strings with no regard to case in both operators."""
+    The condition may hold only `always()`, `!cancelled()`, `==` and `startsWith` terms, joined
+    with `&&`: any other term fails the test. GitHub compares strings with no regard to case in
+    both operators."""
     for term in _condition_terms(job):
         equals, starts = _EQUALS_TERM.fullmatch(term), _STARTS_WITH_TERM.fullmatch(term)
-        if term == "always()":
+        if term in {"always()", "!cancelled()"}:
             continue
         if equals is not None:
             holds = event[equals["path"]].lower() == equals["value"].lower()
@@ -2360,10 +2361,10 @@ def _runs(job: dict[str, Any], event: dict[str, str]) -> bool:
 
 def test_the_plan_check_job_waits_for_the_title_check_and_runs_after_a_failed_one() -> None:
     """The command reads the check `Semantic PR title` and reports a problem when it is missing
-    or has not passed (`plan_check.py`), so the job runs after it. `always()` lets the job run
-    when that check fails, since the command then reports the title as a problem. Without it,
-    GitHub skips a job whose needed job failed. The job that the command reads has the name that
-    the command looks for (#3103)."""
+    or has not passed (`plan_check.py`), so the job runs after it. `!cancelled()` lets the job run
+    when that check fails, since the command then reports the title as a problem, and skips it in
+    a cancelled run. Without it, GitHub skips a job whose needed job failed. The job that the
+    command reads has the name that the command looks for (#3103, #3975)."""
     from devops_cli.roadmap.plan_check import SEMANTIC_TITLE_CHECK
 
     jobs = _load_workflow(PR_TITLE_PATH)["jobs"]
@@ -2373,7 +2374,8 @@ def test_the_plan_check_job_waits_for_the_title_check_and_runs_after_a_failed_on
         job["needs"],
         _condition_terms(job)[0],
         jobs["semantic-title"]["name"],
-    ) == ("semantic-title", "always()", SEMANTIC_TITLE_CHECK)
+    ) == ("semantic-title", "!cancelled()", SEMANTIC_TITLE_CHECK)
+    assert "always()" not in str(job["if"])
 
 
 def test_the_plan_check_job_reads_checks_contents_and_pull_requests_only() -> None:

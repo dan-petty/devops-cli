@@ -25,6 +25,7 @@ the same functions, so no rule has a second copy.
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -70,6 +71,10 @@ from devops_cli.roadmap.stores.store import split_record
 
 GIT_OPERATION: Final[str] = "roadmap.plan-check"
 SEMANTIC_TITLE_CHECK: Final[str] = "Semantic PR title"
+# The plan-check command waits this long for the required title check, polling at the interval,
+# and then reports a note and no problem (#3975).
+TITLE_CHECK_WAIT_SECONDS: Final[float] = 120.0
+TITLE_CHECK_POLL_SECONDS: Final[float] = 5.0
 _CHANGES: Final[str] = CONST_OPENSPEC_CHANGES_DIR
 _SPECS: Final[str] = CONST_OPENSPEC_SPECS_DIR
 _PROPOSAL: Final[str] = "proposal.md"
@@ -135,9 +140,11 @@ class PlanProblem:
 
 @dataclass(frozen=True)
 class PlanCheckResult:
-    """The problems of a plan, in the order that the command reports them."""
+    """The problems of a plan, in the order that the command reports them, and the notes for a
+    check that was still pending at the wait limit (#3975)."""
 
     problems: tuple[PlanProblem, ...]
+    notes: tuple[str, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -297,7 +304,7 @@ def _check_problems(checks: CheckVerdictSummary) -> list[PlanProblem]:
                 texts.plan_check_check_missing.format(name=SEMANTIC_TITLE_CHECK),
             )
         ]
-    if found.bucket is CheckBucket.PASS:
+    if found.bucket is CheckBucket.PASS or found.bucket is CheckBucket.PENDING:
         return []
     return [
         PlanProblem(
@@ -308,6 +315,35 @@ def _check_problems(checks: CheckVerdictSummary) -> list[PlanProblem]:
             ),
         )
     ]
+
+
+def _title_check_pending(checks: CheckVerdictSummary) -> bool:
+    """Whether the title check is still in progress."""
+    return any(
+        item.name == SEMANTIC_TITLE_CHECK and item.bucket is CheckBucket.PENDING
+        for item in checks.items
+    )
+
+
+def _wait_for_title_check(
+    read: CheckReader,
+    owner: str,
+    name: str,
+    head_sha: str,
+    *,
+    wait_seconds: float,
+    poll_seconds: float,
+    sleep: Callable[[float], None] = time.sleep,
+    monotonic: Callable[[], float] = time.monotonic,
+) -> CheckVerdictSummary:
+    """The check summary after the required title check reaches a terminal state, or after
+    `wait_seconds` (#3975)."""
+    checks = read(owner, name, head_sha)
+    deadline = monotonic() + wait_seconds
+    while _title_check_pending(checks) and monotonic() < deadline:
+        sleep(poll_seconds)
+        checks = read(owner, name, head_sha)
+    return checks
 
 
 def _has_commit(source: Path, rev: str) -> bool:
@@ -519,22 +555,38 @@ def plan_check(
     tool: OpenSpecTool,
     client: PlanReads | None = None,
     check_reader: CheckReader = read_check_runs,
+    wait_seconds: float = TITLE_CHECK_WAIT_SECONDS,
+    poll_seconds: float = TITLE_CHECK_POLL_SECONDS,
 ) -> PlanCheckResult:
     """The problems of plan pull request `number` of `repo`, read in the checkout `source`.
 
     A pull request that has become the delivery of the item is no plan: the command reports no
-    problem for it.
+    problem for it. A title check that is still in progress is awaited for `wait_seconds` before
+    the command reports a note and no problem for it (#3975).
     """
     reads = client or _session_client()
     facts = read_pull(reads, repo, number)
     if not is_plan(facts):
         return PlanCheckResult(())
     owner, name = repo.split("/", 1)
-    checks = check_reader(owner, name, facts.head_sha)
+    checks = _wait_for_title_check(
+        check_reader,
+        owner,
+        name,
+        facts.head_sha,
+        wait_seconds=wait_seconds,
+        poll_seconds=poll_seconds,
+    )
+    pending = _title_check_pending(checks)
+    notes = (
+        (MESSAGES.roadmap.plan_check_check_pending.format(name=SEMANTIC_TITLE_CHECK),)
+        if pending
+        else ()
+    )
     problems = _pull_problems(facts, checks)
     issue = issue_number(facts.body)
     if issue is None:
-        return PlanCheckResult(tuple(problems))
+        return PlanCheckResult(tuple(problems), notes)
 
     git(source, "fetch", "--quiet", "origin", f"refs/pull/{number}/head", operation=GIT_OPERATION)
     head = git(source, "rev-parse", "FETCH_HEAD", operation=GIT_OPERATION)
@@ -547,7 +599,8 @@ def plan_check(
                     *problems,
                     *(PlanProblem(_CHANGES, "change-folder", message) for message in root_problems),
                 ]
-            )
+            ),
+            notes,
         )
 
     base_rev = _base_revision(source, facts)
@@ -578,11 +631,11 @@ def plan_check(
     problems.extend(found)
     validated = _validate_problems(tool, source, root.rsplit("/", 1)[-1], folder.files)
     if proposal is None:
-        return PlanCheckResult((*problems, *validated))
+        return PlanCheckResult((*problems, *validated), notes)
     problems.extend(_dependency_problems(proposal, root, reads, repo))
     problems.extend(validated)
     problems.extend(_moved_problems(proposal, source, plan_rev, base_rev))
-    return PlanCheckResult(tuple(problems))
+    return PlanCheckResult(tuple(problems), notes)
 
 
 def plan_check_requests(repo: str, number: int) -> tuple[PlannedRequest, ...]:
