@@ -38,6 +38,7 @@ def test_cli_refine_dry_run_and_confirm(
     model_fake: ModelFake,
     cli: Callable[..., Any],
 ) -> None:
+    store.seed_visibility(is_private=True)
     num = store.seed_issue("Feature to refine", body="Need refinement", fields=PLACED)
     item = require_item(store, num)
     store.set_field(item, ItemField.STATUS, "New")
