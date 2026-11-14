@@ -186,3 +186,9 @@ data:
         ladder:
           edit: [deepseek-v4.1-flash-1017]
           repair: [deepseek-v4.1-flash-1017]
+        # The memory limit of a runner Job, above the 2Gi or 6Gi request of its plan. The code
+        # default 8Gi is the limit at which the kernel killed two runner Jobs, on 2026-11-12 and
+        # on 2026-11-13 (#3727), so this cluster sets 16Gi (#5484). A deploy renders this
+        # template and replaces only the `service` section, so a value that a person sets in the
+        # live ConfigMap alone is lost at the next deploy.
+        max_memory_limit: 16Gi

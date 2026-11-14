@@ -138,3 +138,11 @@ def test_a_limit_below_the_largest_request_or_in_another_form_is_refused(
 
     with pytest.raises(ConfigurationError, match="max_memory_limit"):
         _limit()
+
+
+def test_the_description_names_the_smallest_node_that_can_run_a_runner_job() -> None:
+    description = settings.RoadmapImplementConfig.model_fields["max_memory_limit"].description
+
+    assert description is not None
+    assert "smallest node that can run a runner Job" in description
+    assert "smallest node of the cluster" not in description

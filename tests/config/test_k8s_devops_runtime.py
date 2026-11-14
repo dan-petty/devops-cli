@@ -207,6 +207,38 @@ def test_config_targets_the_in_cluster_gateway_and_holds_no_credential() -> None
     ) == ("gateway", True, [])
 
 
+CLUSTER_DOC = REPO_ROOT / "docs" / "CLUSTER.md"
+
+
+def _cluster_doc_section(heading: str) -> str:
+    """The line of docs/CLUSTER.md that the bold heading `heading` starts."""
+    return next(
+        line
+        for line in CLUSTER_DOC.read_text(encoding="utf-8").splitlines()
+        if line.startswith(f"- **{heading}.**")
+    )
+
+
+def test_the_size_section_names_the_default_and_the_example_limit() -> None:
+    """The example ConfigMap sets the runner memory limit of this cluster (#5484), and the Size
+    and the Deadline lines of docs/CLUSTER.md state the setting, the code default `8Gi` and the
+    `16Gi` of the template. A line that keeps one of them alone makes a person believe the Jobs
+    run under the other limit."""
+    raw = yaml.safe_load(_doc("configmap.example.yaml")["data"]["devops-cli.yaml"])
+    limit = Settings.model_validate(raw).roadmap.implement.max_memory_limit
+    template = (DEVOPS_DIR / "configmap.example.yaml").read_text(encoding="utf-8")
+    needles = ("roadmap.implement.max_memory_limit", "8Gi", "16Gi")
+
+    assert (
+        limit,
+        "#5484" in template,
+        {
+            heading: [needle for needle in needles if needle not in _cluster_doc_section(heading)]
+            for heading in ("Size", "Deadline")
+        },
+    ) == ("16Gi", True, {"Size": [], "Deadline": []})
+
+
 def test_the_implement_step_runs_on_a_hosted_gateway_group_that_fits_its_window() -> None:
     """The example ConfigMap names, for the task `implement` and for each step class of the
     ladder, a group that the gateway config serves and that is hosted. The window of the task is

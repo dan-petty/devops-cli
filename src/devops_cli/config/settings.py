@@ -1440,7 +1440,7 @@ class RoadmapImplementConfig(BaseModel):
         le=CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS,
     )
     max_memory_limit: Annotated[str, Variable()] = Field(
-        description="The memory limit of every runner Job that the Service creates, as a whole number of Gi such as `8Gi`. The memory request follows the size of the plan (2Gi or 6Gi), and this limit is the burst class above it. It must not be below the largest request, 6Gi, and it must fit the smallest node of the cluster: a Job that bursts past the node memory starves the other pods",
+        description="The memory limit of every runner Job that the Service creates, as a whole number of Gi such as `8Gi`. The memory request follows the size of the plan (2Gi or 6Gi), and this limit is the burst class above it. It must not be below the largest request, 6Gi, and it must fit the smallest node that can run a runner Job: a Job that bursts past the node memory starves the other pods",
         default=DEFAULT_ROADMAP_IMPLEMENT_MAX_MEMORY_LIMIT,
         pattern=r"^[1-9][0-9]*Gi$",
     )
