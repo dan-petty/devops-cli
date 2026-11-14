@@ -1528,12 +1528,13 @@ class _ItemRun:
                 self.repo, pull, texts.implement_pull_labels_failed.format(error=exc)
             )
 
-    def _comment(self, pull: int) -> None:
+    def _comment(self, pull: int, *, extra: str = "") -> None:
         """Write the comment of this run on the pull request: the table of the steps of this Job,
-        the amendments, the scoped runs and the notes. A run has one comment, that the second line
-        marks with the run id (#4070). The first write posts it, and a later write changes it, so a
-        repair round shows in the same comment. A Job with nothing to show writes nothing, so a
-        rerun does not post an empty comment and does not hide the table of the run before."""
+        the amendments, the scoped runs, the notes, and the stop text of `extra` (#3997). A run
+        has one comment, that the second line marks with the run id (#4070). The first write posts
+        it, and a later write changes it, so a repair round shows in the same comment. A Job with
+        nothing to show writes nothing, so a rerun does not post an empty comment and does not
+        hide the table of the run before."""
         texts = MESSAGES.roadmap
         table = summary_table(self._row(outcome) for outcome in self.outcomes)
         amend_lines = [amendment.line() for amendment in self.amendments]
@@ -1545,7 +1546,7 @@ class _ItemRun:
             for step in self.skipped_steps
         ]
         lines = "\n".join([*amend_lines, *skipped_lines, *scoped_lines, *self._check_lines()])
-        body = "\n\n".join(part for part in (table, lines) if part)
+        body = "\n\n".join(part for part in (extra, table, lines) if part)
         if not body:
             return
         run = texts.implement_pull_comment_run.format(
@@ -1831,8 +1832,6 @@ class _ItemRun:
             stop.failure_class = FailureClass.GIT_CONFIG
         if stop.push and not note:
             note = self._kept_note(branch=stop.kept_branch)
-        if self.pull is not None and self.amendments:
-            self._comment(self.pull)
         last = safe_text(mask_secrets(stop.last_message))[
             :CONST_ROADMAP_IMPLEMENT_LAST_MESSAGE_CHARS
         ]
@@ -1871,27 +1870,28 @@ class _ItemRun:
                 left=left.value,
             )
         )
-        self.store.comment(
-            self.number,
-            texts.implement_comment_stopped.format(
-                marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
-                step=stop.step,
-                check=_check_section(check, check_log),
-                failure=failure_lines(
-                    klass,
-                    repair_rounds=stop.repair_rounds,
-                    taken=taken,
-                    left=left,
-                    tier_changes=stop.tier_changes,
-                ),
-                table=self._stop_table(stop),
-                extensions=_extension_section(json.loads(spend)["steps"]),
-                reason=reason,
-                last=last or texts.implement_comment_last_none,
-                diff=_diff_section(stop),
-                note=note,
+        stopped = texts.implement_comment_stopped.format(
+            marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
+            step=stop.step,
+            check=_check_section(check, check_log),
+            failure=failure_lines(
+                klass,
+                repair_rounds=stop.repair_rounds,
+                taken=taken,
+                left=left,
+                tier_changes=stop.tier_changes,
             ),
+            table=self._stop_table(stop),
+            extensions=_extension_section(json.loads(spend)["steps"]),
+            reason=reason,
+            last=last or texts.implement_comment_last_none,
+            diff=_diff_section(stop),
+            note=note,
         )
+        if self.pull is not None:
+            # The stop text without its marker line: `_comment` adds the marker and the run id.
+            self._comment(self.pull, extra="\n".join(stopped.splitlines()[1:]).strip())
+        self.store.comment(self.number, stopped)
         marks: dict[Any, str | int | None] = {
             ImplementRecordKey.STOPPED: stop.step,
             ImplementRecordKey.FAILURE: klass.value,
