@@ -486,6 +486,12 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
                 KeyringSource(GRAFANA_SECURITY_KEY),
                 generator=SecretGenerator("urlsafe", 32),
             ),
+            SecretEntry(
+                "llm-gateway-key",
+                _LLM_GATEWAY_KEY,
+                generator=SecretGenerator("hex", 24, prefix=LITELLM_KEY_PREFIX),
+                value_prefix=LITELLM_KEY_PREFIX,
+            ),
         ),
         restarts=(Workload("deployment", "grafana"),),
         labels={"app.kubernetes.io/name": "grafana"},

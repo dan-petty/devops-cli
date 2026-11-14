@@ -379,6 +379,45 @@ def test_grafana_pins_the_llm_app_at_its_release_for_grafana_13() -> None:
     assert pinned.get("grafana-llm-app") == "1.2.0"
 
 
+def test_grafana_provisions_the_llm_app_for_litellm_gateway() -> None:
+    """Grafana provisions grafana-llm-app targeting in-cluster LiteLLM gateway (#5710)."""
+    values = _k8s_yaml("monitoring/grafana-values.yaml")
+    env = values.get("envValueFrom", {})
+    assert env.get("GF_LLM_GATEWAY_KEY") == {
+        "secretKeyRef": {"name": "grafana-admin", "key": "llm-gateway-key"}
+    }
+    mounts = values.get("extraConfigmapMounts", [])
+    assert any(
+        m.get("mountPath") == "/etc/grafana/provisioning/plugins/apps.yaml"
+        and m.get("subPath") == "apps.yaml"
+        and m.get("configMap") == "grafana-llm-plugin"
+        and m.get("readOnly") is True
+        for m in mounts
+    )
+    extra_objects = values.get("extraObjects", [])
+    llm_cm = next(
+        (
+            obj
+            for obj in extra_objects
+            if obj.get("metadata", {}).get("name") == "grafana-llm-plugin"
+        ),
+        None,
+    )
+    assert llm_cm is not None
+    apps_yaml = yaml.safe_load(llm_cm.get("data", {}).get("apps.yaml", ""))
+    app = next((a for a in apps_yaml.get("apps", []) if a.get("type") == "grafana-llm-app"), None)
+    assert app is not None
+    assert (
+        app.get("jsonData", {}).get("openAI", {}).get("url")
+        == "http://llm-gateway.llm.svc.cluster.local:4000/v1"
+    )
+    models = app.get("jsonData", {}).get("models", {})
+    assert models.get("default") == "base"
+    assert models.get("mapping", {}).get("base") == "qwen3.8:27b"
+    assert models.get("mapping", {}).get("large") == "qwen3.8:27b"
+    assert app.get("secureJsonData", {}).get("openAIKey") == "$__env{GF_LLM_GATEWAY_KEY}"
+
+
 def test_grafana_runs_the_image_renderer_of_its_chart_at_a_release_tag() -> None:
     """With no renderer, the render API of Grafana returned HTTP 500, so no panel image could be
     made (#5185). The renderer of the chart runs its image at a release tag, not `latest`, with

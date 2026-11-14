@@ -371,7 +371,7 @@ Grafana preinstalls the `grafana-llm-app` plugin pinned at release `1.2.0` (`mon
 
 - Grafana routes requests to the in-cluster LiteLLM AI Gateway at `http://llm-gateway.llm.svc.cluster.local:4000/v1` targeting model `qwen3.8:27b`.
 - The network policy `monitoring-default-perimeter` admits egress to port 4000 of namespace `llm`.
-- The operator configures the gateway connection under **Administration** > **Plugins** > **LLM** in the Grafana web console, using the LiteLLM master key from the keyring.
+- Grafana provisions the plugin settings from `apps.yaml` (`monitoring/grafana-values.yaml`), reading the LiteLLM key from `GF_LLM_GATEWAY_KEY` (Secret `monitoring/grafana-admin`).
 
 ## Log and Metric Retention
 
@@ -716,6 +716,7 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `monitoring/grafana-admin` | `admin-user` | literal | yes | fail | infra | `deployment/grafana` |
 | `monitoring/grafana-admin` | `admin-password` | keyring `grafana_password` | yes | adopt from `monitoring/grafana admin-password`; else generate `token_urlsafe(32)` | infra | `deployment/grafana` |
 | `monitoring/grafana-admin` | `secret-key` | keyring `grafana_secret_key` | yes | adopt the live value; else generate `token_urlsafe(32)` | infra | `deployment/grafana` |
+| `monitoring/grafana-admin` | `llm-gateway-key` | keyring `llm_gateway_master_key` | yes | adopt the live value; else generate `sk-` + 48 hex | infra | `deployment/grafana` |
 | `monitoring/grafana-image-renderer` | `token` | keyring `grafana_renderer_token` | yes | adopt the live value; else generate `token_urlsafe(32)` | infra | `deployment/grafana`, `deployment/grafana-image-renderer` |
 | `monitoring/alertmanager-mattermost` | `url` | derived from keyring mattermost_alerts_hook | no | skip with a warning | infra | none |
 | `argocd/argocd-notifications-secret` | `github-appID` | setting argocd.github_app_id | yes | fail | infra | none |

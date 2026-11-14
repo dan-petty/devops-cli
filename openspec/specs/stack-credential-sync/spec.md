@@ -217,3 +217,10 @@ Secret `monitoring/grafana-admin` SHALL hold `secret-key` from keyring `grafana_
 - **WHEN** the cluster secret table and Grafana values are read
 - **THEN** Secret `monitoring/grafana-admin` defines `secret-key` with generator `token_urlsafe(32)`
 - **AND** `k8s/monitoring/grafana-values.yaml` maps `GF_SECURITY_SECRET_KEY` to `grafana-admin` `secret-key`
+
+### Requirement: Secret monitoring/grafana-admin holds a llm-gateway-key entry
+Secret `monitoring/grafana-admin` SHALL hold entry `llm-gateway-key` from keyring source `llm_gateway_master_key` with generator prefix `sk-`.
+
+#### Scenario: Secret entry in cluster secret table
+- **WHEN** the cluster secret table is read
+- **THEN** Secret `monitoring/grafana-admin` defines `llm-gateway-key` with keyring source `llm_gateway_master_key`
