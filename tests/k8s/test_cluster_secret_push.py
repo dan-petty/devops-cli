@@ -71,6 +71,7 @@ FULL_KEYRING = {
     "crawl4ai_api_token": CRAWL4AI_TOKEN,
     "searxng_secret_key": SEARXNG_SECRET,
     "mcp_token": MCP_TOKEN,
+    "roadmap_service_llm_key": "sk-virtual-service-0001",
 }
 TABLE_REFS = {secret.ref for secret in CLUSTER_SECRETS}
 
@@ -254,6 +255,7 @@ def test_apply_is_one_server_side_apply_of_a_list_on_stdin(
                 APP_KEY_ENTRY,
                 "DEVOPS_CLI_VALKEY_PASSWORD",
             ],
+            "devops/roadmap-service-llm-key": ["api-key"],
             "devops/qdrant-api-key": ["api-key"],
         },
         [],
@@ -571,6 +573,7 @@ def test_stack_devops_reads_the_app_key_gateway_key_and_webhook_secrets_and_runs
             DEVOPS_CACHE_VALKEY_AUTH_KEY,
             "mattermost_command_token",
             "crawl4ai_api_token",
+            "roadmap_service_llm_key",
             "searxng_secret_key",
             "mcp_token",
             "qdrant_api_key",

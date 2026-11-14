@@ -197,6 +197,7 @@ _VARIABLES_OF_LATER_SETTINGS = frozenset(
         "DEVOPS_CLI_ARGOCD_GITHUB_APP_PRIVATE_KEY",  # #2000
         "DEVOPS_CLI_SERVICE_MODEL_CALL_CONCURRENCY",  # #2564
         "DEVOPS_CLI_SERVICE_MAX_FAILED_ROUNDS",  # #4802
+        "DEVOPS_CLI_ROADMAP_SERVICE_LLM_KEY",  # #3685
         "DEVOPS_CLI_SERVICE_POLL_INTERVAL_IDLE_SECONDS",  # #3672
         "DEVOPS_CLI_SEARCH_LANGUAGE",  # #3925
         "DEVOPS_CLI_SEARCH_PROVIDERS",  # #3925
@@ -288,6 +289,7 @@ _KEYRING_OF_LATER_CREDENTIALS = {
     "anthropic.api_key": "anthropic_api_key",  # #3113
     "openrouter.api_key": "openrouter_api_key",  # #3144
     "crawl4ai.api_token": "crawl4ai_api_token",  # #3882
+    "roadmap_service.llm_key": "roadmap_service_llm_key",  # #3685
 }
 
 
