@@ -28,6 +28,7 @@ from devops_cli.security.sanitizer import mask_secrets
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import (
+    SAMPLE,
     SHOUT_CODE,
     TASKS_PATH,
     TEST_BODY,
@@ -433,3 +434,53 @@ def test_an_extra_turn_that_changes_the_verification_command_leaves_the_tasks_fi
 
     assert outcome.status == StepStatus.DONE
     assert git(checkout, "show", f"HEAD:{TASKS_PATH}") + "\n" == TICKED
+
+
+def test_an_extra_turn_that_restores_a_file_to_base_does_not_stop_the_step(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """The step's own change is in the tree of the turn, and putting it back to `base` is no
+    foreign change (#4011)."""
+    _lint_fails_on_an_unused_import(programs)
+    restored = write_call("src/sample.py", SAMPLE)
+    script = ModelScript(
+        tool_calls(*NOT_TICKED, TICK),
+        say("Done."),
+        tool_calls(restored, REPAIR, TICK),
+        say("Restored."),
+    )
+
+    outcome = _step(store, checkout, script)
+
+    assert "changed files that the step had not changed" not in outcome.reason
+
+
+def test_foreign_change_accepts_a_file_whose_content_is_the_base_content(tmp_path: Path) -> None:
+    """`_foreign_change` compares a file outside the repair paths with `tree` and `base`, and a
+    file back at `base` is no foreign change (#4011)."""
+    from types import SimpleNamespace
+
+    from devops_cli.roadmap.implement.implement_step import _Ask, _foreign_change
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    git(root, "init", "-q", "-b", "main")
+    git(root, "config", "user.email", "ci@example.com")
+    git(root, "config", "user.name", "CI")
+    (root / "src").mkdir()
+    (root / "src" / "sample.py").write_text("BASE = 1\n", encoding="utf-8")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "init")
+    base = git(root, "rev-parse", "HEAD")
+    (root / "src" / "sample.py").write_text("STEP = 2\n", encoding="utf-8")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "step")
+    tree = git(root, "rev-parse", "HEAD")
+    (root / "src" / "sample.py").write_text("BASE = 1\n", encoding="utf-8")
+    change = root / "openspec" / "changes" / "1-x"
+    change.mkdir(parents=True)
+    (change / "tasks.md").write_text("# Tasks\n", encoding="utf-8")
+
+    ask = _Ask("message", frozenset({"tests/test_sample.py"}), "changed: {paths}")
+
+    assert _foreign_change(root, SimpleNamespace(change=change), tree, ask, base) is None
