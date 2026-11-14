@@ -12,7 +12,7 @@ The step SHALL count each line of the open findings section of the last plan com
 - **THEN** the step makes no plan call and no review call, and the record counts the attempt on the head
 
 ### Requirement: An open finding of the last plan comment keeps the label
-The step SHALL dismiss a plan only when the review of the head and the last plan comment list no blocker or major finding. A blocker or a major finding of the comment SHALL keep `plan/needs-fix`, and the attempt SHALL be `unchanged`.
+The step SHALL dismiss a plan only when the review of the head and the last plan comment list no blocker or major finding. A head with no open findings in its review, but whose last plan comment lists a blocker or a major finding, SHALL NOT be dismissed, SHALL keep `plan/needs-fix`, and the attempt SHALL be `unchanged`.
 
 #### Scenario: An old-form comment keeps the label
 - **WHEN** the last plan comment holds a finding line of the old form, and the review of the head has no open finding
@@ -57,6 +57,40 @@ The step SHALL count only a blocker or a major finding as open. A head whose rev
 #### Scenario: A pushed revision lists its minor finding as advice
 - **WHEN** the step pushes a revision whose review holds a quoted minor finding and no blocker or major finding
 - **THEN** the pull request loses `plan/needs-fix`, and the comment lists the minor finding as advice
+
+### Requirement: The review of the head counts the open findings before the repair
+In each attempt the verification pass SHALL review the plan that passed the checks at the latest default branch, with no screen of `stage.verify_screen`, and the step SHALL compare the last review of the revision with the open findings of that review. The step SHALL give the planner the open findings of that review and the open findings of the last trusted comment of the stage job or of the step that names the pull request. When the review of the head plan has no open finding but the comment lists an open finding, the step SHALL NOT dismiss the plan, SHALL keep `plan/needs-fix`, and SHALL report `unchanged`.
+
+#### Scenario: No comment lists an open finding
+- **WHEN** no trusted comment of the item lists an open finding for the pull request, and the review of the head plan has one
+- **THEN** the next planner request holds the head plan as `previous` and the finding of the review in `problem`
+
+#### Scenario: A comment of an untrusted author
+- **WHEN** the only comment that lists an open finding has an author with no write access, and the review of the head plan has an open finding
+- **THEN** the next planner request holds the finding of the review in `problem` and no finding of that comment
+
+#### Scenario: The comment lists fewer open findings than the review of the head
+- **WHEN** the stage comment lists 1 open finding, the review of the head plan has 2 and the last review of the revision has 1
+- **THEN** the step pushes the revision with the result `revised`, and its result line holds `comment=1`, `before=2` and `after=1`
+
+#### Scenario: The review of the head finds no open finding that the comment lists
+- **WHEN** the stage comment lists an open finding and the review of the head plan has none
+- **THEN** the planner gets no request, the head of the branch does not change, the pull request keeps `plan/needs-fix`, and the result is `unchanged`
+
+#### Scenario: The screen does not decide the review of the head
+- **WHEN** the screen of `stage.verify_screen` is in mode `on` and gives the band `continue`
+- **THEN** the verification pass reviews the plan of the head, and its open findings are `before`
+
+### Requirement: The label goes when no open finding remains
+The step SHALL remove `plan/needs-fix` for the result `cleared` (a pushed revision whose last review has no open finding), for `dismissed` (a review of the head with no open finding and no open finding listed in the last plan comment), and for `regated` only when the review of the gated plan has no open finding and no step failed. It SHALL keep the label for each other result.
+
+#### Scenario: A revision with no open finding
+- **WHEN** the review of the head has an open finding and the review of the revision has none
+- **THEN** the branch holds the new commit, the result is `cleared`, and the pull request loses `plan/needs-fix`
+
+#### Scenario: A head plan with no open finding
+- **WHEN** the checks pass the plan of the head, the review of it has no open finding, and the last plan comment lists no open finding
+- **THEN** the planner gets no request, the head of the branch does not change, the pull request loses `plan/needs-fix`, the result is `dismissed`, and the comment lists the findings as advice
 
 ## RENAMED Requirements
 
