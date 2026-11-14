@@ -326,7 +326,7 @@ def _dotted(document: Any, key: str) -> Any:
     return document
 
 
-def test_perimeter_admits_no_ingress_and_exactly_four_egress_rules() -> None:
+def test_perimeter_admits_no_ingress_and_exactly_five_egress_rules() -> None:
     policy = _doc("networkpolicy.yaml")
     spec = policy["spec"]
     assert (
@@ -365,6 +365,12 @@ def test_perimeter_admits_no_ingress_and_exactly_four_egress_rules() -> None:
                     {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "llm"}}}
                 ],
                 "ports": [{"protocol": "TCP", "port": 4000}, {"protocol": "TCP", "port": 6379}],
+            },
+            {
+                "to": [
+                    {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "llm"}}}
+                ],
+                "ports": [{"protocol": "TCP", "port": 6333}],
             },
             {
                 "to": [
@@ -464,3 +470,14 @@ def test_mcp_server_reads_its_bearer_token_from_the_secret_that_the_push_writes(
         "name": "DEVOPS_CLI_MCP_TOKEN",
         "valueFrom": {"secretKeyRef": {"name": "mcp-server", "key": "DEVOPS_CLI_MCP_TOKEN"}},
     }
+
+
+def test_the_config_names_the_qdrant_service_and_holds_no_key() -> None:
+    """The pods reach Qdrant in namespace llm at its ClusterIP Service, and the key reaches them
+    from Secret devops/devops-cli (#3823)."""
+    raw = yaml.safe_load(_doc("configmap.example.yaml")["data"]["devops-cli.yaml"])
+
+    assert (raw["qdrant"], "api_key" in raw["qdrant"]) == (
+        {"url": "http://qdrant.llm.svc.cluster.local:6333"},
+        False,
+    )

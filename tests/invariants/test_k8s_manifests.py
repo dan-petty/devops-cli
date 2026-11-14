@@ -1080,6 +1080,7 @@ def test_env_name_keys_of_devops_cli_feed_their_options() -> None:
         "DEVOPS_CLI_CRAWL4AI_API_TOKEN": "crawl4ai.api_token",
         "DEVOPS_CLI_MCP_STAGE_TOKEN": "mcp.stage_token",
         "DEVOPS_CLI_MCP_IMPLEMENT_TOKEN": "mcp.implement_token",
+        "DEVOPS_CLI_QDRANT_API_KEY": "qdrant.api_key",
     }
 
 
