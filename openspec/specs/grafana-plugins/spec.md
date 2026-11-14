@@ -30,3 +30,10 @@ The Renovate configuration SHALL give each Grafana plugin update the labels `typ
 - **WHEN** a test reads the package rule that matches the plugin datasource, and the rule that labels the custom managers of `k8s/`
 - **THEN** its `allowedVersions` is `<4.0.0` for pins of major 3, it sets no `groupName`, and a note names `grafanaDependency` and links `https://grafana.com/api/plugins/{{{depName}}}/versions/{{{newVersion}}}`
 - **AND** the preset labels are `type/chore` and `scope/deps`, and the custom managers of `k8s/**` add `scope/infra`
+
+### Requirement: Grafana preinstalls the LLM app plugin
+The Grafana values SHALL include `grafana-llm-app` pinned at release 1.2.0 in the chart `plugins` value as `grafana-llm-app@1.2.0`. The 1.2.0 release is compatible with Grafana 13 (`>=13.0.0-0`).
+
+#### Scenario: The LLM app plugin has a pin
+- **WHEN** the Grafana values are read
+- **THEN** the `plugins` value contains `grafana-llm-app@1.2.0`

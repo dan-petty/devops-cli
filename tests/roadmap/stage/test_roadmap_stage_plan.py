@@ -201,7 +201,8 @@ def test_a_valid_plan_gives_the_branch_the_title_the_body_and_the_files(
         f"fix/{item}-the-job-drops-a-comment",
         "docs(openspec): plan #1 Stop the job dropping a comment",
         (
-            f"Plans #{item}\n\nThe job keeps every comment it reads. It dropped the last one.\n\n"
+            f"The job keeps every comment it reads. It dropped the last one.\n\n"
+            f"Plans #{item}\n\n"
             f"Change: `openspec/changes/{item}-the-job-drops-a-comment/`"
         ),
         True,
@@ -1260,7 +1261,8 @@ def test_a_plan_body_that_breaks_the_plan_form_goes_back_to_the_model_once(
 
     (change,) = plan.ready
     assert plan.failed == ()
-    assert change.body.startswith(f"Plans #{item}\n\nThe job keeps every comment")
+    assert change.body.startswith("The job keeps every comment")
+    assert f"\n\nPlans #{item}\n" in change.body
     assert "characters" in _requests(model_fake)[1]["problem"]
 
 

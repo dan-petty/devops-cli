@@ -23,6 +23,7 @@ from devops_cli.k8s.cluster_secrets import (
     CLUSTER_SECRETS,
     DEVOPS_CACHE_VALKEY_AUTH_KEY,
     GRAFANA_RENDERER_AUTH_KEY,
+    GRAFANA_SECURITY_KEY,
     LLM_GATEWAY_MASTER_KEY,
     MATTERMOST_DB_AUTH_KEY,
     SEARXNG_SERVER_KEY,
@@ -1059,6 +1060,7 @@ def test_keyring_sources_are_managed_keys_or_declared_keyring_only() -> None:
                 MATTERMOST_DB_AUTH_KEY,
                 SEARXNG_SERVER_KEY,
                 GRAFANA_RENDERER_AUTH_KEY,
+                GRAFANA_SECURITY_KEY,
             }
         ),
     )

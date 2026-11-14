@@ -45,6 +45,8 @@ SEARXNG_SERVER_KEY = "searxng_secret_key"
 # The token that Grafana sends to its image renderer (#5185). No Settings option reads it: only
 # the two pods do.
 GRAFANA_RENDERER_AUTH_KEY = "grafana_renderer_token"
+# The secret_key that Grafana uses to sign session cookies and CSRF tokens (#5697).
+GRAFANA_SECURITY_KEY = "grafana_secret_key"
 
 
 @dataclass(frozen=True)
@@ -478,6 +480,11 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
                 KeyringSource.for_credential("grafana.password"),
                 generator=SecretGenerator("urlsafe", 32),
                 adopt_from=SecretKeyRef("monitoring", "grafana", "admin-password"),
+            ),
+            SecretEntry(
+                "secret-key",
+                KeyringSource(GRAFANA_SECURITY_KEY),
+                generator=SecretGenerator("urlsafe", 32),
             ),
         ),
         restarts=(Workload("deployment", "grafana"),),

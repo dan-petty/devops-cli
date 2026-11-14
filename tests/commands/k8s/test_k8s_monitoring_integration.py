@@ -365,6 +365,18 @@ def test_grafana_pins_each_drilldown_app_at_its_release_for_grafana_13() -> None
     assert {
         app: _pinned_major(pinned.get(app, "")) for app in GRAFANA_DRILLDOWN_APPS
     } == dict.fromkeys(GRAFANA_DRILLDOWN_APPS, GRAFANA_13_DRILLDOWN_MAJOR)
+    assert {app: pinned.get(app) for app in GRAFANA_DRILLDOWN_APPS} == dict.fromkeys(
+        GRAFANA_DRILLDOWN_APPS, "3.2.0"
+    )
+
+
+def test_grafana_pins_the_llm_app_at_its_release_for_grafana_13() -> None:
+    """Grafana preinstalls grafana-llm-app pinned at 1.2.0 for Grafana 13 (#5696)."""
+    plugins = _k8s_yaml("monitoring/grafana-values.yaml").get("plugins", [])
+    pinned = {
+        plugin_id: version for plugin_id, _, version in (entry.partition("@") for entry in plugins)
+    }
+    assert pinned.get("grafana-llm-app") == "1.2.0"
 
 
 def test_grafana_runs_the_image_renderer_of_its_chart_at_a_release_tag() -> None:
