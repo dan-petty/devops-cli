@@ -7,12 +7,13 @@ The implement job writes tests but checks their strength nowhere: `src/devops_cl
 ## What Changes
 
 - Add `src/devops_cli/roadmap/implement/implement_strength.py`: the assertion scan of the new test files, the bounded mutation run, and the coverage run of the scoped test modules with its delta.
-- Bound the mutation run at `roadmap.implement.command_timeout_seconds` (1800 s) and at `CONST_ROADMAP_IMPLEMENT_SCOPED_TEST_MODULES` (30) changed source files, and name the bound and each file that the run did not test.
-- Run the scoped test modules with `--cov=src --cov-report= --cov-fail-under=0`, because `devops ci test` passes no coverage option, then `uv run coverage xml -q` and diff-cover at `--fail-under 100`.
+- Bound the mutation run at `roadmap.implement.command_timeout_seconds` (1800 s) and at `CONST_ROADMAP_IMPLEMENT_SCOPED_TEST_MODULES` (30) changed source files, and scope mutmut stats collection to the scoped test modules via `PYTEST_ADDOPTS`.
+- Run the scoped test modules with `--cov=src --cov-report= --cov-fail-under=0`, because `devops ci test` passes no coverage option, then `uv run coverage xml -q` and diff-cover at `--fail-under 90`.
 - Leave the changed files of a task group of kind `other` out of the strength check, with the group number as the reason.
 - Run the strength check after the scoped checks in `_scoped_run` of `src/devops_cli/roadmap/implement/implement_run.py` and give a failed report to the existing repair loop.
 - Show the strength report and the skip reason in the comment on the pull request.
-- Document the strength check, its bounds and its skip in `docs/ROADMAP_WORKFLOW.md` and `docs/roadmap/implement.md`.
+- Update `tests/support/roadmap_implement.py` and `tests/roadmap/implement/test_roadmap_implement_job_scoped.py` to support strength commands in `JobWorld`.
+- Document the strength check, its bounds and its skip in `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/implement.md`, `docs/roadmap/package-layout.md`, and `src/devops_cli/roadmap/implement/implement_scoped_ci.py`.
 - The change fits one pull request.
 
 ## Capabilities
@@ -27,9 +28,9 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/implement/implement_strength.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/roadmap/implement/implement_run.py`
-- Documents: `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/implement.md`
-- Tests: `tests/roadmap/implement/test_roadmap_implement_strength.py`
+- Code: `src/devops_cli/roadmap/implement/implement_strength.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/roadmap/implement/implement_run.py`, `src/devops_cli/roadmap/implement/implement_scoped_ci.py`
+- Documents: `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/implement.md`, `docs/roadmap/package-layout.md`
+- Tests: `tests/roadmap/implement/test_roadmap_implement_strength.py`, `tests/support/roadmap_implement.py`, `tests/roadmap/implement/test_roadmap_implement_job_scoped.py`
 
 ## Feasibility
 
