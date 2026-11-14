@@ -45,7 +45,13 @@ from devops_cli.roadmap.stores.store import (
 )
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from tests.support.fakes.github import GitHubApiFake
-from tests.support.fakes.kubernetes import FakeCluster, pod
+from tests.support.fakes.kubernetes import (
+    FakeCluster,
+    pod,
+    running,
+    status,
+    terminated,
+)
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_implement import (
@@ -606,6 +612,77 @@ def test_a_job_that_left_no_result_gets_the_class_of_its_log_in_the_record_the_c
     assert _failures("oom") - before == 1
     assert _record(store, number)["implement.failure"] == "oom"
     assert "Failure class: `oom`.\nAction taken: none.\nAction left: `raise_limit`:" in comment
+
+
+@pytest.mark.usefixtures("no_continuation")
+def test_a_pod_killed_for_memory_with_no_log_stops_the_item_as_oom(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """A kernel kill leaves exit status 137 and no log text (#3727)."""
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    name = _jobs(kube)[0]["metadata"]["name"]
+    store.set_field(_held(store, number), ItemField.STATUS, "In Progress")
+    _end(kube, "Failed")
+    kube.core.answers["list_namespaced_pod"] = [
+        pod(
+            f"{name}-x1",
+            namespace="devops",
+            statuses=[status("runner", terminated(137, "OOMKilled"))],
+        )
+    ]
+    kube.core.answers["read_namespaced_pod_log"] = b""
+
+    _round(store, staged_repo)
+    _round(store, staged_repo)
+
+    assert (
+        _record(store, number)["implement.failure"],
+        _record(store, number)["implement.stopped"],
+        len(_creates(kube)),
+    ) == ("oom", "job", 1)
+
+
+def test_the_last_state_of_a_restarted_container_gives_the_exit_status(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """The state holds no termination, and the last state holds exit status 137 (#3727)."""
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    name = _jobs(kube)[0]["metadata"]["name"]
+    store.set_field(_held(store, number), ItemField.STATUS, "In Progress")
+    _end(kube, "Failed")
+    kube.core.answers["list_namespaced_pod"] = [
+        pod(
+            f"{name}-x1",
+            namespace="devops",
+            statuses=[status("runner", running(), restarts=1, last=terminated(137, "OOMKilled"))],
+        )
+    ]
+    kube.core.answers["read_namespaced_pod_log"] = b""
+
+    _round(store, staged_repo)
+
+    assert _record(store, number)["implement.failure"] == "oom"
+
+
+def test_a_pod_with_no_terminated_container_keeps_the_class_of_the_log(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """No terminated state means no exit status, so only the log classifies the failure (#3727)."""
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    name = _jobs(kube)[0]["metadata"]["name"]
+    store.set_field(_held(store, number), ItemField.STATUS, "In Progress")
+    _end(kube, "Failed")
+    kube.core.answers["list_namespaced_pod"] = [
+        pod(f"{name}-x1", namespace="devops", statuses=[status("runner", running())])
+    ]
+    kube.core.answers["read_namespaced_pod_log"] = "MemoryError: Cannot allocate memory"
+
+    _round(store, staged_repo)
+
+    assert _record(store, number)["implement.failure"] == "oom"
 
 
 def test_a_stop_that_the_runner_writes_while_the_report_reads_the_log_keeps_its_class(

@@ -231,15 +231,20 @@ def _recorded_failure(item: Item) -> FailureClass | None:
         return None
 
 
-def _failure_of(item: Item, log: str, *, stops: bool, stalled: bool) -> FailureClass | None:
+def _failure_of(
+    item: Item, log: str, *, exit_status: int | None, stops: bool, stalled: bool
+) -> FailureClass | None:
     """The class of the failure that a Job left. A stop that the runner wrote has its class on
-    record. A Job that left the item without a result has only its log, so the class comes from
-    that log (#3065). A Job that the Service ended for a stall went over its deadline, which is
-    the exit status 143 of a Job over its active deadline (#3063). A Job that ended with a result
-    has no failure."""
+    record. A Job that left the item without a result has only its log and the exit status of its
+    pod, so the class comes from them (#3065, #3727). A Job that the Service ended for a stall went
+    over its deadline, which is the exit status 143 of a Job over its active deadline (#3063). A
+    Job that ended with a result has no failure."""
     if stops:
         return classify_failure(
-            FailureEvidence(text=log, exit_status=_DEADLINE_EXIT_STATUS if stalled else None)
+            FailureEvidence(
+                text=log,
+                exit_status=_DEADLINE_EXIT_STATUS if stalled else exit_status,
+            )
         )
     if _record(item, ImplementRecordKey.STOPPED):
         return _recorded_failure(item)
@@ -292,6 +297,15 @@ def _log_of(jobs: ClusterJobs, name: str) -> str:
         return ""
 
 
+def _exit_status_of(jobs: ClusterJobs, name: str) -> int | None:
+    """The exit status of the terminated container of Job `name`'s pod, or None when the API
+    refuses the read: the report must not wait for a status that is not there (#3727)."""
+    try:
+        return jobs.exit_status(name)
+    except ClusterJobError:
+        return None
+
+
 def _report(
     store: RoadmapStore,
     jobs: ClusterJobs,
@@ -307,10 +321,13 @@ def _report(
     does not close it: a stop that the runner writes after this read can still be overwritten."""
     state = ended.state.value if ended else _GONE
     log = _log_of(jobs, name) if ended else ""
+    exit_status = _exit_status_of(jobs, name) if ended else None
     item = _fresh(store, item.number)
     stops = _settles_as_stop(item)
     stall = ended.annotations.get(CONST_ROADMAP_IMPLEMENT_ANNOTATION_STALLED) if ended else None
-    failure = _failure_of(item, log, stops=stops, stalled=stall is not None)
+    failure = _failure_of(
+        item, log, exit_status=exit_status, stops=stops, stalled=stall is not None
+    )
     digest = _record(item, ImplementRecordKey.JOB_DIGEST)
     store.comment(
         item.number,

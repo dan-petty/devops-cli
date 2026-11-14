@@ -268,6 +268,33 @@ class ClusterJobs:
         except api_error_type() as error:
             raise self._refused("read the log of a Job", error) from error
 
+    def exit_status(self, name: str) -> int | None:
+        """The exit status of the terminated container of Job `name`'s pod, read from `state` and
+        then from `lastState`, or None when no container terminated (#3727).
+
+        Raises ClusterJobError when the API refuses the read.
+        """
+        core = self._service.core_api()
+        try:
+            pods = core.list_namespaced_pod(
+                JOB_NAMESPACE, label_selector=f"{JOB_POD_SELECTOR_LABEL}={name}"
+            )
+        except api_error_type() as error:
+            raise self._refused("read the status of a Job pod", error) from error
+        if not pods.items:
+            return None
+        status = getattr(pods.items[0], "status", None)
+        for container in getattr(status, "container_statuses", None) or []:
+            for state in (
+                getattr(container, "state", None),
+                getattr(container, "last_state", None),
+            ):
+                terminated = getattr(state, "terminated", None) if state is not None else None
+                code = getattr(terminated, "exit_code", None) if terminated is not None else None
+                if code is not None:
+                    return int(code)
+        return None
+
     def cronjob(self, template: JobTemplate) -> dict[str, Any]:
         """The CronJob of `template`, as the API returns it.
 
