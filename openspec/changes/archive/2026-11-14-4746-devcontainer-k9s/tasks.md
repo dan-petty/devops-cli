@@ -4,5 +4,5 @@
 
 Reads: `docs/DEVCONTAINER_USAGE.md`. Changes: the same file.
 
-- [ ] 1.1 Say that the image installs `k9s`, `gh-dash` and `tuicr` in `/usr/local/bin`.
+- [x] 1.1 Say that the image installs `k9s`, `gh-dash` and `tuicr` in `/usr/local/bin`.
   - Verification: `$ uv run devops ci docs` passes
