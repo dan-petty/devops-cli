@@ -197,3 +197,7 @@ Two decisions the sequence depends on, confirmed by merging this ADR and reversi
 
 - **The switch lands in the release after the one that holds steps 1 to 3**, as that release's first item pull request. Landing it in v0.2.39 instead would convert that release's task files by hand (27 had been added or changed at `b2d362ff`) and delay the release's other items.
 - **The roadmap Service image carries Node**: a digest-pinned Node stage and `npm ci` from the same lockfile (about 138 MB apparent size: the 127 MB `node` binary and 11 MB of packages), so the Service can run `openspec instructions` for the refine job of step 8 once #1562 is reverted. The alternative, a Service image without Node, leaves step 8 with no `openspec`.
+
+## Status History
+
+- 2026-11-14: Fact out of date: the static job checks out the full history, because the roadmap-stage-eval-commits row reads it (#4449).
