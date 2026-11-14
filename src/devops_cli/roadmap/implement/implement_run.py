@@ -506,6 +506,7 @@ def _worktree(source: Path, target: ImplementTarget, url: str) -> Iterator[Path]
         origin=OriginGit(source, url),
     )
     path = Path(report.path)
+    (path / ".data" / "agent" / "scratch").mkdir(parents=True, exist_ok=True)
     try:
         yield path
     finally:

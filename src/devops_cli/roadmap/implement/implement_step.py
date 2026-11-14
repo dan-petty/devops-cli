@@ -585,7 +585,11 @@ def _tune(
             env=shell_environment(home),
         )
     if isinstance(capability, FileSystem):
-        return replace(capability, max_retries=tool_retries)
+        return replace(
+            capability,
+            tools=[*capability.tools, "create_directory"],
+            max_retries=tool_retries,
+        )
     if isinstance(capability, ClearToolResults | WarnNearLimits):
         return replace(capability, context_window=window)
     if isinstance(capability, ToolOutputLimits):
@@ -646,7 +650,15 @@ def _tier_for_attempt(
 
 
 IMPLEMENT_LOCAL_TOOL_NAMES: Final[frozenset[str]] = frozenset(
-    {"read_file", "write_file", "edit_file", "list_files", "grep", IMPLEMENT_SHELL_TOOL}
+    {
+        "read_file",
+        "write_file",
+        "edit_file",
+        "list_files",
+        "grep",
+        "create_directory",
+        IMPLEMENT_SHELL_TOOL,
+    }
 )
 
 

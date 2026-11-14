@@ -29,6 +29,7 @@ from devops_cli.roadmap.implement.implement_shell_policy import (
     fill_prompt,
     pipe_refusal,
 )
+from devops_cli.roadmap.implement.implement_shell_refusal import refusal_hint
 from devops_cli.roadmap.implement.implement_step import StepOutcome, StepStatus, run_step
 from tests.support.fakes.process import ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -135,10 +136,12 @@ def test_the_refusal_of_an_unknown_program_lists_the_allowed_programs_and_the_uv
 
 OPERATOR = (
     "Run one command in each call. Do not chain commands. "
-    "Do not use `cd`: every command runs in the checkout. "
-    "The shell reads the whole text, so a `;`, a new line or a heredoc in the code of "
-    "`python -c` is refused too. Write that code to a file under `.data/agent/scratch/` and run "
-    "`uv run python <file>`."
+    "Send each command as its own call, for example `git status --short`, then "
+    "`git log --oneline -5`. Do not use `cd`: every command runs in the checkout."
+)
+PYTHON_CODE = (
+    "Write the code with `write_file` to `.data/agent/scratch/<name>.py`, then run "
+    "`uv run python .data/agent/scratch/<name>.py`."
 )
 
 
@@ -168,8 +171,35 @@ def test_the_refusal_of_python_code_names_the_operator_in_the_code_and_a_script_
     """The harness reads an operator as plain text, so a `;` or a new line in quotes is refused.
     The hint named only a chain of commands, and the agent sent the same code again (#4493)."""
     assert _refusal(command, store, checkout, programs) == (
-        f"Shell operator {operator} is not allowed. {OPERATOR}"
+        f"Shell operator {operator} is not allowed. {PYTHON_CODE}"
     )
+
+
+def test_the_refusal_of_python_code_names_the_write_file_call_first(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+) -> None:
+    cases = (
+        "uv run python -c 'a=1; print(a)'",
+        "uv run python -c 'import os\nprint(os.sep)'",
+        "uv run python - <<EOF\nprint(1)\nEOF",
+    )
+    for command in cases:
+        hint = refusal_hint(command)
+        assert hint.startswith("Write the code with `write_file`")
+        assert ".data/agent/scratch/" in hint
+        assert "uv run python" in hint
+
+    refusal = _refusal("uv run python -c 'a=1; print(a)'", store, checkout, programs)
+    assert refusal_hint("uv run python -c 'a=1; print(a)'") in refusal
+
+
+def test_the_hint_for_python_code_holds_no_word_of_the_refused_command() -> None:
+    command = "uv run python -c 'SENTINEL_VAR=1; do_secret_operation()'"
+    hint = refusal_hint(command)
+    assert "SENTINEL_VAR" not in hint
+    assert "do_secret_operation" not in hint
 
 
 def test_the_text_of_the_shell_is_cut_so_a_long_word_does_not_fill_the_context(

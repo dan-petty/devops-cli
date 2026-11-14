@@ -95,6 +95,16 @@ def test_a_pipe_to_a_program_outside_the_table_is_refused_with_the_program_and_t
     assert refusal.endswith(ALLOWED_PIPE)
 
 
+def test_a_pipe_to_a_program_that_the_shell_does_not_allow_names_read_file() -> None:
+    refusal = pipe_refusal("git status | sed -n 1,20p")
+
+    assert refusal is not None
+    assert "read_file" in refusal
+    assert "offset" in refusal
+    assert "limit" in refusal
+    assert "sed" in refusal
+
+
 @pytest.mark.parametrize("command", ["ls |& head", "ls ||| head", "(ls)| head"])
 def test_a_pipe_operator_that_is_no_plain_pipe_is_refused(command: str) -> None:
     refusal = pipe_refusal(command)
@@ -134,7 +144,7 @@ def test_the_refused_program_is_shown_escaped_and_cut() -> None:
     refusal = pipe_refusal("ls | " + "a" * 500 + "\u202e")
 
     assert refusal is not None
-    assert len(refusal) < 200
+    assert len(refusal) <= 250
     assert "\u202e" not in refusal
 
 

@@ -1279,6 +1279,32 @@ def test_an_item_whose_worktree_cannot_be_made_is_reported_and_left_alone(
     assert "1 item(s) failed: #1 (GitOperationError" in str(raised.value)
 
 
+def test_the_job_makes_the_scratch_directory(job_world: JobWorld) -> None:
+    plan = job_world.plan()
+    worktree = worktree_directory(1, job_world.repo.clone)
+    seen: list[tuple[bool, bool]] = []
+
+    def check() -> None:
+        scratch = worktree / ".data" / "agent" / "scratch"
+        (worktree / ".gitignore").write_text(".data/*\n", encoding="utf-8")
+        ignored = (
+            subprocess.run(
+                ["git", "check-ignore", "-q", ".data/agent/scratch"],
+                cwd=worktree,
+                check=False,
+            ).returncode
+            == 0
+        )
+        seen.append((scratch.is_dir(), ignored))
+
+    script = ModelScript(say("Done."), effects={1: check})
+    apply_implement(
+        job_world.store, plan, source=job_world.repo.clone, model=script.model(), window=WINDOW
+    )
+
+    assert seen == [(True, True)]
+
+
 def test_a_run_with_no_failure_raises_nothing() -> None:
     assert raise_for_failed(()) is None
 
