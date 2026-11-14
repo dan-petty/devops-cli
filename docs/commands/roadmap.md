@@ -391,6 +391,24 @@ devops roadmap release [OPTIONS] <item>
 
 ---
 
+## `devops roadmap registries`
+
+**List the registry and ratchet declarations of the test modules, each with its token, its kind, its target path and its source path:line. Report a declaration that is not a tuple of literals and a ratchet assertion that no declaration covers, and exit 1.**
+
+```bash
+devops roadmap registries [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--path` | `path` | - | Checkout whose tests folder the audit reads (default: the repository root of the current folder). |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+
+---
+
 ## `devops roadmap eval`
 
 **Score the roadmap jobs. grades reads the live result lines of each job in Loki. Each other command runs a job's real code on committed cases with a chosen model. Each is on demand and no part of devops ci.**

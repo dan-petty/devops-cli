@@ -2,7 +2,8 @@
 refine readies items, stage makes a Ready item Staged, implement takes a Staged or Planned item
 to a ready pull request, return sends an item back to New, claim and release say who works
 on an item, explain says why the stage job and the implement job take an item or leave it out,
-inbox lists what waits for a person, eval scores a job on a golden set, review gives the facts
+inbox lists what waits for a person, registries lists and audits the registry and ratchet
+declarations of the test modules, eval scores a job on a golden set, review gives the facts
 of a version range or a period, and step runs one step of a job by hand.
 
 Every command opens the roadmap store of the repository: labels and milestones hold the Items
@@ -46,7 +47,14 @@ from devops_cli.dry_run import PlannedRequest, dry_run_class, is_dry_run
 from devops_cli.exceptions import DevOpsCLIError, RoadmapRunError
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.lang import HELP, MESSAGES
-from devops_cli.output import print_error, print_info, print_success, write_stdout
+from devops_cli.output import (
+    print_error,
+    print_info,
+    print_success,
+    print_table,
+    print_warning,
+    write_stdout,
+)
 from devops_cli.roadmap.claim import (
     Claimant,
     apply_claim,
@@ -1280,3 +1288,45 @@ def release_cmd(
 ) -> None:
     """Release an item: remove its `owner/*` label."""
     _claim_or_release(item, None, repo, dry_run=dry_run, confirm=confirm)
+
+
+@app.command("registries", help=HELP.roadmap.registries)
+@dry_run_class("no-external-request")
+def registries_cmd(
+    path: Annotated[Path | None, typer.Option("--path", help=HELP.roadmap.registries_path)] = None,
+    output_format: Annotated[
+        str, typer.Option("--format", "-f", help=HELP.options.format_type)
+    ] = DEFAULT_TABLE_FORMAT,
+    json_output: Annotated[
+        bool, typer.Option("--json", "-j", help=HELP.options.json_output)
+    ] = False,
+) -> None:
+    """List the registry and ratchet declarations of the test modules, and report a declaration
+    that is not a tuple of literals and a ratchet assertion that no declaration covers."""
+    from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
+    from devops_cli.output.formatters.tables import render_table
+    from devops_cli.output.serialization import emit_serialized, resolve_format
+    from devops_cli.roadmap.registry_audit import audit_registries, entry_payload, entry_rows
+
+    root = path if path is not None else find_repo_root(Path.cwd())
+    audit = audit_registries(root)
+    fmt = resolve_format(output_format, json_output=json_output)
+    if fmt != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(entry_payload(audit), fmt)
+        if not audit.ok:
+            raise typer.Exit(1)
+        return
+    if audit.entries:
+        print_table(
+            render_table(
+                title="Registry declarations",
+                columns=["Token", "Kind", "Target", "Source"],
+                rows=entry_rows(audit),
+            )
+        )
+    for finding in audit.findings:
+        print_warning(finding.message, safe=True)
+    if audit.ok:
+        print_success(f"Valid registry declarations: {audit.valid_declarations}.")
+        return
+    raise typer.Exit(1)
