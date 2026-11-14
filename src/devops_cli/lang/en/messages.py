@@ -4622,6 +4622,9 @@ class RoadmapMessages:
     stage_scenario_untested_code: str = (
         "Scenario '{scenario}' names `{code}` with no behavior test."
     )
+    stage_scenario_no_behavior_task: str = (
+        "Scenario '{scenario}' of requirement '{requirement}' has no behavior task."
+    )
     stage_reference_uncovered_file: str = (
         "The quoted search lists `{path}`. Add a task group or a design decision for it."
     )

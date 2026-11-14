@@ -49,6 +49,7 @@ from devops_cli.roadmap.plan_read import (
     change_root,
     files_at,
     read_change,
+    scenario_names_at,
     specs_at,
     tree_files,
 )
@@ -164,6 +165,7 @@ class PlanFolder:
     tree: StagedTree
     known: Collection[str]
     requirements: Mapping[str, Collection[str]]
+    base_scenarios: Mapping[str, Collection[str]]
     item_title: str
     item_body: str
     budget: int
@@ -425,6 +427,7 @@ def _gate_problems(proposal: StageProposal, folder: PlanFolder) -> list[PlanProb
             folder.known,
             folder.tree,
             requirements=folder.requirements,
+            base_scenarios=folder.base_scenarios,
             issue_body=folder.item_body,
             registry=folder.registry,
         )
@@ -556,6 +559,7 @@ def plan_check(
     planned = reads.get_issue(repo, issue)
     body, _ = split_record(planned.body or "", issue=f"#{issue}")
     known, requirements = specs_at(source, base_rev, operation=GIT_OPERATION)
+    base_scenarios = scenario_names_at(source, base_rev, operation=GIT_OPERATION)
     # The files of the folder come from the checkout, not from `git show`, which strips the end of
     # a text: they are then the files that the stage job wrote, and the measure is its figure.
     with checkout_at(source, head, operation=GIT_OPERATION) as tree:
@@ -569,6 +573,7 @@ def plan_check(
             tree=StagedTree(files),
             known=known,
             requirements=requirements,
+            base_scenarios=base_scenarios,
             item_title=planned.title,
             item_body=body,
             budget=load_settings().roadmap.stage.step_tokens,
