@@ -46,3 +46,10 @@ The Grafana values SHALL configure `extraConfigmapMounts` and `extraObjects` to 
 - **THEN** `extraConfigmapMounts` mounts `apps.yaml` to `/etc/grafana/provisioning/plugins/apps.yaml`
 - **AND** `extraObjects` defines ConfigMap `grafana-llm-plugin` targeting LiteLLM gateway and `qwen3.8:27b`
 - **AND** `envValueFrom` maps `GF_LLM_GATEWAY_KEY` to `grafana-admin` `llm-gateway-key`
+
+### Requirement: Grafana enables the dashgpt feature toggle
+The Grafana values SHALL enable the `dashgpt` feature toggle under `grafana.ini.feature_toggles.enable` in `k8s/monitoring/grafana-values.yaml`.
+
+#### Scenario: Feature toggle in Grafana values
+- **WHEN** `k8s/monitoring/grafana-values.yaml` is read
+- **THEN** `grafana.ini.feature_toggles.enable` contains `dashgpt`
