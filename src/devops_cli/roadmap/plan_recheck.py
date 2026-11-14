@@ -53,6 +53,7 @@ from devops_cli.roadmap.plan_read import (
     created_paths,
     files_at,
     read_change,
+    scenario_names_at,
     specs_at,
     tree_files,
 )
@@ -246,6 +247,7 @@ class _Pass:
     tree: StagedTree
     known: frozenset[str]
     requirements: dict[str, tuple[str, ...]]
+    base_scenarios: dict[str, tuple[str, ...]]
     open_items: dict[int, Item]
     closed: frozenset[int]
     tool: OpenSpecTool
@@ -361,6 +363,7 @@ def _record(shared: _Pass, issue: int, folder: str) -> PlanRecord:
         shared.known,
         shared.tree,
         requirements=shared.requirements,
+        base_scenarios=shared.base_scenarios,
         issue_body=held.body if held is not None else "",
         manifest_references=record_test_references(proposal.groups, shared.test_search),
         module_tests=record_module_tests(proposal.groups, shared.tree, shared.test_search),
@@ -401,6 +404,7 @@ def _judge(
     """The record of each active folder of `planned`, judged on the tree at `rev`."""
     paths = tree_files(source, rev, operation=GIT_OPERATION)
     known, requirements = specs_at(source, rev, operation=GIT_OPERATION)
+    base_scenarios = scenario_names_at(source, rev, operation=GIT_OPERATION)
     shared = _Pass(
         source=source,
         rev=rev,
@@ -409,6 +413,7 @@ def _judge(
         tree=StagedTree(paths, reader=_file_reader(source, rev)),
         known=known,
         requirements=requirements,
+        base_scenarios=base_scenarios,
         open_items=open_items,
         closed=closed,
         tool=tool,

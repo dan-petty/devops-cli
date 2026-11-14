@@ -2404,7 +2404,7 @@ def test_a_spec_delta_on_test_paths_goes_back_to_the_model_with_the_problem(
 
     first, second = _requests(model_fake)
     assert "problem" not in first
-    assert second["problem"] == NO_SPEC_PROBLEM
+    assert NO_SPEC_PROBLEM in second["problem"]
     assert len(plan.ready) == 1
 
 

@@ -23,18 +23,20 @@ _SPEC_FILE: Final[str] = "spec.md"
 _PURPOSE: Final[re.Pattern[str]] = re.compile(r"^## Purpose[ \t]*\n(.*?)(?=^## |\Z)", re.M | re.S)
 _REQUIREMENT: Final[re.Pattern[str]] = re.compile(r"^### Requirement:[ \t]*(.+?)[ \t]*$", re.M)
 _SCENARIO: Final[str] = "#### Scenario:"
+_SCENARIO_NAME: Final[re.Pattern[str]] = re.compile(r"^#### Scenario:[ \t]*(.+?)[ \t]*$", re.M)
 
 
 @dataclass(frozen=True)
 class BaseSpec:
-    """The purpose of a capability, on one line, the names of its requirements in file order and the
-    statement of each requirement, as a pair of its name and its text on one line. A spec with no
-    Purpose section has an empty purpose. A caller that gives no statements skips the check that
-    reads them."""
+    """The purpose of a capability, on one line, the names of its requirements in file order, the
+    statement of each requirement, as a pair of its name and its text on one line, and the name of
+    each scenario of the spec. A spec with no Purpose section has an empty purpose. A caller that
+    gives no statements skips the check that reads them."""
 
     purpose: str
     requirements: tuple[str, ...]
     statements: tuple[tuple[str, str], ...] = ()
+    scenarios: tuple[str, ...] = ()
 
     def request_entry(self, name: str) -> dict[str, Any]:
         """The entry of the capability `name` in the input of the model."""
@@ -59,7 +61,12 @@ def read_spec(text: str) -> BaseSpec:
     found = _PURPOSE.search(text)
     purpose = " ".join(found.group(1).split()) if found else ""
     statements = _statements(text)
-    return BaseSpec(purpose, tuple(name for name, _ in statements), statements)
+    return BaseSpec(
+        purpose,
+        tuple(name for name, _ in statements),
+        statements,
+        tuple(match.group(1) for match in _SCENARIO_NAME.finditer(text)),
+    )
 
 
 def spec_names(tool: OpenSpecTool, source: Path) -> list[str]:

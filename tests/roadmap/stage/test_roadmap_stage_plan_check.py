@@ -160,6 +160,7 @@ def _folder(repo: StageRepo, change: str, files: Mapping[str, str]) -> PlanFolde
         tree=StagedTree(repo.git("ls-files").splitlines()).with_files(files),
         known=frozenset({"roadmap-refine"}),
         requirements={},
+        base_scenarios={},
         item_title=ITEM_TITLE,
         item_body=ITEM_BODY,
         budget=DEFAULT_ROADMAP_STAGE_STEP_TOKENS,
@@ -180,9 +181,13 @@ def test_the_check_before_the_push_refuses_the_plan_of_5407_as_the_ci_check_did(
 
     found = staged_problems(_folder(stage_repo, change, files), number=1, title=title, body=body)
 
-    assert [(problem.path, problem.rule, problem.message) for problem in found] == [
-        (f"openspec/changes/{change}/tasks.md", "group-no-files", CI_5407)
-    ]
+    # The plan's scenarios name no behavior task, which the rule of #3423 now refuses; the
+    # finding of the CI check that the fixture records stays the only other problem.
+    assert [
+        (problem.path, problem.rule, problem.message)
+        for problem in found
+        if problem.rule != "stage"
+    ] == [(f"openspec/changes/{change}/tasks.md", "group-no-files", CI_5407)]
 
 
 def test_the_check_before_the_push_judges_no_open_dependency(stage_repo: StageRepo) -> None:

@@ -167,3 +167,60 @@ def test_a_path_in_the_when_that_the_test_names_passes() -> None:
     group.reads = [DATA_FILE]
 
     assert _scenario_problems_of(FIXTURE_WHEN, "the job refuses the title", group) == []
+
+
+# ── A scenario that names no code needs a behavior task (#3423) ──────────────
+
+FIELD_SCENARIO = StageScenario(
+    name="A What Changes line below the least length",
+    when="a plan holds a What Changes line",
+    then="the check refuses the line",
+)
+FIELD_SPEC = _spec_with([FIELD_SCENARIO])
+
+
+def _field_problems(base: dict[str, tuple[str, ...]] | None, group: StageGroup) -> list[str]:
+    proposal = make_stage_proposal(specs=[FIELD_SPEC], groups=[group])
+    return [
+        problem
+        for problem in check_proposal(
+            proposal, ["comment-thread"], TREE, base_scenarios=base, registry=()
+        )
+        if "A What Changes line below the least length" in problem
+    ]
+
+
+def test_a_scenario_that_names_only_a_field_with_no_covering_task_is_refused() -> None:
+    problems = _field_problems({"comment-thread": ()}, _group(test="Write `test_x`"))
+
+    assert len(problems) == 1
+    assert "The job keeps every comment" in problems[0]
+
+
+def test_a_task_that_names_the_scenario_covers_it() -> None:
+    group = _group(test="Write a test for A What Changes line below the least length")
+
+    assert _field_problems({"comment-thread": ()}, group) == []
+
+
+def test_a_verify_that_runs_the_changed_test_module_covers_the_scenario() -> None:
+    group = StageGroup.model_construct(
+        title="A behavior group",
+        kind="behavior",
+        reads=[],
+        changes=["src/devops_cli/sample.py", "tests/test_sample.py"],
+        creates=[],
+        creates_lines={},
+        test="Write `test_x`",
+        implementation="Do x in `src/devops_cli/sample.py`",
+        documentation=None,
+        verify="uv run devops ci test tests/test_sample.py",
+    )
+
+    assert _field_problems({"comment-thread": ()}, group) == []
+
+
+def test_a_scenario_of_the_base_spec_needs_no_new_task() -> None:
+    base = {"comment-thread": ("A What Changes line below the least length",)}
+
+    assert _field_problems(base, _group(test="Write `test_x`")) == []

@@ -1046,43 +1046,91 @@ def _judged_spans(scenario: StageScenario, tree: StagedTree, touched: Collection
     return [span for span in spans if tree.as_path(span) is not None or _is_code_identifier(span)]
 
 
+def _behavior_covers(
+    scenario: StageScenario,
+    requirement: StageRequirement,
+    behavior_groups: Sequence[StageGroup],
+) -> bool:
+    """Whether a behavior group covers `scenario`: its `test` names the scenario or the
+    requirement, or its `verify` runs a test module that the group changes or creates (#3423)."""
+    return any(
+        (group.test and (scenario.name in group.test or requirement.name in group.test))
+        or (
+            group.verify
+            and any(
+                path.startswith("tests/") and path in group.verify
+                for path in (*group.changes, *group.creates)
+            )
+        )
+        for group in behavior_groups
+    )
+
+
+def _scenario_problem(
+    capability: str,
+    requirement: StageRequirement,
+    scenario: StageScenario,
+    behavior_groups: Sequence[StageGroup],
+    tree: StagedTree,
+    touched: Collection[str],
+    base_scenarios: Mapping[str, Collection[str]] | None,
+) -> str | None:
+    """The problem of one scenario that no behavior group covers, or None (#3321, #3423)."""
+    if any(
+        _is_scenario_command(span)
+        for span in (*code_spans(scenario.when), *code_spans(scenario.then))
+    ):
+        return None
+    code_spans_in_scenario = _judged_spans(scenario, tree, touched)
+    if not code_spans_in_scenario:
+        if (
+            base_scenarios is None
+            or scenario.name in base_scenarios.get(capability, ())
+            or _behavior_covers(scenario, requirement, behavior_groups)
+        ):
+            return None
+        return MESSAGES.roadmap.stage_scenario_no_behavior_task.format(
+            scenario=scenario.name, requirement=requirement.name
+        )
+    satisfied = any(
+        any(code in group.test for group in behavior_groups if group.test)
+        or (
+            tree.as_path(code) is not None
+            and any(code in group.verify for group in behavior_groups if group.verify)
+        )
+        for code in code_spans_in_scenario
+    )
+    if satisfied:
+        return None
+    return MESSAGES.roadmap.stage_scenario_untested_code.format(
+        scenario=scenario.name, code=code_spans_in_scenario[0]
+    )
+
+
 def _scenario_problems(
     specs: Sequence[StageSpec],
     groups: Sequence[StageGroup],
     tree: StagedTree,
+    base_scenarios: Mapping[str, Collection[str]] | None = None,
 ) -> list[str]:
-    """The problems of spec scenarios that name code without a behavior test (#3321)."""
+    """The problems of spec scenarios that no behavior group covers. A scenario that names code
+    needs a behavior test that names that code (#3321). A scenario that names no code needs a
+    behavior group whose `test` names the scenario or its requirement, or whose `verify` runs a
+    test module that the group changes or creates (#3423). A scenario that the base spec of the
+    capability already holds is exempt. A caller that gives no base scenario names skips the
+    second rule."""
     behavior_groups = [g for g in groups if g.kind == GroupKind.BEHAVIOR]
-    behavior_tests = [g.test for g in behavior_groups if g.test]
-    behavior_verifies = [g.verify for g in behavior_groups if g.verify]
     touched = {p for g in behavior_groups for p in (*g.reads, *g.changes, *g.creates)}
     problems: list[str] = []
 
     for spec in specs:
         for req in (*spec.added, *spec.modified):
             for scenario in req.scenarios:
-                if any(
-                    _is_scenario_command(span)
-                    for span in (*code_spans(scenario.when), *code_spans(scenario.then))
-                ):
-                    continue
-                code_spans_in_scenario = _judged_spans(scenario, tree, touched)
-                if not code_spans_in_scenario:
-                    continue
-                satisfied = any(
-                    any(code in test for test in behavior_tests)
-                    or (
-                        tree.as_path(code) is not None
-                        and any(code in verify for verify in behavior_verifies)
-                    )
-                    for code in code_spans_in_scenario
+                problem = _scenario_problem(
+                    spec.capability, req, scenario, behavior_groups, tree, touched, base_scenarios
                 )
-                if not satisfied:
-                    problems.append(
-                        MESSAGES.roadmap.stage_scenario_untested_code.format(
-                            scenario=scenario.name, code=code_spans_in_scenario[0]
-                        )
-                    )
+                if problem is not None:
+                    problems.append(problem)
     return problems
 
 
@@ -2385,6 +2433,7 @@ def check_gates(
     change: str = "",
     requirements: Mapping[str, Collection[str]] | None = None,
     requirement_texts: Mapping[str, Mapping[str, str]] | None = None,
+    base_scenarios: Mapping[str, Collection[str]] | None = None,
     issue_body: str = "",
     probes: Sequence[str] = (),
     overlaps: Sequence[Overlap] = (),
@@ -2406,7 +2455,7 @@ def check_gates(
     return {
         ProposalGate.SPEC_DELTA: [
             *_delta_problems(proposal, known, requirements or {}, requirement_texts),
-            *_scenario_problems(proposal.specs, proposal.groups, tree),
+            *_scenario_problems(proposal.specs, proposal.groups, tree, base_scenarios),
         ],
         ProposalGate.CONTENT: content_problems(proposal, probes),
         ProposalGate.CITATION: [
@@ -2450,6 +2499,7 @@ def check_proposal(
     change: str = "",
     requirements: Mapping[str, Collection[str]] | None = None,
     requirement_texts: Mapping[str, Mapping[str, str]] | None = None,
+    base_scenarios: Mapping[str, Collection[str]] | None = None,
     issue_body: str = "",
     probes: Sequence[str] = (),
     overlaps: Sequence[Overlap] = (),
@@ -2500,6 +2550,7 @@ def check_proposal(
         change=change,
         requirements=requirements,
         requirement_texts=requirement_texts,
+        base_scenarios=base_scenarios,
         issue_body=issue_body,
         probes=probes,
         overlaps=overlaps,
