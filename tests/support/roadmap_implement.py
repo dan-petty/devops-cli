@@ -95,10 +95,10 @@ SHOUT = '"""Shout."""\n\n\ndef shout(text: str) -> str:\n    """Shout `text`."""
 SHOUT_DOC = "# Context\nThe shout function upper-cases a text.\n"
 TASKS_PATH = f"{CHANGE_DIR}/tasks.md"
 
-# The declaration of the project steps (#3484) that devops-cli keeps on its default branch. A test
+# The declaration of the project profile (#4635) that devops-cli keeps on its default branch. A test
 # world holds it on `main`, as the repository of devops-cli does; `undeclare_steps` takes it off.
 STEPS_FILE = ".devops/roadmap.toml"
-STEPS_DECLARATION = "[implement.steps]\ndocs = true\narchive = true\n"
+STEPS_DECLARATION = '[project]\ntoolchain = "devops-cli"\n'
 # The most seconds that the job of a test world waits for the checks of its pull request: three
 # polls, and not the hour of a Job, so a watch that waits out the monitor polls the pull request four
 # times and not 121 (#4688).
@@ -494,7 +494,9 @@ def archive_effect(call: ProcessCall) -> subprocess.CompletedProcess[str]:
     """What `uv run devops openspec archive <change>` does to the worktree: it moves the change
     folder under `archive/`, dated."""
     assert call.cwd is not None
-    change = command_text(call).split()[-1]
+    words = command_text(call).split()
+    idx = words.index("archive")
+    change = words[idx + 1]
     source = call.cwd / "openspec" / "changes" / change
     target = call.cwd / "openspec" / "changes" / "archive" / f"2026-10-29-{change}"
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -646,7 +648,10 @@ def _world(
     )
     programs.answer("git", ProcessAnswer(side_effect=git_for_real))
     programs.answer(
-        lambda call: command_text(call).startswith("uv run devops openspec archive"),
+        lambda call: (
+            command_text(call).startswith("uv run devops openspec archive")
+            or command_text(call).startswith("openspec archive")
+        ),
         ProcessAnswer(side_effect=archive_effect),
     )
     programs.answer(
