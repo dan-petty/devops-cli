@@ -2,6 +2,68 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.138.0](https://github.com/dan-petty/devops-cli/compare/v0.137.0...v0.138.0) (2026-11-14)
+
+
+### Features
+
+* **ci:** hold actionlint, shellcheck and Trivy in the runner ([#5682](https://github.com/dan-petty/devops-cli/issues/5682)) ([5264950](https://github.com/dan-petty/devops-cli/commit/52649507a4fc0c8dec767702acdbb3443a6c5cc4))
+* **roadmap:** ask for a smaller group when a step changes no file ([#5687](https://github.com/dan-petty/devops-cli/issues/5687)) ([a56b4ec](https://github.com/dan-petty/devops-cli/commit/a56b4ec28695ec6365d8fb1e3168415b34b06c4e))
+* **roadmap:** gate Ready on the alternatives verdict ([#5681](https://github.com/dan-petty/devops-cli/issues/5681)) ([27b12c0](https://github.com/dan-petty/devops-cli/commit/27b12c04b70da74d36a4afcb26c329b5cb20bdca))
+* **roadmap:** mark each cut tool answer with its cap ([#5622](https://github.com/dan-petty/devops-cli/issues/5622)) ([3fa6387](https://github.com/dan-petty/devops-cli/commit/3fa63871218d682357bf3d3a6e3dfe536e28a02c))
+* **roadmap:** pair each new spec scenario with a task ([#5683](https://github.com/dan-petty/devops-cli/issues/5683)) ([ea0767c](https://github.com/dan-petty/devops-cli/commit/ea0767c62e3d9476f3de54873ee07493e3833585))
+* **roadmap:** refuse a repeated failed tool call ([#5686](https://github.com/dan-petty/devops-cli/issues/5686)) ([4e1c76c](https://github.com/dan-petty/devops-cli/commit/4e1c76ce28da03d5049197f8f541a68607896e48))
+* **roadmap:** require an existing file in each changing group ([#5644](https://github.com/dan-petty/devops-cli/issues/5644)) ([94a45f6](https://github.com/dan-petty/devops-cli/commit/94a45f64cb8b116f5001d76195f29abae5fe1315)), closes [#3978](https://github.com/dan-petty/devops-cli/issues/3978)
+
+
+### Bug Fixes
+
+* **ai:** count a local gateway group as local ([#5679](https://github.com/dan-petty/devops-cli/issues/5679)) ([31adfc3](https://github.com/dan-petty/devops-cli/commit/31adfc3e50bef245d5d620998c4825c304e3c19e))
+* **ai:** key the valkey embedding by the request identity ([#5669](https://github.com/dan-petty/devops-cli/issues/5669)) ([944d401](https://github.com/dan-petty/devops-cli/commit/944d40128f19a896b5d5b65bee06b455cda9d7c0)), closes [#4569](https://github.com/dan-petty/devops-cli/issues/4569)
+* **ai:** leave the chat personas out of the review digest ([#5676](https://github.com/dan-petty/devops-cli/issues/5676)) ([0c9e141](https://github.com/dan-petty/devops-cli/commit/0c9e1411cef6eca643913f7a96789bc4a1bd3a9b)), closes [#4829](https://github.com/dan-petty/devops-cli/issues/4829)
+* **ai:** name the gateway caller when the service name is empty ([#5688](https://github.com/dan-petty/devops-cli/issues/5688)) ([92e8237](https://github.com/dan-petty/devops-cli/commit/92e82371b5c6eb8cf5d4f1498b7f6fab78bafb22))
+* **ai:** pass served_by from the build_agent spend hook ([#5674](https://github.com/dan-petty/devops-cli/issues/5674)) ([eccd171](https://github.com/dan-petty/devops-cli/commit/eccd1714fa32526ebdf1e4e5c7d4ca0f79bb9064)), closes [#4716](https://github.com/dan-petty/devops-cli/issues/4716)
+* **ci:** cancel a stale plan-check run on a pull request edit ([#5633](https://github.com/dan-petty/devops-cli/issues/5633)) ([107044d](https://github.com/dan-petty/devops-cli/commit/107044d8061978a643b54fa2f206c0b99a132bf3))
+* **ci:** give the test row and the index build their own bounds ([#5672](https://github.com/dan-petty/devops-cli/issues/5672)) ([e61c91f](https://github.com/dan-petty/devops-cli/commit/e61c91fc20909c7b043ac710b488fa3d9f870960)), closes [#4683](https://github.com/dan-petty/devops-cli/issues/4683)
+* **ci:** wait for the semantic title check before the plan check ([#5637](https://github.com/dan-petty/devops-cli/issues/5637)) ([592be2e](https://github.com/dan-petty/devops-cli/commit/592be2ef84d2d59358b486c1e8ee0757b376dd4b))
+* **config:** print one line for a refused config-file value ([#5666](https://github.com/dan-petty/devops-cli/issues/5666)) ([a2c7c7d](https://github.com/dan-petty/devops-cli/commit/a2c7c7d3a02db626cef66b9b862fb060a083184d))
+* **github:** poll again after one failed read in pr monitor ([#5678](https://github.com/dan-petty/devops-cli/issues/5678)) ([ad096e5](https://github.com/dan-petty/devops-cli/commit/ad096e5bb1e0e65b510b2152b610811643ca88dc)), closes [#4838](https://github.com/dan-petty/devops-cli/issues/4838)
+* **openspec:** name the checkout branch in the new output ([#5665](https://github.com/dan-petty/devops-cli/issues/5665)) ([2deaaec](https://github.com/dan-petty/devops-cli/commit/2deaaeceb26108a3f0c138e4b24f4264427e96bd)), closes [#4593](https://github.com/dan-petty/devops-cli/issues/4593)
+* **openspec:** state the scaffold settings in the agent config spec ([#5664](https://github.com/dan-petty/devops-cli/issues/5664)) ([a49091f](https://github.com/dan-petty/devops-cli/commit/a49091f9b09e6ad8f46e9abf599447daff3b3a4c)), closes [#4478](https://github.com/dan-petty/devops-cli/issues/4478)
+* **pr:** check the title form on pr edit ([#5671](https://github.com/dan-petty/devops-cli/issues/5671)) ([c729a48](https://github.com/dan-petty/devops-cli/commit/c729a48f6fe4bcca10dad60648d82f2ce52320de)), closes [#4782](https://github.com/dan-petty/devops-cli/issues/4782)
+* **pr:** require stage eval evidence on a stage-change pr ([#5623](https://github.com/dan-petty/devops-cli/issues/5623)) ([25f3046](https://github.com/dan-petty/devops-cli/commit/25f30460698671b831e8aacc3535bcccc20edaf8))
+* **roadmap:** accept a file restored to base in the repair turn ([#5652](https://github.com/dan-petty/devops-cli/issues/5652)) ([66b63b5](https://github.com/dan-petty/devops-cli/commit/66b63b52bd8ac5f2cafa64a4b60c73ead02a20ce))
+* **roadmap:** co-locate an enum change with its prompt update ([#5659](https://github.com/dan-petty/devops-cli/issues/5659)) ([6616da8](https://github.com/dan-petty/devops-cli/commit/6616da8937171994281014c27a8ab20511cc1c94)), closes [#4063](https://github.com/dan-petty/devops-cli/issues/4063)
+* **roadmap:** count the creates of earlier plan groups ([#5631](https://github.com/dan-petty/devops-cli/issues/5631)) ([f29a73b](https://github.com/dan-petty/devops-cli/commit/f29a73b16f4e4fbde158f442a185ec14e8b6b901))
+* **roadmap:** give one bullet for a degenerate reply at the limit ([#5668](https://github.com/dan-petty/devops-cli/issues/5668)) ([179132b](https://github.com/dan-petty/devops-cli/commit/179132bde7dfb4984d6af6664b9548a83c71f5db)), closes [#4618](https://github.com/dan-petty/devops-cli/issues/4618)
+* **roadmap:** ignore a struck-through acceptance criterion ([#5657](https://github.com/dan-petty/devops-cli/issues/5657)) ([c397c32](https://github.com/dan-petty/devops-cli/commit/c397c324dcca52b1de0d110f515e0b92416e5cb8)), closes [#4024](https://github.com/dan-petty/devops-cli/issues/4024)
+* **roadmap:** keep a person's unlisted title after a body edit ([#5667](https://github.com/dan-petty/devops-cli/issues/5667)) ([0f89291](https://github.com/dan-petty/devops-cli/commit/0f89291a7380dbf9d43fae9fa1c2110b439bd5d2)), closes [#4620](https://github.com/dan-petty/devops-cli/issues/4620)
+* **roadmap:** keep the adr cap test on its own logger and reset the tracer ([#5658](https://github.com/dan-petty/devops-cli/issues/5658)) ([1fbb86b](https://github.com/dan-petty/devops-cli/commit/1fbb86ba80adb2502756422476c6eeda044ad475)), closes [#4062](https://github.com/dan-petty/devops-cli/issues/4062)
+* **roadmap:** leave out an item whose plan checks did not pass ([#5650](https://github.com/dan-petty/devops-cli/issues/5650)) ([c8b9832](https://github.com/dan-petty/devops-cli/commit/c8b98323de490e6ab090cfe8c8ffe54966e6709e)), closes [#3976](https://github.com/dan-petty/devops-cli/issues/3976)
+* **roadmap:** leave out an item with an open dependency in implement ([#5645](https://github.com/dan-petty/devops-cli/issues/5645)) ([b0de568](https://github.com/dan-petty/devops-cli/commit/b0de568f2803cc4aab6a8298bc68d0d1279540c8)), closes [#4009](https://github.com/dan-petty/devops-cli/issues/4009)
+* **roadmap:** name an unmarked verification span in the plan reader ([#5647](https://github.com/dan-petty/devops-cli/issues/5647)) ([d60bf8c](https://github.com/dan-petty/devops-cli/commit/d60bf8c6d4089453f1661dbf2a774531be047cd2)), closes [#4010](https://github.com/dan-petty/devops-cli/issues/4010)
+* **roadmap:** name the plan merge wait in explain ([#5632](https://github.com/dan-petty/devops-cli/issues/5632)) ([cdef5c2](https://github.com/dan-petty/devops-cli/commit/cdef5c22e9d983cccf97a8c552b4bc76cad421b8)), closes [#3971](https://github.com/dan-petty/devops-cli/issues/3971)
+* **roadmap:** read the pod exit status to find an oom kill ([#5630](https://github.com/dan-petty/devops-cli/issues/5630)) ([8a13aee](https://github.com/dan-petty/devops-cli/commit/8a13aee0c04ff54adb4ec93c337e2dc1ff137240)), closes [#3727](https://github.com/dan-petty/devops-cli/issues/3727)
+* **roadmap:** refuse a behavior verify that runs no test ([#5684](https://github.com/dan-petty/devops-cli/issues/5684)) ([65268d6](https://github.com/dan-petty/devops-cli/commit/65268d6fb31bf3234af036d576e4d8052d796fb8))
+* **roadmap:** refuse an open change's plan as feasibility evidence ([#5685](https://github.com/dan-petty/devops-cli/issues/5685)) ([e8d318e](https://github.com/dan-petty/devops-cli/commit/e8d318e9bc2aade3d84c9425982cf3f7fc2e1988))
+* **roadmap:** resolve a pending-person criterion with a comma ([#5656](https://github.com/dan-petty/devops-cli/issues/5656)) ([8f2b48d](https://github.com/dan-petty/devops-cli/commit/8f2b48d489ae709c99cd13e0e50f7f17845b0ffd)), closes [#4023](https://github.com/dan-petty/devops-cli/issues/4023)
+* **roadmap:** retry the first mcp connection of a new job pod ([#5661](https://github.com/dan-petty/devops-cli/issues/5661)) ([5b83fc6](https://github.com/dan-petty/devops-cli/commit/5b83fc6e9817ca6e7a603712bd447ab414da9c65)), closes [#4372](https://github.com/dan-petty/devops-cli/issues/4372)
+* **roadmap:** type the stop of a foreign repair change ([#5663](https://github.com/dan-petty/devops-cli/issues/5663)) ([c3a6b84](https://github.com/dan-petty/devops-cli/commit/c3a6b84c8eeea9b68b5f23600398bfa9becb8353)), closes [#4390](https://github.com/dan-petty/devops-cli/issues/4390)
+* **roadmap:** write the status comment to the pull request on a stop ([#5655](https://github.com/dan-petty/devops-cli/issues/5655)) ([afba21c](https://github.com/dan-petty/devops-cli/commit/afba21ca9ddca9a04e4694937c248cf7b0f6e060)), closes [#3997](https://github.com/dan-petty/devops-cli/issues/3997)
+* **sandbox:** accept a public ipv6 whitelist cidr ([#5626](https://github.com/dan-petty/devops-cli/issues/5626)) ([6f943d3](https://github.com/dan-petty/devops-cli/commit/6f943d357b71f55c018399850143dfc43a905a21))
+* **service:** share one issue-events read across the lanes of a poll ([#5634](https://github.com/dan-petty/devops-cli/issues/5634)) ([7e4749a](https://github.com/dan-petty/devops-cli/commit/7e4749a1332c6f0e9e7922bc753def27a97f6de6))
+* **tests:** quiet the logfire console between tests ([#5624](https://github.com/dan-petty/devops-cli/issues/5624)) ([31d2979](https://github.com/dan-petty/devops-cli/commit/31d2979620d63995be782d30903515e8d26251a9))
+
+
+### Performance Improvements
+
+* **ci:** skip the sync bytecode compile in the test jobs ([#5673](https://github.com/dan-petty/devops-cli/issues/5673)) ([b6fbbee](https://github.com/dan-petty/devops-cli/commit/b6fbbee4b2cc5dec9ad190ef3b0e42ed4eca70a2)), closes [#4727](https://github.com/dan-petty/devops-cli/issues/4727)
+
+
+### Code Refactoring
+
+* **security:** drop the dead symlink guard in the path check ([#5628](https://github.com/dan-petty/devops-cli/issues/5628)) ([bde6bc5](https://github.com/dan-petty/devops-cli/commit/bde6bc55186d2c686f8c0fe8587dbea4dc056faa))
+
 ## [0.137.0](https://github.com/dan-petty/devops-cli/compare/v0.136.2...v0.137.0) (2026-11-14)
 
 
