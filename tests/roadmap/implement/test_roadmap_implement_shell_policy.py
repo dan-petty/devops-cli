@@ -105,8 +105,16 @@ def test_the_negative_search_is_no_program_of_any_list() -> None:
     assert "!" not in IMPLEMENT_ALLOWED_PROGRAMS
 
 
+def test_the_refusal_of_a_project_command_names_the_uv_run_form() -> None:
+    replacements = {r.program: r.instead for r in SHELL_REFUSALS}
+    assert replacements.get("openspec") == "`uv run devops openspec check`"
+    assert replacements.get("devops") == "`uv run devops`"
+
+
 def test_a_refused_program_is_not_an_allowed_program() -> None:
-    assert set(IMPLEMENT_SHELL_REPLACEMENTS).isdisjoint(IMPLEMENT_ALLOWED_PROGRAMS)
+    """A refused program is not an allowed program of the shell. `openspec` and `devops` are
+    verification first words and no shell program, so the check compares with the shell programs."""
+    assert set(IMPLEMENT_SHELL_REPLACEMENTS).isdisjoint(IMPLEMENT_SHELL_PROGRAMS)
     assert tuple(IMPLEMENT_SHELL_REPLACEMENTS) == tuple(r.program for r in SHELL_REFUSALS)
 
 
@@ -480,6 +488,16 @@ def test_the_document_of_the_workflow_holds_the_same_tables() -> None:
         True,
         True,
     )
+
+
+def test_the_shell_section_of_the_document_names_the_directory_tool_and_the_scratch_directory() -> (
+    None
+):
+    text = (REPO_ROOT / "docs" / "ROADMAP_WORKFLOW.md").read_text(encoding="utf-8")
+    section = text.split("## The shell of a step")[1].split("\n## ")[0]
+
+    assert "create_directory" in section
+    assert ".data/agent/scratch/" in section
 
 
 # ── The local devops commands ─────────────────────────────────────────────────────────────

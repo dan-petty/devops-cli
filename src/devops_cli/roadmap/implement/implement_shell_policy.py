@@ -205,6 +205,8 @@ SHELL_REFUSALS: tuple[ShellRefusal, ...] = (
     ShellRefusal("rg", "the tool `grep`, or `grep` in the shell"),
     ShellRefusal("cd", "nothing. Every command runs in the checkout"),
     ShellRefusal(NEGATIVE_SEARCH_WORD, _BANG_INSTEAD),
+    ShellRefusal("openspec", "`uv run devops openspec check`"),
+    ShellRefusal("devops", "`uv run devops`"),
 )
 
 # The views of the two tables that the guard, the log and the tests read.

@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.142.1](https://github.com/dan-petty/devops-cli/compare/v0.142.0...v0.142.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **roadmap:** implement refusal hints fit the refused command ([#5726](https://github.com/dan-petty/devops-cli/issues/5726)) ([719f33f](https://github.com/dan-petty/devops-cli/commit/719f33fbe9dd301a5899dfaad0b43be6b907de52))
+
+## [0.142.0](https://github.com/dan-petty/devops-cli/compare/v0.141.0...v0.142.0) (2026-11-14)
+
+
+### Features
+
+* **monitoring:** enable dev sandbox and mcp server in grafana-llm-app ([#5723](https://github.com/dan-petty/devops-cli/issues/5723)) ([b6bc49a](https://github.com/dan-petty/devops-cli/commit/b6bc49a640e2e71b56a16c99ea71534feecbbd31))
+
+
+### Bug Fixes
+
+* **roadmap:** keep the label when a finding line is unread ([#5719](https://github.com/dan-petty/devops-cli/issues/5719)) ([5f438d0](https://github.com/dan-petty/devops-cli/commit/5f438d0d94e3340a19ee85d171cb5f9c5621d288))
+* **roadmap:** retry a stage Job on a provider timeout ([#5724](https://github.com/dan-petty/devops-cli/issues/5724)) ([f88d279](https://github.com/dan-petty/devops-cli/commit/f88d2796190e3fc85cd1232e835718ba85a36156))
+
 ## [0.141.0](https://github.com/dan-petty/devops-cli/compare/v0.140.0...v0.141.0) (2026-11-14)
 
 
