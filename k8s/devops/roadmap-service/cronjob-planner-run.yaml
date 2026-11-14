@@ -29,6 +29,13 @@ spec:
             app.kubernetes.io/part-of: devops-cli-stack
         spec:
           restartPolicy: Never
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node-role.kubernetes.io/control-plane
+                        operator: DoesNotExist
           serviceAccountName: devops-cli
           automountServiceAccountToken: false
           securityContext:
