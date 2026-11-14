@@ -34,13 +34,12 @@ from devops_cli.roadmap.plan_check import (
     PlanProblem,
     PlanReads,
     PullFacts,
-    change_root,
     folder_problems,
     is_plan,
     issue_number,
     read_pull,
 )
-from devops_cli.roadmap.plan_read import scenario_names_at, specs_at, tree_files
+from devops_cli.roadmap.plan_read import change_root, scenario_names_at, specs_at, tree_files
 from devops_cli.roadmap.stage.stage_paths import StagedTree
 from devops_cli.roadmap.stage.stage_registry import registry_table
 from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL
