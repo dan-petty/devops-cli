@@ -10,8 +10,7 @@ from devops_cli.roadmap.registry_audit import (
     KIND_MISSING_DECLARATION,
     audit_registries,
 )
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from tests.support.paths import REPO_ROOT
 
 _DRY_RUNS = "tests/roadmap/test_roadmap_dry_runs.py"
 _LIMIT_CLASSES = "tests/roadmap/test_roadmap_limit_classes.py"
