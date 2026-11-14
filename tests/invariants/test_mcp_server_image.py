@@ -171,10 +171,11 @@ def test_every_mcp_server_trivyignore_entry_has_a_reason_and_an_exp_date_that_is
 
 
 def test_the_kubectl_and_helm_pins_hold_the_go_builds_that_fix_the_stdlib_findings() -> None:
-    """tools.lock SHALL pin kubectl 1.37.2 or newer and helm 4.3.1 or newer (#4336).
+    """tools.lock SHALL pin kubectl 1.37.2 or newer and helm 4.3.2 or newer (#4336, #5573).
 
     The older releases hold Go standard library findings that the ignore file no longer lists:
-    CVE-2026-78667 and CVE-2026-97031. A bump back below the floor fails the image scan.
+    CVE-2026-78667 and CVE-2026-97031 (kubectl), and CVE-2026-111943 (helm 4.3.1 has Go 1.27.2,
+    helm 4.3.2 has Go 1.27.4). A bump back below the floor fails the image scan.
     """
     tools = load_tools_lock().tools()
 
@@ -182,10 +183,11 @@ def test_the_kubectl_and_helm_pins_hold_the_go_builds_that_fix_the_stdlib_findin
         return tuple(int(part) for part in version.split("."))
 
     assert numbers(tools["kubectl"].version) >= (1, 37, 2)
-    assert numbers(tools["helm"].version) >= (4, 3, 1)
+    assert numbers(tools["helm"].version) >= (4, 3, 2)
     ignored = (REPO_ROOT / ".trivyignore-mcp-server").read_text(encoding="utf-8")
     assert "CVE-2026-78667" not in ignored
     assert "CVE-2026-97031" not in ignored
+    assert "CVE-2026-111943" not in ignored
 
 
 def test_the_tool_version_check_fails_on_mismatch_and_names_the_tool(
