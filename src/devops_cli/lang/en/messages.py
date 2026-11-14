@@ -3933,7 +3933,7 @@ class RoadmapMessages:
     implement_pull_comment_skipped: str = (
         "- step {step}: skipped, because the default branch does not declare it in {file}"
     )
-    implement_steps_invalid: str = "{file} on the default branch is not valid: {reason}"
+    roadmap_toml_invalid: str = "{file} on the default branch is not valid: {reason}"
     implement_scoped_tests_uncovered: str = "not run, because no test covers the changed files"
     implement_scoped_tests_narrowed: str = (
         "the changed files select more than {limit} test modules, so only the changed test "
