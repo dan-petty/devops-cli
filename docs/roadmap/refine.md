@@ -73,6 +73,12 @@ Two kinds of item wait for a person. Only `--item` refines them:
 
 `--item` refines an open New or Ready item even when nothing changed since its last round.
 
+### Owner questions
+
+When refine needs a decision from the owner, it posts one owner-question frame comment for the first open question. Refine asks at most one open question per item at a time; any other questions wait for later rounds. When an older open item holds a frame with the same question hash, refine posts a link comment instead of a new frame.
+
+A reply by the owner, a member, or a collaborator answers the question and resumes refinement. The answer is recorded in the job record and given to the model in the next round. Replies from unknown users or bots are ignored.
+
 ## Items with an unlisted title type
 
 Refine does not refine an item whose title type the branch types do not list, such as `security(ssh): ...`, also with `--item`. The stage job cannot take such an item, because its branch has no type. The round makes no model call for the item and does not set it Ready. The report and `devops roadmap explain` give the reason `invalid-title-type`:

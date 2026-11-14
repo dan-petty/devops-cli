@@ -1989,8 +1989,8 @@ class RoadmapCommandHelp:
         "docs/roadmap/inbox.md."
     )
     inbox_kind: str = (
-        "List only the lines of one class, such as refine, split, alternatives, failed or draft. The "
-        "counts of every class stay complete."
+        "List only the lines of one class, such as refine, split, alternatives, failed, draft or "
+        "owner. The counts of every class stay complete."
     )
     inbox_dry_run: str = (
         "Make no request: print the reads that a run makes, in order, with placeholders."
