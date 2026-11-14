@@ -216,7 +216,13 @@ def test_a_runner_job_changes_only_the_args_of_the_runner_container_and_adds_env
             {"name": "DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY", "value": "example/project"},
         ],
         {key: value for key, value in template.items() if key not in {"args", "env"}},
-        {"app.kubernetes.io/name": "devops-cli-job", "implement-repo": "0123456789abcdef"},
+        {
+            "app.kubernetes.io/name": "devops-cli-job",
+            "app.kubernetes.io/component": "roadmap-implement",
+            "app.kubernetes.io/part-of": "devops-cli-stack",
+            "app.kubernetes.io/managed-by": "devops-cli",
+            "implement-repo": "0123456789abcdef",
+        },
         "0123456789abcdef",
     )
 
@@ -250,7 +256,7 @@ def test_the_runner_template_reads_its_own_cronjob_and_follows_its_container(
         result.exit_code,
         ["kubectl", "-n", "devops", "get", "cronjob", "devops-cli-runner"]
         == cluster_jobs.calls[0][:6],
-        name.startswith("devops-cli-runner-"),
+        name.startswith("devops-cli-implement-"),
         container["name"],
         container["args"],
         '@.name=="runner"' in exit_code_read[-1],
@@ -271,7 +277,7 @@ def test_the_dry_run_of_the_runner_template_names_its_cronjob() -> None:
     assert (
         result.exit_code,
         "get cronjob devops-cli-runner" in result.output,
-        "<devops-cli-runner-yyyymmdd-hhmmss-xxxx>" in result.output,
+        "<devops-cli-implement-name-xxxxxx>" in result.output,
         "get cronjob devops-cli --" in result.output,
     ) == (0, True, True, False), result.output
 
@@ -496,13 +502,24 @@ def test_the_dry_run_of_the_runner_template_lists_exactly_the_requests_a_run_the
     result = _run("--template", "runner", "--repo", REPO, "--", *args)
     name = cluster_jobs.created[0]["metadata"]["name"]
     expected = [
-        [a.replace("<devops-cli-runner-yyyymmdd-hhmmss-xxxx>", name) for a in r.argv]
-        for r in planned
+        [a.replace("<devops-cli-implement-name-xxxxxx>", name) for a in r.argv] for r in planned
     ]
     assert (result.exit_code, cluster_jobs.calls) == (
         0,
         [[a for a in argv if a not in ("--context", "test-ctx")] for argv in expected],
     )
+
+
+def test_the_dry_run_of_the_runner_template_shows_job_name_placeholder_and_repo_labels() -> None:
+    result = _run(
+        "--template", "runner", "--repo", "dan-petty/devops-cli", "--dry-run", "--", "true"
+    )
+    assert result.exit_code == 0
+    assert "<devops-cli-implement-name-xxxxxx>" in result.output
+    assert '"roadmap.devops-cli/owner": "dan-petty"' in result.output
+    assert '"roadmap.devops-cli/repo": "devops-cli"' in result.output
+    assert '"roadmap.devops-cli/repository": "dan-petty/devops-cli"' in result.output
+    assert '"app.kubernetes.io/component": "roadmap-implement"' in result.output
 
 
 # ── The stage template (#5483) ────────────────────────────────────────────────

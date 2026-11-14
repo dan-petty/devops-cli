@@ -38,17 +38,28 @@ from devops_cli.dry_run import PlannedRequest, dry_run_class, is_dry_run, render
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.github.repo_ref import RepoRef, ServiceRow
 from devops_cli.k8s.cluster_job import (
+    COMPONENT_LABEL,
     DEFAULT_TEMPLATE,
+    ITEM_LABEL,
     JOB_NAME_LABEL,
     JOB_NAME_LABEL_VALUE,
     JOB_NAMESPACE,
     JOB_POD_SELECTOR_LABEL,
+    MANAGED_BY_LABEL,
+    MANAGED_BY_LABEL_VALUE,
+    OWNER_LABEL,
+    PART_OF_LABEL,
+    PART_OF_LABEL_VALUE,
+    REPO_LABEL,
+    REPOSITORY_ANNOTATION,
+    RUNNER_TEMPLATE,
     STAGE_TEMPLATE,
     JobTemplate,
     TemplateName,
     build_job,
     job_name,
     repository_label,
+    runner_job_name,
     stage_job_env,
     stage_job_labels,
 )
@@ -67,10 +78,16 @@ _CREATE_ARGS = ["create", "-f", "-", "-o", "name"]
 _PHASE_PATH = ".status.phase"
 
 
-def _name_placeholder(template: JobTemplate) -> str:
+def _name_placeholder(template: JobTemplate, item: int | None = None) -> str:
     """Where a dry run shows the Job's name, which a run chooses when it creates the Job."""
     if template == STAGE_TEMPLATE:
         return "<devops-cli-stage-name-item-xxxxxx>"
+    if template == RUNNER_TEMPLATE:
+        return (
+            "<devops-cli-implement-name-item-xxxxxx>"
+            if item is not None
+            else "<devops-cli-implement-name-xxxxxx>"
+        )
     return f"<{template.cronjob}-yyyymmdd-hhmmss-xxxx>"
 
 
@@ -114,10 +131,12 @@ def _repo_labels(
 
 
 def _new_name(template: JobTemplate, repo: str | None, item: int | None) -> str:
-    """The name of a new Job: `RepoRef.adhoc_name` for a stage Job that a person starts, so the
-    name starts with the prefix of the stage Jobs (ADR 0022), else `job_name`."""
+    """The name of a new Job: `RepoRef.adhoc_name` for a stage or runner Job that a person starts,
+    so the name starts with the prefix of the row (ADR 0022), else `job_name`."""
     if template == STAGE_TEMPLATE and repo is not None and item is not None:
         return RepoRef(repo).adhoc_name(ServiceRow.STAGE.value, item)
+    if template == RUNNER_TEMPLATE and repo is not None:
+        return runner_job_name(RepoRef(repo), item)
     return job_name(template=template)
 
 
@@ -239,22 +258,51 @@ def _job_preview(
     template: JobTemplate,
     env: Mapping[str, str] | None = None,
     labels: Mapping[str, str] | None = None,
+    repo: str | None = None,
+    item: int | None = None,
 ) -> str:
     """The Job a run creates, with what it copies from the CronJob as placeholders."""
     copied = f"<from CronJob {JOB_NAMESPACE}/{template.cronjob}'s jobTemplate>"
-    own = {JOB_NAME_LABEL: JOB_NAME_LABEL_VALUE, **(labels or {})}
+    extra_labels: dict[str, str] = {}
+    extra_annotations: dict[str, str] = {}
+    if repo is not None:
+        repo_ref = RepoRef(repo)
+        extra_labels[OWNER_LABEL] = repo_ref.owner_label
+        extra_labels[REPO_LABEL] = repo_ref.repo_label
+        if item is not None:
+            extra_labels[ITEM_LABEL] = str(item)
+        if template == RUNNER_TEMPLATE:
+            extra_labels[CONST_ROADMAP_IMPLEMENT_JOB_LABEL] = repo_ref.id
+        extra_annotations[REPOSITORY_ANNOTATION] = repo_ref.key
+
+    row = (
+        ServiceRow.IMPLEMENT.value
+        if template == RUNNER_TEMPLATE
+        else (ServiceRow.STAGE.value if template == STAGE_TEMPLATE else None)
+    )
+    if row:
+        extra_labels[COMPONENT_LABEL] = f"roadmap-{row}"
+        extra_labels[PART_OF_LABEL] = PART_OF_LABEL_VALUE
+        extra_labels[MANAGED_BY_LABEL] = MANAGED_BY_LABEL_VALUE
+
+    own = {JOB_NAME_LABEL: JOB_NAME_LABEL_VALUE, **extra_labels, **(labels or {})}
+    metadata: dict[str, Any] = {
+        "name": _name_placeholder(template, item),
+        "namespace": JOB_NAMESPACE,
+        "labels": {"...": copied, **own},
+    }
+    pod_metadata: dict[str, Any] = {"labels": {"...": copied, **own}}
+    if extra_annotations:
+        metadata["annotations"] = dict(extra_annotations)
+        pod_metadata["annotations"] = dict(extra_annotations)
     job = {
         "apiVersion": "batch/v1",
         "kind": "Job",
-        "metadata": {
-            "name": _name_placeholder(template),
-            "namespace": JOB_NAMESPACE,
-            "labels": {"...": copied, **own},
-        },
+        "metadata": metadata,
         "spec": {
             "...": copied,
             "template": {
-                "metadata": {"labels": {"...": copied, **own}},
+                "metadata": pod_metadata,
                 "spec": {
                     "...": copied,
                     "containers": [
@@ -284,7 +332,7 @@ def dry_run_job(
     item: int | None = None,
 ) -> JobRun:
     """The requests a run would make, in order, making none: not even the CronJob is read."""
-    name = _name_placeholder(template)
+    name = _name_placeholder(template, item)
     labels = _repo_labels(repo, template, item)
 
     def kubectl(command: Sequence[str], target: str, **extra: Any) -> PlannedRequest:
@@ -301,7 +349,7 @@ def dry_run_job(
         kubectl(
             _CREATE_ARGS,
             f"job {JOB_NAMESPACE}/{name}",
-            stdin=_job_preview(args, template, env, labels),
+            stdin=_job_preview(args, template, env, labels, repo=repo, item=item),
             condition=f"CronJob {JOB_NAMESPACE}/{template.cronjob} exists",
         ),
     ]
@@ -359,7 +407,16 @@ def execute_job(
         )
     name = _new_name(template, repo, item)
     env = {**(env or {}), **_stage_env(template, repo, name, cronjob)}
-    job = build_job(cronjob, list(args), name, template=template, env=env, labels=labels)
+    job = build_job(
+        cronjob,
+        list(args),
+        name,
+        template=template,
+        env=env,
+        labels=labels,
+        repo=repo,
+        item=item,
+    )
     _kubectl(_CREATE_ARGS, context, stdin=json.dumps(job))
     if not wait:
         return JobRun(name)

@@ -464,7 +464,7 @@ def test_a_round_creates_the_job_with_the_extension_as_its_deadline_and_the_anno
 
     job = _created(kube)
     (container,) = job["spec"]["template"]["spec"]["containers"]
-    (annotation,) = job["metadata"]["annotations"].items()
+    annotation = (PROGRESS_AT, job["metadata"]["annotations"][PROGRESS_AT])
     assert (
         job["spec"]["activeDeadlineSeconds"],
         annotation[0],
