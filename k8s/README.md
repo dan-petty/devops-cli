@@ -369,10 +369,10 @@ max_over_time(container_memory_working_set_bytes{namespace="monitoring", contain
 
 Grafana preinstalls the `grafana-llm-app` plugin pinned at release `1.2.0` (`monitoring/grafana-values.yaml`). The plugin provides LLM features across Grafana, such as panel explanations and query generation.
 
-- Grafana routes requests to the in-cluster LiteLLM AI Gateway at `http://llm-gateway.llm.svc.cluster.local:4000/v1` targeting model `qwen3.8:27b`.
+- Grafana routes requests to the in-cluster LiteLLM AI Gateway at `http://llm-gateway.llm.svc.cluster.local:4000` (custom provider) targeting model `qwen3.8:27b`.
 - The network policy `monitoring-default-perimeter` admits egress to port 4000 of namespace `llm`.
 - The feature toggle `dashgpt` under `[feature_toggles]` in `grafana.ini` enables generative AI capabilities across dashboards.
-- Grafana provisions the plugin settings from `apps.yaml` (`monitoring/grafana-values.yaml`), reading the LiteLLM key from `GF_LLM_GATEWAY_KEY` (Secret `monitoring/grafana-admin`).
+- Grafana provisions the plugin settings from `apps.yaml` (`monitoring/grafana-values.yaml`) with provider `custom`, reading the LiteLLM key from `GF_LLM_GATEWAY_KEY` (Secret `monitoring/grafana-admin`).
 
 ## Log and Metric Retention
 
