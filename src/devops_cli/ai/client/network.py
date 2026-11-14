@@ -190,6 +190,8 @@ class StreamUsage:
     reasoning_tokens: int | None = None
     # The part of `prompt_tokens` that the provider read from its cache; None when it names none.
     cache_read_tokens: int | None = None
+    # The part of `prompt_tokens` that the provider wrote to its cache; None when it names none.
+    cache_write_tokens: int | None = None
 
 
 # Token usage metrics extracted from the final frames of a streamed reply.

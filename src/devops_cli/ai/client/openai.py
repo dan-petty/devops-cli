@@ -325,6 +325,11 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
             cache_read_tokens = (
                 getattr(prompt_details, "cached_tokens", None) if prompt_details else None
             )
+            # A Claude group of the gateway names the tokens that Anthropic wrote to its cache
+            # here (#3658).
+            cache_write_tokens = (
+                getattr(prompt_details, "cache_write_tokens", None) if prompt_details else None
+            )
             origin = httpx2.URL(self._api_base()).origin
 
             raw_finish = getattr(first_choice, "finish_reason", None) if first_choice else None
@@ -346,6 +351,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
                 finish_reason=finish_reason,
                 reasoning_tokens=reasoning_tokens,
                 cache_read_tokens=cache_read_tokens,
+                cache_write_tokens=cache_write_tokens,
             )
 
     def _openai_compat_stream(
@@ -424,6 +430,7 @@ def _record_stream_chunk_usage(chunk: Any) -> None:
     r_tok = getattr(details, "reasoning_tokens", None) if details else None
     prompt_details = getattr(usage, "prompt_tokens_details", None)
     cached_tok = getattr(prompt_details, "cached_tokens", None) if prompt_details else None
+    written_tok = getattr(prompt_details, "cache_write_tokens", None) if prompt_details else None
     p_tok = getattr(usage, "prompt_tokens", None)
     c_tok = getattr(usage, "completion_tokens", None)
     t_tok = getattr(usage, "total_tokens", None)
@@ -435,6 +442,7 @@ def _record_stream_chunk_usage(chunk: Any) -> None:
                 total_tokens=t_tok,
                 reasoning_tokens=r_tok,
                 cache_read_tokens=cached_tok,
+                cache_write_tokens=written_tok,
             )
         )
 

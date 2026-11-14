@@ -58,7 +58,9 @@ CREATE TABLE IF NOT EXISTS ai_spend_records (
     finish_reason TEXT,
     pricing_source TEXT,
     reasoning_tokens INTEGER NOT NULL DEFAULT 0,
-    served_model TEXT
+    served_model TEXT,
+    cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_write_tokens INTEGER NOT NULL DEFAULT 0
 );
 """
 _QUERY_IDX_TIMESTAMP = (
@@ -83,6 +85,14 @@ _ADDED_COLUMNS: tuple[tuple[str, str], ...] = (
         "ALTER TABLE ai_spend_records ADD COLUMN reasoning_tokens INTEGER NOT NULL DEFAULT 0;",
     ),
     ("served_model", "ALTER TABLE ai_spend_records ADD COLUMN served_model TEXT;"),
+    (
+        "cache_read_tokens",
+        "ALTER TABLE ai_spend_records ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0;",
+    ),
+    (
+        "cache_write_tokens",
+        "ALTER TABLE ai_spend_records ADD COLUMN cache_write_tokens INTEGER NOT NULL DEFAULT 0;",
+    ),
 )
 
 _QUERY_INSERT_RECORD = """
@@ -91,8 +101,8 @@ INSERT INTO ai_spend_records (
     prompt_tokens, completion_tokens, total_tokens,
     cost_usd, cached, request_type, duration_seconds, stage, finish_reason, pricing_source,
     reasoning_tokens,
-    served_model
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    served_model, cache_read_tokens, cache_write_tokens
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 """
 
 _QUERY_STAGE_BREAKDOWN = """
@@ -486,8 +496,14 @@ class SpendLedger:
         pricing_source: str | None = None,
         reasoning_tokens: int = 0,
         served_model: str | None = None,
+        cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
     ) -> SpendRecord | None:
-        """Record an inference request in the persistent SQLite ledger."""
+        """Record an inference request in the persistent SQLite ledger.
+
+        `cache_read_tokens` and `cache_write_tokens` are the parts of `prompt_tokens` that the
+        provider read from its cache and wrote to it (#3658).
+        """
         ts = timestamp or datetime.now(UTC).isoformat()
         total_tokens = prompt_tokens + completion_tokens
         round_cost = round(cost_usd, 6)
@@ -515,6 +531,8 @@ class SpendLedger:
                         pricing_source,
                         reasoning_tokens,
                         served_model,
+                        cache_read_tokens,
+                        cache_write_tokens,
                     ),
                 )
                 rec_id = cursor.lastrowid
@@ -538,6 +556,8 @@ class SpendLedger:
                     pricing_source=pricing_source,
                     reasoning_tokens=reasoning_tokens,
                     served_model=served_model,
+                    cache_read_tokens=cache_read_tokens,
+                    cache_write_tokens=cache_write_tokens,
                 )
         except Exception:
             # Defensive logging: database failure must never crash user workflows
@@ -936,6 +956,7 @@ def track_request_spend(
     completion_tokens: int = 0,
     reasoning_tokens: int = 0,
     cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
     cached: bool = False,
     request_type: str = "chat",
     duration_seconds: float = 0.0,
@@ -957,8 +978,10 @@ def track_request_spend(
     from. The tokens carry `local`, and no process sends a price for them: the cluster prices
     local tokens at one reference for every process (#1672). ``cache_read_tokens``, the part of
     ``prompt_tokens`` that the provider read from its cache, costs the cached input rate of the
-    price (#4403). The metrics carry `row`, the job row of the Service whose work sent the
-    request, or `other` outside a row (#4475).
+    price (#4403). ``cache_write_tokens``, the part that the provider wrote to its cache, costs the
+    cache write rate of a genai-prices price, and the prompt rate of a price that names none. The
+    ledger row keeps both counts (#3658). The metrics carry `row`, the job row of the Service whose
+    work sent the request, or `other` outside a row (#4475).
     """
     from opentelemetry.semconv._incubating.attributes.gen_ai_attributes import (
         GenAiOperationNameValues,
@@ -997,6 +1020,7 @@ def track_request_spend(
             served_by=served_by,
             served_model=served_model,
             cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
         )
     )
     cost = priced.cost_usd if priced else 0.0
@@ -1021,6 +1045,8 @@ def track_request_spend(
             pricing_source=pricing_source,
             reasoning_tokens=reasoning_tokens,
             served_model=served_model,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
         )
     except Exception:
         rec = None

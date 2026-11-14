@@ -634,14 +634,17 @@ class PricingRegistry:
         provider: str | None,
         request_timestamp: datetime | None,
         cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
     ) -> RequestCost | None:
         """The cost of the request at genai-prices' price for its tokens and timestamp; None when
-        genai-prices cannot price the model."""
+        genai-prices cannot price the model. genai-prices counts the cache reads and the cache
+        writes inside `input_tokens`, and prices each at the cache rate of the model."""
         import genai_prices
 
         usage = genai_prices.Usage(
             input_tokens=prompt_tokens,
             cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
             output_tokens=completion_tokens,
         )
         candidates = _candidate_models(model)
@@ -671,6 +674,7 @@ class PricingRegistry:
         served_by: str | None = None,
         served_model: str | None = None,
         cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
     ) -> RequestCost:
         """The cost of a request at its real token usage and timestamp, and its pricing source.
 
@@ -680,7 +684,9 @@ class PricingRegistry:
 
         `cache_read_tokens` is the part of `prompt_tokens` that the provider read from its cache.
         It costs the cached input rate of the price, or the prompt rate when the price has none
-        (#4403).
+        (#4403). `cache_write_tokens` is the part of `prompt_tokens` that the provider wrote to its
+        cache. A genai-prices price costs it at the cache write rate of the model. A price override
+        has no cache write rate, so it costs these tokens at the prompt rate (#3658).
 
         `served_model` is the deployment model that a gateway reply names, a LiteLLM model
         reference such as `openai/gpt-4o`. When the reply names it, a hosted call is priced at
@@ -712,6 +718,7 @@ class PricingRegistry:
             provider,
             request_timestamp,
             cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
         )
         if priced is not None:
             return priced

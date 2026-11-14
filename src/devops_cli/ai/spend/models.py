@@ -68,6 +68,9 @@ class SpendRecord(BaseModel):
     completion_tokens: int = 0
     total_tokens: int = 0
     reasoning_tokens: int = 0
+    # The parts of `prompt_tokens` that the provider read from its cache and wrote to it (#3658).
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
     cost_usd: float = 0.0
     cached: bool = False
     request_type: str = "chat"

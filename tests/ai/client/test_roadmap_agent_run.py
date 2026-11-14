@@ -555,6 +555,37 @@ def test_a_run_whose_reply_names_a_model_with_no_price_warns_and_is_not_local(
     )
 
 
+def test_a_run_on_a_claude_group_sums_and_prices_the_cache_tokens_of_its_replies(
+    spend_ledger: SpendLedger, config: Callable[..., Any]
+) -> None:
+    """A run of two replies on Sonnet 5.5 records the sums of their cache reads and cache writes,
+    at the cache rates (#3658): 1,000,000 reads at 0.10 USD and 1,000,000 writes at 2.50 USD per
+    million make 2.60 USD."""
+    sonnet = "claude-sonnet-5-5"
+    config(k8s={"domain": "example.com"}, ai={"gateway_url": _GATEWAY_URL})
+    reply = ModelResponse(
+        parts=[TextPart("ok")],
+        usage=RequestUsage(
+            input_tokens=1_000_000, cache_read_tokens=500_000, cache_write_tokens=500_000
+        ),
+        model_name=sonnet,
+    )
+
+    record_run_spend(
+        _GatewayModel(sonnet),
+        [ModelRequest(parts=[UserPromptPart("go")]), reply, reply],
+        0.5,
+        stage="stage",
+    )
+
+    with contextlib.closing(sqlite3.connect(spend_ledger.db_path)) as conn:
+        row = conn.execute(
+            "SELECT prompt_tokens, cache_read_tokens, cache_write_tokens, round(cost_usd, 6)"
+            " FROM ai_spend_records"
+        ).fetchone()
+    assert row == (2_000_000, 1_000_000, 1_000_000, 2.6)
+
+
 def test_a_run_on_the_deepseek_group_costs_its_cached_and_new_input_and_its_output(
     spend_ledger: SpendLedger, config: Callable[..., Any], otlp: FakeCollector
 ) -> None:
