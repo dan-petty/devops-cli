@@ -58,6 +58,10 @@ class JobTemplate:
 DEFAULT_TEMPLATE = JobTemplate(cronjob="devops-cli", container="devops-cli")
 RUNNER_TEMPLATE = JobTemplate(cronjob="devops-cli-runner", container="runner")
 STAGE_TEMPLATE = JobTemplate(cronjob="roadmap-stage", container="stage")
+PLANNER_TEMPLATE = JobTemplate(cronjob="devops-cli-planner-run", container="runner")
+# The pod label of a planner run Job: the deny-all NetworkPolicy and the admission policy select
+# it, and no egress allow policy does (ADR 0018, #4003).
+PLANNER_NAME_LABEL_VALUE = "devops-cli-planner-run"
 # The component of the runner and stage Jobs and of their pods: `roadmap-<row>` (ADR 0022).
 RUNNER_COMPONENT = f"roadmap-{ServiceRow.IMPLEMENT}"
 STAGE_COMPONENT = f"roadmap-{ServiceRow.STAGE}"
@@ -263,6 +267,8 @@ def build_job(
         extra_labels[MANAGED_BY_LABEL] = MANAGED_BY_LABEL_VALUE
 
     merged_labels = {**extra_labels, **(labels or {})}
+    if template == PLANNER_TEMPLATE:
+        merged_labels.setdefault(JOB_NAME_LABEL, PLANNER_NAME_LABEL_VALUE)
     merged_annotations = {**extra_annotations, **(annotations or {})}
 
     pod_template["metadata"] = _labelled(pod_template.get("metadata"), merged_labels)

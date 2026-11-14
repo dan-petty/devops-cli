@@ -49,6 +49,13 @@ spec:
     - name: stage
       expression: >-
         has(object.metadata.name) && object.metadata.name.startsWith("devops-cli-stage-")
+    # The planner's run Job carries its own pod label, so no egress allow policy selects it and the
+    # deny-all policy applies (ADR 0018, #4003).
+    - name: planner
+      expression: >-
+        has(object.spec.template.metadata) && has(object.spec.template.metadata.labels) &&
+        "app.kubernetes.io/name" in object.spec.template.metadata.labels &&
+        object.spec.template.metadata.labels["app.kubernetes.io/name"] == "devops-cli-planner-run"
   validations:
     - expression: >-
         size(object.spec.template.spec.containers) == 1 &&
@@ -81,9 +88,9 @@ spec:
     # A stage Job takes 2 keys of the Secret and no other value of it.
     - expression: >-
         object.spec.template.spec.containers.all(c, !has(c.envFrom) ||
-        c.envFrom.all(e, !variables.stage && has(e.secretRef) && !has(e.configMapRef) &&
-        e.secretRef.name == "devops-cli"))
-      message: envFrom may name only Secret devops-cli, and a stage Job has no envFrom.
+        (!variables.stage && !variables.planner && c.envFrom.all(e, has(e.secretRef) &&
+        !has(e.configMapRef) && e.secretRef.name == "devops-cli")))
+      message: envFrom may name only Secret devops-cli, and a stage Job and a planner run Job have no envFrom.
       reason: Forbidden
     # `valueFrom` reads one key of any Secret, which `envFrom` does not allow. A stage Job reads the
     # keys of `CONST_ROADMAP_STAGE_JOB_SECRET_KEYS`, each in the variable of its name.
@@ -126,9 +133,15 @@ spec:
     - expression: >-
         !has(object.spec.template.spec.volumes) ||
         object.spec.template.spec.volumes.all(v,
-        ((v.name == "tmp" || v.name == "home") && has(v.emptyDir)) ||
-        (v.name == "config" && has(v.configMap) && v.configMap.name == "devops-cli-config"))
-      message: The pod may have only the volumes tmp and home (emptyDir) and config (ConfigMap devops-cli-config).
+        ((v.name == "tmp" || v.name == "home") && has(v.emptyDir) &&
+        (!variables.planner || has(v.emptyDir.sizeLimit))) ||
+        (v.name == "config" && has(v.configMap) &&
+        ((!variables.planner && v.configMap.name == "devops-cli-config") ||
+        (variables.planner && v.configMap.name == "devops-cli-config-sandbox"))) ||
+        (variables.planner && v.name == "repo" && has(v.persistentVolumeClaim) &&
+        v.persistentVolumeClaim.claimName == "roadmap-service-home" &&
+        has(v.persistentVolumeClaim.readOnly) && v.persistentVolumeClaim.readOnly))
+      message: The pod may have only the volumes tmp and home (emptyDir), config (ConfigMap devops-cli-config, or devops-cli-config-sandbox for a planner run Job) and, for a planner run Job, repo (claim roadmap-service-home, read only).
       reason: Forbidden
     - expression: >-
         (!has(object.spec.template.spec.hostNetwork) || !object.spec.template.spec.hostNetwork) &&
@@ -143,11 +156,14 @@ spec:
     - expression: >-
         has(object.spec.template.metadata) && has(object.spec.template.metadata.labels) &&
         "app.kubernetes.io/name" in object.spec.template.metadata.labels &&
-        object.spec.template.metadata.labels["app.kubernetes.io/name"] == "devops-cli-job" &&
+        (variables.planner ?
+        (object.spec.template.metadata.labels["app.kubernetes.io/name"] == "devops-cli-planner-run" &&
+        !("app.kubernetes.io/component" in object.spec.template.metadata.labels)) :
+        (object.spec.template.metadata.labels["app.kubernetes.io/name"] == "devops-cli-job" &&
         (variables.stage ==
         ("app.kubernetes.io/component" in object.spec.template.metadata.labels &&
-        object.spec.template.metadata.labels["app.kubernetes.io/component"] == "roadmap-stage"))
-      message: The pod label app.kubernetes.io/name must be devops-cli-job, and the pod label app.kubernetes.io/component is roadmap-stage on the pod of a stage Job and on no other pod.
+        object.spec.template.metadata.labels["app.kubernetes.io/component"] == "roadmap-stage"))))
+      message: The pod label app.kubernetes.io/name must be devops-cli-job, or devops-cli-planner-run for a planner run Job with no component label, and the pod label app.kubernetes.io/component is roadmap-stage on the pod of a stage Job and on no other pod.
       reason: Forbidden
     # Fields that reach beyond the pod: a priority class can preempt other pods, and a node name
     # skips the scheduler.
@@ -176,6 +192,39 @@ spec:
         (!has(object.spec.parallelism) || object.spec.parallelism == 1)
       message: The Job must run its pod once, so completions and parallelism are 1 or not set.
       reason: Forbidden
+    # The seven isolation controls of ADR 0018: the pod runs as UID and GID 1000 with no privilege
+    # and the default seccomp profile, and the container mounts the two writable volumes and the
+    # two read-only ones at their fixed paths.
+    - expression: >-
+        !variables.planner || (has(object.spec.template.spec.securityContext) &&
+        has(object.spec.template.spec.securityContext.runAsNonRoot) &&
+        object.spec.template.spec.securityContext.runAsNonRoot == true &&
+        has(object.spec.template.spec.securityContext.runAsUser) &&
+        object.spec.template.spec.securityContext.runAsUser == 1000 &&
+        has(object.spec.template.spec.securityContext.runAsGroup) &&
+        object.spec.template.spec.securityContext.runAsGroup == 1000 &&
+        has(object.spec.template.spec.securityContext.seccompProfile) &&
+        object.spec.template.spec.securityContext.seccompProfile.type == "RuntimeDefault" &&
+        object.spec.template.spec.containers.all(c, has(c.securityContext) &&
+        has(c.securityContext.allowPrivilegeEscalation) &&
+        c.securityContext.allowPrivilegeEscalation == false &&
+        has(c.securityContext.readOnlyRootFilesystem) &&
+        c.securityContext.readOnlyRootFilesystem == true &&
+        has(c.securityContext.capabilities) &&
+        has(c.securityContext.capabilities.drop) &&
+        c.securityContext.capabilities.drop.all(d, d == "ALL")))
+      message: A planner run Job must run as UID 1000 and GID 1000 with runAsNonRoot and the RuntimeDefault seccomp profile, and its container must set allowPrivilegeEscalation false, readOnlyRootFilesystem true and drop all capabilities.
+      reason: Forbidden
+    - expression: >-
+        !variables.planner || object.spec.template.spec.containers.all(c, has(c.volumeMounts) &&
+        c.volumeMounts.exists(m, m.name == "tmp" && m.mountPath == "/tmp") &&
+        c.volumeMounts.exists(m, m.name == "home" && m.mountPath == "/home/devops") &&
+        c.volumeMounts.exists(m, m.name == "config" && m.mountPath == "/config" &&
+        has(m.readOnly) && m.readOnly) &&
+        c.volumeMounts.exists(m, m.name == "repo" && m.mountPath == "/repo" &&
+        has(m.readOnly) && m.readOnly))
+      message: A planner run Job must mount tmp at /tmp, home at /home/devops, config at /config read only and repo at /repo read only.
+      reason: Forbidden
     # A runner Job that changed GitHub never runs twice (cronjob-runner.yaml). A stage Job runs its
     # pod again only after exit 75 (an eviction or a retryable failure), or a disruption, at most
     # twice (cronjob-stage.yaml): the pod that runs again removes the branch of its own intent
@@ -202,8 +251,9 @@ spec:
     - expression: >-
         has(object.spec.activeDeadlineSeconds) && (variables.stage ?
         object.spec.activeDeadlineSeconds == 10800 :
-        (object.spec.activeDeadlineSeconds > 0 && object.spec.activeDeadlineSeconds <= 14400))
-      message: The Job must set a deadline (activeDeadlineSeconds) of 14400 seconds at most, and a stage Job the deadline of 10800 seconds of its template.
+        (variables.planner ? object.spec.activeDeadlineSeconds == 120 :
+        (object.spec.activeDeadlineSeconds > 0 && object.spec.activeDeadlineSeconds <= 14400)))
+      message: The Job must set a deadline (activeDeadlineSeconds) of 14400 seconds at most, a stage Job the deadline of 10800 seconds of its template, and a planner run Job the deadline of 120 seconds of its template.
       reason: Forbidden
     # The rows of `RUNNER_SIZES`: CPU 1 with 2Gi, and CPU 4 with 6Gi. The CPU request equals the
     # CPU limit, and the worker count of the test runner equals the CPU limit, because
@@ -217,12 +267,15 @@ spec:
         (variables.stage ?
         (c.resources.requests.cpu == "250m" && c.resources.requests.memory == "1Gi" &&
         c.resources.limits.cpu == "1" && c.resources.limits.memory == "2Gi") :
+        (variables.planner ?
+        (c.resources.requests.cpu == "1" && c.resources.limits.cpu == "1" &&
+        c.resources.requests.memory == "2Gi" && c.resources.limits.memory == "2Gi") :
         (c.resources.requests.cpu == c.resources.limits.cpu &&
         ((c.resources.limits.cpu == "1" && c.resources.requests.memory == "2Gi") ||
         (c.resources.limits.cpu == "4" && c.resources.requests.memory == "6Gi")) &&
         has(c.env) && c.env.exists(e, e.name == "PYTEST_XDIST_AUTO_NUM_WORKERS" &&
-        has(e.value) && e.value == c.resources.limits.cpu))))
-      message: The CPU and the memory request of a runner Job must be a row of the size table (1 CPU with 2Gi, or 4 CPU with 6Gi), the CPU request must equal the CPU limit, the memory limit must be set, and PYTEST_XDIST_AUTO_NUM_WORKERS must equal the CPU limit. A stage Job requests 250m CPU and 1Gi with limits of 1 CPU and 2Gi, the stage size.
+        has(e.value) && e.value == c.resources.limits.cpu)))))
+      message: The CPU and the memory request of a runner Job must be a row of the size table (1 CPU with 2Gi, or 4 CPU with 6Gi), the CPU request must equal the CPU limit, the memory limit must be set, and PYTEST_XDIST_AUTO_NUM_WORKERS must equal the CPU limit. A stage Job requests 250m CPU and 1Gi with limits of 1 CPU and 2Gi, the stage size, and a planner run Job requests and limits 1 CPU and 2Gi.
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1

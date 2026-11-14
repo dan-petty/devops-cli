@@ -1365,13 +1365,15 @@ k8s/
 │   │   ├── networkpolicy-client.yaml
 │   │   ├── networkpolicy.yaml
 │   │   └── service.yaml
-│   └── roadmap-service/      # Continuous roadmap service Deployment, Service, Ingress, rate-limit Middleware, NetworkPolicies, PVC, ServiceAccount and Role
+│   └── roadmap-service/      # Continuous roadmap service Deployment, Service, Ingress, rate-limit Middleware, NetworkPolicies, PVC, ServiceAccount, Role, and the suspended planner run CronJob
 │       ├── kustomization.yaml
 │       ├── admissionpolicy.yaml
+│       ├── cronjob-planner-run.yaml
 │       ├── deployment.yaml
 │       ├── ingress.yaml
 │       ├── middleware.yaml
 │       ├── networkpolicy-egress.yaml
+│       ├── networkpolicy-planner-run.yaml
 │       ├── networkpolicy.yaml
 │       ├── pvc.yaml
 │       ├── role.yaml

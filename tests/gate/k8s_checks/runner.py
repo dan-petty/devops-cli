@@ -219,7 +219,7 @@ def check_the_role_of_the_service_holds_five_rules_and_one_binding() -> None:
             {
                 "apiGroups": ["batch"],
                 "resources": ["cronjobs"],
-                "resourceNames": ["devops-cli-runner", "roadmap-stage"],
+                "resourceNames": ["devops-cli-runner", "roadmap-stage", "devops-cli-planner-run"],
                 "verbs": ["get"],
             },
             {
