@@ -102,6 +102,11 @@ jobs:
     name: Plan Check
     needs: semantic-title
     if: "${{ always() && github.event.pull_request.user.login == 'devops-cli-service[bot]' && startsWith(github.event.pull_request.title, 'docs(openspec): plan #') }}"
+    # An edit of the pull request cancels the run that read the plan form, so a delivery form
+    # never meets a run that its earlier plan event started (#3829).
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
