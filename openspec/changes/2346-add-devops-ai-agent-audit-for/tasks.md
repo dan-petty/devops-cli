@@ -58,9 +58,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/intake/intake_model.py`, `.github
 
 Kind: behavior. Reads: `src/devops_cli/ai/agent_audit/transcript.py`. Changes: `src/devops_cli/ai/agent_audit/sources.py` (new), `src/devops_cli/ai/agent_audit/shell.py` (new), `src/devops_cli/ai/agent_audit/agent_files.py` (new), `tests/ai/agent_audit/test_sources.py` (new), `tests/ai/agent_audit/test_shell.py` (new), `tests/ai/agent_audit/test_agent_files.py` (new).
 
-- [ ] 7.1 Write `tests/ai/agent_audit/test_sources.py::test_source_transcripts_returns_no_shell_path` first: it fails because transcript sources return shell paths
+- [x] 7.1 Write `tests/ai/agent_audit/test_sources.py::test_source_transcripts_returns_no_shell_path` first: it fails because transcript sources return shell paths
   - Verification: `$ uv run devops ci test tests/ai/agent_audit/test_sources.py` fails on the base
-- [ ] 7.2 Add `src/devops_cli/ai/agent_audit/sources.py`, `src/devops_cli/ai/agent_audit/shell.py`, and `src/devops_cli/ai/agent_audit/agent_files.py`. `source_paths(source, repo_dir, home)` returns files for the requested source. Add `parse_shell_history(path)` supporting zsh extended format `: <epoch>:<seconds>;<command>`. Add `parse_agent_files(dir_path)` reading `.data/agent/` files. Write `tests/ai/agent_audit/test_shell.py` and `tests/ai/agent_audit/test_agent_files.py`
+- [x] 7.2 Add `src/devops_cli/ai/agent_audit/sources.py`, `src/devops_cli/ai/agent_audit/shell.py`, and `src/devops_cli/ai/agent_audit/agent_files.py`. `source_paths(source, repo_dir, home)` returns files for the requested source. Add `parse_shell_history(path)` supporting zsh extended format `: <epoch>:<seconds>;<command>`. Add `parse_agent_files(dir_path)` reading `.data/agent/` files. Write `tests/ai/agent_audit/test_shell.py` and `tests/ai/agent_audit/test_agent_files.py`
   - Verification: `$ uv run devops ci test tests/ai/agent_audit/test_sources.py tests/ai/agent_audit/test_shell.py tests/ai/agent_audit/test_agent_files.py` passes
 
 ## 8. File each draft through devops roadmap intake
