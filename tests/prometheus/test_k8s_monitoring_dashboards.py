@@ -984,15 +984,30 @@ def test_each_count_of_the_result_lines_starts_with_the_base_of_the_job_grades()
 
 
 def test_system_topology_dashboard_has_network_service_map_and_brain_panels() -> None:
-    """Verify system-topology.json defines network, service map, and brain rows with nodeGraph."""
+    """Verify system-topology.json defines network, service map, brain, and status rows
+    with nodeGraph, stat, state-timeline, and status-history panel types."""
     dashboard = json.loads((DASHBOARDS_DIR / "system-topology.json").read_text(encoding="utf-8"))
     assert dashboard["uid"] == "system-topology"
     assert dashboard["title"] == "System Topology & Service Map"
 
     row_titles = [panel["title"] for panel in dashboard["panels"] if panel.get("type") == "row"]
+    assert "System Overview" in row_titles
     assert "Network & Ingress Topology" in row_titles
     assert "Distributed Trace Service Map" in row_titles
     assert "Project Brain & Decision Flow" in row_titles
+    assert "Component State & Status History" in row_titles
+
+    panel_types = {panel.get("type") for panel in dashboard["panels"]}
+    assert {"nodeGraph", "stat", "state-timeline", "status-history"}.issubset(panel_types)
+
+    stats = [p for p in dashboard["panels"] if p.get("type") == "stat"]
+    assert len(stats) >= 4
+
+    state_timelines = [p for p in dashboard["panels"] if p.get("type") == "state-timeline"]
+    assert len(state_timelines) >= 1
+
+    status_histories = [p for p in dashboard["panels"] if p.get("type") == "status-history"]
+    assert len(status_histories) >= 1
 
     node_graphs = [panel for panel in dashboard["panels"] if panel.get("type") == "nodeGraph"]
     assert len(node_graphs) >= 1
