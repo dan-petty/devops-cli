@@ -38,3 +38,10 @@ The Service Image Tests workflow SHALL build the `service` stage once per run in
 #### Scenario: A shard test fails
 - **WHEN** the shard test step is read
 - **THEN** it gives pytest `-rfEs`, so the summary names each failed and error test and gives the reason of each skip
+
+### Requirement: The service image suite has a bound inside the job limit
+The Service Image Tests SHALL run the suite under `timeout --kill-after=30 900`, inside the 20-minute job limit.
+
+#### Scenario: A hung suite in the image
+- **WHEN** the suite in the Service image does not stop
+- **THEN** `timeout` stops the container at 900 s and the step fails with 124

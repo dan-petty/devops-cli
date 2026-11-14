@@ -508,6 +508,12 @@ DEFAULT_CI_TEST_NARROWED_WORKERS: Final[int] = 4
 # selection at a high load. 120 s is above 2.5 times the slowest narrowed sample and far below the
 # 1800 s limit of the run, so it fires first and the run falls back to the file count.
 DEFAULT_CI_TEST_COLLECTION_TIMEOUT_SECONDS: Final[float] = 120.0
+# A shard of the suite inside a 20-minute job (#4677). The row stops first, so its line names the
+# test row and not the job limit (#4683).
+DEFAULT_CI_TEST_SHARD_TIMEOUT_SECONDS: Final[float] = 900.0
+# The coverage-index build took 1,627 s of its old 1,800 s bound once (measured, #4683). The new
+# bound leaves room for one slow run and keeps the build off the test row's bound.
+DEFAULT_CI_COVERAGE_INDEX_TIMEOUT_SECONDS: Final[float] = 3600.0
 # `devops ci job-time` (#2699): how many of the last runs of the test job its mean covers. The
 # issue #3050 states the mean over 20 runs of `main`.
 DEFAULT_CI_JOB_TIME_RUNS: Final[int] = 20
