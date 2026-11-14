@@ -208,3 +208,20 @@ def test_intake_keeps_a_new_candidate_with_an_unlisted_title_type(title: str) ->
     """The retitle job corrects the type and shortens the summary of the new issue, so intake
     does not refuse a candidate that the job can correct."""
     assert NewCandidate(title=title, body="Body.").refuse_long_summary() is None
+
+
+def test_a_person_title_survives_a_body_edit_after_the_skip_comment(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """The skip comment of the person's unlisted title does not bound the rename, so a body edit
+    that selects the item again keeps the title (#4620)."""
+    number = _item(store, "fix(ssh): verify node host keys")
+    store.comment(number, JOB_COMMENT)
+    store.rename_by_hand(number, SHORT)
+    _round(store, FakeModel())
+    store.edit_body_by_hand(number, "It asks for one more change.")
+
+    _round(store, FakeModel())
+
+    assert _title(store, number) == SHORT
+    assert len(_job_comments(store, number)) == 1
