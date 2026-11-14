@@ -46,14 +46,7 @@ from devops_cli.dry_run import PlannedRequest, dry_run_class, is_dry_run
 from devops_cli.exceptions import DevOpsCLIError, RoadmapRunError
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.lang import HELP, MESSAGES
-from devops_cli.output import (
-    print_error,
-    print_info,
-    print_success,
-    print_table,
-    print_warning,
-    write_stdout,
-)
+from devops_cli.output import print_error, print_info, print_success, write_stdout
 from devops_cli.roadmap.claim import (
     Claimant,
     apply_claim,
@@ -1084,48 +1077,6 @@ def inbox_cmd(
                 wait_days=settings.roadmap.inbox.wait_days,
             )
         write_stdout(render_inbox(inbox, repo=target, kinds=kinds) + "\n")
-
-
-@app.command("registries", help=HELP.roadmap.registries)
-@dry_run_class("no-external-request")
-def registries_cmd(
-    path: Annotated[Path | None, typer.Option("--path", help=HELP.roadmap.registries_path)] = None,
-    output_format: Annotated[
-        str, typer.Option("--format", "-f", help=HELP.options.format_type)
-    ] = DEFAULT_TABLE_FORMAT,
-    json_output: Annotated[
-        bool, typer.Option("--json", "-j", help=HELP.options.json_output)
-    ] = False,
-) -> None:
-    """List the registry and ratchet declarations of the test modules, and report a declaration
-    that is not a tuple of literals and a ratchet assertion that no declaration covers."""
-    from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
-    from devops_cli.output.formatters.tables import render_table
-    from devops_cli.output.serialization import emit_serialized, resolve_format
-    from devops_cli.roadmap.registry_audit import audit_registries, entry_payload, entry_rows
-
-    root = path if path is not None else find_repo_root(Path.cwd())
-    audit = audit_registries(root)
-    fmt = resolve_format(output_format, json_output=json_output)
-    if fmt != CONST_OUTPUT_FORMAT_TABLE:
-        emit_serialized(entry_payload(audit), fmt)
-        if not audit.ok:
-            raise typer.Exit(1)
-        return
-    if audit.entries:
-        print_table(
-            render_table(
-                title="Registry declarations",
-                columns=["Token", "Kind", "Target", "Source"],
-                rows=entry_rows(audit),
-            )
-        )
-    for finding in audit.findings:
-        print_warning(finding.message, safe=True)
-    if audit.ok:
-        print_success(f"Valid registry declarations: {audit.valid_declarations}.")
-        return
-    raise typer.Exit(1)
 
 
 def _inbox_repos(repo: str | None, configured: Sequence[str]) -> list[str]:

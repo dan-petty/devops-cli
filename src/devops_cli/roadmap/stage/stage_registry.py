@@ -32,39 +32,6 @@ class RegistryCount:
     declaring_path: str = ""
 
 
-@dataclass(frozen=True)
-class Declaration:
-    """One module-level `REGISTRY_COUNTS` declaration of a module (#3332)."""
-
-    path: str
-    line: int
-    entries: tuple[RegistryCount, ...]
-    valid: bool
-
-
-def _is_literal_entry(node: ast.expr) -> bool:
-    """True when `node` is a tuple or a list whose first three elements are literals."""
-    return (
-        isinstance(node, (ast.Tuple, ast.List))
-        and len(node.elts) >= 3
-        and all(isinstance(elt, ast.Constant) for elt in node.elts[:3])
-    )
-
-
-def _declared_value(node: ast.stmt) -> ast.expr | None:
-    """The value of a module-level assignment of `REGISTRY_COUNTS`, or None."""
-    if isinstance(node, ast.Assign):
-        if any(
-            isinstance(target, ast.Name) and target.id == _TARGET_CONSTANT
-            for target in node.targets
-        ):
-            return node.value
-    elif isinstance(node, ast.AnnAssign):
-        if isinstance(node.target, ast.Name) and node.target.id == _TARGET_CONSTANT:
-            return node.value
-    return None
-
-
 def _extract_entries(value_node: ast.expr, declaring_path: str) -> list[RegistryCount]:
     """Extract `RegistryCount` records from an AST tuple or list literal."""
     if not isinstance(value_node, (ast.Tuple, ast.List)):
@@ -102,10 +69,9 @@ def _declaring_source(path: Path) -> str:
     return source if _TARGET_CONSTANT in source else ""
 
 
-def declarations_in(path: Path) -> tuple[Declaration, ...]:
-    """Parse one module and return its module-level `REGISTRY_COUNTS` declarations. Each
-    declaration reports its line, its literal entries and whether its value is a tuple or a list
-    of literal triples. A module whose text does not hold the name is not parsed."""
+def counts_in(path: Path) -> tuple[RegistryCount, ...]:
+    """Parse one Python module and read its module-level `REGISTRY_COUNTS` declaration. A module
+    whose text does not hold the name is not parsed."""
     source = _declaring_source(path)
     if not source:
         return ()
@@ -116,27 +82,17 @@ def declarations_in(path: Path) -> tuple[Declaration, ...]:
         return ()
 
     declaring = path.as_posix()
-    declarations: list[Declaration] = []
+    entries: list[RegistryCount] = []
     for node in tree.body:
-        value = _declared_value(node)
-        if value is None:
-            continue
-        declarations.append(
-            Declaration(
-                path=declaring,
-                line=node.lineno,
-                entries=tuple(_extract_entries(value, declaring)),
-                valid=isinstance(value, (ast.Tuple, ast.List))
-                and all(_is_literal_entry(elt) for elt in value.elts),
-            )
-        )
-    return tuple(declarations)
-
-
-def counts_in(path: Path) -> tuple[RegistryCount, ...]:
-    """Parse one Python module and read its module-level `REGISTRY_COUNTS` entries. A module
-    whose text does not hold the name is not parsed."""
-    return tuple(entry for declaration in declarations_in(path) for entry in declaration.entries)
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == _TARGET_CONSTANT:
+                    entries.extend(_extract_entries(node.value, declaring))
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name) and node.target.id == _TARGET_CONSTANT:
+                if node.value is not None:
+                    entries.extend(_extract_entries(node.value, declaring))
+    return tuple(entries)
 
 
 def registry_table(root: Path) -> tuple[RegistryCount, ...]:
