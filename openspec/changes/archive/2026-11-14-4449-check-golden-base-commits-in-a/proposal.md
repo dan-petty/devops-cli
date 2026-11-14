@@ -12,6 +12,7 @@ One pytest test of the golden stage eval set starts a real `git` with `subproces
 - Edit `docs/TESTING.md`: the row list gains `roadmap-stage-eval-commits`, and the invariant test list gains `test_roadmap_stage_eval_commits_check.py`.
 - Remove `_git` and `test_each_base_commit_of_the_set_is_a_full_hash_of_a_real_commit_or_the_case_reads_none` from `tests/roadmap/stage/test_roadmap_stage_eval_cases.py`, with the `subprocess` import.
 - Keep `test_each_merge_commit_of_the_set_is_a_full_hash_or_the_case_reads_none` in pytest, because it reads loaded data and no git history.
+- Add `fetch-depth: 0` to the checkout of the `static` job of `.github/workflows/ci.yml`. That job runs the new row, and its default clone of depth 1 has no history. Change the contract test of that checkout in `tests/invariants/test_workflow_contracts.py` from shallow to full history.
 - Add three requirements to `ci-gate-rows` for the row, and change the requirement `Each commit of the set is a real commit or the case reads none` of `roadmap-stage-eval` to the row and the merge-hash test, under its own name.
 - The change fits one pull request.
 
@@ -30,7 +31,8 @@ None.
 
 - Code: `src/devops_cli/commands/ci.py`, `src/devops_cli/lang/en/messages.py`
 - Documents: `docs/TESTING.md`
-- Tests: `tests/invariants/test_roadmap_stage_eval_commits_check.py`, `tests/gate/roadmap_stage_eval_commits.py`, `tests/commands/test_ci_gate_rows.py`, `tests/roadmap/stage/test_roadmap_stage_eval_cases.py`
+- Workflows: `.github/workflows/ci.yml`
+- Tests: `tests/invariants/test_roadmap_stage_eval_commits_check.py`, `tests/gate/roadmap_stage_eval_commits.py`, `tests/commands/test_ci_gate_rows.py`, `tests/roadmap/stage/test_roadmap_stage_eval_cases.py`, `tests/invariants/test_workflow_contracts.py`
 
 ## Weakened checks
 
