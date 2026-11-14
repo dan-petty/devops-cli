@@ -45,6 +45,9 @@ class StageRequest(BaseModel):
     # The open pull requests that change a cited path, as the model reads them.
     overlaps: list[dict[str, Any]] | None = None
     metric_senders: dict[str, list[str]] | None = None
+    # The issues that the body declares as dependencies, each with its number and, when the store
+    # holds the issue, its title (#4008).
+    issue_dependencies: list[dict[str, Any]] | None = None
     # The text of the premise probe.
     probes: str | None = None
     # The whole body of the issue: the criteria gate reads each criterion in it.
