@@ -940,6 +940,8 @@ def edit_pr(
     if not any([title, body, base, milestone]):
         print_warning("No changes specified. Use --title, --body, --base, or --milestone.")
         return
+    if title is not None:
+        _edit_title_checked(title)
 
     cmd = pr_edit_args(number, base, title, body, repo, milestone)
     res = run_gh(cmd, check=False)
@@ -1217,6 +1219,17 @@ def _form_checked(
         form = plan_body_problems(body, planned)
     problems = [*title_problems(title, declared), *form]
     if problems:
+        listed = "\n".join(f"- {problem}" for problem in problems)
+        print_error(MESSAGES.pr.form_refused.format(problems=listed), safe=True, to_stderr=True)
+        raise typer.Exit(1)
+
+
+def _edit_title_checked(title: str) -> None:
+    """Refuse an edit whose title breaks the form of `pull_form`, with the message of `pr create`
+    (#4782): an edited title can still feed the `PR Title` check."""
+    from devops_cli.roadmap.pull_form import title_problems
+
+    if problems := title_problems(title, None):
         listed = "\n".join(f"- {problem}" for problem in problems)
         print_error(MESSAGES.pr.form_refused.format(problems=listed), safe=True, to_stderr=True)
         raise typer.Exit(1)
