@@ -279,6 +279,24 @@ devops roadmap inbox [OPTIONS]
 
 ---
 
+## `devops roadmap registries`
+
+**List each module-level REGISTRY_COUNTS entry of the test modules with its token, its kind, its target path and its source path:line. It warns on a length ratchet and on a limit tuple that no declaration of the module covers, and on a declaration that is no plain literal, and it exits 1 on a finding. It reads each module with ast, imports no test module and writes nothing.**
+
+```bash
+devops roadmap registries [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--path` | `path` | - | The checkout whose tests folder the audit reads (default: the repository root of the current folder). |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+
+---
+
 ## `devops roadmap onboard`
 
 **Check one repository against the roadmap prerequisites and create missing labels. Details: docs/roadmap/onboard.md.**

@@ -31,9 +31,9 @@ Kind: behavior. Reads: `src/devops_cli/commands/roadmap.py`, `src/devops_cli/com
 
 Kind: other. Reads: `docs/CLI_REFERENCE.md`, `docs/commands/roadmap.md`, `src/devops_cli/commands/roadmap.py`. Changes: `docs/CLI_REFERENCE.md`, `docs/commands/roadmap.md`.
 
-- [ ] 4.1 Run `uv run devops docs generate` and commit the regenerated `docs/CLI_REFERENCE.md` and `docs/commands/roadmap.md`, which name the new `registries` subcommand of the `roadmap` group
+- [x] 4.1 Run `uv run devops docs generate` and commit the regenerated `docs/CLI_REFERENCE.md` and `docs/commands/roadmap.md`, which name the new `registries` subcommand of the `roadmap` group
   - Verification: `$ uv run devops docs check` passes
-- [ ] 4.2 Regenerate `docs/CLI_REFERENCE.md` and `docs/commands/roadmap.md` with `uv run devops docs generate`
+- [x] 4.2 Regenerate `docs/CLI_REFERENCE.md` and `docs/commands/roadmap.md` with `uv run devops docs generate`
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
