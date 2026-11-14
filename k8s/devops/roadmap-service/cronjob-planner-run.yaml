@@ -1,0 +1,100 @@
+# The template of the planner's sandboxed run Job (ADR 0018, #4003). It never runs on a schedule:
+# the Service creates a Job from it for one read-only command, with only the container's args, the
+# name and some labels changed. The pod is the boundary that ADR 0018 records: a read-only root, no
+# Linux capability, no Kubernetes token, two small writable volumes, a credential-free ConfigMap and
+# the read-only clone of the staged commit. NetworkPolicy devops-cli-planner-run denies all egress,
+# DNS included, because a run reads no network.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: devops-cli-planner-run
+  namespace: devops
+  labels:
+    app.kubernetes.io/name: devops-cli-planner-run
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  schedule: "0 0 1 1 *"
+  suspend: true
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      # A run starts once and is never retried.
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 86400
+      activeDeadlineSeconds: 120
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: devops-cli-planner-run
+            app.kubernetes.io/part-of: devops-cli-stack
+        spec:
+          restartPolicy: Never
+          serviceAccountName: devops-cli
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: runner
+              image: ghcr.io/dan-petty/devops-cli/runner
+              imagePullPolicy: IfNotPresent
+              args: ["--version"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              env:
+                - name: DEVOPS_CLI_CONFIG
+                  value: /config/devops-cli.yaml
+                - name: DEVOPS_CLI_DATA_DIR
+                  value: /home/devops/.data
+                - name: OTEL_SERVICE_NAME
+                  value: roadmap-planner-run
+                - name: OTEL_RESOURCE_ATTRIBUTES
+                  value: service.instance.id=devops-cli-planner-run
+                # The admission policy roadmap-service-jobs refuses `valueFrom` in a Job of the
+                # Service, so the cluster and the namespace are plain values, as in cronjob-runner.
+                - name: K8S_CONTEXT
+                  value: homelab-k3s
+                - name: POD_NAMESPACE
+                  value: devops
+                - name: DO_NOT_TRACK
+                  value: "1"
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+                - name: home
+                  mountPath: /home/devops
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+                - name: repo
+                  mountPath: /repo
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: "1"
+                  memory: 2Gi
+                limits:
+                  cpu: "1"
+                  memory: 2Gi
+          volumes:
+            - name: tmp
+              emptyDir:
+                sizeLimit: 512Mi
+            - name: home
+              emptyDir:
+                sizeLimit: 512Mi
+            - name: config
+              configMap:
+                name: devops-cli-config-sandbox
+            - name: repo
+              persistentVolumeClaim:
+                claimName: roadmap-service-home
+                readOnly: true
