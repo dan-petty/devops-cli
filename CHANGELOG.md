@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.138.1](https://github.com/dan-petty/devops-cli/compare/v0.138.0...v0.138.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **openspec:** resolve requirement overlap in inputs delta ([#5693](https://github.com/dan-petty/devops-cli/issues/5693)) ([3274403](https://github.com/dan-petty/devops-cli/commit/3274403ffcd846fd52837101f478c39aa8817d80))
+* **roadmap:** name the head of an ahead stage clone ([#5689](https://github.com/dan-petty/devops-cli/issues/5689)) ([edd62cd](https://github.com/dan-petty/devops-cli/commit/edd62cd69500dc6a3f2e587a35acad320956e6ae))
+
 ## [0.138.0](https://github.com/dan-petty/devops-cli/compare/v0.137.0...v0.138.0) (2026-11-14)
 
 
