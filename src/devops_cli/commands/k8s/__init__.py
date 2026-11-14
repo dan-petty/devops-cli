@@ -33,6 +33,7 @@ from devops_cli.commands.k8s.networking import (
     service_url,
 )
 from devops_cli.commands.k8s.ollama import app as ollama_app
+from devops_cli.commands.k8s.roadmap_key_bootstrap import bootstrap_roadmap_key
 from devops_cli.commands.k8s.searxng_check import k8s_searxng_check
 from devops_cli.commands.k8s.security_audit import (
     k8s_audit,
@@ -69,6 +70,7 @@ app.command()(logs)
 app.command("bootstrap", help=HELP.k8s.bootstrap)(bootstrap)
 app.command("bootstrap-openwebui")(bootstrap_openwebui)
 app.command("bootstrap-mattermost")(bootstrap_mattermost)
+app.command("bootstrap-roadmap-key")(bootstrap_roadmap_key)
 app.command("deploy-stack", help=HELP.k8s.deploy_stack)(deploy_stack)
 app.command("sync-secrets")(sync_secrets)
 app.command("push-secrets", help=HELP.k8s.push_secrets)(push_secrets)
