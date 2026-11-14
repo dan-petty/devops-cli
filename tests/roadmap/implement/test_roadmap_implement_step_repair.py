@@ -16,6 +16,7 @@ import pytest
 from pydantic_ai.usage import UsageLimits
 
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_REASON_CHARS
+from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement.implement_step import (
     FixRequest,
     StepOutcome,
@@ -182,11 +183,18 @@ def test_an_extra_turn_that_changes_a_file_the_step_did_not_change_stops_the_ste
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.status, outcome.reason, outcome.commit, is_clean_at_wip(checkout, head)) == (
+    assert (
+        outcome.status,
+        outcome.reason,
+        outcome.commit,
+        outcome.failure_class,
+        is_clean_at_wip(checkout, head),
+    ) == (
         StepStatus.STOPPED,
         "The extra turn for the static check changed files that the step had not changed: "
         "src/other.py.",
         "",
+        FailureClass.OUTSIDE_PLAN,
         True,
     )
 
