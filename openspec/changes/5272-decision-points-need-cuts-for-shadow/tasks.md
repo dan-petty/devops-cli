@@ -98,7 +98,7 @@ Kind: behavior. Reads: `src/devops_cli/config/constants.py`, `src/devops_cli/tel
 
 Kind: other. Reads: `src/devops_cli/config/constants.py`, `tests/roadmap/test_roadmap_limit_classes.py`. Changes: `tests/roadmap/test_roadmap_limit_classes.py`.
 
-- [ ] 11.1 Rewrite the reason of the entry `CONST_ROADMAP_DECISION_POINT_MAX_SERIES` in `LIMITS` of `tests/roadmap/test_roadmap_limit_classes.py` to the three parts of the bound of ADR 0020 section 7: 60 series for the first catalogue, 24 for the three `brain.*` points and 8 for `resolve.question_class`. Keep the class `kept`, and keep `test_every_class_in_the_table_is_a_known_class_with_a_reason` passing
+- [x] 11.1 Rewrite the reason of the entry `CONST_ROADMAP_DECISION_POINT_MAX_SERIES` in `LIMITS` of `tests/roadmap/test_roadmap_limit_classes.py` to the three parts of the bound of ADR 0020 section 7: 60 series for the first catalogue, 24 for the three `brain.*` points and 8 for `resolve.question_class`. Keep the class `kept`, and keep `test_every_class_in_the_table_is_a_known_class_with_a_reason` passing
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_limit_classes.py` passes
 
 ## 12. Regenerate the configuration and variable documents

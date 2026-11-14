@@ -677,8 +677,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     ),
     "CONST_ROADMAP_DECISION_POINT_MAX_SERIES": (
         "kept",
-        "the bound of ADR 0020 on the label sets of devops_cli_decision_point_total; protects the "
-        "metrics store from a high count of series, and no run is cut by it",
+        "the bound of ADR 0020 on the label sets of devops_cli_decision_point_total: 60 series "
+        "for the first catalogue, 24 for the three `brain.*` points and 8 for "
+        "`resolve.question_class`; protects the metrics store from a high count of series, and no "
+        "run is cut by it",
     ),
     "CONST_ROADMAP_STAGE_JEV_TIMEOUT_SECONDS": (
         "kept",
