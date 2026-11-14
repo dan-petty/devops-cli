@@ -1679,6 +1679,10 @@ class PRMessages:
     )
     pr_updated_success: str = "Successfully updated PR #{number}"
     monitoring_pr: str = "Monitoring PR #{number} for CI checks and review completion..."
+    monitor_read_failed: str = (
+        "The read of the pull request failed ({failure} of {limit} before the monitor stops)."
+        " Polling again."
+    )
     pr_ready_success: str = "PR #{number} is 100% READY FOR MERGING: All checks passed, reviews complete, 0 unresolved threads."
     pr_marked_ready_success: str = "PR #{number} marked as ready for review."
     pr_already_ready: str = "PR #{number} is already marked ready for review."
