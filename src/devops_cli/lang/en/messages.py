@@ -3348,7 +3348,11 @@ class RoadmapMessages:
     implement_stop_link: str = (
         "The agent made a symbolic link: {paths}. The step does not format a link."
     )
-    implement_stop_no_change: str = "The agent changed no file."
+    implement_stop_no_change: str = (
+        "The group {group} ({title}) changed no file. The group may be too large or already done. "
+        "Return the item for a smaller replacement of group {group}, or amend the plan with a "
+        "request of kind `group` that keeps the number and has fewer tasks."
+    )
     implement_stop_outside_plan: str = (
         "The fix step changed paths that the plan does not name: {paths}. A fix step may change "
         "only the paths that the plan names and the files of the change folder. The cause of the "
@@ -3806,6 +3810,18 @@ class RoadmapMessages:
         "- Group {group} amendment ({kind}): {defect}. Evidence: {evidence}. {change}"
     )
     implement_amend_refused_scope: str = "A scope change waits for a person."
+    implement_amend_refused_group_number: str = (
+        "The replacement names group {number}, and the request names group {group}. A replacement "
+        "keeps the number of its group."
+    )
+    implement_amend_refused_group_tasks: str = (
+        "The replacement of group {group} has {count} tasks, and the group has {current}. A "
+        "replacement has fewer tasks."
+    )
+    implement_amend_refused_group_paths: str = (
+        "The replacement of group {group} names `{path}`, which the group does not name. A "
+        "smaller replacement names only the paths of its group."
+    )
     implement_amend_refused_premise: str = "A premise failure returns the item."
     implement_amend_refused_done: str = "Group {group} has no unticked task."
     implement_amend_refused_path_name: str = (

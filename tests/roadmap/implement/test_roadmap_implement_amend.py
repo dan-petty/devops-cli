@@ -383,3 +383,84 @@ def test_judge_refuses_scope_request() -> None:
     outcome = judge(request, SAMPLE_TASKS, tree)
     assert isinstance(outcome, Refused)
     assert outcome.reason == MESSAGES.roadmap.implement_amend_refused_scope
+
+
+# ── A smaller replacement of a group (#3576) ─────────────────────────────────
+
+TREE = StagedTree(["src/devops_cli/sample.py", "tests/commands/test_sample.py"])
+
+SMALLER_GROUP = """\
+## 2. Second group, smaller
+
+- [ ] 2.1 First task of group 2
+  - Verification: `$ uv run devops ci test tests/roadmap/test_sample.py`
+"""
+
+
+def test_judge_applies_a_smaller_group_as_a_replacement() -> None:
+    request = PlanRequest(
+        kind="group",
+        group=2,
+        defect="The group changes no file.",
+        evidence="The first attempt changed no file.",
+        new=SMALLER_GROUP,
+    )
+
+    outcome = judge(request, SAMPLE_TASKS, TREE)
+
+    assert isinstance(outcome, Applied)
+    assert "## 2. Second group, smaller" in outcome.tasks_md
+    assert outcome.tasks_md.count("- [ ] 2.") == 1
+    assert "## Amendments" in outcome.tasks_md
+
+
+def test_judge_refuses_a_replacement_with_no_fewer_tasks() -> None:
+    request = PlanRequest(
+        kind="group",
+        group=2,
+        defect="The group changes no file.",
+        evidence="The first attempt changed no file.",
+        new="""\
+## 2. Second group
+
+- [ ] 2.1 First task of group 2
+- [ ] 2.2 Second task of group 2
+""",
+    )
+
+    outcome = judge(request, SAMPLE_TASKS, TREE)
+
+    assert isinstance(outcome, Refused)
+    assert "fewer tasks" in outcome.reason
+
+
+def test_judge_refuses_a_replacement_that_changes_the_group_number() -> None:
+    request = PlanRequest(
+        kind="group",
+        group=2,
+        defect="The group changes no file.",
+        evidence="The first attempt changed no file.",
+        new=SMALLER_GROUP.replace("## 2.", "## 3.", 1),
+    )
+
+    outcome = judge(request, SAMPLE_TASKS, TREE)
+
+    assert isinstance(outcome, Refused)
+    assert "keeps the number" in outcome.reason
+
+
+def test_judge_refuses_a_replacement_that_names_a_new_path() -> None:
+    request = PlanRequest(
+        kind="group",
+        group=2,
+        defect="The group changes no file.",
+        evidence="The first attempt changed no file.",
+        new=SMALLER_GROUP.replace(
+            "First task of group 2", "First task of group 2 in `src/devops_cli/other.py`"
+        ),
+    )
+
+    outcome = judge(request, SAMPLE_TASKS, TREE)
+
+    assert isinstance(outcome, Refused)
+    assert "src/devops_cli/other.py" in outcome.reason

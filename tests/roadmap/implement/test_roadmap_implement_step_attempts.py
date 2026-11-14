@@ -159,7 +159,10 @@ def test_a_group_that_changes_no_file_is_one_attempt_of_class_plan_defect(
 
     trace, reason, requests = _run(store, checkout, script, group=2)
 
-    assert (requests, reason) == (1, "The agent changed no file.")
+    assert (requests, reason) == (
+        1,
+        "The group 2 (The second group) changed no file. The group may be too large or already done. Return the item for a smaller replacement of group 2, or amend the plan with a request of kind `group` that keeps the number and has fewer tasks.",
+    )
     assert _attempts(trace) == [
         {
             "number": 1,
@@ -167,7 +170,7 @@ def test_a_group_that_changes_no_file_is_one_attempt_of_class_plan_defect(
             "outcome": "failed",
             "next": "stop",
             "class": "plan_defect",
-            "evidence": "The agent changed no file.",
+            "evidence": "The group 2 (The second group) changed no file. The group may be too large or already done. Return the item for a smaller replacement of group 2, or amend the plan with a request of kind `group` that keeps the number and has fewer tasks.",
         }
     ]
 
