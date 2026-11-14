@@ -296,3 +296,11 @@ _Avoid_: project config, repo settings, manifest
 **Environment tree**:
 The Kubernetes folder of an infra repo: what one cluster runs, such as its Argo CD Applications, the values of its charts and its dashboards. A command takes its root from `--k8s-dir`, else from the profile fact `kubernetes.dir` of the repository of the current folder, else of the one infra repo that gives it. The product base `k8s/devops`, which devops-cli ships, is not part of it.
 _Avoid_: homelab config
+
+**Managed project**:
+A repository that devops-cli works on for its owner, such as a repository of the setting `service.repos`, which the roadmap jobs change. Its project profile gives its facts. Each guideline applies to it with no change, and it keeps the decisions of its own environment and product. devops-cli is a managed project too.
+_Avoid_: client project, downstream repo
+
+**Guideline**:
+A rule or a method in [`docs/guidelines/`](docs/guidelines/index.md) of devops-cli that applies with no change to each managed project, such as the Kubernetes guideline. The docs site publishes it, and no managed repository holds a copy. It names no issue, date, node or path of an environment tree: the README of the environment tree holds the decisions of one environment, and a tracker issue holds its gaps.
+_Avoid_: spec (a Spec is an OpenSpec capability), policy, profile

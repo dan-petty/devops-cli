@@ -9,7 +9,7 @@
 - [FastMCP Tools](MCP_TOOLS.md) — Registered FastMCP tools for AI assistants and MCP clients.
 - [Roadmap Workflow](ROADMAP_WORKFLOW.md) — The eight steps of an issue, its states, labels, actors and the three human gates.
 - [devops-cli in the Cluster](CLUSTER.md) — The roadmap Service and its runner Jobs, Crawl4AI, SearXNG, the MCP server, and the pins and updates of the images.
-- [Guidelines](guidelines/index.md) — The shared guidelines that apply with no change to each managed project, such as the SRE guideline and the production readiness guideline.
+- [Guidelines](guidelines/index.md) — The shared guidelines that apply with no change to each managed project, such as the SRE guideline, the production readiness guideline and the Kubernetes guideline.
 - Roadmap jobs — [the package layout](roadmap/package-layout.md), and one page for each job: [intake](roadmap/intake.md), [refine](roadmap/refine.md), [alternatives](roadmap/alternatives.md), [stage](roadmap/stage.md), [implement](roadmap/implement.md), [inbox](roadmap/inbox.md) and [onboard](roadmap/onboard.md).
 - [Routine Tasks](ROUTINE_TASKS.md) — Operational task matrix, cadences, and engineering methodology.
 - [SDLC Workflow](SDLC.md) — Software development lifecycle and branch governance policies.

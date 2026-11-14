@@ -7,6 +7,8 @@ Kustomize + Helm-based configurations for deploying infrastructure management (`
 
 `devops k8s deploy-stack` deploys the same configurations to either cluster.
 
+The [Kubernetes guideline](../docs/guidelines/kubernetes.md) sets the performance targets of a cluster and the method to tune the requests, the limits, the placement and the runtimes. [Capacity targets](#capacity-targets) holds the decisions of this cluster.
+
 This folder is the environment tree of the homelab: what one cluster runs. `k8s/devops/` is the product base that devops-cli ships. A command that reads the environment tree (`deploy-stack`, `teardown-stack`, `bootstrap`, `image-pins`, `lint`, `check-deprecated`, `ollama prune`, `devops grafana dashboards`, `devops ai gateway render`, `devops argo cd apps bootstrap-gitops` and `devops argo gitops`) takes its root from `--k8s-dir`, else from the project profile fact `kubernetes.dir` of the repository of the current folder (`.devops/project.toml` of this repository declares `k8s`), else from the one entry of `infra.repos` whose checkout gives `kubernetes.dir`. `deploy-stack` and `teardown-stack` read the product base from `--product-dir`, else from `k8s/devops` of the repository of the current folder. A path in the tree is relative to its root, such as `llm/gateway/config.yaml`.
 
 ## Stacks Overview
@@ -477,6 +479,16 @@ When a move stops after the point of no return, the old claim is gone, the new v
 1. Make the claim again from the saved file with `spec.volumeName: <new-pv>`. Leave out `kubectl.kubernetes.io/last-applied-configuration` and the annotations of the volume controllers (`pv.kubernetes.io/*`, `volume.kubernetes.io/*`, `volume.beta.kubernetes.io/*`). Then put the saved last-applied value back with `kubectl annotate pvc <claim> -n <namespace> --overwrite kubectl.kubernetes.io/last-applied-configuration=<value>`.
 2. Scale the workloads back to their replicas, and make sure that their pods run on the target node.
 3. Turn on automated sync again: the Application, then `bootstrap`, which restores `cluster`, which restores the others from git.
+
+## Capacity targets
+
+The [Kubernetes guideline](../docs/guidelines/kubernetes.md) sets the targets and the tuning method of a cluster. This section holds only the decisions of this cluster. [Tracker #5542](https://github.com/dan-petty/devops-cli/issues/5542) holds the open capacity gaps of this cluster, so this section holds no gap row. The project review report gives the measured values.
+
+- **Pod start.** The p95 of `kubelet_pod_start_duration_seconds` is at most 30 s over 7 days, with the image pull. The value follows the warm p95 of the go line of [ADR 0008](../docs/adr/0008-argo-workflows-run-the-roadmap-jobs-after-a-measured-go.md), which measures a Workflow from its creation to `Succeeded`.
+- **Runner start.** The median time from the creation of a runner Job to the start of its container is at most 10 s over 7 days.
+- **Runner placement.** A runner Job runs only on a node whose allocatable memory is at or above its memory limit. It prefers a GPU worker to the control-plane node. The control-plane node runs the k3s server, so a runner there takes memory from the control plane. [Runner Jobs](../docs/CLUSTER.md#runner-jobs) owns the size of each Job.
+- **Profiler.** The eBPF profiler (the `alloy-profiles` DaemonSet of [Grafana Dashboards](#grafana-dashboards)) runs on every node, and target T10 of the guideline sets its cost. A node fault removes the profiler from a node only when a test shows that the profiler causes the fault. A node that stopped with the profiler on also stopped with no profiler, so the tracker holds the hardware test of that node.
+- **Node settings.** The infra repo of the setting `infra.repos` holds the kubelet, k3s and containerd settings of the nodes, not this tree. A gap in a node setting gets an issue in that repository (rule R6 of the guideline). [GPU Placement: Ollama tiers](#gpu-placement-ollama-tiers) tells which part of that repository sets the node labels.
 
 ## Service Account Tokens
 
