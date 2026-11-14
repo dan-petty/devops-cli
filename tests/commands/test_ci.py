@@ -793,10 +793,12 @@ def test_the_toolchain_compiles_bytecode_when_it_syncs() -> None:
     syncs = [
         str(step.get("run", ""))
         for step in action["runs"]["steps"]
-        if isinstance(step, dict) and str(step.get("run", "")).startswith("uv sync")
+        if isinstance(step, dict) and "uv sync" in str(step.get("run", ""))
     ]
 
-    assert (len(syncs), all("--compile-bytecode" in sync for sync in syncs)) == (1, True)
+    assert len(syncs) == 1
+    assert "uv sync --locked --all-groups --all-extras --compile-bytecode" in syncs[0]
+    assert action["inputs"]["compile-bytecode"]["default"] == "true"
 
 
 def test_ci_workflow_has_tooling_cache_step() -> None:
