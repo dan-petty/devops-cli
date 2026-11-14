@@ -7,12 +7,12 @@ ARCHITECTURE.md section 7.3 holds three process-safety rules that an agent reads
 ## What Changes
 
 - Add `.ast-grep/rules/process-setrlimit-nproc.yml`, which reports a `resource.setrlimit` call whose limit argument is `resource.RLIMIT_NPROC`.
-- Add `.ast-grep/rules/process-nonblocking-std-fd.yml`, which reports `os.set_blocking` on a literal descriptor 0, 1 or 2 with `False`, and `fcntl.fcntl` on those descriptors with `fcntl.O_NONBLOCK` among its flags.
+- Add `.ast-grep/rules/process-nonblocking-std-fd.yml`, which reports `os.set_blocking` on a literal descriptor 0, 1 or 2 with `False`, and `fcntl.fcntl` on those descriptors with `os.O_NONBLOCK` among its flags.
 - Add `.ast-grep/rules/process-killpg-guarded.yml`, which reports an `os.killpg` call outside the four guard-holding functions of the core process module.
 - Add one case file for each rule under `.ast-grep/rule-tests/`, with a valid and an invalid case, including the descriptor 3 case that no rule reports.
 - Register the three ids in `CONST_AST_GREP_RULE_FILES` with `src/**`, and add one `Violation` for each in `VIOLATIONS` of `tests/gate/construct_gate.py`.
 - Name the three rules beside the process-safety rules of `ARCHITECTURE.md` section 7.3.
-- The change alters what the `constructs` row of `devops ci` refuses, so it carries a spec delta on `ci-gate-rows`.
+- The change changes what the `constructs` row of `devops ci` refuses, so it carries a spec delta on `ci-gate-rows`.
 - The change fits one pull request.
 
 ## Capabilities
@@ -23,7 +23,7 @@ None.
 
 ### Modified Capabilities
 
-- `ci-gate-rows`: The constructs row refuses the process-safety calls, Each process-safety rule joins the construct gate
+- `ci-gate-rows`: The constructs row refuses the process-safety calls, each process-safety rule joins the construct gate
 
 ## Impact
 
@@ -38,7 +38,7 @@ None.
 - `search_code` for `os.killpg` returned 7 lines. The set that the new rule allows has 1 member under `src/`: `src/devops_cli/core/process.py:1205:os.killpg(pgid, sig)`, inside `src/devops_cli/core/process.py:def _signal_process_group`. The other 6 lines are prose in `ARCHITECTURE.md` and in an archived design, and calls in test files that the `src/**` tree of the rule does not hold.
 - `search_code` for `setrlimit` returned 4 lines, and each is a comment or a docstring: `src/devops_cli/config/constants.py:4927:# devops-cli calls setrlimit.`, `src/devops_cli/sandbox/host.py:254:RLIMIT_NPROC via setrlimit is per-real-UID`, one line of `src/devops_cli/security/tool_executor.py` and one line of an archived design. The count of `setrlimit` calls under `src/` is 0, so that rule reports nothing on the source tree.
 - `search_code` for `set_blocking` returned no match, so the tree holds no `os.set_blocking` call and that part of the rule reports nothing on `src/`.
-- `search_code` for `O_NONBLOCK` returned 4 lines, and the plan decides each one: `ARCHITECTURE.md` line 201 is prose, `src/devops_cli/roadmap/implement/git_isolation.py:205` is a docstring, `src/devops_cli/roadmap/implement/git_isolation.py:209:handle = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)` opens a fresh descriptor and is no `fcntl.fcntl` call, and `tests/ai/test_review_defects.py:565:os.close(os.open(fifo, os.O_WRONLY | os.O_NONBLOCK))` is outside the `src/**` tree. The count of `fcntl.fcntl` calls that set `fcntl.O_NONBLOCK` under `src/` is 0.
+- `search_code` for `O_NONBLOCK` returned 4 lines, and the plan decides each one: `ARCHITECTURE.md` line 201 is prose, `src/devops_cli/roadmap/implement/git_isolation.py:205` is a docstring, `src/devops_cli/roadmap/implement/git_isolation.py:209:handle = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)` opens a fresh descriptor and is no `fcntl.fcntl` call, and `tests/ai/test_review_defects.py:565:os.close(os.open(fifo, os.O_WRONLY | os.O_NONBLOCK))` is outside the `src/**` tree. The count of `fcntl.fcntl` calls that set `os.O_NONBLOCK` under `src/` is 0.
 - `list_files` of `.ast-grep/rules` listed 20 rule files and of `.ast-grep/rule-tests` 20 case files. None names `resource.setrlimit`, `os.set_blocking`, `fcntl.fcntl` or `os.killpg`, so the premise that these calls have no check holds.
 - `read_file` of `sgconfig.yml` showed `sgconfig.yml:2:- .ast-grep/rules` and `sgconfig.yml:4:- testDir: .ast-grep/rule-tests`, so a new rule and its case join the scan and the rule test run with no configuration change.
 - `read_file` of `tests/gate/construct_gate.py` showed the rule table `CONST_AST_GREP_RULE_FILES`, the `tests/gate/construct_gate.py:class Violation` table built by `tests/gate/construct_gate.py:def violation_table_problems`, the twin map at `tests/gate/construct_gate.py:97:"src": "tests",`, and the case check of `tests/gate/construct_gate.py:def _rule_test_case_escapes`, which requires a valid case and an invalid case for each rule.
