@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.143.0](https://github.com/dan-petty/devops-cli/compare/v0.142.1...v0.143.0) (2026-11-14)
+
+
+### Features
+
+* **ci:** each check row is a devops ci command ([#5731](https://github.com/dan-petty/devops-cli/issues/5731)) ([d6bbfce](https://github.com/dan-petty/devops-cli/commit/d6bbfce30f509dde40bf16568249ba7a21808b3d))
+* **k8s:** Read Qdrant with a read-only key in the runner ([#5725](https://github.com/dan-petty/devops-cli/issues/5725)) ([2ed42e5](https://github.com/dan-petty/devops-cli/commit/2ed42e558ee3feaac4e82c05fb031763f4060a77))
+* **monitoring:** add stat, state-timeline, and status-history panels ([#5737](https://github.com/dan-petty/devops-cli/issues/5737)) ([b08f99d](https://github.com/dan-petty/devops-cli/commit/b08f99dc726afdce86078fcba6c93d0b0fe25e89))
+* **monitoring:** add system topology and service map dashboard ([#5733](https://github.com/dan-petty/devops-cli/issues/5733)) ([899684c](https://github.com/dan-petty/devops-cli/commit/899684ca1ed4e21d33d4929d482de9c05fd40a18))
+* **monitoring:** add top gauge panels to llm-stack dashboard ([#5729](https://github.com/dan-petty/devops-cli/issues/5729)) ([3455150](https://github.com/dan-petty/devops-cli/commit/34551501cb58bca552c7fcf8c2a8c5e1ae70d0f3))
+* **roadmap:** Name the live eval score of a prompt change ([#5735](https://github.com/dan-petty/devops-cli/issues/5735)) ([18d1754](https://github.com/dan-petty/devops-cli/commit/18d175428e908c50da7d06c8a1dcc579c4eac157))
+
+
+### Bug Fixes
+
+* **roadmap:** a partial Jev reply stops the intake round ([#5734](https://github.com/dan-petty/devops-cli/issues/5734)) ([06191fe](https://github.com/dan-petty/devops-cli/commit/06191fecaa0c7b3c35b4c6b71ba983407c676b50))
+
 ## [0.142.1](https://github.com/dan-petty/devops-cli/compare/v0.142.0...v0.142.1) (2026-11-14)
 
 
