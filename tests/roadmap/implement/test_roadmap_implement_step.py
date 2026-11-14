@@ -519,10 +519,8 @@ ALLOWED_HINT = (
 )
 OPERATOR_HINT = (
     "Run one command in each call. Do not chain commands. "
-    "Do not use `cd`: every command runs in the checkout. "
-    "The shell reads the whole text, so a `;`, a new line or a heredoc in the code of "
-    "`python -c` is refused too. Write that code to a file under `.data/agent/scratch/` and run "
-    "`uv run python <file>`."
+    "Send each command as its own call, for example `git status --short`, then "
+    "`git log --oneline -5`. Do not use `cd`: every command runs in the checkout."
 )
 
 
@@ -561,8 +559,8 @@ def test_the_shell_tool_refuses_the_devops_cli_and_openspec(
     _step(store, checkout, script)
 
     assert script.tool_answers() == [
-        f"Command 'devops' is not in the allowed list. {ALLOWED_HINT}",
-        f"Command 'openspec' is not in the allowed list. {ALLOWED_HINT}",
+        "Command 'devops' is not in the allowed list. Instead of `devops`: `uv run devops`.",
+        "Command 'openspec' is not in the allowed list. Instead of `openspec`: `uv run devops openspec check`.",
     ]
 
 
@@ -760,6 +758,7 @@ def test_the_agent_has_the_file_tools_and_the_shell_and_no_delegate(
     _step(store, checkout, script)
 
     assert script.tools_offered[0] == [
+        "create_directory",
         "edit_file",
         "grep",
         "list_files",
@@ -767,6 +766,33 @@ def test_the_agent_has_the_file_tools_and_the_shell_and_no_delegate(
         "run_command",
         "write_file",
     ]
+
+
+def test_the_step_offers_create_directory(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    from devops_cli.roadmap.implement.implement_step import IMPLEMENT_LOCAL_TOOL_NAMES
+
+    assert "create_directory" in IMPLEMENT_LOCAL_TOOL_NAMES
+
+    seen_dir = False
+
+    def check() -> None:
+        nonlocal seen_dir
+        seen_dir = (checkout / "new_dir").is_dir()
+
+    script = ModelScript(
+        tool_call("create_directory", path="new_dir"),
+        tool_call("create_directory", path="../outside"),
+        say("Done."),
+        effects={2: check},
+    )
+
+    _step(store, checkout, script)
+
+    assert "create_directory" in script.tools_offered[0]
+    assert seen_dir
+    assert not (checkout.parent / "outside").exists()
 
 
 def test_the_first_request_holds_the_inputs_of_the_step(

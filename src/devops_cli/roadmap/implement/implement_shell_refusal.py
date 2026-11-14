@@ -23,6 +23,7 @@ of 0 makes the workspace raise an error that ends the run.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -47,13 +48,31 @@ from devops_cli.roadmap.implement.implement_tool_log import ToolCallLog, command
 
 # The argument of the shell tool that holds its wait. The step replaces it with its command limit.
 _SHELL_TIMEOUT_ARGUMENT = "timeout_seconds"
+# Commands that run Python code inline with `-c` or a heredoc (`<<`).
+_PYTHON_INLINE_RE = re.compile(r"\bpython\d*\b.*(?:(?:\s|^)-c\b|<<)", re.DOTALL)
 
 
-def refusal_hint(word: str) -> str:
-    """What to run in place of the refused first word of a command. A word of the table gets its
-    replacement. An allowed program was refused for an operator, so it gets the rule of one command
-    in each call. Any other word gets the allowed programs and the `uv run` form."""
+def _is_python_code(command: str) -> bool:
+    """Whether `command` runs Python code inline with `-c` or a heredoc."""
+    return _PYTHON_INLINE_RE.search(command) is not None
+
+
+def _first_word(command: str) -> str:
+    """The first word of `command`, as `command_word` reads it or stripped from the text."""
+    return command_word({"command": command}) or (
+        command.strip().split()[0] if command.strip() else ""
+    )
+
+
+def refusal_hint(command: str) -> str:
+    """What to run in place of the refused command. Python code with `-c` or a heredoc gets the
+    script file under the scratch directory first. A word of the replacement table gets its
+    replacement. An allowed program was refused for an operator, so it gets the two-call chain
+    text. Any other word gets the allowed programs and the `uv run` form."""
     texts = MESSAGES.roadmap
+    if _is_python_code(command):
+        return texts.implement_refusal_python_code
+    word = _first_word(command)
     if replacement := IMPLEMENT_SHELL_REPLACEMENTS.get(word):
         return texts.implement_refusal_replacement.format(program=word, replacement=replacement)
     if word in IMPLEMENT_SHELL_PROGRAMS:
@@ -102,7 +121,9 @@ class _RefusingToolset(WrapperToolset[None]):
             if word is None or not isinstance(retry.__cause__, PermissionError):
                 raise
             shown = retry.message[:CONST_ROADMAP_RUN_ERROR_CHARS]
-            return self._refused(ctx, f"{shown} {refusal_hint(word)}")
+            cmd = tool_args.get("command")
+            stripped = cmd.strip() if isinstance(cmd, str) else (word or "")
+            return self._refused(ctx, f"{shown} {refusal_hint(stripped)}")
 
     def _refused(self, ctx: RunContext[None], text: str) -> str:
         """`text`, after the log has noted that this call was refused."""

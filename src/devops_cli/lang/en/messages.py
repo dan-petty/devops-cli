@@ -3286,15 +3286,18 @@ class RoadmapMessages:
         "These programs are allowed: {programs}. Run the commands of the project with `uv run`, "
         "for example `uv run devops ci test <file>`."
     )
+    implement_refusal_python_code: str = (
+        "Write the code with `write_file` to `.data/agent/scratch/<name>.py`, then run "
+        "`uv run python .data/agent/scratch/<name>.py`."
+    )
     implement_refusal_operator: str = (
         "Run one command in each call. Do not chain commands. "
-        "Do not use `cd`: every command runs in the checkout. "
-        "The shell reads the whole text, so a `;`, a new line or a heredoc in the code of "
-        "`python -c` is refused too. Write that code to a file under `.data/agent/scratch/` and run "
-        "`uv run python <file>`."
+        "Send each command as its own call, for example `git status --short`, then "
+        "`git log --oneline -5`. Do not use `cd`: every command runs in the checkout."
     )
     implement_refusal_pipe: str = (
-        "Shell operator '|' is not allowed{before}. A pipe may end in {programs}."
+        "Shell operator '|' is not allowed{before}. Use `read_file` with `offset` and `limit`. "
+        "A pipe may end in {programs}."
     )
     implement_refusal_pipe_before: str = " before `{program}`"
     implement_refusal_limit: str = (
