@@ -56,3 +56,6 @@ configMapGenerator:
   - name: grafana-database-dashboards
     files:
       - cloudnative-pg.json
+  - name: grafana-topology-dashboards
+    files:
+      - system-topology.json
