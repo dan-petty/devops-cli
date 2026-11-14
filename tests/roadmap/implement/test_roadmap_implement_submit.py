@@ -168,6 +168,7 @@ def test_the_row_follows_metrics_on_the_status_lane_runs_on_a_clone_and_is_due_e
         [
             "metrics",
             "implement",
+            "plan_drift",
             "stage_ready",
             "stage",
             "release_comments",

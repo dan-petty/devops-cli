@@ -4966,6 +4966,17 @@ class RoadmapMessages:
         "and its literal `{literal}` names one module of the moved prefix. Search the dotted "
         "prefix, such as `{expected}`, so the check covers every module."
     )
+    plan_drift_round: str = (
+        "The plan drift row of {repo} checked {checked} plan pull request(s) and labelled "
+        "{failing}."
+    )
+    plan_drift_comment_intro: str = (
+        "The default branch no longer passes the plan check of this pull request:"
+    )
+    plan_drift_comment_item: str = "- {problem}"
+    plan_drift_failed: str = (
+        "The plan drift row of {repo} labelled pull request #{pull} with {problems} problem(s)."
+    )
     stage_problem_eval_replay: str = (
         "Group {group} changes `{path}`. A plan that changes the stage prompt or a check of the "
         "stage job must run `{command}` in one group task and state the score before and after "

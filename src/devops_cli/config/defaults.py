@@ -1095,6 +1095,10 @@ DEFAULT_ROADMAP_FIX_PLAN_TIME_BUDGET_SECONDS: int = 3600
 # by default.
 DEFAULT_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS: int = 2
 DEFAULT_ROADMAP_FIX_PLAN_REVISIONS: int = 3
+# How often the plan_drift row is due on its own, besides its first run (#3968). A round fetches
+# the head of each open plan pull request and runs the plan gates on it, so it is heavier than a
+# stage_ready round.
+DEFAULT_ROADMAP_PLAN_DRIFT_INTERVAL_MINUTES: int = 37
 # How often the stage_ready row is due on its own, besides its first run (#2865). A round with no
 # recorded draft sends no request; a draft that waits for its checks costs two requests a round.
 DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES: int = 3

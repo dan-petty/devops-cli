@@ -516,6 +516,7 @@ def roadmap_bot(web: WebFake) -> None:
 DEFAULT_JOB_NAMES = (
     "metrics",
     "implement",
+    "plan_drift",
     "stage_ready",
     "stage",
     "release_comments",

@@ -97,6 +97,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_INTAKE_LIMIT,
     DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES,
+    DEFAULT_ROADMAP_PLAN_DRIFT_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_PR_CONFLICTS_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_RELEASE_COMMENTS_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_RETITLE_INTERVAL_MINUTES,
@@ -154,6 +155,7 @@ from devops_cli.roadmap.release_feed import GitHubReleaseFeed
 from devops_cli.roadmap.release_roll import cluster_digests
 from devops_cli.roadmap.retitle import apply_retitle, build_retitle_model, plan_retitle
 from devops_cli.roadmap.service_stop import service_stopping, stop_before
+from devops_cli.roadmap.stage.plan_drift import run_plan_drift
 
 # `stage` imports the model client, which imports pydantic_ai too: import it here for the same
 # reason (#2659).
@@ -845,6 +847,23 @@ def _run_implement_adapter(
     return JobOutcome()
 
 
+def _run_plan_drift_adapter(
+    store: RoadmapStore,
+    repo: str = "",
+    clone_path: Path | None = None,
+    **_: Any,
+) -> JobOutcome:
+    """Label, comment or clear each open plan pull request that the default branch broke
+    (#3968). The row calls no model."""
+    result = run_plan_drift(store, repo=repo, source=_job_clone("plan_drift", clone_path))
+    logger.info(
+        MESSAGES.roadmap.plan_drift_round.format(
+            repo=repo, checked=len(result.checked), failing=len(result.failing)
+        )
+    )
+    return JobOutcome()
+
+
 def _run_stage_ready_adapter(store: RoadmapStore, repo: str = "", **_: Any) -> JobOutcome:
     """Mark each green draft pull request that the stage job recorded ready for review, and fail,
     once the others are done, when a pull request failed (#2865). A round with no recorded draft
@@ -987,6 +1006,13 @@ STATUS_LANE_ROWS: tuple[JobRow, ...] = (
         interval=timedelta(minutes=DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES),
         batch_keys=CONST_ROADMAP_STAGE_BATCH_KEYS,
         runner=_run_implement_adapter,
+        needs_clone=True,
+        first_run_due=True,
+    ),
+    JobRow(
+        name="plan_drift",
+        interval=timedelta(minutes=DEFAULT_ROADMAP_PLAN_DRIFT_INTERVAL_MINUTES),
+        runner=_run_plan_drift_adapter,
         needs_clone=True,
         first_run_due=True,
     ),
@@ -1233,6 +1259,7 @@ def build_stub_table(
     include_alternatives: bool | None = None,
     include_stage: bool | None = None,
     include_implement: bool | None = None,
+    include_plan_drift: bool | None = None,
     include_stage_ready: bool | None = None,
     include_release_comments: bool | None = None,
     include_retitle: bool | None = None,
@@ -1247,6 +1274,7 @@ def build_stub_table(
     add_metrics = include_metrics if include_metrics is not None else ("metrics" in r)
     add_stage = include_stage if include_stage is not None else ("stage" in r)
     add_implement = include_implement if include_implement is not None else ("implement" in r)
+    add_plan_drift = include_plan_drift if include_plan_drift is not None else ("plan_drift" in r)
     add_stage_ready = (
         include_stage_ready if include_stage_ready is not None else ("stage_ready" in r)
     )
@@ -1264,6 +1292,7 @@ def build_stub_table(
         "retitle": add_retitle,
         "stage": add_stage,
         "implement": add_implement,
+        "plan_drift": add_plan_drift,
         "stage_ready": add_stage_ready,
         "release_comments": add_release_comments,
         "github_status": "github_status" in r,

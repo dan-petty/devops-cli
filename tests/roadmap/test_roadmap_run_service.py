@@ -76,6 +76,7 @@ def test_service_wiring(
         [
             "metrics",
             "implement",
+            "plan_drift",
             "stage_ready",
             "stage",
             "release_comments",
