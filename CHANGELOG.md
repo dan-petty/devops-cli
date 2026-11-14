@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.136.2](https://github.com/dan-petty/devops-cli/compare/v0.136.1...v0.136.2) (2026-11-14)
+
+
+### Bug Fixes
+
+* **ci:** bound the narrowed test workers and their collection ([#5614](https://github.com/dan-petty/devops-cli/issues/5614)) ([1430ab8](https://github.com/dan-petty/devops-cli/commit/1430ab88ca1d6ab7006e87411bff996b903cb236))
+
 ## [0.136.1](https://github.com/dan-petty/devops-cli/compare/v0.136.0...v0.136.1) (2026-11-14)
 
 
