@@ -466,11 +466,33 @@ def test_the_decision_instruments_add_at_most_three_and_seven_series_to_a_point(
     assert len(failed) <= 7
 
 
-def test_the_registry_refuses_a_catalogue_above_60_series(tmp_path: Path) -> None:
-    points = [_point(_cuts(tmp_path), name=f"demo.point_{index}") for index in range(8)]
+def test_the_registry_accepts_a_catalogue_at_the_bound_and_refuses_one_above_it(
+    tmp_path: Path,
+) -> None:
+    """ADR 0020 section 7 allows 92 series: 60 for the first catalogue, 24 for the three `brain.*`
+    points and 8 for `resolve.question_class` (#5272). A point writes 8 label sets with one
+    resolver and 14 with a rule and a model, so the test reads the bound for both catalogues."""
 
-    with pytest.raises(ValueError, match="60"):
-        Registry(points)
+    def rule(digest: Mapping[str, Any]) -> Band:
+        return Band.CONTINUE
+
+    cuts = _cuts(tmp_path)
+    at_bound = [
+        *(_point(cuts, name=f"demo.model_{index}") for index in range(8)),
+        *(_point(cuts, name=f"demo.rule_{index}", rule=rule) for index in range(2)),
+    ]
+    above_bound = [
+        *(_point(cuts, name=f"demo.model_{index}") for index in range(10)),
+        *(_point(cuts, name=f"demo.rule_{index}", rule=rule) for index in range(1)),
+    ]
+    count = sum(len(point.series()) for point in at_bound)
+    above = sum(len(point.series()) for point in above_bound)
+
+    assert count == CONST_ROADMAP_DECISION_POINT_MAX_SERIES
+    assert above > CONST_ROADMAP_DECISION_POINT_MAX_SERIES
+    assert Registry(at_bound).series_count == count
+    with pytest.raises(ValueError, match=f"{above} label sets"):
+        Registry(above_bound)
 
 
 def test_the_registry_gives_the_fitted_cuts_of_a_point(tmp_path: Path) -> None:
@@ -526,5 +548,6 @@ def test_one_counter_counts_the_decisions_and_states_the_bound_of_the_catalogue(
         }
         & names
     )
-    assert "60 series" in DECISION_POINT_TOTAL.description
-    assert REGISTRY.series_count <= CONST_ROADMAP_DECISION_POINT_MAX_SERIES == 60
+    assert f"{CONST_ROADMAP_DECISION_POINT_MAX_SERIES} series" in DECISION_POINT_TOTAL.description
+    assert CONST_ROADMAP_DECISION_POINT_MAX_SERIES == 92
+    assert REGISTRY.series_count <= CONST_ROADMAP_DECISION_POINT_MAX_SERIES

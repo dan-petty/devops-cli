@@ -87,11 +87,11 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/decision_point.py`, `src/devops_c
 
 Kind: behavior. Reads: `src/devops_cli/config/constants.py`, `src/devops_cli/telemetry/instruments.py`, `docs/TELEMETRY.md`, `tests/roadmap/test_roadmap_decision_point.py`. Changes: `src/devops_cli/config/constants.py`, `src/devops_cli/telemetry/instruments.py`, `docs/TELEMETRY.md`, `tests/roadmap/test_roadmap_decision_point.py`.
 
-- [ ] 10.1 Rewrite `test_the_registry_refuses_a_catalogue_above_60_series` in `tests/roadmap/test_roadmap_decision_point.py` as `test_the_registry_accepts_a_catalogue_at_the_bound_and_refuses_one_above_it`: it builds 92 label sets from eight points of 8 series and two of 14, then 94 from ten of 8 and one of 14, and reads `CONST_ROADMAP_DECISION_POINT_MAX_SERIES` for both
+- [x] 10.1 Rewrite `test_the_registry_refuses_a_catalogue_above_60_series` in `tests/roadmap/test_roadmap_decision_point.py` as `test_the_registry_accepts_a_catalogue_at_the_bound_and_refuses_one_above_it`: it builds 92 label sets from eight points of 8 series and two of 14, then 94 from ten of 8 and one of 14, and reads `CONST_ROADMAP_DECISION_POINT_MAX_SERIES` for both
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_decision_point.py` fails on the base
-- [ ] 10.2 Set `CONST_ROADMAP_DECISION_POINT_MAX_SERIES` to 92 and state in its comment that ADR 0020 section 7 allows 60 + 24 + 8 series. State the bound of 92 series in the description of `DECISION_POINT_TOTAL`. Change `test_one_counter_counts_the_decisions_and_states_the_bound_of_the_catalogue` to read the constant instead of the number 60
+- [x] 10.2 Set `CONST_ROADMAP_DECISION_POINT_MAX_SERIES` to 92 and state in its comment that ADR 0020 section 7 allows 60 + 24 + 8 series. State the bound of 92 series in the description of `DECISION_POINT_TOTAL`. Change `test_one_counter_counts_the_decisions_and_states_the_bound_of_the_catalogue` to read the constant instead of the number 60
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_decision_point.py` passes
-- [ ] 10.3 Edit the row of `devops_cli_decision_point_total` in `docs/TELEMETRY.md` to the bound of 92 series
+- [x] 10.3 Edit the row of `devops_cli_decision_point_total` in `docs/TELEMETRY.md` to the bound of 92 series
   - Verification: `$ uv run devops ci docs` passes
 
 ## 11. Name the new bound in the table of roadmap limits
