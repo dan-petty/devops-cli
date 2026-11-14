@@ -209,8 +209,8 @@ def test_a_dry_run_of_a_pull_request_in_the_form_still_lists_its_requests(
 
 PLAN_TITLE = "docs(openspec): plan #3236 revise scope to role tools"
 PLAN_BODY = (
-    "Plans #3236\n\n"
     "The plan audits the job-role tools and names the follow-up for the rest of the tools.\n\n"
+    "Plans #3236\n\n"
     "Change: `openspec/changes/3236-read-only-tools-take-paths-that/`"
 )
 
