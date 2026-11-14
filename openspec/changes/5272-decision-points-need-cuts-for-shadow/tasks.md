@@ -119,6 +119,22 @@ Kind: other. Reads: `docs/adr/0020-a-decision-point-is-a-unit-of-a-workflow-with
 - [x] 13.2 Edit `docs/adr/0020-a-decision-point-is-a-unit-of-a-workflow-with-a-resolver-chain-and-a-rule-goes-before-a-decision-model.md` in its `Status History` section only
   - Verification: `$ uv run devops ci docs` passes
 
+## 14. Log the trace of an error that no class names
+
+Kind: behavior. Reads: `src/devops_cli/roadmap/decision_point.py`, `src/devops_cli/roadmap/decision_step.py`, `tests/roadmap/test_roadmap_decision_point.py`. Changes: `src/devops_cli/roadmap/decision_point.py`, `tests/roadmap/test_roadmap_decision_point.py`.
+
+- [ ] 14.1 Add `test_an_error_that_no_class_names_logs_its_trace` to `tests/roadmap/test_roadmap_decision_point.py`: with a model that raises `RuntimeError`, `decide` and `adecide` each log the line of the fallback with the trace of that error, and a request that the timeout ends logs its line with no trace
+  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_decision_point.py` fails on the base
+- [ ] 14.2 In `decide` and in `adecide` of `ResolverChain`, catch `FAILED` before `Exception`. A known error logs its line with no trace. An error that no class names logs the same line with `exc_info` in the body of its `except` clause. Both give the fallback and emit `DECISION_POINT_FAILED_TOTAL` with the point and the class
+  - Verification: `$ uv run devops ci --check --only swallowed-failures` passes
+
+## 15. Name the class `secret` with no password word
+
+Kind: other. Reads: `src/devops_cli/roadmap/decision_step.py`. Changes: `src/devops_cli/roadmap/decision_step.py`.
+
+- [ ] 15.1 Rename the member `FailureClass.SECRET` to `FailureClass.SENSITIVE_DIGEST` and keep its value `secret`, so Bandit `B105` reads no hard-coded password
+  - Verification: `$ uv run devops ci --check --only security` passes
+
 ## Criteria
 
 - Group 10: `uv run devops ci fail-to-pass --base origin/main` shows tests that fail on main and pass on the branch:
@@ -131,6 +147,7 @@ Kind: other. Reads: `docs/adr/0020-a-decision-point-is-a-unit-of-a-workflow-with
 - Group 8: A cuts file of model A with `ai.decision_model` set to model B gives the fallback, and the failed counter holds `model_mismatch`.
 - Group 7: A reply that names a dated model puts that dated name in the decision record.
 - Group 10: No test holds the number 60 for the bound; each bound test reads the constant.
+- Group 14: With a model that raises `RuntimeError`, the log line of the fallback holds the trace of the error.
 
 ## Workflow follow-up
 
