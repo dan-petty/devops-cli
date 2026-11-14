@@ -23,13 +23,14 @@ import pytest
 from pydantic import ValidationError
 
 from devops_cli.ai.client import network
+from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.config.constants import (
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
     CONST_ROADMAP_OWNER_SERVICE,
 )
 from devops_cli.config.settings import RoadmapConfig
 from devops_cli.core import clock as clock_seam
-from devops_cli.exceptions import GitHubOperationError, RoadmapStageError
+from devops_cli.exceptions import GitHubOperationError, GitOperationError, RoadmapStageError
 from devops_cli.roadmap.attempt_kill import AttemptKill, AttemptKilled
 from devops_cli.roadmap.body_hash import body_hashes
 from devops_cli.roadmap.job_result import LINE_PREFIX
@@ -298,6 +299,142 @@ def test_a_failed_plan_exits_1_and_checks_in_with_the_failure(
         [],
     )
     assert "stage.failed_at" in _record(store)
+
+
+def test_a_provider_timeout_exits_75_and_keeps_the_check_out(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    stageable: int,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    item = store.item(stageable)
+    assert item is not None
+    store.set_field(item, ItemField.OWNER, CONST_ROADMAP_OWNER_SERVICE)
+    model_fake.answer(AIClientError("timeout", status=504, timed_out=True))
+
+    with caplog.at_level(logging.INFO, logger=RESULT_LOGGER):
+        run = run_stage_job(
+            store, repo=STAGE_REPO, item=stageable, source=stage_repo.clone, now=NOW
+        )
+
+    item = store.item(stageable)
+    assert item is not None
+    record = _record(store)
+    assert (
+        run.exit_code,
+        "stage.job_result" in record,
+        record.get("stage.job"),
+        item.owner,
+    ) == (
+        StageJobExit.EVICTED,
+        False,
+        JOB,
+        CONST_ROADMAP_OWNER_SERVICE,
+    )
+    assert [line.removeprefix(LINE_PREFIX).split()[3:7] for line in result_lines(caplog)] == [
+        ["result=failed", "success=false", "class=provider", "infra=true"]
+    ]
+
+
+def test_a_retried_attempt_after_a_provider_timeout_plans_and_stages_the_item(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    stageable: int,
+) -> None:
+    model_fake.answer(AIClientError("timeout", status=504, timed_out=True))
+    run1 = run_stage_job(store, repo=STAGE_REPO, item=stageable, source=stage_repo.clone, now=NOW)
+    assert run1.exit_code == StageJobExit.EVICTED
+
+    model_fake.answer(make_stage_proposal())
+    run2 = run_stage_job(
+        store,
+        repo=STAGE_REPO,
+        item=stageable,
+        source=stage_repo.clone,
+        now=NOW + timedelta(seconds=10),
+    )
+    assert (run2.exit_code, run2.result) == (StageJobExit.RESULT, "staged")
+
+
+def test_a_plan_defect_keeps_exit_1(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    stageable: int,
+) -> None:
+    model_fake.answer(make_stage_proposal(pull_request_body="Fixes #4 now."))
+
+    run = run_stage_job(store, repo=STAGE_REPO, item=stageable, source=stage_repo.clone, now=NOW)
+
+    item = store.item(stageable)
+    assert item is not None
+    check_in = recorded_check_in(item)
+    assert check_in is not None
+    assert (run.exit_code, check_in.result, _check_out_marks(store)) == (
+        StageJobExit.FAILURE,
+        "failed",
+        [],
+    )
+    assert _record(store).get("stage.failed_class") == "plan_defect"
+
+
+def test_a_refused_key_keeps_exit_1(
+    cli: Cli,
+    roadmap_store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    config: Callable[..., Path],
+) -> None:
+    config(roadmap={"stage": {"job": JOB}})
+    number = seed_stageable(roadmap_store)
+    _check_out(roadmap_store, number, JOB)
+    model_fake.answer(AICredentialsError("refused key", status=401))
+
+    result = _stage(cli, stage_repo, "--job-item", str(number), "--confirm")
+
+    record = _record(roadmap_store, number)
+    assert (
+        result.exit_code,
+        "stage.job_result" in record,
+        record.get("stage.job"),
+        _check_out_marks(roadmap_store, number),
+    ) == (
+        1,
+        False,
+        JOB,
+        ["stage.job", "stage.job_at", "stage.job_deadline"],
+    )
+
+
+def test_a_clone_failure_exits_75(
+    store: InMemoryRoadmapStore,
+    monkeypatch: pytest.MonkeyPatch,
+    stageable: int,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def failing_clone(_repo: str) -> Path:
+        raise GitOperationError("clone failed")
+
+    monkeypatch.setattr(stage_job, "_clone", failing_clone)
+
+    with caplog.at_level(logging.INFO, logger=RESULT_LOGGER):
+        run = run_stage_job(store, repo=STAGE_REPO, item=stageable, source=None, now=NOW)
+
+    record = _record(store)
+    assert (
+        run.exit_code,
+        "stage.job_result" in record,
+        record.get("stage.job"),
+    ) == (
+        StageJobExit.EVICTED,
+        False,
+        JOB,
+    )
+    assert [line.removeprefix(LINE_PREFIX).split()[3:7] for line in result_lines(caplog)] == [
+        ["result=failed", "success=false", "class=ci_infra", "infra=true"]
+    ]
 
 
 # ── The result line of the Job ────────────────────────────────────────────────

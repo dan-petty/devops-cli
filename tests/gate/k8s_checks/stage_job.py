@@ -77,9 +77,9 @@ def check_the_stage_cronjob_is_a_suspended_template_of_the_service_image() -> No
 
 
 def check_the_stage_job_runs_again_only_after_an_eviction_and_ends_by_its_deadline() -> None:
-    """Exit 75 is the `evicted` exit of `attempt_kill.py`: the pod runs again, at most twice. A pod
-    that a disruption ends runs again and does not count. Any other exit fails the Job, so the
-    Service decides each later attempt (#5483)."""
+    """Exit 75 is the `evicted` exit of `attempt_kill.py` and the exit of a retryable failure: the
+    pod runs again, at most twice. A pod that a disruption ends runs again and does not count. Any
+    other exit fails the Job, so the Service decides each later attempt (#5483, #5562)."""
     job = _cronjob(STAGE_TEMPLATE.cronjob)["spec"]["jobTemplate"]["spec"]
 
     assert (job["activeDeadlineSeconds"], job["backoffLimit"], job["podFailurePolicy"]) == (

@@ -10,8 +10,8 @@
 # Service image, 2 keys of Secret devops-cli through `secretKeyRef` and no `envFrom`, the args
 # `roadmap stage --repo <owner/name> --job-item <n> --confirm`, only the plain env values of
 # cronjob-stage.yaml and of `stage_job_env` with a token for the repository of `--repo`, 2 retries
-# only after exit 75 or a disruption, the deadline of the template, the stage resources and the
-# component `roadmap-stage`. Every other Job is a runner Job, with every rule that it had before.
+# only after exit 75 (eviction or retryable failure) or a disruption, exit 1 for non-retryable
+# failures, the deadline of the template, the stage resources and the component `roadmap-stage`.
 # The pod keeps the label `app.kubernetes.io/name: devops-cli-job`, because the NetworkPolicies of
 # the stack select pods by that label: a Job pod with the label of the Service would take its
 # egress to the API server. A runner Job runs its pod once, and no Job has a `command`,
@@ -177,8 +177,9 @@ spec:
       message: The Job must run its pod once, so completions and parallelism are 1 or not set.
       reason: Forbidden
     # A runner Job that changed GitHub never runs twice (cronjob-runner.yaml). A stage Job runs its
-    # pod again only after exit 75, the `evicted` exit, or a disruption, at most twice
-    # (cronjob-stage.yaml): the pod that runs again removes the branch of its own intent mark.
+    # pod again only after exit 75 (an eviction or a retryable failure), or a disruption, at most
+    # twice (cronjob-stage.yaml): the pod that runs again removes the branch of its own intent
+    # mark. A non-retryable failure exits 1 and fails the Job.
     - expression: >-
         has(object.spec.backoffLimit) && (variables.stage ?
         (object.spec.backoffLimit == 2 && has(object.spec.podFailurePolicy) &&
