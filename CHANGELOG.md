@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.136.1](https://github.com/dan-petty/devops-cli/compare/v0.136.0...v0.136.1) (2026-11-14)
+
+
+### Reverts
+
+* **roadmap:** audit the test registry declarations ([#5601](https://github.com/dan-petty/devops-cli/issues/5601)) ([3d6cae6](https://github.com/dan-petty/devops-cli/commit/3d6cae63241df60bfc70a153c03eb4776544e68e))
+
 ## [0.136.0](https://github.com/dan-petty/devops-cli/compare/v0.135.0...v0.136.0) (2026-11-14)
 
 
