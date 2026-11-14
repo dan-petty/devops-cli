@@ -21,6 +21,7 @@ from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
     CONST_AI_GATEWAY_SERVED_BY_HEADER,
     CONST_AI_GATEWAY_SERVED_MODEL_HEADER,
+    CONST_OTEL_SERVICE_NAME,
 )
 from devops_cli.config.defaults import (
     DEFAULT_AI_MAX_RESPONSE_BYTES as DEFAULT_AI_MAX_RESPONSE_BYTES,
@@ -68,7 +69,12 @@ def gateway_caller_headers() -> dict[str, str]:
     process's OTel service name as the end user, from a closed set that the workloads set, and
     devops-cli and its release as the user agent.
     """
-    return {"User-Agent": user_agent(), _GATEWAY_END_USER_HEADER: otel_service_name()}
+    # A process that sets OTEL_SERVICE_NAME to an empty value sends no caller; the gateway then
+    # counts its calls as None (#3578).
+    return {
+        "User-Agent": user_agent(),
+        _GATEWAY_END_USER_HEADER: otel_service_name() or CONST_OTEL_SERVICE_NAME,
+    }
 
 
 async def name_gateway_caller(request: httpx2.Request) -> None:
