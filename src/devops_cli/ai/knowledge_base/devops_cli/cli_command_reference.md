@@ -91,7 +91,6 @@ This document provides an overview of the main command groups implemented in `de
 | | `devops config audit-keys` | Audit config for unencrypted plaintext keys | |
 | | `devops config output` | List configuration environment variables | `--export`, `--json` |
 | **`ci`** | `devops ci` | Run every check of the local quality gate | `--fix/--no-fix`, `--check`, `--cache`, `--force`, `--files` |
-| | `devops ci run` | Same as `devops ci` | `--fix` |
 | | `devops ci audit` | Check dependencies for known CVEs (uv audit, and npm audit of the lockfile of each Node tool) | |
 | | `devops ci build` | Build the wheel and the sdist via uv build | |
 | | `devops ci mutate` | Mutation-test changed functions with mutmut and show the survivors; never a gate | `paths`, `--changed`, `--base` |

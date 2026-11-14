@@ -210,11 +210,21 @@ Exits 1 when a row fails or a pod opens a connection. |
 |  | `devops ci deps [OPTIONS]` | Validate dependency hygiene and imports via deptry. |
 |  | `devops ci test-settings [OPTIONS]` | Verify test configuration settings and environment variables. |
 |  | `devops ci maintain [OPTIONS]` | Run automated toolchain, dependency freshness, and lockfile maintenance checks. |
-|  | `devops ci run [OPTIONS]` | Run full CI and return a single pass/fail status. |
 |  | `devops ci mutate [OPTIONS] <paths>` | Mutation-test functions with mutmut and show each mutant no test killed; never a gate. |
 |  | `devops ci job-time [OPTIONS]` | Fail when the last runs of a CI job took more than the limit on average. Reads the job time of the last completed push runs of a workflow on a branch from GitHub's Actions API. A job that passed, failed or timed out counts, whatever the run concluded. Fails too when fewer runs than asked for could be read. |
 |  | `devops ci durations [OPTIONS]` | Write the mean seconds of each test module to tests/module_durations.json, from the JUnit reports of the test shards of the last push runs of a workflow on a branch. The split of the test shards weighs each module by these seconds. gh downloads the artifacts of each run. A run whose artifacts GitHub no longer holds is left out. |
 |  | `devops ci fail-to-pass [OPTIONS]` | Replay added or modified tests against the merge-base tree to prove a defect fix's tests fail unpatched. A changed module under tests/gate/*_checks/ runs its gate row on the base and head trees: a case of that module that fails on base and passes on head proves the fix. |
+|  | `devops ci zizmor [OPTIONS]` | Run the zizmor check. |
+|  | `devops ci constructs [OPTIONS]` | Run the constructs check. |
+|  | `devops ci openspec [OPTIONS]` | Run the openspec check. |
+|  | `devops ci git [OPTIONS]` | Run the git check. |
+|  | `devops ci bwrap [OPTIONS]` | Run the bwrap check. |
+|  | `devops ci k8s [OPTIONS]` | Run the k8s check. |
+|  | `devops ci test-tree [OPTIONS]` | Run the test-tree check. |
+|  | `devops ci startup-imports [OPTIONS]` | Run the startup-imports check. |
+|  | `devops ci swallowed-failures [OPTIONS]` | Run the swallowed-failures check. |
+|  | `devops ci domain [OPTIONS]` | Run the domain check. |
+|  | `devops ci roadmap-stage-eval-commits [OPTIONS]` | Run the roadmap-stage-eval-commits check. |
 | [**uv**](commands/uv.md) | `devops uv sync [OPTIONS]` | Sync project dependencies into the virtual environment. |
 |  | `devops uv lock [OPTIONS]` | Regenerate the uv lockfile. |
 |  | `devops uv python-install [OPTIONS]` | Install project Python version with uv. |

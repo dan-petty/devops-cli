@@ -79,7 +79,7 @@ CI_GATE_SLOT_WAIT = Instrument(
     "devops_cli_ci_gate_slot_wait_seconds",
     InstrumentKind.HISTOGRAM,
     "s",
-    "Time a devops ci run waited for a free gate slot before its checks started",
+    "Time a gate run waited for a free gate slot before its checks started",
 )
 REVIEW_DURATION = Instrument(
     "devops_cli_review_duration_seconds",

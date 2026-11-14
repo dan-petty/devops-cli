@@ -101,22 +101,8 @@ def test_ci_all_checks_dry_run(recorder: list[list[str]]) -> None:
     assert ("✓ pass" in res.stdout, "CI Summary" in res.stdout) == (False, False)
 
 
-def test_ci_run_command_dry_run(recorder: list[list[str]]) -> None:
-    """devops ci run --dry-run prints fix steps and checks and exits 0."""
-    res = runner.invoke(app, ["run", "--dry-run"])
-    assert (res.exit_code, len(recorder), is_dry_run()) == (0, 0, True)
-    assert (
-        "1. uv --preview-features malware-check,check-command run ruff format ." in res.stdout,
-        "2. uv --preview-features malware-check,check-command run ruff check --config pyproject.toml --fix ."
-        in res.stdout,
-        "3. uv --preview-features malware-check,check-command run devops docs generate"
-        in res.stdout,
-    ) == (True, True, True)
-    assert ("✓ pass" in res.stdout, "CI Summary" in res.stdout) == (False, False)
-
-
 def test_ci_dry_run_unlinks_nothing(recorder: list[list[str]], ci_root: Path) -> None:
-    """devops ci --dry-run and devops ci run --dry-run unlink no coverage files."""
+    """devops ci --dry-run unlinks no coverage files."""
     cov_worker = ci_root / ".coverage.sample"
     cov_xml = ci_root / "coverage.xml"
     cov_worker.write_text("worker data")
@@ -125,15 +111,13 @@ def test_ci_dry_run_unlinks_nothing(recorder: list[list[str]], ci_root: Path) ->
     os.utime(cov_worker, (two_hours_ago, two_hours_ago))
 
     res_ci = runner.invoke(app, ["--dry-run"])
-    res_run = runner.invoke(app, ["run", "--dry-run"])
 
     assert (
         res_ci.exit_code,
-        res_run.exit_code,
         cov_worker.exists(),
         cov_xml.exists(),
         len(recorder),
-    ) == (0, 0, True, True, 0)
+    ) == (0, True, True, 0)
 
 
 @pytest.mark.usefixtures("ci_root")

@@ -100,7 +100,7 @@ writes by name.
 | `devops_cli_subprocess_duration_seconds` | Histogram | `s` | Wall time of a program that devops-cli ran, by program and status: ok or error. |
 | `devops_cli_telemetry_tests_total` | Counter | `1` | Test points that devops telemetry test sent, to show that metrics reach the collector. |
 | `devops_cli_ci_checks_total` | Counter | `1` | Checks that devops ci ran, by step and outcome: pass or fail. |
-| `devops_cli_ci_gate_slot_wait_seconds` | Histogram | `s` | Time a devops ci run waited for a free gate slot before its checks started. |
+| `devops_cli_ci_gate_slot_wait_seconds` | Histogram | `s` | Time a gate run waited for a free gate slot before its checks started. |
 | `devops_cli_review_duration_seconds` | Histogram | `s` | Review wall time, by target type. |
 | `devops_cli_findings_total` | Counter | `1` | Review findings, by producer, severity and status. |
 | `devops_cli_ai_requests_total` | Counter | `1` | LLM calls and embedding requests, by operation (chat or embeddings), provider, model, server, serving backend, whether the cache answered and row: the job row that sent the request. |
