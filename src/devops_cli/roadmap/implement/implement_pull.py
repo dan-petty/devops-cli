@@ -39,7 +39,6 @@ from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_muted
 from devops_cli.roadmap.pull_form import is_placeholder
-from devops_cli.roadmap.stage.stage_change import STAGE_EVAL_PROMPT_PATH
 from devops_cli.roadmap.step_files import parse_task_groups
 from devops_cli.roadmap.stores import store as roadmap_store
 from devops_cli.roadmap.stores.store import (
@@ -172,6 +171,10 @@ def _eval_score(body: str, marker: str) -> bool:
 def _judge_eval_scores(draft: Draft) -> Readiness | None:
     """A pull request that changes the stage prompt needs the live base and head scores in its
     body, because the step shell holds no model key (#4005)."""
+    # The read is local to this rule: the startup path imports this module, and the stage planner
+    # is heavy (#4005).
+    from devops_cli.roadmap.stage.stage_change import STAGE_EVAL_PROMPT_PATH
+
     if not any(changed.filename == STAGE_EVAL_PROMPT_PATH for changed in draft.files):
         return None
     missing = [
