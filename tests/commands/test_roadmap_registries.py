@@ -30,8 +30,8 @@ def _module(root: Path, name: str, text: str) -> None:
 
 
 def test_the_registries_help_texts_exist() -> None:
-    assert HELP.roadmap.registries
-    assert HELP.roadmap.registries_path
+    assert "registry and ratchet declarations" in HELP.roadmap.registries
+    assert "tests folder" in HELP.roadmap.registries_path
 
 
 def test_the_table_lists_each_entry_of_a_tree(tmp_path: Path) -> None:
