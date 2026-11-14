@@ -24,7 +24,7 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-implement-step/inputs`: The implement prompt lists the tools of the registry, The prompt lists the local devops commands of the catalog
+- `roadmap-implement-step/inputs`: The implement prompt lists the tools of the registry, The code-intelligence commands of the catalog are read-only
 - `roadmap-implement-job/pull-request`: The pull request comment names the tools of the job
 - `mcp-role-server`: The implementation role holds no threat-intelligence lookup
 - `roadmap-eval-implement`: The eval compares the tool modes
