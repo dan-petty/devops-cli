@@ -3506,6 +3506,9 @@ class RoadmapMessages:
     implement_left_no_branch: str = "Its staged branch `{branch}` is not on origin."
     implement_left_foreign: str = "Its branch has a commit by {author}, not by {bot}."
     implement_left_pull: str = "Its pull request #{pull} is not an open draft."
+    implement_left_plan_ready: str = (
+        "Its plan pull request #{pull} is ready for review and awaiting merge."
+    )
     implement_left_needs_fix: str = (
         "Its pull request #{pull} holds the label `{label}`: the review of its plan found an open "
         "finding. The job takes the item again when the label is gone."
