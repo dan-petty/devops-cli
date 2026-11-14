@@ -32,6 +32,40 @@ class RegistryCount:
     declaring_path: str = ""
 
 
+@dataclass(frozen=True)
+class Declaration:
+    """One module-level `REGISTRY_COUNTS` declaration of a test module (#3332).
+
+    `entries` holds the entries that the value declares, and `problem` says why the value is no
+    plain literal tuple of triples, or "" when it is one."""
+
+    path: str
+    line: int
+    entries: tuple[RegistryCount, ...] = ()
+    problem: str = ""
+
+    @property
+    def source(self) -> str:
+        """The `path:line` of the declaration."""
+        return f"{self.path}:{self.line}"
+
+
+def _literal_triple(
+    node: ast.expr,
+) -> tuple[ast.Constant, ast.Constant, ast.Constant] | None:
+    """The kind, token and path literals of one entry, or None when the node is no such triple."""
+    if not isinstance(node, (ast.Tuple, ast.List)) or len(node.elts) < 3:
+        return None
+    first, second, third = node.elts[:3]
+    if (
+        isinstance(first, ast.Constant)
+        and isinstance(second, ast.Constant)
+        and isinstance(third, ast.Constant)
+    ):
+        return (first, second, third)
+    return None
+
+
 def _extract_entries(value_node: ast.expr, declaring_path: str) -> list[RegistryCount]:
     """Extract `RegistryCount` records from an AST tuple or list literal."""
     if not isinstance(value_node, (ast.Tuple, ast.List)):
@@ -39,24 +73,47 @@ def _extract_entries(value_node: ast.expr, declaring_path: str) -> list[Registry
 
     entries: list[RegistryCount] = []
     for elt in value_node.elts:
-        if not isinstance(elt, (ast.Tuple, ast.List)) or len(elt.elts) < 3:
+        triple = _literal_triple(elt)
+        if triple is None:
             continue
-        first, second, third = elt.elts[:3]
-        if (
-            isinstance(first, ast.Constant)
-            and isinstance(second, ast.Constant)
-            and isinstance(third, ast.Constant)
-        ):
-            entries.append(
-                RegistryCount(
-                    kind=str(first.value),
-                    token=str(second.value),
-                    path=str(third.value),
-                    line=elt.lineno,
-                    declaring_path=declaring_path,
-                )
+        first, second, third = triple
+        entries.append(
+            RegistryCount(
+                kind=str(first.value),
+                token=str(second.value),
+                path=str(third.value),
+                line=elt.lineno,
+                declaring_path=declaring_path,
             )
+        )
     return entries
+
+
+def _declaration_problem(value_node: ast.expr) -> str:
+    """Why the value of a declaration is no plain literal tuple of triples, or "" when it is."""
+    if not isinstance(value_node, (ast.Tuple, ast.List)):
+        return "the value is no tuple or list of entries"
+    for element in value_node.elts:
+        if _literal_triple(element) is None:
+            return (
+                f"the entry at line {element.lineno} is no literal triple of kind, token and path"
+            )
+    return ""
+
+
+def _declared_values(tree: ast.Module) -> list[tuple[int, ast.expr]]:
+    """Each value that the module assigns to `REGISTRY_COUNTS` at its top level, with its line."""
+    values: list[tuple[int, ast.expr]] = []
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == _TARGET_CONSTANT:
+                    values.append((node.lineno, node.value))
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name) and node.target.id == _TARGET_CONSTANT:
+                if node.value is not None:
+                    values.append((node.lineno, node.value))
+    return values
 
 
 def _declaring_source(path: Path) -> str:
@@ -69,8 +126,8 @@ def _declaring_source(path: Path) -> str:
     return source if _TARGET_CONSTANT in source else ""
 
 
-def counts_in(path: Path) -> tuple[RegistryCount, ...]:
-    """Parse one Python module and read its module-level `REGISTRY_COUNTS` declaration. A module
+def declarations_in(path: Path) -> tuple[Declaration, ...]:
+    """Parse one Python module and read each module-level `REGISTRY_COUNTS` declaration. A module
     whose text does not hold the name is not parsed."""
     source = _declaring_source(path)
     if not source:
@@ -82,17 +139,21 @@ def counts_in(path: Path) -> tuple[RegistryCount, ...]:
         return ()
 
     declaring = path.as_posix()
-    entries: list[RegistryCount] = []
-    for node in tree.body:
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id == _TARGET_CONSTANT:
-                    entries.extend(_extract_entries(node.value, declaring))
-        elif isinstance(node, ast.AnnAssign):
-            if isinstance(node.target, ast.Name) and node.target.id == _TARGET_CONSTANT:
-                if node.value is not None:
-                    entries.extend(_extract_entries(node.value, declaring))
-    return tuple(entries)
+    return tuple(
+        Declaration(
+            path=declaring,
+            line=line,
+            entries=tuple(_extract_entries(value, declaring)),
+            problem=_declaration_problem(value),
+        )
+        for line, value in _declared_values(tree)
+    )
+
+
+def counts_in(path: Path) -> tuple[RegistryCount, ...]:
+    """The entries of each module-level `REGISTRY_COUNTS` declaration of one module. A module
+    whose text does not hold the name is not parsed."""
+    return tuple(entry for declaration in declarations_in(path) for entry in declaration.entries)
 
 
 def registry_table(root: Path) -> tuple[RegistryCount, ...]:
