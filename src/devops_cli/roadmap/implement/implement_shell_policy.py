@@ -169,6 +169,21 @@ LOCAL_COMMANDS: tuple[LocalCommand, ...] = (
         "checkout.",
     ),
     LocalCommand(
+        ("ci", "constructs"),
+        ShellAccess.READ,
+        "Run the constructs row of the CI quality gate.",
+    ),
+    LocalCommand(
+        ("ci", "docs"),
+        ShellAccess.READ,
+        "Run the docs row of the CI quality gate.",
+    ),
+    LocalCommand(
+        ("ci", "openspec"),
+        ShellAccess.READ,
+        "Run the openspec row of the CI quality gate.",
+    ),
+    LocalCommand(
         ("ai", "repomap"),
         ShellAccess.READ,
         "Print a compact map of the symbols of the repository.",

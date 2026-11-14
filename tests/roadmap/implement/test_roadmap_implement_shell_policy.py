@@ -503,11 +503,14 @@ def test_the_shell_section_of_the_document_names_the_directory_tool_and_the_scra
 # ── The local devops commands ─────────────────────────────────────────────────────────────
 
 
-def test_the_local_commands_are_the_five_commands_of_the_project_and_none_uses_the_network() -> (
+def test_the_local_commands_are_the_eight_commands_of_the_project_and_none_uses_the_network() -> (
     None
 ):
     assert [(c.words, str(c.access)) for c in LOCAL_COMMANDS] == [
         (("ci", "test"), "write"),
+        (("ci", "constructs"), "read"),
+        (("ci", "docs"), "read"),
+        (("ci", "openspec"), "read"),
         (("ai", "repomap"), "read"),
         (("ai", "ast"), "write"),
         (("docs", "generate"), "write"),

@@ -113,6 +113,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_PROMETHEUS_URL` | `prometheus.url` | No | Prometheus service URL |
 | `DEVOPS_CLI_QDRANT_API_KEY` | `qdrant.api_key` | 🔒 Yes | Qdrant API key (stored in OS keyring) |
 | `DEVOPS_CLI_QDRANT_COLLECTION_PREFIX` | `qdrant.collection_prefix` | No | Prefix for Qdrant collection names |
+| `DEVOPS_CLI_QDRANT_READ_ONLY_API_KEY` | `qdrant.read_only_api_key` | 🔒 Yes | Qdrant read-only API key, which `devops k8s push-secrets` writes to the runner and the roadmap Service (stored in OS keyring) |
 | `DEVOPS_CLI_QDRANT_TIMEOUT` | `qdrant.timeout` | No | Seconds each Qdrant request waits per attempt: RAG searches, and indexing's upserts and deletes, which share the client |
 | `DEVOPS_CLI_QDRANT_URL` | `qdrant.url` | No | Qdrant vector database server URL |
 | `DEVOPS_CLI_REPOS_BASE_DIR` | `repos.base_dir` | No | Base directory for cloned repositories |

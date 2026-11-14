@@ -13,7 +13,7 @@ from tests.gate.construct_gate import CONST_BANNED_HAND_ROLLED_APIS
 
 
 def test_ci_constructs_row_matches_constants() -> None:
-    """The constructs row in devops ci runs the scan with CONST_AST_GREP_SCAN_ARGS."""
+    """The constructs row of devops ci executes the scan with CONST_AST_GREP_SCAN_ARGS."""
     spec = get_check_spec("constructs")
     assert spec.cmd == ["uv", "run", "ast-grep", *CONST_AST_GREP_SCAN_ARGS]
     assert len(CONST_BANNED_HAND_ROLLED_APIS) == 4

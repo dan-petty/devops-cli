@@ -308,6 +308,9 @@ The shell holds no key, and `uv` is allowed, so the agent runs the commands of t
 | Command | Access | Use |
 | :--- | :--- | :--- |
 | `uv run devops ci test` | write | Run the tests of one file: `uv run devops ci test <file>`. It writes cache files in the checkout. |
+| `uv run devops ci constructs` | read | Run the constructs row of the CI quality gate. |
+| `uv run devops ci docs` | read | Run the docs row of the CI quality gate. |
+| `uv run devops ci openspec` | read | Run the openspec row of the CI quality gate. |
 | `uv run devops ai repomap` | read | Print a compact map of the symbols of the repository. |
 | `uv run devops ai ast` | write | Parse one source file (`parse`) or build the symbol graph of the repository (`graph`). `graph --output <path>` writes a file: give it a path in the checkout. |
 | `uv run devops docs generate` | write | Write the generated documents in the docs directory of the checkout: pass no `--output-dir`. Run it after a change to a command or a setting. |

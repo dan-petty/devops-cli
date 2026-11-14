@@ -642,6 +642,16 @@ def test_the_roadmap_tool_instruments_are_declared_with_their_kinds_and_units() 
     } == expected
 
 
+def test_the_gate_slot_histogram_description_names_no_command() -> None:
+    """The gate-slot histogram description names no command (#5451)."""
+    from devops_cli.telemetry.instruments import CI_GATE_SLOT_WAIT
+
+    assert (
+        CI_GATE_SLOT_WAIT.description
+        == "Time a gate run waited for a free gate slot before its checks started"
+    )
+
+
 def test_the_telemetry_document_lists_each_roadmap_tool_instrument_with_its_kind_and_unit() -> None:
     document = (REPO_ROOT / "docs" / "TELEMETRY.md").read_text(encoding="utf-8")
 

@@ -142,8 +142,8 @@ The step SHALL take a `## <n>. <title>` heading as the start of a group only whe
 - **WHEN** `tasks.md` holds a quote `> ## 2. Extra` after the group 1
 - **THEN** the parsed groups are the group 1 only
 
-### Requirement: The prompt lists the local devops commands of the catalog
-The prompt of the step SHALL list each command of `LOCAL_COMMANDS` in `src/devops_cli/roadmap/implement/implement_shell_policy.py` with its access class and its use, and `docs/ROADMAP_WORKFLOW.md` SHALL hold the same table. `LOCAL_COMMANDS` SHALL hold `ci test`, `ai repomap`, `ai ast`, `docs generate` and `openspec check`, and no command with the access `network`. A call of a listed command through `uv run` SHALL pass the shell policy and SHALL NOT count as a refusal.
+### Requirement: The prompt lists the local commands of the catalog
+The prompt of the step SHALL list each command of `LOCAL_COMMANDS` with its access class and its use, and `docs/ROADMAP_WORKFLOW.md` SHALL hold the same table. `LOCAL_COMMANDS` SHALL hold `ci test`, `ci constructs`, `ci docs`, `ci openspec`, `ai repomap`, `ai ast`, `docs generate` and `openspec check`, and no `network` command. A listed command run through `uv run` SHALL pass the shell policy and SHALL NOT count as a refusal.
 
 #### Scenario: The prompt holds the table
 - **WHEN** The prompt of the step is built.

@@ -970,3 +970,44 @@ def test_only_the_cloudnative_pg_operator_reaches_the_barman_cloud_plugin() -> N
         ],
         [_DNS_EGRESS, _API_SERVER_EGRESS],
     )
+
+
+def test_the_devops_perimeter_reaches_qdrant_on_6333() -> None:
+    """The runner searches Qdrant on TCP 6333, and the rule adds no other peer or port (#3823)."""
+    doc = yaml.safe_load((K8S_DIR / "devops" / "networkpolicy.yaml").read_text(encoding="utf-8"))
+    qdrant = [
+        rule
+        for rule in doc["spec"]["egress"]
+        if [port["port"] for port in rule.get("ports", [])] == [6333]
+    ]
+
+    assert qdrant == [
+        {
+            "to": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "llm"}}}],
+            "ports": [{"protocol": "TCP", "port": 6333}],
+        }
+    ]
+
+
+def test_the_llm_perimeter_admits_the_devops_namespace_to_qdrant_on_6333() -> None:
+    """The policy that selects the Qdrant pod admits namespace devops on TCP 6333 (#3823)."""
+    doc = yaml.safe_load((K8S_DIR / "llm" / "networkpolicy.yaml").read_text(encoding="utf-8"))
+    rules = [
+        rule
+        for rule in doc["spec"]["ingress"]
+        if rule.get("from")
+        == [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "devops"}}}]
+    ]
+
+    assert [rule.get("ports") for rule in rules] == [[{"protocol": "TCP", "port": 6333}]]
+
+
+def test_the_readme_names_the_qdrant_route_and_the_read_only_key() -> None:
+    """The route section names the devops route to Qdrant on TCP 6333 and its read-only key
+    (#3823)."""
+    readme = (K8S_DIR / "README.md").read_text(encoding="utf-8")
+
+    assert (
+        "The devops namespace reaches it on TCP 6333 with the read-only key from "
+        "devops/devops-cli (#3823)." in readme
+    )

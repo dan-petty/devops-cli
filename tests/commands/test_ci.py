@@ -542,9 +542,9 @@ def test_ci_additional_subcommands(process_fake: ProcessFake) -> None:
     res_docs = runner.invoke(app, ["docs"])
     assert res_docs.exit_code == 0
 
-    # 4. run subcommand with --fix
+    # 4. gate with --fix
     process_fake.reset()
-    res_run_fix = runner.invoke(app, ["run", "--fix"])
+    res_run_fix = runner.invoke(app, ["--fix"])
     assert res_run_fix.exit_code == 0
     assert any("generate" in c for c in _started(process_fake))
 
@@ -573,9 +573,9 @@ def test_ci_helpers_and_edge_cases(ci_root: Path, process_fake: ProcessFake) -> 
         "Total Elapsed:" in said,
     ) == (1, True, True, True, True)
 
-    # 3. the run command executes every check and gives one status
+    # 3. the gate executes every check and gives one status
     process_fake.reset()
-    res_run = runner.invoke(app, ["run", "--no-fix"])
+    res_run = runner.invoke(app, ["--no-fix"])
     assert (res_run.exit_code, len(process_fake.calls) >= 1) == (0, True)
 
     # 4. test command with invalid -k filter
@@ -634,7 +634,7 @@ def test_ci_clean_coverage_and_extended_options(ci_root: Path, process_fake: Pro
 @pytest.mark.usefixtures("ci_root", "ci_head")
 def test_ci_run_docs_fix_when_needed(process_fake: ProcessFake) -> None:
     """Verify that CI fix pipeline triggers doc generation when docs check fails."""
-    result = runner.invoke(app, ["run", "--fix"])
+    result = runner.invoke(app, ["--fix"])
 
     called = _started(process_fake)
     assert result.exit_code == 0
@@ -2221,9 +2221,9 @@ def test_ci_cli_runner_only_and_skip_validation() -> None:
         res_both.exit_code,
         "Cannot combine --only and --skip" in res_both.output,
         res_invalid_only.exit_code,
-        "Invalid check name(s): 'invalid_gate'" in res_invalid_only.output,
+        "Unknown check row: 'invalid_gate'" in res_invalid_only.output,
         res_invalid_skip.exit_code,
-        "Invalid check name(s): 'invalid_gate'" in res_invalid_skip.output,
+        "Unknown check row: 'invalid_gate'" in res_invalid_skip.output,
     ) == (2, True, 2, True, 2, True)
 
 

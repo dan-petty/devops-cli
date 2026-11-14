@@ -1,4 +1,4 @@
-# Cluster jobs accept no ingress. They reach DNS, the LLM gateway, their cache Valkey, the OpenTelemetry collector and public HTTPS (GitHub).
+# Cluster jobs accept no ingress. They reach DNS, the LLM gateway, their cache Valkey, Qdrant, the OpenTelemetry collector and public HTTPS (GitHub).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -44,7 +44,16 @@ spec:
           port: 4000
         - protocol: TCP
           port: 6379
-    # 3. OpenTelemetry collector in namespace otel, on its OTLP/HTTP port only: devops-cli sends no
+    # 3. Qdrant in namespace llm, on TCP 6333 only: the search path of `devops ai rag-query`. The
+    #    runner sends the read-only key from Secret devops-cli, so it holds no write path (#3823).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: llm
+      ports:
+        - protocol: TCP
+          port: 6333
+    # 4. OpenTelemetry collector in namespace otel, on its OTLP/HTTP port only: devops-cli sends no
     #    OTLP over gRPC (4317).
     - to:
         - namespaceSelector:
@@ -53,7 +62,7 @@ spec:
       ports:
         - protocol: TCP
           port: 4318
-    # 4. Public HTTPS only: no private range, no shared address space (100.64.0.0/10), no
+    # 5. Public HTTPS only: no private range, no shared address space (100.64.0.0/10), no
     #    link-local range, no cloud metadata endpoint, and no IETF protocol or benchmarking range.
     - to:
         - ipBlock:

@@ -116,6 +116,36 @@ _BANDIT_SOURCE_SEVERITY: Final[str] = "low"
 # failure a warning (#5606).
 _SNAPSHOT_WARN_UNUSED: Final[str] = "--snapshot-warn-unused"
 
+# The names of every row in the check registry, in registry order (#5451).
+CHECK_ROW_NAMES: Final[tuple[str, ...]] = (
+    "test",
+    "lint",
+    "format",
+    "typecheck",
+    "audit",
+    "security",
+    "actionlint",
+    "zizmor",
+    "docs",
+    "uv-check",
+    "lockfile",
+    "build",
+    "outdated",
+    "deps",
+    "constructs",
+    "devcontainer",
+    "openspec",
+    "git",
+    "test-settings",
+    "bwrap",
+    "k8s",
+    "test-tree",
+    "startup-imports",
+    "swallowed-failures",
+    "domain",
+    "roadmap-stage-eval-commits",
+)
+
 
 def _get_project_root() -> Path:
     """The worktree the CI checks verify: the nearest linked worktree, else the workspace root.
@@ -1564,6 +1594,69 @@ def _handle_ci_results(
     raise typer.Exit(1)
 
 
+def _run_checks_lifecycle(
+    specs: Sequence[CheckSpec],
+    root: Path,
+    *,
+    ci_options: dict[str, Any] | None = None,
+    effective_fix: bool = False,
+    before_fingerprint: str | None = None,
+    save_cache: bool = False,
+) -> None:
+    """Run selected check specs through the async lifecycle, summary, budget warnings and cache handling."""
+    if ci_options is None:
+        ci_options = {"fix": effective_fix, "check": not effective_fix}
+    start_time = clock.monotonic()
+    if not is_dry_run():
+        print_info("Executing CI quality gates concurrently...")
+        sys.stdout.flush()
+    try:
+        results = asyncio.run(
+            _until_stopped(
+                _run_all_checks_async(
+                    lint_fix=effective_fix,
+                    format_fix=effective_fix,
+                    docs_fix=effective_fix,
+                    specs=specs,
+                )
+            )
+        )
+    except asyncio.CancelledError:
+        raise typer.Exit(CONST_EXIT_CANCELLED) from None
+    _print_failures(results)
+    _print_summary(results, total_elapsed=clock.monotonic() - start_time)
+    _warn_when_over_budget(results)
+    _handle_ci_results(
+        results,
+        root,
+        ci_options,
+        before_fingerprint=before_fingerprint,
+        save_cache=save_cache,
+    )
+
+
+def _row_name_callback(value: list[str] | str | None) -> list[str] | str | None:
+    """Validate check row names in --only and --skip options."""
+    if not value:
+        return value
+    raw_items = [value] if isinstance(value, str) else list(value)
+    for item in raw_items:
+        for part in item.split(","):
+            name = part.strip()
+            if not name:
+                continue
+            if name not in CHECK_ROW_NAMES:
+                import difflib
+
+                close = difflib.get_close_matches(name, CHECK_ROW_NAMES, n=3)
+                hint = f" Close matches: {', '.join(close)}." if close else ""
+                valid_list = ", ".join(CHECK_ROW_NAMES)
+                raise typer.BadParameter(
+                    f"Unknown check row: {name!r}.{hint} Valid rows: {valid_list}"
+                )
+    return value
+
+
 @app.callback(invoke_without_command=True)
 @dry_run_class("request-plan")
 def all_checks(
@@ -1587,13 +1680,17 @@ def all_checks(
     only: Annotated[
         list[str] | None,
         typer.Option(
-            "--only", help="Run only the specified check names (comma-separated or repeated)."
+            "--only",
+            callback=_row_name_callback,
+            help=f"Run only the specified check names ({', '.join(CHECK_ROW_NAMES)}). Comma-separated or repeated.",
         ),
     ] = None,
     skip: Annotated[
         list[str] | None,
         typer.Option(
-            "--skip", help="Skip the specified check names (comma-separated or repeated)."
+            "--skip",
+            callback=_row_name_callback,
+            help=f"Skip the specified check names ({', '.join(CHECK_ROW_NAMES)}). Comma-separated or repeated.",
         ),
     ] = None,
     shard: Annotated[
@@ -1638,30 +1735,11 @@ def all_checks(
         return
 
     with _gate_slot(any(spec.heavy for spec in selected_specs)):
-        start_time = clock.monotonic()
-        if not is_dry_run():
-            print_info("Executing CI quality gates concurrently...")
-            sys.stdout.flush()
-        try:
-            results = asyncio.run(
-                _until_stopped(
-                    _run_all_checks_async(
-                        lint_fix=effective_fix,
-                        format_fix=effective_fix,
-                        docs_fix=effective_fix,
-                        specs=selected_specs,
-                    )
-                )
-            )
-        except asyncio.CancelledError:
-            raise typer.Exit(CONST_EXIT_CANCELLED) from None
-        _print_failures(results)
-        _print_summary(results, total_elapsed=clock.monotonic() - start_time)
-        _warn_when_over_budget(results)
-        _handle_ci_results(
-            results,
+        _run_checks_lifecycle(
+            selected_specs,
             root,
-            ci_options,
+            ci_options=ci_options,
+            effective_fix=effective_fix,
             before_fingerprint=before_fingerprint,
             save_cache=(not is_narrowed),
         )
@@ -2538,30 +2616,6 @@ def maintain(
     print_success("Toolchain and lockfile maintenance checks passed.")
 
 
-@app.command()
-@dry_run_class("request-plan")
-def run(
-    fix: Annotated[
-        bool,
-        typer.Option("--fix/--no-fix", help=HELP.ci.fix_all),
-    ] = True,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help=HELP.options.dry_run),
-    ] = False,
-) -> None:
-    """Run full CI and return a single pass/fail status."""
-    if dry_run:
-        set_dry_run(True)
-    start_time = time.perf_counter()
-    results = asyncio.run(_run_all_checks_async(lint_fix=fix, format_fix=fix, docs_fix=fix))
-    _print_failures(results)
-    _print_summary(results, total_elapsed=time.perf_counter() - start_time)
-    if not is_dry_run() and not any(res.dry_run for res in results):
-        if not all(res.passed for res in results):
-            raise typer.Exit(1)
-
-
 _MUTMUT = ["uv", "run", "mutmut"]
 _MUTMUT_RESULTS = [*_MUTMUT, "results", "--all", "true"]
 
@@ -2902,3 +2956,39 @@ def fail_to_pass(
         write_stderr(f"{output}\n")
         raise typer.Exit(1)
     print_info(output, prefix=False, safe=True)
+
+
+def _row_command(name: str) -> Callable[..., None]:
+    """Generate a subcommand callback for one row of the check registry."""
+
+    @dry_run_class("request-plan")
+    def command(
+        dry_run: Annotated[
+            bool,
+            typer.Option("--dry-run", help=HELP.options.dry_run),
+        ] = False,
+    ) -> None:
+        if dry_run:
+            set_dry_run(True)
+        root = _get_project_root()
+        spec = get_check_spec(name)
+        with _gate_slot(spec.heavy):
+            _run_checks_lifecycle([spec], root, save_cache=False)
+
+    command.__name__ = name.replace("-", "_")
+    command.__doc__ = f"Run the {name} check."
+    return command
+
+
+def _register_row_commands() -> None:
+    """Register one generated subcommand for each row that has no hand-written command."""
+    existing = {
+        c.name or (c.callback.__name__ if c.callback else "") for c in app.registered_commands
+    }
+    for name in CHECK_ROW_NAMES:
+        if name not in existing:
+            cmd = _row_command(name)
+            app.command(name=name, help=f"Run the {name} check.")(cmd)
+
+
+_register_row_commands()

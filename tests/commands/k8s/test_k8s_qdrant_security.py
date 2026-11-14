@@ -34,6 +34,7 @@ from devops_cli.config.settings import (
     dotted_set,
     get_qdrant_api_key,
 )
+from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS, KeyringSource, SecretKeyRef
 from tests.support.cluster_secret_fakes import APP_KEY, APP_KEY_ENTRY, FakeCluster
 from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
@@ -69,7 +70,13 @@ def test_qdrant_reads_its_api_key_from_the_pushed_secret() -> None:
     """The chart renders `env` on the qdrant container; it has no `extraEnv` (#1670)."""
     values = _yaml(LLM_DIR / "values-qdrant.yaml")
 
-    assert values["env"] == [{"name": "QDRANT__SERVICE__API_KEY", "valueFrom": QDRANT_KEY_REF}]
+    assert values["env"] == [
+        {"name": "QDRANT__SERVICE__API_KEY", "valueFrom": QDRANT_KEY_REF},
+        {
+            "name": "QDRANT__SERVICE__READ_ONLY_API_KEY",
+            "valueFrom": {"secretKeyRef": {"name": "qdrant-api-key", "key": "read-only-api-key"}},
+        },
+    ]
 
 
 def test_every_top_level_qdrant_value_is_a_key_of_the_pinned_chart() -> None:
@@ -120,9 +127,9 @@ def test_open_webui_sends_the_qdrant_api_key_from_the_secret() -> None:
 def test_open_webui_is_the_only_workload_that_names_qdrant() -> None:
     """No other workload under k8s/ is set up to reach Qdrant, so none lacks its key.
 
-    The Jobs under k8s/devops/ run no command that needs Qdrant, Alloy scrapes /metrics with
-    the key as a bearer token (`metrics.serviceMonitor`), and devops-cli sends keyring
-    `qdrant_api_key`, which push-secrets keeps equal to the Secret.
+    The Jobs under k8s/devops/ reach Qdrant only through the devops ConfigMap, Alloy scrapes
+    /metrics with the key as a bearer token (`metrics.serviceMonitor`), and devops-cli sends
+    keyring `qdrant_read_only_api_key`, which push-secrets writes to the Secret's read-only key.
     """
     k8s_dir = REPO_ROOT / "k8s"
     files = sorted(
@@ -134,7 +141,11 @@ def test_open_webui_is_the_only_workload_that_names_qdrant() -> None:
         }
     )
 
-    assert files == ["devops/workflowtemplate-rag-ingest.yaml", "llm/values-open-webui.yaml"]
+    assert files == [
+        "devops/configmap.example.yaml",
+        "devops/workflowtemplate-rag-ingest.yaml",
+        "llm/values-open-webui.yaml",
+    ]
 
 
 def test_qdrant_helm_values_security() -> None:
@@ -372,3 +383,37 @@ def test_sync_k8s_credentials_reads_no_llm_secret(process_fake: ProcessFake) -> 
 
     results = sync_k8s_credentials(stack="llm", save_to_keyring=False)
     assert (results, process_fake.calls) == ({}, [])
+
+
+def test_one_keyring_value_feeds_the_read_only_key_of_both_secrets() -> None:
+    """Secret llm/qdrant-api-key holds the read-only key, and Secret devops/devops-cli takes the
+    same keyring value for the runner and the roadmap Service (#3823)."""
+    rows = {
+        (secret.ref, entry.key): entry for secret in CLUSTER_SECRETS for entry in secret.entries
+    }
+    read_only = rows[("llm/qdrant-api-key", "read-only-api-key")]
+    runner = rows[("devops/devops-cli", "DEVOPS_CLI_QDRANT_API_KEY")]
+
+    assert (
+        read_only.source.key,
+        runner.source.key,
+        runner.adopt_from,
+        runner.required,
+    ) == (
+        "qdrant_read_only_api_key",
+        "qdrant_read_only_api_key",
+        SecretKeyRef("llm", "qdrant-api-key", "read-only-api-key"),
+        True,
+    )
+
+
+def test_no_devops_cli_row_holds_the_qdrant_admin_key() -> None:
+    """The runner and the roadmap Service hold no write or delete path: no row of
+    devops/devops-cli names keyring qdrant_api_key (#3823)."""
+    devops_cli = next(secret for secret in CLUSTER_SECRETS if secret.ref == "devops/devops-cli")
+
+    assert [
+        entry.key
+        for entry in devops_cli.entries
+        if isinstance(entry.source, KeyringSource) and entry.source.key == "qdrant_api_key"
+    ] == []

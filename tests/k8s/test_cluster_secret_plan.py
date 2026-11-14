@@ -58,6 +58,7 @@ PUSH_COMMAND = typer.main.get_command(_push_app)
 
 GATEWAY_KEY = "sk-keyring-gateway-value-0001"
 QDRANT_KEY = "qdrant-keyring-value-0001"
+QDRANT_READ_ONLY_KEY = "qdrant-read-only-keyring-value-0001"
 RUNS_PASSWORD = "runs-keyring-value-0001"
 CACHE_PASSWORD = "cache-keyring-value-0001"
 DEVOPS_CACHE_PASSWORD = "devops-cache-keyring-value-0001"
@@ -65,6 +66,7 @@ TUNNEL_TOKEN = "tunnel-keyring-value-0001"
 FULL_KEYRING = {
     LLM_GATEWAY_MASTER_KEY: GATEWAY_KEY,
     "qdrant_api_key": QDRANT_KEY,
+    "qdrant_read_only_api_key": QDRANT_READ_ONLY_KEY,
     "runs_index_password": RUNS_PASSWORD,
     "valkey_password": CACHE_PASSWORD,
     DEVOPS_CACHE_VALKEY_AUTH_KEY: DEVOPS_CACHE_PASSWORD,
@@ -221,6 +223,15 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             ("statefulset/qdrant", "statefulset/open-webui"),
         ),
         (
+            "llm/qdrant-api-key",
+            "read-only-api-key",
+            "llm",
+            True,
+            SecretGenerator("urlsafe", 32),
+            None,
+            ("statefulset/qdrant", "statefulset/open-webui"),
+        ),
+        (
             "llm/valkey-runs-auth",
             "password",
             "llm",
@@ -362,6 +373,15 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             False,
             None,
             "devops/mcp-server DEVOPS_CLI_MCP_TOKEN",
+            ("deployment/roadmap-service",),
+        ),
+        (
+            "devops/devops-cli",
+            "DEVOPS_CLI_QDRANT_API_KEY",
+            "devops",
+            True,
+            SecretGenerator("urlsafe", 32),
+            "llm/qdrant-api-key read-only-api-key",
             ("deployment/roadmap-service",),
         ),
         (
@@ -772,7 +792,7 @@ def test_the_dry_run_lists_exactly_the_requests_a_push_then_makes(
         [call.argv for call in cluster.calls],
         [f"devops-cli/{key}" for key in stub_keyring.reads],
         [{**i, "data": sorted(i["data"])} for i in applied],
-        ["<>"] * 10,
+        ["<>"] * 12,
     )
 
 
@@ -859,7 +879,7 @@ def test_plan_lists_the_workloads_a_changed_secret_would_restart(
     output = " ".join(result.output.split())
     assert (
         result.exit_code,
-        "api-key (keyring qdrant_api_key) would create; would restart: statefulset/qdrant"
+        "api-key (keyring qdrant_api_key) would create, read-only-api-key (keyring qdrant_read_only_api_key) would create; would restart: statefulset/qdrant"
         in output,
         "password (keyring runs_index_password) unchanged; would restart: none" in output,
         {tuple(c[:2]) for c in (call.argv for call in cluster.calls)},
