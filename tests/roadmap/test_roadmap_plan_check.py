@@ -708,6 +708,8 @@ def test_a_group_that_changes_a_file_an_earlier_group_creates_is_not_reported(
     second = base.model_copy(
         update={
             "title": "Change the new module",
+            "test": "Write the test of the new module",
+            "implementation": "Keep the new module",
             "changes": [created],
             "creates": [],
             "creates_lines": {},
