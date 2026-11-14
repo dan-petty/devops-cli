@@ -407,9 +407,10 @@ def test_grafana_provisions_the_llm_app_for_litellm_gateway() -> None:
     apps_yaml = yaml.safe_load(llm_cm.get("data", {}).get("apps.yaml", ""))
     app = next((a for a in apps_yaml.get("apps", []) if a.get("type") == "grafana-llm-app"), None)
     assert app is not None
+    assert app.get("jsonData", {}).get("provider") == "custom"
     assert (
         app.get("jsonData", {}).get("openAI", {}).get("url")
-        == "http://llm-gateway.llm.svc.cluster.local:4000/v1"
+        == "http://llm-gateway.llm.svc.cluster.local:4000"
     )
     models = app.get("jsonData", {}).get("models", {})
     assert models.get("default") == "base"

@@ -232,7 +232,7 @@ sidecar:
     enabled: false
 
 # Provision grafana-llm-app to connect to in-cluster LiteLLM gateway targeting model
-# qwen3.8:27b (#5710). The pod evaluates $__env{GF_LLM_GATEWAY_KEY} from Secret grafana-admin.
+# qwen3.8:27b (#5710, #5716). The pod evaluates $__env{GF_LLM_GATEWAY_KEY} from Secret grafana-admin.
 extraConfigmapMounts:
   - name: grafana-llm-plugin
     mountPath: /etc/grafana/provisioning/plugins/apps.yaml
@@ -253,9 +253,9 @@ extraObjects:
             org_id: 1
             disabled: false
             jsonData:
-              provider: openai
+              provider: custom
               openAI:
-                url: http://llm-gateway.llm.svc.cluster.local:4000/v1
+                url: http://llm-gateway.llm.svc.cluster.local:4000
               models:
                 default: base
                 mapping:
