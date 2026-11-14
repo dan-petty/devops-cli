@@ -99,3 +99,44 @@ def test_a_pending_person_entry_needs_a_reason() -> None:
 def test_a_group_number_starts_at_one() -> None:
     with pytest.raises(ValidationError, match="A criterion group is a number from 1, not 0"):
         _entry("A criterion.", 0)
+
+
+def test_a_pending_person_criterion_with_a_comma_keeps_its_whole_text() -> None:
+    """The reader splits at the first comma, and the issue's own criterion restores the whole
+    text (#4023)."""
+    body = "## Acceptance criteria\n\n- Add the label, keep the title\n"
+    entry = _entry(
+        "Add the label", "pending-person", "keep the title, because the label is missing"
+    )
+
+    assert criterion_problems([entry], body, 1) == []
+
+
+def test_a_pending_person_reason_with_a_comma_keeps_its_whole_text() -> None:
+    body = "## Acceptance criteria\n\n- Add the label\n"
+    entry = _entry(
+        "Add the label", "pending-person", "because the label is missing, and the title is short"
+    )
+
+    assert criterion_problems([entry], body, 1) == []
+
+
+def test_the_longest_pending_person_criterion_wins() -> None:
+    from devops_cli.roadmap.stage.stage_criteria import _resolved
+
+    entry = _entry(
+        "Add the label", "pending-person", "keep the title, because the label is missing"
+    )
+
+    (resolved,) = _resolved([entry], ["Add the label", "Add the label, keep the title"])
+
+    assert resolved.criterion == "Add the label, keep the title"
+
+
+def test_a_pending_person_criterion_that_the_issue_does_not_list_is_reported() -> None:
+    body = "## Acceptance criteria\n\n- Add the label\n"
+    entry = _entry("Unknown text", "pending-person", "because the text is absent")
+
+    problems = criterion_problems([entry], body, 1)
+
+    assert "Add the label" in " ".join(problems)
