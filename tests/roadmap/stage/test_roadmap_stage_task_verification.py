@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 
 from devops_cli.roadmap.implement.implement_shell_policy import verification_problem
+from devops_cli.roadmap.plan_read import PlanReadError, read_change
 from devops_cli.roadmap.stage.stage_change import StageGroup, group_text, render_change
 from devops_cli.roadmap.stage.stage_eval_cases import StageCase, load_cases
 from devops_cli.roadmap.stage.stage_form import form_problems
@@ -253,3 +254,46 @@ def test_the_step_can_run_each_command_of_a_staged_plan(
     commands = _parsed(number, group).verification_commands
 
     assert [verification_problem(command) for command in commands] == [None] * len(commands)
+
+
+def _rendered_files() -> dict[str, str]:
+    return render_change(
+        "1-keep-the-last-comment",
+        make_stage_proposal(),
+        {"x"},
+        created=date(2026, 11, 14),
+    )
+
+
+def _tasks_path() -> str:
+    return "openspec/changes/1-keep-the-last-comment/tasks.md"
+
+
+def test_an_unmarked_verification_span_names_the_missing_marker() -> None:
+    """A command span without `$ ` is prose, so the reader names the marker, not a group kind
+    (#4010)."""
+    files = _rendered_files()
+    files[_tasks_path()] = files[_tasks_path()].replace("`$ ", "`", 1)
+
+    with pytest.raises(PlanReadError) as found:
+        read_change(files)
+
+    assert ("Add `$ `" in found.value.reason, "has the kind other" in found.value.reason) == (
+        True,
+        False,
+    )
+
+
+def test_a_marked_verification_span_still_parses() -> None:
+    files = _rendered_files()
+
+    assert read_change(files).groups
+
+
+def test_an_inline_span_outside_a_verification_line_is_no_marker_error() -> None:
+    files = _rendered_files()
+    files[_tasks_path()] = files[_tasks_path()].replace(
+        "## 1.", "A sentence with `inline code` and no marker.\n\n## 1.", 1
+    )
+
+    assert read_change(files).groups

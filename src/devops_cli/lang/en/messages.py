@@ -5038,6 +5038,10 @@ class RoadmapMessages:
     plan_read_bad_verification: str = (
         "Group {group} names the verification `{command}`, and the step cannot run it: {reason}."
     )
+    plan_read_unmarked_verification: str = (
+        "Group {group} names the verification span `{command}` that does not start with `$ `. Add"
+        " `$ ` before the command, as in `$ uv run devops ci test <path>`."
+    )
     plan_read_bad_criterion: str = (
         "`tasks.md` holds a criterion that the reader cannot read: {text}"
     )
