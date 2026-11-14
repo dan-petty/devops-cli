@@ -22,9 +22,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/refine/refine.py`, `src/devops_cl
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/refine/refine.py`, `src/devops_cli/roadmap/trust.py`, `src/devops_cli/roadmap/owner_question.py`, `src/devops_cli/roadmap/run.py`, `tests/roadmap/refine/test_roadmap_refine_trust.py`, `tests/roadmap/implement/test_roadmap_implement_deadline.py`. Changes: `src/devops_cli/roadmap/refine/refine.py`, `src/devops_cli/roadmap/run.py`, `tests/roadmap/refine/test_roadmap_refine_owner_answer.py` (new).
 
-- [ ] 3.1 Add a case in `tests/roadmap/refine/test_roadmap_refine_owner_answer.py` for a trusted reply that writes the answer on each covered item and starts its run, and for a reply from another user that writes nothing and starts no run
+- [x] 3.1 Add a case in `tests/roadmap/refine/test_roadmap_refine_owner_answer.py` for a trusted reply that writes the answer on each covered item and starts its run, and for a reply from another user that writes nothing and starts no run
   - Verification: `$ uv run devops ci test tests/roadmap/refine/test_roadmap_refine_owner_answer.py` fails on the base
-- [ ] 3.2 Read the answer of the frame with `OwnerQuestion.answer_of`. Write `OwnerQuestionRecordKey.ANSWER` and end the wait on each open item whose record holds the same `OwnerQuestionRecordKey.HASH`, and give the request of each covered item the answer text and the frame reference. Pass the actor of the run in `src/devops_cli/roadmap/run.py` to the round, so `is_person_comment` refuses a bot and the account that the job acts as. A reply that is not trusted records nothing and starts no run
+- [x] 3.2 Read the answer of the frame with `OwnerQuestion.answer_of`. Write `OwnerQuestionRecordKey.ANSWER` and end the wait on each open item whose record holds the same `OwnerQuestionRecordKey.HASH`, and give the request of each covered item the answer text and the frame reference. Pass the actor of the run in `src/devops_cli/roadmap/run.py` to the round, so `is_person_comment` refuses a bot and the account that the job acts as. A reply that is not trusted records nothing and starts no run
   - Verification: `$ uv run devops ci test tests/roadmap/refine/test_roadmap_refine_owner_answer.py` passes
 
 ## 4. Post the form from the stage step
