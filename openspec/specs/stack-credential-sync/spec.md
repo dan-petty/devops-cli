@@ -209,3 +209,11 @@ The Secret read of the sync MUST refuse a context name that holds a shell metach
 #### Scenario: The infra stack deploys against an ARN context
 - **WHEN** `devops k8s deploy-stack --stack infra --no-wait --no-push-secrets` runs with the context `arn:aws:eks:us-east-1:123456789012:cluster/prod`
 - **THEN** the command exits with status 0, its output holds no `Must be a valid RFC 1123 name` message, and `kubectl get secret` gets `--context` with the ARN
+
+### Requirement: Secret monitoring/grafana-admin holds a secret-key entry
+Secret `monitoring/grafana-admin` SHALL hold `secret-key` from keyring `grafana_secret_key`, generated with `token_urlsafe(32)` when the keyring holds no value. The Grafana values SHALL map `GF_SECURITY_SECRET_KEY` to this key via `envValueFrom`.
+
+#### Scenario: Secret entry and Helm value mapping
+- **WHEN** the cluster secret table and Grafana values are read
+- **THEN** Secret `monitoring/grafana-admin` defines `secret-key` with generator `token_urlsafe(32)`
+- **AND** `k8s/monitoring/grafana-values.yaml` maps `GF_SECURITY_SECRET_KEY` to `grafana-admin` `secret-key`

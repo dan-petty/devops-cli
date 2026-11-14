@@ -78,6 +78,12 @@ imageRenderer:
 admin:
   existingSecret: grafana-admin
 
+envValueFrom:
+  GF_SECURITY_SECRET_KEY:
+    secretKeyRef:
+      name: grafana-admin
+      key: secret-key
+
 grafana.ini:
   security:
     allow_embedding: true
