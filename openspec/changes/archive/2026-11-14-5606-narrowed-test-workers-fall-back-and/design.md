@@ -40,7 +40,7 @@ The scoped run of this change, `uv run devops ci test` with the 3 changed source
 - **Skip the collection for more than `DEFAULT_CI_TEST_SERIAL_MAX_FILES` (12) target modules.**: That changes the rule of #4472 instead of bounding its cost: 13 to 50 modules can collect 50 tests or fewer, and the collected count then runs them serially. Only more than 50 modules prove more than 50 tests.
 - **Remove `PYTEST_XDIST_AUTO_NUM_WORKERS` in the hermetic floor of `tests/conftest.py`.**: The floor runs for each test of the suite, and a test that starts a real pytest child would lose the bound of its pod. Only the tests of this module read the variable through the command.
 - **Keep `DEFAULT_SUBPROCESS_TIMEOUT_SECONDS` for the collection.**: It is 1800 s, the same limit as the run, so a collection that hangs uses the time of the run and the outer limit fires first.
-- **Lower the limit of 50 tests, or size the workers by the time of the tests.**: The 52-test module above ran in 8 s serially and in 22 s with the collection and 4 workers, so a count of tests is a poor sign of the work. That is a change of the rule of #4472 and needs a source of test times, which the project does not keep; the issue does not ask for it.
+- **Lower the limit of 50 tests, or size the workers by the time of the tests.**: The 52-test module above ran in 8 s serially and in 22 s with the collection and 4 workers, so a count of tests is a poor sign of the work. That is a change of the rule of #4472 and needs a source of test times, which the project does not keep; the issue does not ask for it, and #5612 tracks it.
 
 ## Unchanged references
 
