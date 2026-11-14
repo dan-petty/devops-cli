@@ -155,6 +155,7 @@ from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
 from devops_cli.roadmap.commit_title import commit_summary, commit_type, unlisted_type_reason
 from devops_cli.roadmap.decision_point import ResolverChain
 from devops_cli.roadmap.decision_step import Band
+from devops_cli.roadmap.dependencies import open_dependency
 from devops_cli.roadmap.digest_clears import has_digest_clear
 from devops_cli.roadmap.failure import FailureClass, StepName, failure_class_of, retry_after
 from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
@@ -175,13 +176,11 @@ from devops_cli.roadmap.pull_form import (
 from devops_cli.roadmap.pull_labels import add_pull_labels, read_title_labels, remove_pull_labels
 from devops_cli.roadmap.refine.refine import (
     NextStep,
-    body_dependencies,
     collect_context,
     git_result,
     inspect_checkout,
     recorded_blockers,
     stage_comment_text,
-    title_dependencies,
 )
 from devops_cli.roadmap.refine.refine_investigation import task_window
 from devops_cli.roadmap.round_log import (
@@ -661,19 +660,8 @@ class _Judge:
 
     def _dependency(self, item: Item) -> str | None:
         """An open issue that the Dependencies section of the body names as `#N` (#2654) or by its
-        quoted title (#4803)."""
-        named = [
-            *body_dependencies(item.body),
-            *title_dependencies(item.body, self._items).numbers,
-        ]
-        open_issues = [
-            f"#{number}"
-            for number in dict.fromkeys(named)
-            if (found := self._store.item(number)) is not None and found.state is GitHubState.OPEN
-        ]
-        if not open_issues:
-            return None
-        return MESSAGES.roadmap.stage_left_dependency.format(issues=", ".join(open_issues))
+        quoted title (#4803), from the shared check (#4009)."""
+        return open_dependency(item, self._store, self._items)
 
     def _recorded_blocker(self, item: Item) -> str | None:
         """An open item that the record of a refine round or of the stage job names as the blocker

@@ -201,6 +201,7 @@ def seed_staged(
     author_login: str | None = None,
     title: str = TITLE,
     pull: int = PULL,
+    body: str = BODY,
 ) -> int:
     """An item with the stage job's record: its branch and the draft pull request `pull`. The
     login of the author is given to the store only when the caller names one."""
@@ -209,7 +210,7 @@ def seed_staged(
         author["author_login"] = author_login
     number = store.seed_issue(
         title,
-        body=BODY,
+        body=body,
         labels=labels,
         fields={ItemField.STATUS: status, ItemField.PRIORITY: priority},
         **author,
