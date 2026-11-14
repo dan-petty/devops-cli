@@ -23,16 +23,16 @@ Only a finding of the severity `blocker` or `major` SHALL be open. The type SHAL
 Each open finding of a review SHALL return the plan to the planner while a repair round remains, with each open finding of the review in `problem`. An open finding is a finding of the severity `blocker` or `major` (`OPEN_SEVERITIES`) that is a quoted finding of an open type (`OPEN_TYPES`), or a finding that reports a placeholder that the request holds. `OPEN_TYPES` SHALL hold the nine types that `VERIFY_TYPES` names, so the severity alone decides whether a finding returns the plan.
 
 #### Scenario: A quoted dropped criterion finding returns the plan
-- **WHEN** the verifier returns a major `criterion_dropped` finding whose quote is in the issue, and the review of the revised plan finds nothing
-- **THEN** the planner gets a second request with the finding in `problem` and the first plan as `previous`, and the staged change holds the revised plan and no open finding
+- **WHEN** the verifier returns a major criterion_dropped finding whose quote is in the issue, and the review of the revised plan finds nothing
+- **THEN** the planner gets a second request with the finding in problem and the first plan as previous, and the staged change holds the revised plan and no open finding
 
 #### Scenario: A quoted spec delta finding returns the plan
-- **WHEN** the verifier returns a major `spec_delta_wrong` finding whose quote is in the issue, and the review of the revised plan finds nothing
-- **THEN** the planner gets a second request with the finding in `problem`, and the staged change holds no open finding
+- **WHEN** the verifier returns a major spec_delta_wrong finding whose quote is in the issue, and the review of the revised plan finds nothing
+- **THEN** the planner gets a second request with the finding in problem, and the staged change holds no open finding
 
 #### Scenario: A placeholder finding returns the plan
 - **WHEN** the verifier returns a major finding that reports a placeholder that the issue holds, and the review of the revised plan finds nothing
-- **THEN** the planner gets a second request with the finding in `problem`, and the staged change holds no open finding
+- **THEN** the planner gets a second request with the finding in problem, and the staged change holds no open finding
 
 #### Scenario: An other finding with a quote returns the plan
 - **WHEN** the verifier returns an `other` finding of severity `major` whose quote is in the input
@@ -42,7 +42,7 @@ Each open finding of a review SHALL return the plan to the planner while a repai
 The job SHALL list each finding that does not return the plan in the comment that names the draft pull request, with its type, place, problem and quote. The text of a finding SHALL be on one line, with a handle, a link or a reference to another repository in a code span. The job SHALL open the draft pull request.
 
 #### Scenario: A contrived test finding
-- **WHEN** the verifier returns a minor `contrived_test` finding
+- **WHEN** the verifier returns a minor contrived_test finding
 - **THEN** the comment lists the finding and the draft pull request is open
 
 #### Scenario: No finding
@@ -54,12 +54,12 @@ After the last repair round, the plan SHALL keep each open finding of the last r
 
 #### Scenario: The second repair round still has a finding
 - **WHEN** the plan still has a return finding after the second repair round
-- **THEN** the planner makes no further request, the job keeps the draft with the label `plan/needs-fix`, and the issue receives a comment with the findings
+- **THEN** the planner makes no further request, the job keeps the draft with the label plan/needs-fix, and the issue receives a comment with the findings
 
 #### Scenario: The comment lists each repair round
 - **WHEN** the verifier returns a return finding on each of the first two reviews, and no finding on the third
 - **THEN** the planner makes two repair requests, and the comment of the item lists the two return findings
 
 #### Scenario: A mixed first round
-- **WHEN** the first review returns a `false_premise`, a `spec_delta_wrong` and a major `contrived_test` finding with quotes, and the second review finds nothing
-- **THEN** the planner gets all three findings in `problem`, the comment lists all three, and no finding is open
+- **WHEN** the first review returns a false_premise, a spec_delta_wrong and a major contrived_test finding with quotes, and the second review finds nothing
+- **THEN** the planner gets all three findings in problem, the comment lists all three, and no finding is open

@@ -59,7 +59,7 @@ The step SHALL count only a blocker or a major finding as open. A head whose rev
 - **THEN** the pull request loses `plan/needs-fix`, and the comment lists the minor finding as advice
 
 ### Requirement: The review of the head counts the open findings before the repair
-In each attempt the verification pass SHALL review the plan that passed the checks at the latest default branch, with no screen of `stage.verify_screen`, and the step SHALL compare the last review of the revision with the open findings of that review. The step SHALL give the planner the open findings of that review and the open findings of the last trusted comment of the stage job or of the step that names the pull request. When the review of the head plan has no open finding but the comment lists an open finding, the step SHALL NOT dismiss the plan, SHALL keep `plan/needs-fix`, and SHALL report `unchanged`.
+In each attempt the verification pass SHALL review the plan of the head. The step SHALL give the planner the open findings of that review and the open findings of the last trusted plan comment. When the review of the head has no open finding but the comment lists an open finding, the step SHALL NOT dismiss the plan, SHALL keep `plan/needs-fix`, and SHALL report `unchanged`.
 
 #### Scenario: No comment lists an open finding
 - **WHEN** no trusted comment of the item lists an open finding for the pull request, and the review of the head plan has one
@@ -78,8 +78,8 @@ In each attempt the verification pass SHALL review the plan that passed the chec
 - **THEN** the planner gets no request, the head of the branch does not change, the pull request keeps `plan/needs-fix`, and the result is `unchanged`
 
 #### Scenario: The screen does not decide the review of the head
-- **WHEN** the screen of `stage.verify_screen` is in mode `on` and gives the band `continue`
-- **THEN** the verification pass reviews the plan of the head, and its open findings are `before`
+- **WHEN** the screen of stage.verify_screen is in mode on and gives the band continue
+- **THEN** the verification pass reviews the plan of the head, and its open findings are before
 
 ### Requirement: The label goes when no open finding remains
 The step SHALL remove `plan/needs-fix` for the result `cleared` (a pushed revision whose last review has no open finding), for `dismissed` (a review of the head with no open finding and no open finding listed in the last plan comment), and for `regated` only when the review of the gated plan has no open finding and no step failed. It SHALL keep the label for each other result.
