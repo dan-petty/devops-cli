@@ -623,6 +623,50 @@ def test_the_roadmap_age_gauges_are_declared_gauges_with_their_units_and_labels(
     )
 
 
+INBOX_GAUGE_NAME = "devops_cli_roadmap_inbox_items"
+
+
+def test_the_inbox_gauge_is_a_declared_instrument() -> None:
+    """The count of the inbox lines of each kind is a gauge of unit `1` (#2968), labelled by the
+    repository and the kind. One repository adds one series for each of its eight counted kinds,
+    so seven repositories stay at 56 series."""
+    declared = {instrument.name: instrument for instrument in INSTRUMENTS}
+    assert INBOX_GAUGE_NAME in declared
+
+    inbox = declared[INBOX_GAUGE_NAME]
+    assert (inbox.kind, inbox.unit) == (InstrumentKind.GAUGE, "1")
+    assert all(label in inbox.description for label in ("repo", "kind"))
+    assert "56 series" in inbox.description
+
+
+PERSON_CAUSE_INSTRUMENT_NAMES = (
+    "devops_cli_roadmap_person_cause_inflow_total",
+    "devops_cli_roadmap_person_cause_outflow_total",
+    "devops_cli_roadmap_person_cause_age_seconds",
+)
+
+
+def test_person_cause_instruments_are_declared() -> None:
+    """Person cause telemetry (#2968): a counter of the items that a typed person cause added, a
+    counter of the items it closed, and a gauge of the age of the oldest item it holds, each by
+    repository and cause."""
+    declared = {instrument.name: instrument for instrument in INSTRUMENTS}
+    assert [name for name in PERSON_CAUSE_INSTRUMENT_NAMES if name not in declared] == []
+
+    inflow, outflow, age = (declared[name] for name in PERSON_CAUSE_INSTRUMENT_NAMES)
+    assert [inflow.kind, outflow.kind, age.kind] == [
+        InstrumentKind.COUNTER,
+        InstrumentKind.COUNTER,
+        InstrumentKind.GAUGE,
+    ]
+    assert [inflow.unit, outflow.unit, age.unit] == ["1", "1", "s"]
+    assert all(
+        label in instrument.description
+        for instrument in (inflow, outflow, age)
+        for label in ("repo", "cause")
+    )
+
+
 def test_the_alternatives_coverage_instruments_are_declared_with_their_kinds_and_units() -> None:
     """The check of open items for an open tool shows its coverage (#2950): two gauges, the open
     items with no check and the age of the oldest check, and a histogram of the searches of each

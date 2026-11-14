@@ -13,9 +13,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/inbox.py`, `src/devops_cli/roadma
 
 Kind: behavior. Reads: `src/devops_cli/telemetry/instruments.py`, `tests/telemetry/test_telemetry_instruments.py`. Changes: `src/devops_cli/telemetry/instruments.py`, `tests/telemetry/test_telemetry_instruments.py`.
 
-- [ ] 2.1 `test_the_inbox_gauge_is_a_declared_instrument` in `tests/telemetry/test_telemetry_instruments.py`: `INSTRUMENTS` holds `devops_cli_roadmap_inbox_items` with kind Gauge and unit `1`. `test_person_cause_instruments_are_declared` asserts declaration of person cause inflow, outflow, and age instruments
+- [x] 2.1 `test_the_inbox_gauge_is_a_declared_instrument` in `tests/telemetry/test_telemetry_instruments.py`: `INSTRUMENTS` holds `devops_cli_roadmap_inbox_items` with kind Gauge and unit `1`. `test_person_cause_instruments_are_declared` asserts declaration of person cause inflow, outflow, and age instruments
   - Verification: `$ uv run devops ci test tests/telemetry/test_telemetry_instruments.py` fails on the base
-- [ ] 2.2 Add `ROADMAP_INBOX_ITEMS` to `src/devops_cli/telemetry/instruments.py` beside `ROADMAP_CLAIM_AGE`. Add person cause instruments `ROADMAP_PERSON_CAUSE_INFLOW`, `ROADMAP_PERSON_CAUSE_OUTFLOW`, and `ROADMAP_PERSON_CAUSE_AGE`. Add all names to `INSTRUMENTS` and `__all__`
+- [x] 2.2 Add `ROADMAP_INBOX_ITEMS` to `src/devops_cli/telemetry/instruments.py` beside `ROADMAP_CLAIM_AGE`. Add person cause instruments `ROADMAP_PERSON_CAUSE_INFLOW`, `ROADMAP_PERSON_CAUSE_OUTFLOW`, and `ROADMAP_PERSON_CAUSE_AGE`. Add all names to `INSTRUMENTS` and `__all__`
   - Verification: `$ uv run devops ci test tests/telemetry/test_telemetry_instruments.py` passes
 
 ## 3. Send the count of each counted kind from the metrics row and inbox command
