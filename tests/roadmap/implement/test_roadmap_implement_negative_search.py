@@ -247,7 +247,7 @@ def test_every_verify_form_that_the_gate_admits_is_a_command_that_the_step_runs(
     ]
     base = make_stage_proposal().groups[0].model_dump()
     for verify in admitted:
-        group = StageGroup.model_validate({**base, "verify": verify})
+        group = StageGroup.model_validate({**base, "kind": "other", "test": None, "verify": verify})
         assert form_problems([group]) == [], verify
         assert commands_failure(checkout, [verify]) is None, verify
 

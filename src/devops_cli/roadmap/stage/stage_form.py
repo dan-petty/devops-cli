@@ -102,7 +102,7 @@ def _behavior_test_run_problems(number: int, group: StageGroup) -> list[str]:
     the command must name a test module that `test`, `changes`, `creates` or `reads` names."""
     if group.kind != "behavior" or group.verify is None:
         return []
-    if not is_valid_verify(group.verify) or negative_search_parts(group.verify) is not None:
+    if _verify_problems(number, group.verify) or negative_search_parts(group.verify) is not None:
         # The form rule refuses another command, and a negative search proves a removed name.
         return []
     command = group.verify.strip()
