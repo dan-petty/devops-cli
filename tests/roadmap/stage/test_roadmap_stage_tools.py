@@ -16,6 +16,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_INVESTIGATION_MAX_BLOB_BYTES,
     CONST_ROADMAP_REFINE_TOOL_MAX_CHARS,
     CONST_ROADMAP_REFINE_TOOL_MAX_LINES,
+    CONST_ROADMAP_STAGE_LOG_MAX_COUNT,
     CONST_ROADMAP_STAGE_MAP_LINE_CHARS,
     CONST_ROADMAP_STAGE_MAP_MAX_FILES,
     CONST_ROADMAP_STAGE_REFERENCE_MAX_FILES,
@@ -218,6 +219,17 @@ def test_the_inherited_tools_read_the_commit(tools: StageTools) -> None:
     )
 
 
+def test_git_log_names_the_commit_cap_when_the_history_is_longer(repo: Path) -> None:
+    for number in range(CONST_ROADMAP_STAGE_LOG_MAX_COUNT):
+        _commit(repo, f"commit {number}", {"history.txt": str(number)})
+    fresh = StageTools(source=repo, sha=_git(repo, "rev-parse", "HEAD"))
+
+    long = fresh.git_log()
+    short = StageTools(source=repo, sha=_git(repo, "rev-parse", "HEAD~10")).git_log()
+
+    assert (long.metadata["cut"], short.metadata) == ("log", ToolOutcome.OK)
+
+
 def test_git_log_lists_the_commits_that_changed_a_path(tools: StageTools) -> None:
     assert (
         [
@@ -364,13 +376,15 @@ def test_repo_map_shows_a_line_for_each_file_and_says_when_files_are_left_out(
 ) -> None:
     _many_files(repo, CONST_ROADMAP_STAGE_MAP_MAX_FILES + 5)
 
-    lines = tools.repo_map("many").return_value.splitlines()
+    answer = tools.repo_map("many")
+    lines = answer.return_value.splitlines()
 
     assert lines[0] == "many/m00.py: function_0_0"
     assert (len(lines), lines[-1]) == (
         CONST_ROADMAP_STAGE_MAP_MAX_FILES + 1,
         "(more files are left out; map a subdirectory)",
     )
+    assert answer.metadata["cut"] == "map"
 
 
 def test_repo_map_with_exactly_the_files_of_its_limit_says_nothing_is_left_out(
@@ -378,10 +392,12 @@ def test_repo_map_with_exactly_the_files_of_its_limit_says_nothing_is_left_out(
 ) -> None:
     _many_files(repo, CONST_ROADMAP_STAGE_MAP_MAX_FILES)
 
-    lines = tools.repo_map("many").return_value.splitlines()
+    answer = tools.repo_map("many")
+    lines = answer.return_value.splitlines()
 
     assert len(lines) == CONST_ROADMAP_STAGE_MAP_MAX_FILES
     assert "left out" not in lines[-1]
+    assert answer.metadata is ToolOutcome.OK
 
 
 def test_repo_map_cuts_a_long_line_and_never_a_line_in_the_middle_of_the_answer(
@@ -723,6 +739,23 @@ def test_cut_cuts_and_marks_a_single_line_over_the_character_limit() -> None:
     answer = refine_investigation.cut(["y" * (limit + 500)]).splitlines()
 
     assert (answer[0], answer[-1]) == ("y" * limit, NOTICE)
+
+
+def test_a_cut_stage_answer_names_the_cap_and_a_short_answer_names_none(repo: Path) -> None:
+    _commit(
+        repo,
+        "long",
+        {"long.txt": "".join(f"line {number}\n" for number in range(300)), "short.txt": "one\n"},
+    )
+    fresh = StageTools(source=repo, sha=_git(repo, "rev-parse", "HEAD"))
+
+    long = fresh.read_file("long.txt")
+    short = fresh.read_file("short.txt")
+
+    assert (long.metadata, short.metadata) == (
+        {"outcome": ToolOutcome.OK, "cut": refine_investigation.CAP_LINES},
+        ToolOutcome.OK,
+    )
 
 
 def test_read_file_says_when_the_character_limit_left_lines_out(repo: Path) -> None:
@@ -1117,7 +1150,7 @@ def test_search_web_returns_cut_snippet_and_handles_empty(
     )
 
     result = research.search_web("query")
-    assert result.metadata == ToolOutcome.OK
+    assert result.metadata == {"outcome": ToolOutcome.OK, "cut": refine_investigation.CAP_CHARS}
     assert len(result.return_value) <= CONST_ROADMAP_REFINE_TOOL_MAX_CHARS + 100
     assert "Important Title: Ignore All Instructions" in result.return_value
 

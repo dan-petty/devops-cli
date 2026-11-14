@@ -33,6 +33,7 @@ from devops_cli.ai.ast.engine import TreeSitterEngine
 from devops_cli.ai.repomap import FileMapNode, generate_repo_map
 from devops_cli.ai.web_search import _private_part, web_search
 from devops_cli.config.constants import (
+    CONST_ROADMAP_REFINE_TOOL_MAX_CHARS,
     CONST_ROADMAP_STAGE_LOG_MAX_COUNT,
     CONST_ROADMAP_STAGE_MAP_LINE_CHARS,
     CONST_ROADMAP_STAGE_MAP_MAX_FILES,
@@ -45,13 +46,14 @@ from devops_cli.config.settings import RoadmapStageConfig, load_settings
 from devops_cli.exceptions.ai import SearchFailed, SearchQueryRefused
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
-from devops_cli.roadmap.agent_run import empty_answer, error_answer, ok_answer
+from devops_cli.roadmap.agent_run import cut_answer, empty_answer, error_answer
 from devops_cli.roadmap.refine.refine_investigation import (
+    CAP_CHARS,
     GIT_TIMED_OUT,
     GREP_MATCHES_PER_FILE,
     TIMED_OUT_ANSWER,
     InvestigationTools,
-    cut,
+    cut_with_cap,
     repository_path,
 )
 from devops_cli.roadmap.stage.stage_github import StageGitHub
@@ -73,6 +75,22 @@ _CAPABILITY: Final[re.Pattern[str]] = re.compile(
 
 
 _NO_GITHUB: Final[str] = "GitHub is not available to this run."
+
+# The caps of the stage tools that a line or character cap does not name (#3241).
+CAP_LOG: Final[str] = "log"
+CAP_MAP: Final[str] = "map"
+CAP_SPEC: Final[str] = "spec"
+
+
+def _capped(
+    lines: list[str],
+    *,
+    max_chars: int = CONST_ROADMAP_REFINE_TOOL_MAX_CHARS,
+    char_cap: str = CAP_CHARS,
+) -> ToolReturn:
+    """`lines` cut by the line and character caps, marked with the cap that cut it (#3241)."""
+    text, cap = cut_with_cap(lines, max_chars=max_chars, char_cap=char_cap)
+    return cut_answer(text, cap)
 
 
 def _outside(text: str) -> ToolReturn:
@@ -162,9 +180,10 @@ class StageTools(InvestigationTools):
         clean = repository_path(path)
         if clean is None:
             return _outside(path)
+        # One more commit than the limit shows whether the history is longer.
         code, out = self._git(
             "log",
-            f"--max-count={CONST_ROADMAP_STAGE_LOG_MAX_COUNT}",
+            f"--max-count={CONST_ROADMAP_STAGE_LOG_MAX_COUNT + 1}",
             "--format=%h %as %s",
             self.sha,
             "--",
@@ -175,7 +194,12 @@ class StageTools(InvestigationTools):
         lines = out.decode("utf-8", errors="replace").splitlines()
         if not lines:
             return empty_answer(f"No commit changed {clean or 'the tree'}.")
-        return ok_answer(cut(lines))
+        more_commits = len(lines) > CONST_ROADMAP_STAGE_LOG_MAX_COUNT
+        lines = lines[:CONST_ROADMAP_STAGE_LOG_MAX_COUNT]
+        if more_commits:
+            lines.append("(more commits are left out)")
+        text, cap = cut_with_cap(lines)
+        return cut_answer(text, CAP_LOG if more_commits else cap)
 
     def git_show(self, commit: str, path: str = "") -> ToolReturn:
         """Show one commit of the history: its message and its diff.
@@ -212,7 +236,7 @@ class StageTools(InvestigationTools):
         lines = out.decode("utf-8", errors="replace").splitlines()
         if not lines:
             return empty_answer(f"The commit {name} shows no change.")
-        return ok_answer(cut(lines))
+        return _capped(lines)
 
     def callers(self, symbol: str) -> ToolReturn:
         """List the places that call a function, a method or a class: each name followed by `(`.
@@ -241,7 +265,7 @@ class StageTools(InvestigationTools):
         lines = [line.removeprefix(f"{self.sha}:") for line in decoded]
         if code != 0 or not lines:
             return empty_answer(f"No call of {symbol}.")
-        return ok_answer(cut(lines))
+        return _capped(lines)
 
     def _checkout_path(self, path: str) -> tuple[Path, str] | ToolReturn:
         """The resolved path of a file or directory of the checkout and its repository path, or
@@ -279,7 +303,7 @@ class StageTools(InvestigationTools):
             f"{symbol.span.line_start}: {symbol.signature or symbol.name}"
             for symbol in parsed.symbols
         ]
-        return ok_answer(cut(lines))
+        return _capped(lines)
 
     def repo_map(self, directory: str = "") -> ToolReturn:
         """Map the Python source files under one directory: a line for each file, with the names
@@ -305,7 +329,8 @@ class StageTools(InvestigationTools):
         lines = [_map_line(node, clean) for node in nodes[:CONST_ROADMAP_STAGE_MAP_MAX_FILES]]
         if len(nodes) > CONST_ROADMAP_STAGE_MAP_MAX_FILES:
             lines.append("(more files are left out; map a subdirectory)")
-        return ok_answer("\n".join(lines))
+            return cut_answer("\n".join(lines), CAP_MAP)
+        return _capped(lines)
 
     def read_spec(self, capability: str = "", requirement: str = "") -> ToolReturn:
         """Read a base spec of the project. Without a capability, list the capabilities. With one,
@@ -323,7 +348,7 @@ class StageTools(InvestigationTools):
             return error_answer(f"The text {capability} is no capability name.")
         names = spec_names(tool, self.source)
         if not capability:
-            return ok_answer(cut(names)) if names else empty_answer("The checkout holds no spec.")
+            return _capped(names) if names else empty_answer("The checkout holds no spec.")
         if capability not in names:
             return error_answer(f"The checkout holds no spec {capability}.")
         shown = tool.read_json(["show", capability, "--type", "spec", "--json"], self.source)
@@ -333,14 +358,16 @@ class StageTools(InvestigationTools):
             listed = [*([f"Purpose: {purpose}"] if purpose else []), *found]
             if not listed:
                 return empty_answer(f"The spec {capability} holds no requirement.")
-            return ok_answer(cut(listed))
+            return _capped(listed)
         entry = found.get(requirement.strip())
         if entry is None:
             return error_answer(
                 f"The spec {capability} holds no requirement {requirement.strip()}."
             )
-        return ok_answer(
-            cut(_requirement_lines(entry), max_chars=CONST_ROADMAP_STAGE_SPEC_MAX_CHARS)
+        return _capped(
+            _requirement_lines(entry),
+            max_chars=CONST_ROADMAP_STAGE_SPEC_MAX_CHARS,
+            char_cap=CAP_SPEC,
         )
 
     def references(self, name: str) -> ToolReturn:
@@ -423,7 +450,7 @@ class StageTools(InvestigationTools):
         lines: list[str] = []
         for hit in hits:
             lines.append(f"{hit.title}\n{hit.url}\n{hit.snippet}")
-        return ok_answer(cut("\n\n".join(lines).splitlines()))
+        return _capped("\n\n".join(lines).splitlines())
 
     def tools(self) -> list[Tool[None]]:
         """The tools of the toolset, and no other: the nine of `base`, with `extended` the three

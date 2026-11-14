@@ -52,6 +52,7 @@ from devops_cli.telemetry.instruments import (
     ROADMAP_TOOL_ANSWER_CHARS,
     ROADMAP_TOOL_CALLS_PER_RUN,
     ROADMAP_TOOL_CALLS_TOTAL,
+    ROADMAP_TOOL_CUTS_TOTAL,
     ROADMAP_TOOL_LIMIT_HITS_TOTAL,
 )
 from tests.support.builders import make_stage_proposal
@@ -856,6 +857,21 @@ def test_the_limit_label_of_a_run_is_one_of_the_three_limits(
         1.0,
         True,
     )
+
+
+def test_end_run_counts_one_cut_answer_and_no_whole_answer(otlp: FakeCollector) -> None:
+    trace = RunTrace(
+        tool_calls=[
+            ToolCallRecord("read_file", "{}", ToolOutcome.OK, 5, cut="lines"),
+            ToolCallRecord("read_file", "{}", ToolOutcome.OK, 5),
+        ]
+    )
+
+    end_run(trace, row="stage", toolset="base", finished=True)
+
+    assert otlp.points(ROADMAP_TOOL_CUTS_TOTAL.name) == [
+        ({**_RUN, "tool": "read_file", "cap": "lines"}, 1.0)
+    ]
 
 
 def test_a_run_that_ends_on_no_limit_counts_no_hit(

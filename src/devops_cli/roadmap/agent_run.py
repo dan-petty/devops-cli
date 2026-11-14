@@ -183,6 +183,15 @@ def ok_answer(text: str) -> ToolReturn:
     return ToolReturn(text, metadata=ToolOutcome.OK)
 
 
+def cut_answer(text: str, cap: str | None) -> ToolReturn:
+    """The answer of a tool call that `cap` cut, or `ok_answer(text)` when no cap cut it (#3241).
+    The metadata names the cap, so the trace and `devops_cli_roadmap_tool_cuts_total` can count
+    the answer."""
+    if cap is None:
+        return ok_answer(text)
+    return ToolReturn(text, metadata={"outcome": ToolOutcome.OK, "cut": cap})
+
+
 def empty_answer(text: str) -> ToolReturn:
     """The answer of a tool call that ran and found nothing, such as a search with no match: `text`
     is what the model reads, and the run reads the outcome `empty` (#3240)."""
@@ -210,8 +219,8 @@ class RunLimit(StrEnum):
 class ToolCallRecord:
     """One tool call of a run: the tool, its argument as JSON, masked and cut, how the call ended,
     the characters of its answer, after the cut of the tool (None for a call with no answer), its
-    timeout in seconds when bounded (#3221), and the `path:line` of each match line of the answer
-    of a search tool (#4495)."""
+    timeout in seconds when bounded (#3221), the `path:line` of each match line of the answer of a
+    search tool (#4495), and the cap that cut its answer, or None (#3241)."""
 
     name: str
     argument: str
@@ -219,6 +228,7 @@ class ToolCallRecord:
     chars: int | None = None
     timeout: float | None = None
     matches: tuple[str, ...] = ()
+    cut: str | None = None
 
 
 @dataclass
@@ -319,7 +329,7 @@ class RunTrace:
             if isinstance(part, ToolCallPart) and part.tool_name in tools:
                 argument = bounded_text(argument_json(part))
                 answer = answers.get(part.tool_call_id)
-                outcome, chars, timeout = _outcome_of(answer)
+                outcome, chars, timeout, cut = _outcome_of(answer)
                 self.tool_calls.append(
                     ToolCallRecord(
                         part.tool_name,
@@ -328,6 +338,7 @@ class RunTrace:
                         chars,
                         timeout=timeout,
                         matches=_match_lines(part.tool_name, answer),
+                        cut=cut,
                     )
                 )
 
@@ -381,16 +392,17 @@ def _match_lines(tool: str, answer: ToolReturnPart | RetryPromptPart | None) -> 
 
 def _outcome_of(
     answer: ToolReturnPart | RetryPromptPart | None,
-) -> tuple[ToolOutcome, int | None, float | None]:
-    """How a tool call ended, the characters of its answer, and its timeout in seconds (None for a
-    call with no answer or timeout). The answer is the text that the model read, after the cut of
-    the tool. The tool sets its outcome with `empty_answer` and `error_answer`, or in a metadata
-    dict. A call with no return of the tool is an error."""
+) -> tuple[ToolOutcome, int | None, float | None, str | None]:
+    """How a tool call ended, the characters of its answer, its timeout in seconds (None for a call
+    with no answer or timeout), and the cap that cut its answer (None with no cut, #3241). The
+    answer is the text that the model read, after the cut of the tool. The tool sets its outcome
+    with `empty_answer` and `error_answer`, or in a metadata dict. A call with no return of the
+    tool is an error."""
     if not isinstance(answer, ToolReturnPart) or answer.outcome != "success":
-        return ToolOutcome.ERROR, None, None
+        return ToolOutcome.ERROR, None, None, None
     text = answer.model_response_str()
     if isinstance(answer.metadata, ToolOutcome):
-        return answer.metadata, len(text), None
+        return answer.metadata, len(text), None, None
     if isinstance(answer.metadata, Mapping):
         meta_outcome = answer.metadata.get("outcome")
         outcome = (
@@ -400,8 +412,10 @@ def _outcome_of(
         )
         timeout_val = answer.metadata.get("timeout")
         timeout = float(timeout_val) if isinstance(timeout_val, (int, float)) else None
-        return outcome, len(text), timeout
-    return (ToolOutcome.OK if text.strip() else ToolOutcome.EMPTY), len(text), None
+        cut_val = answer.metadata.get("cut")
+        cut = cut_val if isinstance(cut_val, str) else None
+        return outcome, len(text), timeout, cut
+    return (ToolOutcome.OK if text.strip() else ToolOutcome.EMPTY), len(text), None, None
 
 
 def record_run_spend(
