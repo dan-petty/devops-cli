@@ -22,9 +22,9 @@ Kind: behavior. Reads: `src/devops_cli/ai/agent_audit/transcript.py`. Changes: `
 
 Kind: behavior. Reads: `src/devops_cli/ai/agent_audit/signature.py`. Changes: `src/devops_cli/ai/agent_audit/finding.py` (new), `src/devops_cli/ai/agent_audit/report.py` (new), `tests/ai/agent_audit/test_findings.py` (new).
 
-- [ ] 3.1 Write `tests/ai/agent_audit/test_findings.py::test_one_finding_for_three_sessions` first: it fails because three sessions produce three separate findings
+- [x] 3.1 Write `tests/ai/agent_audit/test_findings.py::test_one_finding_for_three_sessions` first: it fails because three sessions produce three separate findings
   - Verification: `$ uv run devops ci test tests/ai/agent_audit/test_findings.py` fails on the base
-- [ ] 3.2 Add `src/devops_cli/ai/agent_audit/finding.py` and `src/devops_cli/ai/agent_audit/report.py`. `build_findings(records)` groups records by signature across sessions, counting sessions, recurrences, and elapsed time with one pointer per session. `rank_findings(findings)` orders by session count, then recurrences, then time spent. `render_report(findings, format)` produces formatted table or JSON containing only sanitized text
+- [x] 3.2 Add `src/devops_cli/ai/agent_audit/finding.py` and `src/devops_cli/ai/agent_audit/report.py`. `build_findings(records)` groups records by signature across sessions, counting sessions, recurrences, and elapsed time with one pointer per session. `rank_findings(findings)` orders by session count, then recurrences, then time spent. `render_report(findings, format)` produces formatted table or JSON containing only sanitized text
   - Verification: `$ uv run devops ci test tests/ai/agent_audit/test_findings.py` passes
 
 ## 4. Store the counts of the day and keep a second run unchanged
