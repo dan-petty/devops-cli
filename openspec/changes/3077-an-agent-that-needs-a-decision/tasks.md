@@ -58,9 +58,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/inbox.py`, `src/devops_cli/roadma
 
 Kind: other. Reads: `docs/commands/roadmap.md`, `src/devops_cli/commands/roadmap.py`. Changes: `docs/commands/roadmap.md`.
 
-- [ ] 7.1 Run `uv run devops docs generate` after the `--kind` help and the `InboxKind` member change, so `docs/commands/roadmap.md` shows `owner` in the `--kind` choice of `inbox`
+- [x] 7.1 Run `uv run devops docs generate` after the `--kind` help and the `InboxKind` member change, so `docs/commands/roadmap.md` shows `owner` in the `--kind` choice of `inbox`
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 7.2 Edit `docs/commands/roadmap.md` through `uv run devops docs generate`, never by hand
+- [x] 7.2 Edit `docs/commands/roadmap.md` through `uv run devops docs generate`, never by hand
   - Verification: `$ uv run devops ci docs` passes
 
 ## 8. Document the owner question in the workflow and roadmap pages
