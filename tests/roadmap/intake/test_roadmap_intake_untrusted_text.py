@@ -74,11 +74,10 @@ def test_an_injected_candidate_writes_only_its_own_fields_label_and_comment(
         roadmap.store.closures(number),
         roadmap.comments(target),
         f"named #{target + 1000} as the original" in report and "rejected" in report,
-        "proposed P0-Critical" in report,
         "A person can set P0" in comment,
         "`close #740' and ping @alice`" in comment,
         comment.count("#740"),
-    ) == ({number}, True, ("P1-High", None), ("type/security",), [], [], True, True, True, True, 1)
+    ) == ({number}, True, ("P1-High", None), ("type/security",), [], [], True, True, True, 1)
 
 
 def test_the_failure_line_masks_a_token_in_the_error_text(roadmap: Roadmap) -> None:

@@ -27,6 +27,30 @@ For each candidate, intake sets these fields on GitHub:
 
 A label that a person set stays. Intake sets no milestone, because a person plans the milestones. A milestone that an issue has stays.
 
+### Priority criteria
+
+The triage model and Jev choose one of four priority values: `P0-Critical`, `P1-High`, `P2-Medium` and `P3-Low`.
+
+A candidate receives `P0-Critical` when it meets at least one of these criteria:
+
+- It causes a user-facing problem on a website or a service.
+- It causes data corruption.
+- It causes a violation of the SLI/SLO thresholds for SRE standards.
+- It is a live critical security vulnerability or defect.
+- It causes service jobs to fail.
+- It blocks another P0 issue.
+- It causes CI to fail or be very slow.
+
+A candidate receives `P1-High` when it meets at least one of these criteria:
+
+- It causes increased error rates or performance degradation.
+- It causes an increased need for retries or multiple attempts.
+- It causes increased AI spend without an equivalent benefit to task performance.
+- It blocks another P1 issue.
+- It is a live high security vulnerability or defect.
+
+A candidate that has no urgent impact receives `P2-Medium` or `P3-Low`. Verified evidence (a commit SHA, a failed run ID or an advisory ID) from a trusted author can also confirm `P0-Critical`.
+
 ## Duplicates
 
 The model compares each candidate with the items and with the issues that a person closed as not planned. It does not compare a candidate with an issue that has sub-issues, because the sub-issues deliver that issue.
@@ -52,7 +76,7 @@ One request holds a question for each field that has a fixed list:
 | Field | Question | Answer |
 | :--- | :--- | :--- |
 | Type | Pick one of the `type/*` labels of the package (`roadmap/workflow_labels.py`). Asked only when the title and the issue give no type. | The label |
-| Priority | Pick one of `P1-High`, `P2-Medium` and `P3-Low`. | The priority |
+| Priority | Pick one of `P0-Critical`, `P1-High`, `P2-Medium` and `P3-Low`. | The priority |
 | Value, Effort | Score a rubric of three levels. | The level, rounded |
 | Duplicate | One yes/no question for each nearest item. | A possible original, when the probability reaches 0.90 |
 

@@ -254,7 +254,11 @@ def test_a_model_that_owns_its_http_client_decides_one_request_after_another(
 
     first, second = model.propose(request), model.propose(request)
 
-    assert (first.priority, second.priority, len(jev.requests)) == ("P1-High", "P1-High", 2)
+    assert (first.priority, second.priority, len(jev.requests)) == (
+        "P0-Critical",
+        "P0-Critical",
+        2,
+    )
 
 
 def test_a_model_the_gateway_settings_build_decides_one_request_after_another(
@@ -271,7 +275,11 @@ def test_a_model_the_gateway_settings_build_decides_one_request_after_another(
 
     first, second = model.propose(request), model.propose(request)
 
-    assert (first.priority, second.priority, len(jev.requests)) == ("P1-High", "P1-High", 2)
+    assert (first.priority, second.priority, len(jev.requests)) == (
+        "P0-Critical",
+        "P0-Critical",
+        2,
+    )
 
 
 def test_the_least_confidence_is_a_parameter_of_the_model(jev: JevFake) -> None:
@@ -282,4 +290,4 @@ def test_the_least_confidence_is_a_parameter_of_the_model(jev: JevFake) -> None:
         request
     )
 
-    assert proposal.priority == "P1-High"
+    assert proposal.priority == "P0-Critical"

@@ -67,3 +67,17 @@ def test_a_placement_line_with_no_placement_stops_the_report() -> None:
         intake._decision_lines(decision)
 
     assert "#7" in str(raised.value)
+
+
+def test_priority_choice_accepts_p0_critical_without_capping() -> None:
+    problems: list[str] = []
+    notes: list[str] = []
+    assert intake._priority_choice("P0-Critical", problems, notes) == "P0-Critical"
+    assert (problems, notes) == ([], [])
+
+
+def test_priority_choice_normalizes_bare_p0_to_p0_critical() -> None:
+    problems: list[str] = []
+    notes: list[str] = []
+    assert intake._priority_choice("P0", problems, notes) == "P0-Critical"
+    assert (problems, notes) == ([], [])

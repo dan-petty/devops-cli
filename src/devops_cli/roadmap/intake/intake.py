@@ -120,6 +120,8 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_LABELS_PATH,
     CONST_ROADMAP_MODEL_PRIORITIES,
     CONST_ROADMAP_P0_PRIORITIES,
+    CONST_ROADMAP_P0_PRIORITY,
+    CONST_ROADMAP_P1_PRIORITY,
     CONST_ROADMAP_P2_PRIORITY,
     CONST_ROADMAP_SCOPE_LABEL_PREFIX,
     CONST_ROADMAP_SIZE_OPTIONS,
@@ -891,13 +893,9 @@ def _choice(name: str, value: str, choices: Sequence[str], problems: list[str]) 
 
 
 def _priority_choice(value: str, problems: list[str], notes: list[str]) -> str:
-    """The model's priority; a P0 is capped at P1, as only verified evidence sets P0."""
-    if value in CONST_ROADMAP_P0_PRIORITIES:
-        capped = CONST_ROADMAP_MODEL_PRIORITIES[0]
-        notes.append(
-            MESSAGES.roadmap.intake_note_priority_capped.format(priority=value, capped=capped)
-        )
-        return capped
+    """The model's priority; normalizes bare P0 to P0-Critical."""
+    if value == CONST_ROADMAP_P0_PRIORITY:
+        value = CONST_ROADMAP_CRITICAL_PRIORITY
     return _choice("priority", value, CONST_ROADMAP_MODEL_PRIORITIES, problems)
 
 
@@ -1022,7 +1020,12 @@ def _priority(store: IntakeReads, subject: Subject, proposal: Proposal) -> tuple
     if why is None:
         return CONST_ROADMAP_CRITICAL_PRIORITY, MESSAGES.roadmap.intake_p0_granted.format(**named)
     refused = MESSAGES.roadmap.intake_p0_refused.format(why=why, **named)
-    return proposal.priority, f"{proposal.priority_reason} {refused}".strip()
+    priority = (
+        CONST_ROADMAP_P1_PRIORITY
+        if proposal.priority == CONST_ROADMAP_CRITICAL_PRIORITY
+        else proposal.priority
+    )
+    return priority, f"{proposal.priority_reason} {refused}".strip()
 
 
 # ── Placement ─────────────────────────────────────────────────────────────────
