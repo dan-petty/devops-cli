@@ -85,7 +85,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (lane, result) (increase(devops_cli_service_jobs_total{job=~\"$job\"}[1h]))",
+          "expr": "sum by (lane, result) (increase(devops_cli_service_jobs_total{job=~\"$job\",repo=~\"$repo\"}[1h]))",
           "legendFormat": "{{lane}} {{result}}",
           "refId": "A"
         }
@@ -130,7 +130,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (repo, row) (increase(devops_cli_service_jobs_total{job=~\"$job\",result=\"error\"}[1h]))",
+          "expr": "sum by (repo, row) (increase(devops_cli_service_jobs_total{job=~\"$job\",repo=~\"$repo\",result=\"error\"}[1h]))",
           "legendFormat": "{{repo}} {{row}}",
           "refId": "A"
         }
@@ -175,7 +175,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (lane) (increase(devops_cli_service_job_seconds_total{job=~\"$job\"}[1h]))",
+          "expr": "sum by (lane) (increase(devops_cli_service_job_seconds_total{job=~\"$job\",repo=~\"$repo\"}[1h]))",
           "legendFormat": "{{lane}}",
           "refId": "A"
         }
@@ -319,7 +319,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "time() - max by (repo, lane) (last_over_time(devops_cli_service_job_start_timestamp_seconds{job=~\"$job\"}[5m]))",
+          "expr": "time() - max by (repo, lane) (last_over_time(devops_cli_service_job_start_timestamp_seconds{job=~\"$job\",repo=~\"$repo\"}[5m]))",
           "legendFormat": "{{repo}} {{lane}}",
           "refId": "A"
         }
@@ -364,7 +364,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (lane) (last_over_time(devops_cli_service_queue_depth{job=~\"$job\"}[5m]))",
+          "expr": "sum by (lane) (last_over_time(devops_cli_service_queue_depth{job=~\"$job\",repo=~\"$repo\"}[5m]))",
           "legendFormat": "{{lane}}",
           "refId": "A"
         }
@@ -409,7 +409,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (repo, row) (last_over_time(devops_cli_service_job_suspended{job=~\"$job\"}[5m]))",
+          "expr": "max by (repo, row) (last_over_time(devops_cli_service_job_suspended{job=~\"$job\",repo=~\"$repo\"}[5m]))",
           "legendFormat": "{{repo}} {{row}}",
           "refId": "A"
         }
@@ -499,7 +499,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (source) (increase(devops_cli_service_triggers_total{job=~\"$job\"}[1h]))",
+          "expr": "sum by (source) (increase(devops_cli_service_triggers_total{job=~\"$job\",repo=~\"$repo\"}[1h]))",
           "legendFormat": "{{source}}",
           "refId": "A"
         }
@@ -544,7 +544,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (outcome) (increase(devops_cli_service_webhook_deliveries_total{job=~\"$job\"}[1h]))",
+          "expr": "sum by (outcome) (increase(devops_cli_service_webhook_deliveries_total{job=~\"$job\",repo=~\"$repo\"}[1h]))",
           "legendFormat": "{{outcome}}",
           "refId": "A"
         }
@@ -589,7 +589,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (class) (increase(devops_cli_service_implement_failures_total{job=~\"$job\"}[1h]))",
+          "expr": "sum by (class) (increase(devops_cli_service_implement_failures_total{job=~\"$job\",repo=~\"$repo\"}[1h]))",
           "legendFormat": "{{class}}",
           "refId": "A"
         }
@@ -724,7 +724,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (repo, row, class) (last_over_time(devops_cli_service_job_retry_after_seconds{job=~\"$job\"}[5m]))",
+          "expr": "max by (repo, row, class) (last_over_time(devops_cli_service_job_retry_after_seconds{job=~\"$job\",repo=~\"$repo\"}[5m]))",
           "legendFormat": "{{repo}} {{row}} {{class}}",
           "refId": "A"
         }
@@ -769,7 +769,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (repo, code) (last_over_time(devops_cli_service_webhook_delivery_failures{job=~\"$job\"}[5m]))",
+          "expr": "max by (repo, code) (last_over_time(devops_cli_service_webhook_delivery_failures{job=~\"$job\",repo=~\"$repo\"}[5m]))",
           "legendFormat": "{{repo}} {{code}}",
           "refId": "A"
         }
@@ -814,7 +814,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (result) (increase(devops_cli_service_stage_jobs_total{job=~\"$job\"}[1h]))",
+          "expr": "sum by (result) (increase(devops_cli_service_stage_jobs_total{job=~\"$job\",repo=~\"$repo\"}[1h]))",
           "legendFormat": "{{result}}",
           "refId": "A"
         }
@@ -1313,6 +1313,39 @@
         "query": {
           "qryType": 1,
           "query": "label_values({__name__=~\"devops_cli_command_total|devops_cli_github_requests_total\"}, job)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values({__name__=~\"devops_cli_service_jobs_total|devops_cli_service_webhook_deliveries_total\"}, repo)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Repository",
+        "multi": true,
+        "name": "repo",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values({__name__=~\"devops_cli_service_jobs_total|devops_cli_service_webhook_deliveries_total\"}, repo)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 2,
