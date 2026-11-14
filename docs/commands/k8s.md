@@ -198,6 +198,29 @@ devops k8s bootstrap-mattermost [OPTIONS]
 
 ---
 
+## `devops k8s bootstrap-roadmap-key`
+
+**Bootstrap LiteLLM virtual key and Secret for roadmap-service.**
+
+```bash
+devops k8s bootstrap-roadmap-key [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--models`, `-m` | `string` | `devops-*` | Allowed models for the virtual key (comma-separated or pattern). |
+| `--budget`, `-b` | `float` | `50.0` | Max spend budget in USD for the virtual key. |
+| `--rpm` | `integer` | `60` | Requests-per-minute rate limit for the virtual key. |
+| `--alias` | `string` | `roadmap-service` | Key alias on the LiteLLM gateway. |
+| `--gateway-url`, `-u` | `string` | - | Gateway URL override. |
+| `--force`, `-f` | `boolean` | - | Mint a new key and overwrite existing keyring entry and Secret. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
 ## `devops k8s deploy-stack`
 
 **Deploy one stack (infra, llm, logging, devops, gitea, chat) or all of them to Kubernetes with Helm and Kustomize.**
