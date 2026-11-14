@@ -13,6 +13,7 @@ from typer.testing import CliRunner, Result
 from devops_cli.ci.cache import resolve_coverage_index_path
 from devops_cli.commands.ci import app as ci_app
 from devops_cli.commands.ci import get_check_spec
+from devops_cli.config import defaults
 from devops_cli.config.constants import (
     CONST_CI_SLOWEST_TESTS_SHOWN,
     CONST_CONFTEST_FILENAME,
@@ -23,7 +24,6 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_CI_TEST_NARROWED_WORKERS,
     DEFAULT_CI_TEST_SERIAL_MAX_FILES,
-    DEFAULT_CI_TEST_SERIAL_MAX_TESTS,
 )
 from devops_cli.core.coverage_index import CoverageIndex, save_index
 from devops_cli.core.test_selection import (
@@ -46,6 +46,10 @@ runner = CliRunner()
 _COLLECTION_MARK = "--collect-only"
 # The opening words of the warning that a failed collection prints.
 _COLLECTION_WARNING = "Could not collect the selected tests"
+# The selection of #4472: 7 test modules that held 399 slow tests and ran serially past the
+# 1800 s timeout of `devops ci test`.
+_ISSUE_TEST_MODULES = 7
+_ISSUE_COLLECTED_TESTS = 399
 
 
 @pytest.fixture
@@ -602,18 +606,39 @@ def test_a_narrowed_run_chooses_its_workers_and_the_full_suite_keeps_addopts(
     assert (exit_code, [_worker_options(spawn.argv) for spawn in spawns]) == (0, [workers])
 
 
+def test_a_few_test_modules_that_collect_many_tests_run_on_the_capped_workers(
+    process_fake: ProcessFake, project: Path
+) -> None:
+    """The selection of the issue, 7 test modules that collect 399 tests, runs on
+    DEFAULT_CI_TEST_NARROWED_WORKERS workers. 7 modules are no more than
+    DEFAULT_CI_TEST_SERIAL_MAX_FILES, so the file count alone ran them serially, past the
+    1800 s timeout of the command (#4472)."""
+    modules = _test_modules(project, _ISSUE_TEST_MODULES)
+    _answer_collection(process_fake, _ISSUE_COLLECTED_TESTS)
+
+    result = runner.invoke(ci_app, ["test", *modules])
+
+    assert (result.exit_code, [_worker_options(argv) for argv in _pytest_runs(process_fake)]) == (
+        0,
+        [[["-n", str(DEFAULT_CI_TEST_NARROWED_WORKERS)]]],
+    )
+
+
 def test_a_selection_past_the_collected_test_limit_runs_on_the_capped_workers(
     process_fake: ProcessFake, project: Path
 ) -> None:
     """A selection that collects more than DEFAULT_CI_TEST_SERIAL_MAX_TESTS tests runs on
     DEFAULT_CI_TEST_NARROWED_WORKERS workers, never on every logical CPU, and one that collects
     no more runs serially, where starting workers costs more than it saves; the 13 test modules
-    of the selection would give the capped workers by the file count alone (#1669, #4472)."""
+    of the selection would give the capped workers by the file count alone (#1669, #4472). The
+    test reads the limit through `defaults` when it runs, so this module also imports on a base
+    that does not have the limit."""
+    serial_max_tests = defaults.DEFAULT_CI_TEST_SERIAL_MAX_TESTS
     modules = _test_modules(project, DEFAULT_CI_TEST_SERIAL_MAX_FILES + 1)
 
-    _answer_collection(process_fake, DEFAULT_CI_TEST_SERIAL_MAX_TESTS + 1)
+    _answer_collection(process_fake, serial_max_tests + 1)
     past_exit_code = runner.invoke(ci_app, ["test", *modules]).exit_code
-    _answer_collection(process_fake, DEFAULT_CI_TEST_SERIAL_MAX_TESTS)
+    _answer_collection(process_fake, serial_max_tests)
     at_limit_exit_code = runner.invoke(ci_app, ["test", *modules]).exit_code
 
     assert (
