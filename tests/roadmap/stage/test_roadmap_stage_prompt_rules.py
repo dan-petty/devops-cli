@@ -805,6 +805,13 @@ def test_the_stage_prompt_requires_a_behavior_task_for_each_new_scenario() -> No
     assert "refuses a scenario that no behavior group covers" in prompt
 
 
+def test_the_stage_prompt_forbids_an_open_change_as_feasibility_evidence() -> None:
+    prompt = load_task_prompt("roadmap_stage_change.md")
+
+    assert "not in `openspec/changes/archive/`" in prompt
+    assert "only the source at the staged commit is evidence" in prompt
+
+
 def test_the_stage_prompt_requires_coverage_of_quoted_references() -> None:
     prompt = load_task_prompt("roadmap_stage_change.md")
 

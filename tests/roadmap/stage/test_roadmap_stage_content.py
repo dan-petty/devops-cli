@@ -25,6 +25,7 @@ from devops_cli.roadmap.stage.stage_change import (
     StageReference,
     check_proposal,
     content_problems,
+    proposal_evidence_problems,
     render_change,
     staging_title,
 )
@@ -1080,3 +1081,38 @@ def test_a_plan_whose_verify_runs_a_not_in_runner_program_with_capability_is_acc
         feasibility=["The runner lacks helm (NOT_IN_RUNNER), verified manually."],
     )
     assert not any("helm" in p for p in content_problems(plan))
+
+
+# ── An open change's plan is no evidence (#3465) ─────────────────────────────
+
+OPEN_PROPOSAL = "openspec/changes/3307-the-plan-check-names-a-caller/proposal.md"
+
+
+def test_a_feasibility_line_that_cites_an_open_change_proposal_is_refused() -> None:
+    proposal = make_stage_proposal(
+        feasibility=[f"`{OPEN_PROPOSAL}` states the method, so the premise holds."]
+    )
+
+    (problem,) = proposal_evidence_problems(proposal)
+
+    assert OPEN_PROPOSAL in problem
+    assert "not archived" in problem
+
+
+def test_a_feasibility_line_that_cites_an_archived_change_is_accepted() -> None:
+    proposal = make_stage_proposal(
+        feasibility=[
+            "The archived plan `openspec/changes/archive/2026-11-13-1-a-change/proposal.md` "
+            "states it."
+        ]
+    )
+
+    assert proposal_evidence_problems(proposal) == []
+
+
+def test_an_open_change_proposal_reaches_the_citation_gate() -> None:
+    proposal = make_stage_proposal(feasibility=[f"`{OPEN_PROPOSAL}` states the method."])
+
+    problems = check_proposal(proposal, ["comment-thread"], TREE, registry=())
+
+    assert any("not archived" in problem for problem in problems)
