@@ -250,10 +250,21 @@ def _is_job_comment(comment: IssueComment) -> bool:
 
 def person_changed_title(comments: Sequence[IssueComment], renamed_at: datetime | None) -> bool:
     """Whether someone changed the title after the last comment of a job, or changed it when no
-    job commented. The job's own change always comes before its comment."""
+    job commented. The job's own change always comes before its comment.
+
+    The skip comment for a person's unlisted title does not bound the rename (#4620): it reports
+    that the job kept the title, so a body edit that makes the item due again must not turn the
+    kept title into a correction."""
     if renamed_at is None:
         return False
-    last = max((c.created_at for c in comments if _is_job_comment(c)), default=None)
+    last = max(
+        (
+            c.created_at
+            for c in comments
+            if _is_job_comment(c) and MESSAGES.roadmap.retitle_reason_person_edit not in c.body
+        ),
+        default=None,
+    )
     return last is None or renamed_at > last
 
 

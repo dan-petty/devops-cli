@@ -66,7 +66,7 @@ The repair pass SHALL NOT write a title when the title of the item changed after
 - **THEN** the pass writes nothing for that item
 
 ### Requirement: A run is bounded
-The repair pass SHALL examine at most `--limit` items, the lowest numbers first, and SHALL report how many items with a long title wait.
+The repair pass SHALL examine at most `--limit` items, the lowest numbers first, and SHALL report how many items with a long title or an unlisted type wait.
 
 #### Scenario: Limit of one
 - **WHEN** two items have a long title and the limit is 1
@@ -119,7 +119,7 @@ The `retitle` row SHALL call `plan_retitle` with the model of the retitle job an
 - **THEN** the table has no `retitle` row.
 
 ### Requirement: Skip mark
-When the repair pass leaves an item with a long title, it SHALL write the mark `retitle.skipped` in the job record of the item, once, with one write. The value SHALL be a hash of the title, the body and the `stage.pr` mark that the decision read. This covers an item whose title a person changed, a Planned item without a usable plan title, and an item for which the model gave no summary that passes `title_problems` in two tries. The pass SHALL write no mark for an item that it retitles.
+When the repair pass leaves an item with a long title or an unlisted title type, it SHALL write the mark `retitle.skipped` in the job record of the item, once, with one write. The value SHALL be a hash of the title, the body and the `stage.pr` mark that the decision read. The pass SHALL write no mark for an item that it retitles.
 
 #### Scenario: The model gives no usable summary
 - **WHEN** both replies of the model fail `title_problems` and the pass runs with `--confirm`
@@ -132,6 +132,13 @@ When the repair pass leaves an item with a long title, it SHALL write the mark `
 #### Scenario: The title is changed
 - **WHEN** the pass retitles an item
 - **THEN** the pass writes no `retitle.skipped` for it
+
+### Requirement: Skip mark covers every left item
+The mark SHALL cover an item whose title a person changed, a Planned item without a usable plan title, and an item for which the model gave no summary that passes `title_problems` in two tries.
+
+#### Scenario: A person-edit item is covered
+- **WHEN** a person renamed an item after the last job comment and the pass runs with `--confirm`
+- **THEN** the job record of the item holds `retitle.skipped`
 
 ### Requirement: A skipped item is not selected again
 The selection of the repair pass SHALL leave out an open item whose `retitle.skipped` equals the hash of its current title, body and `stage.pr` mark. It SHALL select the item again when its title, its body or its `stage.pr` mark changes. A comment on the item SHALL NOT select it again. A skipped item SHALL NOT hold a place of `--limit`.
