@@ -181,6 +181,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR,
     DEFAULT_SERVICE_MAX_FAILED_ROUNDS,
     DEFAULT_SERVICE_MODEL_CALL_CONCURRENCY,
+    DEFAULT_SERVICE_POLL_INTERVAL_IDLE_SECONDS,
     DEFAULT_SERVICE_POLL_INTERVAL_SECONDS,
     DEFAULT_SSH_KEY_DIR,
     DEFAULT_SSH_KEY_PREFIX,
@@ -1575,11 +1576,27 @@ class ServiceConfig(BaseModel):
         default=DEFAULT_SERVICE_POLL_INTERVAL_SECONDS,
         ge=60,
     )
+    poll_interval_idle_seconds: Annotated[int, Variable()] = Field(
+        description=(
+            "Polling interval for a repository with no open issues and no open pull requests, "
+            "in seconds; a webhook starts its update at once"
+        ),
+        default=DEFAULT_SERVICE_POLL_INTERVAL_IDLE_SECONDS,
+        ge=60,
+    )
     github_requests_per_hour: Annotated[int, Variable()] = Field(
         description="The most GitHub requests the Service sends in one hour, not counting those that GitHub answers with 304, as GitHub does not count them against its rate limit; a request that the last hour has no room for waits. The alert RoadmapServiceGitHubRequestsHigh follows this limit",
         default=DEFAULT_SERVICE_GITHUB_REQUESTS_PER_HOUR,
         gt=0,
     )
+
+    @model_validator(mode="after")
+    def _idle_interval_not_shorter(self) -> Self:
+        """A repository without open work polls no more often than one with work (#3672)."""
+        if self.poll_interval_idle_seconds < self.poll_interval_seconds:
+            raise ValueError("poll_interval_idle_seconds must not be below poll_interval_seconds")
+        return self
+
     model_call_concurrency: Annotated[int, Variable()] = Field(
         description="The most model calls the Service keeps in flight at once; a lane that waits does so in the Service, where no stall timer runs",
         default=DEFAULT_SERVICE_MODEL_CALL_CONCURRENCY,

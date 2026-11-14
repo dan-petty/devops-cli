@@ -62,6 +62,7 @@ from devops_cli.server.routes.webhooks import (
     roadmap_consumer,
 )
 from devops_cli.server.service import (
+    IdleRepos,
     PauseReader,
     RepoWorker,
     ServiceManager,
@@ -99,6 +100,7 @@ def _make_settings(
     app_slug: str | None = "bot-account",
     poll_interval: int = 300,
     lanes: dict[str, list[str]] | None = None,
+    idle_interval: int = 600,
 ) -> Settings:
     """Helper creating Settings with configured ServiceConfig; the App's bot is `<slug>[bot]`.
     `lanes` is the setting `service.lanes`."""
@@ -106,6 +108,7 @@ def _make_settings(
         repos=repos or ["example-org/repo1", "example-org/repo2"],
         github_app=GitHubAppConfig(app_id=1001, installation_id=42, slug=app_slug),
         poll_interval_seconds=poll_interval,
+        poll_interval_idle_seconds=idle_interval,
         lanes=lanes or {},
     )
     return Settings(service=service_conf)
@@ -2594,3 +2597,61 @@ def test_validate_service_mode_rejects_multiple_workers() -> None:
     settings = _make_settings(repos=[REPO_A])
     with pytest.raises(ValueError, match="does not support multiple worker processes"):
         validate_service_mode(settings, workers=2)
+
+
+# ── An idle repository polls less often (#3672) ─────────────────────────────
+
+
+def _idle_manager(idle: IdleRepos, now: list[datetime], poll_interval: int = 300) -> ServiceManager:
+    return ServiceManager(
+        config=_make_settings(repos=["example-org/repo1"], poll_interval=poll_interval).service,
+        secrets={},
+        jobs={"lane": lambda _batch: None},
+        clock=lambda: now[0],
+        sleep_func=asyncio.sleep,
+        idle=idle,
+    )
+
+
+def _pending(manager: ServiceManager) -> int:
+    return sum(worker.pending_triggers for worker in manager.workers.values())
+
+
+def test_an_idle_repository_polls_at_the_idle_interval() -> None:
+    idle = IdleRepos()
+    idle.update("example-org/repo1", True)
+    now = [datetime(2026, 11, 14, 12, tzinfo=UTC)]
+    manager = _idle_manager(idle, now)
+
+    manager._poll()
+    first = _pending(manager)
+    now[0] += timedelta(seconds=599)
+    manager._poll()
+    second = _pending(manager)
+    now[0] += timedelta(seconds=1)
+    manager._poll()
+
+    assert (first, second, _pending(manager)) == (1, 1, 2)
+
+
+def test_a_busy_repository_polls_at_the_normal_interval() -> None:
+    now = [datetime(2026, 11, 14, 12, tzinfo=UTC)]
+    manager = _idle_manager(IdleRepos(), now, poll_interval=300)
+
+    manager._poll()
+    first = _pending(manager)
+    now[0] += timedelta(seconds=300)
+    manager._poll()
+
+    assert (first, _pending(manager)) == (1, 2)
+
+
+def test_a_webhook_clears_the_idle_state_and_enqueues_at_once() -> None:
+    idle = IdleRepos()
+    idle.update("example-org/repo1", True)
+    now = [datetime(2026, 11, 14, 12, tzinfo=UTC)]
+    manager = _idle_manager(idle, now)
+
+    manager.enqueue_trigger("example-org/repo1", "webhook", "issues", "opened")
+
+    assert (idle.is_idle("example-org/repo1"), _pending(manager)) == (False, 1)
