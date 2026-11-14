@@ -138,3 +138,14 @@ The roadmap Service Deployment SHALL read `DEVOPS_CLI_AI_API_KEY` from key `api-
 #### Scenario: The rendered Deployment
 - **WHEN** `kustomize build k8s/devops/roadmap-service/` renders the Deployment
 - **THEN** `DEVOPS_CLI_AI_API_KEY` has one `secretKeyRef` to `roadmap-service-llm-key` with key `api-key`, the pod template has no `envFrom`, and each other variable names its key of `devops-cli`
+
+### Requirement: The example ConfigMap holds the runner memory limit
+The example ConfigMap SHALL set `roadmap.implement.max_memory_limit` to 16Gi, with a comment that names the two out-of-memory kills of 2026-11-12 and 2026-11-13, and the render of the ConfigMap SHALL keep that value for every repository.
+
+#### Scenario: The rendered example holds the limit
+- **WHEN** a test renders the example ConfigMap for one repository with the GitHub App settings
+- **THEN** the rendered config holds 16Gi as the runner memory limit and the service.repos of that repository
+
+#### Scenario: The comment names the two kills
+- **WHEN** a test reads the comment above the setting in the example ConfigMap
+- **THEN** the comment names 2026-11-12, 2026-11-13, #5484 and #3727
