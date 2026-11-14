@@ -54,10 +54,13 @@ jobs:
       security-events: write
 
     steps:
+      # Fetch the full history: the roadmap-stage-eval-commits row reads the base commit of each
+      # golden case, and it fails on a shallow clone (#4449).
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Set up uv toolchain
         uses: ./.github/actions/setup-toolchain
