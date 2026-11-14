@@ -1995,6 +1995,17 @@ class RoadmapCommandHelp:
     inbox_dry_run: str = (
         "Make no request: print the reads that a run makes, in order, with placeholders."
     )
+    registries: str = (
+        "List the `REGISTRY_COUNTS` declarations of the test modules of a checkout, each with its "
+        "token, its kind, its target path and its source `path:line`. Report each ratchet assertion "
+        "that names no declared entry of its own module, with its `path:line`, and exit 1. The "
+        "command reads every test module with `ast` and imports none, calls no model and writes "
+        "nothing."
+    )
+    registries_path: str = (
+        "Checkout that holds the tests folder to audit (default: the repository of the current "
+        "folder)."
+    )
     repair: str = (
         "Find the items that a placeholder reply of a model stalled. A returned item goes back "
         "to Ready. A stub refine item loses its stub section and its refine block. An item that "

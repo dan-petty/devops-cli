@@ -5288,6 +5288,14 @@ class RoadmapMessages:
             ),
         }
     )
+    # `devops roadmap registries` (#3332).
+    registries_title: str = "Test registry declarations of {root}."
+    registries_column_token: str = "Token"
+    registries_column_kind: str = "Kind"
+    registries_column_target: str = "Target"
+    registries_column_source: str = "Source"
+    registries_finding: str = "{source}: {detail}"
+    registries_valid: str = "Valid entries: {count}. No ratchet assertion lacks a declaration."
     plan_repeat_page: str = "per page, while GitHub links a next one"
     plan_repeat_draft: str = "for each open draft of a job"
     plan_placeholders: dict[str, str] = field(

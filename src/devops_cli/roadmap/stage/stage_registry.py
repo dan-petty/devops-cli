@@ -32,6 +32,17 @@ class RegistryCount:
     declaring_path: str = ""
 
 
+@dataclass(frozen=True)
+class Declaration:
+    """One module-level `REGISTRY_COUNTS` assignment (#3332): its source `path:line`, the entries
+    it holds and whether its value is a tuple or list of literal triples."""
+
+    path: str
+    line: int
+    entries: tuple[RegistryCount, ...] = ()
+    invalid: bool = False
+
+
 def _extract_entries(value_node: ast.expr, declaring_path: str) -> list[RegistryCount]:
     """Extract `RegistryCount` records from an AST tuple or list literal."""
     if not isinstance(value_node, (ast.Tuple, ast.List)):
@@ -69,9 +80,9 @@ def _declaring_source(path: Path) -> str:
     return source if _TARGET_CONSTANT in source else ""
 
 
-def counts_in(path: Path) -> tuple[RegistryCount, ...]:
-    """Parse one Python module and read its module-level `REGISTRY_COUNTS` declaration. A module
-    whose text does not hold the name is not parsed."""
+def declarations_in(path: Path) -> tuple[Declaration, ...]:
+    """Parse one Python module and read every module-level `REGISTRY_COUNTS` assignment. A module
+    whose text does not hold the name is not parsed and declares nothing."""
     source = _declaring_source(path)
     if not source:
         return ()
@@ -82,17 +93,36 @@ def counts_in(path: Path) -> tuple[RegistryCount, ...]:
         return ()
 
     declaring = path.as_posix()
-    entries: list[RegistryCount] = []
+    declarations: list[Declaration] = []
     for node in tree.body:
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id == _TARGET_CONSTANT:
-                    entries.extend(_extract_entries(node.value, declaring))
-        elif isinstance(node, ast.AnnAssign):
-            if isinstance(node.target, ast.Name) and node.target.id == _TARGET_CONSTANT:
-                if node.value is not None:
-                    entries.extend(_extract_entries(node.value, declaring))
-    return tuple(entries)
+        value_node: ast.expr | None = None
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == _TARGET_CONSTANT
+            for target in node.targets
+        ):
+            value_node = node.value
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == _TARGET_CONSTANT
+        ):
+            value_node = node.value
+        if value_node is None:
+            continue
+        entries = _extract_entries(value_node, declaring)
+        invalid = not isinstance(value_node, (ast.Tuple, ast.List)) or len(entries) != len(
+            value_node.elts
+        )
+        declarations.append(
+            Declaration(path=declaring, line=node.lineno, entries=tuple(entries), invalid=invalid)
+        )
+    return tuple(declarations)
+
+
+def counts_in(path: Path) -> tuple[RegistryCount, ...]:
+    """Parse one Python module and read its module-level `REGISTRY_COUNTS` declaration. A module
+    whose text does not hold the name is not parsed."""
+    return tuple(entry for declaration in declarations_in(path) for entry in declaration.entries)
 
 
 def registry_table(root: Path) -> tuple[RegistryCount, ...]:

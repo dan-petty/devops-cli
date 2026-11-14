@@ -35,6 +35,7 @@ import typer
 from devops_cli.commands.roadmap_eval import eval_app
 from devops_cli.commands.roadmap_review import review_app
 from devops_cli.commands.roadmap_step import step_app
+from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
 from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_LIMIT,
     DEFAULT_ROADMAP_REFINE_LIMIT,
@@ -46,7 +47,14 @@ from devops_cli.dry_run import PlannedRequest, dry_run_class, is_dry_run
 from devops_cli.exceptions import DevOpsCLIError, RoadmapRunError
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.lang import HELP, MESSAGES
-from devops_cli.output import print_error, print_info, print_success, write_stdout
+from devops_cli.output import (
+    print_error,
+    print_info,
+    print_success,
+    print_table,
+    render_table,
+    write_stdout,
+)
 from devops_cli.roadmap.claim import (
     Claimant,
     apply_claim,
@@ -1280,3 +1288,83 @@ def release_cmd(
 ) -> None:
     """Release an item: remove its `owner/*` label."""
     _claim_or_release(item, None, repo, dry_run=dry_run, confirm=confirm)
+
+
+@app.command("registries", help=HELP.roadmap.registries)
+@dry_run_class("no-external-request")
+def registries_cmd(
+    path: Annotated[str | None, typer.Option("--path", help=HELP.roadmap.registries_path)] = None,
+    output_format: Annotated[
+        str, typer.Option("--format", "-f", help=HELP.options.format_type)
+    ] = DEFAULT_TABLE_FORMAT,
+    json_output: Annotated[
+        bool, typer.Option("--json", "-j", help=HELP.options.json_output)
+    ] = False,
+) -> None:
+    """List the test registry declarations of a checkout and report the ratchet assertions that
+    name none. It reads every test module with `ast` and imports none."""
+    from devops_cli.output.serialization import emit_serialized, resolve_format
+    from devops_cli.roadmap.registry_audit import audit_registries
+
+    root = Path(path) if path is not None else find_repo_root(Path.cwd())
+    audit = audit_registries(root)
+    fmt = resolve_format(output_format, json_output=json_output)
+    if fmt != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(
+            {
+                "entries": [
+                    {
+                        "token": entry.token,
+                        "kind": entry.kind,
+                        "path": entry.path,
+                        "source": f"{entry.declaring_path}:{entry.line}",
+                    }
+                    for entry in audit.entries
+                ],
+                "findings": [
+                    {
+                        "kind": finding.kind,
+                        "source": f"{finding.path}:{finding.line}",
+                        "detail": finding.detail,
+                    }
+                    for finding in audit.findings
+                ],
+                "valid_count": len(audit.entries),
+            },
+            fmt,
+        )
+        if audit.findings:
+            raise typer.Exit(1)
+        return
+
+    print_table(
+        render_table(
+            title=MESSAGES.roadmap.registries_title.format(root=root.as_posix()),
+            columns=[
+                (MESSAGES.roadmap.registries_column_token, "cyan"),
+                (MESSAGES.roadmap.registries_column_kind, "white"),
+                (MESSAGES.roadmap.registries_column_target, "white"),
+                (MESSAGES.roadmap.registries_column_source, "dim"),
+            ],
+            rows=[
+                [
+                    entry.token,
+                    entry.kind,
+                    entry.path,
+                    f"{entry.declaring_path}:{entry.line}",
+                ]
+                for entry in audit.entries
+            ],
+        )
+    )
+    for finding in audit.findings:
+        print_error(
+            MESSAGES.roadmap.registries_finding.format(
+                source=f"{finding.path}:{finding.line}", detail=finding.detail
+            )
+        )
+    if audit.findings:
+        raise typer.Exit(1)
+    write_stdout(
+        MESSAGES.roadmap.registries_valid.format(count=len(audit.entries)) + "\n",
+    )
