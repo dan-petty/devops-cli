@@ -30,7 +30,7 @@ None.
 
 - Code: `src/devops_cli/commands/ci.py`, `src/devops_cli/telemetry/instruments.py`, `src/devops_cli/roadmap/implement/implement_shell_policy.py`
 - Documents: `README.md`, `docs/TELEMETRY.md`, `docs/CLI_REFERENCE.md`, `docs/commands/ci.md`, `docs/MCP_TOOLS.md`, `src/devops_cli/ai/knowledge_base/devops_cli/cli_command_reference.md`, `docs/ROADMAP_WORKFLOW.md`
-- Tests: `tests/commands/test_ci_row_commands.py`, `tests/ai/mcp/__snapshots__/test_mcp_tool_listing/test_the_tool_listing_matches_the_snapshot.json`, `tests/commands/test_ci_dry_run.py`, `tests/commands/test_net_construct_rules.py`, `tests/telemetry/test_telemetry_instruments.py`, `tests/roadmap/implement/test_roadmap_implement_shell_policy.py`
+- Tests: `tests/commands/test_ci.py`, `tests/commands/test_ci_row_commands.py`, `tests/ai/mcp/__snapshots__/test_mcp_tool_listing/test_the_tool_listing_matches_the_snapshot.json`, `tests/commands/test_ci_dry_run.py`, `tests/commands/test_net_construct_rules.py`, `tests/telemetry/test_telemetry_instruments.py`, `tests/roadmap/implement/test_roadmap_implement_shell_policy.py`
 
 ## Feasibility
 

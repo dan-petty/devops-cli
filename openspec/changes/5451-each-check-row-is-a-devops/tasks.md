@@ -4,28 +4,28 @@
 
 Kind: behavior. Reads: `src/devops_cli/commands/ci.py`, `tests/commands/test_ci_dry_run.py`, `tests/invariants/test_dry_run_class_ratchet.py`. Changes: `src/devops_cli/commands/ci.py`, `tests/commands/test_ci_row_commands.py` (new).
 
-- [ ] 1.1 The case `test_a_row_command_plans_only_its_row` runs the row constructs and the row test-tree, each with `--dry-run`, and fails on the base, where neither word is a command of the `ci` group; the case `test_the_row_tuple_matches_the_registry` compares `CHECK_ROW_NAMES` with `get_check_specs()` and fails on the base
+- [ ] 1.1 The case `test_a_row_command_plans_only_its_row` runs the row constructs and the row test-tree, each with `--dry-run`, and fails on the base, where neither word is a command of the `ci` group; the case `test_the_row_tuple_matches_the_registry` compares `CHECK_ROW_NAMES` with `get_check_specs()` and fails on the base; write `test_a_row_with_a_hand_written_command_runs_dry_run` for `lint --dry-run`
   - Verification: `$ uv run devops ci test tests/commands/test_ci_row_commands.py` fails on the base
-- [ ] 1.2 Add `CHECK_ROW_NAMES` to `src/devops_cli/commands/ci.py` as the 25 row names in registry order. Add `_row_command(name)`, which returns a command decorated with `@dry_run_class("request-plan")` and the `--dry-run` option: it sets the dry run, reads `get_check_spec(name)`, runs `_run_all_checks_async` for that one spec inside `_gate_slot(spec.heavy)`, prints the failures and the summary, and exits 1 when a result failed. At the end of the module, register one generated command for each name that `app.registered_commands` does not already hold, and bind the name as a default argument of the closure so the import stays lazy
+- [ ] 1.2 Add `CHECK_ROW_NAMES` to `src/devops_cli/commands/ci.py` as the row names in registry order. Extract a shared helper `_run_checks_lifecycle` from `all_checks` that wraps the run in `_until_stopped`, handles `asyncio.CancelledError`, calls `_warn_when_over_budget`, and calls `_handle_ci_results(save_cache=False)`. Add `_row_command(name)`, decorated with `@dry_run_class("request-plan")`, which sets dry run and invokes `_run_checks_lifecycle` inside `_gate_slot(spec.heavy)` for `get_check_spec(name)`. Register each generated command with its own help string showing its row name
   - Verification: `$ uv run devops ci test tests/commands/test_ci_row_commands.py` passes
 
 ## 2. Select rows by name and name them in the option help
 
-Kind: behavior. Reads: `src/devops_cli/commands/ci.py`, `src/devops_cli/telemetry/usage_errors.py`, `src/devops_cli/core/cli.py`, `tests/commands/test_ci.py`. Changes: `src/devops_cli/commands/ci.py`, `tests/commands/test_ci_row_commands.py`, `tests/ai/mcp/__snapshots__/test_mcp_tool_listing/test_the_tool_listing_matches_the_snapshot.json`.
+Kind: behavior. Reads: `src/devops_cli/commands/ci.py`, `src/devops_cli/telemetry/usage_errors.py`, `src/devops_cli/core/cli.py`, `tests/commands/test_ci.py`. Changes: `src/devops_cli/commands/ci.py`, `tests/commands/test_ci.py`, `tests/commands/test_ci_row_commands.py`, `tests/ai/mcp/__snapshots__/test_mcp_tool_listing/test_the_tool_listing_matches_the_snapshot.json`.
 
-- [ ] 2.1 The case `test_a_misspelled_only_name_records_bad_value` runs the root CLI with `ci --only constructz` and fails on the base, where the run exits 2 with no ledger record; the case `test_a_misspelled_skip_name_records_bad_value` runs `ci --skip constructz`; the case `test_the_selection_help_names_the_rows` reads the help of `--only` and `--skip` and fails on the base
+- [ ] 2.1 The case `test_a_misspelled_only_name_records_bad_value` runs the root CLI with `ci --only constructz` and fails on the base, where the run exits 2 with no ledger record; the case `test_a_misspelled_skip_name_records_bad_value` runs `ci --skip constructz`; write `test_ci_only_multiple_comma_separated_dry_run` for `ci --only constructs,openspec --dry-run` and `test_ci_only_repeated_option_dry_run` for `ci --only constructs --only openspec --dry-run`; the case `test_the_selection_help_names_the_rows` reads the help of `--only` and `--skip` and fails on the base
   - Verification: `$ uv run devops ci test tests/commands/test_ci_row_commands.py` fails on the base
-- [ ] 2.2 Add `_row_name_callback` to `src/devops_cli/commands/ci.py`: it splits each value at the commas, checks each name against `CHECK_ROW_NAMES`, raises `typer.BadParameter` with up to 3 names from `difflib.get_close_matches` and the valid names, and returns the value unchanged. Pass it as `callback=` to the `--only` and `--skip` options and set their help from `CHECK_ROW_NAMES`. Leave `resolve_selected_specs` as it is. Give the new cases a ledger fixture of their own that reads the JSON lines of the usage ledger. Regenerate the MCP tool listing snapshot with its `--snapshot-update` run, because the snapshot holds the old help of both options
-  - Verification: `$ uv run devops ci test tests/commands/test_ci_row_commands.py` passes
+- [ ] 2.2 Add `_row_name_callback` to `src/devops_cli/commands/ci.py`: it splits each value at commas, checks each name against `CHECK_ROW_NAMES`, raises `typer.BadParameter` with up to 3 close matches and the valid names, and returns the value unchanged. Pass it as `callback=` to `--only` and `--skip` and set their help from `CHECK_ROW_NAMES`. Update `test_ci_cli_runner_only_and_skip_validation` in `tests/commands/test_ci.py` to match the new bad parameter output. Regenerate the MCP tool listing snapshot with `--snapshot-update`
+  - Verification: `$ uv run devops ci test tests/commands/test_ci_row_commands.py tests/commands/test_ci.py` passes
 
 ## 3. Delete the run command and its old test cases
 
-Kind: behavior. Reads: `src/devops_cli/commands/ci.py`, `tests/commands/test_ci_dry_run.py`, `tests/commands/test_net_construct_rules.py`, `tests/commands/test_ci_row_commands.py`. Changes: `src/devops_cli/commands/ci.py`, `tests/commands/test_ci_dry_run.py`, `tests/commands/test_net_construct_rules.py`, `tests/commands/test_ci_row_commands.py`.
+Kind: behavior. Reads: `src/devops_cli/commands/ci.py`, `tests/commands/test_ci_dry_run.py`, `tests/commands/test_net_construct_rules.py`, `tests/commands/test_ci.py`, `tests/commands/test_ci_row_commands.py`. Changes: `src/devops_cli/commands/ci.py`, `tests/commands/test_ci.py`, `tests/commands/test_ci_dry_run.py`, `tests/commands/test_net_construct_rules.py`, `tests/commands/test_ci_row_commands.py`.
 
 - [ ] 3.1 The case `test_the_removed_run_command_records_unknown_command` runs the root CLI with `ci run` and fails on the base, where the run exits 0 and starts the gate
   - Verification: `$ uv run devops ci test tests/commands/test_ci_row_commands.py` fails on the base
-- [ ] 3.2 Delete the `run` command from `src/devops_cli/commands/ci.py` with its options and its `@dry_run_class` line. Delete the case `test_ci_run_command_dry_run` from `tests/commands/test_ci_dry_run.py`. Remove the second invocation of the removed command from `test_ci_dry_run_unlinks_nothing`, with its docstring. Reword the docstring of `tests/commands/test_net_construct_rules.py` so that it names the constructs row and `CONST_AST_GREP_SCAN_ARGS`. Add the case `test_the_removed_run_command_records_unknown_command` to `tests/commands/test_ci_row_commands.py`
-  - Verification: `$ uv run devops ci test tests/commands/test_ci_row_commands.py` passes
+- [ ] 3.2 Delete the `run` command from `src/devops_cli/commands/ci.py` with its options and its `@dry_run_class` line. In `tests/commands/test_ci.py`, update `test_ci_additional_subcommands` (line 547), `test_ci_helpers_and_edge_cases` (line 578), and `test_ci_run_docs_fix_when_needed` (line 637) to invoke `app` with `['--fix']` / `['--no-fix']` instead of the removed `run` subcommand. Delete the case `test_ci_run_command_dry_run` from `tests/commands/test_ci_dry_run.py`. Remove the second invocation of the removed command from `test_ci_dry_run_unlinks_nothing`. Reword the docstring of `tests/commands/test_net_construct_rules.py`. Add the case `test_the_removed_run_command_records_unknown_command` to `tests/commands/test_ci_row_commands.py`
+  - Verification: `$ uv run devops ci test tests/commands/test_ci_row_commands.py tests/commands/test_ci.py` passes
 
 ## 4. Name no removed command in the gate-slot metric description
 
@@ -57,10 +57,10 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/implement/implement_shell_policy.
 
 ## 7. Search the tracked files for the removed command
 
-Kind: other. Reads: `tests/commands/test_ci_row_commands.py`, `README.md`, `docs/TELEMETRY.md`, `docs/CLI_REFERENCE.md`, `docs/commands/ci.md`, `docs/MCP_TOOLS.md`, `src/devops_cli/ai/knowledge_base/devops_cli/cli_command_reference.md`, `src/devops_cli/telemetry/instruments.py`. Changes: `tests/commands/test_ci_row_commands.py`.
+Kind: other. Reads: `README.md`, `docs/TELEMETRY.md`, `docs/CLI_REFERENCE.md`, `docs/commands/ci.md`, `docs/MCP_TOOLS.md`, `src/devops_cli/ai/knowledge_base/devops_cli/cli_command_reference.md`, `src/devops_cli/telemetry/instruments.py`. Changes: `README.md`.
 
-- [ ] 7.1 Add the case `test_no_other_file_names_the_removed_command` to `tests/commands/test_ci_row_commands.py`: it runs `git grep -n -I -F -w -l` for the removed command name over `README.md`, `docs/`, `src/` and `tests/`, leaves its own file out, and asserts that no line comes back. The case runs on the head only, after groups 3 to 5 removed the name from the code, the metric description and the documents
-  - Verification: `$ uv run devops ci test tests/commands/test_ci_row_commands.py` passes
+- [ ] 7.1 Verify that no tracked file names the removed command name: run negative search over tracked paths, leaving no stray occurrences after groups 3 to 5 removed the name from code, metric description and documents
+  - Verification: `$ ! git grep -n -I -F -w 'devops ci run' -- README.md docs/ src/ tests/` passes
 
 ## Criteria
 
