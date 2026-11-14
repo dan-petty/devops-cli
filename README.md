@@ -71,7 +71,7 @@ devops config set ai.api_key "sk-ant-..."
 
 # 4. Verify LLM connectivity and run CI validation
 devops ai test
-devops ci run
+devops ci
 ```
 
 ### Reusable Dev Container Package (GHCR)

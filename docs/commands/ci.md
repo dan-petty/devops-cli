@@ -14,8 +14,8 @@ devops ci [OPTIONS] COMMAND [ARGS]...
 | `--check` | `boolean` | - | Run in check-only mode without automatically applying formatting or lint fixes. |
 | `--cache` / `--no-cache` | `boolean` | `True` | Reuse a cached verdict when the codebase is unchanged. Results are recorded either way. |
 | `--force`, `-f` | `boolean` | - | Bypass CI execution cache and force re-execution of all quality gates. |
-| `--only` | `string` | - | Run only the specified check names (comma-separated or repeated). |
-| `--skip` | `string` | - | Skip the specified check names (comma-separated or repeated). |
+| `--only` | `string` | - | Run only the specified check names (test, lint, format, typecheck, audit, security, actionlint, zizmor, docs, uv-check, lockfile, build, outdated, deps, constructs, devcontainer, openspec, git, test-settings, bwrap, k8s, test-tree, startup-imports, swallowed-failures, domain, roadmap-stage-eval-commits). Comma-separated or repeated. |
+| `--skip` | `string` | - | Skip the specified check names (test, lint, format, typecheck, audit, security, actionlint, zizmor, docs, uv-check, lockfile, build, outdated, deps, constructs, devcontainer, openspec, git, test-settings, bwrap, k8s, test-tree, startup-imports, swallowed-failures, domain, roadmap-stage-eval-commits). Comma-separated or repeated. |
 | `--shard` | `integer` | `1` | Number of the part of the test suite this run covers, from 1 to --shards. CI runs each part on its own runner. |
 | `--shards` | `integer` | `1` | Number of parts the test suite splits into. Above 1, the run covers one part, checks no coverage floor and leaves no cached verdict. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
@@ -321,23 +321,6 @@ devops ci maintain [OPTIONS]
 
 ---
 
-## `devops ci run`
-
-**Run full CI and return a single pass/fail status.**
-
-```bash
-devops ci run [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--fix` / `--no-fix` | `boolean` | `True` | Auto-fix lint/format before reporting status. |
-| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
-
----
-
 ## `devops ci mutate`
 
 **Mutation-test functions with mutmut and show each mutant no test killed; never a gate.**
@@ -423,6 +406,182 @@ devops ci fail-to-pass [OPTIONS]
 |---|---|---|---|
 | `--base`, `-b` | `string` | `main` | Base git branch to diff against (default: main). |
 | `--head` | `string` | `HEAD` | Head git revision supplying the overlaid tests/ tree, the head replay tree and the head tree of a gate row run. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops ci zizmor`
+
+**Run the zizmor check.**
+
+```bash
+devops ci zizmor [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops ci constructs`
+
+**Run the constructs check.**
+
+```bash
+devops ci constructs [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops ci openspec`
+
+**Run the openspec check.**
+
+```bash
+devops ci openspec [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops ci git`
+
+**Run the git check.**
+
+```bash
+devops ci git [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops ci bwrap`
+
+**Run the bwrap check.**
+
+```bash
+devops ci bwrap [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops ci k8s`
+
+**Run the k8s check.**
+
+```bash
+devops ci k8s [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops ci test-tree`
+
+**Run the test-tree check.**
+
+```bash
+devops ci test-tree [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops ci startup-imports`
+
+**Run the startup-imports check.**
+
+```bash
+devops ci startup-imports [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops ci swallowed-failures`
+
+**Run the swallowed-failures check.**
+
+```bash
+devops ci swallowed-failures [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops ci domain`
+
+**Run the domain check.**
+
+```bash
+devops ci domain [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops ci roadmap-stage-eval-commits`
+
+**Run the roadmap-stage-eval-commits check.**
+
+```bash
+devops ci roadmap-stage-eval-commits [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
