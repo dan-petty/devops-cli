@@ -39,6 +39,7 @@ from devops_cli.config.constants import (
 from devops_cli.roadmap.agent_run import (
     RunTrace,
     ToolCallRecord,
+    ToolOutcome,
     bounded_text,
     model_call_error,
     record_run_spend,
@@ -362,6 +363,33 @@ def test_trace_facts_hold_the_match_lines_of_a_search_answer(
     trace.absorb(messages, tools={tool})
 
     assert TraceFacts.of(trace).lines == lines
+
+
+def test_a_trace_keeps_the_cap_that_cut_an_answer() -> None:
+    messages: list[ModelMessage] = [
+        _tool_reply(
+            1,
+            1,
+            ToolCallPart("read_file", {"path": "src/a.py"}, tool_call_id="c1"),
+            ToolCallPart("read_file", {"path": "src/b.py"}, tool_call_id="c2"),
+        ),
+        ModelRequest(
+            parts=[
+                ToolReturnPart(
+                    "read_file",
+                    "cut",
+                    tool_call_id="c1",
+                    metadata={"outcome": ToolOutcome.OK, "cut": "lines"},
+                ),
+                ToolReturnPart("read_file", "whole", tool_call_id="c2", metadata=ToolOutcome.OK),
+            ]
+        ),
+    ]
+    trace = RunTrace()
+
+    trace.absorb(messages, tools={"read_file"})
+
+    assert [call.cut for call in trace.tool_calls] == ["lines", None]
 
 
 def test_a_call_with_no_answer_adds_no_match_line() -> None:

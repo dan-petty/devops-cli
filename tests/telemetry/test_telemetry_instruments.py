@@ -626,12 +626,13 @@ def test_the_alternatives_coverage_instruments_are_declared_with_their_kinds_and
 
 
 def test_the_roadmap_tool_instruments_are_declared_with_their_kinds_and_units() -> None:
-    """The four instruments of the tool calls of the stage planner (#3240): two counters, and two
-    histograms that count characters and calls."""
+    """The five instruments of the tool calls of the stage planner (#3240, #3241): three counters,
+    and two histograms that count characters and calls."""
     declared = {instrument.name: instrument for instrument in INSTRUMENTS}
     expected = {
         "devops_cli_roadmap_tool_calls_total": (InstrumentKind.COUNTER, "1"),
         "devops_cli_roadmap_tool_limit_hits_total": (InstrumentKind.COUNTER, "1"),
+        "devops_cli_roadmap_tool_cuts_total": (InstrumentKind.COUNTER, "1"),
         "devops_cli_roadmap_tool_answer_chars": (InstrumentKind.HISTOGRAM, "{char}"),
         "devops_cli_roadmap_tool_calls_per_run": (InstrumentKind.HISTOGRAM, "{call}"),
     }
@@ -649,7 +650,7 @@ def test_the_telemetry_document_lists_each_roadmap_tool_instrument_with_its_kind
         for instrument in INSTRUMENTS
         if instrument.name.startswith("devops_cli_roadmap_tool_")
     ]
-    assert (len(rows), [row for row in rows if row not in document]) == (4, [])
+    assert (len(rows), [row for row in rows if row not in document]) == (5, [])
 
 
 DECISION_POINT_INSTRUMENT_NAMES = (

@@ -20,6 +20,7 @@ from devops_cli.telemetry.instruments import (
     ROADMAP_TOOL_ANSWER_CHARS,
     ROADMAP_TOOL_CALLS_PER_RUN,
     ROADMAP_TOOL_CALLS_TOTAL,
+    ROADMAP_TOOL_CUTS_TOTAL,
     ROADMAP_TOOL_LIMIT_HITS_TOTAL,
     emit,
 )
@@ -40,6 +41,8 @@ def end_run(trace: RunTrace, *, row: str, toolset: str, finished: bool) -> None:
         emit(ROADMAP_TOOL_CALLS_TOTAL, 1, {**labels, "outcome": record.outcome.value})
         if record.chars is not None:
             emit(ROADMAP_TOOL_ANSWER_CHARS, record.chars, labels)
+        if record.cut is not None:
+            emit(ROADMAP_TOOL_CUTS_TOTAL, 1, {**labels, "cap": record.cut})
     if not finished:
         return
     run = {"row": row, "toolset": toolset}
