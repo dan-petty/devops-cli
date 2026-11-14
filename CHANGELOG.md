@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.137.0](https://github.com/dan-petty/devops-cli/compare/v0.136.2...v0.137.0) (2026-11-14)
+
+
+### Features
+
+* **roadmap:** audit command lists and checks test registry declarations ([#5611](https://github.com/dan-petty/devops-cli/issues/5611)) ([798ca91](https://github.com/dan-petty/devops-cli/commit/798ca91302d7a760817437c619cdffc88e761d90))
+
+
+### Bug Fixes
+
+* **roadmap:** Require cuts for shadow and time each decision ([#5528](https://github.com/dan-petty/devops-cli/issues/5528)) ([d901b6a](https://github.com/dan-petty/devops-cli/commit/d901b6a9eb86beeae4b44b251bdc14655c30d264))
+
 ## [0.136.2](https://github.com/dan-petty/devops-cli/compare/v0.136.1...v0.136.2) (2026-11-14)
 
 
