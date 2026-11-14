@@ -436,6 +436,23 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         restarts=(Workload("deployment", "roadmap-service"),),
         labels={"app.kubernetes.io/name": "devops-cli"},
     ),
+    # The roadmap Service's own LiteLLM virtual key, with a budget and a requests-per-minute
+    # limit (#3685). A person mints it on the gateway and stores it in the keyring; the entry is
+    # optional because the gateway is up before the key exists.
+    ClusterSecret(
+        namespace="devops",
+        name="roadmap-service-llm-key",
+        stack="devops",
+        entries=(
+            SecretEntry(
+                "api-key",
+                KeyringSource.for_credential("roadmap_service.llm_key"),
+                required=False,
+            ),
+        ),
+        restarts=(Workload("deployment", "roadmap-service"),),
+        labels={"app.kubernetes.io/name": "roadmap-service"},
+    ),
     ClusterSecret(
         namespace="devops",
         name="qdrant-api-key",

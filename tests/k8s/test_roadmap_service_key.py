@@ -12,6 +12,8 @@ from typing import Any
 
 import yaml
 
+from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS
+
 DEPLOYMENT = Path("k8s/devops/roadmap-service/deployment.yaml")
 
 REQUIRED = (
@@ -58,3 +60,12 @@ def test_each_other_variable_names_its_key_of_the_shared_secret() -> None:
     }
     assert {references[name].get("optional", False) for name in OPTIONAL} == {True}
     assert {references[name].get("optional", False) for name in REQUIRED} == {False}
+
+
+def test_the_key_has_an_optional_cluster_secret_row() -> None:
+    row = next(
+        secret for secret in CLUSTER_SECRETS if secret.ref == "devops/roadmap-service-llm-key"
+    )
+    (entry,) = row.entries
+
+    assert (entry.key, entry.required) == ("api-key", False)

@@ -115,6 +115,11 @@ CREDENTIALS: tuple[Credential, ...] = (
         in_file=True,
     ),
     Credential(
+        "roadmap_service.llm_key",
+        "LiteLLM virtual key of the roadmap Service, which `devops k8s push-secrets` writes to "
+        "Secret devops/roadmap-service-llm-key (stored in OS keyring)",
+    ),
+    Credential(
         "crawl4ai.api_token",
         "Bearer token of the Crawl4AI service, which `devops k8s push-secrets` writes to Secret "
         "devops/crawl4ai and to Secret devops/devops-cli (stored in OS keyring)",
