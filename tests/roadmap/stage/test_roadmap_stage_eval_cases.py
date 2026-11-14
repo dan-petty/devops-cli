@@ -6,7 +6,6 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -187,31 +186,6 @@ def test_a_case_reads_its_reference_hits_and_an_old_case_holds_none(
         "tests/roadmap/test_roadmap_claim_command.py",
     )
     assert old.facts.references == ()
-
-
-def _git(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", "-C", str(REPO_ROOT), *args], capture_output=True, text=True, check=False
-    )
-
-
-def test_each_base_commit_of_the_set_is_a_full_hash_of_a_real_commit_or_the_case_reads_none(
-    cases: list[StageCase],
-) -> None:
-    if _git("rev-parse", "--is-shallow-repository").stdout.strip() == "true":
-        pytest.skip("A shallow clone lacks the old commits that the cases name.")
-
-    not_commits = []
-    for case in cases:
-        if case.base_commit == NO_COMMIT:
-            assert any("reads no commit" in note for note in case.notes), case.name
-        elif not (
-            FULL_HASH.fullmatch(case.base_commit)
-            and _git("cat-file", "-e", f"{case.base_commit}^{{commit}}").returncode == 0
-        ):
-            not_commits.append((case.name, case.base_commit))
-
-    assert not_commits == []
 
 
 def test_each_merge_commit_of_the_set_is_a_full_hash_or_the_case_reads_none(

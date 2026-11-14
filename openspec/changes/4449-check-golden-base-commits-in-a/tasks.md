@@ -15,7 +15,7 @@ Kind: behavior. Reads: `src/devops_cli/commands/ci.py`, `src/devops_cli/config/c
 
 Kind: other. Reads: `tests/roadmap/stage/test_roadmap_stage_eval_cases.py`. Changes: `tests/roadmap/stage/test_roadmap_stage_eval_cases.py`.
 
-- [ ] 2.1 Delete `_git` and `test_each_base_commit_of_the_set_is_a_full_hash_of_a_real_commit_or_the_case_reads_none` from `tests/roadmap/stage/test_roadmap_stage_eval_cases.py`, and delete the `import subprocess` line. Keep `FULL_HASH`, `NO_COMMIT`, `REPO_ROOT`, `pytest` and `test_each_merge_commit_of_the_set_is_a_full_hash_or_the_case_reads_none` as they are, because the merge hash test reads loaded data and no git history
+- [x] 2.1 Delete `_git` and `test_each_base_commit_of_the_set_is_a_full_hash_of_a_real_commit_or_the_case_reads_none` from `tests/roadmap/stage/test_roadmap_stage_eval_cases.py`, and delete the `import subprocess` line. Keep `FULL_HASH`, `NO_COMMIT`, `REPO_ROOT`, `pytest` and `test_each_merge_commit_of_the_set_is_a_full_hash_or_the_case_reads_none` as they are, because the merge hash test reads loaded data and no git history
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_eval_cases.py` passes
 
 ## Workflow follow-up
