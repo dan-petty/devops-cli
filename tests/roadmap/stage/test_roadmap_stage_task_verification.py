@@ -278,16 +278,16 @@ def test_an_unmarked_verification_span_names_the_missing_marker() -> None:
     with pytest.raises(PlanReadError) as found:
         read_change(files)
 
-    assert ("Add `$ `" in found.value.reason, "has the kind other" in found.value.reason) == (
-        True,
-        False,
-    )
+    assert "Add `$ `" in found.value.reason
+    assert "has the kind other" not in found.value.reason
 
 
 def test_a_marked_verification_span_still_parses() -> None:
     files = _rendered_files()
 
-    assert read_change(files).groups
+    plan = read_change(files)
+
+    assert [group.title for group in plan.groups] == ["Keep the last comment"]
 
 
 def test_an_inline_span_outside_a_verification_line_is_no_marker_error() -> None:
@@ -296,4 +296,6 @@ def test_an_inline_span_outside_a_verification_line_is_no_marker_error() -> None
         "## 1.", "A sentence with `inline code` and no marker.\n\n## 1.", 1
     )
 
-    assert read_change(files).groups
+    plan = read_change(files)
+
+    assert [group.title for group in plan.groups] == ["Keep the last comment"]
