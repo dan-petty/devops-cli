@@ -18,7 +18,7 @@ import subprocess
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Any, Protocol, cast
+from typing import Any, Final, Protocol, cast
 
 from pydantic import BaseModel
 from pydantic_ai import ModelRetry, RunContext, Tool, capture_run_messages
@@ -69,11 +69,11 @@ from devops_cli.exceptions.ai import SearchFailed, SearchQueryRefused
 from devops_cli.roadmap.agent_run import (
     RunLimit,
     RunTrace,
+    cut_answer,
     drain_events,
     empty_answer,
     error_answer,
     model_call_error,
-    ok_answer,
     run_error_message,
 )
 from devops_cli.roadmap.page_fetch import PageFetch
@@ -105,6 +105,10 @@ def analysis_window() -> int:
 
 
 CUT_NOTICE = "(more lines are left out)"
+# The names of the caps that cut a tool answer, as the metadata of the answer and
+# `devops_cli_roadmap_tool_cuts_total` label them (#3241).
+CAP_LINES: Final[str] = "lines"
+CAP_CHARS: Final[str] = "chars"
 
 
 def repository_path(text: str) -> str | None:
@@ -115,23 +119,37 @@ def repository_path(text: str) -> str | None:
     return "" if str(path) == "." else str(path)
 
 
-def cut(lines: list[str], *, max_chars: int = CONST_ROADMAP_REFINE_TOOL_MAX_CHARS) -> str:
+def cut_with_cap(
+    lines: list[str],
+    *,
+    max_chars: int = CONST_ROADMAP_REFINE_TOOL_MAX_CHARS,
+    char_cap: str = CAP_CHARS,
+) -> tuple[str, str | None]:
     """At most `CONST_ROADMAP_REFINE_TOOL_MAX_LINES` lines and `max_chars` characters. The answer
     ends at a whole line, and a line that passes `max_chars` alone is cut. An answer that has lost
-    text to either limit ends with a notice, so the model does not read it as the whole (#4341)."""
+    text to either limit ends with a notice, so the model does not read it as the whole (#4341).
+    The second value names the cap that cut the answer (`CAP_LINES` or `char_cap`), or None when
+    no cap cut it (#3241)."""
     kept: list[str] = []
     size = 0
-    lost = len(lines) > CONST_ROADMAP_REFINE_TOOL_MAX_LINES
+    lost_lines = len(lines) > CONST_ROADMAP_REFINE_TOOL_MAX_LINES
+    lost_chars = False
     for line in lines[:CONST_ROADMAP_REFINE_TOOL_MAX_LINES]:
         size += len(line) + (1 if kept else 0)
         if size > max_chars:
-            lost = True
+            lost_chars = True
             if not kept:
                 kept.append(line[:max_chars])
             break
         kept.append(line)
     text = "\n".join(kept)
-    return f"{text}\n{CUT_NOTICE}" if lost else text
+    cap = char_cap if lost_chars else (CAP_LINES if lost_lines else None)
+    return (f"{text}\n{CUT_NOTICE}" if cap is not None else text), cap
+
+
+def cut(lines: list[str], *, max_chars: int = CONST_ROADMAP_REFINE_TOOL_MAX_CHARS) -> str:
+    """The text of `cut_with_cap` for the callers that need no cap name (#3241)."""
+    return cut_with_cap(lines, max_chars=max_chars)[0]
 
 
 @dataclass(frozen=True)
@@ -256,7 +274,8 @@ class InvestigationTools:
             return error_answer("The search ran out of time. Search for a less common text.")
         decoded = out.decode("utf-8", errors="replace").splitlines()
         lines = [line.removeprefix(f"{self.sha}:") for line in decoded]
-        return ok_answer(cut(lines)) if code == 0 and lines else empty_answer("No match.")
+        answer, cap = cut_with_cap(lines)
+        return cut_answer(answer, cap) if code == 0 and lines else empty_answer("No match.")
 
     def list_files(self, directory: str = "") -> ToolReturn:
         """List the files and directories in one directory of the repository.
@@ -274,7 +293,8 @@ class InvestigationTools:
         names = out.decode("utf-8", errors="replace").splitlines()
         if not names:
             return error_answer(f"The commit holds no directory {path}.")
-        return ok_answer(cut(names))
+        answer, cap = cut_with_cap(names)
+        return cut_answer(answer, cap)
 
     def _text_blob(self, clean: str) -> str | ToolReturn:
         """The text of the file `clean` at the commit, or the `error_answer` of a tool for a file
@@ -325,7 +345,8 @@ class InvestigationTools:
         ]
         if not numbered:
             return empty_answer(f"The file {clean} has no lines from line {first}.")
-        return ok_answer(cut(numbered))
+        answer, cap = cut_with_cap(numbered)
+        return cut_answer(answer, cap)
 
     def search_web(self, query: str) -> str | ToolReturn:
         """Search the web. Cite a result by its URL.
@@ -632,6 +653,8 @@ def investigate[T: BaseModel](
 
 
 __all__ = [
+    "CAP_CHARS",
+    "CAP_LINES",
     "InvestigationStopped",
     "InvestigationTools",
     "SearchAnswer",
@@ -639,6 +662,7 @@ __all__ = [
     "analysis_window",
     "cited_web_search",
     "cut",
+    "cut_with_cap",
     "investigate",
     "repository_path",
     "task_window",

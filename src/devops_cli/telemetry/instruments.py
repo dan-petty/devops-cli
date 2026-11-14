@@ -439,6 +439,16 @@ ROADMAP_TOOL_LIMIT_HITS_TOTAL = Instrument(
     "means one model request was left. The limit window means the messages filled the context "
     "window. One count for each run",
 )
+ROADMAP_TOOL_CUTS_TOTAL = Instrument(
+    "devops_cli_roadmap_tool_cuts_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Tool answers that a cap of the roadmap planner or verifier cut, one count for each answer "
+    "that lost text, by tool, row, toolset and cap: lines for CONST_ROADMAP_REFINE_TOOL_MAX_LINES, "
+    "chars for CONST_ROADMAP_REFINE_TOOL_MAX_CHARS, spec for "
+    "CONST_ROADMAP_STAGE_SPEC_MAX_CHARS, log for CONST_ROADMAP_STAGE_LOG_MAX_COUNT, and map for "
+    "CONST_ROADMAP_STAGE_MAP_MAX_FILES. An answer that no cap cut adds nothing",
+)
 ROADMAP_AGE_LABELS = ("repo", "state", "plan")
 """The labels of `ROADMAP_ITEM_AGE` and `ROADMAP_OLDEST_ITEM`, in the order the dashboard names them."""
 ROADMAP_ITEM_AGE = Instrument(
@@ -845,6 +855,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_TOOL_ANSWER_CHARS,
     ROADMAP_TOOL_CALLS_PER_RUN,
     ROADMAP_TOOL_LIMIT_HITS_TOTAL,
+    ROADMAP_TOOL_CUTS_TOTAL,
     ROADMAP_ITEM_AGE,
     ROADMAP_OLDEST_ITEM,
     ROADMAP_CLAIM_AGE,
@@ -1019,6 +1030,7 @@ __all__ = [
     "ROADMAP_TOOL_ANSWER_CHARS",
     "ROADMAP_TOOL_CALLS_PER_RUN",
     "ROADMAP_TOOL_CALLS_TOTAL",
+    "ROADMAP_TOOL_CUTS_TOTAL",
     "ROADMAP_TOOL_LIMIT_HITS_TOTAL",
     "SUBCOMMAND_DURATION",
     "SUBPROCESS_DURATION",
