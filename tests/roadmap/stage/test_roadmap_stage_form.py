@@ -115,17 +115,28 @@ def test_a_pytest_verify_command_is_refused_with_the_form_to_use() -> None:
     "verify",
     [
         f"uv run devops ci test {MIRRORED}",
+        "! git grep -n -w old_name src/ tests/",
+    ],
+)
+def test_a_test_run_or_a_negative_search_is_a_verify_command(verify: str) -> None:
+    plan = _plan(CODE, MIRRORED, creates=(MIRRORED,), verify=verify)
+
+    assert _problems(plan) == []
+
+
+@pytest.mark.parametrize(
+    "verify",
+    [
         "uv run devops ci",
         "uv run devops openspec check",
         "uv run devops docs check",
         "uv run devops k8s image-pins",
-        "! git grep -n -w old_name src/ tests/",
     ],
 )
-def test_a_devops_command_or_a_negative_search_is_a_verify_command(verify: str) -> None:
-    plan = _plan(CODE, MIRRORED, creates=(MIRRORED,), verify=verify)
+def test_a_project_command_is_a_verify_command_of_an_other_group(verify: str) -> None:
+    group = _group(kind="other", test=None, verify=verify)
 
-    assert _problems(plan) == []
+    assert form_problems([group]) == []
 
 
 @pytest.mark.parametrize(
@@ -658,5 +669,37 @@ def test_a_manifest_verify_that_runs_a_path_of_the_group_is_accepted() -> None:
             "verify": f"uv run devops ci test {test_file}",
         }
     )
+
+    assert form_problems([group]) == []
+
+
+# ── A behavior group runs its test (#3463) ────────────────────────────────────
+
+
+def test_a_behavior_group_that_runs_no_test_module_is_refused() -> None:
+    (problem,) = form_problems([_group(verify="uv run devops ci docs")])
+
+    assert (
+        problem.startswith("Group 1 gives the `verify` command `uv run devops ci docs`"),
+        "tests/test_sample.py" in problem,
+    ) == (True, True)
+
+
+def test_a_verify_that_names_a_test_directory_is_refused() -> None:
+    (problem,) = form_problems([_group(verify="uv run devops ci test tests/roadmap/")])
+
+    assert problem.startswith(
+        "Group 1 gives the `verify` command `uv run devops ci test tests/roadmap/`"
+    )
+
+
+def test_a_behavior_group_that_runs_its_test_module_is_accepted() -> None:
+    group = _group(verify="uv run devops ci test tests/test_sample.py")
+
+    assert form_problems([group]) == []
+
+
+def test_an_other_group_that_runs_no_test_module_is_accepted() -> None:
+    group = _group(kind="other", test=None, verify="uv run devops ci docs")
 
     assert form_problems([group]) == []

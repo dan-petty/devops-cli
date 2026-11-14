@@ -4816,6 +4816,10 @@ class RoadmapMessages:
         "Group {group} gives the `verify` command `{command}`, and the step cannot run it: "
         "{reason}. Give `uv run devops <command>` or `! git grep -n <name> src/ tests/`."
     )
+    stage_problem_behavior_verify_test: str = (
+        "Group {group} gives the `verify` command `{command}`, which runs no test module of the "
+        "group. Run {module}."
+    )
     stage_problem_manifest_kind: str = (
         "Group {group} has the kind other and changes `{path}`. "
         "Use the kind manifest for a group that creates or changes a case path."

@@ -89,6 +89,49 @@ def _verify_problems(number: int, command: str) -> list[str]:
     return problems
 
 
+def _test_modules_in(text: str | None) -> list[PurePosixPath]:
+    """The test modules that `text` names in code spans, in order."""
+    if text is None:
+        return []
+    found = (PurePosixPath(span[1:-1]) for span in _CODE_SPAN.findall(text))
+    return [path for path in found if _is_test_module(path)]
+
+
+def _behavior_test_run_problems(number: int, group: StageGroup) -> list[str]:
+    """The problem of a `behavior` group whose `verify` runs no test module of the group (#3463):
+    the command must name a test module that `test`, `changes`, `creates` or `reads` names."""
+    if group.kind != "behavior" or group.verify is None:
+        return []
+    if not is_valid_verify(group.verify) or negative_search_parts(group.verify) is not None:
+        # The form rule refuses another command, and a negative search proves a removed name.
+        return []
+    command = group.verify.strip()
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        # The form rule refuses the command line, so it reports the only problem.
+        return []
+    ran = [PurePosixPath(word) for word in words]
+    ran = [path for path in ran if _is_test_module(path)]
+    candidates = [
+        *_test_modules_in(group.test),
+        *(
+            path
+            for path in map(PurePosixPath, (*group.changes, *group.creates, *group.reads))
+            if _is_test_module(path)
+        ),
+    ]
+    if ran and any(path in candidates for path in ran):
+        return []
+    return [
+        MESSAGES.roadmap.stage_problem_behavior_verify_test.format(
+            group=number,
+            command=shown(command, CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS),
+            module=f"`{candidates[0]}`" if candidates else "a test module of the group",
+        )
+    ]
+
+
 def _manifest_verify_problems(number: int, group: StageGroup) -> list[str]:
     """The problem of the `verify` command of a `manifest` group: it must be `uv run devops ci test`
     followed by one path of the group or its folder."""
@@ -255,6 +298,7 @@ def form_problems(groups: Sequence[StageGroup]) -> list[str]:
         problems.extend(_task_problems(number, group))
         if group.verify is not None:
             problems.extend(_verify_problems(number, group.verify))
+        problems.extend(_behavior_test_run_problems(number, group))
         problems.extend(_manifest_verify_problems(number, group))
         if group.kind == "other":
             for case_path in (*group.changes, *group.creates):
