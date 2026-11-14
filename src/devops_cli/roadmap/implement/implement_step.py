@@ -1771,17 +1771,30 @@ class _Ask:
     changed_reason: str
 
 
-def _foreign_change(source: Path, inputs: StepInputs, tree: str, ask: _Ask) -> str | None:
+def _foreign_change(
+    source: Path, inputs: StepInputs, tree: str, ask: _Ask, base: str
+) -> str | None:
     """Why the step stops when the checkout differs from `tree` in a file that `ask` does not let
-    the turn change, else None. The `tasks.md` of the change is always allowed."""
+    the turn change, else None. The `tasks.md` of the change is always allowed. A file whose
+    staged content equals its content at `base` is a restoration of the step's own work, so the
+    turn may put it back (#4011)."""
     _git_output(source, "add", "-A")
     names = _git_output(source, "diff", "--cached", "--name-only", "--no-renames", "-z", tree)
     tasks = (inputs.change / "tasks.md").relative_to(source).as_posix()
     allowed = ask.may_change | {tasks}
-    others = sorted(name for name in names.split("\0") if name and name not in allowed)
+    others = sorted(
+        name
+        for name in names.split("\0")
+        if name and name not in allowed and not _matches_base(source, base, name)
+    )
     if not others:
         return None
     return ask.changed_reason.format(paths=_paths_text(others))
+
+
+def _matches_base(source: Path, base: str, name: str) -> bool:
+    """Whether the staged content of `name` equals its content at `base` (#4011)."""
+    return _git(source, "diff", "--cached", "--quiet", base, "--", name).returncode == 0
 
 
 def _extra_ask(failure: _Failure | None, log: ToolCallLog) -> _Ask | None:
@@ -1842,7 +1855,7 @@ def _extra_turn(
     if run.reason:
         return run, _Failure(run.reason, klass=run.failure_class)
     _remove_strays(source, inputs, log)
-    foreign = _foreign_change(source, inputs, tree, ask)
+    foreign = _foreign_change(source, inputs, tree, ask, keeper.base)
     if foreign:
         return run, _Failure(foreign)
     return run, _exit_failure(source, inputs, keeper, log)
