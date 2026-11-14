@@ -40,8 +40,6 @@ logger = logging.getLogger(__name__)
 
 
 def _is_safe_workspace_path(target: Path, workspace_root: Path | None = None) -> bool:
-    if target.is_symlink():
-        return False
     root = workspace_root or Path.cwd()
     return is_safe_subpath(root, target)
 
