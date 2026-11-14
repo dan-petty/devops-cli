@@ -88,6 +88,7 @@ def test_a_round_leaves_an_item_with_an_unlisted_title_type_new_with_no_model_ca
 def test_the_round_after_the_title_change_refines_the_item_to_ready(
     store: InMemoryRoadmapStore, git_repo: Path, model_fake: ModelFake
 ) -> None:
+    store.seed_visibility(is_private=True)
     number = _seed(store, SECURITY)
     apply_refine(store, plan_refine(store, repo=REPO, source=git_repo))
     store.set_title(number, "fix(security): verify node host keys")

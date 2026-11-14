@@ -8,7 +8,7 @@ import fnmatch
 import json
 from collections import Counter
 from collections.abc import Callable, Mapping
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -32,6 +32,7 @@ from devops_cli.roadmap.refine.refine import (
     plan_refine,
 )
 from devops_cli.roadmap.stores.store import (
+    AlternativesRecordKey,
     GitHubState,
     Item,
     ItemField,
@@ -230,6 +231,28 @@ def require_item(store: InMemoryRoadmapStore, number: int) -> Item:
     item = store.item(number)
     assert item is not None
     return item
+
+
+def record_alternatives_check(
+    store: InMemoryRoadmapStore, number: int, verdict: str, *, tool: str | None = None
+) -> None:
+    """What the alternatives job leaves on item `number`: its block in the body and its verdict
+    in the job record. `tool` is the URL of the tool of a `covers` or `partly` verdict (#2951)."""
+    body = store.read_issue_body(number)
+    block = (
+        f"{constants.CONST_ROADMAP_ALTERNATIVES_START_MARKER}\n"
+        f"Alternatives check of 2026-11-14: {verdict}.\n"
+        f"{constants.CONST_ROADMAP_ALTERNATIVES_END_MARKER}"
+    )
+    store.write_issue_body(number, f"{body}\n\n{block}")
+    store.set_marks(
+        require_item(store, number),
+        {
+            AlternativesRecordKey.CHECKED_AT: datetime.now(UTC).isoformat(),
+            AlternativesRecordKey.VERDICT: verdict,
+            AlternativesRecordKey.TOOL: tool,
+        },
+    )
 
 
 def comment_bodies(store: InMemoryRoadmapStore, number: int) -> list[str]:

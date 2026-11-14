@@ -2754,6 +2754,10 @@ class RoadmapMessages:
                 "The next refine round looks at the item again when they close, or when a person "
                 "replies in a comment or edits the body."
             ),
+            "alternatives": (
+                "Waiting for the alternatives check to run. The next refine round looks at the "
+                "item again after the check records a verdict."
+            ),
         }
     )
     # The last line of a next-step comment whose block cites code (#2005).
@@ -2796,6 +2800,7 @@ class RoadmapMessages:
             "retry": "The refine round failed. The next round tries again. {details}",
             "failed": "The refine job failed. A body edit makes refine try again. {details}",
             "ready": "The item waits. {details}",
+            "alternatives": "The item waits for the alternatives check to run. {details}",
             "none": "{details}",
         }
     )
@@ -2868,6 +2873,7 @@ class RoadmapMessages:
             "edit": "## Waiting on a body edit",
             "retry": "## Job failed, the next round tries again",
             "failed": "## Job failed, waiting on a body edit",
+            "alternatives": "## Waiting for the alternatives check",
             "none": "## Nothing to do",
         }
     )
