@@ -1999,6 +1999,11 @@ def run_due_jobs(
     )
 
 
+def repository_is_idle(store: RoadmapStore) -> bool:
+    """Whether `store` holds no open issue and no open pull request (#3672)."""
+    return not store.open_items() and not store.open_pulls()
+
+
 def service_job(
     batch: TriggerBatch,
     *,
@@ -2007,19 +2012,22 @@ def service_job(
     failures: FailureLedger | None = None,
     listing: IncrementalListing | None = None,
     polls: PollCache | None = None,
+    idle: Callable[[str, bool], None] | None = None,
 ) -> None:
     """Service mode adapter that runs the due roadmap jobs of the lane `lane`, `table`, for a
     coalesced trigger batch, on the roadmap store of the batch's repository, counting its failed
-    rounds in `failures`. The clone rows work in the clone of the lane, `lanes/<lane>`, so no two
+    rounds in `failures`. `idle` receives whether the repository has no open work after the
+    round (#3672). The clone rows work in the clone of the lane, `lanes/<lane>`, so no two
     lanes share a working tree (#5553). The store reads every issue through `listing` when one is
     given, else the whole listing. The store reads no repository file: a repository needs no
     roadmap configuration (ADR 0016)."""
     from devops_cli.roadmap.stores import store as roadmap_store
 
     repo = batch.repo
+    store = roadmap_store.get_roadmap_store(repo, listing=listing)
     run_due_jobs(
         repo,
-        roadmap_store.get_roadmap_store(repo, listing=listing),
+        store,
         batch=batch,
         table=table,
         clone_dirname=lane_clone_dirname(lane),
@@ -2027,10 +2035,14 @@ def service_job(
         lane=lane,
         polls=polls,
     )
+    if idle is not None:
+        idle(repo, repository_is_idle(store))
 
 
 def service_jobs(
-    state_dir: Path, lanes: Mapping[str, Sequence[str]] | None = None
+    state_dir: Path,
+    lanes: Mapping[str, Sequence[str]] | None = None,
+    idle: Callable[[str, bool], None] | None = None,
 ) -> Mapping[str, LaneJob]:
     """Each lane's job, which `devops serve --service` runs in one worker per lane of each
     repository (#1532): one lane for each row, unless `lanes`, else the setting `service.lanes`,
@@ -2055,6 +2067,7 @@ def service_jobs(
                 else lane_listing(state_dir, lane)
             ),
             polls=cache,
+            idle=idle,
         )
         for lane, rows in service_lanes(groups).items()
     }

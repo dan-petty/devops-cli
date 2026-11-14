@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.139.0](https://github.com/dan-petty/devops-cli/compare/v0.138.1...v0.139.0) (2026-11-14)
+
+
+### Features
+
+* **monitoring:** enable and configure grafana-llm-app plugin ([#5699](https://github.com/dan-petty/devops-cli/issues/5699)) ([784af11](https://github.com/dan-petty/devops-cli/commit/784af118317b6bc134e900ba1a8896beea2d7cc9))
+* **service:** poll an idle repository less often ([#5700](https://github.com/dan-petty/devops-cli/issues/5700)) ([74c47c9](https://github.com/dan-petty/devops-cli/commit/74c47c94c3db7480e81c986a90e32997db3d99f3))
+
+
+### Bug Fixes
+
+* **pr:** put the plan text above the Plans line ([#5695](https://github.com/dan-petty/devops-cli/issues/5695)) ([c212f77](https://github.com/dan-petty/devops-cli/commit/c212f775522bfdf20b2bcf7e7cdb6bf51fa5387e))
+* **security:** configure secret_key for grafana security ([#5702](https://github.com/dan-petty/devops-cli/issues/5702)) ([11204e8](https://github.com/dan-petty/devops-cli/commit/11204e85eef088f736fe28aea92cf1523a93fb8d))
+* **security:** Judge KSV-0017 with a dated ignore entry ([#5704](https://github.com/dan-petty/devops-cli/issues/5704)) ([73049d7](https://github.com/dan-petty/devops-cli/commit/73049d792ccf2e65316aeb4d33618a5a6e2886c3))
+
 ## [0.138.1](https://github.com/dan-petty/devops-cli/compare/v0.138.0...v0.138.1) (2026-11-14)
 
 

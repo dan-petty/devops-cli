@@ -135,7 +135,7 @@ def serve(
             service_state_dir,
         )
         from devops_cli.server.json_logs import service_log_config
-        from devops_cli.server.service import create_service_app
+        from devops_cli.server.service import IdleRepos, create_service_app
 
         settings = load_settings()
         from devops_cli.server.service import validate_service_mode
@@ -153,7 +153,8 @@ def serve(
         # Each row runs in a lane of its own, with its own clone and snapshot (#5553). The
         # clones and the snapshots of the lanes that the Service does not run are caches, so the
         # start removes them.
-        jobs = service_jobs(state_dir, settings.service.lanes)
+        idle = IdleRepos()
+        jobs = service_jobs(state_dir, settings.service.lanes, idle.update)
         retire_lane_state(state_dir, settings.service.repos, settings.service.lanes)
 
         # uvicorn calls this factory after it applies log_config, so the warnings building the app
@@ -166,6 +167,7 @@ def serve(
                 secrets=parsed_secrets,
                 identity_refused=identity_refused,
                 state_dir=state_dir,
+                idle=idle,
             ),
             factory=True,
             log_config=service_log_config(log_level),
