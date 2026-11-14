@@ -1270,6 +1270,9 @@ class _Planner:
         # that removes a command needs a `modified` requirement for each base requirement that
         # names it (#3287).
         self._requirement_texts = {name: dict(spec.statements) for name, spec in specs.items()}
+        # The name of each scenario of the base spec of a capability (#3423): a modified
+        # requirement that restates one needs no new behavior task.
+        self._base_scenarios = {name: spec.scenarios for name, spec in specs.items()}
         self._tree = tree
         self._budget = budget
         self._window = window
@@ -2238,6 +2241,7 @@ class _Planner:
                 known=self._known,
                 requirements=self._requirements,
                 requirement_texts=self._requirement_texts,
+                base_scenarios=self._base_scenarios,
                 search_evidence=evidence,
                 manifest_references=manifest_references,
                 module_tests=module_tests,
@@ -2358,6 +2362,7 @@ class _Planner:
             tree=self._tree.with_files(files),
             known=self._known,
             requirements=self._requirements,
+            base_scenarios=self._base_scenarios,
             item_title=target.item.title,
             item_body=target.item.body,
             budget=self._budget,

@@ -791,6 +791,13 @@ def test_the_stage_prompt_requires_behavior_test_for_scenario_code() -> None:
     assert "refuses a scenario that names code with no behavior test" in prompt
 
 
+def test_the_stage_prompt_requires_a_behavior_task_for_each_new_scenario() -> None:
+    prompt = load_task_prompt("roadmap_stage_change.md")
+
+    assert "names no code in a code span must have a behavior group" in prompt
+    assert "refuses a scenario that no behavior group covers" in prompt
+
+
 def test_the_stage_prompt_requires_coverage_of_quoted_references() -> None:
     prompt = load_task_prompt("roadmap_stage_change.md")
 

@@ -731,6 +731,22 @@ def tasks_at(source: Path, rev: str, issue: int, *, operation: str) -> str:
     return files_at(source, rev, [path], operation=operation)[path]
 
 
+def scenario_names_at(
+    source: Path, rev: str, *, operation: str, files: Sequence[str] | None = None
+) -> dict[str, tuple[str, ...]]:
+    """The name of each scenario of the base spec of each capability at commit `rev` (#3423).
+    `files` is the paths of `rev` when the caller listed them already."""
+    if not rev:
+        return {}
+    scenarios: dict[str, tuple[str, ...]] = {}
+    for path in tree_files(source, rev, operation=operation) if files is None else files:
+        match = _SPEC_FILE.match(path)
+        if match is not None:
+            text = files_at(source, rev, [path], operation=operation)[path]
+            scenarios[match["capability"]] = read_spec(text).scenarios
+    return scenarios
+
+
 def specs_at(
     source: Path, rev: str, *, operation: str, files: Sequence[str] | None = None
 ) -> tuple[frozenset[str], dict[str, tuple[str, ...]]]:
