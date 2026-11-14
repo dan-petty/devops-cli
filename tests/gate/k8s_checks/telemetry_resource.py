@@ -79,6 +79,7 @@ def check_each_devops_cli_container_names_the_cluster_and_its_namespace() -> Non
             )
     assert named == {
         ("CronJob", "devops-cli", "devops-cli"): (cluster, "devops"),
+        ("CronJob", "devops-cli-planner-run", "runner"): (cluster, "devops"),
         ("CronJob", "devops-cli-runner", "runner"): (cluster, "devops"),
         ("CronJob", "roadmap-stage", "stage"): (cluster, "devops"),
         ("Deployment", "mcp-server", "mcp-server"): (cluster, "devops"),

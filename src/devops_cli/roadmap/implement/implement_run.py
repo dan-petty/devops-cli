@@ -104,6 +104,7 @@ from devops_cli.github.check_verdict import PRCheckItem, read_check_runs
 from devops_cli.github.client import PullRequestFile
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
+from devops_cli.openspec.project import uses_openspec
 from devops_cli.output import print_muted
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import default_branch, git
@@ -145,6 +146,7 @@ from devops_cli.roadmap.implement.implement_pull import (
 )
 from devops_cli.roadmap.implement.implement_scoped_ci import (
     ScopedResult,
+    ScopedTests,
     plan_tests,
     run_scoped_checks,
     scoped_checks,
@@ -160,7 +162,6 @@ from devops_cli.roadmap.implement.implement_step import (
     run_fix_step,
     run_step,
 )
-from devops_cli.roadmap.implement.implement_steps import ProjectStep, declared_steps
 from devops_cli.roadmap.implement.implement_trace import (
     ImplementTrace,
     SummaryRow,
@@ -171,6 +172,7 @@ from devops_cli.roadmap.implement.implement_wip import WipCommit, kept_commits, 
 from devops_cli.roadmap.owner_question import OwnerQuestion, QuestionOption
 from devops_cli.roadmap.plan_read import PlanReadError, merged_recorded_tests
 from devops_cli.roadmap.premise import false_premises
+from devops_cli.roadmap.project_profile import ProjectProfile, ProjectStep, resolve_profile
 from devops_cli.roadmap.pull_form import BODY_MAX_CHARS, build_body, title_problems
 from devops_cli.roadmap.pull_labels import (
     add_pull_labels,
@@ -587,6 +589,7 @@ class _ItemRun:
     # The trace of the run (#3032): the events of the steps and of the commands of the job.
     trace: ImplementTrace = field(default_factory=ImplementTrace)
     _step: str = field(default="", init=False, repr=False)
+    _profile: ProjectProfile | None = field(default=None, init=False, repr=False)
     # The draft pull request: the target's, or for a Planned item the one `_publish` opens.
     pull: int | None = field(init=False)
     # The spend of the earlier Jobs of the item, from `implement.spend` (#4070).
@@ -639,6 +642,12 @@ class _ItemRun:
     @property
     def branch(self) -> str:
         return self.target.branch
+
+    @property
+    def profile(self) -> ProjectProfile:
+        if self._profile is None:
+            self._profile = resolve_profile(self.path, f"origin/{self.default}")
+        return self._profile
 
     def _git(self, *args: str) -> str:
         return git(self.path, *args, operation=GIT_OPERATION)
@@ -1147,6 +1156,7 @@ class _ItemRun:
                     model=self.model,
                     window=self.window,
                     hooks=self._hooks_config(),
+                    preset=self.profile.preset,
                     model_for_tier=self.model_for_tier,
                     trace=self.trace,
                     on_wip=self._keep,
@@ -1254,9 +1264,19 @@ class _ItemRun:
         )
 
     def _runs(self, step: ProjectStep) -> bool:
-        """Whether the job runs `step`: the default branch declares it. A step that it does not
+        """Whether the job runs `step`: the profile declares it. A step that it does not
         declare is noted for the comment, once (#3484)."""
-        if step in declared_steps(self.path, f"origin/{self.default}"):
+        preset = self.profile.preset
+        if step is ProjectStep.DOCS:
+            active = preset.docs_step
+        elif step is ProjectStep.ARCHIVE:
+            active = bool(
+                preset.archive_argv
+                and uses_openspec(self.path, f"origin/{self.default}", operation=GIT_OPERATION)
+            )
+        else:
+            active = False
+        if active:
             return True
         if step not in self.skipped_steps:
             self.skipped_steps.append(step)
@@ -1277,8 +1297,12 @@ class _ItemRun:
         if change is None or not self._runs(ProjectStep.ARCHIVE):
             return
         self.step = names["archive"]
+        preset = self.profile.preset
+        if not preset.archive_argv:
+            return
+        archive_cmd = [part.replace("<change>", change.name) for part in preset.archive_argv]
         try:
-            self._program([BIN_UV, "run", BIN_DEVOPS, "openspec", "archive", change.name])
+            self._program(archive_cmd)
         except _StopError as stop:
             # An archive that moved the change folder and then exited 1 failed the strict
             # validation of the specs: a spec of the plan is the cause. The output counts specs
@@ -1326,10 +1350,16 @@ class _ItemRun:
             "diff", "--name-only", "--diff-filter=ACMR", "-z", f"origin/{self.default}", "HEAD"
         )
         changed = [name for name in listed.split("\0") if name]
-        tests = plan_tests(self.path, changed)
+        tests = (
+            plan_tests(self.path, changed)
+            if self.profile.preset.test_selection
+            else ScopedTests((), "")
+        )
         if tests.note and tests.note not in self.scoped_notes:
             self.scoped_notes.append(tests.note)
-        checks = scoped_checks(self.default, tests.paths, config=self._hooks_config())
+        checks = scoped_checks(
+            self.default, tests.paths, config=self._hooks_config(), preset=self.profile.preset
+        )
         results = run_scoped_checks(self.path, checks)
         self.scoped.extend(results)
         for result in results:
@@ -1763,6 +1793,7 @@ class _ItemRun:
             model=self.model,
             window=self.window,
             hooks=self._hooks_config(),
+            preset=self.profile.preset,
             model_for_tier=self.model_for_tier,
             trace=self.trace,
             spend=self._item_spend(),
@@ -1792,8 +1823,10 @@ class _ItemRun:
             change = ChangeFacts(
                 archived=False,
                 tasks_text=tasks_text,
-                archive_required=ProjectStep.ARCHIVE
-                in declared_steps(self.path, f"origin/{self.default}"),
+                archive_required=bool(
+                    self.profile.preset.archive_argv
+                    and uses_openspec(self.path, f"origin/{self.default}", operation=GIT_OPERATION)
+                ),
             )
         else:
             change = None

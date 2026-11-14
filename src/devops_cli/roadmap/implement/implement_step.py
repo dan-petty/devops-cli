@@ -166,6 +166,7 @@ from devops_cli.roadmap.step_files import (
     section_text,
 )
 from devops_cli.roadmap.step_rules import rules_sections
+from devops_cli.roadmap.toolchains import DEVOPS_CLI_PRESET, ToolchainPreset
 from devops_cli.security.sanitizer import mask_secrets
 
 if TYPE_CHECKING:
@@ -334,6 +335,7 @@ class StepInputs:
     fix: FixRequest | None = None
     hooks: Path | None = None
     recorded_tests: frozenset[str] = frozenset()
+    preset: ToolchainPreset = DEVOPS_CLI_PRESET
 
 
 def _files_section(source: Path, group: TaskGroup) -> str:
@@ -387,6 +389,7 @@ def build_step_inputs(
     window: int,
     fix: FixRequest | None = None,
     earlier: EarlierStop | None = None,
+    preset: ToolchainPreset = DEVOPS_CLI_PRESET,
 ) -> StepInputs:
     """The inputs of group `group` of item `item`, read from the checkout `source`. With `fix`,
     the group is the fix of that failed check and `group` is not read. With `earlier`, the message
@@ -443,6 +446,7 @@ def build_step_inputs(
         message=message,
         tokens=tokens,
         fix=fix,
+        preset=preset,
     )
 
 
@@ -1651,7 +1655,12 @@ def _exit_failure(
     outside = _plan_failure(source, inputs, keeper)
     if outside is not None:
         return outside
-    early = _format_failure(source, changed, log.trace) or commands_failure(
+    format_failure = (
+        _format_failure(source, changed, log.trace)
+        if inputs.preset.step_gates == "ruff-mypy"
+        else None
+    )
+    early = format_failure or commands_failure(
         source, inputs.group.verification_commands, log.trace, log.verified
     )
     if early:
@@ -1662,7 +1671,11 @@ def _exit_failure(
     proof = _fail_to_pass_failure(source, inputs, keeper, log)
     if proof is not None:
         return proof
-    static = _static_failure(source, changed, log.trace)
+    static = (
+        _static_failure(source, changed, log.trace)
+        if inputs.preset.step_gates == "ruff-mypy"
+        else None
+    )
     if static:
         return _Failure(static, frozenset(changed))
     failure = _hooks_failure(source, inputs.hooks, changed, log.trace)
@@ -2165,6 +2178,7 @@ def run_step(
     model: Any = None,
     fix: FixRequest | None = None,
     hooks: Path | None = None,
+    preset: ToolchainPreset = DEVOPS_CLI_PRESET,
     step_class: StepClass = StepClass.EDIT,
     ladder: Sequence[str] | None = None,
     model_for_tier: Callable[[str], Any] | None = None,
@@ -2215,10 +2229,18 @@ def run_step(
     """
     inputs = replace(
         build_step_inputs(
-            store, item=item, group=group, source=source, window=window, fix=fix, earlier=earlier
+            store,
+            item=item,
+            group=group,
+            source=source,
+            window=window,
+            fix=fix,
+            earlier=earlier,
+            preset=preset,
         ),
         hooks=hooks,
         recorded_tests=recorded_tests,
+        preset=preset,
     )
     if model is None and model_for_tier is None:
         raise RoadmapImplementError(MESSAGES.roadmap.implement_no_model)
@@ -2259,6 +2281,7 @@ def run_fix_step(
     window: int,
     model: Any = None,
     hooks: Path | None = None,
+    preset: ToolchainPreset = DEVOPS_CLI_PRESET,
     ladder: Sequence[str] | None = None,
     model_for_tier: Callable[[str], Any] | None = None,
     tier_health: Callable[[Sequence[str]], Mapping[str, bool]] | None = None,
@@ -2281,6 +2304,7 @@ def run_fix_step(
         model=model,
         fix=fix,
         hooks=hooks,
+        preset=preset,
         step_class=StepClass.REPAIR,
         ladder=ladder,
         model_for_tier=model_for_tier,
