@@ -89,10 +89,8 @@ def _verify_problems(number: int, command: str) -> list[str]:
     return problems
 
 
-def _test_modules_in(text: str | None) -> list[PurePosixPath]:
+def _test_modules_in(text: str) -> list[PurePosixPath]:
     """The test modules that `text` names in code spans, in order."""
-    if text is None:
-        return []
     found = (PurePosixPath(span[1:-1]) for span in _CODE_SPAN.findall(text))
     return [path for path in found if _is_test_module(path)]
 
@@ -106,15 +104,11 @@ def _behavior_test_run_problems(number: int, group: StageGroup) -> list[str]:
         # The form rule refuses another command, and a negative search proves a removed name.
         return []
     command = group.verify.strip()
-    try:
-        words = shlex.split(command)
-    except ValueError:
-        # The form rule refuses the command line, so it reports the only problem.
-        return []
-    ran = [PurePosixPath(word) for word in words]
+    # The form rule already refused a command line that shlex cannot read.
+    ran = [PurePosixPath(word) for word in shlex.split(command)]
     ran = [path for path in ran if _is_test_module(path)]
     candidates = [
-        *_test_modules_in(group.test),
+        *_test_modules_in(group.test or ""),
         *(
             path
             for path in map(PurePosixPath, (*group.changes, *group.creates, *group.reads))
