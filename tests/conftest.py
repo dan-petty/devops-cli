@@ -178,6 +178,19 @@ def reset_process_wide_state() -> Iterator[None]:
     _reset_loaded_process_state()
 
 
+@pytest.fixture(autouse=True)
+def quiet_logfire_console() -> Iterator[None]:
+    """Turn the logfire console and the pydantic-ai instrumentation off after every test (#3532).
+
+    A test that configures logfire with the console on leaves console spans on stdout for the
+    next test of the same xdist worker. The teardown also runs when the test fails.
+    """
+    yield
+    from tests.support.logfire_isolation import quiet_logfire
+
+    quiet_logfire()
+
+
 def _is_loopback(host: str) -> bool:
     """Report whether a connect or lookup names the loopback interface."""
     if host == "localhost":

@@ -304,3 +304,26 @@ def test_logfire_bridge_status_reports_all_active_spans() -> None:
 
     status = bridge.get_status()
     assert status.active_spans_count == 150
+
+
+def test_quiet_logfire_turns_the_console_and_the_pydantic_ai_instrumentation_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The root conftest resets both switches after every test (#3532)."""
+    import logfire
+    from pydantic_ai import Agent
+
+    from tests.support.logfire_isolation import quiet_logfire
+
+    calls: list[tuple[str, object]] = []
+    monkeypatch.setattr(logfire, "configure", lambda **kwargs: calls.append(("configure", kwargs)))
+    monkeypatch.setattr(
+        Agent, "instrument_all", lambda value: calls.append(("instrument_all", value))
+    )
+
+    quiet_logfire()
+
+    assert calls == [
+        ("configure", {"console": False, "service_version": "test-suite"}),
+        ("instrument_all", False),
+    ]
