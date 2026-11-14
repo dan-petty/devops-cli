@@ -12,7 +12,6 @@ from typing import Any
 import pytest
 
 from devops_cli.roadmap.run import (
-    PollCache,
     run_due_jobs,
     service_job,
 )
@@ -110,6 +109,8 @@ def test_three_lanes_of_one_poll_share_one_issue_events_request(
 ) -> None:
     """The lanes of a repository run on separate workers, and one poll reads the issue events
     once for all of them (#3942)."""
+    from devops_cli.roadmap.run import PollCache
+
     github, store = _github_round(tmp_path, monkeypatch, labeled_changes(3, "alice"))
     cache = PollCache()
     table = intake_table(IntakeModel([]), [])
@@ -134,6 +135,8 @@ def test_a_second_poll_reads_the_issue_events_again(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The cache lives for one poll, so the next poll sends its own request (#3942)."""
+    from devops_cli.roadmap.run import PollCache
+
     github, store = _github_round(tmp_path, monkeypatch, labeled_changes(3, "alice"))
     cache = PollCache()
     table = intake_table(IntakeModel([]), [])
@@ -158,6 +161,8 @@ def test_a_second_poll_reads_the_issue_events_again(
 def test_the_cached_listing_covers_a_later_lane_cutoff() -> None:
     """A lane with a later cutoff filters the one cached listing, and the read happens once
     (#3942)."""
+    from devops_cli.roadmap.run import PollCache
+
     cache = PollCache()
     changes = [
         Change(
@@ -189,6 +194,8 @@ def test_the_cached_listing_covers_a_later_lane_cutoff() -> None:
 
 def test_the_cache_keeps_one_listing_for_each_repository() -> None:
     """One poll of two repositories reads the issue events of each repository once (#3942)."""
+    from devops_cli.roadmap.run import PollCache
+
     cache = PollCache()
     reads: list[str] = []
 
