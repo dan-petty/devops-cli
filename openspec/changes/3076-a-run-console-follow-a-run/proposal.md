@@ -29,7 +29,7 @@ A person learns what a roadmap Job did from `kubectl logs` and from one comment 
 ## Impact
 
 - Code: `src/devops_cli/roadmap/follow.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/roadmap/follow_live.py`, `src/devops_cli/commands/roadmap.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/roadmap/inbox.py`, `src/devops_cli/roadmap/explain.py`
-- Documents: `docs/ROADMAP_WORKFLOW.md`, `docs/CLI_REFERENCE.md`
+- Documents: `docs/ROADMAP_WORKFLOW.md`, `docs/CLI_REFERENCE.md`, `docs/commands/roadmap.md`
 - Tests: `tests/roadmap/test_roadmap_follow.py`, `tests/roadmap/test_roadmap_follow_live.py`, `tests/roadmap/test_roadmap_follow_command.py`, `tests/commands/test_all_commands_help_dryrun.py`, `tests/roadmap/test_roadmap_inbox.py`, `tests/roadmap/test_roadmap_explain.py`
 
 ## Feasibility

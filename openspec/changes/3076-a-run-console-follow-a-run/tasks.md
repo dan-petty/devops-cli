@@ -47,11 +47,11 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/explain.py`, `src/devops_cli/road
 
 ## 6. Document the command and its access
 
-Kind: other. Reads: `docs/ROADMAP_WORKFLOW.md`, `src/devops_cli/lang/en/help.py`. Changes: `docs/ROADMAP_WORKFLOW.md`, `docs/CLI_REFERENCE.md`.
+Kind: other. Reads: `docs/ROADMAP_WORKFLOW.md`, `src/devops_cli/lang/en/help.py`. Changes: `docs/ROADMAP_WORKFLOW.md`, `docs/CLI_REFERENCE.md`, `docs/commands/roadmap.md`.
 
-- [ ] 6.1 Name the `follow` command beside the other read-only roadmap commands in `docs/ROADMAP_WORKFLOW.md`, and state its one GitHub request and the kubeconfig permissions get and list on pods and get on pods/log. Regenerate `docs/CLI_REFERENCE.md` with the docs generator
+- [ ] 6.1 Name the `follow` command beside the other read-only roadmap commands in `docs/ROADMAP_WORKFLOW.md`, and state its one GitHub request and the kubeconfig permissions get and list on pods and get on pods/log
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 6.2 Edit `docs/ROADMAP_WORKFLOW.md` to name the command, its one GitHub request and the three kubeconfig permissions, then regenerate `docs/CLI_REFERENCE.md` with the docs generator
+- [ ] 6.2 Regenerate `docs/CLI_REFERENCE.md` and `docs/commands/roadmap.md` with `uv run devops docs generate`
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
