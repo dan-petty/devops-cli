@@ -2376,6 +2376,17 @@ def test_the_plan_check_job_waits_for_the_title_check_and_runs_after_a_failed_on
     ) == ("semantic-title", "always()", SEMANTIC_TITLE_CHECK)
 
 
+def test_the_plan_check_job_cancels_a_stale_run_of_the_same_pull_request() -> None:
+    """An edit of the title and body cancels the run that the plan event started, so the command
+    reads the plan form of its own event and no delivery form (#3829)."""
+    job = _plan_check_job()
+
+    assert job["concurrency"] == {
+        "group": "${{ github.workflow }}-${{ github.event.pull_request.number }}",
+        "cancel-in-progress": True,
+    }
+
+
 def test_the_plan_check_job_reads_checks_contents_and_pull_requests_only() -> None:
     """The workflow grants nothing by default. The job reads the check runs for the title check,
     the repository for the head of the pull request, and the pull request for its title and body.
