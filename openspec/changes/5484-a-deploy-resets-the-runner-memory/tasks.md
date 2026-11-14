@@ -4,7 +4,7 @@
 
 Kind: other. Reads: `k8s/devops/configmap.example.yaml`, `tests/k8s/test_k8s_configmap_keys.py`, `src/devops_cli/k8s/configmap.py`. Changes: `k8s/devops/configmap.example.yaml`, `tests/k8s/test_k8s_configmap_keys.py`.
 
-- [ ] 1.1 Add the case `test_the_example_holds_the_runner_memory_limit` to `tests/k8s/test_k8s_configmap_keys.py` first: render the example through `_example_config()` and assert that `config["roadmap"]["implement"]["max_memory_limit"]` is `16Gi`, then read the template text and assert that the comment above the setting names 2026-11-12, 2026-11-13, #5484 and #3727. It fails while the template sets nothing. Then add `max_memory_limit: 16Gi` under `roadmap.implement` in `k8s/devops/configmap.example.yaml`, after `ladder`, with that comment
+- [x] 1.1 Add the case `test_the_example_holds_the_runner_memory_limit` to `tests/k8s/test_k8s_configmap_keys.py` first: render the example through `_example_config()` and assert that `config["roadmap"]["implement"]["max_memory_limit"]` is `16Gi`, then read the template text and assert that the comment above the setting names 2026-11-12, 2026-11-13, #5484 and #3727. It fails while the template sets nothing. Then add `max_memory_limit: 16Gi` under `roadmap.implement` in `k8s/devops/configmap.example.yaml`, after `ladder`, with that comment
   - Verification: `$ uv run devops ci test tests/k8s/test_k8s_configmap_keys.py` passes
 
 ## 2. Name the node that bounds the limit in the setting description
