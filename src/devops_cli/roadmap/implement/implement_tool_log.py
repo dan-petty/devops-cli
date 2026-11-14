@@ -343,6 +343,9 @@ class ToolCallLog:
     fail_to_pass: BaseReplay | None = None
     verified: list[VerifiedCommand] = field(default_factory=list[VerifiedCommand])
     parser_failures: int = 0
+    # The digest of each failed or retried call of the step, and the reason that the log masked
+    # for it (#3570). A repeat of the same call is not run again.
+    failed: dict[str, str] = field(default_factory=dict[str, str])
     replied: set[int] = field(default_factory=set[int])
     asked: float = 0.0
     recent: deque[tuple[str, ToolOutcome]] = field(default_factory=deque[tuple[str, ToolOutcome]])
@@ -429,6 +432,8 @@ class ToolCallLog:
         if self.trace is not None:
             self.trace.tool_call(tool, program, digest, str(outcome), reason, status)
         self.recent.append((tool, outcome))
+        if digest and outcome in (ToolOutcome.RETRY, ToolOutcome.FAILED):
+            self.failed.setdefault(digest, reason)
         if outcome is ToolOutcome.REFUSED:
             self.refused[program] += 1
         self.retried += outcome is ToolOutcome.RETRY
@@ -472,6 +477,13 @@ class ToolCallLog:
         that passes a limit of refusals ends the run in the same way."""
         shown = self._shown(args)
         program = logged_program(command_word(shown))
+        digest = argument_digest(call)
+        if digest in self.failed:
+            # The step does not spend another turn on a call that failed before (#3570).
+            self._note(call.tool_name, program, ToolOutcome.REFUSED, digest=digest)
+            return MESSAGES.roadmap.implement_tool_repeat_refusal.format(
+                reason=self.failed[digest] or MESSAGES.roadmap.implement_tool_repeat_no_reason
+            )
         if command := logged_command(shown):
             print_muted(
                 MESSAGES.roadmap.implement_tool_started.format(
@@ -490,11 +502,11 @@ class ToolCallLog:
                 program,
                 ToolOutcome.RETRY,
                 logged_reason(error, args, self.root),
-                digest=argument_digest(call),
+                digest=digest,
             )
             raise
         except ToolFailedError:
-            self._note(call.tool_name, program, ToolOutcome.FAILED, digest=argument_digest(call))
+            self._note(call.tool_name, program, ToolOutcome.FAILED, digest=digest)
             raise
         refused = call.tool_call_id in self.refusals
         self.refusals.discard(call.tool_call_id)
@@ -502,7 +514,7 @@ class ToolCallLog:
         self.refused_run = self.refused_run + 1 if refused else 0
         shell = call.tool_name == IMPLEMENT_SHELL_TOOL
         status = shell_exit_status(result) if shell and not refused else None
-        self._note(call.tool_name, program, outcome, digest=argument_digest(call), status=status)
+        self._note(call.tool_name, program, outcome, digest=digest, status=status)
         in_a_row = self.limits.max_consecutive_refusals
         if refused and self.refused_run >= in_a_row:
             raise UnexpectedModelBehavior(

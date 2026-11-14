@@ -6,6 +6,7 @@ line goes to the standard error stream, which `capsys` reads.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import re
 from collections import Counter
@@ -13,13 +14,17 @@ from pathlib import Path
 
 import pytest
 from pydantic_ai import Agent
-from pydantic_ai.exceptions import ModelRetry, ToolFailed
+from pydantic_ai.exceptions import ModelRetry, ToolFailed, ToolRetryError
+from pydantic_ai.messages import RetryPromptPart, ToolCallPart
+from pydantic_ai.tools import ToolDefinition
 
 from devops_cli.config import constants
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement.implement_shell_policy import IMPLEMENT_SHELL_REPLACEMENTS
 from devops_cli.roadmap.implement.implement_shell_refusal import ShellRefusal
 from devops_cli.roadmap.implement.implement_step import StepOutcome, run_step
 from devops_cli.roadmap.implement.implement_tool_log import ToolCallLog, logged_program
+from devops_cli.roadmap.implement.implement_trace import argument_digest
 from tests.support.fakes.process import ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import TEST_BODY, WINDOW, write_call
@@ -694,3 +699,101 @@ def test_the_log_names_the_program_after_the_prefix_cd_checkout_and_not_the_cd(
         "Tool call: run_command, started: python -V",
         "Tool call: run_command, program python, refused.",
     ]
+
+
+# ── A repair attempt cannot repeat a failed call (#3570) ─────────────────────
+
+
+def _repeat_log(checkout: Path, call: ToolCallPart, retry: ToolRetryError) -> ToolCallLog:
+    """A log whose one call failed with `retry`, ready for the same call again."""
+    log = ToolCallLog(root=checkout)
+
+    async def handler(_args: dict[str, object]) -> str:
+        raise retry
+
+    async def first() -> None:
+        with pytest.raises(ToolRetryError) as raised:
+            await log._execute(
+                None,
+                call=call,
+                tool_def=ToolDefinition(name=call.tool_name),
+                args=dict(call.args or {}),
+                handler=handler,
+            )
+        assert raised.value is retry
+
+    asyncio.run(first())
+    return log
+
+
+def test_a_repeated_failed_call_returns_the_masked_reason(checkout: Path) -> None:
+    call = ToolCallPart(tool_name="read_file", args={"path": "/etc/passwd"})
+    retry = ToolRetryError(
+        RetryPromptPart(content="cannot read /etc/passwd", tool_name="read_file", tool_call_id="1")
+    )
+    log = _repeat_log(checkout, call, retry)
+
+    async def repeat() -> str:
+        return await log._execute(
+            None,
+            call=call,
+            tool_def=ToolDefinition(name="read_file"),
+            args=dict(call.args or {}),
+            handler=lambda _args: None,
+        )
+
+    refusal = asyncio.run(repeat())
+
+    assert "failed earlier" in refusal
+    assert MESSAGES.roadmap.implement_tool_path_hidden in refusal
+    assert "/etc/passwd" not in refusal
+
+
+def test_a_changed_failed_call_runs(checkout: Path) -> None:
+    call = ToolCallPart(tool_name="read_file", args={"path": "/etc/passwd"})
+    retry = ToolRetryError(
+        RetryPromptPart(content="cannot read it", tool_name="read_file", tool_call_id="1")
+    )
+    log = _repeat_log(checkout, call, retry)
+    changed = ToolCallPart(tool_name="read_file", args={"path": "src/sample.py"})
+
+    async def run() -> str:
+        return await log._execute(
+            None,
+            call=changed,
+            tool_def=ToolDefinition(name="read_file"),
+            args=dict(changed.args or {}),
+            handler=lambda _args: _ok(),
+        )
+
+    assert asyncio.run(run()) == "the result"
+
+
+async def _ok() -> str:
+    return "the result"
+
+
+def test_a_repeated_successful_call_runs(checkout: Path) -> None:
+    call = ToolCallPart(tool_name="read_file", args={"path": "src/sample.py"})
+    log = ToolCallLog(root=checkout)
+
+    async def run() -> str:
+        return await log._execute(
+            None,
+            call=call,
+            tool_def=ToolDefinition(name="read_file"),
+            args=dict(call.args or {}),
+            handler=lambda _args: _ok(),
+        )
+
+    assert (asyncio.run(run()), asyncio.run(run())) == ("the result", "the result")
+
+
+def test_a_failed_call_is_remembered_by_its_digest(checkout: Path) -> None:
+    call = ToolCallPart(tool_name="read_file", args={"path": "/etc/passwd"})
+    retry = ToolRetryError(
+        RetryPromptPart(content="cannot read it", tool_name="read_file", tool_call_id="1")
+    )
+    log = _repeat_log(checkout, call, retry)
+
+    assert argument_digest(call) in log.failed
