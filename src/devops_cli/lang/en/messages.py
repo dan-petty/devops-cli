@@ -4430,6 +4430,9 @@ class RoadmapMessages:
         "the review of the head found {before} open finding(s), and a task group of the revision "
         "is over the budget."
     )
+    fix_plan_detail_unreadable_findings: str = (
+        "the last plan comment holds {unreadable} finding line(s) that the reader cannot read."
+    )
     fix_plan_reason: str = " Reason: {reason}"
     fix_plan_unreadable: str = (
         "The fix-plan step cannot read the plan of pull request #{pull} of item #{number} at "

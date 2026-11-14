@@ -226,7 +226,7 @@ def test_the_score_counts_recall_by_type_and_the_findings_on_good_plans(
     assert rows[DefectType.FALSE_PREMISE] == (2, 1)
     assert rows[DefectType.MISSING_PATH] == (1, 0)
     assert (score.labeled, score.found, score.serious_labeled, score.serious_found) == (3, 1, 2, 1)
-    assert (score.good_cases, score.good_findings, score.good_returning) == (1, 2, 1)
+    assert (score.good_cases, score.good_findings, score.good_returning) == (1, 2, 2)
     assert score.failed == 0
 
 

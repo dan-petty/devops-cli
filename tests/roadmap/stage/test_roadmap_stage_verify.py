@@ -145,6 +145,8 @@ def test_the_open_types_are_the_seven_types_that_the_planner_can_fix() -> None:
         DefectType.VERIFY_FORM,
         DefectType.SPEC_DELTA_WRONG,
         DefectType.CRITERION_DROPPED,
+        DefectType.CONTRIVED_TEST,
+        DefectType.OTHER,
     }
     assert PLAN_NEEDS_FIX_LABEL == "plan/needs-fix"
     given = _input()
@@ -246,7 +248,7 @@ def test_an_open_type_with_a_quote_in_the_input_is_open() -> None:
         _finding(DefectType.IGNORES_EXISTING_CODE),
     ]
 
-    assert open_findings(findings, given) == [findings[0]]
+    assert open_findings(findings, given) == [findings[0], findings[2]]
 
 
 def test_an_open_finding_is_a_listed_type_or_a_placeholder_with_a_quote_in_the_input() -> None:
@@ -261,7 +263,7 @@ def test_an_open_finding_is_a_listed_type_or_a_placeholder_with_a_quote_in_the_i
         _finding(DefectType.OTHER),
     ]
 
-    assert open_findings(findings, given) == [findings[0], findings[1]]
+    assert open_findings(findings, given) == [findings[0], findings[1], findings[3]]
 
 
 def test_a_minor_finding_is_advice() -> None:
@@ -283,6 +285,15 @@ def test_a_minor_placeholder_finding_is_advice() -> None:
     found = [_finding(DefectType.OTHER, "placeholder", severity=Severity.NIT)]
 
     assert open_findings(found, given) == []
+
+
+def test_a_major_other_finding_is_open() -> None:
+    given = _input()
+    quote = "The job drops the last comment"
+    major = _finding(DefectType.OTHER, quote, severity=Severity.MAJOR)
+    minor = _finding(DefectType.OTHER, quote, severity=Severity.MINOR)
+
+    assert open_findings([major, minor], given) == [major]
 
 
 def test_a_finding_with_no_severity_fails_the_schema() -> None:

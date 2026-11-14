@@ -19,6 +19,7 @@ from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.stage.stage_verify import (
     PLAN_NEEDS_FIX_LABEL,
+    PlanPart,
     Verification,
 )
 from devops_cli.roadmap.steps.fix_plan import (
@@ -109,13 +110,36 @@ def test_the_reader_reads_back_a_section_with_brackets_and_no_capability() -> No
     assert comment_open_findings(stage_comment(5, open_)) == tuple(open_)
 
 
+def test_the_reader_reads_a_finding_line_of_the_old_form() -> None:
+    order = finding(DefectType.TASK_ORDER)
+    body = (
+        stage_comment(5, [order])
+        .replace(
+            "at tasks (1):",
+            "at group 3 (and group 1):",
+        )
+        .replace(
+            "`task_order`",
+            "`other`",
+        )
+    )
+    (read,) = comment_open_findings(body)
+
+    assert (read.type, read.severity, read.where.part, read.where.section) == (
+        DefectType.OTHER,
+        Severity.MAJOR,
+        PlanPart.TASKS,
+        "group 3 (and group 1)",
+    )
+
+
 def test_the_reader_leaves_out_a_line_whose_place_names_no_part(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     kept = finding(DefectType.TASK_ORDER)
     body = stage_comment(5, [kept]).replace(
         "\n- major `task_order`",
-        "\n- major `other` at decisions (the dry run): The dry run lists no read.\n"
+        "\n- major `other` at unknown (the dry run): The dry run lists no read.\n"
         "- major `task_order`",
     )
 
@@ -214,7 +238,7 @@ def test_the_planner_gets_the_open_findings_of_the_comment_and_of_the_review_of_
     assert PLAN_NEEDS_FIX_LABEL not in store._roadmap.issues[plan.pull].labels
 
 
-def test_a_head_that_its_review_finds_clean_loses_the_label_though_the_comment_lists_a_finding(
+def test_a_head_that_its_review_finds_clean_keeps_the_label_when_the_comment_lists_a_finding(
     stage_repo: StageRepo, model_fake: ModelFake, github_api: GitHubApiFake
 ) -> None:
     store = InMemoryRoadmapStore(repo=STAGE_REPO)
@@ -228,13 +252,39 @@ def test_a_head_that_its_review_finds_clean_loses_the_label_though_the_comment_l
     assert model_fake.call_count == 0
     assert run.attempt is not None
     assert (run.attempt.result, run.attempt.before, run.attempt.after) == (
-        FixPlanResult.DISMISSED,
+        FixPlanResult.UNCHANGED,
         0,
         None,
     )
     assert run.attempt.comment == 1
     assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) == plan.head
-    assert PLAN_NEEDS_FIX_LABEL not in store._roadmap.issues[plan.pull].labels
+    assert PLAN_NEEDS_FIX_LABEL in store._roadmap.issues[plan.pull].labels
+
+
+def test_two_lines_the_reader_cannot_read_keep_the_label(
+    stage_repo: StageRepo,
+    github_api: GitHubApiFake,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    verifier = ModelFake()
+    plan = needs_fix_plan(store, stage_repo, github_api)
+    kept = finding(DefectType.TASK_ORDER)
+    body = stage_comment(plan.pull, [kept]).replace(
+        "\n- major `task_order`",
+        "\n- a line that matches no form\n- another line that matches no form",
+    )
+    store.seed_comment(plan.number, body)
+
+    with caplog.at_level(logging.INFO):
+        run = _run(store, stage_repo, verifier)
+
+    assert run.attempt is not None
+    assert run.attempt.result.value == "unreadable_findings"
+    assert PLAN_NEEDS_FIX_LABEL in store._roadmap.issues[plan.pull].labels
+    (line,) = result_fields(caplog)
+    assert line["result"] == "unreadable_findings"
+    assert line["unreadable"] == "2"
 
 
 @pytest.mark.parametrize(

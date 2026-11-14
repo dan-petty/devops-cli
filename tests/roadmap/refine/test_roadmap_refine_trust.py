@@ -76,6 +76,13 @@ _ADVICE = Finding(
     where=Locator(part=PlanPart.PROPOSAL, section="acceptance_criteria"),
     problem="A test repeats the code.",
 )
+_OTHER_ADVICE = Finding(
+    type=DefectType.OTHER,
+    severity=Severity.MAJOR,
+    where=Locator(part=PlanPart.PROPOSAL, section="problem_statement"),
+    problem="An other problem.",
+    quote=PREMISE,
+)
 # The line of `_FALSE_PREMISE` that the job record keeps and the next request gives (#4798).
 _FALSE_PREMISE_LINE = (
     "major `false_premise` at proposal (problem_statement): The issue does not say that the item "
@@ -592,6 +599,19 @@ def test_a_finding_on_a_task_group_is_advice_because_a_proposal_has_no_task_grou
     finding = _FALSE_PREMISE.model_copy(update={"where": Locator(part=PlanPart.TASKS, section="1")})
 
     _round(store, git_repo, _Proposer(), _Verifier(finding))
+
+    assert (_status(store, number), _record(store, number, RefineRecordKey.JUDGE)) == (
+        "Ready",
+        "approved",
+    )
+
+
+def test_a_major_other_finding_on_a_proposal_is_advice(
+    store: InMemoryRoadmapStore, git_repo: Path
+) -> None:
+    number = _seed(store)
+
+    _round(store, git_repo, _Proposer(), _Verifier(_ADVICE, _OTHER_ADVICE))
 
     assert (_status(store, number), _record(store, number, RefineRecordKey.JUDGE)) == (
         "Ready",

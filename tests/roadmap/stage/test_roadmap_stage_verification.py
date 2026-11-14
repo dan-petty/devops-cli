@@ -317,7 +317,7 @@ def test_a_mixed_first_round_lists_every_finding_and_tells_the_planner_the_open_
     model_fake.answer(make_stage_proposal(), make_stage_proposal(summary="Repaired plan"))
     returned = _finding(DefectType.FALSE_PREMISE, SAMPLE_QUOTE)
     spec = _finding(DefectType.SPEC_DELTA_WRONG, SAMPLE_QUOTE)
-    advice = _finding(DefectType.CONTRIVED_TEST, SAMPLE_QUOTE)
+    advice = _finding(DefectType.CONTRIVED_TEST, SAMPLE_QUOTE, severity=Severity.MINOR)
     verifier.answer(
         Verification(findings=[returned, spec, advice]),
         later_review(GONE, GONE),
@@ -492,7 +492,7 @@ def test_the_comment_lists_the_findings_of_each_repair_round_and_each_verifier_r
     assert "src/devops_cli/sample.py" in comment
 
 
-def test_a_contrived_test_finding_is_in_the_comment_and_the_draft_opens_and_stays_a_draft(
+def test_a_minor_contrived_test_finding_is_in_the_comment_and_the_draft_opens_and_stays_a_draft(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
     model_fake: ModelFake,
@@ -505,7 +505,11 @@ def test_a_contrived_test_finding_is_in_the_comment_and_the_draft_opens_and_stay
         github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201),
     )
     model_fake.answer(make_stage_proposal())
-    verifier.answer(Verification(findings=[_finding(DefectType.CONTRIVED_TEST, SAMPLE_QUOTE)]))
+    verifier.answer(
+        Verification(
+            findings=[_finding(DefectType.CONTRIVED_TEST, SAMPLE_QUOTE, severity=Severity.MINOR)]
+        )
+    )
 
     applied = apply_stage(store, _plan(store, stage_repo, verifier), source=stage_repo.clone)
 
