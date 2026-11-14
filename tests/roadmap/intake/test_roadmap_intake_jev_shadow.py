@@ -3,12 +3,14 @@ flag, Jev answers beside it, and intake records the pair in the job record of th
 
 from __future__ import annotations
 
+import inspect
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import httpx2
 import pytest
 from pydantic import ValidationError
+from pydantic_ai.models.decision import DecisionResponse
 
 from devops_cli.config.constants import CONST_ROADMAP_JEV_DUPLICATE_THRESHOLD
 from devops_cli.config.settings import (
@@ -20,8 +22,19 @@ from devops_cli.config.settings import (
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.roadmap.intake.intake import NewCandidate, Outcome
 from devops_cli.roadmap.intake.intake_jev import JevIntakeModel
-from devops_cli.roadmap.intake.intake_jev_shadow import ShadowIntakeModel, ShadowObservation
-from devops_cli.roadmap.intake.intake_model import GatewayIntakeModel, build_intake_model
+from devops_cli.roadmap.intake.intake_jev_shadow import (
+    ShadowError,
+    ShadowIntakeModel,
+    ShadowObservation,
+    _duplicate,
+    observation_of,
+)
+from devops_cli.roadmap.intake.intake_model import (
+    GatewayIntakeModel,
+    ModelProposal,
+    ProposalRequest,
+    build_intake_model,
+)
 from devops_cli.roadmap.intake.intake_requests import SpendMeter
 from devops_cli.roadmap.stores.store import IntakeRecordKey
 from tests.support.roadmap_intake import FakeModel, Roadmap
@@ -322,3 +335,28 @@ def test_the_setting_is_off_by_default_and_refuses_the_old_bool() -> None:
         RoadmapIntakeConfig(jev=True)
 
     assert raised.value.errors()[0]["loc"] == ("jev",)
+
+
+def test_shadow_duplicate_check_calls_best_neighbour_and_holds_no_dead_guard() -> None:
+    source = inspect.getsource(_duplicate)
+    assert "best_neighbour" in source
+    assert "duplicate_of_" not in source
+    assert "_answer_of" not in source
+
+
+def test_observation_of_raises_shadow_error_on_missing_priority_answer() -> None:
+    request = ProposalRequest(
+        title="feat: cache", body="body", needs_type=False, shortlist=(), types=()
+    )
+    response = DecisionResponse(answers={}, model_name="mock")
+    triage = ModelProposal(type="type/feature", priority="P2-Medium", value="Medium", effort="Low")
+    with pytest.raises(ShadowError, match="priority"):
+        observation_of(request, response, triage, original=None, at=AT)
+
+
+def test_the_docstring_of_observation_of_names_the_error_and_the_model_check() -> None:
+    doc = observation_of.__doc__ or ""
+    assert "ShadowError" in doc
+    assert "decision model refuses a partial reply" in doc
+    assert "missing duplicate answer" not in doc.lower()
+    assert "duplicate" not in doc.lower()
