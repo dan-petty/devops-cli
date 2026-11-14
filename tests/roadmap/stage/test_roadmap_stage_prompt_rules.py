@@ -278,6 +278,13 @@ def test_the_prompt_forbids_a_group_writing_a_change_folder_path() -> None:
 # ── The self-acceptance test of a plan rule (#3404) ──────────────────────────
 
 
+def test_the_prompt_requires_an_existing_file_in_each_group_that_changes_files() -> None:
+    """`named_files` packs only existing files that the task text names in code spans (#3978)."""
+    assert "A group that changes files must name at least one existing repository file" in _PROMPT
+    assert "`named_files` packs the existing files that the task text names" in _PROMPT
+    assert "a group that names only new files packs no file" in _PROMPT
+
+
 def test_the_prompt_states_the_self_acceptance_rule_of_a_plan() -> None:
     """A plan that adds a rule of the plan check gives the test that accepts its own plan (#3404).
     The rule does not exist when the stage job reads the plan, so the plan gives the test itself,
