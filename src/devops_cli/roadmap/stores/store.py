@@ -430,6 +430,18 @@ class ConsolidateRecordKey(StrEnum):
     DECLINED = "consolidate.declined"
 
 
+class OwnerQuestionRecordKey(StrEnum):
+    """What a job records when it posts an owner question (#3077): `owner_question.hash` is the
+    hash of the question and its option texts, `owner_question.text` is the question, and
+    `owner_question.answer` is the answer that a trusted reply gave. A record with a hash and no
+    answer is an open question, which `devops roadmap inbox` lists and which the next round of
+    refine reads."""
+
+    HASH = "owner_question.hash"
+    TEXT = "owner_question.text"
+    ANSWER = "owner_question.answer"
+
+
 JobRecord = dict[
     ItemField
     | RefineRecordKey
@@ -439,7 +451,8 @@ JobRecord = dict[
     | ImplementRecordKey
     | RetitleRecordKey
     | IntakeRecordKey
-    | ConsolidateRecordKey,
+    | ConsolidateRecordKey
+    | OwnerQuestionRecordKey,
     str | None,
 ]
 
@@ -740,6 +753,7 @@ _JOB_RECORD_KEYS = frozenset(
         *RetitleRecordKey,
         *IntakeRecordKey,
         *ConsolidateRecordKey,
+        *OwnerQuestionRecordKey,
     )
 )
 
@@ -1262,6 +1276,7 @@ __all__ = [
     "ItemField",
     "JobRecord",
     "Milestone",
+    "OwnerQuestionRecordKey",
     "RefineRecordKey",
     "RepositoryFacts",
     "RetitleRecordKey",
