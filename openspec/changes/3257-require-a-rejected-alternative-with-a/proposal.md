@@ -6,8 +6,9 @@ Issue #3257: a staged design often restates the issue and gives no reason for th
 
 ## What Changes
 
-- Refuse a plan that states a decision and holds no rejected alternative, and refuse a rejected alternative whose evidence holds no path and line, no quoted command output and no number, in `content_problems` of `src/devops_cli/roadmap/stage/stage_change.py`.
+- Refuse a plan that states a decision and holds no rejected alternative, and refuse a rejected alternative whose evidence holds no cited path or symbol, no path and line, no quoted command output and no number, in `content_problems` of `src/devops_cli/roadmap/stage/stage_change.py`.
 - Add the messages `stage_problem_no_alternative` and `stage_problem_alternative_fact` to `src/devops_cli/lang/en/messages.py`.
+- Update `tests/support/builders.py` default rejected alternative to cite a path and line so shared test fixtures pass the check.
 - State the rule in the stage planner prompt `src/devops_cli/ai/tasks/roadmap_stage_change.md` and in the design rule of `openspec/config.yaml`.
 - Name the rejected alternatives and the false premise finding in the stage verification prompt `src/devops_cli/ai/tasks/roadmap_stage_verify.md`.
 - Add `tests/roadmap/stage/test_roadmap_stage_alternatives.py` for the refusal of a decision with no alternative, the refusal of an alternative with no fact, and the acceptance of one with a fact.
@@ -31,7 +32,7 @@ None.
 
 - Code: `src/devops_cli/roadmap/stage/stage_change.py`, `src/devops_cli/lang/en/messages.py`, `openspec/config.yaml`
 - Documents: `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `src/devops_cli/ai/tasks/roadmap_stage_verify.md`
-- Tests: `tests/roadmap/stage/test_roadmap_stage_alternatives.py`, `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py`, `tests/fixtures/roadmap_eval/stage/3168-a-plan-with-no-rejected-alternative/case.json`, `tests/fixtures/roadmap_eval/stage/3168-a-plan-with-no-rejected-alternative/facts.json`, `tests/fixtures/roadmap_eval/stage/3168-a-plan-with-no-rejected-alternative/issue.txt`, `tests/fixtures/roadmap_eval/stage/3168-a-plan-with-no-rejected-alternative/plan.json`, `tests/fixtures/roadmap_eval/stage/split.json`, `tests/roadmap/stage/test_roadmap_stage_eval_cases.py`, `tests/roadmap/stage/test_roadmap_stage_eval_gates.py`
+- Tests: `tests/support/builders.py`, `tests/roadmap/stage/test_roadmap_stage_alternatives.py`, `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py`, `tests/fixtures/roadmap_eval/stage/3168-a-plan-with-no-rejected-alternative/case.json`, `tests/fixtures/roadmap_eval/stage/3168-a-plan-with-no-rejected-alternative/facts.json`, `tests/fixtures/roadmap_eval/stage/3168-a-plan-with-no-rejected-alternative/issue.txt`, `tests/fixtures/roadmap_eval/stage/3168-a-plan-with-no-rejected-alternative/plan.json`, `tests/fixtures/roadmap_eval/stage/split.json`, `tests/roadmap/stage/test_roadmap_stage_eval_cases.py`, `tests/roadmap/stage/test_roadmap_stage_eval_gates.py`
 
 ## Feasibility
 
