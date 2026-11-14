@@ -114,9 +114,9 @@ Kind: other. Reads: `docs/CONFIGURATION.md`, `docs/ENV_VARS.md`, `src/devops_cli
 
 Kind: other. Reads: `docs/adr/0020-a-decision-point-is-a-unit-of-a-workflow-with-a-resolver-chain-and-a-rule-goes-before-a-decision-model.md`, `docs/adr/README.md`, `src/devops_cli/telemetry/instruments.py`. Changes: `docs/adr/0020-a-decision-point-is-a-unit-of-a-workflow-with-a-resolver-chain-and-a-rule-goes-before-a-decision-model.md`.
 
-- [ ] 13.1 Add one dated line to the end of the `Status History` section of ADR 0020, in the `Living detail moved to <path> (#N).` form of `docs/adr/README.md`, and name `docs/TELEMETRY.md` and the spec of `decision-workflows` as the place of the two instruments and their bounds. Change no word of the body, so `body-hash` stays
+- [x] 13.1 Add one dated line to the end of the `Status History` section of ADR 0020, in the `Living detail moved to <path> (#N).` form of `docs/adr/README.md`, and name `docs/TELEMETRY.md` and the spec of `decision-workflows` as the place of the two instruments and their bounds. Change no word of the body, so `body-hash` stays
   - Verification: `$ uv run devops ci test tests/invariants/test_adr_records.py` passes
-- [ ] 13.2 Edit `docs/adr/0020-a-decision-point-is-a-unit-of-a-workflow-with-a-resolver-chain-and-a-rule-goes-before-a-decision-model.md` in its `Status History` section only
+- [x] 13.2 Edit `docs/adr/0020-a-decision-point-is-a-unit-of-a-workflow-with-a-resolver-chain-and-a-rule-goes-before-a-decision-model.md` in its `Status History` section only
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
