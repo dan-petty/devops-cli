@@ -495,9 +495,19 @@ DEFAULT_CI_TEST_SERIAL_MAX_FILES: Final[int] = 12
 # The collected tests below which a narrowed run given no `-n` runs serially (#4472): the issue's
 # selection of 7 test modules held 399 slow tests, which ran serially past the 1800 s timeout.
 # The count is the run's own collection, narrowed by its `-k` filter; the file count above decides
-# only when that collection fails.
+# only when that collection fails, or when more target modules than this limit, with no `-k`
+# filter, hold more tests than it (#5606).
 DEFAULT_CI_TEST_SERIAL_MAX_TESTS: Final[int] = 50
+# The most workers of a narrowed run, and fewer when PYTEST_XDIST_AUTO_NUM_WORKERS is smaller
+# (#5606): a runner pod sets it to its CPU limit, and an explicit `-n` skips it.
 DEFAULT_CI_TEST_NARROWED_WORKERS: Final[int] = 4
+# The time limit of the collection that counts the tests of a narrowed run (#5606). The collection
+# is a second pytest session, and the start-up of pytest is most of its time. Measured wall time:
+# 6 to 8 s for 1 module and 7 s for the 7 modules of #4472 at a load of 1 to 6 on 16 CPUs, 22 s for
+# the 7 modules with a cold cache, 55 s for the whole suite, and 23 to 47 s for a narrowed
+# selection at a high load. 120 s is above 2.5 times the slowest narrowed sample and far below the
+# 1800 s limit of the run, so it fires first and the run falls back to the file count.
+DEFAULT_CI_TEST_COLLECTION_TIMEOUT_SECONDS: Final[float] = 120.0
 # `devops ci job-time` (#2699): how many of the last runs of the test job its mean covers. The
 # issue #3050 states the mean over 20 runs of `main`.
 DEFAULT_CI_JOB_TIME_RUNS: Final[int] = 20
