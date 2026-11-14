@@ -13,6 +13,7 @@ import yaml
 
 from devops_cli.github.repo_ref import RepoRef
 from devops_cli.k8s.cluster_job import (
+    PLANNER_TEMPLATE,
     RUNNER_TEMPLATE,
     STAGE_TEMPLATE,
     TemplateName,
@@ -164,3 +165,24 @@ def test_runner_job_labels_builds_expected_labels() -> None:
         "roadmap.devops-cli/item": "4558",
         "implement-repo": repo.id,
     }
+
+
+def test_a_planner_job_keeps_the_planner_name_label_on_the_job_and_pod() -> None:
+    """The admission policy and the deny-all NetworkPolicy select the planner pod by its own name
+    label, so `build_job` sets it on the Job and on its pod (#4003)."""
+    cronjob = yaml.safe_load(
+        (REPO_ROOT / "k8s/devops/roadmap-service/cronjob-planner-run.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    job = build_job(
+        cronjob,
+        ["--version"],
+        "devops-cli-planner-run-20261114-120000-ab12",
+        template=PLANNER_TEMPLATE,
+    )
+
+    assert (
+        job["metadata"]["labels"]["app.kubernetes.io/name"],
+        job["spec"]["template"]["metadata"]["labels"]["app.kubernetes.io/name"],
+    ) == ("devops-cli-planner-run", "devops-cli-planner-run")

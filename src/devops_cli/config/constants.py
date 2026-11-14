@@ -1761,7 +1761,7 @@ CONST_SERVICE_METRIC_IMPLEMENT_JOBS: Final[str] = "devops_cli_service_implement_
 # `existed` (a create that got 409) with the class `none`, and the end of a Job that the row
 # recovered, `evicted`, `deadline`, `failed` or `succeeded`, with the failure class or `none`.
 CONST_SERVICE_METRIC_STAGE_JOBS: Final[str] = "devops_cli_service_stage_jobs_total"
-# Counts the repair rounds of reported implement steps, by `repo` and `item_class` (#3069).
+# Counts the repair rounds of reported steps in implement, by `repo` and `item_class` (#3069).
 CONST_SERVICE_METRIC_IMPLEMENT_REPAIR_ROUNDS: Final[str] = (
     "devops_cli_service_implement_repair_rounds_total"
 )

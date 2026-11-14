@@ -1,5 +1,6 @@
 # What the roadmap Service may do in namespace devops: create the implement Job from CronJob
-# devops-cli-runner and the stage Job from CronJob roadmap-stage (#5483), list Jobs, patch the
+# devops-cli-runner, the stage Job from CronJob roadmap-stage (#5483) and the planner run Job from
+# CronJob devops-cli-planner-run (#4003), list Jobs, patch the
 # deadline and the annotations of a Job while it makes progress (#3063), delete a stage Job, list
 # their pods, read a pod's log, and read the digest of its own image in Deployment roadmap-service
 # (#2917). `resourceNames` limits `get` only: the name of each Job is new, so `create`, `delete`,
@@ -23,7 +24,7 @@ rules:
   # The Jobs are built from these templates.
   - apiGroups: ["batch"]
     resources: ["cronjobs"]
-    resourceNames: ["devops-cli-runner", "roadmap-stage"]
+    resourceNames: ["devops-cli-runner", "roadmap-stage", "devops-cli-planner-run"]
     verbs: ["get"]
   # The Service reads the digest of its own image for the row release_comments, which says when a
   # release runs in the cluster. The Deployment holds no secret value.

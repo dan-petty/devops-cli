@@ -28,10 +28,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
-from devops_cli.config.commands import BIN_DEVOPS, BIN_UV
 from devops_cli.config.constants import (
     CONST_PRE_COMMIT_PRE_PUSH_STAGE,
-    CONST_ROADMAP_IMPLEMENT_SCOPED_ROWS,
     CONST_ROADMAP_IMPLEMENT_SCOPED_TEST_MODULES,
     CONST_SOURCE_ROOT_DIR,
     CONST_TESTS_ROOT_DIR,
@@ -46,6 +44,7 @@ from devops_cli.roadmap.implement.implement_hooks import (
     pre_commit_command,
     stage_arguments,
 )
+from devops_cli.roadmap.toolchains import DEVOPS_CLI_PRESET, ToolchainPreset
 
 _TEST_MODULE_PREFIX = "test_"
 
@@ -122,23 +121,18 @@ def plan_tests(source: Path, changed: Iterable[str]) -> ScopedTests:
 
 
 def scoped_checks(
-    default_branch: str, tests: Sequence[str], *, config: Path | None
+    default_branch: str,
+    tests: Sequence[str],
+    *,
+    config: Path | None,
+    preset: ToolchainPreset = DEVOPS_CLI_PRESET,
 ) -> list[ScopedCheck]:
     """The scoped checks of an item, against `origin/<default_branch>`, in the order they run. The
     `pre-push` check runs the hooks of the configuration `config`, and is left out when there is
     none (the repository has no hooks). The `tests` check runs the test modules `tests`, and is
-    left out when there are none."""
+    left out when there are none or the preset has no test command."""
     names = MESSAGES.roadmap.implement_scoped_names
-    static = [
-        BIN_UV,
-        "run",
-        BIN_DEVOPS,
-        "ci",
-        "--check",
-        "--only",
-        ",".join(CONST_ROADMAP_IMPLEMENT_SCOPED_ROWS),
-    ]
-    checks = [ScopedCheck(names["static"], tuple(static))]
+    checks: list[ScopedCheck] = []
     if config is not None:
         pre_push = pre_commit_command(
             config,
@@ -150,11 +144,17 @@ def scoped_checks(
                 "HEAD",
             ),
         )
-        checks.insert(0, ScopedCheck(names["pre_push"], tuple(pre_push), hook_environment()))
-    if tests:
-        checks.append(
-            ScopedCheck(names["tests"], (BIN_UV, "run", BIN_DEVOPS, "ci", "test", *tests))
-        )
+        checks.append(ScopedCheck(names["pre_push"], tuple(pre_push), hook_environment()))
+    if preset.static_check is not None:
+        checks.append(ScopedCheck(names["static"], tuple(preset.static_check)))
+    if tests and preset.test_command is not None:
+        test_argv: list[str] = []
+        for word in preset.test_command:
+            if word == "{tests}":
+                test_argv.extend(tests)
+            else:
+                test_argv.append(word)
+        checks.append(ScopedCheck(names["tests"], tuple(test_argv)))
     return checks
 
 

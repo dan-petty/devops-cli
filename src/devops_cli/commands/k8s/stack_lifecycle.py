@@ -351,6 +351,7 @@ PRODUCT_MANIFESTS_BY_STACK: dict[str, list[Path]] = {
         Path("roadmap-service", "serviceaccount.yaml"),
         Path("roadmap-service", "role.yaml"),
         Path("roadmap-service", "admissionpolicy.yaml"),
+        Path("roadmap-service", "cronjob-planner-run.yaml"),
         Path("roadmap-service", "pvc.yaml"),
         Path("roadmap-service", "service.yaml"),
         Path("roadmap-service", "deployment.yaml"),
@@ -358,6 +359,7 @@ PRODUCT_MANIFESTS_BY_STACK: dict[str, list[Path]] = {
         Path("roadmap-service", "ingress.yaml"),
         Path("roadmap-service", "networkpolicy.yaml"),
         Path("roadmap-service", "networkpolicy-egress.yaml"),
+        Path("roadmap-service", "networkpolicy-planner-run.yaml"),
     ],
 }
 
