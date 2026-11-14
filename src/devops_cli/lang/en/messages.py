@@ -4876,6 +4876,11 @@ class RoadmapMessages:
         "The open issue #{number} plans to create `{path}`. This plan creates it too. Remove the "
         "path from this plan, or wait until #{number} closes."
     )
+    stage_problem_open_change_evidence: str = (
+        "The feasibility line cites `{path}`, the proposal or design of a change that is not "
+        "archived. Prove the claim with the source at the staged commit, not with another "
+        "change's plan."
+    )
     stage_problem_citation_stale: str = (
         "The {field} of the plan cites `{path}`, and the staged file holds no such text there. "
         "Cite the text of the line in a code span at the staged commit, or cite a symbol as "
