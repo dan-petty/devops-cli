@@ -864,3 +864,12 @@ def test_the_stage_prompt_states_failure_and_runner_capabilities_in_feasibility(
 
     assert "state each needed failure class and runner capability" in prompt
     assert "NOT_IN_RUNNER" in prompt
+
+
+def test_the_stage_prompt_colocates_an_enum_change_with_its_prompt_update() -> None:
+    """An invariant test compares the enum with the prompt, so one group holds both (#4063)."""
+    prompt = load_task_prompt("roadmap_stage_change.md")
+
+    assert "same group as the prompt or document update" in prompt
+    assert "schema enum or constant" in prompt
+    assert "fails that test alone" in prompt
