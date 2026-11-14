@@ -73,12 +73,13 @@ class CutsModelMismatchError(DecisionStepError):
 
 
 class FailureClass(StrEnum):
-    """The class of a failed request of a decision point. The value is a label of the metric."""
+    """The class of a failed request of a decision point. The value is a label of the metric.
+    `SENSITIVE_DIGEST` is a digest that holds a secret, with the label `secret`."""
 
     TIMEOUT = "timeout"
     MODEL_ERROR = "model_error"
     PARSE = "parse"
-    SECRET = "secret"
+    SENSITIVE_DIGEST = "secret"
     NO_CUTS = "no_cuts"
     MODEL_MISMATCH = "model_mismatch"
     OTHER = "other"
@@ -88,7 +89,7 @@ class FailureClass(StrEnum):
 # A subclass comes before its parent, so a secret keeps its own class and not the class `parse` of
 # `DecisionStepError`. An error that no entry names is `other`.
 CLASS_BY_ERROR: Final[tuple[tuple[type[BaseException], FailureClass], ...]] = (
-    (SecretInDigestError, FailureClass.SECRET),
+    (SecretInDigestError, FailureClass.SENSITIVE_DIGEST),
     (CutsModelMismatchError, FailureClass.MODEL_MISMATCH),
     (TimeoutError, FailureClass.TIMEOUT),
     (ModelAPIError, FailureClass.MODEL_ERROR),

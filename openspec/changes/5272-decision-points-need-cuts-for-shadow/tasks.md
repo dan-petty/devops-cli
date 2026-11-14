@@ -132,7 +132,7 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/decision_point.py`, `src/devops_c
 
 Kind: other. Reads: `src/devops_cli/roadmap/decision_step.py`. Changes: `src/devops_cli/roadmap/decision_step.py`.
 
-- [ ] 15.1 Rename the member `FailureClass.SECRET` to `FailureClass.SENSITIVE_DIGEST` and keep its value `secret`, so Bandit `B105` reads no hard-coded password
+- [x] 15.1 Rename the member `FailureClass.SECRET` to `FailureClass.SENSITIVE_DIGEST` and keep its value `secret`, so Bandit `B105` reads no hard-coded password
   - Verification: `$ uv run devops ci --check --only security` passes
 
 ## Criteria
