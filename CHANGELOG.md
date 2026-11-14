@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.144.0](https://github.com/dan-petty/devops-cli/compare/v0.143.0...v0.144.0) (2026-11-14)
+
+
+### Features
+
+* **k8s:** add devops k8s bootstrap-roadmap-key ([#5744](https://github.com/dan-petty/devops-cli/issues/5744)) ([0955f8e](https://github.com/dan-petty/devops-cli/commit/0955f8ea643ee328ba5c7b00de8ac4f490cf17e2))
+* **monitoring:** divide dashboard folders by repository ([#5747](https://github.com/dan-petty/devops-cli/issues/5747)) ([b37b625](https://github.com/dan-petty/devops-cli/commit/b37b6255e32b2b31f8e403ef01dc2fa06b013b6d))
+* **monitoring:** split devops-cli dashboard into linked dashboards ([#5740](https://github.com/dan-petty/devops-cli/issues/5740)) ([4ce6a74](https://github.com/dan-petty/devops-cli/commit/4ce6a74436e8f7f8e2e60dd0f1812594ec7a2ab4))
+* **roadmap:** Detect plan drift against the default branch ([#5745](https://github.com/dan-petty/devops-cli/issues/5745)) ([9c27689](https://github.com/dan-petty/devops-cli/commit/9c27689f772a5569bf58c43ccfc85be6b0f8b058)), closes [#3968](https://github.com/dan-petty/devops-cli/issues/3968)
+* **roadmap:** label Service Jobs by repository and item ([#5739](https://github.com/dan-petty/devops-cli/issues/5739)) ([19c8934](https://github.com/dan-petty/devops-cli/commit/19c8934850fde539eee3d2de00a1a6d59b59415e))
+
+
+### Bug Fixes
+
+* **roadmap:** repair a job record mark that a parallel write lost ([#5749](https://github.com/dan-petty/devops-cli/issues/5749)) ([16acde2](https://github.com/dan-petty/devops-cli/commit/16acde21bdeb39ac81ccf0b12404545b17e26b05))
+* **roadmap:** Write the delivery metadata before the archived push ([#5750](https://github.com/dan-petty/devops-cli/issues/5750)) ([f02d853](https://github.com/dan-petty/devops-cli/commit/f02d8533a34d872018a2fb2285b916c9a8a921b4))
+
 ## [0.143.0](https://github.com/dan-petty/devops-cli/compare/v0.142.1...v0.143.0) (2026-11-14)
 
 
