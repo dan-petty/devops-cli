@@ -24,12 +24,6 @@ inputs:
       alongside Static Analysis on the same push or pull_request so only one job writes the key.
     required: false
     default: "true"
-  compile-bytecode:
-    description: >-
-      Whether `uv sync` compiles bytecode. Set to "false" in the test jobs, where xdist workers
-      compile the modules they import anyway and the sync compile costs 7 to 15 s (#4727).
-    required: false
-    default: "true"
 
 runs:
   using: composite
@@ -58,18 +52,10 @@ runs:
           tooling-${{ inputs.cache-suffix }}-${{ runner.os }}-
 
     # A fresh runner's environment holds no bytecode: compiling it once here, in parallel, spares
-    # each xdist worker compiling the same modules while it collects (#1735). The test jobs skip
-    # the compile, because their workers import most modules once (#4727).
+    # each xdist worker compiling the same modules while it collects (#1735).
     - name: Synchronize dependencies
       shell: bash
-      env:
-        COMPILE_BYTECODE: ${{ inputs.compile-bytecode }}
-      run: |
-        if [ "$COMPILE_BYTECODE" = "true" ]; then
-          uv sync --locked --all-groups --all-extras --compile-bytecode
-        else
-          uv sync --locked --all-groups --all-extras
-        fi
+      run: uv sync --locked --all-groups --all-extras --compile-bytecode
 
     - name: Initialize workspace directories
       shell: bash

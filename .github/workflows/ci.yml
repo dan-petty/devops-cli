@@ -168,7 +168,6 @@ jobs:
         with:
           cache-suffix: test-${{ matrix.shard }}
           save-uv-cache: "false"
-          compile-bytecode: "false"
           tooling-cache-paths: |
             .pytest_cache
 
@@ -397,7 +396,6 @@ jobs:
         with:
           cache-suffix: job-time
           save-uv-cache: "false"
-          compile-bytecode: "false"
 
       - name: Check the duration of Tests & Coverage
         env:
@@ -772,7 +770,6 @@ jobs:
         with:
           cache-suffix: changed-tests
           save-uv-cache: "false"
-          compile-bytecode: "false"
           tooling-cache-paths: |
             .pytest_cache
 

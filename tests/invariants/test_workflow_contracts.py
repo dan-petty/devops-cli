@@ -2568,31 +2568,3 @@ def test_the_alert_workflow_runs_the_filer_command() -> None:
     text = ALERTS_PATH.read_text(encoding="utf-8")
 
     assert "uv run devops scan alerts" in text
-
-
-def test_the_test_jobs_skip_the_bytecode_compile() -> None:
-    """The xdist workers compile what they import, so a sync compile costs each test job 7 to
-    15 s (#4727)."""
-    action = _load_workflow(WORKFLOWS_DIR / ".." / "actions" / "setup-toolchain" / "action.yml")
-    inputs = action["inputs"]
-
-    def _uses(job: dict[str, Any]) -> dict[str, str]:
-        step = next(
-            s for s in job.get("steps", []) if s.get("uses") == "./.github/actions/setup-toolchain"
-        )
-        return step.get("with", {})
-
-    jobs = _load_workflow(WORKFLOWS_DIR / "ci.yml")["jobs"]
-    service = _load_workflow(WORKFLOWS_DIR / "service-image-test.yml")["jobs"]
-
-    assert inputs["compile-bytecode"]["default"] == "true"
-    assert _uses(jobs["test-shard"])["compile-bytecode"] == "false"
-    assert _uses(jobs["changed-tests"])["compile-bytecode"] == "false"
-    assert _uses(jobs["job-time"])["compile-bytecode"] == "false"
-    service_steps = [
-        step.get("with", {})
-        for job in service.values()
-        for step in job.get("steps", [])
-        if step.get("uses") == "./.github/actions/setup-toolchain"
-    ]
-    assert [step["compile-bytecode"] for step in service_steps] == ["false"]
