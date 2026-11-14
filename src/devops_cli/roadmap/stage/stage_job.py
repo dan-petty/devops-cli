@@ -53,11 +53,8 @@ Its end is `succeeded`, with no failure.
 **Ends.** The exit code of the command is the end of the Job:
 
 - 0 (`result`): the item has a result: staged, needs_split or skipped.
-- 1 (`failure`): the plan or a write of the item failed. The writer records the failure.
-- 75 (`evicted`): SIGTERM before the time budget ends, from an eviction, a node drain or a person.
-  The check-out stays, and the pod failure policy of the Job runs the pod again. The check-out
-  names the Job, so that pod removes the branch of the intent mark of the pod before it at once,
-  and plans the item again.
+- 1 (`failure`): the plan or a write of the item failed with a non-retryable failure, or the provider key was refused. The writer records the failure.
+- 75 (`evicted`): a failure whose class a retry can help (such as `provider` or `ci_infra`), or SIGTERM before the time budget ends, from an eviction, a node drain or a person. The check-out stays, and the pod failure policy of the Job runs the pod again. The check-out names the Job, so that pod removes the branch of the intent mark of the pod before it at once, and plans the item again.
 - 143 (`deadline`): SIGTERM after the time budget, or a time budget that ends before a model call.
   The Job records the failure with the class `timeout` and checks in with the result `deadline`.
 
@@ -75,6 +72,7 @@ from typing import TYPE_CHECKING, Final
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict
 
+from devops_cli.ai.client.models import AICredentialsError
 from devops_cli.ai.client.network import set_model_call_limit
 from devops_cli.config.constants import (
     CONST_ROADMAP_OWNER_SERVICE,
@@ -83,12 +81,18 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.core.process import acts_as_github_app
-from devops_cli.exceptions import RoadmapStageError, RoadmapTimeBudgetError
+from devops_cli.exceptions import DevOpsCLIError, RoadmapStageError, RoadmapTimeBudgetError
 from devops_cli.github.rate_limiter import set_request_gate
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.attempt_kill import AttemptKill, AttemptKilled, kill_of, sigterm_raises
 from devops_cli.roadmap.claim import service_release
-from devops_cli.roadmap.failure import FailureClass, StepName
+from devops_cli.roadmap.failure import (
+    ACTION_BY_CLASS,
+    FailureAction,
+    FailureClass,
+    StepName,
+    failure_class_of,
+)
 from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
 from devops_cli.roadmap.round_log import log_failed_item
 from devops_cli.roadmap.stage.stage import (
@@ -228,6 +232,21 @@ def install_request_budget(limit: int) -> RequestBudget:
     return budget
 
 
+def _retries(failure: FailureClass | None) -> bool:
+    """Whether the failure class is retried by default: true when the failure is not None and
+    ACTION_BY_CLASS[failure] is FailureAction.RETRY."""
+    return failure is not None and ACTION_BY_CLASS.get(failure) is FailureAction.RETRY
+
+
+def _attempt_failure(plan: StagePlan, applied: StageApplied, number: int) -> FailureClass | None:
+    """The class of the entry of `plan.failed` and `applied.failed` whose number is `number`,
+    else None."""
+    for failure in (*plan.failed, *applied.failed):
+        if failure.number == number:
+            return failure.failure_class
+    return None
+
+
 def check_in(
     store: RoadmapStore,
     number: int,
@@ -238,6 +257,7 @@ def check_in(
     now: datetime,
     failure: FailureClass | None = None,
     marks: dict[StageRecordKey, str | None] | None = None,
+    log_line: bool = True,
 ) -> CheckedIn | None:
     """Write the check-in of the Job `job` on item `number`: its result and `marks`, with the
     check-out cleared and the claim of the Service released, in one write, and return what it
@@ -283,7 +303,8 @@ def check_in(
                 StageRecordKey.PLAN_DEFECTS_BODY: body,
             }
         service_release(store, number, written)
-    log_job_result(RoadmapJob.STAGE, repo, number, StageResult.FAILED.value, failure=failure)
+    if log_line:
+        log_job_result(RoadmapJob.STAGE, repo, number, StageResult.FAILED.value, failure=failure)
     return CheckedIn(result, failure)
 
 
@@ -363,6 +384,57 @@ def _clone(repo: str) -> Path:
     return status_clone(repo, blobless=True)
 
 
+def _handle_stage_cli_error(
+    exc: DevOpsCLIError,
+    store: RoadmapStore,
+    repo: str,
+    item: int,
+    job: str | None,
+    budget: RequestBudget,
+    *,
+    known: bool,
+) -> StageJobRun:
+    """Handle a project error during planning: log its result line and return an evicted run if
+    the class is retryable, else re-raise."""
+    failure = failure_class_of(exc)
+    if not known or _known(store, item, job):
+        log_job_result(RoadmapJob.STAGE, repo, item, StageResult.FAILED.value, failure=failure)
+    if _retries(failure):
+        return StageJobRun(StageJobExit.EVICTED, StageResult.FAILED.value, budget)
+    raise
+
+
+def _finish_stage_job(
+    store: RoadmapStore,
+    *,
+    repo: str,
+    item: int,
+    job: str | None,
+    budget: RequestBudget,
+    plan: StagePlan,
+    applied: StageApplied,
+    now: datetime | None,
+    known: bool,
+) -> StageJobRun:
+    """Complete a stage Job run: record failure telemetry, check in if not retried, and log the
+    attempt result lines."""
+    emit_stage_results(plan, applied, repo=repo, attempt_lines=False)
+    for failure in (*plan.failed, *applied.failed):
+        log_failed_item(repo, failure.number, failure.step.value, failure.failure_class.value)
+    result = stage_results(plan, applied).get(item, StageResult.SKIPPED)
+    failure_class = _attempt_failure(plan, applied, item)
+    if _retries(failure_class):
+        if not known or _known(store, item, job):
+            log_stage_attempts(plan, applied, repo=repo)
+        return StageJobRun(StageJobExit.EVICTED, result.value, budget, plan=plan, applied=applied)
+    at = now or datetime.now(UTC)
+    written = check_in(store, item, repo=repo, job=job, result=result.value, now=at)
+    if written is not None or not known:
+        log_stage_attempts(plan, applied, repo=repo)
+    exit_code = StageJobExit.FAILURE if result in _FAILED else StageJobExit.RESULT
+    return StageJobRun(exit_code, result.value, budget, plan=plan, applied=applied)
+
+
 def run_stage_job(
     store: RoadmapStore,
     *,
@@ -378,8 +450,8 @@ def run_stage_job(
     models of `plan_stage`. `now` is the time of the records, the time of the system without it.
 
     Raises `RoadmapStageError` before any clone or request when the token of the App is not
-    limited to `repo`, the errors of `plan_stage` that no item explains, and the errors of the
-    check-in.
+    limited to `repo`, `AICredentialsError` when credentials are refused, the errors of
+    `plan_stage` that no item explains, and the errors of the check-in.
     """
     require_job_token_scope(repo)
     settings = load_settings().roadmap.stage
@@ -417,17 +489,21 @@ def run_stage_job(
         return _deadline_end(store, repo, item, settings.job, budget, kill, now, known=known)
     except RoadmapTimeBudgetError:
         return _deadline_end(store, repo, item, settings.job, budget, None, now, known=known)
-    applied = writer.applied()
-    emit_stage_results(plan, applied, repo=repo, attempt_lines=False)
-    for failure in (*plan.failed, *applied.failed):
-        log_failed_item(repo, failure.number, failure.step.value, failure.failure_class.value)
-    result = stage_results(plan, applied).get(item, StageResult.SKIPPED)
-    at = now or datetime.now(UTC)
-    written = check_in(store, item, repo=repo, job=settings.job, result=result.value, now=at)
-    if written is not None or not known:
-        log_stage_attempts(plan, applied, repo=repo)
-    exit_code = StageJobExit.FAILURE if result in _FAILED else StageJobExit.RESULT
-    return StageJobRun(exit_code, result.value, budget, plan=plan, applied=applied)
+    except AICredentialsError:
+        raise
+    except DevOpsCLIError as exc:
+        return _handle_stage_cli_error(exc, store, repo, item, settings.job, budget, known=known)
+    return _finish_stage_job(
+        store,
+        repo=repo,
+        item=item,
+        job=settings.job,
+        budget=budget,
+        plan=plan,
+        applied=writer.applied(),
+        now=now,
+        known=known,
+    )
 
 
 __all__ = [

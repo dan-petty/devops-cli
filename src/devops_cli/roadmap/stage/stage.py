@@ -725,6 +725,8 @@ class _Judge:
         """The last plan or write of the item failed less than the wait of its failure class ago (#3493). The
         job takes the other items and takes this one again when the delay has passed. A record
         whose time is no time holds the item for no time."""
+        if self._job is not None and item.job_record.get(StageRecordKey.JOB) == self._job:
+            return None
         recorded = item.job_record.get(StageRecordKey.FAILED_AT)
         if not recorded:
             return None

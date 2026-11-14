@@ -29,11 +29,12 @@ spec:
         app.kubernetes.io/component: roadmap-stage
         app.kubernetes.io/part-of: devops-cli-stack
     spec:
-      # A pod that an eviction, a node drain or a person ends exits 75 (`evicted` of
-      # src/devops_cli/roadmap/attempt_kill.py), and the Job controller runs the pod again, at most
-      # twice. A pod that a disruption ends does not count. Any other exit ends the Job, and the
-      # Service decides each later attempt. The pod that runs again removes the branch that its
-      # own intent mark names, so a publish never runs twice.
+      # A pod that an eviction, a node drain, a person or a retryable failure ends exits 75
+      # (`evicted` of src/devops_cli/roadmap/attempt_kill.py), keeping the check-out and claim,
+      # and the Job controller runs the pod again, at most twice. A pod that a disruption ends
+      # does not count. Exit 1 fails the Job on a non-retryable failure, and the Service decides
+      # each later attempt. The pod that runs again removes the branch that its own intent mark
+      # names, so a publish never runs twice.
       backoffLimit: 2
       podFailurePolicy:
         rules:

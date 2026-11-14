@@ -19,7 +19,7 @@ import subprocess
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 if TYPE_CHECKING:
     from devops_cli.dry_run.requests import PlannedRequest
@@ -71,6 +71,10 @@ from devops_cli.telemetry.instruments import (
     ROADMAP_OLDEST_ITEM,
     emit,
 )
+
+METRICS_ROW_GITHUB_REQUEST_BUDGET: Final[int] = 5
+"""The GitHub requests that one metrics-row round may send for one page of each listing, so a
+new read or an extra page fails the offline test (#3794)."""
 
 logger = logging.getLogger(__name__)
 
@@ -980,6 +984,7 @@ def emit_project_metrics_telemetry(report: ProjectMetricsReport) -> None:
 
 
 __all__ = [
+    "METRICS_ROW_GITHUB_REQUEST_BUDGET",
     "ItemAgeMetric",
     "ItemCountMetric",
     "LabelTaxonomyMetric",
