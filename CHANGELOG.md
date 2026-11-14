@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.142.1](https://github.com/dan-petty/devops-cli/compare/v0.142.0...v0.142.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **roadmap:** implement refusal hints fit the refused command ([#5726](https://github.com/dan-petty/devops-cli/issues/5726)) ([719f33f](https://github.com/dan-petty/devops-cli/commit/719f33fbe9dd301a5899dfaad0b43be6b907de52))
+
 ## [0.142.0](https://github.com/dan-petty/devops-cli/compare/v0.141.0...v0.142.0) (2026-11-14)
 
 
