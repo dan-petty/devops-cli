@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 import yaml
-from pydantic import ValidationError
 
 from devops_cli.config import settings
 from devops_cli.config.defaults import (
@@ -105,7 +104,7 @@ def test_an_invalid_filter_entry_is_refused_naming_it(
 def test_a_filter_with_no_entry_is_refused(config: Callable[..., Path]) -> None:
     config(roadmap={"stage": {"filter": []}})
 
-    with pytest.raises(ValidationError, match="too_short"):
+    with pytest.raises(ConfigurationError, match="at least 1 item"):
         settings.load_settings()
 
 
@@ -158,7 +157,7 @@ def test_a_config_file_and_a_variable_set_the_planned_limit(
 def test_a_planned_limit_under_one_is_refused(config: Callable[..., Path]) -> None:
     config(roadmap={"stage": {"planned_limit": 0}})
 
-    with pytest.raises(ValidationError, match="greater_than_equal"):
+    with pytest.raises(ConfigurationError, match="greater than or equal"):
         settings.load_settings()
 
 
@@ -172,7 +171,7 @@ def test_an_implement_effort_value_that_is_no_effort_or_held_twice_is_refused_na
 ) -> None:
     config(roadmap={"implement": {"effort": list(values)}})
 
-    with pytest.raises(ValidationError, match=values[1]):
+    with pytest.raises(ConfigurationError, match=values[1]):
         settings.load_settings()
 
 
