@@ -204,6 +204,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_SERVICE_GITHUB_REQUESTS_PER_HOUR` | `service.github_requests_per_hour` | No | The most GitHub requests the Service sends in one hour, not counting those that GitHub answers with 304, as GitHub does not count them against its rate limit; a request that the last hour has no room for waits. The alert RoadmapServiceGitHubRequestsHigh follows this limit |
 | `DEVOPS_CLI_SERVICE_MAX_FAILED_ROUNDS` | `service.max_failed_rounds` | No | How many rounds in a row a roadmap job may fail before the Service suspends it until its input changes or its retry time comes; the retry time is the last failed round plus the wait of its failure class |
 | `DEVOPS_CLI_SERVICE_MODEL_CALL_CONCURRENCY` | `service.model_call_concurrency` | No | The most model calls the Service keeps in flight at once; a lane that waits does so in the Service, where no stall timer runs |
+| `DEVOPS_CLI_SERVICE_POLL_INTERVAL_IDLE_SECONDS` | `service.poll_interval_idle_seconds` | No | Polling interval for a repository with no open issues and no open pull requests, in seconds; a webhook starts its update at once |
 | `DEVOPS_CLI_SERVICE_POLL_INTERVAL_SECONDS` | `service.poll_interval_seconds` | No | Periodic polling interval for service mode in seconds |
 | `DEVOPS_CLI_SERVICE_REPOS` | `service.repos` | No | Target repository list for service mode |
 | `DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS` | `service.webhook_secrets` | 🔒 Yes | JSON map of repo to webhook HMAC secret for incoming GitHub webhooks |

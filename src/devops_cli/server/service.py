@@ -774,6 +774,30 @@ class RepoWorker:
             )
 
 
+class IdleRepos:
+    """Which repositories have no open work, by the last round of a lane (#3672). A webhook
+    clears the state of its repository, so its update starts at once."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._idle: set[str] = set()
+
+    def update(self, repo: str, idle: bool) -> None:
+        with self._lock:
+            if idle:
+                self._idle.add(repo)
+            else:
+                self._idle.discard(repo)
+
+    def is_idle(self, repo: str) -> bool:
+        with self._lock:
+            return repo in self._idle
+
+    def clear(self, repo: str) -> None:
+        with self._lock:
+            self._idle.discard(repo)
+
+
 class ServiceManager:
     """Coordinates the background workers, one per lane of each repository, the polling loop,
     and the lifecycle. Every trigger goes to each lane of its repository, so a round in one lane
@@ -795,8 +819,11 @@ class ServiceManager:
         command_token: str | None = None,
         drain_seconds: float = CONST_SERVICE_STOP_DRAIN_SECONDS,
         cut_seconds: float = CONST_SERVICE_STOP_CUT_SECONDS,
+        idle: IdleRepos | None = None,
     ) -> None:
         self.config = config
+        self.idle = idle or IdleRepos()
+        self._last_poll: dict[str, datetime] = {}
         self._drain_seconds = drain_seconds
         self._cut_seconds = cut_seconds
         self.secrets = secrets
@@ -857,10 +884,24 @@ class ServiceManager:
             float(self.config.poll_interval_seconds), rounds_per_poll=len(self.workers)
         )
 
+    def poll_interval_for(self, repo: str) -> float:
+        """Seconds between the polls of `repo`: the idle interval when its last round found no
+        open work, else the configured one (#3672)."""
+        if self.idle.is_idle(repo):
+            return float(self.config.poll_interval_idle_seconds)
+        return float(self.config.poll_interval_seconds)
+
     def _poll(self) -> None:
-        """Enqueue a poll trigger on every lane of every repository, counted once per
-        repository."""
+        """Enqueue a poll trigger on every lane of every repository that its interval is due,
+        counted once per repository. A repository with no open work waits for its longer idle
+        interval (#3672)."""
+        now = self.clock()
         for repo in self.managed_repos:
+            interval = self.poll_interval_for(repo)
+            last = self._last_poll.get(repo)
+            if last is not None and (now - last).total_seconds() < interval:
+                continue
+            self._last_poll[repo] = now
             self.enqueue_trigger(repo, CONST_SERVICE_SOURCE_POLL, "", "")
             GLOBAL_METRICS.increment_counter(
                 CONST_SERVICE_METRIC_TRIGGERS,
@@ -882,6 +923,9 @@ class ServiceManager:
         event is about, which the batch of the lane keeps (#5553)."""
         if repo not in self.managed_repos or (lane is not None and lane not in self.jobs):
             return False
+        if source != CONST_SERVICE_SOURCE_POLL:
+            # A webhook starts the update at once and ends the idle state (#3672).
+            self.idle.clear(repo)
         for name in self.jobs if lane is None else (lane,):
             self.workers[(repo, name)].enqueue(
                 source=source, event=event, action=action, subject=subject
@@ -1069,6 +1113,7 @@ def create_service_app(
     consumers: Sequence[WebhookConsumer] | None = None,
     state_dir: Path | None = None,
     command_token: str | None = None,
+    idle: IdleRepos | None = None,
 ) -> FastAPI:
     """Construct production FastAPI service application. `jobs` is each lane's job, run by one
     worker per lane of each repository, the default logging job in one lane when none is given;
@@ -1102,6 +1147,7 @@ def create_service_app(
             if command_token is not None
             else _resolve("mattermost.command_token", active_settings)
         ),
+        idle=idle,
     )
 
     @asynccontextmanager
