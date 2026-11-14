@@ -40,9 +40,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/stage/stage.py`, `src/devops_cli/
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/implement/implement_run.py`, `src/devops_cli/roadmap/owner_question.py`, `src/devops_cli/roadmap/stores/store.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/implement/test_roadmap_implement_job.py`. Changes: `src/devops_cli/roadmap/implement/implement_run.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/implement/test_roadmap_implement_owner_question.py` (new).
 
-- [ ] 5.1 Add a case in `tests/roadmap/implement/test_roadmap_implement_owner_question.py` for a stop of class `plan_defect`, where the step posts the owner-question form through the module and the record of the item holds the hash and the question
+- [x] 5.1 Add a case in `tests/roadmap/implement/test_roadmap_implement_owner_question.py` for a stop of class `plan_defect`, where the step posts the owner-question form through the module and the record of the item holds the hash and the question
   - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_owner_question.py` fails on the base
-- [ ] 5.2 In `stop` of `src/devops_cli/roadmap/implement/implement_run.py`, when the class of the stop is `plan_defect`, post the `OwnerQuestion` frame with `CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER` and the question whether to amend the plan or split the item, with the failing check as the evidence, and record `OwnerQuestionRecordKey.HASH` and `OwnerQuestionRecordKey.TEXT` in the same `set_marks` write as the stop. The step asks one question and ends
+- [x] 5.2 In `stop` of `src/devops_cli/roadmap/implement/implement_run.py`, when the class of the stop is `plan_defect`, post the `OwnerQuestion` frame with `CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER` and the question whether to amend the plan or split the item, with the failing check as the evidence, and record `OwnerQuestionRecordKey.HASH` and `OwnerQuestionRecordKey.TEXT` in the same `set_marks` write as the stop. The step asks one question and ends
   - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_owner_question.py` passes
 
 ## 6. List the open owner question in the inbox

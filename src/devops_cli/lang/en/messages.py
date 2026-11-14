@@ -3694,6 +3694,27 @@ class RoadmapMessages:
         }
     )
     implement_failure_trace: str = "Failure class {failure_class}. Action left: {left}."
+    # The owner question that a stop of class `plan_defect` asks (#3077): the step and the failing
+    # check, the two answers and what the job does with each, the answer that the job recommends,
+    # and the evidence that the owner reads. The question and the option texts make the hash, so
+    # two items that ask one question share a frame.
+    implement_owner_question: str = (
+        'The step "{step}" stopped with a plan defect: the plan does not hold. Amend the plan or '
+        "split the item?"
+    )
+    implement_owner_question_options: dict[str, str] = field(
+        default_factory=lambda: {
+            "Amend the plan": "A person amends the plan and runs the item again.",
+            "Split the item": "A person splits the item and plans each part again.",
+        }
+    )
+    implement_owner_question_recommendation: str = (
+        "Amend the plan: the step follows the plan, so a step that cannot follow it names a defect "
+        "of the plan."
+    )
+    implement_owner_question_evidence: str = 'The failing check of the step "{step}": {check}'
+    implement_owner_question_evidence_none: str = 'The step "{step}" gave no failing check.'
+    implement_owner_question_item: str = "The item and its plan: {url}"
     implement_comment_last_none: str = "none."
     implement_comment_diff: str = (
         "\n\nThe job discarded this work.{cut} Read it before you retry:\n\n"

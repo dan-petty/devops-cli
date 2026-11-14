@@ -86,6 +86,14 @@ def _item(world: JobWorld, number: int = 1) -> tuple[str | None, dict[str, str |
     return held.status, {str(key): value for key, value in held.job_record.items()}
 
 
+def _stop_comment(world: JobWorld) -> str:
+    """The stop comment of the last stop, which is the one that names its failure class. A stop of
+    class `plan_defect` posts an owner-question frame too (#3077), so the comment is found by what
+    it holds, not by its place in the thread."""
+    (comment,) = [body for body in world.issue_comments() if "Failure class" in body]
+    return comment
+
+
 # ── The refusal ───────────────────────────────────────────────────────────────────────────
 
 
@@ -669,20 +677,19 @@ def test_a_step_that_stops_blocks_the_item_with_a_comment_and_a_record(
     applied = job_world.run(script)
 
     status, record = _item(job_world)
-    comments = job_world.issue_comments()
+    comment = _stop_comment(job_world)
     assert (applied.ready, applied.stopped, status, record.get("implement.stopped")) == (
         (),
         (1,),
         "Blocked",
         "group 2",
     )
-    assert len(comments) == 1
-    assert comments[0].startswith(MARKER)
-    assert "Stopped at group 2." in comments[0]
-    assert "The agent changed no file." in comments[0]
-    assert "I could not do group 2." in comments[0]
-    assert "The job discarded" not in comments[0]
-    assert "implement: retry" in comments[0]
+    assert comment.startswith(MARKER)
+    assert "Stopped at group 2." in comment
+    assert "The agent changed no file." in comment
+    assert "I could not do group 2." in comment
+    assert "The job discarded" not in comment
+    assert "implement: retry" in comment
 
 
 def test_the_stop_comment_names_the_failure_class_the_action_taken_and_the_action_left(
@@ -696,7 +703,7 @@ def test_the_stop_comment_names_the_failure_class_the_action_taken_and_the_actio
 
     job_world.run(script)
 
-    (comment,) = job_world.issue_comments()
+    comment = _stop_comment(job_world)
     _, record = _item(job_world)
     assert "Failure class: `plan_defect`.\nAction taken: none.\nAction left: `amend`:" in comment
     assert comment.index("Failure class") < comment.index("Reason:")
@@ -1131,7 +1138,7 @@ def test_an_archive_that_the_validation_of_the_specs_refuses_is_a_plan_defect(
     applied = job_world.run(two_groups())
 
     _, record = _item(job_world)
-    comment = job_world.issue_comments()[0]
+    comment = _stop_comment(job_world)
     assert (applied.stopped, record.get("implement.stopped")) == ((1,), "archive")
     assert record.get("implement.failure") == "plan_defect"
     assert "Failure class: `plan_defect`." in comment
@@ -1399,7 +1406,7 @@ def test_unticked_task_in_archived_change_stops_at_ready(job_world: JobWorld) ->
     status, record = _item(job_world)
     assert status == "Blocked"
     assert record.get("implement.stopped") == "ready"
-    (comment,) = job_world.issue_comments()
+    comment = _stop_comment(job_world)
     assert "2" in comment
     assert "Failure class: `plan_defect`" in comment
 
