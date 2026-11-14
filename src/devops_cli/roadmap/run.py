@@ -727,11 +727,14 @@ def _run_refine_adapter(
     of the Service loses at most the item in progress (#3631). The job fails, once the other
     items are written, when the model call or the write failed for any item. The stop ends the
     run, but the items that failed before it still fail the run (#2753). The outcome holds the
-    items that the selection ordered as the queue of the row (#5470)."""
+    items that the selection ordered as the queue of the row (#5470). The round acts as the
+    account of the run, whose own comment answers no owner question (#3077)."""
     source = _job_clone("refine", clone_path)
     writer = RefineWriter(store, repo)
     try:
-        plan = plan_refine(store, repo=repo, source=source, writer=writer)
+        plan = plan_refine(
+            store, repo=repo, source=source, writer=writer, actor=_current_actor(store)
+        )
         writer.write_waiting(plan)
     except ServiceStoppingError:
         writer.end()

@@ -2722,6 +2722,17 @@ class RoadmapMessages:
         "{marker}\nStatus set to Ready at {sha} (see proposed design in issue body)."
     )
     refine_step_comment: str = "{marker}\n{status}{step}\n\n{details}"
+    # The owner question that a wait on a person posts (#3077): the two answers and what the job
+    # does with each, the answer the job recommends, and the evidence that the owner reads. The
+    # question and the option texts make the hash, so two items that ask one question share a frame.
+    refine_owner_question_options: dict[str, str] = field(
+        default_factory=lambda: {
+            "Decide the question": "The job refines the item with your answer.",
+            "Leave it to the job": "The job records the best-practice answer and goes on.",
+        }
+    )
+    refine_owner_question_recommendation: str = "Decide the question: only a person can answer it."
+    refine_owner_question_evidence: str = "The item and its cited evidence: {url}"
     # Deferred parts (#2423): the first line of a new issue, the sentence of the Ready comment,
     # the detail of an item that a part keeps waiting, and the warning of a round that filed
     # only some parts.
@@ -3683,6 +3694,27 @@ class RoadmapMessages:
         }
     )
     implement_failure_trace: str = "Failure class {failure_class}. Action left: {left}."
+    # The owner question that a stop of class `plan_defect` asks (#3077): the step and the failing
+    # check, the two answers and what the job does with each, the answer that the job recommends,
+    # and the evidence that the owner reads. The question and the option texts make the hash, so
+    # two items that ask one question share a frame.
+    implement_owner_question: str = (
+        'The step "{step}" stopped with a plan defect: the plan does not hold. Amend the plan or '
+        "split the item?"
+    )
+    implement_owner_question_options: dict[str, str] = field(
+        default_factory=lambda: {
+            "Amend the plan": "A person amends the plan and runs the item again.",
+            "Split the item": "A person splits the item and plans each part again.",
+        }
+    )
+    implement_owner_question_recommendation: str = (
+        "Amend the plan: the step follows the plan, so a step that cannot follow it names a defect "
+        "of the plan."
+    )
+    implement_owner_question_evidence: str = 'The failing check of the step "{step}": {check}'
+    implement_owner_question_evidence_none: str = 'The step "{step}" gave no failing check.'
+    implement_owner_question_item: str = "The item and its plan: {url}"
     implement_comment_last_none: str = "none."
     implement_comment_diff: str = (
         "\n\nThe job discarded this work.{cut} Read it before you retry:\n\n"
@@ -4151,12 +4183,25 @@ class RoadmapMessages:
     )
     stage_comment_warnings: str = "\n\nWarnings:\n{warnings}"
     stage_problem_unhandled_test_reference: str = "{path}: unhandled reference to {name!r}."
-    stage_comment_over_budget: str = (
-        '{marker}\nThe stage job stopped. The inputs of the step of the task group "{title}" '
-        "hold {tokens} tokens, over the budget of {budget} tokens, also after the model split "
-        "the groups once. A person decides how to split the item. The job stages the item again "
-        "when a person runs it with --item {number}.\n\nThe task groups:\n\n{groups}"
+    # The owner question that a stop on the budget asks (#3077): the group that is still over the
+    # budget, the two answers and what the job does with each, the answer that the job recommends,
+    # and the evidence that the owner reads. The question and the option texts make the hash, so
+    # two items that ask one question share a frame.
+    stage_owner_question: str = (
+        'The inputs of the step of the task group "{title}" hold {tokens} tokens, over the '
+        "budget of {budget} tokens, also after the model split the groups once. Split the group "
+        "or raise the budget of the step?"
     )
+    stage_owner_question_options: dict[str, str] = field(
+        default_factory=lambda: {
+            "Split the group": "A person splits the group and runs the item again.",
+            "Raise the budget": "A person raises the budget of the step and runs the item again.",
+        }
+    )
+    stage_owner_question_recommendation: str = (
+        "Split the group: the plan check keeps the budget of the step."
+    )
+    stage_owner_question_evidence: str = 'The task group "{title}" holds {tokens} tokens: {url}'
     stage_split_record: str = "{title} ({tokens} tokens)"
     stage_probe_path_present: str = "The path `{path}` is a file of the staging commit."
     stage_probe_path_missing: str = "The path `{path}` is no file of the staging commit. {removal}"
@@ -5212,6 +5257,7 @@ class RoadmapMessages:
             "labels": "Repository state that a person owns",
             "queue": "The stage job waits for deliveries",
             "person": "Pull requests of people and agents",
+            "owner": "Open owner questions",
         }
     )
     inbox_line: str = "  {number}  {age}  {subject}"
@@ -5244,6 +5290,7 @@ class RoadmapMessages:
                 "The count of Planned items is {count}, and roadmap.stage.planned_limit is "
                 "{limit}. The stage job plans only items with the priority {priorities}."
             ),
+            "owner": "{title}: the owner question waits: {question}",
         }
     )
     inbox_clears: dict[str, str] = field(
@@ -5285,6 +5332,9 @@ class RoadmapMessages:
             "queue": (
                 "Deliver Planned items with `devops roadmap implement --repo {repo}`, "
                 "or raise roadmap.stage.planned_limit."
+            ),
+            "owner": (
+                'Answer it in a comment on #{number}: `gh issue comment {number} --body "<answer>"`'
             ),
         }
     )

@@ -167,6 +167,7 @@ from devops_cli.roadmap.implement.implement_trace import (
     summary_table,
 )
 from devops_cli.roadmap.implement.implement_wip import WipCommit, kept_commits, wip_base
+from devops_cli.roadmap.owner_question import OwnerQuestion, QuestionOption
 from devops_cli.roadmap.plan_read import PlanReadError, merged_recorded_tests
 from devops_cli.roadmap.premise import false_premises
 from devops_cli.roadmap.pull_form import BODY_MAX_CHARS, build_body, title_problems
@@ -197,6 +198,7 @@ from devops_cli.roadmap.stores.store import (
     ImplementRecordKey,
     ImplementResult,
     Item,
+    OwnerQuestionRecordKey,
     RoadmapStore,
 )
 from devops_cli.roadmap.title_labels import title_labels
@@ -413,6 +415,28 @@ def _diff_section(stop: _StopError) -> str:
     cut = texts.implement_comment_diff_cut.format(limit=CONST_ROADMAP_IMPLEMENT_DIFF_CHARS)
     return texts.implement_comment_diff.format(
         cut=cut if stop.diff_cut else "", fence=code_fence(diff), diff=diff
+    )
+
+
+def _plan_defect_question(step: str, check: str, url: str) -> OwnerQuestion:
+    """The one owner question of a stop of class `plan_defect` (#3077): amend the plan or split the
+    item, with the step and its failing check as the evidence. The step asks one question, so the
+    run ends after it posts the frame."""
+    texts = MESSAGES.roadmap
+    evidence = (
+        texts.implement_owner_question_evidence.format(step=step, check=check)
+        if check
+        else texts.implement_owner_question_evidence_none.format(step=step)
+    )
+    return OwnerQuestion(
+        marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
+        question=texts.implement_owner_question.format(step=step),
+        options=tuple(
+            QuestionOption(text=text, result=result)
+            for text, result in texts.implement_owner_question_options.items()
+        ),
+        recommendation=texts.implement_owner_question_recommendation,
+        evidence=(evidence, texts.implement_owner_question_item.format(url=url)),
     )
 
 
@@ -1856,6 +1880,11 @@ class _ItemRun:
             CONST_ROADMAP_IMPLEMENT_REASON_CHARS,
         )
         check_log = _check_log_end(stop.check_log)
+        question = (
+            _plan_defect_question(stop.step, check, self.target.item.url)
+            if klass is FailureClass.PLAN_DEFECT
+            else None
+        )
         taken: FailureAction | None = None
         if stop.tier_changes:
             taken = FailureAction.CHANGE_TIER
@@ -1871,6 +1900,7 @@ class _ItemRun:
                 left=left.value,
             )
         )
+        question_marks = self._ask(question)
         self.store.comment(
             self.number,
             texts.implement_comment_stopped.format(
@@ -1909,8 +1939,24 @@ class _ItemRun:
             marks[ImplementRecordKey.PR] = str(self.pull)
         if self.wip is not None:
             marks[ImplementRecordKey.WIP] = _wip_record(self.wip)
+        marks.update(question_marks)
         marks[ImplementRecordKey.RESULT] = ImplementResult.STOPPED.value
         write_status(self.store, self._fresh(), StatusFacts(stopped=True), marks=marks)
+
+    def _ask(self, question: OwnerQuestion | None) -> dict[Any, str | int | None]:
+        """Post the owner-question frame of a stop that needs an owner decision, and give the marks
+        that record it (#3077): the hash, the question and no answer, so the inbox lists the
+        question as open and a trusted reply resumes the item. No question gives no mark, so a stop
+        of another class leaves the question that the item already asks as it is. The step asks one
+        question and ends, so the run posts one frame."""
+        if question is None:
+            return {}
+        self.store.comment(self.number, question.render())
+        return {
+            OwnerQuestionRecordKey.HASH: question.hash,
+            OwnerQuestionRecordKey.TEXT: question.question,
+            OwnerQuestionRecordKey.ANSWER: None,
+        }
 
     def _drop_uncommitted(self) -> None:
         """Put the checkout back at its head, before the push of a stop (#4487). A project program

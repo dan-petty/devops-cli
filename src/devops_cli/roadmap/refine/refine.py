@@ -108,6 +108,13 @@ Each free-text field of the reply is a `ReplyText`, so a placeholder such as `x`
 The proposal call returns such a reply to the model once. A second one is a placeholder failure:
 refine logs the skip and writes nothing for the item, and the round does not fail for it, so
 `FailureLedger` never suspends the refine row for it (#3478).
+An item whose round leaves a question to a person posts one owner-question frame
+(`owner_question`), on the oldest open item that asks the question, and each other item that asks
+it gets a link to that frame (#3077). The frame is the marker of the wait: a reply of a trusted
+person to it resumes every open item whose record holds the question's hash, and the request of
+each such item carries the answer text and the reference of the frame, which apply records as
+`OwnerQuestionRecordKey.ANSWER`. A reply of a stranger, of a bot or of the account that the run
+acts as (`actor`) answers nothing.
 """
 
 from __future__ import annotations
@@ -117,7 +124,7 @@ import itertools
 import json
 import logging
 import re
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -214,6 +221,13 @@ from devops_cli.roadmap.intake.intake import (
 )
 from devops_cli.roadmap.intake.intake_model import IntakeModel, build_intake_model
 from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
+from devops_cli.roadmap.owner_question import (
+    OwnerQuestion,
+    QuestionOption,
+)
+from devops_cli.roadmap.owner_question import (
+    answer_of as question_answer_of,
+)
 from devops_cli.roadmap.page_fetch import (
     TOOLSET_REFINE,
     PageFetch,
@@ -237,13 +251,20 @@ from devops_cli.roadmap.stores.store import (
     Item,
     JobRecord,
     JudgeVerdict,
+    OwnerQuestionRecordKey,
     RefineRecordKey,
     RoadmapStore,
     StageRecordKey,
     Verdict,
     as_utc,
 )
-from devops_cli.roadmap.trust import is_approved, is_bot_filed, is_trusted, trusted_replies
+from devops_cli.roadmap.trust import (
+    is_approved,
+    is_bot_filed,
+    is_person_comment,
+    is_trusted,
+    trusted_replies,
+)
 from devops_cli.telemetry.instruments import ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL, emit
 
 if TYPE_CHECKING:
@@ -423,7 +444,10 @@ class RefinedItem:
     which apply records, and None for the item of a person (#3502). `failure` is set when the job
     failed: apply records it with the count of `tries` on this body. With `record_only` apply
     writes nothing else (#3632); a refusal of the review also writes the body and the Status, and
-    no comment (#4798)."""
+    no comment (#4798). `owner_question` is the one owner question that the round asked, which
+    apply records with the hash of its frame (#3077), and `owner_answer` is the answer that a
+    trusted person gave to the frame of the question the record holds, which the request of the
+    item carries and apply records (#3077)."""
 
     item: Item
     proposal: RefinementProposal
@@ -447,6 +471,8 @@ class RefinedItem:
     judge: JudgeVerdict | None = None
     failure: JobFailure | None = None
     tries: int = 0
+    owner_question: OwnerQuestion | None = None
+    owner_answer: OwnerAnswer | None = None
 
 
 @dataclass(frozen=True)
@@ -1427,19 +1453,192 @@ def next_step_of(
     return NextStep.PERSON, (block,), ()
 
 
+def owner_question_of(item: Item, step: NextStep, details: Sequence[str]) -> OwnerQuestion | None:
+    """The one owner question that `step` asks for `item` (#3077), or None when the step waits on
+    no person or the item asks nothing. It asks the first open question only, so one run asks one
+    question and the other questions wait for a later round. The options, the recommendation and
+    the evidence are the same for every item, so two items that ask one question share its hash."""
+    if step is not NextStep.PERSON or not details:
+        return None
+    texts = MESSAGES.roadmap
+    return OwnerQuestion(
+        marker=CONST_ROADMAP_REFINE_COMMENT_MARKER,
+        question=details[0],
+        options=tuple(
+            QuestionOption(text=text, result=result)
+            for text, result in texts.refine_owner_question_options.items()
+        ),
+        recommendation=texts.refine_owner_question_recommendation,
+        evidence=(texts.refine_owner_question_evidence.format(url=item.url),),
+    )
+
+
+def recorded_frames(store: RoadmapStore) -> dict[str, Item]:
+    """The open item that holds the frame of each question hash, the oldest first: what the job
+    records of the open items say, so an item that asks a question another open item asks links
+    that frame instead of posting a second one (#3077)."""
+    frames: dict[str, Item] = {}
+    for item in sorted(store.open_items(), key=lambda open_item: open_item.number):
+        question_hash = item.job_record.get(OwnerQuestionRecordKey.HASH)
+        if question_hash is not None:
+            frames.setdefault(question_hash, item)
+    return frames
+
+
+def frame_holder(
+    frames: Mapping[str, Item], item: Item, question: OwnerQuestion | None
+) -> Item | None:
+    """The older open item that already holds the frame of `question`, or None when `item` is the
+    first to ask it, so `item` posts the frame (#3077)."""
+    if question is None:
+        return None
+    holder = frames.get(question.hash)
+    return None if holder is None or holder.number == item.number else holder
+
+
+@dataclass(frozen=True)
+class OwnerAnswer:
+    """The answer that a trusted person gave to the frame of an owner question (#3077): the text
+    of the reply and the URL of the item that holds the frame, which the request of each covered
+    item carries and which apply records."""
+
+    text: str
+    frame: str
+
+
+def _asked_question(item: Item) -> str | None:
+    """The hash of the owner question that the record of `item` holds, or None."""
+    return item.job_record.get(OwnerQuestionRecordKey.HASH)
+
+
+def owner_answer_of(
+    store: RoadmapStore,
+    item: Item,
+    *,
+    frames: Mapping[str, Item],
+    actor: str | None = None,
+    comments_on: Callable[[int], list[IssueComment]] | None = None,
+) -> OwnerAnswer | None:
+    """The answer that a trusted person gave to the frame of the question that `item` asks, or None
+    while the question is open (#3077).
+
+    The frame is on the oldest open item that asks the question, so `item` may hold only a link to
+    it, and the answer is read from the item that holds the frame. A reply of a stranger, of a bot
+    or of `actor`, the account that the job acts as, is no answer (`trust.is_person_comment`), so
+    such a reply resumes nothing. None also when the record holds no question, and when no open
+    item holds the frame."""
+    question_hash = _asked_question(item)
+    if question_hash is None:
+        return None
+    holder = frames.get(question_hash)
+    if holder is None:
+        return None
+    read = comments_on or (lambda number: trusted_replies(store.comments_on(number)))
+    reply = question_answer_of(read(holder.number), question_hash, actor=actor)
+    return None if reply is None else OwnerAnswer(text=reply.body, frame=holder.url)
+
+
+def _person_comments(comments: Sequence[IssueComment], actor: str | None) -> list[IssueComment]:
+    """The comments that a person with write access made, as `trust.is_person_comment` tells them
+    apart from those of a bot and of the account that the job acts as."""
+    return [comment for comment in comments if is_person_comment(comment, actor)]
+
+
+@dataclass(frozen=True)
+class _Questions:
+    """The open owner questions of one round (#3077): the store that reads the frame of each
+    question hash, the open item that holds it, and the actor of the run, whose own comments
+    answer no question."""
+
+    store: RoadmapStore
+    frames: Mapping[str, Item] = field(default_factory=dict)
+    actor: str | None = None
+
+    def answer(
+        self, item: Item, comments_on: Callable[[int], list[IssueComment]]
+    ) -> OwnerAnswer | None:
+        """The answer that a trusted person gave to the frame of the question that `item` asks, or
+        None while the question is open."""
+        return owner_answer_of(
+            self.store, item, frames=self.frames, actor=self.actor, comments_on=comments_on
+        )
+
+
+def _owner_answer_request(item: Item, answer: OwnerAnswer | None) -> dict[str, str] | None:
+    """The answer that resumed `item`, with the question it answers and the reference of the frame,
+    or None while the question is open (#3077)."""
+    if answer is None:
+        return None
+    return {
+        "question": item.job_record.get(OwnerQuestionRecordKey.TEXT) or "",
+        "answer": answer.text,
+        "frame": answer.frame,
+    }
+
+
+def _recorded_answer(r: RefinedItem) -> str | None:
+    """The answer that apply records for `r`: none when the round asks a new question, which the old
+    answer does not answer, else the answer that resumed the item (#3077)."""
+    if r.owner_question is not None or r.owner_answer is None:
+        return None
+    return r.owner_answer.text
+
+
+def _frame_comments(
+    store: RoadmapStore, number: int, comments: list[IssueComment], asked: int
+) -> list[IssueComment]:
+    """The comments of issue `asked`, with those of `number` given, which the round read already:
+    the answer of a frame on another item reads one thread more (#3077)."""
+    return comments if asked == number else trusted_replies(store.comments_on(asked))
+
+
+def _with_block_paths(comment: str, block_paths: Sequence[str]) -> str:
+    """`comment` with the last line that names the files whose change ends the wait (#2005)."""
+    if not block_paths:
+        return comment
+    paths = ", ".join(f"`{path}`" for path in block_paths)
+    return f"{comment}\n\n{MESSAGES.roadmap.refine_block_paths.format(paths=paths)}"
+
+
+def _with_notice(comment: str, notice: str) -> str:
+    """`comment` with `notice` after its first line, which holds the marker of the job."""
+    if not notice:
+        return comment
+    first, _, rest = comment.partition("\n")
+    return f"{first}\n{notice}{rest}"
+
+
 def step_comment(
     item: Item,
     step: NextStep,
     details: Sequence[str],
     sha: str,
     block_paths: Sequence[str] = (),
+    *,
+    holder: Item | None = None,
 ) -> str:
     """The one comment that tells a person the item's next step, carrying refine's marker: the
     Ready notice, or the questions, the split or the blockers, with the Status change from Ready
-    first (#1515, #1758), and last the files whose change ends the wait (#2005)."""
+    first (#1515, #1758), and last the files whose change ends the wait (#2005).
+
+    A wait on a person is one owner-question frame for the first open question, which `holder`
+    links when an older open item already asks it (#3077)."""
     texts = MESSAGES.roadmap
     short = sha[:12]
     marker = CONST_ROADMAP_REFINE_COMMENT_MARKER
+    question = owner_question_of(item, step, details)
+    if question is not None:
+        comment = (
+            question.render()
+            if holder is None
+            else question.link_comment(frame_item=holder.number, frame_url=holder.url)
+        )
+        notice = (
+            texts.refine_back_to_new.format(sha=short)
+            if item.status == CONST_ROADMAP_STATUS_READY
+            else ""
+        )
+        return _with_block_paths(_with_notice(comment, notice), block_paths)
     if step is NextStep.READY:
         return texts.refine_ready_comment.format(marker=marker, sha=short)
     numbered = step is NextStep.SPLIT
@@ -1456,10 +1655,7 @@ def step_comment(
         step=template.format(sha=short, count=len(details) or 2),
         details=listed,
     )
-    if not block_paths:
-        return comment
-    paths = ", ".join(f"`{path}`" for path in block_paths)
-    return f"{comment}\n\n{texts.refine_block_paths.format(paths=paths)}"
+    return _with_block_paths(comment, block_paths)
 
 
 # ── Rendering & Sanitization ──────────────────────────────────────────────────
@@ -2083,17 +2279,26 @@ def _wait_state(
     item: Item,
     comments: list[IssueComment] | None,
     comments_on: Callable[[int], list[IssueComment]],
+    *,
+    questions: _Questions,
 ) -> tuple[datetime, str, JobRecord | None] | None:
     """What the exits of a wait need: the time of refine's last comment, the references of the
     wait text, and the marks that record them when the record does not hold them, or None when a
     reply follows refine's last comment. The job record gives them while the count of comments is
     the recorded one; otherwise the round reads the comments, which `comments` holds when it read
-    them already (#3667)."""
+    them already (#3667). An item whose record holds an owner question waits on its frame, so the
+    wait is over when a trusted person answered the frame and not when another comment came
+    (#3077), and only a comment of a person ends the wait of such an item: a comment of a bot or of
+    the account that the job acts as ends none."""
+    if _question_ends_wait(item, comments_on, questions):
+        return None
     recorded = _recorded_reads(item) if comments is None else None
     if recorded is not None:
         return recorded[0], recorded[1], None
     comments = comments_on(item.number) if comments is None else comments
     replies = replies_since_refine(comments)
+    if replies and _asked_question(item) is not None:
+        replies = _person_comments(replies, questions.actor)
     if replies is None or replies:
         return None
     # No reply: the last comment that is not another job's is refine's own.
@@ -2102,8 +2307,34 @@ def _wait_state(
     return commented_at, refs, _read_marks(item, commented_at, refs)
 
 
+def _open_blockers(store: RoadmapStore, item: Item) -> list[int]:
+    """The issues that the record of `item` names as its blockers and that are still open."""
+    return [number for number in recorded_blockers(item) if _is_open(store, number)]
+
+
+def _question_ends_wait(
+    item: Item,
+    comments_on: Callable[[int], list[IssueComment]],
+    questions: _Questions,
+) -> bool:
+    """Whether the owner question that `item` asks ends its wait (#3077): a trusted person
+    answered the frame, or no open item holds the frame any more, so no answer can come and
+    refine looks at the item again. An item whose record holds a question waits on a person, so
+    this rule holds whatever step the record names."""
+    question_hash = _asked_question(item)
+    if question_hash is None:
+        return False
+    holder = questions.frames.get(question_hash)
+    if holder is None:
+        return True
+    return holder.number != item.number and questions.answer(item, comments_on) is not None
+
+
 def _still_waiting(
-    store: RoadmapStore, item: Item, comments_on: Callable[[int], list[IssueComment]]
+    store: RoadmapStore,
+    item: Item,
+    comments_on: Callable[[int], list[IssueComment]],
+    questions: _Questions,
 ) -> WaitingItem | None:
     """The next step an item nothing changed since its last round still waits on, or None when
     the wait is over and refine looks at it again (#1758): the round recorded no step, a blocker
@@ -2115,7 +2346,12 @@ def _still_waiting(
     Only a body edit ends an `EDIT` or a `FAILED` wait, and a `RETRY` is never a wait: the job
     failed and the next round tries again (#3632). `comments_on` reads the item's comments, which
     the round does only when the count of comments moved since the job record was made, or the
-    record holds none, or the item was set back to New after refine set it Ready (#3667)."""
+    record holds none, or the item was set back to New after refine set it Ready (#3667).
+
+    An item that asks an owner question waits on its frame (#3077): a trusted person's answer to
+    the frame ends the wait of every item that the frame covers, and the frame of an item that
+    another open item holds is read there, so an item that holds only a link to it resumes too.
+    When no open item holds the frame, no answer can come, and refine looks at the item again."""
     step = _recorded_step(item)
     details: tuple[str, ...] = ()
     names_cause = step is NextStep.PERSON
@@ -2126,7 +2362,7 @@ def _still_waiting(
         case NextStep.EDIT | NextStep.FAILED:
             return _settled_wait(item, step)
         case NextStep.BLOCKED:
-            blockers = [number for number in recorded_blockers(item) if _is_open(store, number)]
+            blockers = _open_blockers(store, item)
             if not blockers:
                 return None
             details = tuple(f"#{number}" for number in blockers)
@@ -2137,7 +2373,7 @@ def _still_waiting(
             if returned is None:
                 return None
             step, details = NextStep.PERSON, (returned,)
-    state = _wait_state(item, comments, comments_on)
+    state = _wait_state(item, comments, comments_on, questions=questions)
     if state is None:
         return None
     commented_at, refs, marks = state
@@ -2253,6 +2489,11 @@ class _Selection:
     selected: list[Item] = field(default_factory=list)
     waiting: list[WaitingItem] = field(default_factory=list)
     comments: dict[int, list[IssueComment]] = field(default_factory=dict)
+    frames: dict[str, Item] | None = None
+    """The open item that holds the frame of each owner question hash, read once when an item
+    asks a question (#3077); None until the selection needs it."""
+    actor: str | None = None
+    """The account that the run acts as: its own comments answer no owner question (#3077)."""
 
     def comments_on(self, number: int) -> list[IssueComment]:
         """The comments of trusted authors on issue `number` (`trust.trusted_replies`), read
@@ -2260,6 +2501,12 @@ class _Selection:
         if number not in self.comments:
             self.comments[number] = trusted_replies(self.store.comments_on(number))
         return self.comments[number]
+
+    def questions(self) -> _Questions:
+        """The open owner questions of the selection, with the frames read once (#3077)."""
+        if self.frames is None:
+            self.frames = recorded_frames(self.store)
+        return _Questions(store=self.store, frames=self.frames, actor=self.actor)
 
     def consider(self, item: Item) -> None:
         """Take `item` unless an account that the jobs do not trust opened it (#2478), its title
@@ -2283,7 +2530,7 @@ class _Selection:
             self.waiting.append(failed_lately)
             return
         if is_unchanged(item, item.body) and not _needs_second_look(item):
-            waits = _still_waiting(self.store, item, self.comments_on)
+            waits = _still_waiting(self.store, item, self.comments_on, self.questions())
             if waits is not None:
                 self.waiting.append(waits)
                 return
@@ -2351,20 +2598,28 @@ def select_candidates(
     *,
     item_number: int | None = None,
     limit: int = DEFAULT_ROADMAP_REFINE_LIMIT,
+    actor: str | None = None,
 ) -> tuple[list[Item], list[WaitingItem]]:
     """Selects up to `limit` items to refine, nearest place first as the module's docstring
     orders them, returning (selected, waiting): each item it leaves out waits on its next step.
-    The number of Ready items does not stop it (#2004)."""
-    selected, waiting, _ = _select_round(store, item_number=item_number, limit=limit)
+    The number of Ready items does not stop it (#2004). `actor` is the account that the run acts
+    as, whose own comments answer no owner question (#3077)."""
+    selected, waiting, _ = _select_round(store, item_number=item_number, limit=limit, actor=actor)
     return selected, waiting
 
 
 def _select_round(
-    store: RoadmapStore, *, item_number: int | None, limit: int
+    store: RoadmapStore,
+    *,
+    item_number: int | None,
+    limit: int,
+    actor: str | None = None,
+    frames: dict[str, Item] | None = None,
 ) -> tuple[list[Item], list[WaitingItem], int]:
     """The selection of `select_candidates`, and the count of the items that it ordered before
     the rules of each item and the limit: the queue of the refine row (#5470). The selection of a
-    named item counts none."""
+    named item counts none. `frames` maps a question hash to the open item that holds its frame,
+    which the selection reads itself when the caller gives none (#3077)."""
     if item_number is not None:
         selected, waiting = _select_single_candidate(store, item_number)
         return selected, waiting, 0
@@ -2389,7 +2644,7 @@ def _select_round(
         ),
     ]
 
-    selection = _Selection(store)
+    selection = _Selection(store, frames=frames, actor=actor)
     for it in ordered:
         if len(selection.selected) >= limit:
             break
@@ -2551,12 +2806,17 @@ def refine_one_item(
     verifier: Callable[[], StageClient],
     max_context_tokens: int = 8192,
     intake_model: IntakeModel | None = None,
+    frames: Mapping[str, Item] | None = None,
+    actor: str | None = None,
 ) -> RefinedItem:
     """Refines one item through context collection, proposal, validation and, when a question
     stays open, the investigation with `web`'s search and the `investigator` model (#2398). A
     Ready proposal's deferred parts get an intake plan each, with `intake_model` (#2423). A Ready
     proposal for an item that a bot opened goes through the review of `refine_judge`, with the
-    client that `verifier` makes (#3502)."""
+    client that `verifier` makes (#3502). `frames` maps a question hash to the open item that
+    holds its frame, so an item that asks one question links that frame (#3077). `actor` is the
+    account that the run acts as, whose own comments answer no owner question, and the answer that
+    a trusted person gave to the frame reaches the request of the item (#3077)."""
     web = web or WebSearch()
     current_body = store.read_issue_body(item.number)
 
@@ -2586,6 +2846,13 @@ def refine_one_item(
     returned = _stage_return(item, comments)
     check = recorded_check(item, current_body)
     covers = covers_question(check, comments)
+    answer = owner_answer_of(
+        store,
+        item,
+        frames=frames or {},
+        actor=actor,
+        comments_on=partial(_frame_comments, store, item.number, comments),
+    )
     request: dict[str, Any] = {
         "number": item.number,
         "title": item.title,
@@ -2602,6 +2869,7 @@ def refine_one_item(
             {"number": number, "title": title} for number, title in _recorded_deferrals(store, item)
         ],
         "judge_findings": _judge_findings(item),
+        "owner_answer": _owner_answer_request(item, answer),
     }
     raw_proposal: RefinementProposal = client.chat_structured(
         _prompt("roadmap_refine_proposal.md"),
@@ -2706,8 +2974,21 @@ def refine_one_item(
         )
 
     # One comment gives the next step; a Ready item refine finds not ready goes back to New (#1515).
-    # A refusal of the review is a job failure, which writes no comment (#4798).
-    comment = None if refusal is not None else step_comment(item, step, details, sha, block_paths)
+    # A refusal of the review is a job failure, which writes no comment (#4798). A wait on a person
+    # asks one owner question, which an older open item's frame answers (#3077).
+    question = None if refusal is not None else owner_question_of(item, step, details)
+    comment = (
+        None
+        if refusal is not None
+        else step_comment(
+            item,
+            step,
+            details,
+            sha,
+            block_paths,
+            holder=frame_holder(frames or {}, item, question),
+        )
+    )
 
     s_hash = hash_text(
         rendered_section[
@@ -2736,6 +3017,8 @@ def refine_one_item(
         judge=judge,
         failure=refusal,
         tries=tries,
+        owner_question=question,
+        owner_answer=answer,
     )
 
 
@@ -2893,6 +3176,7 @@ def plan_refine(
     intake_model: IntakeModel | None = None,
     verifier: Any = None,
     writer: RefineWriter | None = None,
+    actor: str | None = None,
 ) -> RefinePlan:
     """Plans refinement for eligible candidates. It writes nothing to GitHub unless the caller
     gives a `writer`: the writer then gets the count of candidates and the result of each item as
@@ -2903,11 +3187,15 @@ def plan_refine(
     model; each defaults to the `analysis` task's (#2398). `intake_model` plans the new issues
     of deferred parts, and is built only when a part exists (#2423). `verifier` is the client
     that reviews the proposal for an item that a bot opened; it defaults to the client of the
-    `verification` task, and is built only when such a review runs (#3502)."""
+    `verification` task, and is built only when such a review runs (#3502). `actor` is the account
+    that the run acts as, whose own comments answer no owner question (#3077)."""
     source_path = Path(source)
     sha = inspect_checkout(source_path, repo)
+    frames = recorded_frames(store)
 
-    candidates, waiting, queue = _select_round(store, item_number=item_number, limit=limit)
+    candidates, waiting, queue = _select_round(
+        store, item_number=item_number, limit=limit, actor=actor, frames=frames
+    )
     if writer is not None:
         writer.begin(len(candidates))
     waiting_writes = any(w.cap_stop is not None or w.notice for w in waiting)
@@ -2944,6 +3232,8 @@ def plan_refine(
                 verifier=verifier_of,
                 max_context_tokens=max_tokens,
                 intake_model=intake_model,
+                frames=frames,
+                actor=actor,
             )
         except AICredentialsError:
             raise
@@ -2954,6 +3244,8 @@ def plan_refine(
                 writer.settle(failure)
             continue
         refined.append(res)
+        if res.owner_question is not None:
+            frames.setdefault(res.owner_question.hash, cand)
         if writer is not None:
             writer.settle(res)
 
@@ -3258,8 +3550,9 @@ def _with_deferrals(comment: str | None, numbers: Sequence[int]) -> str | None:
 
 def _refine_marks(r: RefinedItem, deferred: Sequence[int]) -> JobRecord:
     """The marks that apply sets in the job record of `r.item`: what the round saw, the next step,
-    the verdict of the review when the item held one or the round gave one (#3502), and the
-    numbers of the issues that refine filed for the deferred parts."""
+    the verdict of the review when the item held one or the round gave one (#3502), the numbers of
+    the issues that refine filed for the deferred parts, and the owner question that the round
+    asked with the answer that resumed the item (#3077)."""
     marks: JobRecord = {
         RefineRecordKey.BODY_HASH: r.body_hash,
         RefineRecordKey.SECTION_HASH: r.section_hash,
@@ -3271,6 +3564,13 @@ def _refine_marks(r: RefinedItem, deferred: Sequence[int]) -> JobRecord:
         RefineRecordKey.BLOCK_PATHS: ",".join(r.block_paths) or None,
         RefineRecordKey.ALTERNATIVES_ASKED: r.alternatives_asked,
         RefineRecordKey.RETURNED_BODY_HASH: r.body_hash if r.after_stage_return else None,
+        OwnerQuestionRecordKey.HASH: r.owner_question.hash
+        if r.owner_question is not None
+        else None,
+        OwnerQuestionRecordKey.TEXT: r.owner_question.question
+        if r.owner_question is not None
+        else None,
+        OwnerQuestionRecordKey.ANSWER: _recorded_answer(r),
         **_failure_marks(r.item, r.failure, r.tries),
     }
     if r.judge is not None or RefineRecordKey.JUDGE in r.item.job_record:
