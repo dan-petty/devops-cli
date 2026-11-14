@@ -38,10 +38,10 @@ RUN case "$TARGETARCH" in \
     tar -xzf /tmp/asset -C /tmp/unpack "$member" && install -m 0755 "/tmp/unpack/$member" /out/bin/kustomize && \
     rm -rf /tmp/asset /tmp/unpack
 
-# helm 4.3.1
+# helm 4.3.2
 RUN case "$TARGETARCH" in \
-      amd64) url='https://get.helm.sh/helm-v4.3.1-linux-amd64.tar.gz'; sha='0403a88ae20913d11b10a2467b50087721fea7581736da6b9d3992f5357fe54b'; member='linux-amd64/helm' ;; \
-      arm64) url='https://get.helm.sh/helm-v4.3.1-linux-arm64.tar.gz'; sha='8cf8f66ecbc252ac8f7f06cca68aba88508ddfde3a6a34feb1678ad1694b4f88'; member='linux-arm64/helm' ;; \
+      amd64) url='https://get.helm.sh/helm-v4.3.2-linux-amd64.tar.gz'; sha='d1c0278d46beab79582d7e50f5b3dc206944ba8e577cde618513fd07daa53983'; member='linux-amd64/helm' ;; \
+      arm64) url='https://get.helm.sh/helm-v4.3.2-linux-arm64.tar.gz'; sha='df31cb61680ef728f82c770e5280dd565617bee6b039d37e85c677288be4bbb0'; member='linux-arm64/helm' ;; \
     esac && \
     mkdir -p /tmp/unpack && \
     curl -fsSL --retry 3 -o /tmp/asset "$url" && \
