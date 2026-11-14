@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 
 from devops_cli.ai.spend.models import ModelPricing
 from devops_cli.config.constants import (
+    CONST_AI_GATEWAY_LOCAL_GROUPS,
     CONST_AI_GATEWAY_PROVIDER,
     CONST_AI_GATEWAY_VIRTUAL_MODELS,
     CONST_GENAI_PRICES_LITELLM_PROVIDER,
@@ -211,9 +212,12 @@ def _is_local_provider(provider: str | None) -> bool:
 
 
 def _is_local_tier(name: str) -> bool:
-    """Whether `name` is a local gateway group or an `ollama:` model, the local tiers that
-    `roadmap.implement.ladder` accepts."""
-    return name in CONST_AI_GATEWAY_VIRTUAL_MODELS or name.startswith("ollama:")
+    """Whether `name` is a local gateway group or an Ollama model, the local tiers that
+    `roadmap.implement.ladder` accepts and the groups that a local deployment answers (#4886)."""
+    return name in (
+        *CONST_AI_GATEWAY_VIRTUAL_MODELS,
+        *CONST_AI_GATEWAY_LOCAL_GROUPS,
+    ) or name.startswith(("ollama:", "ollama/", "ollama_chat/"))
 
 
 class _SettingsOnce:

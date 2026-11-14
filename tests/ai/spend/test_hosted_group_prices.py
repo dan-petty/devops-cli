@@ -250,3 +250,36 @@ def test_a_setting_for_a_hosted_group_wins_over_the_built_in_price(tmp_path: Pat
     )
 
     assert (cost.cost_usd, cost.pricing_source) == (1.0, "settings:ai.price_overrides")
+
+
+def test_every_local_group_of_the_gateway_config_is_local() -> None:
+    """A group that a local deployment answers counts as local, with the source `local` and no
+    unpriced warning (#4886)."""
+    from devops_cli.ai.spend.pricing import is_local
+    from devops_cli.config.constants import CONST_AI_GATEWAY_LOCAL_GROUPS
+
+    local_groups = {
+        entry["model_name"]
+        for entry in yaml.safe_load(_GATEWAY_CONFIG.read_text(encoding="utf-8"))["model_list"]
+        if str(entry.get("litellm_params", {}).get("model", "")).startswith(
+            ("ollama/", "ollama_chat/")
+        )
+    }
+
+    assert set(CONST_AI_GATEWAY_LOCAL_GROUPS) == local_groups
+    assert all(
+        is_local(
+            server="llm-gateway.llm.svc.cluster.local:4000", provider="gateway", served_model=name
+        )
+        for name in local_groups
+    )
+    assert is_local(
+        server="llm-gateway.llm.svc.cluster.local:4000",
+        provider="gateway",
+        served_model="ollama_chat/qwen3.8:27b",
+    )
+    assert not is_local(
+        server="llm-gateway.llm.svc.cluster.local:4000",
+        provider="gateway",
+        served_model="claude-sonnet-5-5",
+    )
