@@ -228,7 +228,7 @@ from devops_cli.roadmap.refine.refine_investigation import (
     investigate,
 )
 from devops_cli.roadmap.service_stop import raise_if_service_stops
-from devops_cli.roadmap.status_sync import StatusFacts, write_status
+from devops_cli.roadmap.status_sync import StatusFacts, owns_status, write_status
 from devops_cli.roadmap.stores.store import (
     AlternativesRecordKey,
     ChangeKind,
@@ -343,9 +343,10 @@ class NextStep(StrEnum):
 
     `READY`: refine set it to Ready. `PERSON`: a person answers the questions refine asked in a
     comment. `SPLIT`: a person splits it as refine proposed in a comment. `BLOCKED`: the open
-    items it depends on close. A reply after refine's last comment, a body edit, or a commit on
-    the default branch after that comment that changes a path the block cites (#2005) ends each
-    of these waits, and a closed blocker ends `BLOCKED`. `EDIT`: refine cannot write a design
+    items it depends on close. `ALTERNATIVES`: the alternatives row records a verdict, which a
+    proposal that is ready waits on (#2951). A reply after refine's last comment, a body edit, or
+    a commit on the default branch after that comment that changes a path the block cites (#2005)
+    ends each of these waits, and a closed blocker ends `BLOCKED`. `EDIT`: refine cannot write a design
     for the body, and only a body edit ends the wait. `RETRY`: the job failed (the proposal failed
     a form check, a question that is no person's stayed open, or the review of a bot item refused
     the proposal, #4798) and a later round tries again.
@@ -358,6 +359,7 @@ class NextStep(StrEnum):
     PERSON = "person"
     SPLIT = "split"
     BLOCKED = "blocked"
+    ALTERNATIVES = "alternatives"
     EDIT = "edit"
     RETRY = "retry"
     FAILED = "failed"
@@ -1390,6 +1392,12 @@ def check_ready(
     return _suspected_block(proposal) is None
 
 
+def alternatives_gate(check: RecordedCheck | None, *, on: bool) -> bool:
+    """Whether the alternatives check lets refine set an item Ready (#2951): a recorded check, or
+    a repository that the check is off for."""
+    return check is not None or not on
+
+
 def _is_open(store: RoadmapStore, number: int) -> bool:
     """Whether issue `number` is an open Item."""
     found = store.item(number)
@@ -1408,11 +1416,16 @@ def next_step_of(
     blockers: tuple[int, ...],
     *,
     is_ready: bool,
+    waiting_for_alternatives: bool = False,
 ) -> tuple[NextStep, tuple[str, ...], tuple[int, ...]]:
     """The next step a validated proposal gives its item, with its details and the open items
-    that block it, which are `blockers` (#1758): the open questions go to a person first, then
-    the split, then the open dependencies, then a suspected block, and last a proposal that fails
-    a form check, which is a job failure that a later round tries again (#3632)."""
+    that block it, which are `blockers` (#1758): an item whose proposal is ready waits on the
+    alternatives check when it holds no verdict (#2951), else the open questions go to a person
+    first, then the split, then the open dependencies, then a suspected block, and last a
+    proposal that fails a form check, which is a job failure that a later round tries again
+    (#3632)."""
+    if waiting_for_alternatives:
+        return NextStep.ALTERNATIVES, (), ()
     if is_ready:
         return NextStep.READY, (), ()
     if open_questions:
@@ -1451,7 +1464,7 @@ def step_comment(
     comment = texts.refine_step_comment.format(
         marker=marker,
         status=texts.refine_back_to_new.format(sha=short)
-        if item.status == CONST_ROADMAP_STATUS_READY
+        if item.status == CONST_ROADMAP_STATUS_READY and owns_status(item)
         else "",
         step=template.format(sha=short, count=len(details) or 2),
         details=listed,
@@ -2130,6 +2143,12 @@ def _still_waiting(
             if not blockers:
                 return None
             details = tuple(f"#{number}" for number in blockers)
+        case NextStep.ALTERNATIVES:
+            # A recorded verdict ends the wait (#2951): the check writes its block and its record,
+            # and the next round sets the item Ready.
+            return (
+                None if recorded_check(item, item.body) is not None else _settled_wait(item, step)
+            )
         case NextStep.READY:
             # A New item refine set Ready: the stage job or a person returned it.
             comments = comments_on(item.number)
@@ -2137,7 +2156,21 @@ def _still_waiting(
             if returned is None:
                 return None
             step, details = NextStep.PERSON, (returned,)
-    state = _wait_state(item, comments, comments_on)
+    return _wait_still_on(
+        item, step, details, names_cause, _wait_state(item, comments, comments_on), store
+    )
+
+
+def _wait_still_on(
+    item: Item,
+    step: NextStep,
+    details: tuple[str, ...],
+    names_cause: bool,
+    state: tuple[datetime, str, JobRecord | None] | None,
+    store: RoadmapStore,
+) -> WaitingItem | None:
+    """The wait of an item that nothing changed for, from the state of its wait, or None when a
+    cited path changed or the person's reply named by the wait ends it."""
     if state is None:
         return None
     commented_at, refs, marks = state
@@ -2636,7 +2669,12 @@ def refine_one_item(
     if failure is not None:
         return _failed_round(item, proposal, open_questions, current_body, failure)
     blockers = _open_dependencies(store, proposal)
-    is_ready = check_ready(proposal, open_questions, blockers)
+    proposal_ready = check_ready(proposal, open_questions, blockers)
+    # Refine gates Ready on the alternatives check's verdict (#2951): an item with no check stays
+    # New and waits for the row, unless the check is off for the repository.
+    gate = alternatives_gate(check, on=web.on)
+    is_ready = proposal_ready and gate
+    waiting_for_alternatives = proposal_ready and not gate
     judge: JudgeVerdict | None = None
     findings: tuple[str, ...] = ()
     if is_ready and is_bot_filed(item):
@@ -2654,7 +2692,11 @@ def refine_one_item(
         is_ready = judge is JudgeVerdict.APPROVED
     needs_split = not proposal.fits_one_pr
     step, model_details, blocked_by = next_step_of(
-        proposal, open_questions, blockers, is_ready=is_ready
+        proposal,
+        open_questions,
+        blockers,
+        is_ready=is_ready,
+        waiting_for_alternatives=waiting_for_alternatives,
     )
     refusal: JobFailure | None = None
     tries = 0
@@ -3300,12 +3342,13 @@ def _apply_refined(store: RoadmapStore, r: RefinedItem, *, repo: str) -> RefineA
 
     marks = _refine_marks(r, deferred)
 
-    # Status change & marks: a Ready item refine finds not ready goes back to New (#1515)
+    # Status change & marks: a Ready item refine finds not ready goes back to New (#1515), unless
+    # a person set the label (#2951, ADR 0016).
     readied = 0
     if r.is_ready:
         write_status(store, r.item, StatusFacts(), marks=marks, body=r.new_body)
         readied = 1
-    elif r.item.status == CONST_ROADMAP_STATUS_READY:
+    elif r.item.status == CONST_ROADMAP_STATUS_READY and owns_status(r.item):
         write_status(store, r.item, StatusFacts(needs_refine=True), marks=marks, body=r.new_body)
     else:
         store.set_marks(r.item, marks, body=r.new_body)

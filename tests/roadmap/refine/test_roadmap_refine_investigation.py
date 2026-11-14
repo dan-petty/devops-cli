@@ -85,6 +85,7 @@ from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.length_stop import length_stopped_model
+from tests.support.roadmap_refine import record_alternatives_check
 from tests.support.scripted_model import Script, call
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -710,6 +711,7 @@ def test_a_round_on_a_public_repository_with_a_key_settles_a_fact_from_the_web(
         monkeypatch.delenv(name, raising=False)
     config(search={"providers": ["firecrawl"]}, firecrawl={"api_key": "fc-test"})
     store.seed_visibility(is_private=False)
+    record_alternatives_check(store, 1, "none")
     url = "https://example.com/gitleaks"
     result = {"title": "Gitleaks", "url": url, "description": "Scans a directory."}
     web.content(_FIRECRAWL_URL, json.dumps({"success": True, "data": {"web": [result]}}).encode())

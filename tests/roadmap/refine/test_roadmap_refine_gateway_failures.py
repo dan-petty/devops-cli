@@ -306,6 +306,7 @@ def test_the_refine_job_reports_whether_it_set_an_item_ready(
 ) -> None:
     """The outcome of the refine job says whether the round set an item Ready, which makes the
     stage row due in that round (#2659)."""
+    store.seed_visibility(is_private=True)
     seed_item(store, "New", "P1-High")
     model_fake.answer(READY)
     readied = run_refine_adapter(store, repo=REPO, clone_path=git_repo)
