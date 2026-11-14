@@ -17,6 +17,7 @@ from devops_cli.roadmap.stores.store import (
     GitHubState,
     ImplementRecordKey,
     ItemField,
+    OwnerQuestionRecordKey,
     RefineRecordKey,
     StageRecordKey,
     encode_job_record,
@@ -612,3 +613,43 @@ def test_the_class_filter_keeps_one_kind(store: InMemoryRoadmapStore) -> None:
     assert f"  #{split} " in rendered
     assert "New items that wait on a person in refine" not in rendered
     assert "Counts by class: refine 1, split 1." in rendered
+
+
+# ── The open owner question (#3077) ──────────────────────────────────────────────────────
+
+
+def test_an_open_owner_question_has_one_line_with_the_question_and_the_command(
+    store: InMemoryRoadmapStore,
+) -> None:
+    asked = _item(
+        store,
+        "asks",
+        marks={
+            OwnerQuestionRecordKey.HASH: "a" * 64,
+            OwnerQuestionRecordKey.TEXT: "Split the group or raise the budget of the step?",
+        },
+        updated_at=_ago(days=3),
+    )
+    _item(
+        store,
+        "answered",
+        marks={
+            OwnerQuestionRecordKey.HASH: "b" * 64,
+            OwnerQuestionRecordKey.TEXT: "Amend the plan or split the item?",
+            OwnerQuestionRecordKey.ANSWER: "Split the item.",
+        },
+        updated_at=_ago(days=1),
+    )
+
+    inbox = _read(store)
+    lines = _lines(inbox, InboxKind.OWNER)
+
+    assert [(line.number, line.age) for line in lines] == [(asked, timedelta(days=3))]
+    assert lines[0].subject == (
+        "asks: the owner question waits: Split the group or raise the budget of the step?"
+    )
+    assert lines[0].clear == (
+        f'Answer it in a comment on #{asked}: `gh issue comment {asked} --body "<answer>"`'
+    )
+    assert inbox.people == tuple(lines)
+    assert "Open owner questions" in render_inbox(inbox, repo=REPO)

@@ -25,7 +25,7 @@ The lines come in this order of classes:
 11. Workflow labels of the package and labels of `.github/labels.yml` that the repository lacks or holds with another color or description, class `labels`.
 12. The state of the Planned queue, when the count of Planned items is at `roadmap.stage.planned_limit`, class `queue`. The stage job then plans only items with the priority `P0-Critical` or `P1-High`. The line has no number and no age.
 
-A second list holds the other open pull requests, those of people and agents, class `person`. It marks the drafts.
+A second list holds open owner questions (class `owner`). Each line lists the item number, age, question, and the clear command `gh issue comment <number> --body "<answer>"`. It also holds the other open pull requests of people and agents, class `person`. It marks the drafts.
 
 The inbox leaves out an image digest that is not rolled yet. To read it, run `devops argo cd apps status devops`.
 

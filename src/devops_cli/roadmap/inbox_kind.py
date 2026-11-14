@@ -24,3 +24,4 @@ class InboxKind(StrEnum):
     LABELS = "labels"
     QUEUE = "queue"
     PERSON = "person"
+    OWNER = "owner"

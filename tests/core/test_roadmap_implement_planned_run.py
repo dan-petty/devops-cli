@@ -156,7 +156,7 @@ def test_a_stop_before_the_first_commit_pushes_nothing_and_opens_no_pull_request
     assert _on_origin(planned_world) == ["main"]
     assert planned_world.sent("POST", "pulls") == []
     assert record.get("implement.pr") is None
-    assert "Stopped at group 1." in planned_world.issue_comments()[0]
+    assert "Stopped at group 1." in planned_world.issue_comments()[-1]
 
 
 def test_a_stop_after_a_commit_pushes_the_branch_and_opens_a_draft_that_closes_its_issue(
