@@ -290,9 +290,9 @@ def plan_body_problems(body: str, issue: int) -> list[str]:
     """What breaks the form of the body of a plan pull request for `issue` (#3314), one text for
     each problem, and none when the body is right.
 
-    A plan delivers nothing, so its body has the line `Plans #<issue>` where a delivery has
-    `Closes`, and it closes no issue. The rest is the form of a delivery: the text, the `Change:`
-    line with the active folder of the same issue, and the length and trailer bounds.
+    A plan delivers nothing, so its body has the text, then the line `Plans #<issue>` where a
+    delivery has `Closes`, and it closes no issue. The rest is the form of a delivery: the
+    `Change:` line with the active folder of the same issue, and the length and trailer bounds.
     """
     texts = MESSAGES.pr
     lines = body.strip().splitlines()
@@ -312,7 +312,9 @@ def plan_body_problems(body: str, issue: int) -> list[str]:
             problems.append(texts.form_plan_order)
         else:
             problems += _text_problems(
-                "\n".join(lines[plans_at + 1 : change_at]), "\n".join(lines[: change_at + 1])
+                "\n".join(lines[:plans_at]),
+                "\n".join(lines[: change_at + 1]),
+                short_message=texts.form_plan_body_short,
             )
             problems += _trailer_problems("\n".join(lines[change_at + 1 :]))
     if _TEMPLATE_COMMENT in body:
@@ -322,9 +324,9 @@ def plan_body_problems(body: str, issue: int) -> list[str]:
     return problems
 
 
-def _text_problems(text: str, measured: str) -> list[str]:
-    """The problems of the text above `Closes`, and of the length of `measured`: the body up to
-    the `Change:` line."""
+def _text_problems(text: str, measured: str, *, short_message: str | None = None) -> list[str]:
+    """The problems of the text above `Closes` or `Plans`, and of the length of `measured`: the
+    body up to the `Change:` line. `short_message` names the line that the text goes above."""
     texts = MESSAGES.pr
     problems = []
     if _ATTRIBUTION.search(text):
@@ -333,7 +335,9 @@ def _text_problems(text: str, measured: str) -> list[str]:
         problems.append(texts.form_placeholder.format(part="body", text=text.strip()))
     elif len(text.strip()) < _BODY_TEXT_MIN_CHARS:
         problems.append(
-            texts.form_body_short.format(length=len(text.strip()), minimum=_BODY_TEXT_MIN_CHARS)
+            (short_message or texts.form_body_short).format(
+                length=len(text.strip()), minimum=_BODY_TEXT_MIN_CHARS
+            )
         )
     if len(measured) > BODY_MAX_CHARS:
         problems.append(texts.form_body_long.format(length=len(measured), limit=BODY_MAX_CHARS))
@@ -390,12 +394,12 @@ def build_body(*, why: str, issue: int, change: str, attribution: Sequence[str] 
 
 
 def build_plan_body(*, why: str, issue: int, change: str) -> str:
-    """The body of the pull request that plans `issue`: the line `Plans #<issue>`, `why`, and the
+    """The body of the pull request that plans `issue`: `why`, the line `Plans #<issue>`, and the
     line `Change:` with the folder `change` (a path under `openspec/changes/`, with no slash at its
     end). A plan closes no issue and has no attribution lines.
 
     Nothing is cut. A body that breaks a rule of `plan_body_problems` raises `ValidationError` that
     names every problem, and the caller writes a better `why`."""
-    body = f"Plans #{issue}\n\n{why.strip()}\n\nChange: `{change}/`"
+    body = f"{why.strip()}\n\nPlans #{issue}\n\nChange: `{change}/`"
     _refuse(plan_body_problems(body, issue), "body")
     return body

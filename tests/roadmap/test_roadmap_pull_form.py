@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from pydantic import BaseModel
 from pydantic import ValidationError as ModelValidationError
@@ -404,7 +406,7 @@ PLAN_CHANGE = "openspec/changes/3215-pull-form-in-jobs"
 def test_the_plan_body_is_plans_the_text_and_change() -> None:
     body = build_plan_body(why=WHY, issue=3215, change=PLAN_CHANGE)
 
-    assert body == f"Plans #3215\n\n{WHY}\n\nChange: `{PLAN_CHANGE}/`"
+    assert body == f"{WHY}\n\nPlans #3215\n\nChange: `{PLAN_CHANGE}/`"
     assert plan_body_problems(body, 3215) == []
 
 
@@ -432,3 +434,28 @@ def test_a_plan_text_that_closes_an_issue_is_refused() -> None:
 def test_a_plan_text_over_the_limit_is_refused_and_not_cut() -> None:
     with pytest.raises(ValidationError, match="Shorten the text above `Closes`"):
         build_plan_body(why="A reason that is long. " * 50, issue=3215, change=PLAN_CHANGE)
+
+
+def test_a_short_plan_text_names_plans_and_where_the_text_goes() -> None:
+    body = f"Short.\n\nPlans #3215\n\nChange: `{PLAN_CHANGE}/`"
+
+    (problem,) = plan_body_problems(body, 3215)
+
+    assert ("Plans" in problem, "above" in problem, "20" in problem) == (True, True, True)
+
+
+def test_a_short_delivery_text_names_closes_and_not_plans() -> None:
+    problems = body_problems(f"Short.\n\nCloses #1\n\nChange: `{CHANGE}/`")
+    (problem,) = [text for text in problems if "characters" in text]
+
+    assert ("Closes" in problem, "Plans" not in problem) == (True, True)
+
+
+def test_the_document_and_the_docstring_state_the_plan_order() -> None:
+    contributing = Path("CONTRIBUTING.md").read_text(encoding="utf-8")
+    documented = plan_body_problems.__doc__ or ""
+
+    assert (
+        "it has the text, then the line `Plans #<issue>`" in contributing,
+        "the text, then the line `Plans #<issue>`" in documented,
+    ) == (True, True)

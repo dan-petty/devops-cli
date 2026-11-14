@@ -1640,6 +1640,10 @@ class PRMessages:
         "The text above `Closes` has {length} characters. Write at least {minimum}: what the "
         "change does, and why."
     )
+    form_plan_body_short: str = (
+        "The text above `Plans` has {length} characters. Write at least {minimum}: what the "
+        "change does, and why."
+    )
     form_body_long: str = (
         "The body has {length} characters before its trailers. The limit is {limit}. Shorten the "
         "text above `Closes`."

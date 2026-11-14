@@ -145,7 +145,10 @@ def test_a_ready_bug_is_staged_with_one_commit_by_the_app(
     assert request["draft"] is True
     assert request["title"] == "docs(openspec): plan #1 Stop the job dropping a comment"
     assert (request["head"], request["base"]) == (BRANCH, "main")
-    assert request["body"].startswith("Plans #1\n")
+    assert (
+        request["body"].startswith("The job keeps every comment it reads."),
+        "\n\nPlans #1\n" in request["body"],
+    ) == (True, True)
 
 
 def test_the_draft_pull_request_holds_the_labels_of_its_title(
