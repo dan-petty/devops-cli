@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.144.1](https://github.com/dan-petty/devops-cli/compare/v0.144.0...v0.144.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* **roadmap:** check item label before implement row reports job ([#5752](https://github.com/dan-petty/devops-cli/issues/5752)) ([f535646](https://github.com/dan-petty/devops-cli/commit/f535646d705b2039854b999ea97de52d7abea8c4))
+
 ## [0.144.0](https://github.com/dan-petty/devops-cli/compare/v0.143.0...v0.144.0) (2026-11-14)
 
 
