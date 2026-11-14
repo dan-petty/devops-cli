@@ -283,6 +283,19 @@ ROADMAP_COMMENT_REPEATS_REFUSED_TOTAL = Instrument(
     "and is less than 7 days old. The label row names the job: retitle, refine, alternatives, "
     "intake, stage or implement, so the counter has at most 6 series",
 )
+ROADMAP_RECORD_REPAIRS_TOTAL = Instrument(
+    "devops_cli_roadmap_record_repairs_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Repairs of lost job record marks in the GitHub store after a parallel write, by method and mark. "
+    "A repair reads the issue again, merges the missing mark, and writes again",
+)
+ROADMAP_RECORD_LOST_EDIT_TOTAL = Instrument(
+    "devops_cli_roadmap_record_lost_edit_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Edits of a person to the text outside an issue's job record block that the store restored after an update",
+)
 ROADMAP_ALTERNATIVES_TOTAL = Instrument(
     "devops_cli_roadmap_alternatives_total",
     InstrumentKind.COUNTER,
@@ -840,6 +853,8 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     CRAWL4AI_FETCHES_TOTAL,
     ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL,
     ROADMAP_COMMENT_REPEATS_REFUSED_TOTAL,
+    ROADMAP_RECORD_REPAIRS_TOTAL,
+    ROADMAP_RECORD_LOST_EDIT_TOTAL,
     ROADMAP_ALTERNATIVES_TOTAL,
     ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS,
     ROADMAP_ALTERNATIVES_OLDEST_CHECK_AGE,
@@ -1017,6 +1032,8 @@ __all__ = [
     "ROADMAP_JEV_COMPLETENESS_TOTAL",
     "ROADMAP_OLDEST_ITEM",
     "ROADMAP_PAGE_FETCHES_TOTAL",
+    "ROADMAP_RECORD_LOST_EDIT_TOTAL",
+    "ROADMAP_RECORD_REPAIRS_TOTAL",
     "ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL",
     "ROADMAP_ROW_INTERVAL_SECONDS",
     "ROADMAP_ROW_QUEUE_ITEMS",

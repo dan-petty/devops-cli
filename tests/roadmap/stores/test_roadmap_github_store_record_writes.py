@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import subprocess
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 import pytest
@@ -15,7 +15,10 @@ import pytest
 from devops_cli.exceptions.git import (
     GitHubOperationError,
 )
-from devops_cli.exceptions.roadmap import RoadmapItemChangedError
+from devops_cli.exceptions.roadmap import (
+    RoadmapItemChangedError,
+    RoadmapRecordMarkLostError,
+)
 from devops_cli.roadmap.stores.github_store import (
     GitHubRoadmapStore,
     issue_edit_args,
@@ -26,12 +29,17 @@ from devops_cli.roadmap.stores.store import (
     ItemField,
     RefineRecordKey,
 )
+from devops_cli.telemetry.instruments import (
+    ROADMAP_RECORD_LOST_EDIT_TOTAL,
+    ROADMAP_RECORD_REPAIRS_TOTAL,
+)
 from tests.support.builders import make_item
 from tests.support.fakes.github import (
     API,
     RunnerSession,
 )
 from tests.support.fakes.github_repository import GitHubFake
+from tests.support.fakes.otlp import FakeCollector
 from tests.support.roadmap_github_store import (
     OPEN_ISSUES,
     REPO,
@@ -59,11 +67,15 @@ def test_a_field_write_reads_the_issue_then_patches_its_labels_and_body_in_one_r
     block = f'{RECORD} {{"Status": "Ready"}} -->'
     assert (
         github.calls[sent:],
-        json.loads(github.stdins[-1] or "{}"),
+        json.loads(github.stdins[-2] or "{}"),
         github.labels(7),
         github.body(7),
     ) == (
-        [["api", f"repos/{REPO}/issues/7"], issue_edit_args(REPO, 7)],
+        [
+            ["api", f"repos/{REPO}/issues/7"],
+            issue_edit_args(REPO, 7),
+            ["api", f"repos/{REPO}/issues/7"],
+        ],
         {"labels": ["type/bug", "priority/p2-medium", "status/ready"], "body": f"Text\n\n{block}"},
         ["type/bug", "priority/p2-medium", "status/ready"],
         f"Text\n\n{block}",
@@ -94,7 +106,7 @@ def test_set_marks_merges_the_marks_into_the_record_the_issue_holds_in_one_write
         read(store, 7), {RefineRecordKey.SECTION_HASH: "s1", RefineRecordKey.BODY_HASH: None}
     )
     assert (
-        json.loads(github.stdins[-1] or "{}"),
+        json.loads(github.stdins[-2] or "{}"),
         [args for args in github.writes()],
     ) == (
         {
@@ -349,3 +361,93 @@ def test_no_store_operation_sends_a_projects_request() -> None:
     store.comment(8, "Placed.")
     store.closures(8)
     assert (github.project_calls(), len(github.calls) > 10) == ([], True)
+
+
+def test_two_stores_without_shared_lock_interleave_writes_and_repair_lost_marks(
+    monkeypatch: pytest.MonkeyPatch, otlp: FakeCollector
+) -> None:
+    """When two stores (representing different processes or pods) interleave their reads and
+    writes without a shared lock, the writer whose marks were overwritten reads the issue back,
+    detects the lost mark, and repairs it (#4555)."""
+    github, store_b = seeded(i7=("priority/p2-medium",))
+    store_a = fake_store(github)
+
+    class _NoOpLock:
+        def __enter__(self) -> None:
+            pass
+
+        def __exit__(self, *args: Any) -> None:
+            pass
+
+    monkeypatch.setattr("devops_cli.roadmap.stores.github_store._JOB_RECORD_LOCK", _NoOpLock())
+
+    item_a = read(store_a, 7)
+    item_b = read(store_b, 7)
+
+    issue_b = store_b._require_issue(item_b.number, "roadmap.item.set_marks")
+
+    original_run = store_a._run
+    a_patches = 0
+
+    def store_a_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        nonlocal a_patches
+        if "-X" in args and "PATCH" in args:
+            a_patches += 1
+            res = original_run(args, **kwargs)
+            if a_patches == 1:
+                store_b._edit_issue(issue_b, changes={ImplementRecordKey.JOB: "job-1"}, item=item_b)
+            return res
+        return original_run(args, **kwargs)
+
+    monkeypatch.setattr(store_a, "_run", store_a_run)
+
+    store_a.set_marks(item_a, {RefineRecordKey.BODY_HASH: "b1"})
+
+    final_record = read(store_a, 7).job_record
+    assert (
+        final_record.get(RefineRecordKey.BODY_HASH),
+        final_record.get(ImplementRecordKey.JOB),
+        a_patches >= 2,
+    ) == ("b1", "job-1", True)
+    assert otlp.points(ROADMAP_RECORD_REPAIRS_TOTAL.name) == [
+        ({"method": "set_marks", "mark": "refine.body_hash"}, 1.0)
+    ]
+
+
+def test_a_third_consecutive_miss_raises_roadmap_record_mark_lost_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If a mark remains missing after two rewrites (three PATCH attempts total), the store
+    raises RoadmapRecordMarkLostError naming the item and the missing mark (#4555)."""
+    github, store = seeded(i7=("priority/p2-medium",))
+    item = read(store, 7)
+
+    original_edit = github._edit
+
+    def failing_edit(issue: dict[str, Any], fields: Mapping[str, Any]) -> None:
+        original_edit(issue, fields)
+        if "body" in issue:
+            issue["body"] = f'Text\n\n{RECORD} {{"Status": "Ready"}} -->'
+
+    monkeypatch.setattr(github, "_edit", failing_edit)
+
+    with pytest.raises(RoadmapRecordMarkLostError, match=r"lost record mark 'refine\.body_hash'"):
+        store.set_marks(item, {RefineRecordKey.BODY_HASH: "b1"})
+
+
+def test_a_person_edit_to_the_body_text_outside_the_record_block_is_restored_and_counted(
+    otlp: FakeCollector,
+) -> None:
+    """When a person edits the text outside the record block between the read and the write,
+    the store restores the person's text and counts it (#4555)."""
+    github, store = seeded(i7=("priority/p2-medium",))
+    item = read(store, 7)
+
+    github.issues[7]["body"] = f'Person edited description\n\n{RECORD} {{"Status": "Ready"}} -->'
+
+    store.set_marks(item, {ImplementRecordKey.JOB: "job-1"})
+
+    after_body = github.body(7)
+    assert after_body.startswith("Person edited description")
+    assert "job-1" in after_body
+    assert otlp.points(ROADMAP_RECORD_LOST_EDIT_TOTAL.name) == [({}, 1.0)]

@@ -31,6 +31,7 @@ issue's closes and reopens and the repository's visibility; no request reaches a
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 import threading
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
@@ -54,6 +55,9 @@ from devops_cli.exceptions.git import (
     GitHubOperationError,
     GitHubUnreadError,
 )
+from devops_cli.exceptions.roadmap import (
+    RoadmapRecordMarkLostError,
+)
 from devops_cli.github.check_verdict import read_check_runs
 from devops_cli.github.error_classifier import classify_gh_failure, gh_http_status
 from devops_cli.github.rate_limiter import run_gh
@@ -70,6 +74,7 @@ from devops_cli.roadmap.stores.store import (
     Evidence,
     EvidenceKind,
     GitHubState,
+    ImplementRecordKey,
     IssueComment,
     IssueRecord,
     Item,
@@ -96,6 +101,13 @@ from devops_cli.roadmap.stores.store import (
     split_record,
     with_record,
 )
+from devops_cli.telemetry.instruments import (
+    ROADMAP_RECORD_LOST_EDIT_TOTAL,
+    ROADMAP_RECORD_REPAIRS_TOTAL,
+    emit,
+)
+
+logger = logging.getLogger(__name__)
 
 _JOB_RECORD_LOCK = threading.Lock()
 """Held from the read of an issue to the write of its job record, across every store in the
@@ -879,7 +891,12 @@ class GitHubRoadmapStore(RoadmapStore):
             require_unchanged(f"#{item.number}", field, read, now, value, operation)
             labels = relabeled(issue.label_names, field, value)
             self._edit_issue(
-                issue, labels=labels, changes={field: value, **(marks or {})}, text=body
+                issue,
+                labels=labels,
+                changes={field: value, **(marks or {})},
+                text=body,
+                method="set_field",
+                item=item,
             )
             self._written[(item.number, field)] = value
 
@@ -901,7 +918,13 @@ class GitHubRoadmapStore(RoadmapStore):
                 now = item_of(issue.record()).field_value(unchanged)
                 read = self._written.get((item.number, unchanged), item.field_value(unchanged))
                 require_unchanged(f"#{item.number}", unchanged, read, now, read, operation)
-            self._edit_issue(issue, changes=marks, text=body)
+            self._edit_issue(
+                issue,
+                changes=marks,
+                text=body,
+                method="set_marks",
+                item=item,
+            )
 
     # ── Issues ──
 
@@ -962,9 +985,7 @@ class GitHubRoadmapStore(RoadmapStore):
         if it is not an issue of this repository."""
         with _JOB_RECORD_LOCK:
             issue = self._require_issue(number, "roadmap.issue.write_body")
-            _, held = issue.split()
-            block = encode_job_record(held, {}) if held else None
-            self._send_edit(number, issue_edit(body=with_record(body, block)))
+            self._edit_issue(issue, changes={}, text=body, method="write_issue_body")
 
     def comments_on(self, number: int) -> list[IssueComment]:
         """Every comment on issue `number`, oldest first."""
@@ -1185,13 +1206,71 @@ class GitHubRoadmapStore(RoadmapStore):
         changes: Mapping[Any, str | int | None],
         labels: Sequence[str] | None = None,
         text: str | None = None,
+        method: str = "set_marks",
+        item: Item | None = None,
     ) -> None:
         """One `PATCH` of `issue`: `labels` when given, and its body with the record block it
-        holds, `changes` made."""
+        holds, `changes` made. A lost mark is verified by read-back and repaired up to 2 times."""
         body, held = issue.split()
-        body = body if text is None else text
-        block = encode_job_record(held, changes)
-        self._send_edit(issue.number, issue_edit(labels=labels, body=with_record(body, block)))
+        if item is not None and text is None and body != item.body:
+            emit(ROADMAP_RECORD_LOST_EDIT_TOTAL, 1)
+
+        normalized_changes = {
+            str(key): (
+                int(value)
+                if str(key) == ImplementRecordKey.REPAIR_ROUNDS.value
+                and value is not None
+                and str(value).isdigit()
+                else value
+            )
+            for key, value in changes.items()
+        }
+
+        attempt = 0
+        current_held = held
+        current_body = body if text is None else text
+        while True:
+            block = encode_job_record(current_held, changes) if current_held or changes else None
+            self._send_edit(
+                issue.number, issue_edit(labels=labels, body=with_record(current_body, block))
+            )
+            attempt += 1
+
+            if not normalized_changes:
+                break
+
+            read_back = self._require_issue(issue.number, f"roadmap.{method}.verify")
+            back_body, back_held = read_back.split()
+
+            if back_body != current_body:
+                emit(ROADMAP_RECORD_LOST_EDIT_TOTAL, 1)
+                current_body = back_body
+
+            missing_marks = [
+                key
+                for key, expected in normalized_changes.items()
+                if back_held.get(key) != expected
+            ]
+            if not missing_marks:
+                break
+
+            if attempt >= 3:
+                first_lost = missing_marks[0]
+                raise RoadmapRecordMarkLostError(
+                    f"Issue #{issue.number} lost record mark {first_lost!r} after 2 rewrites",
+                    operation=f"roadmap.{method}",
+                    details={"number": issue.number, "mark": first_lost, "repo": self._repo},
+                )
+
+            for lost_mark in missing_marks:
+                emit(ROADMAP_RECORD_REPAIRS_TOTAL, 1, {"method": method, "mark": lost_mark})
+                logger.warning(
+                    "Repaired lost job record mark %r on item #%d in %s",
+                    lost_mark,
+                    issue.number,
+                    method,
+                )
+            current_held = back_held
 
     def _send_edit(self, number: int, stdin: str) -> None:
         """Send one `PATCH` of issue `number`, keeping the issue GitHub returns."""

@@ -31,12 +31,16 @@ def test_set_marks_body_sends_one_patch_with_the_new_body_and_the_record_block()
     block = f'{RECORD} {{"refine.body_hash": "b1"}} -->'
     assert (
         github.calls[sent:],
-        json.loads(github.stdins[-1] or "{}"),
+        json.loads(github.stdins[-2] or "{}"),
         github.body(7),
         github.labels(7),
         read(store, 7).job_record,
     ) == (
-        [["api", f"repos/{REPO}/issues/7"], issue_edit_args(REPO, 7)],
+        [
+            ["api", f"repos/{REPO}/issues/7"],
+            issue_edit_args(REPO, 7),
+            ["api", f"repos/{REPO}/issues/7"],
+        ],
         {"body": f"New text\n\n{block}"},
         f"New text\n\n{block}",
         ["priority/p2-medium"],
@@ -74,12 +78,16 @@ def test_set_field_body_sends_one_patch_with_the_labels_the_body_and_the_record(
     assert (
         github.calls[sent:],
         len(patches),
-        sorted(json.loads(github.stdins[-1] or "{}")),
+        sorted(json.loads(github.stdins[-2] or "{}")),
         github.labels(7),
         store.read_issue_body(7),
         read(store, 7).job_record,
     ) == (
-        [["api", f"repos/{REPO}/issues/7"], issue_edit_args(REPO, 7)],
+        [
+            ["api", f"repos/{REPO}/issues/7"],
+            issue_edit_args(REPO, 7),
+            ["api", f"repos/{REPO}/issues/7"],
+        ],
         1,
         ["body", "labels"],
         ["type/bug", "priority/p2-medium", "status/ready"],

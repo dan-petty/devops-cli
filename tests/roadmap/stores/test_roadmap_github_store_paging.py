@@ -166,8 +166,8 @@ def test_every_read_and_write_passes_use_cache_false() -> None:
     store.changes_since(datetime(2026, 10, 1, tzinfo=UTC))
     store.set_field(item, ItemField.STATUS, "Ready")
     assert ([kwargs["use_cache"] for _, kwargs in runner.calls], len(runner.calls)) == (
-        [False] * 6,
-        6,
+        [False] * 7,
+        7,
     )
 
 
