@@ -706,7 +706,8 @@ def test_a_stop_writes_one_status_comment_to_the_pull_request(job_world: JobWorl
     (comment,) = job_world.sent("POST", f"issues/{PULL}/comments")
     assert "Stopped at group 2." in comment["body"]
     assert "Failure class:" in comment["body"]
-    assert len(job_world.issue_comments()) == 1
+    assert "Stopped at group 2." in _stop_comment(job_world)
+    assert len(job_world.issue_comments()) == 2
 
 
 def test_the_stop_comment_names_the_failure_class_the_action_taken_and_the_action_left(
