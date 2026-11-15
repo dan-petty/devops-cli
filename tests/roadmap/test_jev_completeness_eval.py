@@ -13,11 +13,10 @@ from typing import Any
 import pytest
 
 from devops_cli.ai.context_budget import count_tokens
-from devops_cli.ai.jev import create_jev_model
+from devops_cli.ai.jev import create_jev_model, max_diff_tokens
 from devops_cli.config.constants import (
     CONST_ROADMAP_JEV_EVAL_MIN_CASES,
     CONST_ROADMAP_JEV_EVAL_MIN_CASES_PER_LABEL,
-    CONST_ROADMAP_JEV_MAX_DIFF_TOKENS,
 )
 from devops_cli.config.settings import Settings
 from devops_cli.roadmap.jev_completeness import Completeness, CompletenessOutcome
@@ -174,7 +173,7 @@ def test_the_committed_set_is_large_labelled_and_fits_the_window() -> None:
     assert all(labels.count(label) >= CONST_ROADMAP_JEV_EVAL_MIN_CASES_PER_LABEL for label in Label)
     assert all(c.criteria and c.diff.strip() for c in cases)
     assert len({c.id for c in cases}) == len(cases)
-    assert all(count_tokens(c.diff) <= CONST_ROADMAP_JEV_MAX_DIFF_TOKENS for c in cases)
+    assert all(count_tokens(c.diff) <= max_diff_tokens() for c in cases)
 
 
 def test_a_removed_hunk_case_has_the_diff_of_its_complete_twin_less_one_hunk() -> None:

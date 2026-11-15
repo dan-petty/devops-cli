@@ -558,3 +558,12 @@ class TestJevEvalJudgeAndRagFilter:
             (1, pytest.approx(0.94)),
             (2, pytest.approx(0.72)),
         ]
+
+
+def test_the_context_window_comes_from_the_model_data() -> None:
+    """The window of Jev and the diff cap of the completeness check come from genai-prices
+    (#5209)."""
+    from devops_cli.ai.jev import context_window, max_diff_tokens
+
+    assert context_window() == 32_000
+    assert max_diff_tokens() == 8_000

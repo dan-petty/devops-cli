@@ -9,7 +9,7 @@ The check can only hold a draft. A criterion with a probability below
 `CONST_ROADMAP_JEV_CRITERION_THRESHOLD`, a test score below `CONST_ROADMAP_JEV_MIN_TEST_SCORE`, or
 an error of Jev holds the draft, and `completeness_note` lists the doubts for the note that the
 caller posts. A pass is no reason to mark a draft ready: the checks and a person still decide. A
-diff over `CONST_ROADMAP_JEV_MAX_DIFF_TOKENS`, an issue with no criterion or with more than
+diff over `max_diff_tokens()`, an issue with no criterion or with more than
 `CONST_ROADMAP_JEV_MAX_CRITERIA` criteria skips the check with a logged reason. The check counts
 its outcome in `devops_cli_roadmap_jev_completeness_total`.
 """
@@ -35,11 +35,10 @@ from pydantic_ai.models.decision import (
 )
 
 from devops_cli.ai.context_budget import count_tokens
-from devops_cli.ai.jev import create_jev_model, decide_with_jev
+from devops_cli.ai.jev import create_jev_model, decide_with_jev, max_diff_tokens
 from devops_cli.config.constants import (
     CONST_ROADMAP_JEV_CRITERION_THRESHOLD,
     CONST_ROADMAP_JEV_MAX_CRITERIA,
-    CONST_ROADMAP_JEV_MAX_DIFF_TOKENS,
     CONST_ROADMAP_JEV_MIN_TEST_SCORE,
 )
 from devops_cli.config.settings import Settings
@@ -161,12 +160,9 @@ def assess(
             )
         )
     tokens = count_tokens(diff)
-    if tokens > CONST_ROADMAP_JEV_MAX_DIFF_TOKENS:
-        return _skipped(
-            texts.jev_completeness_skip_diff.format(
-                tokens=tokens, limit=CONST_ROADMAP_JEV_MAX_DIFF_TOKENS
-            )
-        )
+    limit = max_diff_tokens()
+    if tokens > limit:
+        return _skipped(texts.jev_completeness_skip_diff.format(tokens=tokens, limit=limit))
     request = build_request(criteria, diff, subject)
     try:
         decision_model = model or create_jev_model(settings=settings)

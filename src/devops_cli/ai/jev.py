@@ -37,12 +37,35 @@ from pydantic_ai.models.decision import (
 
 from devops_cli.ai.pydantic_ai_bridge import build_auto_tool_model, resolve_pydantic_ai_model
 from devops_cli.config.constants import (
+    CONST_AI_JEV_CONTEXT_WINDOW,
     CONST_AI_JEV_DEFAULT_BOOLEAN_THRESHOLD,
     CONST_AI_JEV_DEFAULT_ROUTE_THRESHOLD,
     CONST_AI_JEV_HIGH_RISK_THRESHOLD,
     CONST_AI_JEV_MODEL,
 )
 from devops_cli.config.settings import Settings, load_settings
+
+
+def context_window(model_name: str = CONST_AI_JEV_MODEL) -> int:
+    """The context window that genai-prices gives for `model_name` (#5209).
+
+    The constant is the fallback for a model that the data does not name, so a change of the model
+    data changes the window and the diff cap of the completeness check with it.
+    """
+    from genai_prices.data_snapshot import get_snapshot
+
+    name = model_name.split("/", 1)[-1]
+    for provider in get_snapshot().providers:
+        for entry in provider.models:
+            if entry.id in (name, f"{name}.0") and entry.context_window:
+                return entry.context_window
+    return CONST_AI_JEV_CONTEXT_WINDOW
+
+
+def max_diff_tokens() -> int:
+    """The diff cap of the Jev completeness check: one fourth of the window (#4308, #5209)."""
+    return context_window() // 4
+
 
 DEFAULT_ROUTING_TIERS: Final[dict[str, str]] = {
     "devops-coder": "Fast local coder tier for routine edits, formatting, and single-file changes.",
