@@ -20,7 +20,7 @@ Kind: other. Reads: `tests/roadmap/stage/test_roadmap_stage_eval_cases.py`, `src
 
 Kind: other. Reads: `tests/roadmap/stage/test_roadmap_stage_eval_command.py`. Changes: `tests/roadmap/stage/test_roadmap_stage_eval_command.py`.
 
-- [ ] 3.1 In `tests/roadmap/stage/test_roadmap_stage_eval_command.py`, move the totals of `test_the_replay_exits_0_and_lists_what_each_gate_caught` from `59 case(s), 6 good` to `60 case(s), 6 good` and from `82 of 319` to `83 of 320`, and move `test_the_replay_as_json_holds_the_totals_of_each_gate` to `{"judged": 83, "known": 320}`. The new case records one defect of type `other` at the gate `paths`, which the replay catches, so every gate keeps 0 missed
+- [x] 3.1 In `tests/roadmap/stage/test_roadmap_stage_eval_command.py`, move the totals of `test_the_replay_exits_0_and_lists_what_each_gate_caught` from `59 case(s), 6 good` to `60 case(s), 6 good` and from `82 of 319` to `83 of 320`, and move `test_the_replay_as_json_holds_the_totals_of_each_gate` to `{"judged": 83, "known": 320}`. The new case records one defect of type `other` at the gate `paths`, which the replay catches, so every gate keeps 0 missed
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_eval_command.py` passes
 
 ## 4. Record the constants of a case with --record
