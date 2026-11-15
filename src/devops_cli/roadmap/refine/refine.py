@@ -131,7 +131,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from functools import cache, partial
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any, Final, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal, Self
 from urllib.parse import urlsplit
 
 from markdown_it import MarkdownIt
@@ -147,7 +147,7 @@ from devops_cli.ai.client.models import (
     ReplyRejectedError,
     StructuredOutputValidationError,
 )
-from devops_cli.ai.context_budget import truncate_to_token_limit
+from devops_cli.ai.context_budget import count_tokens, truncate_to_token_limit
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.ai.web_search import first_configured_provider
 from devops_cli.config.commands import BIN_GIT
@@ -163,6 +163,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_P3_PRIORITY,
     CONST_ROADMAP_REFINE_COMMENT_CAP_WINDOW_HOURS,
     CONST_ROADMAP_REFINE_COMMENT_MARKER,
+    CONST_ROADMAP_REFINE_CONTEXT_MAX_TOKENS,
     CONST_ROADMAP_REFINE_DEFINITIONS_PER_SYMBOL,
     CONST_ROADMAP_REFINE_END_MARKER,
     CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS,
@@ -477,6 +478,8 @@ class RefinedItem:
     tries: int = 0
     owner_question: OwnerQuestion | None = None
     owner_answer: OwnerAnswer | None = None
+    context_before: int = 0
+    context_after: int = 0
 
 
 @dataclass(frozen=True)
@@ -1005,12 +1008,25 @@ def _collect_repo_map(source: Path, sha: str, paths: Sequence[str]) -> list[str]
     return files[:50]
 
 
+class RefineContext(str):
+    """The text of the collected repository context and its token counts before and after the cap."""
+
+    before: int
+    after: int
+
+    def __new__(cls, text: str, before: int = 0, after: int = 0) -> Self:
+        instance = super().__new__(cls, text)
+        instance.before = before
+        instance.after = after
+        return instance
+
+
 def collect_context(
     source: Path,
     sha: str,
     body: str,
     max_tokens: int,
-) -> str:
+) -> RefineContext:
     """Collects docs, cited code, grep results, and repo map, capped to token budget."""
     sections: list[str] = []
 
@@ -1050,7 +1066,12 @@ def collect_context(
         sections.append("### Relevant Directory Tree\n" + "\n".join(repo_files))
 
     raw_text = "\n\n".join(sections)
-    return truncate_to_token_limit(raw_text, max_tokens=max_tokens)
+    if not raw_text:
+        return RefineContext("", 0, 0)
+    before = count_tokens(raw_text)
+    truncated = truncate_to_token_limit(raw_text, max_tokens=max_tokens)
+    after = count_tokens(truncated) if before > max_tokens else before
+    return RefineContext(truncated, before, after)
 
 
 # ── Web Search State ──────────────────────────────────────────────────────────
@@ -2987,7 +3008,7 @@ def refine_one_item(
     web: WebSearch | None = None,
     investigator: Any = None,
     verifier: Callable[[], StageClient],
-    max_context_tokens: int = 8192,
+    max_context_tokens: int = CONST_ROADMAP_REFINE_CONTEXT_MAX_TOKENS,
     intake_model: IntakeModel | None = None,
     frames: Mapping[str, Item] | None = None,
     actor: str | None = None,
@@ -3155,6 +3176,8 @@ def refine_one_item(
             step_details=(too_big,),
             skip_reason=too_big,
             record_only=True,
+            context_before=getattr(ctx, "before", 0),
+            context_after=getattr(ctx, "after", 0),
         )
 
     # One comment gives the next step; a Ready item refine finds not ready goes back to New (#1515).
@@ -3203,6 +3226,8 @@ def refine_one_item(
         tries=tries,
         owner_question=question,
         owner_answer=answer,
+        context_before=getattr(ctx, "before", 0),
+        context_after=getattr(ctx, "after", 0),
     )
 
 
@@ -3347,6 +3372,12 @@ def _replies_for_model(comments: Sequence[IssueComment]) -> list[str]:
 # ── Top-Level Entry Points ────────────────────────────────────────────────────
 
 
+# The model window is shared by the reply, the body of the item and the repository context. A cap
+# is the smaller of its fixed size and this share of the window: a larger window gives no larger
+# cap (#5464).
+_WINDOW_SHARE_CONTEXT: Final[int] = 2
+
+
 def plan_refine(
     store: RoadmapStore,
     *,
@@ -3391,7 +3422,8 @@ def plan_refine(
     settings = load_settings()
     ai_config = settings.ai
     client = model or get_llm_client(task="analysis", settings=settings)
-    max_tokens = ai_config.for_task("analysis").context_window or 8192
+    window = ai_config.for_task("analysis").context_window or 8192
+    max_tokens = min(CONST_ROADMAP_REFINE_CONTEXT_MAX_TOKENS, window // _WINDOW_SHARE_CONTEXT)
     web = web_search_of(store)
     verifier_of: Callable[[], StageClient] = (
         cache(partial(get_llm_client, task="verification", settings=settings))
@@ -3864,13 +3896,17 @@ def _log_attempt(
         if isinstance(result, RefinedItem) and result.tries > 0
         else ((int(prior) if prior.isdecimal() else 0) + 1)
     )
+    counts: dict[str, int] = {"tries": tries}
+    if isinstance(result, RefinedItem):
+        counts["context_before"] = result.context_before
+        counts["context_after"] = result.context_after
     log_job_result(
         RoadmapJob.REFINE,
         repo,
         result.item.number,
         outcome,
         failure=failure,
-        counts={"tries": tries},
+        counts=counts,
     )
 
 
@@ -4036,6 +4072,7 @@ __all__ = [
     "PlannedDeferral",
     "QuestionAnswer",
     "RefineApplied",
+    "RefineContext",
     "RefineFailure",
     "RefinePlan",
     "RefineWriter",

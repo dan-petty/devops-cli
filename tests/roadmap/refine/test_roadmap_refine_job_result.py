@@ -93,10 +93,19 @@ def test_a_round_logs_the_next_step_of_each_item_and_the_class_of_a_failed_model
             "infra": infra,
             "first_pass": first_pass,
             "tries": "1",
+            **extra,
         }
-        for number, result, success, failure, infra, first_pass in (
-            (first, "ready", "true", "none", "false", "true"),
-            (second, "error", "false", "provider", "true", "false"),
+        for number, result, success, failure, infra, first_pass, extra in (
+            (
+                first,
+                "ready",
+                "true",
+                "none",
+                "false",
+                "true",
+                {"context_before": "30", "context_after": "30"},
+            ),
+            (second, "error", "false", "provider", "true", "false", {}),
         )
     ]
 
