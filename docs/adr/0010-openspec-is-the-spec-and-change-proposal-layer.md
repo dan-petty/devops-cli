@@ -201,3 +201,4 @@ Two decisions the sequence depends on, confirmed by merging this ADR and reversi
 ## Status History
 
 - 2026-11-14: Fact out of date: the static job checks out the full history, because the roadmap-stage-eval-commits row reads it (#4449).
+2026-11-15: Fact out of date: the option `--sync-readme` is deleted, so the command is `devops docs generate` (#5244).
