@@ -38,9 +38,9 @@ Kind: behavior. Reads: `src/devops_cli/commands/roadmap_eval_stage.py`, `src/dev
 
 Kind: other. Reads: `src/devops_cli/roadmap/stage/stage_eval_cases.py`. Changes: `src/devops_cli/roadmap/stage/stage_eval_cases.py`.
 
-- [ ] 5.1 In `src/devops_cli/roadmap/stage/stage_eval_cases.py`, add `constants` to the `facts.json` bullet of the module docstring and to the `CaseFacts` docstring: the name and integer value pairs of the constants that the plan cites, with an empty tuple when the entry is absent or empty
+- [x] 5.1 In `src/devops_cli/roadmap/stage/stage_eval_cases.py`, add `constants` to the `facts.json` bullet of the module docstring and to the `CaseFacts` docstring: the name and integer value pairs of the constants that the plan cites, with an empty tuple when the entry is absent or empty
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_eval_cases.py` passes
-- [ ] 5.2 Edit the module docstring and the `CaseFacts` docstring in `src/devops_cli/roadmap/stage/stage_eval_cases.py` to name the `constants` field and its empty default
+- [x] 5.2 Edit the module docstring and the `CaseFacts` docstring in `src/devops_cli/roadmap/stage/stage_eval_cases.py` to name the `constants` field and its empty default
   - Verification: `$ uv run devops ci docs` passes
 
 ## Workflow follow-up
