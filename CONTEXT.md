@@ -115,7 +115,7 @@ Making a Ready item Staged: a branch, an OpenSpec change in task groups that eac
 _Avoid_: scaffolding, pre-work
 
 **Staged**:
-A Ready item whose staging is done and whose staged branch is on `origin`. Its Status stays Ready until a person merges the plan, and then it is Planned. The draft pull request on its branch is the record.
+A Ready item whose staging is done and whose staged branch is on `origin`. Its Status stays Ready until a person merges the plan, and then it is Planned. The draft pull request on its branch is the record. A re-stage updates the one draft pull request of the item and opens no second one.
 _Avoid_: prepared, queued
 
 **Planned**:

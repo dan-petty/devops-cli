@@ -40,7 +40,7 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/stage/stage.py`, `src/devops_cli/
 
 Kind: other. Reads: `docs/ROADMAP_WORKFLOW.md`, `CONTEXT.md`. Changes: `docs/ROADMAP_WORKFLOW.md`, `CONTEXT.md`.
 
-- [ ] 5.1 State in `docs/ROADMAP_WORKFLOW.md` that a pushed branch holds an item unless its one draft pull request fails the plan check with no unresolved review thread, matching tip at stage.sha, App-only authors, and no path outside the change folder, and that the job then clears the old change directory, stages the item again on that branch, pushes with a lease on the recorded commit, updates the same draft and names it in the comment. State in `CONTEXT.md` under **Staged** that a re-stage updates the one draft pull request of the item and opens no second one
+- [x] 5.1 State in `docs/ROADMAP_WORKFLOW.md` that a pushed branch holds an item unless its one draft pull request fails the plan check with no unresolved review thread, matching tip at stage.sha, App-only authors, and no path outside the change folder, and that the job then clears the old change directory, stages the item again on that branch, pushes with a lease on the recorded commit, updates the same draft and names it in the comment. State in `CONTEXT.md` under **Staged** that a re-stage updates the one draft pull request of the item and opens no second one
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
