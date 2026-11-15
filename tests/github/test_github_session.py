@@ -586,11 +586,11 @@ def test_the_sessions_client_waits_a_public_connect_timeout_and_a_read_timeout_o
     )
 
 
-def test_a_connect_timeout_raises_the_unread_error_naming_the_endpoint_without_a_retry(
+def test_a_get_that_times_out_on_connect_on_every_attempt_raises_after_the_retries(
     github_api: GitHubApiFake,
 ) -> None:
-    """A connect that still times out is not retried: it raises the unread error naming the
-    endpoint and the cause, after one request."""
+    """A connect timeout on every attempt of a GET is resent up to DEFAULT_GH_MAX_RETRIES times,
+    then raises GitHubUnreadError."""
     check_runs = "/repos/octo/repo/commits/abc/check-runs?per_page=100"
     github_api.route("GET", check_runs, httpx2.ConnectTimeout)
     with pytest.raises(GitHubUnreadError) as raised:
@@ -599,7 +599,8 @@ def test_a_connect_timeout_raises_the_unread_error_naming_the_endpoint_without_a
         raised.value.details["path"],
         f"{check_runs} (page 1): ConnectTimeout" in raised.value.message,
         len(github_api.sent),
-    ) == (check_runs, True, 1)
+        len(github_api.waits),
+    ) == (check_runs, True, 3, 2)
 
 
 # ── Pagination (#983) ────────────────────────────────────────────────────────────────────────────
@@ -1155,3 +1156,44 @@ def test_a_lost_get_waits_through_the_identity_ledger(github_api: GitHubApiFake)
         ledger.get_total_throttles(),
         ledger.get_total_wait_seconds(),
     ) == (True, 1, wait)
+
+
+def test_a_connect_timeout_on_first_listing_request_is_resent_and_succeeds(
+    github_api: GitHubApiFake,
+) -> None:
+    """When the first request of a listing raises ConnectTimeout and the second answers page 1,
+    the listing yields the items and records two attempts."""
+    github_api.route("GET", _ISSUES, httpx2.ConnectTimeout, _page([{"id": 1}], None))
+    items = list(get_github_session().paginate(_ISSUES))
+    assert (items, len(github_api.sent), len(github_api.waits)) == ([{"id": 1}], 2, 1)
+
+
+def test_a_get_that_fails_connect_is_sent_again(github_api: GitHubApiFake) -> None:
+    """A GET that fails with ConnectError is resent and succeeds on the second attempt."""
+    github_api.route("GET", "/user", httpx2.ConnectError, github_json({"login": "octocat"}))
+    answer = get_github_session().rest("GET", "/user")
+    assert (answer, len(github_api.sent), len(github_api.waits)) == ({"login": "octocat"}, 2, 1)
+
+
+def test_a_write_that_times_out_on_connect_is_sent_once(github_api: GitHubApiFake) -> None:
+    """A write is not resent after a connect failure, because GitHub may have applied it."""
+    github_api.route("POST", "/user/keys", httpx2.ConnectTimeout)
+    with pytest.raises(GitHubUnreadError) as raised:
+        get_github_session().rest("POST", "/user/keys", body={"title": "t", "key": "k"})
+    assert (raised.value.error_code, len(github_api.sent), github_api.waits) == (
+        "GITHUB_UNREAD",
+        1,
+        [],
+    )
+
+
+def test_a_write_that_fails_connect_is_sent_once(github_api: GitHubApiFake) -> None:
+    """A write is not resent after a connect error."""
+    github_api.route("POST", "/user/keys", httpx2.ConnectError)
+    with pytest.raises(GitHubUnreadError) as raised:
+        get_github_session().rest("POST", "/user/keys", body={"title": "t", "key": "k"})
+    assert (raised.value.error_code, len(github_api.sent), github_api.waits) == (
+        "GITHUB_UNREAD",
+        1,
+        [],
+    )

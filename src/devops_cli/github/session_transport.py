@@ -113,10 +113,16 @@ _API_ORIGIN: Final[httpx2.Origin] = httpx2.URL(CONST_URL_GITHUB_API_BASE).origin
 # (httpx2), and an answer that does not decode (ValueError, LookupError; see the classifier).
 _UNREAD: Final = (httpx2.HTTPError, ValueError, LookupError)
 
-# The connection errors after which a GET is sent again (#3506). A connection that ended or failed
-# after the request went out, or a request that did not go out whole, is in it. A refused connect,
-# a timeout and a local protocol error are not.
-_LOST_CONNECTION: Final = (httpx2.RemoteProtocolError, httpx2.ReadError, httpx2.WriteError)
+# The connection errors after which a GET is sent again (#3506, #5805). A connection that ended or failed
+# after the request went out, a request that did not go out whole, and a connect failure
+# (ConnectError, ConnectTimeout) are in it. A read timeout and a local protocol error are not.
+_LOST_CONNECTION: Final = (
+    httpx2.RemoteProtocolError,
+    httpx2.ReadError,
+    httpx2.WriteError,
+    httpx2.ConnectError,
+    httpx2.ConnectTimeout,
+)
 
 # A path's template delimiters, percent-encoded, so gidgethub's expansion keeps them as text.
 _LITERAL_PATH: Final = str.maketrans(
@@ -189,7 +195,7 @@ def session_client() -> httpx2.AsyncClient:
     under the origin hook and pinning the REST API version. It connects within
     `DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS`, a public-internet bound, and waits at most
     `DEFAULT_GH_SESSION_READ_TIMEOUT_SECONDS` for each read, because GitHub ends a REST request
-    after 10 s. A connect or a read that fails by its timeout is not retried."""
+    after 10 s. A read that fails by its timeout is not retried."""
     options: ClientOptions = {
         "follow_redirects": True,
         "headers": {CONST_GITHUB_HEADER_API_VERSION: CONST_GITHUB_API_VERSION},
