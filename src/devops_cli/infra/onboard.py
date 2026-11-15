@@ -83,8 +83,16 @@ class OnboardTarget:
 
 
 def default_checkout(repo: RepoRef, settings: Settings) -> Path:
-    """`<repos.base_dir>/<owner>/<name>`, where `devops repos` puts a clone."""
-    return settings.repos.base_dir.expanduser().resolve().joinpath(*repo.path_parts)
+    """`<repos.base_dir>/<owner>/<name>`, where `devops repos` puts a clone.
+
+    A relative `repos.base_dir` resolves under the main worktree, as a data path does, so every
+    worktree of devops-cli finds one checkout (#5195)."""
+    from devops_cli.core.repo import main_worktree_root
+
+    base = settings.repos.base_dir.expanduser()
+    if not base.is_absolute():
+        base = main_worktree_root() / base
+    return base.resolve().joinpath(*repo.path_parts)
 
 
 def resolve_target(argument: str, *, path: Path | None, settings: Settings) -> OnboardTarget:

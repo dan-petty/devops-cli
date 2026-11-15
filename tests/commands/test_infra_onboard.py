@@ -235,3 +235,21 @@ def test_a_repo_with_no_checkout_is_refused(
     assert result.exit_code == 1
     assert "No checkout of the infra repo example-org/infra" in result.output
     assert process_fake.calls == []
+
+
+def test_a_relative_base_dir_resolves_under_the_main_worktree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every worktree finds the clone at the main worktree (#5195)."""
+    from devops_cli.config.settings import load_settings
+    from devops_cli.core import repo as core_repo
+    from devops_cli.github.repo_ref import RepoRef
+    from devops_cli.infra import onboard
+
+    settings = load_settings()
+    settings.repos.base_dir = Path("repos")
+    monkeypatch.setattr(core_repo, "main_worktree_root", lambda *args, **kwargs: tmp_path)
+
+    assert onboard.default_checkout(RepoRef("owner/name"), settings) == (
+        tmp_path / "repos" / "owner" / "name"
+    )
