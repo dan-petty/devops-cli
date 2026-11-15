@@ -166,6 +166,7 @@ def _compare(
         select_cases,
     )
     from devops_cli.roadmap.stage.stage_eval_compare import (
+        estimated_spend,
         render_compare,
         run_toolset,
         toolsets_of,
@@ -180,14 +181,20 @@ def _compare(
     gateway = gateway_address(settings.ai.for_task("stage"))
     note = left_out_note(left_out)
     if dry_run:
-        write_stdout(
-            MESSAGES.roadmap.stage_eval_compare_dry_run.format(
-                cases=len(cases),
-                toolsets=", ".join(chosen),
-                model=name,
-                gateway=gateway,
-            )
+        plan = MESSAGES.roadmap.stage_eval_compare_dry_run.format(
+            cases=len(cases),
+            runs=runs,
+            toolsets=", ".join(chosen),
+            model=name,
+            gateway=gateway,
         )
+        estimate = estimated_spend(len(cases), runs, len(chosen), name)
+        cost = (
+            MESSAGES.roadmap.stage_eval_compare_dry_run_cost.format(cost=estimate)
+            if estimate is not None
+            else MESSAGES.roadmap.stage_eval_compare_dry_run_unpriced.format(model=name)
+        )
+        write_stdout(f"{plan}\n{cost}\n")
         if note:
             print_info(note)
         return

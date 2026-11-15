@@ -330,6 +330,71 @@ def test_the_verification_column_shows_not_run_without_a_pass(
     assert verified.split()[2] == "1"
 
 
+def test_the_compare_dry_run_states_the_plan_and_the_cost_with_no_model_call(
+    cli: Any,
+    tmp_path: Path,
+    stage_repo: StageRepo,
+    cases: list[StageCase],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from genai_prices import Usage, calc_price
+
+    from devops_cli.ai.client import factory
+    from devops_cli.config.constants import (
+        CONST_ROADMAP_STAGE_EVAL_ESTIMATE_INPUT_TOKENS,
+        CONST_ROADMAP_STAGE_EVAL_ESTIMATE_OUTPUT_TOKENS,
+    )
+
+    script = Script(RuntimeError("the dry run called the model"))
+    monkeypatch.setattr(factory, "get_task_model", lambda name, *, settings=None: script.model())
+    folder = _live_set(tmp_path, stage_repo, cases)
+
+    result = cli(
+        "roadmap",
+        "eval",
+        "stage",
+        "compare",
+        "base",
+        "extended",
+        "--dry-run",
+        "--cases",
+        str(folder),
+        "--model",
+        "claude-sonnet-5-5",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert script.seen == []
+    assert "1 case(s)" in result.output
+    assert "3 run(s)" in result.output
+    assert "base, extended" in result.output
+    estimate = float(
+        calc_price(
+            Usage(
+                input_tokens=CONST_ROADMAP_STAGE_EVAL_ESTIMATE_INPUT_TOKENS * 6,
+                output_tokens=CONST_ROADMAP_STAGE_EVAL_ESTIMATE_OUTPUT_TOKENS * 6,
+            ),
+            "claude-sonnet-5-5",
+        ).total_price
+    )
+    assert f"{estimate:.4f} USD" in result.output
+    unpriced = cli(
+        "roadmap",
+        "eval",
+        "stage",
+        "compare",
+        "base",
+        "extended",
+        "--dry-run",
+        "--cases",
+        str(folder),
+        "--model",
+        "no-such-model",
+    )
+    assert unpriced.exit_code == 0, unpriced.output
+    assert "no price for the model no-such-model" in unpriced.output
+
+
 def test_the_compare_form_refuses_a_lone_toolset_and_a_name_outside_the_setting(cli: Any) -> None:
     one = cli("roadmap", "eval", "stage", "compare", "base", "--dry-run", "--limit", "1")
     unknown = cli(

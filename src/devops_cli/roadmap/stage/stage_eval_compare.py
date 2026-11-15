@@ -17,6 +17,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, cast, get_args
 
+from devops_cli.config.constants import (
+    CONST_ROADMAP_STAGE_EVAL_ESTIMATE_INPUT_TOKENS,
+    CONST_ROADMAP_STAGE_EVAL_ESTIMATE_OUTPUT_TOKENS,
+)
 from devops_cli.config.defaults import StageToolset
 from devops_cli.core import clock
 from devops_cli.exceptions import ConfigurationError
@@ -111,6 +115,18 @@ def toolsets_of(names: Sequence[str]) -> tuple[StageToolset, ...]:
             details={"toolsets": unknown},
         )
     return tuple(cast(StageToolset, name) for name in names)
+
+
+def estimated_spend(cases: int, runs: int, toolsets: int, model: str) -> float | None:
+    """The estimated cost of a comparison: one plan run of a case costs the two estimate
+    constants in tokens, and a comparison makes one for each case, each run and each toolset.
+    None when the pricing registry holds no price for `model`."""
+    plans = cases * runs * toolsets
+    usage = RunUsage(
+        CONST_ROADMAP_STAGE_EVAL_ESTIMATE_INPUT_TOKENS * plans,
+        CONST_ROADMAP_STAGE_EVAL_ESTIMATE_OUTPUT_TOKENS * plans,
+    )
+    return usage.spend_usd(model)
 
 
 def _sum_optional(values: Iterable[int | None]) -> int | None:

@@ -6023,8 +6023,13 @@ class RoadmapMessages:
     )
     stage_eval_compare_dry_run: str = (
         "Dry run: no request was made. The compare form would plan {cases} case(s) with the "
-        "toolsets {toolsets} at {gateway}, with the stage model {model}, one case at a time."
+        "toolsets {toolsets} at {gateway}, with the stage model {model}, {runs} run(s) of each "
+        "case, one case at a time."
     )
+    stage_eval_compare_dry_run_cost: str = (
+        "Estimated cost: {cost:.4f} USD at the hosted price of the model."
+    )
+    stage_eval_compare_dry_run_unpriced: str = "Estimated cost: no price for the model {model}."
     stage_eval_compare_spread_header: str = (
         "Case runs and the spread of each measured value, as the minimum and the maximum:"
     )
