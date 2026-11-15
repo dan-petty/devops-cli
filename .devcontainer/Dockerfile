@@ -192,6 +192,17 @@ RUN case "$TARGETARCH" in \
     tar -xzf /tmp/asset -C /tmp/unpack "$member" && install -m 0755 "/tmp/unpack/$member" /out/bin/tuicr && \
     rm -rf /tmp/asset /tmp/unpack
 
+# vale 3.26.0
+RUN case "$TARGETARCH" in \
+      amd64) url='https://github.com/errata-ai/vale/releases/download/v3.26.0/vale_3.26.0_Linux_64-bit.tar.gz'; sha='22aa69a556558e4a9dfc63c17030777383d8d3c48dcdfad655fa98e839d666ed'; member='vale' ;; \
+      arm64) url='https://github.com/errata-ai/vale/releases/download/v3.26.0/vale_3.26.0_Linux_arm64.tar.gz'; sha='3154179f4611140c9af54a8b3bc6a90bc02b73fe6c1f635369604dde0490406d'; member='vale' ;; \
+    esac && \
+    mkdir -p /tmp/unpack && \
+    curl -fsSL --retry 3 -o /tmp/asset "$url" && \
+    echo "$sha  /tmp/asset" | sha256sum -c - && \
+    tar -xzf /tmp/asset -C /tmp/unpack "$member" && install -m 0755 "/tmp/unpack/$member" /out/bin/vale && \
+    rm -rf /tmp/asset /tmp/unpack
+
 # gitleaks 8.30.1
 RUN case "$TARGETARCH" in \
       amd64) url='https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz'; sha='551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb'; member='gitleaks' ;; \

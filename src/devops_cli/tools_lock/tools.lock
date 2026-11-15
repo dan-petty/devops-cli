@@ -606,3 +606,20 @@ version = "0.90.0"
 description = "Dev Containers CLI, which builds the published devcontainer image with its features"
 source = "https://github.com/devcontainers/cli"
 bin = "devcontainer"
+
+[binary.vale]
+version = "3.26.0"
+description = "Prose linter, which checks the ASD-STE100 rules of the hand-written documents (#5157)"
+source = "https://github.com/errata-ai/vale"
+bin = "vale"
+format = "tar.gz"
+
+[binary.vale.platforms.linux-amd64]
+url = "https://github.com/errata-ai/vale/releases/download/v3.26.0/vale_3.26.0_Linux_64-bit.tar.gz"
+sha256 = "22aa69a556558e4a9dfc63c17030777383d8d3c48dcdfad655fa98e839d666ed"
+member = "vale"
+
+[binary.vale.platforms.linux-arm64]
+url = "https://github.com/errata-ai/vale/releases/download/v3.26.0/vale_3.26.0_Linux_arm64.tar.gz"
+sha256 = "3154179f4611140c9af54a8b3bc6a90bc02b73fe6c1f635369604dde0490406d"
+member = "vale"

@@ -1,0 +1,6 @@
+extends: existence
+message: "Use the active voice."
+level: suggestion
+ignorecase: true
+tokens:
+  - '\b(?:am|is|are|was|were|be|been|being)\s+(?:\w+ed|done|made|given|taken|shown|found|known|seen|written|built|kept|sent|held)\b'

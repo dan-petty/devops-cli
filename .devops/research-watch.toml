@@ -144,6 +144,11 @@ repo = "agavra/tuicr"
 
 [[watch]]
 ecosystem = "github-release"
+name = "vale"
+repo = "errata-ai/vale"
+
+[[watch]]
+ecosystem = "github-release"
 name = "gitleaks"
 repo = "gitleaks/gitleaks"
 

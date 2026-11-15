@@ -1,0 +1,6 @@
+extends: occurrence
+message: "Use at most 25 words in a sentence (%s words)."
+level: suggestion
+scope: sentence
+max: 25
+token: '\b\w+\b'
