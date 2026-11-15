@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.156.0](https://github.com/dan-petty/devops-cli/compare/v0.155.0...v0.156.0) (2026-11-15)
+
+
+### Features
+
+* **ai:** configure local and provider model aliases on LLM gateway ([#5854](https://github.com/dan-petty/devops-cli/issues/5854)) ([a0a6c04](https://github.com/dan-petty/devops-cli/commit/a0a6c04748c792ad362290c6cc2c4a44b04746f0))
+
+
+### Bug Fixes
+
+* **k8s:** tolerate a cordon on the source copy pod ([#5852](https://github.com/dan-petty/devops-cli/issues/5852)) ([dc14eb8](https://github.com/dan-petty/devops-cli/commit/dc14eb8d55889cbdeee220f9f1a1bd96f248f3ba))
+* **roadmap:** stage reads each plan back before the push ([#5851](https://github.com/dan-petty/devops-cli/issues/5851)) ([a13a1c5](https://github.com/dan-petty/devops-cli/commit/a13a1c522dcfce36e30948fbaf4112ea636ed61a)), closes [#5214](https://github.com/dan-petty/devops-cli/issues/5214)
+
 ## [0.155.0](https://github.com/dan-petty/devops-cli/compare/v0.154.0...v0.155.0) (2026-11-15)
 
 
