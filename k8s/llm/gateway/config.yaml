@@ -237,6 +237,10 @@ model_list:
       cache_read_input_token_cost: 6.0e-09
       supports_response_schema: true
 litellm_settings:
+  # Do not put the model-group and fallback wiring of the router into the message that a client
+  # reads (#5302). LiteLLM 1.103.11 defaults this to true, and a later major release changes the
+  # default to false.
+  expose_router_debug_in_errors: false
   # Per-deployment requests, failures and latency at /metrics/, scraped by Prometheus. The
   # Ollama nodes export no metrics of their own, so this is how their load is seen.
   # `otel` sends a span for each request, with its queue, retry and fallback time, to the
@@ -257,7 +261,6 @@ litellm_settings:
   # LiteLLM drops, so no person's id reaches a label.
   enable_end_user_cost_tracking_prometheus_only: true
   drop_params: true
-  telemetry: false
   # A streamed chat reply with no data for this many seconds gets an SSE comment (": ping"),
   # also before its first token. The Cloudflare edge cuts a request after 125 s with no data
   # (#2365), and the CLI streams every chat call, so a long prefill, queue or reasoning
@@ -271,6 +274,8 @@ router_settings:
   # Spread embedding batches across order 1 tiers (#2027). Under least-busy, every embedding batch
   # went to the first deployment at 1, 2, 4 and 8 streams: 0.55 batches a second on two GPUs,
   # against 0.85 to 1.08 with simple-shuffle (#3518).
+  # `embedding` is the callable routing group of the embedding deployments. It is the thirteenth
+  # id that /v1/models returns, after the 12 model groups, and a caller does not name it (#5302).
   routing_groups:
     - group_name: embedding
       models:
@@ -316,6 +321,12 @@ router_settings:
     - devops-triage: [qwen3.8:27b]
     - devops-background: [qwen3.8:27b]
 
+# trusted_proxy_ranges stays unset, and the start-up WARNING about it is expected (#5302). The
+# gateway has three inbound paths: Cloudflare through cloudflared and Traefik, the LAN NodePort,
+# and direct pod calls. No CIDR holds only the proxies, and with the pod network trusted a NodePort
+# client or any pod could forge X-Forwarded-For and get a new source for each attempt, which would
+# escape the (source, username) limit. Set it only after the NodePort path is gone and a range
+# holds only the ingress proxies.
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
   cancel_on_disconnect: true
@@ -325,6 +336,9 @@ general_settings:
   # allow_requests_on_db_unavailable stays unset (false): the gateway is reachable from outside
   # the cluster, so a key that it cannot check while the database is down is refused.
   proxy_batch_write_at: 10
+  # background_health_checks stays false, and the Admin UI health column is empty on purpose:
+  # each Ollama tier serves one request (OLLAMA_NUM_PARALLEL 1), and a 60 s health check would
+  # take that slot from a caller (#5302).
   # The spend-log table gets about 71,000 rows a week, and no code reads a row older than a
   # month: the AI spend dashboard reads Prometheus. The gateway deletes the rows older than 30
   # days, so the database stays inside its 5Gi claim (#4994). LiteLLM runs the cleanup 24 hours
