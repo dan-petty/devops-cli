@@ -143,6 +143,7 @@ def _run(
 
 def _compare(
     cases_dir: Path | None,
+    staged_cases: Path | None,
     names: tuple[str, ...],
     limit: int | None,
     *,
@@ -163,6 +164,7 @@ def _compare(
         cases_with_commit,
         left_out_note,
         load_cases,
+        load_staged_cases,
         select_cases,
     )
     from devops_cli.roadmap.stage.stage_eval_compare import (
@@ -175,7 +177,8 @@ def _compare(
     if len(toolsets) < 2:
         raise ValidationError(MESSAGES.roadmap.stage_eval_compare_too_few, field="compare")
     chosen = toolsets_of(toolsets)
-    cases, left_out = cases_with_commit(select_cases(load_cases(cases_dir), names, limit))
+    picked = load_cases(cases_dir) + load_staged_cases(staged_cases)
+    cases, left_out = cases_with_commit(select_cases(picked, names, limit))
     settings = load_settings()
     name = model or settings.ai.for_task("stage").model
     gateway = gateway_address(settings.ai.for_task("stage"))
@@ -251,6 +254,10 @@ def eval_stage_cmd(
     cases_dir: Annotated[
         Path | None, typer.Option("--cases", help=HELP.roadmap.eval_stage_cases)
     ] = None,
+    staged_cases: Annotated[
+        Path | None,
+        typer.Option("--staged-cases", help=HELP.roadmap.eval_stage_staged_cases),
+    ] = None,
     source: Annotated[
         Path | None, typer.Option("--source", help=HELP.roadmap.eval_stage_source)
     ] = None,
@@ -268,6 +275,7 @@ def eval_stage_cmd(
             )
         _compare(
             cases_dir,
+            staged_cases,
             names,
             limit,
             toolsets=words[1:],

@@ -1603,6 +1603,10 @@ class RoadmapCommandHelp:
         "defects each gate catches."
     )
     eval_stage_cases: str = "Folder of the cases. Default: tests/fixtures/roadmap_eval/stage."
+    eval_stage_staged_cases: str = (
+        "In the compare form, the folder of the staged-item replay cases, in the same case format "
+        "as the golden set. Default: tests/fixtures/roadmap_eval/staged."
+    )
     eval_stage_source: str = (
         "Repository that holds the staging commits of the cases. Default: this checkout."
     )

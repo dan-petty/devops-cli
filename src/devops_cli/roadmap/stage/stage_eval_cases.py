@@ -25,6 +25,9 @@ gates need, and the defects a reviewer found in it. The files of a case director
 
 A case with the verdict `good` has no defect: every gate must accept it.
 
+The staged-item replay cases sit in `tests/fixtures/roadmap_eval/staged/` in the same format, and
+`load_staged_cases` reads them beside the golden set (#3239).
+
 How the cases were made (2026-11-01):
 
 - The 37 cases with a pull request come from the review of those plans. The text of each defect and
@@ -71,6 +74,7 @@ from devops_cli.roadmap.stage.stage_paths import StagedTree
 
 # The folder of the cases, from the root of the repository.
 CASES_DIRECTORY: Final[Path] = Path("tests/fixtures/roadmap_eval/stage")
+STAGED_CASES_DIRECTORY: Final[Path] = Path("tests/fixtures/roadmap_eval/staged")
 # The null object id of git, which stands for no object. A case that holds it as its `base_commit`
 # was staged on no commit, as the change of its plan was never merged as that plan.
 NO_COMMIT: Final[str] = "0" * 40
@@ -275,6 +279,15 @@ def load_cases(directory: Path | None = None) -> list[StageCase]:
         raise ConfigurationError(
             MESSAGES.roadmap.stage_eval_no_cases.format(path=root), details={"path": str(root)}
         )
+    return [_read_case(folder) for folder in folders]
+
+
+def load_staged_cases(directory: Path | None = None) -> list[StageCase]:
+    """The staged-item replay cases in `directory`, or in the default folder of this checkout,
+    sorted by name. The cases use the format of the golden set, and a folder that holds no case
+    gives an empty list, because the set grows one case at a time (#3239)."""
+    root = directory or find_repo_root() / STAGED_CASES_DIRECTORY
+    folders = sorted(path for path in root.glob("*") if (path / _CASE_FILE).is_file())
     return [_read_case(folder) for folder in folders]
 
 

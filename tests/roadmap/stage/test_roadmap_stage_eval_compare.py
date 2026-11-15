@@ -163,17 +163,36 @@ def test_the_spread_states_the_minimum_and_the_maximum_of_each_value() -> None:
     assert values.verification_defects == (None, None)
 
 
-def _live_set(tmp_path: Path, repo: StageRepo, cases: list[StageCase]) -> Path:
-    """A folder with one case about issue #1 of the sample repository, staged on its head."""
-    case = _live_case(cases, repo)
-    folder = tmp_path / "set" / "live-case"
+def _write_case(folder: Path, case: StageCase) -> None:
+    """Write `case` in the case format of the golden set, at `folder`."""
     folder.mkdir(parents=True)
     meta = case.model_dump(mode="json", exclude={"name", "issue_body", "plan", "facts"})
     (folder / "case.json").write_text(json.dumps(meta), encoding="utf-8")
     (folder / "issue.txt").write_text(case.issue_body, encoding="utf-8")
     (folder / "plan.json").write_text(json.dumps(case.plan), encoding="utf-8")
     (folder / "facts.json").write_text(case.facts.model_dump_json(), encoding="utf-8")
+
+
+def _live_set(tmp_path: Path, repo: StageRepo, cases: list[StageCase]) -> Path:
+    """A folder with one case about issue #1 of the sample repository, staged on its head."""
+    folder = tmp_path / "set" / "live-case"
+    _write_case(folder, _live_case(cases, repo))
     return folder.parent
+
+
+def _staged_set(tmp_path: Path, repo: StageRepo, cases: list[StageCase]) -> Path:
+    """A folder with one staged-item replay case about issue #1 of the sample repository."""
+    folder = tmp_path / "staged-set" / "staged-case"
+    _write_case(folder, _live_case(cases, repo))
+    return folder.parent
+
+
+@pytest.fixture
+def no_staged_cases(tmp_path: Path) -> Path:
+    """An empty folder of staged-item replay cases, so a test pins the golden set alone."""
+    folder = tmp_path / "no-staged-cases"
+    folder.mkdir()
+    return folder
 
 
 def test_the_compare_form_prints_one_table_with_a_fake_client(
@@ -183,6 +202,7 @@ def test_the_compare_form_prints_one_table_with_a_fake_client(
     model_fake: ModelFake,
     openspec: OpenSpecFake,
     cases: list[StageCase],
+    no_staged_cases: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from devops_cli.ai.client import factory
@@ -200,6 +220,8 @@ def test_the_compare_form_prints_one_table_with_a_fake_client(
         "extended",
         "--cases",
         str(folder),
+        "--staged-cases",
+        str(no_staged_cases),
         "--source",
         str(stage_repo.clone),
         "--model",
@@ -232,6 +254,7 @@ def test_three_runs_state_the_count_and_the_spread(
     model_fake: ModelFake,
     openspec: OpenSpecFake,
     cases: list[StageCase],
+    no_staged_cases: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from devops_cli.ai.client import factory
@@ -251,6 +274,8 @@ def test_three_runs_state_the_count_and_the_spread(
         "3",
         "--cases",
         str(folder),
+        "--staged-cases",
+        str(no_staged_cases),
         "--source",
         str(stage_repo.clone),
         "--model",
@@ -275,6 +300,7 @@ def test_the_verification_column_shows_not_run_without_a_pass(
     model_fake: ModelFake,
     openspec: OpenSpecFake,
     cases: list[StageCase],
+    no_staged_cases: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from devops_cli.ai.client import factory
@@ -312,6 +338,8 @@ def test_the_verification_column_shows_not_run_without_a_pass(
         "1",
         "--cases",
         str(folder),
+        "--staged-cases",
+        str(no_staged_cases),
         "--source",
         str(stage_repo.clone),
         "--model",
@@ -335,6 +363,7 @@ def test_the_compare_dry_run_states_the_plan_and_the_cost_with_no_model_call(
     tmp_path: Path,
     stage_repo: StageRepo,
     cases: list[StageCase],
+    no_staged_cases: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from genai_prices import Usage, calc_price
@@ -359,6 +388,8 @@ def test_the_compare_dry_run_states_the_plan_and_the_cost_with_no_model_call(
         "--dry-run",
         "--cases",
         str(folder),
+        "--staged-cases",
+        str(no_staged_cases),
         "--model",
         "claude-sonnet-5-5",
     )
@@ -388,11 +419,59 @@ def test_the_compare_dry_run_states_the_plan_and_the_cost_with_no_model_call(
         "--dry-run",
         "--cases",
         str(folder),
+        "--staged-cases",
+        str(no_staged_cases),
         "--model",
         "no-such-model",
     )
     assert unpriced.exit_code == 0, unpriced.output
     assert "no price for the model no-such-model" in unpriced.output
+
+
+def test_the_comparison_runs_a_golden_case_and_a_staged_item_case(
+    cli: Any,
+    tmp_path: Path,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+    cases: list[StageCase],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from devops_cli.ai.client import factory
+
+    script = Script(make_stage_proposal())
+    monkeypatch.setattr(factory, "get_task_model", lambda name, *, settings=None: script.model())
+    golden = _live_set(tmp_path, stage_repo, cases)
+    staged = _staged_set(tmp_path, stage_repo, cases)
+
+    result = cli(
+        "roadmap",
+        "eval",
+        "stage",
+        "compare",
+        "base",
+        "extended",
+        "--runs",
+        "3",
+        "--cases",
+        str(golden),
+        "--staged-cases",
+        str(staged),
+        "--source",
+        str(stage_repo.clone),
+        "--model",
+        "claude-sonnet-5-5",
+    )
+
+    assert result.exit_code == 0, result.output
+    case_lines = [line for line in result.output.splitlines() if "runs=" in line]
+    assert {line.split()[0] for line in case_lines} == {
+        "base/live-case",
+        "base/staged-case",
+        "extended/live-case",
+        "extended/staged-case",
+    }
+    assert all("runs=3" in line for line in case_lines)
 
 
 def test_the_compare_form_refuses_a_lone_toolset_and_a_name_outside_the_setting(cli: Any) -> None:
