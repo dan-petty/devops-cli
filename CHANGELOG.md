@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.147.1](https://github.com/dan-petty/devops-cli/compare/v0.147.0...v0.147.1) (2026-11-15)
+
+
+### Bug Fixes
+
+* **roadmap:** Check the CI job-time premise before staging ([#5765](https://github.com/dan-petty/devops-cli/issues/5765)) ([058a27c](https://github.com/dan-petty/devops-cli/commit/058a27c45491eba32f7f240735f7d418da7e3892))
+* **roadmap:** judge and log each left-out plan in fix_plan ([#5771](https://github.com/dan-petty/devops-cli/issues/5771)) ([988d63b](https://github.com/dan-petty/devops-cli/commit/988d63ba0c8ffe1121e84f92030fecffba95a12f))
+
 ## [0.147.0](https://github.com/dan-petty/devops-cli/compare/v0.146.0...v0.147.0) (2026-11-15)
 
 
