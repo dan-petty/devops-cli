@@ -1239,6 +1239,19 @@ def _missing_live_binary(item: pytest.Item) -> str | None:
     return None
 
 
+def _deselect_by_marker(config: pytest.Config, items: list[pytest.Item], marker: str) -> None:
+    """Drop the tests that carry `marker` from `items`, unless `-m` names it (#4007)."""
+    if marker in config.getoption("-m", ""):
+        return
+    selected: list[pytest.Item] = []
+    deselected: list[pytest.Item] = []
+    for item in items:
+        (deselected if marker in item.keywords else selected).append(item)
+    if deselected:
+        config.hook.pytest_deselected(items=deselected)
+        items[:] = selected
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Opt-in live bubblewrap tests and skip live tests where the binary is not installed (#832, #1310, #2143, #2149)."""
     from devops_cli.sandbox.host import HostSandbox
@@ -1261,6 +1274,8 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         for item in items:
             if not bwrap_available and "bwrap" in item.keywords:
                 item.add_marker(skip_bwrap)
+
+    _deselect_by_marker(config, items, "k8s")
 
     for item in items:
         missing = _missing_live_binary(item)
