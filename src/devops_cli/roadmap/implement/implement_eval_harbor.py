@@ -15,7 +15,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from devops_cli.config.constants import CONST_CANONICAL_OCI_SOURCE
-from devops_cli.roadmap.implement.implement_eval import PLAN_FILES, LoadedCase
+from devops_cli.exceptions.roadmap import ImplementEvalError
+from devops_cli.roadmap.implement.implement_eval import (
+    ISSUE_FILE,
+    PLAN_DIR,
+    PLAN_FILES,
+    LoadedCase,
+)
 
 INSTRUCTION_FILE = "instruction.md"
 ENVIRONMENT_DIR = "environment"
@@ -26,6 +32,8 @@ TASK_CONFIG_FILE = "task.toml"
 # The file that the verifier of the pinned Harbor version reads the reward of a trial from, in the
 # container of the task. The test script writes 1 or 0 there.
 REWARD_FILE = "/logs/reward.txt"
+# The field of `case.json` that holds the commands whose tests must pass in a trial.
+TESTS_PASS_FIELD = "tests_pass"
 
 # The base image of the task: the Python 3.14 image of the Dockerfile of this repository.
 _BASE_IMAGE = "python:3.14-slim-trixie"
@@ -134,15 +142,32 @@ def task_config_text(loaded: LoadedCase, timeout_seconds: int) -> str:
     return "\n".join(lines) + "\n"
 
 
+def require_text(fixture: str, field: str, text: str) -> None:
+    """Refuse the fixture when `text` holds no word, and name the fixture and the field (#3104)."""
+    if not text.strip():
+        raise ImplementEvalError(f"Fixture {fixture}: {field} holds no text.")
+
+
 def export_task(loaded: LoadedCase, folder: Path, timeout_seconds: int) -> Path:
     """Write the four files of the task of `loaded` into `folder`, and return the folder. The test
-    script is executable, so the verifier of Harbor can run it."""
+    script is executable, so the verifier of Harbor can run it. A fixture that lacks the text of the
+    issue, of a plan file or of a test command is refused before the first file is written."""
+    _require_task_text(loaded)
     _write(folder / INSTRUCTION_FILE, instruction_text(loaded))
     _write(folder / ENVIRONMENT_DIR / DOCKERFILE_NAME, dockerfile_text(loaded))
     script = _write(folder / TESTS_DIR / TEST_SCRIPT_NAME, test_script_text(loaded))
     script.chmod(_SCRIPT_MODE)
     _write(folder / TASK_CONFIG_FILE, task_config_text(loaded, timeout_seconds))
     return folder
+
+
+def _require_task_text(loaded: LoadedCase) -> None:
+    """Refuse the fixture when the issue body, a plan file or a test command holds no word."""
+    require_text(loaded.name, ISSUE_FILE, loaded.body)
+    for file in PLAN_FILES:
+        require_text(loaded.name, f"{PLAN_DIR}/{file}", loaded.plan[file])
+    for command in loaded.case.tests_pass:
+        require_text(loaded.name, TESTS_PASS_FIELD, command)
 
 
 def _write(path: Path, text: str) -> Path:

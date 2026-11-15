@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from devops_cli.config.constants import CONST_ROADMAP_EVAL_IMPLEMENT_FIXTURES
 from devops_cli.roadmap.implement.implement_eval import LoadedCase, load_case, load_cases
 from tests.support.implement_step import BODY
@@ -144,6 +146,24 @@ def test_the_task_configuration_carries_the_time_limit(tmp_path: Path) -> None:
 
     assert task_config_text(loaded, TIMEOUT_SECONDS) == EXPECTED_TASK_CONFIG
     assert "timeout_sec = 900.0" in task_config_text(loaded, 900)
+
+
+def test_a_fixture_with_no_issue_text_is_refused(tmp_path: Path) -> None:
+    from devops_cli.exceptions.roadmap import ImplementEvalError
+    from devops_cli.roadmap.implement.implement_eval_harbor import export_task
+
+    folder = write_fixture(tmp_path / "fixture")
+    (folder / "issue.md").write_text("", encoding="utf-8")
+    loaded = load_case(folder)
+
+    with pytest.raises(ImplementEvalError) as raised:
+        export_task(loaded, tmp_path / "tasks" / "sample", timeout_seconds=TIMEOUT_SECONDS)
+
+    assert raised.value.exit_code == 1
+    assert raised.value.error_code == "ROADMAP_EVAL_REFUSED"
+    assert "sample" in str(raised.value)
+    assert "issue.md" in str(raised.value)
+    assert not (tmp_path / "tasks" / "sample").exists()
 
 
 def test_each_committed_fixture_becomes_a_task_folder(tmp_path: Path) -> None:
