@@ -226,6 +226,7 @@ from devops_cli.roadmap.stage.stage_constants import candidate_names, staged_con
 from devops_cli.roadmap.stage.stage_context_facts import collect_stage_facts_context
 from devops_cli.roadmap.stage.stage_filter import split_filter_entry
 from devops_cli.roadmap.stage.stage_findings import (
+    _MECHANICAL,
     BODY_GATE,
     PLAN_CHECK_GATE,
     READ_GATE,
@@ -300,6 +301,7 @@ from devops_cli.roadmap.stage.stage_rejected import (
 from devops_cli.roadmap.stage.stage_removal_references import scan_removal_references
 from devops_cli.roadmap.stage.stage_request import StageRequest, gate_arguments
 from devops_cli.roadmap.stage.stage_return import bound_previous
+from devops_cli.roadmap.stage.stage_rewrite import apply_mechanical_rewrites
 from devops_cli.roadmap.stage.stage_specs import BaseSpec, read_base_specs
 from devops_cli.roadmap.stage.stage_split import ask_split
 from devops_cli.roadmap.stage.stage_time import job_time_failure, job_time_premise
@@ -1710,6 +1712,8 @@ class _Planner:
                 if _is_degenerate(proposal):
                     self._stop_degenerate(target, key, refused, proposal, floor)
                 outcome = self._settle(target, proposal, request, trace=self._trace_facts())
+                if isinstance(outcome, _Refused):
+                    proposal, outcome = self._rewrite_mechanical(target, proposal, request, outcome)
                 self._note_gates(target, returns, outcome)
                 if extended:
                     extended = False
@@ -1754,6 +1758,34 @@ class _Planner:
         finally:
             if extended:
                 self._end_extension(target, returns, ExtensionEnd.ENDED)
+
+    def _rewrite_mechanical(
+        self,
+        target: StageTarget,
+        proposal: StageProposal,
+        request: StageRequest,
+        outcome: _Refused,
+    ) -> tuple[StageProposal, StagedChange | OverBudget | _Refused]:
+        """Apply at most two rewrite passes for mechanical gate findings (#4853)."""
+        current_proposal = proposal
+        current_outcome: StagedChange | OverBudget | _Refused = outcome
+        for _ in range(2):
+            if not isinstance(current_outcome, _Refused):
+                break
+            findings = self._findings.get(current_outcome.problem, ())
+            mechanical = [f for f in findings if f.code in _MECHANICAL]
+            if not mechanical:
+                break
+            rewritten, count = apply_mechanical_rewrites(
+                current_proposal, mechanical, self._tree_of(target, current_proposal)
+            )
+            if count == 0:
+                break
+            current_proposal = rewritten
+            current_outcome = self._settle(
+                target, current_proposal, request, trace=self._trace_facts()
+            )
+        return current_proposal, current_outcome
 
     def _extension(
         self, target: StageTarget, returns: int, before: Sequence[StageFinding] | None

@@ -99,7 +99,7 @@
   },
   "stage_problem_registry": {
    "gate": "registry",
-   "fix_class": "model_fixable",
+   "fix_class": "mechanical",
    "fixed": 3,
    "n": 3,
    "rate": 1.0,

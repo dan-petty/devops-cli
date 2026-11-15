@@ -359,6 +359,12 @@ ROADMAP_STAGE_TOTAL = Instrument(
     "names the rule of a skipped item, such as title_type, held, failed_lately, queue_full, "
     "returned or rejected, and is none for the other results. A plan with no write counts nothing",
 )
+ROADMAP_FIX_CHECKS_TOTAL = Instrument(
+    "devops_cli_roadmap_fix_checks_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Rewrites applied to fix mechanical stage gate problems, by site and path",
+)
 ROADMAP_FIX_PLAN_TOTAL = Instrument(
     "devops_cli_roadmap_fix_plan_total",
     InstrumentKind.COUNTER,
@@ -912,6 +918,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     DECISION_POINT_DURATION,
     DECISION_POINT_FAILED_TOTAL,
     ROADMAP_STAGE_TOTAL,
+    ROADMAP_FIX_CHECKS_TOTAL,
     ROADMAP_FIX_PLAN_TOTAL,
     ROADMAP_TOOL_CALLS_TOTAL,
     ROADMAP_TOOL_ANSWER_CHARS,
@@ -1078,6 +1085,7 @@ __all__ = [
     "ROADMAP_CLAIM_AGE",
     "ROADMAP_COMMENT_REPEATS_REFUSED_TOTAL",
     "ROADMAP_CONFLICTED_PULLS",
+    "ROADMAP_FIX_CHECKS_TOTAL",
     "ROADMAP_FIX_PLAN_TOTAL",
     "ROADMAP_INBOX_ITEMS",
     "ROADMAP_INTAKE_CANDIDATES_TOTAL",
