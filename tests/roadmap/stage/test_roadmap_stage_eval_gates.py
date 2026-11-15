@@ -41,6 +41,7 @@ from devops_cli.roadmap.stage.stage_eval_gates import (
     run_gates,
 )
 from devops_cli.roadmap.stage.stage_registry import RegistryCount
+from devops_cli.roadmap.step_files import parse_task_groups
 from tests.support.paths import REPO_ROOT
 
 # The cases load once, at the import, so that `parametrize` gives each case its own item.
@@ -52,8 +53,9 @@ _MODULE_FIXTURE = '@pytest.fixture(scope="module")'
 # The defects of the whole set that a gate judges, and all of them, after #3395 records the
 # placeholder summary of case 3167 at the kind gate. The case of #3408 adds one defect that no gate
 # judges. The case of #3462 adds one defect that the `paths` gate judges: a requirement text over
-# the OpenSpec limit (#4524).
-JUDGED_BASELINE: Final[tuple[int, int]] = (82, 319)
+# the OpenSpec limit (#4524). The case of #3464 adds one defect that the `paths` gate judges: the
+# verify of case 2576 runs a test module that no list of group 1 names (#3463).
+JUDGED_BASELINE: Final[tuple[int, int]] = (83, 320)
 
 
 @pytest.fixture(scope="module")
@@ -260,7 +262,7 @@ def test_a_defect_of_a_type_that_waited_for_a_gate_is_judged_or_says_why_not(
     judged = [d for d in defects if d.gate is not GateName.NONE]
     unjudged = [d for d in defects if d.gate is GateName.NONE]
 
-    assert len(defects) == 76
+    assert len(defects) == 77
     assert all(d.gate is GateName.PATHS and d.message for d in judged)
     assert all(d.reason for d in unjudged)
     assert not any(d.reason for d in judged)
@@ -275,7 +277,7 @@ def test_the_counts_of_each_type_are_the_baseline_that_a_change_of_a_gate_beats(
 
     assert counts[DefectType.MISSING_PATH] == (37, 0, 0)
     assert counts[DefectType.SPEC_DELTA_WRONG] == (7, 0, 19)
-    assert counts[DefectType.VERIFY_FORM] == (6, 0, 12)
+    assert counts[DefectType.VERIFY_FORM] == (7, 0, 12)
     assert counts[DefectType.TASK_ORDER] == (1, 0, 8)
     assert counts[DefectType.IGNORES_EXISTING_CODE] == (0, 0, 23)
     assert report.judged() == JUDGED_BASELINE
@@ -531,6 +533,42 @@ def test_the_replay_of_a_plan_with_a_pytest_verify_command_is_refused_for_its_ve
     assert next(o.status for o in replay.outcomes if o.defect is judged[0]) is DefectStatus.CAUGHT
     assert any("`uv run pytest " in problem for problem in replay.problems[GateName.PATHS])
     assert replay.failures == []
+
+
+def test_the_replay_of_the_plan_of_2576_is_refused_for_its_unnamed_verify_test(
+    cases: list[StageCase],
+) -> None:
+    case = next(c for c in cases if c.pull == 3002)
+    forms = [
+        d for d in case.defects if d.type is DefectType.VERIFY_FORM and d.gate is GateName.PATHS
+    ]
+
+    replay = replay_case(case)
+
+    assert case.groups[0]["verify"] == "uv run devops ci test tests/test_argo_credentials.py"
+    assert len(forms) == 1
+    assert "group 1" in forms[0].where
+    assert next(o.status for o in replay.outcomes if o.defect is forms[0]) is DefectStatus.CAUGHT
+    assert any(
+        "which runs no test module of the group" in problem
+        and "tests/test_argo_credentials.py" in problem
+        for problem in replay.problems[GateName.PATHS]
+    )
+    assert replay.failures == []
+
+
+def test_the_change_that_records_the_defect_of_the_plan_of_2576_holds_no_open_task() -> None:
+    """The change that records the case of #3464 ships the case, the test that replays it and the
+    totals of the replay in one change, so its group holds no open task (#3464)."""
+    folder = next(
+        path
+        for path in (REPO_ROOT / "openspec" / "changes").rglob("*3464-hold-a-golden-case-for-a")
+        if path.is_dir()
+    )
+    group = parse_task_groups((folder / "tasks.md").read_text(encoding="utf-8"))[0]
+
+    assert group.tasks
+    assert all(task.ticked for task in group.tasks)
 
 
 def _stage_move_case(cases: list[StageCase]) -> StageCase:
