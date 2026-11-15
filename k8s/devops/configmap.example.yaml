@@ -22,7 +22,7 @@ data:
       # most steps of the roadmap jobs work most of the time: then name a model for each slot
       # again. The embedding slot stays the embedding model, because a chat model cannot embed.
       # Each prompt of a chat slot leaves the cluster to OpenRouter (SECURITY.md rule 13).
-      model: deepseek-v4.1-flash-1017
+      model: openrouter/deepseek/deepseek-v4.1-flash-1017
       # `model` and `tasks.*.model` name generative models: they write the plans, comments, code
       # and findings, and they use tools. A decision model is a different kind: it answers one
       # closed question (yes/no, one option or a rubric) with a calibrated probability and writes
@@ -68,20 +68,20 @@ data:
         # 2026-11-09 (#4204) and cost about 67 USD a week there. A later trial may name Sonnet
         # again with context_window 200000; the Sonnet group allows 1,000,000 input tokens.
         analysis:
-          model: deepseek-v4.1-flash-1017
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
           context_window: 256000
         # The stage job has its own entry, as the cluster ConfigMap has. Without it the task
         # takes the model and the window of analysis, so a trial of another model in analysis
         # leaves the stage job on DeepSeek.
         stage:
-          model: deepseek-v4.1-flash-1017
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
           context_window: 256000
         # The implement job runs every step on the same group (#3573). Its prompts, which hold
         # the code of the repository, leave the cluster to OpenRouter (SECURITY.md rule 13). The
         # window is the smallest that an fp8 provider of the group offers (256,000 tokens); the
         # gateway group allows 1,048,576.
         implement:
-          model: deepseek-v4.1-flash-1017
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
           context_window: 256000
         # The review run of a plan has the read tools of the planner and no parent task, so it
         # takes the default window of 32,768 tokens when it sets none. The run ends its tools at
@@ -89,14 +89,14 @@ data:
         # 8 tool calls (#3911). The window is 256,000 tokens, as it is for analysis, and a run
         # that the window ends too soon fails the item.
         verification:
-          model: deepseek-v4.1-flash-1017
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
           context_window: 256000
         chat:
-          model: deepseek-v4.1-flash-1017
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
         embedding:
-          model: qwen3-embedding:0.6b
+          model: local/qwen3-embedding:0.6b
         triage:
-          model: deepseek-v4.1-flash-1017
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
     # devops-cli's cache Valkey in namespace llm (llm/valkey-devops.yaml): the embedding cache
     # and the threat-intelligence cache. Its password reaches the pod from Secret devops-cli as
     # DEVOPS_CLI_VALKEY_PASSWORD, never from this ConfigMap.
@@ -188,8 +188,8 @@ data:
           - low
           - medium
         ladder:
-          edit: [deepseek-v4.1-flash-1017]
-          repair: [deepseek-v4.1-flash-1017]
+          edit: [openrouter/deepseek/deepseek-v4.1-flash-1017]
+          repair: [openrouter/deepseek/deepseek-v4.1-flash-1017]
         # The memory limit of a runner Job, above the 2Gi or 6Gi request of its plan. The code
         # default 8Gi is the limit at which the kernel killed two runner Jobs, on 2026-11-12 and
         # on 2026-11-13 (#3727), so this cluster sets 16Gi (#5484). A deploy renders this

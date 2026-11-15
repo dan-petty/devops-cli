@@ -163,6 +163,13 @@ def _gateway_embedding_groups() -> set[str]:
     }
 
 
+def _gateway_embedding_aliases() -> set[str]:
+    """Return aliases targeting embedding groups."""
+    direct = _gateway_embedding_groups()
+    aliases = _full_gateway_config().get("router_settings", {}).get("model_group_alias", {})
+    return {alias for alias, target in aliases.items() if target in direct}
+
+
 def _job_configmap_embedding_models() -> set[str]:
     """Return the embedding model the example ConfigMap of the in-cluster jobs sets."""
     configmap = _load_kind(DEVOPS_CONFIGMAP_EXAMPLE, "ConfigMap")
@@ -686,7 +693,10 @@ class TestK8sLLMGatewayManifests:
         renamed group sends its requests to a model the gateway refuses (#481, #1637)."""
         named = embedding_models()
 
-        assert (bool(named), named - _gateway_embedding_groups()) == (True, set())
+        assert (
+            bool(named),
+            named - (_gateway_embedding_groups() | _gateway_embedding_aliases()),
+        ) == (True, set())
 
     def test_the_embedding_only_tiers_serve_no_generation_group(self) -> None:
         """Verify the GPU instances at or below the embedding threshold have no generation
@@ -1984,7 +1994,10 @@ def _groups_off_the_gateway(models: set[str]) -> set[str]:
     """Return each of `models` that is no group of the gateway config, or whose deployments call
     no serving tier."""
     serving = _serving_tiers()
-    return models - {m["model_name"] for m, tiers in _deployment_tiers() if tiers & serving}
+    served = {m["model_name"] for m, tiers in _deployment_tiers() if tiers & serving}
+    aliases = _full_gateway_config().get("router_settings", {}).get("model_group_alias", {})
+    alias_groups = {alias for alias, target in aliases.items() if target in served}
+    return models - (served | alias_groups)
 
 
 def test_every_open_webui_default_model_is_a_group_that_the_gateway_serves() -> None:
@@ -2366,6 +2379,8 @@ def test_every_model_of_the_service_config_is_a_group_the_gateway_serves() -> No
     configmap = _load_kind(DEVOPS_CONFIGMAP_EXAMPLE, "ConfigMap")
     ai = yaml.safe_load(configmap["data"]["devops-cli.yaml"])["ai"]
     named = {ai["model"], *(task["model"] for task in ai["tasks"].values())}
-    served = {m["model_name"] for m in _full_gateway_config()["model_list"]}
+    cfg = _full_gateway_config()
+    served = {m["model_name"] for m in cfg["model_list"]}
+    aliases = set(cfg.get("router_settings", {}).get("model_group_alias", {}).keys())
 
-    assert sorted(named - served) == []
+    assert sorted(named - (served | aliases)) == []
