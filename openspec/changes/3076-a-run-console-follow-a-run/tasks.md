@@ -13,9 +13,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/stores/store.py`, `src/devops_cli
 
 Kind: behavior. Reads: `src/devops_cli/k8s/cluster_job_api.py`, `src/devops_cli/security/sanitizer.py`. Changes: `src/devops_cli/roadmap/follow_live.py` (new), `tests/roadmap/test_roadmap_follow_live.py` (new).
 
-- [ ] 2.1 Add `tests/roadmap/test_roadmap_follow_live.py::test_a_secret_in_the_pod_log_is_masked` first: a fake cluster client whose log holds a line with a token of the masking rules gives the masked line and not the token
+- [x] 2.1 Add `tests/roadmap/test_roadmap_follow_live.py::test_a_secret_in_the_pod_log_is_masked` first: a fake cluster client whose log holds a line with a token of the masking rules gives the masked line and not the token
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_follow_live.py` fails on the base
-- [ ] 2.2 Add `src/devops_cli/roadmap/follow_live.py` with `live_lines(jobs, name, lines)`: it reads the log of the Job `name` through `log_tail`, masks each line with `mask_secrets`, and returns the lines. It reads no GitHub data and parses no line
+- [x] 2.2 Add `src/devops_cli/roadmap/follow_live.py` with `live_lines(jobs, name, lines)`: it reads the log of the Job `name` through `log_tail`, masks each line with `mask_secrets`, and returns the lines. It reads no GitHub data and parses no line
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_follow_live.py` passes
 
 ## 3. Add the follow command with one issue read
