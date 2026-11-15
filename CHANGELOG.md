@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.155.0](https://github.com/dan-petty/devops-cli/compare/v0.154.0...v0.155.0) (2026-11-15)
+
+
+### Features
+
+* **github:** Hold every planned Service row ([#5848](https://github.com/dan-petty/devops-cli/issues/5848)) ([bbb4426](https://github.com/dan-petty/devops-cli/commit/bbb44269b65bcd766037c0d576cbdb438dfb6f92))
+* **roadmap:** increase service alternatives check frequency ([#5846](https://github.com/dan-petty/devops-cli/issues/5846)) ([e73608c](https://github.com/dan-petty/devops-cli/commit/e73608c6ca9b5a7b96a9052cae836746ec199a14))
+
+
+### Bug Fixes
+
+* **ai:** classify spend vs local savings strictly by backend route ([#5844](https://github.com/dan-petty/devops-cli/issues/5844)) ([9c12814](https://github.com/dan-petty/devops-cli/commit/9c1281437f33a3cbe07765057c1fe0247aa4df60))
+* **ai:** Retry a Jev 429 and 529 with backoff ([#5847](https://github.com/dan-petty/devops-cli/issues/5847)) ([88612b6](https://github.com/dan-petty/devops-cli/commit/88612b602e8f9b1fefe9f42afcc94fc073bdf0ab))
+
+
+### Code Refactoring
+
+* **monitoring:** delete the home-grown dashboard builders ([#5841](https://github.com/dan-petty/devops-cli/issues/5841)) ([8a6e51f](https://github.com/dan-petty/devops-cli/commit/8a6e51f2a6b259073c9ef75c0675e20ea2af8ab7))
+
 ## [0.154.0](https://github.com/dan-petty/devops-cli/compare/v0.153.0...v0.154.0) (2026-11-15)
 
 
