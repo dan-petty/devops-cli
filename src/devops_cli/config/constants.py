@@ -2982,6 +2982,9 @@ CONST_AI_JEV_MODEL: Final[str] = "typesafe/jev-1.14"
 CONST_AI_JEV_CONTEXT_WINDOW: Final[int] = 262_144
 CONST_AI_JEV_DEFAULT_ROUTE_THRESHOLD: Final[float] = 0.75
 CONST_AI_JEV_DEFAULT_BOOLEAN_THRESHOLD: Final[float] = 0.50
+# The most attempts of one Jev request on a 429 or a 529 (#5286). The timeout of the caller is
+# shorter than the full backoff, so the caller reports its own error before this limit.
+CONST_AI_JEV_RETRY_ATTEMPTS: Final[int] = 3
 CONST_AI_JEV_HIGH_RISK_THRESHOLD: Final[float] = 0.90
 CONST_AI_JEV_SYSTEM_ONE_PREFIXES: Final[frozenset[str]] = frozenset({"system-one", "typesafe"})
 # The starts of the name of a TypeSafe Jev model with no provider prefix, as `typesafe/jev-1.14`.
