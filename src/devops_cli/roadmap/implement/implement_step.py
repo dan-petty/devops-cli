@@ -142,6 +142,7 @@ from devops_cli.roadmap.implement.implement_shell_policy import (
     shown,
 )
 from devops_cli.roadmap.implement.implement_shell_refusal import ShellRefusal
+from devops_cli.roadmap.implement.implement_strategy import strategy_for
 from devops_cli.roadmap.implement.implement_strays import stray_files, unplanned_paths
 from devops_cli.roadmap.implement.implement_test_form import (
     TestForm,
@@ -1976,13 +1977,20 @@ def _trace_attempt(
     *,
     repair: bool,
 ) -> None:
-    """Add the attempt `number` to the `trace`: its outcome, its class and its evidence, and
-    whether a repair round follows (#3053)."""
+    """Add the attempt `number` to the `trace`: its outcome, its class and its evidence, whether a
+    repair round follows, and the strategy of the attempt (#3053, #3569)."""
     if trace is None:
         return
     klass = _failure_class(failure)
     evidence = failure.reason if failure and klass else ""
-    trace.attempt(number, tier, klass.value if klass else "", evidence, repair=repair)
+    trace.attempt(
+        number,
+        tier,
+        klass.value if klass else "",
+        evidence,
+        repair=repair,
+        strategy=strategy_for(number).value,
+    )
 
 
 def _attempt(

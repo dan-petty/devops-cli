@@ -222,14 +222,17 @@ class ImplementTrace:
         evidence: str,
         *,
         repair: bool,
+        strategy: str = "",
     ) -> None:
         """One attempt of a step (#3053): the first run or a repair round. A passed attempt has
-        no class and no evidence. `repair` says whether a repair round follows."""
+        no class and no evidence. `repair` says whether a repair round follows, and `strategy`
+        what the attempt tries that the earlier attempts did not (#3569)."""
         fields: dict[str, Any] = {
             "number": number,
             "tier": _line(tier, 80),
             "outcome": "failed" if failure_class else "passed",
             "next": "repair" if repair else "stop",
+            "strategy": _line(strategy, 32),
         }
         if failure_class:
             fields["class"] = _line(failure_class, 32)
