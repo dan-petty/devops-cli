@@ -724,6 +724,24 @@ devops roadmap step open [OPTIONS]
 | `--kind`, `-k` | `string` | `plan` | Kind of the pull request (plan or delivery). |
 | `--dry-run` | `boolean` | - | Make no request to GitHub or git, and write no record key. |
 
+### `devops roadmap step ready`
+
+**Mark a draft pull request ready for review after checks pass (#5021).**
+
+```bash
+devops roadmap step ready [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--pull`, `-p` | `integer` | - | Number of the pull request to mark ready. |
+| `--head` | `string` | - | Expected commit SHA of the pull request head. |
+| `--force`, `-f` | `boolean` | - | Bypass draft readiness verification. |
+| `--dry-run` | `boolean` | - | Make no network request and mark nothing ready. |
+
 ### `devops roadmap step scaffold`
 
 **Make, resume, adopt or hold the item branch for a roadmap stage run (#5499).**
@@ -742,5 +760,25 @@ devops roadmap step scaffold [OPTIONS]
 | `--kind`, `-k` | `string` | `plan` | Kind of the scaffold step (plan or delivery). |
 | `--slug` | `string` | - | Slug of the change folder or branch. |
 | `--dry-run` | `boolean` | - | Make no request to GitHub or git, and write no record key. |
+
+### `devops roadmap step watch`
+
+**Watch pull request checks and state until the verdict settles (#5021).**
+
+```bash
+devops roadmap step watch [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--pull`, `-p` | `integer` | - | Number of the pull request to watch. |
+| `--head` | `string` | - | Expected commit SHA of the pull request head. |
+| `--block` / `--no-block` | `boolean` | `True` | Wait until the checks settle or timeout passes. |
+| `--timeout` | `integer` | `3600` | Maximum seconds to wait in block mode. |
+| `--interval` | `integer` | `60` | Seconds between poll requests in block mode. |
+| `--dry-run` | `boolean` | - | Make no network request and output no verdict. |
 
 ---

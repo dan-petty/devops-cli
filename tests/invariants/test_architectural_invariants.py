@@ -1273,6 +1273,38 @@ def _draft_pull_creation_offenders(trees: Mapping[Path, ast.Module], src: Path) 
     return offenders
 
 
+_PR_READY_WRAPPERS: Final[tuple[str, ...]] = ("roadmap/steps/ready.py",)
+
+
+def _runs_gh_pr_ready(node: ast.Call) -> bool:
+    """Whether the call invokes `gh pr ready` through `run_gh` or subprocess."""
+    for arg in node.args:
+        if isinstance(arg, ast.List):
+            elts = [
+                elt.value
+                for elt in arg.elts
+                if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+            ]
+            if "pr" in elts and "ready" in elts:
+                return True
+    return False
+
+
+def _pr_ready_offenders(trees: Mapping[Path, ast.Module], src: Path) -> list[str]:
+    """Each `file:line` of `src` that executes `gh pr ready` outside steps/ready.py (#5021)."""
+    offenders: list[str] = []
+    for path, tree in sorted(trees.items()):
+        rel = path.relative_to(src).as_posix()
+        if rel in _PR_READY_WRAPPERS:
+            continue
+        offenders += [
+            f"{rel}:{node.lineno} wraps gh pr ready outside steps/ready.py"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and _runs_gh_pr_ready(node)
+        ]
+    return offenders
+
+
 def test_every_draft_pull_creation_goes_through_open_step(
     parsed_source_trees: dict[Path, ast.Module],
 ) -> None:
@@ -1295,6 +1327,29 @@ def test_the_draft_pull_creation_check_names_each_direct_call(tmp_path: Path) ->
     assert _draft_pull_creation_offenders(trees, tmp_path) == [
         "a.py:1 calls create_draft_pull outside the open step",
         "b.py:1 calls create_draft_pull outside the open step",
+    ]
+
+
+def test_the_only_gh_pr_ready_wrapper_is_steps_ready(
+    parsed_source_trees: dict[Path, ast.Module],
+) -> None:
+    """A structural test fails when a second `gh pr ready` wrapper exists (#5021)."""
+    src = REPO_ROOT / "src" / "devops_cli"
+    assert _pr_ready_offenders(parsed_source_trees, src) == []
+
+
+def test_pr_ready_offenders_names_second_wrapper(tmp_path: Path) -> None:
+    """The check reports any second wrapper running `gh pr ready` (#5021)."""
+    sources = {
+        "a.py": "run_gh(['gh', 'pr', 'ready', '1'])\n",
+        "b.py": "run_gh([CONST_GH_CLI, 'pr', 'ready', str(pull)])\n",
+        "c.py": "run_gh(['gh', 'pr', 'view'])\n",
+        "roadmap/steps/ready.py": "run_gh(['gh', 'pr', 'ready', str(pull)])\n",
+    }
+    trees = {tmp_path / name: ast.parse(text) for name, text in sources.items()}
+    assert _pr_ready_offenders(trees, tmp_path) == [
+        "a.py:1 wraps gh pr ready outside steps/ready.py",
+        "b.py:1 wraps gh pr ready outside steps/ready.py",
     ]
 
 

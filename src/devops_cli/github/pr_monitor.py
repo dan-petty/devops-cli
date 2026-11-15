@@ -570,10 +570,18 @@ def get_pr_monitoring_status(
     status.pending_checks = list(verdict.pending_checks)
     status.unresolved_threads = list(verdict.threads_to_show)
     status.checks_failed = bool(verdict.kinds & CHECK_FAILURE_KINDS)
+    if not status.checks and not status.checks_failed and not status.terminal:
+        if "checks" not in status.pending_checks:
+            status.pending_checks.append("checks")
+        status.blockers.append(f"PR #{pr_number} has no check runs reported yet.")
     status.blockers = [
         *verdict.blockers,
         *_review_blockers(pr_number, copilot_status, review_decision, require_reviews),
     ]
+    if not status.checks and not status.checks_failed and not status.terminal:
+        no_checks_msg = f"PR #{pr_number} has no check runs reported yet."
+        if no_checks_msg not in status.blockers:
+            status.blockers.append(no_checks_msg)
     return status
 
 
@@ -586,6 +594,13 @@ def _settled_result(status: PRMonitorStatus, pr_number: int) -> PRMonitorResult:
     if status.state == "closed":
         return PRMonitorResult(
             success=False, exit_code=2, message=f"PR #{pr_number} is closed.", status=status
+        )
+    if not status.checks:
+        return PRMonitorResult(
+            success=False,
+            exit_code=1,
+            message=f"PR #{pr_number} has no check runs reported yet.",
+            status=status,
         )
     if not status.blockers:
         return PRMonitorResult(
@@ -604,6 +619,9 @@ def _settled_result(status: PRMonitorStatus, pr_number: int) -> PRMonitorResult:
         + " ".join(status.blockers),
         status=status,
     )
+
+
+settled_result = _settled_result
 
 
 def _build_monitor_timeout_result(
