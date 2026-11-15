@@ -11,7 +11,7 @@ from __future__ import annotations
 import secrets
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Final, Literal
 from urllib.parse import quote
 
 from devops_cli.config.constants import (
@@ -616,6 +616,11 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         labels={"app.kubernetes.io/name": "mattermost-db"},
     ),
 )
+
+# The Secrets that serve an optional feature: a workload starts without one, and only that
+# feature is unavailable. A pull request that adds a reference to one of these makes the reference
+# optional, so a missing Secret never stops a required Service (#5200).
+OPTIONAL_FEATURE_SECRETS: Final[tuple[str, ...]] = ("monitoring/grafana-image-renderer",)
 
 
 def secret_names(table: Iterable[ClusterSecret] = CLUSTER_SECRETS) -> list[str]:

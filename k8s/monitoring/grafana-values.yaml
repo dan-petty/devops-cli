@@ -87,6 +87,15 @@ envValueFrom:
     secretKeyRef:
       name: grafana-admin
       key: llm-gateway-key
+  # The chart writes a required reference to the renderer token, so a missing Secret of an
+  # optional feature stops the Grafana pod (#5200). This entry repeats the variable as optional
+  # after the chart's entry, and the kubelet takes the last value: Grafana starts, and only panel
+  # images are unavailable. The renderer Deployment keeps its required reference.
+  GF_RENDERING_RENDERER_TOKEN:
+    secretKeyRef:
+      name: grafana-image-renderer
+      key: token
+      optional: true
 
 grafana.ini:
   feature_toggles:
