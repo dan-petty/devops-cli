@@ -4297,6 +4297,9 @@ CONST_K8S_RECLAIM_RETAIN: Final[str] = "Retain"
 CONST_K8S_RETENTION_DELETE: Final[str] = "Delete"
 CONST_K8S_CLAIM_PHASE_BOUND: Final[str] = "Bound"
 CONST_K8S_POD_PHASE_RUNNING: Final[str] = "Running"
+# The taint that a cordon adds. The source copy pod must tolerate it: the usual reason to move a
+# claim off a node is that the node is cordoned (#5305).
+CONST_K8S_UNSCHEDULABLE_TAINT: Final[str] = "node.kubernetes.io/unschedulable"
 CONST_K8S_VOLUME_MOVE_SOURCE_SUFFIX: Final[str] = "-src"
 CONST_K8S_VOLUME_MOVE_DESTINATION_SUFFIX: Final[str] = "-dst"
 CONST_K8S_VOLUME_MOVE_CLAIM_SUFFIX: Final[str] = "-move"
