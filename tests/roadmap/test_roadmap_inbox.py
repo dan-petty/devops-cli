@@ -12,6 +12,7 @@ import pytest
 
 from devops_cli.config.constants import CONST_ROADMAP_LABELS_PATH
 from devops_cli.exceptions.git import GitHubFileNotFoundError
+from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.inbox import Inbox, InboxKind, InboxLine, read_inbox, render_inbox
 from devops_cli.roadmap.stores.store import (
     GitHubState,
@@ -585,6 +586,59 @@ def test_a_refine_job_that_tries_again_has_no_line(store: InMemoryRoadmapStore) 
     )
 
     assert _lines(_read(store), InboxKind.FAILED) == []
+
+
+# ── The stage job that failed (#2968) ────────────────────────────────────────────────────
+
+
+def test_a_stage_job_that_failed_has_one_line_naming_its_class(
+    store: InMemoryRoadmapStore,
+) -> None:
+    failed = _item(
+        store,
+        "stage failed",
+        fields={ItemField.STATUS: "Ready"},
+        marks={StageRecordKey.FAILED_CLASS: FailureClass.LIMIT_REACHED.value},
+        updated_at=_ago(days=2),
+    )
+
+    inbox = _read(store)
+    lines = _lines(inbox, InboxKind.STAGE_RETRY)
+
+    assert [(line.number, line.age) for line in lines] == [(failed, timedelta(days=2))]
+    assert lines[0].subject == ("stage failed: the stage job failed with the class limit_reached")
+    assert lines[0].clear == (
+        "No action: the stage job takes the item again when the wait of the class ends. "
+        f"`devops roadmap explain {failed} --repo {REPO}` says what it waits for."
+    )
+    assert "Ready items whose stage job failed" in render_inbox(inbox, repo=REPO)
+
+
+def test_a_new_item_with_an_old_stage_failure_class_gives_no_line(
+    store: InMemoryRoadmapStore,
+) -> None:
+    _item(
+        store,
+        "new again",
+        fields={ItemField.STATUS: "New"},
+        marks={StageRecordKey.FAILED_CLASS: FailureClass.LIMIT_REACHED.value},
+    )
+
+    assert _lines(_read(store), InboxKind.STAGE_RETRY) == []
+
+
+def test_a_stage_job_that_has_no_class_has_no_line(store: InMemoryRoadmapStore) -> None:
+    _item(
+        store,
+        "ready",
+        fields={ItemField.STATUS: "Ready"},
+        marks={
+            StageRecordKey.FAILED_AT: _ago(hours=2).isoformat(),
+            StageRecordKey.FAILED_STEP: "plan",
+        },
+    )
+
+    assert _lines(_read(store), InboxKind.STAGE_RETRY) == []
 
 
 def test_the_split_and_alternatives_classes_follow_the_refine_class() -> None:

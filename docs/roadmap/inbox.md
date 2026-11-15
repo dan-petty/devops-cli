@@ -20,14 +20,21 @@ The lines come in this order of classes:
 6. New items with a split that no person has applied, one line for each, class `split`. Refine proposed the split in a comment.
 7. New items whose refine round put a covering tool to a person, one line for each, class `alternatives`. The line names the tool.
 8. New items whose refine job failed as often as the limit allows, one line for each, class `failed`. The line names the failed checks, the count of tries and the last error, and asks no question. An item that refine will try again has no line. A body edit makes refine try again.
-9. Drafts of jobs, class `draft`. A draft of a job is listed when a check of its head commit failed in its latest run, or when it is older than `roadmap.inbox.draft_days`. An older run that a newer run of the same check replaced does not count. A newer draft with no failed check is not listed. A pull request that a runner Job holds is not listed either.
-10. Claims with no activity for 7 days, class `claim`.
-11. Workflow labels of the package and labels of `.github/labels.yml` that the repository lacks or holds with another color or description, class `labels`.
-12. The state of the Planned queue, when the count of Planned items is at `roadmap.stage.planned_limit`, class `queue`. The stage job then plans only items with the priority `P0-Critical` or `P1-High`. The line has no number and no age.
+9. Ready items whose stage job failed, one line for each, class `stage_retry`. The line names the failure class of the last plan or write, such as `provider` or `limit_reached`. The stage job holds the item for the wait of that class and takes it again when the wait ends, so the line asks nothing of a person. `devops roadmap explain <number>` names the wait. An item in `status/new` keeps the class of its last failure with no line, because the stage job does not take a New item. A staged item clears the class.
+10. Drafts of jobs, class `draft`. A draft of a job is listed when a check of its head commit failed in its latest run, or when it is older than `roadmap.inbox.draft_days`. An older run that a newer run of the same check replaced does not count. A newer draft with no failed check is not listed. A pull request that a runner Job holds is not listed either.
+11. Claims with no activity for 7 days, class `claim`.
+12. Workflow labels of the package and labels of `.github/labels.yml` that the repository lacks or holds with another color or description, class `labels`.
+13. The state of the Planned queue, when the count of Planned items is at `roadmap.stage.planned_limit`, class `queue`. The stage job then plans only items with the priority `P0-Critical` or `P1-High`. The line has no number and no age.
 
 A second list holds open owner questions (class `owner`). Each line lists the item number, age, question, and the clear command `gh issue comment <number> --body "<answer>"`. It also holds the other open pull requests of people and agents, class `person`. It marks the drafts.
 
-The inbox leaves out an image digest that is not rolled yet. To read it, run `devops argo cd apps status devops`.
+## The counts as telemetry
+
+The counts of the lines are the gauge `devops_cli_roadmap_inbox_items`. The gauge holds one series for each counted kind of each repository, with the casefolded `owner/name` of the repository as `repo` and the kind as `kind`. The counted kinds are `blocked`, `refine`, `split`, `alternatives`, `failed`, `stage_retry`, `claim` and `labels`, so one repository adds 8 series and seven repositories add 56. The class `queue` is not counted: it is one state of the queue and not a line for each item. The class filter of `--kind` does not change a value: the gauge counts every class of the repository.
+
+The metrics row of the roadmap Service and `devops roadmap inbox` both send the gauge, so a dashboard reads a fresh value after each round of the Service. The panel "Inbox Items by Kind" of the project dashboard (`k8s/devops/dashboards/project-metrics.json`) shows the counts as a bar gauge, with `sum by (kind) (last_over_time(devops_cli_roadmap_inbox_items[$__range]))`. A dashboard reads a gauge through `last_over_time`, because Prometheus finds a plain selector only within five minutes of a sample. The alert `k8s/devops/alerts/inbox.yaml` fires when the typed person causes add more than 24 items in a day, the daily cap of one item an hour.
+
+A dry run sends no gauge.
 
 ## How to filter and count the lines
 
@@ -42,7 +49,7 @@ The option `--kind <class>` keeps the lines of one class, for example `--kind sp
 
 ## What the inbox reads
 
-The command reads, for each repository it lists, the open issues, the open pull requests, the labels of the repository, and the labels file. It reads the newest commit of the labels file only when the labels differ. It reads the check runs of the head commit of each open draft of a job, one read for each draft. It reads no closed issue. It calls no model and writes nothing.
+The command reads, for each repository it lists, the open issues, the open pull requests, the labels of the repository, and the labels file. It reads the newest commit of the labels file only when the labels differ. It reads the check runs of the head commit of each open draft of a job, one read for each draft. It reads no closed issue. It calls no model and writes nothing to GitHub or to git. It sends the gauge of the counts, as [the telemetry section](#the-counts-as-telemetry) says.
 
 A run sends these requests for each repository:
 
@@ -57,6 +64,10 @@ A run sends these requests for each repository:
 
 `--dry-run` makes no request and lists these reads for each repository.
 
+## The image digest is not read
+
+The inbox leaves out an image digest that is not rolled yet. It does not read that digest, because the digest is the state of the cluster: the read asks the Argo CD API, and the inbox reads GitHub only. A pod of the Service holds no cluster token, so it cannot read the digest either. The open item #4832 owns that line. To read the digest now, run `devops argo cd apps status devops`.
+
 ## Where the rules are
 
-[roadmap-inbox](../../openspec/specs/roadmap-inbox/spec.md) holds the order of the lines, the line format, the age of a claim, the second list, the drafts, the splits, the alternatives, the marks, the counts, the class filter and the bound on the reads.
+[roadmap-inbox](../../openspec/specs/roadmap-inbox/spec.md) holds the order of the lines, the line format, the age of a claim, the second list, the drafts, the splits, the alternatives, the stage retries, the marks, the counts, the class filter and the bound on the reads. [metric-instruments](../../openspec/specs/metric-instruments/spec.md) holds the gauge and its series.

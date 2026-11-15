@@ -5404,6 +5404,7 @@ class RoadmapMessages:
             "blocked": "Items in status/blocked",
             "refine": "New items that wait on a person in refine",
             "failed": "New items whose refine job failed",
+            "stage_retry": "Ready items whose stage job failed",
             "split": "New items with a split that no person has applied",
             "alternatives": "New items with a covering tool that refine put to a person",
             "draft": "Drafts of jobs that are old or have a failed check",
@@ -5433,6 +5434,7 @@ class RoadmapMessages:
             "failed": (
                 "{title}: the refine job failed on {checks} in {tries} tries. Last error: {error}"
             ),
+            "stage_retry": "{title}: the stage job failed with the class {failure_class}",
             "split": "{title}: refine proposed a split, not applied",
             "alternatives": "{title}: refine put a covering tool to a person: {tool}",
             "claim": "{title} (claimed by {owner})",
@@ -5480,6 +5482,10 @@ class RoadmapMessages:
             "failed": (
                 "Fix the cause of the error. A body edit makes refine try again. "
                 "`devops roadmap explain {number} --repo {repo}` says what refine waits for."
+            ),
+            "stage_retry": (
+                "No action: the stage job takes the item again when the wait of the class ends. "
+                "`devops roadmap explain {number} --repo {repo}` says what it waits for."
             ),
             "claim": "devops roadmap release {number} --repo {repo} --confirm",
             "labels": "devops gh label sync --repo {repo}",

@@ -364,6 +364,45 @@
       ]
     },
     {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Lines of the inbox of each repository that wait for a person, by kind: blocked, refine, split, alternatives, failed, stage_retry, claim and labels. It shows the latest value of each series in the time range, and no data when none was sent in it. The metrics row of the roadmap Service and `devops roadmap inbox` send the counts.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 34 },
+      "id": 25,
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [ "lastNotNull" ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "title": "Inbox Items by Kind",
+      "type": "bargauge",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (kind) (last_over_time(devops_cli_roadmap_inbox_items[$__range]))",
+          "instant": true,
+          "legendFormat": "{{kind}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
       "collapsed": false,
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 42 },
       "id": 15,
