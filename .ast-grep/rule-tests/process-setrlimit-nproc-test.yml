@@ -1,0 +1,8 @@
+id: process-setrlimit-nproc
+valid:
+  - 'resource.setrlimit(resource.RLIMIT_NOFILE, (100, 200))'
+  - 'resource.setrlimit(resource.RLIMIT_AS, (0, 0))'
+  - 'setrlimit(RLIMIT_AS, (0, 0))'
+invalid:
+  - 'resource.setrlimit(resource.RLIMIT_NPROC, (0, 0))'
+  - 'setrlimit(RLIMIT_NPROC, (0, 0))'

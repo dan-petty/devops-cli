@@ -71,6 +71,12 @@ CONST_TEST_CONSTRUCT_RULES: Final[tuple[str, ...]] = (
     "test-function-has-assertion",
     "test-pytest-raises-checks-error",
 )
+# The process-safety rules of ARCHITECTURE.md section 7.3, which hold the source tree (#1976).
+CONST_PROCESS_SAFETY_RULES: Final[tuple[str, ...]] = (
+    "process-killpg-guarded",
+    "process-nonblocking-std-fd",
+    "process-setrlimit-nproc",
+)
 # The hand-written CSS of the package, which reads only token variables (docs/DESIGN.md). The token
 # CSS that Style Dictionary writes is beside the package module, outside this folder.
 CONST_DESIGN_CSS_FILES: Final[tuple[str, ...]] = ("src/devops_cli/design/css/**",)
@@ -82,6 +88,7 @@ CONST_REVIEW_CWD_READ_FILES: Final[tuple[str, ...]] = (
 )
 CONST_AST_GREP_RULE_FILES: Final[dict[str, tuple[str, ...]]] = {
     **dict.fromkeys(CONST_NET_CONSTRUCT_RULES, ("src/**",)),
+    **dict.fromkeys(CONST_PROCESS_SAFETY_RULES, ("src/**",)),
     **dict.fromkeys(CONST_TEST_CONSTRUCT_RULES, ("tests/**",)),
     "review-cwd-read": CONST_REVIEW_CWD_READ_FILES,
     "css-color-literal": CONST_DESIGN_CSS_FILES,
@@ -158,6 +165,17 @@ VIOLATIONS: Final[tuple[Violation, ...]] = (
     Violation("review-cwd-read", "src/devops_cli/review", _CWD_READ),
     Violation("review-cwd-read", "src/devops_cli/security", _CWD_READ),
     Violation("css-color-literal", "src/devops_cli/design/css", "a { color: #1c1c1a; }\n", ".css"),
+    Violation(
+        "process-setrlimit-nproc",
+        "src",
+        "resource.setrlimit(resource.RLIMIT_NPROC, (0, 0))\n",
+    ),
+    Violation("process-nonblocking-std-fd", "src", "os.set_blocking(0, False)\n"),
+    Violation(
+        "process-killpg-guarded",
+        "src",
+        "os.killpg(os.getpgid(pid), signal.SIGTERM)\n",
+    ),
 )
 
 
