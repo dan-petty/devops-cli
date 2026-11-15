@@ -251,8 +251,8 @@ The plan check SHALL end a `devops` command that a sentence cites with no code s
 The plan check SHALL keep the next word of a sentence in a cited command when the group before it needs a subcommand. It SHALL keep a word before an option in the cited command, because a sentence puts no option after an English word.
 
 #### Scenario: An unknown subcommand in a sentence is refused
-- **WHEN** a plan cites `uv run devops roadmap follow 3076 to see the job` in a sentence with no code span
-- **THEN** the check returns a problem that names `follow`
+- **WHEN** a plan cites `uv run devops roadmap bogus 3076 to see the job` in a sentence with no code span
+- **THEN** the check returns a problem that names `bogus`
 
 #### Scenario: An unknown subcommand before an option in a sentence is refused
 - **WHEN** a plan cites `uv run devops ai ast-graph --help to see the options` in a sentence with no code span
