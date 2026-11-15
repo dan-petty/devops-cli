@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
+
+if TYPE_CHECKING:
+    from tests.support.fakes.otlp import FakeCollector
 
 from devops_cli.telemetry.logging_bridge import (
     OTelLoggingHandler,
@@ -153,3 +156,72 @@ def test_otel_logging_handler_prevents_telemetry_recursion() -> None:
 
     handler.emit(record)
     assert len(sent_records) == 0
+
+
+def test_otel_logging_handler_exports_job_result_at_info() -> None:
+    """OTelLoggingHandler exports devops_cli.roadmap.job_result records at INFO."""
+    sent_records: list[dict[str, Any]] = []
+    exporter = MagicMock(side_effect=lambda record: sent_records.append(record))
+    handler = OTelLoggingHandler(exporter=exporter)
+
+    record = logging.LogRecord(
+        name="devops_cli.roadmap.job_result",
+        level=logging.INFO,
+        pathname="job_result.py",
+        lineno=100,
+        msg="roadmap job result: job=fix_plan result=revised",
+        args=(),
+        exc_info=None,
+    )
+    handler.handle(record)
+    assert len(sent_records) == 1
+    assert sent_records[0]["severityText"] == "INFO"
+    assert "roadmap job result: job=fix_plan" in sent_records[0]["body"]["stringValue"]
+
+
+def test_job_result_line_exported_when_root_logger_at_warning(otlp: FakeCollector) -> None:
+    """A test with the root logger at WARNING finds the result line on the handler and in the OTLP export."""
+    from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
+    from devops_cli.telemetry.tracer import get_tracer, reset_tracer
+
+    reset_tracer()
+    get_tracer()
+
+    root = logging.getLogger()
+    original_level = root.level
+    root.setLevel(logging.WARNING)
+    try:
+        log_job_result(
+            RoadmapJob.FIX_PLAN,
+            repo="owner/repo",
+            item=123,
+            result="revised",
+            counts={"plan_calls": 1},
+        )
+        records = otlp.log_records
+        assert len(records) == 1
+        assert "roadmap job result: job=fix_plan" in records[0]["body"]["stringValue"]
+        assert records[0]["severityText"] == "INFO"
+    finally:
+        root.setLevel(original_level)
+
+
+def test_other_info_records_not_exported_when_root_logger_at_warning(
+    otlp: FakeCollector,
+) -> None:
+    """A test finds that another INFO record does not go to the OTLP export."""
+    from devops_cli.telemetry.tracer import get_tracer, reset_tracer
+
+    reset_tracer()
+    get_tracer()
+
+    root = logging.getLogger()
+    original_level = root.level
+    root.setLevel(logging.WARNING)
+    other_logger = logging.getLogger("devops_cli.other_module")
+    other_logger.setLevel(logging.INFO)
+    try:
+        other_logger.info("This is an info record from another logger")
+        assert otlp.log_records == []
+    finally:
+        root.setLevel(original_level)

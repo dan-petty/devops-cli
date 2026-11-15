@@ -20,8 +20,8 @@ not an issue yet writes `item=none`.
 
 The Service logs the line as JSON, with the line in `message` (`server/json_logs.py`). A command
 that a Job pod runs writes the line, and the round lines of the attempt, to stderr as plain text
-in `job_lines_to_stderr` (#5363, #5556): the log of the pod is what the command writes, and a CLI
-process has no handler for `INFO` records.
+in `job_lines_to_stderr` (#5363, #5556). The OpenTelemetry logging handler sends `INFO` records
+of this module to the collector (#5169).
 """
 
 from __future__ import annotations
@@ -40,6 +40,8 @@ from devops_cli import __version__
 from devops_cli.roadmap.failure import FailureClass
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
 
 LINE_PREFIX: Final = "roadmap job result:"
 # The loggers of the lines of an attempt: one line for each review round and gate return, the

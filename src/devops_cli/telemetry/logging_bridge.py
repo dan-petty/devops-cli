@@ -7,7 +7,7 @@ import threading
 import time
 import traceback
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Final, override
 
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry.tracer import (
@@ -176,6 +176,9 @@ def _resolve_exporter(
     return tr._GLOBAL_TRACER.export_log_record
 
 
+_JOB_RESULT_LOGGER: Final[str] = "devops_cli.roadmap.job_result"
+
+
 class OTelLoggingHandler(logging.Handler):
     """Logging handler that formats LogRecords into OTLP log records and exports them."""
 
@@ -185,11 +188,22 @@ class OTelLoggingHandler(logging.Handler):
         exporter: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         super().__init__(level)
+        self._min_level = self.level
+        self.level = min(self._min_level, logging.INFO)
         self._exporter = exporter
 
+    @override
+    def setLevel(self, level: int | str) -> None:
+        """Set the handler's minimum logging level."""
+        super().setLevel(level)
+        self._min_level = self.level
+        self.level = min(self._min_level, logging.INFO)
+
+    @override
     def emit(self, record: logging.LogRecord) -> None:
         """Translate a LogRecord to an OTLP log record and queue it for export."""
-        if record.levelno < self.level:
+        threshold = logging.INFO if record.name == _JOB_RESULT_LOGGER else self._min_level
+        if record.levelno < threshold:
             return
         if getattr(_LOG_RECURSION_GUARD, "active", False):
             return
