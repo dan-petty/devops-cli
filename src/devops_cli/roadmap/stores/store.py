@@ -253,7 +253,10 @@ class StageRecordKey(StrEnum):
     check-out, in one write. These four keys belong to the check-out, so no write of a plan, a
     removal or a rejection clears them (`STAGE_JOB_KEYS`). The stage row of the Service checks in
     for a Job that ended with no check-in (#4559), and records each eviction that it frees in
-    `stage.evictions`, the hash of the body and the count as JSON."""
+    `stage.evictions`, the hash of the body and the count as JSON. When the item is held by its
+    pushed branch, `stage.restage` records the draft pull request whose plan the job replaced and
+    the hash of the text that the replaced plan came from (#3387): the job re-stages the plan of one
+    text once, and a plan that fails the check again holds the item."""
 
     BRANCH = "stage.branch"
     PR = "stage.pr"
@@ -272,6 +275,7 @@ class StageRecordKey(StrEnum):
     PLAN_DEFECTS_BODY = "stage.plan_defects_body"
     TEXT_HASH = "stage.text_hash"
     REJECTED = "stage.rejected"
+    RESTAGE = "stage.restage"
     PENDING = "stage.pending"
     JOB = "stage.job"
     JOB_AT = "stage.job_at"
