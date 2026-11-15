@@ -4,8 +4,9 @@ the files and symbols an item cites, and the token budget (#1335).
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from tests.support.roadmap_stage import StageRepo
@@ -239,3 +240,54 @@ def test_the_larger_context_stays_inside_the_token_budget(git_repo: Path) -> Non
     ctx = collect_context(git_repo, sha, body, max_tokens=120)
 
     assert count_tokens(ctx) <= 120
+
+
+def test_collect_identifiers_handles_git_grep_timeout(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A slow git grep that times out does not halt context collection (#4878)."""
+    from devops_cli.roadmap.refine import refine
+
+    sha = inspect_checkout(git_repo, REPO)
+    body = "Review src/sample.py:1-2 and `slow_ident` identifier."
+
+    original_run = refine.run_subprocess
+
+    def mock_run_subprocess(cmd: list[str], *args: Any, **kwargs: Any) -> Any:
+        if "grep" in cmd and "slow_ident" in cmd:
+            raise subprocess.TimeoutExpired(cmd, 15)
+        return original_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(refine, "run_subprocess", mock_run_subprocess)
+    ctx = collect_context(git_repo, sha, body, max_tokens=1000)
+    assert "Identifier matches" not in ctx
+    assert "Project Context" in ctx
+
+
+def test_collect_identifiers_bounds_and_excludes_archive_and_fixtures(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """_collect_identifiers bounds git grep with --max-count=5 and excludes archive and fixtures (#4878)."""
+    from devops_cli.roadmap.refine import refine
+
+    sha = inspect_checkout(git_repo, REPO)
+    body = "Review `some_ident` in code."
+
+    recorded_cmds: list[list[str]] = []
+    original_run = refine.run_subprocess
+
+    def mock_run_subprocess(cmd: list[str], *args: Any, **kwargs: Any) -> Any:
+        if "grep" in cmd:
+            recorded_cmds.append(cmd)
+        return original_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(refine, "run_subprocess", mock_run_subprocess)
+    collect_context(git_repo, sha, body, max_tokens=1000)
+
+    ident_grep = [cmd for cmd in recorded_cmds if "some_ident" in cmd and "--max-count=5" in cmd]
+    assert len(ident_grep) == 1
+    cmd = ident_grep[0]
+    assert "-F" in cmd
+    assert "-n" in cmd
+    assert ":(exclude)openspec/changes/archive" in cmd
+    assert ":(exclude)tests/fixtures" in cmd
