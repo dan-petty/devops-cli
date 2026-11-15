@@ -27,6 +27,7 @@ from devops_cli.ai.client.models import (
     AIClientError,
     AICredentialsError,
 )
+from devops_cli.config.defaults import StageToolset
 from devops_cli.exceptions import (
     GitOperationError,
     RoadmapStageDegenerateError,
@@ -156,6 +157,7 @@ def run_case(
     step_tokens: int | None = None,
     toolbox: Any | None = None,
     openspec: OpenSpecTool | None = None,
+    toolset: StageToolset | None = None,
 ) -> CaseRun:
     """Plan one case in a checkout of its staging commit. Rejected credentials stop the run; any
     other error of the planner ends the case as a `refused` or `failed` case.
@@ -163,7 +165,8 @@ def run_case(
     With a `toolbox` model, a plan run reads the checkout with the read-only tools, as the job
     does (#3037), and `client` answers the call that splits the groups. The recorder wraps the
     toolbox client, so it keeps the first plan the model gave. `openspec` reads the specs for the
-    tool `read_spec` and for the gates of the first reply. Without a toolbox, a plan is one call."""
+    tool `read_spec` and for the gates of the first reply. `toolset` is the tools of the plan run;
+    without it, the configured toolset of the stage job. Without a toolbox, a plan is one call."""
     with checkout_at(repository, case.base_commit, operation=_OPERATION) as source:
         planner: StageClient = (
             client
@@ -175,6 +178,7 @@ def run_case(
                 case.base_commit,
                 window=task_window("stage"),
                 openspec=openspec,
+                toolset=toolset,
             )
         )
         recorder = RecordingClient(planner)
@@ -207,10 +211,11 @@ def run_cases(
     *,
     step_tokens: int | None = None,
     toolbox: Any | None = None,
+    toolset: StageToolset | None = None,
 ) -> list[CaseRun]:
-    """Plan each case, one at a time, with the `toolbox` model when one is given. A commit that git
-    cannot check out ends its case as `failed`, so the finished cases keep their runs and the
-    cases after it run (#3688)."""
+    """Plan each case, one at a time, with the `toolbox` model when one is given, and the tools of
+    `toolset`. A commit that git cannot check out ends its case as `failed`, so the finished cases
+    keep their runs and the cases after it run (#3688)."""
     runs: list[CaseRun] = []
     with openspec_tool() as tool:
         for case in cases:
@@ -223,6 +228,7 @@ def run_cases(
                         step_tokens=step_tokens,
                         toolbox=toolbox,
                         openspec=tool,
+                        toolset=toolset,
                     )
                 )
             except GitOperationError as exc:

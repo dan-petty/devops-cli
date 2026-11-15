@@ -6033,7 +6033,8 @@ class RoadmapMessages:
     stage_eval_replay_failed: str = "Result: FAILED. {count} problem(s):"
     stage_eval_pending_gate: str = "{reference}"
     stage_eval_score_title: str = (
-        "# Stage golden set: {cases} case(s), the stage model {model} at {gateway}"
+        "# Stage golden set: {cases} case(s), the stage model {model} with the toolset {toolset} "
+        "at {gateway}"
     )
     stage_eval_score_header: str = "Defect type               Gate     Cases  Avoided  Caught  Rate"
     stage_eval_score_row: str = (

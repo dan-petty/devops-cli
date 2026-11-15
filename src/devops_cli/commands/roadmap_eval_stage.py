@@ -16,6 +16,7 @@ from typing import Annotated
 
 import typer
 
+from devops_cli.config.defaults import StageToolset
 from devops_cli.core.repo import find_repo_root, resolve_store_path
 from devops_cli.dry_run import dry_run_class, is_dry_run, render_request_plan
 from devops_cli.exceptions import ValidationError
@@ -75,6 +76,7 @@ def _run(
     limit: int | None,
     *,
     model: str | None,
+    toolset: StageToolset | None,
     source: Path | None,
     dry_run: bool,
     as_json: bool,
@@ -102,6 +104,7 @@ def _run(
 
     cases, left_out = cases_with_commit(select_cases(load_cases(cases_dir), names, limit))
     settings = load_settings()
+    chosen = toolset or settings.roadmap.stage.toolset
     gateway = gateway_address(settings.ai.for_task("stage"))
     if dry_run:
         render_request_plan(
@@ -121,8 +124,8 @@ def _run(
     planner = eval_model(model, task="stage")[0] if toolbox else None
     usage = RunUsage()
     with observe_llm_calls(usage.add):
-        runs = run_cases(cases, client, source or find_repo_root(), toolbox=planner)
-    score = score_runs(name, cases, runs, left_out=left_out)
+        runs = run_cases(cases, client, source or find_repo_root(), toolbox=planner, toolset=chosen)
+    score = score_runs(name, cases, runs, left_out=left_out, toolset=chosen)
     now = datetime.now(UTC)
     report = score_json(
         score, gateway=gateway, taken=now.isoformat(timespec="seconds"), usage=usage
@@ -145,6 +148,9 @@ def eval_stage_cmd(
     ] = None,
     model: Annotated[
         str | None, typer.Option("--model", help=HELP.roadmap.eval_stage_model)
+    ] = None,
+    toolset: Annotated[
+        StageToolset | None, typer.Option("--toolset", help=HELP.roadmap.eval_stage_toolset)
     ] = None,
     limit: Annotated[
         int | None, typer.Option("--limit", min=1, help=HELP.roadmap.eval_stage_limit)
@@ -186,6 +192,7 @@ def eval_stage_cmd(
         names,
         limit,
         model=model,
+        toolset=toolset,
         source=source,
         dry_run=dry_run or is_dry_run(),
         as_json=as_json,

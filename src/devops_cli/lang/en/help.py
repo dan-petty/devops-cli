@@ -1558,7 +1558,9 @@ class RoadmapCommandHelp:
         "the first reply of the model avoids it, and a total score. It stores the report as "
         "JSON under the data directory. The model plans with the read-only toolbox of the job, "
         "which reads the code of the staging commit; with --no-toolbox it plans with one call "
-        "and no tool. It calls the model through the gateway, one call per case at least. "
+        "and no tool. The toolbox is the one of --toolset, or the configured "
+        "roadmap.stage.toolset, and the report names it. "
+        "It calls the model through the gateway, one call per case at least. "
         "With --replay it calls no model: it runs the recorded plans through the "
         "gates and exits 1 when a gate stops refusing a known-bad plan or refuses a good plan. "
         "A live run leaves out a case that holds no commit and names it in the report. "
@@ -1569,6 +1571,10 @@ class RoadmapCommandHelp:
     )
     eval_stage_model: str = (
         "Model for the stage task. Without it, the configured model of the task."
+    )
+    eval_stage_toolset: str = (
+        "The tools of each plan run: base, extended or research. Without it, the setting "
+        "roadmap.stage.toolset. The report names the toolset that the run read."
     )
     eval_stage_limit: str = "Run at most this many cases, the first ones of the set."
     eval_stage_json: str = "Print the report as JSON in place of the table."
