@@ -1797,7 +1797,8 @@ class PRMessages:
         " {keyword}. Use Plans #<issue>."
     )
     grounding_plan_no_folder: str = (
-        "PR #{number} plans #{issue} but adds no file to {folder}. Add the change folder."
+        "PR #{number} plans #{issue} but adds no file to {folder} and changes no file there. "
+        "Add the change folder, or change a file of it."
     )
     grounding_plan_writes_spec: str = (
         "PR #{number} plans an item and changes {paths}. Only the archive of a delivery writes"
