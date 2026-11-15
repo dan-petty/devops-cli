@@ -660,6 +660,26 @@ def existing_test_problems(
     return problems
 
 
+WORKFLOW_DIRECTORY = ".github/workflows/"
+WORKFLOW_CONTRACT_TEST = "tests/invariants/test_workflow_contracts.py"
+
+
+def workflow_contract_problems(groups: Sequence[StageGroup]) -> list[str]:
+    """One sentence for each workflow that a group changes without the contract test of
+    `tests/invariants/test_workflow_contracts.py` in the `changes` of the same group (#4083).
+    Actionlint and zizmor pass on a workflow that no contract test reads, and a later group
+    leaves the change with no test in the group that makes it."""
+    return [
+        MESSAGES.roadmap.stage_problem_workflow_contract.format(
+            group=number, path=path, test=WORKFLOW_CONTRACT_TEST
+        )
+        for number, group in enumerate(groups, start=1)
+        if WORKFLOW_CONTRACT_TEST not in group.changes
+        for path in group.changes
+        if path.startswith(WORKFLOW_DIRECTORY) and path.endswith(".yml")
+    ]
+
+
 def path_problems(
     groups: Sequence[StageGroup],
     tree: StagedTree,
@@ -699,6 +719,7 @@ def path_problems(
             reported.add(path)
             problems.append(_problem(number, place, path, tree, creators.get(path)))
     problems.extend(caller_problems(groups, tree))
+    problems.extend(workflow_contract_problems(groups))
     if references is not None:
         problems.extend(missing_reference_problems(groups, references))
     return problems

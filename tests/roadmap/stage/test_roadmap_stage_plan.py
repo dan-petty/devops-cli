@@ -62,7 +62,7 @@ from devops_cli.roadmap.stage.stage_change import (
 )
 from devops_cli.roadmap.stage.stage_criteria import StageCriterion
 from devops_cli.roadmap.stage.stage_left_out import LeftOutKind
-from devops_cli.roadmap.stage.stage_paths import StagedTree
+from devops_cli.roadmap.stage.stage_paths import WORKFLOW_CONTRACT_TEST, StagedTree
 from devops_cli.roadmap.stage.stage_plan_record import delete_plan_record, plan_record_path
 from devops_cli.roadmap.stage.stage_references import reference_answer, reference_files
 from devops_cli.roadmap.stage.stage_registry import RegistryCount, registry_table
@@ -2151,10 +2151,16 @@ def _tree(*paths: str) -> StagedTree:
 
 
 def _changing(*paths: str) -> StageProposal:
-    """The sample proposal, with one group that changes only `paths`."""
+    """The sample proposal, with one group that changes only `paths`. A workflow change also lists
+    the contract test that the path rule needs (#4083)."""
+    listed = (
+        (*paths, WORKFLOW_CONTRACT_TEST)
+        if any(path.startswith(".github/workflows/") for path in paths)
+        else paths
+    )
     return make_stage_proposal(
-        groups=[_changed("Change the paths", *paths)],
-        what_changes=[f"`{path}` changes." for path in paths],
+        groups=[_changed("Change the paths", *listed)],
+        what_changes=[f"`{path}` changes." for path in listed],
     )
 
 
@@ -2162,7 +2168,9 @@ def _changing(*paths: str) -> StageProposal:
 def test_a_spec_delta_on_a_change_of_tests_workflows_documents_or_plans_is_refused(
     path: str,
 ) -> None:
-    assert check_proposal(_changing(path), [], _tree(path), registry=()) == [NO_SPEC_PROBLEM]
+    assert check_proposal(
+        _changing(path), [], _tree(path, WORKFLOW_CONTRACT_TEST), registry=()
+    ) == [NO_SPEC_PROBLEM]
 
 
 def test_a_spec_delta_on_every_path_of_every_group_that_needs_none_is_refused() -> None:

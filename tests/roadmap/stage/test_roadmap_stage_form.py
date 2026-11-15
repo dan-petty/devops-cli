@@ -408,8 +408,11 @@ def _example_paths(text: str) -> list[str]:
 
 
 def _mirrored(path: str) -> bool:
-    """Whether the folder of `path` sits under `tests/` and mirrors a package of `src/devops_cli`."""
+    """Whether the folder of `path` sits under `tests/` and mirrors a package of `src/devops_cli`,
+    or is the acceptance folder of the invariants (#4083)."""
     folder = Path(path).parent
+    if folder == Path("tests/invariants"):
+        return True
     package = REPO_ROOT / "src" / "devops_cli" / folder.relative_to("tests")
     return folder != Path("tests") and package.is_dir()
 

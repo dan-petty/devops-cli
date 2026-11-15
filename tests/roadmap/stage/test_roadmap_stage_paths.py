@@ -67,6 +67,59 @@ def _problems(*groups: StageGroup, tree: StagedTree = TREE) -> list[str]:
     return path_problems(groups, tree)
 
 
+WORKFLOW = ".github/workflows/sample.yml"
+CONTRACT_TEST = "tests/invariants/test_workflow_contracts.py"
+WORKFLOW_TREE = StagedTree(
+    [
+        "README.md",
+        "src/devops_cli/sample.py",
+        "tests/test_sample.py",
+        ".github/workflows/sample.yml",
+        "tests/invariants/test_workflow_contracts.py",
+    ]
+)
+
+
+# ── A workflow change carries its contract test in the same group (#4083) ──────
+
+
+def test_a_workflow_change_without_the_contract_test_is_a_problem() -> None:
+    group = _group(changes=[WORKFLOW], reads=[])
+
+    (problem,) = path_problems([group], WORKFLOW_TREE)
+
+    assert (f"`{WORKFLOW}`" in problem, f"`{CONTRACT_TEST}`" in problem, "Group 1" in problem) == (
+        True,
+        True,
+        True,
+    )
+
+
+def test_a_workflow_change_with_the_contract_test_passes() -> None:
+    group = _group(changes=[WORKFLOW, CONTRACT_TEST], reads=[])
+
+    assert path_problems([group], WORKFLOW_TREE) == []
+
+
+def test_group_that_reads_a_workflow_and_changes_no_workflow_needs_no_contract_test() -> None:
+    group = _group(reads=[WORKFLOW])
+
+    assert path_problems([group], WORKFLOW_TREE) == []
+
+
+def test_each_workflow_file_of_a_group_needs_the_contract_test() -> None:
+    workflows = [".github/workflows/ci.yml", ".github/workflows/release.yml"]
+    tree = StagedTree([*WORKFLOW_TREE.files, *workflows])
+    group = _group(changes=workflows, reads=[])
+
+    problems = path_problems([group], tree)
+
+    assert [any(workflow in problem for problem in problems) for workflow in workflows] == [
+        True,
+        True,
+    ]
+
+
 # ── A path that is a file, or that a group creates ────────────────────────────
 
 
