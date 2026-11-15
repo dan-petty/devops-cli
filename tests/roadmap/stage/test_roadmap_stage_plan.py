@@ -2943,3 +2943,35 @@ def test_a_plan_reading_absent_model_field_retries_once_or_fails(
     assert (failure.number, failure.error) == (item, "RoadmapStageError")
     assert "PullStatus.labels" in failure.reason
     assert "src/devops_cli/github/client.py" in failure.reason
+
+
+@pytest.mark.usefixtures("openspec")
+def test_the_request_lists_the_declared_dependencies_with_their_titles(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    open_pulls_api: GitHubApiFake,
+) -> None:
+    """The model reads each issue of the Dependencies section with its title, and an issue that
+    the store lacks keeps its number (#4008)."""
+    from devops_cli.roadmap.stores.store import GitHubState
+
+    body = (
+        "Fix `src/devops_cli/sample.py`.\n\n## Dependencies\n\n"
+        "- #2 the first dependency\n- #3 the second dependency\n- #99 the unknown one\n"
+    )
+    seed_stageable(store, body=body)
+    fields = {ItemField.PRIORITY: "P1-High"}
+    store.seed_issue("fix(roadmap): the first dependency", state=GitHubState.CLOSED, fields=fields)
+    store.seed_issue("fix(roadmap): the second dependency", state=GitHubState.CLOSED, fields=fields)
+    open_pulls_api.route("POST", "/graphql", github_json(_pull_page([])))
+    model_fake.answer(make_stage_proposal(feasibility=[f"The probe shows: {SAMPLE_PROBE}"]))
+
+    _plan(store, stage_repo)
+
+    (request,) = _requests(model_fake)
+    assert request["issue_dependencies"] == [
+        {"number": 2, "title": "fix(roadmap): the first dependency"},
+        {"number": 3, "title": "fix(roadmap): the second dependency"},
+        {"number": 99},
+    ]
