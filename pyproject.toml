@@ -241,6 +241,7 @@ timeout_method = "signal"
 tmp_path_retention_policy = "failed"
 markers = [
     "bwrap: live sandbox tests requiring bubblewrap; a default run deselects them, -m bwrap (the bwrap row of devops ci) selects them, and they skip where bwrap is not installed",
+    "k8s: live cluster tests; a default run deselects them, and -m k8s selects them on a host with a reachable cluster",
     "live: live tests requiring the named local tool binaries; skipped where a binary is not installed",
     "unreachable: tests that exercise a refused endpoint before its fake lands",
 ]
