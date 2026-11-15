@@ -837,3 +837,55 @@ def test_a_read_plan_is_a_fixed_point(proposal: StageProposal) -> None:
     read = read_change(_files(proposal, known=set()))
 
     assert read_change(_files(read, known=set())) == read
+
+
+def test_read_back_problems_names_each_fact_that_differs() -> None:
+    from devops_cli.roadmap.plan_read import read_back_problems
+    from devops_cli.roadmap.stage.stage_change import GroupKind
+
+    original = make_stage_proposal()
+    files = _files(original)
+
+    assert read_back_problems(files, original) == []
+
+    g = original.groups[0]
+    for field, modified_val in [
+        ("title", "Different title"),
+        ("kind", GroupKind.MANIFEST),
+        ("reads", ["different/read.py"]),
+        ("changes", ["different/change.py"]),
+        ("creates", ["different/create.py"]),
+        ("test", "different test command"),
+        ("implementation", "different implementation"),
+        ("verify", "different verify command"),
+        ("process", "different process"),
+        ("documentation", "different doc"),
+    ]:
+        modified_group = g.model_copy(update={field: modified_val})
+        diff_prop = original.model_copy(update={"groups": [modified_group]})
+        problems = read_back_problems(files, diff_prop)
+        assert f"group 1: {field}" in problems
+
+    diff_prop = original.model_copy(update={"groups": [g, g]})
+    assert "group count: read 1 != expected 2" in read_back_problems(files, diff_prop)
+
+    from devops_cli.roadmap.stage.stage_change import StageCriterion, StageReference
+
+    diff_prop = original.model_copy(
+        update={
+            "references": [
+                StageReference(path="other.md", unchanged=True, reason="File is unchanged")
+            ]
+        }
+    )
+    assert "references" in read_back_problems(files, diff_prop)
+
+    diff_prop = original.model_copy(
+        update={"criteria": [StageCriterion(criterion="other criterion", group=1)]}
+    )
+    assert "criteria" in read_back_problems(files, diff_prop)
+
+    if original.specs:
+        spec_delta = original.specs[0].model_copy(update={"requirements": ["Different req"]})
+        diff_prop = original.model_copy(update={"specs": [spec_delta]})
+        assert read_back_problems(files, diff_prop) == []

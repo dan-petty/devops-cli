@@ -53,6 +53,7 @@ UNCODED: Final[str] = "uncoded"
 TITLE_GATE: Final[str] = "title"
 BODY_GATE: Final[str] = "body"
 VALIDATE_GATE: Final[str] = "validate"
+READ_GATE: Final[str] = "read"
 # The rules of `devops roadmap plan-check` that the job runs before the push (#4725).
 PLAN_CHECK_GATE: Final[str] = "plan-check"
 # A template needs this many characters of literal text to give a code.
@@ -390,6 +391,7 @@ __all__ = [
     "BODY_GATE",
     "CLASSES_FILE",
     "PLAN_CHECK_GATE",
+    "READ_GATE",
     "TITLE_GATE",
     "UNCODED",
     "VALIDATE_GATE",

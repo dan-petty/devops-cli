@@ -780,3 +780,51 @@ def specs_at(
             text = files_at(source, rev, [path], operation=operation)[path]
             specs[match["capability"]] = read_spec(text)
     return frozenset(specs), {name: spec.requirements for name, spec in specs.items()}
+
+
+_GROUP_FIELDS: Final[tuple[str, ...]] = (
+    "title",
+    "kind",
+    "reads",
+    "changes",
+    "creates",
+    "test",
+    "implementation",
+    "verify",
+    "process",
+    "documentation",
+)
+
+
+def _group_problems(i: int, read_group: StageGroup, exp_group: StageGroup) -> list[str]:
+    """The problems between `read_group` and `exp_group` for group `i`."""
+    return [
+        f"group {i}: {field}"
+        for field in _GROUP_FIELDS
+        if getattr(read_group, field) != getattr(exp_group, field)
+    ]
+
+
+def read_back_problems(files: Mapping[str, str], proposal: StageProposal) -> list[str]:
+    """The problems that `read_change` finds when reading `files` back: each group and field that
+    differs from `file_facts(proposal)`.
+
+    The check compares each group (title, kind, reads, changes, creates, test, implementation,
+    verify, process, documentation), the unchanged references and the criteria. It does not
+    compare specs, because `_restored` puts back base scenarios that the proposal does not hold.
+    Each problem names the group and field with no text of the plan (#5214)."""
+    read = read_change(files)
+    expected = file_facts(proposal)
+    problems: list[str] = []
+
+    if len(read.groups) != len(expected.groups):
+        problems.append(f"group count: read {len(read.groups)} != expected {len(expected.groups)}")
+    for i, (read_group, exp_group) in enumerate(zip(read.groups, expected.groups, strict=False), 1):
+        problems.extend(_group_problems(i, read_group, exp_group))
+
+    if read.references != expected.references:
+        problems.append("references")
+    if read.criteria != expected.criteria:
+        problems.append("criteria")
+
+    return problems

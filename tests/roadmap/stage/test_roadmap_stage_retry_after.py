@@ -37,6 +37,8 @@ WAIT_OF = {
     FailureClass.CI_INFRA: HOUR,
     FailureClass.HEAD_MOVED: timedelta(0),
 }
+if hasattr(FailureClass, "PLAN_UNREADABLE"):
+    WAIT_OF[getattr(FailureClass, "PLAN_UNREADABLE")] = 6 * HOUR
 
 
 @pytest.fixture
@@ -196,3 +198,12 @@ def test_explain_gives_the_time_of_the_class_that_the_record_holds(job_world: Jo
 
 def test_the_wait_table_in_this_file_is_the_table_of_the_code() -> None:
     assert dict(failure_module.RETRY_AFTER) == WAIT_OF
+
+
+def test_plan_unreadable_waits_six_hours(store: InMemoryRoadmapStore) -> None:
+    from devops_cli.roadmap.failure import FailureClass
+
+    assert not _is_taken(
+        store, ago=6 * HOUR - MINUTE, failure_class=FailureClass.PLAN_UNREADABLE.value
+    )
+    assert _is_taken(store, ago=6 * HOUR + MINUTE, failure_class=FailureClass.PLAN_UNREADABLE.value)

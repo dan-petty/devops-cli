@@ -29,8 +29,8 @@ another measure does not count. A run takes at most `--limit`
 items, highest priority first. `--item` takes the one item it names when that item is open and
 Ready.
 
-**Refused plans.** The job counts the `plan_defect` failures of an item on the same body
-(`stage.plan_defects`, #4491). The failure that reaches `roadmap.stage.plan_defect_limit` (#5440)
+**Refused plans.** The job counts the `plan_defect` and `plan_unreadable` failures of an item on the same body
+(`stage.plan_defects`, #4491, #5214). The failure that reaches `roadmap.stage.plan_defect_limit` (#5440)
 returns the item to New with one comment that lists the problems of the last plan, so the model
 lane goes to the other Ready items. A body edit starts a new count, and a failure of another
 class leaves the count as it is.
@@ -136,6 +136,7 @@ from devops_cli.exceptions import (
     GitHubRateLimitError,
     GitHubUnauthenticatedError,
     GitOperationError,
+    RoadmapPlanReadBackError,
     RoadmapStageDegenerateError,
     RoadmapStageError,
     RoadmapTimeBudgetError,
@@ -168,6 +169,7 @@ from devops_cli.roadmap.failure import FailureClass, StepName, failure_class_of,
 from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
 from devops_cli.roadmap.owner_question import OwnerQuestion, QuestionOption
 from devops_cli.roadmap.plan_check import PlanFolder, staged_problems
+from devops_cli.roadmap.plan_read import PlanReadError, read_back_problems, read_change
 from devops_cli.roadmap.planned import (
     PlannedChanges,
     open_plan_creates,
@@ -226,6 +228,7 @@ from devops_cli.roadmap.stage.stage_filter import split_filter_entry
 from devops_cli.roadmap.stage.stage_findings import (
     BODY_GATE,
     PLAN_CHECK_GATE,
+    READ_GATE,
     TITLE_GATE,
     VALIDATE_GATE,
     ExtensionEnd,
@@ -2292,7 +2295,7 @@ class _Planner:
         for path, text in files.items():
             if redact_text(text) != text:
                 raise _stage_error(MESSAGES.roadmap.stage_secret.format(path=path), target)
-        if findings := self._file_findings(target, title, body, files):
+        if findings := self._file_findings(target, title, body, files, proposal):
             return self._refusal(findings, proposal)
         warnings = _check_removal_references(self._source, target, files)
         return StagedChange(
@@ -2455,14 +2458,25 @@ class _Planner:
         return restore_omitted_scenarios(self._tool, self._source, change, proposal, files)
 
     def _file_findings(
-        self, target: StageTarget, title: str, body: str, files: Mapping[str, str]
+        self,
+        target: StageTarget,
+        title: str,
+        body: str,
+        files: Mapping[str, str],
+        proposal: StageProposal,
     ) -> list[StageFinding]:
-        """The findings of the checks of the files that the job writes: `openspec validate`, and
-        then the rules of `devops roadmap plan-check` (#4725). The first check that finds a problem
-        gives the findings."""
+        """The findings of the checks of the files that the job writes: `openspec validate`, the
+        plan reader (`read_change`), and then the rules of `devops roadmap plan-check` (#4725, #5214).
+        The first check that finds a problem gives the findings."""
         problem = self._validate(target.change, files)
         if problem is not None:
             return check_findings(VALIDATE_GATE, [problem])
+        try:
+            read_change(files)
+        except PlanReadError as exc:
+            return check_findings(READ_GATE, [exc.reason])
+        if problems := read_back_problems(files, proposal):
+            raise RoadmapPlanReadBackError(problems, failed_items=[target.item.number])
         return check_findings(PLAN_CHECK_GATE, self._plan_check(target, title, body, files))
 
     def _plan_check(
@@ -2576,6 +2590,14 @@ def _failure_of(
         )
     else:
         reason = mask_secrets(str(exc))
+    problems = (
+        exc.problems
+        if isinstance(exc, RoadmapPlanReadBackError)
+        else tuple(
+            mask_secrets(problem)[:CONST_ROADMAP_STAGE_REFUSED_PROBLEM_MAX_CHARS]
+            for problem in refused
+        )
+    )
     return StageFailure(
         target.item.number,
         target.item.title,
@@ -2585,10 +2607,7 @@ def _failure_of(
         failure_class=failure_class_of(exc),
         step=StepName.PLAN,
         degenerate=isinstance(exc, RoadmapStageDegenerateError),
-        problems=tuple(
-            mask_secrets(problem)[:CONST_ROADMAP_STAGE_REFUSED_PROBLEM_MAX_CHARS]
-            for problem in refused
-        ),
+        problems=problems,
         stopped_by_checks=stopped_by_checks,
     )
 
@@ -3876,7 +3895,7 @@ def _return_premise(store: RoadmapStore, premise: FalsePremise) -> None:
 def _record_failures(store: RoadmapStore, failures: Sequence[StageFailure], now: datetime) -> None:
     """Record each failure in the job record of its item: the time, the type of the error (#3493),
     the step and the failure class (#4056), in one write. The item waits for the wait of its class, and the job goes on with the others. A
-    `plan_defect` failure also writes its count on the body (#4491), and the failure that reaches
+    `plan_defect` or `plan_unreadable` failure also writes its count on the body (#4491, #5214), and the failure that reaches
     `roadmap.stage.plan_defect_limit` returns the item to New in place of that write. A
     write that fails here is no failure of an item: it ends the run, and the round counts it."""
     limit = load_settings().roadmap.stage.plan_defect_limit
@@ -3890,7 +3909,7 @@ def _record_failures(store: RoadmapStore, failures: Sequence[StageFailure], now:
             StageRecordKey.FAILED_STEP: failure.step.value,
             StageRecordKey.FAILED_CLASS: failure.failure_class.value,
         }
-        if failure.failure_class is not FailureClass.PLAN_DEFECT:
+        if failure.failure_class not in (FailureClass.PLAN_DEFECT, FailureClass.PLAN_UNREADABLE):
             store.set_marks(item, marks)
             continue
         count, body = plan_defects(item)
@@ -3911,7 +3930,7 @@ def plan_body_hash(item: Item) -> str:
 def plan_defects(item: Item) -> tuple[int, str]:
     """The count of the failures of `item` that count toward `roadmap.stage.plan_defect_limit`,
     with one more, and the hash of the body that they failed on (#4491): the `plan_defect`
-    failures, and the ends of a stage Job that count (#4559). An edit of the body starts a new
+    and `plan_unreadable` failures, and the ends of a stage Job that count (#4559, #5214). An edit of the body starts a new
     count. A count that is no number counts as none."""
     body = plan_body_hash(item)
     record = item.job_record

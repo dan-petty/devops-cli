@@ -60,6 +60,7 @@ from devops_cli.roadmap.plan_read import (
 from devops_cli.roadmap.plan_rewrite import PlanRewrite, rewrite_plan
 from devops_cli.roadmap.planned import PlannedChanges, planned_changes_at, read_planned_changes
 from devops_cli.roadmap.stage.stage_change import check_gates
+from devops_cli.roadmap.stage.stage_findings import READ_GATE
 from devops_cli.roadmap.stage.stage_paths import (
     StagedTree,
     record_module_tests,
@@ -71,7 +72,7 @@ from devops_cli.roadmap.stores.store import GitHubState, Item, RoadmapStore
 
 GIT_OPERATION: Final[str] = "roadmap.plan-recheck"
 # The gates of a refusal that `check_gates` does not name (#3498).
-GATE_READ: Final[str] = "read"
+GATE_READ: Final[str] = READ_GATE
 GATE_OPENSPEC: Final[str] = "openspec"
 _DESIGN: Final[str] = "design.md"
 _TASKS: Final[str] = "tasks.md"
