@@ -498,10 +498,6 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "GitHub comment of 65,536 characters, read by a person",
     ),
     # ── Jev completeness check of a draft (#4308) ─────────────────────────────────────────
-    "CONST_ROADMAP_JEV_MAX_DIFF_TOKENS": (
-        "window",
-        "a fourth of the 262,144-token window of Jev; the criteria and questions need the rest",
-    ),
     "CONST_ROADMAP_JEV_MAX_CRITERIA": (
         "kept",
         "an issue with more criteria than 40 is a list to split, and Jev answers all questions",

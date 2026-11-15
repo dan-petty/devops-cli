@@ -10,10 +10,10 @@ from typing import Any
 
 import pytest
 
+from devops_cli.ai.jev import max_diff_tokens
 from devops_cli.config.constants import (
     CONST_ROADMAP_JEV_CRITERION_THRESHOLD,
     CONST_ROADMAP_JEV_MAX_CRITERIA,
-    CONST_ROADMAP_JEV_MAX_DIFF_TOKENS,
     CONST_ROADMAP_JEV_MIN_TEST_SCORE,
 )
 from devops_cli.config.settings import Settings
@@ -158,7 +158,7 @@ def test_the_counter_sends_one_series_for_each_outcome(
     [
         ([], DIFF, "no acceptance criterion"),
         (["c"] * (CONST_ROADMAP_JEV_MAX_CRITERIA + 1), DIFF, "acceptance criteria"),
-        (CRITERIA, "word " * (CONST_ROADMAP_JEV_MAX_DIFF_TOKENS + 1), "tokens"),
+        (CRITERIA, "word " * (max_diff_tokens() + 1), "tokens"),
     ],
     ids=["no-criteria", "too-many-criteria", "diff-too-large"],
 )

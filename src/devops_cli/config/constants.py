@@ -2978,6 +2978,7 @@ CONST_AI_GATEWAY_HOSTED_MODELS: Final[tuple[str, ...]] = (
 )
 # TypeSafe Jev 1.14 System One decision model constants (https://docs.typesafe.ai/cookbooks).
 CONST_AI_JEV_MODEL: Final[str] = "typesafe/jev-1.14"
+# The window of the model when the genai-prices data names no window for it (#5209).
 CONST_AI_JEV_CONTEXT_WINDOW: Final[int] = 262_144
 CONST_AI_JEV_DEFAULT_ROUTE_THRESHOLD: Final[float] = 0.75
 CONST_AI_JEV_DEFAULT_BOOLEAN_THRESHOLD: Final[float] = 0.50
@@ -2995,10 +2996,9 @@ CONST_AI_JEV_ASK_MAX_LEVELS: Final[int] = 10
 CONST_AI_JEV_ASK_MIN_LEVELS: Final[int] = 2
 CONST_AI_JEV_ASK_OPTION_SEPARATOR: Final[str] = "="
 CONST_URL_TYPESAFE_API_BASE: Final[str] = "https://api.typesafe.ai/v1"
-# The Jev completeness check of a draft pull request (#4308). The check skips a draft whose diff
-# holds more tokens than this share of the Jev window (one fourth: the criteria, the questions and
-# the rubric need the rest), and an issue that lists more criteria than the cap.
-CONST_ROADMAP_JEV_MAX_DIFF_TOKENS: Final[int] = CONST_AI_JEV_CONTEXT_WINDOW // 4
+# The Jev completeness check of a draft pull request (#4308) takes its diff cap from the window
+# that genai-prices gives for the model, one fourth of it (#5209), and an issue that lists more
+# criteria than the cap.
 CONST_ROADMAP_JEV_MAX_CRITERIA: Final[int] = 40
 # A criterion whose probability of "the draft delivers it" is below this value is in doubt.
 CONST_ROADMAP_JEV_CRITERION_THRESHOLD: Final[float] = 0.50
