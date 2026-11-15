@@ -48,6 +48,7 @@ from devops_cli.exceptions import (
     GitHubOperationError,
     GitOperationError,
     RoadmapItemChangedError,
+    RoadmapPlanReadBackError,
     RoadmapStageError,
     ToolExecutionError,
 )
@@ -77,6 +78,7 @@ class FailureClass(StrEnum):
     LIMIT_REACHED = "limit_reached"
     OUTSIDE_PLAN = "outside_plan"
     GIT_CONFIG = "git_config"
+    PLAN_UNREADABLE = "plan_unreadable"
 
 
 class StepName(StrEnum):
@@ -137,6 +139,7 @@ ACTION_BY_CLASS: Final[Mapping[FailureClass, FailureAction]] = MappingProxyType(
         FailureClass.LIMIT_REACHED: FailureAction.RAISE_LIMIT,
         FailureClass.OUTSIDE_PLAN: FailureAction.WAIT,
         FailureClass.GIT_CONFIG: FailureAction.WAIT,
+        FailureClass.PLAN_UNREADABLE: FailureAction.WAIT,
     }
 )
 
@@ -149,6 +152,7 @@ CLASS_BY_EXCEPTION: Final[tuple[tuple[type[DevOpsCLIError], FailureClass], ...]]
     (RoadmapItemChangedError, FailureClass.HEAD_MOVED),
     (StructuredOutputValidationError, FailureClass.PARSER),
     (AIClientError, FailureClass.PROVIDER),
+    (RoadmapPlanReadBackError, FailureClass.PLAN_UNREADABLE),
     (RoadmapStageError, FailureClass.PLAN_DEFECT),
     (GitHubOperationError, FailureClass.CI_INFRA),
     (GitOperationError, FailureClass.CI_INFRA),
@@ -171,6 +175,7 @@ RETRY_AFTER: Final[Mapping[FailureClass, timedelta]] = MappingProxyType(
         FailureClass.PLAN_DEFECT: timedelta(hours=1),
         FailureClass.CI_INFRA: timedelta(hours=1),
         FailureClass.HEAD_MOVED: timedelta(0),
+        FailureClass.PLAN_UNREADABLE: timedelta(hours=6),
     }
 )
 

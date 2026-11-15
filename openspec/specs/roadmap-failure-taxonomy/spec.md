@@ -6,11 +6,11 @@ The failure taxonomy of the implement job: the 12 classes of a failure, the pure
 ## Requirements
 
 ### Requirement: The failure classes
-The failure taxonomy SHALL have these 20 classes: `provider`, `parser`, `test`, `lint`, `types`, `plan_defect`, `premise_false`, `oom`, `timeout`, `refused_tool`, `conflict`, `ci_infra`, `no_change_in_fix`, `tests_lost`, `head_moved`, `output_cap`, `read_only_path`, `limit_reached`, `outside_plan` and `git_config`.
+The failure taxonomy SHALL have these 21 classes: `provider`, `parser`, `test`, `lint`, `types`, `plan_defect`, `premise_false`, `oom`, `timeout`, `refused_tool`, `conflict`, `ci_infra`, `no_change_in_fix`, `tests_lost`, `head_moved`, `output_cap`, `read_only_path`, `limit_reached`, `outside_plan`, `git_config` and `plan_unreadable`.
 
 #### Scenario: The class list
 - **WHEN** a test reads the classes of the taxonomy
-- **THEN** it finds these 20 and no other
+- **THEN** it finds these 21 and no other
 
 ### Requirement: A pure classifier
 `classify_failure` SHALL map the error text, the exit status, the refusal of a tool, the name of the check and the log of the check to one class, and SHALL read no file, make no request and change no state. It SHALL NOT read the last message of the agent. Input that no rule matches SHALL be `ci_infra`.
@@ -51,11 +51,11 @@ The table test of the classifier SHALL use the stop texts of the issues #2175, #
 - **THEN** the `mypy` stop of #2175 is `types`, the tool retries of #2735 are `refused_tool`, the Ollama error of #2747 is `parser`, the failed tests of #2924 are `test`, and each synthetic stop has the class of its pattern
 
 ### Requirement: One default action for each class
-`ACTION_BY_CLASS` SHALL give each class exactly one default action: `provider`, `timeout`, `ci_infra` and `head_moved` `retry`; `parser` `change_tier`; `test`, `lint` and `types` `repair`; `plan_defect` `amend`; `premise_false` `return`; `oom`, `output_cap` and `limit_reached` `raise_limit`; `refused_tool`, `conflict`, `no_change_in_fix`, `read_only_path`, `tests_lost`, `outside_plan` and `git_config` `wait`.
+`ACTION_BY_CLASS` SHALL give each class exactly one default action: `provider`, `timeout`, `ci_infra` and `head_moved` `retry`; `parser` `change_tier`; `test`, `lint` and `types` `repair`; `plan_defect` `amend`; `premise_false` `return`; `oom`, `output_cap` and `limit_reached` `raise_limit`; `refused_tool`, `conflict`, `no_change_in_fix`, `read_only_path`, `tests_lost`, `outside_plan`, `git_config` and `plan_unreadable` `wait`.
 
 #### Scenario: The table
 - **WHEN** a test reads the table
-- **THEN** its keys are the 20 classes and each value is the action above
+- **THEN** its keys are the 21 classes and each value is the action above
 
 #### Scenario: A new runner image and a lost test
 - **WHEN** an item stopped with the class `tests_lost`, and the digest in the template differs from the digest of its Job
@@ -118,11 +118,11 @@ The module `failure.py` SHALL hold the tuple `CLASS_BY_EXCEPTION` of (exception 
 
 #### Scenario: A mapped exception
 - **WHEN** a test gives each mapped exception type to `failure_class_of`
-- **THEN** `RoadmapItemChangedError` gives `head_moved`, `StructuredOutputValidationError` gives `parser`, `AIClientError` gives `provider`, `RoadmapStageError` gives `plan_defect`, and `GitHubOperationError`, `GitOperationError`, `ToolExecutionError` and `DevOpsCLIError` give `ci_infra`
+- **THEN** `RoadmapPlanReadBackError` gives `plan_unreadable`, `RoadmapItemChangedError` gives `head_moved`, `StructuredOutputValidationError` gives `parser`, `AIClientError` gives `provider`, `RoadmapStageError` gives `plan_defect`, and `GitHubOperationError`, `GitOperationError`, `ToolExecutionError` and `DevOpsCLIError` give `ci_infra`
 
 #### Scenario: A specific type comes before its parent
-- **WHEN** the exception is a `RoadmapItemChangedError` or a `StructuredOutputValidationError`
-- **THEN** the class is `head_moved` or `parser`, and not the class of `GitHubOperationError` or `AIClientError`
+- **WHEN** the exception is a `RoadmapPlanReadBackError`
+- **THEN** the class is `plan_unreadable` and not `plan_defect`
 
 #### Scenario: A subclass with no entry
 - **WHEN** the exception is a subclass of a mapped type that has no entry of its own
@@ -141,7 +141,7 @@ The module `failure.py` SHALL hold `StepName`, a string enum of the steps that t
 - **THEN** the step is a member of `StepName` and the item waits for the time of its failure class
 
 ### Requirement: A failure class has a wait
-The module `failure.py` SHALL hold the read-only mapping `RETRY_AFTER` from each class that `CLASS_BY_EXCEPTION` gives to a `timedelta`: `provider` 1 hour, `parser` 6 hours, `plan_defect` 1 hour, `ci_infra` 1 hour and `head_moved` 0. The keys of `RETRY_AFTER` SHALL be exactly the classes of `CLASS_BY_EXCEPTION`, and no value SHALL be `None`.
+The module `failure.py` SHALL hold the read-only mapping `RETRY_AFTER` from each class that `CLASS_BY_EXCEPTION` gives to a `timedelta`: `provider` 1 hour, `parser` 6 hours, `plan_defect` 1 hour, `ci_infra` 1 hour, `head_moved` 0 and `plan_unreadable` 6 hours. The keys of `RETRY_AFTER` SHALL be exactly the classes of `CLASS_BY_EXCEPTION`, and no value SHALL be `None`.
 
 #### Scenario: The keys
 - **WHEN** a test reads the keys of `RETRY_AFTER` and the classes of `CLASS_BY_EXCEPTION`
@@ -149,7 +149,7 @@ The module `failure.py` SHALL hold the read-only mapping `RETRY_AFTER` from each
 
 #### Scenario: The waits
 - **WHEN** a test reads the value of each key
-- **THEN** it finds 1 hour for `provider`, `plan_defect` and `ci_infra`, 6 hours for `parser`, and 0 for `head_moved`
+- **THEN** it finds 1 hour for `provider`, `plan_defect` and `ci_infra`, 6 hours for `parser` and `plan_unreadable`, and 0 for `head_moved`
 
 ### Requirement: A rebase that does not start is no conflict
 When git refuses to start a rebase of the implement job, as in a checkout that holds changes, the job SHALL run no `git rebase --abort`, its reason SHALL say that the rebase did not start, and the stop SHALL have the class `ci_infra`, not `conflict`. A new Job starts from a new worktree, so the default action `retry` applies.

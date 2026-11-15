@@ -292,6 +292,35 @@ class RoadmapStageDegenerateError(RoadmapStageError):
     """
 
 
+class RoadmapPlanReadBackError(RoadmapStageError):
+    """Raised when the plan reader cannot read back the rendered files of a plan, or reads facts
+    that differ from the proposal (#5214).
+
+    A difference between the written files and the read proposal is a defect of the writer or of the
+    reader, not of the model. The message names each group and field that differ, with no text of the
+    plan.
+    """
+
+    error_code = "ROADMAP_PLAN_READ_BACK_MISMATCH"
+
+    def __init__(
+        self,
+        problems: Sequence[str] | str,
+        *,
+        failed_items: Sequence[int] = (),
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        problem_list: tuple[str, ...]
+        if isinstance(problems, str):
+            problem_list = (problems,)
+            message = problems
+        else:
+            problem_list = tuple(problems)
+            message = " ".join(problems)
+        self.problems: tuple[str, ...] = problem_list
+        super().__init__(message, failed_items=failed_items, details=details)
+
+
 class RoadmapPlanRewriteError(DevOpsCLIError):
     """Raised when `devops roadmap plan-recheck --confirm` refuses to write a rewritten plan (#3556).
 

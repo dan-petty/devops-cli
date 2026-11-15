@@ -2989,3 +2989,104 @@ def test_the_job_time_premise_reads_the_limit_from_the_body() -> None:
 
     assert premise is not None
     assert (premise.check, premise.limit_seconds) == ("Tests & Coverage", 300.0)
+
+
+@pytest.mark.usefixtures("openspec")
+@pytest.mark.parametrize(
+    "bad_group_update",
+    [
+        {
+            "title": "Group 2",
+            "kind": "other",
+            "reads": ["src/devops_cli/sample.py"],
+            "changes": ["src/devops_cli/sample.py"],
+            "test": None,
+            "verify": None,
+            "creates": [],
+            "creates_lines": {},
+            "implementation": "Update docs",
+            "process": "Check the docs, verify that `uv run devops ci docs` passes",
+        },
+        {
+            "title": "Group 2",
+            "kind": "other",
+            "reads": ["src/devops_cli/sample.py"],
+            "changes": ["src/devops_cli/sample.py"],
+            "test": None,
+            "verify": "uv run devops ci docs",
+            "creates": [],
+            "creates_lines": {},
+            "implementation": "Update docs, and run this check by hand: check something",
+            "process": None,
+        },
+    ],
+    ids=("inline_verify_in_process", "process_mark_in_implementation"),
+)
+def test_a_reply_whose_text_the_reader_refuses_goes_back_to_the_model(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    bad_group_update: dict[str, Any],
+) -> None:
+    from devops_cli.roadmap.stage.stage_change import GroupKind
+
+    behavior_group = make_stage_proposal().groups[0]
+    update = {
+        **bad_group_update,
+        "kind": GroupKind(bad_group_update["kind"]),
+    }
+    bad_other = behavior_group.model_copy(update=update)
+    bad = make_stage_proposal(groups=[behavior_group, bad_other])
+
+    model_fake.answer(bad, make_stage_proposal())
+
+    plan = _plan(store, stage_repo, model=model_fake.checking_replies())
+
+    assert len(model_fake.sent) == 2
+    assert "has both verify and process" in model_fake.sent[1].messages[-1].content
+    assert len(plan.ready) == 1
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_valid_plan_of_each_kind_passes_the_read_back(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    from devops_cli.roadmap.stage.stage_change import GroupKind
+
+    stage_repo.track({"k8s/app.yaml": "# k8s\n", "docs/README.md": "# Readme\n"})
+    behavior_group = make_stage_proposal().groups[0]
+    manifest_group = behavior_group.model_copy(
+        update={
+            "title": "Group 2",
+            "kind": GroupKind.MANIFEST,
+            "reads": ["k8s/app.yaml"],
+            "changes": ["k8s/app.yaml"],
+            "creates": [],
+            "creates_lines": {},
+            "test": "Write a test manifest in `k8s/app.yaml`",
+            "implementation": "Update manifest in `k8s/app.yaml`",
+            "verify": "uv run devops ci test k8s/app.yaml",
+        }
+    )
+    other_group = behavior_group.model_copy(
+        update={
+            "title": "Group 3",
+            "kind": GroupKind.OTHER,
+            "reads": ["docs/README.md"],
+            "changes": ["docs/README.md"],
+            "creates": [],
+            "creates_lines": {},
+            "test": None,
+            "implementation": "Update docs in `docs/README.md`",
+            "verify": "uv run devops docs check",
+        }
+    )
+    proposal = make_stage_proposal(
+        groups=[behavior_group, manifest_group, other_group],
+        security="Non-root container with read-only root filesystem.",
+    )
+    model_fake.answer(proposal)
+
+    plan = _plan(store, stage_repo)
+    assert len(plan.ready) == 1
