@@ -2404,6 +2404,7 @@ def _time_premise_of(repo: str | None) -> Callable[[StageTarget], FalsePremise |
         if premise is None:
             return None
         last: GitHubOperationError | None = None
+        report = None
         for _ in range(2):
             try:
                 report = check_job_time(
@@ -2418,9 +2419,8 @@ def _time_premise_of(repo: str | None) -> Callable[[StageTarget], FalsePremise |
                 break
             except GitHubOperationError as exc:
                 last = exc
-        else:
-            assert last is not None
-            raise last
+        if report is None:
+            raise last if last is not None else GitHubOperationError("the job-time read failed")
         failure = job_time_failure(premise, report)
         return None if failure is None else FalsePremise(target, (failure,))
 

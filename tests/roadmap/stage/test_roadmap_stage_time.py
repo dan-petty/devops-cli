@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from devops_cli.ci.job_time import JobTimeReport
 from devops_cli.exceptions import GitHubOperationError
 from devops_cli.github.client import JobRunTime
-from devops_cli.roadmap.stage.stage import FalsePremise, _plan_each
+from devops_cli.roadmap.stage.stage import FalsePremise, _plan_each, _time_premise_of
 from devops_cli.roadmap.stage.stage_time import (
     JobTimePremise,
     job_time_failure,
@@ -91,3 +93,75 @@ def test_a_job_time_read_error_is_a_ci_infra_failure() -> None:
     assert (planner.calls, premises) == (0, [])
     (failure,) = failed
     assert failure.failure_class == "ci_infra"
+
+
+def _body_target(body: str) -> object:
+    item = SimpleNamespace(number=1, title="fix(roadmap): the item", body=body)
+    return SimpleNamespace(item=item, type_="fix", slug="the-item")
+
+
+def test_the_rule_is_absent_without_a_repository() -> None:
+    assert _time_premise_of(None) is None
+
+
+def test_a_body_with_no_limit_makes_no_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[int] = []
+    monkeypatch.setattr(
+        "devops_cli.ci.job_time.check_job_time", lambda *args, **kwargs: calls.append(1)
+    )
+
+    assert (
+        _time_premise_of("dan-petty/devops-cli")(  # type: ignore[operator]
+            _body_target("The job drops the last comment.")
+        )
+        is None
+    )
+    assert calls == []
+
+
+def test_a_mean_over_the_limit_returns_the_item(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Session:
+        client = object()
+
+    monkeypatch.setattr("devops_cli.github.session.get_github_session", lambda: _Session())
+    monkeypatch.setattr(
+        "devops_cli.ci.job_time.check_job_time", lambda *args, **kwargs: _report(328, 328)
+    )
+
+    result = _time_premise_of("dan-petty/devops-cli")(_body_target(_BODY))  # type: ignore[operator]
+
+    assert isinstance(result, FalsePremise)
+    assert "328" in result.evidence[0]
+
+
+def test_a_failed_read_is_retried_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Session:
+        client = object()
+
+    calls: list[int] = []
+
+    def flaky(*args: object, **kwargs: object) -> JobTimeReport:
+        calls.append(1)
+        if len(calls) == 1:
+            raise GitHubOperationError("the first read failed")
+        return _report(300, 300)
+
+    monkeypatch.setattr("devops_cli.github.session.get_github_session", lambda: _Session())
+    monkeypatch.setattr("devops_cli.ci.job_time.check_job_time", flaky)
+
+    assert _time_premise_of("dan-petty/devops-cli")(_body_target(_BODY)) is None  # type: ignore[operator]
+    assert calls == [1, 1]
+
+
+def test_a_read_that_fails_twice_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Session:
+        client = object()
+
+    def failing(*args: object, **kwargs: object) -> JobTimeReport:
+        raise GitHubOperationError("the read failed")
+
+    monkeypatch.setattr("devops_cli.github.session.get_github_session", lambda: _Session())
+    monkeypatch.setattr("devops_cli.ci.job_time.check_job_time", failing)
+
+    with pytest.raises(GitHubOperationError, match="the read failed"):
+        _time_premise_of("dan-petty/devops-cli")(_body_target(_BODY))  # type: ignore[operator]
