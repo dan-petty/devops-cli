@@ -20,7 +20,7 @@ Service's ledger of failed rounds is kept beside the repositories' schedules
 Each row is due by its interval, by a webhook hint in the batch, or by its due rule, which
 judges the changes made since the row last succeeded: intake's is an issue reopened, or a fresh
 candidate its last round left (`IntakeRecord`, kept beside `schedule.json`). A round's intake
-decides at most `DEFAULT_ROADMAP_INTAKE_LIMIT` candidates. Refine is due every 17 minutes by default, on
+decides at most `DEFAULT_ROADMAP_INTAKE_LIMIT` candidates. Refine is due every 7 minutes by default, on
 a first run, and in a round where intake placed a critical fix or a P0 item (#1515). Stage is due
 every 37 minutes by default, on a first run, and after a round in which refine set an item Ready
 (#2659): that round stamps `stage_due` in `schedule.json`, and the next round of the lane of

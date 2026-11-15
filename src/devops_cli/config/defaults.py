@@ -865,7 +865,7 @@ DEFAULT_ROADMAP_INBOX_DRAFT_DAYS: int = 7
 DEFAULT_ROADMAP_INBOX_WAIT_DAYS: int = 7
 DEFAULT_ROADMAP_STALL_HOURS: int = 24
 # How often refine is due on its own, besides its cross-job trigger (#1515).
-DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES: int = 17
+DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES: int = 7
 DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES: int = 13
 # The minutes of hook deliveries that the metrics row counts in the gauge of failed deliveries
 # (#5017). It is longer than the metrics interval, so each delivery is in at least one read.
