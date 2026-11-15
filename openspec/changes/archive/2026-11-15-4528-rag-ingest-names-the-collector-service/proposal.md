@@ -15,7 +15,7 @@ it does not. Closes #4528.
   mounted config names the endpoint.
 - A new `k8s` row check, `tests/gate/k8s_checks/otel_endpoints.py`, fails on an
   `OTEL_EXPORTER_OTLP_ENDPOINT` in `k8s/` that names a host in `otel.svc.cluster.local` other
-  than the Collector Service, with a unit test of the check.
+  than the Collector Service, with a unit test of the check in `tests/k8s/`.
 
 ## Capabilities
 
