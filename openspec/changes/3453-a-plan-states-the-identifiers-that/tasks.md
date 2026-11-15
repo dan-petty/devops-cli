@@ -24,7 +24,7 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/stage/stage_change.py`, `src/devo
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/plan_read.py`, `src/devops_cli/roadmap/step_files.py`, `tests/roadmap/test_roadmap_plan_read.py`. Changes: `src/devops_cli/roadmap/plan_read.py`, `tests/roadmap/test_roadmap_plan_read.py`.
 
-- [ ] 3.1 `test_the_reader_takes_the_added_names_of_a_group_from_its_adds_line` in `tests/roadmap/test_roadmap_plan_read.py` builds a `tasks.md` whose behavior group holds `Adds:` with `_delivery_title` and calls `read_change`, so it fails on the base with no `adds` field; `test_the_reader_refuses_an_adds_line_with_no_code_span` holds `Adds:` with `_delivery_title` and no code span, and fails on the base because `read_change` raises no `PlanReadError`
+- [x] 3.1 `test_the_reader_takes_the_added_names_of_a_group_from_its_adds_line` in `tests/roadmap/test_roadmap_plan_read.py` builds a `tasks.md` whose behavior group holds `Adds:` with `_delivery_title` and calls `read_change`, so it fails on the base with no `adds` field; `test_the_reader_refuses_an_adds_line_with_no_code_span` holds `Adds:` with `_delivery_title` and no code span, and fails on the base because `read_change` raises no `PlanReadError`
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_plan_read.py` fails on the base
 - [ ] 3.2 Set `adds` in `_group` of `src/devops_cli/roadmap/plan_read.py` from `TaskGroup.added_names`, and raise `PlanReadError` with the reason of `adds_problem` when the line is malformed. State the `Adds:` line in the module docstring beside the kind of a group. Write the two tests first, and see them fail
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_plan_read.py` passes
