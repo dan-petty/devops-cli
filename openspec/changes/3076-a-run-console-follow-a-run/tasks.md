@@ -31,9 +31,9 @@ Kind: behavior. Reads: `src/devops_cli/commands/roadmap.py`, `src/devops_cli/lan
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/inbox.py`, `src/devops_cli/roadmap/follow.py`, `src/devops_cli/roadmap/inbox_kind.py`. Changes: `src/devops_cli/roadmap/inbox.py`, `tests/roadmap/test_roadmap_inbox.py`.
 
-- [ ] 4.1 Add `tests/roadmap/test_roadmap_inbox.py::test_only_a_line_that_names_an_item_holds_the_follow_command` first: the line of a blocked item holds the follow command with that item's number, and the line of the plan pull request of the same item holds no follow command
+- [x] 4.1 Add `tests/roadmap/test_roadmap_inbox.py::test_only_a_line_that_names_an_item_holds_the_follow_command` first: the line of a blocked item holds the follow command with that item's number, and the line of the plan pull request of the same item holds no follow command
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_inbox.py` fails on the base
-- [ ] 4.2 Add the field `item: int | None = None` to `InboxLine` in `src/devops_cli/roadmap/inbox.py`, and set it from `item.number` in `_blocked_line`, `_refine_lines`, `_split_lines`, `_alternatives_lines`, `_failed_lines` and `_claim_lines`; leave it None in `_pull_line`, `_draft_line`, `_label_lines` and `_queue_lines`, so no line whose number is a pull request's carries it. `_render_line` adds the text of `MESSAGES.roadmap.inbox_follow` with `follow_command(line.item)` only when `line.item` is not None. Pass `item=7` in `test_the_report_names_the_refine_section` of `tests/roadmap/test_roadmap_inbox.py`
+- [x] 4.2 Add the field `item: int | None = None` to `InboxLine` in `src/devops_cli/roadmap/inbox.py`, and set it from `item.number` in `_blocked_line`, `_refine_lines`, `_split_lines`, `_alternatives_lines`, `_failed_lines` and `_claim_lines`; leave it None in `_pull_line`, `_draft_line`, `_label_lines` and `_queue_lines`, so no line whose number is a pull request's carries it. `_render_line` adds the text of `MESSAGES.roadmap.inbox_follow` with `follow_command(line.item)` only when `line.item` is not None. Pass `item=7` in `test_the_report_names_the_refine_section` of `tests/roadmap/test_roadmap_inbox.py`
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_inbox.py` passes
 
 ## 5. Print the follow command from explain
