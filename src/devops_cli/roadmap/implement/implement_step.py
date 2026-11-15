@@ -1997,6 +1997,21 @@ def _failure_class(failure: _Failure | None) -> FailureClass | None:
     return failure.klass or classify_failure(FailureEvidence(text=failure.reason))
 
 
+def _one_tier_reason(reason: str, failure: _Failure | None, tiers: Sequence[str]) -> str:
+    """`reason` with the line that names `roadmap.implement.ladder` when the failure of the run
+    selects `change_tier` and the ladder holds one tier (#3569). The class is the one that the
+    failure carries, as the tier decision reads it: a check whose log reads like a parser failure
+    asks for no other tier. A person then sees the setting to change and the tier that the step
+    cannot move past."""
+    if not reason or len(tiers) != 1:
+        return reason
+    klass = failure.klass if failure is not None else None
+    if klass is None or ACTION_BY_CLASS[klass] is not FailureAction.CHANGE_TIER:
+        return reason
+    line = MESSAGES.roadmap.implement_stop_one_tier.format(tier=tiers[0])
+    return f"{reason}\n{line}"
+
+
 def _trace_attempt(
     trace: ImplementTrace | None,
     number: int,
@@ -2152,6 +2167,7 @@ def _attempt(
             message = moved
     reason = failure.reason if failure else ""
     klass = failure.klass if failure else None
+    reason = _one_tier_reason(reason, failure, tiers)
     outcome = StepOutcome(
         item=item,
         group=inputs.group.number,

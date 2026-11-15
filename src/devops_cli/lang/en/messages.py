@@ -3288,6 +3288,10 @@ class RoadmapMessages:
     implement_stop_rounds: str = (
         "The step used all its repair rounds: `roadmap.implement.repair_rounds={rounds}`."
     )
+    implement_stop_one_tier: str = (
+        "The step cannot move to another tier: roadmap.implement.ladder names one tier, {tier}. "
+        "Add a tier to the ladder to change the model."
+    )
     implement_stop_capped: str = (
         "The model reply reached the output cap of {tokens} tokens, so the call ended."
     )
