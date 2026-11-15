@@ -5,6 +5,7 @@ and leaves a title that a person changed. Intake refuses a new candidate with a 
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -37,6 +38,7 @@ from devops_cli.roadmap.run import (
 )
 from devops_cli.roadmap.stores.store import ItemField, StageRecordKey
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.roadmap_job_result import result_lines
 
 REPO = "example/roadmap"
 LONG = "Shorten the title of an item that a job leaves out because it is too long"
@@ -452,3 +454,19 @@ def test_a_default_stub_table_has_no_retitle_row_and_a_flag_or_a_runner_adds_it(
     stubbed = [row.name for row in build_stub_table({"retitle": lambda **_: JobOutcome()})]
 
     assert ("retitle" in plain, "retitle" in flagged, "retitle" in stubbed) == (False, True, True)
+
+
+def test_plan_retitle_logs_job_result_line(
+    store: InMemoryRoadmapStore, caplog: pytest.LogCaptureFixture
+) -> None:
+    number = _item(store)
+    with caplog.at_level(logging.INFO):
+        plan_retitle(store, repo=REPO, model=FakeModel(), limit=None)
+    lines = [
+        line for line in result_lines(caplog) if line.startswith("roadmap job result: job=retitle")
+    ]
+    assert len(lines) == 1
+    assert f"item=#{number}" in lines[0]
+    assert "result=retitled" in lines[0]
+    assert "success=true" in lines[0]
+    assert "first_pass=true" in lines[0]

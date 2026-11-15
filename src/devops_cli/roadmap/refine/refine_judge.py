@@ -78,11 +78,13 @@ def judge(
     )
     findings = open_findings(verify(client_of(), given), given, types=JUDGE_OPEN_TYPES)
     verdict = JudgeVerdict.REFUSED if findings else JudgeVerdict.APPROVED
+    prior = item.job_record.get(RefineRecordKey.TRIES) or ""
+    round_num = (int(prior) if prior.isdecimal() else 0) + 1
     log_job_result(
         RoadmapJob.REFINE_JUDGE,
         repo,
         item.number,
         verdict.value,
-        counts={"findings": len(findings)},
+        counts={"round": round_num, "findings": len(findings)},
     )
     return verdict, tuple(finding_line(f).removeprefix("- ") for f in findings)

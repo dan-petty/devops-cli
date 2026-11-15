@@ -71,7 +71,9 @@ def test_a_written_check_logs_its_verdict_and_its_searches(
             "success": "true",
             "class": "none",
             "infra": "false",
+            "first_pass": "true",
             "searches": "1",
+            "returns": "0",
             "reason": "none",
         }
     ]

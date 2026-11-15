@@ -356,6 +356,7 @@ class IntakeDecision:
     reasons: tuple[tuple[str, str, str], ...] = ()
     parent: int | None = None
     shadow: str | None = None
+    fallbacks: int = 0
 
     @property
     def has_writes(self) -> bool:
@@ -1265,6 +1266,7 @@ class _Planner:
             related_reason=judgement.reason if judgement.related is not None else "",
             parent=parent,
             shadow=shadow,
+            fallbacks=getattr(self.run.model, "fallbacks", 0),
         )
 
 
@@ -1446,12 +1448,20 @@ def _count_candidate(
     failure: FailureClass | None = None,
     *,
     logged: bool = True,
+    fallbacks: int = 0,
 ) -> None:
     """Count the result of one candidate, and log its result line (#4845) unless `logged` is
     False."""
     emit(ROADMAP_INTAKE_CANDIDATES_TOTAL, 1, {"repo": repo, "result": result.value})
     if logged:
-        log_job_result(RoadmapJob.INTAKE, repo, number, result.value, failure=failure)
+        log_job_result(
+            RoadmapJob.INTAKE,
+            repo,
+            number,
+            result.value,
+            failure=failure,
+            counts={"fallbacks": fallbacks},
+        )
 
 
 def _written_result(decision: IntakeDecision) -> CandidateResult:
@@ -1511,7 +1521,12 @@ def apply_intake(
         else:
             written.append(applied)
             filed = number if number is not None else next(iter(applied.filed), None)
-            _count_candidate(repo, _written_result(decision), filed)
+            _count_candidate(
+                repo,
+                _written_result(decision),
+                filed,
+                fallbacks=decision.fallbacks,
+            )
     return IntakeApplied(
         placed=sum(each.placed for each in written),
         placed_critical_or_p0=sum(each.placed_critical_or_p0 for each in written),

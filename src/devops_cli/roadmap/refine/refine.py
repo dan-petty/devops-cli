@@ -3721,7 +3721,20 @@ def _log_attempt(
         outcome, failure = _ATTEMPT_ERROR, write_failure
     else:
         outcome, failure = result.next_step.value, None
-    log_job_result(RoadmapJob.REFINE, repo, result.item.number, outcome, failure=failure)
+    prior = result.item.job_record.get(RefineRecordKey.TRIES) or ""
+    tries = (
+        result.tries
+        if isinstance(result, RefinedItem) and result.tries > 0
+        else ((int(prior) if prior.isdecimal() else 0) + 1)
+    )
+    log_job_result(
+        RoadmapJob.REFINE,
+        repo,
+        result.item.number,
+        outcome,
+        failure=failure,
+        counts={"tries": tries},
+    )
 
 
 class RefineWriter:

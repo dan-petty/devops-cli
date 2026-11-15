@@ -91,10 +91,12 @@ def test_a_round_logs_the_next_step_of_each_item_and_the_class_of_a_failed_model
             "success": success,
             "class": failure,
             "infra": infra,
+            "first_pass": first_pass,
+            "tries": "1",
         }
-        for number, result, success, failure, infra in (
-            (first, "ready", "true", "none", "false"),
-            (second, "error", "false", "provider", "true"),
+        for number, result, success, failure, infra, first_pass in (
+            (first, "ready", "true", "none", "false", "true"),
+            (second, "error", "false", "provider", "true", "false"),
         )
     ]
 

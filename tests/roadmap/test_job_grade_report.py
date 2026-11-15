@@ -79,6 +79,7 @@ def test_each_workflow_and_repository_gets_one_row(web: WebFake) -> None:
         ("alternatives", None),
         ("intake", "example/app"),
         ("fix_plan", None),
+        ("retitle", None),
     ]
 
 
@@ -360,4 +361,5 @@ def test_the_table_shows_each_workflow(web: WebFake, snapshot: SnapshotAssertion
     action, the versions, the efficiency and the signals of each row with attempts."""
     serve_grade_replies(web)
 
-    assert render_grade_report(grade_report(GradeWindow.D7, None, LOKI_URL)) == snapshot
+    report = grade_report(GradeWindow.D7, None, LOKI_URL)
+    assert render_grade_report(report) == snapshot

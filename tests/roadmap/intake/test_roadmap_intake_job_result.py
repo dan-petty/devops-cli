@@ -42,12 +42,14 @@ def test_each_candidate_logs_one_line_with_its_result_and_the_class_of_a_failed_
             "success": success,
             "class": failure,
             "infra": infra,
+            "first_pass": first_pass,
+            "fallbacks": "0",
         }
-        for number, result, success, failure, infra in (
-            (placed, "placed", "true", "none", "false"),
-            (duplicate, "duplicate", "true", "none", "false"),
-            (skipped, "skipped", "false", "none", "false"),
-            (failing, "failed", "false", "ci_infra", "true"),
+        for number, result, success, failure, infra, first_pass in (
+            (placed, "placed", "true", "none", "false", "true"),
+            (duplicate, "duplicate", "true", "none", "false", "true"),
+            (skipped, "skipped", "false", "none", "false", "false"),
+            (failing, "failed", "false", "ci_infra", "true", "false"),
         )
     ]
 

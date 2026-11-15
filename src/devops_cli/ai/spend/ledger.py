@@ -1087,6 +1087,9 @@ def track_request_spend(
         emit(AI_TOKENS_TOTAL, reasoning_tokens, tokens | {"type": "reasoning"})
     if cached:
         return rec
+    from devops_cli.roadmap.job_result import record_attempt_ai
+
+    record_attempt_ai(prompt_tokens + completion_tokens + reasoning_tokens, cost)
     # Every request a model answered adds to the spend counter, a local one 0, so the series
     # exists before the first hosted request and a dashboard shows $0, not "No data" (#1631).
     emit(AI_SPEND_USD_TOTAL, cost, source)

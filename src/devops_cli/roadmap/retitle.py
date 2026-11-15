@@ -52,6 +52,7 @@ import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict
@@ -79,7 +80,13 @@ from devops_cli.roadmap.commit_title import (
     corrected_title,
     unlisted_type,
 )
+from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.intake.intake_model import gateway_address
+from devops_cli.roadmap.job_result import (
+    RoadmapJob,
+    attempt_context,
+    log_job_result,
+)
 from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, build_title, summary_length
 from devops_cli.roadmap.stores.store import (
     IssueComment,
@@ -98,6 +105,14 @@ _ATTEMPTS = 2
 # and a title summary over the limit.
 _KEY_TYPE = "invalid-title-type"
 _KEY_LONG = "long-title"
+
+
+class RetitleResult(StrEnum):
+    """The result of an item attempt in the retitle job (#5168)."""
+
+    RETITLED = "retitled"
+    KEPT = "kept"
+    FAILED = "failed"
 
 
 class RetitleReply(BaseModel):
@@ -385,11 +400,26 @@ def plan_retitle(
     changes: list[TitleChange] = []
     skips: list[TitleSkip] = []
     for item in found[:cap]:
-        decided = _decide(store, model, item)
-        if isinstance(decided, TitleChange):
-            changes.append(decided)
-        else:
-            skips.append(decided)
+        with attempt_context():
+            decided = _decide(store, model, item)
+            if isinstance(decided, TitleChange):
+                changes.append(decided)
+                log_job_result(RoadmapJob.RETITLE, repo, item.number, RetitleResult.RETITLED.value)
+            else:
+                skips.append(decided)
+                if decided.reason == MESSAGES.roadmap.retitle_reason_person_edit:
+                    result_val = RetitleResult.KEPT.value
+                    failure = None
+                else:
+                    result_val = RetitleResult.FAILED.value
+                    failure = FailureClass.PARSER if "model" in decided.reason.lower() else None
+                log_job_result(
+                    RoadmapJob.RETITLE,
+                    repo,
+                    item.number,
+                    result_val,
+                    failure=failure,
+                )
     return RetitlePlan(
         repo=repo, changes=tuple(changes), skips=tuple(skips), left=max(len(found) - cap, 0)
     )
@@ -515,6 +545,7 @@ __all__ = [
     "RetitleModel",
     "RetitlePlan",
     "RetitleReply",
+    "RetitleResult",
     "TitleChange",
     "TitleSkip",
     "apply_retitle",
