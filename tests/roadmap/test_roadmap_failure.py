@@ -416,6 +416,11 @@ TYPED_BY_SITE = {
     FailureClass.LIMIT_REACHED,
     FailureClass.OUTSIDE_PLAN,
     FailureClass.GIT_CONFIG,
+    *(
+        (getattr(FailureClass, "PLAN_UNREADABLE"),)
+        if hasattr(FailureClass, "PLAN_UNREADABLE")
+        else ()
+    ),
 }
 
 
@@ -480,7 +485,7 @@ def test_a_signal_exit_status_beats_the_text() -> None:
 
 
 def test_the_classes_are_the_twenty_of_the_taxonomy() -> None:
-    assert {klass.value for klass in FailureClass} == {
+    expected = {
         "provider",
         "parser",
         "test",
@@ -502,6 +507,9 @@ def test_the_classes_are_the_twenty_of_the_taxonomy() -> None:
         "outside_plan",
         "git_config",
     }
+    if hasattr(FailureClass, "PLAN_UNREADABLE"):
+        expected.add("plan_unreadable")
+    assert {klass.value for klass in FailureClass} == expected
 
 
 def test_each_class_has_exactly_one_default_action_in_one_table() -> None:
@@ -510,7 +518,7 @@ def test_each_class_has_exactly_one_default_action_in_one_table() -> None:
 
 
 def test_the_default_actions_are_the_ones_of_the_design() -> None:
-    assert {klass.value: action.value for klass, action in ACTION_BY_CLASS.items()} == {
+    expected = {
         "provider": "retry",
         "parser": "change_tier",
         "test": "repair",
@@ -532,6 +540,9 @@ def test_the_default_actions_are_the_ones_of_the_design() -> None:
         "outside_plan": "wait",
         "git_config": "wait",
     }
+    if hasattr(FailureClass, "PLAN_UNREADABLE"):
+        expected["plan_unreadable"] = "wait"
+    assert {klass.value: action.value for klass, action in ACTION_BY_CLASS.items()} == expected
 
 
 def test_the_table_cannot_be_changed_at_run_time() -> None:
@@ -768,15 +779,26 @@ def test_retry_after_has_a_key_for_each_class_of_class_by_exception_and_no_other
 
 
 def test_retry_after_gives_each_class_its_wait() -> None:
-    assert {
-        klass: wait.total_seconds() / 3600 for klass, wait in failure_module.RETRY_AFTER.items()
-    } == {
+    expected = {
         FailureClass.PROVIDER: 1,
         FailureClass.PARSER: 6,
         FailureClass.PLAN_DEFECT: 1,
         FailureClass.CI_INFRA: 1,
         FailureClass.HEAD_MOVED: 0,
     }
+    if hasattr(FailureClass, "PLAN_UNREADABLE"):
+        expected[getattr(FailureClass, "PLAN_UNREADABLE")] = 6
+    assert {
+        klass: wait.total_seconds() / 3600 for klass, wait in failure_module.RETRY_AFTER.items()
+    } == expected
+
+
+def test_class_by_exception_maps_roadmap_plan_read_back_error_to_plan_unreadable() -> None:
+    from devops_cli.exceptions import RoadmapPlanReadBackError
+    from devops_cli.roadmap.failure import failure_class_of
+
+    err = RoadmapPlanReadBackError(["missing task"], failed_items=[1])
+    assert failure_class_of(err) == FailureClass.PLAN_UNREADABLE
 
 
 def test_retry_after_is_a_table_that_no_caller_can_change() -> None:

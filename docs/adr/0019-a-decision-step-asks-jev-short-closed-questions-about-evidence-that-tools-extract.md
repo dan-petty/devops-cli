@@ -4,7 +4,7 @@ date: 2026-11-09
 decision-makers: [owner]
 issue: 4326
 amended-by: ["0020"]
-body-hash: 7350fe6b7ca479150f59a95dfda2eec2aa3acaaf642b160b53fc3f27fc0fb81b
+body-hash: 45e279c3cfa96d7f852c2f9948aac1486600b61d81e42da685139adfb0249ec2
 ---
 
 # A decision step asks Jev short closed questions about evidence that tools extract
@@ -46,7 +46,7 @@ One small module holds the shared parts: the typed question set, the request bui
 | Rank | Decision point | Outcomes | Why it fits | Status |
 | :--- | :--- | :--- | :--- | :--- |
 | 1 | The screen before the verify step (#4282): skip the tool-using reviewer, or run it | skip, run, flag | The outcome is binary. The golden set labels the defects. The reviewer is the fallback. A skip saves an agent run. | Pilot 1 |
-| 2 | The class of a failure when no regex rule matches (`src/devops_cli/roadmap/failure.py`) | one of the 19 `FailureClass` values, or `ci_infra` | A closed choice. The default is known. The stored failures are labelled by their typed causes. | Pilot 2, no go: a rule fixes it (#4390) |
+| 2 | The class of a failure when no regex rule matches (`src/devops_cli/roadmap/failure.py`) | one of the 20 `FailureClass` values, or `ci_infra` | A closed choice. The default is known. The stored failures are labelled by their typed causes. | Pilot 2, no go: a rule fixes it (#4390) |
 | 3 | The tier of a stage run (#4284) | tier, high risk | A closed choice with a score. The real result is the label. | Shadow only, after the pilots |
 | 4 | The `type/*` label of an intake item when the title gives none | one of the type labels | A closed choice over a short title. | Later, with bands |
 | 5 | A tool call of an agent (`gate_tool_call_with_jev`) | run, review, block | Short evidence: the tool name and the arguments. | Never alone: it adds to a deterministic control |

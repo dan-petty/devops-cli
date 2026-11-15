@@ -1515,3 +1515,55 @@ def test_a_branch_stop_logs_a_warning(
     assert [left.number for left in run.left_out] == [plan1.number]
     warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
     assert any("another author" in msg and f"#{plan1.pull}" in msg for msg in warning_messages)
+
+
+@pytest.mark.parametrize("gated", [False, True], ids=("no_gated", "with_gated"))
+def test_a_revision_that_does_not_read_back_is_not_pushed(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    verifier: ModelFake,
+    github_api: GitHubApiFake,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    gated: bool,
+) -> None:
+    from devops_cli.roadmap.stage import stage as stage_module
+
+    plan = (
+        needs_fix_plan(store, stage_repo, github_api, files=plan_files(_missing()))
+        if gated
+        else needs_fix_plan(store, stage_repo, github_api)
+    )
+    verifier.answer(Verification(findings=[finding(DefectType.CRITERION_DROPPED)]))
+    repaired = make_stage_proposal(why=REPAIRED_WHY)
+    if gated:
+        model_fake.answer(make_stage_proposal(), repaired)
+    else:
+        model_fake.answer(repaired)
+
+    original_read_back = stage_module.read_back_problems
+
+    def read_back_fake(files: Any, proposal: Any) -> list[str]:
+        if proposal.why == REPAIRED_WHY:
+            return ["group 1 test differs"]
+        return original_read_back(files, proposal)
+
+    monkeypatch.setattr(stage_module, "read_back_problems", read_back_fake)
+
+    with caplog.at_level(logging.INFO):
+        run = _run(store, stage_repo, verifier)
+
+    assert run.attempt is not None
+    head = stage_repo.origin_git("rev-parse", PLAN_BRANCH)
+    (line,) = result_fields(caplog)
+    if gated:
+        assert run.attempt.result is FixPlanResult.REGATED
+        assert head != plan.head
+        assert (line["result"], line["class"]) == ("regated", "plan_unreadable")
+    else:
+        assert run.attempt.result is FixPlanResult.FAILED
+        assert head == plan.head
+        assert _record(store)[FixPlanRecordKey.RESULT] == "failed"
+        assert _record(store)[FixPlanRecordKey.ATTEMPTS] == "1"
+        assert (line["result"], line["class"]) == ("failed", "plan_unreadable")

@@ -423,3 +423,17 @@ def test_a_degenerate_reply_at_the_limit_gives_one_bullet(
     bullets = _bullets(comment)
     assert bullets
     assert len(bullets) == len(set(bullets))
+
+
+def test_plan_unreadable_counts_toward_the_limit() -> None:
+    from devops_cli.roadmap.failure import FailureClass
+
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    number = seed_stageable(store)
+    _fail(store, number, failure_class=FailureClass.PLAN_UNREADABLE)
+    assert _count(store, number) == "1"
+    _fail(store, number, failure_class=FailureClass.PLAN_UNREADABLE)
+    assert _count(store, number) == "2"
+    _fail(store, number, failure_class=FailureClass.PLAN_UNREADABLE)
+    assert _status(store, number) == "New"
+    assert _count(store, number) is None

@@ -327,3 +327,35 @@ def test_a_failure_writes_the_four_keys_with_one_write_of_marks() -> None:
             StageRecordKey.FAILED_CLASS.value: "provider",
         }
     ]
+
+
+def test_a_read_back_error_has_the_class_plan_unreadable() -> None:
+    from devops_cli.exceptions import RoadmapPlanReadBackError
+    from devops_cli.roadmap.failure import failure_class_of
+
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    number = seed_stageable(store)
+    item = store.item(number)
+    assert item is not None
+    exc = RoadmapPlanReadBackError(["missing task"], failed_items=[number])
+    plan = StagePlan(
+        STAGE_REPO,
+        failed=(
+            StageFailure(
+                number,
+                item.title,
+                type(exc).__name__,
+                str(exc),
+                item,
+                failure_class=failure_class_of(exc),
+                step=failure_module.StepName.PLAN,
+                problems=exc.problems,
+            ),
+        ),
+    )
+    apply_stage(store, plan, source=".", now=NOW)
+    assert _failure_of(store, number) == (
+        "RoadmapPlanReadBackError",
+        "plan_unreadable",
+        "plan",
+    )
