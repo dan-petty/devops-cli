@@ -903,3 +903,12 @@ def test_the_stage_prompt_colocates_an_enum_change_with_its_prompt_update() -> N
     assert "same group as the prompt or document update" in prompt
     assert "schema enum or constant" in prompt
     assert "fails that test alone" in prompt
+
+
+def test_the_stage_prompt_names_the_declared_dependencies() -> None:
+    """The prompt tells the model to read `issue_dependencies` and to write `#<number>: <reason>`
+    (#4008)."""
+    assert (
+        "issue_dependencies" in _PROMPT,
+        "#<number>: <reason>" in _PROMPT,
+    ) == (True, True)

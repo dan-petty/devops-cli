@@ -64,6 +64,7 @@ MODEL_KEYS = [
     "rejected_plan",
     "overlaps",
     "metric_senders",
+    "issue_dependencies",
     "probes",
 ]
 
@@ -80,6 +81,7 @@ def _fields(**overrides: Any) -> dict[str, Any]:
         "rejected_plan": "A person rejected the plan: the sample is out of date.",
         "overlaps": [PULL.entry()],
         "metric_senders": {METRIC: ["docs/TELEMETRY.md"]},
+        "issue_dependencies": [{"number": 2, "title": "the first dependency"}],
         "probes": SAMPLE_PROBE,
         "issue_body": ISSUE_BODY,
         "probe_lines": (SAMPLE_PROBE,),
@@ -112,6 +114,7 @@ def test_model_json_unchanged_for_a_request_with_every_key() -> None:
         "rejected_plan": "A person rejected the plan: the sample is out of date.",
         "overlaps": [PULL.entry()],
         "metric_senders": {METRIC: ["docs/TELEMETRY.md"]},
+        "issue_dependencies": [{"number": 2, "title": "the first dependency"}],
         "probes": SAMPLE_PROBE,
     }
 
@@ -121,6 +124,7 @@ def test_model_json_unchanged_for_a_request_with_no_optional_key() -> None:
         rejected_plan=None,
         overlaps=None,
         metric_senders=None,
+        issue_dependencies=None,
         probes=None,
         overlap_pulls=(),
         probe_lines=(),
@@ -211,7 +215,9 @@ def test_model_json_unchanged_through_the_planner(
 
     (call,) = model_fake.calls
     request = json.loads(call.prompt)
-    assert list(request) == [key for key in MODEL_KEYS if key != "rejected_plan"]
+    assert list(request) == [
+        key for key in MODEL_KEYS if key not in {"rejected_plan", "issue_dependencies"}
+    ]
     assert {key: request[key] for key in ("number", "title", "body", "budget")} == {
         "number": 1,
         "title": "fix(roadmap): the job drops a comment",

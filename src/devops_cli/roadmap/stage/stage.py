@@ -177,6 +177,7 @@ from devops_cli.roadmap.pull_form import (
 from devops_cli.roadmap.pull_labels import add_pull_labels, read_title_labels, remove_pull_labels
 from devops_cli.roadmap.refine.refine import (
     NextStep,
+    body_dependencies,
     collect_context,
     git_result,
     inspect_checkout,
@@ -1231,8 +1232,12 @@ class _Planner:
         facts_source: Path | None = None,
         gate_returns: int | None = None,
         time_budget: TimeBudget | None = None,
+        dependency_title: Callable[[int], str | None] | None = None,
     ) -> None:
         self._client = client
+        # The title of a declared dependency of an item (#4008): the store of the round when the
+        # caller has one, and no title otherwise.
+        self._dependency_title = dependency_title
         # The time budget of the step fix-plan (#5363): no model call starts once it is spent, and
         # each review logs one progress line. The stage job has none.
         self._time_budget = time_budget
@@ -2037,6 +2042,7 @@ class _Planner:
             rejected_plan=self._rejected.get(item.number),
             overlaps=[overlap.entry() for overlap in pulls] or None,
             metric_senders={name: list(files) for name, files in senders.items()} or None,
+            issue_dependencies=self._declared_dependencies(item.body),
             probes=probe.text or None,
             issue_body=item.body,
             # The checks of the reply read the same lines as the model (#3200): `feasibility`
@@ -2065,6 +2071,19 @@ class _Planner:
         if self._specs_on_demand:
             return names
         return [self._specs[name].request_entry(name) for name in names]
+
+    def _declared_dependencies(self, body: str) -> list[dict[str, Any]] | None:
+        """The issues that the body declares as dependencies, each with its number and, when the
+        lookup holds the issue, its title (#4008). A dependency outside the lookup keeps its
+        number with no title."""
+        entries = []
+        for number in body_dependencies(body):
+            entry: dict[str, Any] = {"number": number}
+            title = self._dependency_title(number) if self._dependency_title is not None else None
+            if title is not None:
+                entry["title"] = title
+            entries.append(entry)
+        return entries or None
 
     def _read_overlaps(self, body: str) -> tuple[tuple[Overlap, ...], Mapping[str, Sequence[str]]]:
         """Read the open pull requests whose files meet the paths that `body` cites, and the files
@@ -2861,6 +2880,9 @@ def plan_stage(
                 **reasons_of(store, (target.item for target in read.selected)),
             },
             time_budget=time_budget,
+            dependency_title=lambda number: (
+                None if (held := store.item(number)) is None else held.title
+            ),
         )
         ready, stopped, failed, blocked, premise = _plan_each(planner, read.selected, writer)
     return replace(
@@ -2891,6 +2913,7 @@ def _planner_of(
     facts_source: Path | None = None,
     gate_returns: int | None = None,
     time_budget: TimeBudget | None = None,
+    dependency_title: Callable[[int], str | None] | None = None,
 ) -> _Planner:
     """The planner for the checkout at `sha`: it reads the tracked files, the capabilities and the
     context window of the `stage` task once. With a `toolbox` model, a plan run calls the
@@ -2946,6 +2969,7 @@ def _planner_of(
         facts_source=facts_source,
         gate_returns=gate_returns,
         time_budget=time_budget,
+        dependency_title=dependency_title,
     )
 
 
