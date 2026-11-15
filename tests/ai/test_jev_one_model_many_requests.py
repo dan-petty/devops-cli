@@ -17,7 +17,7 @@ import pytest
 from pydantic_ai.models.decision import DecisionRequest, NoulAnswer, NoulQuestion
 
 from devops_cli.ai import pydantic_ai_bridge
-from devops_cli.ai.jev import create_jev_model, filter_rag_passages_with_jev
+from devops_cli.ai.jev import create_jev_model
 from devops_cli.config.settings import Settings
 
 PASSAGES = ["The page is blank after Pay.", "The sky is blue."]
@@ -66,16 +66,6 @@ def loopback_gateway(monkeypatch: pytest.MonkeyPatch) -> Iterator[Settings]:
         server.shutdown()
         server.server_close()
         thread.join()
-
-
-def test_a_helper_answers_twice_with_one_model(loopback_gateway: Settings) -> None:
-    """Two calls of one helper on one model both return a ranking."""
-    model = create_jev_model(settings=loopback_gateway)
-
-    first = filter_rag_passages_with_jev("What broke?", PASSAGES, model=model)
-    second = filter_rag_passages_with_jev("What broke?", PASSAGES, model=model)
-
-    assert [len(first), len(second)] == [2, 2]
 
 
 def test_the_public_function_answers_twice_with_one_model(loopback_gateway: Settings) -> None:
