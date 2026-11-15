@@ -5,8 +5,7 @@ from __future__ import annotations
 import pytest
 import yaml
 
-from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS, OPTIONAL_FEATURE_SECRETS
-from tests.support.helm import helm
+from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS
 from tests.support.paths import REPO_ROOT
 
 VALUES = REPO_ROOT / "k8s/monitoring/grafana-values.yaml"
@@ -19,6 +18,8 @@ CHART_VERSION = "14.4.1"
 def test_the_grafana_container_reads_the_renderer_token_as_optional() -> None:
     """The chart writes a required secretKeyRef; the values repeat it as optional after it
     (#5200)."""
+    from tests.support.helm import helm
+
     result = helm(
         "template",
         "grafana",
@@ -54,6 +55,8 @@ def test_the_grafana_container_reads_the_renderer_token_as_optional() -> None:
 
 def test_the_optional_feature_secret_is_in_the_cluster_secret_table() -> None:
     """The list names a Secret of the cluster Secret table (#5200)."""
+    from devops_cli.k8s.cluster_secrets import OPTIONAL_FEATURE_SECRETS
+
     refs = {secret.ref for secret in CLUSTER_SECRETS}
 
     assert set(OPTIONAL_FEATURE_SECRETS) <= refs
