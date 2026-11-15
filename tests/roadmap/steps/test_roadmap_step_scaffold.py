@@ -7,6 +7,7 @@ and structural invariant that no stage module other than steps/scaffold.py creat
 from __future__ import annotations
 
 import ast
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -144,3 +145,32 @@ def test_no_stage_module_other_than_scaffold_creates_plan_branch_ref() -> None:
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
         ]
         assert "create_ref" not in calls, f"{module_path} must not call create_ref"
+
+
+def test_run_scaffold_unknown_item_raises_value_error(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo
+) -> None:
+    with pytest.raises(ValueError, match="Item #999 not found in roadmap store"):
+        run_scaffold(store, repo=STAGE_REPO, item=999, source=stage_repo.clone)
+
+
+def test_run_scaffold_local_holder_holds(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo
+) -> None:
+    number = seed_stageable(store)
+    from devops_cli.git.worktree_add import worktree_directory
+
+    wt_dir = worktree_directory(number, stage_repo.clone)
+    wt_dir.mkdir(parents=True, exist_ok=True)
+    (wt_dir / ".git").write_text("gitdir: ...\n")
+
+    report = run_scaffold(store, repo=STAGE_REPO, item=number, source=stage_repo.clone)
+    assert report.result == ScaffoldResult.HELD
+    assert "worktree" in (report.holder or "")
+
+
+def test_is_app_author_with_bot_login(stage_repo: StageRepo, config: Callable[..., Path]) -> None:
+    from devops_cli.roadmap.steps.scaffold import _is_app_author
+
+    config(service={"github_app": {"slug": "my-bot"}})
+    assert _is_app_author("my-bot[bot]", stage_repo.clone) is True

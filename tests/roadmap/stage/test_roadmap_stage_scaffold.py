@@ -120,13 +120,14 @@ def test_a_stage_round_killed_after_checkpoint_push_resumes_with_zero_planner_ca
     assert _pushed(stage_repo) == [BRANCH, "main"]
     assert len(model_fake.calls) == 1
 
-    # Round 2: worker runs again on the same item
+    # Round 2: worker runs again on the same item with no local kept-plan file on disk
     # Model fake has no more queued answers, so any planner call would fail or record a call
     model_fake.sent.clear()
     model_fake.calls.clear()
     openspec_fake.script_sequence(validate_args("1-the-job-drops-a-comment"), (0, VALID_REPORT))
 
-    _plan2, staged, removed, failed = _stage_round(staging, stage_repo, now=LATER)
+    with patch("devops_cli.roadmap.stage.stage.read_plan_record", return_value=None):
+        _plan2, staged, removed, failed = _stage_round(staging, stage_repo, now=LATER)
 
     assert failed == ()
     assert staged == (1,)

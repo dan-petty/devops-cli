@@ -84,3 +84,30 @@ def test_scaffold_cmd_dry_run_sends_no_requests(
 
     assert result.exit_code == 0, result.output
     assert github_api.requested == []
+
+
+def test_scaffold_cmd_missing_item_exits_one(cli: Cli, stage_repo: StageRepo) -> None:
+    result = _scaffold(cli, stage_repo, "--kind", "plan")
+    assert result.exit_code == 1
+    assert "Pass --item" in result.output
+
+
+def test_scaffold_cmd_invalid_repo_exits_one(cli: Cli, stage_repo: StageRepo) -> None:
+    result = _scaffold(cli, stage_repo, "--item", "1", "--repo", "invalid")
+    assert result.exit_code == 1
+    assert "Cannot resolve the repository" in result.output
+
+
+def test_scaffold_cmd_devops_cli_error_exits_one(
+    cli: Cli, stage_repo: StageRepo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from devops_cli.exceptions import DevOpsCLIError
+    from devops_cli.roadmap.steps import scaffold as scaffold_mod
+
+    def _fail(*args: Any, **kwargs: Any) -> Any:
+        raise DevOpsCLIError("Simulated failure")
+
+    monkeypatch.setattr(scaffold_mod, "run_scaffold", _fail)
+    result = _scaffold(cli, stage_repo, "--item", "1", "--kind", "plan")
+    assert result.exit_code == 1
+    assert "Could not scaffold item" in result.output
