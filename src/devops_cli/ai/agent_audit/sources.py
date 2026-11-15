@@ -90,6 +90,8 @@ def _source(source: str) -> _Source:
 
 def _checked(source: str) -> str:
     """`source` when the audit reads it, and the error of a name outside the closed set."""
+    if source == "files":
+        source = SOURCE_AGENT_FILES
     if source not in _SOURCES:
         raise ValidationError(
             f"Unknown agent audit source {source!r}. Choose one of: {', '.join(SOURCES)}.",

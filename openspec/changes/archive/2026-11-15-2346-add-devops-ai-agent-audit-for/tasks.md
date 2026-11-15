@@ -76,18 +76,18 @@ Kind: behavior. Reads: `src/devops_cli/commands/roadmap.py`, `src/devops_cli/ai/
 
 Kind: behavior. Reads: `src/devops_cli/commands/ai.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/ai/agent_audit/report.py`, `src/devops_cli/ai/agent_audit/store.py`, `src/devops_cli/ai/agent_audit/tracked.py`, `src/devops_cli/ai/agent_audit/grouping.py`, `src/devops_cli/ai/agent_audit/sources.py`, `src/devops_cli/ai/agent_audit/filing.py`. Changes: `src/devops_cli/commands/ai_agent_audit.py` (new), `src/devops_cli/commands/ai.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/lang/en/messages.py`, `tests/commands/test_ai_agent_audit.py` (new).
 
-- [ ] 9.1 Write `tests/commands/test_ai_agent_audit.py::test_confirm_calls_file_drafts_once` first: it fails because the command does not exist
+- [x] 9.1 Write `tests/commands/test_ai_agent_audit.py::test_confirm_calls_file_drafts_once` first: it fails because the command does not exist
   - Verification: `$ uv run devops ci test tests/commands/test_ai_agent_audit.py` fails on the base
-- [ ] 9.2 Add `src/devops_cli/commands/ai_agent_audit.py` with options `--since`, `--source`, `--repo-dir`, `--json`, `--plan`, `--confirm`, and `--dry-run`, decorated with `@dry_run_class("request-plan")`. Register the command with `@app.command("agent-audit")` in `src/devops_cli/commands/ai.py`. Add localized messages in `src/devops_cli/lang/en/messages.py` and help entries in `src/devops_cli/lang/en/help.py`. Refuse `--dry-run` with `--confirm`, verified by `test_dry_run_with_confirm_is_refused`. Wire `--confirm` to `file_drafts`
+- [x] 9.2 Add `src/devops_cli/commands/ai_agent_audit.py` with options `--since`, `--source`, `--repo-dir`, `--json`, `--plan`, `--confirm`, and `--dry-run`, decorated with `@dry_run_class("request-plan")`. Register the command with `@app.command("agent-audit")` in `src/devops_cli/commands/ai.py`. Add localized messages in `src/devops_cli/lang/en/messages.py` and help entries in `src/devops_cli/lang/en/help.py`. Refuse `--dry-run` with `--confirm`, verified by `test_dry_run_with_confirm_is_refused`. Wire `--confirm` to `file_drafts`
   - Verification: `$ uv run devops ci test tests/commands/test_ai_agent_audit.py` passes
 
 ## 10. Regenerate the command reference
 
 Kind: other. Reads: `src/devops_cli/commands/ai_agent_audit.py`. Changes: `docs/CLI_REFERENCE.md`, `docs/commands/ai.md`.
 
-- [ ] 10.1 Run `uv run devops docs generate` and commit regenerated `docs/CLI_REFERENCE.md` and `docs/commands/ai.md`
+- [x] 10.1 Run `uv run devops docs generate` and commit regenerated `docs/CLI_REFERENCE.md` and `docs/commands/ai.md`
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 10.2 Regenerate `docs/CLI_REFERENCE.md` and `docs/commands/ai.md` with `uv run devops docs generate`, so the index and the `ai` group page list the new command and its options
+- [x] 10.2 Regenerate `docs/CLI_REFERENCE.md` and `docs/commands/ai.md` with `uv run devops docs generate`, so the index and the `ai` group page list the new command and its options
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria

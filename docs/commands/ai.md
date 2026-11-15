@@ -538,6 +538,28 @@ devops ai constellation [OPTIONS]
 
 ---
 
+## `devops ai agent-audit`
+
+**Count recurring problems across agent sessions, group findings, and file candidate drafts.**
+
+```bash
+devops ai agent-audit [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--since` | `integer` | `30` | Only read transcripts newer than this number of days (default: 30). |
+| `--source` | `string` | - | Source to read: transcripts, shell, agent-files, or files (default: transcripts). |
+| `--repo-dir` | `path` | - | Root directory of the repository to audit. |
+| `--json` | `boolean` | - | Output findings or metrics as JSON. |
+| `--plan` | `boolean` | - | Plan the audit without writing issues or stores. |
+| `--confirm` | `boolean` | - | File candidate drafts through devops roadmap intake. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
 ## `devops ai review`
 
 **AI-powered code review and group analysis system.**
