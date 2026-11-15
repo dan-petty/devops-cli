@@ -291,6 +291,14 @@ def test_the_template_prices_both_reference_models() -> None:
     } == {"qwen3.8:27b": (0.035, 1.5), "qwen/qwen3-embedding-8b": (0.01, 0.0)}
 
 
+def test_the_template_names_the_decision_model() -> None:
+    """The three images know the key, so the template sets the decision model (#4446)."""
+    rendered = render_active_devops_configmap(PRODUCT, settings=_settings(["owner/repo"], APP))
+    inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
+
+    assert Settings.model_validate(inner).ai.decision_model == "typesafe/jev-1.14"
+
+
 def test_the_comment_above_the_reference_models_gives_the_decision_and_the_prices() -> None:
     """A reader of the template learns who decided, when, and which prices the names stand for."""
     template = (REPO_ROOT / "k8s" / "devops" / "configmap.example.yaml").read_text(encoding="utf-8")
