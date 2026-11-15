@@ -54,8 +54,9 @@ _MODULE_FIXTURE = '@pytest.fixture(scope="module")'
 # placeholder summary of case 3167 at the kind gate. The case of #3408 adds one defect that no gate
 # judges. The case of #3462 adds one defect that the `paths` gate judges: a requirement text over
 # the OpenSpec limit (#4524). The case of #3464 adds one defect that the `paths` gate judges: the
-# verify of case 2576 runs a test module that no list of group 1 names (#3463).
-JUDGED_BASELINE: Final[tuple[int, int]] = (83, 320)
+# verify of case 2576 runs a test module that no list of group 1 names (#3463). The case of #3390
+# adds one defect that the `paths` gate judges: a plan that states a wrong constant.
+JUDGED_BASELINE: Final[tuple[int, int]] = (84, 321)
 
 
 @pytest.fixture(scope="module")
@@ -753,6 +754,43 @@ def test_the_replay_passes_recorded_constants(cases: list[StageCase]) -> None:
         "SUMMARY_MAX_CHARS is 60 in the staged tree, but the plan says 40." in p
         for p in replay_constants.problems[GateName.PATHS]
     )
+
+
+WRONG_CONSTANT_CASE = "3410-a-plan-that-states-a-wrong-constant"
+_CHANGE_ISSUE = "3390"
+
+
+def _change_tasks() -> str:
+    """The `tasks.md` of the change of #3390, from the active folder or from the archive."""
+    changes = REPO_ROOT / "openspec" / "changes"
+    folders = sorted(changes.glob(f"{_CHANGE_ISSUE}-*")) + sorted(
+        (changes / "archive").glob(f"*-{_CHANGE_ISSUE}-*")
+    )
+    return (folders[0] / "tasks.md").read_text(encoding="utf-8")
+
+
+def test_the_change_marks_the_case_of_a_wrong_constant_done() -> None:
+    """The case is the kept work of the first task of the group, and the change records that task
+    as done once the case exists (#3390)."""
+    assert "- [x] 1.1 " in _change_tasks()
+
+
+def test_the_replay_catches_the_case_of_a_wrong_constant(cases: list[StageCase]) -> None:
+    """A recorded case whose plan states a constant value that the staged tree does not hold is
+    refused by the `paths` gate, which runs the constants rule (#3390)."""
+    case = next(found for found in cases if found.name == WRONG_CONSTANT_CASE)
+    replay = replay_case(case)
+    (outcome,) = replay.outcomes
+    assert (outcome.status, outcome.defect.type, outcome.defect.gate) == (
+        DefectStatus.CAUGHT,
+        DefectType.OTHER,
+        GateName.PATHS,
+    )
+    assert (
+        "SUMMARY_MAX_CHARS is 60 in the staged tree, but the plan says 40."
+        in (replay.problems[GateName.PATHS])
+    )
+    assert replay.failures == []
 
 
 def test_the_prompt_keys_gate_catches_the_prompt_key_missing_type() -> None:
