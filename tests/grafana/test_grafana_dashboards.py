@@ -1151,6 +1151,30 @@ def test_cli_dashboard_panels_do_not_overlap() -> None:
         ) == (True, True, True)
 
 
+def test_the_inbox_panel_charts_each_counted_kind() -> None:
+    """The row of the oldest item age holds the inbox counts as a bar gauge: eight counted kinds
+    are more than the three entities that a line chart may show (#2968, docs/DESIGN.md rule C15)."""
+    dash = json.loads((_PRODUCT_DASHBOARDS / "project-metrics.json").read_text(encoding="utf-8"))
+    (panel,) = [p for p in dash["panels"] if p.get("title") == "Inbox Items by Kind"]
+
+    assert (
+        panel["type"],
+        panel["fieldConfig"]["defaults"]["unit"],
+        panel["gridPos"],
+        [(target["expr"], target["legendFormat"]) for target in panel["targets"]],
+    ) == (
+        "bargauge",
+        "short",
+        {"h": 8, "w": 12, "x": 12, "y": 34},
+        [
+            (
+                "sum by (kind) (last_over_time(devops_cli_roadmap_inbox_items[$__range]))",
+                "{{kind}}",
+            )
+        ],
+    )
+
+
 def test_product_dashboards_have_top_bar_links() -> None:
     """Verify each product dashboard defines top-bar links to sibling dashboards."""
     for dash_name in ("devops-cli.json", "roadmap-service-telemetry.json", "devops-ai-rag.json"):

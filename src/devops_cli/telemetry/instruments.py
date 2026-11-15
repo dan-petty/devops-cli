@@ -501,6 +501,40 @@ ROADMAP_CLAIM_AGE = Instrument(
     "Age of the oldest claim on an open roadmap item, by repo. The age is the time since the "
     "owner label was set. Zero when no open item holds a claim",
 )
+ROADMAP_INBOX_ITEMS = Instrument(
+    "devops_cli_roadmap_inbox_items",
+    InstrumentKind.GAUGE,
+    "1",
+    "Lines of the inbox of a repository that wait for a person, by repo and kind: blocked, "
+    "refine, split, alternatives, failed, stage_retry, claim and labels. The kind queue is not "
+    "counted, and an item adds one line for each kind that it matches. The metrics row of the "
+    "Service and the inbox command send the count of each kind. One repository adds at most 8 "
+    "series, so seven repositories add at most 56 series",
+)
+ROADMAP_PERSON_CAUSE_INFLOW_TOTAL = Instrument(
+    "devops_cli_roadmap_person_cause_inflow_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Items that a typed person cause added to the roadmap, one count for each item, by repo and "
+    "cause: premise_reject, owner_question, supervise_cap, watch_cycles, refine_wait or "
+    "intake_duplicate. One repository adds at most 6 series",
+)
+ROADMAP_PERSON_CAUSE_OUTFLOW_TOTAL = Instrument(
+    "devops_cli_roadmap_person_cause_outflow_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Items that a typed person cause closed or released, one count for each item, by repo and "
+    "cause: premise_reject, owner_question, supervise_cap, watch_cycles, refine_wait or "
+    "intake_duplicate. One repository adds at most 6 series",
+)
+ROADMAP_PERSON_CAUSE_AGE = Instrument(
+    "devops_cli_roadmap_person_cause_age_seconds",
+    InstrumentKind.GAUGE,
+    "s",
+    "Age of the oldest open roadmap item that a typed person cause holds, by repo and cause: "
+    "premise_reject, owner_question, supervise_cap, watch_cycles, refine_wait or "
+    "intake_duplicate. Zero when no open item is in the pair. One repository adds at most 6 series",
+)
 ROADMAP_ROW_SECONDS = Instrument(
     "devops_cli_roadmap_row_seconds",
     InstrumentKind.HISTOGRAM,
@@ -889,6 +923,10 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_ITEMS,
     ROADMAP_STALLED_ITEMS,
     ROADMAP_CLAIM_AGE,
+    ROADMAP_INBOX_ITEMS,
+    ROADMAP_PERSON_CAUSE_INFLOW_TOTAL,
+    ROADMAP_PERSON_CAUSE_OUTFLOW_TOTAL,
+    ROADMAP_PERSON_CAUSE_AGE,
     ROADMAP_ROW_SECONDS,
     ROADMAP_ROW_QUEUE_ITEMS,
     ROADMAP_ROW_INTERVAL_SECONDS,
@@ -1041,12 +1079,16 @@ __all__ = [
     "ROADMAP_COMMENT_REPEATS_REFUSED_TOTAL",
     "ROADMAP_CONFLICTED_PULLS",
     "ROADMAP_FIX_PLAN_TOTAL",
+    "ROADMAP_INBOX_ITEMS",
     "ROADMAP_INTAKE_CANDIDATES_TOTAL",
     "ROADMAP_ITEMS",
     "ROADMAP_ITEM_AGE",
     "ROADMAP_JEV_COMPLETENESS_TOTAL",
     "ROADMAP_OLDEST_ITEM",
     "ROADMAP_PAGE_FETCHES_TOTAL",
+    "ROADMAP_PERSON_CAUSE_AGE",
+    "ROADMAP_PERSON_CAUSE_INFLOW_TOTAL",
+    "ROADMAP_PERSON_CAUSE_OUTFLOW_TOTAL",
     "ROADMAP_RECORD_LOST_EDIT_TOTAL",
     "ROADMAP_RECORD_REPAIRS_TOTAL",
     "ROADMAP_REFINE_COMMENTS_CAPPED_TOTAL",

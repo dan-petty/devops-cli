@@ -135,6 +135,7 @@ from devops_cli.roadmap.alternatives import (
 )
 from devops_cli.roadmap.failure import FailureClass, failure_class_of, retry_after
 from devops_cli.roadmap.implement.implement_submit import run_implement_round
+from devops_cli.roadmap.inbox import emit_inbox_counts, read_inbox
 from devops_cli.roadmap.intake.intake import (
     IntakeApplied,
     IntakePlan,
@@ -938,7 +939,8 @@ def _run_metrics_adapter(
     Item of each state, which only this row asks for (#2919). Then read the deliveries of the
     hooks of the repository that got no 2xx answer before `now`, into the Service's gauge
     (#5017). A failed collection, a failed read of the hooks and a missing clone fail the row
-    (#4052); the status pages have rows of their own."""
+    (#4052); the status pages have rows of their own. The inbox of the repository gives one gauge
+    for each counted kind, and a failed read of it sends none this round (#2968)."""
     from devops_cli.github.hook_deliveries import report_delivery_failures
     from devops_cli.github.metrics import (
         collect_project_metrics_report,
@@ -946,12 +948,38 @@ def _run_metrics_adapter(
     )
 
     clone = _job_clone("metrics", clone_path)
+    at = now or datetime.now(UTC)
     report = collect_project_metrics_report(
         root=clone, repo=repo or None, store=store, item_ages=True
     )
     emit_project_metrics_telemetry(report)
-    report_delivery_failures(report.repo, now or datetime.now(UTC))
+    report_delivery_failures(report.repo, at)
+    _emit_inbox_gauges(store, report.repo, at)
     return JobOutcome()
+
+
+def _emit_inbox_gauges(store: RoadmapStore, repo: str, now: datetime) -> None:
+    """Send the count of each counted kind of the inbox of `repo` (#2968). A read that fails logs
+    a warning and sends no count this round, and the other gauges of the row stay, as a failed
+    read of the item ages does (#2919)."""
+    settings = load_settings()
+    try:
+        inbox = read_inbox(
+            store,
+            repo=repo,
+            now=now,
+            planned_limit=settings.roadmap.stage.planned_limit,
+            draft_days=settings.roadmap.inbox.draft_days,
+            wait_days=settings.roadmap.inbox.wait_days,
+        )
+    except DevOpsCLIError as exc:
+        logger.warning(
+            "No inbox count is sent for %s this round, because its inbox could not be read: %s",
+            repo,
+            exc,
+        )
+        return
+    emit_inbox_counts(inbox, repo=repo)
 
 
 def _run_github_status_adapter(**_: Any) -> JobOutcome:

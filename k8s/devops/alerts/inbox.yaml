@@ -1,0 +1,35 @@
+# The person causes of the roadmap (#2968): the items that a typed person cause adds to the
+# roadmap, as the counter devops_cli_roadmap_person_cause_inflow_total of the roadmap Service
+# (job="roadmap-service") counts them. The instrument description names the labels and the causes
+# (src/devops_cli/telemetry/instruments.py).
+#
+# A day that brings more than 24 items to a person is over the daily cap: the person cannot read,
+# decide and answer them, so the inbox grows and the older items wait longer.
+# The collector starts a stream again from zero after an hour with no sample (k8s/otel/values.yaml,
+# max_stale), so the increase over a day is a lower bound of that day's inflow, and the rule never
+# counts a sample twice.
+#
+# The infra stack installs the PrometheusRule CRD (prometheus-operator-crds, HELM_RELEASES_BY_STACK).
+# The label release names the Prometheus release of the monitoring namespace, which selects the
+# objects of this kind.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: roadmap-person-cause
+  namespace: monitoring
+  labels:
+    release: prometheus
+spec:
+  groups:
+    - name: roadmap-person-cause
+      rules:
+        # The cap is one item an hour, the pace at which a person reads and answers the inbox of a
+        # repository.
+        - alert: RoadmapPersonCauseInflowHigh
+          expr: sum(increase(devops_cli_roadmap_person_cause_inflow_total{job="roadmap-service"}[24h])) > 24
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "The person causes added more than 24 items to the roadmap in the last day"
+            description: "The typed person causes of the roadmap added {{ printf \"%.0f\" $value }} items in the last day, over the daily cap of 24. The inbox waits for a person, and each item that waits delays the next (docs/ROADMAP_WORKFLOW.md, Inbox)."

@@ -10,8 +10,9 @@ are enough.
 requests (G1), ready implementation pull requests (G2), the release pull request (G3), items in
 `status/blocked` with their cause, New items that wait on a person in refine (one line for each,
 from the job record alone, #3483), New items with an unapplied split, New items with an
-alternatives question (#3494), New items whose refine job failed at the try limit (#3632), drafts
-of jobs, old claims, labels that the repository lacks, and
+alternatives question (#3494), New items whose refine job failed at the try limit (#3632), Ready
+items whose stage job failed, which the stage job takes again when the wait of the failure class
+ends (#2968), drafts of jobs, old claims, labels that the repository lacks, and
 the Planned queue when it is at the limit of the stage job (#3487). A pull request is a job's when
 the job record of an open item names it: `implement.pr` makes it an implementation, `stage.pr` a
 plan, and `implement.pr` wins because a staged branch keeps one pull request through both jobs. A
@@ -45,13 +46,15 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_RELEASE_BRANCH_PREFIX,
     CONST_ROADMAP_STATUS_BLOCKED,
     CONST_ROADMAP_STATUS_NEW,
+    CONST_ROADMAP_STATUS_READY,
 )
 from devops_cli.git.branch_form import issue_of_branch
 from devops_cli.github.labels import diff_labels
+from devops_cli.github.repo_ref import RepoRef
 from devops_cli.lang import MESSAGES
 from devops_cli.output import format_duration
 from devops_cli.roadmap.follow import follow_command
-from devops_cli.roadmap.inbox_kind import InboxKind
+from devops_cli.roadmap.inbox_kind import COUNTED_KINDS, InboxKind
 from devops_cli.roadmap.planned import planned_count, planned_limit_priorities
 from devops_cli.roadmap.pull_labels import declared_specs
 from devops_cli.roadmap.refine.refine import NextStep
@@ -66,6 +69,7 @@ from devops_cli.roadmap.stores.store import (
     RoadmapStore,
     StageRecordKey,
 )
+from devops_cli.telemetry.instruments import ROADMAP_INBOX_ITEMS, emit
 
 # The kinds whose lines wait on a person: they go in the people's list, apart from the jobs'.
 _PEOPLE_KINDS: Final[tuple[InboxKind, ...]] = (InboxKind.PERSON, InboxKind.OWNER)
@@ -340,6 +344,29 @@ def _failed_lines(items: Iterable[Item], repo: str, now: datetime) -> list[Inbox
     return lines
 
 
+def _stage_retry_lines(items: Iterable[Item], repo: str, now: datetime) -> list[InboxLine]:
+    """One line for each open Ready item whose stage job failed with a class (#2968). The stage
+    job takes the item again when the wait of the class ends, so the line asks nothing of a
+    person. An item that a person moved back to New keeps the class of its last failure with no
+    line: the stage job holds it by that class, not by a retry that a person waits for."""
+    texts = MESSAGES.roadmap
+    lines: list[InboxLine] = []
+    for item in items:
+        failed_class = item.job_record.get(StageRecordKey.FAILED_CLASS)
+        if item.status != CONST_ROADMAP_STATUS_READY or not failed_class:
+            continue
+        subject = texts.inbox_subjects["stage_retry"].format(
+            title=item.title, failure_class=failed_class
+        )
+        clear = texts.inbox_clears["stage_retry"].format(number=item.number, repo=repo)
+        lines.append(
+            InboxLine(
+                InboxKind.STAGE_RETRY, item.number, _age(now, item.updated_at), subject, clear
+            )
+        )
+    return lines
+
+
 def _owner_lines(items: Iterable[Item], now: datetime) -> list[InboxLine]:
     """One line for each open item whose job record holds an owner question that no trusted
     reply answered (#3077). The open frame is the marker of the wait, so no status label is
@@ -469,6 +496,7 @@ def read_inbox(
         *_split_lines(items, now),
         *_alternatives_lines(items, now),
         *_failed_lines(items, repo, now),
+        *_stage_retry_lines(items, repo, now),
         *_owner_lines(items, now),
         *_claim_lines(items, pulls, repo, now),
         *_label_lines(store, repo, now),
@@ -533,4 +561,25 @@ def render_inbox(inbox: Inbox, *, repo: str, kinds: frozenset[InboxKind] | None 
     )
 
 
-__all__ = ["Inbox", "InboxKind", "InboxLine", "read_inbox", "render_inbox"]
+def emit_inbox_counts(inbox: Inbox, *, repo: str) -> None:
+    """Send the count of the lines of each counted kind of `inbox` into OTLP (#2968).
+
+    One gauge value for each kind of `COUNTED_KINDS`, so a kind with no line sends 0: the panel
+    shows every counted kind of the repository, also one that a round clears. The label `repo` is
+    the key of `RepoRef`, so two spellings of one repository add one series.
+    """
+    key = RepoRef(repo).key
+    lines = (*inbox.jobs, *inbox.people)
+    for kind in COUNTED_KINDS:
+        count = sum(1 for line in lines if line.kind is kind)
+        emit(ROADMAP_INBOX_ITEMS, float(count), {"repo": key, "kind": kind.value})
+
+
+__all__ = [
+    "Inbox",
+    "InboxKind",
+    "InboxLine",
+    "emit_inbox_counts",
+    "read_inbox",
+    "render_inbox",
+]

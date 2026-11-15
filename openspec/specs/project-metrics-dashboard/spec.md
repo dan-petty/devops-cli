@@ -179,7 +179,7 @@ When the read of the label changes of an Item fails, `collect_project_metrics_re
 - **THEN** no age point is sent and no request path ends in `/events`
 
 ### Requirement: The dashboard shows the age of the oldest item in each state
-The project dashboard SHALL hold the timeseries panel "Oldest Item Age by State" in the row of the items panels, with the unit `s`. Its queries SHALL be `max by (state) (last_over_time(devops_cli_roadmap_item_age_seconds[$__range]))` and `max(last_over_time(devops_cli_roadmap_claim_age_seconds[$__range]))`. It SHALL leave the right half of its row free.
+The project dashboard SHALL hold the timeseries panel "Oldest Item Age by State" in the row of the items panels, with the unit `s`. Its queries SHALL be `max by (state) (last_over_time(devops_cli_roadmap_item_age_seconds[$__range]))` and `max(last_over_time(devops_cli_roadmap_claim_age_seconds[$__range]))`. The panel "Inbox Items by Kind" SHALL fill the right half of the same row.
 
 #### Scenario: The queries of the panel
 - **WHEN** a test reads the panel "Oldest Item Age by State" of `project-metrics.json`
@@ -217,3 +217,10 @@ The panels "GitHub Published Service Status" and "Cloudflare Published Service S
 #### Scenario: No status in the last hour
 - **WHEN** the last status of `github` was sent more than one hour before the read
 - **THEN** the panel "GitHub Published Service Status" shows no data
+
+### Requirement: The dashboard shows the count of each inbox kind
+The project dashboard SHALL hold the bar gauge panel "Inbox Items by Kind" in the right half of the row of the panel "Oldest Item Age by State", with unit `short` and query `sum by (kind) (last_over_time(devops_cli_roadmap_inbox_items[$__range]))`. The panel SHALL pass the dashboard lint of the repository.
+
+#### Scenario: The panel query
+- **WHEN** A test reads the panel "Inbox Items by Kind" of `project-metrics.json`
+- **THEN** Its type is bargauge, its query is the one above with legend `{{kind}}`, its unit is `short`, and no panel of the dashboard overlaps it
