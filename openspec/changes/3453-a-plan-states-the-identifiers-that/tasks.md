@@ -4,9 +4,9 @@
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/step_files.py`, `tests/roadmap/test_roadmap_step_files.py`. Changes: `src/devops_cli/roadmap/step_files.py`, `tests/roadmap/test_roadmap_step_files.py`.
 
-- [ ] 1.1 `test_the_added_names_of_a_group_come_from_its_adds_line` in `tests/roadmap/test_roadmap_step_files.py` gives a group the line `Adds:` with `_delivery_title` and `_publish`, and fails on the base because `TaskGroup.added_names` does not exist; `test_an_adds_line_that_names_no_code_span_is_a_problem` fails on the base because `adds_problem` does not exist
+- [x] 1.1 `test_the_added_names_of_a_group_come_from_its_adds_line` in `tests/roadmap/test_roadmap_step_files.py` gives a group the line `Adds:` with `_delivery_title` and `_publish`, and fails on the base because `TaskGroup.added_names` does not exist; `test_an_adds_line_that_names_no_code_span_is_a_problem` fails on the base because `adds_problem` does not exist
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_step_files.py` fails on the base
-- [ ] 1.2 Add `ADDS_LINE` and the property `TaskGroup.added_names` to `src/devops_cli/roadmap/step_files.py`: the code spans of the `Adds:` line of a group, each once, in file order, and none for a group with no such line. Add the function `adds_problem`, which gives a reason when the line holds a name outside a code span or holds no code span. Write the two tests first, and see them fail
+- [x] 1.2 Add `ADDS_LINE` and the property `TaskGroup.added_names` to `src/devops_cli/roadmap/step_files.py`: the code spans of the `Adds:` line of a group, each once, in file order, and none for a group with no such line. Add the function `adds_problem`, which gives a reason when the line holds a name outside a code span or holds no code span. Write the two tests first, and see them fail
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_step_files.py` passes
 
 ## 2. Give the group an adds field, write the line, and name it in both prompts

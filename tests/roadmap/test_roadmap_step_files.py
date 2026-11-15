@@ -76,3 +76,49 @@ def test_the_docstring_of_the_task_reader_states_the_rule() -> None:
 
     assert "$ " in doc
     assert "prose" in doc
+
+
+def _plan_group(adds: str) -> TaskGroup:
+    """The group of a plan whose line under the heading is `adds`."""
+    tasks = (
+        "## 1. A group\n\n"
+        "Kind: behavior. Reads: `a.py`. Changes: `b.py`.\n"
+        f"{adds}\n\n"
+        f"- [ ] 1.1 Change the file\n  - Verification: `$ {TEST_COMMAND}` fails on the base\n"
+    )
+    [group] = parse_task_groups(tasks)
+    return group
+
+
+def test_the_added_names_of_a_group_come_from_its_adds_line() -> None:
+    group = _plan_group("Adds: `_delivery_title`, `_publish`.")
+
+    assert group.added_names == ("_delivery_title", "_publish")
+
+
+def test_a_group_with_no_adds_line_adds_no_name() -> None:
+    group = _plan_group("Reads: `a.py`.")
+
+    assert group.added_names == ()
+
+
+def test_an_adds_line_that_names_no_code_span_is_a_problem() -> None:
+    from devops_cli.roadmap.step_files import adds_problem
+
+    group = _plan_group("Adds: _delivery_title.")
+
+    problem = adds_problem(group.text)
+
+    assert problem is not None
+    assert "_delivery_title" in problem
+
+
+def test_an_adds_line_that_names_a_word_outside_a_code_span_is_a_problem() -> None:
+    from devops_cli.roadmap.step_files import adds_problem
+
+    group = _plan_group("Adds: `_delivery_title`, _publish.")
+
+    problem = adds_problem(group.text)
+
+    assert problem is not None
+    assert "_publish" in problem
