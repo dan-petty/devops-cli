@@ -2741,6 +2741,14 @@ class RoadmapMessages:
         "The option --json gives the totals of the last implement run, and --trace prints the "
         "trace of the run. Give one of them, not both."
     )
+    # The console of a run (#3076): the trace as the table of the pull request comment, and the
+    # command that follows a run from the inbox and from the explanation.
+    follow_never_run: str = (
+        "Issue #{number} has never run: its job record holds no run of the implement job."
+    )
+    follow_command: str = "devops roadmap follow {number}"
+    inbox_follow: str = "Follow it with `{command}`."
+    explain_follow: str = "Follow the run with `{command}`."
     item_left_filter: str = "The filter takes {family} {wanted}. The item has {family} {have}."
     item_left_limit: str = (
         "It passes every rule, but a run takes {limit} item(s) and {limit} item(s) of higher "
