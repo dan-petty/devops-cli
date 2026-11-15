@@ -67,6 +67,23 @@ def test_a_plan_that_adds_no_change_folder_has_one_blocker() -> None:
     assert "openspec/changes/3183-" in found[0]
 
 
+def test_a_plan_that_changes_a_file_of_the_folder_has_no_blocker() -> None:
+    """A correction of a merged plan changes proposal.md and adds no file (#5315)."""
+    correction = PullRequestFile(
+        filename="openspec/changes/3183-add-plan-check/proposal.md", status="modified"
+    )
+
+    assert _blockers(_BODY, correction) == []
+
+
+def test_a_plan_that_removes_a_file_of_the_folder_has_one_blocker() -> None:
+    removed = PullRequestFile(
+        filename="openspec/changes/3183-add-plan-check/proposal.md", status="removed"
+    )
+
+    assert len(_blockers(_BODY, removed)) == 1
+
+
 def test_a_plan_that_changes_a_living_spec_has_one_blocker() -> None:
     spec = PullRequestFile(filename="openspec/specs/pr-grounding/spec.md", status="modified")
     found = _blockers(_BODY, _FOLDER, spec)
