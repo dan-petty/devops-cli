@@ -63,6 +63,14 @@ class ServiceRow(StrEnum):
     INTAKE = "intake"
     SWEEP = "sweep"
     METRICS = "metrics"
+    BRAIN = "brain"
+    RESOLVE = "resolve"
+    GROUP = "group"
+    SPLIT = "split"
+    WATCH = "watch"
+    FIX_CHECKS = "fix-checks"
+    FIX_CONFLICT = "fix-conflict"
+    FIX_PLAN = "fix-plan"
 
 
 def is_name_segment(text: str) -> bool:
