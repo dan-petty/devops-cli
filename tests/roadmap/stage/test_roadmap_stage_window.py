@@ -38,16 +38,27 @@ from devops_cli.roadmap.stage.stage import (
     plan_stage,
 )
 from devops_cli.roadmap.stage.stage_change import StageProposal
+from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity
 from devops_cli.roadmap.stage.stage_eval_run import RecordingClient
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient, ToolboxModel
-from devops_cli.roadmap.stage.stage_verify import VerificationInput, agent_instructions
+from devops_cli.roadmap.stage.stage_verify import (
+    Finding,
+    Locator,
+    PlanPart,
+    Verification,
+    VerificationInput,
+    agent_instructions,
+)
 from tests.support.builders import make_stage_proposal
+from tests.support.fakes.model import ModelFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_stage import (
+    GONE,
     STAGE_REPO,
     VALID_REPORT,
     StageRepo,
+    later_review,
     seed_stageable,
     validate_args,
 )
@@ -78,6 +89,12 @@ _PLAN = make_stage_proposal()
 @pytest.fixture
 def store() -> InMemoryRoadmapStore:
     return InMemoryRoadmapStore(repo=STAGE_REPO)
+
+
+@pytest.fixture
+def verifier() -> ModelFake:
+    """The model edge of the review, apart from the model edge of the planner."""
+    return ModelFake()
 
 
 @pytest.fixture(autouse=True)
@@ -150,6 +167,21 @@ def _script() -> Script:
     request, as a provider does, since the window follows it (#4221)."""
     return Script(
         call("list_files", directory="src"), _PLAN, without_tools=_PLAN, reports_input=True
+    )
+
+
+def _one_open_finding() -> Verification:
+    """A review that returns group 1 of the plan to the planner."""
+    return Verification(
+        findings=[
+            Finding(
+                type=DefectType.FALSE_PREMISE,
+                severity=Severity.MAJOR,
+                where=Locator(part=PlanPart.TASKS, section="1"),
+                problem="The premise is wrong.",
+                quote="The job drops the last comment of a thread.",
+            )
+        ]
     )
 
 
@@ -258,6 +290,53 @@ def test_a_gate_return_with_the_full_earlier_plan_leaves_room_for_the_tools(
         previous["why"] != earlier.why,
         list(previous) == list(earlier.model_dump()),
     ) == (True, True, True, True, True)
+
+
+def test_a_repair_return_request_of_a_large_plan_leaves_room_for_the_tools(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    monkeypatch: pytest.MonkeyPatch,
+    verifier: ModelFake,
+) -> None:
+    """A review repair with a long earlier plan: the full earlier plan passes the limit of the
+    tools, so the plan goes back bounded with the open finding of the review, and the request that
+    the planner receives stays under the limit at which the run offers no tool, so the planner
+    keeps `read_spec`. The review reads the plan at its own window, which the tasks can set apart
+    from the window of the planner (#3039)."""
+    monkeypatch.setattr(
+        stage,
+        "task_window",
+        lambda task: CONFIGURED_WINDOW if task == "verification" else WINDOW,
+    )
+    seed_stageable(store)
+    earlier = _long_plan()
+    verifier.answer(_one_open_finding(), later_review(GONE))
+    script = Script(
+        call("list_files", directory="src"), earlier, without_tools=earlier, reports_input=True
+    )
+
+    plan = plan_stage(
+        store,
+        repo=STAGE_REPO,
+        source=stage_repo.clone,
+        filters=parse_filters(()),
+        model=ToolboxModel(script.model()),
+        verifier=ToolboxModel(verifier),
+        step_tokens=10**6,
+    )
+
+    measured = _request_tokens(script, 2)
+    print(f"repair return request: {measured} tokens; limit {_limit(WINDOW)} tokens")
+    request = _return_request(script)
+    previous = request["previous"]
+    assert (
+        len(plan.ready),
+        measured < _limit(WINDOW),
+        "read_spec" in script.tools_offered[2],
+        "problem" in request,
+        previous["why"] != earlier.why,
+        list(previous) == list(earlier.model_dump()),
+    ) == (1, True, True, True, True, True)
 
 
 def test_the_first_request_names_the_capabilities_and_holds_no_capability_json(

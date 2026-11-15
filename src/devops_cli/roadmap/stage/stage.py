@@ -1997,12 +1997,11 @@ class _Planner:
     ) -> StagedChange | OverBudget:
         """The plan of one repair round: the planner gets the plan and each open finding of the
         review. Its revision goes back with the problem when the checks refuse it, as a first reply
-        does, and a revision that stays refused is kept and stops the item (#4348)."""
-        again = {
-            **request.for_model(),
-            "previous": change.proposal.model_dump(),
-            "problem": return_problem(open_),
-        }
+        does, and a revision that stays refused is kept and stops the item (#4348). The earlier plan
+        is bounded when the request would pass the tool-removal limit (#3529)."""
+        again = bound_previous(
+            request, change.proposal.model_dump(), return_problem(open_), self._window
+        )
         floor = len(self._toolbox_traces())
         revised = self._ask_plan(target, key, self._refused, again)
         return self._returned(
