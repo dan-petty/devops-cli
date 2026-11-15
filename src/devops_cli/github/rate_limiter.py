@@ -1719,6 +1719,9 @@ def count_request(resource: str, method: str, status: int | None, labels: dict[s
     refund = _request_refund
     if status == HTTPStatus.NOT_MODIFIED and refund is not None:
         refund()
+    from devops_cli.roadmap.job_result import record_attempt_gh
+
+    record_attempt_gh()
     emit(
         GITHUB_REQUESTS_TOTAL,
         1,

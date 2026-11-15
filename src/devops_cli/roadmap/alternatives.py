@@ -526,6 +526,7 @@ class Check:
     considered: tuple[CheckedTool, ...] = ()
     adr_hash: str | None = None
     in_repository: bool = False
+    returns: int = 0
 
 
 @dataclass(frozen=True)
@@ -1071,6 +1072,7 @@ def validate_reply(
     adrs: Sequence[Adr],
     *,
     inventory: Inventory | None = None,
+    returns: int = 0,
 ) -> Check | CheckFailure:
     """The check that `reply` makes, or the failure when the job refuses it. `adrs` are the ADRs
     in force that the model saw, which confirm the ADR that the reply names. `inventory` holds the
@@ -1103,6 +1105,7 @@ def validate_reply(
             body_hash=body_hash_of(item.body),
             new_body="",
             comment="",
+            returns=returns,
         )
     )
 
@@ -1140,6 +1143,15 @@ def _check_one(
     tools = AlternativesTools(store=store, pages=pages)
     request = _request(item, trusted_replies(store.comments_on(item.number)), adrs, fetch=fetch)
     texts = MESSAGES.roadmap
+    returns = 0
+
+    def _check_output(answer: AlternativesReply) -> str | None:
+        nonlocal returns
+        msg = _retry_message(answer, tools)
+        if msg is not None:
+            returns += 1
+        return msg
+
     try:
         reply = investigate(
             model,
@@ -1147,7 +1159,7 @@ def _check_one(
             request,
             tools,
             AlternativesReply,
-            output_check=lambda answer: _retry_message(answer, tools),
+            output_check=_check_output,
             window=analysis_window(),
         )
     except AICredentialsError:
@@ -1169,7 +1181,7 @@ def _check_one(
         )
         return CheckFailure(item, _stopped_reason(reply), reply.reason, now)
     try:
-        return validate_reply(item, reply, tools, now, adrs, inventory=inventory)
+        return validate_reply(item, reply, tools, now, adrs, inventory=inventory, returns=returns)
     except (httpx2.HTTPError, ValidationError) as exc:
         logger.warning(
             "The alternatives check of #%d was skipped: its read of the tools in use failed (%s).",
@@ -1362,17 +1374,21 @@ class AlternativesWriter:
         if isinstance(outcome, CheckFailure):
             refused = outcome.error_class == CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR
             result = "refused" if refused else "failed"
-            failure, searches, reason = outcome.failure_class, 0, outcome.error_class
+            failure, searches, reason, returns = outcome.failure_class, 0, outcome.error_class, 0
         else:
             result, failure = outcome.verdict.value, None
-            searches, reason = len(outcome.searches), outcome.skip_class or "none"
+            searches, reason, returns = (
+                len(outcome.searches),
+                outcome.skip_class or "none",
+                outcome.returns,
+            )
         log_job_result(
             RoadmapJob.ALTERNATIVES,
             self._repo,
             outcome.item.number,
             result,
             failure=failure,
-            counts={"searches": searches},
+            counts={"searches": searches, "returns": returns},
             names={"reason": reason},
         )
 

@@ -302,6 +302,7 @@ class JevIntakeModel:
         self._settings = settings
         self._fall_back = fall_back
         self._least = min_confidence
+        self.fallbacks: int = 0
 
     def _fresh_decider(self) -> DecisionModel[Any]:
         """A model for one request, built from the settings through the gateway."""
@@ -345,6 +346,7 @@ class JevIntakeModel:
                 raise UnusableProposalError(reason) from exc
             logger.warning(MESSAGES.roadmap.intake_jev_fallback.format(error=reason))
             self._count(fields, JevOutcome.FALLBACK)
+            self.fallbacks += 1
             return self._base.propose(request)
         self._count(fields, JevOutcome.JEV)
         return proposal

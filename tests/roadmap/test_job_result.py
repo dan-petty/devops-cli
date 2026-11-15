@@ -4,6 +4,7 @@ Loki query gives the success ratio of the job (#4845)."""
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import pytest
 
@@ -16,6 +17,14 @@ from devops_cli.roadmap.stage.stage import StageResult
 from devops_cli.roadmap.steps.fix_plan import FixPlanResult
 from devops_cli.roadmap.stores.store import ImplementResult, JudgeVerdict, Verdict
 from tests.support.roadmap_job_result import result_lines
+
+RetitleResult: Any = None
+try:
+    from devops_cli.roadmap.retitle import RetitleResult as _RetitleResult
+
+    RetitleResult = _RetitleResult
+except ImportError:
+    pass
 
 ISSUE_TEXT = "The job drops the last comment of a thread"
 
@@ -35,7 +44,7 @@ def test_a_line_holds_the_job_the_item_the_result_its_class_and_counts_in_order(
 
     assert result_lines(caplog) == [
         "roadmap job result: job=stage repo=owner/repo item=#12 result=failed success=false "
-        f"class=provider infra=true plan_calls=2 gate_returns=1 tokens=900 version={__version__}"
+        f"class=provider infra=true first_pass=false plan_calls=2 gate_returns=1 tokens=900 version={__version__}"
     ]
 
 
@@ -66,12 +75,12 @@ def test_a_line_holds_no_text_of_an_issue(caplog: pytest.LogCaptureFixture) -> N
 
     assert result_lines(caplog) == [
         "roadmap job result: job=alternatives repo=none item=none result=other success=false "
-        f"class=none infra=false other=0 reason=other version={__version__}"
+        f"class=none infra=false first_pass=false other=0 reason=other version={__version__}"
     ]
 
 
 def test_each_intended_result_is_a_result_of_its_job() -> None:
-    results = {
+    results: dict[RoadmapJob, set[str]] = {
         RoadmapJob.STAGE: {result.value for result in StageResult},
         RoadmapJob.IMPLEMENT: {result.value for result in ImplementResult},
         RoadmapJob.REFINE: {step.value for step in NextStep},
@@ -80,6 +89,8 @@ def test_each_intended_result_is_a_result_of_its_job() -> None:
         RoadmapJob.INTAKE: {result.value for result in CandidateResult},
         RoadmapJob.FIX_PLAN: {result.value for result in FixPlanResult},
     }
+    if RetitleResult is not None and hasattr(RoadmapJob, "RETITLE"):
+        results[RoadmapJob.RETITLE] = {result.value for result in RetitleResult}
 
     assert {job: SUCCESS_RESULTS[job] <= results[job] for job in RoadmapJob} == dict.fromkeys(
         RoadmapJob, True

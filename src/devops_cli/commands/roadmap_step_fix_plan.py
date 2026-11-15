@@ -64,6 +64,7 @@ def fix_plan_cmd(
     if skip_wait and (not confirm or (item is None and pull is None)):
         print_error(MESSAGES.roadmap.fix_plan_skip_wait_needs)
         raise typer.Exit(1)
+    from devops_cli.github.request_scope import request_scope
     from devops_cli.roadmap.attempt_kill import AttemptKilled, sigterm_raises
     from devops_cli.roadmap.job_result import job_lines_to_stderr
     from devops_cli.roadmap.request_plan import render_dry_run
@@ -82,7 +83,11 @@ def fix_plan_cmd(
     from devops_cli.roadmap.stores.store import get_roadmap_store
 
     try:
-        with job_lines_to_stderr(), sigterm_raises():
+        with (
+            job_lines_to_stderr(),
+            sigterm_raises(),
+            request_scope(repo=target, row="fix_plan"),
+        ):
             run = run_fix_plan(
                 get_roadmap_store(target),
                 repo=target,

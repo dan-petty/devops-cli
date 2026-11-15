@@ -75,11 +75,11 @@ The error line of a failed round SHALL keep the first 256 characters of the firs
 - **THEN** the error of the round ends with `(failed items: #1, #2, #3)`
 
 ### Requirement: Each roadmap job logs one result line for each attempt
-The stage, implement, refine, refine judge, alternatives and intake jobs SHALL log one `roadmap job result` line for each attempt, with the job, repository, item, result, success, failure class, infrastructure flag, counts and version. A line SHALL hold numbers and fixed names only, never issue or model text.
+The stage, implement, refine, refine judge, alternatives, intake, fix-plan and retitle jobs SHALL log one `roadmap job result` line for each attempt, with the job, repository, item, result, success, failure class, infrastructure flag, first_pass, counts and version. A line SHALL hold numbers and fixed names only, never issue or model text.
 
 #### Scenario: A stage round of three tried items
 - **WHEN** a stage round stages one item, stops one on its budget, fails one after a gate return and leaves one out
-- **THEN** three lines give `staged success=true`, `needs_split` and `failed class=plan_defect gate_returns=1`
+- **THEN** three lines give `staged success=true first_pass=true`, `needs_split success=false first_pass=false` and `failed class=plan_defect first_pass=false gate_returns=1`
 
 #### Scenario: A killed implement Job
 - **WHEN** the implement row reports a Job that the kernel killed for its memory after 1200 seconds
@@ -88,6 +88,10 @@ The stage, implement, refine, refine judge, alternatives and intake jobs SHALL l
 #### Scenario: Issue text in a value
 - **WHEN** a result or a name holds a space
 - **THEN** the line holds `other` in its place
+
+#### Scenario: An attempt context tracking efficiency metrics
+- **WHEN** an attempt runs inside an attempt context with model calls, tokens, seconds, cost in micro-dollars and GitHub requests
+- **THEN** the result line holds `model_calls`, `tokens`, `seconds`, `cost_usd_micros` and `gh_requests`
 
 ### Requirement: An intake candidate that another writer changed logs no result line
 When the write of an intake candidate raises `RoadmapItemChangedError`, intake SHALL log no `roadmap job result` line for that candidate, and SHALL still add 1 to `devops_cli_roadmap_intake_candidates_total` with `result=skipped`. The other candidates of the round SHALL each log their line.

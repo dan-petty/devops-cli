@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 OPENED = github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201)
-HEAD = ("job", "repo", "item", "result", "success", "class", "infra")
+HEAD = ("job", "repo", "item", "result", "success", "class", "infra", "first_pass")
 COUNTS = ("plan_calls", "gate_returns", "verify_rounds", "tokens", "seconds")
 
 
@@ -89,11 +89,12 @@ def test_the_jobs_of_three_tried_items_and_one_left_out_log_three_result_lines(
             "success": success,
             "class": failure,
             "infra": "false",
+            "first_pass": first_pass,
         }
-        for number, result, success, failure in (
-            (1, "staged", "true", "none"),
-            (2, "needs_split", "false", "none"),
-            (3, "failed", "false", "plan_defect"),
+        for number, result, success, failure, first_pass in (
+            (1, "staged", "true", "none", "true"),
+            (2, "needs_split", "false", "none", "false"),
+            (3, "failed", "false", "plan_defect", "false"),
         )
     ]
     assert [list(line) for line in fields] == [[*HEAD, *COUNTS]] * 3

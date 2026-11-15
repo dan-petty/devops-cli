@@ -29,8 +29,10 @@ from __future__ import annotations
 import logging
 import re
 import sys
+import time
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
@@ -68,15 +70,16 @@ class RoadmapJob(StrEnum):
     ALTERNATIVES = "alternatives"
     INTAKE = "intake"
     FIX_PLAN = "fix_plan"
+    RETITLE = "retitle"
 
 
 # The intended result of each job (owner rule 2026-11-11): a stage attempt opens a plan pull
 # request, an implement attempt reaches a ready pull request, a refine attempt sets the next step
-# of the item, the review approves, the alternatives check writes a verdict, and intake places the
-# candidate. A fix-plan attempt pushes a repair that its review finds better than the review of the
-# head in the same attempt (#5213): `regated`, `dismissed`, `unchanged`, `stopped`, `failed` and
-# `timeout` (#5363) repair no finding of that review, and `unreadable` writes no line. Each value
-# is a member of the result enum of its job.
+# of the item, the review approves, the alternatives check writes a verdict, intake places the
+# candidate, and retitle shortens or keeps the title. A fix-plan attempt pushes a repair that its
+# review finds better than the review of the head in the same attempt (#5213): `regated`, `dismissed`,
+# `unchanged`, `stopped`, `failed` and `timeout` (#5363) repair no finding of that review, and
+# `unreadable` writes no line. Each value is a member of the result enum of its job.
 SUCCESS_RESULTS: Final[Mapping[RoadmapJob, frozenset[str]]] = MappingProxyType(
     {
         RoadmapJob.STAGE: frozenset({"staged"}),
@@ -88,6 +91,7 @@ SUCCESS_RESULTS: Final[Mapping[RoadmapJob, frozenset[str]]] = MappingProxyType(
         ),
         RoadmapJob.INTAKE: frozenset({"placed", "duplicate"}),
         RoadmapJob.FIX_PLAN: frozenset({"revised", "cleared"}),
+        RoadmapJob.RETITLE: frozenset({"retitled", "kept"}),
     }
 )
 
@@ -99,6 +103,35 @@ class CountLimit:
     count: str
     most: int
 
+
+# A first-pass attempt is a success with no fix round (owner rule 2026-11-12, #5165, #5168). These
+# jobs write the counts of their fix rounds on the line, so a count over its limit is a fix round.
+FIRST_PASS: Final[Mapping[RoadmapJob, tuple[CountLimit, ...]]] = MappingProxyType(
+    {
+        RoadmapJob.STAGE: (
+            CountLimit("plan_calls", 1),
+            CountLimit("gate_returns", 0),
+            CountLimit("verify_rounds", 1),
+        ),
+        RoadmapJob.IMPLEMENT: (
+            CountLimit("repair_rounds", 0),
+            CountLimit("extensions", 0),
+        ),
+        RoadmapJob.FIX_PLAN: (
+            CountLimit("gate_returns", 0),
+            CountLimit("verify_rounds", 1),
+            CountLimit("after", 0),
+        ),
+        RoadmapJob.REFINE: (CountLimit("tries", 1),),
+        RoadmapJob.REFINE_JUDGE: (
+            CountLimit("round", 1),
+            CountLimit("findings", 0),
+        ),
+        RoadmapJob.ALTERNATIVES: (CountLimit("returns", 0),),
+        RoadmapJob.INTAKE: (CountLimit("fallbacks", 0),),
+        RoadmapJob.RETITLE: (CountLimit("model_calls", 1),),
+    }
+)
 
 # A first-pass attempt is a success with no fix round (owner rule 2026-11-12, #5165). These jobs
 # write the counts of their fix rounds on the line, so a count over its limit is a fix round. The
@@ -119,6 +152,20 @@ FIRST_PASS_LIMITS: Final[Mapping[RoadmapJob, tuple[CountLimit, ...]]] = MappingP
         ),
     }
 )
+
+
+def is_first_pass(job: RoadmapJob, result: str, counts: Mapping[str, int]) -> bool:
+    """Whether an attempt succeeded with no fix round (owner rule 2026-11-12, #5165, #5168)."""
+    if result not in SUCCESS_RESULTS.get(job, frozenset()):
+        return False
+    if job == RoadmapJob.STAGE and "plan_calls" not in counts:
+        return False
+    limits = FIRST_PASS.get(job, ())
+    for limit in limits:
+        if counts.get(limit.count, 0) > limit.most:
+            return False
+    return True
+
 
 # The failure classes that a cut of the infrastructure gives: the model provider, the CI or the
 # cluster, the memory of a pod, and a used budget. The ratio of the dashboard counts them as
@@ -142,6 +189,68 @@ def _item(item: int | None) -> str:
     return _NONE if item is None else f"#{item}"
 
 
+@dataclass
+class AttemptContext:
+    """Tallies efficiency metrics across an attempt of a roadmap job (#5168)."""
+
+    start_time: float
+    model_calls: int = 0
+    tokens: int = 0
+    cost_usd_micros: int = 0
+    gh_requests: int = 0
+
+    @property
+    def seconds(self) -> int:
+        return max(round(time.perf_counter() - self.start_time), 0)
+
+    def record_model(self, tokens: int, cost_usd: float) -> None:
+        self.model_calls += 1
+        self.tokens += max(int(tokens), 0)
+        self.cost_usd_micros += max(round(cost_usd * 1_000_000), 0)
+
+    def record_gh(self) -> None:
+        self.gh_requests += 1
+
+    def counts(self) -> dict[str, int]:
+        return {
+            "model_calls": self.model_calls,
+            "tokens": self.tokens,
+            "seconds": self.seconds,
+            "cost_usd_micros": self.cost_usd_micros,
+            "gh_requests": self.gh_requests,
+        }
+
+
+_ATTEMPT_CONTEXT: ContextVar[AttemptContext | None] = ContextVar(
+    "roadmap_attempt_context", default=None
+)
+
+
+@contextmanager
+def attempt_context() -> Iterator[AttemptContext]:
+    """Open an attempt context that tallies model calls, tokens, cost, and GitHub requests."""
+    ctx = AttemptContext(start_time=time.perf_counter())
+    token = _ATTEMPT_CONTEXT.set(ctx)
+    try:
+        yield ctx
+    finally:
+        _ATTEMPT_CONTEXT.reset(token)
+
+
+def record_attempt_ai(tokens: int, cost_usd: float) -> None:
+    """Add one model call to the active attempt context, if one is open."""
+    ctx = _ATTEMPT_CONTEXT.get()
+    if ctx is not None:
+        ctx.record_model(tokens, cost_usd)
+
+
+def record_attempt_gh() -> None:
+    """Add one GitHub request to the active attempt context, if one is open."""
+    ctx = _ATTEMPT_CONTEXT.get()
+    if ctx is not None:
+        ctx.record_gh()
+
+
 def log_job_result(
     job: RoadmapJob,
     repo: str,
@@ -156,16 +265,27 @@ def log_job_result(
     result enum of the job, `failure` the class of its failure, `counts` the numbers of the
     attempt, and `names` the other fixed names of the attempt, such as the code of a refused
     reply. A count below 0 is written as 0."""
+    all_counts: dict[str, int] = {}
+    ctx = _ATTEMPT_CONTEXT.get()
+    if ctx is not None:
+        all_counts.update(ctx.counts())
+    if counts:
+        all_counts.update(counts)
+
+    success = result in SUCCESS_RESULTS[job]
+    first_pass = is_first_pass(job, result, all_counts)
+
     fields = [
         f"job={job.value}",
         f"repo={repo if _REPO.fullmatch(repo) else _NONE}",
         f"item={_item(item)}",
         f"result={_name(result)}",
-        f"success={str(result in SUCCESS_RESULTS[job]).lower()}",
+        f"success={str(success).lower()}",
         f"class={failure.value if failure else _NONE}",
         f"infra={str(failure in INFRA_CLASSES).lower()}",
+        f"first_pass={str(first_pass).lower()}",
     ]
-    fields += [f"{_name(key)}={max(int(value), 0)}" for key, value in (counts or {}).items()]
+    fields += [f"{_name(key)}={max(int(value), 0)}" for key, value in all_counts.items()]
     fields += [f"{_name(key)}={_name(value)}" for key, value in (names or {}).items()]
     fields.append(f"version={__version__}")
     logger.info("%s %s", LINE_PREFIX, " ".join(fields))
@@ -191,12 +311,18 @@ def job_lines_to_stderr() -> Iterator[None]:
 
 
 __all__ = [
+    "FIRST_PASS",
     "FIRST_PASS_LIMITS",
     "INFRA_CLASSES",
     "LINE_PREFIX",
     "SUCCESS_RESULTS",
+    "AttemptContext",
     "CountLimit",
     "RoadmapJob",
+    "attempt_context",
+    "is_first_pass",
     "job_lines_to_stderr",
     "log_job_result",
+    "record_attempt_ai",
+    "record_attempt_gh",
 ]

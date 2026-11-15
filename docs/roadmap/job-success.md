@@ -9,14 +9,15 @@ The counters of the roadmap jobs give no common ratio. Each job counts other res
 Each roadmap job writes one line for each attempt:
 
 ```text
-roadmap job result: job=<job> repo=<owner/repo> item=#<n> result=<result> success=<true|false> class=<class> infra=<true|false> <count>=<n> ... version=<version>
+roadmap job result: job=<job> repo=<owner/repo> item=#<n> result=<result> success=<true|false> class=<class> infra=<true|false> first_pass=<true|false> <count>=<n> ... version=<version>
 ```
 
-- `job` is `stage`, `implement`, `refine`, `refine_judge`, `alternatives`, `intake` or `fix_plan`.
+- `job` is `stage`, `implement`, `refine`, `refine_judge`, `alternatives`, `intake`, `fix_plan` or `retitle`.
 - `success` is `true` when the result is the intended result of the job (table below).
 - `class` is the failure class of `roadmap/failure.py`, or `none`.
 - `infra` is `true` for a class that a cut of the infrastructure gives: `provider`, `ci_infra`, `oom` and `limit_reached`. The ratio of the dashboard counts these attempts as failures and shows their share apart. The job grade leaves them out of `p`.
-- The counts and the names of the job follow, and the devops-cli version ends the line, so a query can compare two images.
+- `first_pass` is `true` when the attempt succeeded with no fix round (table below, #5168).
+- The counts and the names of the job follow, and the devops-cli version ends the line, so a query can compare two images. Every attempt logs `model_calls`, `tokens`, `seconds`, `cost_usd_micros` and `gh_requests` when recorded in its attempt context (#5168).
 
 The Service logs the line as JSON on stdout, with the line in the field `message`. A Job pod logs the plain line on stderr: `devops roadmap stage --job-item` and `devops roadmap step fix-plan` write it there (#5363, #5556). The OpenTelemetry logging handler sends `INFO` records of `roadmap/job_result.py` to the collector, so a local run and an agent session also export their result lines (#5169).
 
@@ -27,12 +28,13 @@ A line holds no text of an issue, of a model or of a log. Each value is a number
 | Job | Where the line comes from | Results | Intended result | Counts and names |
 | :--- | :--- | :--- | :--- | :--- |
 | `stage` | Each item that a stage Job or a round tried. A stage Job writes the line after its check-in, and the Service writes the line of each failed end that it recovers. A left-out item writes no line. | `staged`, `needs_split`, `failed`, `degenerate` | `staged`: the plan pull request is open. | `plan_calls`, `gate_returns`, `verify_rounds`, `tokens`, `seconds`. `plan_calls` counts the plan calls that the attempt made to the model, also with a client that keeps no trace. An attempt that starts from a kept plan has no `plan_calls`, also when the checks refuse the kept plan and the attempt asks for a new plan: an earlier attempt made the first calls, so the attempt cannot count all of them (#5166). |
-| `implement` | Each runner Job that ended, when the `implement` row reports it. | `ready`, `yielded`, `returned`, `stopped` | `ready`: the pull request is ready. | `repair_rounds`, `tokens`, `seconds` |
-| `refine` | Each item that a round refined. | The next step of the item, or `error` for a failed model call or write | `ready`, `person`, `split` or `blocked` | none |
-| `refine_judge` | Each review of the proposal for an item that a bot opened that calls the model. A kept approval writes no line. | `approved`, `refused` | `approved` | `findings` |
-| `alternatives` | Each check that the round wrote, and each failed check. | The verdict, `refused` or `failed` | Each verdict | `searches`, `reason` (the skip class, or the code of the error) |
-| `intake` | Each candidate that a round wrote. | `placed`, `duplicate`, `skipped`, `failed` | `placed` and `duplicate` | none |
+| `implement` | Each runner Job that ended, when the `implement` row reports it. | `ready`, `yielded`, `returned`, `stopped` | `ready`: the pull request is ready. | `repair_rounds`, `extensions`, `tokens`, `seconds` |
+| `refine` | Each item that a round refined. | The next step of the item, or `error` for a failed model call or write | `ready`, `person`, `split` or `blocked` | `tries` |
+| `refine_judge` | Each review of the proposal for an item that a bot opened that calls the model. A kept approval writes no line. | `approved`, `refused` | `approved` | `round`, `findings` |
+| `alternatives` | Each check that the round wrote, and each failed check. | The verdict, `refused` or `failed` | Each verdict | `searches`, `returns`, `reason` (the skip class, or the code of the error) |
+| `intake` | Each candidate that a round wrote. | `placed`, `duplicate`, `skipped`, `failed` | `placed` and `duplicate` | `fallbacks` |
 | `fix_plan` | Each attempt of the step `fix-plan` on a plan pull request with `plan/needs-fix`. A plan that the selection or the branch check leaves out writes no line, and a plan that the plan reader refuses (`unreadable`) writes no line, because the defect is in the writer or the reader of the plan. An attempt that an eviction, a node drain or a stop of the Service ends (`evicted`) writes no line, and an attempt that SIGTERM ends after its time budget, at the deadline of its Job, writes `timeout` with `kill=deadline` (#5413). | `revised`, `cleared`, `regated`, `dismissed`, `unchanged`, `stopped`, `failed`, `timeout` | `revised` and `cleared`: the step pushed a repair whose reviews fixed more open findings of the review of the head than they added, in the same attempt (#5409). `regated`, `dismissed`, `unchanged`, `stopped`, `failed` and `timeout` repair no finding of that review. | `plan_calls`, `gate_returns`, `verify_rounds`, `tokens`, `seconds`, `comment` (the open findings that the last plan comment lists), `before` (the review of the head, only when it ran), `after` (the last review of the revision, only when one ran). A stop adds `stop`, and a failure and a `timeout` add `step`. A deadline kill holds only `comment`, and adds `kill=deadline`. |
+| `retitle` | Each item that the retitle job decides (#5168). | `retitled`, `kept`, `failed` | `retitled` and `kept`: the title summary is within the limit or kept for an unlisted type. | none |
 
 A `stage` item that is staged with an open finding of the review is `failed` with the class `plan_defect`. An `implement` Job that recorded no result, such as a pod that the kernel killed, is `stopped`. Its `seconds` run from the start of its pod to its end, and are 0 when the Job is gone.
 
@@ -83,7 +85,7 @@ Each roadmap workflow gets a job grade from its result lines: `100`, `90`, `80`,
 
 <!-- JOB_GRADES_END -->
 
-- **First pass.** A first pass is a success with no fix round. The grade `100` needs a first pass for each attempt. Three lines hold the counts of the rule (`FIRST_PASS_LIMITS` in `src/devops_cli/roadmap/job_result.py`): `stage` (`plan_calls` ≤ 1, `gate_returns` = 0, `verify_rounds` ≤ 1), `implement` (`repair_rounds` = 0) and `fix_plan` (`gate_returns` = 0, `verify_rounds` ≤ 1, `after` = 0). A line with no count of the rule is no first pass, such as a `stage` line with no `plan_calls`. The line of another job has no count of its fix rounds, so its first pass is not known, and it cannot get the grade `100`.
+- **First pass.** A first pass is a success with no fix round. The grade `100` needs a first pass for each attempt. Every job line holds the counts of its rule (`FIRST_PASS` in `src/devops_cli/roadmap/job_result.py`): `stage` (`plan_calls` ≤ 1, `gate_returns` = 0, `verify_rounds` ≤ 1), `implement` (`repair_rounds` = 0, `extensions` = 0), `fix_plan` (`gate_returns` = 0, `verify_rounds` ≤ 1, `after` = 0), `refine` (`tries` = 1), `refine_judge` (`round` = 1, `findings` = 0), `alternatives` (`returns` = 0), `intake` (`fallbacks` = 0), and `retitle` (`model_calls` ≤ 1) (#5168). A line with no count of the rule is no first pass, such as a `stage` line with no `plan_calls`.
 - **Windows.** The 7-day window gives the grade. The report also shows the attempts and the successes of the last 24 hours and of the last 6 hours. 5 attempts or more with no success in 6 hours give the signal `broken`. An infrastructure share over 20% of 10 attempts or more in 24 hours gives the signal `infra`, and not a grade.
 - **Versions.** The report shows each devops-cli version that has 10 attempts or more in the window.
 - **Failure classes.** The report shows the 3 largest failure classes of the attempts with `infra=false`.
