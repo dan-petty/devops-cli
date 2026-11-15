@@ -493,6 +493,29 @@ def test_the_criteria_gate_refuses_a_plan_that_leaves_a_criterion_out(
     ]
 
 
+def test_the_paths_gate_judges_no_acceptance_criterion(cases: list[StageCase]) -> None:
+    """A criterion problem is the work of the criteria gate, not of the paths gate (#4081)."""
+    good = next(case for case in cases if case.verdict is Verdict.GOOD)
+    one = [{"criterion": "First.", "group": 1, "reason": None}]
+    beyond = [
+        {"criterion": "First.", "group": 1, "reason": None},
+        {"criterion": "Second.", "group": 2, "reason": None},
+    ]
+
+    problems = run_gates(PlanUnderTest.of_case(_with_criteria(good, one)))
+    over = run_gates(PlanUnderTest.of_case(_with_criteria(good, beyond)))
+
+    assert (problems[GateName.PATHS], over[GateName.PATHS]) == ([], [])
+    assert problems[GateName.CRITERIA] == [
+        'The issue lists the acceptance criterion "Second.", and `criteria` has no entry with '
+        "this text. Add an entry that copies the text, with the number of the group that "
+        "delivers it or pending-person and a reason."
+    ]
+    assert over[GateName.CRITERIA] == [
+        'The entry of `criteria` for "Second." names group 2, and the plan has 1 groups.'
+    ]
+
+
 def test_the_criteria_gate_passes_a_plan_that_maps_every_criterion(
     cases: list[StageCase],
 ) -> None:
