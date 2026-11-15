@@ -164,3 +164,339 @@ class TestPydanticAIRetriesSubsystem:
                 raised.append((exc_info.value.response.status_code, exc_info.value.response.text))
 
         assert raised == list(bodies.items())
+
+    @pytest.mark.asyncio
+    async def test_httpx2_async_retry_transport(self, clock: ClockFake, web: WebFake) -> None:
+        """Verify async client with retries retries and recovers on transient connect failure."""
+        from devops_cli.http.entry import async_http_client
+
+        answers: list[Exception | httpx2.Response] = [
+            httpx2.ConnectError("Connection reset by peer"),
+            httpx2.Response(200, json={"result": "recovered_async"}),
+        ]
+
+        def responder(request: httpx2.Request) -> httpx2.Response:
+            item = answers.pop(0)
+            if isinstance(item, Exception):
+                item.request = request
+                raise item
+            return item
+
+        web.serve(responder)
+        async with async_http_client(EgressLevel.PUBLIC, retries=3) as client:
+            resp = await client.get("https://example.com/ai-async")
+            attempts = len(web.sent)
+            assert (resp.status_code, resp.json(), attempts, clock.waits) == (
+                200,
+                {"result": "recovered_async"},
+                2,
+                [1.0],
+            )
+
+    def test_provider_uses_async_retry_transport_and_github_session_does_not(self) -> None:
+        """Verify create_pydantic_ai_provider installs async retry transport and GitHub session does not."""
+        from pydantic_ai.retries import AsyncHTTPX2TenacityTransport
+
+        from devops_cli.ai.providers import create_pydantic_ai_provider
+        from devops_cli.github.session_transport import session_client
+
+        provider = create_pydantic_ai_provider(
+            "openai", api_key="sk-test", base_url="https://api.openai.com/v1"
+        )
+        assert isinstance(provider._client._client._transport, AsyncHTTPX2TenacityTransport)
+
+        github_client = session_client()
+        assert not isinstance(github_client._transport, AsyncHTTPX2TenacityTransport)
+
+    def test_stream_retry_reset_before_first_chunk(self) -> None:
+        """WHEN the first model request raises ConnectionResetError before it yields a chunk
+        and the second attempt answers a complete reply
+        THEN the agent run returns the second reply and raises no AIClientError."""
+        from contextlib import asynccontextmanager
+
+        from pydantic_ai import Agent, RunContext
+        from pydantic_ai.models.test import TestModel
+
+        from devops_cli.ai.pydantic_ai_bridge import wrap_stream_retry_model
+
+        calls = 0
+
+        class FlakyStreamModel(TestModel):
+            @asynccontextmanager
+            async def request_stream(self, *args: object, **kwargs: object):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    raise ConnectionResetError("Connection reset by peer")
+                async with super().request_stream(*args, **kwargs) as s:
+                    yield s
+
+        model = wrap_stream_retry_model(FlakyStreamModel())
+        agent = Agent(model)
+
+        async def drain(_ctx: RunContext[None], events: object) -> None:
+            async for _ in events:
+                pass
+
+        result = agent.run_sync("test request", event_stream_handler=drain)
+        assert calls == 2
+        assert result.output == "success (no tool calls)"
+
+    def test_stream_retry_no_replay_after_first_chunk(self) -> None:
+        """WHEN the model response yields one chunk and then raises ConnectionResetError
+        THEN the run raises AIClientError and sends no second request."""
+        from contextlib import asynccontextmanager
+
+        from pydantic_ai import Agent, RunContext
+        from pydantic_ai.models.test import TestModel
+
+        from devops_cli.ai.client.models import AIClientError
+        from devops_cli.ai.pydantic_ai_bridge import wrap_stream_retry_model
+
+        calls = 0
+
+        class MidStreamFailModel(TestModel):
+            @asynccontextmanager
+            async def request_stream(self, *args: object, **kwargs: object):
+                nonlocal calls
+                calls += 1
+                async with super().request_stream(*args, **kwargs) as stream:
+
+                    class FailingStream:
+                        def __init__(self, inner: object) -> None:
+                            self.inner = inner
+
+                        def __getattr__(self, name: str) -> object:
+                            return getattr(self.inner, name)
+
+                        async def __aiter__(self):
+                            count = 0
+                            async for event in self.inner:
+                                yield event
+                                count += 1
+                                if count == 1:
+                                    raise ConnectionResetError("Connection reset mid-stream")
+
+                    yield FailingStream(stream)
+
+        model = wrap_stream_retry_model(MidStreamFailModel())
+        agent = Agent(model)
+
+        async def drain(_ctx: RunContext[None], events: object) -> None:
+            async for _ in events:
+                pass
+
+        with pytest.raises(AIClientError) as exc_info:
+            agent.run_sync("test request", event_stream_handler=drain)
+        assert calls == 1
+        assert "Connection reset mid-stream" in str(exc_info.value)
+
+    def test_stream_retry_limit_reached(self) -> None:
+        """WHEN each of three attempts raises ConnectionResetError before the first chunk
+        THEN the client sends exactly three attempts, waits between them, and raises AIClientError."""
+        from contextlib import asynccontextmanager
+
+        from pydantic_ai import Agent, RunContext
+        from pydantic_ai.models.test import TestModel
+
+        from devops_cli.ai.client.models import AIClientError
+        from devops_cli.ai.pydantic_ai_bridge import wrap_stream_retry_model
+
+        calls = 0
+
+        class AlwaysFailModel(TestModel):
+            @asynccontextmanager
+            async def request_stream(self, *args: object, **kwargs: object):
+                nonlocal calls
+                calls += 1
+                raise ConnectionResetError("Connection reset by peer")
+                yield
+
+        model = wrap_stream_retry_model(AlwaysFailModel())
+        agent = Agent(model)
+
+        async def drain(_ctx: RunContext[None], events: object) -> None:
+            async for _ in events:
+                pass
+
+        with pytest.raises(AIClientError) as exc_info:
+            agent.run_sync("test request", event_stream_handler=drain)
+        assert calls == 3
+        assert "Connection reset by peer" in str(exc_info.value)
+
+    def test_stream_retry_non_retryable_401_authentication_failure(self) -> None:
+        """WHEN the model request returns HTTP 401 before any chunk
+        THEN the client sends one request and raises AIClientError."""
+        from contextlib import asynccontextmanager
+
+        from pydantic_ai import Agent, RunContext
+        from pydantic_ai.exceptions import ModelHTTPError
+        from pydantic_ai.models.test import TestModel
+
+        from devops_cli.ai.client.models import AIClientError
+        from devops_cli.ai.pydantic_ai_bridge import wrap_stream_retry_model
+
+        calls = 0
+
+        class AuthFailModel(TestModel):
+            @asynccontextmanager
+            async def request_stream(self, *args: object, **kwargs: object):
+                nonlocal calls
+                calls += 1
+                raise ModelHTTPError(status_code=401, model_name="test", body="Unauthorized")
+                yield
+
+        model = wrap_stream_retry_model(AuthFailModel())
+        agent = Agent(model)
+
+        async def drain(_ctx: RunContext[None], events: object) -> None:
+            async for _ in events:
+                pass
+
+        with pytest.raises(AIClientError) as exc_info:
+            agent.run_sync("test request", event_stream_handler=drain)
+        assert calls == 1
+        assert exc_info.value.status == 401
+
+    def test_stream_retry_non_streaming_request_recovers(self) -> None:
+        """Verify non-streaming request retries connection reset and recovers."""
+        from pydantic_ai import Agent
+        from pydantic_ai.models.test import TestModel
+
+        from devops_cli.ai.pydantic_ai_bridge import wrap_stream_retry_model
+
+        calls = 0
+
+        class FailOnceModel(TestModel):
+            async def request(self, *args: object, **kwargs: object):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    raise ConnectionResetError("Connection reset before output")
+                return await super().request(*args, **kwargs)
+
+        model = wrap_stream_retry_model(FailOnceModel())
+        agent = Agent(model)
+        result = agent.run_sync("non-streaming test")
+        assert calls == 2
+        assert result.output == "success (no tool calls)"
+
+    def test_stream_retry_non_streaming_request_exhaustion(self) -> None:
+        """Verify non-streaming request raises AIClientError when retries are exhausted."""
+        from pydantic_ai import Agent
+        from pydantic_ai.models.test import TestModel
+
+        from devops_cli.ai.client.models import AIClientError
+        from devops_cli.ai.pydantic_ai_bridge import wrap_stream_retry_model
+
+        calls = 0
+
+        class AlwaysFailRequestModel(TestModel):
+            async def request(self, *args: object, **kwargs: object):
+                nonlocal calls
+                calls += 1
+                raise ConnectionResetError("Reset always")
+
+        model = wrap_stream_retry_model(AlwaysFailRequestModel())
+        agent = Agent(model)
+        with pytest.raises(AIClientError) as exc_info:
+            agent.run_sync("exhaustion test")
+        assert calls == 3
+        assert "Reset always" in str(exc_info.value)
+
+    def test_stream_retry_non_streaming_request_non_retryable(self) -> None:
+        """Verify non-streaming request raises AIClientError immediately on 401 without retry."""
+        from pydantic_ai import Agent
+        from pydantic_ai.exceptions import ModelHTTPError
+        from pydantic_ai.models.test import TestModel
+
+        from devops_cli.ai.client.models import AIClientError
+        from devops_cli.ai.pydantic_ai_bridge import wrap_stream_retry_model
+
+        calls = 0
+
+        class AuthFailRequestModel(TestModel):
+            async def request(self, *args: object, **kwargs: object):
+                nonlocal calls
+                calls += 1
+                raise ModelHTTPError(status_code=401, model_name="test", body="Unauthorized")
+
+        model = wrap_stream_retry_model(AuthFailRequestModel())
+        agent = Agent(model)
+        with pytest.raises(AIClientError) as exc_info:
+            agent.run_sync("auth fail test")
+        assert calls == 1
+        assert exc_info.value.status == 401
+
+    def test_stream_retry_helper_functions_coverage(self) -> None:
+        """Verify helper error inspection and wrapping logic."""
+        from unittest.mock import MagicMock
+
+        from pydantic_ai.exceptions import ModelConnectionError, ModelHTTPError
+        from pydantic_ai.models.test import TestModel
+
+        from devops_cli.ai.client.models import AIClientError
+        from devops_cli.ai.pydantic_ai_bridge import (
+            _is_retryable_error,
+            _StreamRetryProxy,
+            _to_ai_client_error,
+            wrap_stream_retry_model,
+        )
+
+        req = httpx2.Request("GET", "https://example.com")
+        resp_401 = httpx2.Response(401, request=req)
+        assert not _is_retryable_error(
+            httpx2.HTTPStatusError("401", request=req, response=resp_401)
+        )
+        assert not _is_retryable_error(
+            ModelHTTPError(status_code=403, model_name="test", body="forbidden")
+        )
+        os_err = OSError("Reset")
+        os_err.errno = 104
+        assert _is_retryable_error(os_err)
+        assert _is_retryable_error(httpx2.ReadTimeout("Timed out"))
+        assert _is_retryable_error(ModelConnectionError(model_name="test", message="lost"))
+        assert not _is_retryable_error(ValueError("generic error"))
+
+        existing = AIClientError("already wrapped", status=400)
+        assert _to_ai_client_error(existing) is existing
+
+        class DummyResponseErr(Exception):
+            def __init__(self) -> None:
+                self.response = MagicMock(status_code=404)
+
+        converted = _to_ai_client_error(DummyResponseErr())
+        assert converted.status == 404
+
+        timeout_err = _to_ai_client_error(httpx2.ReadTimeout("timed out"))
+        assert timeout_err.timed_out
+
+        assert wrap_stream_retry_model(None) is None
+        wrapped = wrap_stream_retry_model(TestModel())
+        assert wrap_stream_retry_model(wrapped) is wrapped
+
+        proxy = _StreamRetryProxy(TestModel(), [], None, MagicMock(), None)
+        with pytest.raises(AttributeError, match="non_existent_attribute"):
+            _ = proxy.non_existent_attribute
+        proxy._active_inner = MagicMock(custom_inner_attr=42)
+        assert proxy.custom_inner_attr == 42
+
+    def test_create_retry_config_should_retry_http_status_error(self) -> None:
+        """Verify should_retry inspects HTTP status errors."""
+        from unittest.mock import MagicMock
+
+        from tenacity import RetryCallState
+
+        from devops_cli.ai.retries import create_retry_config
+
+        config = create_retry_config(retry_statuses=(503,))
+        retry_fn = config["retry"]
+        req = httpx2.Request("GET", "https://example.com")
+        status_err = httpx2.HTTPStatusError(
+            "503", request=req, response=httpx2.Response(503, request=req)
+        )
+        mock_state = MagicMock(spec=RetryCallState)
+        mock_outcome = MagicMock()
+        mock_outcome.exception.return_value = status_err
+        mock_state.outcome = mock_outcome
+        assert retry_fn(mock_state)

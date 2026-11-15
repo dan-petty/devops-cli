@@ -158,6 +158,7 @@ def async_http_client(
     level: EgressLevel,
     *,
     key: str | None = None,
+    retries: int | None = None,
     verify: ssl.SSLContext | bool = True,
     read_timeout: float | None = None,
     timeout: httpx2.Timeout | float | None = None,
@@ -176,13 +177,14 @@ def async_http_client(
             raise TypeError(f"{_POOL_FIXES}; build an unpooled client to set one")
         options.setdefault("follow_redirects", True)
         return pooled_async_client(
-            f"{level}:{key}",
+            f"{level}:{key}" if retries is None else f"{level}:{key}:retries={retries!r}",
             lambda: _build_async_client(
                 level,
                 timeout=request_timeout(),
                 verify=verify,
                 http2=True,
                 limits=connection_limits(),
+                retries=retries,
                 **options,
             ),
         )
@@ -193,6 +195,7 @@ def async_http_client(
         verify=verify,
         http2=http2 is None or http2,
         limits=limits,
+        retries=retries,
         transport=transport,
         **options,
     )
@@ -206,6 +209,7 @@ def _build_async_client(
     verify: ssl.SSLContext | bool,
     http2: bool,
     limits: httpx2.Limits | None = None,
+    retries: int | None = None,
     transport: httpx2.AsyncBaseTransport | None = None,
     **options: Unpack[ClientOptions],
 ) -> httpx2.AsyncClient:
@@ -217,6 +221,12 @@ def _build_async_client(
         if transport is not None
         else async_egress_transport(level, verify=verify, http2=http2, limits=limits)
     )
+    if isinstance(retries, int):
+        from devops_cli.ai.retries import create_async_retry_transport
+
+        effective_transport = create_async_retry_transport(
+            max_attempts=retries, wrapped=effective_transport
+        )
     return httpx2.AsyncClient(
         timeout=resolve_client_timeout(timeout, read_timeout),
         transport=effective_transport,

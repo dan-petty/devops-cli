@@ -121,12 +121,12 @@ def create_pydantic_ai_provider(
             from devops_cli.telemetry.library_spans import instrument_gateway_client
 
             gateway_client = async_http_client(
-                level, event_hooks={"request": [name_gateway_caller]}
+                level, event_hooks={"request": [name_gateway_caller]}, retries=3
             )
             instrument_gateway_client(gateway_client)
             init_kwargs["http_client"] = gateway_client
         else:
-            init_kwargs["http_client"] = async_http_client(level)
+            init_kwargs["http_client"] = async_http_client(level, retries=3)
 
     return provider_cls(**init_kwargs)
 

@@ -6,7 +6,12 @@ from collections.abc import Callable
 from typing import Any, cast
 
 import httpx2
-from pydantic_ai.retries import HTTPX2TenacityTransport, RetryConfig, wait_retry_after
+from pydantic_ai.retries import (
+    AsyncHTTPX2TenacityTransport,
+    HTTPX2TenacityTransport,
+    RetryConfig,
+    wait_retry_after,
+)
 from tenacity import retry_if_exception, stop_after_attempt, wait_exponential
 
 from devops_cli.config.constants import CONST_RETRYABLE_HTTP_STATUS_CODES
@@ -38,6 +43,8 @@ def create_retry_config(
 
     def should_retry(exc: BaseException) -> bool:
         if isinstance(exc, (httpx2.TransportError, httpx2.TimeoutException)):
+            return True
+        if isinstance(exc, (ConnectionResetError, BrokenPipeError)):
             return True
         if isinstance(exc, httpx2.HTTPStatusError):
             return is_retryable_status_code(exc.response.status_code, retry_statuses)
@@ -74,6 +81,24 @@ class ExpiringConnectionTransport(httpx2.BaseTransport):
 
     def close(self) -> None:
         self.wrapped.close()
+
+
+class AsyncExpiringConnectionTransport(httpx2.AsyncBaseTransport):
+    """Async transport wrapper that closes expired and cut connections on each request attempt."""
+
+    def __init__(self, wrapped: httpx2.AsyncBaseTransport) -> None:
+        self.wrapped = wrapped
+
+    async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
+        from devops_cli.http.pool import close_expired_connections
+
+        try:
+            return await self.wrapped.handle_async_request(request)
+        finally:
+            close_expired_connections(self.wrapped)
+
+    async def aclose(self) -> None:
+        await self.wrapped.aclose()
 
 
 def create_retry_transport(
@@ -114,7 +139,44 @@ def create_retry_transport(
     )
 
 
+def create_async_retry_transport(
+    *,
+    wrapped: httpx2.AsyncBaseTransport,
+    config: RetryConfig | None = None,
+    max_attempts: int = 5,
+    min_wait: float = 1.0,
+    max_wait: float = 60.0,
+    retry_statuses: tuple[int, ...] = DEFAULT_RETRYABLE_STATUS_CODES,
+    validate_response: Callable[[httpx2.Response], Any] | None = None,
+    **kwargs: Any,
+) -> AsyncHTTPX2TenacityTransport:
+    """Construct an asynchronous HTTPX2TenacityTransport with automatic Retry-After inspection.
+
+    `wrapped` is the transport that sends each attempt.
+    """
+    base_config = config or create_retry_config(
+        max_attempts=max_attempts,
+        min_wait=min_wait,
+        max_wait=max_wait,
+        retry_statuses=retry_statuses,
+        **kwargs,
+    )
+
+    async def _async_sleep(seconds: float) -> None:
+        clock.sleep(seconds)
+
+    active_config: RetryConfig = {"sleep": _async_sleep, **base_config}
+
+    validator = validate_response
+    return AsyncHTTPX2TenacityTransport(
+        active_config,
+        validate_response=validator,
+        wrapped=AsyncExpiringConnectionTransport(wrapped),
+    )
+
+
 __all__ = [
+    "create_async_retry_transport",
     "create_retry_config",
     "create_retry_transport",
     "is_retryable_status_code",
