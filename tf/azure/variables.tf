@@ -64,6 +64,11 @@ variable "subnet_address_prefix" {
   default     = "10.200.1.0/24"
 }
 
+variable "api_server_authorized_ip_ranges" {
+  type        = list(string)
+  description = "Authorized IP address ranges (CIDR blocks) allowed to access the AKS API server"
+}
+
 variable "tags" {
   type        = map(string)
   description = "Tags applied to all Azure resources"
