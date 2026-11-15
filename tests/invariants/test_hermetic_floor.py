@@ -1054,3 +1054,11 @@ def test_no_host_decided_skips_in_test_suite() -> None:
             if pattern.search(text):
                 violations.append(f"{py_file.relative_to(REPO_ROOT)}: matches {pattern.pattern}")
     assert not violations, f"Host-decided skips found: {violations}"
+
+
+def test_the_floor_drops_the_shell_config_variable() -> None:
+    """A devcontainer shell exports `DEVOPS_CLI_CONFIG`, and the floor drops it before a test
+    reads settings (#5268)."""
+    text = REPO_ROOT / "tests/conftest.py"
+
+    assert 'os.environ.pop("DEVOPS_CLI_CONFIG", None)' in text.read_text(encoding="utf-8")
