@@ -3351,8 +3351,13 @@ class RoadmapMessages:
     implement_stop_reasons_separator: str = " | "
     implement_tool_masked: str = "<masked>"
     implement_repair_turn: str = (
-        "A static check of your group failed:\n\n{failure}\n\nFix what the check reports. Change "
-        "only the files that you changed.{removed} Then reply with one short message."
+        "A static check of your group failed:\n\n{failure}{map}\n\nFix what the check reports. "
+        "Change only the files that you changed.{removed} Then reply with one short message."
+    )
+    implement_map_heading: str = "\n\n# Repository map\n\n{note}\n\n{lines}"
+    implement_map_note: str = (
+        "The map shows the files that the failure names and the files of your group. Each line "
+        "holds a path and the names of its top-level symbols."
     )
     implement_restored_tasks: str = (
         "Restored the tasks.md of the change {change}. A step only ticks the tasks of its own "
@@ -3460,7 +3465,7 @@ class RoadmapMessages:
     )
     implement_hook_turn: str = (
         "A hook of the project failed on your changes:\n\n{failure}\n\nThe hooks of the project "
-        "check each commit. Fix what the hooks report. Change only the files that you "
+        "check each commit.{map} Fix what the hooks report. Change only the files that you "
         "changed.{removed} Then reply with one short message."
     )
     implement_title: str = "Implement step: item #{item}, group {group} ({title})"

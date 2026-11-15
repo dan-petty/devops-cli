@@ -142,7 +142,11 @@ from devops_cli.roadmap.implement.implement_shell_policy import (
     shown,
 )
 from devops_cli.roadmap.implement.implement_shell_refusal import ShellRefusal
-from devops_cli.roadmap.implement.implement_strategy import strategy_for
+from devops_cli.roadmap.implement.implement_strategy import (
+    AttemptStrategy,
+    repo_map_section,
+    strategy_for,
+)
 from devops_cli.roadmap.implement.implement_strays import stray_files, unplanned_paths
 from devops_cli.roadmap.implement.implement_test_form import (
     TestForm,
@@ -1828,20 +1832,34 @@ def _matches_base(source: Path, base: str, name: str) -> bool:
     return _git(source, "diff", "--cached", "--quiet", base, "--", name).returncode == 0
 
 
-def _extra_ask(failure: _Failure | None, log: ToolCallLog) -> _Ask | None:
+def _extra_ask(
+    failure: _Failure | None,
+    log: ToolCallLog,
+    *,
+    source: Path,
+    inputs: StepInputs,
+    strategy: AttemptStrategy,
+) -> _Ask | None:
     """The extra turn that a failed static check or hook earns, or None. No turn asks for a tick:
     the job ticks the group when its checks pass (#3488). The message names the stray files that
     the step deleted, and why (#3092). A failure with no repair paths, as a group that changed no
-    file (`plan_defect`), gets no turn: no attempt can fix it (#3053). The caller counts the turns
-    against `repair_rounds`."""
+    file (`plan_defect`), gets no turn: no attempt can fix it (#3053). A turn whose strategy is
+    `repo_map` also gets the repository map of the files that the failure names (#3569). The
+    caller counts the turns against `repair_rounds`."""
     if failure is None or failure.repair_paths is None:
         return None
     texts = MESSAGES.roadmap
     removed = texts.implement_removed_note.format(paths=log.removed_text()) if log.removed else ""
     template = texts.implement_hook_turn if failure.hook else texts.implement_repair_turn
+    section = (
+        repo_map_section(source, failure.reason, inputs.group)
+        if strategy is AttemptStrategy.REPO_MAP
+        else ""
+    )
     message = template.format(
         failure=mask_secrets(failure.reason)[:CONST_ROADMAP_IMPLEMENT_REASON_CHARS],
         removed=removed,
+        map=section,
     )
     return _Ask(message, failure.repair_paths, texts.implement_stop_repair_turn_changed)
 
@@ -1946,7 +1964,13 @@ def _repair_rounds(
     follows (#3053). The state after the last attempt."""
     run, failure, used, number = start.run, start.failure, start.used, start.number
     while True:
-        ask = _extra_ask(failure, log)
+        ask = _extra_ask(
+            failure,
+            log,
+            source=source,
+            inputs=inputs,
+            strategy=strategy_for(number + 1, moves_tier=_moves_tier(run)),
+        )
         repair = ask is not None and used < start.allowed
         _trace_attempt(trace, number, tier, failure, repair=repair)
         if ask is None or not repair:

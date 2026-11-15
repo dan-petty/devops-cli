@@ -89,12 +89,16 @@ def _prompt(script: ModelScript, request: int) -> str:
 
 REPAIR = write_call("tests/test_sample.py", TEST_BODY)
 TICK = write_call(TASKS_PATH, TICKED)
-ASK = (
-    "A static check of your group failed:\n\n"
-    f"{LINT} exited with status 1.\n{UNUSED}\n\n"
-    "Fix what the check reports. Change only the files that you changed."
-)
+FAILURE = f"A static check of your group failed:\n\n{LINT} exited with status 1.\n{UNUSED}"
+ASK = "Fix what the check reports. Change only the files that you changed."
 END = " Then reply with one short message."
+MAP = (
+    "\n\n# Repository map\n\n"
+    "The map shows the files that the failure names and the files of your group. Each line holds "
+    "a path and the names of its top-level symbols.\n\n"
+    "src/sample.py: hello, shout\n"
+    "tests/test_sample.py: test_shout"
+)
 
 
 def test_a_step_with_an_unused_import_ends_done_after_the_extra_turn_removes_it(
@@ -120,7 +124,7 @@ def test_a_step_with_an_unused_import_ends_done_after_the_extra_turn_removes_it(
         programs_run(programs, "uv").count(LINT),
         git(checkout, "status", "--porcelain"),
     ) == (StepStatus.DONE, "", 4, before, TEST_BODY, 2, "")
-    assert _prompt(script, 2) == ASK + END
+    assert _prompt(script, 2) == f"{FAILURE}{MAP}\n\n{ASK}{END}"
 
 
 def test_a_step_that_still_fails_after_the_extra_turn_stops_and_the_model_gets_no_third_turn(
@@ -170,6 +174,76 @@ def test_a_failed_type_check_gets_the_extra_turn_with_its_text(
     assert _prompt(script, 2).startswith(
         f"A static check of your group failed:\n\n{TYPES} exited with status 1.\n{BAD_TYPE}"
     )
+
+
+def test_the_second_attempt_holds_the_map_entry_of_the_file_of_the_failure(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """The second attempt adds the repository map of the files that the failure names and of the
+    files of the group (#3569)."""
+    _lint_fails_on_an_unused_import(programs)
+    script = ModelScript(
+        tool_calls(*NOT_TICKED, TICK), say("Done."), tool_calls(REPAIR), say("Fixed.")
+    )
+
+    _step(store, checkout, script)
+
+    prompt = _prompt(script, 2)
+    assert "# Repository map" in prompt
+    assert "tests/test_sample.py: test_shout" in prompt
+
+
+def test_the_map_of_the_second_attempt_names_the_file_before_its_location(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """A reason that names a file with a location, as `ruff` and `mypy` do, names that file
+    (#3569)."""
+    programs.answer(
+        lambda call: command_text(call).startswith("uv run pre-commit"),
+        ProcessAnswer(
+            returncode=1, stdout="ast-grep scan....Failed\n --> tests/test_sample.py:3:1\n"
+        ),
+    )
+    script = ModelScript(
+        tool_calls(*NOT_TICKED, TICK), say("Done."), tool_calls(REPAIR), say("Fixed.")
+    )
+
+    run_fix_step(
+        store,
+        item=1,
+        fix=FixRequest(check="Static Analysis", log="E501"),
+        source=checkout,
+        model=script.model(),
+        window=WINDOW,
+        hooks=checkout.parent / "pre-commit-trusted-config.yaml",
+    )
+
+    assert "tests/test_sample.py: test_shout" in _prompt(script, 2)
+
+
+def test_the_second_attempt_holds_no_map_section_when_no_file_has_a_symbol(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """A failure that names no file and a group that names no file give no section (#3569)."""
+    programs.answer(
+        lambda call: command_text(call).startswith("uv run pre-commit"),
+        ProcessAnswer(returncode=1, stdout="ast-grep scan....Failed\nno file matched\n"),
+    )
+    script = ModelScript(
+        tool_calls(*NOT_TICKED, TICK), say("Done."), tool_calls(REPAIR), say("Fixed.")
+    )
+
+    run_fix_step(
+        store,
+        item=1,
+        fix=FixRequest(check="Static Analysis", log="E501"),
+        source=checkout,
+        model=script.model(),
+        window=WINDOW,
+        hooks=checkout.parent / "pre-commit-trusted-config.yaml",
+    )
+
+    assert "# Repository map" not in _prompt(script, 2)
 
 
 def test_an_extra_turn_that_changes_a_file_the_step_did_not_change_stops_the_step(
@@ -232,7 +306,7 @@ def test_a_failure_gets_one_extra_turn_and_the_job_ticks_the_group(
     outcome = _step(store, checkout, script)
 
     assert (outcome.status, outcome.reason, outcome.requests) == (StepStatus.DONE, "", 4)
-    assert _prompt(script, 2) == ASK + END
+    assert _prompt(script, 2) == f"{FAILURE}{MAP}\n\n{ASK}{END}"
     assert git(checkout, "show", f"HEAD:{TASKS_PATH}") + "\n" == TICKED
 
 
@@ -298,7 +372,7 @@ def test_a_fix_step_gets_the_extra_turn_with_the_failure_and_no_list_of_ticks(
     )
 
     assert (outcome.status, outcome.requests) == (StepStatus.DONE, 4)
-    assert _prompt(script, 2) == ASK + END
+    assert _prompt(script, 2) == f"{FAILURE}{MAP}\n\n{ASK}{END}"
 
 
 def test_the_extra_turn_counts_against_the_request_limit_of_the_first_turn(
@@ -340,7 +414,7 @@ def test_the_failure_text_in_the_message_is_cut_to_the_reason_limit(
     _step(store, checkout, script)
 
     prompt = _prompt(script, 2)
-    shown = prompt.split("A static check of your group failed:\n\n")[1].split("\n\nFix what")[0]
+    shown = prompt.split("A static check of your group failed:\n\n")[1].split(MAP)[0]
     assert len(shown) == CONST_ROADMAP_IMPLEMENT_REASON_CHARS
 
 
