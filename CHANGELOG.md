@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.152.0](https://github.com/dan-petty/devops-cli/compare/v0.151.0...v0.152.0) (2026-11-15)
+
+
+### Features
+
+* **cli:** fail a hidden title that ships runtime code ([#5808](https://github.com/dan-petty/devops-cli/issues/5808)) ([22b36c6](https://github.com/dan-petty/devops-cli/commit/22b36c64b92762914565f98ed99bc6deefbd071f))
+* **docs:** Check the ASD-STE100 rules with Vale ([#5796](https://github.com/dan-petty/devops-cli/issues/5796)) ([79920b1](https://github.com/dan-petty/devops-cli/commit/79920b15dfb4768e23c481e70b259df2ff780097)), closes [#5157](https://github.com/dan-petty/devops-cli/issues/5157)
+* **roadmap:** scaffold makes, resumes or adopts the item branch ([#5795](https://github.com/dan-petty/devops-cli/issues/5795)) ([c377e5a](https://github.com/dan-petty/devops-cli/commit/c377e5a36fb81152db42fa1ffdaaa5dfb4971e10)), closes [#5499](https://github.com/dan-petty/devops-cli/issues/5499)
+
+
+### Bug Fixes
+
+* **ai:** retry a reset in the answer read of a pydantic-ai agent run ([#5811](https://github.com/dan-petty/devops-cli/issues/5811)) ([43022d0](https://github.com/dan-petty/devops-cli/commit/43022d0ca27536748f4e8fdb6aa7c48f80dabfb2))
+* **ai:** Set the Jev window from the model data ([#5804](https://github.com/dan-petty/devops-cli/issues/5804)) ([5ba1a5c](https://github.com/dan-petty/devops-cli/commit/5ba1a5cd84942695863ec7496ccb82cb92e11370))
+* **infra:** Resolve a relative repos base dir from the main worktree ([#5801](https://github.com/dan-petty/devops-cli/issues/5801)) ([6bd905a](https://github.com/dan-petty/devops-cli/commit/6bd905a79f641e7a549fdd6af70b4b7a634f2fcf))
+* **monitoring:** Start Grafana without the renderer token ([#5803](https://github.com/dan-petty/devops-cli/issues/5803)) ([dcb6840](https://github.com/dan-petty/devops-cli/commit/dcb6840aa068099f3af6d108ff0dd2cf436c4a19))
+* **pr:** Check the scope in a pr create dry run ([#5797](https://github.com/dan-petty/devops-cli/issues/5797)) ([3d5a4d5](https://github.com/dan-petty/devops-cli/commit/3d5a4d50c87dc44b83d5d85ab981be1259568fee))
+* **security:** Judge KSV-0121 with a dated ignore entry ([#5800](https://github.com/dan-petty/devops-cli/issues/5800)) ([7981f47](https://github.com/dan-petty/devops-cli/commit/7981f47632a406f3f35e46580375788f4693c239)), closes [#5793](https://github.com/dan-petty/devops-cli/issues/5793)
+* **telemetry:** Send the group body histogram point ([#5798](https://github.com/dan-petty/devops-cli/issues/5798)) ([515689d](https://github.com/dan-petty/devops-cli/commit/515689d134a3fa7c324ce865574ccadba3d12752))
+
 ## [0.151.0](https://github.com/dan-petty/devops-cli/compare/v0.150.0...v0.151.0) (2026-11-15)
 
 
