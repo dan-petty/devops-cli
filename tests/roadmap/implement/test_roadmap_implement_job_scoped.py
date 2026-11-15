@@ -173,12 +173,15 @@ def test_the_scoped_checks_run_in_the_worktree_after_the_last_commit_and_before_
     job_world.run(two_groups())
 
     commands = _commands(job_world)
-    rebase = max(i for i, text in enumerate(commands) if " rebase " in f" {text} ")
     # The checkpoint of group 1 comes before the scoped checks (#3677). The last push is the final one.
     push = max(i for i, text in enumerate(commands) if " push " in f" {text} ")
     order = [_position(job_world, PRE_PUSH), _position(job_world, STATIC)]
     order.append(max(i for i, text in enumerate(commands) if text.startswith(TESTS)))
-    assert rebase < order[0] < order[1] < order[2] < push
+    initial_rebase = max(
+        i for i, text in enumerate(commands[: order[0]]) if " rebase " in f" {text} "
+    )
+    final_rebase = max(i for i, text in enumerate(commands) if " rebase " in f" {text} ")
+    assert initial_rebase < order[0] < order[1] < order[2] < final_rebase < push
     scoped = [job_world.programs.calls[i] for i in order]
     assert {call.cwd for call in scoped} == {job_world.programs.calls[order[0]].cwd}
     assert scoped[0].cwd not in (None, job_world.repo.clone)

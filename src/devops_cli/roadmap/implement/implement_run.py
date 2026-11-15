@@ -1325,8 +1325,9 @@ class _ItemRun:
         self._commit_if_changed(f"docs(openspec): archive the change (#{self.number})")
 
     def _push(self) -> int:
-        """Rebase onto the default branch again, then push with a lease on the remote tip that the
-        job has seen, so a push of anyone else is never overwritten. A Planned item has no remote
+        """Rebase onto the default branch again, run the scoped checks, rebase onto the default
+        branch to take the current tip, then push with a lease on the remote tip that the job has
+        seen (#4957), so a push of anyone else is never overwritten. A Planned item has no remote
         tip yet: its first push publishes the branch. The job skips the checks at a head that
         `implement.checked_sha` holds and the push at a head that `implement.published_sha` holds,
         and writes each mark when its phase passes, so a Job that was killed does not repeat it
@@ -1339,15 +1340,16 @@ class _ItemRun:
             self.checked_sha = self._head()
             self.store.set_marks(self._fresh(), {ImplementRecordKey.CHECKED_SHA: self.checked_sha})
         self.step = MESSAGES.roadmap.implement_step_names["push"]
-        if self.pull is not None and self.published_sha == self._head():
+        tip = self._current_tip(in_step=False)
+        if self.pull is not None and self.published_sha == tip:
             return self.pull
         with observe_implement(self.repo, StepName.PUBLISH):
             if self.pull is None:
-                pull = self._publish()
+                pull = self._publish(tip)
             else:
-                self._push_with_lease()
+                self._push_with_lease(tip)
                 pull = self.pull
-        self.published_sha = self._head()
+        self.published_sha = tip
         self.store.set_marks(self._fresh(), {ImplementRecordKey.PUBLISHED_SHA: self.published_sha})
         return pull
 
