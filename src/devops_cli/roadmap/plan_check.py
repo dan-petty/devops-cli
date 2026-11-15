@@ -7,7 +7,7 @@ the implement job has taken over holds the title and body of a delivery, so it i
 command reports no problem for it (#3224).
 
 The gates take a `StageProposal` and a `StagedTree`, so the command reads a checkout: it fetches
-`refs/pull/<number>/head`, lists the head files with `git ls-tree` and reads the change folder
+the head commit that the pull request names, lists its files with `git ls-tree` and reads the change folder
 from a detached worktree of the head. The GitHub client gives the title, the body, the base and
 the check runs. Each problem has a path, a rule and a message; a person reads one line for each
 and an agent reads the JSON array.
@@ -603,8 +603,10 @@ def plan_check(
     if issue is None:
         return PlanCheckResult(tuple(problems), notes)
 
-    git(source, "fetch", "--quiet", "origin", f"refs/pull/{number}/head", operation=GIT_OPERATION)
-    head = git(source, "rev-parse", "FETCH_HEAD", operation=GIT_OPERATION)
+    # The check reads the commit that the pull request names, not `FETCH_HEAD`, which every
+    # worktree of the checkout shares with any other fetch (#5255).
+    head = facts.head_sha
+    git(source, "fetch", "--quiet", "origin", head, operation=GIT_OPERATION)
     files = tree_files(source, head, operation=GIT_OPERATION)
     root, root_problems = change_root(files, issue)
     if root is None:
