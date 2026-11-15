@@ -268,6 +268,68 @@ def test_three_runs_state_the_count_and_the_spread(
     assert int(tokens.group(1)) < int(tokens.group(2))
 
 
+def test_the_verification_column_shows_not_run_without_a_pass(
+    cli: Any,
+    tmp_path: Path,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+    cases: list[StageCase],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from devops_cli.ai.client import factory
+    from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity
+    from devops_cli.roadmap.stage.stage_verify import Finding, Locator, PlanPart, Verification
+
+    plan = Script(call("read_file", path="src/devops_cli/sample.py"), make_stage_proposal())
+    review = Script(
+        Verification(
+            findings=[
+                Finding(
+                    type=DefectType.MISSING_PATH,
+                    severity=Severity.BLOCKER,
+                    where=Locator(part=PlanPart.TASKS, section="1.1"),
+                    problem="The group reads a path that the plan does not name.",
+                    quote="src/devops_cli/sample.py",
+                )
+            ]
+        )
+    )
+    monkeypatch.setattr(
+        factory,
+        "get_task_model",
+        lambda name, *, settings=None: review.model() if name == "verification" else plan.model(),
+    )
+    folder = _live_set(tmp_path, stage_repo, cases)
+    common = (
+        "roadmap",
+        "eval",
+        "stage",
+        "compare",
+        "base",
+        "extended",
+        "--runs",
+        "1",
+        "--cases",
+        str(folder),
+        "--source",
+        str(stage_repo.clone),
+        "--model",
+        "claude-sonnet-5-5",
+    )
+
+    without = cli(*common)
+    with_verify = cli(*common, "--verify")
+
+    assert without.exit_code == 0, without.output
+    unverified = next(line for line in without.output.splitlines() if line.startswith("base"))
+    assert "not run" in unverified
+    assert with_verify.exit_code == 0, with_verify.output
+    verified = next(line for line in with_verify.output.splitlines() if line.startswith("base"))
+    assert "not run" not in verified
+    assert verified.split()[2] == "1"
+
+
 def test_the_compare_form_refuses_a_lone_toolset_and_a_name_outside_the_setting(cli: Any) -> None:
     one = cli("roadmap", "eval", "stage", "compare", "base", "--dry-run", "--limit", "1")
     unknown = cli(

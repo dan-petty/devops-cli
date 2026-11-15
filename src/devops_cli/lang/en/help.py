@@ -1586,6 +1586,10 @@ class RoadmapCommandHelp:
         "Run each case this many times in the compare form, and report the minimum and the "
         "maximum of each measured value. Default: 3."
     )
+    eval_stage_verify: str = (
+        "In the compare form, run the verification pass on the plan of each run and report the "
+        "defects that it finds. Without it, the verification column says `not run`."
+    )
     eval_stage_json: str = "Print the report as JSON in place of the table."
     eval_stage_dry_run: str = (
         "Make no request: list the cases and the model calls that a run makes."

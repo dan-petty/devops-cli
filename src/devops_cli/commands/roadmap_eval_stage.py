@@ -151,6 +151,7 @@ def _compare(
     model: str | None,
     source: Path | None,
     dry_run: bool,
+    verify: bool,
 ) -> None:
     """Compare the toolsets over the cases that `names` and `limit` pick, or state the plan of the
     comparison on a dry run."""
@@ -192,6 +193,7 @@ def _compare(
         return
     client = get_llm_client(task="stage", settings=settings, model=model)
     planner = eval_model(model, task="stage")[0]
+    verifier = eval_model(model, task="verification")[0] if verify else None
     rows = [
         run_toolset(
             toolset,
@@ -201,6 +203,7 @@ def _compare(
             toolbox=planner,
             model=name,
             runs=runs,
+            verifier=verifier,
         )
         for toolset in chosen
     ]
@@ -225,6 +228,7 @@ def eval_stage_cmd(
         int | None, typer.Option("--limit", min=1, help=HELP.roadmap.eval_stage_limit)
     ] = None,
     runs: Annotated[int, typer.Option("--runs", min=1, help=HELP.roadmap.eval_stage_runs)] = 3,
+    verify: Annotated[bool, typer.Option("--verify", help=HELP.roadmap.eval_stage_verify)] = False,
     as_json: Annotated[bool, typer.Option("--json", help=HELP.roadmap.eval_stage_json)] = False,
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help=HELP.roadmap.eval_stage_dry_run)
@@ -264,6 +268,7 @@ def eval_stage_cmd(
             model=model,
             source=source,
             dry_run=dry_run or is_dry_run(),
+            verify=verify,
         )
         return
     if record:

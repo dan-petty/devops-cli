@@ -23,11 +23,19 @@ from devops_cli.exceptions import ConfigurationError
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
 from devops_cli.roadmap.agent_run import RunTrace
+from devops_cli.roadmap.clone_git import checkout_at
+from devops_cli.roadmap.refine.refine_investigation import task_window
 from devops_cli.roadmap.stage.stage import StageClient, openspec_tool
+from devops_cli.roadmap.stage.stage_change import StageProposal
 from devops_cli.roadmap.stage.stage_eval_cases import StageCase
 from devops_cli.roadmap.stage.stage_eval_run import CaseRun, run_case
 from devops_cli.roadmap.stage.stage_eval_usage import RunUsage
+from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient, review
+from devops_cli.roadmap.stage.stage_verify import VerificationInput
+from devops_cli.roadmap.stage.stage_verify_eval import matched_defects
 
+_OPERATION: Final[str] = "roadmap.eval.stage-compare"
+_VERIFY_TASK: Final[str] = "verification"
 _NOT_RUN: Final[str] = "not run"
 _UNPRICED: Final[str] = "unpriced"
 _COMPARE_HEADER: Final[str] = (
@@ -191,6 +199,43 @@ def _gate_defects(run: CaseRun) -> int:
     return sum(len(problems) for problems in run.first.values())
 
 
+def verify_plan(
+    case: StageCase,
+    plan: StageProposal | None,
+    client: StageClient,
+    repository: Path,
+    *,
+    toolbox: Any,
+    openspec: OpenSpecTool | None,
+) -> int | None:
+    """The labeled defects of `case` that the verification pass finds in `plan`, or None when the
+    run gave no plan to review. The pass is one agent run of the `toolbox` model with the read
+    tools of the job on the checkout of the case, as the job runs it (#3039). `client` answers a
+    call that is not for the pass, and `openspec` reads the specs for `read_spec`."""
+    if plan is None:
+        return None
+    window = task_window(_VERIFY_TASK)
+    with checkout_at(repository, case.base_commit, operation=_OPERATION) as source:
+        given = VerificationInput.of(
+            number=case.issue,
+            title=case.title,
+            body=case.issue_body,
+            plan=plan.model_dump(mode="json"),
+            source=source,
+            window=window,
+        )
+        reviewer = ToolboxClient(
+            toolbox,
+            client,
+            source,
+            case.base_commit,
+            window=window,
+            openspec=openspec,
+        )
+        findings, _read = review(reviewer, given)
+    return len(matched_defects(case.defects, findings))
+
+
 def _measure(
     case: StageCase,
     toolset: StageToolset,
@@ -200,9 +245,12 @@ def _measure(
     toolbox: Any,
     model: str,
     openspec: OpenSpecTool | None,
+    verifier: Any | None = None,
 ) -> Measure:
     """Plan `case` with the tools of `toolset`, and measure the run from its traces. `openspec`
-    reads the specs for the tool `read_spec` and for the gates of the first reply."""
+    reads the specs for the tool `read_spec` and for the gates of the first reply. With a
+    `verifier` model, the verification pass reads the plan of the run and the measure holds the
+    defects that it found; without one, the pass does not run and the measure holds none."""
     traces: list[RunTrace] = []
     started = clock.monotonic()
     run = run_case(
@@ -217,10 +265,15 @@ def _measure(
     seconds = clock.monotonic() - started
     trace = RunTrace.combined(traces)
     usage = RunUsage(trace.input_tokens, trace.output_tokens)
+    verification = (
+        verify_plan(case, run.plan, client, repository, toolbox=verifier, openspec=openspec)
+        if verifier is not None
+        else None
+    )
     return Measure(
         case=case.name,
         gate_defects=_gate_defects(run),
-        verification_defects=None,
+        verification_defects=verification,
         tool_calls=len(trace.tool_calls),
         requests=trace.requests,
         input_tokens=trace.input_tokens,
@@ -239,11 +292,13 @@ def run_toolset(
     toolbox: Any,
     model: str,
     runs: int = 1,
+    verifier: Any | None = None,
 ) -> ComparisonRow:
     """Plan each case with the tools of `toolset` and measure its run, `runs` times for each case,
     because the reply of a model differs between runs. `toolbox` is the model of the plan run,
     `client` answers every other call, and `model` is the name that prices the tokens of the run.
-    The row sums the measures of every run of every case."""
+    With a `verifier` model, the verification pass reads the plan of each run and the row holds the
+    defects that it found. The row sums the measures of every run of every case."""
     with openspec_tool() as tool:
         measures = [
             _measure(
@@ -254,6 +309,7 @@ def run_toolset(
                 toolbox=toolbox,
                 model=model,
                 openspec=tool,
+                verifier=verifier,
             )
             for case in cases
             for _ in range(runs)
