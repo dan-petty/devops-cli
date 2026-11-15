@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.151.0](https://github.com/dan-petty/devops-cli/compare/v0.150.0...v0.151.0) (2026-11-15)
+
+
+### Features
+
+* **roadmap:** Add inbox gauges and panel ([#2968](https://github.com/dan-petty/devops-cli/issues/2968)) ([#5762](https://github.com/dan-petty/devops-cli/issues/5762)) ([e5dfddb](https://github.com/dan-petty/devops-cli/commit/e5dfddb50a606c0105688eda00a1acb54acd2374))
+
 ## [0.150.0](https://github.com/dan-petty/devops-cli/compare/v0.149.0...v0.150.0) (2026-11-15)
 
 
