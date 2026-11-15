@@ -673,3 +673,18 @@ def test_a_trace_that_is_not_json_stops_the_report_and_names_the_key(job_world: 
 
     with pytest.raises(RoadmapImplementError, match=r"implement\.trace"):
         _explain(job_world, number)
+
+
+def test_explain_item_prints_phase_and_phase_age(job_world: JobWorld) -> None:
+    """The explanation report prints the pipeline phase and phase age of the item (#5495)."""
+    number = _seed(job_world)
+    item = job_world.store.item(number)
+    assert item is not None
+    job_world.store.set_field(item, ItemField.STATUS, "Ready")
+
+    explained = _explain(job_world, number)
+    assert explained.phase == "ready"
+    assert explained.phase_age >= 0.0
+
+    rendered = render_explanation(explained)
+    assert "Phase: ready. Phase age: " in rendered

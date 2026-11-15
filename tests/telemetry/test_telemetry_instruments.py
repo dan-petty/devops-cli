@@ -602,8 +602,8 @@ ROADMAP_AGE_GAUGE_NAMES = (
 
 def test_the_roadmap_age_gauges_are_declared_gauges_with_their_units_and_labels() -> None:
     """The gauges of the age of the oldest roadmap item, of its number and of the oldest claim
-    (#2919) are gauges in INSTRUMENTS. The item age and the claim age carry the unit `s`. The
-    item gauges take the labels `repo`, `state` and `plan`, and their descriptions name them."""
+    (#2919, #5495) are gauges in INSTRUMENTS. The item age and the claim age carry the unit `s`. The
+    item gauges take the labels `repo` and `phase`, and their descriptions name them."""
     declared = {instrument.name: instrument for instrument in INSTRUMENTS}
     assert [name for name in ROADMAP_AGE_GAUGE_NAMES if name not in declared] == []
 
@@ -611,8 +611,16 @@ def test_the_roadmap_age_gauges_are_declared_gauges_with_their_units_and_labels(
     assert [item_age.kind, oldest_item.kind, claim_age.kind] == [InstrumentKind.GAUGE] * 3
     assert [item_age.unit, oldest_item.unit, claim_age.unit] == ["s", "1", "s"]
     labels = tuple(getattr(instruments_module, "ROADMAP_AGE_LABELS", ()))
-    assert labels == ("repo", "state", "plan")
-    assert all(label in gauge.description for gauge in (item_age, oldest_item) for label in labels)
+    assert labels == ("repo", "phase")
+    items_gauge = declared["devops_cli_roadmap_items"]
+    stalled_gauge = declared["devops_cli_roadmap_stalled_items"]
+    assert [items_gauge.kind, stalled_gauge.kind] == [InstrumentKind.GAUGE, InstrumentKind.GAUGE]
+    assert [items_gauge.unit, stalled_gauge.unit] == ["1", "1"]
+    assert all(
+        label in gauge.description
+        for gauge in (item_age, oldest_item, items_gauge, stalled_gauge)
+        for label in labels
+    )
 
 
 def test_the_alternatives_coverage_instruments_are_declared_with_their_kinds_and_units() -> None:
@@ -1613,12 +1621,12 @@ def _overlapping_panels(panels: list[dict[str, Any]]) -> list[tuple[Any, Any]]:
 
 
 def test_the_oldest_item_age_panel_charts_each_state_and_the_claim_in_the_items_row() -> None:
-    """The panel "Oldest Item Age by State" (#2919) charts the age of the oldest item of each state
+    """The panel "Oldest Item Age by Phase" (#2919, #5495) charts the age of the oldest item of each phase
     and the age of the oldest claim, in seconds, at `x` 0 and `y` 34, beside the items panels. No
     panel of the dashboard overlaps another."""
     dashboard = DASHBOARDS / "project-metrics.json"
     matches = [
-        panel for panel in _panels(dashboard) if panel.get("title") == "Oldest Item Age by State"
+        panel for panel in _panels(dashboard) if panel.get("title") == "Oldest Item Age by Phase"
     ]
     assert len(matches) == 1
     (panel,) = matches
@@ -1629,7 +1637,7 @@ def test_the_oldest_item_age_panel_charts_each_state_and_the_claim_in_the_items_
         _overlapping_panels(json.loads(dashboard.read_text(encoding="utf-8"))["panels"]),
     ) == (
         [
-            "max by (state) (last_over_time(devops_cli_roadmap_item_age_seconds[$__range]))",
+            "max by (phase) (last_over_time(devops_cli_roadmap_item_age_seconds[$__range]))",
             "max(last_over_time(devops_cli_roadmap_claim_age_seconds[$__range]))",
         ],
         "s",

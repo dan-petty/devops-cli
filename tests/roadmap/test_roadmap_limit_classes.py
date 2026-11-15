@@ -704,6 +704,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     "DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_PLAN_DRIFT_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES": ("other", "a schedule"),
+    "DEFAULT_ROADMAP_STALL_HOURS": (
+        "setting",
+        "the hours an item may remain in one phase before the alert counts it; a setting since #5495",
+    ),
     "CONST_ROADMAP_RELEASE_COMMENTS_WINDOW_HOURS": (
         "kept",
         "the releases that the first run of the release_comments row comments on",

@@ -346,13 +346,13 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 34 },
       "id": 24,
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
-      "title": "Oldest Item Age by State",
+      "title": "Oldest Item Age by Phase",
       "type": "timeseries",
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max by (state) (last_over_time(devops_cli_roadmap_item_age_seconds[$__range]))",
-          "legendFormat": "{{state}}",
+          "expr": "max by (phase) (last_over_time(devops_cli_roadmap_item_age_seconds[$__range]))",
+          "legendFormat": "{{phase}}",
           "refId": "A"
         },
         {

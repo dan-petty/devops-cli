@@ -377,7 +377,7 @@ def test_collect_project_metrics_report(
     issues' labels from GitHub, each read at its process edge. An Item counts under the release
     whose commits close it (#2702)."""
     root = tmp_path / "repo"
-    root.mkdir()
+    root.mkdir(parents=True, exist_ok=True)
     tag_output = (
         "v0.2.23|2026-09-26T12:00:00+00:00\n"
         "v0.2.24|2026-09-28T12:00:00+00:00\n"
@@ -458,7 +458,7 @@ def test_each_issue_is_released_by_the_first_tag_whose_commits_close_it(
     holds the commit (#2702). A later commit that closes it again does not move it. A pull
     request reference and a commit after the last tag release no issue."""
     root = tmp_path / "repo"
-    root.mkdir()
+    root.mkdir(parents=True, exist_ok=True)
     tag_output = "v0.1.0|2026-10-01T00:00:00+00:00\nv0.2.0|2026-10-02T00:00:00+00:00\n"
     git_fake.answer(["git", "tag"], ProcessAnswer(stdout=tag_output))
 
@@ -481,7 +481,7 @@ def test_issues_that_cannot_be_read_stop_the_collection(
     """A failed read of the issues raises. It is no empty roadmap: the 0 for each label set that
     left the last snapshot would otherwise erase every count."""
     root = tmp_path / "repo"
-    root.mkdir()
+    root.mkdir(parents=True, exist_ok=True)
     git_fake.answer(["git", "tag"], ProcessAnswer(stdout="v0.2.25|2026-10-01T00:00:00+00:00\n"))
     git_fake.answer(["git", "log"], ProcessAnswer(stdout=""))
     git_fake.answer(["git", "rev-list"], ProcessAnswer(stdout="1\n"))
@@ -1277,8 +1277,8 @@ def _write_field(store: InMemoryRoadmapStore, number: int, field: ItemField, val
     store.set_field(item, field, value)
 
 
-def _age_of(ages: list[ItemAgeMetric], state: str, *, plan: bool) -> ItemAgeMetric:
-    return next(age for age in ages if age.state == state and age.plan is plan)
+def _age_of(ages: list[ItemAgeMetric], phase: str) -> ItemAgeMetric:
+    return next(age for age in ages if age.phase == phase)
 
 
 def _count_label_reads(store: RoadmapStore, monkeypatch: pytest.MonkeyPatch) -> list[int]:
@@ -1306,7 +1306,7 @@ def _collect(
 ) -> ProjectMetricsReport:
     """The report of the metrics row over `store`, with the `gh` edge of `github` and no tag."""
     root = tmp_path / "repo"
-    root.mkdir()
+    root.mkdir(parents=True, exist_ok=True)
     git_fake.answer(["git", "tag"], ProcessAnswer(stdout=""))
     github.answer_children(monkeypatch)
     return collect_project_metrics_report(
@@ -1322,14 +1322,12 @@ def test_an_age_is_the_clock_minus_the_labeled_event_of_the_status() -> None:
     _write_field(store, number, ItemField.STATUS, "Ready")
     clock.at(3600)
 
-    ages, _ = get_item_age_metrics(store, REPO, clock)
+    ages, _, _ = get_item_age_metrics(store, REPO, clock)
 
-    assert _age_of(ages, "ready", plan=False) == ItemAgeMetric(
-        state="ready", plan=False, number=number, age_seconds=3600.0
-    )
+    assert _age_of(ages, "ready") == ItemAgeMetric(phase="ready", number=number, age_seconds=3600.0)
 
 
-def test_the_oldest_item_of_a_pair_gives_the_age_and_the_number() -> None:
+def test_the_oldest_item_of_a_phase_gives_the_age_and_the_number() -> None:
     """Of two Items in `ready`, the one that got the status first is the oldest, and its age and
     its number are sent."""
     clock = AgesClock()
@@ -1341,11 +1339,9 @@ def test_the_oldest_item_of_a_pair_gives_the_age_and_the_number() -> None:
     _write_field(store, second, ItemField.STATUS, "Ready")
     clock.at(3600)
 
-    ages, _ = get_item_age_metrics(store, REPO, clock)
+    ages, _, _ = get_item_age_metrics(store, REPO, clock)
 
-    assert _age_of(ages, "ready", plan=False) == ItemAgeMetric(
-        state="ready", plan=False, number=first, age_seconds=3600.0
-    )
+    assert _age_of(ages, "ready") == ItemAgeMetric(phase="ready", number=first, age_seconds=3600.0)
 
 
 def test_a_status_that_a_person_removed_and_added_again_counts_from_the_second_event() -> None:
@@ -1361,14 +1357,14 @@ def test_a_status_that_a_person_removed_and_added_again_counts_from_the_second_e
     _write_field(store, number, ItemField.STATUS, "Ready")
     clock.at(3600)
 
-    ages, _ = get_item_age_metrics(store, REPO, clock)
+    ages, _, _ = get_item_age_metrics(store, REPO, clock)
 
-    assert _age_of(ages, "ready", plan=False).age_seconds == 3400.0
+    assert _age_of(ages, "ready").age_seconds == 3400.0
 
 
-def test_the_plan_flag_is_true_when_the_record_holds_a_stage_pull_request() -> None:
-    """The plan flag of a Ready Item is true when its job record holds `stage.pr`, and false
-    for the other Ready Item, which holds none."""
+def test_a_staged_pull_request_sets_staged_phase() -> None:
+    """A Ready Item whose job record holds `stage.pr` is in the staged phase, and the other Ready
+    Item is in the ready phase."""
     clock = AgesClock()
     store = InMemoryRoadmapStore(clock=clock)
     with_plan = _seeded_item(store, "with a plan")
@@ -1380,31 +1376,29 @@ def test_the_plan_flag_is_true_when_the_record_holds_a_stage_pull_request() -> N
     _write_field(store, without_plan, ItemField.STATUS, "Ready")
     clock.at(3600)
 
-    ages, _ = get_item_age_metrics(store, REPO, clock)
+    ages, _, _ = get_item_age_metrics(store, REPO, clock)
 
     assert (
-        _age_of(ages, "ready", plan=True).number,
-        _age_of(ages, "ready", plan=False).number,
+        _age_of(ages, "staged").number,
+        _age_of(ages, "ready").number,
     ) == (with_plan, without_plan)
 
 
-def test_a_pair_with_no_item_sends_zero_for_its_age_and_its_number() -> None:
-    """Each pair of a status and a plan flag has a point, with 0 for the age and the number when
-    no Item is in it, and the claim age is 0 when no Item holds a claim."""
+def test_a_phase_with_no_item_sends_zero_for_its_age_and_its_number() -> None:
+    """Each active phase has a point, with 0 for the age and the number when no Item is in it, and
+    the claim age is 0 when no Item holds a claim."""
     clock = AgesClock()
     store = InMemoryRoadmapStore(clock=clock)
 
-    ages, claim = get_item_age_metrics(store, REPO, clock)
+    ages, claim, _ = get_item_age_metrics(store, REPO, clock)
 
     assert (
         len(ages),
-        _age_of(ages, "blocked", plan=False),
-        _age_of(ages, "blocked", plan=True),
+        _age_of(ages, "ready"),
         claim,
     ) == (
-        12,
-        ItemAgeMetric(state="blocked", plan=False),
-        ItemAgeMetric(state="blocked", plan=True),
+        8,
+        ItemAgeMetric(phase="ready"),
         0.0,
     )
 
@@ -1420,7 +1414,7 @@ def test_the_oldest_claim_gives_the_claim_age() -> None:
     _write_field(store, second, ItemField.OWNER, "Service")
     clock.at(3600)
 
-    _, claim = get_item_age_metrics(store, REPO, clock)
+    _, claim, _ = get_item_age_metrics(store, REPO, clock)
 
     assert claim == 3600.0
 
@@ -1501,9 +1495,10 @@ def test_a_failed_label_read_keeps_the_item_counts_and_sends_no_age(
     assert (
         report.items,
         report.item_ages,
+        report.item_phases,
         report.claim_age_seconds,
         any(REPO in record.getMessage() for record in caplog.records),
-    ) == ([ItemCountMetric(state="open", priority="P2-Medium", count=1)], [], None, True)
+    ) == ([ItemCountMetric(state="open", priority="P2-Medium", count=1)], [], [], None, True)
 
 
 def test_the_age_gauges_are_sent_with_the_item_number_and_the_labels(
@@ -1512,8 +1507,8 @@ def test_the_age_gauges_are_sent_with_the_item_number_and_the_labels(
     git_fake: GitFake,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The age of the oldest Item of each pair, its number and the oldest claim reach the three
-    gauges, with the labels `repo`, `state` and `plan` (#2919)."""
+    """The age of the oldest Item of each phase, its number and the oldest claim reach the
+    gauges, with the labels `repo` and `phase` (#2919, #5495)."""
     clock = AgesClock()
     store = InMemoryRoadmapStore(clock=clock)
     number = _seeded_item(store)
@@ -1527,16 +1522,10 @@ def test_the_age_gauges_are_sent_with_the_item_number_and_the_labels(
 
     emit_project_metrics_telemetry(report)
 
-    ages = {
-        (attrs["state"], attrs["plan"]): value
-        for attrs, value in otlp.points(ROADMAP_ITEM_AGE.name)
-    }
-    numbers = {
-        (attrs["state"], attrs["plan"]): value
-        for attrs, value in otlp.points(ROADMAP_OLDEST_ITEM.name)
-    }
+    ages = {attrs["phase"]: value for attrs, value in otlp.points(ROADMAP_ITEM_AGE.name)}
+    numbers = {attrs["phase"]: value for attrs, value in otlp.points(ROADMAP_OLDEST_ITEM.name)}
     claims = [(attrs["repo"], value) for attrs, value in otlp.points(ROADMAP_CLAIM_AGE.name)]
-    assert (ages[("ready", "false")], numbers[("ready", "false")], claims) == (
+    assert (ages["ready"], numbers["ready"], claims) == (
         3600.0,
         float(number),
         [(REPO, 3600.0)],
@@ -1562,8 +1551,78 @@ def test_a_report_without_the_item_ages_sends_no_age_and_reads_no_events(
 
     assert (
         report.item_ages,
+        report.item_phases,
         report.claim_age_seconds,
         [call for call in github.calls if "/events" in " ".join(call)],
         otlp.points(ROADMAP_ITEM_AGE.name),
         otlp.points(ROADMAP_CLAIM_AGE.name),
-    ) == ([], None, [], [], [])
+    ) == ([], [], None, [], [], [])
+
+
+def test_the_phase_count_and_stalled_gauges_are_sent(
+    otlp: FakeCollector,
+    tmp_path: Path,
+    git_fake: GitFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The count and stalled gauges are emitted for active phases with the labels repo and phase (#5495)."""
+    from devops_cli.telemetry.instruments import ROADMAP_ITEMS, ROADMAP_STALLED_ITEMS
+
+    clock = AgesClock()
+    store = InMemoryRoadmapStore(clock=clock)
+    number = _seeded_item(store)
+    _write_field(store, number, ItemField.STATUS, "Ready")
+    clock.at(3600)
+    report = _collect(
+        tmp_path, git_fake, monkeypatch, GitHubFake(REPO), store, clock, item_ages=True
+    )
+    emit_project_metrics_telemetry(report)
+
+    items = {attrs["phase"]: value for attrs, value in otlp.points(ROADMAP_ITEMS.name)}
+    stalled = {attrs["phase"]: value for attrs, value in otlp.points(ROADMAP_STALLED_ITEMS.name)}
+    assert items.get("ready") == 1.0
+    assert stalled.get("ready") == 0.0
+
+
+def test_a_phase_that_empties_sends_zero_once(
+    otlp: FakeCollector,
+    tmp_path: Path,
+    git_fake: GitFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When a phase has items in one round and empties in the next round, the count and stalled
+    gauges send 0 once, and subsequent rounds send no sample (#5495)."""
+    from devops_cli.telemetry.instruments import ROADMAP_ITEMS
+
+    clock = AgesClock()
+    store = InMemoryRoadmapStore(clock=clock)
+    number = _seeded_item(store)
+    _write_field(store, number, ItemField.STATUS, "Ready")
+    clock.at(3600)
+    report1 = _collect(
+        tmp_path, git_fake, monkeypatch, GitHubFake(REPO), store, clock, item_ages=True
+    )
+    emit_project_metrics_telemetry(report1)
+
+    points1 = [p for attrs, p in otlp.points(ROADMAP_ITEMS.name) if attrs.get("phase") == "ready"]
+    assert points1 == [1.0]
+
+    # Item moves to planned, so the ready phase empties
+    _write_field(store, number, ItemField.STATUS, "Planned")
+
+    report2 = _collect(
+        tmp_path, git_fake, monkeypatch, GitHubFake(REPO), store, clock, item_ages=True
+    )
+    emit_project_metrics_telemetry(report2)
+
+    points2 = [p for attrs, p in otlp.points(ROADMAP_ITEMS.name) if attrs.get("phase") == "ready"]
+    assert points2 == [1.0, 0.0]
+
+    # Third round: still empty, should not emit 0.0 again
+    report3 = _collect(
+        tmp_path, git_fake, monkeypatch, GitHubFake(REPO), store, clock, item_ages=True
+    )
+    emit_project_metrics_telemetry(report3)
+
+    points3 = [p for attrs, p in otlp.points(ROADMAP_ITEMS.name) if attrs.get("phase") == "ready"]
+    assert points3 == [1.0, 0.0]

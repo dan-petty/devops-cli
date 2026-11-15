@@ -173,6 +173,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_STAGE_TOOLSET,
     DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS,
     DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING,
+    DEFAULT_ROADMAP_STALL_HOURS,
     DEFAULT_RUNS_DATA_DIR,
     DEFAULT_SAMPLES_DATA_DIR,
     DEFAULT_SANDBOX_EXCLUDE_HOME,
@@ -1825,6 +1826,16 @@ class RoadmapMcpConfig(BaseModel):
     )
 
 
+class RoadmapStallConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    hours: Annotated[int, Variable()] = Field(
+        description="The hours an item may stay in a phase before the stall alert fires",
+        default=DEFAULT_ROADMAP_STALL_HOURS,
+        gt=0,
+    )
+
+
 class RoadmapConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
@@ -1836,6 +1847,7 @@ class RoadmapConfig(BaseModel):
     fix_plan: RoadmapFixPlanConfig = Field(default_factory=RoadmapFixPlanConfig)
     refine: RoadmapRefineConfig = Field(default_factory=RoadmapRefineConfig)
     mcp: RoadmapMcpConfig = Field(default_factory=RoadmapMcpConfig)
+    stall: RoadmapStallConfig = Field(default_factory=RoadmapStallConfig)
     decisions: Annotated[dict[str, DecisionMode], Variable()] = Field(
         default_factory=dict,
         description='The mode of each decision point of the roadmap jobs (ADR 0020), by the name of the point, as a JSON object such as `{"stage.verify_screen": "shadow"}`. `off` runs nothing. `shadow` runs the resolver chain (a proven rule, then the model of `ai.decision_model`, then the current behavior), records its band and the real result, and changes nothing. `on` lets the band act. A point that is not in the mapping is off. A key that names no registered point stops the settings from loading. A point in `shadow` or in `on` needs a cuts file in the repository for its fitted cuts, and the load stops when the file is absent',
