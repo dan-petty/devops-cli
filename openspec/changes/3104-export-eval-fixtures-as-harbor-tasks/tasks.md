@@ -54,9 +54,9 @@ Kind: behavior. Reads: `src/devops_cli/commands/roadmap_eval.py`, `src/devops_cl
 
 Kind: other. Reads: `docs/TESTING.md`, `src/devops_cli/lang/en/help.py`. Changes: `docs/TESTING.md`, `docs/commands/roadmap.md`, `docs/CLI_REFERENCE.md`.
 
-- [ ] 7.1 Add a section to `docs/TESTING.md` that names devops roadmap eval harbor export and devops roadmap eval harbor run with the trials option, the agent, the provider, the default time limit of 600 seconds, the place of the result file under the data directory, and the rule that no test starts harbor or docker. Regenerate `docs/commands/roadmap.md` and `docs/CLI_REFERENCE.md` from the help of `src/devops_cli/lang/en/help.py` with the docs generator, so both hold the two new commands
+- [x] 7.1 Add a section to `docs/TESTING.md` that names devops roadmap eval harbor export and devops roadmap eval harbor run with the trials option, the agent, the provider, the default time limit of 600 seconds, the place of the result file under the data directory, and the rule that no test starts harbor or docker. Regenerate `docs/commands/roadmap.md` and `docs/CLI_REFERENCE.md` from the help of `src/devops_cli/lang/en/help.py` with the docs generator, so both hold the two new commands
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 7.2 Edit `docs/TESTING.md`, and regenerate `docs/commands/roadmap.md` and `docs/CLI_REFERENCE.md` from the help of the two new commands
+- [x] 7.2 Edit `docs/TESTING.md`, and regenerate `docs/commands/roadmap.md` and `docs/CLI_REFERENCE.md` from the help of the two new commands
   - Verification: `$ uv run devops ci docs` passes
 
 ## Workflow follow-up
