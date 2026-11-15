@@ -468,7 +468,7 @@ def test_every_pull_request_title_into_main_is_a_conventional_commit() -> None:
         workflow["on"],
         workflow["permissions"],
         (job["name"], job["permissions"]),
-        [step["uses"].split("@")[0] for step in job["steps"]],
+        [step.get("uses", step.get("name", "")).split("@")[0] for step in job["steps"]],
     ) == (
         {
             "pull_request": {
@@ -477,8 +477,13 @@ def test_every_pull_request_title_into_main_is_a_conventional_commit() -> None:
             }
         },
         {},
-        ("Semantic PR title", {"pull-requests": "read"}),
-        ["amannn/action-semantic-pull-request"],
+        ("Semantic PR title", {"contents": "read", "pull-requests": "read"}),
+        [
+            "amannn/action-semantic-pull-request",
+            "actions/checkout",
+            "./.github/actions/setup-toolchain",
+            "Check that a Hidden Type Ships No Runtime Code",
+        ],
     )
 
 
