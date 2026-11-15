@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.156.1](https://github.com/dan-petty/devops-cli/compare/v0.156.0...v0.156.1) (2026-11-15)
+
+
+### Bug Fixes
+
+* **roadmap:** accept a plan correction at readiness ([#5858](https://github.com/dan-petty/devops-cli/issues/5858)) ([a25873a](https://github.com/dan-petty/devops-cli/commit/a25873ad34b9465a3ab107c2d6c4588ce15a7306))
+
 ## [0.156.0](https://github.com/dan-petty/devops-cli/compare/v0.155.0...v0.156.0) (2026-11-15)
 
 
