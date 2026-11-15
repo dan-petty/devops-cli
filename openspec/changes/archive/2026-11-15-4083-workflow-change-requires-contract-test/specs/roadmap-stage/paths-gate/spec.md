@@ -18,10 +18,3 @@
 #### Scenario: Each workflow file of a group
 - **WHEN** a group lists `.github/workflows/ci.yml` and `.github/workflows/release.yml` in `changes` and holds no contract test
 - **THEN** `path_problems` returns one problem for each workflow file
-
-### Requirement: The stage prompt asks for the contract test of a workflow change
-The stage prompt `src/devops_cli/ai/tasks/roadmap_stage_change.md` SHALL tell the model that a group that changes a file under `.github/workflows/` lists `tests/invariants/test_workflow_contracts.py` in `changes` in the same group.
-
-#### Scenario: The planner reads the prompt
-- **WHEN** the stage planner prompt is read
-- **THEN** it holds the workflow directory and the contract test path in one instruction

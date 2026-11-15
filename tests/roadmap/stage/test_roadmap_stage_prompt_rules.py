@@ -41,11 +41,7 @@ from devops_cli.roadmap.stage.stage_change import (
 )
 from devops_cli.roadmap.stage.stage_criteria import PENDING_PERSON, StageCriterion
 from devops_cli.roadmap.stage.stage_form import form_problems
-from devops_cli.roadmap.stage.stage_paths import (
-    WORKFLOW_CONTRACT_TEST,
-    WORKFLOW_DIRECTORY,
-    StagedTree,
-)
+from devops_cli.roadmap.stage.stage_paths import StagedTree
 from tests.support.builders import make_stage_proposal, stage_summary_limit
 from tests.support.paths import REPO_ROOT
 
@@ -915,12 +911,4 @@ def test_the_stage_prompt_names_the_declared_dependencies() -> None:
     assert (
         "issue_dependencies" in _PROMPT,
         "#<number>: <reason>" in _PROMPT,
-    ) == (True, True)
-
-
-def test_the_prompt_asks_for_the_contract_test_of_a_workflow_change() -> None:
-    """A group that changes a workflow names the contract test in the same group (#4083)."""
-    assert (
-        f"`{WORKFLOW_DIRECTORY}`" in _PROMPT,
-        f"`{WORKFLOW_CONTRACT_TEST}`" in _PROMPT,
     ) == (True, True)

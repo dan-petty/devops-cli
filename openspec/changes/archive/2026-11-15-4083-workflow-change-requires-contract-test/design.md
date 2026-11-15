@@ -13,15 +13,14 @@ workflow change is an `other` group, so it has no `test` field, but it can list 
   function reads `changes` only, so a group that reads a workflow and changes no workflow needs no
   contract test, and the `reads` of a group do not satisfy the rule.
 - The workflow directory and the contract test path are module constants,
-  `WORKFLOW_DIRECTORY` and `WORKFLOW_CONTRACT_TEST`, so the prompt test reads the same text as the
-  rule.
+  `WORKFLOW_DIRECTORY` and `WORKFLOW_CONTRACT_TEST`, so the message and the rule read one text.
 - The message names the group, the workflow and the contract test, so one sentence is enough to
   repair the plan.
 
 ## Risks
 
 - A change that edits no contract test but is covered by an existing assertion in
-  `tests/invariants/test_workflow_contracts.py` still needs the file in `changes`. The prompt says
-  so, and a pin bump that an existing assertion holds fails the rule. The owner can relax the rule
-  if that case becomes common.
+  `tests/invariants/test_workflow_contracts.py` still needs the file in `changes`, and a pin bump
+  that an existing assertion holds fails the rule. The owner can relax the rule if that case
+  becomes common.
 - The rule reads the suffix `.yml` only, as the repository holds no `.yaml` workflow.

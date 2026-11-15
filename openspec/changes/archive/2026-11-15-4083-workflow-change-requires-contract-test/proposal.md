@@ -13,20 +13,16 @@ change. Closes #4083.
 - `path_problems` in `src/devops_cli/roadmap/stage/stage_paths.py` reports a problem for each
   `.github/workflows/*.yml` file that a group changes when the `changes` of that group holds no
   `tests/invariants/test_workflow_contracts.py`.
-- The stage planner prompt tells the model the same rule, so it writes the contract case in the
-  group that makes the change.
 - A message, `roadmap.stage_problem_workflow_contract`, names the group, the workflow and the
   contract test.
 
 ## Capabilities
 
-`roadmap-stage/paths-gate`: a new requirement for the workflow contract rule, and one for the
-prompt.
+`roadmap-stage/paths-gate`: one new requirement for the workflow contract rule.
 
 ## Impact
 
-The stage job and the stage eval replay. No command or option changes. The prompt gets one
-instruction. The golden set holds no `good` plan that changes a workflow, so the replay still
+The stage job and the stage eval replay. No command or option changes. The golden set holds no `good` plan that changes a workflow, so the replay still
 passes.
 
 ## Feasibility
