@@ -40,9 +40,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/implement/implement_step.py`, `sr
 
 Kind: other. Reads: `docs/roadmap/implement.md`, `src/devops_cli/roadmap/implement/implement_strategy.py`. Changes: `docs/roadmap/implement.md`.
 
-- [ ] 5.1 Rewrite the paragraph of `docs/roadmap/implement.md` that holds `docs/roadmap/implement.md:14:A repair round stays on its tier.`: the first attempt runs as planned, the second adds the repository map of the files that the failure names and of the group, and the third moves to the next healthy tier when the ladder holds more than one tier, sends the failure text in a new conversation, and spends no repair round. State that a stop whose action is `change_tier` on a ladder of one tier names the setting and its tier
+- [x] 5.1 Rewrite the paragraph of `docs/roadmap/implement.md` that holds `docs/roadmap/implement.md:14:A repair round stays on its tier.`: the first attempt runs as planned, the second adds the repository map of the files that the failure names and of the group, and the third moves to the next healthy tier when the ladder holds more than one tier, sends the failure text in a new conversation, and spends no repair round. State that a stop whose action is `change_tier` on a ladder of one tier names the setting and its tier
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 5.2 Edit `docs/roadmap/implement.md` to state the strategy of each attempt and the one-tier stop
+- [x] 5.2 Edit `docs/roadmap/implement.md` to state the strategy of each attempt and the one-tier stop
   - Verification: `$ uv run devops ci docs` passes
 
 ## Workflow follow-up
