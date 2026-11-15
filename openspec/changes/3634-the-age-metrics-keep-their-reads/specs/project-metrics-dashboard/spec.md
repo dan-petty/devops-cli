@@ -19,7 +19,7 @@ The metrics row SHALL write to the record file of its repository the `updated_at
 The metrics row SHALL read the label changes of at most 20 Items in one round. It SHALL read an Item whose `updated_at` moved before an Item that the record file does not hold. An Item that the round does not read keeps the label times of its entry, or waits for a later round when it has no entry.
 
 #### Scenario: More changed Items than the cap
-- **WHEN** more open Items hold an `updated_at` other than the one the file holds than the cap in one round
+- **WHEN** more open Items hold an updated_at other than the one the file holds than the cap in one round
 - **THEN** the round reads the label events of exactly 20 Items and the rest wait for later rounds
 
 #### Scenario: A deferred Item comes first
