@@ -110,12 +110,9 @@ def test_a_body_with_no_limit_makes_no_read(monkeypatch: pytest.MonkeyPatch) -> 
         "devops_cli.ci.job_time.check_job_time", lambda *args, **kwargs: calls.append(1)
     )
 
-    assert (
-        _time_premise_of("dan-petty/devops-cli")(  # type: ignore[operator]
-            _body_target("The job drops the last comment.")
-        )
-        is None
-    )
+    premise_of = _time_premise_of("dan-petty/devops-cli")
+    assert premise_of is not None
+    assert premise_of(_body_target("The job drops the last comment.")) is None
     assert calls == []
 
 
@@ -128,7 +125,9 @@ def test_a_mean_over_the_limit_returns_the_item(monkeypatch: pytest.MonkeyPatch)
         "devops_cli.ci.job_time.check_job_time", lambda *args, **kwargs: _report(328, 328)
     )
 
-    result = _time_premise_of("dan-petty/devops-cli")(_body_target(_BODY))  # type: ignore[operator]
+    premise_of = _time_premise_of("dan-petty/devops-cli")
+    assert premise_of is not None
+    result = premise_of(_body_target(_BODY))
 
     assert isinstance(result, FalsePremise)
     assert "328" in result.evidence[0]
@@ -149,7 +148,9 @@ def test_a_failed_read_is_retried_once(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("devops_cli.github.session.get_github_session", lambda: _Session())
     monkeypatch.setattr("devops_cli.ci.job_time.check_job_time", flaky)
 
-    assert _time_premise_of("dan-petty/devops-cli")(_body_target(_BODY)) is None  # type: ignore[operator]
+    premise_of = _time_premise_of("dan-petty/devops-cli")
+    assert premise_of is not None
+    assert premise_of(_body_target(_BODY)) is None
     assert calls == [1, 1]
 
 
@@ -163,5 +164,7 @@ def test_a_read_that_fails_twice_raises(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr("devops_cli.github.session.get_github_session", lambda: _Session())
     monkeypatch.setattr("devops_cli.ci.job_time.check_job_time", failing)
 
+    premise_of = _time_premise_of("dan-petty/devops-cli")
+    assert premise_of is not None
     with pytest.raises(GitHubOperationError, match="the read failed"):
-        _time_premise_of("dan-petty/devops-cli")(_body_target(_BODY))  # type: ignore[operator]
+        premise_of(_body_target(_BODY))
