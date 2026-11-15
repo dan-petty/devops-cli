@@ -90,13 +90,8 @@ def jev_retry_transport(
     limit is low, so the timeout of the caller fires first and reports its own error.
     """
     import httpx2
-    from pydantic_ai.retries import (
-        AsyncHTTPX2TenacityTransport,
-        RetryConfig,
-        wait_exponential,
-        wait_retry_after,
-    )
-    from tenacity import retry_if_exception_type, stop_after_attempt
+    from pydantic_ai.retries import AsyncHTTPX2TenacityTransport, RetryConfig, wait_retry_after
+    from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential
 
     from devops_cli.config.constants import CONST_AI_JEV_RETRY_ATTEMPTS
 
