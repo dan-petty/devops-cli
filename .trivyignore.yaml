@@ -4,3 +4,8 @@ misconfigurations:
       - k8s/gpu-feature-discovery/daemonset.yaml
     statement: Privileged GPU device and sysfs access of GFD v0.16.2 (#5646)
     expired_at: 2026-11-17
+  - id: KSV-0121
+    paths:
+      - k8s/gpu-feature-discovery/daemonset.yaml
+    statement: Sysfs host path mount of GFD v0.16.2 (#5646)
+    expired_at: 2026-11-18
