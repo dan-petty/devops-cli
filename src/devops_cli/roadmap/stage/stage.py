@@ -15,7 +15,11 @@ families all apply. With no `--filter` the job takes the filter of the setting
 that is not Ready, whatever the filter says: a `status` filter can only narrow the Ready items.
 It also leaves out an item that an agent or a person claimed with an `owner/*` label (#2910), every item of a repository whose default branch holds no `openspec/config.yaml` (`uses_openspec`, #4629), an item with the label `needs-split`, a tracker (sub-issues or the label `type/epic`), an item whose author has no write access
 (the model reads the body), an item whose "Dependencies" section names an open issue, a held item
-(`worktree_add.issue_holder`, which also counts a stray local branch of the new name with a commit that `origin` lacks), an item whose plan a person rejected until its text or a file that the reason names changes (`stage_rejected`, #3503), an item whose plan is already on the default branch or whose
+(`worktree_add.issue_holder`, which also counts a stray local branch of the new name with a commit
+that `origin` lacks) unless its one draft pull request fails the plan check with no unresolved review
+thread, its branch at the commit of `stage.sha` with commits of the App alone and no path outside the
+change folder, and the job has not re-staged the plan of the same text (`stage_held.may_replace`,
+#3387), an item whose plan a person rejected until its text or a file that the reason names changes (`stage_rejected`, #3503), an item whose plan is already on the default branch or whose
 change is archived there (`planned.read_planned_changes`, one read of the tree for the round), an
 item whose title gives no branch name or whose summary is over `SUMMARY_MAX_CHARS` units (#3369), an item whose text looks like a secret, an item whose last plan or write failed less than
 the wait of its failure class ago (`RETRY_AFTER`; its record holds `stage.failed_at`,
@@ -237,6 +241,13 @@ from devops_cli.roadmap.stage.stage_form import (
     record_search_evidence,
 )
 from devops_cli.roadmap.stage.stage_github import StageGitHub
+from devops_cli.roadmap.stage.stage_held import (
+    DraftRead,
+    held_draft,
+    may_replace,
+    restage_record,
+    restaged_now,
+)
 from devops_cli.roadmap.stage.stage_jev_screen import ScreenCase, record_review, screen_of
 from devops_cli.roadmap.stage.stage_left_out import LeftOutKind, log_left_out
 from devops_cli.roadmap.stage.stage_models import model_fields, referenced_classes
@@ -412,11 +423,14 @@ def parse_filters(options: Iterable[str], defaults: Sequence[str] | None = None)
 
 @dataclass(frozen=True)
 class StageTarget:
-    """An item to stage with the type and the slug of its branch."""
+    """An item to stage with the type and the slug of its branch. `replace_pull` is the draft pull
+    request whose plan the job replaces on the branch of the item (#3387), or None for a new
+    branch."""
 
     item: Item
     type_: str
     slug: str
+    replace_pull: int | None = None
 
     @property
     def change(self) -> str:
@@ -556,6 +570,7 @@ class _Judge:
         missing: tuple[str, ...] = (),
         busy: Mapping[int, str] | None = None,
         job: str | None = None,
+        draft_of: Callable[[Item], DraftRead | None] | None = None,
     ) -> None:
         self._store = store
         self._holder_of = holder_of
@@ -566,6 +581,24 @@ class _Judge:
         self._missing = missing
         self._busy = busy or {}
         self._job = job
+        self._draft_of = draft_of
+        self._draft_reads: dict[int, DraftRead | None] = {}
+
+    def draft_read(self, item: Item) -> DraftRead | None:
+        """The facts of the one draft pull request of `item`, read once for the selection (#3387)."""
+        if self._draft_of is None:
+            return None
+        if item.number not in self._draft_reads:
+            self._draft_reads[item.number] = self._draft_of(item)
+        return self._draft_reads[item.number]
+
+    def target(self, item: Item) -> StageTarget:
+        """The target of `item`, with the draft pull request that the job replaces (#3387)."""
+        read = self.draft_read(item)
+        return replace(
+            _target_of(item),
+            replace_pull=read.pull if read is not None and may_replace(read) else None,
+        )
 
     def reason(self, item: Item, *, named: bool) -> tuple[LeftOutKind, str] | None:
         """The kind and the text of the reason the job leaves `item` out, or None when it may
@@ -706,7 +739,18 @@ class _Judge:
         return None if rejected is None else hold_reason(self._store, item, rejected)
 
     def _held(self, item: Item) -> str | None:
-        return self._holder_of(item.number, _target_of(item).branch)
+        """A branch of origin holds the item (`worktree_add.issue_holder`), unless the job replaces
+        its own draft plan that fails the plan check (#3387). A plan that the job re-staged once
+        stays held, and the reason names the failed plan check."""
+        reason = self._holder_of(item.number, _target_of(item).branch)
+        if reason is None:
+            return None
+        read = self.draft_read(item)
+        if may_replace(read):
+            return None
+        if restaged_now(item) and read is not None and read.problems:
+            return MESSAGES.roadmap.plan_check_failed.format(count=len(read.problems))
+        return reason
 
     def _stage_job(self, item: Item) -> str | None:
         """A stage Job works on the item (#4559): the list of the Jobs of the Service shows one
@@ -802,7 +846,7 @@ def _named_item(
     else:
         why = judge.reason(item, named=named)
     if item is not None and why is None:
-        return StageSelection(selected=(_target_of(item),))
+        return StageSelection(selected=(judge.target(item),))
     kind, text = why or (LeftOutKind.OTHER, "")
     return StageSelection(left_out=(LeftOut(number, text, item.title if item else "", kind),))
 
@@ -823,6 +867,7 @@ def select_stageable(
     named: bool = True,
     busy: Mapping[int, str] | None = None,
     job: str | None = None,
+    draft_of: Callable[[Item], DraftRead | None] | None = None,
 ) -> StageSelection:
     """The items to stage, up to `limit`, and those the filter names that the job leaves out.
 
@@ -837,7 +882,9 @@ def select_stageable(
     `openspec/config.yaml` the job takes no item (#4629). With `named` false, the item of
     `item_number` keeps every rule of a round, as a stage Job selects it (#5483). `busy` names
     the stage Job of each item that a Job works on, and `job` is the stage Job of this pod: an
-    item that another stage Job works on stays out (#4559).
+    item that another stage Job works on stays out (#4559). `draft_of` reads the facts of the one
+    draft pull request of a held item, so that the job stages the item again when the draft plan
+    fails the plan check (#3387); with None, every held item stays out.
     """
     opened = _open_items(store)
     judge = _Judge(
@@ -850,6 +897,7 @@ def select_stageable(
         missing,
         busy,
         job,
+        draft_of,
     )
     if item_number is not None:
         return _named_item(judge, store, item_number, named=named)
@@ -859,7 +907,7 @@ def select_stageable(
     def verdict(item: Item) -> StageTarget | str:
         why = judge.reason(item, named=False)
         if why is None:
-            return _target_of(item)
+            return judge.target(item)
         kinds[item.number], text = why
         return text
 
@@ -2787,6 +2835,24 @@ class StageRead(NamedTuple):
     missing: tuple[str, ...]
 
 
+def _held_draft_of(repo: str, source: Path, default: str) -> Callable[[Item], DraftRead | None]:
+    """The read of the one draft pull request of a held item (#3387). A read that GitHub refuses
+    holds the item as it did before: the job replaces a draft only when it proves that its plan
+    fails, and a failure to read the draft is no proof. An unauthenticated session and a broken
+    quota still stop the run."""
+
+    def read(item: Item) -> DraftRead | None:
+        try:
+            return held_draft(item, repo=repo, source=source, default=default)
+        except GitHubRateLimitError, GitHubUnauthenticatedError:
+            raise
+        except GitHubOperationError as exc:
+            logger.warning("The draft of #%d could not be read: %s", item.number, exc)
+            return None
+
+    return read
+
+
 def read_stage_selection(
     store: RoadmapStore,
     *,
@@ -2832,6 +2898,7 @@ def read_stage_selection(
         named=named,
         busy=busy,
         job=job,
+        draft_of=_held_draft_of(repo, source, planned.default),
     )
     return StageRead(sha, heads, planned, selection, missing)
 
@@ -3333,16 +3400,42 @@ def _rebase_onto_default(path: Path) -> None:
 
 def _commit_and_push(path: Path, change: StagedChange) -> str:
     """Write the files, make the one commit, rebase it onto the default branch and push the branch
-    with `-u origin`; the commit's SHA."""
+    with `-u origin`; the commit's SHA. A re-stage clears the change folder of the old plan first,
+    because the worktree took over the pushed branch, so a file of that plan would stay in the new
+    commit (#3387)."""
     target = change.target
+    if target.replace_pull is not None:
+        shutil.rmtree(path / _CHANGES_DIRECTORY / target.change, ignore_errors=True)
     write_change_files(path, change.files)
     _git(path, "add", "--", f"{_CHANGES_DIRECTORY}/{target.change}")
     if _git(path, "status", "--porcelain").strip():
         _git(path, "commit", "-q", "-m", change.title, "-m", f"Plans #{target.item.number}.")
     _rebase_onto_default(path)
     sha = _git(path, "rev-parse", "HEAD")
-    _git(path, "push", "-q", "-u", "origin", target.branch)
+    _push(path, change)
     return sha
+
+
+def _push(path: Path, change: StagedChange) -> None:
+    """Push the branch of `change` to `origin`, and set its upstream. A re-stage pushes with a lease
+    on the commit that `stage.sha` records, because the worktree took over the pushed branch and the
+    rebase onto the default branch can rewrite its tip (#3387): a commit that a person or the
+    fix-plan step pushed after the job read the branch refuses the push, and keeps the branch."""
+    target = change.target
+    if target.replace_pull is None:
+        _git(path, "push", "-q", "-u", "origin", target.branch)
+        return
+    _git(path, "push", "-q", "-u", _lease(target), "origin", target.branch)
+
+
+def _lease(target: StageTarget) -> str:
+    """The lease of the push of a re-staged branch: the commit that `stage.sha` records (#3387)."""
+    recorded = target.item.job_record.get(StageRecordKey.SHA)
+    if not recorded:
+        raise _stage_error(
+            MESSAGES.roadmap.stage_restage_no_sha.format(number=target.item.number), target
+        )
+    return f"--force-with-lease=refs/heads/{target.branch}:{recorded}"
 
 
 def _open_pull(repo: str, source: Path, change: StagedChange) -> CreatedPull:
@@ -3360,6 +3453,26 @@ def _open_pull(repo: str, source: Path, change: StagedChange) -> CreatedPull:
     except DevOpsCLIError:
         _git(source, "push", "origin", "--delete", branch)
         raise
+
+
+def _update_pull(repo: str, pull: int, change: StagedChange) -> CreatedPull:
+    """Set the title and the body of the draft pull request `pull` that the job replaces, and give
+    it back with the labels it holds, so that the label steps judge the draft as the job made it
+    (#3387). The job opens no second pull request, and a refused update keeps the branch, which
+    holds the plan that a person may have read."""
+    client = get_github_session().client
+    labels = client.get_pull_status(repo, pull).labels
+    client.update_pull(repo, pull, title=change.title, body=change.body)
+    return CreatedPull(number=pull, html_url="", labels=labels)
+
+
+def _published_pull(repo: str, source: Path, change: StagedChange) -> CreatedPull:
+    """The draft pull request of the pushed branch: the one that the target names, which the job
+    updates, or a new draft (#3387)."""
+    replaced = change.target.replace_pull
+    if replaced is None:
+        return _open_pull(repo, source, change)
+    return _update_pull(repo, replaced, change)
 
 
 def _groups_listed(groups: Sequence[MeasuredGroup]) -> str:
@@ -3477,6 +3590,15 @@ def _notes(change: StagedChange, moved: Sequence[MovedPath] = ()) -> str:
     )
 
 
+def _restage_note(change: StagedChange) -> str:
+    """The line of the comment that names the draft pull request whose plan the job replaced
+    (#3387). It is empty for a branch that the job made."""
+    replaced = change.target.replace_pull
+    if replaced is None:
+        return ""
+    return MESSAGES.roadmap.stage_comment_restaged.format(pull=replaced)
+
+
 def _label_pull(store: RoadmapStore, pull_number: int, title: str) -> str:
     """Add the labels of `title` to draft pull request `pull_number`. A refused label gives a
     failure note for the comment. Rejected credentials stop the run."""
@@ -3516,10 +3638,12 @@ def _stage_one(
     now: datetime,
 ) -> None:
     """Make the branch, the commit, the push and the draft of one item, then record them and
-    post the one comment. The branch starts at the staged commit `base` (#3301). The Status of the
-    item stays as it is. `moved` is the named paths that the default branch changed after `base`
-    (#3309). The intent mark `stage.pending` goes first, before the push, so that a later round
-    finds the branch if the record write fails or the worker dies (#4051); the record clears it."""
+    post the one comment. The branch starts at the staged commit `base` (#3301). A target that
+    names a draft pull request replaces the plan of that draft on its branch, and the comment names
+    the draft (#3387). The Status of the item stays as it is. `moved` is the named paths that the
+    default branch changed after `base` (#3309). The intent mark `stage.pending` goes first, before
+    the push, so that a later round finds the branch if the record write fails or the worker dies
+    (#4051); the record clears it."""
     target = change.target
     source_warnings = _check_removal_references(source, target, change.files)
     if source_warnings and not change.warnings:
@@ -3530,7 +3654,7 @@ def _stage_one(
             {StageRecordKey.PENDING: PendingStage(branch=target.branch, time=now).record},
         )
         sha = _commit_and_push(path, change)
-        pull = _open_pull(repo, source, change)
+        pull = _published_pull(repo, source, change)
     store.set_marks(
         target.item,
         {
@@ -3539,6 +3663,11 @@ def _stage_one(
             StageRecordKey.SHA: sha,
             StageRecordKey.GROUPS: _groups_recorded(change.groups),
             StageRecordKey.TEXT_HASH: body_hashes(target.item.body)[0],
+            StageRecordKey.RESTAGE: (
+                restage_record(target.item, pull.number)
+                if target.replace_pull is not None
+                else None
+            ),
             StageRecordKey.NEEDS_SPLIT: None,
             StageRecordKey.FILE_CAP: None,
             StageRecordKey.FAILED_AT: None,
@@ -3562,7 +3691,7 @@ def _stage_one(
             pull=pull.number,
             budget=change.budget,
             groups=_groups_listed(change.groups),
-            notes=f"{_notes(change, moved)}{label_note}",
+            notes=f"{_notes(change, moved)}{_restage_note(change)}{label_note}",
         ),
     )
 
