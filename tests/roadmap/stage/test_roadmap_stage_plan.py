@@ -2975,3 +2975,17 @@ def test_the_request_lists_the_declared_dependencies_with_their_titles(
         {"number": 3, "title": "fix(roadmap): the second dependency"},
         {"number": 99},
     ]
+
+
+def test_the_job_time_premise_reads_the_limit_from_the_body() -> None:
+    """The stage job reads a CI duration limit from the item body (#4026). This test lives in a
+    module that the base branch already holds, so the fail-to-pass replay fails in the call
+    phase rather than at collection."""
+    from devops_cli.roadmap.stage.stage_time import job_time_premise
+
+    premise = job_time_premise(
+        "## Acceptance criteria\n\n- [ ] `Tests & Coverage` average duration stays under 300 s.\n"
+    )
+
+    assert premise is not None
+    assert (premise.check, premise.limit_seconds) == ("Tests & Coverage", 300.0)
