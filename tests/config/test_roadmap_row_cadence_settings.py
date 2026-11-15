@@ -35,7 +35,7 @@ def test_the_defaults_are_the_old_intervals_and_no_backlog_rule() -> None:
         "intake": (29, None, None),
         "stage": (37, None, None),
         "fix_plan": (53, None, None),
-        "refine": (17, None, None),
+        "refine": (7, None, None),
         "alternatives": (239, None, None),
     }
 
