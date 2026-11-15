@@ -90,3 +90,9 @@ def test_ready_cmd_dry_run_exits_zero(cli: Cli) -> None:
         "--dry-run",
     )
     assert result.exit_code == 0
+
+
+def test_ready_cmd_invalid_repo_exits_one(cli: Cli) -> None:
+    result = cli("roadmap", "step", "ready", "--repo", "invalid", "--pull", "42")
+    assert result.exit_code == 1
+    assert "Cannot resolve the repository" in result.output

@@ -12,11 +12,14 @@ from devops_cli.exceptions import RoadmapImplementError
 from tests.support.fakes.github import GitHubApiFake, github_json
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
+draft_readiness: Any = None
 mark_ready: Any = None
 try:
-    from devops_cli.roadmap.steps.ready import mark_ready as _loaded_mark_ready
+    from devops_cli.roadmap.steps.ready import draft_readiness as loaded_draft_readiness
+    from devops_cli.roadmap.steps.ready import mark_ready as loaded_mark_ready
 
-    mark_ready = _loaded_mark_ready
+    draft_readiness = loaded_draft_readiness
+    mark_ready = loaded_mark_ready
 except ImportError:
     pass
 
@@ -105,3 +108,24 @@ def test_mark_ready_raises_when_gh_fails(
 
     with pytest.raises(RoadmapImplementError, match="pull request is locked"):
         mark_ready("owner/repo", 42, expected_head="1234567890ab")
+
+
+def test_mark_ready_without_expected_head_calls_gh_pr_ready(
+    api_and_ready: tuple[GitHubApiFake, _Ready],
+) -> None:
+    """When expected_head is None, mark_ready calls gh pr ready directly."""
+    _api, ready = api_and_ready
+    mark_ready("owner/repo", 42)
+    assert len(ready.calls) == 1
+    assert ready.calls[0] == ("pr", "ready", "42", "--repo", "owner/repo")
+
+
+def test_draft_readiness_delegates_to_implement_pull() -> None:
+    """draft_readiness evaluates draft readiness through implement_pull."""
+    from devops_cli.github.client import PullStatus
+    from devops_cli.roadmap.implement.implement_pull import Draft, DraftKind
+
+    pull = PullStatus(state="open", draft=True)
+    draft = Draft(kind=DraftKind.STAGE_PLAN, pull=pull)
+    result = draft_readiness(draft)
+    assert result is not None

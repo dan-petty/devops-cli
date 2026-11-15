@@ -573,7 +573,6 @@ def get_pr_monitoring_status(
     if not status.checks and not status.checks_failed and not status.terminal:
         if "checks" not in status.pending_checks:
             status.pending_checks.append("checks")
-        status.blockers.append(f"PR #{pr_number} has no check runs reported yet.")
     status.blockers = [
         *verdict.blockers,
         *_review_blockers(pr_number, copilot_status, review_decision, require_reviews),

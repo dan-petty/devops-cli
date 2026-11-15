@@ -60,3 +60,32 @@ def test_watch_cmd_dry_run_exits_zero(cli: Cli) -> None:
         "--dry-run",
     )
     assert result.exit_code == 0
+
+
+def test_watch_cmd_invalid_repo_exits_one(cli: Cli) -> None:
+    result = cli("roadmap", "step", "watch", "--repo", "invalid", "--pull", "42")
+    assert result.exit_code == 1
+    assert "Cannot resolve the repository" in result.output
+
+
+def test_watch_cmd_failure_exits_one(cli: Cli, monkeypatch: pytest.MonkeyPatch) -> None:
+    from devops_cli.exceptions import GitHubOperationError
+    from devops_cli.roadmap.steps import watch as watch_mod
+
+    def _fail_watch(*args: Any, **kwargs: Any) -> Any:
+        raise GitHubOperationError("network down")
+
+    monkeypatch.setattr(watch_mod, "watch", _fail_watch)
+
+    result = cli(
+        "roadmap",
+        "step",
+        "watch",
+        "--repo",
+        "owner/repo",
+        "--pull",
+        "42",
+        "--no-block",
+    )
+    assert result.exit_code == 1
+    assert "Could not watch PR #42" in result.output
