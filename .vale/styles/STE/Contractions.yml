@@ -1,0 +1,6 @@
+extends: existence
+message: "Do not use a contraction."
+level: suggestion
+ignorecase: true
+tokens:
+  - '\b\w+[''](?:t|re|ve|ll|d|m|s)\b'

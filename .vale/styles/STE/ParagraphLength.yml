@@ -1,0 +1,6 @@
+extends: occurrence
+message: "Use at most 6 sentences in a paragraph (%s sentences)."
+level: suggestion
+scope: paragraph
+max: 6
+token: '[.!?]+'
