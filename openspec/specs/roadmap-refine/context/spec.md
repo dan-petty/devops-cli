@@ -70,3 +70,10 @@ The context collection for cited identifiers in refine SHALL exclude archive and
 #### Scenario: Git grep times out for a cited identifier
 - **WHEN** an item cites an identifier whose git grep times out after 15 seconds
 - **THEN** refine logs a warning, excludes matches for that identifier, and continues context collection with other cited context
+
+### Requirement: The refine proposal context is capped by a job constant
+The refine job SHALL cap the token budget of the repository context for proposal generation to `CONST_ROADMAP_REFINE_CONTEXT_MAX_TOKENS`, 20,480 tokens, or the model context window divided by 2, whichever is smaller.
+
+#### Scenario: Proposal context with a large model window
+- **WHEN** the analysis task context window is 256,000 and cited context exceeds 20,480 tokens
+- **THEN** the proposal context holds at most 20,480 tokens

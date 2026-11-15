@@ -164,6 +164,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "kept",
         "definition lines in the context; the context says how many it left out, and the tools read the rest",
     ),
+    "CONST_ROADMAP_REFINE_CONTEXT_MAX_TOKENS": (
+        "window",
+        "context of the proposal request; fixed, so a larger window gives no larger request",
+    ),
     "CONST_ROADMAP_REFINE_MAX_SPECS": ("raised", "was 5; specs named in the context"),
     "CONST_ROADMAP_REFINE_MAX_REQUIREMENTS_PER_SPEC": (
         "raised",

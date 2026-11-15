@@ -2114,7 +2114,7 @@ class _Planner:
         """The request for one item: what the model reads and what the gates need. The open plans
         that create a path are read here, once for the run (#4046)."""
         item = target.item
-        context = collect_context(
+        context: str = collect_context(
             self._source,
             self._sha,
             item.body,

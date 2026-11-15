@@ -5,14 +5,18 @@ size and the design section that refine renders from it (#1335).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     pass
+import json
+
 import pytest
 from pydantic import ValidationError
 
+from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.config.constants import CONST_ROADMAP_REFINE_CONTEXT_MAX_TOKENS
 from devops_cli.roadmap.body_hash import extract_section_and_outside
 from devops_cli.roadmap.refine.refine import (
     AcceptanceCriterion,
@@ -289,3 +293,32 @@ def test_refines_prompts_load_and_the_reply_prompt_names_every_field() -> None:
         ["`existing_tool`" in step for step in steps],
         [old for old in ("`description`", "`verification`") if old in reply],
     ) == (True, [], [True, True], [])
+
+
+def test_refine_proposal_caps_context_at_job_constant(
+    git_repo: Path, store: InMemoryRoadmapStore, config: Any
+) -> None:
+    """With an analysis window of 256,000, proposal context for an item citing a file of 60k
+    tokens holds at most CONST_ROADMAP_REFINE_CONTEXT_MAX_TOKENS tokens (#5464)."""
+    config(ai={"tasks": {"analysis": {"context_window": 256_000}}})
+    large_file = git_repo / "src" / "large.py"
+    large_file.write_text("# large file\n" + ("x = 1\n" * 30_000), encoding="utf-8")
+
+    inspect_checkout(git_repo, REPO)
+    body = "Review src/large.py:1-30000 now."
+    number = store.seed_issue("Item with large context", body=body, fields=PLACED)
+    person = store.as_actor("alice")
+    person.set_field(require_item(person, number), ItemField.STATUS, "New")
+
+    client = MockLLMClient()
+    plan_refine(
+        store,
+        repo=REPO,
+        source=git_repo,
+        item_number=number,
+        model=client,
+    )
+    assert len(client.calls) == 1
+    req = json.loads(client.calls[0][1])
+    ctx = req["context"]
+    assert count_tokens(ctx) <= CONST_ROADMAP_REFINE_CONTEXT_MAX_TOKENS

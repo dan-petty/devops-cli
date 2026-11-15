@@ -3297,6 +3297,8 @@ CONST_ROADMAP_REFINE_END_MARKER: Final[str] = "<!-- devops-roadmap-refine:end --
 CONST_ROADMAP_REFINE_MAX_BODY_CHARS: Final[int] = 65536
 CONST_ROADMAP_REFINE_MAX_SEARCH_QUERIES: Final[int] = 10
 CONST_ROADMAP_REFINE_SEARCH_RESULTS_PER_QUERY: Final[int] = 5
+# The most tokens that refine's repository context holds (#5464).
+CONST_ROADMAP_REFINE_CONTEXT_MAX_TOKENS: Final[int] = 20_480
 # The stage and refine context lists, for each symbol that an item cites, at most this many paths
 # of the source files that name it, the tests first, and at most this many of its definitions. The
 # context says how many of each it left out (#3012, #4638).
