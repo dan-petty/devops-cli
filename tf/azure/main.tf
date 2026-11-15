@@ -59,6 +59,10 @@ resource "azurerm_kubernetes_cluster" "aks" {
     tags                = var.tags
   }
 
+  api_server_access_profile {
+    authorized_ip_ranges = var.api_server_authorized_ip_ranges
+  }
+
   identity {
     type         = "UserAssigned"
     identity_ids = [azurerm_user_assigned_identity.aks_identity.id]
