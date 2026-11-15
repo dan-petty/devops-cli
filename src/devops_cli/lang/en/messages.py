@@ -6056,6 +6056,16 @@ class RoadmapMessages:
     stage_eval_dry_run_repeat: str = "up to {count} requests for each case"
     stage_eval_stored: str = "Stored the report in {path}."
     stage_eval_failed: str = "{failed} case(s) could not run. The score counts them as not avoided."
+    stage_eval_record_case: str = "Recorded the constants of the case {name}: {constants}."
+    stage_eval_record_none: str = "no constant"
+    stage_eval_record_no_commit: str = (
+        "No constant is recorded for the case(s) {names}: each holds no commit to read a constant "
+        "at."
+    )
+    stage_eval_record_dry_run: str = (
+        "--record writes the facts file of each case, so it makes a write. Give --record without "
+        "--dry-run."
+    )
     # `devops roadmap eval verify` (#3153).
     verify_eval_title: str = (
         "# Verification pass on the golden set: {cases} case(s), the verification model {model} "
