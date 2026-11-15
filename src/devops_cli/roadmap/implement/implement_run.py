@@ -1492,22 +1492,32 @@ class _ItemRun:
         title = self._delivery_title()
         self.origin.push(self.branch, tip or self._head())
         try:
-            created = get_github_session().client.create_draft_pull(
-                self.repo,
-                title=title,
-                body=texts.implement_pull_body_draft.format(number=self.number),
-                head=self.branch,
-                base=self.default,
+            from devops_cli.roadmap.steps.open import OpenRequest, open_or_update
+
+            res = open_or_update(
+                OpenRequest(
+                    repo=self.repo,
+                    head=self.branch,
+                    base=self.default,
+                    title=title,
+                    body=texts.implement_pull_body_draft.format(number=self.number),
+                    kind="delivery",
+                    item=self.number,
+                    store=self.store,
+                    lookup_existing=False,
+                    retry_refused=False,
+                )
             )
+            created_number = res.number
         except DevOpsCLIError as exc:
             self.origin.push(self.branch, None)
             reason = texts.implement_stop_draft_failed.format(
                 branch=self.branch, output=mask_secrets(str(exc))
             )
             raise _StopError(self.step, reason, push=False) from exc
-        self.pull = created.number
-        self.store.set_marks(self._fresh(), {ImplementRecordKey.PR: str(created.number)})
-        return created.number
+        self.pull = created_number
+        self.store.set_marks(self._fresh(), {ImplementRecordKey.PR: str(created_number)})
+        return created_number
 
     def _plan_summary(self) -> str | None:
         """The summary of the plan of the item (#5341), from the subject of the newest commit of

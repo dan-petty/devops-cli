@@ -74,6 +74,32 @@ class PullRequest(BaseModel):
         return tuple(item["name"] if isinstance(item, dict) else str(item) for item in value)
 
 
+class OpenPullRequest(BaseModel):
+    """The fields of an open pull request found by find_open_pull (#5020)."""
+
+    number: int = 0
+    title: str = ""
+    body: str = ""
+    draft: bool = False
+    html_url: str = ""
+    head: CommitRef = Field(default_factory=lambda: CommitRef(sha="", ref=""))
+    base: CommitRef = Field(default_factory=lambda: CommitRef(sha="", ref=""))
+    labels: tuple[str, ...] = ()
+
+    @field_validator("labels", mode="before")
+    @classmethod
+    def _turn_labels(cls, value: Any) -> tuple[str, ...]:
+        if not value:
+            return ()
+        return tuple(item["name"] if isinstance(item, dict) else str(item) for item in value)
+
+    @field_validator("body", mode="before")
+    @classmethod
+    def _turn_null_body(cls, value: Any) -> str:
+        """GitHub gives the body as null when the pull request holds no body."""
+        return "" if value is None else str(value)
+
+
 class RepositoryHook(BaseModel):
     """One webhook of a repository, with the URL and the content type of its configuration."""
 
@@ -462,6 +488,28 @@ class GitHubClient:
         path = _repo_path(repo, f"pulls/{number}")
         return _read_as(PullRequest, self._session.rest("GET", path), path=path)
 
+    def find_open_pull(
+        self, repo: str, *, head: str, base: str | None = None
+    ) -> OpenPullRequest | None:
+        """Find an open pull request from `head` into `base` in `repo`, or None (#5020)."""
+        owner, _, _ = repo.partition("/")
+        head_param = head if ":" in head else f"{owner}:{head}"
+        endpoint = _repo_path(repo, f"pulls?head={quote(head_param, safe=':/')}&state=open")
+        try:
+            items = self._session.rest("GET", endpoint)
+        except GitHubNotFoundError:
+            return None
+        if not isinstance(items, list):
+            return None
+        for item in items:
+            if isinstance(item, dict):
+                item_base = (
+                    item.get("base", {}).get("ref") if isinstance(item.get("base"), dict) else None
+                )
+                if not base or item_base == base:
+                    return _read_as(OpenPullRequest, item, path=endpoint)
+        return None
+
     def create_ref(self, repo: str, *, ref: str, sha: str) -> dict[str, Any]:
         """Create a git reference in `repo` (POST /repos/{owner}/{repo}/git/refs) (#5499)."""
         path = _repo_path(repo, "git/refs")
@@ -488,10 +536,18 @@ class GitHubClient:
         path = _repo_path(repo, f"pulls/{number}")
         return _read_as(PullStatus, self._session.rest("GET", path), path=path)
 
-    def update_pull(self, repo: str, number: int, *, title: str, body: str) -> None:
-        """Set the title and the body of the pull request `number` (#2665, #2714)."""
-        path = _repo_path(repo, f"pulls/{number}")
-        self._session.rest("PATCH", path, body={"title": title, "body": body})
+    def update_pull(
+        self, repo: str, number: int, *, title: str | None = None, body: str | None = None
+    ) -> None:
+        """Set the title and/or the body of the pull request `number` (#2665, #2714, #5020)."""
+        payload: dict[str, str] = {}
+        if title is not None:
+            payload["title"] = title
+        if body is not None:
+            payload["body"] = body
+        if payload:
+            path = _repo_path(repo, f"pulls/{number}")
+            self._session.rest("PATCH", path, body=payload)
 
     def comment_on_pull(self, repo: str, number: int, body: str) -> int:
         """Comment `body` on the pull request `number` and return the id of the new comment, so

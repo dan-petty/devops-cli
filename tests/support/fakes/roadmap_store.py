@@ -377,11 +377,18 @@ class InMemoryRoadmapStore(RoadmapStore):
         updated_at: datetime | None = None,
         head_sha: str = "",
         checks_failed: bool = False,
+        labels: Iterable[str] = (),
     ) -> int:
         """Open a pull request on the branch `head_ref`, a draft when `draft`, returning its
         number. It is an issue that is a pull request, so it shares the numbers of the issues.
         Its head commit is `head_sha`, and `checks_failed` makes a check run of that commit fail."""
-        number = self.seed_issue(title, state=state, pull_request=True, updated_at=updated_at)
+        number = self.seed_issue(
+            title,
+            state=state,
+            pull_request=True,
+            updated_at=updated_at,
+            labels=labels,
+        )
         self._roadmap.pulls[number] = (head_ref, draft)
         self._roadmap.heads[number] = head_sha
         if checks_failed:

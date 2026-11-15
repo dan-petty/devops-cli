@@ -1243,6 +1243,61 @@ def test_the_status_writer_check_names_each_direct_status_write(tmp_path: Path) 
     ]
 
 
+_ALLOWED_DRAFT_PULL_CREATORS = (
+    "roadmap/steps/open.py",
+    "github/client.py",
+)
+
+
+def _calls_create_draft_pull(node: ast.Call) -> bool:
+    """Whether the call invokes `create_draft_pull`."""
+    if isinstance(node.func, ast.Attribute) and node.func.attr == "create_draft_pull":
+        return True
+    if isinstance(node.func, ast.Name) and node.func.id == "create_draft_pull":
+        return True
+    return False
+
+
+def _draft_pull_creation_offenders(trees: Mapping[Path, ast.Module], src: Path) -> list[str]:
+    """Each `file:line` of `src` that calls `create_draft_pull` outside the open step or GitHub client."""
+    offenders: list[str] = []
+    for path, tree in sorted(trees.items()):
+        rel = path.relative_to(src).as_posix()
+        if rel in _ALLOWED_DRAFT_PULL_CREATORS:
+            continue
+        offenders += [
+            f"{rel}:{node.lineno} calls create_draft_pull outside the open step"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and _calls_create_draft_pull(node)
+        ]
+    return offenders
+
+
+def test_every_draft_pull_creation_goes_through_open_step(
+    parsed_source_trees: dict[Path, ast.Module],
+) -> None:
+    """Every draft pull request creation goes through `roadmap.steps.open.open_or_update` (#5020).
+    No other module under `src/` calls `create_draft_pull`."""
+    src = REPO_ROOT / "src" / "devops_cli"
+    assert _draft_pull_creation_offenders(parsed_source_trees, src) == []
+
+
+def test_the_draft_pull_creation_check_names_each_direct_call(tmp_path: Path) -> None:
+    """The check reports a `create_draft_pull` call outside `open.py` and `client.py`."""
+    sources = {
+        "a.py": "client.create_draft_pull(repo, title=t, body=b, head=h, base=base)\n",
+        "b.py": "create_draft_pull(repo, title=t, body=b, head=h, base=base)\n",
+        "c.py": "client.create_pull(repo, title=t, body=b, head=h, base=base)\n",
+        "roadmap/steps/open.py": "client.create_draft_pull(repo, title=t, body=b, head=h, base=base)\n",
+        "github/client.py": "def create_draft_pull(self): pass\n",
+    }
+    trees = {tmp_path / name: ast.parse(text) for name, text in sources.items()}
+    assert _draft_pull_creation_offenders(trees, tmp_path) == [
+        "a.py:1 calls create_draft_pull outside the open step",
+        "b.py:1 calls create_draft_pull outside the open step",
+    ]
+
+
 # mutmut reads a comment holding both as a `no mutate` pragma (`_parse_pragma_token`). They stay
 # here, not in src, where a line holding both would itself be one.
 _MUTMUT_PRAGMA_MARKERS = ("# pragma:", "no mutate")
