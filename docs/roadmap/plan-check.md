@@ -26,6 +26,10 @@ the head commit, whatever the working tree of the checkout holds.
 
 - The stage gates: `check_proposal` and `validate_change`. The command reports each problem with
   the file and the words of the stage job.
+- The phrase of a declared pair (#4039): a code span that shares four consecutive words with a
+  phrase that a `("<document>", "<phrase>")` pair declares in `tasks.md`, and differs from it, is a
+  problem that names both spans and the file. The implementation must quote one phrase with one
+  text, so a variant in `proposal.md`, `tasks.md` or a spec delta fails no phrase test later.
 - The tests of a changed manifest (#3972): a plan that changes a YAML manifest under `k8s/` names
   each test file that references the manifest. A test file references a manifest when it holds the
   file name of the manifest and the name of its folder, because the test builds the path from those

@@ -45,6 +45,7 @@ from devops_cli.github.client import IssueView, PullRequest
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
 from devops_cli.roadmap.clone_git import checkout_at, git
+from devops_cli.roadmap.plan_phrases import phrase_problems
 from devops_cli.roadmap.plan_read import (
     PlanReadError,
     change_root,
@@ -529,7 +530,14 @@ def folder_problems(folder: PlanFolder) -> tuple[StageProposal | None, list[Plan
     except PlanReadError as exc:
         message = MESSAGES.roadmap.plan_check_read.format(path=exc.path, reason=exc.reason)
         return None, [PlanProblem(exc.path, "read", message)]
-    return proposal, [*_gate_problems(proposal, folder), *_size_problems(proposal, folder)]
+    return proposal, [
+        *_gate_problems(proposal, folder),
+        *_size_problems(proposal, folder),
+        *[
+            PlanProblem(problem.path, "phrases", problem.message)
+            for problem in phrase_problems(folder.files)
+        ],
+    ]
 
 
 def staged_problems(folder: PlanFolder, *, number: int, title: str, body: str) -> list[PlanProblem]:
