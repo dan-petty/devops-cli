@@ -6025,6 +6025,14 @@ class RoadmapMessages:
         "Dry run: no request was made. The compare form would plan {cases} case(s) with the "
         "toolsets {toolsets} at {gateway}, with the stage model {model}, one case at a time."
     )
+    stage_eval_compare_spread_header: str = (
+        "Case runs and the spread of each measured value, as the minimum and the maximum:"
+    )
+    stage_eval_compare_spread_row: str = (
+        "{toolset}/{case} runs={runs} gate defects {gate} verification {verify} tool calls "
+        "{tools} requests {requests} input tokens {input} output tokens {output} elapsed "
+        "{seconds} cost {cost}"
+    )
     stage_eval_over_budget: str = "A task group is over the step budget."
     stage_eval_no_value: str = "-"
     stage_eval_replay_title: str = (

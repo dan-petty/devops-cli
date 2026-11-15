@@ -3,9 +3,11 @@
 `run_toolset` plans each case with the tools of one toolset and measures the run: the defects that
 the gates caught in the first reply, the defects that the verification pass caught, the tool calls,
 the model requests, the input and output tokens, the elapsed time and the cost at the hosted price
-of the model. A run without the verification pass holds no count of its defects, so the column says
-`not run` rather than a clean zero. `render_compare` prints one row for each toolset with the eight
-measured columns and one delta line for each toolset after the first, against the first.
+of the model. A case runs once for each run that the caller asks for, because the reply of a model
+differs between runs. A run without the verification pass holds no count of its defects, so the
+column says `not run` rather than a clean zero. `render_compare` prints one row for each toolset
+with the eight measured columns, one delta line for each toolset after the first, against the first,
+and one line for each case with its runs and the minimum and the maximum of each measured value.
 """
 
 from __future__ import annotations
@@ -236,10 +238,12 @@ def run_toolset(
     *,
     toolbox: Any,
     model: str,
+    runs: int = 1,
 ) -> ComparisonRow:
-    """Plan each case with the tools of `toolset` and measure its run. `toolbox` is the model of
-    the plan run, `client` answers every other call, and `model` is the name that prices the
-    tokens of the run."""
+    """Plan each case with the tools of `toolset` and measure its run, `runs` times for each case,
+    because the reply of a model differs between runs. `toolbox` is the model of the plan run,
+    `client` answers every other call, and `model` is the name that prices the tokens of the run.
+    The row sums the measures of every run of every case."""
     with openspec_tool() as tool:
         measures = [
             _measure(
@@ -252,6 +256,7 @@ def run_toolset(
                 openspec=tool,
             )
             for case in cases
+            for _ in range(runs)
         ]
     return row_of(toolset, measures)
 
@@ -262,6 +267,59 @@ def _count(value: int | None, empty: str) -> str:
 
 def _money(value: float | None) -> str:
     return f"{value:.4f}" if value is not None else _UNPRICED
+
+
+def _count_span(values: tuple[int, int]) -> str:
+    """The minimum and the maximum of a count, as `<minimum>..<maximum>`."""
+    return f"{values[0]}..{values[1]}"
+
+
+def _optional_span(values: tuple[int | None, int | None], empty: str) -> str:
+    """The minimum and the maximum of a count that a run may not measure, or `empty`."""
+    low, high = values
+    if low is None or high is None:
+        return empty
+    return f"{low}..{high}"
+
+
+def _seconds_span(values: tuple[float, float]) -> str:
+    """The minimum and the maximum of the elapsed seconds."""
+    return f"{values[0]:.2f}..{values[1]:.2f}"
+
+
+def _money_span(values: tuple[float | None, float | None]) -> str:
+    """The minimum and the maximum of the cost, or `unpriced` when no run had a price."""
+    low, high = values
+    if low is None or high is None:
+        return _UNPRICED
+    return f"{low:.4f}..{high:.4f}"
+
+
+def _case_line(toolset: str, case: str, measures: Sequence[Measure]) -> str:
+    """One case of one toolset: its number of runs and the minimum and the maximum of each value."""
+    values = spread(measures)
+    return MESSAGES.roadmap.stage_eval_compare_spread_row.format(
+        toolset=toolset,
+        case=case,
+        runs=len(measures),
+        gate=_count_span(values.gate_defects),
+        verify=_optional_span(values.verification_defects, _NOT_RUN),
+        tools=_count_span(values.tool_calls),
+        requests=_count_span(values.requests),
+        input=_count_span(values.input_tokens),
+        output=_count_span(values.output_tokens),
+        seconds=_seconds_span(values.seconds),
+        cost=_money_span(values.cost),
+    )
+
+
+def _case_lines(rows: Sequence[ComparisonRow]) -> list[str]:
+    """One line for each case of each row, in the order of the cases of the row."""
+    return [
+        _case_line(row.toolset, case, [measure for measure in row.measures if measure.case == case])
+        for row in rows
+        for case in dict.fromkeys(measure.case for measure in row.measures)
+    ]
 
 
 def _row_line(row: ComparisonRow) -> str:
@@ -279,9 +337,13 @@ def _row_line(row: ComparisonRow) -> str:
 
 
 def render_compare(rows: Sequence[ComparisonRow]) -> str:
-    """The comparison as text: one row for each toolset with the eight measured columns, and one
-    delta line for each toolset after the first, against the first."""
+    """The comparison as text: one row for each toolset with the eight measured columns, one delta
+    line for each toolset after the first, against the first, and one line for each case with its
+    number of runs and the minimum and the maximum of each measured value."""
     lines = [_COMPARE_HEADER, *(_row_line(row) for row in rows)]
     if rows:
         lines += [_row_line(delta(row, rows[0])) for row in rows[1:]]
+    cases = _case_lines(rows)
+    if cases:
+        lines += ["", MESSAGES.roadmap.stage_eval_compare_spread_header, *cases]
     return "\n".join(lines) + "\n"

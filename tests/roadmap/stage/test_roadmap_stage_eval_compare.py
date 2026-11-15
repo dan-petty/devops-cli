@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -212,6 +213,59 @@ def test_the_compare_form_prints_one_table_with_a_fake_client(
     assert any(line.startswith("base") for line in lines)
     assert any(line.startswith("extended") for line in lines)
     assert any("extended - base" in line for line in lines)
+
+
+def _three_runs_script() -> Script:
+    """A script whose runs call the read tool once, twice and three times, so the tokens and the
+    requests of the three runs of a case differ. Two toolsets read the same three runs in turn."""
+    responses: list[Any] = []
+    for calls in (1, 2, 3):
+        responses += [call("read_file", path="src/devops_cli/sample.py")] * calls
+        responses.append(make_stage_proposal())
+    return Script(*(responses * 2))
+
+
+def test_three_runs_state_the_count_and_the_spread(
+    cli: Any,
+    tmp_path: Path,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+    cases: list[StageCase],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from devops_cli.ai.client import factory
+
+    script = _three_runs_script()
+    monkeypatch.setattr(factory, "get_task_model", lambda name, *, settings=None: script.model())
+    folder = _live_set(tmp_path, stage_repo, cases)
+
+    result = cli(
+        "roadmap",
+        "eval",
+        "stage",
+        "compare",
+        "base",
+        "extended",
+        "--runs",
+        "3",
+        "--cases",
+        str(folder),
+        "--source",
+        str(stage_repo.clone),
+        "--model",
+        "claude-sonnet-5-5",
+    )
+
+    assert result.exit_code == 0, result.output
+    case_lines = [line for line in result.output.splitlines() if "runs=3" in line]
+    assert len(case_lines) == 2
+    base_line = next(line for line in case_lines if line.startswith("base/"))
+    assert "tool calls 1..3" in base_line
+    assert "requests 2..4" in base_line
+    tokens = re.search(r"input tokens (\d+)\.\.(\d+)", base_line)
+    assert tokens is not None
+    assert int(tokens.group(1)) < int(tokens.group(2))
 
 
 def test_the_compare_form_refuses_a_lone_toolset_and_a_name_outside_the_setting(cli: Any) -> None:

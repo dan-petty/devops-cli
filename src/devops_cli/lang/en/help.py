@@ -1582,6 +1582,10 @@ class RoadmapCommandHelp:
         "roadmap.stage.toolset. The report names the toolset that the run read."
     )
     eval_stage_limit: str = "Run at most this many cases, the first ones of the set."
+    eval_stage_runs: str = (
+        "Run each case this many times in the compare form, and report the minimum and the "
+        "maximum of each measured value. Default: 3."
+    )
     eval_stage_json: str = "Print the report as JSON in place of the table."
     eval_stage_dry_run: str = (
         "Make no request: list the cases and the model calls that a run makes."

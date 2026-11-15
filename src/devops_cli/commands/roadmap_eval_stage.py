@@ -147,6 +147,7 @@ def _compare(
     limit: int | None,
     *,
     toolsets: tuple[str, ...],
+    runs: int,
     model: str | None,
     source: Path | None,
     dry_run: bool,
@@ -192,7 +193,15 @@ def _compare(
     client = get_llm_client(task="stage", settings=settings, model=model)
     planner = eval_model(model, task="stage")[0]
     rows = [
-        run_toolset(toolset, cases, client, source or find_repo_root(), toolbox=planner, model=name)
+        run_toolset(
+            toolset,
+            cases,
+            client,
+            source or find_repo_root(),
+            toolbox=planner,
+            model=name,
+            runs=runs,
+        )
         for toolset in chosen
     ]
     write_stdout(render_compare(rows))
@@ -215,6 +224,7 @@ def eval_stage_cmd(
     limit: Annotated[
         int | None, typer.Option("--limit", min=1, help=HELP.roadmap.eval_stage_limit)
     ] = None,
+    runs: Annotated[int, typer.Option("--runs", min=1, help=HELP.roadmap.eval_stage_runs)] = 3,
     as_json: Annotated[bool, typer.Option("--json", help=HELP.roadmap.eval_stage_json)] = False,
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help=HELP.roadmap.eval_stage_dry_run)
@@ -250,6 +260,7 @@ def eval_stage_cmd(
             names,
             limit,
             toolsets=words[1:],
+            runs=runs,
             model=model,
             source=source,
             dry_run=dry_run or is_dry_run(),
