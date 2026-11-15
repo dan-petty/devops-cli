@@ -1,6 +1,13 @@
-"""Standardized domain exception hierarchy for devops-cli."""
+"""Standardized domain exception hierarchy for devops-cli.
+
+Each subject module holds the errors of one subject, and this module re-exports them. The one
+exception that it defines itself, `AgentAuditFilingError`, belongs to the one command that raises
+it (#2346), and a subject module of one error would name a subject that no other error shares.
+"""
 
 from __future__ import annotations
+
+from typing import Any
 
 from devops_cli.exceptions.argo import (
     ArgoError,
@@ -111,7 +118,36 @@ from devops_cli.exceptions.vault import (
     VaultUnreachableError,
 )
 
+
+class AgentAuditFilingError(DevOpsCLIError):
+    """Raised when `devops roadmap intake` does not file one draft of `devops ai agent-audit` (#2346).
+
+    The audit stops at the first draft that intake does not file: a later draft would file an issue
+    on a roadmap that the failed run left part-written. The message names the draft by its title,
+    the exit status of the child and the last line that it printed, and the base class masks each
+    secret of that line; `draft` holds the title.
+    """
+
+    error_code = "AGENT_AUDIT_FILING_FAILED"
+
+    def __init__(
+        self,
+        draft: str,
+        *,
+        status: int,
+        detail: str,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        self.draft = draft
+        super().__init__(
+            f"The audit filed no issue for the draft '{draft}': `devops roadmap intake` exited "
+            f"with status {status} and printed: {detail}",
+            details={"draft": draft, "status": status, **(details or {})},
+        )
+
+
 __all__ = [
+    "AgentAuditFilingError",
     "ArgoError",
     "ArgoResourceNotFoundError",
     "ArgoWorkflowTimeoutError",

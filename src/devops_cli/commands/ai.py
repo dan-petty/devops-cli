@@ -18,6 +18,7 @@ from devops_cli.ai.instruction_generator import (
 from devops_cli.ai.jev_ask_models import JevAskKind
 from devops_cli.ai.personas import Persona
 from devops_cli.ai.run_store import Mechanism, record_run
+from devops_cli.commands.ai_agent_audit import run_agent_audit_cmd
 from devops_cli.commands.ai_ast import app as ast_app
 from devops_cli.commands.ai_cache import app as cache_app
 from devops_cli.commands.ai_chaos import run_chaos_model_cmd
@@ -2108,3 +2109,4 @@ app.command("quiesce", help=HELP.ai.quiesce)(run_quiesce_cmd)
 app.command("failover", help=HELP.ai.failover)(run_failover_cmd)
 app.command("resume", help=HELP.ai.resume)(run_resume_cmd)
 app.command("constellation", help=HELP.ai.constellation)(run_constellation_cmd)
+app.command("agent-audit", help=HELP.ai.agent_audit)(run_agent_audit_cmd)

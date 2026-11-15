@@ -350,6 +350,9 @@ class AIMessages:
     ask_jev_tokens: str = "Tokens: {input_tokens} in, {output_tokens} out ({model})"
     ask_jev_evidence: str = "This answer is evidence, not a verdict. Check it before you act."
     ask_jev_plan_title: str = "Plan for asking Jev one question"
+    agent_audit_filed: str = "Filed #{number}: {title}"
+    agent_audit_candidate_unfiled: str = "Candidate not filed: {title}"
+    agent_audit_dry_run_with_confirm: str = "Cannot combine --dry-run with --confirm."
 
 
 @dataclass(frozen=True)

@@ -264,6 +264,16 @@ class AICommandHelp:
     research_model: str = (
         "Synthesize and progressively distill research observations into a living mental model."
     )
+    agent_audit: str = (
+        "Count recurring problems across agent sessions, group findings, and file candidate drafts."
+    )
+    agent_audit_since: str = "Only read transcripts newer than this number of days (default: 30)."
+    agent_audit_source: str = (
+        "Source to read: transcripts, shell, agent-files, or files (default: transcripts)."
+    )
+    agent_audit_repo_dir: str = "Root directory of the repository to audit."
+    agent_audit_plan: str = "Plan the audit without writing issues or stores."
+    agent_audit_confirm: str = "File candidate drafts through devops roadmap intake."
     model_topic: str = "Research topic or subject to synthesize a mental model for."
     model_observations: str = (
         "New observations, notes, or raw findings to incorporate into the model."

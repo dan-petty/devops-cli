@@ -267,6 +267,7 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops ai failover [OPTIONS]` | Record a fallback route in the constellation flag; `devops ai gateway failover` records a failover route for a virtual model, and the gateway's own fallbacks move the traffic. |
 |  | `devops ai resume [OPTIONS]` | Clear the constellation quiesce or failover flag. |
 |  | `devops ai constellation [OPTIONS]` | Show the constellation flag: state, reason and recorded fallback route. |
+|  | `devops ai agent-audit [OPTIONS]` | Count recurring problems across agent sessions, group findings, and file candidate drafts. |
 |  | `devops ai review [OPTIONS] COMMAND [ARGS]...` | AI-powered code review and group analysis system. |
 |  | `devops ai analyze [OPTIONS] COMMAND [ARGS]...` | Analyze codebase metadata and generate structural outlines. |
 |  | `devops ai rag [OPTIONS] COMMAND [ARGS]...` | Manage RAG vector embeddings, indexing, and semantic search (Qdrant). |
