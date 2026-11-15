@@ -31,9 +31,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/inbox.py`, `src/devops_cli/roadma
 
 Kind: manifest. Reads: `k8s/devops/dashboards/project-metrics.json`, `tests/grafana/test_grafana_dashboards.py`. Changes: `k8s/devops/dashboards/project-metrics.json`, `k8s/devops/alerts/inbox.yaml` (new), `tests/grafana/test_grafana_dashboards.py`.
 
-- [ ] 4.1 `test_the_inbox_panel_charts_each_counted_kind` in `tests/grafana/test_grafana_dashboards.py`: asserts panel titled "Inbox Items by Kind", type `bargauge`, unit `short`, query `sum by (kind) (last_over_time(devops_cli_roadmap_inbox_items[$__range]))`, and grid position at x 12, y 34
+- [x] 4.1 `test_the_inbox_panel_charts_each_counted_kind` in `tests/grafana/test_grafana_dashboards.py`: asserts panel titled "Inbox Items by Kind", type `bargauge`, unit `short`, query `sum by (kind) (last_over_time(devops_cli_roadmap_inbox_items[$__range]))`, and grid position at x 12, y 34
   - Verification: `$ uv run devops ci test tests/grafana/test_grafana_dashboards.py` fails on the base
-- [ ] 4.2 Add the bar gauge panel "Inbox Items by Kind" to `k8s/devops/dashboards/project-metrics.json` at x 12, y 34, w 12 and h 8, following docs/DESIGN.md rule C15. Add alert rule for person cause daily inflow exceeding the cap in `k8s/devops/alerts/inbox.yaml`
+- [x] 4.2 Add the bar gauge panel "Inbox Items by Kind" to `k8s/devops/dashboards/project-metrics.json` at x 12, y 34, w 12 and h 8, following docs/DESIGN.md rule C15. Add alert rule for person cause daily inflow exceeding the cap in `k8s/devops/alerts/inbox.yaml`
   - Verification: `$ uv run devops ci test tests/grafana/test_grafana_dashboards.py` passes
 
 ## 5. Regenerate the telemetry document and update documentation
