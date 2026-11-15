@@ -902,6 +902,103 @@ def test_local_model_prefix_recognized_as_local_tier() -> None:
     assert is_local(provider="gateway", model="local/custom-model") is True
 
 
+def test_gateway_proxy_endpoint_in_served_by_is_not_treated_as_local_backend() -> None:
+    """Verify served_by pointing to the gateway proxy is not classified as a local serving backend (#5867)."""
+    from devops_cli.ai.spend.pricing import is_local
+
+    gw_cluster_url = "http://llm-gateway.llm.svc.cluster.local:4000/v1"
+    gw_server = "llm-gateway.llm.svc.cluster.local:4000"
+
+    # Hosted models through the gateway endpoint must count as spend, not local savings
+    assert (
+        is_local(
+            server=gw_server,
+            provider="gateway",
+            served_by=gw_cluster_url,
+            model="deepseek-v4.1-flash-1017",
+        )
+        is False
+    )
+    assert (
+        is_local(
+            server=gw_server,
+            provider="gateway",
+            served_by=gw_cluster_url,
+            model="gemini/gemini-3.8-flash",
+        )
+        is False
+    )
+
+    # Local models through the gateway endpoint must still count as local savings
+    assert (
+        is_local(
+            server=gw_server,
+            provider="gateway",
+            served_by=gw_cluster_url,
+            model="local/devops-chat",
+        )
+        is True
+    )
+    assert (
+        is_local(
+            server=gw_server,
+            provider="gateway",
+            served_by=gw_cluster_url,
+            model="local/qwen3.8:27b",
+        )
+        is True
+    )
+
+
+def test_gateway_server_detection_branches(config: Callable[..., Path]) -> None:
+    """Verify is_gateway_server and is_local cover all fallback and configuration branches."""
+    from devops_cli.ai.spend.pricing import is_gateway_server, is_local
+
+    assert is_gateway_server(None) is False
+    assert is_gateway_server("") is False
+    assert is_gateway_server("a,b") is False
+    assert is_gateway_server("http://") is False
+
+    # Target with invalid port
+    assert is_gateway_server("http://example.com:notaport") is False
+
+    # Settings value is None fallback
+    empty_settings = type("EmptySettings", (), {"value": None})()
+    assert (
+        is_gateway_server("http://configured-gw.example.com:4000", settings=empty_settings) is False
+    )
+
+    # Configured gateway matching host and port
+    config(
+        ai={
+            "gateway_url": "http://gw1.example.com:4000",
+            "portkey_url": "http://gw2.example.com:4000",
+        }
+    )
+    # Matches first URL
+    assert is_gateway_server("http://gw1.example.com:4000") is True
+    # Different host in first URL, matches second URL
+    assert is_gateway_server("http://gw2.example.com:4000") is True
+    # Different port on first URL
+    assert is_gateway_server("http://gw1.example.com:8000") is False
+    # No port on target matches URL with port
+    assert is_gateway_server("http://gw1.example.com") is True
+    # Unknown URL
+    assert is_gateway_server("http://unknown.example.com:4000") is False
+
+    # Provider is gateway with api_base_url
+    config(ai={"provider": "gateway", "api_base_url": "http://api-base-gw.example.com:4000/v1"})
+    assert is_gateway_server("http://api-base-gw.example.com:4000/v1") is True
+
+    # is_local when provider is None but server or served_by is a gateway
+    gw_server = "llm-gateway.llm.svc.cluster.local:4000"
+    gw_url = "http://llm-gateway.llm.svc.cluster.local:4000/v1"
+    assert is_local(server=gw_server, provider=None, model="deepseek-v4.1-flash-1017") is False
+    assert is_local(served_by=gw_url, provider=None, model="deepseek-v4.1-flash-1017") is False
+    assert is_local(server=gw_server, provider=None, model="local/devops-chat") is True
+    assert is_local(served_by="http://ollama-fast.llm.svc.cluster.local:11434") is True
+
+
 @pytest.mark.parametrize(
     ("model", "served_model", "source"),
     [

@@ -298,3 +298,32 @@ def test_the_backend_report_counts_a_build_agent_request_with_a_served_by(
     assert [(backend.served_by, backend.request_count) for backend in report.backends] == [
         ("http://backend.example.com", 1)
     ]
+
+
+def test_build_agent_with_gateway_url_as_served_by_does_not_classify_as_local_spend(
+    spend_ledger: SpendLedger, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When a model's served_by points to the gateway endpoint, build_agent does not treat it as a local backend (#5867)."""
+
+    class GatewayModel(FunctionModel):
+        served_by = "http://llm-gateway.llm.svc.cluster.local:4000/v1"
+
+    def reply(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        return ModelResponse(
+            parts=[TextPart("ok")], usage=RequestUsage(input_tokens=100, output_tokens=20)
+        )
+
+    _clock(monkeypatch, 0.0, 0.5)
+    build_agent(
+        GatewayModel(reply, model_name="deepseek-v4.1-flash-1017"), request_type="chat_test"
+    ).run_sync("Hi")
+
+    with contextlib.closing(sqlite3.connect(spend_ledger.db_path)) as conn:
+        row = conn.execute(
+            "SELECT model, pricing_source, cost_usd, served_by FROM ai_spend_records WHERE model = 'deepseek-v4.1-flash-1017'"
+        ).fetchone()
+
+    assert row is not None
+    assert row[1] != "local"
+    assert row[2] > 0.0
+    assert row[3] is None
