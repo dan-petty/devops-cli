@@ -837,7 +837,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Open items that the alternatives check can take and has no check for, by repository. An item in the retry delay counts. The Service sends the value twice a day, so each query reads the last value of a day. The alert RoadmapServiceAlternativesNotSearching needs a value above 0.",
+      "description": "Open items that the alternatives check can take and has no check for, by repository. An item in the retry delay counts. The Service sends the value about six times a day, so each query reads the last value of a day. The alert RoadmapServiceAlternativesNotSearching needs a value above 0.",
       "fieldConfig": {
         "defaults": {
           "color": {

@@ -903,8 +903,8 @@ def test_the_embedding_hit_share_panel_divides_hits_by_lookups_over_the_rate_int
 
 def test_the_alternatives_check_row_charts_the_coverage_and_the_searches_of_a_check() -> None:
     """The row Alternatives Check shows the items with no check, the age of the oldest check, and
-    the searches of a check by verdict (#2950). The gauges are read over a day, as long as two
-    rounds of the row, because the row sends them twice a day."""
+    the searches of a check by verdict (#2950). The gauges are read over a day, because the row
+    sends them about six times a day."""
     panels = _row_panels(DASHBOARDS / "roadmap-service-telemetry.json", "Alternatives Check")
 
     assert {panel["title"]: _panel_queries(panel) for panel in panels} == {

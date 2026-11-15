@@ -77,7 +77,7 @@ A check that posts a comment adds a new one. It never changes the comment of an 
 
 A run takes open New and Ready items that a trusted author opened. A trusted author is a person with write access, the Service App's bot or `github-actions[bot]`. A run takes an item of a bot only with the approval of the review of refine.
 
-A run takes first the items with no check, lowest number first. Then it takes the items whose check is older than `roadmap.alternatives.recheck_days`, or whose text changed since, or, for an item of no skip class, whose `alternatives.adr_hash` differs from the hash of the ADRs at HEAD or is not recorded. The setting `roadmap.alternatives.first_pass_limit` (20 by default) caps the run while an item has no check. The setting `roadmap.alternatives.limit` (5 by default) caps the run after, when every item has a check. `--limit` replaces both for one run. The row runs about twice a day, so a first pass of 141 items takes about 4 days.
+A run takes first the items with no check, lowest number first. Then it takes the items whose check is older than `roadmap.alternatives.recheck_days`, or whose text changed since, or, for an item of no skip class, whose `alternatives.adr_hash` differs from the hash of the ADRs at HEAD or is not recorded. The setting `roadmap.alternatives.first_pass_limit` (20 by default) caps the run while an item has no check. The setting `roadmap.alternatives.limit` (5 by default) caps the run after, when every item has a check. `--limit` replaces both for one run. The row runs about six times a day, so a first pass of 141 items takes about a day and a half.
 
 `--item` checks one open item whoever opened it and whatever its Status, even when its check is current.
 

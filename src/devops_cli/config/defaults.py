@@ -883,12 +883,12 @@ DEFAULT_ROADMAP_RETITLE_LIMIT: int = 25
 # stage job to about one hour, and the model runs less often than the stage row.
 DEFAULT_ROADMAP_RETITLE_INTERVAL_MINUTES: int = 61
 # `devops roadmap alternatives` (#2650): the most items one run checks, and the days after which a
-# check is old. The Service's row is due twice a day, about (#2652).
+# check is old. The Service's row is due about six times a day (#2652).
 DEFAULT_ROADMAP_ALTERNATIVES_LIMIT: int = 5
 DEFAULT_ROADMAP_ALTERNATIVES_FIRST_PASS_LIMIT: int = 20
 DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS: int = 30
 DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS: int = 3
-DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES: int = 719
+DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES: int = 239
 # The deployed paths of a clone that the alternatives check reads for the tools in use that no
 # manifest names: services, images and CLIs (#4661).
 DEFAULT_ROADMAP_ALTERNATIVES_INVENTORY_PATHS: tuple[str, ...] = (
