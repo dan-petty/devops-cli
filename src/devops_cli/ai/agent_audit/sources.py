@@ -40,7 +40,7 @@ DEFAULT_SOURCE = SOURCE_TRANSCRIPTS
 # The directory that Claude Code keeps the sessions of each project in, below the home directory.
 _CLAUDE_PROJECTS = Path(".claude") / "projects"
 # The worktrees of the repository, each of which a session of its own runs in.
-_WORKTREES = Path(".data") / "agent" / "worktrees"
+_WORKTREES = Path() / ".data" / "agent" / "worktrees"
 _NON_ALPHANUMERIC_RE = re.compile(r"[^A-Za-z0-9]")
 
 

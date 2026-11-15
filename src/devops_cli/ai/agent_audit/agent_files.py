@@ -23,7 +23,7 @@ from pathlib import Path
 from devops_cli.ai.agent_audit.transcript import ToolCall, sanitize_text
 
 # The directory that the agents of this repository write to.
-AGENT_DIR = Path(".data") / "agent"
+AGENT_DIR = Path() / ".data" / "agent"
 # The trees below `AGENT_DIR` that hold no file of an agent: the checkouts of the worktrees, and
 # the store of the counts of this audit.
 _SKIPPED_DIRS: tuple[str, ...] = ("audit", "worktrees")
