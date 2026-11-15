@@ -808,6 +808,27 @@ def test_a_gateway_reply_that_names_a_deployment_model_and_no_backend_is_hosted(
             True,
             id="hosted-group-falls-back-to-local",
         ),
+        pytest.param(
+            "localhost:4000",
+            "local/devops-coder",
+            None,
+            True,
+            id="prefixed-local-group",
+        ),
+        pytest.param(
+            "localhost:4000",
+            "anthropic/claude-sonnet-5-5",
+            None,
+            False,
+            id="prefixed-cloud-group",
+        ),
+        pytest.param(
+            "localhost:4000",
+            "gemini/gemini-3.8-flash",
+            None,
+            False,
+            id="prefixed-gemini-group",
+        ),
     ],
 )
 def test_the_gateway_group_that_answered_decides_whether_a_call_is_local(
@@ -826,6 +847,59 @@ def test_the_gateway_group_that_answered_decides_whether_a_call_is_local(
     config()
 
     assert is_local(server, "gateway", served_model=served_model, model=model) is expected
+
+
+@pytest.mark.parametrize(
+    ("served_by", "expected"),
+    [
+        pytest.param(
+            "http://ollama-48gib-fast.llm.svc.cluster.local:11434", True, id="cluster-local"
+        ),
+        pytest.param("http://workstation.local:11434", True, id="mdns-local"),
+        pytest.param("http://localhost:11434", True, id="localhost"),
+        pytest.param("http://127.0.0.1:11434", True, id="ipv4-loopback"),
+        pytest.param("http://[::1]:11434", True, id="ipv6-loopback"),
+        pytest.param("http://10.0.0.1:8000", False, id="rfc1918-10"),
+        pytest.param("http://172.16.0.1:8000", False, id="rfc1918-172"),
+        pytest.param("http://192.168.1.1:8000", False, id="rfc1918-192"),
+        pytest.param("http://backend.internal:8000", False, id="internal-domain"),
+        pytest.param("http://gpu-worker.corp:8000", False, id="corp-domain"),
+        pytest.param("https://api.openai.com", False, id="public-api"),
+        pytest.param("http://foo..bar:8000", False, id="invalid-dns"),
+        pytest.param(
+            "http://127.0.0.1:8000, http://ollama.local:8000", True, id="comma-separated-local"
+        ),
+        pytest.param(
+            "http://127.0.0.1:8000, http://10.0.0.1:8000", False, id="comma-separated-cloud"
+        ),
+    ],
+)
+def test_all_traffic_routed_to_dot_local_api_base_is_local_savings(
+    served_by: str, expected: bool
+) -> None:
+    """Verify all traffic routed to a *.local api_base counts as local savings. Verify all requests
+    not routed to a *.local api_base count as spend (#1631)."""
+    from devops_cli.ai.spend.pricing import is_local
+
+    assert is_local(server="localhost:4000", provider="gateway", served_by=served_by) is expected
+
+
+def test_local_model_prefix_recognized_as_local_tier() -> None:
+    """Verify models with the local/ prefix count as local tiers (#4886)."""
+    from devops_cli.ai.spend.pricing import is_local
+
+    assert is_local(provider="gateway", served_model="local/devops-chat") is True
+    assert is_local(provider="gateway", served_model="local/devops-coder") is True
+    assert is_local(provider="gateway", served_model="local/qwen3.8:27b") is True
+    assert is_local(provider="gateway", served_model="local/custom-model") is True
+    assert is_local(provider="gateway", served_model="anthropic/claude-sonnet-5-5") is False
+    assert is_local(provider="gateway", served_model="gemini/gemini-3.8-flash") is False
+    assert (
+        is_local(provider="gateway", served_model="openrouter/deepseek/deepseek-v4.1-flash")
+        is False
+    )
+    assert is_local(provider="gateway", model="local/devops-chat") is True
+    assert is_local(provider="gateway", model="local/custom-model") is True
 
 
 @pytest.mark.parametrize(
