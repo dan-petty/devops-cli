@@ -132,6 +132,14 @@ def test_the_keys_of_a_group_in_the_prompts_are_the_fields_of_a_group(task: str)
 
 
 @pytest.mark.parametrize("task", [_CHANGE_PROMPT, _SPLIT_PROMPT])
+def test_the_prompts_name_the_adds_field_of_a_group(task: str) -> None:
+    prompt = load_task_prompt(task)
+
+    assert "`adds`" in prompt
+    assert "`Adds:` line" in prompt
+
+
+@pytest.mark.parametrize("task", [_CHANGE_PROMPT, _SPLIT_PROMPT])
 def test_the_prompts_state_the_budget_and_the_line_estimate_rule(task: str) -> None:
     prompt = load_task_prompt(task)
 
