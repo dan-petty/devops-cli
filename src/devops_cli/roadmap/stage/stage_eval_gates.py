@@ -44,13 +44,15 @@ from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.agent_run import TraceFacts
 from devops_cli.roadmap.stage.stage_change import (
     GroupKind,
+    ProposalGate,
     StageDecision,
     StageGroup,
     StageProposal,
     StageRejection,
     StageSpec,
-    check_proposal,
+    check_gates,
     content_problems,
+    joined_problems,
     summary_problem,
 )
 from devops_cli.roadmap.stage.stage_criteria import StageCriterion, criterion_problems
@@ -204,13 +206,15 @@ class Gate:
 
 
 def _path_gate(plan: PlanUnderTest) -> list[str]:
-    """The checks of the job on a plan (`check_proposal`): the path rule, which also reads the
-    tests that each changed manifest reaches (#3972) and the reference hits of a moved module
-    (#3373), the rules of the spec delta, which refuse a spec delta that the changed paths do not
-    need (#3013), and the form of the `verify` commands and of the new test files (#3015). A
-    recorded case holds the names of the capabilities and no requirement names, so a replay of a
-    case does not judge a duplicate requirement."""
-    return check_proposal(
+    """The checks of the job on a plan (`check_proposal`) but the criteria rule: the path rule,
+    which also reads the tests that each changed manifest reaches (#3972) and the reference hits of
+    a moved module (#3373), the rules of the spec delta, which refuse a spec delta that the changed
+    paths do not need (#3013), and the form of the `verify` commands and of the new test files
+    (#3015). The criteria rule has its own gate (#3019), and a plan with no `criteria` list has no
+    text for the issue body, so its problems would be false failures here (#4081). A recorded case
+    holds the names of the capabilities and no requirement names, so a replay of a case does not
+    judge a duplicate requirement."""
+    found = check_gates(
         plan.proposal,
         plan.known,
         plan.tree,
@@ -223,6 +227,9 @@ def _path_gate(plan: PlanUnderTest) -> list[str]:
         manifest_references=plan.manifest_references or None,
         references=plan.references,
         trace=plan.trace,
+    )
+    return joined_problems(
+        {gate: problems for gate, problems in found.items() if gate is not ProposalGate.CRITERIA}
     )
 
 
