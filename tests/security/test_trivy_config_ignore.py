@@ -54,3 +54,20 @@ def test_the_repository_ignore_file_holds_the_privileged_gpu_entry() -> None:
     exp = entry.get("expired_at")
     assert exp is not None
     assert isinstance(exp, date) or date.fromisoformat(str(exp))
+
+
+def test_the_repository_ignore_file_holds_the_sysfs_mount_entry() -> None:
+    path = REPO_ROOT / ".trivyignore.yaml"
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    entries = [
+        entry
+        for entry in data.get("misconfigurations", [])
+        if entry.get("id") == "KSV-0121"
+        and "k8s/gpu-feature-discovery/daemonset.yaml" in entry.get("paths", [])
+    ]
+    assert len(entries) >= 1
+    entry = entries[0]
+    assert "#5646" in entry.get("statement", "")
+    exp = entry.get("expired_at")
+    assert exp is not None
+    assert isinstance(exp, date) or date.fromisoformat(str(exp))
