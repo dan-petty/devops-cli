@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.153.0](https://github.com/dan-petty/devops-cli/compare/v0.152.1...v0.153.0) (2026-11-15)
+
+
+### Features
+
+* **monitoring:** Turn on the Loki pattern ingester ([#5833](https://github.com/dan-petty/devops-cli/issues/5833)) ([1189ce3](https://github.com/dan-petty/devops-cli/commit/1189ce35171fd064756630c481593be0da6709f2))
+* **roadmap:** Re-stage an item whose draft plan fails ([#5816](https://github.com/dan-petty/devops-cli/issues/5816)) ([631a0b3](https://github.com/dan-petty/devops-cli/commit/631a0b312f6365a8853f5575c7a15247c22aed3e))
+
+
+### Bug Fixes
+
+* **github:** retry a connect failure on GitHub session GET ([#5832](https://github.com/dan-petty/devops-cli/issues/5832)) ([7fc5a87](https://github.com/dan-petty/devops-cli/commit/7fc5a8768d5c5d9f21644e805d72053b6114a28d))
+* **roadmap:** Read the plan head by SHA, not FETCH_HEAD ([#5831](https://github.com/dan-petty/devops-cli/issues/5831)) ([2b46370](https://github.com/dan-petty/devops-cli/commit/2b46370efb99946f76501fef5f0346733ccec4a4))
+* **security:** configure read-only root file system for GFD ([#5807](https://github.com/dan-petty/devops-cli/issues/5807)) ([3c902d7](https://github.com/dan-petty/devops-cli/commit/3c902d7a5d71544b6e9a475ed0067c685cfb63ce)), closes [#5791](https://github.com/dan-petty/devops-cli/issues/5791)
+* **security:** Keep a lower-case name after a token keyword ([#5824](https://github.com/dan-petty/devops-cli/issues/5824)) ([c4b2fc9](https://github.com/dan-petty/devops-cli/commit/c4b2fc9a4ff1a463c8b58e2b998a695b88fe93bf))
+* **tests:** Name the ceiling file and the usual fix ([#5829](https://github.com/dan-petty/devops-cli/issues/5829)) ([cd0974c](https://github.com/dan-petty/devops-cli/commit/cd0974c8dc12342872b21a11c86c07386d4bd588))
+
 ## [0.152.1](https://github.com/dan-petty/devops-cli/compare/v0.152.0...v0.152.1) (2026-11-15)
 
 
