@@ -7,3 +7,6 @@ CVE-2026-56851 exp:2026-11-17
 
 # CVE-2026-78669 (HIGH) in golang.org/x/net v0.57.0, vendored by pinned kubectl v1.37.2; fixed in x/net 0.60.0. On 2026-11-14 kubectl v1.37.2 is the newest release and has x/net 0.57.0. Tracked in #5582 (see SECURITY.md #a-finding-with-no-fix).
 CVE-2026-78669 exp:2026-11-17
+
+# CVE-2026-78661 (HIGH) in golang.org/x/net v0.57.0, vendored by pinned kubectl v1.37.2; fixed in x/net 0.62.0. On 2026-11-14 kubectl v1.37.2 is the newest release and has x/net 0.57.0. Tracked in #5582 (see SECURITY.md #a-finding-with-no-fix).
+CVE-2026-78661 exp:2026-11-17
