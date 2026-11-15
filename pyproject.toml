@@ -86,6 +86,7 @@ dependencies = [
     "detect-agent==0.6.0",
     "packageurl-python==0.17.6",
     "jq==1.13.0",
+    "harbor==0.26.0",
 ]
 
 [project.optional-dependencies]
@@ -367,6 +368,9 @@ DEP002 = [
     "openai",
     # lizard ships no type information, so roadmap/project_review/facts.py loads it by name.
     "lizard",
+    # roadmap/implement/implement_eval_harbor_run.py calls the harbor program through the process
+    # seam and imports nothing of it (#3104).
+    "harbor",
 ]
 DEP003 = [
     "pydantic_evals",
