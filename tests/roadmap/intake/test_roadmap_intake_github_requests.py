@@ -76,17 +76,39 @@ def test_intake_places_a_critical_fix_with_labels_and_sends_no_projects_request(
 def test_a_placement_sends_the_same_few_requests_whatever_the_number_of_items(
     items: int,
 ) -> None:
-    """Filing and placing a critical fix: the file, the type label, a read, one `PATCH` and a
-    read-back verification for each of four fields (#4555), the read of the Status label after
-    its write (#5018), and the reason comment after a read of the comments (#4793), 17 requests,
-    none of them GraphQL, on a repository of 120 items or of 1,080."""
+    """Filing and placing a critical fix: the file with every label and the record of its three
+    fields (#4452), the reason comment after a read of the comments (#4793), and the Priority
+    write, its read and its read-back verification (#4555), 6 requests, none of them GraphQL, on
+    a repository of 120 items or of 1,080."""
     github, store = on_github(items=items)
     model = FakeModel(proposals={CRITICAL_FIX.title: REGRESSION})
     _, apply = intake_on_github(store, model, new=CRITICAL_FIX)
     start = len(github.calls)
     apply()
     sent = github.calls[start:]
-    assert (len(sent), [args for args in sent if "graphql" in args]) == (17, [])
+    assert (len(sent), [args for args in sent if "graphql" in args]) == (6, [])
+
+
+def test_a_new_candidate_takes_no_label_write_and_no_field_write() -> None:
+    """The create request carries every label, so intake makes no separate label write and no
+    field write but the Priority one (#4452)."""
+    github, store = on_github(items=3)
+    model = FakeModel(proposals={CRITICAL_FIX.title: REGRESSION})
+    _, apply = intake_on_github(store, model, new=CRITICAL_FIX)
+    start = len(github.calls)
+    applied = apply()
+    sent = github.calls[start:]
+    (number,) = applied.filed
+
+    assert (
+        len(sent),
+        [args for args in sent if args[:3] == ["api", "-X", "PATCH"]],
+        [args for args in sent if "/labels" in args],
+    ) == (
+        6,
+        [["api", "-X", "PATCH", f"repos/{REPO}/issues/{number}", "--input", "-"]],
+        [],
+    )
 
 
 def test_a_candidate_with_status_and_value_labels_gets_only_effort_and_priority() -> None:

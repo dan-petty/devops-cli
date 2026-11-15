@@ -426,6 +426,43 @@ def test_a_job_sets_a_field_by_replacing_the_familys_labels(world: World) -> Non
     )
 
 
+def test_a_job_sets_three_fields_in_one_write(world: World) -> None:
+    """`set_fields` replaces the three families and records the values in one step (#4452)."""
+    number = world.seed("filed", labels=("type/bug", "priority/p2-medium"))
+    world.store.set_fields(
+        read(world, number),
+        {ItemField.STATUS: "New", ItemField.VALUE: "Medium", ItemField.EFFORT: "Low"},
+    )
+    item = read(world, number)
+
+    assert (world.labels(number), item.status, item.value, item.effort, item.job_record) == (
+        ["type/bug", "priority/p2-medium", "status/new", "value/medium", "effort/low"],
+        "New",
+        "Medium",
+        "Low",
+        {
+            ItemField.STATUS: "New",
+            ItemField.VALUE: "Medium",
+            ItemField.EFFORT: "Low",
+        },
+    )
+
+
+def test_the_batched_write_refuses_a_field_a_person_changed(world: World) -> None:
+    """A person's Value between the read and the write stops the whole batch (ADR 0016)."""
+    number = world.seed("changed meanwhile", labels=("priority/p2-medium",))
+    item = read(world, number)
+    world.person_adds(number, "value/high")
+
+    with pytest.raises(RoadmapItemChangedError) as raised:
+        world.store.set_fields(item, {ItemField.STATUS: "New", ItemField.VALUE: "Low"})
+
+    assert (raised.value.details["field"], world.labels(number)) == (
+        "Value",
+        ["priority/p2-medium", "value/high"],
+    )
+
+
 def test_clearing_a_field_removes_its_label_and_records_none(world: World) -> None:
     number = world.seed("unsized", labels=("priority/p2-medium", "effort/high"))
     world.store.set_field(read(world, number), ItemField.EFFORT, None)

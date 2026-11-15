@@ -51,8 +51,9 @@ def test_dry_run_makes_no_request_and_prints_the_requests_a_run_makes_in_order(
         "model the proposal for #7",
         "With --confirm",
         "REST write label #7 with its type/* label",
-        f"REST write set Status New on #7: read the issue, then write its labels and its job "
-        f"record in one request gh api -X PATCH repos/{REPO}/issues/7 --input -",
+        "REST write set the fields Status New, Value <the proposed Value>, Effort <the proposed "
+        f"Effort> on #7 in one request: read the issue, then write its labels and its job record "
+        f"gh api -X PATCH repos/{REPO}/issues/7 --input -",
         "REST read set Priority <the proposed Priority> on #7",
         "REST write set Priority <the proposed Priority> on #7",
     ]
@@ -127,6 +128,25 @@ def test_a_dry_run_reads_the_changes_since_the_snapshot_or_else_every_issue(full
     assert listings == ([whole] if full else [changed, whole])
 
 
+def test_a_new_candidate_dry_run_files_one_request_with_every_label() -> None:
+    """A new candidate names its labels and the record of its fields in one create request
+    (#4452)."""
+    new = dry_run_intake(REPO, new=NewCandidate(title="feat: idea", body="text"))
+    (filed,) = [
+        write for write in new.writes if write.target.startswith('file new candidate "feat: idea"')
+    ]
+
+    assert (
+        filed.method,
+        [arg for arg in filed.argv if arg.startswith("labels[]=")],
+        [write.target for write in new.writes if write.target.startswith("label ")],
+    ) == (
+        "REST write",
+        ["labels[]=<the source, type, scope, Status, Value and Effort labels>"],
+        [],
+    )
+
+
 # The store operation each planned request stands for.
 STORE_OPERATIONS: dict[str, str] = {
     "issues": "issues",
@@ -141,6 +161,7 @@ STORE_OPERATIONS: dict[str, str] = {
     "file": "create_issue",
     "label": "label_issue",
     "field": "set_field",
+    "fields": "set_fields",
     "status_read_back": "issue",
     "comment": "comment",
     "priority": "set_field",

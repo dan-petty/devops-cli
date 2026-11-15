@@ -63,11 +63,13 @@ no label for, leave one reason comment carrying `CONST_ROADMAP_INTAKE_REASON_MAR
 is there, then set Priority. The comment gives only the facts that the labels do not show
 (#4836): a scope with no label, the reason of a Priority other than P2-Medium or of a P0 decision
 on evidence, and the possible original or the related item. With no such fact, intake posts
-none. Each field write replaces the labels of its family and records the value in the issue's
-job record (`RoadmapStore.set_field`); the Status goes through the one Status writer
-(`status_sync.write_status`), which reads the label back. A label a person set stays, and the job
-record never claims it (ADR 0016); a person's change between the plan and the write stops that
-write.
+none. A new candidate gets every label and the job record of its fields in its one
+`create_issue` request. An existing candidate gets Status, Value and Effort in one
+`RoadmapStore.set_fields` request after one read (#4452). The Status label of an existing
+candidate therefore skips the read-back of the one Status writer (`status_sync.write_status`), so
+a label that GitHub loses waits for the next run. The Priority keeps its own `set_field`, last. A
+label a person set stays, and the job record never claims it (ADR 0016); a person's change
+between the plan and the write stops that write.
 
 A run that stops part-way leaves an open issue with no Priority, a candidate, and the next run
 decides it again: it writes only the fields the issue holds no label for, and no second reason
@@ -162,7 +164,7 @@ from devops_cli.roadmap.intake.intake_requests import Spend, planned_requests
 from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
 from devops_cli.roadmap.nearest import embedding_text, nearest
 from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, summary_length
-from devops_cli.roadmap.status_sync import StatusFacts, derive_status, write_status
+from devops_cli.roadmap.status_sync import StatusFacts, derive_status
 from devops_cli.roadmap.stores.store import (
     ChangeKind,
     CloseReason,
@@ -176,8 +178,11 @@ from devops_cli.roadmap.stores.store import (
     Item,
     ItemField,
     RoadmapStore,
+    encode_job_record,
+    field_label,
     item_of,
     select_items,
+    with_record,
 )
 from devops_cli.roadmap.title_labels import (
     declared_label_specs,
@@ -363,15 +368,35 @@ class IntakeDecision:
         return self.outcome is Outcome.PLACE
 
     def writes(self) -> list[str]:
-        """Each write, in the order intake makes it."""
+        """Each write, in the order intake makes it. A new candidate names its labels and the
+        record of its fields in the one create request, and an existing one names its fields in
+        one request (#4452)."""
         texts = MESSAGES.roadmap
-        filing = ", ".join(self.filing_labels) or texts.intake_no_labels
-        planned = [texts.intake_write_file.format(labels=filing)]
+        fields = dict(self.fields)
+        labels = [
+            *self.filing_labels,
+            *self.labels,
+            *(field_label(field, value) for field, value in self.fields),
+        ]
+        filing = ", ".join(labels) or texts.intake_no_labels
+        planned = (
+            []
+            if self.subject.number is not None
+            else [texts.intake_write_file.format(labels=filing)]
+        )
         if self.parent is not None:
             planned.append(texts.intake_write_sub_issue.format(parent=self.parent))
-        planned = planned if self.subject.number is None else []
-        planned += [texts.intake_write_label.format(label=label) for label in self.labels]
-        planned += [texts.intake_write_field.format(field=f.value, value=v) for f, v in self.fields]
+        if self.subject.number is not None:
+            planned += [texts.intake_write_label.format(label=label) for label in self.labels]
+            if fields:
+                planned.append(
+                    texts.intake_write_fields.format(
+                        fields=", ".join(
+                            texts.intake_write_field.format(field=f.value, value=v)
+                            for f, v in fields.items()
+                        )
+                    )
+                )
         planned += [texts.intake_write_comment] if self.comment else []
         planned.append(
             texts.intake_write_field.format(field=ItemField.PRIORITY.value, value=self.priority)
@@ -1378,10 +1403,21 @@ def _lacks(decision: IntakeDecision, part: str) -> RoadmapIntakeError:
 
 def _placement_target(store: RoadmapStore, decision: IntakeDecision) -> tuple[int, Item]:
     """The issue a placement writes to and its Item: the subject's, or, for a new candidate, the
-    issue filed for it. An issue's subject without its Item is refused before any write."""
+    issue filed for it. A new candidate goes in one `create_issue` request that carries every
+    label and the job record of its fields, so intake sends no label write and no field write for
+    it (#4452). An issue's subject without its Item is refused before any write."""
     subject = decision.subject
     if subject.number is None:
-        filed = store.create_issue(subject.title, subject.body, labels=decision.filing_labels)
+        labels = (
+            *decision.filing_labels,
+            *decision.labels,
+            *(field_label(item_field, value) for item_field, value in decision.fields),
+        )
+        body = with_record(
+            subject.body,
+            encode_job_record({}, dict(decision.fields)) if decision.fields else None,
+        )
+        filed = store.create_issue(subject.title, body, labels=labels)
         return filed.number, item_of(filed)
     if subject.item is None:
         raise _lacks(decision, "item")
@@ -1390,20 +1426,20 @@ def _placement_target(store: RoadmapStore, decision: IntakeDecision) -> tuple[in
 
 def _apply_placement(store: RoadmapStore, decision: IntakeDecision) -> int:
     """Make one placement's writes in order, Priority last, and return the issue's number. A
-    decision that lacks its Priority or its Item is refused before the first write."""
+    decision that lacks its Priority or its Item is refused before the first write. A new
+    candidate takes no label write and no field write, and an existing one writes its fields in
+    one `set_fields` request (#4452)."""
     priority = decision.priority
     if priority is None:
         raise _lacks(decision, "Priority")
     number, item = _placement_target(store, decision)
     if decision.parent is not None:
         store.add_sub_issue(decision.parent, number)
-    for label in decision.labels:
-        store.label_issue(number, label)
-    for item_field, value in decision.fields:
-        if item_field is ItemField.STATUS:
-            write_status(store, item, _FILED)
-        else:
-            store.set_field(item, item_field, value)
+    if decision.subject.number is not None:
+        for label in decision.labels:
+            store.label_issue(number, label)
+        if decision.fields:
+            store.set_fields(item, dict(decision.fields))
     if decision.comment:
         store.comment(number, decision.comment)
     marks = {IntakeRecordKey.JEV_SHADOW: decision.shadow} if decision.shadow else None

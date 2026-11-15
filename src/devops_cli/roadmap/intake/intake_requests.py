@@ -37,7 +37,6 @@ from devops_cli.roadmap.intake.intake_model import (
     ProposalRequest,
 )
 from devops_cli.roadmap.request_plan import StoreRequests, within
-from devops_cli.roadmap.stores.store import ItemField
 
 
 class _Via(StrEnum):
@@ -140,7 +139,9 @@ class _Steps:
         planned: list[PlannedRequest] = []
         for subject in subjects:
             if new:
-                filing = self.store.create_issue(subject, (texts.plan_placeholders["label"],))
+                filing = self.store.create_issue(
+                    subject, (texts.plan_placeholders["filing_labels"],)
+                )
                 planned += self.step("file", filing, subject=subject, repeat=repeat)
                 if parent is not None:
                     sub_issue = self.store.add_sub_issue(
@@ -153,22 +154,31 @@ class _Steps:
                         subject=texts.intake_placeholder_filed,
                         repeat=repeat,
                     )
-            planned += self._placement(texts.intake_placeholder_filed if new else subject, repeat)
+            planned += self._placement(
+                texts.intake_placeholder_filed if new else subject, repeat, filed=new
+            )
         return planned
 
-    def _placement(self, subject: str, repeat: str) -> list[PlannedRequest]:
-        """The writes that place `subject`, Priority last, when intake places it."""
+    def _placement(self, subject: str, repeat: str, *, filed: bool) -> list[PlannedRequest]:
+        """The writes that place `subject`, Priority last, when intake places it. A new candidate
+        writes its fields in the create request, and an existing one writes them in one
+        `set_fields` request (#4452)."""
         texts = MESSAGES.roadmap
         store = self.store
         when = texts.intake_request_conditions["placed"].format(subject=subject)
-        names = [name.split(" ", 1)[0] for name in texts.intake_placeholder_fields]
-        steps: list[tuple[str, list[PlannedRequest], dict[str, str]]] = [
-            ("label", store.label_issue(subject), {}),
-            *(
-                step
-                for name, shown in zip(names, texts.intake_placeholder_fields, strict=True)
-                for step in _field_steps(store, subject, name, shown)
-            ),
+        steps: list[tuple[str, list[PlannedRequest], dict[str, str]]] = (
+            []
+            if filed
+            else [
+                ("label", store.label_issue(subject), {}),
+                (
+                    "fields",
+                    store.set_fields(subject),
+                    {"fields": ", ".join(texts.intake_placeholder_fields)},
+                ),
+            ]
+        )
+        steps += [
             ("comment", store.comment(subject), {}),
             ("priority", store.set_field(subject, "Priority"), {}),
         ]
@@ -179,17 +189,6 @@ class _Steps:
                 key, requests, when=when, repeat=repeat, subject=subject, **values
             )
         ]
-
-
-def _field_steps(
-    store: StoreRequests, subject: str, name: str, shown: str
-) -> list[tuple[str, list[PlannedRequest], dict[str, str]]]:
-    """The steps that write the field `name`: the write, and after a Status write the read of the
-    issue that checks the label, as the one Status writer makes it (#5018)."""
-    steps = [("field", store.set_field(subject, name), {"field": shown})]
-    if name == ItemField.STATUS.value:
-        steps.append(("status_read_back", store.status_read_back(subject), {}))
-    return steps
 
 
 def planned_requests(

@@ -28,9 +28,9 @@ def test_the_writes_follow_the_order_that_leaves_priority_last(roadmap: Roadmap)
     writes = roadmap.run(FakeModel(proposals={"feat: one": {"priority": "P1-High"}}))
     assert [(w.operation, w.key) for w in writes] == [
         ("label_issue", None),
-        ("set_field", "Status"),
-        ("set_field", "Value"),
-        ("set_field", "Effort"),
+        ("set_fields", "Status"),
+        ("set_fields", "Value"),
+        ("set_fields", "Effort"),
         ("comment", None),
         ("set_field", "Priority"),
     ]
@@ -83,8 +83,8 @@ def test_a_candidate_with_a_value_a_person_set_gets_only_its_empty_fields(
         ("New", "P2-Medium", "High", "Low", LATER),
         ("type/docs",),
         [
-            ("set_field", "Status"),
-            ("set_field", "Effort"),
+            ("set_fields", "Status"),
+            ("set_fields", "Effort"),
             ("set_field", "Priority"),
         ],
         [],
