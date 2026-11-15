@@ -13,7 +13,7 @@ Kind: manifest. Reads: `tests/fixtures/roadmap_eval/stage/good-3410-the-stage-ga
 
 Kind: other. Reads: `tests/roadmap/stage/test_roadmap_stage_eval_cases.py`, `src/devops_cli/roadmap/stage/stage_eval_cases.py`, `tests/fixtures/roadmap_eval/stage/3410-a-plan-that-states-a-wrong-constant/facts.json`. Changes: `tests/roadmap/stage/test_roadmap_stage_eval_cases.py`.
 
-- [ ] 2.1 In `tests/roadmap/stage/test_roadmap_stage_eval_cases.py`, change the assertion of `test_the_set_holds_the_reviewed_plans_and_six_good_ones` from 59 cases to 60 and keep `EVALUATED_PULLS` at 53 pulls, because the new case reuses pull 3435. Add `test_a_case_reads_its_recorded_constants_and_an_old_case_holds_none` to that file: it picks the new case and a case whose facts record no constant, and asserts that the first holds `(("SUMMARY_MAX_CHARS", 60),)` and the second holds `()`
+- [x] 2.1 In `tests/roadmap/stage/test_roadmap_stage_eval_cases.py`, change the assertion of `test_the_set_holds_the_reviewed_plans_and_six_good_ones` from 59 cases to 60 and keep `EVALUATED_PULLS` at 53 pulls, because the new case reuses pull 3435. Add `test_a_case_reads_its_recorded_constants_and_an_old_case_holds_none` to that file: it picks the new case and a case whose facts record no constant, and asserts that the first holds `(("SUMMARY_MAX_CHARS", 60),)` and the second holds `()`
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_eval_cases.py` passes
 
 ## 3. Move the pinned replay totals of the command

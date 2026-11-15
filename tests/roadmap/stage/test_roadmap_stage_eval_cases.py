@@ -68,7 +68,7 @@ def test_the_set_holds_the_reviewed_plans_and_six_good_ones(cases: list[StageCas
     reviewed = {case.pull for case in cases if case.verdict is not Verdict.GOOD}
     good = [case for case in cases if case.verdict is Verdict.GOOD]
 
-    assert (frozenset(reviewed), len(cases), len(good)) == (EVALUATED_PULLS, 59, 6)
+    assert (frozenset(reviewed), len(cases), len(good)) == (EVALUATED_PULLS, 60, 6)
     assert len(EVALUATED_PULLS) == 53
 
 
@@ -186,6 +186,16 @@ def test_a_case_reads_its_reference_hits_and_an_old_case_holds_none(
         "tests/roadmap/test_roadmap_claim_command.py",
     )
     assert old.facts.references == ()
+
+
+def test_a_case_reads_its_recorded_constants_and_an_old_case_holds_none(
+    cases: list[StageCase],
+) -> None:
+    case = next(c for c in cases if c.name == "3410-a-plan-that-states-a-wrong-constant")
+    old = next(c for c in cases if not c.facts.constants)
+
+    assert case.facts.constants == (("SUMMARY_MAX_CHARS", 60),)
+    assert old.facts.constants == ()
 
 
 def test_each_merge_commit_of_the_set_is_a_full_hash_or_the_case_reads_none(
