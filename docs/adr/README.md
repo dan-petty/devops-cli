@@ -170,5 +170,6 @@ The links to the OpenSpec change, the spec, the settings and the issue.
 | [0023](0023-the-project-brain-is-a-derived-index-in-two-cache-tiers-and-two-scheduled-runs-keep-it.md) | The project brain is a derived index in two cache tiers, and two scheduled runs keep it | accepted | 2026-11-11 | amends 0020, 0021, 0022; amended by 0025 |
 | [0024](0024-the-project-owns-its-design-tokens-in-the-dtcg-format-and-style-dictionary-builds-them.md) | The project owns its design tokens in the DTCG format, and Style Dictionary builds them | accepted | 2026-11-12 |  |
 | [0025](0025-generated-documents-stay-in-git-and-the-project-brain-cites-them.md) | Generated documents stay in git, and the project brain cites them | accepted | 2026-11-11 | amends 0012, 0023 |
+| [0026](0026-github-settings-live-in-opentofu-code-and-the-owner-applies-it.md) | GitHub settings live in OpenTofu code, and the owner applies it | accepted | 2026-11-15 |  |
 
 <!-- ADR_INDEX_END -->
