@@ -40,9 +40,9 @@ Kind: manifest. Reads: `k8s/devops/dashboards/project-metrics.json`, `tests/graf
 
 Kind: other. Reads: `docs/TELEMETRY.md`, `docs/roadmap/inbox.md`, `docs/ROADMAP_WORKFLOW.md`, `src/devops_cli/telemetry/instruments.py`. Changes: `docs/TELEMETRY.md`, `docs/commands/roadmap.md`, `docs/roadmap/inbox.md`, `docs/ROADMAP_WORKFLOW.md`.
 
-- [ ] 5.1 Run `uv run devops docs generate` to update `docs/TELEMETRY.md` and `docs/commands/roadmap.md`. Update `docs/roadmap/inbox.md` to describe the `stage_retry` class, the inbox gauge, and cluster requirements for image digests (#4832). Update `docs/ROADMAP_WORKFLOW.md` and document the 7-day post-merge live proof
+- [x] 5.1 Run `uv run devops docs generate` to update `docs/TELEMETRY.md` and `docs/commands/roadmap.md`. Update `docs/roadmap/inbox.md` to describe the `stage_retry` class, the inbox gauge, and cluster requirements for image digests (#4832). Update `docs/ROADMAP_WORKFLOW.md` and document the 7-day post-merge live proof
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 5.2 Verify that `docs/TELEMETRY.md` and `docs/commands/roadmap.md` are synchronized, and that `docs/roadmap/inbox.md` documents gauges and the image digest rationale
+- [x] 5.2 Verify that `docs/TELEMETRY.md` and `docs/commands/roadmap.md` are synchronized, and that `docs/roadmap/inbox.md` documents gauges and the image digest rationale
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria

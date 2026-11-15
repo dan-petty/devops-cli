@@ -38,7 +38,7 @@ Notes on the table:
 - The command `devops roadmap plan-check <pull-request>` runs the stage gates and the checks of the pull request on a plan pull request that already exists. It calls no model and writes nothing. The job `Plan Check` of `pr-title.yml` runs it on each plan pull request of the Service, as an advisory check. [The plan-check page](roadmap/plan-check.md) tells what it checks.
 - The command `devops roadmap plan-recheck` judges each change folder on the default branch again and gives it one result: `ok`, `rewrite`, `new-plan`, `delivered` or `cleanup`. Each refusal names its gate. With `--branch <ref>`, it compares the folders of a branch with the default branch and marks each refusal that the branch adds as a case to review. It judges less than the stage job, and the page lists what it leaves out. Before it judges a plan, it applies a mechanical rewrite in memory (a `Verification:` line, a bare name for a sample path, a `design.md` stub), and a plan gets `rewrite` only when the rewritten plan passes every check. It calls no model. It writes nothing, unless you give `--confirm` with `--source`: then it writes the rewritten files of the `rewrite` folders to that checkout and makes no commit. A plan with no way forward leaves the implement queue with the reason of the plan check, and `devops roadmap explain` names it. A new gate on merged plans only reports until this pass has run. [The plan-recheck page](roadmap/plan-recheck.md) tells the results and the policy.
 - The command `devops roadmap consolidate` proposes groups of open items that share a root cause. A model proposes and then tries to refute each shortlist of the consolidation job; code checks the answers. The command writes a plan to `.data/roadmap/consolidate/<date>.json` and changes nothing on GitHub. Only `--decline <group-id> --confirm` writes, one mark in the job record of the anchor. [The consolidate page](roadmap/consolidate.md) tells the rules and the plan.
-- The command `devops roadmap inbox` lists what waits for a person, in the order of the gates. Each line shows the one command or action that clears it. [The inbox page](roadmap/inbox.md) tells what it lists and reads.
+- The command `devops roadmap inbox` lists what waits for a person, in the order of the gates. Each line shows the one command or action that clears it. [The inbox page](roadmap/inbox.md) tells what it lists and reads, and [Inbox](#inbox) gives the gauge of its counts and the panel.
 - The command `devops roadmap onboard` checks a repository against the roadmap prerequisites and creates missing labels. [The onboard page](roadmap/onboard.md) tells what it checks and creates.
 - The command `devops roadmap repair` lists the Items that a placeholder reply of a model stalled, and with `--confirm` it sets them back. It leaves each Item that a person set or answered. [The repair page](roadmap/repair.md) tells what it lists and writes.
 - The command `devops roadmap return <number> --comment "<evidence>" --confirm` sends an Item back to `status/new` when it cannot be built as written.
@@ -256,6 +256,14 @@ Only a person passes a gate. No agent and no Service job merges a pull request.
 | G3 | The workflow `release-merge.yml` merges the release pull request every 6 hours, or a person merges it | release-please makes the release. The images roll ([RELEASE_CYCLE.md](../RELEASE_CYCLE.md)) |
 
 A pull request of the Service waits at G2 for an independent review with evidence: the tests that ran, the fail-to-pass result of a fix, and the scope against the plan. A person merges it only when that review shows that it is safe. The Service continues to run during this time.
+
+## Inbox
+
+The command `devops roadmap inbox` lists what waits for a person: the pull requests at the three gates, the blocked items, the items that wait in refine, the stage retries, the drafts, the old claims and the state of the labels. [The inbox page](roadmap/inbox.md) tells each class and the reads of a run.
+
+The counts of the lines are the gauge `devops_cli_roadmap_inbox_items`, with the repository as `repo` and the kind as `kind`. The metrics row of the Service sends the gauge at each round, and the command sends it when it runs. The panel `Inbox Items by Kind` of the project dashboard shows the count of each kind of each repository. The alert `RoadmapPersonCauseInflowHigh` (`k8s/devops/alerts/inbox.yaml`) fires when the typed person causes add more than 24 items in a day.
+
+A person reads the panel, and not the issue. So the gauge proves itself with live values: a comment on #2968 records the values of the gauge of 7 days after the merge, as [the live proof](guidelines/agentic-jobs.md#other-measures) of the guideline asks.
 
 ## The manual path
 
@@ -518,4 +526,4 @@ This section is the one place that names the work of the workflow that is not bu
 | Issue | Step | What it will change |
 | :--- | :--- | :--- |
 | #2867 | 6 Verify | A model evaluator marks a draft ready when it matches its issue and the project rules |
-| #2968 | All | The counts of `devops roadmap inbox` are gauges with a Grafana panel, and the inbox lists an image digest that is not rolled |
+| #4832 | All | The inbox lists an image digest that is not rolled. The read needs cluster credentials, which the pod of the Service does not hold |
