@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
-from typing import NamedTuple
+from typing import Final, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -336,13 +336,21 @@ def plan_issue(title: str) -> int | None:
     return int(match.group("issue")) if match else None
 
 
+# The statuses of a plan pull request that touch its change folder (#5315). A correction of a
+# merged plan changes a file and adds none. A removal alone is no plan.
+_PLAN_FILE_STATUSES: Final[frozenset[str]] = frozenset(
+    {"added", "modified", "renamed", "copied", "changed"}
+)
+
+
 def plan_blockers(
     pr_num: int, issue: int, body: str, changed: ChangedFilesRead, base: str
 ) -> list[str]:
     """The blocker of each rule of a plan that its body or its files break, in a fixed order.
 
-    The body has exactly one line `Plans #<issue>` and no closing keyword. The plan adds a file to
-    the active change folder of the issue and changes nothing under the living specs. A file list
+    The body has exactly one line `Plans #<issue>` and no closing keyword. The plan adds or
+    changes a file of the active change folder of the issue and changes nothing under the living
+    specs. A file list
     that holds GitHub's limit of files is one blocker in place of the file rules (#2530).
     """
     # Imported here: `stage_change` loads the model client, and `pr --help` must not (startup budget).
@@ -358,7 +366,7 @@ def plan_blockers(
     if changed.truncated:
         return [*found, truncated_files_text(pr_num, base)]
     files = changed.files
-    if not any(_adds_to_active_folder(entry, issue) for entry in files):
+    if not any(_changes_the_active_folder(entry, issue) for entry in files):
         found.append(
             texts.grounding_plan_no_folder.format(
                 number=pr_num, issue=issue, folder=f"{CONST_OPENSPEC_CHANGES_DIR}/{issue}-<slug>/"
@@ -376,11 +384,12 @@ def plan_blockers(
     return found
 
 
-def _adds_to_active_folder(changed: PullRequestFile, issue: int) -> bool:
-    """Whether this change adds a file to the active change folder of `issue`."""
+def _changes_the_active_folder(changed: PullRequestFile, issue: int) -> bool:
+    """Whether this change adds or changes a file of the active change folder of `issue` (#5315).
+    A correction of a merged plan changes a file and adds none."""
     match = re.fullmatch(CONST_OPENSPEC_CHANGE_FOLDER_RE, changed.filename)
     return (
         match is not None
         and int(match.group("issue")) == issue
-        and changed.status in CONST_PR_FILE_ADDED_STATUSES
+        and changed.status in _PLAN_FILE_STATUSES
     )
