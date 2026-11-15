@@ -3,15 +3,27 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import AsyncGenerator, Sequence
+from contextlib import asynccontextmanager
+from datetime import UTC
 from typing import Any
 
+import httpx2
+from pydantic_ai import RunContext
 from pydantic_ai.concurrency import AnyConcurrencyLimit
-from pydantic_ai.exceptions import UserError
+from pydantic_ai.exceptions import ModelConnectionError, ModelHTTPError, UserError
+from pydantic_ai.messages import ModelMessage, ModelResponse
+from pydantic_ai.models import (
+    Model,
+    ModelRequestParameters,
+    StreamedResponse,
+)
 from pydantic_ai.models.concurrency import limit_model_concurrency
 from pydantic_ai.models.fallback import FallbackModel
+from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.settings import ModelSettings
 
+from devops_cli.ai.client.models import AIClientError
 from devops_cli.config.constants import (
     CONST_AI_CASCADE_PROVIDERS,
     CONST_AI_CLAUDE_GROUP_MAX_OUTPUT_TOKENS,
@@ -34,6 +46,7 @@ from devops_cli.config.settings import (
     is_decision_model_name,
     load_settings,
 )
+from devops_cli.core import clock
 from devops_cli.exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
@@ -211,6 +224,158 @@ def _resolve_ollama_model(model_str: str, active_settings: Settings) -> Any:
     )
 
 
+def _is_retryable_error(exc: BaseException) -> bool:
+    """Whether `exc` is a retryable connection reset or network error before output."""
+    if isinstance(exc, httpx2.HTTPStatusError):
+        code = exc.response.status_code
+        if 400 <= code < 500 and code not in (408, 429):
+            return False
+    if isinstance(exc, ModelHTTPError):
+        code = exc.status_code
+        if 400 <= code < 500 and code not in (408, 429):
+            return False
+
+    curr: BaseException | None = exc
+    while curr is not None:
+        if isinstance(curr, (ConnectionResetError, httpx2.ConnectError, httpx2.ReadError)):
+            return True
+        if isinstance(curr, OSError) and getattr(curr, "errno", None) in (104,):
+            return True
+        if isinstance(curr, (httpx2.TransportError, httpx2.TimeoutException)):
+            return True
+        curr = curr.__cause__ or curr.__context__
+
+    if isinstance(exc, ModelConnectionError):
+        return True
+
+    return False
+
+
+def _to_ai_client_error(exc: BaseException) -> AIClientError:
+    """Convert an exception into an AIClientError with preserved status and timeout attributes."""
+    if isinstance(exc, AIClientError):
+        return exc
+    status = getattr(exc, "status_code", None)
+    if status is None and hasattr(exc, "response"):
+        status = getattr(exc.response, "status_code", None)
+    timed_out = isinstance(exc, (httpx2.TimeoutException, TimeoutError))
+    return AIClientError(f"Model request failed: {exc}", status=status, timed_out=timed_out)
+
+
+def _backoff_sleep(attempt: int) -> None:
+    """Wait with exponential backoff capped at 20 s."""
+    wait_time = min(20.0, 1.0 * (2 ** (attempt - 1)))
+    clock.sleep(wait_time)
+
+
+class _StreamRetryProxy:
+    """Proxy around a StreamedResponse that handles retries before the first chunk."""
+
+    def __init__(
+        self,
+        wrapped_model: Model,
+        messages: list[ModelMessage],
+        model_settings: ModelSettings | None,
+        model_request_parameters: ModelRequestParameters,
+        run_context: RunContext[Any] | None,
+    ) -> None:
+        self.wrapped_model = wrapped_model
+        self.messages = messages
+        self.model_settings = model_settings
+        self.model_request_parameters = model_request_parameters
+        self.run_context = run_context
+        self._active_inner: StreamedResponse | None = None
+        self._chunk_emitted = False
+
+    def __getattr__(self, name: str) -> Any:
+        if self._active_inner is not None:
+            return getattr(self._active_inner, name)
+        raise AttributeError(name)
+
+    def get_stream_cancel_errors(self) -> tuple[type[BaseException], ...]:
+        if self._active_inner is not None:
+            return self._active_inner.get_stream_cancel_errors()
+        return (httpx2.StreamError, httpx2.TransportError)
+
+    async def __aiter__(self) -> Any:
+        start_time = clock.monotonic()
+        for attempt in range(1, 4):
+            try:
+                async with self.wrapped_model.request_stream(
+                    self.messages,
+                    self.model_settings,
+                    self.model_request_parameters,
+                    self.run_context,
+                ) as inner_stream:
+                    self._active_inner = inner_stream
+                    async for event in inner_stream:
+                        self._chunk_emitted = True
+                        yield event
+                    return
+            except Exception as exc:
+                if self._chunk_emitted:
+                    raise _to_ai_client_error(exc) from exc
+                if not _is_retryable_error(exc):
+                    raise _to_ai_client_error(exc) from exc
+                if attempt >= 3 or (clock.monotonic() - start_time) >= 20.0:
+                    raise _to_ai_client_error(exc) from exc
+                _backoff_sleep(attempt)
+
+    def get(self) -> ModelResponse:
+        if self._active_inner is not None:
+            return self._active_inner.get()
+        from datetime import datetime
+
+        return ModelResponse(
+            parts=[],
+            model_name=self.wrapped_model.model_name,
+            timestamp=datetime.now(UTC),
+        )
+
+
+class StreamRetryModel(WrapperModel):
+    """WrapperModel that retries connection resets before the first response chunk."""
+
+    async def request(
+        self,
+        messages: list[ModelMessage],
+        model_settings: ModelSettings | None,
+        model_request_parameters: ModelRequestParameters,
+    ) -> ModelResponse:
+        start_time = clock.monotonic()
+        for attempt in range(1, 4):
+            try:
+                return await self.wrapped.request(
+                    messages, model_settings, model_request_parameters
+                )
+            except Exception as exc:
+                if not _is_retryable_error(exc):
+                    raise _to_ai_client_error(exc) from exc
+                if attempt >= 3 or (clock.monotonic() - start_time) >= 20.0:
+                    raise _to_ai_client_error(exc) from exc
+                _backoff_sleep(attempt)
+        raise AIClientError("Model request retries exhausted")
+
+    @asynccontextmanager
+    async def request_stream(
+        self,
+        messages: list[ModelMessage],
+        model_settings: ModelSettings | None,
+        model_request_parameters: ModelRequestParameters,
+        run_context: RunContext[Any] | None = None,
+    ) -> AsyncGenerator[Any]:
+        yield _StreamRetryProxy(
+            self.wrapped, messages, model_settings, model_request_parameters, run_context
+        )
+
+
+def wrap_stream_retry_model(model_obj: Any) -> Any:
+    """Wrap a model with StreamRetryModel if not already wrapped."""
+    if model_obj is None or isinstance(model_obj, StreamRetryModel):
+        return model_obj
+    return StreamRetryModel(model_obj)
+
+
 def _resolve_string_model(model_str: str, active_settings: Settings) -> Any:
     """Resolve a model name: a gateway-prefixed one at its gateway under any provider, an
     `ollama:` one or any other under provider `ollama` on Ollama, the rest remotely."""
@@ -365,7 +530,9 @@ def build_auto_tool_model(
 
 
 __all__ = [
+    "StreamRetryModel",
     "build_auto_tool_model",
     "build_fallback_cascade_model",
     "resolve_pydantic_ai_model",
+    "wrap_stream_retry_model",
 ]
