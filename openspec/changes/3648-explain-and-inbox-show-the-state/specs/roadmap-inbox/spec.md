@@ -25,5 +25,5 @@ The line of a stopped item whose record holds no `implement.failure` SHALL name 
 `devops roadmap inbox` SHALL build the line of a stopped item from the job record that the listing read, and MUST send no request for it.
 
 #### Scenario: A repository that holds one stopped item
-- **WHEN** The inbox reads a repository whose one blocked item holds `implement.stopped`, `implement.failure`, `implement.left_action` and a trace, and a second repository whose one open item holds no stop.
-- **THEN** The paths of the requests that the store sends are the same for both runs, and no request reads one issue.
+- **WHEN** The inbox reads a repository whose one open Item holds `status/blocked`, a Priority, and a job record with `implement.stopped`, `implement.failure` and `implement.left_action`, and a second repository whose one open Item holds `status/blocked` and a Priority and no stop.
+- **THEN** The paths of the requests that each run sends are the same, and no request reads one issue.
