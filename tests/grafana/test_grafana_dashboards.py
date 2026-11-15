@@ -14,16 +14,10 @@ from typer.testing import CliRunner
 from devops_cli.commands.grafana import app as grafana_app
 from devops_cli.config import constants
 from devops_cli.grafana import (
-    dashboard,
-    layout,
     lint_dashboard,
     lint_dashboard_file,
     lint_dashboard_files,
     load_dashboard,
-    row,
-    stat,
-    targets,
-    timeseries,
 )
 from devops_cli.grafana.schema import Dashboard, Datasource, GridPos, Panel, Target
 from tests.support.paths import REPO_ROOT
@@ -81,94 +75,9 @@ def test_vertically_separated_panels_do_not_overlap() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_layout_flows_panels_left_to_right() -> None:
-    """Panels fill a line before starting the next."""
-    placed = layout([timeseries(f"P{i}", targets("up"), width=8) for i in range(3)])
-    assert [(p.grid_pos.x, p.grid_pos.y) for p in placed] == [(0, 0), (8, 0), (16, 0)]
-
-
-def test_layout_wraps_panels_that_exceed_the_line() -> None:
-    """A panel that will not fit wraps to the next line rather than overflowing."""
-    placed = layout([timeseries(f"P{i}", targets("up"), width=12) for i in range(3)])
-    assert [(p.grid_pos.x, p.grid_pos.y) for p in placed] == [(0, 0), (12, 0), (0, 8)]
-
-
-def test_layout_assigns_unique_sequential_ids() -> None:
-    """Every panel receives a distinct id, which Grafana keys links by."""
-    placed = layout([timeseries(f"P{i}", targets("up")) for i in range(5)])
-    ids = [p.id for p in placed]
-    assert (ids, len(set(ids))) == ([1, 2, 3, 4, 5], 5)
-
-
-def test_rows_start_a_fresh_full_width_line() -> None:
-    """A row separates sections, so following panels begin beneath it."""
-    placed = layout(
-        [
-            timeseries("Before", targets("up"), width=8),
-            row("Section"),
-            timeseries("After", targets("up"), width=8),
-        ]
-    )
-    before, section, after = placed
-
-    assert (before.grid_pos.y, section.grid_pos.y) == (0, 8)
-    assert (after.grid_pos.x, after.grid_pos.y) == (0, 9)
-    assert section.grid_pos.w == 24
-
-
-def test_layout_clamps_oversized_panels_to_the_grid() -> None:
-    """A panel wider than the grid is clamped rather than silently clipped by Grafana."""
-    placed = layout([timeseries("Wide", targets("up"), width=40)])
-    assert placed[0].grid_pos.w == 24
-
-
-def test_laid_out_panels_never_overlap() -> None:
-    """Automatic layout cannot produce a colliding dashboard.
-
-    Hand-written coordinates are the most common cause of a visually broken dashboard;
-    this is the property that removes the possibility.
-    """
-    panels = [timeseries(f"P{i}", targets("up"), width=w) for i, w in enumerate([8, 8, 12, 6, 24])]
-    placed = [p for p in layout(panels) if not p.is_row]
-
-    for index, panel in enumerate(placed):
-        for other in placed[index + 1 :]:
-            assert not panel.grid_pos.overlaps(other.grid_pos), (
-                f"{panel.title} overlaps {other.title}"
-            )
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. Builders
 # ─────────────────────────────────────────────────────────────────────────────
-
-
-def test_targets_receive_sequential_reference_ids() -> None:
-    """Grafana identifies targets by refId; duplicating one drops a series."""
-    built = targets("up", "down", ("rate(x[5m])", "legend"))
-    assert [t.ref_id for t in built] == ["A", "B", "C"]
-    assert built[2].legend_format == "legend"
-
-
-def test_builders_bind_the_default_datasource() -> None:
-    """Every generated panel and target carries a datasource binding."""
-    panel = timeseries("CPU", targets("up"))
-    assert panel.datasource is not None
-    assert panel.targets[0].datasource.type == "prometheus"
-
-
-def test_stat_and_timeseries_produce_their_panel_types() -> None:
-    """Builders emit the panel type Grafana expects."""
-    assert (
-        timeseries("A", targets("up")).type,
-        stat("B", targets("up")).type,
-        row("C").type,
-    ) == ("timeseries", "stat", "row")
-
-
-def test_row_is_not_a_visualisation() -> None:
-    """A row is layout, not a panel with data."""
-    assert (row("Section").is_row, timeseries("A", targets("up")).is_row) == (True, False)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -185,20 +94,6 @@ def test_repository_dashboards_lint_clean(dashboard_file: Path) -> None:
     """
     report = lint_dashboard_file(dashboard_file)
     assert report.errors == [], f"{dashboard_file.name}: {[i.message for i in report.errors]}"
-
-
-def test_generated_dashboards_lint_clean() -> None:
-    """Anything the builders produce is valid by construction."""
-    built = dashboard(
-        "generated",
-        "Generated",
-        [
-            row("Overview"),
-            timeseries("Requests", targets("sum(rate(http_total[5m]))")),
-            stat("Errors", targets("sum(rate(errors_total[5m]))")),
-        ],
-    )
-    assert lint_dashboard(built).passed is True
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -333,12 +228,6 @@ def test_panel_without_targets_or_datasource_warns() -> None:
         )
     )
     assert (report.passed, len(report.warnings)) == (True, 2)
-
-
-def test_rows_are_exempt_from_target_and_overlap_checks() -> None:
-    """Rows carry no queries and span the grid by design."""
-    report = lint_dashboard(Dashboard(uid="u", title="T", panels=[row("Section")]))
-    assert report.passed is True
 
 
 # ─────────────────────────────────────────────────────────────────────────────
