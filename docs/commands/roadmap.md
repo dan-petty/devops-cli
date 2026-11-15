@@ -443,7 +443,7 @@ devops roadmap eval COMMAND [ARGS]...
 
 ### `devops roadmap eval stage`
 
-**Score the stage job on its golden set, the plans of 2026-11-01 with their known defects. For each case the job plans from the issue text, with the checks it runs in a Job. The command prints, for each type of defect that a gate catches, how often the first reply of the model avoids it, and a total score. It stores the report as JSON under the data directory. The model plans with the read-only toolbox of the job, which reads the code of the staging commit; with --no-toolbox it plans with one call and no tool. It calls the model through the gateway, one call per case at least. With --replay it calls no model: it runs the recorded plans through the gates and exits 1 when a gate stops refusing a known-bad plan or refuses a good plan. A live run leaves out a case that holds no commit and names it in the report. A change to the stage prompt or to the checks states this score before and after.**
+**Score the stage job on its golden set, the plans of 2026-11-01 with their known defects. For each case the job plans from the issue text, with the checks it runs in a Job. The command prints, for each type of defect that a gate catches, how often the first reply of the model avoids it, and a total score. It stores the report as JSON under the data directory. The model plans with the read-only toolbox of the job, which reads the code of the staging commit; with --no-toolbox it plans with one call and no tool. The toolbox is the one of --toolset, or the configured roadmap.stage.toolset, and the report names it. It calls the model through the gateway, one call per case at least. With --replay it calls no model: it runs the recorded plans through the gates and exits 1 when a gate stops refusing a known-bad plan or refuses a good plan. A live run leaves out a case that holds no commit and names it in the report. A change to the stage prompt or to the checks states this score before and after.**
 
 ```bash
 devops roadmap eval stage [OPTIONS]
@@ -455,6 +455,7 @@ devops roadmap eval stage [OPTIONS]
 |---|---|---|---|
 | `--case` | `string` | - | Run only this case, by folder name or issue number. Repeat the option for more cases. |
 | `--model` | `string` | - | Model for the stage task. Without it, the configured model of the task. |
+| `--toolset` | `choice (base|extended|research)` | - | The tools of each plan run: base, extended or research. Without it, the setting roadmap.stage.toolset. The report names the toolset that the run read. |
 | `--limit` | `integer` | - | Run at most this many cases, the first ones of the set. |
 | `--json` | `boolean` | - | Print the report as JSON in place of the table. |
 | `--dry-run` | `boolean` | - | Make no request: list the cases and the model calls that a run makes. |
