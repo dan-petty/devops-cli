@@ -459,3 +459,10 @@ def test_the_document_and_the_docstring_state_the_plan_order() -> None:
         "it has the text, then the line `Plans #<issue>`" in contributing,
         "the text, then the line `Plans #<issue>`" in documented,
     ) == (True, True)
+
+
+def test_the_eval_score_lines_after_the_change_line_are_allowed() -> None:
+    """A prompt change records its live base and head scores in the body (#4005)."""
+    body = f"{GOOD_BODY}\n\nBase eval score: 11\nHead eval score: 12"
+
+    assert body_problems(body) == []
