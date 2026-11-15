@@ -55,7 +55,6 @@ from devops_cli.roadmap.implement.implement_pull import (
     Draft,
     DraftKind,
     draft_readiness,
-    mark_ready,
 )
 from devops_cli.roadmap.jev_completeness import (
     CompletenessOutcome,
@@ -66,6 +65,7 @@ from devops_cli.roadmap.stage.stage import StageFailure, raise_for_failed, write
 from devops_cli.roadmap.stage.stage_criteria import acceptance_criteria
 from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL
 from devops_cli.roadmap.status_sync import facts_of, sync_status
+from devops_cli.roadmap.steps.ready import mark_ready
 from devops_cli.roadmap.stores.store import (
     GitHubState,
     ImplementRecordKey,
@@ -157,7 +157,7 @@ def _settle(store: RoadmapStore, repo: str, item: Item, number: int) -> _Outcome
     again = client.get_pull_status(repo, number)
     if not again.is_open_draft or again.head_sha != status.head_sha:
         return _Outcome.WAITING
-    mark_ready(repo, number)
+    mark_ready(repo, number, expected_head=status.head_sha)
     store.set_marks(item, {StageRecordKey.READY: str(number)})
     return _Outcome.MARKED
 

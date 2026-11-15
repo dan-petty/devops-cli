@@ -32,7 +32,7 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import dry_run_class
 from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.dry_run.state import is_dry_run, set_dry_run
-from devops_cli.exceptions import ValidationError
+from devops_cli.exceptions import RoadmapImplementError, ValidationError
 from devops_cli.exceptions.git import GitHubOperationError, GitHubUnreadError
 from devops_cli.github.branch_update import (
     build_dispatch_ci_cmd,
@@ -86,7 +86,6 @@ from devops_cli.github.pr_plans import (
     pr_diff_args,
     pr_edit_args,
     pr_list_args,
-    pr_ready_args,
     pr_view_args,
     pr_view_payload_args,
 )
@@ -1531,11 +1530,17 @@ def ready_pr(
     if not force:
         _validate_pr_ready(number, owner, repo_name, pr_data)
 
-    cmd = pr_ready_args(number, repo)
-    res = run_gh(cmd, check=False)
-    if res.returncode != 0:
-        _handle_pr_ready_failure(res.stderr, number)
-        raise typer.Exit(1)
+    from devops_cli.roadmap.steps.ready import mark_ready
+
+    try:
+        mark_ready(
+            f"{owner}/{repo_name}",
+            number,
+        )
+    except RoadmapImplementError as exc:
+        output = getattr(exc, "output", "") or str(exc)
+        _handle_pr_ready_failure(output, number)
+        raise typer.Exit(1) from exc
 
     _verify_pr_draft_transition(number, owner, repo_name)
     print_success(MESSAGES.pr.pr_marked_ready_success.format(number=number))
