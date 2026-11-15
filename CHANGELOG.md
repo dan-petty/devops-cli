@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.148.0](https://github.com/dan-petty/devops-cli/compare/v0.147.2...v0.148.0) (2026-11-15)
+
+
+### Features
+
+* **ci:** Add process-safety ast-grep rules ([#5746](https://github.com/dan-petty/devops-cli/issues/5746)) ([9436400](https://github.com/dan-petty/devops-cli/commit/9436400960745071b4db6a497beecd5a5d6c02da))
+* **roadmap:** result lines state first-pass, model calls and cost ([#5779](https://github.com/dan-petty/devops-cli/issues/5779)) ([cd3e0f9](https://github.com/dan-petty/devops-cli/commit/cd3e0f93660d54307c25074da1bccfb31655e812))
+
 ## [0.147.2](https://github.com/dan-petty/devops-cli/compare/v0.147.1...v0.147.2) (2026-11-15)
 
 
