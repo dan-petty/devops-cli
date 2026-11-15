@@ -528,6 +528,7 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
+          trivyignores: .trivyignore,.trivyignore-tofu
           version: v0.76.2
 
       # Pushed by digest only: the tags move to the digest once its provenance is attested, so
@@ -650,7 +651,7 @@ jobs:
           scanners: vuln
           severity: HIGH,CRITICAL
           ignore-unfixed: true
-          trivyignores: .trivyignore,.trivyignore-mcp-server
+          trivyignores: .trivyignore,.trivyignore-mcp-server,.trivyignore-tofu
           exit-code: "1"
           version: v0.76.2
 

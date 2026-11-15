@@ -90,7 +90,13 @@ def test_the_pull_request_check_builds_and_scans_mcp_server_image() -> None:
         trivy["ignore-unfixed"],
         trivy["trivyignores"],
         str(trivy["exit-code"]),
-    ) == ("vuln", "HIGH,CRITICAL", True, ".trivyignore,.trivyignore-mcp-server", "1")
+    ) == (
+        "vuln",
+        "HIGH,CRITICAL",
+        True,
+        ".trivyignore,.trivyignore-mcp-server,.trivyignore-tofu",
+        "1",
+    )
 
     (bound,) = re.findall(r'"\$size" -gt (\d+)', smoke)
     assert int(bound) <= 3000000000

@@ -7,12 +7,14 @@ They read only committed files, so they need no network, no image build and no s
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime
 from typing import Any
 
 import yaml
 
 from tests.support.dockerfile import env_of, stages
 from tests.support.paths import REPO_ROOT
+from tests.support.trivyignore import trivyignore_problems
 
 RUNNER_STEPS = (
     "Build and Load Runner Image",
@@ -186,8 +188,24 @@ def test_the_release_scans_the_runner_image_for_high_and_critical_findings() -> 
         trivy["scanners"],
         trivy["severity"],
         trivy["ignore-unfixed"],
+        trivy["trivyignores"],
         str(trivy["exit-code"]),
-    ) == ("vuln", "HIGH,CRITICAL", True, "1")
+    ) == ("vuln", "HIGH,CRITICAL", True, ".trivyignore,.trivyignore-tofu", "1")
+
+
+def test_every_tofu_trivyignore_entry_has_a_reason_and_an_exp_date_that_is_not_past() -> None:
+    """Verify that each entry in `.trivyignore-tofu` has a reason and a future exp date."""
+    text = (REPO_ROOT / ".trivyignore-tofu").read_text(encoding="utf-8")
+
+    assert trivyignore_problems(text, datetime.now(UTC).date()) == []
+
+
+def test_the_pull_request_scans_the_runner_image_with_the_tofu_ignores() -> None:
+    """The CI scan of the runner image reads the ignores of the pinned OpenTofu (#5866)."""
+    job = _workflow("ci.yml")["jobs"]["runner-image"]
+    trivy = _step(job, "Scan Runner Image for Vulnerabilities")["with"]
+
+    assert trivy["trivyignores"] == ".trivyignore,.trivyignore-tofu"
 
 
 def test_the_pull_request_check_builds_the_runner_image_and_pushes_nothing() -> None:

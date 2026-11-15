@@ -131,6 +131,7 @@ RUNNER_TOOLS: tuple[RunnerTool, ...] = (
         pin=f"v{NODE_MAJOR}.",
     ),
     _locked("openspec", "ci:openspec", "hook:openspec-gate"),
+    _locked("tofu", "gate:static"),
     _dev("pytest", "ci:test", "ci:bwrap", package="pytest"),
     _dev("ruff", "ci:lint", "ci:format", "hook:ruff-check", "hook:ruff-format"),
     _dev("mypy", "ci:typecheck"),
