@@ -1566,6 +1566,11 @@ class RoadmapCommandHelp:
         "A live run leaves out a case that holds no commit and names it in the report. "
         "A change to the stage prompt or to the checks states this score before and after."
     )
+    eval_stage_form: str = (
+        "The form `compare <toolset>...`: run two or more toolsets over the same cases and print "
+        "one table with the defects, the tool calls, the requests, the tokens, the time and the "
+        "cost of each toolset, and one delta line against the first."
+    )
     eval_stage_case: str = (
         "Run only this case, by folder name or issue number. Repeat the option for more cases."
     )

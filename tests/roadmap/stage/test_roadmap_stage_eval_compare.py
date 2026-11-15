@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import json
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -158,3 +160,70 @@ def test_the_spread_states_the_minimum_and_the_maximum_of_each_value() -> None:
     assert (values.input_tokens, values.output_tokens) == ((100, 300), (50, 90))
     assert (values.seconds, values.cost) == ((1.0, 2.0), (0.5, 1.5))
     assert values.verification_defects == (None, None)
+
+
+def _live_set(tmp_path: Path, repo: StageRepo, cases: list[StageCase]) -> Path:
+    """A folder with one case about issue #1 of the sample repository, staged on its head."""
+    case = _live_case(cases, repo)
+    folder = tmp_path / "set" / "live-case"
+    folder.mkdir(parents=True)
+    meta = case.model_dump(mode="json", exclude={"name", "issue_body", "plan", "facts"})
+    (folder / "case.json").write_text(json.dumps(meta), encoding="utf-8")
+    (folder / "issue.txt").write_text(case.issue_body, encoding="utf-8")
+    (folder / "plan.json").write_text(json.dumps(case.plan), encoding="utf-8")
+    (folder / "facts.json").write_text(case.facts.model_dump_json(), encoding="utf-8")
+    return folder.parent
+
+
+def test_the_compare_form_prints_one_table_with_a_fake_client(
+    cli: Any,
+    tmp_path: Path,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+    cases: list[StageCase],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from devops_cli.ai.client import factory
+
+    script = Script(call("read_file", path="src/devops_cli/sample.py"), make_stage_proposal())
+    monkeypatch.setattr(factory, "get_task_model", lambda name, *, settings=None: script.model())
+    folder = _live_set(tmp_path, stage_repo, cases)
+
+    result = cli(
+        "roadmap",
+        "eval",
+        "stage",
+        "compare",
+        "base",
+        "extended",
+        "--cases",
+        str(folder),
+        "--source",
+        str(stage_repo.clone),
+        "--model",
+        "claude-sonnet-5-5",
+    )
+
+    assert result.exit_code == 0, result.output
+    lines = result.output.splitlines()
+    assert "Verification defects" in result.output
+    assert "Tool calls" in result.output
+    assert any(line.startswith("base") for line in lines)
+    assert any(line.startswith("extended") for line in lines)
+    assert any("extended - base" in line for line in lines)
+
+
+def test_the_compare_form_refuses_a_lone_toolset_and_a_name_outside_the_setting(cli: Any) -> None:
+    one = cli("roadmap", "eval", "stage", "compare", "base", "--dry-run", "--limit", "1")
+    unknown = cli(
+        "roadmap", "eval", "stage", "compare", "base", "nope", "--dry-run", "--limit", "1"
+    )
+    wrong_form = cli("roadmap", "eval", "stage", "compare-to", "--dry-run")
+
+    assert one.exit_code == 1
+    assert "at least two toolsets" in one.output
+    assert unknown.exit_code == 1
+    assert "base, extended, research" in unknown.output
+    assert wrong_form.exit_code == 1
+    assert "no form of this command" in wrong_form.output

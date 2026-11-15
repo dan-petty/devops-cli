@@ -13,10 +13,12 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, cast, get_args
 
 from devops_cli.config.defaults import StageToolset
 from devops_cli.core import clock
+from devops_cli.exceptions import ConfigurationError
+from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
 from devops_cli.roadmap.agent_run import RunTrace
 from devops_cli.roadmap.stage.stage import StageClient, openspec_tool
@@ -84,6 +86,21 @@ class ComparisonRow:
     seconds: float
     cost: float | None
     measures: tuple[Measure, ...] = ()
+
+
+def toolsets_of(names: Sequence[str]) -> tuple[StageToolset, ...]:
+    """The toolsets that `names` pick, in their order. A name that the stage toolset setting does
+    not hold raises `ConfigurationError` with the values that it holds."""
+    known = get_args(StageToolset)
+    unknown = [name for name in names if name not in known]
+    if unknown:
+        raise ConfigurationError(
+            MESSAGES.roadmap.stage_eval_unknown_toolset.format(
+                names=", ".join(unknown), toolsets=", ".join(known)
+            ),
+            details={"toolsets": unknown},
+        )
+    return tuple(cast(StageToolset, name) for name in names)
 
 
 def _sum_optional(values: Iterable[int | None]) -> int | None:

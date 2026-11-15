@@ -6010,6 +6010,21 @@ class RoadmapMessages:
         "of each case. Pick a case that holds a commit, or run the replay."
     )
     stage_eval_left_out: str = "Left out of the run, as they hold no commit to check out: {names}."
+    stage_eval_unknown_form: str = (
+        "The form `{form}` is no form of this command. The one form is "
+        "`compare <toolset> <toolset> ...`."
+    )
+    stage_eval_compare_too_few: str = (
+        "The compare form needs at least two toolsets, as "
+        "`devops roadmap eval stage compare <toolset> <toolset> ...`."
+    )
+    stage_eval_unknown_toolset: str = (
+        "The stage toolset setting holds none of {names}. Its values are {toolsets}."
+    )
+    stage_eval_compare_dry_run: str = (
+        "Dry run: no request was made. The compare form would plan {cases} case(s) with the "
+        "toolsets {toolsets} at {gateway}, with the stage model {model}, one case at a time."
+    )
     stage_eval_over_budget: str = "A task group is over the step budget."
     stage_eval_no_value: str = "-"
     stage_eval_replay_title: str = (
