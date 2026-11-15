@@ -4,9 +4,9 @@
 
 Kind: behavior. Reads: `.ast-grep/rules/test-function-has-assertion.yml`, `src/devops_cli/roadmap/implement/implement_scoped_ci.py`, `tests/roadmap/implement/test_roadmap_implement_scoped_ci.py`. Changes: `src/devops_cli/roadmap/implement/implement_strength.py` (new), `tests/roadmap/implement/test_roadmap_implement_strength.py` (new).
 
-- [ ] 1.1 `test_a_new_test_file_that_asserts_nothing_is_flagged` in `tests/roadmap/implement/test_roadmap_implement_strength.py`: the sample file `test_sample.py` holds a `test_` function with no assertion, and the fake answers `uv run ast-grep scan` with one JSON match for it
+- [x] 1.1 `test_a_new_test_file_that_asserts_nothing_is_flagged` in `tests/roadmap/implement/test_roadmap_implement_strength.py`: the sample file `test_sample.py` holds a `test_` function with no assertion, and the fake answers `uv run ast-grep scan` with one JSON match for it
   - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_strength.py` fails on the base
-- [ ] 1.2 Create `src/devops_cli/roadmap/implement/implement_strength.py` with `AssertionFinding`, `new_test_files` and `assertion_failures`. `new_test_files` keeps the changed paths under `tests/` whose name starts with `test_`. `assertion_failures` runs `uv run ast-grep scan --rule .ast-grep/rules/test-function-has-assertion.yml --json` over those files, the rule that `.ast-grep/rules/test-function-has-assertion.yml` holds, and reads the file, the start line and the message of each match of the JSON list
+- [x] 1.2 Create `src/devops_cli/roadmap/implement/implement_strength.py` with `AssertionFinding`, `new_test_files` and `assertion_failures`. `new_test_files` keeps the changed paths under `tests/` whose name starts with `test_`. `assertion_failures` runs `uv run ast-grep scan --rule .ast-grep/rules/test-function-has-assertion.yml --json` over those files, the rule that `.ast-grep/rules/test-function-has-assertion.yml` holds, and reads the file, the start line and the message of each match of the JSON list
   - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_strength.py` passes
 
 ## 2. Bound the mutation run and read its survivors
