@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.159.0](https://github.com/dan-petty/devops-cli/compare/v0.158.0...v0.159.0) (2026-11-15)
+
+
+### Features
+
+* **ai:** Record the cost of Jev calls ([#5879](https://github.com/dan-petty/devops-cli/issues/5879)) ([d1ac8ca](https://github.com/dan-petty/devops-cli/commit/d1ac8ca759ba1f61f6989dbb9caca8515a098c50))
+* **ci:** add OpenTofu 1.13.9 to images and CI ([#5862](https://github.com/dan-petty/devops-cli/issues/5862)) ([ca62d6a](https://github.com/dan-petty/devops-cli/commit/ca62d6a9ff55fdc73889ac3b31da8377913a6513))
+* **roadmap:** Require the contract test of a workflow change ([#5877](https://github.com/dan-petty/devops-cli/issues/5877)) ([f81f4b9](https://github.com/dan-petty/devops-cli/commit/f81f4b9e30ad7039b192e3e0891f6755f0d37460))
+
+
+### Bug Fixes
+
+* **ai:** do not classify gateway endpoint as local backend ([#5874](https://github.com/dan-petty/devops-cli/issues/5874)) ([8c09c33](https://github.com/dan-petty/devops-cli/commit/8c09c33dc1f0cd1615b1f671ffaf3aa5ecdd578c))
+* **k8s:** Name the collector service that exists ([#5895](https://github.com/dan-petty/devops-cli/issues/5895)) ([a20c801](https://github.com/dan-petty/devops-cli/commit/a20c8018a07094f0f7ab924fce4cb67613aa6ad3))
+* **monitoring:** Drop the caller labels from the gateway series ([#5896](https://github.com/dan-petty/devops-cli/issues/5896)) ([d0929e1](https://github.com/dan-petty/devops-cli/commit/d0929e193cdd7d1bdadfa491876aa2d441da4b18))
+* **roadmap:** check the premise before the first step ([#5886](https://github.com/dan-petty/devops-cli/issues/5886)) ([1b12e5c](https://github.com/dan-petty/devops-cli/commit/1b12e5c82c00340399201cbcbaaac0bdae109f79))
+* **roadmap:** handle git grep timeout in refine context collection ([#5872](https://github.com/dan-petty/devops-cli/issues/5872)) ([0eecb65](https://github.com/dan-petty/devops-cli/commit/0eecb651a756c1bfec76d30f4cd78c7e53c8177c))
+* **roadmap:** Judge no criterion in the paths gate ([#5875](https://github.com/dan-petty/devops-cli/issues/5875)) ([ca88553](https://github.com/dan-petty/devops-cli/commit/ca8855337dc3ee2518bdbca5e1e008dd1ddf2f9f))
+* **roadmap:** plan drift keeps other needs-fix labels ([#5888](https://github.com/dan-petty/devops-cli/issues/5888)) ([93e57ed](https://github.com/dan-petty/devops-cli/commit/93e57edd803a528444968b170e102f9a2619fb03))
+* **roadmap:** refine designs against an alert without its rule text ([#5882](https://github.com/dan-petty/devops-cli/issues/5882)) ([cbd8bf7](https://github.com/dan-petty/devops-cli/commit/cbd8bf7e1dcda81f1ecd3ca01697e45f2453d398))
+* **roadmap:** the refine proposal caps its context with a job constant ([#5878](https://github.com/dan-petty/devops-cli/issues/5878)) ([25fca43](https://github.com/dan-petty/devops-cli/commit/25fca43afd243981313b19c012e9704a3419517a))
+* **roadmap:** the strength check sets a denied env key ([#5892](https://github.com/dan-petty/devops-cli/issues/5892)) ([509a14e](https://github.com/dan-petty/devops-cli/commit/509a14e586ad28b4142658ee07c682c7eaa12add))
+
+
+### Performance Improvements
+
+* **roadmap:** File a new candidate with one request ([#5894](https://github.com/dan-petty/devops-cli/issues/5894)) ([5fea092](https://github.com/dan-petty/devops-cli/commit/5fea092f61b55a571754833842b799f00a1a7e4d))
+
+
+### Code Refactoring
+
+* **github:** one pull request verdict for all monitors ([#5889](https://github.com/dan-petty/devops-cli/issues/5889)) ([d93b753](https://github.com/dan-petty/devops-cli/commit/d93b7534d3ef66f6df1479afabfb2a99404ea957)), closes [#5021](https://github.com/dan-petty/devops-cli/issues/5021)
+* **roadmap:** one open step for every pull request ([#5870](https://github.com/dan-petty/devops-cli/issues/5870)) ([6e9f577](https://github.com/dan-petty/devops-cli/commit/6e9f57765d620fc936823485f2a6316036583738)), closes [#5020](https://github.com/dan-petty/devops-cli/issues/5020)
+
 ## [0.158.0](https://github.com/dan-petty/devops-cli/compare/v0.157.0...v0.158.0) (2026-11-15)
 
 
