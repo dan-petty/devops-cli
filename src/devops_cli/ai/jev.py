@@ -12,7 +12,6 @@ on top of `pydantic_ai`'s native `DecisionModel` and `SystemOneModel` primitives
 from __future__ import annotations
 
 import atexit
-import functools
 import threading
 from collections.abc import Mapping, Sequence
 from contextlib import ExitStack
@@ -47,7 +46,6 @@ from devops_cli.config.constants import (
 from devops_cli.config.settings import Settings, load_settings
 
 
-@functools.cache
 def context_window(model_name: str = CONST_AI_JEV_MODEL) -> int:
     """The context window that genai-prices gives for `model_name` (#5209).
 
