@@ -97,7 +97,7 @@ def _orphan(
     `type/bug` label, so a round with the filter `type=bug` selects no item and only the pass over
     the orphans runs. Returns the item number and the request line that closes its draft."""
     number = store.seed_issue(
-        title, fields={ItemField.STATUS: "Ready", ItemField.PRIORITY: "P1-High"}
+        title, fields={ItemField.STATUS: "New", ItemField.PRIORITY: "P1-High"}
     )
     item = store.item(number)
     assert item is not None
@@ -185,6 +185,7 @@ def test_a_round_after_the_marks_write_fails_removes_the_orphan_and_plans_the_it
     pull = staging.seed_pull("plan 1", head_ref=BRANCH, draft=True)
     closing = _closing(github_api, pull)
     github_api.sent.clear()
+    staging.set_field(staging.item(1), ItemField.STATUS, "New")
 
     plan, staged, removed = _stage_round(staging, stage_repo, now=LATER)
 
@@ -202,6 +203,7 @@ def test_a_round_after_the_marks_write_fails_removes_the_orphan_and_plans_the_it
     ]
 
     github_api.sent.clear()
+    staging.set_field(staging.item(1), ItemField.STATUS, "Ready")
 
     _, staged, removed = _stage_round(staging, stage_repo, now=LATER)
 
@@ -236,6 +238,7 @@ def test_a_worker_killed_after_the_push_leaves_a_branch_that_the_next_round_dele
     assert json.loads(record[StageRecordKey.PENDING.value] or "")["branch"] == BRANCH
     assert StageRecordKey.PR.value not in record
 
+    staging.set_field(staging.item(1), ItemField.STATUS, "New")
     plan, _, removed = _stage_round(staging, stage_repo, now=LATER)
 
     assert [(r.number, r.branch, r.gone) for r in plan.removals] == [(1, BRANCH, False)]

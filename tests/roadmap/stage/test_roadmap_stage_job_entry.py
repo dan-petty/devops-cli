@@ -805,15 +805,17 @@ def test_the_settings_of_the_stage_job_have_their_defaults() -> None:
     ) == (BUDGET, 1000, None, None)
 
 
-def test_a_retried_pod_removes_its_own_orphan_and_stages_the_item_in_the_same_run(
+def test_a_retried_pod_keeps_its_own_branch_and_stages_the_item_in_the_same_run(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
     model_fake: ModelFake,
     github_api: GitHubApiFake,
     stageable: int,
+    config: Callable[..., Path],
 ) -> None:
-    """The pod before was killed after its push: the mark of this Job names the branch. The mark
-    is young, but the check-out names this Job, so no other run publishes the item."""
+    """The pod before was killed after its push: the mark of this Job names the branch. Under #5499,
+    the App-only branch of a Ready item is kept and resumed, not deleted."""
+    config(service={"github_app": {"slug": "devops-roadmap"}})
     _mark(
         store,
         stageable,

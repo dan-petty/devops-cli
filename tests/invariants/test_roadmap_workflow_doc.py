@@ -25,6 +25,7 @@ from devops_cli.roadmap.stores.store import (
     ImplementRecordKey,
     ItemField,
     RefineRecordKey,
+    ScaffoldRecordKey,
     StageRecordKey,
     field_label,
 )
@@ -47,7 +48,13 @@ TRANSITION_COLUMNS = ("From state", "Event", "To state", "Actor")
 LABEL_FAMILIES = ("status/", "owner/")
 RECORD_KEYS = frozenset(
     key.value
-    for keys in (RefineRecordKey, AlternativesRecordKey, StageRecordKey, ImplementRecordKey)
+    for keys in (
+        RefineRecordKey,
+        AlternativesRecordKey,
+        StageRecordKey,
+        ImplementRecordKey,
+        ScaffoldRecordKey,
+    )
     for key in keys
 )
 RECORD_PREFIXES = frozenset(key.partition(".")[0] for key in RECORD_KEYS)

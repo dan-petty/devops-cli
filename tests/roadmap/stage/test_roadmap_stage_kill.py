@@ -38,6 +38,13 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
+
+@pytest.fixture(autouse=True)
+def service_app(config: Callable[..., object]) -> None:
+    """The Service App has the bot login `devops-roadmap[bot]`."""
+    config(service={"github_app": {"slug": "devops-roadmap"}})
+
+
 NOW = datetime(2026, 11, 13, 12, 0, tzinfo=UTC)
 JOB = "devops-cli-stage-roadmap-1-0123456789"
 BRANCH = "fix/1-the-job-drops-a-comment"

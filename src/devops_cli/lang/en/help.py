@@ -1539,6 +1539,13 @@ class RoadmapCommandHelp:
         "and roadmap.fix_plan.revisions stay, but a head whose counted attempts ran on an older "
         "release gets one more attempt. The Service never uses it."
     )
+    step_scaffold: str = (
+        "Make, resume, adopt or hold the item branch for a roadmap stage run (#5499)."
+    )
+    step_scaffold_item: str = "Number of the item to scaffold."
+    step_scaffold_kind: str = "Kind of the scaffold step (plan or delivery)."
+    step_scaffold_slug: str = "Slug of the change folder or branch."
+    step_scaffold_dry_run: str = "Make no request to GitHub or git, and write no record key."
     eval_app: str = (
         "Score the roadmap jobs. grades reads the live result lines of each job in Loki. Each "
         "other command runs a job's real code on committed cases with a chosen model. Each is on "
