@@ -97,7 +97,8 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Iterator, Mapping, Sequence
+import threading
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -170,7 +171,7 @@ from devops_cli.roadmap.trust import trusted_replies
 from devops_cli.telemetry.instruments import ROADMAP_FIX_PLAN_TOTAL, emit
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable
     from pathlib import Path
 
     from devops_cli.ai.client import LLMClient
@@ -590,48 +591,55 @@ def _candidates(
     return [named], []
 
 
-def select_fix_plan(
-    store: RoadmapStore,
-    *,
+_left_out_lock = threading.Lock()
+_logged_left_out: dict[tuple[str, int], str] = {}
+
+
+def log_left_out(
     repo: str,
-    item: int | None = None,
-    pull: int | None = None,
-    now: datetime | None = None,
-    skip_wait: bool = False,
-) -> tuple[FixPlanTarget | None, tuple[FixPlanLeftOut, ...]]:
-    """The plan pull request that the step takes, and the Staged items it left out before it, as
-    the module says. `item` or `pull` names the one item to judge. It reads a pull request only for
-    an item that the record rules keep. `skip_wait` leaves out the wait and takes a head of an
-    older release over the attempt cap once, with a warning that says why (#5413)."""
-    now = now or datetime.now(UTC)
-    candidates, left = _candidates(store, item, pull)
-    for each in candidates:
-        pull = _staged_pull(each)
-        reason = _record_reason(each, pull, now, skip_wait=skip_wait)
-        if reason is None and pull is not None:
-            status = get_github_session().client.get_pull_status(repo, pull)
-            reason = _pull_reason(each, pull, status, skip_wait=skip_wait)
-            if reason is None:
-                extra = _extra(each, pull, status)
-                if extra:
-                    logger.warning(extra)
-                return FixPlanTarget(each, pull, status, extra), tuple(left)
-        left.append(FixPlanLeftOut(each.number, reason or ""))
-    return None, tuple(left)
+    left_out: Sequence[FixPlanLeftOut],
+    handled: Iterable[int] = (),
+) -> None:
+    """Log each item in `left_out` whose reason differs from the last logged reason for that item
+    in `repo`. The line repeats only when the reason changes."""
+    with _left_out_lock:
+        for number in handled:
+            _logged_left_out.pop((repo, number), None)
+        for each in left_out:
+            if _logged_left_out.get((repo, each.number)) == each.reason:
+                continue
+            _logged_left_out[(repo, each.number)] = each.reason
+            logger.info(
+                "fix_plan left out: repo=%s item=#%d reason=%s",
+                repo,
+                each.number,
+                each.reason,
+            )
+
+
+def reset_left_out_log() -> None:
+    """Forget each logged reason, so the next round logs every reason again."""
+    with _left_out_lock:
+        _logged_left_out.clear()
 
 
 def _git(cwd: Path, *args: str) -> str:
     return git(cwd, *args, operation=_GIT_OPERATION)
 
 
-def _branch_reason(source: Path, target: FixPlanTarget) -> str | None:
+def _branch_reason(
+    source: Path,
+    item: Item,
+    pull: int,
+    status: PullStatus,
+) -> str | None:
     """Why the branch of the plan stops the attempt before any write, or None: it does not name the
     item, it moved after the read, or it holds a commit of another author than the clone."""
     texts = MESSAGES.roadmap
-    status, pull = target.status, target.pull
     parts = parse_branch(status.head_ref)
-    if parts is None or parts.issue != target.item.number:
+    if parts is None or parts.issue != item.number:
         return texts.fix_plan_left_branch.format(branch=status.head_ref, pull=pull)
+    _git(source, "fetch", "-q", "origin", status.head_ref)
     tip = _git(source, "rev-parse", f"origin/{status.head_ref}")
     if tip != status.head_sha:
         head = status.head_sha[:_SHORT]
@@ -643,6 +651,71 @@ def _branch_reason(source: Path, target: FixPlanTarget) -> str | None:
     if others:
         return texts.fix_plan_left_person.format(pull=pull, count=len(others))
     return None
+
+
+def _candidate_reason(
+    repo: str,
+    source: Path | None,
+    item: Item,
+    candidate_pull: int | None,
+    now: datetime,
+    *,
+    skip_wait: bool = False,
+) -> tuple[str | None, PullStatus | None]:
+    """Why a candidate item cannot be selected, or (None, status) when it passes each check."""
+    reason = _record_reason(item, candidate_pull, now, skip_wait=skip_wait)
+    if reason is not None or candidate_pull is None:
+        return reason, None
+    status = get_github_session().client.get_pull_status(repo, candidate_pull)
+    reason = _pull_reason(item, candidate_pull, status, skip_wait=skip_wait)
+    if reason is not None:
+        return reason, status
+    if source is not None:
+        branch_reason = _branch_reason(source, item, candidate_pull, status)
+        if branch_reason is not None:
+            logger.warning(branch_reason)
+            return branch_reason, status
+    return None, status
+
+
+def select_fix_plan(
+    store: RoadmapStore,
+    *,
+    repo: str,
+    source: Path | None = None,
+    item: int | None = None,
+    pull: int | None = None,
+    now: datetime | None = None,
+    skip_wait: bool = False,
+    mode: str | None = None,
+) -> tuple[FixPlanTarget | None, tuple[FixPlanLeftOut, ...]]:
+    """The plan pull request that the step takes, and the Staged items it left out before it, as
+    the module says. `item` or `pull` names the one item to judge. It reads a pull request only for
+    an item that the record rules keep. `skip_wait` leaves out the wait and takes a head of an
+    older release over the attempt cap once, with a warning that says why (#5413). In mode `plan`,
+    the step judges every candidate, names the would-be selection, and records each left-out plan."""
+    now = now or datetime.now(UTC)
+    mode = mode or load_settings().roadmap.fix_plan.mode
+    candidates, left = _candidates(store, item, pull)
+    selected: FixPlanTarget | None = None
+    for each in candidates:
+        candidate_pull = _staged_pull(each)
+        reason, status = _candidate_reason(
+            repo, source, each, candidate_pull, now, skip_wait=skip_wait
+        )
+        if reason is not None or candidate_pull is None or status is None:
+            left.append(FixPlanLeftOut(each.number, reason or ""))
+            continue
+        if selected is None:
+            extra = _extra(each, candidate_pull, status)
+            if extra:
+                logger.warning(extra)
+            selected = FixPlanTarget(each, candidate_pull, status, extra)
+            if mode != "plan":
+                return selected, tuple(left)
+            continue
+        left.append(FixPlanLeftOut(each.number, MESSAGES.roadmap.fix_plan_left_round))
+    return selected, tuple(left)
 
 
 def _head_plan(source: Path, target: FixPlanTarget) -> tuple[StageTarget, StageProposal]:
@@ -1170,7 +1243,8 @@ def _attempt(
     number, status = target.item.number, target.status
     raise_if_service_stops(f"the fix-plan of #{number}")
     _git(source, "fetch", "-q", "origin", attempt.base, status.head_ref)
-    if (reason := _branch_reason(source, target)) is not None:
+    if (reason := _branch_reason(source, target.item, target.pull, target.status)) is not None:
+        logger.warning(reason)
         return FixPlanLeftOut(number, reason)
     try:
         stage_target, proposal = _head_plan(source, target)
@@ -1228,6 +1302,7 @@ def run_fix_plan(
     verifier: ToolboxModel | None = None,
     screen: ResolverChain[ScreenCase] | None = None,
     skip_wait: bool = False,
+    mode: str | None = None,
 ) -> FixPlanRun:
     """Select one plan pull request of `repo` and, with `confirm`, run one attempt on it in the
     clone `source`, as the module says. Without `confirm` the call makes no model call and no
@@ -1238,12 +1313,36 @@ def run_fix_plan(
     `roadmap.fix_plan.time_budget_seconds` starts with the call (#5363)."""
     budget = TimeBudget.start(load_settings().roadmap.fix_plan.time_budget_seconds, _BUDGET_SETTING)
     now = now or datetime.now(UTC)
+    effective_mode = mode or ("on" if confirm else "plan")
     target, left = select_fix_plan(
-        store, repo=repo, item=item, pull=pull, now=now, skip_wait=skip_wait
+        store,
+        repo=repo,
+        source=source,
+        item=item,
+        pull=pull,
+        now=now,
+        skip_wait=skip_wait,
+        mode=effective_mode,
     )
     run = FixPlanRun(repo, target, left)
     if target is None:
-        logger.info(MESSAGES.roadmap.fix_plan_none.format(repo=repo))
+        if confirm:
+            logger.info(MESSAGES.roadmap.fix_plan_none.format(repo=repo))
+        else:
+            logger.info(MESSAGES.roadmap.fix_plan_mode_plan_none.format(repo=repo))
+        if not confirm:
+            log_left_out(repo, left)
+        return run
+    if not confirm:
+        logger.info(
+            MESSAGES.roadmap.fix_plan_mode_plan.format(
+                repo=repo,
+                pull=target.pull,
+                number=target.item.number,
+                head=target.status.head_sha[:_SHORT],
+            )
+        )
+        log_left_out(repo, left, handled=(target.item.number,))
         return run
     logger.info(
         MESSAGES.roadmap.fix_plan_selected.format(
@@ -1253,8 +1352,7 @@ def run_fix_plan(
             head=target.status.head_sha[:_SHORT],
         )
     )
-    if not confirm:
-        return run
+    log_left_out(repo, left, handled=(target.item.number,))
     if verifier is None:
         from devops_cli.ai.client.factory import get_task_model
         from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
@@ -1321,8 +1419,10 @@ __all__ = [
     "FixPlanTarget",
     "comment_open_findings",
     "dry_run_fix_plan",
+    "log_left_out",
     "plan_comment",
     "render_fix_plan",
+    "reset_left_out_log",
     "run_fix_plan",
     "select_fix_plan",
 ]

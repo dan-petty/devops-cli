@@ -4420,7 +4420,15 @@ class RoadmapMessages:
     fix_plan_selected: str = (
         "The fix-plan step of {repo} selects plan pull request #{pull} of item #{number} at {head}."
     )
+    fix_plan_mode_plan: str = (
+        "In mode plan, the fix-plan step of {repo} starts no attempt. Mode on would select plan "
+        "pull request #{pull} of item #{number} at {head}."
+    )
+    fix_plan_mode_plan_none: str = (
+        "In mode plan, the fix-plan step of {repo} selects no plan pull request."
+    )
     fix_plan_none: str = "The fix-plan step of {repo} selects no plan pull request."
+    fix_plan_left_round: str = "A round takes at most one plan."
     fix_plan_left: str = "- #{number}: {reason}"
     # The line of an attempt (#5213): `detail` is one of the `fix_plan_detail_*` texts, and
     # `reason` is `fix_plan_reason` or empty.

@@ -6,7 +6,7 @@ How the step `fix-plan` repairs an open plan pull request that holds `plan/needs
 ## Requirements
 
 ### Requirement: The step selects one plan pull request that holds the label plan/needs-fix
-The step `fix-plan` SHALL select, for one call, at most one item of the repository: an open item with the Status Ready whose record holds `stage.pr`, with no `implement.job` and no claim of an agent or a person. Its pull request SHALL be an open draft that holds `plan/needs-fix`. The item SHALL have fewer attempts on the head than `roadmap.fix_plan.head_attempts`, no attempt in the last 6 hours, and fewer revisions than `roadmap.fix_plan.revisions`. The highest priority SHALL go first.
+The step `fix-plan` SHALL select at most one repository item: an open item with Status Ready whose record holds `stage.pr`, without `implement.job` or claims. Its pull request SHALL be an open draft with `plan/needs-fix`. Attempts and revisions SHALL be under bounds, with no attempt in 6 hours. Priority SHALL order items. A candidate with a branch stop SHALL log a warning and let selection continue. In mode `plan`, the step SHALL judge all candidates and log the selection and reasons.
 
 #### Scenario: A plan pull request with the label
 - **WHEN** a Staged item has an open draft plan pull request that holds `plan/needs-fix` and no fix-plan mark
@@ -29,8 +29,16 @@ The step `fix-plan` SHALL select, for one call, at most one item of the reposito
 - **THEN** the step selects no pull request and makes no model call
 
 #### Scenario: A person pushed to the branch
-- **WHEN** the branch of the selected pull request holds a commit by an author other than the clone identity
-- **THEN** the step makes no model call and writes nothing
+- **WHEN** the branch of a candidate pull request holds a commit by an author other than the clone identity
+- **THEN** the step leaves that candidate out with a warning and continues selection to the next candidate
+
+#### Scenario: A branch stop selects the next candidate in the same round
+- **WHEN** the first candidate has a commit by another author on its branch and a second candidate passes the rules
+- **THEN** the step selects the second candidate
+
+#### Scenario: Mode plan judges each candidate
+- **WHEN** the step runs in mode plan with multiple plan pull requests
+- **THEN** the step logs the mode line naming the would-be selection, and logs each left-out plan with its reason
 
 ### Requirement: The step repairs the plan with the stage planner
 The step SHALL read the plan of the head of the pull request with `read_change` and give it to the stage planner at the latest default branch. The planner SHALL get the plan as `previous` and each open finding of the review of the head and of the last plan comment as `problem`, and the revision SHALL pass the gates and the verification repair rounds of the stage job. The first review of the revision SHALL be a later review of the open findings of the review of the head.
