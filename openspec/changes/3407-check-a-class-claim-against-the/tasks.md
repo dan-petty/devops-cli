@@ -31,7 +31,7 @@ Kind: manifest. Reads: `tests/fixtures/roadmap_eval/stage/3344-a-plan-that-reads
 
 Kind: other. Reads: `tests/roadmap/stage/test_roadmap_stage_eval_gates.py`. Changes: `tests/roadmap/stage/test_roadmap_stage_eval_gates.py`.
 
-- [ ] 4.1 Raise `JUDGED_BASELINE` in `tests/roadmap/stage/test_roadmap_stage_eval_gates.py` from `(82, 319)` to `(83, 320)`, and add a comment line that names the case of #3407 as the one caught defect and the one defect. The function that the raised constant answers is `test_the_counts_of_each_type_are_the_baseline_that_a_change_of_a_gate_beats`, which asserts `report.judged() == JUDGED_BASELINE`
+- [x] 4.1 Raise `JUDGED_BASELINE` in `tests/roadmap/stage/test_roadmap_stage_eval_gates.py` from `(82, 319)` to `(83, 320)`, and add a comment line that names the case of #3407 as the one caught defect and the one defect. The function that the raised constant answers is `test_the_counts_of_each_type_are_the_baseline_that_a_change_of_a_gate_beats`, which asserts `report.judged() == JUDGED_BASELINE`
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_eval_gates.py` passes
 
 ## 5. State the class-claim rule of the paths gate

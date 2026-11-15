@@ -55,7 +55,9 @@ _MODULE_FIXTURE = '@pytest.fixture(scope="module")'
 # judges. The case of #3462 adds one defect that the `paths` gate judges: a requirement text over
 # the OpenSpec limit (#4524). The case of #3464 adds one defect that the `paths` gate judges: the
 # verify of case 2576 runs a test module that no list of group 1 names (#3463). The case of #3390
-# adds one defect that the `paths` gate judges: a plan that states a wrong constant.
+# adds one defect that the `paths` gate judges: a plan that states a wrong constant. The case of #3407
+# adds one defect that the `paths` gate judges: the decision that `StagedTree` holds file text
+# quotes no text of the class.
 JUDGED_BASELINE: Final[tuple[int, int]] = (84, 321)
 
 
