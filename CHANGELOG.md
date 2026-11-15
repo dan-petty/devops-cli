@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.158.0](https://github.com/dan-petty/devops-cli/compare/v0.157.0...v0.158.0) (2026-11-15)
+
+
+### Features
+
+* **k8s:** update service config template and consumer manifests ([#5863](https://github.com/dan-petty/devops-cli/issues/5863)) ([542b0b4](https://github.com/dan-petty/devops-cli/commit/542b0b4e18f766d57b1d45ef979ad23b36a8fe95))
+
 ## [0.157.0](https://github.com/dan-petty/devops-cli/compare/v0.156.1...v0.157.0) (2026-11-15)
 
 
