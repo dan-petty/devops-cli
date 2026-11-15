@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.147.2](https://github.com/dan-petty/devops-cli/compare/v0.147.1...v0.147.2) (2026-11-15)
+
+
+### Bug Fixes
+
+* **roadmap:** export job result lines at INFO through OTel bridge ([#5775](https://github.com/dan-petty/devops-cli/issues/5775)) ([e1928e7](https://github.com/dan-petty/devops-cli/commit/e1928e753e92429b4b1b1488c2635e47566922c0))
+
 ## [0.147.1](https://github.com/dan-petty/devops-cli/compare/v0.147.0...v0.147.1) (2026-11-15)
 
 
