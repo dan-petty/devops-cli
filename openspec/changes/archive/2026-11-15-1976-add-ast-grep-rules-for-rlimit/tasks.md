@@ -13,5 +13,5 @@ Kind: manifest. Reads: `.ast-grep/rules/review-cwd-read.yml`, `.ast-grep/rule-te
 
 Kind: other. Reads: `.ast-grep/rules/process-setrlimit-nproc.yml`, `.ast-grep/rules/process-nonblocking-std-fd.yml`, `.ast-grep/rules/process-killpg-guarded.yml`. Changes: `ARCHITECTURE.md`.
 
-- [ ] 2.1 Name the three rule ids beside the process-safety bullets of ARCHITECTURE.md section 7.3, so a reader learns which check holds each rule, and point the process-group model example at `terminate_process_group` in `src/devops_cli/core/process.py`. Leave `.pre-commit-config.yaml` as it is, because the construct gate compares the hook `entry` and `args` with `CONST_AST_GREP_SCAN_ARGS`
+- [x] 2.1 Name the three rule ids beside the process-safety bullets of ARCHITECTURE.md section 7.3, so a reader learns which check holds each rule, and point the process-group model example at `terminate_process_group` in `src/devops_cli/core/process.py`. Leave `.pre-commit-config.yaml` as it is, because the construct gate compares the hook `entry` and `args` with `CONST_AST_GREP_SCAN_ARGS`
   - Verification: `$ uv run devops ci docs` passes
