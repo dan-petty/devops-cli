@@ -30,8 +30,9 @@ jobs:
   semantic-title:
     name: Semantic PR title
     runs-on: ubuntu-26.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
+      contents: read
       pull-requests: read
 
     steps:
@@ -93,6 +94,27 @@ jobs:
           subjectPatternError: >-
             The summary after "<type>(<scope>): " has more than 60 characters. Shorten it to 60
             characters or fewer (CONTRIBUTING.md section 4).
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up uv toolchain
+        uses: ./.github/actions/setup-toolchain
+        with:
+          cache-suffix: title-type
+
+      # A hidden type takes no changelog line and opens no release pull request, so a change of
+      # runtime code under it never ships (#5224). The config names the hidden types.
+      - name: Check that a Hidden Type Ships No Runtime Code
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json files --jq '.files[].path' > "$RUNNER_TEMP/files.txt"
+          uv run python -m devops_cli.github.release_title --title "$PR_TITLE" --files "$RUNNER_TEMP/files.txt"
 
   # `!cancelled()` lets the job run after a failed title check, and skips it in a cancelled run;
   # the command then reports that check. #3975
