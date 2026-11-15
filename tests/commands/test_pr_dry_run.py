@@ -239,3 +239,32 @@ def test_the_check_readiness_plan_lists_the_compare_request() -> None:
     assert compare[0].argv[-1] == ("repos/owner/repo/compare/<base-ref>...<head-sha>?per_page=1"), (
         compare[0].argv
     )
+
+
+def test_a_dry_run_refuses_a_scope_with_no_label_in_the_checkout(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The dry run reads `.github/labels.yml` of the checkout and refuses the title as the real
+    run does (#5178)."""
+    labels = tmp_path / ".github" / "labels.yml"
+    labels.parent.mkdir()
+    labels.write_text('- name: "scope/ai"\n  color: "DCDCD6"\n  description: "AI"\n')
+    monkeypatch.setattr("devops_cli.commands.pr._checkout", lambda: tmp_path)
+
+    result = runner.invoke(
+        app, ["pr", "create", "-t", "feat(devops): a change", "-b", "", "--dry-run"]
+    )
+
+    assert result.exit_code == 1
+    assert "The scope `devops` has no label" in result.output
+
+
+def test_a_dry_run_says_would_open_not_opened() -> None:
+    """A dry run opens nothing, so its heading names the plan (#5178)."""
+    result = runner.invoke(
+        app, ["pr", "create", "-t", "feat(ai): a change", "-b", "", "-R", "owner/repo", "--dry-run"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Would open a draft pull request" in result.output
+    assert "Opened a draft pull request" not in result.output

@@ -1188,13 +1188,27 @@ def _form_checked(
     every problem to stderr and exit 1, before anything is opened. The body has the lines
     `Closes` and `Change:` only where the base branch holds `openspec/config.yaml` (#3767): another
     repository keeps its own rules for the body. `offline` skips the reads of the labels file and of
-    `openspec/config.yaml`, so a dry run makes no request, does not check the scope against the
-    labels, and takes the switch of OpenSpec from `_offline_openspec`."""
+    `openspec/config.yaml`, so a dry run makes no request. The dry run still reads the labels file
+    of this checkout, so a scope with no label is refused as the real run refuses it (#5178), and
+    it takes the switch of OpenSpec from `_offline_openspec`."""
     from devops_cli.roadmap.grounding import plan_issue
     from devops_cli.roadmap.pull_form import body_problems, plan_body_problems, title_problems
 
     declared: tuple[str, ...] | None = None
     openspec = _offline_openspec(repo) if offline else True
+    if offline and repo is None:
+        # The dry run reads the labels file of this checkout, so it refuses a scope with no label
+        # as the real run does (#5178). A run for another repository cannot read that file here,
+        # and the plan lists the read.
+        local = _checkout() / CONST_ROADMAP_LABELS_PATH
+        if local.is_file():
+            from devops_cli.github.labels import load_label_specs
+
+            try:
+                declared = tuple(spec.name for spec in load_label_specs(local))
+            except GitHubOperationError as exc:
+                print_error(str(exc), safe=True, to_stderr=True)
+                raise typer.Exit(1) from exc
     target = None if offline else _target_repo(repo)
     if target and "/" in target:
         from devops_cli.openspec.project import repository_uses_openspec
@@ -1345,7 +1359,7 @@ def create_pr(
         target = _target_repo(repo)
         plan = plan_pr_create(title=title, body=body, base=base, repo=target, head=head)
         render_request_plan(
-            MESSAGES.pr.draft_created_into.format(base=base or MESSAGES.pr.create_default_base),
+            MESSAGES.pr.draft_would_open_into.format(base=base or MESSAGES.pr.create_default_base),
             plan,
             (MESSAGES.dry_run.placeholders_note,),
         )

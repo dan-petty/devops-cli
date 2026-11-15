@@ -1567,6 +1567,10 @@ class PRMessages:
         "Opened a draft pull request: {url}. When its checks pass, mark it ready with devops pr "
         "ready."
     )
+    draft_would_open_into: str = (
+        "Would open a draft pull request into {base}. The real run checks the title, the body "
+        "and the labels before it opens anything."
+    )
     draft_created_into: str = (
         "Opened a draft pull request into {base}. When its checks pass, mark it ready with "
         "devops pr ready."

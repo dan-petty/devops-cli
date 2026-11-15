@@ -200,7 +200,7 @@ def title_problems(title: str, declared: Collection[str] | None = None) -> list[
     The title is on one line: the parser of the check `Semantic PR title` refuses a title that has
     a `\r`, a `\n`, a U+2028 or a U+2029. A scope must have its label in `declared`, the label
     names that `.github/labels.yml` holds. When `declared` is None the scope is not checked against
-    the labels, as in a dry run that reads no file."""
+    the labels, as a caller that reads no labels file."""
     texts = MESSAGES.pr
     if any(mark in title.strip() for mark in _LINE_BREAKS):
         return [texts.form_title_lines]
