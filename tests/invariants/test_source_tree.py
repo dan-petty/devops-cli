@@ -558,6 +558,10 @@ def test_the_roadmap_tests_mirror_the_roadmap_subpackages() -> None:
 
 
 # The test directories that patch no name inside devops-cli (#3769, #1336).
+# The counts over all of `tests/` on 2026-11-15 (#5248). The ratchets only fall: a new string
+# patch of a `devops_cli` name or a new private import fails, and a fix lowers the ceiling.
+_INTERNAL_PATCH_CEILING = 377
+_PRIVATE_IMPORT_CEILING = 432
 _PATCH_FREE_COMMAND_TEST_DIRECTORIES = ("tests/commands", "tests/invariants")
 _PATCH_CALLS = frozenset({"patch", "setattr"})
 
@@ -760,3 +764,21 @@ def test_unlisted_invariant_file_fails_ban(tmp_path: Path) -> None:
     assert len(violations) == 1
     assert "tests/invariants/test_unlisted.py" in violations[0]
     assert "docs/TESTING.md # Layout" in violations[0]
+
+
+def _test_tree_patches() -> list[str]:
+    return [
+        violation
+        for path in sorted((REPO_ROOT / "tests").rglob("*.py"))
+        for violation in find_devops_cli_string_patches(path)
+    ]
+
+
+def test_tests_hold_at_most_the_recorded_internal_patches() -> None:
+    """The string patches of devops-cli names over all of `tests/` only fall (#5248)."""
+    assert len(_test_tree_patches()) <= _INTERNAL_PATCH_CEILING
+
+
+def test_tests_hold_at_most_the_recorded_private_imports() -> None:
+    """The private imports from devops-cli over all of `tests/` only fall (#5248)."""
+    assert len(find_private_devops_cli_imports(REPO_ROOT / "tests")) <= _PRIVATE_IMPORT_CEILING
