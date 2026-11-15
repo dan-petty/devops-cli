@@ -126,7 +126,7 @@ def test_explain_names_the_effort_set_and_whether_the_fallback_applies(
 
     assert (explained.implement, explained.implement_effort) == (JobVerdict(True), line)
     lines = render_explanation(explained).splitlines()
-    assert lines[-2] == line
+    assert lines[-3] == line
     assert lines[-1] == (f"Issue #{medium} has no recorded implement run, so it has no totals.")
 
 
@@ -394,8 +394,25 @@ def test_the_report_gives_yes_or_no_for_each_job_and_the_reason_of_a_no() -> Non
         "Refine job: no. The item waits on a person. Reply.",
         "Stage job: no. It is claimed by human.",
         "Implement job: yes.",
+        "Follow the run with `devops roadmap follow 7`.",
         "Issue #7 has no recorded implement run, so it has no totals.",
     ]
+
+
+def test_the_output_names_the_follow_command() -> None:
+    explained = Explanation(
+        STAGE_REPO,
+        7,
+        TITLE,
+        JobVerdict(True),
+        JobVerdict(True),
+        JobVerdict(True),
+    )
+
+    assert (
+        "Follow the run with `devops roadmap follow 7`."
+        in render_explanation(explained).splitlines()
+    )
 
 
 # ── The cause of a refine wait (#3483) ───────────────────────────────────────────────────

@@ -182,13 +182,13 @@ def test_an_unknown_option_in_prose_is_refused() -> None:
 
 def test_an_unknown_subcommand_of_a_group_in_prose_is_refused() -> None:
     plan = make_stage_proposal(
-        feasibility=["Run uv run devops roadmap follow 3076 to see the job of the item."]
+        feasibility=["Run uv run devops roadmap bogus 3076 to see the job of the item."]
     )
 
     problems = command_citation_problems(plan)
 
     assert len(problems) == 1
-    assert "'follow'" in problems[0]
+    assert "'bogus'" in problems[0]
 
 
 @pytest.mark.parametrize(

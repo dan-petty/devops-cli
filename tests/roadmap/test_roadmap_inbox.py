@@ -443,13 +443,39 @@ def test_the_report_names_the_refine_section() -> None:
     inbox = Inbox(
         jobs=(
             InboxLine(
-                InboxKind.REFINE, 7, timedelta(days=2), "work: refine waits on a person", "Reply."
+                InboxKind.REFINE,
+                7,
+                timedelta(days=2),
+                "work: refine waits on a person",
+                "Reply.",
+                item=7,
             ),
         ),
         people=(),
     )
 
     assert "New items that wait on a person in refine\n  #7  2d" in render_inbox(inbox, repo=REPO)
+
+
+def test_only_a_line_that_names_an_item_holds_the_follow_command(
+    store: InMemoryRoadmapStore,
+) -> None:
+    plan = store.seed_pull("plan", head_ref="feat/1-plan")
+    number = _item(
+        store, fields={ItemField.STATUS: "Blocked"}, marks={StageRecordKey.PR: str(plan)}
+    )
+    asked = _item(
+        store,
+        "asks",
+        marks={OwnerQuestionRecordKey.HASH: "a" * 64, OwnerQuestionRecordKey.TEXT: "Which?"},
+    )
+
+    text = render_inbox(_read(store), repo=REPO)
+
+    assert text.count("devops roadmap follow") == 2
+    assert f"`devops roadmap follow {number}`" in text
+    assert f"`devops roadmap follow {asked}`" in text
+    assert f"`devops roadmap follow {plan}`" not in text
 
 
 def test_the_inbox_states_the_planned_limit_when_it_holds(store: InMemoryRoadmapStore) -> None:

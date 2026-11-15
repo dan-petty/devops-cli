@@ -37,6 +37,7 @@ from devops_cli.commands.roadmap_review import review_app
 from devops_cli.commands.roadmap_step import step_app
 from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
 from devops_cli.config.defaults import (
+    DEFAULT_LOG_TAIL_LINES,
     DEFAULT_ROADMAP_IMPLEMENT_LIMIT,
     DEFAULT_ROADMAP_REFINE_LIMIT,
     DEFAULT_TABLE_FORMAT,
@@ -1059,6 +1060,44 @@ def explain_cmd(
         write_stdout(json.dumps(explained.as_dict()) + "\n")
     else:
         write_stdout(render_explanation(explained) + "\n")
+
+
+@app.command("follow", help=HELP.roadmap.follow)
+@dry_run_class("request-plan")
+def follow_cmd(
+    item: Annotated[int, typer.Argument(min=1, help=HELP.roadmap.follow_arg)],
+    repo: RepoOption = None,
+    lines: Annotated[
+        int, typer.Option("--lines", min=1, help=HELP.roadmap.follow_lines)
+    ] = DEFAULT_LOG_TAIL_LINES,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.follow_dry_run)] = False,
+) -> None:
+    """Print the trace of the last implement run of an issue as the table of the pull request
+    comment, then the masked tail of the log of the pod of its runner Job while the Job runs."""
+    from devops_cli.k8s.cluster_job_api import ClusterJobs
+    from devops_cli.roadmap.follow import follow_state, render_recorded
+    from devops_cli.roadmap.follow_live import live_lines
+    from devops_cli.roadmap.request_plan import explain_requests
+
+    target = _target(repo)
+    if dry_run or is_dry_run():
+        reads, writes = explain_requests(target, item=item, trace=True)
+        render_dry_run("follow", target, reads, writes)
+        return
+    with _exit_on_failure("Could not read the run"):
+        _, store = _open_store(target)
+        held = store.item(item)
+    if held is None:
+        _refuse(MESSAGES.roadmap.claim_not_item.format(number=item))
+    state = follow_state(held, item)
+    recorded = render_recorded(state)
+    if recorded:
+        write_stdout(recorded + "\n")
+    if state.job is not None and state.job_state is None:
+        with _exit_on_failure("Could not read the live log"):
+            live = live_lines(ClusterJobs(), state.job, lines)
+        if live:
+            write_stdout("\n".join(live) + "\n")
 
 
 @app.command("inbox", help=HELP.roadmap.inbox)

@@ -50,6 +50,7 @@ from devops_cli.git.branch_form import issue_of_branch
 from devops_cli.github.labels import diff_labels
 from devops_cli.lang import MESSAGES
 from devops_cli.output import format_duration
+from devops_cli.roadmap.follow import follow_command
 from devops_cli.roadmap.inbox_kind import InboxKind
 from devops_cli.roadmap.planned import planned_count, planned_limit_priorities
 from devops_cli.roadmap.pull_labels import declared_specs
@@ -74,7 +75,8 @@ _PEOPLE_KINDS: Final[tuple[InboxKind, ...]] = (InboxKind.PERSON, InboxKind.OWNER
 class InboxLine:
     """One thing that waits for a person: what it is, the number of its issue or pull request
     (None when it has none), the time since its last update (None when GitHub gave none), what
-    it is about, and the one command or action that clears it."""
+    it is about, and the one command or action that clears it. `item` is the number of the item
+    that the line names, and None when the number is a pull request's (#3076)."""
 
     kind: InboxKind
     number: int | None
@@ -82,6 +84,7 @@ class InboxLine:
     subject: str
     clear: str
     old_days: int | None = None
+    item: int | None = None
 
 
 @dataclass(frozen=True)
@@ -202,7 +205,14 @@ def _blocked_line(item: Item, repo: str, now: datetime) -> InboxLine:
         key = "blocked_by" if blockers else "no_cause"
         subject = subjects[key].format(title=item.title, blockers=blockers)
         clear = clears["blocked"].format(number=item.number, repo=repo)
-    return InboxLine(InboxKind.BLOCKED, item.number, _age(now, item.updated_at), subject, clear)
+    return InboxLine(
+        InboxKind.BLOCKED,
+        item.number,
+        _age(now, item.updated_at),
+        subject,
+        clear,
+        item=item.number,
+    )
 
 
 def _blocked_lines(items: Iterable[Item], repo: str, now: datetime) -> list[InboxLine]:
@@ -242,7 +252,14 @@ def _refine_lines(items: Iterable[Item], repo: str, now: datetime) -> list[Inbox
         )
         clear = texts.inbox_clears["refine"].format(number=item.number, repo=repo)
         lines.append(
-            InboxLine(InboxKind.REFINE, item.number, _age(now, item.updated_at), subject, clear)
+            InboxLine(
+                InboxKind.REFINE,
+                item.number,
+                _age(now, item.updated_at),
+                subject,
+                clear,
+                item=item.number,
+            )
         )
     return lines
 
@@ -262,6 +279,7 @@ def _split_lines(items: Iterable[Item], now: datetime) -> list[InboxLine]:
             _age(now, item.updated_at),
             texts.inbox_subjects["split"].format(title=item.title),
             texts.inbox_clears["split"].format(number=item.number),
+            item=item.number,
         )
         for item in items
         if _open_new(item)
@@ -282,7 +300,12 @@ def _alternatives_lines(items: Iterable[Item], now: datetime) -> list[InboxLine]
         clear = texts.inbox_clears["alternatives"].format(number=item.number)
         lines.append(
             InboxLine(
-                InboxKind.ALTERNATIVES, item.number, _age(now, item.updated_at), subject, clear
+                InboxKind.ALTERNATIVES,
+                item.number,
+                _age(now, item.updated_at),
+                subject,
+                clear,
+                item=item.number,
             )
         )
     return lines
@@ -305,7 +328,14 @@ def _failed_lines(items: Iterable[Item], repo: str, now: datetime) -> list[Inbox
         )
         clear = texts.inbox_clears["failed"].format(number=item.number, repo=repo)
         lines.append(
-            InboxLine(InboxKind.FAILED, item.number, _age(now, item.updated_at), subject, clear)
+            InboxLine(
+                InboxKind.FAILED,
+                item.number,
+                _age(now, item.updated_at),
+                subject,
+                clear,
+                item=item.number,
+            )
         )
     return lines
 
@@ -325,7 +355,14 @@ def _owner_lines(items: Iterable[Item], now: datetime) -> list[InboxLine]:
         )
         clear = texts.inbox_clears["owner"].format(number=item.number)
         lines.append(
-            InboxLine(InboxKind.OWNER, item.number, _age(now, item.updated_at), subject, clear)
+            InboxLine(
+                InboxKind.OWNER,
+                item.number,
+                _age(now, item.updated_at),
+                subject,
+                clear,
+                item=item.number,
+            )
         )
     return lines
 
@@ -350,7 +387,7 @@ def _claim_lines(
             continue
         subject = texts.inbox_subjects["claim"].format(title=item.title, owner=item.owner.lower())
         clear = texts.inbox_clears["claim"].format(number=item.number, repo=repo)
-        lines.append(InboxLine(InboxKind.CLAIM, item.number, age, subject, clear))
+        lines.append(InboxLine(InboxKind.CLAIM, item.number, age, subject, clear, item=item.number))
     return lines
 
 
@@ -452,7 +489,10 @@ def _render_line(line: InboxLine) -> str:
     if line.old_days is not None:
         subject = f"{subject} {texts.inbox_old.format(days=line.old_days)}"
     head = texts.inbox_line.format(number=number, age=age, subject=subject)
-    return f"{head}\n{texts.inbox_clear.format(clear=line.clear)}"
+    parts = [head, texts.inbox_clear.format(clear=line.clear)]
+    if line.item is not None:
+        parts.append(texts.inbox_follow.format(command=follow_command(line.item)))
+    return "\n".join(parts)
 
 
 def _render_section(kind: InboxKind, lines: Sequence[InboxLine]) -> str:

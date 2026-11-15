@@ -242,3 +242,10 @@ For a New item whose job record holds `refine.failed_at` younger than the wait o
 #### Scenario: Explain prints the phase and phase age of an item
 - **WHEN** `devops roadmap explain 7` runs on an open item
 - **THEN** the output includes the phase of the item and its phase age
+
+### Requirement: Explain names the follow command of the item
+The explain command SHALL print the follow command with the number of the item, and MUST send no request for it.
+
+#### Scenario: The output of an item
+- **WHEN** A test renders the explanation of one item.
+- **THEN** The output holds the follow command followed by the number of the item.

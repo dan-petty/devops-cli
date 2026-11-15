@@ -72,6 +72,7 @@ COMMAND_SPECS = [
     (roadmap_app, ["refine", "--help"]),
     (roadmap_app, ["alternatives", "--help"]),
     (roadmap_app, ["run", "--help"]),
+    (roadmap_app, ["follow", "--help"]),
 ]
 
 

@@ -30,6 +30,7 @@ from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.git.worktree_add import read_remote_heads
 from devops_cli.lang import MESSAGES
 from devops_cli.output.formatters.scalars import format_duration
+from devops_cli.roadmap.follow import follow_command
 from devops_cli.roadmap.implement.implement import (
     ImplementPlan,
     effort_filter,
@@ -344,7 +345,8 @@ def _totals_lines(explained: Explanation) -> list[str]:
 
 def render_explanation(explained: Explanation) -> str:
     """The explanation as the report of the command: the issue, then one line for each job, the
-    line of the effort set, and the totals of the last implement run."""
+    line of the effort set, the command that follows the run of the item, and the totals of the
+    last implement run."""
     texts = MESSAGES.roadmap
     title = (
         texts.explain_title.format(
@@ -371,6 +373,7 @@ def render_explanation(explained: Explanation) -> str:
         lines.append(line.format(job=job, reason=verdict.reason))
     if explained.implement_effort:
         lines.append(explained.implement_effort)
+    lines.append(texts.explain_follow.format(command=follow_command(explained.number)))
     lines.extend(_totals_lines(explained))
     return "\n".join(lines)
 

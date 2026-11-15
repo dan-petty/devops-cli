@@ -283,7 +283,8 @@ def test_a_command_path_names_only_the_commands_and_counts_the_other_words(
     [
         (["ci", "to", "confirm", "the", "gate"], 1),
         (["roadmap", "intake", "command", "with", "gh"], 2),
-        (["roadmap", "follow", "3076", "to", "see"], 2),
+        (["roadmap", "bogus", "3076", "to", "see"], 2),
+        (["roadmap", "follow", "3076", "to", "see"], 3),
         (["gh", "pages", "verify", "--root_dir", "docs", "to", "check"], 4),
         (["format", "--check", "to", "confirm"], 2),
         (["--dry-run", "config", "show", "the", "value"], 3),
