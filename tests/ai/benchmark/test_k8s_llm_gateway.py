@@ -482,6 +482,34 @@ class TestK8sLLMGatewayManifests:
             {"devops-coder": ["devops-chat"]},
         )
 
+    def test_gateway_maps_local_and_provider_model_group_aliases(self) -> None:
+        """Verify the gateway defines model_group_alias for local/ models and provider-prefixed
+        hosted models, and that every alias targets an existing model_name (#5853)."""
+        config = _full_gateway_config()
+        router = config["router_settings"]
+        aliases = router.get("model_group_alias", {})
+        known_models = {m["model_name"] for m in config["model_list"]}
+
+        expected_aliases = {
+            "local/devops-chat": "devops-chat",
+            "local/devops-coder": "devops-coder",
+            "local/devops-reasoning": "devops-reasoning",
+            "local/devops-background": "devops-background",
+            "local/devops-review": "devops-review",
+            "local/devops-triage": "devops-triage",
+            "local/qwen3.8:27b": "qwen3.8:27b",
+            "local/qwen3-embedding:0.6b": "qwen3-embedding:0.6b",
+            "anthropic/claude-sonnet-5-5": "claude-sonnet-5-5",
+            "anthropic/claude-haiku-5-5": "claude-haiku-5-5",
+            "gemini/gemini-3.8-flash": "gemini-3.8-flash",
+            "openrouter/deepseek/deepseek-v4.1-flash-1017": "deepseek-v4.1-flash-1017",
+            "openrouter/deepseek/deepseek-v4.1-flash-1017:floor": "deepseek-v4.1-flash-1017",
+            "openrouter/deepseek/deepseek-v4.1-flash": "deepseek-v4.1-flash",
+        }
+        for alias, target in expected_aliases.items():
+            assert aliases.get(alias) == target, f"Missing or wrong alias {alias}"
+            assert target in known_models, f"Alias target {target} not in model_list"
+
     def test_each_chat_deployment_declares_the_window_of_its_tier(self) -> None:
         """Verify each `ollama_chat` deployment sets `max_input_tokens` in its top-level
         `model_info`, equal to the context length of its tier, and none hides a `model_info`
