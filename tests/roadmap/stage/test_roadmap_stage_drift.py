@@ -1,4 +1,5 @@
-"""The `plan_drift` row: an open plan pull request that the default branch broke (#3968)."""
+"""The `plan_drift` row: an open plan pull request that the default branch broke (#3968). The row
+removes only the label `plan/needs-fix` that it added (#5884)."""
 
 from __future__ import annotations
 
@@ -17,8 +18,11 @@ from devops_cli.roadmap.stage.plan_drift import (
     run_plan_drift,
 )
 from devops_cli.roadmap.stage.stage_change import render_change
+from devops_cli.roadmap.stage.stage_eval_cases import DefectType
+from devops_cli.roadmap.stores.store import IssueComment as ItemComment
 from devops_cli.roadmap.stores.store import OpenPull
 from tests.support.builders import make_stage_proposal
+from tests.support.roadmap_fix_plan import finding, stage_comment
 from tests.support.roadmap_stage import StageRepo
 
 REPO = "example/roadmap"
@@ -27,6 +31,9 @@ ISSUE = 1
 BRANCH = "plan/1-keep-the-last-comment"
 CHANGE = "1-keep-the-last-comment"
 NOW = datetime(2026, 11, 14, tzinfo=UTC)
+LABEL = "plan/needs-fix"
+TITLE = "docs(openspec): plan #1 Keep the comment"
+PROBLEM = PlanProblem("src/a.py", "paths", "not a file on the default branch")
 
 
 def _pull(title: str, number: int = PULL, *, base: str = "main") -> PullRequest:
@@ -62,10 +69,20 @@ class _Reads:
     def create_issue_comment(self, repo: str, number: int, body: str) -> None:
         del repo
         self.created.append((number, body))
+        self.comments.append(IssueComment(id=100 + len(self.comments), body=body))
 
     def update_issue_comment(self, repo: str, comment_id: int, body: str) -> None:
         del repo
         self.updated.append((comment_id, body))
+        self.comments = [
+            IssueComment(id=comment.id, body=body) if comment.id == comment_id else comment
+            for comment in self.comments
+        ]
+
+    def drift_body(self) -> str:
+        """The body of the one drift comment."""
+        (body,) = [comment.body for comment in self.comments if PLAN_DRIFT_MARKER in comment.body]
+        return body
 
 
 class _Store:
@@ -76,6 +93,11 @@ class _Store:
         self.labelled = set(labelled)
         self.added: list[tuple[int, str]] = []
         self.removed: list[tuple[int, str]] = []
+        self.item_comments: list[ItemComment] = []
+
+    def comments_on(self, number: int) -> list[ItemComment]:
+        del number
+        return list(self.item_comments)
 
     def open_pulls(self) -> list[OpenPull]:
         return self.pulls
@@ -154,24 +176,120 @@ def test_the_row_labels_and_comments_a_drifted_plan_and_skips_a_delivery(
     ) == ((PULL,), (PULL,), [(PULL, "plan/needs-fix")], [], [(11, reads.updated[0][1])], [])
 
 
-def test_the_row_clears_the_label_of_a_plan_that_passes(
+def _plan(labelled: tuple[int, ...] = ()) -> tuple[_Reads, _Store]:
+    """One open plan pull request of item #1, and the store that lists it."""
+    reads = _Reads(
+        {PULL: _pull(TITLE)},
+        {
+            PULL: IssueView(number=PULL, state="open", title="plans", body="Plans #1"),
+            ISSUE: IssueView(number=ISSUE, state="open", title="An issue", body=""),
+        },
+    )
+    return reads, _Store([_open(PULL, TITLE)], labelled=labelled)
+
+
+def _claim(reads: _Reads) -> str:
+    """The claim of the drift comment of the pull request."""
+    return str(plan_drift.drift_claim(reads.drift_body()))
+
+
+def _round(
+    store: _Store,
+    reads: _Reads,
+    path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    problems: list[PlanProblem],
+) -> None:
+    """One round of the row, in which the plan check of the pull request gives `problems`."""
+    monkeypatch.setattr(plan_drift, "default_branch", lambda *args, **kwargs: "main")
+    monkeypatch.setattr(plan_drift, "plan_drift_problems", lambda *args, **kwargs: problems)
+    run_plan_drift(store, repo=REPO, source=path, reads=reads)
+
+
+def test_the_row_clears_the_label_that_it_added_and_marks_its_comment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    reads = _Reads(
-        {PULL: _pull("docs(openspec): plan #1 Keep the comment")},
-        {PULL: IssueView(number=PULL, state="open", title="plans", body="Plans #1")},
+    reads, store = _plan()
+    _round(store, reads, tmp_path, monkeypatch, [PROBLEM])
+    assert _claim(reads) == "added"
+
+    _round(store, reads, tmp_path, monkeypatch, [])
+
+    assert (store.added, store.removed, _claim(reads)) == (
+        [(PULL, LABEL)],
+        [(PULL, LABEL)],
+        "cleared",
     )
-    store = _Store([_open(PULL, "docs(openspec): plan #1 Keep the comment")], labelled=(PULL,))
-    monkeypatch.setattr(plan_drift, "default_branch", lambda *args, **kwargs: "main")
-    monkeypatch.setattr(plan_drift, "plan_drift_problems", lambda *args, **kwargs: [])
+    assert PROBLEM.path not in reads.drift_body()
 
-    run = run_plan_drift(store, repo=REPO, source=tmp_path, reads=reads)
 
-    assert (run.checked, run.failing, store.removed, store.added) == (
-        (PULL,),
-        (),
-        [(PULL, "plan/needs-fix")],
+def test_a_label_of_the_stage_review_stays_when_the_plan_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The stage review labelled the plan and the row never found drift: the label stays, so
+    `stage_ready` keeps the draft (#5884)."""
+    reads, store = _plan(labelled=(PULL,))
+
+    _round(store, reads, tmp_path, monkeypatch, [])
+
+    assert (store.removed, store.labelled, reads.created, reads.updated) == ([], {PULL}, [], [])
+
+
+def test_a_label_held_before_the_drift_stays_when_the_plan_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reads, store = _plan(labelled=(PULL,))
+    _round(store, reads, tmp_path, monkeypatch, [PROBLEM])
+    assert _claim(reads) == "held"
+
+    _round(store, reads, tmp_path, monkeypatch, [])
+
+    assert (store.removed, store.labelled, _claim(reads)) == (
         [],
+        {PULL},
+        "cleared",
+    )
+
+
+def test_the_label_stays_while_the_last_plan_comment_lists_an_open_finding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The row added the label, and the fix-plan step later kept it for an open finding of its
+    review: the plan passes the drift check, and the label stays."""
+    reads, store = _plan()
+    _round(store, reads, tmp_path, monkeypatch, [PROBLEM])
+    store.item_comments = [
+        ItemComment(
+            body=stage_comment(PULL, [finding(DefectType.TASK_ORDER)]),
+            created_at=NOW,
+            author_association="OWNER",
+        )
+    ]
+
+    _round(store, reads, tmp_path, monkeypatch, [])
+
+    assert (store.removed, store.labelled, _claim(reads)) == (
+        [],
+        {PULL},
+        "cleared",
+    )
+
+
+def test_a_cleared_comment_leaves_a_later_label_of_another_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reads, store = _plan()
+    _round(store, reads, tmp_path, monkeypatch, [PROBLEM])
+    _round(store, reads, tmp_path, monkeypatch, [])
+    store.labelled.add(PULL)
+    updates = len(reads.updated)
+
+    _round(store, reads, tmp_path, monkeypatch, [])
+
+    assert (store.removed, store.labelled, len(reads.updated)) == (
+        [(PULL, LABEL)],
+        {PULL},
+        updates,
     )
 
 

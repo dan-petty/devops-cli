@@ -13,8 +13,13 @@ default branch, which is where a moved path is missing. It calls no model, and i
 `stage_ready`, so a drifted draft holds its label before readiness is decided.
 
 A plan with problems gets the label `plan/needs-fix` and one marked comment that lists them. A
-later round updates that comment in place, and a plan that passes again loses the label. A read
-or write failure stops the round, since every later call would fail too.
+later round updates that comment in place. The stage review, the step fix-plan and a vet write the
+same label, so the comment also holds the claim of the row (`DriftClaim`): `added` when the row
+added the label, `held` when another check held it at the first round with problems (#5884). A
+plan that passes again gets the claim `cleared`, and it loses the label only when the claim was
+`added` and the last plan comment of the item lists no open finding (`plan_comment`). A label of
+another check stays until that check clears it, so `stage_ready` keeps the draft. A read or write
+failure stops the round, since every later call would fail too.
 """
 
 from __future__ import annotations
@@ -22,6 +27,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Final, Protocol
 
@@ -43,6 +49,7 @@ from devops_cli.roadmap.plan_read import change_root, scenario_names_at, specs_a
 from devops_cli.roadmap.stage.stage_paths import StagedTree
 from devops_cli.roadmap.stage.stage_registry import registry_table
 from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL
+from devops_cli.roadmap.steps.fix_plan import comment_open_findings, plan_comment
 from devops_cli.roadmap.stores.store import RoadmapStore, split_record
 
 logger = logging.getLogger(__name__)
@@ -50,6 +57,25 @@ logger = logging.getLogger(__name__)
 PLAN_DRIFT_MARKER: Final[str] = "<!-- devops roadmap plan drift -->"
 PLAN_DRIFT_TITLE_PREFIX: Final[str] = "docs(openspec): plan #"
 GIT_OPERATION: Final[str] = "roadmap.plan-drift"
+
+
+class DriftClaim(StrEnum):
+    """What the drift comment says about the label `plan/needs-fix` (#5884)."""
+
+    ADDED = "added"
+    """The plan has problems, and the row added the label: a passing round removes it."""
+    HELD = "held"
+    """The plan has problems, and another check held the label first: the label stays."""
+    CLEARED = "cleared"
+    """The plan passes again: the comment gives no claim."""
+
+
+# The hidden line of the drift comment for each claim but `added`. A comment with the marker and
+# neither line lists problems that the row labelled.
+_CLAIM_LINES: Final[dict[DriftClaim, str]] = {
+    DriftClaim.HELD: "<!-- devops roadmap plan drift: label held -->",
+    DriftClaim.CLEARED: "<!-- devops roadmap plan drift: cleared -->",
+}
 
 
 class DriftReads(PlanReads, Protocol):
@@ -69,10 +95,29 @@ class PlanDriftRun:
     failing: tuple[int, ...] = ()
 
 
-def drift_comment(problems: Sequence[PlanProblem]) -> str:
-    """The one marked comment of a drifted plan, which lists each problem (#3968)."""
+def drift_claim(body: str) -> DriftClaim:
+    """The claim of the drift comment `body` (#5884)."""
+    return next((claim for claim, line in _CLAIM_LINES.items() if line in body), DriftClaim.ADDED)
+
+
+def drift_cleared_comment() -> str:
+    """The drift comment of a plan that passes again (#5884)."""
+    return "\n".join(
+        [
+            PLAN_DRIFT_MARKER,
+            _CLAIM_LINES[DriftClaim.CLEARED],
+            "",
+            MESSAGES.roadmap.plan_drift_comment_cleared,
+        ]
+    )
+
+
+def drift_comment(problems: Sequence[PlanProblem], *, held: bool = False) -> str:
+    """The one marked comment of a drifted plan, which lists each problem (#3968). `held` says
+    that another check held the label `plan/needs-fix` first (#5884)."""
     lines = [
         PLAN_DRIFT_MARKER,
+        *([_CLAIM_LINES[DriftClaim.HELD]] if held else []),
         "",
         MESSAGES.roadmap.plan_drift_comment_intro,
         "",
@@ -136,18 +181,43 @@ def plan_drift_problems(
     return problems
 
 
-def _update_comment(
-    writes: DriftReads, repo: str, number: int, problems: Sequence[PlanProblem]
+def _drift_comment_of(reads: DriftReads, repo: str, number: int) -> IssueComment | None:
+    """The drift comment of pull request `number`, or None when the row never wrote one."""
+    listed = reads.list_issue_comments(repo, number)
+    return next((comment for comment in listed if PLAN_DRIFT_MARKER in comment.body), None)
+
+
+def _has_open_finding(store: RoadmapStore, issue: int, pull: int) -> bool:
+    """Whether the last plan comment of item `issue` for pull request `pull` lists an open finding
+    (#5884). A line that does not read as a finding counts as one."""
+    listed = comment_open_findings(plan_comment(store, issue, pull))
+    return bool(listed.findings or listed.unreadable)
+
+
+def _clear(
+    store: RoadmapStore,
+    writes: DriftReads,
+    *,
+    repo: str,
+    pull: int,
+    issue: int,
+    comment: IssueComment | None,
 ) -> None:
-    """Keep one drift comment: create it when it is absent, and update it when its list
-    changed (#3968)."""
-    body = drift_comment(problems)
-    listed = writes.list_issue_comments(repo, number)
-    held = next((comment for comment in listed if PLAN_DRIFT_MARKER in comment.body), None)
-    if held is None:
-        writes.create_issue_comment(repo, number, body)
-    elif held.body != body:
-        writes.update_issue_comment(repo, held.id, body)
+    """Clear the claim of the drift comment `comment` of a plan that passes, and remove the label
+    `plan/needs-fix` only when the row added it and no open finding of the plan comment keeps it
+    (#5884)."""
+    if comment is None:
+        return
+    claim = drift_claim(comment.body)
+    if claim is DriftClaim.CLEARED:
+        return
+    if (
+        claim is DriftClaim.ADDED
+        and pull in store.labelled_pulls(PLAN_NEEDS_FIX_LABEL)
+        and not _has_open_finding(store, issue, pull)
+    ):
+        store.unlabel_issue(pull, PLAN_NEEDS_FIX_LABEL)
+    writes.update_issue_comment(repo, comment.id, drift_cleared_comment())
 
 
 def run_plan_drift(
@@ -185,13 +255,19 @@ def run_plan_drift(
             reads=reads,
             branch=branch,
         )
+        comment = _drift_comment_of(reads, repo, pull.number)
         if not problems:
-            if pull.number in store.labelled_pulls(PLAN_NEEDS_FIX_LABEL):
-                store.unlabel_issue(pull.number, PLAN_NEEDS_FIX_LABEL)
+            _clear(store, reads, repo=repo, pull=pull.number, issue=issue, comment=comment)
             continue
         failing.append(pull.number)
+        added = comment is not None and drift_claim(comment.body) is DriftClaim.ADDED
+        labelled = pull.number in store.labelled_pulls(PLAN_NEEDS_FIX_LABEL)
+        body = drift_comment(problems, held=labelled and not added)
         store.label_issue(pull.number, PLAN_NEEDS_FIX_LABEL)
-        _update_comment(reads, repo, pull.number, problems)
+        if comment is None:
+            reads.create_issue_comment(repo, pull.number, body)
+        elif comment.body != body:
+            reads.update_issue_comment(repo, comment.id, body)
         logger.info(
             MESSAGES.roadmap.plan_drift_failed.format(
                 repo=repo, pull=pull.number, problems=len(problems)
