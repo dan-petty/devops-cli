@@ -18,7 +18,7 @@ roadmap job result: job=<job> repo=<owner/repo> item=#<n> result=<result> succes
 - `infra` is `true` for a class that a cut of the infrastructure gives: `provider`, `ci_infra`, `oom` and `limit_reached`. The ratio of the dashboard counts these attempts as failures and shows their share apart. The job grade leaves them out of `p`.
 - The counts and the names of the job follow, and the devops-cli version ends the line, so a query can compare two images.
 
-The Service logs the line as JSON on stdout, with the line in the field `message`. A Job pod logs the plain line on stderr: `devops roadmap stage --job-item` and `devops roadmap step fix-plan` write it there, because a CLI process has no handler for the `INFO` records of `roadmap/job_result.py` (#5363, #5556).
+The Service logs the line as JSON on stdout, with the line in the field `message`. A Job pod logs the plain line on stderr: `devops roadmap stage --job-item` and `devops roadmap step fix-plan` write it there (#5363, #5556). The OpenTelemetry logging handler sends `INFO` records of `roadmap/job_result.py` to the collector, so a local run and an agent session also export their result lines (#5169).
 
 A line holds no text of an issue, of a model or of a log. Each value is a number or a fixed name. The writer changes a value with another character than a letter, a digit, `_`, `-` or `.` to `other`. `src/devops_cli/roadmap/job_result.py` holds the form and the table below.
 
