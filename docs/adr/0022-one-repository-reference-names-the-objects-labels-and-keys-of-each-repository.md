@@ -157,3 +157,4 @@ The pull request of #4792 amends section 2 on 2026-11-12. It adds the rows `reso
 The pull request of #5061 amends section 2 on 2026-11-12. It adds the row `fix-plan` of ADR 0021 section 8. The merge of that pull request is the approval of the amendment.
 
 2026-11-12: Fact out of date: the record of the move of the Service work is [ADR 0021](0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md) (#4617).
+2026-11-15: Living detail moved to `ServiceRow` in `src/devops_cli/github/repo_ref.py` (#5290).

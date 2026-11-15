@@ -312,3 +312,22 @@ def test_a_name_segment_and_a_repository_name_hold_only_github_name_characters(
     text: str, segment: bool, repository: bool
 ) -> None:
     assert (is_name_segment(text), is_repository_name(text)) == (segment, repository)
+
+
+def test_every_service_row_fits_a_name_and_none_is_repair() -> None:
+    """The rows of the roadmap Service are short name segments, and `repair` is not one of them
+    (#5290)."""
+    rows = [row.value for row in ServiceRow]
+
+    assert [row for row in rows if len(row) > 12] == []
+    assert "repair" not in rows
+    assert {
+        "brain",
+        "resolve",
+        "group",
+        "split",
+        "watch",
+        "fix-checks",
+        "fix-conflict",
+        "fix-plan",
+    } <= set(rows)
