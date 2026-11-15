@@ -40,9 +40,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/inbox.py`, `src/devops_cli/roadma
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/explain.py`, `src/devops_cli/roadmap/follow.py`. Changes: `src/devops_cli/roadmap/explain.py`, `tests/roadmap/test_roadmap_explain.py`.
 
-- [ ] 5.1 Add `tests/roadmap/test_roadmap_explain.py::test_the_output_names_the_follow_command` first: the explanation of an item holds the follow command followed by its number
+- [x] 5.1 Add `tests/roadmap/test_roadmap_explain.py::test_the_output_names_the_follow_command` first: the explanation of an item holds the follow command followed by its number
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_explain.py` fails on the base
-- [ ] 5.2 Print the follow command of the item from `render_explanation` in `src/devops_cli/roadmap/explain.py`, with `explained.number` and `follow_command`, and send no request for it
+- [x] 5.2 Print the follow command of the item from `render_explanation` in `src/devops_cli/roadmap/explain.py`, with `explained.number` and `follow_command`, and send no request for it
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_explain.py` passes
 
 ## 6. Document the command and its access
