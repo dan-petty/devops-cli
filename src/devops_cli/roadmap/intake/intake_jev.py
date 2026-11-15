@@ -262,7 +262,11 @@ async def _decide_in_context(
     """One request inside the context of the model. Each request runs on its own event loop,
     and the context makes a provider that owns its client replace one that a closed loop left."""
     async with decider:
-        return await decider.decide(request, settings)
+        response = await decider.decide(request, settings)
+    from devops_cli.ai.jev import record_jev_spend
+
+    record_jev_spend(response)
+    return response
 
 
 async def _decide_and_close(
