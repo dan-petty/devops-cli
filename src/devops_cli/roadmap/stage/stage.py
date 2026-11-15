@@ -587,14 +587,20 @@ class _Judge:
             (kind.BLOCKED, self._recorded_blocker),
             (kind.PLANNED, self._planned_on_default),
             *([] if named else [(kind.REJECTED, self._rejected)]),
+            *(
+                []
+                if named
+                else [
+                    (kind.RECORDED_SPLIT, self._recorded_split),
+                    (kind.FAILED_LATELY, self._failed_lately),
+                ]
+            ),
             (kind.HELD, self._held),
             (kind.STAGE_JOB, self._stage_job),
             (kind.REDACTED, self._secret),
         ]
         if not named:
             checks += [
-                (kind.RECORDED_SPLIT, self._recorded_split),
-                (kind.FAILED_LATELY, self._failed_lately),
                 (kind.QUEUE_FULL, self._queue_full),
             ]
         return next(
@@ -1522,8 +1528,54 @@ class _Planner:
             kept = None
         if kept is None:
             delete_plan_record(path)
+            kept = self._kept_from_branch(target, key)
         emit(ROADMAP_STAGE_PLAN_RECORD_TOTAL, 1, {"result": "miss" if kept is None else "hit"})
         return kept, key
+
+    def _kept_from_branch(self, target: StageTarget, key: str) -> StagePlanRecord | None:
+        """The plan from the item's branch on origin, when the branch holds a checked plan (#5499)."""
+        from devops_cli.roadmap.plan_read import (
+            PlanReadError,
+            change_root,
+            files_at,
+            read_change,
+            tree_files,
+        )
+
+        try:
+            tip = _git(self._source, "rev-parse", "--verify", f"origin/{target.branch}").strip()
+        except GitOperationError:
+            return None
+        try:
+            default = default_branch(self._source, operation=_GIT_OPERATION)
+            base_sha = _git(self._source, "rev-parse", "--verify", f"origin/{default}").strip()
+        except GitOperationError:
+            return None
+        if not tip or tip == base_sha:
+            return None
+        try:
+            paths = tree_files(self._source, tip, operation=_GIT_OPERATION)
+            root, _ = change_root(paths, target.item.number)
+            if root is None:
+                return None
+            change_files = files_at(
+                self._source,
+                tip,
+                [p for p in paths if p.startswith(f"{root}/")],
+                operation=_GIT_OPERATION,
+            )
+            proposal = read_change(change_files)
+            summary = target.item.title.partition(":")[2].strip()
+            if summary:
+                proposal = proposal.model_copy(update={"summary": summary})
+            return StagePlanRecord(
+                key=key,
+                proposal=proposal,
+                request=self._request(target),
+                facts=PlanFacts.of(None, proposal),
+            )
+        except GitOperationError, PlanReadError, KeyError, ValueError, OSError:
+            return None
 
     def _keep(
         self,
@@ -2686,6 +2738,33 @@ def _rejections(
     return Rejections(tuple(found), tuple(kept), read.failures)
 
 
+def _resumable_branches(
+    store: RoadmapStore, source: Path, heads: str, job: str | None = None
+) -> list[str]:
+    """The branches on origin for open Ready items where only the App wrote and this job may resume (#5499)."""
+    from devops_cli.git.branch_form import parse_branch
+    from devops_cli.roadmap.stores.store import ScaffoldRecordKey
+
+    pushed = set(remote_branches(heads))
+    resumable: list[str] = []
+    for item in store.items():
+        if item.state is not GitHubState.OPEN or item.status != CONST_ROADMAP_STATUS_READY:
+            continue
+        checkout = item.job_record.get(StageRecordKey.JOB)
+        if checkout is not None and checkout != job:
+            continue
+        has_scaffold = bool(item.job_record.get(ScaffoldRecordKey.BRANCH))
+        has_pending = bool(item.job_record.get(StageRecordKey.PENDING))
+        if not (has_scaffold or has_pending):
+            continue
+        for branch in pushed:
+            parts = parse_branch(branch)
+            if parts is not None and parts.issue == item.number:
+                if _foreign_commits(source, branch) == 0:
+                    resumable.append(branch)
+    return resumable
+
+
 def _heads_after(heads: str, deleted_branches: Iterable[str | None]) -> str:
     """The heads of `origin` (`git ls-remote --heads`) without the branches that the writes of the
     run delete: the branches of the rejections and of the own orphans of a stage Job. An item whose
@@ -2814,7 +2893,13 @@ def read_stage_round(
             limit=limit,
             planned_limit=settings.planned_limit,
             item_number=item_number,
-            heads=_heads_after(heads, _own_orphans(orphans, job, every=every_orphan)),
+            heads=_heads_after(
+                heads,
+                (
+                    *_own_orphans(orphans, job, every=every_orphan),
+                    *_resumable_branches(store, source, heads, job=job),
+                ),
+            ),
             planned=planned,
             now=now,
             rejected={found.number: found.plan for found in rejections.found},
@@ -3252,7 +3337,8 @@ def _commit_and_push(path: Path, change: StagedChange) -> str:
     target = change.target
     write_change_files(path, change.files)
     _git(path, "add", "--", f"{_CHANGES_DIRECTORY}/{target.change}")
-    _git(path, "commit", "-q", "-m", change.title, "-m", f"Plans #{target.item.number}.")
+    if _git(path, "status", "--porcelain").strip():
+        _git(path, "commit", "-q", "-m", change.title, "-m", f"Plans #{target.item.number}.")
     _rebase_onto_default(path)
     sha = _git(path, "rev-parse", "HEAD")
     _git(path, "push", "-q", "-u", "origin", target.branch)
@@ -3550,11 +3636,13 @@ def _remove_staged(store: RoadmapStore, repo: str, source: Path, removal: Remova
     """Close the draft of a closed item and delete its branch, then clear the keys of the plan of
     the item but its failure ledger (`STAGE_REMOVAL_KEYS`), which keeps the check-out of a stage
     Job, the failure marks, the count toward the split and the free evictions (#4559). A branch
-    that is gone needs only the record cleared."""
+    that is gone needs only the record cleared. Under #5499, an App-only branch of a Ready item
+    is kept so the stage pipeline can resume on it."""
     if not removal.gone:
         if removal.pull is not None:
             get_github_session().client.close_pull(repo, removal.pull)
-        _git(source, "push", "origin", "--delete", removal.branch)
+        if not (removal.orphan and removal.item.status == CONST_ROADMAP_STATUS_READY):
+            _git(source, "push", "origin", "--delete", removal.branch)
     store.set_marks(removal.item, dict.fromkeys(STAGE_REMOVAL_KEYS))
 
 

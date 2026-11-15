@@ -702,4 +702,23 @@ devops roadmap step fix-plan [OPTIONS]
 | `--confirm` | `boolean` | - | Run the attempt: call the models, push a better revision, and write the label, the comment and the record. It acts in every mode of roadmap.fix_plan.mode. |
 | `--skip-wait` | `boolean` | - | Leave out the wait of 6 hours after the last attempt, for the one item that --item or --pull names. Needs --confirm. The limits of roadmap.fix_plan.head_attempts on the head and roadmap.fix_plan.revisions stay, but a head whose counted attempts ran on an older release gets one more attempt. The Service never uses it. |
 
+### `devops roadmap step scaffold`
+
+**Make, resume, adopt or hold the item branch for a roadmap stage run (#5499).**
+
+```bash
+devops roadmap step scaffold [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--source` | `path` | - | Path to a clone of the repository at its default branch. Without it, the job clones the repository into its own model clone, updates it, and uses it. |
+| `--item`, `-i` | `integer` | - | Number of the item to scaffold. |
+| `--kind`, `-k` | `string` | `plan` | Kind of the scaffold step (plan or delivery). |
+| `--slug` | `string` | - | Slug of the change folder or branch. |
+| `--dry-run` | `boolean` | - | Make no request to GitHub or git, and write no record key. |
+
 ---

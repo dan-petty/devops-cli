@@ -442,6 +442,12 @@ class OwnerQuestionRecordKey(StrEnum):
     ANSWER = "owner_question.answer"
 
 
+class ScaffoldRecordKey(StrEnum):
+    """What the scaffold step records in an Item's job record (#5499): the item branch."""
+
+    BRANCH = "scaffold.branch"
+
+
 JobRecord = dict[
     ItemField
     | RefineRecordKey
@@ -452,7 +458,8 @@ JobRecord = dict[
     | RetitleRecordKey
     | IntakeRecordKey
     | ConsolidateRecordKey
-    | OwnerQuestionRecordKey,
+    | OwnerQuestionRecordKey
+    | ScaffoldRecordKey,
     str | None,
 ]
 
@@ -754,6 +761,7 @@ _JOB_RECORD_KEYS = frozenset(
         *IntakeRecordKey,
         *ConsolidateRecordKey,
         *OwnerQuestionRecordKey,
+        *ScaffoldRecordKey,
     )
 )
 
@@ -1281,6 +1289,7 @@ __all__ = [
     "RepositoryFacts",
     "RetitleRecordKey",
     "RoadmapStore",
+    "ScaffoldRecordKey",
     "StageRecordKey",
     "Verdict",
     "as_utc",
