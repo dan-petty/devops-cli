@@ -763,3 +763,19 @@ def test_a_group_that_changes_a_file_an_earlier_group_creates_is_not_reported(
     result = _run(stage_repo, _facts(stage_repo, sha=sha))
 
     assert [problem.rule for problem in result.problems if problem.rule == "group-no-files"] == []
+
+
+def test_a_moved_pull_ref_does_not_change_the_tree(stage_repo: StageRepo) -> None:
+    """The check reads the tree of the head commit that the pull request names, so another fetch
+    or a moved ref does not change the result (#5255)."""
+    sha = _push(stage_repo, _change())
+    stage_repo.git("push", "-q", "origin", f"{sha}:refs/heads/plan-a")
+    stage_repo.git("switch", "-q", "main")
+    (stage_repo.clone / "README.md").write_text("another commit\n", encoding="utf-8")
+    stage_repo.git("add", "-A")
+    stage_repo.git("commit", "-q", "-m", "another commit")
+    stage_repo.git("push", "-q", "--force", "origin", f"HEAD:refs/pull/{PULL}/head")
+
+    result = _run(stage_repo, _facts(stage_repo, sha=sha))
+
+    assert result.problems == ()
