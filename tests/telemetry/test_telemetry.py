@@ -21,7 +21,7 @@ from devops_cli.telemetry.tracer import (
     trace_span,
 )
 from tests.support.fakes.clock import ClockFake
-from tests.support.fakes.otlp import FakeCollector
+from tests.support.fakes.otlp import FakeCollector, plain_attributes
 from tests.support.waits import POLL_INTERVAL_SECONDS
 
 METRIC_RESOURCE_KEYS = frozenset(
@@ -846,4 +846,37 @@ def test_span_holds_vcs_attributes_when_working_directory_is_in_a_repository(
         "vcs.branch": "feat/example",
         "vcs.revision_id": revision,
         "vcs.commit": revision,
+    }
+
+
+def test_a_group_body_sends_the_subcommand_histogram_point(otlp: FakeCollector) -> None:
+    """A group that runs its own body sends one point, with the group in both labels (#5192)."""
+    from typer.testing import CliRunner
+
+    from devops_cli.core.cli import new_typer
+    from devops_cli.telemetry.tracer import get_tracer
+
+    app = new_typer()
+    group = new_typer()
+
+    @group.callback(invoke_without_command=True)
+    def group_body() -> None:
+        pass
+
+    app.add_typer(group, name="grp")
+    result = CliRunner().invoke(app, ["grp"])
+    assert result.exit_code == 0, result.output
+
+    get_tracer().flush()
+    (metric,) = [
+        metric
+        for metric in otlp.metrics
+        if metric["name"] == "devops_cli_subcommand_duration_seconds"
+    ]
+    (point,) = metric["exponentialHistogram"]["dataPoints"]
+
+    assert plain_attributes(point["attributes"]) == {
+        "command": "grp",
+        "sub_command": "grp",
+        "status": "ok",
     }

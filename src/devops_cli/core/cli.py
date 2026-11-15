@@ -301,11 +301,29 @@ class OTelTyper(typer.Typer):
         decorator = super().callback(*args, **kwargs)
 
         def wrapper(f: _CommandFunc) -> _CommandFunc:
-            # A callback with `invoke_without_command=True` is the body of its command.
+            # A callback with `invoke_without_command=True` is the body of its command, and a run
+            # with no sub-command sends the point of `devops_cli_subcommand_duration_seconds`
+            # (#5192). A run with a sub-command leaves the point to that command, so the group
+            # and the sub-command do not both count it.
             @functools.wraps(f)
             def reported_fn(*f_args: Any, **f_kwargs: Any) -> Any:
+                from typer._click.globals import get_current_context
+
                 with _report_devops_error():
-                    return f(*f_args, **f_kwargs)
+                    context = (
+                        f_args[0]
+                        if f_args and isinstance(f_args[0], typer.Context)
+                        else get_current_context(silent=True)
+                    )
+                    if context is not None and context.invoked_subcommand is not None:
+                        return f(*f_args, **f_kwargs)
+                    require_working_directory()
+                    name = (
+                        context.info_name
+                        if context is not None
+                        else getattr(f, "__name__", "group")
+                    )
+                    return _execute_traced_cli_command(f, f_args, f_kwargs, str(name))
 
             decorator(reported_fn)
             return f
