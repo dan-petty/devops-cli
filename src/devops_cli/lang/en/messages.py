@@ -5114,6 +5114,11 @@ class RoadmapMessages:
         "to `reads`, to the `Changes:` line or to a task of the group: the implement job cannot "
         "edit a test that the plan leaves out."
     )
+    stage_problem_workflow_contract: str = (
+        "Group {group} changes the workflow `{path}` and its `changes` holds no `{test}`. Add "
+        "the contract test to `changes`, and write its case in this group: actionlint and "
+        "zizmor pass without a test of the change."
+    )
     stage_problem_constant_mismatch: str = (
         "{constant} is {staged} in the staged tree, but the plan says {plan}."
     )
