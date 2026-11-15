@@ -609,6 +609,12 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     "CONST_ROADMAP_EVAL_DETAIL_NAMES": ("kept", "names in the report of an eval"),
     "CONST_ROADMAP_EVAL_TASK_CHARS": ("kept", "the task text in the report of an eval"),
     "CONST_ROADMAP_EVAL_DETAIL_CHARS": ("kept", "the detail text in the report of an eval"),
+    "DEFAULT_ROADMAP_EVAL_HARBOR_TIMEOUT_SECONDS": (
+        "kept",
+        "the time limit of one trial, written into the task configuration of the task; the "
+        "export option sets it for one run, and the task format of the pinned Harbor version "
+        "reads it",
+    ),
     "CONST_ROADMAP_INBOX_CLAIM_DAYS": ("other", "the age at which a claim of an item ends"),
     "CONST_ROADMAP_INBOX_LABEL_NAMES": ("kept", "labels of an item in the inbox"),
     "DEFAULT_ROADMAP_INTAKE_SHORTLIST": (

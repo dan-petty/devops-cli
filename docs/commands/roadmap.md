@@ -593,6 +593,53 @@ devops roadmap eval grades [OPTIONS]
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Send no request: print the LogQL queries that a run sends. |
 
+### `devops roadmap eval harbor`
+
+**Export an implement eval fixture as a Harbor task, and run the trials of one task with the Harbor command line. Harbor (harbor-framework/harbor) runs one agent on one task in a container N times and reports the reward of each trial, so the numbers compare with those of another harness. Both commands are on demand and no part of `devops ci`, and the harbor program and the Docker engine go through the process seam.**
+
+```bash
+devops roadmap eval harbor COMMAND [ARGS]...
+```
+
+#### `devops roadmap eval harbor export`
+
+**Write one Harbor task folder for each chosen fixture: instruction.md, the environment Dockerfile, tests/test.sh and task.toml. The instruction holds the issue and the plan of the fixture, and the test script writes the reward of a trial. A fixture that lacks its issue text, a plan file or a test command is refused.**
+
+```bash
+devops roadmap eval harbor export [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--fixture`, `-F` | `string` | - | Export only the fixture with this name. Repeat the option. Without it, export every fixture. |
+| `--fixtures` | `path` | - | Folder of the fixtures. Without it, the command uses tests/fixtures/roadmap_eval/implement of this checkout. |
+| `--out` | `path` | - | Folder of the task folders. Without it, the command writes them under eval/harbor/tasks of the data directory. |
+| `--timeout` | `integer` | `600` | Time limit of one trial in seconds, written into the task configuration. The default is 600. |
+| `--json` | `boolean` | - | Print the report as JSON. |
+| `--dry-run` | `boolean` | - | Write no file: list the task folders that an export would write. |
+
+#### `devops roadmap eval harbor run`
+
+**Run N trials of one Harbor task folder with the harbor program, read the reward and the cost of each trial, and write the pass rate, the trial count and the total cost as result.json under eval/harbor of the data directory. A trial with no reward or no cost is refused.**
+
+```bash
+devops roadmap eval harbor run [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--task` | `path` | - | Folder of the Harbor task to run. |
+| `--trials` | `integer` | `1` | Number of trials of the task. The default is 1. |
+| `--agent` | `string` | - | Agent that Harbor runs, by its import path (`module.path:ClassName`). The default is the Coder harness of the Service. |
+| `--model` | `string` | - | Model of the agent. The default is devops-coder. |
+| `--provider` | `string` | - | Sandbox provider of the trial. The default is docker, the Docker engine of the workstation. |
+| `--json` | `boolean` | - | Print the report as JSON. |
+| `--dry-run` | `boolean` | - | Start no program: print the harbor command that a run would start, with a placeholder for the folder of its job. |
+
 ---
 
 ## `devops roadmap review`

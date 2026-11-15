@@ -2006,6 +2006,60 @@ class RoadmapCommandHelp:
         "With --check-only: clone the base, apply each recorded diff and run the two properties "
         "that run commands."
     )
+    eval_harbor_app: str = (
+        "Export an implement eval fixture as a Harbor task, and run the trials of one task with "
+        "the Harbor command line. Harbor (harbor-framework/harbor) runs one agent on one task in "
+        "a container N times and reports the reward of each trial, so the numbers compare with "
+        "those of another harness. Both commands are on demand and no part of `devops ci`, and "
+        "the harbor program and the Docker engine go through the process seam."
+    )
+    eval_harbor_export: str = (
+        "Write one Harbor task folder for each chosen fixture: instruction.md, the environment "
+        "Dockerfile, tests/test.sh and task.toml. The instruction holds the issue and the plan of "
+        "the fixture, and the test script writes the reward of a trial. A fixture that lacks its "
+        "issue text, a plan file or a test command is refused."
+    )
+    eval_harbor_fixture: str = (
+        "Export only the fixture with this name. Repeat the option. Without it, export every "
+        "fixture."
+    )
+    eval_harbor_fixtures: str = (
+        "Folder of the fixtures. Without it, the command uses tests/fixtures/roadmap_eval/"
+        "implement of this checkout."
+    )
+    eval_harbor_out: str = (
+        "Folder of the task folders. Without it, the command writes them under eval/harbor/tasks "
+        "of the data directory."
+    )
+    eval_harbor_timeout: str = (
+        "Time limit of one trial in seconds, written into the task configuration. The default is "
+        "600."
+    )
+    eval_harbor_json: str = "Print the report as JSON."
+    eval_harbor_export_dry_run: str = (
+        "Write no file: list the task folders that an export would write."
+    )
+    eval_harbor_run: str = (
+        "Run N trials of one Harbor task folder with the harbor program, read the reward and the "
+        "cost of each trial, and write the pass rate, the trial count and the total cost as "
+        "result.json under eval/harbor of the data directory. A trial with no reward or no cost "
+        "is refused."
+    )
+    eval_harbor_task: str = "Folder of the Harbor task to run."
+    eval_harbor_trials: str = "Number of trials of the task. The default is 1."
+    eval_harbor_agent: str = (
+        "Agent that Harbor runs, by its import path (`module.path:ClassName`). The default is "
+        "the Coder harness of the Service."
+    )
+    eval_harbor_model: str = "Model of the agent. The default is devops-coder."
+    eval_harbor_provider: str = (
+        "Sandbox provider of the trial. The default is docker, the Docker engine of the "
+        "workstation."
+    )
+    eval_harbor_run_dry_run: str = (
+        "Start no program: print the harbor command that a run would start, with a placeholder "
+        "for the folder of its job."
+    )
     inbox: str = (
         "List what waits for a person in each repository of service.repos, or in the one that "
         "--repo names. Each line has its number, its age and the step that clears it, and an old "
