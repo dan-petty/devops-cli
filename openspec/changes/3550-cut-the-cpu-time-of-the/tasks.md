@@ -38,9 +38,9 @@ Kind: other. Reads: `tests/gate/startup_imports.py`, `tests/commands/test_cli_st
 
 Kind: other. Reads: `docs/TESTING.md`, `tests/gate/startup_imports.py`. Changes: `docs/TESTING.md`.
 
-- [ ] 5.1 Edit the sentence on the `startup-imports` row of `docs/TESTING.md` so it says that the row fails when the root help leaves `pydantic` loaded and that it prints the child CPU time of each probe
+- [x] 5.1 Edit the sentence on the `startup-imports` row of `docs/TESTING.md` so it says that the row fails when the root help leaves `pydantic` loaded and that it prints the child CPU time of each probe
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 5.2 Edit `docs/TESTING.md` so its sentence on the `startup-imports` row names the pydantic rule of the root help and the CPU line of each probe
+- [x] 5.2 Edit `docs/TESTING.md` so its sentence on the `startup-imports` row names the pydantic rule of the root help and the CPU line of each probe
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
