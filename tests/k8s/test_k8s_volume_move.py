@@ -657,7 +657,12 @@ def test_the_copy_pods_mount_each_claim_on_its_own_node(
     }
     assert pods["grafana-dst"]["nodeSelector"] == {"kubernetes.io/hostname": WORKER_B}
     assert pods["grafana-src"]["tolerations"] == [
-        {"key": "example.com/dedicated", "operator": "Exists"}
+        {"key": "example.com/dedicated", "operator": "Exists"},
+        {
+            "key": "node.kubernetes.io/unschedulable",
+            "operator": "Exists",
+            "effect": "NoSchedule",
+        },
     ]
     assert [
         (spec["volumes"][0]["persistentVolumeClaim"], spec["containers"][0]["volumeMounts"][0])

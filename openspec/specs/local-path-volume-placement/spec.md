@@ -127,3 +127,10 @@ A failure from the delete request of the old claim on SHALL resume no Applicatio
 #### Scenario: A dry run
 - **WHEN** `devops k8s volume move monitoring/grafana --dry-run` runs
 - **THEN** no process starts, and the printed requests put the pause before the scale, the copy before the comparison, the delete of the claim before the `claimRef` patch, and the resume last
+
+### Requirement: The source copy pod tolerates a cordon
+`devops k8s volume move` SHALL give the source copy pod a toleration of `node.kubernetes.io/unschedulable` with `operator: Exists` and `effect: NoSchedule`, in addition to the tolerations of the workload pod.
+
+#### Scenario: A move off a cordoned node
+- **WHEN** the source node is cordoned and its workload pod holds no toleration for the unschedulable taint
+- **THEN** the source copy pod schedules on that node and the move completes

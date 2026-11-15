@@ -44,6 +44,7 @@ from devops_cli.config.constants import (
     CONST_K8S_RETENTION_DELETE,
     CONST_K8S_SCALABLE_WORKLOAD_KINDS,
     CONST_K8S_SUBDOMAIN_RE,
+    CONST_K8S_UNSCHEDULABLE_TAINT,
     CONST_K8S_VOLUME_MOVE_CLAIM_SUFFIX,
     CONST_K8S_VOLUME_MOVE_DESTINATION_DIR,
     CONST_K8S_VOLUME_MOVE_DESTINATION_SUFFIX,
@@ -423,8 +424,17 @@ def _copy_pod_manifest(plan: VolumeMovePlan, *, destination: bool) -> dict[str, 
     }
     if destination:
         spec["nodeSelector"] = {CONST_K8S_HOSTNAME_LABEL: plan.target_hostname}
-    elif plan.source_tolerations:
-        spec["tolerations"] = list(plan.source_tolerations)
+    else:
+        # The source node is often cordoned, and the workload pod has no toleration for the taint
+        # that a cordon adds, so the source copy pod must carry one itself (#5305).
+        spec["tolerations"] = [
+            *plan.source_tolerations,
+            {
+                "key": CONST_K8S_UNSCHEDULABLE_TAINT,
+                "operator": "Exists",
+                "effect": "NoSchedule",
+            },
+        ]
     return {
         "apiVersion": "v1",
         "kind": "Pod",
