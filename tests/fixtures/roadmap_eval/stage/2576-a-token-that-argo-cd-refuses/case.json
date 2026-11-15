@@ -46,6 +46,15 @@
    ]
   },
   {
+   "type": "verify_form",
+   "severity": "major",
+   "where": "tasks.md (group 1), plan.json group 1 verify",
+   "problem": "Group 1 is a `behavior` group whose `verify` command runs `tests/test_argo_credentials.py`, and the group names that test module in none of `test`, `changes`, `creates` or `reads`: `reads` and `creates` are empty, `changes` holds only `src/devops_cli/argo/credentials.py`, and the `test` text names no code span. The rule of #3463 refuses the plan for that reason, so an implementer cannot tell which test module the group owns.",
+   "evidence": "plan.json group 1: \"reads\": [], \"creates\": [], \"changes\": [\"src/devops_cli/argo/credentials.py\"], \"verify\": \"uv run devops ci test tests/test_argo_credentials.py\", and its `test` text holds no code span. The replay of the paths gate gives: 'Group 1 gives the `verify` command `uv run devops ci test tests/test_argo_credentials.py`, which runs no test module of the group. Run a test module of the group.'",
+   "gate": "paths",
+   "message": "which runs no test module of the group"
+  },
+  {
    "type": "criterion_dropped",
    "severity": "major",
    "where": "proposal.md, design.md, tasks.md",
