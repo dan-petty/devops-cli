@@ -74,8 +74,8 @@ class StoreSpy:
         return attr
 
 
-# Just under the shortest interval of the hourly rows (refine, 17 minutes), and over all of them.
-UNDER_MINUTES = 16
+# Just under the shortest interval of the hourly rows (refine, 7 minutes), and over all of them.
+UNDER_MINUTES = 6
 
 
 OVER_AGO = NOW - timedelta(minutes=61)
@@ -133,6 +133,7 @@ def test_due_table_scenarios(seeded_store: InMemoryRoadmapStore, tmp_path: Path)
     """Intake is due by its interval, a first run, an opened issue's webhook and a reopen a poll
     reads; a close, a label and the store's own write make nothing due. Intake placing a
     critical fix or a P0 item makes refine due in the same round."""
+    seeded_store._roadmap.clock = lambda: NOW - timedelta(minutes=UNDER_MINUTES - 1)
     person = seeded_store.as_actor("alice")
     planned_item = person.seed_issue("Planned bug", milestone=PLANNED, fields=PLACED)
     other_item = person.seed_issue("Backlog item", fields=PLACED)
@@ -250,7 +251,7 @@ def test_refine_is_due_at_its_interval_after_its_last_success_and_on_a_first_run
     monkeypatch: pytest.MonkeyPatch,
     cli: Callable[..., Any],
 ) -> None:
-    """Refine is due 17 min after its last success, not at 16, and on a first run; the CLI's dry
+    """Refine is due 7 min after its last success, not at 6, and on a first run; the CLI's dry
     run lists it (#1515)."""
     table = build_stub_table(include_refine=True)
 
@@ -266,12 +267,12 @@ def test_refine_is_due_at_its_interval_after_its_last_success_and_on_a_first_run
             REPO, seeded_store, table=table, data_dir=tmp_path, dry_run=True, now=NOW
         )
 
-    at_17, at_16, first = due(timedelta(minutes=17)), due(timedelta(minutes=16)), due(None)
+    at_7, at_6, first = due(timedelta(minutes=7)), due(timedelta(minutes=6)), due(None)
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
     _stamp_the_default_table(tmp_path, except_for=("refine",), refine=timedelta(minutes=61))
     result = cli(["roadmap", "run", "--dry-run", "-R", REPO])
 
-    assert (at_17, at_16, first, result.exit_code, "Due: refine\n" in result.output) == (
+    assert (at_7, at_6, first, result.exit_code, "Due: refine\n" in result.output) == (
         ("refine",),
         (),
         ("refine",),

@@ -44,11 +44,15 @@ def _reset_process_snapshot() -> Generator[None]:
 
 @functools.cache
 def _gateway_groups() -> dict[str, tuple[dict[str, Any], ...]]:
-    """The deployments of each group of the gateway config, by group name."""
+    """The deployments of each group of the gateway config, by group name, including aliases."""
     config = yaml.safe_load(_GATEWAY_CONFIG.read_text(encoding="utf-8"))
     groups: dict[str, list[dict[str, Any]]] = {}
     for entry in config["model_list"]:
         groups.setdefault(entry["model_name"], []).append(entry)
+    aliases = config.get("router_settings", {}).get("model_group_alias", {})
+    for alias, target in aliases.items():
+        if target in groups and alias not in groups:
+            groups[alias] = groups[target]
     return {name: tuple(entries) for name, entries in groups.items()}
 
 
@@ -58,10 +62,12 @@ def _is_hosted(group: str) -> bool:
 
 
 def _hosted_deployments() -> list[tuple[str, dict[str, Any]]]:
+    config = yaml.safe_load(_GATEWAY_CONFIG.read_text(encoding="utf-8"))
+    direct_groups = {entry["model_name"] for entry in config["model_list"]}
     return [
         (group, deployment)
         for group, deployments in _gateway_groups().items()
-        if _is_hosted(group)
+        if group in direct_groups and _is_hosted(group)
         for deployment in deployments
     ]
 

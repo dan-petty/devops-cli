@@ -274,7 +274,7 @@ extraObjects:
               models:
                 default: base
                 mapping:
-                  base: qwen3.8:27b
-                  large: qwen3.8:27b
+                  base: local/qwen3.8:27b
+                  large: local/qwen3.8:27b
             secureJsonData:
               openAIKey: $__env{GF_LLM_GATEWAY_KEY}

@@ -248,6 +248,10 @@ def test_the_implement_step_runs_on_a_hosted_gateway_group_that_fits_its_window(
     settings = Settings.model_validate(raw)
     gateway = yaml.safe_load((K8S_DIR / "llm" / "gateway" / "config.yaml").read_text("utf-8"))
     served = {entry["model_name"]: entry for entry in gateway["model_list"]}
+    aliases = gateway.get("router_settings", {}).get("model_group_alias", {})
+    for alias, target in aliases.items():
+        if target in served and alias not in served:
+            served[alias] = served[target]
     task = settings.ai.for_task("implement")
     ladder = settings.roadmap.implement.ladder
     tiers = {task.model, *(tier for step in ladder.values() for tier in step)}
@@ -263,7 +267,7 @@ def test_the_implement_step_runs_on_a_hosted_gateway_group_that_fits_its_window(
     ) == ([], [], True, True, True)
 
 
-DEEPSEEK = "deepseek-v4.1-flash-1017"
+DEEPSEEK = "openrouter/deepseek/deepseek-v4.1-flash-1017"
 
 
 def test_every_chat_slot_is_deepseek_and_the_stage_slot_is_set_in_the_template() -> None:
@@ -281,7 +285,7 @@ def test_every_chat_slot_is_deepseek_and_the_stage_slot_is_set_in_the_template()
         ai.for_task("analysis").context_window,
         ai.for_task("stage").context_window,
         "stage" in yaml.safe_load(template)["ai"]["tasks"],
-    ) == (DEEPSEEK, {"embedding": "qwen3-embedding:0.6b"}, 256000, 256000, True)
+    ) == (DEEPSEEK, {"embedding": "local/qwen3-embedding:0.6b"}, 256000, 256000, True)
 
 
 def test_the_comment_above_the_analysis_slot_names_the_decision_the_cost_and_the_trial() -> None:

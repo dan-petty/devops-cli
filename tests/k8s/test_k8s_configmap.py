@@ -248,10 +248,19 @@ def test_every_chat_model_slot_of_the_rendered_template_names_one_hosted_group()
 
     assert (
         ai.model,
-        {name: model for name, model in chat_slots.items() if model != "deepseek-v4.1-flash-1017"},
+        {
+            name: model
+            for name, model in chat_slots.items()
+            if model != "openrouter/deepseek/deepseek-v4.1-flash-1017"
+        },
         ai.for_task("embedding").model,
         (ai.for_task("analysis").context_window, ai.for_task("stage").context_window),
-    ) == ("deepseek-v4.1-flash-1017", {}, "qwen3-embedding:0.6b", (256000, 256000))
+    ) == (
+        "openrouter/deepseek/deepseek-v4.1-flash-1017",
+        {},
+        "local/qwen3-embedding:0.6b",
+        (256000, 256000),
+    )
 
 
 def test_the_rendered_template_names_the_reference_models_of_the_spend_reports() -> None:

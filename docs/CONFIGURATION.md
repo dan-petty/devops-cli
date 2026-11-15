@@ -302,7 +302,7 @@ roadmap configuration settings.
 | `inbox` | `RoadmapInboxConfig` | `draft_days=7 wait_days=7` | - | - |
 | `intake` | `RoadmapIntakeConfig` | `interval_minutes=29 backlog_interval_minutes=None backlog_threshold=None jev='off'` | - | - |
 | `fix_plan` | `RoadmapFixPlanConfig` | `interval_minutes=53 backlog_interval_minutes=None backlog_threshold=None mode='plan' time_budget_seconds=3600 head_attempts=2 revisions=3` | - | - |
-| `refine` | `RoadmapRefineConfig` | `interval_minutes=17 backlog_interval_minutes=None backlog_threshold=None` | - | - |
+| `refine` | `RoadmapRefineConfig` | `interval_minutes=7 backlog_interval_minutes=None backlog_threshold=None` | - | - |
 | `mcp` | `RoadmapMcpConfig` | `url=None timeout_seconds=30.0` | - | - |
 | `stall` | `RoadmapStallConfig` | `hours=24` | - | - |
 | `decisions` | `dict` | `{}` | `DEVOPS_CLI_ROADMAP_DECISIONS` | The mode of each decision point of the roadmap jobs (ADR 0020), by the name of the point, as a JSON object such as `{"stage.verify_screen": "shadow"}`. `off` runs nothing. `shadow` runs the resolver chain (a proven rule, then the model of `ai.decision_model`, then the current behavior), records its band and the real result, and changes nothing. `on` lets the band act. A point that is not in the mapping is off. A key that names no registered point stops the settings from loading. A point in `shadow` or in `on` needs a cuts file in the repository for its fitted cuts, and the load stops when the file is absent |

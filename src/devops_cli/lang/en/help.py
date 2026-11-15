@@ -1667,7 +1667,7 @@ class RoadmapCommandHelp:
         "Run the roadmap jobs that are due, in order: metrics, then intake, refine and "
         "the alternatives check, and record each one's last success. Intake is due on an issue reopened or a new issue, and decides at "
         "most 5 candidates a run and keeps a record of those it left beside the schedule; "
-        "refine is due every roadmap.refine.interval_minutes (17 by default), on a first run, and "
+        "refine is due every roadmap.refine.interval_minutes (7 by default), on a first run, and "
         "after an intake that placed a critical fix or a P0 item; retitle is due every 61 minutes "
         "and on a first run; the alternatives check is due every "
         "roadmap.alternatives.interval_minutes (239 by default) and on a first run, and checks "

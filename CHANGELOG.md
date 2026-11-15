@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.157.0](https://github.com/dan-petty/devops-cli/compare/v0.156.1...v0.157.0) (2026-11-15)
+
+
+### Features
+
+* **roadmap:** increase service refine check frequency ([#5861](https://github.com/dan-petty/devops-cli/issues/5861)) ([deb549f](https://github.com/dan-petty/devops-cli/commit/deb549fe84df3c0a8bf8a90e3e60a9d77b22e822))
+
 ## [0.156.1](https://github.com/dan-petty/devops-cli/compare/v0.156.0...v0.156.1) (2026-11-15)
 
 
