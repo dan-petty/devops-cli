@@ -21,6 +21,7 @@ from devops_cli.roadmap.implement.implement_eval import (
     PLAN_DIR,
     PLAN_FILES,
     LoadedCase,
+    Property,
 )
 
 INSTRUCTION_FILE = "instruction.md"
@@ -32,8 +33,6 @@ TASK_CONFIG_FILE = "task.toml"
 # The file that the verifier of the pinned Harbor version reads the reward of a trial from, in the
 # container of the task. The test script writes 1 or 0 there.
 REWARD_FILE = "/logs/reward.txt"
-# The field of `case.json` that holds the commands whose tests must pass in a trial.
-TESTS_PASS_FIELD = "tests_pass"
 
 # The base image of the task: the Python 3.14 image of the Dockerfile of this repository.
 _BASE_IMAGE = "python:3.14-slim-trixie"
@@ -167,7 +166,7 @@ def _require_task_text(loaded: LoadedCase) -> None:
     for file in PLAN_FILES:
         require_text(loaded.name, f"{PLAN_DIR}/{file}", loaded.plan[file])
     for command in loaded.case.tests_pass:
-        require_text(loaded.name, TESTS_PASS_FIELD, command)
+        require_text(loaded.name, Property.NAMED_TESTS, command)
 
 
 def _write(path: Path, text: str) -> Path:
