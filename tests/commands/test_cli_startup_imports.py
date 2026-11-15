@@ -171,26 +171,37 @@ def test_the_report_of_importtime_gives_the_largest_cumulative_time_of_each_modu
 
 
 def test_the_output_of_a_probe_gives_the_loaded_and_the_imported_modules() -> None:
-    """`__MODULES__` lists `sys.modules`; `-X importtime` lists the imports and the slowest."""
-    stdout = "text\n__MODULES__ sys json\n"
+    """`__MODULES__` lists `sys.modules`, `__CPU__` gives the child's CPU, importtime the imports."""
+    stdout = "text\n__MODULES__ sys json\n__CPU__ 1.5\n"
     stderr = "import time:        10 |        500 | json\nimport time: 5 | 90 | sys\n"
     probe = read_startup_imports(stdout, stderr)
 
-    assert (probe.loaded, probe.imported, probe.slowest[0]) == (
+    assert (probe.loaded, probe.imported, probe.slowest[0], probe.cpu_seconds) == (
         frozenset({"sys", "json"}),
         frozenset({"json", "sys"}),
         ("json", 0.0005),
+        1.5,
     )
 
 
 def test_a_script_probe_that_prints_another_value_is_named() -> None:
     """Each script probe prints one marked JSON value, and a different value fails it."""
-    probe = SCRIPT_PROBES[-1]
+    probe = next(p for p in SCRIPT_PROBES if p.expected == "1")
 
     assert (script_problems(probe, '__R__"1"\n'), len(script_problems(probe, '__R__""\n'))) == (
         [],
         1,
     )
+
+
+def test_a_root_help_that_leaves_pydantic_loaded_is_named() -> None:
+    """The root help loads no pydantic, so a probe that leaves it loaded is named."""
+    probe = next(p for p in SCRIPT_PROBES if p.name == "the root help loads no pydantic")
+
+    (message,) = script_problems(probe, "__R__true\n")
+
+    assert probe.expected is False
+    assert (script_problems(probe, "__R__false\n"), message.startswith(probe.name)) == ([], True)
 
 
 def test_the_startup_imports_row_runs_the_check_module() -> None:

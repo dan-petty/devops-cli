@@ -4,7 +4,8 @@ The start of the CLI must not import a heavy package, and the help of a command 
 a count of modules. Each probe starts one fresh interpreter, because a module that one argv
 imports stays in `sys.modules` and would hide the import of the next. The probes of the help
 run under `-X importtime`, which gives the count of imports and the slowest of them. A failure
-names the ten slowest imports.
+names the ten slowest imports. Each probe reports its own CPU time, so the row shows the cost
+split of its probes.
 
 The row measures the process of each probe, so it runs outside pytest: a pytest worker that runs
 56 probes holds one core for minutes (#2369).
@@ -52,7 +53,16 @@ _SLOWEST_COUNT: Final = 10
 # Each argv below runs once, in a fresh interpreter of its own, and every check on that argv reads
 # that one run: separate interpreters keep one command's imports out of another's count, and one
 # run per argv keeps two checks from measuring the same start twice.
-_STARTUP_PROBE = """
+#
+# The child reports its own CPU time, because the probes run a few at a time in threads and the
+# `RUSAGE_CHILDREN` of the row would count the children of every probe.
+_CPU_PROBE = """
+import resource as _resource
+_cpu = _resource.getrusage(_resource.RUSAGE_SELF)
+print("\\n__CPU__", _cpu.ru_utime + _cpu.ru_stime)
+"""
+_STARTUP_PROBE = (
+    """
 import sys
 import devops_cli.entry
 
@@ -62,6 +72,8 @@ except SystemExit:
     pass
 print("\\n__MODULES__", *sys.modules)
 """
+    + _CPU_PROBE
+)
 
 
 @dataclass(frozen=True)
@@ -74,6 +86,8 @@ class StartupImports:
     """Every module `-X importtime` reported, failed imports included: what the budgets count."""
     slowest: tuple[tuple[str, float], ...]
     """The ten slowest imports by cumulative seconds, a diagnostic only."""
+    cpu_seconds: float = 0.0
+    """The user plus system CPU time of the child that ran the probe, a diagnostic only."""
 
     @property
     def devops_modules(self) -> frozenset[str]:
@@ -185,7 +199,14 @@ def read_startup_imports(stdout: str, stderr: str) -> StartupImports:
         loaded=frozenset(modules_line.split()[1:]),
         imported=frozenset(cumulative),
         slowest=tuple(slowest),
+        cpu_seconds=read_cpu_seconds(stdout),
     )
+
+
+def read_cpu_seconds(stdout: str) -> float:
+    """Read the user plus system CPU time that a child printed on its `__CPU__` line."""
+    line = next(line for line in stdout.splitlines() if line.startswith("__CPU__"))
+    return float(line.removeprefix("__CPU__").strip())
 
 
 def clean_env(extra: Mapping[str, str] | None = None, drop: tuple[str, ...] = ()) -> dict[str, str]:
@@ -427,6 +448,23 @@ print("__R__" + json.dumps([before, "pydantic_ai" in sys.modules]))
         "__R__",
     ),
     ScriptProbe(
+        "the root help loads no pydantic",
+        """
+import json
+import sys
+import devops_cli.entry
+
+try:
+    devops_cli.entry.main(["--help"])
+except SystemExit:
+    pass
+
+print("__R__" + json.dumps("pydantic" in sys.modules))
+""",
+        False,
+        "__R__",
+    ),
+    ScriptProbe(
         "the entry point turns off the pydantic-ai banner (#2398)",
         """
 import json
@@ -450,29 +488,44 @@ def script_problems(probe: ScriptProbe, stdout: str) -> list[str]:
     )
 
 
-def _help_probe(argv: tuple[str, ...]) -> list[str]:
-    """Run one help argv and return what it breaks."""
-    return help_problems(argv, probe_startup_imports(argv))
+def _help_probe(argv: tuple[str, ...]) -> tuple[list[str], float]:
+    """Run one help argv and return what it breaks and the CPU time its child used."""
+    probe = probe_startup_imports(argv)
+    return help_problems(argv, probe), probe.cpu_seconds
 
 
-def _control_probe() -> list[str]:
+def _control_probe() -> tuple[list[str], float]:
     """Run the control: the root help after an import of a heavy package."""
-    return control_problems(probe_startup_imports(("--help",), "import pydantic_ai\n"))
+    probe = probe_startup_imports(("--help",), "import pydantic_ai\n")
+    return control_problems(probe), probe.cpu_seconds
 
 
-def _dry_run_probe(argv: tuple[str, ...], forbidden: tuple[str, ...]) -> list[str]:
-    """Run one `--dry-run` argv and return the forbidden modules it imports."""
-    return dry_run_problems(argv, forbidden, probe_startup_imports(argv))
+def _dry_run_probe(argv: tuple[str, ...], forbidden: tuple[str, ...]) -> tuple[list[str], float]:
+    """Run one `--dry-run` argv and return the forbidden modules it imports and its CPU time."""
+    probe = probe_startup_imports(argv)
+    return dry_run_problems(argv, forbidden, probe), probe.cpu_seconds
 
 
-def _script_probe(probe: ScriptProbe) -> list[str]:
-    """Run the code of a script probe and compare its marked value."""
-    done = _run(["-c", probe.code], clean_env(probe.extra_env, probe.drop_env))
-    return script_problems(probe, done.stdout)
+def _script_probe(probe: ScriptProbe) -> tuple[list[str], float]:
+    """Run the code of a script probe, compare its marked value and read its CPU time."""
+    done = _run(["-c", probe.code + _CPU_PROBE], clean_env(probe.extra_env, probe.drop_env))
+    return script_problems(probe, done.stdout), read_cpu_seconds(done.stdout)
 
 
-def _all_probes() -> list[tuple[str, Callable[[], list[str]]]]:
-    """Every probe of the row as a name and a function that runs it and returns its problems."""
+@dataclass(frozen=True)
+class ProbeOutcome:
+    """What one probe of the row broke, and the CPU time that its child used."""
+
+    name: str
+    cpu_seconds: float
+    problems: tuple[str, ...]
+
+
+ProbeRun = Callable[[], tuple[list[str], float]]
+
+
+def _all_probes() -> list[tuple[str, ProbeRun]]:
+    """Every probe of the row as a name and a function that returns its problems and CPU time."""
     return [
         *((f"help {argv}", partial(_help_probe, argv)) for argv in help_argvs()),
         ("control", _control_probe),
@@ -484,30 +537,34 @@ def _all_probes() -> list[tuple[str, Callable[[], list[str]]]]:
     ]
 
 
-def problems() -> list[str]:
-    """Run every probe, a few at a time, and return what they break."""
+def problems() -> list[ProbeOutcome]:
+    """Run every probe, a few at a time, and return what each one broke and cost."""
     probes = _all_probes()
     workers = min(os.process_cpu_count() or 1, _MAX_PARALLEL_PROBES)
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = [(name, pool.submit(run)) for name, run in probes]
-        found: list[str] = []
+        outcomes: list[ProbeOutcome] = []
         for name, future in futures:
             try:
-                found.extend(future.result())
+                found, cpu_seconds = future.result()
             except subprocess.CalledProcessError as exc:
-                found.append(f"{name}: exit {exc.returncode}: {exc.stderr[-400:]}")
-    return found
+                found, cpu_seconds = [f"{name}: exit {exc.returncode}: {exc.stderr[-400:]}"], 0.0
+            outcomes.append(ProbeOutcome(name, cpu_seconds, tuple(found)))
+    return outcomes
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Print each problem and the CPU time of the probes, and return 1 when there is a problem."""
-    found = problems()
+    """Print the CPU time of each probe and each problem, and return 1 when there is a problem."""
+    outcomes = problems()
     children = resource.getrusage(resource.RUSAGE_CHILDREN)
     print(
-        f"startup imports: {len(_all_probes())} probes, "
+        f"startup imports: {len(outcomes)} probes, "
         f"{children.ru_utime + children.ru_stime:.1f} s of CPU time "
         f"({children.ru_utime:.1f} s user, {children.ru_stime:.1f} s system)"
     )
+    for outcome in sorted(outcomes, key=lambda item: item.cpu_seconds, reverse=True):
+        print(f"startup imports: {outcome.name}: {outcome.cpu_seconds:.2f} s")
+    found = [line for outcome in outcomes for line in outcome.problems]
     for line in found:
         print(f"startup imports: {line}", file=sys.stderr)
     return 1 if found else 0
