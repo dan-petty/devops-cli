@@ -35,6 +35,7 @@ from devops_cli.roadmap.stores.store import Item, JudgeVerdict, RefineRecordKey
 if TYPE_CHECKING:
     from devops_cli.roadmap.refine.refine import RefinementProposal
     from devops_cli.roadmap.stage.stage import StageClient
+    from devops_cli.security.alert_filer import CodeScanningAlert
 
 # The open types of this review (#3039). A proposal of refine holds no task group and no verify
 # command, so a `task_order`, a `verify_form` or a `criterion_dropped` finding on it is advice and
@@ -58,21 +59,36 @@ def judge(
     *,
     unchanged: bool,
     repo: str,
+    alert: CodeScanningAlert | None = None,
 ) -> tuple[JudgeVerdict, tuple[str, ...]]:
     """The verdict on `proposal` for `item`, and the lines of the open findings that refuse it.
 
     `body` is the body that refine read. An item that the review approved before, and whose body is
     `unchanged` since, keeps its approval with no model call: the review looks again only after the
     body changes. `client_of` makes the client of the verification task, only when a call is made.
+    `alert` is the code scanning alert that `item` names, when it names one (#5258).
     Each review that calls the model logs one result line for `repo` with its verdict and the count
     of its open findings (#4845).
     """
     if unchanged and item.job_record.get(RefineRecordKey.JUDGE) == JudgeVerdict.APPROVED.value:
         return JudgeVerdict.APPROVED, ()
+    outside_body = extract_section_and_outside(body)[0]
+    if alert is not None and alert.rule_description and alert.rule_description not in outside_body:
+        alert_summary = (
+            f"\n\n### Code-scanning alert {alert.number}\n\n"
+            f"- Rule: {alert.rule_id}\n"
+            f"- Description: {alert.rule_description}\n"
+            f"- Severity: {alert.severity}\n"
+            f"- Path: {alert.path}\n"
+        )
+        judge_body = f"{outside_body}{alert_summary}"
+    else:
+        judge_body = outside_body
+
     given = VerificationInput.of(
         number=item.number,
         title=item.title,
-        body=extract_section_and_outside(body)[0],
+        body=judge_body,
         plan=proposal.model_dump(mode="json"),
         source=source,
     )
