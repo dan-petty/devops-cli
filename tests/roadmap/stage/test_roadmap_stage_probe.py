@@ -12,7 +12,12 @@ from devops_cli.config.constants import (
 )
 from devops_cli.roadmap.refine.refine import git_result
 from devops_cli.roadmap.stage import stage_probe
-from devops_cli.roadmap.stage.stage_probe import blocked_by, probe_premise
+from devops_cli.roadmap.stage.stage_probe import (
+    blocked_by,
+    check_claims,
+    claimed_missing_checks,
+    probe_premise,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -304,3 +309,131 @@ def test_the_field_probe_counts_its_commands_and_leaves_the_checkout(
 
     assert probe.commands == 2
     assert repo.git("status", "--porcelain") == ""
+
+
+PUBLISH = "src/devops_cli/publish.py"
+# The call site of #3368: `_publish` calls the helper, and the helper runs the title check.
+PUBLISH_SOURCE = (
+    "def _publish():\n"
+    "    title = self._delivery_title()\n"
+    "\n"
+    "\n"
+    "def _delivery_title(self):\n"
+    "    if not title_problems(title, declared):\n"
+    "        raise Stop()\n"
+)
+PUBLISH_WITHOUT_CHECK = (
+    "def _publish():\n"
+    "    title = self._delivery_title()\n"
+    "\n"
+    "\n"
+    "def _delivery_title(self):\n"
+    "    return title\n"
+)
+TITLES = "src/devops_cli/titles.py"
+TITLES_SOURCE = "def delivery_title(title):\n    return title_problems(title, ())\n"
+CLAIM = "The plan says that `_publish` runs no `title_problems` check."
+
+
+def test_a_check_in_a_helper_body_of_the_call_site_is_found(repo: StageRepo) -> None:
+    repo.track({PUBLISH: PUBLISH_SOURCE})
+    sha = repo.git("rev-parse", "HEAD")
+
+    claims = claimed_missing_checks((CLAIM,))
+    probe = check_claims(repo.clone, sha, claims, CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS)
+
+    assert claims == (("_publish", "title_problems"),)
+    assert probe.false_premises == (
+        f"`title_problems` is called at {PUBLISH}:6, so the plan claim that `_publish` runs no "
+        "such check is false.",
+    )
+    assert (probe.commands, probe.left) == (2, CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS - 2)
+    assert probe.skipped == ()
+    assert repo.git("status", "--porcelain") == ""
+
+
+def test_a_check_in_the_body_of_the_call_site_is_found(repo: StageRepo) -> None:
+    repo.track({PUBLISH: PUBLISH_SOURCE})
+    sha = repo.git("rev-parse", "HEAD")
+
+    probe = check_claims(
+        repo.clone,
+        sha,
+        (("_delivery_title", "title_problems"),),
+        CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS,
+    )
+
+    assert probe.false_premises == (
+        f"`title_problems` is called at {PUBLISH}:6, so the plan claim that `_delivery_title` "
+        "runs no such check is false.",
+    )
+
+
+def test_a_check_that_only_another_file_holds_names_its_path_and_line(repo: StageRepo) -> None:
+    repo.track({PUBLISH: PUBLISH_WITHOUT_CHECK, TITLES: TITLES_SOURCE})
+    sha = repo.git("rev-parse", "HEAD")
+
+    probe = check_claims(
+        repo.clone, sha, claimed_missing_checks((CLAIM,)), CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS
+    )
+
+    assert probe.false_premises == (
+        f"`title_problems` is called at {TITLES}:2, so the plan claim that `_publish` runs no "
+        "such check is false.",
+    )
+    assert probe.skipped == ()
+
+
+def test_a_call_site_that_is_no_python_source_leaves_the_search_to_the_tree(
+    repo: StageRepo,
+) -> None:
+    rust = "src/devops_cli/publish.rs"
+    repo.track({rust: "fn _publish() {\n    let title = 1;\n}\n", TITLES: TITLES_SOURCE})
+    sha = repo.git("rev-parse", "HEAD")
+
+    probe = check_claims(
+        repo.clone, sha, (("_publish", "title_problems"),), CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS
+    )
+
+    assert probe.false_premises == (
+        f"`title_problems` is called at {TITLES}:2, so the plan claim that `_publish` runs no "
+        "such check is false.",
+    )
+
+
+def test_a_claim_with_no_call_site_adds_no_line(repo: StageRepo) -> None:
+    general = "The plan says that the title check is missing, and adds it."
+    named = "The plan says that the `title_problems` check is missing."
+
+    assert claimed_missing_checks((general, named)) == ()
+    probe = check_claims(
+        repo.clone, repo.git("rev-parse", "HEAD"), (), CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS
+    )
+
+    assert (probe.false_premises, probe.commands) == ((), 0)
+    assert _probe(repo, general).left == CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS
+
+
+def test_a_claim_with_no_command_left_is_skipped(
+    repo: StageRepo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo.track({PUBLISH: PUBLISH_SOURCE})
+    ran: list[tuple[str, ...]] = []
+
+    def spy(checkout: Path, *args: str) -> tuple[int, str]:
+        ran.append(args)
+        return git_result(checkout, *args)
+
+    monkeypatch.setattr(stage_probe, "git_result", spy)
+
+    probe = check_claims(
+        repo.clone, repo.git("rev-parse", "HEAD"), claimed_missing_checks((CLAIM,)), 0
+    )
+
+    assert (probe.skipped, probe.false_premises, probe.commands, probe.left) == (
+        ("title_problems",),
+        (),
+        0,
+        0,
+    )
+    assert ran == []

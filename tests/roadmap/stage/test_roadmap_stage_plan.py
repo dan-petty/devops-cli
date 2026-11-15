@@ -160,6 +160,7 @@ def _plan(
     step_tokens: int | None = None,
     item: int | None = None,
     model: ModelFakeReplies | None = None,
+    writer: Any = None,
 ) -> StagePlan:
     return plan_stage(
         store,
@@ -169,6 +170,7 @@ def _plan(
         item_number=item,
         step_tokens=step_tokens,
         model=cast("LLMClient | None", model),
+        writer=writer,
     )
 
 
@@ -3099,3 +3101,68 @@ def test_a_valid_plan_of_each_kind_passes_the_read_back(
 
     plan = _plan(store, stage_repo)
     assert len(plan.ready) == 1
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_plan_that_claims_a_missing_check_in_a_helper_returns_the_item(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    open_pulls_api: GitHubApiFake,
+    tmp_path: Path,
+) -> None:
+    from devops_cli.roadmap.refine.refine import NextStep
+    from devops_cli.roadmap.stage.stage import PremiseKind, StageWriter
+    from devops_cli.roadmap.stores.store import RefineRecordKey
+
+    seeded_source = (
+        "def title_problems(title, declared):\n"
+        "    return []\n"
+        "\n\n"
+        "def _delivery_title():\n"
+        "    return title_problems('title', ())\n"
+        "\n\n"
+        "def _publish():\n"
+        "    return _delivery_title()\n"
+    )
+    advance_origin(stage_repo, tmp_path, {"src/devops_cli/sample.py": seeded_source})
+    target = seed_stageable(store)
+    proposal = make_stage_proposal(
+        feasibility=["The plan says that `_publish` runs no `title_problems` check."]
+    )
+    model_fake.answer(proposal)
+
+    writer = StageWriter(store, stage_repo.clone)
+    plan = _plan(store, stage_repo, writer=writer)
+
+    (premise,) = plan.premise
+    assert premise.kind == PremiseKind.MISSING_CHECK
+    assert plan.ready == ()
+    held = store.item(target)
+    assert held is not None
+    assert held.job_record[RefineRecordKey.NEXT_STEP] == NextStep.RETRY.value
+    comments = store.comments_on(target)
+    assert any(
+        "`title_problems` is called at src/devops_cli/sample.py:6" in comment.body
+        for comment in comments
+    )
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_plan_that_claims_a_missing_check_that_the_base_lacks_stays_ready(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    open_pulls_api: GitHubApiFake,
+    tmp_path: Path,
+) -> None:
+    seed_stageable(store)
+    proposal = make_stage_proposal(
+        feasibility=["The plan says that `_publish` runs no `unknown_check` check."]
+    )
+    model_fake.answer(proposal)
+
+    plan = _plan(store, stage_repo)
+
+    assert len(plan.ready) == 1
+    assert plan.premise == ()

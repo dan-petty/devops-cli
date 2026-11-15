@@ -17,6 +17,12 @@ says that the class defines no such field. A token whose left part names no clas
 a line of the body says that a class field is absent and the commit defines it, the probe records
 the line as a false premise, and the stage job returns the item to New with it.
 
+A plan text can also say that a call site runs no named check (#3416). The scan of the plan texts
+finds each such claim, and the search reads the body of the call site and the body of each function
+that it calls in the same file. It then reads the source files of the staging commit. A check that
+it finds is a false premise with its path and line, and the stage job returns the item to New with
+it. The search is deterministic and spends the commands that the probe of the item has left.
+
 The probe runs at most `CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS` commands for one item. An
 identifier that only files of other languages than Python name needs two commands, one to find the
 files and one to read them; with one command left, the probe lists it as not probed. Every
@@ -29,6 +35,7 @@ that the bound left out.
 
 from __future__ import annotations
 
+import ast
 import re
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
@@ -67,6 +74,18 @@ _ABSENCE: Final[re.Pattern[str]] = re.compile(
 )
 # A backticked span or a bare word of a line of the body.
 _TOKEN: Final[re.Pattern[str]] = re.compile(r"`([^`]+)`|([A-Za-z_]\w*)")
+# A backticked span of a plan text: the code that a claim names (#3416).
+_SPAN: Final[re.Pattern[str]] = re.compile(r"`([^`]+)`")
+# A line of a plan that says a call site runs no named check (#3416): an absence word, then the
+# word check or guard, with the code span of the named check on either side of that word.
+_ABSENT_CHECK: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:no|not|never|none|without|lacks?|missing|absent)\b"
+    r"[^`\n]*?"
+    r"(?:`(?P<before>[^`\s]+)`\s+)?"
+    r"(?:checks?|guards?)\b"
+    r"(?:\s+`(?P<after>[^`\s]+)`)?",
+    re.IGNORECASE,
+)
 # The words between an absence phrase and the field that it names.
 _FIELD_WORDS: Final[frozenset[str]] = frozenset(
     {
@@ -93,14 +112,15 @@ _FIELD_WORDS: Final[frozenset[str]] = frozenset(
 @dataclass(frozen=True)
 class Probe:
     """What the probe found: the lines for the model, the cited items that are missing, the items
-    the bound left out, the number of git commands it ran, and the cited fields that the body says
-    are absent while the staging commit defines them."""
+    the bound left out, the number of git commands it ran, the cited fields that the body says are
+    absent while the staging commit defines them, and the commands that it has left."""
 
     lines: tuple[str, ...] = ()
     missing: tuple[str, ...] = ()
     skipped: tuple[str, ...] = ()
     commands: int = 0
     false_premises: tuple[str, ...] = ()
+    left: int = CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS
 
     @property
     def text(self) -> str:
@@ -378,6 +398,71 @@ def _absence_pairs(body: str) -> tuple[tuple[str, str], ...]:
     return tuple(dict.fromkeys(pairs))
 
 
+def _line_claims(line: str) -> tuple[tuple[str, str], ...]:
+    """Each call site and named check that `line` says the call site runs without (#3416). The
+    call site is the other code-spanned identifier of the line, so a line that names no call site
+    adds no pair."""
+    spans = [span for span in _SPAN.findall(line) if span.isidentifier()]
+    claims: list[tuple[str, str]] = []
+    for match in _ABSENT_CHECK.finditer(line):
+        name = match.group("before") or match.group("after")
+        if name is None:
+            continue
+        site = next((span for span in spans if span != name), None)
+        if site is not None:
+            claims.append((site, name))
+    return tuple(claims)
+
+
+def _functions(tree: ast.Module) -> dict[str, tuple[int, int]]:
+    """The first and the last line of each function of the parsed module `tree`, by name."""
+    spans: dict[str, tuple[int, int]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            spans.setdefault(node.name, (node.lineno, node.end_lineno or node.lineno))
+    return spans
+
+
+def _callees(tree: ast.Module, span: tuple[int, int]) -> tuple[tuple[str, int], ...]:
+    """The name and the line of each call in the body at `span` of the parsed module `tree`, in the
+    order of the text, each name once."""
+    first, last = span
+    found: dict[str, int] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not first <= node.lineno <= last:
+            continue
+        match node.func:
+            case ast.Name(id=name):
+                found.setdefault(name, node.lineno)
+            case ast.Attribute(attr=name):
+                found.setdefault(name, node.lineno)
+    return tuple(sorted(found.items(), key=lambda call: call[1]))
+
+
+def _claim_line(content: str, site: str, name: str) -> int | None:
+    """The line of the call to `name` in the body of `site` of the Python source `content`, or in
+    the body of a function that the body of `site` calls in that source, or None."""
+    try:
+        tree = ast.parse(content)
+    except SyntaxError, ValueError:
+        return None
+    spans = _functions(tree)
+    span = spans.get(site)
+    if span is None:
+        return None
+    calls = _callees(tree, span)
+    if (line := next((at for callee, at in calls if callee == name), None)) is not None:
+        return line
+    for callee, _ in calls:
+        body = spans.get(callee)
+        if body is None:
+            continue
+        line = next((at for called, at in _callees(tree, body) if called == name), None)
+        if line is not None:
+            return line
+    return None
+
+
 def probe_premise(source: Path, sha: str, body: str) -> Probe:
     """Probe each path, class field and identifier that `body` cites at commit `sha` of the
     checkout `source`. The paths come first, then the fields that an absence statement names, then
@@ -410,15 +495,83 @@ def probe_premise(source: Path, sha: str, body: str) -> Probe:
             run.identifier(name)
     commands = CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS - run.left
     return Probe(
-        tuple(run.lines),
-        tuple(run.missing),
-        tuple(run.skipped),
-        commands,
-        tuple(run.false_premises),
+        lines=tuple(run.lines),
+        missing=tuple(run.missing),
+        skipped=tuple(run.skipped),
+        commands=commands,
+        false_premises=tuple(run.false_premises),
+        left=run.left,
     )
 
 
-__all__ = ["Probe", "probe_premise"]
+def claimed_missing_checks(texts: Iterable[str]) -> tuple[tuple[str, str], ...]:
+    """Each call site and named check that a line of `texts` says the call site runs without, in the
+    order of the texts, each pair once (#3416). A line says so when an absence word comes before the
+    word check or guard and a code span names the check on either side of that word; the other
+    code-spanned identifier of the line is the call site. A line that names no call site, or no
+    check, adds no pair."""
+    claims: list[tuple[str, str]] = []
+    for text in texts:
+        for line in text.splitlines():
+            claims.extend(_line_claims(line))
+    return tuple(dict.fromkeys(claims))
+
+
+def _called_where(run: _Run, site: str, name: str) -> str | None:
+    """The path and the line of the call to `name` in the body of `site` at the staging commit, or
+    in the body of a function that `site` calls in its file, else in the source files of the commit.
+    None when the search does not finish or the commit holds no such call."""
+    found = definition_lines(run.source, run.sha, site, run.git, commands=run.left)
+    if found is None:
+        return None
+    if found and run.left >= 1:
+        path = found[0].removeprefix(f"{run.sha}:").split(":", 1)[0]
+        code, content = run.git(run.source, "cat-file", "-p", f"{run.sha}:{path}")
+        if code == 0 and (line := _claim_line(content, site, name)) is not None:
+            return f"{path}:{line}"
+    return _tree_where(run, name)
+
+
+def _tree_where(run: _Run, name: str) -> str | None:
+    """The path and the line of the first line of the staging commit that names `name` as a whole
+    word, or None when no command is left or the commit names it nowhere."""
+    if run.left < 1:
+        return None
+    code, out = run.git(
+        run.source, "grep", "-n", "-F", "-w", "-e", name, run.sha, "--", *SYMBOL_PATHSPECS
+    )
+    if code != 0 or not out:
+        return None
+    path, number, _ = out.splitlines()[0].removeprefix(f"{run.sha}:").split(":", 2)
+    return f"{path}:{number}"
+
+
+def check_claims(source: Path, sha: str, claims: Iterable[tuple[str, str]], left: int) -> Probe:
+    """Search commit `sha` of the checkout `source` for each check that a plan text says a call site
+    runs without (#3416). The search reads the body of the call site and the body of each function
+    that it calls in the same file, then the source files of the commit, with the `left` commands
+    that the probe of the item has left. A found check is a false premise that names the path and
+    the line of its call. A claim with no command left is listed as skipped, and a search that does
+    not finish adds no line."""
+    run = _Run(source, sha, left)
+    for site, name in claims:
+        if run.left < 1:
+            run.skipped.append(name)
+            continue
+        where = _called_where(run, site, name)
+        if where is not None:
+            run.false_premises.append(
+                MESSAGES.roadmap.stage_probe_claim_found.format(site=site, name=name, where=where)
+            )
+    return Probe(
+        skipped=tuple(run.skipped),
+        commands=left - run.left,
+        false_premises=tuple(run.false_premises),
+        left=run.left,
+    )
+
+
+__all__ = ["Probe", "check_claims", "claimed_missing_checks", "probe_premise"]
 
 
 def blocked_by(missing: Iterable[str], creators: Mapping[str, int]) -> tuple[int, ...]:

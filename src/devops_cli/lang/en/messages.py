@@ -4074,6 +4074,15 @@ class RoadmapMessages:
         "- #{number} {title}: the body states that a class field is absent that the staging "
         "commit defines."
     )
+    # A plan that says a call site runs no named check, while the staging commit defines it (#3416).
+    stage_returned_claim: str = (
+        "A plan for this item says that a call site runs no check, and the staging commit "
+        "defines it: {evidence} The stage job returns this item to New and plans no change."
+    )
+    stage_returned_claim_line: str = (
+        "- #{number} {title}: a plan claims that a call site runs no check that the staging "
+        "commit defines."
+    )
     # The return of an item whose plans failed on the same body for a plan defect (#4491).
     stage_returned_plan_defects: str = (
         "The stage job could not plan this item {count} times on the same body, and the limit "
@@ -4357,6 +4366,12 @@ class RoadmapMessages:
     stage_probe_touched: str = "Commit {commit} last added or removed its text."
     stage_probe_name_never: str = "No commit in the history added or removed its text."
     stage_probe_skipped: str = "Not probed, the bound of {bound} commands is reached: {items}"
+    # A plan that says a call site runs no named check, while the staging commit calls the check in
+    # the body of the call site or of a helper of it, or in another source file (#3416).
+    stage_probe_claim_found: str = (
+        "`{name}` is called at {where}, so the plan claim that `{site}` runs no such check is "
+        "false."
+    )
     stage_kept_reason: str = (
         "The branch holds {count} commit(s) by another author past the default branch, so the "
         "job keeps the branch and its draft."
