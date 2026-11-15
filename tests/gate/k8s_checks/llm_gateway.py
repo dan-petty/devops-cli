@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import re
 import shutil
 from pathlib import Path
@@ -177,3 +178,81 @@ def check_the_gateway_reaches_only_the_collector_pods_on_the_otlp_port() -> None
         ],
         [[{"namespaceSelector": {}}]],
     )
+
+
+SERVICE_MONITOR = GATEWAY_DIR / "servicemonitor.yaml"
+
+# The labels that grow with each caller pod and that no query reads (#4545).
+DROPPED_LABELS = ("client_ip", "user_agent")
+
+DASHBOARDS = (
+    Path("k8s/devops/dashboards/ai-spend.json"),
+    Path("k8s/monitoring/dashboards/llm-stack.json"),
+)
+
+PROMETHEUS_VALUES = Path("k8s/monitoring/prometheus-values.yaml")
+
+
+def check_the_gateway_endpoint_drops_the_caller_labels() -> None:
+    """The `http` endpoint drops `client_ip` and `user_agent` at scrape time, and keeps its port,
+    path and interval (#4545)."""
+    monitor = yaml.safe_load(SERVICE_MONITOR.read_text(encoding="utf-8"))
+    (endpoint,) = monitor["spec"]["endpoints"]
+    dropped = [
+        rule["regex"]
+        for rule in endpoint.get("metricRelabelings", [])
+        if rule.get("action") == "labeldrop"
+    ]
+
+    assert (dropped, endpoint["port"], endpoint["path"], endpoint["interval"]) == (
+        list(DROPPED_LABELS),
+        "http",
+        "/metrics/",
+        "15s",
+    )
+
+
+def _named(node: Any, key: str) -> list[str]:
+    """Every string value of `key` in a JSON document, at any depth."""
+    found: list[str] = []
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, dict):
+            for name, value in current.items():
+                if name == key and isinstance(value, str):
+                    found.append(value)
+                stack.append(value)
+        elif isinstance(current, list):
+            stack.extend(current)
+    return found
+
+
+def _mentions_dropped_label(expression: str) -> bool:
+    """Whether a `litellm_` expression names a dropped label."""
+    return "litellm_" in expression and any(label in expression for label in DROPPED_LABELS)
+
+
+def check_no_dashboard_query_uses_the_dropped_labels() -> None:
+    """No target expression of the spend and stack dashboards names a dropped label (#4545)."""
+    offenders = [
+        f"{path}: {expression}"
+        for path in DASHBOARDS
+        for expression in _named(json.loads(path.read_text(encoding="utf-8")), "expr")
+        if _mentions_dropped_label(expression)
+    ]
+
+    assert offenders == [], f"a dashboard query names a dropped label: {offenders}"
+
+
+def check_no_alert_expression_uses_the_dropped_labels() -> None:
+    """No alert expression names a dropped label (#4545)."""
+    values = yaml.safe_load(PROMETHEUS_VALUES.read_text(encoding="utf-8"))
+    rules = values["serverFiles"]["alerting_rules.yml"]
+    offenders = [
+        expression
+        for expression in _named(rules, "expr")
+        if any(label in expression for label in DROPPED_LABELS)
+    ]
+
+    assert offenders == [], f"an alert expression names a dropped label: {offenders}"
