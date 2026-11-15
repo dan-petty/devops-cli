@@ -77,6 +77,7 @@ jobs:
         run: |
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           uv run devops install-tools --tool openspec --only-missing
+          uv run devops install-tools --tool tofu --only-missing
 
       # The pinned Trivy runs `trivy-config`, the IaC scan of the Security Scan step, which took the
       # place of Checkov (#2214).
@@ -608,6 +609,7 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
+          trivyignores: .trivyignore,.trivyignore-tofu
           version: v0.76.2
 
   # Builds, smoke-tests and scans the MCP server image of every pull request but the release pull
@@ -701,7 +703,7 @@ jobs:
           scanners: vuln
           severity: HIGH,CRITICAL
           ignore-unfixed: true
-          trivyignores: .trivyignore,.trivyignore-mcp-server
+          trivyignores: .trivyignore,.trivyignore-mcp-server,.trivyignore-tofu
           exit-code: "1"
           version: v0.76.2
 

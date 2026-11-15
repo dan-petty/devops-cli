@@ -83,13 +83,16 @@ RUN DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools /app/.venv/bin/devops install-to
       --tool openspec --target-dir /opt/devops-tools/bin && \
     chmod -R a+rX /opt/devops-tools
 
-# The pinned promtool goes where OpenSpec went, from the same lock and with the same checksum check.
-# The Service image does not hold it, so it has its own stage, which `runner-deps` copies.
+# The pinned promtool and tofu go where OpenSpec went, from the same lock and with the same
+# checksum check. The Service image does not hold them, so they have their own stage, which
+# `runner-deps` copies.
 FROM builder AS runner-tools
 RUN DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools /app/.venv/bin/devops install-tools \
       --tool promtool --target-dir /opt/devops-tools/bin && \
     DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools /app/.venv/bin/devops install-tools \
       --tool trivy --target-dir /opt/devops-tools/bin && \
+    DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools /app/.venv/bin/devops install-tools \
+      --tool tofu --target-dir /opt/devops-tools/bin && \
     chmod -R a+rX /opt/devops-tools
 
 # The runner: the pod of a cluster Job in which `devops roadmap implement` runs its steps (#2667).

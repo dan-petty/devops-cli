@@ -1306,6 +1306,7 @@ def test_the_static_job_installs_the_pinned_node_and_openspec_before_the_gate() 
         [
             'echo "$HOME/.local/bin" >> "$GITHUB_PATH"',
             "uv run devops install-tools --tool openspec --only-missing",
+            "uv run devops install-tools --tool tofu --only-missing",
         ],
         True,
         True,

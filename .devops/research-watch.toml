@@ -144,6 +144,11 @@ repo = "agavra/tuicr"
 
 [[watch]]
 ecosystem = "github-release"
+name = "tofu"
+repo = "opentofu/opentofu"
+
+[[watch]]
+ecosystem = "github-release"
 name = "vale"
 repo = "errata-ai/vale"
 

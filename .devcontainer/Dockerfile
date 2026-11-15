@@ -203,6 +203,16 @@ RUN case "$TARGETARCH" in \
     tar -xzf /tmp/asset -C /tmp/unpack "$member" && install -m 0755 "/tmp/unpack/$member" /out/bin/vale && \
     rm -rf /tmp/asset /tmp/unpack
 
+# tofu 1.13.9
+RUN case "$TARGETARCH" in \
+      amd64) url='https://github.com/opentofu/opentofu/releases/download/v1.13.9/tofu_1.13.9_linux_amd64.zip'; sha='bc44eb6b06446ba83bd4072114891987f590f66cca712737a7f1147c50c539ce' ;; \
+      arm64) url='https://github.com/opentofu/opentofu/releases/download/v1.13.9/tofu_1.13.9_linux_arm64.zip'; sha='04f7c93828b859d420269ed30f923ffebf09157b5d7fb95bf8d88a4d208b7fa3' ;; \
+    esac && \
+    curl -fsSL --retry 3 -o /tmp/tofu.zip "$url" && \
+    echo "$sha  /tmp/tofu.zip" | sha256sum -c - && \
+    unzip -q /tmp/tofu.zip tofu -d /tmp && install -m 0755 /tmp/tofu /out/bin/tofu && \
+    rm -f /tmp/tofu /tmp/tofu.zip
+
 # gitleaks 8.30.1
 RUN case "$TARGETARCH" in \
       amd64) url='https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz'; sha='551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb'; member='gitleaks' ;; \
