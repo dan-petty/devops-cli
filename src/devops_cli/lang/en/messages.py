@@ -5034,6 +5034,11 @@ class RoadmapMessages:
         "The default branch no longer passes the plan check of this pull request:"
     )
     plan_drift_comment_item: str = "- {problem}"
+    plan_drift_comment_cleared: str = (
+        "The plan check of this pull request passes again on the default branch. The drift row "
+        "removes the label `plan/needs-fix` only when it added the label and the last plan "
+        "comment lists no open finding."
+    )
     plan_drift_failed: str = (
         "The plan drift row of {repo} labelled pull request #{pull} with {problems} problem(s)."
     )
