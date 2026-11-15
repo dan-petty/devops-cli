@@ -40,7 +40,8 @@ class _Ready:
         self.refused: set[str] = set()
         self.head_sha: str = "1234567890ab"
         gh.answer(
-            lambda call: tuple(call.argv[1:3]) == ("pr", "ready"), ProcessAnswer(side_effect=self)
+            lambda call: tuple(call.argv[1:3]) == ("pr", "ready"),
+            ProcessAnswer(side_effect=self),
         )
         gh.answer(
             lambda call: len(call.argv) > 2 and call.argv[1] == "api" and "/pulls/" in call.argv[2],
@@ -72,7 +73,12 @@ def test_mark_ready_calls_gh_pr_ready(
     """When the remote head equals expected_head, mark_ready calls gh pr ready."""
     api, ready = api_and_ready
     ready.head_sha = "1234567890ab"
-    payload = {"state": "open", "draft": True, "merged": False, "head": {"sha": "1234567890ab"}}
+    payload = {
+        "state": "open",
+        "draft": True,
+        "merged": False,
+        "head": {"sha": "1234567890ab"},
+    }
     api.route("GET", "/repos/owner/repo/pulls/42", github_json(payload))
 
     mark_ready("owner/repo", 42, expected_head="1234567890ab")
@@ -87,7 +93,12 @@ def test_mark_ready_refuses_when_head_moved(
     """When the remote head does not match expected_head, mark_ready raises without calling gh."""
     api, ready = api_and_ready
     ready.head_sha = "diffhead1234"
-    payload = {"state": "open", "draft": True, "merged": False, "head": {"sha": "diffhead1234"}}
+    payload = {
+        "state": "open",
+        "draft": True,
+        "merged": False,
+        "head": {"sha": "diffhead1234"},
+    }
     api.route("GET", "/repos/owner/repo/pulls/42", github_json(payload))
 
     with pytest.raises(RoadmapImplementError, match="head moved"):
@@ -103,7 +114,12 @@ def test_mark_ready_raises_when_gh_fails(
     api, ready = api_and_ready
     ready.head_sha = "1234567890ab"
     ready.refused.add("42")
-    payload = {"state": "open", "draft": True, "merged": False, "head": {"sha": "1234567890ab"}}
+    payload = {
+        "state": "open",
+        "draft": True,
+        "merged": False,
+        "head": {"sha": "1234567890ab"},
+    }
     api.route("GET", "/repos/owner/repo/pulls/42", github_json(payload))
 
     with pytest.raises(RoadmapImplementError, match="pull request is locked"):
