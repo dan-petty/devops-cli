@@ -1953,6 +1953,19 @@ class RoadmapCommandHelp:
     explain_dry_run: str = (
         "Make no request: print the reads that a run makes, in order, with placeholders."
     )
+    follow: str = (
+        "Show the run of one issue: the trace of the last run of the implement job as the table "
+        "of the pull request comment, then the masked tail of the log of the pod of its runner "
+        "Job while the Job runs. The command reads the issue once, which is one GitHub request, "
+        "and reads the log through the Kubernetes API with the kubeconfig of the caller, which "
+        "needs get and list on pods and get on pods/log. It calls no model and writes nothing; "
+        "details: docs/ROADMAP_WORKFLOW.md."
+    )
+    follow_arg: str = "The issue number of the item whose run to show."
+    follow_lines: str = "Number of last lines of the log of the pod of the runner Job to print."
+    follow_dry_run: str = (
+        "Make no request: print the one read that a run makes, with a placeholder."
+    )
     eval_implement: str = (
         "Run one step of each fixture of the implement job in a scratch clone of this "
         "repository at the base commit of the fixture, with the chosen model, through the same "
