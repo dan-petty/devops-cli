@@ -80,6 +80,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable --extra review --link-mode copy
 
 RUN DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools /app/.venv/bin/devops install-tools \
+      --tool tofu --target-dir /opt/devops-tools/bin && \
+    DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools /app/.venv/bin/devops install-tools \
       --tool openspec --target-dir /opt/devops-tools/bin && \
     chmod -R a+rX /opt/devops-tools
 

@@ -62,3 +62,18 @@ The `runArgs` of `.devcontainer/devcontainer.json` SHALL hold `--sysctl=net.ipv4
 #### Scenario: ping works as vscode in the built image
 - **WHEN** the smoke action starts the built image as `vscode` with `--sysctl net.ipv4.ping_group_range=1000 1000` and runs `ping -c 1 127.0.0.1`
 - **THEN** `ping` exits with code 0
+
+### Requirement: OpenTofu is a pinned tool
+`tools.lock` SHALL hold OpenTofu 1.13.9 with the sha256 of the linux-amd64 and linux-arm64 builds. The `tools` stage of the devcontainer image SHALL install it from the pin with a sha256 check. The runner image and the CI test job SHALL install it with `devops install-tools --tool tofu`.
+
+#### Scenario: The lock
+- **WHEN** `devops install-tools --tool tofu --target-dir <dir>` runs
+- **THEN** `<dir>/tofu version` prints `OpenTofu v1.13.9`
+
+#### Scenario: The devcontainer image
+- **WHEN** the `tools` stage builds
+- **THEN** its step names the pinned URL and sha256 for each platform and runs `unzip`
+
+#### Scenario: CI
+- **WHEN** the test job installs its tools
+- **THEN** `tofu` is on the path at 1.13.9
