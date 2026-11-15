@@ -96,6 +96,7 @@ WRITES = frozenset(
         "create_issue",
         "label_issue",
         "set_field",
+        "set_fields",
         "set_marks",
         "unlabel_issue",
         "write_issue_body",
@@ -875,6 +876,46 @@ class InMemoryRoadmapStore(RoadmapStore):
         self._log("set_field", item.number, field.value, value)
         for mark, marked in (marks or {}).items():
             self._log("set_mark", item.number, mark.value, marked)
+
+    @_write
+    def set_fields(
+        self,
+        item: Item,
+        fields: Mapping[ItemField, str | None],
+        *,
+        body: str | None = None,
+    ) -> None:
+        """Replace the label family of each field and record each value in one step; with `body`,
+        the same step writes the body too. `job_writes` keeps the body's entry, then one entry for
+        each field, in the order of `fields`. A job's write of a field a person changed since
+        raises."""
+        operation = "roadmap.item.set_fields"
+        if not fields:
+            return
+        for item_field, value in fields.items():
+            require_value(item_field, value, operation)
+        issue = self._require_issue(item.number, operation)
+        if self._writes_job_record:
+            held = item_of(self._read(issue))
+            for item_field, value in fields.items():
+                read = self._written.get((item.number, item_field), item.field_value(item_field))
+                require_unchanged(
+                    f"#{item.number}",
+                    item_field,
+                    read,
+                    held.field_value(item_field),
+                    value,
+                    operation,
+                )
+        labels = issue.labels
+        for item_field, value in fields.items():
+            labels = relabeled(labels, item_field, value)
+        self._relabel(issue, labels, dict(fields), body)
+        for item_field, value in fields.items():
+            self._written[(item.number, item_field)] = value
+        self._log_body(item.number, body)
+        for item_field, value in fields.items():
+            self._log("set_fields", item.number, item_field.value, value)
 
     @_write
     def set_marks(

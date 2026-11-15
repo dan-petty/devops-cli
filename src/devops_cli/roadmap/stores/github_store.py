@@ -900,6 +900,43 @@ class GitHubRoadmapStore(RoadmapStore):
             )
             self._written[(item.number, field)] = value
 
+    def set_fields(
+        self,
+        item: Item,
+        fields: Mapping[ItemField, str | None],
+        *,
+        body: str | None = None,
+    ) -> None:
+        """Replace the label family of each field and record each value in one `PATCH` of the
+        issue, after one read of it. A field someone changed since the store read it raises
+        before any write, unless the issue already holds its `fields` value (#4452)."""
+        operation = "roadmap.item.set_fields"
+        if not fields:
+            return
+        for field, value in fields.items():
+            require_value(field, value, operation)
+        with _JOB_RECORD_LOCK:
+            issue = self._require_issue(item.number, operation)
+            held = item_of(issue.record())
+            for field, value in fields.items():
+                read = self._written.get((item.number, field), item.field_value(field))
+                require_unchanged(
+                    f"#{item.number}", field, read, held.field_value(field), value, operation
+                )
+            labels = issue.label_names
+            for field, value in fields.items():
+                labels = relabeled(labels, field, value)
+            self._edit_issue(
+                issue,
+                labels=labels,
+                changes=dict(fields),
+                text=body,
+                method="set_fields",
+                item=item,
+            )
+            for field, value in fields.items():
+                self._written[(item.number, field)] = value
+
     def set_marks(
         self,
         item: Item,

@@ -5539,6 +5539,8 @@ class RoadmapMessages:
             "title": "<title>",
             "body": "<body>",
             "label": "<label>",
+            "filing_labels": "<the source, type, scope, Status, Value and Effort labels>",
+            "fields": "<the Status, Value and Effort labels>",
             "sub_issue_id": "<the child's REST id>",
             "node_id": "<node id>",
             "original_id": "<original node id>",
@@ -5598,6 +5600,7 @@ class RoadmapMessages:
             "model_run": "the model's run on {subject}",
             "record": "the job record of {subject}, in its body",
             "set_field": "set {field} on {subject}: its labels and its job record, in one write",
+            "set_fields": "set {fields} on {subject}: its labels and its job record, in one write",
             "status_read_back": (
                 "{subject} again after its Status write: a label that another writer changed in "
                 "between fails the write"
@@ -5760,6 +5763,7 @@ class RoadmapMessages:
     intake_no_labels: str = "no labels"
     intake_write_label: str = "label {label}"
     intake_write_field: str = "{field} {value}"
+    intake_write_fields: str = "{fields} in one request"
     intake_write_comment: str = "reason comment"
     intake_placement_backlog: str = "to the backlog: {reason}"
     intake_placement_kept: str = "kept in milestone {milestone}: {reason}"
@@ -6278,12 +6282,16 @@ class RoadmapMessages:
             "propose": "the proposal for {subject}",
             "evidence": "the evidence the model cites for {subject}",
             "comments": "the comments on {subject}, for intake's marker",
-            "file": "file {subject}, with source/agent when an agent files it",
+            "file": "file {subject}, with every label of its source, type, scope and fields",
             "sub_issue": "link {subject} as a sub-issue of {parent}",
             "label": "label {subject} with its type/* label when it has none",
             "field": (
                 "set {field} on {subject}: read the issue, then write its labels and its job "
                 "record in one request"
+            ),
+            "fields": (
+                "set the fields {fields} on {subject} in one request: read the issue, then write "
+                "its labels and its job record"
             ),
             "status_read_back": (
                 "read {subject} again after its Status write: a label that another writer "
@@ -6311,6 +6319,7 @@ class RoadmapMessages:
             "sub_issue": "the candidate's source is an issue of the repository",
             "placed": "intake places {subject}",
             "field": "it has none",
+            "fields": "it has none of them",
             "comment": "it has such a fact, and intake's is not there",
             "priority": "it has none",
         }

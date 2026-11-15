@@ -1112,6 +1112,22 @@ class RoadmapStore(Protocol):
         write.
         """
 
+    def set_fields(
+        self,
+        item: Item,
+        fields: Mapping[ItemField, str | None],
+        *,
+        body: str | None = None,
+    ) -> None:
+        """Set or clear the label family of each field on the Item's issue, and record each value
+        in its job record, in one read of the issue and one write. When `body` is given, it
+        replaces the text before the record block in the same write.
+
+        A value that is not one of the field's values, an issue that is not this repository's, or
+        a field someone changed since the store read the Item, unless the issue already holds its
+        `fields` value, raises before the store changes anything (#4452).
+        """
+
     def set_marks(
         self,
         item: Item,

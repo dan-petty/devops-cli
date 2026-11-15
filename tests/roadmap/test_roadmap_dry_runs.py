@@ -446,9 +446,9 @@ def test_no_roadmap_plan_lists_a_request_to_a_project_board() -> None:
 
 
 def test_each_field_write_of_a_placement_reads_its_issue_first() -> None:
-    """A placement writes Status, Value, Effort and Priority, each a read of the issue and then
-    one `PATCH`, and reads no listing between them. The only listing is the read of the comments
-    before the reason comment (#4793)."""
+    """A placement writes Status, Value and Effort in one `set_fields` request and Priority in
+    another, each after a read of the issue, and reads no listing between them. The only listing
+    is the read of the comments before the reason comment (#4793, #4452)."""
     from devops_cli.roadmap.intake.intake import dry_run_intake
 
     writes = [r for r in dry_run_intake(REPO, ref="main", issues=(7,)).writes if r.argv]
@@ -458,8 +458,8 @@ def test_each_field_write_of_a_placement_reads_its_issue_first() -> None:
         [_shape(writes[i - 1]) for i in patches],
         [r.argv[1:] for r in writes if r.argv[:1] == ("GET",)],
     ) == (
-        4,
-        [f"api repos/{REPO}/issues/7"] * 4,
+        2,
+        [f"api repos/{REPO}/issues/7"] * 2,
         [(f"{API}{listing_path(comments_endpoint(REPO, 7))}",)],
     )
 

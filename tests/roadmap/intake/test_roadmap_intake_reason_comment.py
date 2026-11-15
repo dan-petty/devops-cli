@@ -21,9 +21,9 @@ def test_an_item_with_no_related_item_and_the_usual_fields_gets_no_reason_commen
         [
             ("label_issue", None),
             ("label_issue", None),
-            ("set_field", "Status"),
-            ("set_field", "Value"),
-            ("set_field", "Effort"),
+            ("set_fields", "Status"),
+            ("set_fields", "Value"),
+            ("set_fields", "Effort"),
             ("set_field", "Priority"),
         ],
     )

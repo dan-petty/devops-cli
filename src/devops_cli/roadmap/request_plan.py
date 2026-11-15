@@ -265,6 +265,13 @@ class StoreRequests:
         edit = self._edit(subject, "set_field", stdin, field=field_name or _p("field"))
         return [*self.issue_now(subject), edit]
 
+    def set_fields(self, subject: str) -> Requests:
+        """The issue now, then its labels, the families of Status, Value and Effort replaced, and
+        its body with the job record, in one write (#4452)."""
+        stdin = gh.issue_edit(labels=[_p("labels")], body=_p("record"))
+        edit = self._edit(subject, "set_fields", stdin, fields=_p("fields"))
+        return [*self.issue_now(subject), edit]
+
     def write_status(self, subject: str) -> Requests:
         """The Status write of `status_sync.write_status`: the field write, then the read of the
         issue that checks the label (#5018)."""

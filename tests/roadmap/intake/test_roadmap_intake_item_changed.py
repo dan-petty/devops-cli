@@ -49,7 +49,7 @@ def test_item_changed_for_one_candidate_places_the_others_and_ends_the_round_wit
     no error, one INFO line names the candidate, and the next plan holds the candidate again."""
     first, changed, last = (roadmap.issue(f"feat: candidate {n}") for n in range(3))
     placed = ("New", "P2-Medium", "Medium", "Low", None)
-    roadmap.store.fail_write(write="set_field", item=changed, error=_changed(changed))
+    roadmap.store.fail_write(write="set_fields", item=changed, error=_changed(changed))
     plan = roadmap.plan(FakeModel())
 
     with caplog.at_level(logging.INFO, logger=INTAKE_LOGGER):

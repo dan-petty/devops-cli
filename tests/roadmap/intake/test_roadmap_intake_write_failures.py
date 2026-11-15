@@ -37,13 +37,14 @@ class GhLabelStore(InMemoryRoadmapStore):
 # ── Resume and idempotence ────────────────────────────────────────────────────
 
 
-def test_a_run_that_stops_after_the_status_write_is_finished_by_the_next_run(
+def test_a_run_that_stops_after_the_batched_write_is_finished_by_the_next_run(
     roadmap: Roadmap,
 ) -> None:
-    """A run that wrote Status and stopped leaves a candidate: the next run decides it again,
-    writes only what it holds no label for, and leaves one reason comment for its P1-High."""
+    """A run that wrote Status, Value and Effort in one request and stopped leaves a candidate:
+    the next run decides it again, writes only the Priority, and leaves one reason comment for
+    its P1-High."""
     number = roadmap.issue("feat: resumable")
-    roadmap.store.fail_write(write="set_field", applied=True)
+    roadmap.store.fail_write(write="set_fields", applied=True)
     urgent = FakeModel(proposals={"feat: resumable": {"priority": "P1-High"}})
     with pytest.raises(
         RoadmapIntakeError,
@@ -59,13 +60,11 @@ def test_a_run_that_stops_after_the_status_write_is_finished_by_the_next_run(
         labels_of(roadmap, number),
         [(w.operation, w.key) for w in writes],
     ) == (
-        ("New", None, None, None, None),
+        ("New", None, "Medium", "Low", None),
         ("New", "P1-High", "Medium", "Low", None),
         1,
         ("type/feature",),
         [
-            ("set_field", "Value"),
-            ("set_field", "Effort"),
             ("comment", None),
             ("set_field", "Priority"),
         ],

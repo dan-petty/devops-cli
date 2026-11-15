@@ -451,3 +451,31 @@ def test_a_person_edit_to_the_body_text_outside_the_record_block_is_restored_and
     assert after_body.startswith("Person edited description")
     assert "job-1" in after_body
     assert otlp.points(ROADMAP_RECORD_LOST_EDIT_TOTAL.name) == [({}, 1.0)]
+
+
+def test_a_batched_write_reads_the_issue_once_and_patches_three_fields() -> None:
+    """Status, Value and Effort go in one `PATCH`, and one read-back checks the record (#4452)."""
+    github, store = seeded(i7=("type/bug", "priority/p2-medium"))
+    item = read(store, 7)
+    sent = len(github.calls)
+    store.set_fields(
+        item, {ItemField.STATUS: "New", ItemField.VALUE: "Medium", ItemField.EFFORT: "Low"}
+    )
+    block = f'{RECORD} {{"Effort": "Low", "Status": "New", "Value": "Medium"}} -->'
+    labels = ["type/bug", "priority/p2-medium", "status/new", "value/medium", "effort/low"]
+
+    assert (
+        github.calls[sent:],
+        json.loads(github.stdins[-2] or "{}"),
+        github.labels(7),
+        github.body(7),
+    ) == (
+        [
+            ["api", f"repos/{REPO}/issues/7"],
+            issue_edit_args(REPO, 7),
+            ["api", f"repos/{REPO}/issues/7"],
+        ],
+        {"labels": labels, "body": f"Text\n\n{block}"},
+        labels,
+        f"Text\n\n{block}",
+    )
