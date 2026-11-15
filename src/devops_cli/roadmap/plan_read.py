@@ -21,6 +21,12 @@ The item `refactor(roadmap): end the kind inference of the plan reader` ends it:
 `plan_rewrite` writes the `Kind:` line into each old plan, and the reader then refuses a group with
 no kind.
 
+The `Adds:` line of a group names each identifier that the group adds, each in a code span, and the
+reader sets the `adds` field from it (#3453). The reader refuses a line that names an identifier
+outside a code span, or that holds no code span, because a name that no field holds is lost in the
+comparison of the plan with the files. A `manifest` group and an `other` group add no identifier,
+so the model refuses an `adds` value on them.
+
 The reader also reads `## Weakened checks` of `proposal.md` (#3490). `recorded_tests` gives the
 tests that its entries name, and `merged_recorded_tests` gives them for the plan at one commit. The
 step guard trusts only the plan on the default branch: a person merged that text, so the record
@@ -60,7 +66,13 @@ from devops_cli.roadmap.stage.stage_change import (
 )
 from devops_cli.roadmap.stage.stage_criteria import StageCriterion
 from devops_cli.roadmap.stage.stage_specs import BaseSpec, read_spec
-from devops_cli.roadmap.step_files import FAILS_ON_BASE, KIND_LINE, TaskGroup, parse_task_groups
+from devops_cli.roadmap.step_files import (
+    FAILS_ON_BASE,
+    KIND_LINE,
+    TaskGroup,
+    adds_problem,
+    parse_task_groups,
+)
 
 _CHANGE_FILE: Final[str] = "/.openspec.yaml"
 # A capability is flat, `<name>`, or nested, `<area>/<name>`, as `openspec list --specs` finds it.
@@ -506,6 +518,9 @@ def _group(group: TaskGroup) -> StageGroup:
     files = group_files(group.text)
     if not group.tasks:
         raise PlanReadError(_TASKS, MESSAGES.roadmap.plan_read_bad_task.format(text=group.title))
+    if problem := adds_problem(group.text):
+        raise PlanReadError(_TASKS, problem)
+    adds = list(group.added_names)
     first = _task(group, 0)
     if not first.text:
         raise PlanReadError(_TASKS, MESSAGES.roadmap.plan_read_bad_task.format(text=first.text))
@@ -529,6 +544,7 @@ def _group(group: TaskGroup) -> StageGroup:
             changes=files.changes,
             creates=files.creates,
             creates_lines={path: 1 for path in files.creates},
+            adds=adds,
             test=first.text,
             implementation=implementation,
             documentation=documentation,
@@ -545,6 +561,7 @@ def _group(group: TaskGroup) -> StageGroup:
         changes=files.changes,
         creates=files.creates,
         creates_lines={path: 1 for path in files.creates},
+        adds=adds,
         implementation=implementation,
         documentation=other_documentation,
         verify=first.verification,
@@ -788,6 +805,7 @@ _GROUP_FIELDS: Final[tuple[str, ...]] = (
     "reads",
     "changes",
     "creates",
+    "adds",
     "test",
     "implementation",
     "verify",
@@ -809,7 +827,7 @@ def read_back_problems(files: Mapping[str, str], proposal: StageProposal) -> lis
     """The problems that `read_change` finds when reading `files` back: each group and field that
     differs from `file_facts(proposal)`.
 
-    The check compares each group (title, kind, reads, changes, creates, test, implementation,
+    The check compares each group (title, kind, reads, changes, creates, adds, test, implementation,
     verify, process, documentation), the unchanged references and the criteria. It does not
     compare specs, because `_restored` puts back base scenarios that the proposal does not hold.
     Each problem names the group and field with no text of the plan (#5214)."""
