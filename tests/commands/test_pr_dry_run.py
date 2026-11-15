@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.commands import pr as pr_commands
 from devops_cli.commands.pr import (
     check_readiness,
     close_pr,
@@ -249,7 +250,7 @@ def test_a_dry_run_refuses_a_scope_with_no_label_in_the_checkout(
     labels = tmp_path / ".github" / "labels.yml"
     labels.parent.mkdir()
     labels.write_text('- name: "scope/ai"\n  color: "DCDCD6"\n  description: "AI"\n')
-    monkeypatch.setattr("devops_cli.commands.pr._checkout", lambda: tmp_path)
+    monkeypatch.setattr(pr_commands, "_checkout", lambda: tmp_path)
 
     result = runner.invoke(
         app, ["pr", "create", "-t", "feat(devops): a change", "-b", "", "--dry-run"]
