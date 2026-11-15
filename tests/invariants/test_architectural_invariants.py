@@ -119,6 +119,20 @@ CONST_AST_GREP_RULE_ID_SEPARATOR: Final[str] = ","
 
 DEFAULT_C901_SUPPRESSION_CEILING: int = 25
 DEFAULT_AST_GREP_SUPPRESSION_CEILING: int = 0
+# The usual fix for a kind of suppression (#5253). The message names it before any ceiling, and a
+# higher ceiling is the owner's call (AGENTS.md rule 5).
+_SUPPRESSION_FIXES: dict[str, str] = {
+    "[[tool.mypy.overrides]]": "write the stub under `typings/`, as `typings/jq.pyi` does",
+    "src type: ignore": "fix the type error, or narrow the ignore to its error code",
+    "tests type: ignore": "fix the type error, or narrow the ignore to its error code",
+    "src noqa: C901": "split the function until its complexity falls",
+    "src nosec": "remove the need for the marker, or name the rule and the reason",
+    "tests nosec": "remove the need for the marker, or name the rule and the reason",
+    "src pragma: no cover": "write the test that covers the line",
+    "tests pragma: no cover": "write the test that covers the line",
+}
+# The line of the definition above, which the breach message names (#5253).
+_CEILINGS_LOCATION = "tests/invariants/test_architectural_invariants.py:136"
 DEFAULT_SUPPRESSION_CEILINGS: dict[str, int] = {
     "src type: ignore": 40,
     "src noqa: C901": DEFAULT_C901_SUPPRESSION_CEILING,
@@ -1415,10 +1429,12 @@ def _suppression_ceiling_breaches(
         total = sum(files.values())
         ceiling = ceilings.get(kind, 0)
         if total > ceiling:
+            fix = _SUPPRESSION_FIXES.get(kind, "fix the cause of the suppression")
             breaches.append(
                 f"{kind}: {total} > ceiling {ceiling} in {sorted(files)}. "
-                "Fix the cause, or raise the ceiling in src/devops_cli/config/defaults.py "
-                "with a reason recorded in the proposal of the change "
+                f"First, {fix}. The ceilings are in {_CEILINGS_LOCATION}. "
+                "A higher ceiling lowers a quality threshold, and only the owner can allow it "
+                "(AGENTS.md rule 5); record its reason in the proposal of the change "
                 "(openspec/changes/<issue>-<slug>/proposal.md)."
             )
     return breaches
@@ -2261,3 +2277,21 @@ def test_the_devcontainer_image_builds_daily_and_on_its_own_inputs(
         )
         == expected
     )
+
+
+def test_the_breach_message_names_the_ceiling_definition_and_the_fix() -> None:
+    """The message names the file and line of the ceilings and a fix before a ceiling (#5253)."""
+    line = (
+        (REPO_ROOT / "tests/invariants/test_architectural_invariants.py")
+        .read_text(encoding="utf-8")
+        .splitlines()[135]
+    )
+    breaches = _suppression_ceiling_breaches(REPO_ROOT, ceilings={"[[tool.mypy.overrides]]": 0})
+
+    assert line.startswith("DEFAULT_SUPPRESSION_CEILINGS")
+    assert breaches
+    assert (
+        _CEILINGS_LOCATION in breaches[0],
+        "write the stub under `typings/`" in breaches[0],
+        "only the owner can allow it" in breaches[0],
+    ) == (True, True, True)
