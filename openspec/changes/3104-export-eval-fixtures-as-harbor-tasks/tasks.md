@@ -38,7 +38,7 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/implement/implement_eval_harbor.p
 
 Kind: other. Reads: `src/devops_cli/config/defaults.py`, `tests/roadmap/test_roadmap_limit_classes.py`, `tests/config/test_setting_sources.py`. Changes: `src/devops_cli/config/defaults.py`, `tests/roadmap/test_roadmap_limit_classes.py`.
 
-- [ ] 5.1 Add DEFAULT_ROADMAP_EVAL_HARBOR_TIMEOUT_SECONDS: Final[int] = 600 to `src/devops_cli/config/defaults.py`, with a comment that names the task configuration of the pinned Harbor version as its reader. Add its row to LIMITS in `tests/roadmap/test_roadmap_limit_classes.py` with the class kept and the reason that the time limit of one trial is written into the task configuration of the task, that the export option sets it for one run, and that the task format of the pinned Harbor version reads it. Keep `tests/config/test_setting_sources.py` passing, because the new constant is a default of a command option and no setting field
+- [x] 5.1 Add DEFAULT_ROADMAP_EVAL_HARBOR_TIMEOUT_SECONDS: Final[int] = 600 to `src/devops_cli/config/defaults.py`, with a comment that names the task configuration of the pinned Harbor version as its reader. Add its row to LIMITS in `tests/roadmap/test_roadmap_limit_classes.py` with the class kept and the reason that the time limit of one trial is written into the task configuration of the task, that the export option sets it for one run, and that the task format of the pinned Harbor version reads it. Keep `tests/config/test_setting_sources.py` passing, because the new constant is a default of a command option and no setting field
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_limit_classes.py` passes
 
 ## 6. Add the harbor export and run commands

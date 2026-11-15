@@ -1095,6 +1095,11 @@ DEFAULT_ROADMAP_FIX_PLAN_TIME_BUDGET_SECONDS: int = 3600
 # by default.
 DEFAULT_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS: int = 2
 DEFAULT_ROADMAP_FIX_PLAN_REVISIONS: int = 3
+# The time limit of one trial of a Harbor task of an implement eval fixture, in seconds (#3104).
+# The export command writes it into the task configuration (`task.toml`) of the task folder, and
+# the task format of the pinned Harbor version reads it as the limit of the run of one trial. The
+# option `--timeout` of `devops roadmap eval harbor export` sets it for one run.
+DEFAULT_ROADMAP_EVAL_HARBOR_TIMEOUT_SECONDS: Final[int] = 600
 # How often the plan_drift row is due on its own, besides its first run (#3968). A round fetches
 # the head of each open plan pull request and runs the plan gates on it, so it is heavier than a
 # stage_ready round.
