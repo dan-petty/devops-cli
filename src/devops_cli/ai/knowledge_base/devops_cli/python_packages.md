@@ -235,6 +235,12 @@ from devops_cli.ai.review_schema import Finding
 - **Codebase Integration**:
   - `devops_cli.config.round_trip`: `save_settings` edits `config.yaml` in place and writes only the keys whose values changed (#1999).
 
+#### `tomlkit`
+- **Pinned Version**: `tomlkit==0.15.2`
+- **Ecosystem Role**: TOML round-trip editing that keeps the comments and the order of the keys of a file. The standard library `tomllib` only reads TOML.
+- **Codebase Integration**:
+  - `devops_cli.roadmap.implement.implement_strength`: the mutation run of the strength check adds the scoped test modules to `pytest_add_cli_args_test_selection` of `[tool.mutmut]` in `pyproject.toml`, and writes the bytes of the file back after the run (#5887).
+
 ---
 
 ## 🛠️ Development, CI Quality & Verification Tooling

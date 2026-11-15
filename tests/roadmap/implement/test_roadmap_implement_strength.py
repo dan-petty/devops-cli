@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.implement_step import command_text
 
 SCAN = "uv run ast-grep scan --rule .ast-grep/rules/test-function-has-assertion.yml --json"
@@ -46,6 +46,24 @@ def test_a_new_test_file_that_asserts_nothing_is_flagged(
     )
 
 
+SELECTION_KEY = "pytest_add_cli_args_test_selection"
+# The table of a checkout that has one: a comment and an array over several lines, as the
+# `[tool.mutmut]` table of this repository has.
+MUTMUT_TABLE = (
+    '[project]\nname = "sample"\n\n[tool.mutmut]\n'
+    "# The tests that read src as data.\n"
+    f'{SELECTION_KEY} = [\n    "--ignore=tests/test_docs.py",\n]\n'
+)
+
+
+def _selection(checkout: Path) -> list[str]:
+    """The test selection that mutmut reads from the `pyproject.toml` of `checkout`."""
+    import tomllib
+
+    table = tomllib.loads((checkout / "pyproject.toml").read_text(encoding="utf-8"))
+    return list(table["tool"]["mutmut"].get(SELECTION_KEY, []))
+
+
 def test_the_mutation_run_stops_at_command_timeout_seconds_and_keeps_its_survivors(
     implement_checkout: Path, implement_programs: ProcessFake
 ) -> None:
@@ -58,9 +76,15 @@ def test_the_mutation_run_stops_at_command_timeout_seconds_and_keeps_its_survivo
     )
 
     target = MutationTarget(path="src/sample.py", line=1, class_name=None, name="shout")
+    seen: list[list[str]] = []
+
+    def out_of_time(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        seen.append(_selection(implement_checkout))
+        raise subprocess.TimeoutExpired(cmd="uv", timeout=1)
+
     implement_programs.answer(
         lambda call: "mutmut run" in command_text(call),
-        ProcessAnswer(side_effect=subprocess.TimeoutExpired(cmd="uv", timeout=1)),
+        ProcessAnswer(side_effect=out_of_time),
     )
     implement_programs.answer(
         lambda call: "mutmut results" in command_text(call),
@@ -73,8 +97,63 @@ def test_the_mutation_run_stops_at_command_timeout_seconds_and_keeps_its_survivo
         timeout=True,
         skipped_files=(),
     )
+    # A checkout with no `pyproject.toml` gets one for the run, and has none after it.
+    assert seen == [["tests/test_sample.py"]]
+    assert not (implement_checkout / "pyproject.toml").exists()
+
+
+def test_the_mutation_run_sets_no_environment_key_that_the_process_runner_refuses(
+    implement_checkout: Path, implement_programs: ProcessFake
+) -> None:
+    """`run_subprocess` refuses `PYTEST_ADDOPTS` in `build_subprocess_env` before the child starts
+    (#2747). The process fake records the environment and checks nothing, so this test gives the
+    recorded environment of the mutation run to the real check (#5887)."""
+    from devops_cli.ci.mutate import MutationTarget
+    from devops_cli.core.process import build_subprocess_env
+    from devops_cli.roadmap.implement.implement_strength import run_mutation
+
+    target = MutationTarget(path="src/sample.py", line=1, class_name=None, name="shout")
+
+    run_mutation(implement_checkout, [target], ["tests/test_sample.py"])
+
     run_call = next(call for call in implement_programs.calls if "mutmut run" in command_text(call))
-    assert run_call.env.get("PYTEST_ADDOPTS") == "tests/test_sample.py"
+    child = build_subprocess_env(
+        env=run_call.env,
+        isolate_env=run_call.isolate_env,
+        extra_allowed_keys=run_call.extra_allowed_env,
+    )
+    assert "PYTEST_ADDOPTS" not in child
+
+
+def test_the_mutation_run_adds_the_scoped_tests_to_the_mutmut_table_and_restores_the_file(
+    implement_checkout: Path, implement_programs: ProcessFake
+) -> None:
+    """`mutmut run` 3.8.1 takes no pytest argument, and reads the test selection of its stats
+    run from `pytest_add_cli_args_test_selection` of `[tool.mutmut]`. The run adds the scoped
+    test modules after the entries of the table, and the file holds its bytes again after it."""
+    import subprocess
+
+    from devops_cli.ci.mutate import MutationTarget
+    from devops_cli.roadmap.implement.implement_strength import run_mutation
+
+    pyproject = implement_checkout / "pyproject.toml"
+    pyproject.write_text(MUTMUT_TABLE, encoding="utf-8")
+    target = MutationTarget(path="src/sample.py", line=1, class_name=None, name="shout")
+    seen: list[list[str]] = []
+
+    def read_table(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        seen.append(_selection(implement_checkout))
+        return subprocess.CompletedProcess([], 0, "", "")
+
+    implement_programs.answer(
+        lambda call: "mutmut run" in command_text(call),
+        ProcessAnswer(side_effect=read_table),
+    )
+
+    run_mutation(implement_checkout, [target], ["tests/test_sample.py", "tests/test_other.py"])
+
+    assert seen == [["--ignore=tests/test_docs.py", "tests/test_sample.py", "tests/test_other.py"]]
+    assert pyproject.read_text(encoding="utf-8") == MUTMUT_TABLE
 
 
 def test_more_changed_files_than_max_scoped_test_modules_are_named(
@@ -405,7 +484,6 @@ def test_coverage_delta_reads_report_file(
     import subprocess
 
     from devops_cli.roadmap.implement.implement_strength import coverage_delta
-    from tests.support.fakes.process import ProcessCall
 
     def write_report(call: ProcessCall) -> subprocess.CompletedProcess[str]:
         (implement_checkout / ".data").mkdir(parents=True, exist_ok=True)

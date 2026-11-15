@@ -501,6 +501,29 @@ def test_an_error_in_the_scoped_checks_keeps_the_work_of_both_groups(job_world: 
     assert job_world.origin_log() == FINISHED
 
 
+def test_a_check_command_that_the_process_runner_refuses_stops_as_a_refused_tool(
+    job_world: JobWorld,
+) -> None:
+    """The process runner refuses a command before it starts (`SecurityError`). A new runner image
+    meets the same refusal, so the stop is `refused_tool` and waits for a person, not `ci_infra`,
+    which the Service retries on each rollout (#5887). The stop keeps the work."""
+    from devops_cli.exceptions.security import SecurityError
+
+    refusal = "Prohibited dangerous environment variable override: 'PYTEST_ADDOPTS'"
+    job_world.programs.answer(
+        lambda call: command_text(call).startswith(PRE_PUSH),
+        ProcessAnswer(side_effect=SecurityError(refusal)),
+    )
+
+    job_world.run(two_groups())
+
+    _, record = _item_record(job_world)
+    comment = _assert_kept(job_world)
+    assert record["implement.failure"] == "refused_tool"
+    assert "Action left: `wait`: wait for a person." in comment
+    assert refusal in comment
+
+
 def test_a_tests_check_that_runs_out_of_time_is_a_failed_check(job_world: JobWorld) -> None:
     # The runs are the tick, the exit check of group 1 and the scoped check (#3054).
     _times_out_from(job_world, TESTS, 3, 3)

@@ -96,6 +96,7 @@ from devops_cli.exceptions import (
     GitHubUnauthenticatedError,
     GitOperationError,
     RoadmapImplementError,
+    SecurityError,
     ValidationError,
 )
 from devops_cli.exceptions.roadmap import GitSettingsError, OverWindowError
@@ -2156,8 +2157,14 @@ def _wip_record(commit: WipCommit) -> str:
 
 def _failure_class_of(exc: Exception) -> FailureClass | None:
     """The class of a stop that `exc` causes, when the error knows it: a git setting that the job
-    does not allow is `git_config` (GHSA). None lets the classifier read the text."""
-    return FailureClass.GIT_CONFIG if isinstance(exc, GitSettingsError) else None
+    does not allow is `git_config` (GHSA), and a command that the process runner refuses before it
+    starts (`SecurityError`) is `refused_tool`, as a new runner image meets the same refusal
+    (#5887). None lets the classifier read the text."""
+    if isinstance(exc, GitSettingsError):
+        return FailureClass.GIT_CONFIG
+    if isinstance(exc, SecurityError):
+        return FailureClass.REFUSED_TOOL
+    return None
 
 
 def _error_stop(step: str, exc: Exception, *, kept_branch: bool = False) -> _StopError:

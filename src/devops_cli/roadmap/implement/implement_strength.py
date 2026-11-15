@@ -15,10 +15,13 @@ from __future__ import annotations
 
 import json
 import subprocess
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
+
+import tomlkit
 
 from devops_cli.ci.mutate import MutationTarget, select_targets, tally
 from devops_cli.config.commands import BIN_UV
@@ -35,6 +38,9 @@ from devops_cli.roadmap.step_files import KIND_LINE, parse_task_groups
 
 _ASSERTION_RULE = ".ast-grep/rules/test-function-has-assertion.yml"
 _TEST_MODULE_PREFIX = "test_"
+# The file and the key from which mutmut 3.8.1 reads the test selection of its stats run.
+_MUTMUT_CONFIG = "pyproject.toml"
+_MUTMUT_SELECTION = "pytest_add_cli_args_test_selection"
 
 
 @dataclass(frozen=True)
@@ -141,6 +147,40 @@ def mutation_targets(
     return kept_targets, skipped_files
 
 
+@contextmanager
+def _mutmut_test_selection(source: Path, tests: Sequence[str]) -> Iterator[None]:
+    """Add `tests` to the test selection of mutmut in the checkout `source` while the block runs,
+    then give the file its bytes again.
+
+    `mutmut run` 3.8.1 takes no pytest argument. It reads `pytest_add_cli_args_test_selection` of
+    `[tool.mutmut]` in `pyproject.toml`, and its stats run gives that list to pytest. The process
+    runner refuses the key `PYTEST_ADDOPTS` (#2747), so the selection goes in the file. The entries
+    of the table stay first. A checkout with no `pyproject.toml` gets one for the block, and has
+    none after it. The job commits no change of the file: the block ends before any commit, and
+    the bytes come back when the run raises or runs out of time too. With no `tests`, the file
+    stays as it is, and mutmut runs the selection of the table.
+    """
+    if not tests:
+        yield
+        return
+    path = source / _MUTMUT_CONFIG
+    original = path.read_bytes() if path.is_file() else None
+    document = (
+        tomlkit.parse(original.decode("utf-8")) if original is not None else tomlkit.document()
+    )
+    tool = document.setdefault("tool", tomlkit.table(is_super_table=True))
+    table = tool.setdefault("mutmut", tomlkit.table())
+    table[_MUTMUT_SELECTION] = [*(str(entry) for entry in table.get(_MUTMUT_SELECTION, [])), *tests]
+    path.write_text(tomlkit.dumps(document), encoding="utf-8")
+    try:
+        yield
+    finally:
+        if original is None:
+            path.unlink(missing_ok=True)
+        else:
+            path.write_bytes(original)
+
+
 def run_mutation(
     source: Path,
     targets: Sequence[MutationTarget],
@@ -151,11 +191,12 @@ def run_mutation(
 ) -> MutationOutcome:
     """Run mutmut over `targets` in `source`, with stats collection scoped to `tests`.
 
-    `uv run mutmut run` runs with `PYTEST_ADDOPTS=" ".join(tests)` so stats collection runs only
-    the scoped test modules, bounded by `timeout` (defaulting to
-    `roadmap.implement.command_timeout_seconds`). When the run times out or finishes,
-    `uv run mutmut results --all true` is read through `tally`. A run that reaches the timeout
-    retains the survivors collected so far and marks `timeout=True`.
+    `uv run mutmut run` reads `tests` from the test selection of its table
+    (`_mutmut_test_selection`), so stats collection runs only the scoped test modules, bounded by
+    `timeout` (defaulting to `roadmap.implement.command_timeout_seconds`). The run sets no
+    environment key. When the run times out or finishes, `uv run mutmut results --all true` is read
+    through `tally`. A run that reaches the timeout retains the survivors collected so far and marks
+    `timeout=True`.
     """
     if not targets:
         return MutationOutcome(skipped_files=tuple(skipped_files))
@@ -167,12 +208,12 @@ def run_mutation(
     )
     globs = [glob for target in targets for glob in target.run_globs]
     cmd = [BIN_UV, "run", "mutmut", "run", *globs]
-    env = {"PYTEST_ADDOPTS": " ".join(tests)} if tests else {}
     timed_out = False
-    try:
-        run_subprocess(cmd, cwd=source, env=env, timeout=float(limit), quiet=True)
-    except subprocess.TimeoutExpired:
-        timed_out = True
+    with _mutmut_test_selection(source, tests):
+        try:
+            run_subprocess(cmd, cwd=source, timeout=float(limit), quiet=True)
+        except subprocess.TimeoutExpired:
+            timed_out = True
 
     results_cmd = [BIN_UV, "run", "mutmut", "results", "--all", "true"]
     done = run_subprocess(results_cmd, cwd=source, quiet=True)
