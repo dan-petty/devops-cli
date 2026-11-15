@@ -2955,7 +2955,7 @@ CONST_AI_GATEWAY_VIRTUAL_MODELS: Final[tuple[str, ...]] = (
 )
 # The gateway groups that a local deployment answers, from the `model_list` of
 # `k8s/llm/gateway/config.yaml`. A reply that names one of them is local, and a model with the
-# `ollama/` or `ollama_chat/` prefix is local too (#4886).
+# `local/`, `ollama/` or `ollama_chat/` prefix is local too (#4886).
 CONST_AI_GATEWAY_LOCAL_GROUPS: Final[tuple[str, ...]] = (
     "devops-chat",
     "devops-coder",
@@ -2975,6 +2975,12 @@ CONST_AI_GATEWAY_HOSTED_MODELS: Final[tuple[str, ...]] = (
     "claude-haiku-5-5",
     "deepseek-v4.1-flash-1017",
     "deepseek-v4.1-flash",
+    "gemini/gemini-3.8-flash",
+    "anthropic/claude-sonnet-5-5",
+    "anthropic/claude-haiku-5-5",
+    "openrouter/deepseek/deepseek-v4.1-flash-1017:floor",
+    "openrouter/deepseek/deepseek-v4.1-flash-1017",
+    "openrouter/deepseek/deepseek-v4.1-flash",
 )
 # TypeSafe Jev 1.14 System One decision model constants (https://docs.typesafe.ai/cookbooks).
 CONST_AI_JEV_MODEL: Final[str] = "typesafe/jev-1.14"

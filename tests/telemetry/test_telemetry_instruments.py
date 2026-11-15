@@ -1207,10 +1207,19 @@ def test_ai_calls_count_requests_tokens_and_spend_by_backend(
     [
         ("example.com:4000", "http://ollama-16gib.llm.svc.cluster.local:11434", False, True),
         ("localhost:4000", "https://api.openai.com", True, False),
-        ("localhost:4000", None, False, True),
+        ("localhost:4000", "http://10.0.0.1:8000", True, False),
+        ("localhost:4000", "http://cloud.internal:8000", True, False),
+        ("localhost:4000", None, True, False),
         ("example.com:4000", None, True, False),
     ],
-    ids=["local-backend", "hosted-backend", "local-host", "hosted-host"],
+    ids=[
+        "local-backend",
+        "hosted-backend",
+        "vpc-private-ip-backend",
+        "internal-dns-backend",
+        "local-host-unrouted",
+        "hosted-host-unrouted",
+    ],
 )
 def test_a_gateway_call_is_spend_or_savings_by_the_backend_that_served_it(
     otlp: FakeCollector,
@@ -1221,9 +1230,9 @@ def test_a_gateway_call_is_spend_or_savings_by_the_backend_that_served_it(
     saved: bool,
 ) -> None:
     """Verify the backend a gateway reply names decides whether a call is spend or local
-    savings, whatever host the gateway has; with no backend named, the host decides. Each
-    call adds one spend point, 0 when the call ran locally (#1631), and its tokens say whether a
-    local model ran them (#1672)."""
+    savings. All traffic routed to a *.local api_base counts as local savings. All requests
+    not routed to a *.local api_base count as spend (#1631). Each call adds one spend point,
+    0 when the call ran locally (#1631), and its tokens say whether a local model ran them (#1672)."""
     track_request_spend(
         provider="gateway",
         model="gpt-4o",
@@ -1237,6 +1246,25 @@ def test_a_gateway_call_is_spend_or_savings_by_the_backend_that_served_it(
         [v > 0 for _, v in otlp.points("devops_cli_ai_spend_usd_total")],
         {a["local"] for a, _ in otlp.points("devops_cli_ai_tokens_total")},
     ) == ([spent], {str(saved).lower()})
+
+
+def test_a_local_gateway_call_with_no_backend_named_is_local_savings(
+    otlp: FakeCollector, spend_ledger: SpendLedger
+) -> None:
+    """Verify an unrouted gateway call for a local model counts as local savings (#1631)."""
+    track_request_spend(
+        provider="gateway",
+        model="local/devops-chat",
+        server="localhost:4000",
+        served_by=None,
+        prompt_tokens=1000,
+        completion_tokens=200,
+    )
+
+    assert (
+        [v > 0 for _, v in otlp.points("devops_cli_ai_spend_usd_total")],
+        {a["local"] for a, _ in otlp.points("devops_cli_ai_tokens_total")},
+    ) == ([False], {"true"})
 
 
 def test_a_call_priced_at_its_deployment_model_keeps_the_route_name_as_its_model_label(
@@ -1350,7 +1378,7 @@ def test_a_local_call_sends_its_tokens_as_local_and_no_price_of_its_own(
         provider="ollama",
         model="qwen2.5-coder:7b",
         server="http://localhost:11434",
-        served_by="http://ollama-0.ollama:11434",
+        served_by="http://ollama-0.ollama.llm.svc.cluster.local:11434",
         prompt_tokens=1000,
         completion_tokens=200,
         cached=False,

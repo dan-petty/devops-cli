@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 
 from devops_cli.ai.spend.models import ModelPricing
 from devops_cli.config.constants import (
+    CONST_AI_GATEWAY_HOSTED_MODELS,
     CONST_AI_GATEWAY_LOCAL_GROUPS,
     CONST_AI_GATEWAY_PROVIDER,
     CONST_AI_GATEWAY_VIRTUAL_MODELS,
@@ -73,6 +74,7 @@ _HOSTED_GROUP_PRICES: Mapping[str, ModelPricing] = MappingProxyType(
     {
         "deepseek-v4.1-flash-1017": _DEEPSEEK_V4_1_FLASH_1017_PRICE,
         "openrouter/deepseek/deepseek-v4.1-flash-1017:floor": _DEEPSEEK_V4_1_FLASH_1017_PRICE,
+        "openrouter/deepseek/deepseek-v4.1-flash-1017": _DEEPSEEK_V4_1_FLASH_1017_PRICE,
         "deepseek-v4.1-flash": _DEEPSEEK_V4_1_FLASH_PRICE,
         "openrouter/deepseek/deepseek-v4.1-flash": _DEEPSEEK_V4_1_FLASH_PRICE,
     }
@@ -214,10 +216,15 @@ def _is_local_provider(provider: str | None) -> bool:
 def _is_local_tier(name: str) -> bool:
     """Whether `name` is a local gateway group or an Ollama model, the local tiers that
     `roadmap.implement.ladder` accepts and the groups that a local deployment answers (#4886)."""
-    return name in (
-        *CONST_AI_GATEWAY_VIRTUAL_MODELS,
-        *CONST_AI_GATEWAY_LOCAL_GROUPS,
-    ) or name.startswith(("ollama:", "ollama/", "ollama_chat/"))
+    return (
+        name.startswith("local/")
+        or name
+        in (
+            *CONST_AI_GATEWAY_VIRTUAL_MODELS,
+            *CONST_AI_GATEWAY_LOCAL_GROUPS,
+        )
+        or name.startswith(("ollama:", "ollama/", "ollama_chat/"))
+    )
 
 
 class _SettingsOnce:
@@ -290,6 +297,84 @@ def _is_local_host(host: str, settings: _SettingsOnce | None = None) -> bool:
     return _is_configured_cluster_host(host, loaded) or _is_configured_ai_server_host(host, loaded)
 
 
+def _is_local_transport(clean: str) -> bool:
+    if clean in CONST_LOCAL_TRANSPORT_LABELS or clean == "unix":
+        return True
+    try:
+        return urlsplit(clean).scheme == "http+unix"
+    except ValueError:
+        return False
+
+
+def _is_loopback_address(host: str) -> bool:
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _is_local_domain(host: str) -> bool:
+    import dns.exception
+
+    from devops_cli.core.dns_names import is_at_or_under
+
+    try:
+        return is_at_or_under(host, "local")
+    except dns.exception.DNSException:
+        return False
+
+
+def _is_cluster_or_configured_host(host: str, settings: _SettingsOnce | None) -> bool:
+    loaded = (settings or _SettingsOnce()).value
+    if loaded is None:
+        return False
+    if loaded.k8s.domain:
+        import dns.exception
+
+        from devops_cli.core.dns_names import is_at_or_under
+
+        try:
+            if is_at_or_under(host, loaded.k8s.domain):
+                return True
+        except dns.exception.DNSException:
+            pass
+    return _is_configured_ai_server_host(host, loaded)
+
+
+def _is_single_api_base_local(clean: str, settings: _SettingsOnce | None) -> bool:
+    if not clean:
+        return False
+    if _is_local_transport(clean):
+        return True
+    from devops_cli.http.urls import extract_domain_target
+
+    host = extract_domain_target(clean)
+    if not host:
+        return False
+    if _is_local_domain(host):
+        return True
+    if _is_loopback_address(host):
+        return True
+    return _is_cluster_or_configured_host(host, settings)
+
+
+def _is_local_api_base(server: str | None, settings: _SettingsOnce | None = None) -> bool:
+    """Whether `server` is a local api_base: a *.local host, loopback address, or local transport.
+
+    All traffic routed to a *.local api_base counts as local savings. All requests not routed
+    to a *.local api_base count as spend (#1631).
+    """
+    if not server:
+        return False
+    clean = server.strip().lower()
+    if "," in clean:
+        parts = [p.strip() for p in clean.split(",") if p.strip()]
+        return bool(parts) and all(_is_single_api_base_local(p, settings) for p in parts)
+    return _is_single_api_base_local(clean, settings)
+
+
 def _is_single_server_local(server: str, settings: _SettingsOnce) -> bool:
     clean = server.strip().lower()
     if not clean:
@@ -329,6 +414,27 @@ def _is_local_gateway_configured(settings: _SettingsOnce) -> bool:
     return bool(gw_url) and _is_local_server(gw_url, settings)
 
 
+def _is_local_gateway_call(
+    server: str | None,
+    served_model: str | None,
+    model: str | None,
+    settings: _SettingsOnce,
+) -> bool:
+    named = served_model.strip() if served_model else ""
+    if named:
+        return _is_local_tier(named)
+    asked = model.strip() if model else ""
+    if asked:
+        if _is_local_tier(asked):
+            return True
+        if not server and asked not in CONST_AI_GATEWAY_HOSTED_MODELS:
+            return _is_local_gateway_configured(settings)
+        return False
+    if not server:
+        return _is_local_gateway_configured(settings)
+    return _is_local_api_base(server, settings)
+
+
 def is_local(
     server: str | None = None,
     provider: str | None = None,
@@ -338,37 +444,23 @@ def is_local(
 ) -> bool:
     """Return True if the call ran on local hardware.
 
-    `served_by` is the backend that served the call, as the LLM gateway names it in its reply
-    (`ai/client/network.py` reads the header). When the reply names it, it decides: a hosted route
-    behind a local gateway is hosted, and a local backend behind a gateway on a public host is
-    local (#1631). LiteLLM names the API base of a route only when it knows it, so a local route
-    sets `api_base` and a hosted group sets none. A gateway reply that names no backend is
-    decided by the model that it names, `served_model`: the deployment model of a reply header,
-    or the group that answered, which LiteLLM writes in the reply body. A local gateway group or
-    an `ollama:` model is local, and each other model is hosted, whatever host the gateway has
-    (#3656). So a fallback is decided by the group that answered. When the reply names no model,
-    `model`, the model that the client asked for, is local when it is a local tier (#4523).
-    Otherwise the provider and the server the call was sent to decide. The call loads the
-    settings at most once, and only for a host that its address and its name do not decide
-    (#1420).
+    All traffic routed to a *.local api_base counts as local savings. All requests not routed
+    to a *.local api_base count as spend (#1631). When the reply names `served_by`, that
+    backend api_base decides. For a gateway call with no backend named, `served_model` or `model`
+    decides: a local tier routes to a local cluster backend (*.local), while hosted and cloud
+    models do not (#3656).
     """
     settings = _SettingsOnce()
     if served_by and served_by.strip():
-        return _is_local_server(served_by, settings)
-    is_gateway = provider is not None and provider.strip().lower() == CONST_AI_GATEWAY_PROVIDER
-    if is_gateway:
-        named = served_model.strip() if served_model else ""
-        if _is_local_tier(named or (model.strip() if model else "")):
-            return True
-        if named:
-            return False
+        return _is_local_api_base(served_by, settings)
+
+    if provider is not None and provider.strip().lower() == CONST_AI_GATEWAY_PROVIDER:
+        return _is_local_gateway_call(server, served_model, model, settings)
+
     if _is_local_provider(provider):
-        return True
-    if _is_local_server(server, settings):
-        return True
-    if is_gateway and not server:
-        return _is_local_gateway_configured(settings)
-    return False
+        return _is_local_api_base(server, settings) if server else True
+
+    return _is_local_server(server, settings) if server else False
 
 
 def _candidate_models(model: str) -> tuple[str, ...]:
@@ -575,7 +667,7 @@ class PricingRegistry:
         A local call costs nothing, whatever override names its model or server, so its tokens
         count in local savings and never as spend (#1631).
         """
-        if is_local(server=server, provider=provider, served_by=served_by):
+        if is_local(server=server, provider=provider, served_by=served_by, model=model):
             return ModelPricing(
                 prompt_usd_per_million=0.0,
                 completion_usd_per_million=0.0,
