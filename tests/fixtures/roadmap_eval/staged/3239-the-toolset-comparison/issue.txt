@@ -1,0 +1,81 @@
+## Acceptance criteria
+
+1. `devops roadmap eval stage --toolset extended` runs and names the toolset in its report.
+2. `devops roadmap eval stage compare base extended` prints one table with the columns above and runs offline with a fake client in the tests.
+3. The report states the number of runs for each case and the spread.
+4. The command is in the MCP exposure list as excluded or exposed, the docs are regenerated, and `eval stage --dry-run` states what it would run and what it would cost.
+
+### Problem statement
+The stage planner has named toolsets: `base`, `extended` and `research`. The project has no measurement of which set gives the best plans for its cost. The offline golden set judges only the defects that a gate can see: 64 of 299 labeled defects, 21%. This change adds a `--toolset` option and a `compare` form to `devops roadmap eval stage`. A person can then choose a toolset from measured defects, tokens, time and cost. The first paid comparison run needs #3207 and a person's approval; this issue delivers the offline command and its tests.
+
+### Acceptance criteria
+
+### Requirement: Toolset option
+The `devops roadmap eval stage` command SHALL accept a `--toolset` option and SHALL name the selected toolset in its report.
+
+#### Scenario: Run one toolset
+- **WHEN** A test runs `devops roadmap eval stage --toolset extended` with a fake client on the golden fixture set.
+- **THEN** The command exits 0 and its report contains the toolset name `extended`.
+
+### Requirement: Comparison table
+The `devops roadmap eval stage compare` form SHALL run two or more toolsets on the same cases and SHALL print one table with the required columns.
+
+#### Scenario: Compare base and extended offline
+- **WHEN** A test runs `devops roadmap eval stage compare base extended` with a fake client.
+- **THEN** The output has one row for `base` and one for `extended`, with columns for gate defects, verification defects, tool calls, requests, input tokens, output tokens, elapsed time and cost.
+
+### Requirement: Run count and spread
+The comparison report SHALL state the number of runs for each case and SHALL show the minimum and maximum of each measured value.
+
+#### Scenario: Three runs with different replies
+- **WHEN** A test runs a comparison with `--runs 3` and a fake client that returns different token counts.
+- **THEN** The report states `runs=3` for each case and shows the minimum and maximum token counts.
+
+### Requirement: Replay inputs
+The comparison SHALL load replay cases from the golden set and from staged-item replay cases in the same case format.
+
+#### Scenario: Mixed replay set
+- **WHEN** A test runs the comparison with a fixture directory that holds one golden case and one staged-item replay case.
+- **THEN** The report includes both case names and runs each case at least three times.
+
+### Requirement: Dry run
+The `devops roadmap eval stage compare` command SHALL state the cases, runs, toolsets and estimated cost on `--dry-run`, and SHALL make no model call.
+
+#### Scenario: Dry run makes no model call
+- **WHEN** A test runs `devops roadmap eval stage compare base extended --dry-run` with a fake client that fails on any call.
+- **THEN** The command exits 0, prints the case count, the run count, both toolset names and an estimated cost, and makes no model call.
+
+### Requirement: Cost from spend pricing
+Each comparison row SHALL show the run cost calculated from the existing AI spend pricing data.
+
+#### Scenario: Known token counts
+- **WHEN** A test uses a fake client with known token counts and a known pricing table.
+- **THEN** The row shows the expected cost.
+
+### Requirement: Delta line
+The comparison SHALL print one delta line for each measured column as `toolset - base`.
+
+#### Scenario: Delta to base
+- **WHEN** A test runs a comparison of `base` and `extended` with known values.
+- **THEN** The delta line shows `extended - base` for each measured column and the table keeps the raw values.
+
+### Requirement: Verification column
+The comparison SHALL report the defects caught by the stage verification pass, and SHALL report `not run` when the run configures no verification pass.
+
+#### Scenario: No verification pass configured
+- **WHEN** A test runs a comparison with a run configuration that sets no verification pass.
+- **THEN** The verification column shows `not run` and the command exits 0.
+
+### Requirement: MCP exposure
+The `roadmap eval stage` command SHALL appear in the MCP exposure list as `excluded`.
+
+#### Scenario: MCP exposure list check
+- **WHEN** A test reads the MCP exposure list.
+- **THEN** The list contains `roadmap eval stage` with the value `excluded`.
+
+### Requirement: Generated docs
+The generated documentation SHALL describe the `--toolset` option and the `compare` form of `devops roadmap eval stage`.
+
+#### Scenario: Docs regeneration
+- **WHEN** A test runs the docs generator and compares the output with the committed docs.
+- **THEN** The generated docs contain `--toolset` and `compare`, and no diff remains.

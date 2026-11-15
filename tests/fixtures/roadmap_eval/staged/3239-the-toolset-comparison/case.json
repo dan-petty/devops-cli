@@ -1,0 +1,24 @@
+{
+ "issue": 3239,
+ "pull": 5629,
+ "title": "feat(roadmap): add toolset comparison to stage planner eval",
+ "change": "3239-add-toolset-comparison-to-stage-planner",
+ "merge_commit": "8476ca294b3fefc894e7210e83ce42ceb5c644f2",
+ "base_commit": "5a7238d4683b5dd245917b8e2476d9815c464a7f",
+ "verdict": "good",
+ "scores": {
+  "premise_ok": 5,
+  "fidelity": 4,
+  "task_quality": 4,
+  "rule_compliance": 4,
+  "accuracy": 4
+ },
+ "state": "merged",
+ "summary": "The plan of #3239 as the stage job staged it: the first staged-item replay case of the set.",
+ "notes": [
+  "The plan is the change folder of the plan pull request #5629, read back with the plan reader: no file of the folder holds the summary, the pull request body or the line estimate of a created file.",
+  "The plan adds the `--toolset` option and the `compare` form of `devops roadmap eval stage`, and the first staged-item replay case of the set is its own group 9.",
+  "The scores are set by hand. No review scored this plan."
+ ],
+ "defects": []
+}

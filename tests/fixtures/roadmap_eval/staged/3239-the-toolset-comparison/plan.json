@@ -1,0 +1,566 @@
+{
+ "summary": "add toolset comparison to stage planner eval",
+ "pull_request_body": "The stage planner has named toolsets (#3238), and nothing measures which set gives the best plans for its cost. The offline golden set judges only the defects that a gate sees, so a person has no measured comparison of gate defects, tokens, time and cost. #3239 adds that measurement to `devops roadmap eval stage`.",
+ "why": "The stage planner has named toolsets (#3238), and nothing measures which set gives the best plans for its cost. The offline golden set judges only the defects that a gate sees, so a person has no measured comparison of gate defects, tokens, time and cost. #3239 adds that measurement to `devops roadmap eval stage`.",
+ "what_changes": [
+  "`devops roadmap eval stage` takes `--toolset <name>` from the stage toolset setting and names the toolset in its report.",
+  "`devops roadmap eval stage compare <toolset>...` runs every named toolset on the same cases and prints one table.",
+  "The table gives, for each toolset, the gate defects, the verification defects, the tool calls, the requests, the input and output tokens, the elapsed time and the cost.",
+  "The comparison runs each case three times by default, states the number of runs and shows the minimum and the maximum of each measured value.",
+  "The comparison prints one delta line for each measured column against the first toolset.",
+  "The comparison prices its tokens with the AI spend pricing registry and prints `unpriced` for a model that the registry holds no price for.",
+  "The verification column holds `not run` unless `--verify` asks for the verification pass.",
+  "`--dry-run` states the cases, the runs, the toolsets and the estimated cost from two estimate constants and makes no model call.",
+  "The comparison loads the staged-item replay cases beside the golden cases, and the first such case is committed at `tests/fixtures/roadmap_eval/staged/3239-the-toolset-comparison/case.json`.",
+  "`roadmap eval stage` stays out of `CONST_MCP_EXPOSURE_TABLE`, so the MCP server publishes no tool for it, and a new test pins that the command resolves in the tree and that the server publishes no tool for it.",
+  "`docs/CLI_REFERENCE.md` and `docs/commands/roadmap.md` are regenerated with the new option and the compare form."
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "The probes state \"The path `src/devops_cli/commands/roadmap_eval_stage.py` is a file of the staging commit.\" and \"The path `tests/ai/mcp/test_mcp_exposure_table.py` is a file of the staging commit.\", so both files that the plan changes exist at the staged commit.",
+  "The probes state \"The path `roadmap.stage.toolset` is no file of the staging commit. No commit in the history deleted or renamed it.\" It names a setting and not a path, so no commit removed it.",
+  "`read_file` of `src/devops_cli/commands/roadmap_eval_stage.py` showed `src/devops_cli/commands/roadmap_eval_stage.py:110:def eval_stage_cmd(` with the options `--case`, `--model`, `--limit`, `--json`, `--dry-run`, `--replay`, `--cases`, `--source` and `--no-toolbox`, and no `--toolset` option and no `compare` form, so the issue premise holds.",
+  "`search_code` for `StageToolset = Literal` showed `src/devops_cli/config/defaults.py:1111:StageToolset = Literal[\"base\", \"extended\", \"research\"]`, so the set that the issue names holds 3 members, and each is decided: `base`, `extended` and `research` are accepted, and a new name needs no eval change.",
+  "`file_symbols` of `src/devops_cli/roadmap/stage/stage_eval_run.py` showed `class CaseRun` and `def run_case(` and `def run_cases(`, so the toolset and the trace list of each run pass through these two functions.",
+  "`file_symbols` of `src/devops_cli/roadmap/stage/stage_toolbox.py` showed `class ToolboxClient` and `def __init__(`, and its lines 117 to 119 hold `toolset: StageToolset | None = None,` and `traces: list[RunTrace] | None = None,`, so the client of a chosen toolset already keeps the traces of its runs.",
+  "`file_symbols` of `src/devops_cli/roadmap/agent_run.py` showed `class RunTrace`, and its lines 237 to 240 hold the fields `tool_calls`, `requests`, `input_tokens` and `output_tokens`, the four counters of a table row.",
+  "`file_symbols` of `src/devops_cli/roadmap/stage/stage_eval_render.py` showed `def render_score(` and `def score_json(`, so the toolset line and the dry-run plan extend the existing renderers.",
+  "`file_symbols` of `src/devops_cli/roadmap/stage/stage_eval_score.py` showed `class StageScore`, which takes the new `toolset` field.",
+  "`read_file` of `src/devops_cli/roadmap/stage/stage_eval_usage.py` showed `src/devops_cli/roadmap/stage/stage_eval_usage.py:31:def spend_usd(self, model: str) -> float | None:`, which prices the tokens of a row with the pricing registry, so the cost needs no second price table.",
+  "`search_code` for `CASES_DIRECTORY` showed `src/devops_cli/roadmap/stage/stage_eval_cases.py:72:CASES_DIRECTORY`, and `file_symbols` of that file showed `def load_cases(` and `def select_cases(`, the loader and the selection that the staged cases reuse.",
+  "`search_code` for `def matched_defects` showed `src/devops_cli/roadmap/stage/stage_verify_eval.py:71:def matched_defects(defects: Sequence[Defect], findings: Sequence[Finding]) -> tuple[Defect, ...]:`, which counts the defects that the verification pass finds.",
+  "The finding on the exposure key is fixed at its place: the plan cites no key of `CONST_MCP_EXPOSURE_TABLE`. `search_code` for the command path of `roadmap eval` returned no line of `src/devops_cli/config/constants.py`, and `src/devops_cli/config/constants.py:304:CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool], ...]] = (` opens the table, so the table holds 0 rows for that family of commands and derives the exclusion of `roadmap eval stage` by omission.",
+  "`read_file` of `tests/ai/mcp/test_mcp_exposure_table.py` showed `tests/ai/mcp/test_mcp_exposure_table.py:63:def test_every_exposed_mcp_command_is_a_command_of_the_tree() -> None:` with the docstring `tests/ai/mcp/test_mcp_exposure_table.py:64:A command of the tree that`, which states that a command of the tree that the table does not name is excluded (#3204). Group 10 pins that derived exclusion with a test and adds no exclusion record.",
+  "`read_file` of `src/devops_cli/ai/mcp/generator.py` showed `src/devops_cli/ai/mcp/generator.py:199:def resolve_click_command(path: tuple[str, ...]) -> Any:`, which walks the subcommands of a path and raises `LookupError` for one that the tree does not hold, so the test of group 10 resolves the `stage` subcommand of `roadmap eval` and asserts that it resolves.",
+  "The findings on the tests of a changed module are fixed at their place: group 1 lists `tests/roadmap/stage/test_roadmap_stage_gate_extension.py` and `tests/roadmap/stage/test_roadmap_stage_eval_facts_context.py` in `reads`, groups 1, 3, 4, 5 and 7 list `tests/ai/mcp/test_ai_benchmark_mcp_tool.py`, and groups 1, 3, 4, 5 and 7 list `tests/roadmap/implement/test_roadmap_implement_amend.py`, so the implement job can edit every test of a module it changes.",
+  "`CONST_ROADMAP_STAGE_EVAL_ESTIMATE_INPUT_TOKENS` and `CONST_ROADMAP_STAGE_EVAL_ESTIMATE_OUTPUT_TOKENS` are new, so the staged tree holds no value for them: the plan sets 40000 and 6000 from one plan run of the stored golden score, and `read_file` of `tests/roadmap/test_roadmap_limit_classes.py` showed the `LIMITS` table, so each new name needs an entry.",
+  "First check against the real system: `uv run devops roadmap eval stage --replay --json` runs the golden set through the gates and makes no model call.",
+  "First check against the real system: `uv run devops roadmap eval stage --dry-run --limit 1` prints the request plan of one case and makes no model call.",
+  "First check against the real system: `uv run devops ci docs` regenerates the pages and fails when a committed page differs from its generator.",
+  "Precondition of `run_case` in `src/devops_cli/roadmap/stage/stage_eval_run.py`: a checkout of the repository, which the commit of the case needs.",
+  "Precondition of `run_cases`: a checkout of the repository and a client of the stage model.",
+  "Precondition of `load_cases` in `src/devops_cli/roadmap/stage/stage_eval_cases.py`: a checkout of the repository, which holds the case directories.",
+  "Precondition of `run_toolset` in the new compare module: a checkout of the repository and a client of the stage model.",
+  "Precondition of `verify_plan` in the new compare module: a checkout of the repository and a client of the verification model.",
+  "Precondition of `resolve_click_command` in `src/devops_cli/ai/mcp/generator.py`: a checkout of the repository, because it loads the module of the first path segment; it needs no client and no network.",
+  "Precondition of `RunUsage.spend_usd`: none; it reads the pricing registry of the data directory and reaches no network.",
+  "Precondition of `matched_defects`: none; it matches two lists in memory.",
+  "The two commands add no failure class: a model call that fails ends its case as `failed`, as `run_case` does today, and a rejected client stops the run.",
+  "Each verify program is `uv run devops ci test` or `uv run devops ci docs`: `uv`, `python`, `devops` and `pytest` are runner tools of the image and none is `NOT_IN_RUNNER`. The pod runs them with `readOnlyRootFilesystem: true`, `allowPrivilegeEscalation: false` and `capabilities.drop: ALL`.",
+  "The paid comparison of real plans needs a client of the model gateway and a network, so a person approves that run (#3207). No test of this change makes a network call."
+ ],
+ "existing_tool": "promptfoo (MIT, maintained, last activity 2026-11-05) partly covers the need: it runs one eval over the same cases with several configurations, prints a comparison table, repeats each case (`repeat: 3`), records cost, latency and input and output tokens, and runs offline with recorded inputs and custom Python assertions. It lacks the repository's stage toolsets, its gate and verification defect counts, its golden and staged-item replay case format, its AI spend pricing, its delta line against the first toolset, and its MCP exposure list and docs regeneration. The change extends `devops roadmap eval stage` for these parts, at 25k tokens to build, keep and fix, and 16 hours of elapsed time.",
+ "builds_own": false,
+ "decisions": [
+  {
+   "decision": "The comparison lives in `devops roadmap eval stage` as a `compare` form, not in a new top-level command.",
+   "reason": "The command already owns the golden set, the stage evaluation and its report, so one entry point keeps one documentation page and one MCP exposure decision."
+  },
+  {
+   "decision": "The toolset names come from the stage toolset setting `StageToolset`, which holds `base`, `extended` and `research`.",
+   "reason": "The eval names then match the planner, and a new named toolset needs no eval change."
+  },
+  {
+   "decision": "Each case runs `--runs` times, three by default, and the table states the runs and the minimum and maximum of each measured value.",
+   "reason": "The reply of a model differs between runs, so one reply is a sample and not a measurement; a minimum and a maximum show the spread in a form a test can assert."
+  },
+  {
+   "decision": "The cost of a row comes from `RunUsage.spend_usd`, which reads the AI spend pricing registry.",
+   "reason": "One price source stays current with the ledger and the rest of the CLI."
+  },
+  {
+   "decision": "The verification column runs the verification pass only with `--verify` and holds `not run` otherwise.",
+   "reason": "The pass costs a second model call for each case, and ADR 0005 keeps findings on the existing pass rather than a new verifier."
+  },
+  {
+   "decision": "The staged-item replay cases sit in their own directory and are read with the existing `load_cases` and case format.",
+   "reason": "The golden set counts stay stable, and the two sets share one schema, one loader and one set of tests."
+  },
+  {
+   "decision": "The dry run estimates the cost from two estimate constants and the pricing registry.",
+   "reason": "A dry run makes no model call, so it cannot measure tokens, and the constants come from a measured plan run."
+  },
+  {
+   "decision": "Leave `roadmap eval stage` out of `CONST_MCP_EXPOSURE_TABLE` and add no exclusion record, and pin the derived exclusion with one test that resolves the command in the tree and asserts that the server publishes no tool for it.",
+   "reason": "`tests/ai/mcp/test_mcp_exposure_table.py` records exclusion by omission from the command tree (#3204), so a new tuple or a generator section would restate derived state and could drift from the tree."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Add a new top-level `devops roadmap eval compare` command.",
+   "evidence": "`src/devops_cli/commands/roadmap_eval_stage.py` already holds the case loader, the run and the report, so a second command duplicates the entry point and splits the docs and the MCP exposure decision."
+  },
+  {
+   "alternative": "Hard-code `base` and `extended` in the eval command.",
+   "evidence": "`src/devops_cli/config/defaults.py:1111:StageToolset = Literal[\"base\", \"extended\", \"research\"]` holds the names, so a hard-coded pair would need a second change for each new toolset."
+  },
+  {
+   "alternative": "Run each case once.",
+   "evidence": "The replies of a model differ between runs, so one reply measures no spread and the issue asks for the spread."
+  },
+  {
+   "alternative": "Add a second price table in the eval command.",
+   "evidence": "`src/devops_cli/roadmap/stage/stage_eval_usage.py:31:def spend_usd(self, model: str) -> float | None:` already prices tokens with the pricing registry, and a copy would drift from it."
+  },
+  {
+   "alternative": "Add a new model verifier for the verification column.",
+   "evidence": "docs/adr/0005-review-findings-come-from-tools-not-models.md records that the model verifier is deleted, and `src/devops_cli/roadmap/stage/stage_verify_eval.py:71:def matched_defects(defects: Sequence[Defect], findings: Sequence[Finding]) -> tuple[Defect, ...]:` already counts the defects that the existing pass finds."
+  },
+  {
+   "alternative": "Read live GitHub issues and pull requests during the comparison.",
+   "evidence": "The issue requires an offline comparison with a fake client in the tests, and a live read needs a token and gives a different answer on each run."
+  },
+  {
+   "alternative": "Add a new `CONST_MCP_EXCLUDED_COMMANDS` tuple and an excluded-commands section of the MCP page.",
+   "evidence": "`search_code` for `CONST_MCP_EXCLUDED` returned `No match`, and `tests/ai/mcp/test_mcp_exposure_table.py:64:A command of the tree that` states that a command of the tree that the exposure table does not name is excluded, so the tuple and the section would restate state that the tree already derives."
+  },
+  {
+   "alternative": "Expose `roadmap eval stage` as a row of `CONST_MCP_EXPOSURE_TABLE`.",
+   "evidence": "`src/devops_cli/commands/roadmap_eval_stage.py:126:Path | None, typer.Option(\"--cases\", help=HELP.roadmap.eval_stage_cases)` and its `--source` option show two paths of the caller, which an exposure row would publish to a model, and a comparison run spends model money."
+  },
+  {
+   "alternative": "Pin the exclusion with a test that reads an exposure row of the command, and also regenerate `docs/MCP_TOOLS.md` with an excluded section.",
+   "evidence": "`search_code` for the command path of `roadmap eval` returned no line of `src/devops_cli/config/constants.py`, so the command has no tool row and the MCP page has nothing to add; the page stays the output of its generator and group 11 runs `uv run devops ci docs` to prove it."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "roadmap-stage-eval",
+   "purpose": null,
+   "added": [
+    {
+     "name": "The eval stage command takes a toolset",
+     "text": "`devops roadmap eval stage` SHALL accept `--toolset <name>` with a value of the stage toolset setting, SHALL plan each case with that toolset, and SHALL name the toolset in its report.",
+     "scenarios": [
+      {
+       "name": "One toolset named in the report",
+       "when": "A test scores one case with `--toolset base` and a fake stage client.",
+       "then": "The command exits 0 and its report names `base`."
+      }
+     ]
+    },
+    {
+     "name": "The compare form runs each toolset on the same cases",
+     "text": "`devops roadmap eval stage compare <toolset>...` SHALL run every named toolset on the same cases and SHALL print one table with one row for each toolset.",
+     "scenarios": [
+      {
+       "name": "Two toolsets in one table",
+       "when": "A test runs `devops roadmap eval stage compare base extended` with a fake stage client.",
+       "then": "The output holds one row for `base` and one for `extended`, with the columns for gate defects, verification defects, tool calls, requests, input tokens, output tokens, elapsed time and cost."
+      }
+     ]
+    },
+    {
+     "name": "The comparison states the runs and the spread",
+     "text": "The comparison SHALL run each case `--runs` times, three by default, and SHALL state the number of runs and the minimum and the maximum of each measured value.",
+     "scenarios": [
+      {
+       "name": "Three runs with different replies",
+       "when": "A test compares toolsets with `--runs 3` and a fake client that returns different token counts on each run.",
+       "then": "The report states three runs for each case and the minimum and the maximum of its input and output tokens."
+      }
+     ]
+    },
+    {
+     "name": "The comparison reports the verification pass",
+     "text": "The comparison SHALL report the defects that the verification pass catches for each toolset when `--verify` is given, and SHALL report `not run` in that column when it is not.",
+     "scenarios": [
+      {
+       "name": "No verification pass",
+       "when": "A test compares toolsets with no `--verify`.",
+       "then": "The verification column of each row holds `not run` and the command exits 0."
+      }
+     ]
+    },
+    {
+     "name": "The comparison prints one delta line for each measured column",
+     "text": "The comparison SHALL print one delta line for each measured column as the value of the toolset less the value of the first toolset, and SHALL keep the raw values in the table.",
+     "scenarios": [
+      {
+       "name": "Delta to the first toolset",
+       "when": "A test compares the first toolset and a second one with known values.",
+       "then": "The delta line of each column holds the value of the second toolset less the value of the first, and the table keeps the raw values."
+      }
+     ]
+    },
+    {
+     "name": "The comparison prices a row from the pricing registry",
+     "text": "The comparison SHALL price the input and output tokens of each row with the pricing registry of the AI spend data and SHALL print `unpriced` for a model that the registry holds no price for.",
+     "scenarios": [
+      {
+       "name": "Known token counts",
+       "when": "A test compares toolsets with known token counts and a known price for the model.",
+       "then": "The cost of each row is the price of its input and output tokens."
+      }
+     ]
+    },
+    {
+     "name": "The compare dry run states the cases, the runs and the cost",
+     "text": "`devops roadmap eval stage compare` SHALL state the cases, the runs, the toolsets and the estimated cost on `--dry-run` and SHALL make no model call.",
+     "scenarios": [
+      {
+       "name": "Dry run with no model call",
+       "when": "A test runs the comparison with `--dry-run` and a fake client that fails on any call.",
+       "then": "The command exits 0, prints the case count, the run count, both toolset names and an estimated cost, and makes no call."
+      }
+     ]
+    },
+    {
+     "name": "The comparison loads the staged-item replay cases",
+     "text": "The comparison SHALL load the golden cases and the staged-item replay cases in the same case format and SHALL run each of them.",
+     "scenarios": [
+      {
+       "name": "One golden case and one staged-item case",
+       "when": "A test compares toolsets over a golden directory and a staged-item directory that hold one case each.",
+       "then": "The report names both cases."
+      }
+     ]
+    },
+    {
+     "name": "The MCP server publishes no tool for the eval stage command",
+     "text": "The MCP exposure table SHALL hold no entry for `devops roadmap eval stage`, so the MCP server publishes no tool for it, and a test SHALL pin that the command path resolves in the command tree and that the server publishes no tool for it.",
+     "scenarios": [
+      {
+       "name": "The eval stage command stays excluded",
+       "when": "A test resolves the path of `devops roadmap eval stage` in the command tree and asks the MCP server for its tool.",
+       "then": "The path resolves to a command, and the server returns no tool for it."
+      }
+     ]
+    }
+   ],
+   "modified": [],
+   "renamed": [],
+   "removed": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Add the toolset option to the eval stage command",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/commands/roadmap_eval_stage.py",
+    "src/devops_cli/roadmap/stage/stage_eval_run.py",
+    "src/devops_cli/roadmap/stage/stage_eval_render.py",
+    "src/devops_cli/roadmap/stage/stage_eval_score.py",
+    "src/devops_cli/roadmap/stage/stage_toolbox.py",
+    "src/devops_cli/config/defaults.py",
+    "tests/roadmap/stage/test_roadmap_stage_eval_command.py",
+    "tests/roadmap/stage/test_roadmap_stage_eval_run.py",
+    "tests/roadmap/stage/test_roadmap_stage_gate_extension.py",
+    "tests/roadmap/stage/test_roadmap_stage_eval_facts_context.py",
+    "tests/roadmap/stage/test_roadmap_stage_measure.py",
+    "tests/ai/mcp/test_ai_benchmark_mcp_tool.py",
+    "tests/roadmap/implement/test_roadmap_implement_amend.py"
+   ],
+   "changes": [
+    "src/devops_cli/commands/roadmap_eval_stage.py",
+    "src/devops_cli/roadmap/stage/stage_eval_run.py",
+    "src/devops_cli/roadmap/stage/stage_eval_render.py",
+    "src/devops_cli/roadmap/stage/stage_eval_score.py",
+    "src/devops_cli/lang/en/help.py",
+    "src/devops_cli/lang/en/messages.py",
+    "tests/roadmap/stage/test_roadmap_stage_eval_command.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": "`test_the_toolset_option_names_the_toolset_in_the_report` in `tests/roadmap/stage/test_roadmap_stage_eval_command.py` fails: the report of a score with the toolset `base` names no toolset",
+   "implementation": "Add `--toolset` to `eval_stage_cmd` in `src/devops_cli/commands/roadmap_eval_stage.py` with the value `StageToolset`, defaulted from `roadmap.stage.toolset`, and pass it through `_run` and `run_cases` of `src/devops_cli/roadmap/stage/stage_eval_run.py` to the `toolset` argument of `ToolboxClient` in `run_case`, so each plan run reads the tools of that toolset. Add a `toolset` field to `StageScore` in `src/devops_cli/roadmap/stage/stage_eval_score.py`, print it on the title line of `render_score` in `src/devops_cli/roadmap/stage/stage_eval_render.py`, and write it in `score_json`. Add the help text to `src/devops_cli/lang/en/help.py` and the message to `src/devops_cli/lang/en/messages.py`, and update the assertions of the eval test modules that read the rendered report",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/stage/test_roadmap_stage_eval_command.py",
+   "process": null
+  },
+  {
+   "title": "Build the comparison engine and its table",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/roadmap/stage/stage_eval_run.py",
+    "src/devops_cli/roadmap/stage/stage_eval_score.py",
+    "src/devops_cli/roadmap/stage/stage_eval_usage.py",
+    "src/devops_cli/roadmap/agent_run.py",
+    "src/devops_cli/roadmap/stage/stage_toolbox.py",
+    "tests/roadmap/stage/test_roadmap_stage_eval_run.py",
+    "tests/roadmap/stage/test_roadmap_stage_eval_facts_context.py",
+    "tests/support/fakes/model.py"
+   ],
+   "changes": [
+    "src/devops_cli/roadmap/stage/stage_eval_compare.py",
+    "src/devops_cli/roadmap/stage/stage_eval_run.py",
+    "tests/roadmap/stage/test_roadmap_stage_eval_compare.py"
+   ],
+   "creates": [
+    "src/devops_cli/roadmap/stage/stage_eval_compare.py",
+    "tests/roadmap/stage/test_roadmap_stage_eval_compare.py"
+   ],
+   "creates_lines": {
+    "src/devops_cli/roadmap/stage/stage_eval_compare.py": 1,
+    "tests/roadmap/stage/test_roadmap_stage_eval_compare.py": 1
+   },
+   "test": "`test_the_engine_measures_each_toolset` in `tests/roadmap/stage/test_roadmap_stage_eval_compare.py` fails: `run_case` of `src/devops_cli/roadmap/stage/stage_eval_run.py` takes no trace list and returns no plan, and no module measures a toolset",
+   "implementation": "Add `Measure` to `src/devops_cli/roadmap/stage/stage_eval_compare.py` for one run of one case, with its case name, gate defects, verification defects, tool calls, requests, input tokens, output tokens, elapsed seconds and cost. Add `run_toolset`, which runs `run_case` of `src/devops_cli/roadmap/stage/stage_eval_run.py` for each case with the toolset and a trace list, sums the `RunTrace` counters of `src/devops_cli/roadmap/agent_run.py`, times the run, and prices the tokens with `RunUsage.spend_usd` of `src/devops_cli/roadmap/stage/stage_eval_usage.py`. Give `run_case` an optional `traces` list, passed to the `traces` keyword of `ToolboxClient` of `src/devops_cli/roadmap/stage/stage_toolbox.py`, and a `plan` field on `CaseRun`, so the caller reads the trace and the reply of each run. Add `ComparisonRow`, `spread` (the minimum and the maximum), `delta` (the value less the value of the first row) and `render_compare`, which prints one row for each toolset with the eight columns",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/stage/test_roadmap_stage_eval_compare.py",
+   "process": null
+  },
+  {
+   "title": "Add the compare form to the command",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/commands/roadmap_eval_stage.py",
+    "src/devops_cli/roadmap/stage/stage_eval_compare.py",
+    "src/devops_cli/roadmap/stage/stage_eval_cases.py",
+    "src/devops_cli/lang/en/help.py",
+    "src/devops_cli/lang/en/messages.py",
+    "tests/ai/mcp/test_ai_benchmark_mcp_tool.py",
+    "tests/roadmap/implement/test_roadmap_implement_amend.py",
+    "tests/support/fakes/model.py"
+   ],
+   "changes": [
+    "src/devops_cli/commands/roadmap_eval_stage.py",
+    "src/devops_cli/roadmap/stage/stage_eval_compare.py",
+    "src/devops_cli/lang/en/help.py",
+    "src/devops_cli/lang/en/messages.py",
+    "tests/roadmap/stage/test_roadmap_stage_eval_compare.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": "`test_the_compare_form_prints_one_table_with_a_fake_client` in `tests/roadmap/stage/test_roadmap_stage_eval_compare.py` fails: `eval_stage_cmd` in `src/devops_cli/commands/roadmap_eval_stage.py` refuses the positional `compare` and the two toolset names",
+   "implementation": "Add a positional list argument to `eval_stage_cmd` in `src/devops_cli/commands/roadmap_eval_stage.py`. When its first token is `compare`, read the rest as toolset names, refuse fewer than two with a message that names the option, and call `run_toolset` of `src/devops_cli/roadmap/stage/stage_eval_compare.py` for each name over the cases that `load_cases` and `select_cases` pick. Print `render_compare` of the rows. A name that is no value of `StageToolset` raises `ConfigurationError` with the names of the setting. Add the help text to `src/devops_cli/lang/en/help.py` and the messages to `src/devops_cli/lang/en/messages.py`",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/stage/test_roadmap_stage_eval_compare.py",
+   "process": null
+  },
+  {
+   "title": "Run each case three times and show the spread",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/commands/roadmap_eval_stage.py",
+    "src/devops_cli/roadmap/stage/stage_eval_compare.py",
+    "src/devops_cli/lang/en/help.py",
+    "src/devops_cli/lang/en/messages.py",
+    "tests/ai/mcp/test_ai_benchmark_mcp_tool.py",
+    "tests/roadmap/implement/test_roadmap_implement_amend.py",
+    "tests/support/fakes/model.py"
+   ],
+   "changes": [
+    "src/devops_cli/commands/roadmap_eval_stage.py",
+    "src/devops_cli/roadmap/stage/stage_eval_compare.py",
+    "src/devops_cli/lang/en/help.py",
+    "src/devops_cli/lang/en/messages.py",
+    "tests/roadmap/stage/test_roadmap_stage_eval_compare.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": "`test_three_runs_state_the_count_and_the_spread` in `tests/roadmap/stage/test_roadmap_stage_eval_compare.py` fails: `eval_stage_cmd` in `src/devops_cli/commands/roadmap_eval_stage.py` takes no `--runs`, each case runs once, and the table states no spread",
+   "implementation": "Add `--runs` to the compare form of `eval_stage_cmd` in `src/devops_cli/commands/roadmap_eval_stage.py` with a minimum of 1 and a default of 3, and run each case that many times for each toolset in `run_toolset` of `src/devops_cli/roadmap/stage/stage_eval_compare.py`. Sum the measures of a toolset for its row, and add a line for each case with its number of runs and the minimum and the maximum of its tool calls, requests, input and output tokens, elapsed time and cost. The row of a toolset sums its cases",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/stage/test_roadmap_stage_eval_compare.py",
+   "process": null
+  },
+  {
+   "title": "Report the verification pass or not run",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/roadmap/stage/stage_eval_compare.py",
+    "src/devops_cli/roadmap/stage/stage_verify_eval.py",
+    "src/devops_cli/roadmap/stage/stage_verify.py",
+    "src/devops_cli/lang/en/help.py",
+    "src/devops_cli/lang/en/messages.py",
+    "tests/ai/mcp/test_ai_benchmark_mcp_tool.py",
+    "tests/roadmap/implement/test_roadmap_implement_amend.py",
+    "tests/support/fakes/model.py"
+   ],
+   "changes": [
+    "src/devops_cli/roadmap/stage/stage_eval_compare.py",
+    "src/devops_cli/commands/roadmap_eval_stage.py",
+    "src/devops_cli/lang/en/help.py",
+    "src/devops_cli/lang/en/messages.py",
+    "tests/roadmap/stage/test_roadmap_stage_eval_compare.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": "`test_the_verification_column_shows_not_run_without_a_pass` in `tests/roadmap/stage/test_roadmap_stage_eval_compare.py` fails: the column of `src/devops_cli/roadmap/stage/stage_eval_compare.py` holds a number with no pass, and `eval_stage_cmd` in `src/devops_cli/commands/roadmap_eval_stage.py` takes no `--verify`",
+   "implementation": "Add `--verify` to the compare form of `eval_stage_cmd` in `src/devops_cli/commands/roadmap_eval_stage.py`. With it, `verify_plan` in `src/devops_cli/roadmap/stage/stage_eval_compare.py` checks out the case, builds the verification input from the plan of the run and a `ToolboxClient` of the verification model, runs the existing pass of `src/devops_cli/roadmap/stage/stage_verify.py`, and counts the defects with `matched_defects` of `src/devops_cli/roadmap/stage/stage_verify_eval.py`. Without it, the verification column holds `not run` and no pass runs",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/stage/test_roadmap_stage_eval_compare.py",
+   "process": null
+  },
+  {
+   "title": "Add the two estimate constants to the limit registry",
+   "kind": "other",
+   "reads": [
+    "src/devops_cli/config/constants.py",
+    "tests/roadmap/test_roadmap_limit_classes.py",
+    "tests/roadmap/stage/test_roadmap_stage_constants.py",
+    "tests/config/test_isolation_tripwire.py"
+   ],
+   "changes": [
+    "src/devops_cli/config/constants.py",
+    "tests/roadmap/test_roadmap_limit_classes.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": null,
+   "implementation": "Add `CONST_ROADMAP_STAGE_EVAL_ESTIMATE_INPUT_TOKENS = 40_000` and `CONST_ROADMAP_STAGE_EVAL_ESTIMATE_OUTPUT_TOKENS = 6_000` to `src/devops_cli/config/constants.py`, from the tokens of one plan run of the stored golden score, and add both names to the `LIMITS` table of `tests/roadmap/test_roadmap_limit_classes.py` with the class `other` and the reason that an estimate of a dry-run cost cuts no run. The registry test is the census: stop when it reports a member that the plan does not decide",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/test_roadmap_limit_classes.py",
+   "process": null
+  },
+  {
+   "title": "State the plan and the cost on a dry run",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/commands/roadmap_eval_stage.py",
+    "src/devops_cli/roadmap/stage/stage_eval_compare.py",
+    "src/devops_cli/roadmap/stage/stage_eval_render.py",
+    "src/devops_cli/dry_run/__init__.py",
+    "src/devops_cli/config/constants.py",
+    "src/devops_cli/lang/en/messages.py",
+    "tests/roadmap/implement/test_roadmap_implement_amend.py"
+   ],
+   "changes": [
+    "src/devops_cli/commands/roadmap_eval_stage.py",
+    "src/devops_cli/roadmap/stage/stage_eval_compare.py",
+    "src/devops_cli/lang/en/messages.py",
+    "tests/roadmap/stage/test_roadmap_stage_eval_compare.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": "`test_the_compare_dry_run_states_the_plan_and_the_cost_with_no_model_call` in `tests/roadmap/stage/test_roadmap_stage_eval_compare.py` fails: the dry run of `eval_stage_cmd` in `src/devops_cli/commands/roadmap_eval_stage.py` states no cost and calls the client",
+   "implementation": "Add `estimated_spend` to `src/devops_cli/roadmap/stage/stage_eval_compare.py`, which multiplies the tokens of one plan run from `CONST_ROADMAP_STAGE_EVAL_ESTIMATE_INPUT_TOKENS` and `CONST_ROADMAP_STAGE_EVAL_ESTIMATE_OUTPUT_TOKENS` of `src/devops_cli/config/constants.py` by the cases, the runs and the toolsets, and prices them with `RunUsage.spend_usd` of `src/devops_cli/roadmap/stage/stage_eval_usage.py`. On `--dry-run`, the compare form of `eval_stage_cmd` in `src/devops_cli/commands/roadmap_eval_stage.py` prints the cases, the runs, the toolset names and the estimated cost through the message of `src/devops_cli/lang/en/messages.py`, and returns before it builds a client",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/stage/test_roadmap_stage_eval_compare.py",
+   "process": null
+  },
+  {
+   "title": "Load the staged-item replay cases",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/roadmap/stage/stage_eval_cases.py",
+    "src/devops_cli/roadmap/stage/stage_eval_compare.py",
+    "src/devops_cli/commands/roadmap_eval_stage.py",
+    "src/devops_cli/lang/en/help.py",
+    "tests/ai/mcp/test_ai_benchmark_mcp_tool.py",
+    "tests/roadmap/stage/test_roadmap_stage_content.py"
+   ],
+   "changes": [
+    "src/devops_cli/roadmap/stage/stage_eval_cases.py",
+    "src/devops_cli/roadmap/stage/stage_eval_compare.py",
+    "src/devops_cli/commands/roadmap_eval_stage.py",
+    "src/devops_cli/lang/en/help.py",
+    "tests/roadmap/stage/test_roadmap_stage_eval_compare.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": "`test_the_comparison_runs_a_golden_case_and_a_staged_item_case` in `tests/roadmap/stage/test_roadmap_stage_eval_compare.py` fails: `load_cases` in `src/devops_cli/roadmap/stage/stage_eval_cases.py` reads only the golden directory",
+   "implementation": "Add `STAGED_CASES_DIRECTORY` and `load_staged_cases(directory)` to `src/devops_cli/roadmap/stage/stage_eval_cases.py`, which reads a directory of the same case format and gives an empty list when the directory holds no case. Add `--staged-cases` to the compare form of `eval_stage_cmd` in `src/devops_cli/commands/roadmap_eval_stage.py` with its help text in `src/devops_cli/lang/en/help.py`, defaulted to that directory, and run the union of the golden cases and the staged cases through the same selection of `src/devops_cli/roadmap/stage/stage_eval_compare.py` and the same case checks",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/stage/test_roadmap_stage_eval_compare.py",
+   "process": null
+  },
+  {
+   "title": "Add the first staged-item replay case",
+   "kind": "manifest",
+   "reads": [
+    "tests/fixtures/roadmap_eval/stage/good-2950-the-alert-case-is-a-manifest-group/case.json",
+    "tests/fixtures/roadmap_eval/stage/good-2950-the-alert-case-is-a-manifest-group/plan.json",
+    "tests/fixtures/roadmap_eval/stage/good-2950-the-alert-case-is-a-manifest-group/facts.json",
+    "tests/fixtures/roadmap_eval/stage/good-2950-the-alert-case-is-a-manifest-group/issue.txt",
+    "src/devops_cli/roadmap/stage/stage_eval_cases.py"
+   ],
+   "changes": [
+    "tests/fixtures/roadmap_eval/staged/3239-the-toolset-comparison/case.json",
+    "tests/fixtures/roadmap_eval/staged/3239-the-toolset-comparison/issue.txt",
+    "tests/fixtures/roadmap_eval/staged/3239-the-toolset-comparison/plan.json",
+    "tests/fixtures/roadmap_eval/staged/3239-the-toolset-comparison/facts.json",
+    "tests/roadmap/stage/test_roadmap_stage_eval_compare.py"
+   ],
+   "creates": [
+    "tests/fixtures/roadmap_eval/staged/3239-the-toolset-comparison/case.json",
+    "tests/fixtures/roadmap_eval/staged/3239-the-toolset-comparison/issue.txt",
+    "tests/fixtures/roadmap_eval/staged/3239-the-toolset-comparison/plan.json",
+    "tests/fixtures/roadmap_eval/staged/3239-the-toolset-comparison/facts.json"
+   ],
+   "creates_lines": {
+    "tests/fixtures/roadmap_eval/staged/3239-the-toolset-comparison/case.json": 1,
+    "tests/fixtures/roadmap_eval/staged/3239-the-toolset-comparison/issue.txt": 1,
+    "tests/fixtures/roadmap_eval/staged/3239-the-toolset-comparison/plan.json": 1,
+    "tests/fixtures/roadmap_eval/staged/3239-the-toolset-comparison/facts.json": 1
+   },
+   "test": "`test_the_staged_item_case_loads_with_its_commit` in `tests/roadmap/stage/test_roadmap_stage_eval_compare.py` fails: the staged directory holds no case, and `load_staged_cases` of `src/devops_cli/roadmap/stage/stage_eval_cases.py` finds none",
+   "implementation": "Write one staged-item replay case in the case format of `tests/fixtures/roadmap_eval/stage/good-2950-the-alert-case-is-a-manifest-group/case.json`: `tests/fixtures/roadmap_eval/staged/3239-the-toolset-comparison/case.json` with its issue text, its plan and the facts of its tree, `tests/fixtures/roadmap_eval/staged/3239-the-toolset-comparison/issue.txt`, `tests/fixtures/roadmap_eval/staged/3239-the-toolset-comparison/plan.json` and `tests/fixtures/roadmap_eval/staged/3239-the-toolset-comparison/facts.json`, with a commit that a run can check out and the labeled defects of its review. Keep every path relative to the repository root",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/stage/test_roadmap_stage_eval_compare.py",
+   "process": null
+  },
+  {
+   "title": "Pin that the eval stage command publishes no MCP tool",
+   "kind": "other",
+   "reads": [
+    "tests/ai/mcp/test_mcp_exposure_table.py",
+    "src/devops_cli/config/constants.py",
+    "src/devops_cli/ai/mcp/generator.py",
+    "src/devops_cli/ai/mcp/server.py",
+    "src/devops_cli/commands/roadmap_eval_stage.py"
+   ],
+   "changes": [
+    "tests/ai/mcp/test_mcp_exposure_table.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": null,
+   "implementation": "Add `test_the_roadmap_eval_stage_command_publishes_no_mcp_tool` to `tests/ai/mcp/test_mcp_exposure_table.py`. It resolves the `stage` subcommand of `roadmap eval` with `src/devops_cli/ai/mcp/generator.py:199:def resolve_click_command(path: tuple[str, ...]) -> Any:` and asserts that the resolution raises no `LookupError`. It then asserts that the server of `src/devops_cli/ai/mcp/server.py` returns no tool named `roadmap_eval_stage`, so the command stays excluded. The group adds no row to `CONST_MCP_EXPOSURE_TABLE` and no exclusion record, because `tests/ai/mcp/test_mcp_exposure_table.py:63:def test_every_exposed_mcp_command_is_a_command_of_the_tree() -> None:` states that a command of the tree that the table does not name is excluded (#3204), and this test is the census of the exposure rows that would name the command",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/ai/mcp/test_mcp_exposure_table.py",
+   "process": null
+  },
+  {
+   "title": "Regenerate the docs",
+   "kind": "other",
+   "reads": [
+    "docs/ROADMAP_WORKFLOW.md",
+    "docs/roadmap/stage.md",
+    "docs/CLI_REFERENCE.md",
+    "docs/commands/roadmap.md"
+   ],
+   "changes": [
+    "docs/ROADMAP_WORKFLOW.md",
+    "docs/roadmap/stage.md",
+    "docs/CLI_REFERENCE.md",
+    "docs/commands/roadmap.md"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": null,
+   "implementation": "Edit the runbook with the `--toolset` option, the `compare` form, the columns of the table, the dry-run cost and the MCP exclusion, then regenerate the generated documents from the help texts and the command tree with `uv run devops docs generate`. The generated documents take the option and the form from their sources, so no hand edit stays in them",
+   "documentation": "Edit `docs/ROADMAP_WORKFLOW.md` and `docs/roadmap/stage.md` with the toolset option, the compare form and the MCP exclusion, then regenerate `docs/CLI_REFERENCE.md` and `docs/commands/roadmap.md` with `uv run devops docs generate`",
+   "verify": "uv run devops ci docs",
+   "process": null
+  }
+ ],
+ "criteria": [
+  {
+   "criterion": "`devops roadmap eval stage --toolset extended` runs and names the toolset in its report.",
+   "group": 1,
+   "reason": null
+  },
+  {
+   "criterion": "`devops roadmap eval stage compare base extended` prints one table with the columns above and runs offline with a fake client in the tests.",
+   "group": 3,
+   "reason": null
+  },
+  {
+   "criterion": "The report states the number of runs for each case and the spread.",
+   "group": 4,
+   "reason": null
+  },
+  {
+   "criterion": "The command is in the MCP exposure list as excluded or exposed, the docs are regenerated, and `eval stage --dry-run` states what it would run and what it would cost.",
+   "group": 10,
+   "reason": null
+  }
+ ],
+ "dependencies": [],
+ "references": [],
+ "security": "",
+ "weakened_checks": []
+}

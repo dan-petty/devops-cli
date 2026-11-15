@@ -12,12 +12,15 @@ import pytest
 
 from devops_cli.roadmap.stage.stage_eval_cases import (
     CASES_DIRECTORY,
+    STAGED_CASES_DIRECTORY,
     StageCase,
+    Verdict,
     load_cases,
+    load_staged_cases,
 )
 from tests.support.builders import make_stage_proposal
 from tests.support.paths import REPO_ROOT
-from tests.support.roadmap_stage import VALID_REPORT, StageRepo, validate_args
+from tests.support.roadmap_stage import VALID_REPORT, StageRepo, run_git, validate_args
 from tests.support.scripted_model import Script, call
 
 if TYPE_CHECKING:
@@ -472,6 +475,40 @@ def test_the_comparison_runs_a_golden_case_and_a_staged_item_case(
         "extended/staged-case",
     }
     assert all("runs=3" in line for line in case_lines)
+
+
+STAGED_CASE = "3239-the-toolset-comparison"
+STAGED_CHANGE = "3239-add-toolset-comparison-to-stage-planner"
+CASE_FILES = ("case.json", "facts.json", "issue.txt", "plan.json")
+
+
+def _tracked_case_files(name: str) -> list[str]:
+    """The files of the case `name` that git tracks, so a run reads the case from a checkout."""
+    folder = f"{STAGED_CASES_DIRECTORY}/{name}"
+    return sorted(run_git(REPO_ROOT, "ls-files", "--", folder).splitlines())
+
+
+def test_the_staged_item_case_loads_with_its_commit() -> None:
+    """The staged-item replay set holds the plan of #3239 on the commit it was staged on, so a run
+    can check it out, and the case is committed, because a run reads the cases of a checkout and a
+    file that only the working tree holds is no case of the set."""
+    staged = load_staged_cases()
+
+    assert [case.name for case in staged] == [STAGED_CASE]
+    (case,) = staged
+    assert (case.issue, case.change) == (3239, STAGED_CHANGE)
+    assert case.has_commit
+    assert (case.merge_commit, case.base_commit) == (
+        "8476ca294b3fefc894e7210e83ce42ceb5c644f2",
+        "5a7238d4683b5dd245917b8e2476d9815c464a7f",
+    )
+    assert case.verdict is Verdict.GOOD
+    assert case.defects == ()
+    assert "src/devops_cli/commands/roadmap_eval_stage.py" in case.facts.tracked
+    assert all(not path.startswith("/") for path in case.facts.tracked)
+    assert len(case.groups) == 11
+    folder = f"{STAGED_CASES_DIRECTORY}/{STAGED_CASE}"
+    assert _tracked_case_files(STAGED_CASE) == [f"{folder}/{file}" for file in CASE_FILES]
 
 
 def test_the_compare_form_refuses_a_lone_toolset_and_a_name_outside_the_setting(cli: Any) -> None:
