@@ -203,3 +203,55 @@ def test_the_tool_version_check_fails_on_mismatch_and_names_the_tool(
     done = run_subprocess(["devops", "install-tools", "--check", "--tool", "kubectl"])
     assert done.returncode == 1
     assert "kubectl" in done.stderr
+
+
+def test_the_change_records_the_findings_and_the_date() -> None:
+    """The proposal of #5582 records the three findings of kubectl v1.37.2 and their proof date."""
+    proposals = list((REPO_ROOT / "openspec" / "changes").glob("*5582*/proposal.md")) + list(
+        (REPO_ROOT / "openspec" / "changes" / "archive").glob("*5582*/proposal.md")
+    )
+    assert len(proposals) >= 1
+    text = proposals[0].read_text(encoding="utf-8")
+    for expected in (
+        "CVE-2026-56851",
+        "CVE-2026-78669",
+        "CVE-2026-78661",
+        "golang.org/x/net 0.57.0",
+        "golang.org/x/text 0.40.0",
+        "0.62.0",
+        "0.41.0",
+        "2026-11-14",
+    ):
+        assert expected in text
+
+
+def test_the_mcp_ignore_file_holds_the_kubectl_xnet_entry() -> None:
+    """The MCP server image ignore file holds a dedicated entry for kubectl's x/net finding (#5582)."""
+    text = (REPO_ROOT / ".trivyignore-mcp-server").read_text(encoding="utf-8")
+    lines = text.splitlines()
+    entry_indices = [
+        i for i, line in enumerate(lines) if line.strip().startswith("CVE-2026-78661 exp:")
+    ]
+    assert len(entry_indices) == 1
+    idx = entry_indices[0]
+    comment_lines = []
+    for prev_idx in range(idx - 1, -1, -1):
+        if not lines[prev_idx].strip().startswith("#"):
+            break
+        comment_lines.append(lines[prev_idx])
+    comment = " ".join(reversed(comment_lines))
+    assert "kubectl" in comment
+    assert "0.62.0" in comment
+    assert "#5582" in comment
+
+
+def test_the_mcp_scan_does_not_depend_on_the_gh_entry() -> None:
+    """Removing CVE-2026-78661 from .trivyignore leaves .trivyignore-mcp-server with its own entry (#5582)."""
+    gh_ignored = (REPO_ROOT / ".trivyignore").read_text(encoding="utf-8")
+    filtered_gh = "\n".join(
+        line for line in gh_ignored.splitlines() if "CVE-2026-78661" not in line
+    )
+    assert "CVE-2026-78661" not in filtered_gh
+
+    mcp_ignored = (REPO_ROOT / ".trivyignore-mcp-server").read_text(encoding="utf-8")
+    assert any(line.strip().startswith("CVE-2026-78661 exp:") for line in mcp_ignored.splitlines())
