@@ -141,7 +141,7 @@ def test_open_webui_values_disables_telemetry_and_version_check() -> None:
 
 
 def test_litellm_gateway_disables_telemetry() -> None:
-    """Verify LiteLLM Gateway config and deployment disable telemetry."""
+    """LiteLLM 1.103.11 reads neither key, so both stay absent (#5302)."""
     config_path = K8S_DIR / "llm" / "gateway" / "config.yaml"
     deployment_path = K8S_DIR / "llm" / "gateway" / "deployment.yaml"
     assert config_path.is_file()
@@ -149,14 +149,14 @@ def test_litellm_gateway_disables_telemetry() -> None:
 
     config_yaml = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     litellm_settings = config_yaml.get("litellm_settings", {})
-    assert litellm_settings.get("telemetry") is False
+    assert "telemetry" not in litellm_settings
 
     dep_data = yaml.safe_load(deployment_path.read_text(encoding="utf-8"))
     container = dep_data["spec"]["template"]["spec"]["containers"][0]
     dep_env = {
         item["name"]: item.get("value") for item in container.get("env", []) if "value" in item
     }
-    assert dep_env.get("LITELLM_TELEMETRY") == "False"
+    assert "LITELLM_TELEMETRY" not in dep_env
 
 
 def test_devcontainer_disables_telemetry() -> None:
