@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.150.0](https://github.com/dan-petty/devops-cli/compare/v0.149.0...v0.150.0) (2026-11-15)
+
+
+### Features
+
+* **roadmap:** Add a console that follows a roadmap run ([#5774](https://github.com/dan-petty/devops-cli/issues/5774)) ([75b15c2](https://github.com/dan-petty/devops-cli/commit/75b15c273a5d3e29a6b24358a28fcf2e164cbe4c))
+* **roadmap:** Check the strength of the new tests ([#3051](https://github.com/dan-petty/devops-cli/issues/3051)) ([#5770](https://github.com/dan-petty/devops-cli/issues/5770)) ([041ad79](https://github.com/dan-petty/devops-cli/commit/041ad79e61329a9aa157d47d96499e4a4a32dd29))
+* **roadmap:** Export eval fixtures as Harbor tasks ([#5780](https://github.com/dan-petty/devops-cli/issues/5780)) ([bc9f2f8](https://github.com/dan-petty/devops-cli/commit/bc9f2f8cff522b2e82286d0af959ac6d025a0972))
+
 ## [0.149.0](https://github.com/dan-petty/devops-cli/compare/v0.148.0...v0.149.0) (2026-11-15)
 
 
