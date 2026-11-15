@@ -58,7 +58,7 @@ _MODULE_FIXTURE = '@pytest.fixture(scope="module")'
 # adds one defect that the `paths` gate judges: a plan that states a wrong constant. The case of #3407
 # adds one defect that the `paths` gate judges: the decision that `StagedTree` holds file text
 # quotes no text of the class.
-JUDGED_BASELINE: Final[tuple[int, int]] = (84, 321)
+JUDGED_BASELINE: Final[tuple[int, int]] = (85, 322)
 
 
 @pytest.fixture(scope="module")

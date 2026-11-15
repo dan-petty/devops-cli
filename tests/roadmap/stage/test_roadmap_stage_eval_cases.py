@@ -85,7 +85,7 @@ def test_the_set_holds_the_reviewed_plans_and_six_good_ones(cases: list[StageCas
     reviewed = {case.pull for case in cases if case.verdict is not Verdict.GOOD}
     good = [case for case in cases if case.verdict is Verdict.GOOD]
 
-    assert (frozenset(reviewed), len(cases), len(good)) == (EVALUATED_PULLS, 60, 6)
+    assert (frozenset(reviewed), len(cases), len(good)) == (EVALUATED_PULLS, 61, 6)
     assert len(EVALUATED_PULLS) == 54
 
 
