@@ -1,0 +1,160 @@
+"""The comparison of the stage toolsets: the engine that measures a toolset, its row and its table
+(#3239)."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import pytest
+
+from devops_cli.roadmap.stage.stage_eval_cases import (
+    CASES_DIRECTORY,
+    StageCase,
+    load_cases,
+)
+from tests.support.builders import make_stage_proposal
+from tests.support.paths import REPO_ROOT
+from tests.support.roadmap_stage import VALID_REPORT, StageRepo, validate_args
+from tests.support.scripted_model import Script, call
+
+if TYPE_CHECKING:
+    from devops_cli.roadmap.stage.stage import StageClient
+    from tests.support.fakes.model import ModelFake
+    from tests.support.fakes.openspec import OpenSpecFake
+
+pytestmark = pytest.mark.usefixtures("keyring_store")
+
+CHANGE = "1-the-job-drops-a-comment"
+
+
+@pytest.fixture(scope="module")
+def cases() -> list[StageCase]:
+    return load_cases(REPO_ROOT / CASES_DIRECTORY)
+
+
+@pytest.fixture
+def openspec(openspec_fake: OpenSpecFake) -> OpenSpecFake:
+    openspec_fake.script_sequence(validate_args(CHANGE), (0, VALID_REPORT))
+    return openspec_fake
+
+
+def _live_case(cases: list[StageCase], repo: StageRepo) -> StageCase:
+    """A case about issue #1 of the sample repository, staged on its head commit."""
+    base = next(case for case in cases if case.has_commit)
+    return base.model_copy(
+        update={
+            "issue": 1,
+            "title": "fix(roadmap): the job drops a comment",
+            "issue_body": "The job drops the last comment of a thread.",
+            "change": CHANGE,
+            "base_commit": repo.git("rev-parse", "HEAD"),
+        }
+    )
+
+
+def _client(_model_fake: ModelFake) -> StageClient:
+    from devops_cli.ai.client import get_llm_client
+
+    return get_llm_client(task="analysis")
+
+
+def test_the_engine_measures_each_toolset(
+    cases: list[StageCase],
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+) -> None:
+    from genai_prices import Usage, calc_price
+
+    from devops_cli.roadmap.stage.stage_eval_compare import run_toolset
+
+    case = _live_case(cases, stage_repo)
+    base_script = Script(call("read_file", path="src/devops_cli/sample.py"), make_stage_proposal())
+    extended_script = Script(
+        call("read_file", path="src/devops_cli/sample.py"), make_stage_proposal()
+    )
+
+    base = run_toolset(
+        "base",
+        [case],
+        _client(model_fake),
+        stage_repo.clone,
+        toolbox=base_script.model(),
+        model="claude-sonnet-5-5",
+    )
+    extended = run_toolset(
+        "extended",
+        [case],
+        _client(model_fake),
+        stage_repo.clone,
+        toolbox=extended_script.model(),
+        model="claude-sonnet-5-5",
+    )
+
+    assert (base.toolset, extended.toolset) == ("base", "extended")
+    assert [measure.case for measure in base.measures] == [case.name]
+    assert (base.gate_defects, base.verification_defects) == (0, None)
+    assert (base.tool_calls, base.requests, extended.tool_calls, extended.requests) == (
+        1,
+        2,
+        1,
+        2,
+    )
+    assert base.input_tokens > 0
+    assert base.output_tokens > 0
+    assert len(base_script.tools_offered[0]) < len(extended_script.tools_offered[0])
+    assert base.cost == pytest.approx(
+        float(
+            calc_price(
+                Usage(input_tokens=base.input_tokens, output_tokens=base.output_tokens),
+                "claude-sonnet-5-5",
+            ).total_price
+        )
+    )
+
+
+def test_the_table_shows_one_row_for_each_toolset_and_a_delta_line_to_the_first() -> None:
+    from devops_cli.roadmap.stage.stage_eval_compare import Measure, render_compare, row_of
+
+    base = row_of("base", [Measure("case-a", 1, None, 2, 4, 100, 50, 1.0, 0.5)])
+    extended = row_of("extended", [Measure("case-a", 0, None, 3, 6, 300, 70, 2.0, 1.5)])
+
+    text = render_compare([base, extended])
+
+    assert "Gate defects" in text
+    assert "Verification defects" in text
+    assert "Tool calls" in text
+    assert "Input tokens" in text
+    assert "Output tokens" in text
+    assert "Elapsed time" in text
+    assert "Cost" in text
+    assert "not run" in text
+    delta_line = next(line for line in text.splitlines() if "extended - base" in line)
+    assert delta_line.split()[3:] == ["-1", "not", "run", "1", "2", "200", "20", "1.00", "1.0000"]
+    # The table keeps the raw values of each row beside the delta line.
+    base_line = next(line for line in text.splitlines() if line.startswith("base"))
+    assert base_line.split()[4:8] == ["2", "4", "100", "50"]
+
+
+def test_the_table_names_a_model_that_has_no_price() -> None:
+    from devops_cli.roadmap.stage.stage_eval_compare import Measure, render_compare, row_of
+
+    row = row_of("base", [Measure("case-a", 0, None, 1, 2, 10, 5, 0.5, None)])
+
+    assert "unpriced" in render_compare([row])
+
+
+def test_the_spread_states_the_minimum_and_the_maximum_of_each_value() -> None:
+    from devops_cli.roadmap.stage.stage_eval_compare import Measure, spread
+
+    measures = [
+        Measure("case-a", 1, None, 2, 4, 100, 50, 1.0, 0.5),
+        Measure("case-a", 3, None, 5, 8, 300, 90, 2.0, 1.5),
+    ]
+
+    values = spread(measures)
+
+    assert (values.gate_defects, values.tool_calls, values.requests) == ((1, 3), (2, 5), (4, 8))
+    assert (values.input_tokens, values.output_tokens) == ((100, 300), (50, 90))
+    assert (values.seconds, values.cost) == ((1.0, 2.0), (0.5, 1.5))
+    assert values.verification_defects == (None, None)

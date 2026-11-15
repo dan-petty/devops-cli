@@ -36,6 +36,7 @@ from devops_cli.exceptions import (
 )
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
+from devops_cli.roadmap.agent_run import RunTrace
 from devops_cli.roadmap.clone_git import checkout_at
 from devops_cli.roadmap.refine.refine_investigation import task_window
 from devops_cli.roadmap.stage.stage import (
@@ -73,14 +74,16 @@ class Outcome(StrEnum):
 
 @dataclass(frozen=True)
 class CaseRun:
-    """The run of one case: how it ended and why, the model calls that the planner made, and the
-    problems that each gate found in the first reply (None when no reply came)."""
+    """The run of one case: how it ended and why, the model calls that the planner made, the
+    problems that each gate found in the first reply (None when no reply came), and the first plan
+    that the model gave (None when no reply came)."""
 
     name: str
     outcome: Outcome
     reason: str
     calls: int
     first: dict[GateName, list[str]] | None
+    plan: StageProposal | None = None
 
 
 class RecordingClient:
@@ -158,6 +161,7 @@ def run_case(
     toolbox: Any | None = None,
     openspec: OpenSpecTool | None = None,
     toolset: StageToolset | None = None,
+    traces: list[RunTrace] | None = None,
 ) -> CaseRun:
     """Plan one case in a checkout of its staging commit. Rejected credentials stop the run; any
     other error of the planner ends the case as a `refused` or `failed` case.
@@ -166,7 +170,8 @@ def run_case(
     does (#3037), and `client` answers the call that splits the groups. The recorder wraps the
     toolbox client, so it keeps the first plan the model gave. `openspec` reads the specs for the
     tool `read_spec` and for the gates of the first reply. `toolset` is the tools of the plan run;
-    without it, the configured toolset of the stage job. Without a toolbox, a plan is one call."""
+    without it, the configured toolset of the stage job. `traces` keeps one `RunTrace` for each
+    plan run of the toolbox. Without a toolbox, a plan is one call."""
     with checkout_at(repository, case.base_commit, operation=_OPERATION) as source:
         planner: StageClient = (
             client
@@ -179,6 +184,7 @@ def run_case(
                 window=task_window("stage"),
                 openspec=openspec,
                 toolset=toolset,
+                traces=traces,
             )
         )
         recorder = RecordingClient(planner)
@@ -201,7 +207,14 @@ def run_case(
             if recorder.replies
             else None
         )
-    return CaseRun(case.name, outcome, reason, recorder.calls, first)
+    return CaseRun(
+        case.name,
+        outcome,
+        reason,
+        recorder.calls,
+        first,
+        recorder.replies[0] if recorder.replies else None,
+    )
 
 
 def run_cases(
