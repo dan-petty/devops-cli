@@ -139,9 +139,9 @@ def test_mark_ready_without_expected_head_calls_gh_pr_ready(
 def test_draft_readiness_delegates_to_implement_pull() -> None:
     """draft_readiness evaluates draft readiness through implement_pull."""
     from devops_cli.github.client import PullStatus
-    from devops_cli.roadmap.implement.implement_pull import Draft, DraftKind
+    from devops_cli.roadmap.implement.implement_pull import Answer, Draft, DraftKind
 
     pull = PullStatus(state="open", draft=True)
     draft = Draft(kind=DraftKind.STAGE_PLAN, pull=pull)
     result = draft_readiness(draft)
-    assert result is not None
+    assert result.answer is Answer.READY
