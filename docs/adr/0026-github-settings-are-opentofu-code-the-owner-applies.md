@@ -3,10 +3,10 @@ status: accepted
 date: 2026-11-15
 decision-makers: [owner]
 issue: 5314
-body-hash: "bc5f0c1fe948332759e810f04895c2d28ec1455fc7aca30a2939a7aca6111445"
+body-hash: "62fbb9367e57dda05fdb5ee7a337c8d7cc4ee6feb27322a190abfdf42847da07"
 ---
 
-# GitHub settings live in OpenTofu code, and the owner applies it
+# GitHub settings are OpenTofu code the owner applies
 
 The plan of #5311 moves the repositories of `dan-petty` to the `retric-ai` owner. No record said where the settings of a repository or an organization live, who changes them, or how a person verifies a transfer. Three designs competed, and the owner chose the first (decisions 1, 4, 5 and 7 of #5311 on 2026-11-13).
 

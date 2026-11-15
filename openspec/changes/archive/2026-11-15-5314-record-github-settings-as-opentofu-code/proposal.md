@@ -6,7 +6,7 @@ No record said where the repository and organization settings live, who changes 
 
 ## What Changes
 
-- Add `docs/adr/0026-github-settings-live-in-opentofu-code-and-the-owner-applies-it.md` with MADR front matter. It records owner decisions 1, 4, 5 and 7 of #5311, the two stacks, the Kubernetes backend in `tofu-state`, the read-only App that plans, the owner who applies, the scope split, postconditions in place of checks, the unmanaged `main` ruleset, the import-only plan of a transfer, and the rejected alternatives.
+- Add `docs/adr/0026-github-settings-are-opentofu-code-the-owner-applies.md` with MADR front matter. It records owner decisions 1, 4, 5 and 7 of #5311, the two stacks, the Kubernetes backend in `tofu-state`, the read-only App that plans, the owner who applies, the scope split, postconditions in place of checks, the unmanaged `main` ruleset, the import-only plan of a transfer, and the rejected alternatives.
 - Regenerate the ADR index.
 
 ## Capabilities
