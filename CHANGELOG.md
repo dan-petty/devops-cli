@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.147.0](https://github.com/dan-petty/devops-cli/compare/v0.146.0...v0.147.0) (2026-11-15)
+
+
+### Features
+
+* **roadmap:** Check the phrase of a declared pair ([#5768](https://github.com/dan-petty/devops-cli/issues/5768)) ([e055543](https://github.com/dan-petty/devops-cli/commit/e05554353f0b66caa7dc8116a33dd737e5371e42))
+
+
+### Bug Fixes
+
+* **security:** judge Trivy-config AZU-0041 in tf/azure/main.tf ([#5767](https://github.com/dan-petty/devops-cli/issues/5767)) ([b207197](https://github.com/dan-petty/devops-cli/commit/b207197a7af321815b5ebdcf38957684e2d13290))
+
 ## [0.146.0](https://github.com/dan-petty/devops-cli/compare/v0.145.0...v0.146.0) (2026-11-15)
 
 
