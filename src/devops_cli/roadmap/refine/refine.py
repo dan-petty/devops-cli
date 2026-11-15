@@ -270,6 +270,7 @@ from devops_cli.telemetry.instruments import ROADMAP_REFINE_COMMENTS_CAPPED_TOTA
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.stage.stage import StageClient
+    from devops_cli.security.alert_filer import CodeScanningAlert
 
 logger = logging.getLogger(__name__)
 
@@ -2157,6 +2158,22 @@ def _text_issues(text: str, own: int) -> list[int]:
     return numbers[:CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS]
 
 
+# A code scanning alert reference in text: code-scanning/(alerts/)?123 or alert 123.
+_CODE_SCANNING_ALERT_RE: Final[re.Pattern[str]] = re.compile(
+    r"code-scanning/(?:alerts/)?(\d+)|(?:\balert\s+#?(\d+)\b)",
+    re.IGNORECASE,
+)
+
+
+def alert_number_of(text: str) -> int | None:
+    """The number of the first code scanning alert that `text` names, or None."""
+    match = _CODE_SCANNING_ALERT_RE.search(text)
+    if match is None:
+        return None
+    num_str = match.group(1) or match.group(2)
+    return int(num_str) if num_str else None
+
+
 def _closed_since(store: RoadmapStore, number: int, since: datetime) -> bool:
     """Whether issue `number` closed at or after `since`. The timeline is read only for an issue
     that is closed and changed since then."""
@@ -2855,6 +2872,110 @@ def _failed_round(
     )
 
 
+def _item_alert(item: Item, body: str, repo: str) -> CodeScanningAlert | None:
+    """The code scanning alert that `item` names in its title or body, or None."""
+    alert_num = alert_number_of(f"{item.title}\n{body}")
+    if alert_num is None:
+        return None
+    from devops_cli.github.session import get_github_session
+    from devops_cli.security.alert_filer import read_alert
+
+    return read_alert(get_github_session(), repo, alert_num)
+
+
+def _alert_urls(alert: CodeScanningAlert | None, repo: str) -> set[str]:
+    """The URLs of `alert` that the proposal may cite, or an empty set."""
+    if alert is None:
+        return set()
+    return {f"https://github.com/{repo}/security/code-scanning/{alert.number}"}
+
+
+def _proposal_context(ctx: str, alert: CodeScanningAlert | None) -> str:
+    """`ctx` with the code scanning alert summary prepended when `alert` is given."""
+    if alert is None:
+        return ctx
+    alert_block = (
+        f"### Code-scanning alert {alert.number}\n\n"
+        f"- Rule: {alert.rule_id}\n"
+        f"- Description: {alert.rule_description}\n"
+        f"- Severity: {alert.severity}\n"
+        f"- Path: {alert.path}\n"
+    )
+    return f"{alert_block}\n{ctx}".strip()
+
+
+def _proposal_request(
+    item: Item,
+    current_body: str,
+    comments: Sequence[Any],
+    returned: Any,
+    check: Any,
+    covers: Any,
+    answer: Any,
+    store: RoadmapStore,
+    ctx: str,
+    alert: CodeScanningAlert | None,
+    repo: str,
+) -> dict[str, Any]:
+    """The JSON document that the proposal model receives."""
+    request: dict[str, Any] = {
+        "number": item.number,
+        "title": item.title,
+        "body": current_body,
+        "replies": _replies_for_model(comments),
+        "stage_return": _stage_evidence(returned),
+        "alternatives": _alternatives_request(check, comments, covers),
+        "context": _proposal_context(ctx, alert),
+        "body_questions": [
+            {"number": number, "question": asked}
+            for number, asked in enumerate(_asked_questions(current_body, covers), start=1)
+        ],
+        "deferred_issues": [
+            {"number": number, "title": title} for number, title in _recorded_deferrals(store, item)
+        ],
+        "judge_findings": _judge_findings(item),
+        "owner_answer": _owner_answer_request(item, answer),
+    }
+    if alert is not None:
+        request["alert"] = {
+            "number": alert.number,
+            "rule_id": alert.rule_id,
+            "rule_description": alert.rule_description,
+            "severity": alert.severity,
+            "path": alert.path,
+            "url": f"https://github.com/{repo}/security/code-scanning/{alert.number}",
+        }
+    return request
+
+
+def _ensure_alert_key_question(
+    proposal: RefinementProposal,
+    alert: CodeScanningAlert | None,
+    repo: str,
+) -> RefinementProposal:
+    """Add a key question covering the alert rule if not already present."""
+    if alert is None or not alert.rule_description:
+        return proposal
+    url = f"https://github.com/{repo}/security/code-scanning/{alert.number}"
+    has_qa = any(
+        str(alert.number) in qa.question
+        or (alert.rule_description and alert.rule_description in qa.answer)
+        for qa in proposal.key_questions
+    )
+    if has_qa:
+        return proposal
+    alert_qa = QuestionAnswer(
+        question=f"Which rule does alert {alert.number} report, and what does it require?",
+        answer=(
+            f"Alert {alert.number} reports {alert.rule_id} at {alert.severity} "
+            f"severity on `{alert.path}`. The rule requires {alert.rule_description}."
+        ),
+        kind="decision",
+        sources=[url],
+    )
+    return proposal.model_copy(update={"key_questions": [*proposal.key_questions, alert_qa]})
+
+
 def refine_one_item(
     store: RoadmapStore,
     item: Item,
@@ -2902,6 +3023,7 @@ def refine_one_item(
 
     # Step 1: Context minimization
     ctx = collect_context(source, sha, current_body, max_tokens=max_context_tokens)
+    alert = _item_alert(item, current_body, repo)
 
     # Step 2: Proposal generation. Only the comments of trusted authors reach the model (#3502).
     comments = trusted_replies(store.comments_on(item.number))
@@ -2915,33 +3037,23 @@ def refine_one_item(
         actor=actor,
         comments_on=partial(_frame_comments, store, item.number, comments),
     )
-    request: dict[str, Any] = {
-        "number": item.number,
-        "title": item.title,
-        "body": current_body,
-        "replies": _replies_for_model(comments),
-        "stage_return": _stage_evidence(returned),
-        "alternatives": _alternatives_request(check, comments, covers),
-        "context": ctx,
-        "body_questions": [
-            {"number": number, "question": asked}
-            for number, asked in enumerate(_asked_questions(current_body, covers), start=1)
-        ],
-        "deferred_issues": [
-            {"number": number, "title": title} for number, title in _recorded_deferrals(store, item)
-        ],
-        "judge_findings": _judge_findings(item),
-        "owner_answer": _owner_answer_request(item, answer),
-    }
-    raw_proposal: RefinementProposal = client.chat_structured(
-        _prompt("roadmap_refine_proposal.md"),
-        json.dumps(request, ensure_ascii=False, indent=1),
-        RefinementProposal,
-        max_retries=_REPLY_RETURNS,
+    request = _proposal_request(
+        item, current_body, comments, returned, check, covers, answer, store, ctx, alert, repo
+    )
+    raw_proposal = _ensure_alert_key_question(
+        client.chat_structured(
+            _prompt("roadmap_refine_proposal.md"),
+            json.dumps(request, ensure_ascii=False, indent=1),
+            RefinementProposal,
+            max_retries=_REPLY_RETURNS,
+        ),
+        alert,
+        repo,
     )
 
     # Step 3: Validation, and the investigation of what stays open (#2398)
-    allowed_urls: set[str] = set()
+    alert_urls = _alert_urls(alert, repo)
+    allowed_urls: set[str] = set(alert_urls)
     proposal, open_questions = validate_proposal(
         raw_proposal, current_body, allowed_urls, source, sha, store, covers
     )
@@ -2957,7 +3069,7 @@ def refine_one_item(
         if isinstance(revised, InvestigationStopped):
             stopped = revised
         else:
-            allowed_urls = tools.allowed_urls
+            allowed_urls = tools.allowed_urls | alert_urls
             proposal, open_questions = validate_proposal(
                 revised, current_body, allowed_urls, source, sha, store, covers
             )
@@ -2985,6 +3097,7 @@ def refine_one_item(
             source,
             unchanged=is_unchanged(item, current_body),
             repo=repo,
+            alert=alert,
         )
         is_ready = judge is JudgeVerdict.APPROVED
     needs_split = not proposal.fits_one_pr
@@ -3931,6 +4044,7 @@ __all__ = [
     "TitleDependencies",
     "WaitingItem",
     "WebSearch",
+    "alert_number_of",
     "apply_refine",
     "body_dependencies",
     "body_questions",

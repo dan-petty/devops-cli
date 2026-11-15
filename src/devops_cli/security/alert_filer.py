@@ -12,7 +12,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Final
 
-from pydantic import AliasPath, BaseModel, Field
+from pydantic import AliasPath, BaseModel, ConfigDict, Field
 
 from devops_cli.config.constants import (
     CONST_TRIVY_CONFIG_ALERT_ISSUE_LABELS,
@@ -20,7 +20,7 @@ from devops_cli.config.constants import (
     CONST_TRIVY_CONFIG_ALERT_TOOL,
 )
 from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
-from devops_cli.exceptions.git import GitHubUnreadError
+from devops_cli.exceptions.git import GitHubOperationError, GitHubUnreadError
 from devops_cli.github.session import GitHubSession
 
 # The severities of Trivy, worst first: a run that files too few issues files the worst first.
@@ -31,9 +31,12 @@ _TITLE: Final[str] = "fix(security): judge Trivy-config {rule_id} in {path}"
 class CodeScanningAlert(BaseModel):
     """The fields of one code scanning alert that the filer reads."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     number: int
     tool_name: str = Field(validation_alias=AliasPath("tool", "name"))
     rule_id: str = Field(validation_alias=AliasPath("rule", "id"))
+    rule_description: str = Field(default="", validation_alias=AliasPath("rule", "description"))
     severity_level: str | None = Field(
         default=None, validation_alias=AliasPath("rule", "security_severity_level")
     )
@@ -145,6 +148,16 @@ def read_open_alerts(session: GitHubSession, repo: str) -> list[CodeScanningAler
         f"&per_page={DEFAULT_GH_REST_PER_PAGE}",
     )
     return [CodeScanningAlert.model_validate(item) for item in session.paginate(path)]
+
+
+def read_alert(session: GitHubSession, repo: str, number: int) -> CodeScanningAlert | None:
+    """Read one code scanning alert of `repo` by its alert number."""
+    path = _repo_path(repo, f"code-scanning/alerts/{number}")
+    try:
+        data = session.rest("GET", path)
+        return CodeScanningAlert.model_validate(data)
+    except GitHubOperationError, ValueError:
+        return None
 
 
 def read_open_issue_titles(session: GitHubSession, repo: str) -> set[str]:
