@@ -13,6 +13,12 @@ loki:
   commonConfig:
     replication_factor: 1
 
+  # The pattern ingester gives the templates and their counts to the Logs Drilldown Patterns tab
+  # and to `query_loki_patterns` (#5260). It keeps 3 h of patterns in memory; persistence stays
+  # off, so the patterns serve triage only.
+  pattern_ingester:
+    enabled: true
+
   storage:
     type: filesystem
 
