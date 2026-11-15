@@ -3,7 +3,7 @@ paths an item changed.
 
 A step runs the `pre-commit` stage of the hooks at its commit (`implement_hooks.py`). The docs and
 the archive commits of the job, and the rebase onto the default branch, come after the last step
-and run no hook. So after the final rebase and before the push the job runs three checks over the
+and run no hook. So after the final rebase and before the push the job runs four checks over the
 final tree:
 
 - `pre-push`: the `pre-push` stage of the hooks over the commits past the default branch. It holds
@@ -16,6 +16,8 @@ final tree:
   2 CPUs runs in the time limit of a command. So above `CONST_ROADMAP_IMPLEMENT_SCOPED_TEST_MODULES`
   modules the check runs only the changed test modules. It does not run at all for a change that
   no test covers. The required checks of CI run the whole suite.
+- `strength`: the strength check of the new tests (`implement_strength.py`, #3051): the assertion
+  scan of the new test files, the bounded mutation run, and the coverage delta of the changed files.
 
 This module only defines the checks and runs them. The job decides what a failure means.
 """

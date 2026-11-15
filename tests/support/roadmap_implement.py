@@ -658,6 +658,16 @@ def _world(
         lambda call: command_text(call).startswith("uv run devops docs generate"),
         ProcessAnswer(side_effect=docs_effect),
     )
+    programs.answer(
+        lambda call: (
+            any(
+                tool in command_text(call)
+                for tool in ("ast-grep scan", "mutmut", "diff-cover", "coverage xml")
+            )
+            or ("pytest" in command_text(call) and "--cov" in command_text(call))
+        ),
+        ProcessAnswer(),
+    )
     route_pull_status(api)
     if planned:
         api.route(

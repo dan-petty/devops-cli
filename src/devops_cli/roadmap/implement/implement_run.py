@@ -162,6 +162,12 @@ from devops_cli.roadmap.implement.implement_step import (
     run_fix_step,
     run_step,
 )
+from devops_cli.roadmap.implement.implement_strength import (
+    StrengthReport,
+    report_lines,
+    scoped_result,
+    strength_report,
+)
 from devops_cli.roadmap.implement.implement_trace import (
     ImplementTrace,
     SummaryRow,
@@ -614,6 +620,8 @@ class _ItemRun:
     wip: WipCommit | None = None
     # The time at which the run of the item began, for the time limit of the item (#3053).
     started: float = field(default_factory=time.monotonic)
+    # The strength report of the new tests of the item (#3051).
+    strength: StrengthReport | None = None
 
     def __post_init__(self) -> None:
         self.pull = self.target.pull
@@ -1364,7 +1372,24 @@ class _ItemRun:
         self.scoped.extend(results)
         for result in results:
             self.trace.check(result.command, result.status)
-        return next((result for result in results if not result.passed), None)
+        if (failed := next((result for result in results if not result.passed), None)) is not None:
+            return failed
+
+        tasks_md = ""
+        try:
+            change = find_change(self.path, self.number, archived=True)
+            tasks_file = change / "tasks.md"
+            if tasks_file.is_file():
+                tasks_md = tasks_file.read_text(encoding="utf-8")
+        except RoadmapImplementError:
+            tasks_md = ""
+
+        report = strength_report(self.path, tasks_md, changed, self.default, tests.paths)
+        self.strength = report
+        res = scoped_result(report)
+        self.scoped.append(res)
+        self.trace.check(res.command, res.status)
+        return res if not res.passed else None
 
     def _scoped_checks(self) -> None:
         """Run the checks a person runs before a push (#3043), and give a failed check to a fix
@@ -1612,13 +1637,16 @@ class _ItemRun:
         table = summary_table(self._row(outcome) for outcome in self.outcomes)
         amend_lines = [amendment.line() for amendment in self.amendments]
         scoped_lines = self._scoped_lines()
+        strength_lines = report_lines(self.strength) if self.strength is not None else []
         skipped_lines = [
             texts.implement_pull_comment_skipped.format(
                 step=step.value, file=CONST_ROADMAP_IMPLEMENT_STEPS_FILE
             )
             for step in self.skipped_steps
         ]
-        lines = "\n".join([*amend_lines, *skipped_lines, *scoped_lines, *self._check_lines()])
+        lines = "\n".join(
+            [*amend_lines, *skipped_lines, *scoped_lines, *strength_lines, *self._check_lines()]
+        )
         body = "\n\n".join(part for part in (extra, table, lines) if part)
         if not body:
             return

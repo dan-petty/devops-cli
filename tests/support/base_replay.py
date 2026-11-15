@@ -70,4 +70,9 @@ def answer_pytest_on_base(programs: ProcessFake, *reports: str) -> None:
         Path(path.removeprefix("--junitxml=")).write_text(report, encoding="utf-8")
         return subprocess.CompletedProcess(call.argv, 1, stdout="", stderr="")
 
-    programs.answer(lambda call: "pytest" in call.argv, ProcessAnswer(side_effect=answer))
+    programs.answer(
+        lambda call: (
+            "pytest" in call.argv and any(word.startswith("--junitxml=") for word in call.argv)
+        ),
+        ProcessAnswer(side_effect=answer),
+    )
