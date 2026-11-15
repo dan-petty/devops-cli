@@ -127,3 +127,14 @@ The unpack of the export SHALL refuse a member that links out of its folder, a d
 #### Scenario: The export holds a link out of the folder
 - **WHEN** the tar file of the commit holds `ansible.cfg` as a link to a file outside the folder
 - **THEN** the command exits 1 with the error code `INFRA_READ_FAILED`, starts no Ansible command, and removes the folder
+
+### Requirement: A relative repos base dir resolves under the main worktree
+`default_checkout` SHALL resolve a relative `repos.base_dir` under `main_worktree_root()`, so every git worktree of devops-cli finds the clone at the main checkout. An absolute `repos.base_dir` SHALL stay as given.
+
+#### Scenario: A command in a linked worktree
+- **WHEN** `devops infra status owner/name` runs in a worktree, and `repos.base_dir` is `repos`
+- **THEN** the default checkout is `<main worktree>/repos/owner/name`
+
+#### Scenario: An absolute base dir
+- **WHEN** `repos.base_dir` is `/srv/repos`
+- **THEN** the default checkout is `/srv/repos/owner/name`
