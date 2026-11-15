@@ -288,7 +288,11 @@ def test_the_template_prices_both_reference_models() -> None:
     assert {
         name: (price.prompt_usd_per_million, price.completion_usd_per_million)
         for name, price in prices.items()
-    } == {"qwen3.8:27b": (0.035, 1.5), "qwen/qwen3-embedding-8b": (0.01, 0.0)}
+    } == {
+        "qwen3.8:27b": (0.035, 1.5),
+        "qwen/qwen3-embedding-8b": (0.01, 0.0),
+        "typesafe/jev-1.14": (0.042, 0.0),
+    }
 
 
 def test_the_template_names_the_decision_model() -> None:

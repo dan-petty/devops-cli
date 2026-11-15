@@ -16,8 +16,10 @@ as hosted, and prices it at the served model.
 - The price is a built-in entry of `_HOSTED_GROUP_PRICES`, so a workstation with no setting
   prices it, and a test that builds the registry with no settings sees it. The ConfigMap sets the
   same rates for the cluster.
-- The wrapper catches `Exception` and returns: the spend record is a report, and the answer is
-  the product of the call. The `except` holds a comment because the caller sees no result.
+- The wrapper catches the errors that a ledger or a settings file can raise (`OSError`,
+  `RuntimeError`, `TypeError`, `ValueError`, `KeyError`) and returns: the spend record is a report,
+  and the answer is the product of the call. The `except` holds a comment because the caller sees
+  no result.
 
 ## Risks
 

@@ -177,8 +177,9 @@ def record_jev_spend(response: DecisionResponse) -> None:
             completion_tokens=getattr(usage, "output_tokens", 0),
             reasoning_tokens=getattr(usage, "output_reasoning_tokens", 0),
         )
-    except Exception:
-        # The spend record is a report, and a Jev answer that the caller holds is worth more.
+    except OSError, RuntimeError, TypeError, ValueError, KeyError:
+        # The spend record is a report, and a Jev answer that the caller holds is worth more. The
+        # ledger refuses a broken row with these errors, and a settings file with no data dir.
         return
 
 
