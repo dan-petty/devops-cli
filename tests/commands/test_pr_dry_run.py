@@ -269,3 +269,19 @@ def test_a_dry_run_says_would_open_not_opened() -> None:
     assert result.exit_code == 0, result.output
     assert "Would open a draft pull request" in result.output
     assert "Opened a draft pull request" not in result.output
+
+
+def test_a_dry_run_refuses_a_labels_file_that_it_cannot_read(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A malformed labels file of the checkout stops the dry run with the error of the file
+    (#5178)."""
+    labels = tmp_path / ".github" / "labels.yml"
+    labels.parent.mkdir()
+    labels.write_text("not a list\n", encoding="utf-8")
+    monkeypatch.setattr(pr_commands, "_checkout", lambda: tmp_path)
+
+    result = runner.invoke(app, ["pr", "create", "-t", "feat(ai): a change", "-b", "", "--dry-run"])
+
+    assert result.exit_code == 1
+    assert "Expected list of label specifications" in result.output
