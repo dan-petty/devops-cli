@@ -459,6 +459,7 @@ devops roadmap eval stage [OPTIONS]
 | `--json` | `boolean` | - | Print the report as JSON in place of the table. |
 | `--dry-run` | `boolean` | - | Make no request: list the cases and the model calls that a run makes. |
 | `--replay` | `boolean` | - | Make no model call. Run the recorded plans through the gates and report which known defects each gate catches. |
+| `--record` | `boolean` | - | Write the constants that the plan of each case cites into its facts file. |
 | `--cases` | `path` | - | Folder of the cases. Default: tests/fixtures/roadmap_eval/stage. |
 | `--source` | `path` | - | Repository that holds the staging commits of the cases. Default: this checkout. |
 | `--no-toolbox` | `boolean` | - | Plan each case with one model call and no tool, as the job did before the toolbox. Run the same model with and without this option to compare the two scores. |

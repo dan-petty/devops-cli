@@ -18,9 +18,10 @@ gates need, and the defects a reviewer found in it. The files of a case director
   them, so that a group the schema refuses is still a case. A plan fails the schema of the reply
   if and only if a defect of the case names the gate `kind`: a test holds the set to this rule.
 - `facts.json`: the tracked files that the gates need, the capabilities the plan names that
-  exist, the paths that each negative-search literal matched before the change, and the paths that
-  hold the old path or the dotted name of a moved module (#3412). A replay cannot assume a deep
-  clone, so it reads no git.
+  exist, the paths that each negative-search literal matched before the change, the paths that
+  hold the old path or the dotted name of a moved module (#3412), and the constants that the plan
+  cites as name and integer value pairs, with an empty tuple when the entry is absent or empty
+  (#3390). A replay cannot assume a deep clone, so it reads no git.
 
 A case with the verdict `good` has no defect: every gate must accept it.
 
@@ -169,7 +170,9 @@ class CaseFacts(_Record):
     """What the gates need of the tree at the staging commit: the tracked files that matter, the
     capabilities the plan names that have a spec, the paths that each negative-search literal
     of the plan matched before the change, the tests that each changed manifest reaches
-    (#3972), and the paths that hold the old path or the dotted name of a moved module (#3412)."""
+    (#3972), the paths that hold the old path or the dotted name of a moved module (#3412), and
+    the constants that the plan cites as name and integer value pairs, with an empty tuple when
+    the entry is absent or empty (#3390)."""
 
     tracked: tuple[str, ...]
     capabilities: tuple[str, ...]

@@ -35,7 +35,8 @@
   "3412-a-move-plan-leaves-a-test-reference",
   "good-2491-a-refused-jwt-exchange-of-the",
   "good-2735-the-subprocess-environment-guard-accepts-less",
-  "good-3410-the-stage-gate-proves-a-negative"
+  "good-3410-the-stage-gate-proves-a-negative",
+  "3410-a-plan-that-states-a-wrong-constant"
  ],
  "B": [
   "2147-the-volumes-of-grafana-the-prometheus",

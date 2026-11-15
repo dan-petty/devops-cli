@@ -18,10 +18,42 @@ import typer
 
 from devops_cli.core.repo import find_repo_root, resolve_store_path
 from devops_cli.dry_run import dry_run_class, is_dry_run, render_request_plan
+from devops_cli.exceptions import ValidationError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, write_stdout
 
 _STORE = "roadmap_eval/stage"
+
+
+def _constants_text(constants: tuple[tuple[str, int], ...]) -> str:
+    """The constants of a case as `NAME = value`, or a note that its plan cites none."""
+    if not constants:
+        return MESSAGES.roadmap.stage_eval_record_none
+    return ", ".join(f"{name} = {value}" for name, value in constants)
+
+
+def _record(cases_dir: Path | None, names: tuple[str, ...], limit: int | None) -> None:
+    """Write the constants that each selected case cites into its facts file, at its base commit."""
+    from devops_cli.roadmap.stage.stage_eval_cases import cases_root, load_cases, select_cases
+    from devops_cli.roadmap.stage.stage_eval_record import record_constants, write_constants
+
+    cases = select_cases(load_cases(cases_dir), names, limit)
+    root = cases_root(cases_dir)
+    source = find_repo_root()
+    no_commit = [case.name for case in cases if not case.has_commit]
+    for case in cases:
+        if not case.has_commit:
+            continue
+        constants = record_constants(case, source)
+        write_constants(root / case.name, constants)
+        print_info(
+            MESSAGES.roadmap.stage_eval_record_case.format(
+                name=case.name, constants=_constants_text(constants)
+            )
+        )
+    if no_commit:
+        print_error(MESSAGES.roadmap.stage_eval_record_no_commit.format(names=", ".join(no_commit)))
+        raise typer.Exit(1)
 
 
 def _replay(
@@ -122,6 +154,13 @@ def eval_stage_cmd(
         bool, typer.Option("--dry-run", help=HELP.roadmap.eval_stage_dry_run)
     ] = False,
     replay: Annotated[bool, typer.Option("--replay", help=HELP.roadmap.eval_stage_replay)] = False,
+    record: Annotated[
+        bool,
+        typer.Option(
+            "--record",
+            help="Write the constants that the plan of each case cites into its facts file.",
+        ),
+    ] = False,
     cases_dir: Annotated[
         Path | None, typer.Option("--cases", help=HELP.roadmap.eval_stage_cases)
     ] = None,
@@ -134,6 +173,11 @@ def eval_stage_cmd(
 ) -> None:
     """Score the stage job on the golden set: the live run, or the replay through the gates."""
     names = tuple(case or ())
+    if record:
+        if dry_run or is_dry_run():
+            raise ValidationError(MESSAGES.roadmap.stage_eval_record_dry_run, field="record")
+        _record(cases_dir, names, limit)
+        return
     if replay:
         _replay(cases_dir, names, limit, as_json=as_json)
         return
