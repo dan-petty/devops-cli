@@ -4,6 +4,7 @@ issues changed since it (#4448). The snapshot keys to the schema of the issue re
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import logging
 import os
@@ -167,7 +168,7 @@ def test_a_new_package_version_with_the_same_record_schema_reads_only_the_change
         # Cached, as the real reader is, so the reset of the metadata cache after the test runs.
         @functools.cache
         def metadata(*_: Any) -> ProjectMetadata:
-            return real.model_copy(update={"version": version})
+            return dataclasses.replace(real, version=version)
 
         monkeypatch.setattr("devops_cli.config.metadata.load_project_metadata", metadata)
 

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import importlib.metadata
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -16,6 +19,18 @@ from devops_cli.config.metadata import (
     get_version,
     load_project_metadata,
 )
+from tests.support.paths import REPO_ROOT
+
+# A start reads the version, which `devops_cli.main` imports when it loads. The record is built
+# without pydantic, so the probe finds no pydantic module (#3550).
+_VERSION_START_PROBE = """\
+import sys
+
+import devops_cli.main
+
+print(f"pydantic={'pydantic' in sys.modules}")
+"""
+_CHILD_TIMEOUT_SECONDS = 180
 
 
 def test_load_project_metadata_authoritative() -> None:
@@ -102,3 +117,20 @@ def test_metadata_rejects_directory_path(tmp_path: Path) -> None:
     """Verify metadata loader rejects directory paths."""
     meta = load_project_metadata(tmp_path)
     assert meta.name == "devops-cli"
+
+
+@pytest.mark.live("python")
+def test_a_start_that_reads_the_version_loads_no_pydantic() -> None:
+    """A start reads the version record without pydantic: the record is a dataclass (#3550)."""
+    child = subprocess.run(
+        [sys.executable, "-P", "-c", _VERSION_START_PROBE],
+        cwd=REPO_ROOT,
+        env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "src")},
+        capture_output=True,
+        text=True,
+        timeout=_CHILD_TIMEOUT_SECONDS,
+        check=False,
+    )
+
+    assert child.returncode == 0, child.stderr
+    assert child.stdout.strip() == "pydantic=False"
