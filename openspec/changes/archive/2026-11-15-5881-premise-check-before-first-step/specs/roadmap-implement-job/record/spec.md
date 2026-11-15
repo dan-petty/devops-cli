@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A retry and a return to New clear the counted spend
-The job SHALL clear `implement.spend_counted` in the same write that clears `implement.spend`, at the start of a retry. A return to New SHALL write `implement.spend` with the spend of every step of the item, and SHALL leave `implement.spend_counted` as it is. The roadmap Service report of a Job whose result is `returned` SHALL count the tokens of `implement.spend` less `implement.spend_counted` in the result line, the attempt line and the token counter. It SHALL then clear `implement.spend` and `implement.spend_counted` in the write that records the state of the Job, so the next plan of the item starts with no spend.
+The job SHALL clear `implement.spend_counted` with `implement.spend` at the start of a retry. A return to New SHALL keep both keys. The Service report of a Job whose result is `returned` SHALL count the tokens of `implement.spend` less `implement.spend_counted`, and SHALL then clear both keys in the write that records the state of the Job.
 
 #### Scenario: A retry starts the count from zero
 - **WHEN** A person retries an item whose record holds `implement.spend_counted`, and the new Job starts.
