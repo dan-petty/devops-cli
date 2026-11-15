@@ -90,9 +90,9 @@ Kind: other. Reads: `tests/ai/mcp/test_mcp_exposure_table.py`, `src/devops_cli/c
 
 Kind: other. Reads: `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/stage.md`, `docs/CLI_REFERENCE.md`, `docs/commands/roadmap.md`. Changes: `docs/ROADMAP_WORKFLOW.md`, `docs/roadmap/stage.md`, `docs/CLI_REFERENCE.md`, `docs/commands/roadmap.md`.
 
-- [ ] 11.1 Edit the runbook with the `--toolset` option, the `compare` form, the columns of the table, the dry-run cost and the MCP exclusion, then regenerate the generated documents from the help texts and the command tree with `uv run devops docs generate`. The generated documents take the option and the form from their sources, so no hand edit stays in them
+- [x] 11.1 Edit the runbook with the `--toolset` option, the `compare` form, the columns of the table, the dry-run cost and the MCP exclusion, then regenerate the generated documents from the help texts and the command tree with `uv run devops docs generate`. The generated documents take the option and the form from their sources, so no hand edit stays in them
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 11.2 Edit `docs/ROADMAP_WORKFLOW.md` and `docs/roadmap/stage.md` with the toolset option, the compare form and the MCP exclusion, then regenerate `docs/CLI_REFERENCE.md` and `docs/commands/roadmap.md` with `uv run devops docs generate`
+- [x] 11.2 Edit `docs/ROADMAP_WORKFLOW.md` and `docs/roadmap/stage.md` with the toolset option, the compare form and the MCP exclusion, then regenerate `docs/CLI_REFERENCE.md` and `docs/commands/roadmap.md` with `uv run devops docs generate`
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria

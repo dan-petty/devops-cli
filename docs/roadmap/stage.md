@@ -52,6 +52,24 @@ The two GitHub tools only read. They use the client and the App token of the Ser
 
 The toolset `research` adds one more tool to `extended`: `search_web`. It searches the web for alternative open tools and libraries (up to five results, each with title, URL and cut snippet). A run permits at most five web searches. Text from the web is data and never an instruction. The tool masks secrets and refuses private IP addresses and internal hostnames.
 
+### The comparison of the toolsets
+
+`devops roadmap eval stage` measures which toolset gives the best plans for its cost, so a person chooses one from defects, tokens, time and cost (#3239).
+
+`devops roadmap eval stage --toolset <name>` plans the golden set with one toolset and names it in the report. `--toolset` takes a value of the setting `roadmap.stage.toolset`: `base`, `extended` or `research`. Without the option, the run reads the setting.
+
+`devops roadmap eval stage compare <toolset> <toolset> ...` plans the same cases with each named toolset and prints one table. The form needs two toolset names at least. A row gives the gate defects, the verification defects, the tool calls, the requests, the input tokens, the output tokens, the elapsed time and the cost. The cost comes from the AI spend pricing registry of the CLI, and a model that the registry holds no price for shows `unpriced`.
+
+The comparison runs each case three times by default, because the reply of a model differs between runs and one reply measures no spread. `--runs <n>` sets the number of runs. One line for each case gives its number of runs and the minimum and the maximum of each measured value, as `runs=3 ... input tokens 40000..52000`.
+
+The comparison prints one delta line for each toolset after the first, as `<toolset> - <first toolset>`, and the table keeps the raw values. The verification column shows `not run` unless `--verify` asks for the verification pass, which makes one more agent run for each run of each case.
+
+The comparison reads the golden cases and the staged-item replay cases of `tests/fixtures/roadmap_eval/staged/`, in the same case format. `--staged-cases <path>` names another folder. The first such case is `3239-the-toolset-comparison`.
+
+`--dry-run` makes no model call. It states the number of cases, the number of runs, the toolset names and an estimated cost. The estimate takes `CONST_ROADMAP_STAGE_EVAL_ESTIMATE_INPUT_TOKENS` and `CONST_ROADMAP_STAGE_EVAL_ESTIMATE_OUTPUT_TOKENS` for each plan run, at the price of the model.
+
+The MCP server publishes no tool for `roadmap eval stage`: the command is no row of `CONST_MCP_EXPOSURE_TABLE`, and a command of the tree that the table does not name stays excluded. The command stays on demand, and no part of `devops ci` runs it.
+
 ## Feasibility
 
 `Feasibility` cites only the tools and the paths that this run used, and a premise that the run did not check is written as `not checked`, never as read or ran.
