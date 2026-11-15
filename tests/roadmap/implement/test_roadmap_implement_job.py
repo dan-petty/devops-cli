@@ -2023,6 +2023,27 @@ class TestAGuardOfAGroupThatIsNotBehavior(_PremiseWorld):
         assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
 
 
+class TestAGuardOfAGroupThatPassed(_PremiseWorld):
+    """An earlier Job passed the behavior group 1, which added `_delivery_title`, so the branch
+    defines it. The check before the first step reads only the open groups (#5881)."""
+
+    @pytest.fixture
+    def staged_tasks(self) -> str:
+        first, _ = _ticked(_guard_tasks("_delivery_title", behavior=True))
+        return first
+
+    def test_a_group_that_passed_gets_no_check_and_the_run_goes_on(
+        self, job_world: JobWorld
+    ) -> None:
+        _, both = _ticked(_guard_tasks("_delivery_title", behavior=True))
+        script = ModelScript(tool_calls(*group_two_calls(both)), say("Group 2 is done."))
+
+        applied = job_world.run(script)
+
+        assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+        assert "CONTEXT.md" in job_world.repo.origin_git("diff", "--name-only", f"main..{BRANCH}")
+
+
 class TestVerifyOutputOfAnOtherGroup:
     """The job of a group of kind `other`: its verify command prints a line (#3042)."""
 

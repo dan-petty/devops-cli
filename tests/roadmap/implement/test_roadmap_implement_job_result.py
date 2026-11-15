@@ -140,3 +140,39 @@ def test_a_job_whose_runner_marked_its_pull_request_ready_logs_a_success(
             "seconds": "1200",
         }
     ]
+
+
+def test_a_job_whose_runner_returned_the_item_logs_its_tokens_and_clears_the_spend(
+    store: InMemoryRoadmapStore,
+    staged_repo: StageRepo,
+    api: GitHubApiFake,
+    kube: FakeCluster,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A return keeps the spend of the run, so the line counts the tokens of the Job: the spend
+    less the part that the report of an earlier Job counted. The report then clears the spend, so
+    the next plan of the item starts with none (#5881)."""
+    number, _ = _ended_job(store, staged_repo, kube, "Complete")
+    store.set_field(
+        _held(store, number),
+        ItemField.STATUS,
+        "New",
+        marks={
+            ImplementRecordKey.RESULT: "returned",
+            ImplementRecordKey.SPEND: json.dumps({"input_tokens": 800, "output_tokens": 200}),
+            ImplementRecordKey.SPEND_COUNTED: "400",
+        },
+    )
+    kube.core.answers["read_namespaced_pod_log"] = "The item went back to New.\n"
+
+    with caplog.at_level(logging.INFO):
+        IMPLEMENT_ROW.runner(store=store, repo=STAGE_REPO, clone_path=staged_repo.clone)
+
+    record = _held(store, number).job_record
+    assert [(line["result"], line["tokens"]) for line in result_fields(caplog)] == [
+        ("returned", "600")
+    ]
+    assert (
+        record.get(ImplementRecordKey.SPEND),
+        record.get(ImplementRecordKey.SPEND_COUNTED),
+    ) == (None, None)

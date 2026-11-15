@@ -392,8 +392,8 @@ def test_a_withdraw_that_fails_blocks_the_item_and_does_not_return_it(world: Job
 
 class TestAGuardThatTheBranchTipDefines:
     """Group 3 is a behavior group whose task adds a guard that the default branch defines
-    (#3417). The check returns the item at the boundary of group 3, after the checkpoint of
-    group 1."""
+    (#3417). The check reads every open behavior group once, before the first step, so the item
+    goes back to New before the step of group 1 (#5881)."""
 
     GUARD = "_delivery_title"
     TITLES = f'"""The titles."""\n\n\ndef {GUARD}(text: str) -> str:\n    return text.strip()\n'
@@ -426,42 +426,27 @@ class TestAGuardThatTheBranchTipDefines:
     def planned_tasks(self) -> str:
         return self._guard_tasks()
 
-    def test_the_check_withdraws_the_checkpoint_of_group_one(self, world: JobWorld) -> None:
+    def test_the_check_returns_the_item_before_the_step_of_group_one(self, world: JobWorld) -> None:
         world.repo.track(
             {"tests/conftest.py": '"""The tests."""\n', "src/devops_cli/titles.py": self.TITLES}
         )
         before = world.repo.origin_git("rev-parse", BRANCH) if _staged(world) else ""
-        ticked_two = self._guard_tasks().replace("- [ ]", "- [x]", 1)
-        script = _script(
-            tool_calls(
-                ("write_file", {"path": FILES[0], "content": "VALUE = 1\n"}),
-                ("write_file", {"path": TASKS_PATH, "content": ticked_two}),
-            ),
-            say("Group 1 is done."),
-            tool_calls(
-                ("write_file", {"path": FILES[1], "content": "VALUE = 2\n"}),
-                (
-                    "write_file",
-                    {"path": TASKS_PATH, "content": ticked_two.replace("- [ ]", "- [x]", 1)},
-                ),
-            ),
-            say("Group 2 is done."),
-        )
+        script = _script(*_passes(1, 2))
 
         applied = world.run(script)
 
         status, record = _item(world)
         (comment,) = world.issue_comments()
         assert (applied.ready, applied.stopped, applied.failed) == ((), (), ())
-        assert (status, record.get(BASE_KEY), len(script.seen)) == ("New", None, 4)
+        assert (status, record.get(BASE_KEY), script.seen) == ("New", None, [])
         assert self.GUARD in comment
-        # The checkpoint of group 1 and the withdraw: two pushes, then no group on origin.
-        assert len(_pushes(world)) == 2
+        assert "made no model request" in comment
+        # No step ran, so the job pushed no checkpoint and closed no pull request.
+        assert (_pushes(world), world.sent("PATCH", f"pulls/{PULL}")) == ([], [])
         if before:
             assert world.repo.origin_git("rev-parse", BRANCH) == before
         else:
             assert world.repo.origin_git("branch", "--list", BRANCH) == ""
-            assert world.sent("PATCH", f"pulls/{PULL}") == [{"state": "closed"}]
 
 
 # ── A push that fails ─────────────────────────────────────────────────────────────────────
