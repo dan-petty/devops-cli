@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
@@ -16,6 +18,7 @@ from devops_cli.roadmap.stage.stage_time import (
     job_time_premise,
 )
 
+REPO = "dan-petty/devops-cli"
 _BODY = (
     "Keep the checks fast.\n\n## Acceptance criteria\n\n"
     "- [ ] The `Tests & Coverage` average job duration stays under 300 s.\n"
@@ -110,7 +113,7 @@ def test_a_body_with_no_limit_makes_no_read(monkeypatch: pytest.MonkeyPatch) -> 
         "devops_cli.ci.job_time.check_job_time", lambda *args, **kwargs: calls.append(1)
     )
 
-    premise_of = _time_premise_of("dan-petty/devops-cli")
+    premise_of = _time_premise_of(REPO)
     assert premise_of is not None
     assert premise_of(_body_target("The job drops the last comment.")) is None
     assert calls == []
@@ -125,7 +128,7 @@ def test_a_mean_over_the_limit_returns_the_item(monkeypatch: pytest.MonkeyPatch)
         "devops_cli.ci.job_time.check_job_time", lambda *args, **kwargs: _report(328, 328)
     )
 
-    premise_of = _time_premise_of("dan-petty/devops-cli")
+    premise_of = _time_premise_of(REPO)
     assert premise_of is not None
     result = premise_of(_body_target(_BODY))
 
@@ -148,7 +151,7 @@ def test_a_failed_read_is_retried_once(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("devops_cli.github.session.get_github_session", lambda: _Session())
     monkeypatch.setattr("devops_cli.ci.job_time.check_job_time", flaky)
 
-    premise_of = _time_premise_of("dan-petty/devops-cli")
+    premise_of = _time_premise_of(REPO)
     assert premise_of is not None
     assert premise_of(_body_target(_BODY)) is None
     assert calls == [1, 1]
@@ -164,7 +167,6 @@ def test_a_read_that_fails_twice_raises(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr("devops_cli.github.session.get_github_session", lambda: _Session())
     monkeypatch.setattr("devops_cli.ci.job_time.check_job_time", failing)
 
-    premise_of = _time_premise_of("dan-petty/devops-cli")
-    assert premise_of is not None
+    premise_of = cast("Callable[[object], FalsePremise | None]", _time_premise_of(REPO))
     with pytest.raises(GitHubOperationError, match="the read failed"):
         premise_of(_body_target(_BODY))
