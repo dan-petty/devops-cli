@@ -3526,6 +3526,18 @@ class RoadmapMessages:
     eval_implement_model_target: str = "{model} for group {group} of item #{issue} (fixture {name})"
     eval_implement_modes: str = "{first} and {second} cannot be used together."
     eval_implement_needs_check: str = "--run-commands needs --check-only."
+    # `devops roadmap eval harbor` (#3104): the export of the fixtures and the trials of one task.
+    eval_harbor_export_title: str = "Exported {count} Harbor task(s) to {path}."
+    eval_harbor_export_task: str = "  {name} → {path}"
+    eval_harbor_export_dry_title: str = (
+        "Dry run: no file was written. The export would write {count} task(s) to {path}."
+    )
+    eval_harbor_dry_run: str = "Dry run: no request was made and no trial ran. The harbor run is:"
+    eval_harbor_run_title: str = (
+        "Harbor run: pass rate {pass_rate:.2f} over {trials} trial(s), total cost ${cost:.2f}."
+    )
+    eval_harbor_run_reward: str = "  trial {number}: reward {reward:.0f}"
+    eval_harbor_run_saved: str = "Report: {path}"
     implement_dry_run_reason: str = "Dry run: no request was made and nothing ran."
     implement_model_request: str = "model request"
     implement_model_target: str = "{model} for group {group} of item #{item}"

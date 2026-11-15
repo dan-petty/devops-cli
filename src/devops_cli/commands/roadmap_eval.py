@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from devops_cli.commands.roadmap_eval_completeness import completeness_cmd
 from devops_cli.commands.roadmap_eval_grades import grades_cmd
+from devops_cli.commands.roadmap_eval_harbor import harbor_app
 from devops_cli.commands.roadmap_eval_implement import implement_cmd
 from devops_cli.commands.roadmap_eval_intake import intake_cmd
 from devops_cli.commands.roadmap_eval_jev import jev_cmd
@@ -30,3 +31,4 @@ eval_app.command("verify", help=HELP.roadmap.eval_verify)(verify_cmd)
 eval_app.command("screen", help=HELP.roadmap.eval_screen)(screen_cmd)
 eval_app.command("completeness", help=HELP.roadmap.eval_completeness)(completeness_cmd)
 eval_app.command("grades", help=HELP.roadmap.eval_grades)(grades_cmd)
+eval_app.add_typer(harbor_app, name="harbor", help=HELP.roadmap.eval_harbor_app)
