@@ -199,6 +199,7 @@ def hooks_without_programs(search_path: str | None = None) -> tuple[str, ...]:
 
 
 NOT_IN_RUNNER: dict[str, str] = {
+    "vale": "Only the live docs test runs it; no step of a required job of `ci.yml` runs it.",
     "kubectl": (
         "Only the `k8s` row runs it, to render the manifests of `k8s/`. A Job cannot run the "
         "`k8s` row, so the pull request checks it."
