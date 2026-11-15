@@ -87,6 +87,7 @@ dependencies = [
     "packageurl-python==0.17.6",
     "jq==1.13.0",
     "harbor==0.26.0",
+    "tomlkit==0.15.2",
 ]
 
 [project.optional-dependencies]
