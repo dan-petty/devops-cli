@@ -385,16 +385,18 @@ def test_the_planner_and_the_review_both_run_on_deepseek_with_a_window_that_fits
     tasks = [_example_task(name) for name in ("verification", "analysis", "stage")]
 
     assert [(task["model"], task["context_window"]) for task in tasks] == [
-        ("deepseek-v4.1-flash-1017", 256_000)
+        ("openrouter/deepseek/deepseek-v4.1-flash-1017", 256_000)
     ] * 3
 
 
 def test_the_documented_window_of_analysis_and_its_source_are_the_files_values() -> None:
     configured = _example_task("analysis")
-    gateway = {
-        entry["model_name"]: entry
-        for entry in _data_of("k8s/llm/gateway/config.yaml")["model_list"]
-    }
+    gateway_data = _data_of("k8s/llm/gateway/config.yaml")
+    gateway = {entry["model_name"]: entry for entry in gateway_data["model_list"]}
+    aliases = gateway_data.get("router_settings", {}).get("model_group_alias", {})
+    for alias, target in aliases.items():
+        if target in gateway and alias not in gateway:
+            gateway[alias] = gateway[target]
     model_window = gateway[configured["model"]]["model_info"]["max_input_tokens"]
     page = (REPO_ROOT / "docs/roadmap/stage.md").read_text(encoding="utf-8")
 

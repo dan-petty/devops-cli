@@ -51,13 +51,13 @@ extraEnvVars:
         name: llm-gateway-secrets
         key: master-key
   - name: RAG_EMBEDDING_MODEL
-    value: "qwen3-embedding:0.6b"
+    value: "local/qwen3-embedding:0.6b"
   # The default chat model: a model group of the gateway config (k8s/llm/gateway/config.yaml).
   # Open WebUI shows the groups that the gateway serves and the models that the tiers hold. It has
   # no allow list in the environment: it removed MODEL_FILTER_LIST in v0.4.0, and model access is
   # set in Admin Panel > Settings > Models.
   - name: DEFAULT_MODELS
-    value: "devops-chat"
+    value: "local/devops-chat"
   - name: WEBUI_AUTH
     value: "true"
   - name: WEBUI_SECRET_KEY_FILE

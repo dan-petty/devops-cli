@@ -416,8 +416,8 @@ def test_grafana_provisions_the_llm_app_for_litellm_gateway() -> None:
     )
     models = app.get("jsonData", {}).get("models", {})
     assert models.get("default") == "base"
-    assert models.get("mapping", {}).get("base") == "qwen3.8:27b"
-    assert models.get("mapping", {}).get("large") == "qwen3.8:27b"
+    assert models.get("mapping", {}).get("base") == "local/qwen3.8:27b"
+    assert models.get("mapping", {}).get("large") == "local/qwen3.8:27b"
     assert app.get("secureJsonData", {}).get("openAIKey") == "$__env{GF_LLM_GATEWAY_KEY}"
 
 
