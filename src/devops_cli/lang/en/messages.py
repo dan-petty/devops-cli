@@ -5145,6 +5145,9 @@ class RoadmapMessages:
     # The empty value of `reads` ends in no stop of its own: `stage_group_files` ends the sentence.
     stage_group_no_reads: str = "none"
     stage_group_new: str = " (new)"
+    # The line under the kind and the files of a group: the identifiers that a behavior group adds,
+    # each in a code span. The plan reader reads them from this line (#3453).
+    stage_group_adds: str = "Adds: {adds}"
     stage_bad_block_start: str = (
         "The text '{text}' starts with a mark of markdown (a heading, a quote, a list marker, a "
         "box, a rule, a fence or a comment). Start it with a word."
@@ -5212,6 +5215,10 @@ class RoadmapMessages:
     stage_kind_manifest_process: str = (
         "The group '{title}' has the kind manifest, and it has a process. "
         "Its case is its check, so set process to null."
+    )
+    stage_kind_adds_other: str = (
+        "The group '{title}' has the kind {kind}, and it has adds. "
+        "Only a behavior group adds an identifier, so set adds to an empty list."
     )
     stage_title_lead: str = "plan #{number} "
     stage_title_long: str = (

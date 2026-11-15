@@ -33,6 +33,18 @@ OTHER: dict[str, Any] = {
     "documentation": None,
     "verify": "! git grep -n -w unused_probe src/ tests/ docs/",
 }
+MANIFEST: dict[str, Any] = {
+    "title": "Refuse an address of a private range",
+    "kind": "manifest",
+    "reads": [],
+    "changes": [".ast-grep/rules/net-private-range.yml"],
+    "creates": [".ast-grep/rules/net-private-range.yml"],
+    "creates_lines": {".ast-grep/rules/net-private-range.yml": 20},
+    "test": "Write `.ast-grep/rule-tests/net-private-range-test.yml` first",
+    "implementation": "Add the rule `.ast-grep/rules/net-private-range.yml`",
+    "documentation": None,
+    "verify": "uv run devops ci test .ast-grep/rule-tests/net-private-range-test.yml",
+}
 
 
 def _problem(group: dict[str, Any]) -> str:
@@ -97,6 +109,18 @@ def test_a_group_that_breaks_two_rules_names_both_in_one_problem() -> None:
 
     assert "has a test" in problem
     assert "has neither verify nor process" in problem
+
+
+def test_an_other_group_that_adds_a_name_fails_the_schema() -> None:
+    problem = _problem({**OTHER, "adds": ["_delivery_title"]})
+
+    assert "has the kind other, and it has adds" in problem
+
+
+def test_a_manifest_group_that_adds_a_name_fails_the_schema() -> None:
+    problem = _problem({**MANIFEST, "adds": ["_delivery_title"]})
+
+    assert "has the kind manifest, and it has adds" in problem
 
 
 # ── The change folder a group never writes ────────────────────────────────────

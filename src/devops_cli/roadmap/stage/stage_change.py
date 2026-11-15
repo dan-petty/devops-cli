@@ -527,7 +527,9 @@ class StageGroup(_Reply):
     changes a path under `src/`. A `manifest` group has a `test` that names its failing case and a
     `verify` that runs the case, and no `process`. An `other` group has no `test`, and one of
     `verify` (a command that gives the same answer on each run) and `process` (the steps of a
-    manual check). `documentation` is None when the group changes no document."""
+    manual check). `documentation` is None when the group changes no document. `adds` names the
+    identifiers that a `behavior` group adds, each in a code span of its `Adds:` line, and a group
+    of another kind adds none (#3453)."""
 
     title: Text
     kind: GroupKind
@@ -540,6 +542,7 @@ class StageGroup(_Reply):
     documentation: Sentence | None = None
     verify: Command | None = None
     process: Process | None = None
+    adds: list[Text] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _creates_are_changes(self) -> Self:
@@ -608,19 +611,21 @@ def _behavior_problems(group: StageGroup) -> list[str]:
 
 
 def _manifest_problems(group: StageGroup) -> list[str]:
-    """What breaks the rules of a `manifest` group: no case, no command for it, or a process."""
+    """What breaks the rules of a `manifest` group: no case, no command for it, a process, or an
+    added identifier, which only a `behavior` group holds."""
     texts = MESSAGES.roadmap
     found = (
         (group.test is None, texts.stage_kind_manifest_no_test),
         (group.verify is None, texts.stage_kind_manifest_no_verify),
         (group.process is not None, texts.stage_kind_manifest_process),
+        (bool(group.adds), texts.stage_kind_adds_other),
     )
-    return [text.format(title=group.title) for broken, text in found if broken]
+    return [text.format(title=group.title, kind=group.kind) for broken, text in found if broken]
 
 
 def _other_problems(group: StageGroup) -> list[str]:
-    """What breaks the rules of an `other` group: a test, or not exactly one of `verify` and
-    `process`."""
+    """What breaks the rules of an `other` group: a test, not exactly one of `verify` and
+    `process`, or an added identifier, which only a `behavior` group holds."""
     texts = MESSAGES.roadmap
     found = (
         (group.test is not None, texts.stage_kind_other_test),
@@ -629,8 +634,9 @@ def _other_problems(group: StageGroup) -> list[str]:
             group.verify is not None and group.process is not None,
             texts.stage_kind_two_checks,
         ),
+        (bool(group.adds), texts.stage_kind_adds_other),
     )
-    return [text.format(title=group.title) for broken, text in found if broken]
+    return [text.format(title=group.title, kind=group.kind) for broken, text in found if broken]
 
 
 def _change_folder_problems(group: StageGroup) -> list[str]:
@@ -2885,7 +2891,7 @@ def _design_file(proposal: StageProposal) -> str:
 
 
 def _paths(paths: Sequence[str], created: Collection[str] = ()) -> str:
-    """The paths as code spans, a created path with its mark."""
+    """The names as code spans, a created path with its mark."""
     mark = MESSAGES.roadmap.stage_group_new
     return ", ".join(f"`{p}`{mark if p in created else ''}" for p in paths)
 
@@ -2952,22 +2958,24 @@ def _documents_task(documentation: str, changes: Sequence[str]) -> str:
 
 
 def group_text(index: int, group: StageGroup) -> str:
-    """The group as `tasks.md` holds it, numbered `index`: its kind and its files on one line, and
-    the tasks of its kind. The plan reader reads the kind from that line, because a `manifest`
-    group has the tasks of a `behavior` group (#5205). `group` is a validated group: its texts are
-    on one line (`_one_line`), and `verify` holds no backtick (`form_problems`). A group built with
-    `model_construct` skips that check, and no caller renders one."""
+    """The group as `tasks.md` holds it, numbered `index`: its kind and its files on one line, the
+    `Adds:` line of the identifiers that it adds, and the tasks of its kind. The plan reader reads
+    the kind from that line, because a `manifest` group has the tasks of a `behavior` group
+    (#5205), and the added identifiers from the line under it (#3453). `group` is a validated
+    group: its texts are on one line (`_one_line`), and `verify` holds no backtick (`form_problems`).
+    A group built with `model_construct` skips that check, and no caller renders one."""
     texts = MESSAGES.roadmap
     files = texts.stage_group_files.format(
         kind=group.kind,
         reads=_paths(group.reads) or texts.stage_group_no_reads,
         changes=_paths(group.changes, group.creates),
     )
+    adds = "\n" + texts.stage_group_adds.format(adds=_paths(group.adds)) if group.adds else ""
     tasks = "".join(
         f"- [ ] {index}.{number} {task}\n"
         for number, task in enumerate(_task_texts(group), start=1)
     )
-    return f"## {index}. {group.title}\n\n{files}\n\n{tasks}"
+    return f"## {index}. {group.title}\n\n{files}{adds}\n\n{tasks}"
 
 
 def criteria_section(criteria: Sequence[StageCriterion]) -> str:
