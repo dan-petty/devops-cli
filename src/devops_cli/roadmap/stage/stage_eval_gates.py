@@ -71,9 +71,10 @@ from devops_cli.roadmap.stage.stage_registry import RegistryCount, registry_tabl
 class PlanUnderTest:
     """A plan as the gates judge it: the proposal, the problems the schema found in it, the names
     of the capabilities that have a spec, the files that exist when the change is written, the
-    tests that each changed manifest reaches (#3972), and the reference hits of a moved module
-    (#3412). A reply that the job accepted has no schema problem, since the client sends a reply
-    that breaks the schema back before the checks."""
+    tests that each changed manifest reaches (#3972), the reference hits of a moved module
+    (#3412), and the source of each class that a design claim names (#3407). A reply that the job
+    accepted has no schema problem, since the client sends a reply that breaks the schema back
+    before the checks."""
 
     proposal: StageProposal
     schema_problems: tuple[str, ...]
@@ -96,6 +97,9 @@ class PlanUnderTest:
     registry: Sequence[RegistryCount] | None = None
     constants: Mapping[str, int] = field(default_factory=dict)
     models: Mapping[str, tuple[str, tuple[str, ...]]] = field(default_factory=dict)
+    # The source of each class under `src/` that a design claim of the plan names (#3407). An
+    # empty mapping records no class, as the cases recorded before #3407 do.
+    classes: Mapping[str, str] = field(default_factory=dict)
     change: str = ""
     trace: TraceFacts | None = None
 
@@ -146,6 +150,7 @@ class PlanUnderTest:
             registry=registry,
             constants=dict(case.facts.constants),
             models=dict(case.facts.models),
+            classes=dict(case.facts.classes),
             change=case.change,
             trace=trace,
         )
@@ -207,13 +212,13 @@ class Gate:
 
 def _path_gate(plan: PlanUnderTest) -> list[str]:
     """The checks of the job on a plan (`check_proposal`) but the criteria rule: the path rule,
-    which also reads the tests that each changed manifest reaches (#3972) and the reference hits of
-    a moved module (#3373), the rules of the spec delta, which refuse a spec delta that the changed
-    paths do not need (#3013), and the form of the `verify` commands and of the new test files
-    (#3015). The criteria rule has its own gate (#3019), and a plan with no `criteria` list has no
-    text for the issue body, so its problems would be false failures here (#4081). A recorded case
-    holds the names of the capabilities and no requirement names, so a replay of a case does not
-    judge a duplicate requirement."""
+    which also reads the tests that each changed manifest reaches (#3972), the reference hits of a
+    moved module (#3373) and the source of each class that a design claim names (#3407), the rules of
+    the spec delta, which refuse a spec delta that the changed paths do not need (#3013), and the form
+    of the `verify` commands and of the new test files (#3015). The criteria rule has its own gate
+    (#3019), and a plan with no `criteria` list has no text for the issue body, so its problems would
+    be false failures here (#4081). A recorded case holds the names of the capabilities and no
+    requirement names, so a replay of a case does not judge a duplicate requirement."""
     found = check_gates(
         plan.proposal,
         plan.known,
@@ -224,6 +229,7 @@ def _path_gate(plan: PlanUnderTest) -> list[str]:
         registry=plan.registry,
         constants=plan.constants,
         models=plan.models,
+        classes=plan.classes,
         manifest_references=plan.manifest_references or None,
         references=plan.references,
         trace=plan.trace,

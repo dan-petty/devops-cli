@@ -237,6 +237,49 @@ def test_the_paths_gate_refuses_a_manifest_plan_that_omits_its_test(
     assert any(MANIFEST_TEST in problem for problem in problems)
 
 
+STAGED_TREE_SOURCE = (
+    "class StagedTree:\n"
+    "    @classmethod\n"
+    "    def read(cls, source: Path, *, operation: str) -> Self:\n"
+    '        listing = git(source, "ls-files", "-z", operation=operation)\n'
+    '        return cls((path for path in listing.split("\\0") if path), source=source)\n'
+)
+
+
+def _class_claim_case(cases: list[StageCase], decision: str) -> StageCase:
+    """A good case whose plan makes one design claim about `StagedTree`, with the source of the
+    class in its facts (#3407)."""
+    good = next(c for c in cases if c.verdict is Verdict.GOOD)
+    facts = good.facts.model_copy(update={"classes": {"StagedTree": STAGED_TREE_SOURCE}})
+    plan = {
+        **good.plan,
+        "decisions": [{"decision": decision, "reason": "It is the simplest fix."}],
+    }
+    return good.model_copy(update={"facts": facts, "plan": plan})
+
+
+def test_the_paths_gate_refuses_a_false_class_claim(cases: list[StageCase]) -> None:
+    """A plan whose decision names `StagedTree` and quotes no text of the class fails the `paths`
+    gate, as the job refuses it (#3407)."""
+    case = _class_claim_case(cases, "`StagedTree` holds the file text of the staged commit.")
+
+    problems = run_gates(PlanUnderTest.of_case(case))[GateName.PATHS]
+
+    assert any("StagedTree" in problem for problem in problems)
+
+
+def test_the_paths_gate_accepts_a_class_claim_that_quotes_the_class(
+    cases: list[StageCase],
+) -> None:
+    """The same decision with a span that holds text of the class passes the `paths` gate
+    (#3407)."""
+    case = _class_claim_case(cases, "`StagedTree.read` keeps the tracked paths with `ls-files`.")
+
+    problems = run_gates(PlanUnderTest.of_case(case))[GateName.PATHS]
+
+    assert not any("StagedTree" in problem for problem in problems)
+
+
 def test_no_defect_waits_for_a_gate_once_the_gates_of_3012_to_3017_are_built(
     cases: list[StageCase], report: ReplayReport
 ) -> None:

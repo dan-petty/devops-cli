@@ -13,9 +13,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/stage/stage_change.py`, `src/devo
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/stage/stage_eval_cases.py`, `src/devops_cli/roadmap/stage/stage_eval_gates.py`, `tests/roadmap/stage/test_roadmap_stage_eval_gates.py`. Changes: `src/devops_cli/roadmap/stage/stage_eval_cases.py`, `src/devops_cli/roadmap/stage/stage_eval_gates.py`, `tests/roadmap/stage/test_roadmap_stage_eval_gates.py`.
 
-- [ ] 2.1 Write `test_the_paths_gate_refuses_a_false_class_claim` and `test_the_paths_gate_accepts_a_class_claim_that_quotes_the_class` in `tests/roadmap/stage/test_roadmap_stage_eval_gates.py`: a plan whose decision names `StagedTree` with no quote of the class fails the `paths` gate, and the same decision with a span that holds `ls-files` passes it
+- [x] 2.1 Write `test_the_paths_gate_refuses_a_false_class_claim` and `test_the_paths_gate_accepts_a_class_claim_that_quotes_the_class` in `tests/roadmap/stage/test_roadmap_stage_eval_gates.py`: a plan whose decision names `StagedTree` with no quote of the class fails the `paths` gate, and the same decision with a span that holds `ls-files` passes it
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_eval_gates.py` fails on the base
-- [ ] 2.2 Add the field `classes: Mapping[str, str]` to `CaseFacts` in `src/devops_cli/roadmap/stage/stage_eval_cases.py`, empty by default. Add `classes` to `PlanUnderTest` in `src/devops_cli/roadmap/stage/stage_eval_gates.py`, fill it from the facts in `of_case`, and pass it to `check_proposal` in `_path_gate`. Run `uv run devops roadmap eval stage --replay` on the base commit and after the change, and state the score before and after
+- [x] 2.2 Add the field `classes: Mapping[str, str]` to `CaseFacts` in `src/devops_cli/roadmap/stage/stage_eval_cases.py`, empty by default. Add `classes` to `PlanUnderTest` in `src/devops_cli/roadmap/stage/stage_eval_gates.py`, fill it from the facts in `of_case`, and pass it to `check_proposal` in `_path_gate`. Run `uv run devops roadmap eval stage --replay` on the base commit and after the change, and state the score before and after
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_eval_gates.py` passes
 
 ## 3. Add the golden case of the false class claim

@@ -176,7 +176,8 @@ class CaseFacts(_Record):
     of the plan matched before the change, the tests that each changed manifest reaches
     (#3972), the paths that hold the old path or the dotted name of a moved module (#3412), and
     the constants that the plan cites as name and integer value pairs, with an empty tuple when
-    the entry is absent or empty (#3390)."""
+    the entry is absent or empty (#3390), and the source of each internal class that a design claim
+    names (#3407)."""
 
     tracked: tuple[str, ...]
     capabilities: tuple[str, ...]
@@ -184,6 +185,9 @@ class CaseFacts(_Record):
     manifest_references: Mapping[str, tuple[str, ...]] = Field(default_factory=dict)
     constants: tuple[tuple[str, int], ...] = ()
     models: Mapping[str, tuple[str, tuple[str, ...]]] = Field(default_factory=dict)
+    # The source of each class under `src/` that a design claim of the plan names. An empty
+    # mapping records no class, as the cases recorded before #3407 do.
+    classes: Mapping[str, str] = Field(default_factory=dict)
     trace: TraceFact | None = None
     # The files that hold the old path or the dotted name of a moved module. An empty tuple
     # records no hit, as every case recorded before #3412 does.
