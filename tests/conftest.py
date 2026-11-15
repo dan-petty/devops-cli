@@ -16,6 +16,10 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 # Textual reads its animation level once, on import. Off, a tab switch moves its underline at once
 # instead of over 0.3 s of frames that the pilot waits out after every key and pause (#1725).
 os.environ["TEXTUAL_ANIMATIONS"] = "none"
+# A devcontainer shell exports DEVOPS_CLI_CONFIG with the checkout's config, and a test read
+# it before the per-test fixture set its own: the host path guard then failed the setup (#5268).
+# The fixture below sets the variable of every test, so the shell value never reaches one.
+os.environ.pop("DEVOPS_CLI_CONFIG", None)
 
 import errno
 import functools
