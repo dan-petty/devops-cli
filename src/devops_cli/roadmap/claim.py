@@ -8,7 +8,7 @@ clears the label, whoever holds it. No job releases the claim of an agent or a p
 
 The label is the Owner field of the store, so a claim is a field write: it replaces the family,
 the job record names the owner it set, and the write raises `RoadmapItemChangedError` when
-someone changed the owner after the read (ADR 0002). A person who adds an `owner/*` label on
+someone changed the owner after the read (ADR 0016). A person who adds an `owner/*` label on
 GitHub by hand is also a claim, and it wins over the label that a job set.
 
 `plan_claim` and `apply_claim` serve `devops roadmap claim` and `devops roadmap release`. The

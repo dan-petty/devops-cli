@@ -446,7 +446,7 @@ def test_the_status_writer_refuses_the_marks_when_another_writer_changed_an_equa
     store: InMemoryRoadmapStore,
 ) -> None:
     """Refine reads a Ready item, then calls a model for minutes. A person moves the item to New
-    in that time. The marks and the body of refine are refused as a label write is (ADR 0002), so
+    in that time. The marks and the body of refine are refused as a label write is (ADR 0016), so
     the lost write is not silent."""
     number = _job_item(store, "Ready")
     read_before = _item(store, number)

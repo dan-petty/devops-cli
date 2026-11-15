@@ -96,7 +96,7 @@ def test_changes_since_whose_second_event_is_older_than_the_cutoff_sends_one_req
 
 def test_changes_since_keeps_label_and_state_events_only() -> None:
     """A milestone event is a person's planning and no job reads it, so the poll reports none.
-    A field change is a label event of its family (ADR 0003)."""
+    A field change is a label event of its family (ADR 0017)."""
     closed = next(e for e in EVENTS if e["event"] == "closed" and "pull_request" not in e["issue"])
     reopened = {**closed, "event": "reopened", "created_at": "2026-10-02T01:00:00Z"}
     store, _ = recorded_store({"issues/events": [reopened, *EVENTS]})

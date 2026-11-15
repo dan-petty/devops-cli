@@ -167,7 +167,7 @@ def test_the_stores_own_writes_keep_its_listing_of_every_issue_current() -> None
 
 def test_a_field_a_person_changed_after_the_read_raises_before_any_write() -> None:
     """The store read the issue, then a person set Priority: the job's Priority write, planned
-    from that read, raises before any write and the person's value stays (ADR 0002)."""
+    from that read, raises before any write and the person's value stays (ADR 0016)."""
     github, store = seeded(i7=("priority/p2-medium",))
     item = read(store, 7)
     github.issues[7]["labels"] = [{"name": "priority/p1-high"}]

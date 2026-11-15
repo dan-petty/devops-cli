@@ -10,7 +10,7 @@ the label with the family replace of the store (`set_field`) only when it differ
 issue again after the write. A label that another writer changed in between raises
 `RoadmapStatusLostError`, so a lost write is never silent. When the label is equal, it writes only
 the marks and the body of its caller. The store refuses either write with `RoadmapItemChangedError`
-when someone changed the Status since the caller read the item (ADR 0002, #5114). A dry run
+when someone changed the Status since the caller read the item (ADR 0016, #5114). A dry run
 returns the would-be write and sends no request. Every job writes the Status through it: the rows `stage`, `stage_ready` and
 `implement`, the runner Job (In Progress, In Review and Blocked), the Job report and the clear rules
 of a stop, refine, repair, intake, `devops roadmap return`, the claim of
@@ -138,7 +138,7 @@ def write_status(
     raises `RoadmapStatusLostError`. When the label is equal, `marks` and `body` are written
     alone, with no read after the write. Both writes raise `RoadmapItemChangedError` and write
     nothing when someone changed the Status since `item` was read: the caller decided on that
-    read (ADR 0002, #5114). A dry run sends no request and returns the would-be write."""
+    read (ADR 0016, #5114). A dry run sends no request and returns the would-be write."""
     done = StatusWrite(item.number, item.status, derive_status(facts), dry_run=dry_run)
     if dry_run:
         return done
