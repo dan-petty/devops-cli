@@ -246,3 +246,4 @@ This record **amends ADR 0019** in three places and no other. The seven rules of
 The pull request of #4792 amends the catalogue on 2026-11-12. It adds the point `resolve.question_class` of the row `resolve` (ADR 0021 section 8), in `shadow` only. The merge of that pull request is the approval of the point.
 
 2026-11-14: Living detail moved to `docs/TELEMETRY.md` and to `openspec/specs/decision-workflows/spec.md`: the two decision-point instruments and their series bounds (#5272).
+2026-11-15: Fact out of date: the cookbook functions but `route_with_jev` and the auto mode left (#5276).
