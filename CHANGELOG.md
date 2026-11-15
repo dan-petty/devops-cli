@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.146.0](https://github.com/dan-petty/devops-cli/compare/v0.145.0...v0.146.0) (2026-11-15)
+
+
+### Features
+
+* **roadmap:** Cap and mask the output of a planner run ([#5761](https://github.com/dan-petty/devops-cli/issues/5761)) ([a1280aa](https://github.com/dan-petty/devops-cli/commit/a1280aaf5e0e174f6faf47bf1288dc8a58a2b70f))
+* **roadmap:** Hold a prompt change for its live scores ([#5758](https://github.com/dan-petty/devops-cli/issues/5758)) ([183bcdc](https://github.com/dan-petty/devops-cli/commit/183bcdcac4b88093b6554aaeec1c236e3acaeb86))
+* **roadmap:** Pass the declared dependencies to the stage request ([#5763](https://github.com/dan-petty/devops-cli/issues/5763)) ([19f15f2](https://github.com/dan-petty/devops-cli/commit/19f15f225708cf5aedc20b5d11a243a7e8a9f2fb))
+
 ## [0.145.0](https://github.com/dan-petty/devops-cli/compare/v0.144.1...v0.145.0) (2026-11-14)
 
 
