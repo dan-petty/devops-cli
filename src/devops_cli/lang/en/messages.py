@@ -4223,12 +4223,23 @@ class RoadmapMessages:
         "The checkout has changes that are not committed, so the tools would read files that the "
         "staged commit does not hold."
     )
+    # A re-stage pushes with a lease on the commit that `stage.sha` records, and the record of the
+    # item holds none (#3387).
+    stage_restage_no_sha: str = (
+        "The record of #{number} holds no `stage.sha`, so the job cannot push the plan that "
+        "replaces the one of its draft pull request."
+    )
     git_failed: str = "`git {command}` failed: {reason}"
     # The comments of the stage job; each starts with its marker.
     stage_comment_staged: str = (
         "{marker}\nStaged: branch `{branch}`, draft pull request #{pull}. The pull request "
         "plans the item and closes no issue.\n\nThe task groups, with the tokens of the inputs "
         "of each step, for a budget of {budget} tokens:\n\n{groups}{notes}"
+    )
+    # The draft pull request whose plan the job replaced on the branch of the item (#3387).
+    stage_comment_restaged: str = (
+        "\n\nThis run replaced the plan of draft pull request #{pull} on the same branch, and "
+        "opened no second pull request."
     )
     stage_comment_group: str = "{index}. {title}: {tokens} tokens"
     # The named paths that the default branch changed after the commit that the planner read

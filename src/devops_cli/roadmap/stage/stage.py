@@ -241,7 +241,13 @@ from devops_cli.roadmap.stage.stage_form import (
     record_search_evidence,
 )
 from devops_cli.roadmap.stage.stage_github import StageGitHub
-from devops_cli.roadmap.stage.stage_held import DraftRead, held_draft, may_replace, restaged_now
+from devops_cli.roadmap.stage.stage_held import (
+    DraftRead,
+    held_draft,
+    may_replace,
+    restage_record,
+    restaged_now,
+)
 from devops_cli.roadmap.stage.stage_jev_screen import ScreenCase, record_review, screen_of
 from devops_cli.roadmap.stage.stage_left_out import LeftOutKind, log_left_out
 from devops_cli.roadmap.stage.stage_models import model_fields, referenced_classes
@@ -3309,15 +3315,41 @@ def _rebase_onto_default(path: Path) -> None:
 
 def _commit_and_push(path: Path, change: StagedChange) -> str:
     """Write the files, make the one commit, rebase it onto the default branch and push the branch
-    with `-u origin`; the commit's SHA."""
+    with `-u origin`; the commit's SHA. A re-stage clears the change folder of the old plan first,
+    because the worktree took over the pushed branch, so a file of that plan would stay in the new
+    commit (#3387)."""
     target = change.target
+    if target.replace_pull is not None:
+        shutil.rmtree(path / _CHANGES_DIRECTORY / target.change, ignore_errors=True)
     write_change_files(path, change.files)
     _git(path, "add", "--", f"{_CHANGES_DIRECTORY}/{target.change}")
     _git(path, "commit", "-q", "-m", change.title, "-m", f"Plans #{target.item.number}.")
     _rebase_onto_default(path)
     sha = _git(path, "rev-parse", "HEAD")
-    _git(path, "push", "-q", "-u", "origin", target.branch)
+    _push(path, change)
     return sha
+
+
+def _push(path: Path, change: StagedChange) -> None:
+    """Push the branch of `change` to `origin`, and set its upstream. A re-stage pushes with a lease
+    on the commit that `stage.sha` records, because the worktree took over the pushed branch and the
+    rebase onto the default branch can rewrite its tip (#3387): a commit that a person or the
+    fix-plan step pushed after the job read the branch refuses the push, and keeps the branch."""
+    target = change.target
+    if target.replace_pull is None:
+        _git(path, "push", "-q", "-u", "origin", target.branch)
+        return
+    _git(path, "push", "-q", "-u", _lease(target), "origin", target.branch)
+
+
+def _lease(target: StageTarget) -> str:
+    """The lease of the push of a re-staged branch: the commit that `stage.sha` records (#3387)."""
+    recorded = target.item.job_record.get(StageRecordKey.SHA)
+    if not recorded:
+        raise _stage_error(
+            MESSAGES.roadmap.stage_restage_no_sha.format(number=target.item.number), target
+        )
+    return f"--force-with-lease=refs/heads/{target.branch}:{recorded}"
 
 
 def _open_pull(repo: str, source: Path, change: StagedChange) -> CreatedPull:
@@ -3335,6 +3367,26 @@ def _open_pull(repo: str, source: Path, change: StagedChange) -> CreatedPull:
     except DevOpsCLIError:
         _git(source, "push", "origin", "--delete", branch)
         raise
+
+
+def _update_pull(repo: str, pull: int, change: StagedChange) -> CreatedPull:
+    """Set the title and the body of the draft pull request `pull` that the job replaces, and give
+    it back with the labels it holds, so that the label steps judge the draft as the job made it
+    (#3387). The job opens no second pull request, and a refused update keeps the branch, which
+    holds the plan that a person may have read."""
+    client = get_github_session().client
+    labels = client.get_pull_status(repo, pull).labels
+    client.update_pull(repo, pull, title=change.title, body=change.body)
+    return CreatedPull(number=pull, html_url="", labels=labels)
+
+
+def _published_pull(repo: str, source: Path, change: StagedChange) -> CreatedPull:
+    """The draft pull request of the pushed branch: the one that the target names, which the job
+    updates, or a new draft (#3387)."""
+    replaced = change.target.replace_pull
+    if replaced is None:
+        return _open_pull(repo, source, change)
+    return _update_pull(repo, replaced, change)
 
 
 def _groups_listed(groups: Sequence[MeasuredGroup]) -> str:
@@ -3452,6 +3504,15 @@ def _notes(change: StagedChange, moved: Sequence[MovedPath] = ()) -> str:
     )
 
 
+def _restage_note(change: StagedChange) -> str:
+    """The line of the comment that names the draft pull request whose plan the job replaced
+    (#3387). It is empty for a branch that the job made."""
+    replaced = change.target.replace_pull
+    if replaced is None:
+        return ""
+    return MESSAGES.roadmap.stage_comment_restaged.format(pull=replaced)
+
+
 def _label_pull(store: RoadmapStore, pull_number: int, title: str) -> str:
     """Add the labels of `title` to draft pull request `pull_number`. A refused label gives a
     failure note for the comment. Rejected credentials stop the run."""
@@ -3491,10 +3552,12 @@ def _stage_one(
     now: datetime,
 ) -> None:
     """Make the branch, the commit, the push and the draft of one item, then record them and
-    post the one comment. The branch starts at the staged commit `base` (#3301). The Status of the
-    item stays as it is. `moved` is the named paths that the default branch changed after `base`
-    (#3309). The intent mark `stage.pending` goes first, before the push, so that a later round
-    finds the branch if the record write fails or the worker dies (#4051); the record clears it."""
+    post the one comment. The branch starts at the staged commit `base` (#3301). A target that
+    names a draft pull request replaces the plan of that draft on its branch, and the comment names
+    the draft (#3387). The Status of the item stays as it is. `moved` is the named paths that the
+    default branch changed after `base` (#3309). The intent mark `stage.pending` goes first, before
+    the push, so that a later round finds the branch if the record write fails or the worker dies
+    (#4051); the record clears it."""
     target = change.target
     source_warnings = _check_removal_references(source, target, change.files)
     if source_warnings and not change.warnings:
@@ -3505,7 +3568,7 @@ def _stage_one(
             {StageRecordKey.PENDING: PendingStage(branch=target.branch, time=now).record},
         )
         sha = _commit_and_push(path, change)
-        pull = _open_pull(repo, source, change)
+        pull = _published_pull(repo, source, change)
     store.set_marks(
         target.item,
         {
@@ -3514,6 +3577,11 @@ def _stage_one(
             StageRecordKey.SHA: sha,
             StageRecordKey.GROUPS: _groups_recorded(change.groups),
             StageRecordKey.TEXT_HASH: body_hashes(target.item.body)[0],
+            StageRecordKey.RESTAGE: (
+                restage_record(target.item, pull.number)
+                if target.replace_pull is not None
+                else None
+            ),
             StageRecordKey.NEEDS_SPLIT: None,
             StageRecordKey.FILE_CAP: None,
             StageRecordKey.FAILED_AT: None,
@@ -3537,7 +3605,7 @@ def _stage_one(
             pull=pull.number,
             budget=change.budget,
             groups=_groups_listed(change.groups),
-            notes=f"{_notes(change, moved)}{label_note}",
+            notes=f"{_notes(change, moved)}{_restage_note(change)}{label_note}",
         ),
     )
 
