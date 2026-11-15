@@ -124,6 +124,7 @@ import itertools
 import json
 import logging
 import re
+import subprocess
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
@@ -711,13 +712,17 @@ def _asked_questions(body: str, covers: CoversQuestion | None) -> list[str]:
 
 def git_result(checkout: Path, *args: str) -> tuple[int, str]:
     """The exit code of `git <args>` in `checkout` and its output, or its error text on failure."""
-    proc = run_subprocess(
-        [BIN_GIT, "-C", str(checkout), *args],
-        env={"GIT_TERMINAL_PROMPT": "0"},
-        timeout=15,
-        quiet=True,
-    )
-    return proc.returncode, proc.stdout if proc.returncode == 0 else (proc.stderr or "").strip()
+    try:
+        proc = run_subprocess(
+            [BIN_GIT, "-C", str(checkout), *args],
+            env={"GIT_TERMINAL_PROMPT": "0"},
+            timeout=15,
+            quiet=True,
+        )
+        return proc.returncode, proc.stdout if proc.returncode == 0 else (proc.stderr or "").strip()
+    except subprocess.TimeoutExpired as exc:
+        logger.warning("git %s timed out after %s s", " ".join(args[:3]), exc.timeout)
+        return 124, f"git command timed out after {exc.timeout} seconds"
 
 
 def inspect_checkout(source: Path | str, expected_repo: str) -> str:
@@ -808,10 +813,29 @@ def _collect_cited_files(source: Path, sha: str, body: str) -> dict[str, str]:
     return found
 
 
+# Pathspecs that exclude large archive and test fixtures from the identifier grep (#4878).
+_IDENTIFIER_EXCLUDE_PATHSPECS: Final[tuple[str, ...]] = (
+    ":(exclude)openspec/changes/archive",
+    ":(exclude)tests/fixtures",
+)
+
+
 def _collect_identifiers(source: Path, sha: str, body: str) -> list[str]:
     results: list[str] = []
     for ident in sorted(cited_identifiers(body))[:5]:
-        code, out = git_result(source, "grep", "-n", "-F", "-w", "-e", ident, sha, "--")
+        code, out = git_result(
+            source,
+            "grep",
+            "-n",
+            "-F",
+            "-w",
+            "--max-count=5",
+            "-e",
+            ident,
+            sha,
+            "--",
+            *_IDENTIFIER_EXCLUDE_PATHSPECS,
+        )
         if code == 0 and out:
             lines = out.splitlines()[:5]
             results.extend(lines)
