@@ -154,6 +154,35 @@ def reset_jev_portal() -> None:
 atexit.register(reset_jev_portal)
 
 
+def record_jev_spend(response: DecisionResponse) -> None:
+    """Record one Jev decision call in the spend ledger (#4296).
+
+    A Jev call runs no Agent, so the spend hook of `build_agent` never sees it. The ledger prices
+    the answer at the Jev price of `_HOSTED_GROUP_PRICES`, and the call stays intact when the
+    ledger cannot write or the answer names no usage.
+    """
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return
+    from devops_cli.ai.spend.ledger import track_request_spend
+    from devops_cli.config.constants import CONST_AI_GATEWAY_PROVIDER
+
+    try:
+        track_request_spend(
+            provider=CONST_AI_GATEWAY_PROVIDER,
+            model=CONST_AI_JEV_MODEL,
+            server=CONST_AI_JEV_MODEL,
+            served_model=CONST_AI_JEV_MODEL,
+            prompt_tokens=getattr(usage, "input_tokens", 0),
+            completion_tokens=getattr(usage, "output_tokens", 0),
+            reasoning_tokens=getattr(usage, "output_reasoning_tokens", 0),
+        )
+    except OSError, RuntimeError, TypeError, ValueError, KeyError:
+        # The spend record is a report, and a Jev answer that the caller holds is worth more. The
+        # ledger refuses a broken row with these errors, and a settings file with no data dir.
+        return
+
+
 def decide_with_jev(
     request: DecisionRequest,
     *,
@@ -173,7 +202,9 @@ def decide_with_jev(
         DecisionModelSettings,
         {**(getattr(decision_model, "settings", None) or {}), **(model_settings or {})},
     )
-    return jev_portal().call(decision_model.decide, request, effective_settings)
+    response = jev_portal().call(decision_model.decide, request, effective_settings)
+    record_jev_spend(response)
+    return response
 
 
 def _effort_for_score(score: float, *, escalated: bool) -> Literal["low", "medium", "high"]:

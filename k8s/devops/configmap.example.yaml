@@ -56,6 +56,11 @@ data:
         qwen/qwen3-embedding-8b:
           prompt_usd_per_million: 0.01
           completion_usd_per_million: 0.0
+        # Jev bills by input token at 0.042 USD per million and charges no output (k8s/README.md,
+        # #4296). The client records the tokens of each Jev decision call in the spend ledger.
+        typesafe/jev-1.14:
+          prompt_usd_per_million: 0.042
+          completion_usd_per_million: 0.0
       tasks:
         # The model lane (stage, refine, alternatives) plans with DeepSeek through the gateway
         # group deepseek-v4.1-flash-1017 (#3155). The verification slot is the model that

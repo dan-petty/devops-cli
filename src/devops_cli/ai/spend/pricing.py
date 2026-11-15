@@ -56,6 +56,13 @@ _DEEPSEEK_V4_1_FLASH_1017_PRICE = ModelPricing(
     completion_usd_per_million=0.2352,
     source=_HOSTED_GROUP_PRICE_SOURCE,
 )
+# The Jev price of k8s/README.md, read on 2026-11-15: 0.042 USD per million input tokens and no
+# charge for the output (#4296). Jev is no gateway group, and genai-prices does not know it.
+_JEV_PRICE = ModelPricing(
+    prompt_usd_per_million=0.042,
+    completion_usd_per_million=0.0,
+    source=_HOSTED_GROUP_PRICE_SOURCE,
+)
 # The list price of the undated model in the OpenRouter API on 2026-11-13, the top of what its
 # providers charge. Its group is the fallback of the dated group (#5564).
 _DEEPSEEK_V4_1_FLASH_PRICE = ModelPricing(
@@ -77,6 +84,7 @@ _HOSTED_GROUP_PRICES: Mapping[str, ModelPricing] = MappingProxyType(
         "openrouter/deepseek/deepseek-v4.1-flash-1017": _DEEPSEEK_V4_1_FLASH_1017_PRICE,
         "deepseek-v4.1-flash": _DEEPSEEK_V4_1_FLASH_PRICE,
         "openrouter/deepseek/deepseek-v4.1-flash": _DEEPSEEK_V4_1_FLASH_PRICE,
+        "typesafe/jev-1.14": _JEV_PRICE,
     }
 )
 
