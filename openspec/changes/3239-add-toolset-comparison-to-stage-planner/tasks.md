@@ -49,7 +49,7 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/stage/stage_eval_compare.py`, `sr
 
 Kind: other. Reads: `src/devops_cli/config/constants.py`, `tests/roadmap/test_roadmap_limit_classes.py`, `tests/roadmap/stage/test_roadmap_stage_constants.py`, `tests/config/test_isolation_tripwire.py`. Changes: `src/devops_cli/config/constants.py`, `tests/roadmap/test_roadmap_limit_classes.py`.
 
-- [ ] 6.1 Add `CONST_ROADMAP_STAGE_EVAL_ESTIMATE_INPUT_TOKENS = 40_000` and `CONST_ROADMAP_STAGE_EVAL_ESTIMATE_OUTPUT_TOKENS = 6_000` to `src/devops_cli/config/constants.py`, from the tokens of one plan run of the stored golden score, and add both names to the `LIMITS` table of `tests/roadmap/test_roadmap_limit_classes.py` with the class `other` and the reason that an estimate of a dry-run cost cuts no run. The registry test is the census: stop when it reports a member that the plan does not decide
+- [x] 6.1 Add `CONST_ROADMAP_STAGE_EVAL_ESTIMATE_INPUT_TOKENS = 40_000` and `CONST_ROADMAP_STAGE_EVAL_ESTIMATE_OUTPUT_TOKENS = 6_000` to `src/devops_cli/config/constants.py`, from the tokens of one plan run of the stored golden score, and add both names to the `LIMITS` table of `tests/roadmap/test_roadmap_limit_classes.py` with the class `other` and the reason that an estimate of a dry-run cost cuts no run. The registry test is the census: stop when it reports a member that the plan does not decide
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_limit_classes.py` passes
 
 ## 7. State the plan and the cost on a dry run

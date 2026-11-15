@@ -3486,6 +3486,12 @@ CONST_ROADMAP_VERIFY_RECALL_FLOOR: Final[float] = 0.9
 # on the cases 2166 and 2169 on 2026-11-13). So 2.0 holds the pass of today with that variance and
 # fails a return to the old count. `docs/ROADMAP_WORKFLOW.md` names the ceiling.
 CONST_ROADMAP_VERIFY_GOOD_RETURNING_CEILING: Final[float] = 2.0
+# The estimate of the dry run of `devops roadmap eval stage compare` (#3239): the input and the
+# output tokens of one plan run of the stored golden score. The dry run multiplies each by the
+# cases, the runs and the toolsets, and prices the sum with the AI spend pricing registry. An
+# estimate cuts no run.
+CONST_ROADMAP_STAGE_EVAL_ESTIMATE_INPUT_TOKENS: Final[int] = 40_000
+CONST_ROADMAP_STAGE_EVAL_ESTIMATE_OUTPUT_TOKENS: Final[int] = 6_000
 # `devops roadmap alternatives` (#2650): the block the job keeps in an issue body, the marker of
 # its comment (a comment after the job's last one is a reply), the most searches and fact reads of
 # one item's check, and how long a tool may go without a push or an upload and stay maintained.
