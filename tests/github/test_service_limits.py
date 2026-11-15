@@ -459,7 +459,7 @@ def test_a_request_that_gets_no_answer_stays_in_the_budget(github_api: GitHubApi
     read, so such a request keeps its place in the budget (#3939)."""
     from devops_cli.github.rate_limiter import set_request_gate
 
-    github_api.route("GET", "/user", httpx2.ConnectError)
+    github_api.route("GET", "/user", httpx2.ReadTimeout)
     budget = RequestBudget(_Clock(), 100)
     set_request_gate(budget.admit, budget.refund)
     try:

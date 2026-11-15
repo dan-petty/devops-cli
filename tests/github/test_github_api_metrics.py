@@ -247,9 +247,9 @@ def test_a_get_that_loses_its_connection_counts_each_attempt_with_its_status(
 def test_a_request_that_gets_no_answer_counts_with_status_none(
     github_api: GitHubApiFake, otlp: FakeCollector
 ) -> None:
-    """A refused connect gets no answer, so its one paced attempt counts with status none, and
+    """A read timeout gets no answer, so its one paced attempt counts with status none, and
     the error still reaches the caller."""
-    github_api.route("GET", "/user", httpx2.ConnectError)
+    github_api.route("GET", "/user", httpx2.ReadTimeout)
 
     with pytest.raises(GitHubUnreadError) as raised:
         get_github_session().rest("GET", "/user")

@@ -40,3 +40,4 @@ The process's GitHub session (#767) sends its own REST requests through gidgethu
 ## Status History
 
 2026-11-12: Living detail moved to `src/devops_cli/config/defaults.py`: the `DEFAULT_GH_*` timeouts, retries and cache sizes. githubkit 0.17.0 now prefers httpx2 (#5225).
+2026-11-15: Amended by the owner decision in #5805, section Retries.

@@ -36,3 +36,14 @@ In each chain of bounds around a GitHub read, each bound SHALL be shorter than t
 #### Scenario: An inner bound that is not shorter fails the chain
 - **WHEN** the session read timeout is 3,600 s, the same as the watch of the checks
 - **THEN** the chain test fails for that pair
+
+### Requirement: A connect timeout on a GET is resent up to the retry bound
+The GitHub session SHALL send a GET again after `httpx2.ConnectTimeout`, at most `DEFAULT_GH_MAX_RETRIES` more times for each attempt. A connect timeout on a write SHALL NOT be resent.
+
+#### Scenario: A connect timeout on a GET resends
+- **WHEN** A GET times out on connect.
+- **THEN** The session resends the request up to `DEFAULT_GH_MAX_RETRIES` more times.
+
+#### Scenario: A connect timeout on a write does not resend
+- **WHEN** A POST times out on connect.
+- **THEN** The session raises `GitHubUnreadError` after one request.

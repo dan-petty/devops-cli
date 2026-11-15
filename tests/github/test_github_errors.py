@@ -135,7 +135,7 @@ def test_an_http_failure_is_classified_by_status_and_headers(
 @pytest.mark.parametrize(
     "answer",
     [
-        pytest.param(httpx2.ConnectError, id="connect-error"),
+        pytest.param(httpx2.ReadTimeout, id="read-timeout"),
         pytest.param(
             httpx2.Response(200, headers={"content-type": JSON_TYPE}, content=b'{"login": '),
             id="undecodable-body",
@@ -168,7 +168,7 @@ def test_an_http_failure_is_classified_by_status_and_headers(
 def test_no_readable_answer_raises_the_unread_error_without_a_retry(
     github_api: GitHubApiFake, answer: httpx2.Response | type[httpx2.TransportError]
 ) -> None:
-    """A refused connect, a body that does not decode, a status HTTP does not define and quota
+    """A read timeout, a body that does not decode, a status HTTP does not define and quota
     headers that are not numbers are unread, and the request is not sent again."""
     github_api.route("GET", _PATH, answer)
     with pytest.raises(GitHubOperationError) as raised:
