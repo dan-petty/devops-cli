@@ -1,0 +1,47 @@
+# Item #3407: fix(roadmap): Check a class claim against the staged source
+
+## Problem or Motivation
+
+A stage plan can build on a false claim about an internal class and pass every check. The plan of PR #3350 says in its design: "`StagedTree` holds the file text of the staged commit." `StagedTree.read` runs `git ls-files` and keeps paths only (`src/devops_cli/roadmap/stage/stage_paths.py:79`). The plan passed `devops openspec check` and the stage checks, and an implementation step would have failed on the text that does not exist.
+
+`check_proposal` tests the paths, the spec delta, the criteria, the form and the content of a plan. It does not test a claim that a plan makes about a class of the staged source. The verification pass can find it, but it keeps the draft and does not return the plan to the planner.
+
+### Problem statement
+A stage plan can make a false claim about an internal class and pass every check. The plan of PR #3350 claimed that `StagedTree` holds file text, but `StagedTree.read` keeps paths only. The stage job must reject such a plan and return it to the planner.
+
+### Acceptance criteria
+
+### Requirement: Reject a class claim with no source quote
+`check_proposal` SHALL return a problem when a design decision, a rejected alternative, or a Feasibility line names an internal class under `src/` and gives no code span whose text occurs in that class at the staged commit.
+
+#### Scenario: False `StagedTree` claim
+- **WHEN** A plan's design decision names `StagedTree` and quotes no text from the `StagedTree` class at the staged commit.
+- **THEN** `check_proposal` returns the class-claim problem for that decision.
+
+### Requirement: Accept a class claim with a source quote
+`check_proposal` SHALL accept a plan line that names an internal class under `src/` when it also gives a code span whose text occurs in that class at the staged commit.
+
+#### Scenario: True `StagedTree` claim
+- **WHEN** A plan's design decision names `StagedTree` and quotes `git ls-files` from the `StagedTree` source at the staged commit.
+- **THEN** `check_proposal` returns no class-claim problem for that decision.
+
+### Requirement: Compare quotes at the staged commit
+The check MUST read each internal class from the staged commit with `git show` and compare the quoted span with that text.
+
+#### Scenario: Quote absent from staged source
+- **WHEN** A plan quotes text that the class source at the staged commit does not hold.
+- **THEN** `check_proposal` returns the class-claim problem.
+
+### Requirement: Message in the catalog
+The new problem text MUST be a message in `src/devops_cli/lang/en/messages.py`.
+
+#### Scenario: Problem text resolves
+- **WHEN** The class-claim rule returns a problem.
+- **THEN** The problem uses the `RoadmapMessages` entry and names the class and the plan section.
+
+### Requirement: Replay judges the false claim
+The stage replay MUST include a golden case whose plan holds the false `StagedTree` claim, and the `paths` gate MUST record the defect.
+
+#### Scenario: Golden case fails the paths gate
+- **WHEN** The stage replay runs the golden case with the false `StagedTree` claim.
+- **THEN** The replay records the class-claim defect under the `paths` gate.
