@@ -435,6 +435,50 @@ def _is_local_gateway_call(
     return _is_local_api_base(server, settings)
 
 
+def _authority_matches_host_port(authority: str, target_host: str, target_port: int | None) -> bool:
+    from devops_cli.http.urls import read_url_or_authority
+
+    parsed = read_url_or_authority(authority)
+    if not parsed or not parsed.hostname or parsed.hostname.lower() != target_host:
+        return False
+    return target_port is None or parsed.port is None or target_port == parsed.port
+
+
+def _is_configured_gateway(target_host: str, target_port: int | None, settings: Settings) -> bool:
+    gw_urls = [settings.ai.gateway_url, settings.ai.portkey_url]
+    if settings.ai.provider == CONST_AI_GATEWAY_PROVIDER and settings.ai.api_base_url:
+        gw_urls.append(settings.ai.api_base_url)
+    return any(gw and _authority_matches_host_port(gw, target_host, target_port) for gw in gw_urls)
+
+
+def is_gateway_server(
+    target: str | None,
+    settings: _SettingsOnce | None = None,
+) -> bool:
+    """Whether target points to the AI gateway proxy itself, rather than a serving backend (#5867)."""
+    if not target or "," in target:
+        return False
+    from devops_cli.http.urls import read_url_or_authority
+
+    parsed = read_url_or_authority(target)
+    if not parsed or not parsed.hostname:
+        return False
+    target_host = parsed.hostname.lower()
+    try:
+        target_port = parsed.port
+    except ValueError:
+        target_port = None
+
+    if target_host == "llm-gateway" or target_host.startswith("llm-gateway."):
+        return True
+
+    loaded = (settings or _SettingsOnce()).value
+    if loaded is not None and _is_configured_gateway(target_host, target_port, loaded):
+        return True
+
+    return False
+
+
 def is_local(
     server: str | None = None,
     provider: str | None = None,
@@ -446,15 +490,21 @@ def is_local(
 
     All traffic routed to a *.local api_base counts as local savings. All requests not routed
     to a *.local api_base count as spend (#1631). When the reply names `served_by`, that
-    backend api_base decides. For a gateway call with no backend named, `served_model` or `model`
-    decides: a local tier routes to a local cluster backend (*.local), while hosted and cloud
-    models do not (#3656).
+    backend api_base decides, unless `served_by` points to the gateway proxy itself (#5867).
+    For a gateway call with no backend named, `served_model` or `model` decides: a local tier
+    routes to a local cluster backend (*.local), while hosted and cloud models do not (#3656).
     """
     settings = _SettingsOnce()
-    if served_by and served_by.strip():
+    if served_by and served_by.strip() and not is_gateway_server(served_by, settings):
         return _is_local_api_base(served_by, settings)
 
     if provider is not None and provider.strip().lower() == CONST_AI_GATEWAY_PROVIDER:
+        return _is_local_gateway_call(server, served_model, model, settings)
+
+    if provider is None and (
+        (server and is_gateway_server(server, settings))
+        or (served_by and is_gateway_server(served_by, settings))
+    ):
         return _is_local_gateway_call(server, served_model, model, settings)
 
     if _is_local_provider(provider):

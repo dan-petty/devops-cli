@@ -204,6 +204,7 @@ def _spend_capability(request_type: str, stage: str | None) -> Any:
         from urllib.parse import urlsplit
 
         from devops_cli.ai.spend.ledger import model_answer_labels, track_request_spend
+        from devops_cli.ai.spend.pricing import is_gateway_server
         from devops_cli.config.constants import CONST_AI_GATEWAY_PROVIDER
         from devops_cli.telemetry.instruments import AI_MODEL_ANSWERS_TOTAL, emit
 
@@ -213,13 +214,15 @@ def _spend_capability(request_type: str, stage: str | None) -> Any:
         answered = response.model_name
         if answered:
             emit(AI_MODEL_ANSWERS_TOTAL, 1, model_answer_labels(asked, answered))
+        server_netloc = urlsplit(served_by).netloc if served_by else "unknown"
+        effective_served_by = None if served_by and is_gateway_server(served_by) else served_by
         track_request_spend(
             provider=CONST_AI_GATEWAY_PROVIDER
             if served_by
             else str(getattr(m, "system", "") or getattr(m, "provider", "") or "unknown"),
             model=asked,
-            server=urlsplit(served_by).netloc if served_by else "unknown",
-            served_by=served_by,
+            server=server_netloc,
+            served_by=effective_served_by,
             served_model=answered,
             prompt_tokens=getattr(response.usage, "input_tokens", 0),
             completion_tokens=getattr(response.usage, "output_tokens", 0),
