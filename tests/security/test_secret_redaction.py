@@ -1003,3 +1003,17 @@ def test_a_quote_stays_unless_it_closes_a_quote_that_opened_the_value(
     """The mask takes a closing quote only together with the quote that opened the value. A quote
     of the other kind is not that quote."""
     assert redact_text(text, syntax=syntax) == masked
+
+
+def test_a_resource_name_after_secret_is_not_masked() -> None:
+    """The word `Secret` in front of a Kubernetes resource name stays readable (#5240)."""
+    text = "The Kubernetes object of kind " + "Secret" + " " + "devops" + "-" + "cli is absent."
+
+    assert mask_secrets(text) == text
+
+
+def test_a_subcommand_after_token_is_not_masked() -> None:
+    """The vault group `token` before its subcommand stays readable (#5240)."""
+    text = "Run `devops vault " + "token" + " " + "revoke" + "-" + "self`."
+
+    assert mask_secrets(text) == text
