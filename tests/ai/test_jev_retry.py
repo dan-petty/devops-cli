@@ -6,8 +6,6 @@ import httpx2
 import pytest
 from tenacity import wait_none
 
-from devops_cli.ai.providers import jev_retry_transport
-
 
 def _answers(*statuses: int) -> tuple[httpx2.MockTransport, list[int]]:
     calls: list[int] = []
@@ -26,6 +24,8 @@ async def _get(transport: httpx2.AsyncBaseTransport) -> httpx2.Response:
 
 @pytest.mark.asyncio
 async def test_a_429_and_then_a_200_gives_the_answer_after_one_retry() -> None:
+    from devops_cli.ai.providers import jev_retry_transport
+
     wrapped, calls = _answers(429, 200)
     transport = jev_retry_transport(wrapped, wait=wait_none())
 
@@ -36,6 +36,8 @@ async def test_a_429_and_then_a_200_gives_the_answer_after_one_retry() -> None:
 
 @pytest.mark.asyncio
 async def test_a_529_and_then_a_200_gives_the_answer_after_one_retry() -> None:
+    from devops_cli.ai.providers import jev_retry_transport
+
     wrapped, calls = _answers(529, 200)
     transport = jev_retry_transport(wrapped, wait=wait_none())
 
@@ -46,6 +48,8 @@ async def test_a_529_and_then_a_200_gives_the_answer_after_one_retry() -> None:
 
 @pytest.mark.asyncio
 async def test_a_400_makes_one_attempt() -> None:
+    from devops_cli.ai.providers import jev_retry_transport
+
     wrapped, calls = _answers(400)
     transport = jev_retry_transport(wrapped, wait=wait_none())
 
@@ -56,6 +60,8 @@ async def test_a_400_makes_one_attempt() -> None:
 
 @pytest.mark.asyncio
 async def test_three_429_answers_stop_after_three_attempts() -> None:
+    from devops_cli.ai.providers import jev_retry_transport
+
     wrapped, calls = _answers(429, 429, 429)
     transport = jev_retry_transport(wrapped, wait=wait_none())
 
