@@ -64,8 +64,6 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.namespace
-          - name: OTEL_EXPORTER_OTLP_ENDPOINT
-            value: http://otel-collector.otel.svc.cluster.local:4318
           - name: DEVOPS_CLI_AI_GATEWAY_CONCURRENCY_EMBEDDING
             value: "1"
           - name: DEVOPS_CLI_QDRANT_URL
