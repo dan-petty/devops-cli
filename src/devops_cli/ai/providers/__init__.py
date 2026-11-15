@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
+import logging
+from typing import Any, Final
+
+logger = logging.getLogger(__name__)
 
 _PYDANTIC_PROVIDER_SPECS: dict[str, tuple[str, str]] = {
     "ollama": ("pydantic_ai.providers.ollama", "OllamaProvider"),
@@ -74,6 +77,51 @@ def is_pydantic_ai_provider(name: str) -> bool:
     return True
 
 
+# The status codes of a TypeSafe Jev retry: a rate limit and a capacity limit (#5286).
+_JEV_RETRY_STATUS: Final[frozenset[int]] = frozenset({429, 529})
+
+
+def jev_retry_transport(
+    wrapped: Any, *, wait: Any | None = None, attempts: int | None = None
+) -> Any:
+    """The transport of the Jev provider: retry a 429 or a 529 with backoff (#5286).
+
+    `wait_retry_after` reads a `Retry-After` header, and its fallback is exponential. The attempt
+    limit is low, so the timeout of the caller fires first and reports its own error.
+    """
+    import httpx2
+    from pydantic_ai.retries import AsyncHTTPX2TenacityTransport, RetryConfig, wait_retry_after
+    from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential
+
+    from devops_cli.config.constants import CONST_AI_JEV_RETRY_ATTEMPTS
+
+    def validate(response: Any) -> Any:
+        if response.status_code in _JEV_RETRY_STATUS:
+            raise httpx2.HTTPStatusError(
+                f"Jev answered {response.status_code}", request=response.request, response=response
+            )
+        return response
+
+    def log_retry(state: Any) -> None:
+        error = state.outcome.exception() if state.outcome is not None else None
+        status = getattr(getattr(error, "response", None), "status_code", "?")
+        logger.warning(
+            "Jev answered %s on attempt %s; retry after the backoff", status, state.attempt_number
+        )
+
+    return AsyncHTTPX2TenacityTransport(
+        RetryConfig(
+            retry=retry_if_exception_type(httpx2.HTTPStatusError),
+            wait=wait or wait_retry_after(wait_exponential(multiplier=0.5, max=10)),
+            stop=stop_after_attempt(attempts or CONST_AI_JEV_RETRY_ATTEMPTS),
+            before_sleep=log_retry,
+            reraise=True,
+        ),
+        wrapped=wrapped,
+        validate_response=validate,
+    )
+
+
 def create_pydantic_ai_provider(
     provider: str,
     base_url: str | None = None,
@@ -125,6 +173,10 @@ def create_pydantic_ai_provider(
             )
             instrument_gateway_client(gateway_client)
             init_kwargs["http_client"] = gateway_client
+        elif prov_name in {"system-one", "typesafe"}:
+            client = async_http_client(level, retries=3)
+            client._transport = jev_retry_transport(client._transport)
+            init_kwargs["http_client"] = client
         else:
             init_kwargs["http_client"] = async_http_client(level, retries=3)
 
@@ -134,4 +186,5 @@ def create_pydantic_ai_provider(
 __all__ = [
     "create_pydantic_ai_provider",
     "is_pydantic_ai_provider",
+    "jev_retry_transport",
 ]
