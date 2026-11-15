@@ -29,6 +29,7 @@ from devops_cli.config.settings import load_settings
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.git.worktree_add import read_remote_heads
 from devops_cli.lang import MESSAGES
+from devops_cli.output.formatters.scalars import format_duration
 from devops_cli.roadmap.implement.implement import (
     ImplementPlan,
     effort_filter,
@@ -43,6 +44,8 @@ from devops_cli.roadmap.implement.implement_trace import (
     TraceSums,
     decode,
 )
+from devops_cli.roadmap.phase import phase as derive_phase
+from devops_cli.roadmap.phase import phase_age as derive_phase_age
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
 from devops_cli.roadmap.refine.refine import refine_left_out
 from devops_cli.roadmap.stage.stage import LeftOut, StageFilter, read_stage_selection
@@ -103,6 +106,8 @@ class Explanation:
     implement: JobVerdict
     implement_effort: str = ""
     totals: TraceTotals | None = None
+    phase: str = ""
+    phase_age: float = 0.0
 
     def as_dict(self) -> dict[str, object]:
         """The explanation as the JSON object of `explain --json` (#3217): the number, the totals
@@ -286,6 +291,8 @@ def explain_item(
         limit=implement_limit or DEFAULT_ROADMAP_IMPLEMENT_LIMIT,
         reads=reads,
     )
+    item_phase = derive_phase(item).value
+    item_phase_age = derive_phase_age(item)
     return Explanation(
         repo,
         number,
@@ -304,6 +311,8 @@ def explain_item(
         implement,
         implement_effort=implement_effort,
         totals=totals,
+        phase=item_phase,
+        phase_age=item_phase_age,
     )
 
 
@@ -344,7 +353,15 @@ def render_explanation(explained: Explanation) -> str:
         if explained.title
         else texts.explain_title_untitled.format(repo=explained.repo, number=explained.number)
     )
-    lines = [title, ""]
+    lines = [title]
+    if explained.phase:
+        lines.append(
+            texts.explain_phase_line.format(
+                phase=explained.phase,
+                age=format_duration(explained.phase_age),
+            )
+        )
+    lines.append("")
     for job, verdict in (
         (texts.explain_job_refine, explained.refine),
         (texts.explain_job_stage, explained.stage),

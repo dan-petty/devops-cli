@@ -17,7 +17,7 @@ import logging
 import re
 import subprocess
 from collections import Counter
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
@@ -28,16 +28,29 @@ from pydantic import BaseModel, Field
 
 from devops_cli.config.commands import BIN_GIT
 from devops_cli.config.constants import (
-    CONST_ROADMAP_STATUS_VALUES,
     CONST_ROADMAP_TYPE_LABEL_PREFIX,
 )
-from devops_cli.config.defaults import DEFAULT_PROJECT_METRICS_RELEASE_LIMIT
+from devops_cli.config.defaults import (
+    DEFAULT_PROJECT_METRICS_RELEASE_LIMIT,
+)
+from devops_cli.config.settings import load_settings, setting_default
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_worktree_root, get_repo_origin_name
 from devops_cli.exceptions.git import GitHubOperationError
-from devops_cli.github.client import GhCliClient, parse_paginated_json
+from devops_cli.github.client import GhCliClient, PullStatus, parse_paginated_json
 from devops_cli.github.error_classifier import is_gh_refused_by_token
 from devops_cli.github.repo_ref import RepoRef
+from devops_cli.roadmap.phase import (
+    ACTIVE_PHASES,
+    find_running_units,
+    is_stalled,
+)
+from devops_cli.roadmap.phase import (
+    phase as derive_phase,
+)
+from devops_cli.roadmap.phase import (
+    phase_age as derive_phase_age,
+)
 from devops_cli.roadmap.stores import store as roadmap_store
 from devops_cli.roadmap.stores.store import (
     Change,
@@ -46,9 +59,7 @@ from devops_cli.roadmap.stores.store import (
     Item,
     ItemField,
     RoadmapStore,
-    StageRecordKey,
     field_label,
-    label_slug,
 )
 from devops_cli.telemetry.instruments import (
     PROJECT_CI_RUNS,
@@ -68,7 +79,9 @@ from devops_cli.telemetry.instruments import (
     PROJECT_TRAFFIC_VIEWS_UNIQUES,
     ROADMAP_CLAIM_AGE,
     ROADMAP_ITEM_AGE,
+    ROADMAP_ITEMS,
     ROADMAP_OLDEST_ITEM,
+    ROADMAP_STALLED_ITEMS,
     emit,
 )
 
@@ -180,15 +193,22 @@ class TrafficSummaryMetric(BaseModel):
 
 
 class ItemAgeMetric(BaseModel):
-    """The age of the oldest open roadmap Item in one pair of a status and a plan flag (#2919).
+    """The age of the oldest open roadmap Item in one pipeline phase (#2919, #5495).
 
-    `number` is the issue of that Item. A pair with no Item has the number 0 and the age 0.
+    `number` is the issue of that Item. A phase with no Item has the number 0 and the age 0.
     """
 
-    state: str
-    plan: bool = False
+    phase: str
     number: int = 0
     age_seconds: float = 0.0
+
+
+class ItemPhaseMetric(BaseModel):
+    """The item count and stalled count for one pipeline phase (#5495)."""
+
+    phase: str
+    count: int = 0
+    stalled_count: int = 0
 
 
 class ProjectMetricsReport(BaseModel):
@@ -204,8 +224,10 @@ class ProjectMetricsReport(BaseModel):
     items: list[ItemCountMetric] = Field(default_factory=list)
     taxonomy_labels: list[LabelTaxonomyMetric] = Field(default_factory=list)
     traffic: TrafficSummaryMetric = Field(default_factory=TrafficSummaryMetric)
-    # The age of the oldest Item of each pair. Empty when the report did not read the label events.
+    # The age of the oldest Item of each phase. Empty when the report did not read the label events.
     item_ages: list[ItemAgeMetric] = Field(default_factory=list)
+    # The item count and stalled count of each phase (#5495).
+    item_phases: list[ItemPhaseMetric] = Field(default_factory=list)
     # The age of the oldest claim, or None when the report did not read the label events.
     claim_age_seconds: float | None = None
 
@@ -548,69 +570,99 @@ def _labeled_at(item: Item, label: str, times: _LabelTimes) -> datetime.datetime
     return since
 
 
-def _pair_age(
-    status: str,
-    plan: bool,
-    found: tuple[datetime.datetime, int] | None,
-    now: datetime.datetime,
+def _phase_age_metric(
+    phase_name: str,
+    found: tuple[float, int] | None,
 ) -> ItemAgeMetric:
-    """The age point of one pair: its oldest Item, or 0 and 0 when no Item is in it."""
-    state = label_slug(status)
+    """The age point of one phase: its oldest Item, or 0 and 0 when no Item is in it (#5495)."""
     if found is None:
-        return ItemAgeMetric(state=state, plan=plan)
-    since, number = found
-    return ItemAgeMetric(
-        state=state, plan=plan, number=number, age_seconds=_age_seconds(now, since)
-    )
+        return ItemAgeMetric(phase=phase_name)
+    age_seconds, number = found
+    return ItemAgeMetric(phase=phase_name, number=number, age_seconds=age_seconds)
 
 
 def get_item_age_metrics(
-    store: RoadmapStore, repo: str, clock: Callable[[], datetime.datetime]
-) -> tuple[list[ItemAgeMetric], float]:
-    """The age of the oldest open roadmap Item in each pair of a status and a plan flag, with its
-    number, and the age of the oldest claim, both at the time `clock` gives (#2919).
+    store: RoadmapStore,
+    repo: str,
+    clock: Callable[[], datetime.datetime],
+    *,
+    pulls: Mapping[int, PullStatus] | None = None,
+    running_units: Collection[int] | None = None,
+    stall_hours: int | None = None,
+) -> tuple[list[ItemAgeMetric], float, list[ItemPhaseMetric]]:
+    """The age of the oldest open roadmap Item in each pipeline phase, with its number, the age
+    of the oldest claim, and the item and stalled counts of each phase, all at the time `clock`
+    gives (#2919, #5495).
 
-    The age of an Item is the clock minus the time its status label was set. The store gives that
-    time through `label_changes`, so a label that a person removed and added again counts from the
-    second event. The plan flag is true when the job record holds the stage pull request. Raises
-    when the label events of an Item cannot be read.
+    The phase age of an Item is the clock minus the time of the event that set its phase. The
+    store gives that time through `label_changes` or record timestamps. Raises when the label
+    events of an Item cannot be read.
     """
     now = clock()
-    items = [
-        item
-        for item in store.items()
-        if item.state is GitHubState.OPEN and (item.status is not None or item.owner is not None)
-    ]
+    items = [item for item in store.items() if item.state is GitHubState.OPEN]
     times = _label_times(store, repo, items)
-    oldest: dict[tuple[str, bool], tuple[datetime.datetime, int]] = {}
+    hours = (
+        stall_hours
+        if stall_hours is not None
+        else getattr(
+            getattr(load_settings().roadmap, "stall", None),
+            "hours",
+            int(setting_default("roadmap.stall.hours")),
+        )
+    )
+    units = running_units if running_units is not None else find_running_units(repo)
+
+    oldest: dict[str, tuple[float, int]] = {}
+    counts: dict[str, int] = {p.value: 0 for p in ACTIVE_PHASES}
+    stalled_counts: dict[str, int] = {p.value: 0 for p in ACTIVE_PHASES}
     claims: list[datetime.datetime] = []
+
     for item in items:
-        plan = bool(item.job_record.get(StageRecordKey.PR))
-        if item.status is not None:
-            since = _labeled_at(
-                item, field_label(ItemField.STATUS, item.status), times[item.number]
-            )
-            if since is not None:
-                pair = (label_slug(item.status), plan)
-                oldest[pair] = min(oldest.get(pair, (since, item.number)), (since, item.number))
+        item_phase = derive_phase(item, pulls=pulls).value
+        counts[item_phase] = counts.get(item_phase, 0) + 1
+        age = derive_phase_age(item, times=times, pulls=pulls, now=now)
+        stalled = is_stalled(
+            item,
+            running_units=units,
+            stall_hours=hours,
+            times=times,
+            pulls=pulls,
+            now=now,
+        )
+        if stalled:
+            stalled_counts[item_phase] = stalled_counts.get(item_phase, 0) + 1
+
+        if item_phase in oldest:
+            prev_age, prev_num = oldest[item_phase]
+            if age > prev_age or (age == prev_age and item.number < prev_num):
+                oldest[item_phase] = (age, item.number)
+        else:
+            oldest[item_phase] = (age, item.number)
+
         if item.owner is not None:
             since = _labeled_at(item, field_label(ItemField.OWNER, item.owner), times[item.number])
             if since is not None:
                 claims.append(since)
-    item_ages = [
-        _pair_age(status, plan, oldest.get((label_slug(status), plan)), now)
-        for status in CONST_ROADMAP_STATUS_VALUES
-        for plan in (True, False)
-    ]
+
+    item_ages = [_phase_age_metric(p.value, oldest.get(p.value)) for p in ACTIVE_PHASES]
     claim_age = max((_age_seconds(now, since) for since in claims), default=0.0)
-    return item_ages, claim_age
+    item_phases = [
+        ItemPhaseMetric(
+            phase=p.value,
+            count=counts.get(p.value, 0),
+            stalled_count=stalled_counts.get(p.value, 0),
+        )
+        for p in ACTIVE_PHASES
+        if counts.get(p.value, 0) > 0
+    ]
+    return item_ages, claim_age, item_phases
 
 
 def _read_item_ages(
     store: RoadmapStore, repo: str, clock: Callable[[], datetime.datetime]
-) -> tuple[list[ItemAgeMetric], float | None]:
+) -> tuple[list[ItemAgeMetric], float | None, list[ItemPhaseMetric]]:
     """The item ages of one round. A failed read of the label events logs a warning and sends no
-    age this round, and the other sections of the report stay (#2919)."""
+    age this round, and the other sections of the report stay (#2919, #5495)."""
     try:
         return get_item_age_metrics(store, repo, clock)
     except GitHubOperationError as exc:
@@ -619,7 +671,7 @@ def _read_item_ages(
             repo,
             exc,
         )
-        return [], None
+        return [], None, []
 
 
 def get_label_taxonomy_metrics(repo: str) -> list[LabelTaxonomyMetric]:
@@ -846,7 +898,9 @@ def collect_project_metrics_report(
     milestones = get_milestone_metrics(target_repo, milestone_filter=milestone_filter)
     taxonomy_labels = get_label_taxonomy_metrics(target_repo)
     traffic = get_repository_traffic_metrics(target_repo)
-    ages, claim_age = _read_item_ages(roadmap, target_repo, clock) if item_ages else ([], None)
+    ages, claim_age, phases = (
+        _read_item_ages(roadmap, target_repo, clock) if item_ages else ([], None, [])
+    )
 
     interval_sum = sum(r.days_since_prev for r in releases if r.days_since_prev > 0)
     interval_count = sum(1 for r in releases if r.days_since_prev > 0)
@@ -864,6 +918,7 @@ def collect_project_metrics_report(
         taxonomy_labels=taxonomy_labels,
         traffic=traffic,
         item_ages=ages,
+        item_phases=phases,
         claim_age_seconds=claim_age,
     )
 
@@ -909,11 +964,20 @@ def project_metrics_requests(
 _sent_item_series: dict[str, set[tuple[tuple[str, str], ...]]] = {}
 """The labels of each items series that the last snapshot of each repository sent in this
 process, by the `repo` label of the repository."""
+_sent_phase_series: dict[str, set[str]] = {}
+"""The phases that the last snapshot of each repository sent in this process, by the `repo` label
+of the repository (#5495)."""
+
+
+def reset_sent_phase_series() -> None:
+    """Forget the phase series sent, as a new process has sent none (#5495)."""
+    _sent_phase_series.clear()
 
 
 def reset_sent_item_series() -> None:
-    """Forget the items series sent, as a new process has sent none."""
+    """Forget the items and phase series sent, as a new process has sent none (#2263, #5495)."""
     _sent_item_series.clear()
+    _sent_phase_series.clear()
 
 
 def _emit_item_counts(repo: dict[str, str], items: list[ItemCountMetric]) -> None:
@@ -927,6 +991,20 @@ def _emit_item_counts(repo: dict[str, str], items: list[ItemCountMetric]) -> Non
     for item in items:
         emit(PROJECT_ITEMS, float(item.count), {**repo, **item.labels()})
     _sent_item_series[repo["repo"]] = series
+
+
+def _emit_item_phases(repo: dict[str, str], phases: list[ItemPhaseMetric]) -> None:
+    """Send the item count and stalled count of each phase that holds open items, and 0 once for
+    each phase that emptied (#5495)."""
+    current_phases = {p.phase for p in phases if p.count > 0}
+    for gone in _sent_phase_series.get(repo["repo"], set()) - current_phases:
+        emit(ROADMAP_ITEMS, 0.0, {**repo, "phase": gone})
+        emit(ROADMAP_STALLED_ITEMS, 0.0, {**repo, "phase": gone})
+    for p in phases:
+        if p.count > 0:
+            emit(ROADMAP_ITEMS, float(p.count), {**repo, "phase": p.phase})
+            emit(ROADMAP_STALLED_ITEMS, float(p.stalled_count), {**repo, "phase": p.phase})
+    _sent_phase_series[repo["repo"]] = current_phases
 
 
 def _emit_traffic(repo: dict[str, str], traffic: TrafficSummaryMetric) -> None:
@@ -943,15 +1021,16 @@ def _emit_traffic(repo: dict[str, str], traffic: TrafficSummaryMetric) -> None:
 
 
 def _emit_item_ages(repo: dict[str, str], report: ProjectMetricsReport) -> None:
-    """Send the age and the number of the oldest Item of each pair, and the age of the oldest
-    claim (#2919). A report that read no label events sends none, so a panel shows no data and
-    not 0."""
+    """Send the age and the number of the oldest Item of each phase, the age of the oldest
+    claim, and the count and stalled count of each phase (#2919, #5495). A report that read no
+    label events sends none, so a panel shows no data and not 0."""
     for age in report.item_ages:
-        labels = {**repo, "state": age.state, "plan": str(age.plan).lower()}
+        labels = {**repo, "phase": age.phase}
         emit(ROADMAP_ITEM_AGE, age.age_seconds, labels)
         emit(ROADMAP_OLDEST_ITEM, float(age.number), labels)
     if report.claim_age_seconds is not None:
         emit(ROADMAP_CLAIM_AGE, report.claim_age_seconds, repo)
+    _emit_item_phases(repo, report.item_phases)
 
 
 def emit_project_metrics_telemetry(report: ProjectMetricsReport) -> None:
@@ -987,6 +1066,7 @@ __all__ = [
     "METRICS_ROW_GITHUB_REQUEST_BUDGET",
     "ItemAgeMetric",
     "ItemCountMetric",
+    "ItemPhaseMetric",
     "LabelTaxonomyMetric",
     "MilestoneMetric",
     "ProjectMetricsReport",
@@ -1008,4 +1088,5 @@ __all__ = [
     "reset_item_age_cache",
     "reset_refused_paths",
     "reset_sent_item_series",
+    "reset_sent_phase_series",
 ]

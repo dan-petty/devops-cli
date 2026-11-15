@@ -133,34 +133,29 @@ def test_the_metrics_row_sends_the_age_of_a_blocked_item_and_logs_no_collection_
     web: WebFake,
     otlp: FakeCollector,
 ) -> None:
-    """The metrics row of the Service asks for the item ages (#2919). A Blocked item sends its age
-    and its number with the labels `repo`, `state` and `plan`, and the row logs no warning from
-    the collection."""
+    """The metrics row of the Service asks for the item ages (#2919, #5495). A Ready item sends its
+    age and its number with the labels `repo` and `phase`, and the row logs no warning from the
+    collection."""
     clone = tmp_path / "clone"
     clone.mkdir()
     (clone / ".git").mkdir()
     GitHubFake(REPO).install(process_fake)
-    number = seeded_store.seed_issue("blocked item", fields=PLACED)
-    blocked = seeded_store.item(number)
-    assert blocked is not None
-    seeded_store.set_field(blocked, ItemField.STATUS, "Blocked")
+    number = seeded_store.seed_issue("ready item", fields=PLACED)
+    ready = seeded_store.item(number)
+    assert ready is not None
+    seeded_store.set_field(ready, ItemField.STATUS, "Ready")
     with caplog.at_level(logging.WARNING):
         run_metrics_adapter(store=seeded_store, repo=REPO, clone_path=clone)
     ages = {
-        attrs["plan"]: (attrs["repo"], value)
+        attrs["phase"]: (attrs["repo"], value)
         for attrs, value in otlp.points(ROADMAP_ITEM_AGE.name)
-        if attrs["state"] == "blocked"
     }
-    numbers = {
-        attrs["plan"]: value
-        for attrs, value in otlp.points(ROADMAP_OLDEST_ITEM.name)
-        if attrs["state"] == "blocked"
-    }
+    numbers = {attrs["phase"]: value for attrs, value in otlp.points(ROADMAP_OLDEST_ITEM.name)}
     assert (
-        ages["false"][0],
-        ages["false"][1] > 0.0,
-        numbers["false"],
-        numbers["true"],
+        ages["ready"][0],
+        ages["ready"][1] > 0.0,
+        numbers["ready"],
+        numbers["planned"],
         [
             record.getMessage()
             for record in caplog.records

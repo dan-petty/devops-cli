@@ -463,24 +463,36 @@ ROADMAP_TOOL_CUTS_TOTAL = Instrument(
     "CONST_ROADMAP_STAGE_SPEC_MAX_CHARS, log for CONST_ROADMAP_STAGE_LOG_MAX_COUNT, and map for "
     "CONST_ROADMAP_STAGE_MAP_MAX_FILES. An answer that no cap cut adds nothing",
 )
-ROADMAP_AGE_LABELS = ("repo", "state", "plan")
+ROADMAP_AGE_LABELS = ("repo", "phase")
 """The labels of `ROADMAP_ITEM_AGE` and `ROADMAP_OLDEST_ITEM`, in the order the dashboard names them."""
 ROADMAP_ITEM_AGE = Instrument(
     "devops_cli_roadmap_item_age_seconds",
     InstrumentKind.GAUGE,
     "s",
-    "Age of the oldest open roadmap item in each status, by repo, state and plan. The state is "
-    "the status. Plan is true when the item holds a stage pull request. That pull request waits "
-    "for a person. The age is the time since the status label was set. Zero when no item is in "
-    "the pair",
+    "Age of the oldest open roadmap item in each phase, by repo and phase. The age is the time "
+    "since the event that set the phase. Zero when no item is in the phase",
 )
 ROADMAP_OLDEST_ITEM = Instrument(
     "devops_cli_roadmap_oldest_item_number",
     InstrumentKind.GAUGE,
     "1",
-    "Issue number of the oldest open roadmap item in each pair of repo, state and plan. The pair "
-    "is the one that devops_cli_roadmap_item_age_seconds reports. Zero when no item is in the "
-    "pair",
+    "Issue number of the oldest open roadmap item in each pair of repo and phase. The pair is "
+    "the one that devops_cli_roadmap_item_age_seconds reports. Zero when no item is in the "
+    "phase",
+)
+ROADMAP_ITEMS = Instrument(
+    "devops_cli_roadmap_items",
+    InstrumentKind.GAUGE,
+    "1",
+    "Open roadmap items counted by repo and phase, from the listing snapshot. A label set that "
+    "goes away gets 0 once",
+)
+ROADMAP_STALLED_ITEMS = Instrument(
+    "devops_cli_roadmap_stalled_items",
+    InstrumentKind.GAUGE,
+    "1",
+    "Stalled open roadmap items counted by repo and phase. An item is stalled when its phase "
+    "age is over the stall limit, no unit runs, it has no person cause and no claim",
 )
 ROADMAP_CLAIM_AGE = Instrument(
     "devops_cli_roadmap_claim_age_seconds",
@@ -874,6 +886,8 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_TOOL_CUTS_TOTAL,
     ROADMAP_ITEM_AGE,
     ROADMAP_OLDEST_ITEM,
+    ROADMAP_ITEMS,
+    ROADMAP_STALLED_ITEMS,
     ROADMAP_CLAIM_AGE,
     ROADMAP_ROW_SECONDS,
     ROADMAP_ROW_QUEUE_ITEMS,
@@ -1028,6 +1042,7 @@ __all__ = [
     "ROADMAP_CONFLICTED_PULLS",
     "ROADMAP_FIX_PLAN_TOTAL",
     "ROADMAP_INTAKE_CANDIDATES_TOTAL",
+    "ROADMAP_ITEMS",
     "ROADMAP_ITEM_AGE",
     "ROADMAP_JEV_COMPLETENESS_TOTAL",
     "ROADMAP_OLDEST_ITEM",
@@ -1044,6 +1059,7 @@ __all__ = [
     "ROADMAP_STAGE_GATE_REFUSALS_TOTAL",
     "ROADMAP_STAGE_PLAN_RECORD_TOTAL",
     "ROADMAP_STAGE_TOTAL",
+    "ROADMAP_STALLED_ITEMS",
     "ROADMAP_STEP_SECONDS",
     "ROADMAP_TOOL_ANSWER_CHARS",
     "ROADMAP_TOOL_CALLS_PER_RUN",

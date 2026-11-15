@@ -45,6 +45,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.prometheus.client import parse_duration
 from devops_cli.prometheus.promql import selectors
+from devops_cli.telemetry import instruments as _instruments
 from devops_cli.telemetry.instruments import (
     AI_REQUESTS_TOTAL,
     AI_SPEND_USD_TOTAL,
@@ -304,9 +305,19 @@ SERVED_SERIES = frozenset(
         WEB_SEARCHES_TOTAL.name,
         GITHUB_REQUESTS_TOTAL.name,
         GITHUB_THROTTLE_WAIT.name,
-        # The age of each roadmap state and its number, sent by the metrics row (#2919).
+        # The age of each roadmap phase and its number, and counts (#2919, #5495).
         ROADMAP_ITEM_AGE.name,
+        *(
+            [getattr(_instruments, "ROADMAP_ITEMS").name]
+            if hasattr(_instruments, "ROADMAP_ITEMS")
+            else []
+        ),
         ROADMAP_OLDEST_ITEM.name,
+        *(
+            [getattr(_instruments, "ROADMAP_STALLED_ITEMS").name]
+            if hasattr(_instruments, "ROADMAP_STALLED_ITEMS")
+            else []
+        ),
         # The open findings of the research sweep, by severity (#3899).
         RESEARCH_OPEN_FINDINGS.name,
         # The items that the alternatives check has not checked, sent by its row (#2950).

@@ -2693,9 +2693,10 @@ class RoadmapMessages:
         "the label repo."
     )
     item_heading_unmatched: str = "## Matched no filter"
-    # The report of `devops roadmap explain` (#2911).
+    # The report of `devops roadmap explain` (#2911, #5495).
     explain_title: str = "# {repo} #{number}: {title}"
     explain_title_untitled: str = "# {repo} #{number}"
+    explain_phase_line: str = "Phase: {phase}. Phase age: {age}."
     explain_job_refine: str = "Refine"
     explain_job_stage: str = "Stage"
     explain_job_implement: str = "Implement"
