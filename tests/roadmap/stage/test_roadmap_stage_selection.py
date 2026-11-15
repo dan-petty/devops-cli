@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any
 
 import pytest
 
@@ -13,6 +14,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.exceptions import ValidationError
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.plan_check import PlanProblem
 from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.stage.stage import (
     LeftOut,
@@ -20,9 +22,11 @@ from devops_cli.roadmap.stage.stage import (
     parse_filters,
     select_stageable,
 )
+from devops_cli.roadmap.stage.stage_held import DraftRead, restage_record
 from devops_cli.roadmap.stores.store import (
     GitHubState,
     ImplementRecordKey,
+    Item,
     ItemField,
     RefineRecordKey,
     StageRecordKey,
@@ -32,10 +36,41 @@ from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 REPO = "example/roadmap"
 BUG = ("type/bug",)
 NO_PLANS = PlannedChanges("main", {}, {})
+PULL = 12
+OUTSIDE = "src/devops_cli/roadmap/stage/stage.py"
+PROBLEM = PlanProblem(
+    "openspec/changes/1-the-job-drops-a-comment/tasks.md",
+    "paths",
+    "The plan names a path that the tree does not hold.",
+)
 
 
 def _no_holder(_issue: int, _branch: str) -> str | None:
     return None
+
+
+def _held_reason(issue: int, branch: str) -> str:
+    return f"Issue {issue} is held by the branch origin/{branch}."
+
+
+def _held_holder(issue: int, branch: str) -> str:
+    return _held_reason(issue, branch)
+
+
+def _draft(**update: Any) -> DraftRead:
+    """The read of a draft whose plan check found one problem, with every other fact at the value
+    that lets the job replace the draft."""
+    facts: dict[str, Any] = {
+        "pull": PULL,
+        "draft": True,
+        "at_recorded_commit": True,
+        "app_authored": True,
+        "unresolved_threads": 0,
+        "problems": (PROBLEM,),
+        "outside_paths": (),
+        "restaged": False,
+    }
+    return DraftRead(**{**facts, **update})
 
 
 def _seed(
@@ -70,6 +105,7 @@ def _select(
     limit: int = 3,
     planned_limit: int = DEFAULT_ROADMAP_STAGE_PLANNED_LIMIT,
     probe: int | None = None,
+    draft_of: Callable[[Item], DraftRead | None] | None = None,
 ) -> StageSelection:
     return select_stageable(
         store,
@@ -80,6 +116,7 @@ def _select(
         limit=limit,
         planned_limit=planned_limit,
         probe=probe,
+        draft_of=draft_of,
     )
 
 
@@ -302,6 +339,59 @@ def test_the_holder_is_asked_about_the_new_branch_of_the_item(
     _select(store, holder_of=holder)
 
     assert asked == [(number, f"fix/{number}-the-job-drops-a-comment")]
+
+
+def test_a_held_item_whose_draft_plan_fails_check_proposal_is_staged_again(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """The one draft of a held item that fails the plan check is replaced, so the item is due and
+    the target names the draft to update (#3387)."""
+    number = _seed(store)
+
+    selection = _select(store, holder_of=_held_holder, draft_of=lambda _item: _draft())
+
+    assert _numbers(selection) == [number]
+    (target,) = selection.selected
+    assert target.replace_pull == PULL
+
+
+@pytest.mark.parametrize(
+    "read",
+    [
+        _draft(problems=()),
+        _draft(unresolved_threads=1),
+        _draft(outside_paths=(OUTSIDE,)),
+    ],
+    ids=["passing-plan", "review-thread", "commit-beyond-the-plan"],
+)
+def test_a_held_item_with_a_passing_plan_a_thread_or_a_commit_beyond_the_plan_stays_out(
+    store: InMemoryRoadmapStore, read: DraftRead
+) -> None:
+    """Every other draft holds the item with the sentence of its holder (#3387)."""
+    number = _seed(store)
+
+    selection = _select(store, holder_of=_held_holder, draft_of=lambda _item: read)
+
+    assert _numbers(selection) == []
+    assert _reasons(selection) == {
+        number: _held_reason(number, f"fix/{number}-the-job-drops-a-comment")
+    }
+
+
+def test_a_re_staged_item_is_held_with_the_failed_check_proposal(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """The job re-stages the plan of one text once: a second failing plan holds the item, and the
+    reason names the failed plan check (#3387)."""
+    number = _seed(store)
+    item = store.item(number)
+    assert item is not None
+    store.set_marks(item, {StageRecordKey.RESTAGE: restage_record(item, PULL)})
+
+    selection = _select(store, holder_of=_held_holder, draft_of=lambda _item: _draft(restaged=True))
+
+    assert _numbers(selection) == []
+    assert _reasons(selection) == {number: MESSAGES.roadmap.plan_check_failed.format(count=1)}
 
 
 def test_an_item_with_a_folder_on_the_default_branch_is_left_out_by_its_issue_number_alone(

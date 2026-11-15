@@ -15,7 +15,11 @@ families all apply. With no `--filter` the job takes the filter of the setting
 that is not Ready, whatever the filter says: a `status` filter can only narrow the Ready items.
 It also leaves out an item that an agent or a person claimed with an `owner/*` label (#2910), every item of a repository whose default branch holds no `openspec/config.yaml` (`uses_openspec`, #4629), an item with the label `needs-split`, a tracker (sub-issues or the label `type/epic`), an item whose author has no write access
 (the model reads the body), an item whose "Dependencies" section names an open issue, a held item
-(`worktree_add.issue_holder`, which also counts a stray local branch of the new name with a commit that `origin` lacks), an item whose plan a person rejected until its text or a file that the reason names changes (`stage_rejected`, #3503), an item whose plan is already on the default branch or whose
+(`worktree_add.issue_holder`, which also counts a stray local branch of the new name with a commit
+that `origin` lacks) unless its one draft pull request fails the plan check with no unresolved review
+thread, its branch at the commit of `stage.sha` with commits of the App alone and no path outside the
+change folder, and the job has not re-staged the plan of the same text (`stage_held.may_replace`,
+#3387), an item whose plan a person rejected until its text or a file that the reason names changes (`stage_rejected`, #3503), an item whose plan is already on the default branch or whose
 change is archived there (`planned.read_planned_changes`, one read of the tree for the round), an
 item whose title gives no branch name or whose summary is over `SUMMARY_MAX_CHARS` units (#3369), an item whose text looks like a secret, an item whose last plan or write failed less than
 the wait of its failure class ago (`RETRY_AFTER`; its record holds `stage.failed_at`,
@@ -237,6 +241,7 @@ from devops_cli.roadmap.stage.stage_form import (
     record_search_evidence,
 )
 from devops_cli.roadmap.stage.stage_github import StageGitHub
+from devops_cli.roadmap.stage.stage_held import DraftRead, held_draft, may_replace, restaged_now
 from devops_cli.roadmap.stage.stage_jev_screen import ScreenCase, record_review, screen_of
 from devops_cli.roadmap.stage.stage_left_out import LeftOutKind, log_left_out
 from devops_cli.roadmap.stage.stage_models import model_fields, referenced_classes
@@ -412,11 +417,14 @@ def parse_filters(options: Iterable[str], defaults: Sequence[str] | None = None)
 
 @dataclass(frozen=True)
 class StageTarget:
-    """An item to stage with the type and the slug of its branch."""
+    """An item to stage with the type and the slug of its branch. `replace_pull` is the draft pull
+    request whose plan the job replaces on the branch of the item (#3387), or None for a new
+    branch."""
 
     item: Item
     type_: str
     slug: str
+    replace_pull: int | None = None
 
     @property
     def change(self) -> str:
@@ -556,6 +564,7 @@ class _Judge:
         missing: tuple[str, ...] = (),
         busy: Mapping[int, str] | None = None,
         job: str | None = None,
+        draft_of: Callable[[Item], DraftRead | None] | None = None,
     ) -> None:
         self._store = store
         self._holder_of = holder_of
@@ -566,6 +575,24 @@ class _Judge:
         self._missing = missing
         self._busy = busy or {}
         self._job = job
+        self._draft_of = draft_of
+        self._draft_reads: dict[int, DraftRead | None] = {}
+
+    def draft_read(self, item: Item) -> DraftRead | None:
+        """The facts of the one draft pull request of `item`, read once for the selection (#3387)."""
+        if self._draft_of is None:
+            return None
+        if item.number not in self._draft_reads:
+            self._draft_reads[item.number] = self._draft_of(item)
+        return self._draft_reads[item.number]
+
+    def target(self, item: Item) -> StageTarget:
+        """The target of `item`, with the draft pull request that the job replaces (#3387)."""
+        read = self.draft_read(item)
+        return replace(
+            _target_of(item),
+            replace_pull=read.pull if read is not None and may_replace(read) else None,
+        )
 
     def reason(self, item: Item, *, named: bool) -> tuple[LeftOutKind, str] | None:
         """The kind and the text of the reason the job leaves `item` out, or None when it may
@@ -700,7 +727,18 @@ class _Judge:
         return None if rejected is None else hold_reason(self._store, item, rejected)
 
     def _held(self, item: Item) -> str | None:
-        return self._holder_of(item.number, _target_of(item).branch)
+        """A branch of origin holds the item (`worktree_add.issue_holder`), unless the job replaces
+        its own draft plan that fails the plan check (#3387). A plan that the job re-staged once
+        stays held, and the reason names the failed plan check."""
+        reason = self._holder_of(item.number, _target_of(item).branch)
+        if reason is None:
+            return None
+        read = self.draft_read(item)
+        if may_replace(read):
+            return None
+        if restaged_now(item) and read is not None and read.problems:
+            return MESSAGES.roadmap.plan_check_failed.format(count=len(read.problems))
+        return reason
 
     def _stage_job(self, item: Item) -> str | None:
         """A stage Job works on the item (#4559): the list of the Jobs of the Service shows one
@@ -796,7 +834,7 @@ def _named_item(
     else:
         why = judge.reason(item, named=named)
     if item is not None and why is None:
-        return StageSelection(selected=(_target_of(item),))
+        return StageSelection(selected=(judge.target(item),))
     kind, text = why or (LeftOutKind.OTHER, "")
     return StageSelection(left_out=(LeftOut(number, text, item.title if item else "", kind),))
 
@@ -817,6 +855,7 @@ def select_stageable(
     named: bool = True,
     busy: Mapping[int, str] | None = None,
     job: str | None = None,
+    draft_of: Callable[[Item], DraftRead | None] | None = None,
 ) -> StageSelection:
     """The items to stage, up to `limit`, and those the filter names that the job leaves out.
 
@@ -831,7 +870,9 @@ def select_stageable(
     `openspec/config.yaml` the job takes no item (#4629). With `named` false, the item of
     `item_number` keeps every rule of a round, as a stage Job selects it (#5483). `busy` names
     the stage Job of each item that a Job works on, and `job` is the stage Job of this pod: an
-    item that another stage Job works on stays out (#4559).
+    item that another stage Job works on stays out (#4559). `draft_of` reads the facts of the one
+    draft pull request of a held item, so that the job stages the item again when the draft plan
+    fails the plan check (#3387); with None, every held item stays out.
     """
     opened = _open_items(store)
     judge = _Judge(
@@ -844,6 +885,7 @@ def select_stageable(
         missing,
         busy,
         job,
+        draft_of,
     )
     if item_number is not None:
         return _named_item(judge, store, item_number, named=named)
@@ -853,7 +895,7 @@ def select_stageable(
     def verdict(item: Item) -> StageTarget | str:
         why = judge.reason(item, named=False)
         if why is None:
-            return _target_of(item)
+            return judge.target(item)
         kinds[item.number], text = why
         return text
 
@@ -2708,6 +2750,24 @@ class StageRead(NamedTuple):
     missing: tuple[str, ...]
 
 
+def _held_draft_of(repo: str, source: Path, default: str) -> Callable[[Item], DraftRead | None]:
+    """The read of the one draft pull request of a held item (#3387). A read that GitHub refuses
+    holds the item as it did before: the job replaces a draft only when it proves that its plan
+    fails, and a failure to read the draft is no proof. An unauthenticated session and a broken
+    quota still stop the run."""
+
+    def read(item: Item) -> DraftRead | None:
+        try:
+            return held_draft(item, repo=repo, source=source, default=default)
+        except GitHubRateLimitError, GitHubUnauthenticatedError:
+            raise
+        except GitHubOperationError as exc:
+            logger.warning("The draft of #%d could not be read: %s", item.number, exc)
+            return None
+
+    return read
+
+
 def read_stage_selection(
     store: RoadmapStore,
     *,
@@ -2753,6 +2813,7 @@ def read_stage_selection(
         named=named,
         busy=busy,
         job=job,
+        draft_of=_held_draft_of(repo, source, planned.default),
     )
     return StageRead(sha, heads, planned, selection, missing)
 
