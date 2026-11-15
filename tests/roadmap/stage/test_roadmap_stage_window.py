@@ -37,6 +37,7 @@ from devops_cli.roadmap.stage.stage import (
     plan_item,
     plan_stage,
 )
+from devops_cli.roadmap.stage.stage_change import StageProposal
 from devops_cli.roadmap.stage.stage_eval_run import RecordingClient
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient, ToolboxModel
 from devops_cli.roadmap.stage.stage_verify import VerificationInput, agent_instructions
@@ -67,6 +68,10 @@ GATEWAY_WINDOW = 1_048_576
 # tool answer, at about 4 characters for a token. The tools end when the messages reach the limit.
 FIRST_REQUEST_TOKENS = 38_000
 TOOL_ANSWER_TOKENS = CONST_ROADMAP_REFINE_TOOL_MAX_CHARS // 4
+# The body of an item that cites `keep`, the function of the sample module that the clone of
+# `tests/support/roadmap_stage.py` writes: the probe writes a line for it, so the content gate
+# refuses a `feasibility` that quotes no probe line.
+KEEP_BODY = "The job drops the last comment of `keep`."
 _PLAN = make_stage_proposal()
 
 
@@ -101,21 +106,43 @@ def _plan(store: InMemoryRoadmapStore, repo: StageRepo, script: Script) -> None:
     assert len(_run(store, repo, script).ready) == 1
 
 
-def _first_request(script: Script) -> dict[str, Any]:
-    first = script.seen[0][0]
-    assert isinstance(first, ModelRequest)
-    text = next(p.content for p in first.parts if isinstance(p, UserPromptPart))
+def _request_json(script: Script, index: int) -> dict[str, Any]:
+    """The request at `index`, as the JSON that `_ask_plan` sends."""
+    message = script.seen[index][-1]
+    assert isinstance(message, ModelRequest)
+    text = next(p.content for p in message.parts if isinstance(p, UserPromptPart))
     return json.loads(str(text))
+
+
+def _first_request(script: Script) -> dict[str, Any]:
+    """The first request of the run, as the JSON that `_ask_plan` sends."""
+    return _request_json(script, 0)
+
+
+def _request_tokens(script: Script, index: int) -> int:
+    """The tokens of the request at `index` as the run hook counts them: every message, as JSON."""
+    return count_tokens(ModelMessagesTypeAdapter.dump_json(script.seen[index]).decode())
 
 
 def _first_request_tokens(script: Script) -> int:
     """The tokens of the first request as the run hook counts them: every message, as JSON."""
-    return count_tokens(ModelMessagesTypeAdapter.dump_json(script.seen[0]).decode())
+    return _request_tokens(script, 0)
+
+
+def _return_request(script: Script) -> dict[str, Any]:
+    """The request of the first return of a refused reply, as the JSON that `_ask_plan` sends: the
+    third request of the run, after the first request and the answer of the tool call."""
+    return _request_json(script, 2)
 
 
 def _limit(window: int) -> int:
     """The tokens at which the run hook offers no tool."""
     return window - window // CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE
+
+
+def _long_plan() -> StageProposal:
+    """The earlier plan of a return request: its `why` is longer than the limit of the tools."""
+    return make_stage_proposal(why=_words(20_000))
 
 
 def _script() -> Script:
@@ -177,6 +204,60 @@ def test_a_first_request_of_code_with_the_context_and_the_body_at_their_caps_off
         "read_spec" in script.tools_offered[0],
         _first_request_tokens(script) < _limit(WINDOW),
     ) == (True, True)
+
+
+def test_a_return_request_keeps_the_full_earlier_plan_when_it_fits(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The full earlier plan fits: a plan whose request stays under the limit goes back whole, and
+    the keys of the earlier plan stay: every key of the plan is in `previous`."""
+    monkeypatch.setattr(stage, "task_window", lambda task: WINDOW)
+    seed_stageable(store, body=KEEP_BODY)
+    earlier = make_stage_proposal()
+    script = Script(
+        call("list_files", directory="src"), earlier, without_tools=earlier, reports_input=True
+    )
+
+    _run(store, stage_repo, script)
+
+    request = _return_request(script)
+    print(f"return request: {_request_tokens(script, 2)} tokens; limit {_limit(WINDOW)} tokens")
+    assert (request["previous"], list(request["previous"])) == (
+        earlier.model_dump(),
+        list(earlier.model_dump()),
+    )
+
+
+def test_a_gate_return_with_the_full_earlier_plan_leaves_room_for_the_tools(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A gate return with a long earlier plan: the plan of 20,000 words goes back with the problem,
+    and the request that the planner receives stays under the limit at which the run offers no
+    tool, so the planner keeps `read_spec`."""
+    monkeypatch.setattr(stage, "task_window", lambda task: WINDOW)
+    seed_stageable(store, body=KEEP_BODY)
+    earlier = _long_plan()
+    script = Script(
+        call("list_files", directory="src"), earlier, without_tools=earlier, reports_input=True
+    )
+
+    _run(store, stage_repo, script)
+
+    measured = _request_tokens(script, 2)
+    print(f"return request: {measured} tokens; limit {_limit(WINDOW)} tokens")
+    request = _return_request(script)
+    previous = request["previous"]
+    assert (
+        measured < _limit(WINDOW),
+        "read_spec" in script.tools_offered[2],
+        "problem" in request,
+        previous["why"] != earlier.why,
+        list(previous) == list(earlier.model_dump()),
+    ) == (True, True, True, True, True)
 
 
 def test_the_first_request_names_the_capabilities_and_holds_no_capability_json(

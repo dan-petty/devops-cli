@@ -299,6 +299,7 @@ from devops_cli.roadmap.stage.stage_rejected import (
 )
 from devops_cli.roadmap.stage.stage_removal_references import scan_removal_references
 from devops_cli.roadmap.stage.stage_request import StageRequest, gate_arguments
+from devops_cli.roadmap.stage.stage_return import bound_previous
 from devops_cli.roadmap.stage.stage_specs import BaseSpec, read_base_specs
 from devops_cli.roadmap.stage.stage_split import ask_split
 from devops_cli.roadmap.stage.stage_time import job_time_failure, job_time_premise
@@ -1214,9 +1215,10 @@ class _Refused(NamedTuple):
     problem: str
     reply: StageProposal
 
-    def returned(self, request: StageRequest) -> dict[str, Any]:
-        """`request` for the model, with this reply and its problem, so the planner revises it."""
-        return {**request.for_model(), "previous": self.reply.model_dump(), "problem": self.problem}
+    def returned(self, request: StageRequest, window: int) -> dict[str, Any]:
+        """`request` for the model, with this reply and its problem, so the planner revises it. The
+        earlier plan is bounded when the request would pass the tool-removal limit (#3529)."""
+        return bound_previous(request, self.reply.model_dump(), self.problem, window)
 
 
 def _is_degenerate(proposal: StageProposal) -> bool:
@@ -1678,7 +1680,7 @@ class _Planner:
             self._note_refused(target, floor, "refused")
             self._refused.append((outcome.reply, outcome.problem))
             raise_if_service_stops(f"the new plan of #{target.item.number} after its kept plan")
-            ask = outcome.returned(request)
+            ask = outcome.returned(request, self._window)
         proposal = self._ask_plan(target, key, self._refused, ask)
         return self._returned(target, request, key, floor, proposal, MESSAGES.roadmap.stage_invalid)
 
@@ -1746,7 +1748,9 @@ class _Planner:
                 raise_if_service_stops(f"return {returns + 1} of the plan of #{target.item.number}")
                 returns += 1
                 self._returns += 1
-                proposal = self._ask_plan(target, key, refused, outcome.returned(request))
+                proposal = self._ask_plan(
+                    target, key, refused, outcome.returned(request, self._window)
+                )
         finally:
             if extended:
                 self._end_extension(target, returns, ExtensionEnd.ENDED)
