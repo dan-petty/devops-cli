@@ -183,6 +183,37 @@ Provider `gateway` always sends to `ai.gateway_url`, even when `ai.api_base_url`
 
 Open WebUI uses the same key: on a fresh install it connects to the gateway automatically, and it sends its RAG embeddings to the gateway's `qwen3-embedding:0.6b`. An existing installation keeps the connections and the document settings stored in its database. Add `http://llm-gateway.llm.svc.cluster.local:4000/v1` under Admin Panel > Settings > Connections, and turn off the Ollama API there: Open WebUI has no connection to Ollama's native API, so each of its model calls is on the gateway's series that the AI spend dashboard reads. Under Admin Panel > Settings > Documents, set the embedding engine to OpenAI, with the gateway URL, the master key and `qwen3-embedding:0.6b`.
 
+#### Smoke check after a gateway upgrade
+The LiteLLM upgrade changes the provider path of each hosted group, and no offline test reaches a
+provider. After the gateway rolls onto the new image, run five calls from a host that reaches the
+gateway node port, record each result as a comment on the upgrade issue, and open an issue with
+`devops gh issue create --label source/agent` for a call that fails.
+
+Each call sends the gateway master key and no provider key: the gateway pod holds the provider keys
+in its environment. `$KEY` is the `master-key` of Secret `llm-gateway-secrets`, which the keyring
+holds as `llm_gateway_master_key`.
+
+| Group | Provider key of the gateway pod |
+| --- | --- |
+| `claude-sonnet-5-5` | `ANTHROPIC_API_KEY` |
+| `claude-haiku-5-5` | `ANTHROPIC_API_KEY` |
+| `gemini-3.8-flash` | `GEMINI_API_KEY` |
+| `deepseek-v4.1-flash-1017` | `OPENROUTER_API_KEY` |
+
+```bash
+curl -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{"model":"claude-sonnet-5-5","messages":[{"role":"user","content":"Say ok"}],"max_tokens":16}' http://<node>:<node-port>/v1/chat/completions
+curl -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{"model":"claude-haiku-5-5","messages":[{"role":"user","content":"Say ok"}],"max_tokens":16}' http://<node>:<node-port>/v1/chat/completions
+curl -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{"model":"gemini-3.8-flash","messages":[{"role":"user","content":"Say ok"}],"max_tokens":16}' http://<node>:<node-port>/v1/chat/completions
+curl -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{"model":"deepseek-v4.1-flash-1017","messages":[{"role":"user","content":"Say ok"}],"max_tokens":16}' http://<node>:<node-port>/v1/chat/completions
+```
+
+The fifth call asks `claude-sonnet-5-5` for a structured reply. It fails when the group loses
+`supports_native_structured_output` or `supports_response_schema`.
+
+```bash
+curl -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" -d '{"model":"claude-sonnet-5-5","messages":[{"role":"user","content":"Answer with one field."}],"max_tokens":64,"response_format":{"type":"json_schema","json_schema":{"name":"probe","schema":{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}}}}' http://<node>:<node-port>/v1/chat/completions
+```
+
 #### Gateway spans
 The `otel` callback of LiteLLM sends a span for each gateway request to the OpenTelemetry Collector over OTLP/HTTP, with the service name `llm-gateway` (#4518). The spans show the time of the queue, the retries and the fallbacks of a call. The `OTEL_*` variables of `llm/gateway/deployment.yaml` name the Collector Service. `turn_off_message_logging: true` in `llm/gateway/config.yaml` keeps the prompt and the reply off the spans. LiteLLM still writes the key hash, the key alias, the user and the `x-` headers of each request as `metadata.*` attributes, and a refused key puts its hash in the error text. A management endpoint span gets each field of the request and response bodies as a `request.*` or `response.*` attribute, for example the raw key of `/key/block` and the callback secrets of `/team/{team_id}/callback` (#4539). The `transform/key_data` processor of the Collector's traces pipeline (`otel/values.yaml`) deletes these attributes and each attribute whose name holds `authorization` or `api-key`, and it replaces each 64-digit hex value of a gateway span or span event, before Tempo stores the span. The gateway's egress admits port 4318 of the Collector pods only, so no gateway span goes to Tempo past this rule. A request with a `traceparent` header gets its gateway span as a child of the caller's span; a request without one starts its own trace. The `k8s` row of `devops ci` checks the callback, the endpoint, the egress rule and the effect of the processor on the attributes that LiteLLM writes.
 
