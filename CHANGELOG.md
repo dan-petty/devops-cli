@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.154.0](https://github.com/dan-petty/devops-cli/compare/v0.153.0...v0.154.0) (2026-11-15)
+
+
+### Features
+
+* **roadmap:** Record the constants of a stage eval case ([#5823](https://github.com/dan-petty/devops-cli/issues/5823)) ([4cbfd28](https://github.com/dan-petty/devops-cli/commit/4cbfd28b1eeeb66c62f4b3a0c42f3928be1097a9))
+
+
+### Bug Fixes
+
+* **roadmap:** rebase before final push of implement job ([#5835](https://github.com/dan-petty/devops-cli/issues/5835)) ([ee71dd4](https://github.com/dan-petty/devops-cli/commit/ee71dd401cef93a495822bc8ddf1ab69c7e81132))
+
+
+### Code Refactoring
+
+* **ai:** Remove the unused Jev helpers ([#5839](https://github.com/dan-petty/devops-cli/issues/5839)) ([f46f157](https://github.com/dan-petty/devops-cli/commit/f46f1576ceeea218398a38871da51d6d61b810ed))
+
 ## [0.153.0](https://github.com/dan-petty/devops-cli/compare/v0.152.1...v0.153.0) (2026-11-15)
 
 
