@@ -1023,6 +1023,71 @@ def test_a_conflict_on_the_rebase_before_the_push_pushes_nothing(job_world: JobW
     assert "conflict" in job_world.issue_comments()[0].lower()
 
 
+class TestFinalPushRebase:
+    @pytest.fixture
+    def staged_files(self) -> dict[str, str]:
+        return {"tests/test_shout.py": "def test_shout() -> None:\n    pass\n"}
+
+    def test_the_final_push_holds_the_commit_that_main_gained_during_scoped_checks(
+        self, job_world: JobWorld
+    ) -> None:
+        """The final push fetches and rebases after the scoped checks, so the pushed head holds the
+        commit that main gained while the checks ran (#4957)."""
+        calls = 0
+
+        def pass_test(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                advance_main(job_world)
+            return subprocess.CompletedProcess(call.argv, 0, stdout="passed\n", stderr="")
+
+        job_world.programs.answer(
+            lambda call: command_text(call).startswith("uv run devops ci test"),
+            ProcessAnswer(side_effect=pass_test),
+        )
+
+        applied = job_world.run(two_groups())
+
+        assert calls == 3
+        assert applied.ready == (1,)
+        assert job_world.repo.origin_git("rev-list", "--count", f"{BRANCH}..main") == "0"
+
+    def test_a_conflict_on_the_rebase_after_the_scoped_checks_pushes_nothing(
+        self, job_world: JobWorld
+    ) -> None:
+        """A rebase conflict after the scoped checks stops the item and pushes nothing (#4957)."""
+        calls = 0
+
+        def is_scoped_test(call: ProcessCall) -> bool:
+            nonlocal calls
+            if command_text(call).startswith("uv run devops ci test"):
+                calls += 1
+                return calls == 3
+            return False
+
+        move_main_when(
+            job_world,
+            is_scoped_test,
+            lambda call: subprocess.CompletedProcess(call.argv, 0, stdout="passed\n", stderr=""),
+        )
+
+        applied = job_world.run(two_groups())
+
+        status, record = _item(job_world)
+        assert (applied.stopped, status, record.get("implement.stopped")) == (
+            (1,),
+            "Blocked",
+            "push",
+        )
+        assert job_world.origin_log() == [
+            "fix(roadmap): plan",
+            "fix(roadmap): The first group (#1)",
+        ]
+        assert job_world.pull.ready_calls == []
+        assert "conflict" in job_world.issue_comments()[0].lower()
+
+
 def _conflict_on_main(world: JobWorld, names: list[str]) -> None:
     """Make the staged branch and `main` both add each file of `names` with other text, so a rebase
     of the branch onto `main` stops on one conflict for each file."""
