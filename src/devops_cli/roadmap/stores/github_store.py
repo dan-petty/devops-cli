@@ -881,7 +881,7 @@ class GitHubRoadmapStore(RoadmapStore):
         of the issue, after one read of it. The value joins the job record the issue holds at
         that read, not the one `item` was read with, so two writes from one read both stay
         recorded. A field someone changed since the store read it raises before any write,
-        unless the issue already holds `value` (ADR 0002)."""
+        unless the issue already holds `value` (ADR 0016)."""
         operation = "roadmap.item.set_field"
         require_value(field, value, operation)
         with _JOB_RECORD_LOCK:
@@ -910,7 +910,7 @@ class GitHubRoadmapStore(RoadmapStore):
     ) -> None:
         """Set or clear a job's marks in the Item's job record, as its issue holds it now, in
         one `PATCH` of the body after one read of the issue. A field named by `unchanged` that
-        someone changed since the store read it raises before any write (ADR 0002)."""
+        someone changed since the store read it raises before any write (ADR 0016)."""
         operation = "roadmap.item.set_marks"
         with _JOB_RECORD_LOCK:
             issue = self._require_issue(item.number, operation)

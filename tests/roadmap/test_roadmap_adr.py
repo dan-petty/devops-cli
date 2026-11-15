@@ -114,7 +114,7 @@ def test_an_adr_with_no_front_matter_has_no_status_and_is_in_force() -> None:
         pytest.param("status: accepted\nsuperseded_by: ['0012']", id="unknown-key"),
         pytest.param("status: superseded\nsuperseded-by: [0012]", id="a-number-not-a-string"),
         pytest.param("status: superseded\nsuperseded-by: ['12']", id="not-four-digits"),
-        pytest.param("status: superseded by ADR-0012", id="unknown-status"),
+        pytest.param("status: superseded by ADR-0021", id="unknown-status"),
         pytest.param("- accepted", id="not-a-mapping"),
     ],
 )

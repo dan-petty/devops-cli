@@ -73,7 +73,7 @@ def test_collect_context_and_truncation(git_repo: Path) -> None:
 def test_collect_context_handles_spaces_and_non_ascii_adrs(git_repo: Path) -> None:
     """collect_context reads ADR files whose names have spaces or non-ASCII characters without C-quoting failure."""
     adr_file = git_repo / "docs" / "adr" / "0002-café decision with space.md"
-    adr_file.write_text("# ADR 2\nSpecial ADR content.\n", encoding="utf-8")
+    adr_file.write_text("# ADR 0016\nSpecial ADR content.\n", encoding="utf-8")
     new_sha = inspect_checkout(git_repo, REPO)
 
     ctx = collect_context(git_repo, new_sha, "body", max_tokens=1000)

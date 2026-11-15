@@ -65,7 +65,7 @@ def test_a_candidate_with_a_value_a_person_set_gets_only_its_empty_fields(
 ) -> None:
     """A person put a candidate in a milestone and labeled it `value/high`: intake writes only
     Status, Effort and Priority, the person's Value and milestone stay, and the labels show
-    each fact, so intake posts no reason comment. The job record claims no Value (ADR 0002)."""
+    each fact, so intake posts no reason comment. The job record claims no Value (ADR 0016)."""
     number = roadmap.issue(
         "feat: half done",
         labels=("type/docs",),

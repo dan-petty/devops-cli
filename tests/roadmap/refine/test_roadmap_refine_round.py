@@ -286,7 +286,7 @@ def test_an_item_that_a_person_changes_during_the_round_is_skipped_and_read_agai
 ) -> None:
     """A person moves item 2 to Blocked while the model works on it. Refine writes nothing for
     item 2, logs one INFO line for it and no warning, writes the others, and the round ends with
-    no error. The next round takes item 2 again (ADR 0002, #5299)."""
+    no error. The next round takes item 2 again (ADR 0016, #5299)."""
     store = InMemoryRoadmapStore(repo=REPO)
     first, second, third = _seed_three(store)
     person = store.as_actor("octocat")

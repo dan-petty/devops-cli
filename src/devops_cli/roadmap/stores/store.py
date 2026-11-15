@@ -16,7 +16,7 @@ not name, as the job wrote the other; with more than one such, the first in the 
 A job sets a field by replacing every label of the family with the value's label.
 
 **The job record.** Every field write also records the value it set, so a job can tell a person's
-change from its own (ADR 0002). The record also holds the marks of refine and of stage on an Item,
+change from its own (ADR 0016). The record also holds the marks of refine and of stage on an Item,
 which change no field. It is a JSON object in a hidden block at the end of the issue body
 (`<!-- devops-roadmap-record {...} -->`): the body every read returns holds no block, and a body
 write keeps the issue's block. A block that is not a JSON object reads as an empty record, and
@@ -25,7 +25,7 @@ the next record write replaces it.
 **Changes.** A write never trusts what the store read: it reads the issue first, and a job's
 write of a field someone changed since the store read it raises `RoadmapItemChangedError` before
 it changes anything, unless the issue already holds the value it writes, so a job never reverts
-a change it did not see (ADR 0002).
+a change it did not see (ADR 0016).
 """
 
 from __future__ import annotations
@@ -125,7 +125,7 @@ class EvidenceKind(StrEnum):
 
 class ChangeKind(StrEnum):
     """What happened to an issue, as the repository's issue events report it. A field change
-    is a `labeled` or `unlabeled` event of its family's label (ADR 0003)."""
+    is a `labeled` or `unlabeled` event of its family's label (ADR 0017)."""
 
     LABELED = "labeled"
     UNLABELED = "unlabeled"
@@ -928,7 +928,7 @@ def require_unchanged(
 ) -> None:
     """Refuse a job's write of `value` to `field` of issue `name` when the issue holds `now` but
     the store read `read`: the job planned without that change, so the write would revert it
-    (ADR 0002). Writing the value the issue holds now reverts nothing."""
+    (ADR 0016). Writing the value the issue holds now reverts nothing."""
     if read == now or value == now:
         return
     texts = MESSAGES.roadmap
@@ -1112,7 +1112,7 @@ class RoadmapStore(Protocol):
         same write. It raises like `set_field` before the store changes anything. When
         `unchanged` names a field that someone changed since the store read the Item, it raises
         `RoadmapItemChangedError` before any write: the marks belong to a decision on the value
-        that the store read (ADR 0002, #5114)."""
+        that the store read (ADR 0016, #5114)."""
 
     def issues(self) -> list[IssueRecord]:
         """Every issue of the repository, open and closed, Item or not; never pull requests."""

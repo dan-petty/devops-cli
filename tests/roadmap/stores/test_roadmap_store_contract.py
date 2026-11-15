@@ -447,7 +447,7 @@ def test_a_value_that_is_not_a_fields_value_raises_and_changes_nothing(world: Wo
 
 
 def test_a_job_never_reverts_a_persons_change(world: World) -> None:
-    """The job set Status New and read the Item; a person then set Blocked (ADR 0002)."""
+    """The job set Status New and read the Item; a person then set Blocked (ADR 0016)."""
     number = world.seed("blocked meanwhile", labels=("priority/p2-medium",))
     world.store.set_field(read(world, number), ItemField.STATUS, "New")
     item = read(world, number)
@@ -530,7 +530,7 @@ def test_marks_are_kept_in_the_job_record_and_change_no_field(world: World) -> N
 
 def test_marks_on_a_field_a_person_changed_since_the_read_are_refused(world: World) -> None:
     """The job read the Item as Ready and decided its marks and body on that read; a person then
-    set New. The marks guard the Status as a field write does (ADR 0002, #5114)."""
+    set New. The marks guard the Status as a field write does (ADR 0016, #5114)."""
     number = world.seed("moved meanwhile", labels=("priority/p2-medium",), body="Problem")
     world.store.set_field(read(world, number), ItemField.STATUS, "Ready")
     item = read(world, number)
@@ -978,7 +978,7 @@ def test_every_write_to_an_issue_a_comment_included_moves_its_updated_at(
 def test_a_field_write_is_a_labeled_and_an_unlabeled_change_as_a_poll_reads_them(
     store: InMemoryRoadmapStore, clock: SteppedClock
 ) -> None:
-    """GitHub reports a label set or taken off as an issue event (ADR 0003), so a field write
+    """GitHub reports a label set or taken off as an issue event (ADR 0017), so a field write
     is one change for each label it adds or removes, under the actor who wrote it."""
     number = store.seed_issue("readied", fields={**PLACED, ItemField.STATUS: "New"})
     item = store.item(number)

@@ -9,7 +9,7 @@ does not answer (`ModelGatewayUnreachableError`) leaves GitHub as it was.
 **Possible duplicates.** A candidate is compared with every item, open or closed, and every
 issue closed as not planned, plus the candidates this run placed before it; a new candidate is
 also compared with the open agent issues that hold no Priority. An issue that has sub-issues is
-compared with no candidate. Its sub-issues deliver it, one pull request each (ADR 0012), so no
+compared with no candidate. Its sub-issues deliver it, one pull request each (AGENTS.md rule 1), so no
 candidate asks for its change. A new candidate is not compared with the issue its source links,
 such as the issue it splits, nor with that issue's sub-issues, the other parts of the split
 (#1985, #2265). Each text is embedded once, and the model judges the candidate against its
@@ -66,7 +66,7 @@ on evidence, and the possible original or the related item. With no such fact, i
 none. Each field write replaces the labels of its family and records the value in the issue's
 job record (`RoadmapStore.set_field`); the Status goes through the one Status writer
 (`status_sync.write_status`), which reads the label back. A label a person set stays, and the job
-record never claims it (ADR 0002); a person's change between the plan and the write stops that
+record never claims it (ADR 0016); a person's change between the plan and the write stops that
 write.
 
 A run that stops part-way leaves an open issue with no Priority, a candidate, and the next run

@@ -120,7 +120,7 @@ def test_a_ready_item_whose_status_a_person_changed_during_the_round_gets_no_wri
 ) -> None:
     """Refine reads a Ready item and calls the model; a person moves the item to New before the
     write. Refine writes no body, no mark and no comment for the old decision, and the write
-    fails with the change, as a Status write does (ADR 0002, #5114)."""
+    fails with the change, as a Status write does (ADR 0016, #5114)."""
     _private(store)
     number = seed_item(store, "Ready", "P1-High")
     model_fake.answer(READY)

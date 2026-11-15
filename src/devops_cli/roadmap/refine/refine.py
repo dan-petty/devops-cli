@@ -3744,7 +3744,7 @@ class RefineWriter:
     Service then ends the round and loses at most the item in progress, and the next round takes
     the items that are not yet written. A write that fails is logged and counted, and the next
     item still runs. An item that changed since the read is no failure: refine does not write it
-    (ADR 0002), logs no result line for it, as an alternatives check does, and the next round
+    (ADR 0016), logs no result line for it, as an alternatives check does, and the next round
     reads it again (#5299). Rejected GitHub credentials and the stop of the Service end the round.
     """
 

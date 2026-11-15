@@ -112,7 +112,7 @@ class ImplementEvalError(DevOpsCLIError):
 class RoadmapItemChangedError(GitHubOperationError):
     """Raised before a job's field write that would revert a change made since it read the Item.
 
-    The job planned without that change, so writing would revert it (ADR 0002). Nothing is
+    The job planned without that change, so writing would revert it (ADR 0016). Nothing is
     written; the next run reads the issue again and plans with the change.
     """
 
