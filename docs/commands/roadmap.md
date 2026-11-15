@@ -703,6 +703,27 @@ devops roadmap step fix-plan [OPTIONS]
 | `--confirm` | `boolean` | - | Run the attempt: call the models, push a better revision, and write the label, the comment and the record. It acts in every mode of roadmap.fix_plan.mode. |
 | `--skip-wait` | `boolean` | - | Leave out the wait of 6 hours after the last attempt, for the one item that --item or --pull names. Needs --confirm. The limits of roadmap.fix_plan.head_attempts on the head and roadmap.fix_plan.revisions stay, but a head whose counted attempts ran on an older release gets one more attempt. The Service never uses it. |
 
+### `devops roadmap step open`
+
+**Open, update, or recover the draft pull request of an item (#5020).**
+
+```bash
+devops roadmap step open [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--item`, `-i` | `integer` | - | Number of the item to open or update a pull request for. |
+| `--head` | `string` | - | Branch to open the pull request from. |
+| `--base` | `string` | - | Base branch the pull request merges into. |
+| `--title` | `string` | - | Title of the pull request. |
+| `--body` | `string` | - | Body of the pull request. |
+| `--kind`, `-k` | `string` | `plan` | Kind of the pull request (plan or delivery). |
+| `--dry-run` | `boolean` | - | Make no request to GitHub or git, and write no record key. |
+
 ### `devops roadmap step scaffold`
 
 **Make, resume, adopt or hold the item branch for a roadmap stage run (#5499).**

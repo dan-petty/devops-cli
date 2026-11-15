@@ -3462,13 +3462,20 @@ def _open_pull(repo: str, source: Path, change: StagedChange) -> CreatedPull:
     goes from `origin`, so no remote branch stays without an open pull request."""
     branch = change.target.branch
     try:
-        return get_github_session().client.create_draft_pull(
-            repo,
-            title=change.title,
-            body=change.body,
-            head=branch,
-            base=default_branch(source, operation=_GIT_OPERATION),
+        from devops_cli.roadmap.steps.open import OpenRequest, open_or_update
+
+        res = open_or_update(
+            OpenRequest(
+                repo=repo,
+                head=branch,
+                base=default_branch(source, operation=_GIT_OPERATION),
+                title=change.title,
+                body=change.body,
+                kind="plan",
+                lookup_existing=False,
+            )
         )
+        return CreatedPull(number=res.number, html_url=res.html_url, labels=res.labels)
     except DevOpsCLIError:
         _git(source, "push", "origin", "--delete", branch)
         raise

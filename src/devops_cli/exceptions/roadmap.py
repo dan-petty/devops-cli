@@ -381,3 +381,9 @@ class RoadmapReviewError(DevOpsCLIError):
     """
 
     error_code = "ROADMAP_REVIEW_FAILED"
+
+
+class RoadmapOpenRefusedError(DevOpsCLIError):
+    """Raised when devops roadmap step open refuses to open or update a pull request (#5020)."""
+
+    error_code = "ROADMAP_OPEN_REFUSED"

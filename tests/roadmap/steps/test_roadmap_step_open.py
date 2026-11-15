@@ -1,0 +1,467 @@
+"""Tests for the roadmap step `open` (#5020).
+
+Tests that a second run makes no second pull request, an update changes only differing
+fields, a refused text is retried once with form-checked text, dry run sends 0 requests,
+second open PR for an issue is refused, commits with [skip ci] are refused, and sweep
+recovery opens PRs in at most 3 requests.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import TYPE_CHECKING, Any
+
+import pytest
+
+from devops_cli.config.constants import (
+    CONST_ROADMAP_STATUS_IN_PROGRESS,
+    CONST_ROADMAP_STATUS_READY,
+)
+from devops_cli.roadmap.stores.store import (
+    ImplementRecordKey,
+    ItemField,
+    StageRecordKey,
+)
+from tests.support.fakes.github import API, github_json
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+
+if TYPE_CHECKING:
+    from tests.support.fakes.github import GitHubApiFake
+
+pytestmark = pytest.mark.usefixtures("keyring_store")
+
+REPO = "example/roadmap"
+BRANCH = "feat/5020-open-step"
+BASE = "main"
+TITLE = "refactor(roadmap): one open step for every pull request"
+BODY = "Consolidate pull request opening.\n\nCloses #5020\n\nChange: `openspec/changes/5020-open-step/`"
+
+LABELS_YML = (
+    '- name: "type/refactor"\n  color: "ededed"\n'
+    '- name: "scope/roadmap"\n  color: "ededed"\n'
+    '- name: "type/bug"\n  color: "ededed"\n'
+    '- name: "type/feature"\n  color: "ededed"\n'
+)
+
+
+@pytest.fixture
+def store() -> InMemoryRoadmapStore:
+    s = InMemoryRoadmapStore(repo=REPO)
+    s.seed_file(".github/labels.yml", LABELS_YML)
+    s.seed_file(".github/labels.yml", LABELS_YML, ref=BASE)
+    return s
+
+
+def _existing_pr_payload(
+    number: int = 101,
+    title: str = TITLE,
+    body: str = BODY,
+    head: str = BRANCH,
+    base: str = BASE,
+    labels: tuple[str, ...] = ("type/refactor", "scope/roadmap"),
+) -> dict[str, Any]:
+    return {
+        "number": number,
+        "title": title,
+        "body": body,
+        "state": "open",
+        "draft": True,
+        "html_url": f"https://github.com/{REPO}/pull/{number}",
+        "head": {"ref": head, "sha": "headsha123", "repo": {"full_name": REPO}},
+        "base": {
+            "ref": base,
+            "sha": "basesha123",
+            "repo": {"full_name": REPO, "default_branch": "main"},
+        },
+        "labels": [{"name": lbl} for lbl in labels],
+    }
+
+
+def test_second_run_makes_no_second_pull_request(
+    store: InMemoryRoadmapStore, github_api: GitHubApiFake
+) -> None:
+    """When a PR already exists for head and base, open_or_update creates no duplicate."""
+    from devops_cli.roadmap.steps.open import OpenRequest, OpenStatus, open_or_update
+
+    pr_num = store.seed_pull(TITLE, head_ref=BRANCH, labels=("type/refactor", "scope/roadmap"))
+    existing = _existing_pr_payload(number=pr_num)
+    github_api.route(
+        "GET",
+        f"/repos/{REPO}/pulls?head=example:{BRANCH}&state=open",
+        github_json([existing]),
+    )
+
+    request = OpenRequest(
+        repo=REPO,
+        head=BRANCH,
+        base=BASE,
+        title=TITLE,
+        body=BODY,
+        kind="delivery",
+        store=store,
+    )
+    result = open_or_update(request)
+
+    assert result.number == pr_num
+    assert result.status == OpenStatus.UNCHANGED
+    # Assert no POST to /pulls was made
+    posts = [
+        req for req in github_api.requested if req.startswith(f"POST {API}/repos/{REPO}/pulls")
+    ]
+    assert posts == []
+
+
+def test_update_changes_only_fields_that_differ(
+    store: InMemoryRoadmapStore, github_api: GitHubApiFake
+) -> None:
+    """When a PR exists and title differs, PATCH updates only differing title."""
+    from devops_cli.roadmap.steps.open import OpenRequest, OpenStatus, open_or_update
+
+    pr_num = store.seed_pull(
+        "old title", head_ref=BRANCH, labels=("type/refactor", "scope/roadmap")
+    )
+    existing = _existing_pr_payload(number=pr_num, title="old title", body=BODY)
+    github_api.route(
+        "GET",
+        f"/repos/{REPO}/pulls?head=example:{BRANCH}&state=open",
+        github_json([existing]),
+    )
+    github_api.route(
+        "PATCH",
+        f"/repos/{REPO}/pulls/{pr_num}",
+        github_json({"number": pr_num, "title": TITLE}),
+    )
+
+    request = OpenRequest(
+        repo=REPO,
+        head=BRANCH,
+        base=BASE,
+        title=TITLE,
+        body=BODY,
+        kind="delivery",
+        store=store,
+    )
+    result = open_or_update(request)
+
+    assert result.number == pr_num
+    assert result.status == OpenStatus.UPDATED
+    patches = [
+        req
+        for req in github_api.requested
+        if req.startswith(f"PATCH {API}/repos/{REPO}/pulls/{pr_num}")
+    ]
+    assert len(patches) == 1
+    # Check payload sent in PATCH only includes title
+    patch_req = next(r for r in github_api.sent if r.method == "PATCH")
+    payload = json.loads(patch_req.content)
+    assert payload == {"title": TITLE}
+
+
+def test_refused_text_sent_again_one_time(
+    store: InMemoryRoadmapStore, github_api: GitHubApiFake
+) -> None:
+    """When GitHub refuses text on first attempt, retry once with form-checked text (#3599)."""
+    from devops_cli.roadmap.steps.open import OpenRequest, OpenStatus, open_or_update
+
+    github_api.route(
+        "GET",
+        f"/repos/{REPO}/pulls?head=example:{BRANCH}&state=open",
+        github_json([]),
+    )
+    # First POST fails with 422 Unprocessable Entity, second succeeds
+    github_api.route(
+        "POST",
+        f"/repos/{REPO}/pulls",
+        github_json({"message": "Validation Failed"}, status=422),
+        github_json({"number": 202, "html_url": f"https://github.com/{REPO}/pull/202"}, status=201),
+    )
+
+    request = OpenRequest(
+        repo=REPO,
+        head=BRANCH,
+        base=BASE,
+        title=TITLE,
+        body=BODY,
+        kind="delivery",
+        store=store,
+    )
+    result = open_or_update(request)
+
+    assert result.number == 202
+    assert result.status == OpenStatus.CREATED
+    posts = [
+        req for req in github_api.requested if req.startswith(f"POST {API}/repos/{REPO}/pulls")
+    ]
+    assert len(posts) == 2
+
+
+def test_dry_run_sees_zero_requests(store: InMemoryRoadmapStore, github_api: GitHubApiFake) -> None:
+    """A dry run sends 0 requests to GitHub."""
+    from devops_cli.roadmap.steps.open import OpenRequest, OpenStatus, open_or_update
+
+    request = OpenRequest(
+        repo=REPO,
+        head=BRANCH,
+        base=BASE,
+        title=TITLE,
+        body=BODY,
+        kind="delivery",
+        store=store,
+        dry_run=True,
+    )
+    result = open_or_update(request)
+
+    assert result.status == OpenStatus.CREATED
+    assert github_api.requested == []
+
+
+def test_refuses_second_open_pr_for_issue(
+    store: InMemoryRoadmapStore, github_api: GitHubApiFake
+) -> None:
+    """Refuses to open a second pull request for an issue when one already exists."""
+    from devops_cli.exceptions.roadmap import RoadmapOpenRefusedError
+    from devops_cli.roadmap.steps.open import OpenRequest, open_or_update
+
+    # Seed issue 5020 in store
+    store.seed_issue(title=TITLE, body=BODY, fields={ItemField.PRIORITY: "P1-High"})
+    # Seed an existing open PR for issue 5020 on another branch
+    store.seed_pull("PR for 5020", head_ref="feat/5020-old-branch")
+
+    github_api.route(
+        "GET",
+        f"/repos/{REPO}/pulls?head=example:{BRANCH}&state=open",
+        github_json([]),
+    )
+
+    request = OpenRequest(
+        repo=REPO,
+        head=BRANCH,
+        base=BASE,
+        title=TITLE,
+        body=BODY,
+        item=5020,
+        kind="delivery",
+        store=store,
+    )
+
+    with pytest.raises(RoadmapOpenRefusedError, match="already has an open pull request"):
+        open_or_update(request)
+
+    posts = [
+        req for req in github_api.requested if req.startswith(f"POST {API}/repos/{REPO}/pulls")
+    ]
+    assert posts == []
+
+
+def test_refuses_checked_head_with_skip_ci(
+    store: InMemoryRoadmapStore, github_api: GitHubApiFake
+) -> None:
+    """Refuses a checked head whose commit message holds [skip ci]."""
+    from devops_cli.exceptions.roadmap import RoadmapOpenRefusedError
+    from devops_cli.roadmap.steps.open import OpenRequest, open_or_update
+
+    request = OpenRequest(
+        repo=REPO,
+        head=BRANCH,
+        base=BASE,
+        title=TITLE,
+        body=BODY,
+        kind="delivery",
+        store=store,
+        head_commit_message="feat(roadmap): something cool [skip ci]",
+    )
+
+    with pytest.raises(RoadmapOpenRefusedError, match="skip ci"):
+        open_or_update(request)
+
+    assert github_api.requested == []
+
+
+def test_sweep_recovery_opens_pr_in_at_most_three_requests(
+    store: InMemoryRoadmapStore, github_api: GitHubApiFake
+) -> None:
+    """Sweep step recovers a PR when head equals checked_sha in at most 3 requests."""
+    from devops_cli.roadmap.steps.open import (
+        OpenRequest,
+        is_recovery_due,
+        recover_open,
+    )
+
+    item_num = store.seed_issue(
+        title=TITLE,
+        body=BODY,
+        fields={ItemField.STATUS: CONST_ROADMAP_STATUS_IN_PROGRESS, ItemField.PRIORITY: "P1-High"},
+    )
+    store.set_marks(store.item(item_num), {ImplementRecordKey.CHECKED_SHA: "sha1234"})
+
+    # Check due condition
+    assert is_recovery_due(store.item(item_num), branch_head_sha="sha1234", store=store) is True
+    assert (
+        is_recovery_due(store.item(item_num), branch_head_sha="different_sha", store=store) is False
+    )
+
+    # Route: 1. check open pulls, 2. create draft pull, 3. add labels / comment
+    github_api.route(
+        "GET",
+        f"/repos/{REPO}/pulls?head=example:{BRANCH}&state=open",
+        github_json([]),
+    )
+    github_api.route(
+        "POST",
+        f"/repos/{REPO}/pulls",
+        github_json({"number": 303, "html_url": f"https://github.com/{REPO}/pull/303"}, status=201),
+    )
+
+    request = OpenRequest(
+        repo=REPO,
+        head=BRANCH,
+        base=BASE,
+        title=TITLE,
+        body=BODY,
+        item=item_num,
+        kind="delivery",
+        store=store,
+        producer_sha="sha1234",
+    )
+    result = recover_open(request)
+
+    assert result.number == 303
+    assert len(github_api.requested) <= 3
+
+
+def test_status_set_for_delivery(store: InMemoryRoadmapStore, github_api: GitHubApiFake) -> None:
+    """Opening a delivery pull request writes In Progress status through write_status."""
+    from devops_cli.roadmap.steps.open import OpenRequest, OpenStatus, open_or_update
+
+    item_num = store.seed_issue(
+        title=TITLE,
+        body=BODY,
+        fields={ItemField.STATUS: CONST_ROADMAP_STATUS_READY, ItemField.PRIORITY: "P1-High"},
+    )
+
+    github_api.route(
+        "GET",
+        f"/repos/{REPO}/pulls?head=example:{BRANCH}&state=open",
+        github_json([]),
+    )
+    github_api.route(
+        "POST",
+        f"/repos/{REPO}/pulls",
+        github_json({"number": 404, "html_url": f"https://github.com/{REPO}/pull/404"}, status=201),
+    )
+
+    request = OpenRequest(
+        repo=REPO,
+        head=BRANCH,
+        base=BASE,
+        title=TITLE,
+        body=BODY,
+        item=item_num,
+        kind="delivery",
+        store=store,
+    )
+    result = open_or_update(request)
+
+    assert result.number == 404
+    assert result.status == OpenStatus.CREATED
+    assert store.item(item_num).status == CONST_ROADMAP_STATUS_IN_PROGRESS
+
+
+def test_records_kind_pr_mark(store: InMemoryRoadmapStore, github_api: GitHubApiFake) -> None:
+    """Records stage.pr for plan kind, and implement.pr for delivery kind."""
+    from devops_cli.roadmap.steps.open import OpenRequest, open_or_update
+
+    item_plan = store.seed_issue(
+        title="plan item", body="plan body", fields={ItemField.PRIORITY: "P1-High"}
+    )
+    github_api.route(
+        "GET",
+        f"/repos/{REPO}/pulls?head=example:plan-branch&state=open",
+        github_json([]),
+    )
+    github_api.route(
+        "POST",
+        f"/repos/{REPO}/pulls",
+        github_json({"number": 501, "html_url": f"https://github.com/{REPO}/pull/501"}, status=201),
+    )
+
+    req_plan = OpenRequest(
+        repo=REPO,
+        head="plan-branch",
+        base=BASE,
+        title="docs(openspec): plan",
+        body="Plan body",
+        item=item_plan,
+        kind="plan",
+        store=store,
+    )
+    open_or_update(req_plan)
+    assert store.item(item_plan).job_record.get(StageRecordKey.PR) == "501"
+
+    item_deliv = store.seed_issue(
+        title="delivery item", body="delivery body", fields={ItemField.PRIORITY: "P1-High"}
+    )
+    github_api.route(
+        "GET",
+        f"/repos/{REPO}/pulls?head=example:deliv-branch&state=open",
+        github_json([]),
+    )
+    github_api.route(
+        "POST",
+        f"/repos/{REPO}/pulls",
+        github_json({"number": 502, "html_url": f"https://github.com/{REPO}/pull/502"}, status=201),
+    )
+
+    req_deliv = OpenRequest(
+        repo=REPO,
+        head="deliv-branch",
+        base=BASE,
+        title="fix(roadmap): delivery",
+        body="Delivery body",
+        item=item_deliv,
+        kind="delivery",
+        store=store,
+    )
+    open_or_update(req_deliv)
+    assert store.item(item_deliv).job_record.get(ImplementRecordKey.PR) == "502"
+
+
+def test_upserts_marked_comment(store: InMemoryRoadmapStore, github_api: GitHubApiFake) -> None:
+    """Upsert updates an existing marked comment or posts a new comment."""
+    from devops_cli.roadmap.steps.open import OpenRequest, open_or_update
+
+    pr_num = store.seed_pull(TITLE, head_ref=BRANCH, labels=("type/refactor", "scope/roadmap"))
+    existing = _existing_pr_payload(number=pr_num)
+    github_api.route(
+        "GET",
+        f"/repos/{REPO}/pulls?head=example:{BRANCH}&state=open",
+        github_json([existing]),
+    )
+    # Existing comments on issue/PR: contains one with MARKER
+    marker = "<!-- roadmap-comment-marker -->"
+    github_api.route(
+        "GET",
+        f"/repos/{REPO}/issues/{pr_num}/comments?per_page=100",
+        github_json([{"id": 999, "body": f"{marker}\nold content"}]),
+    )
+    github_api.route(
+        "PATCH",
+        f"/repos/{REPO}/issues/comments/999",
+        github_json({"id": 999, "body": f"{marker}\nnew content"}),
+    )
+
+    request = OpenRequest(
+        repo=REPO,
+        head=BRANCH,
+        base=BASE,
+        title=TITLE,
+        body=BODY,
+        kind="delivery",
+        store=store,
+        comment_body=f"{marker}\nnew content",
+    )
+    result = open_or_update(request)
+
+    assert result.number == pr_num
+    patches = [req for req in github_api.requested if "issues/comments/999" in req]
+    assert len(patches) == 1
