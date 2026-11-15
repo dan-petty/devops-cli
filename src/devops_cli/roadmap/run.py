@@ -33,7 +33,7 @@ runner counts its queue from the listing that its round reads, and the round kee
 Retitle is due every 61 minutes and on a first run. It examines at most
 `DEFAULT_ROADMAP_RETITLE_LIMIT` items: it shortens a long title summary (#3535) and corrects a title
 type that the branch types do not list (#4508).
-The alternatives row is due every 719 minutes by default and on a first run, and checks at most
+The alternatives row is due every 239 minutes by default and on a first run, and checks at most
 `roadmap.alternatives.first_pass_limit` items while an item has no check, else
 `roadmap.alternatives.limit` items after (#2652). Every clone tracks origin's default branch.
 

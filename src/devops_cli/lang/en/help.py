@@ -1670,7 +1670,7 @@ class RoadmapCommandHelp:
         "refine is due every roadmap.refine.interval_minutes (17 by default), on a first run, and "
         "after an intake that placed a critical fix or a P0 item; retitle is due every 61 minutes "
         "and on a first run; the alternatives check is due every "
-        "roadmap.alternatives.interval_minutes (719 by default) and on a first run, and checks "
+        "roadmap.alternatives.interval_minutes (239 by default) and on a first run, and checks "
         "at most roadmap.alternatives.first_pass_limit items while an item has no check, and "
         "roadmap.alternatives.limit items after. A row whose last round counted "
         "roadmap.<row>.backlog_threshold or more items in its queue is due every "
