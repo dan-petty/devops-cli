@@ -45,6 +45,7 @@ NEXT_JOB = "implement-example-roadmap-1-bbbbb"
 CHECKED = "implement.checked_sha"
 PUBLISHED = "implement.published_sha"
 SPEND = "implement.spend"
+RESULT = "implement.result"
 PRE_PUSH = "uv run pre-commit run --hook-stage pre-push --from-ref origin/main --to-ref HEAD"
 # Each scripted request counts 50 input tokens, so a group of two requests spends 100. With the
 # output tokens of its parts, group 1 counts 226 new tokens and the first request of group 2 153.
@@ -499,7 +500,8 @@ def test_spend_survives_kill_a_record_of_an_older_version_counts_no_tokens_for_t
     assert spend["new_tokens"] == input_tokens - CACHED - GROUP_TOKENS + output_tokens
 
 
-def test_a_return_to_new_clears_the_spend(job_world: JobWorld) -> None:
+def test_a_return_to_new_keeps_the_spend_of_the_run_for_the_report(job_world: JobWorld) -> None:
+    """The report of the Job counts the tokens of a return, and then clears the spend (#5881)."""
     premise = (
         "```plan-request\n"
         '{"kind": "premise", "group": 2, "defect": "the premise is false", '
@@ -512,10 +514,18 @@ def test_a_return_to_new_clears_the_spend(job_world: JobWorld) -> None:
     )
 
     status, record = _item(job_world)
-    assert (applied.stopped, status, record.get(SPEND)) == ((), "New", None)
+    spend = json.loads(record.get(SPEND) or "{}")
+    assert (applied.stopped, status, record.get(RESULT), spend.get("requests")) == (
+        (),
+        "New",
+        "returned",
+        3,
+    )
+    assert spend["input_tokens"] > 0
 
 
-def test_a_return_to_new_clears_the_counted_spend(job_world: JobWorld) -> None:
+def test_a_return_to_new_keeps_the_counted_spend_for_the_report(job_world: JobWorld) -> None:
+    """The report reads the new tokens as the spend less the count of the earlier Jobs (#5881)."""
     _mark(job_world, {ImplementRecordKey.SPEND_COUNTED: "100"})
     premise = (
         "```plan-request\n"
@@ -528,7 +538,7 @@ def test_a_return_to_new_clears_the_counted_spend(job_world: JobWorld) -> None:
         ModelScript(tool_calls(*group_one_calls()), say("Group 1 is done."), say(premise))
     )
 
-    assert _item(job_world)[1].get("implement.spend_counted") is None
+    assert _item(job_world)[1].get("implement.spend_counted") == "100"
 
 
 # ── watch_progress_line ───────────────────────────────────────────────────────────────────

@@ -3927,8 +3927,9 @@ class RoadmapMessages:
     )
     implement_comment_premise_defined: str = (
         "{marker}\nThe implement job returned the item to New. A task of a behavior group adds "
-        "a guard that the branch already defines, so the job ran no step and wrote no code.\n\n"
-        "Evidence:\n\n{evidence}"
+        "a guard that the branch already defines. The job checks each open behavior group "
+        "before the first step of the run, so this run made no model request and wrote no "
+        "code.\n\nEvidence:\n\n{evidence}"
     )
     premise_guard_defined: str = (
         '- The task "{task}" adds `{name}`. The branch already defines it: {line}'

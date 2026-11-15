@@ -899,22 +899,30 @@ class _ItemRun:
     def _return_premise(self, request: PlanRequest) -> None:
         self._return_to_new(MESSAGES.roadmap.implement_comment_premise_failed, request.evidence)
 
-    def _check_premise(self, group: TaskGroup) -> bool:
-        """Return the item to New, and say so, when a task of the behavior group `group` adds a guard
-        that the branch already defines (#3417). The check reads the last commit that is no `wip:`
-        commit, so the guard that an earlier attempt of this group kept is no defect of the plan. It
-        runs before the step, so a false premise costs no model request and writes no file. A group
-        of another kind adds no product guard, so it gets no check."""
-        if not group.is_behavior:
-            return False
-        evidence = false_premises(self.path, wip_base(self._git), group)
+    def _check_premise(self, groups: Sequence[TaskGroup]) -> bool:
+        """Return the item to New, and say so, when a task of an open behavior group of `groups`
+        adds a guard that the branch already defines (#3417). The run calls it once, before its
+        first step, so a false premise costs no model request and loses no group that passed in the
+        run (#5881). The check reads the last commit that is no `wip:` commit, so the guard that an
+        earlier attempt of a group kept is no defect of the plan. A group whose tasks are all ticked
+        passed in an earlier Job, and a group of another kind adds no product guard, so neither gets
+        a check."""
+        base = wip_base(self._git)
+        evidence = [
+            line
+            for group in groups
+            if group.is_behavior and not all(task.ticked for task in group.tasks)
+            for line in false_premises(self.path, base, group)
+        ]
         if not evidence:
             return False
         self._return_to_new(MESSAGES.roadmap.implement_comment_premise_defined, "\n".join(evidence))
         return True
 
     def _return_to_new(self, template: str, evidence: str) -> None:
-        """Return the item to New with a comment of `template`, and clear the record of the run."""
+        """Return the item to New with a comment of `template`, and clear the record of the run.
+        The spend stays, so the report of the Job counts the tokens of the run. The report clears
+        the spend and its count (#5881)."""
         self._withdraw()
         evidence = mask_secrets(evidence.strip())[:CONST_ROADMAP_IMPLEMENT_REASON_CHARS]
         comment = template.format(marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, evidence=evidence)
@@ -928,8 +936,7 @@ class _ItemRun:
                 ImplementRecordKey.BRANCH: None,
                 ImplementRecordKey.PR: None,
                 ImplementRecordKey.BASE: None,
-                ImplementRecordKey.SPEND: None,
-                ImplementRecordKey.SPEND_COUNTED: None,
+                ImplementRecordKey.SPEND: self._spend(),
                 ImplementRecordKey.CHECKED_SHA: None,
                 ImplementRecordKey.PUBLISHED_SHA: None,
                 ImplementRecordKey.RESULT: ImplementResult.RETURNED.value,
@@ -1141,6 +1148,7 @@ class _ItemRun:
         self.change = change.name
         tasks_file = change / "tasks.md"
         amended_groups: set[int] = set()
+        premise_checked = False
 
         while True:
             tasks_text = tasks_file.read_text(encoding="utf-8")
@@ -1152,8 +1160,10 @@ class _ItemRun:
             self._require_unclaimed(
                 MESSAGES.roadmap.implement_boundary_group.format(group=group.number)
             )
-            if self._check_premise(group):
-                return
+            if not premise_checked:
+                premise_checked = True
+                if self._check_premise(tasks):
+                    return
             self._checkpoint()
             try:
                 outcome = run_step(

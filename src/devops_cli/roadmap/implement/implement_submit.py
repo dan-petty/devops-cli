@@ -345,8 +345,14 @@ def _report(
     # The spend is the sum of all Jobs, so only the part after the count is new. A spend below the
     # count means the record started again: the whole spend is new (#4200).
     new_tokens = spend - counted if spend >= counted else spend
+    result = _attempt_result(item)
     marks: dict[ImplementRecordKey, str | None] = {ImplementRecordKey.JOB_STATE: state}
-    if spend > 0:
+    if result == ImplementResult.RETURNED.value:
+        # A return keeps the spend for this count only: the next plan of the item starts with
+        # none (#5881).
+        marks[ImplementRecordKey.SPEND] = None
+        marks[ImplementRecordKey.SPEND_COUNTED] = None
+    elif spend > 0:
         marks[ImplementRecordKey.SPEND_COUNTED] = str(spend)
     service_release(store, item.number, marks)
     if stops and failure is not None:
@@ -373,7 +379,7 @@ def _report(
         RoadmapJob.IMPLEMENT,
         repo,
         item.number,
-        _attempt_result(item),
+        result,
         failure=failure,
         counts={
             "repair_rounds": _repair_rounds(item),
