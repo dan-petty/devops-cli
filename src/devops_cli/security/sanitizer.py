@@ -68,10 +68,24 @@ def _looks_like_a_credential(value: str) -> bool:
     return any(char.isupper() for char in value[1:])
 
 
+def _has_a_token_shape(value: str) -> bool:
+    """Whether a value after a space-separated keyword reads as a token, not a name (#5240).
+
+    A name such as `devops-cli` after "Secret", or `revoke-self` after "token", carries only
+    lower-case words and hyphens. A token carries a digit, an internal capital, or a length no
+    English word reaches. The assignment forms keep the wider rule of `_mask_literal`.
+    """
+    if len(value) >= _CREDENTIAL_MIN_OPAQUE_LENGTH:
+        return True
+    if any(char.isdigit() or char == "." for char in value):
+        return True
+    return any(char.isupper() for char in value[1:])
+
+
 def _mask_credential_like_value(match: re.Match[str]) -> str:
     """Replace a keyword-prefixed value only when it looks like a credential."""
     value = match.group(1)
-    if not _looks_like_a_credential(value):
+    if not _looks_like_a_credential(value) or not _has_a_token_shape(value):
         return match.group(0)
     return match.group(0).replace(value, "<masked-token>")
 
