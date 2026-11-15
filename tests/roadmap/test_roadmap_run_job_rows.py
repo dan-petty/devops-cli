@@ -45,10 +45,10 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 run_release_comments_adapter = due_job_runner("release_comments")
 
 
-def test_the_alternatives_row_follows_refine_and_is_due_every_719_minutes_and_by_no_hint(
+def test_the_alternatives_row_follows_refine_and_is_due_every_239_minutes_and_by_no_hint(
     seeded_store: InMemoryRoadmapStore, tmp_path: Path
 ) -> None:
-    """The row is due on a first run, 719 minutes after its last success and not before, and a
+    """The row is due on a first run, 239 minutes after its last success and not before, and a
     webhook hint that makes intake due makes it due no sooner (#2652)."""
     five_minutes_ago = NOW - timedelta(minutes=5)
     recent = {
@@ -69,8 +69,8 @@ def test_the_alternatives_row_follows_refine_and_is_due_every_719_minutes_and_by
         )
 
     first = ran({POLL_KEY: 1})
-    too_soon = ran({POLL_KEY: 1}, **recent, alternatives=NOW - timedelta(minutes=718))
-    on_time = ran({POLL_KEY: 1}, **recent, alternatives=NOW - timedelta(minutes=719))
+    too_soon = ran({POLL_KEY: 1}, **recent, alternatives=NOW - timedelta(minutes=238))
+    on_time = ran({POLL_KEY: 1}, **recent, alternatives=NOW - timedelta(minutes=239))
     hinted = ran({OPENED: 1}, **recent, alternatives=NOW - timedelta(hours=2))
 
     assert (first, too_soon, on_time, hinted) == (

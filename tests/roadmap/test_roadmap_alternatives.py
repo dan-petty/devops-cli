@@ -2875,8 +2875,8 @@ def test_the_row_runs_in_a_round_and_records_its_success_until_the_interval_pass
         )
 
     first = round_at(NOW)
-    soon = round_at(NOW + timedelta(minutes=718))
-    later = round_at(NOW + timedelta(minutes=720))
+    soon = round_at(NOW + timedelta(minutes=238))
+    later = round_at(NOW + timedelta(minutes=240))
 
     assert (first, soon, later, len(store.comments_on(number))) == (
         ("alternatives",),

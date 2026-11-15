@@ -244,16 +244,16 @@ The job SHALL add 1 to the counter `devops_cli_roadmap_alternatives_total` with 
 - **WHEN** a person edits the body between the read and the write of a check
 - **THEN** the job writes no check and counts none
 
-### Requirement: The Service runs the check twice a day
-The due table of the roadmap SHALL hold the row `alternatives` in `MODEL_LANE_ROWS`, after `refine`. The row SHALL be due on a first run and every `DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES` (719) after its last success, and SHALL be due by no webhook hint. It SHALL check in a round the items that the limit of a round allows, and SHALL fail the round only when it tried items and checked none. `devops roadmap run --dry-run` SHALL list the row when it is due.
+### Requirement: The Service runs the check six times a day
+The due table of the roadmap SHALL hold the row `alternatives` in `MODEL_LANE_ROWS`, after `refine`. The row SHALL be due on a first run and every `DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES` (239) after its last success, and SHALL be due by no webhook hint. It SHALL check in a round the items that the limit of a round allows, and SHALL fail the round only when it tried items and checked none. `devops roadmap run --dry-run` SHALL list the row when it is due.
 
 #### Scenario: A first run
 - **WHEN** a round runs on a roadmap whose `schedule.json` holds no success of the row
 - **THEN** the row runs once, after `refine`, with the job's plan and apply functions
 
-#### Scenario: Twice a day
+#### Scenario: Six times a day
 - **WHEN** the row succeeded 2 hours ago and a round runs
-- **THEN** the row does not run, and when the row succeeded 13 hours ago it runs
+- **THEN** the row does not run, and when the row succeeded 5 hours ago it runs
 
 #### Scenario: A webhook hint
 - **WHEN** a round runs with a webhook hint that makes intake due and the row succeeded 2 hours ago
