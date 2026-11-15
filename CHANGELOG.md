@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.149.0](https://github.com/dan-petty/devops-cli/compare/v0.148.0...v0.149.0) (2026-11-15)
+
+
+### Features
+
+* **ai:** Add devops ai agent-audit for repeated failures ([#5748](https://github.com/dan-petty/devops-cli/issues/5748)) ([fb2926f](https://github.com/dan-petty/devops-cli/commit/fb2926f41afbcb42cdbaf82d3a5d808de2088dad))
+* **roadmap:** the phase of each item drives the stuck-item alert ([#5782](https://github.com/dan-petty/devops-cli/issues/5782)) ([5f2466b](https://github.com/dan-petty/devops-cli/commit/5f2466ba746a711b1d9e10f86f2f8324cd1ab77e))
+
+
+### Bug Fixes
+
+* **security:** add MCP server Trivy ignore for kubectl CVE-2026-78661 ([#5785](https://github.com/dan-petty/devops-cli/issues/5785)) ([8e4d6e2](https://github.com/dan-petty/devops-cli/commit/8e4d6e2718a431f23aa53dfc77e0a405e05c5667))
+
 ## [0.148.0](https://github.com/dan-petty/devops-cli/compare/v0.147.2...v0.148.0) (2026-11-15)
 
 
