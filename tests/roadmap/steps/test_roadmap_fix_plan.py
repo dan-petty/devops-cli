@@ -35,9 +35,11 @@ from devops_cli.roadmap.stores.store import (
     FixPlanRecordKey,
     ImplementRecordKey,
     ItemField,
+    StageRecordKey,
 )
 from devops_cli.telemetry.instruments import ROADMAP_FIX_PLAN_TOTAL
 from tests.support.builders import make_stage_proposal
+from tests.support.fakes.github import github_json
 from tests.support.fakes.model import ModelFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.paths import FIXTURES
@@ -48,6 +50,7 @@ from tests.support.roadmap_fix_plan import (
     PLAN_PATH,
     REPAIRED_WHY,
     SAMPLE_QUOTE,
+    PlanPull,
     finding,
     head_files,
     needs_fix_plan,
@@ -1362,3 +1365,153 @@ def test_the_replay_of_a_head_that_the_reader_refused_reads_and_reviews(
     assert run.attempt.comment == listed
     assert run.attempt.result.value not in {"failed", "unreadable"}
     assert verifier.call_count == 1
+
+
+def _push_plan_to_branch(
+    repo: StageRepo,
+    branch: str,
+    number: int,
+    change_slug: str = "fake-plan",
+) -> str:
+    repo.git("switch", "-q", "-c", branch)
+    change_folder = f"openspec/changes/{number}-{change_slug}"
+    proposal_text = f"# Proposal: #{number}\n\n## Why\nTest.\n"
+    (repo.clone / change_folder).mkdir(parents=True, exist_ok=True)
+    (repo.clone / change_folder / "proposal.md").write_text(proposal_text, encoding="utf-8")
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "-m", f"feat(roadmap): plan #{number}", "-m", f"Plans #{number}.")
+    repo.git("push", "-q", "origin", branch)
+    head = repo.git("rev-parse", "HEAD")
+    repo.git("switch", "-q", "main")
+    repo.git("branch", "-q", "-D", branch)
+    return head
+
+
+def _route_pull(
+    api: GitHubApiFake,
+    pull: int,
+    head: str,
+    branch: str,
+    number: int,
+    *,
+    labels: tuple[str, ...] = (PLAN_NEEDS_FIX_LABEL,),
+    draft: bool = True,
+) -> None:
+    payload = {
+        "number": pull,
+        "state": "open",
+        "draft": draft,
+        "merged": False,
+        "title": f"feat(roadmap): plan #{number}",
+        "body": f"Plans #{number}.",
+        "head": {"sha": head, "ref": branch},
+        "base": {"ref": "main", "repo": {"default_branch": "main"}},
+        "labels": [{"name": name} for name in labels],
+    }
+    path = f"/repos/{STAGE_REPO}/pulls/{pull}"
+    api.route("GET", path, github_json(payload))
+    api.route("PATCH", path, github_json(payload))
+
+
+def _seed_fix_plan(
+    store: InMemoryRoadmapStore,
+    repo: StageRepo,
+    api: GitHubApiFake,
+    slug: str = "fake-plan",
+    *,
+    author: str | None = None,
+) -> PlanPull:
+    number = store.seed_issue(
+        f"feat(roadmap): plan for {slug}",
+        body=f"Body for {slug}.",
+        labels=("type/feature",),
+        fields={ItemField.STATUS: "Ready", ItemField.PRIORITY: "P1-High"},
+    )
+    branch = f"feat/{number}-{slug}"
+    pull = store.seed_pull(f"Plan {branch}", head_ref=branch, draft=True)
+    store.label_issue(pull, PLAN_NEEDS_FIX_LABEL)
+    item = store.item(number)
+    assert item is not None
+    store.set_marks(
+        item,
+        {StageRecordKey.BRANCH: branch, StageRecordKey.PR: str(pull)},
+    )
+    head = _push_plan_to_branch(repo, branch, number)
+    if author is not None:
+        repo.push_branch(branch, author=author)
+        head = repo.origin_git("rev-parse", branch)
+    _route_pull(api, pull, head, branch, number)
+    return PlanPull(number, pull, head)
+
+
+def test_plan_mode_logs_the_selection_and_each_left_out_plan(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    verifier: ModelFake,
+    github_api: GitHubApiFake,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """In mode plan, the row judges each candidate: logs 1 selection line and 2 left-out lines."""
+    plan1 = _seed_fix_plan(store, stage_repo, github_api, "plan-1")
+    plan2 = _seed_fix_plan(store, stage_repo, github_api, "plan-2")
+    plan3 = _seed_fix_plan(store, stage_repo, github_api, "plan-3")
+
+    with caplog.at_level(logging.INFO):
+        run = run_fix_plan(
+            store,
+            repo=STAGE_REPO,
+            source=stage_repo.clone,
+            confirm=False,
+            verifier=ToolboxModel(verifier),
+        )
+
+    assert run.target is not None
+    assert run.target.item.number == plan1.number
+    assert [left.number for left in run.left_out] == [plan2.number, plan3.number]
+    assert verifier.call_count == 0
+
+    info_messages = [r.message for r in caplog.records if r.levelno == logging.INFO]
+    selected_lines = [
+        msg for msg in info_messages if "starts no attempt" in msg and f"#{plan1.pull}" in msg
+    ]
+    assert len(selected_lines) == 1
+    left_lines = [msg for msg in info_messages if "fix_plan left out:" in msg]
+    assert len(left_lines) == 2
+    assert any(f"#{plan2.number}" in msg for msg in left_lines)
+    assert any(f"#{plan3.number}" in msg for msg in left_lines)
+
+
+def test_a_branch_stop_selects_the_next_plan_in_the_same_round(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    verifier: ModelFake,
+    github_api: GitHubApiFake,
+) -> None:
+    """A branch stop on the first item leaves it out, and the step selects the second item."""
+    plan1 = _seed_fix_plan(store, stage_repo, github_api, "plan-1", author="Person")
+    plan2 = _seed_fix_plan(store, stage_repo, github_api, "plan-2")
+
+    run = _run(store, stage_repo, verifier, confirm=False)
+
+    assert run.target is not None
+    assert run.target.item.number == plan2.number
+    assert [left.number for left in run.left_out] == [plan1.number]
+
+
+def test_a_branch_stop_logs_a_warning(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    verifier: ModelFake,
+    github_api: GitHubApiFake,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A branch stop logs a warning with the reason."""
+    plan1 = _seed_fix_plan(store, stage_repo, github_api, "plan-1", author="Person")
+
+    with caplog.at_level(logging.WARNING):
+        run = _run(store, stage_repo, verifier, confirm=False)
+
+    assert run.target is None
+    assert [left.number for left in run.left_out] == [plan1.number]
+    warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("another author" in msg and f"#{plan1.pull}" in msg for msg in warning_messages)

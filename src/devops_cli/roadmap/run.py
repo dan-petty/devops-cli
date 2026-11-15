@@ -809,6 +809,7 @@ def _run_fix_plan_adapter(
         confirm=acts,
         model=ToolboxModel(get_task_model("stage")) if acts else None,
         verifier=ToolboxModel(get_task_model("verification")) if acts else None,
+        mode=mode,
     )
     return JobOutcome(queue=len(store.labelled_pulls(PLAN_NEEDS_FIX_LABEL)))
 
