@@ -45,7 +45,7 @@ Kind: other. Reads: `k8s/README.md`, `docs/CLUSTER.md`. Changes: `k8s/README.md`
 
 Kind: other. Reads: `src/devops_cli/telemetry/instruments.py`, `tests/telemetry/test_telemetry_instruments.py`. Changes: `src/devops_cli/telemetry/instruments.py`.
 
-- [ ] 6.1 Add one sentence to the module docstring of `src/devops_cli/telemetry/instruments.py`: the series that the Service serves on its `/metrics` route, such as `devops_cli_service_kept_work_total` with the labels `repo`, `class` and `outcome`, are declared in the config constants and are no instrument of this module. Change no behavior and no other line
+- [x] 6.1 Add one sentence to the module docstring of `src/devops_cli/telemetry/instruments.py`: the series that the Service serves on its `/metrics` route, such as `devops_cli_service_kept_work_total` with the labels `repo`, `class` and `outcome`, are declared in the config constants and are no instrument of this module. Change no behavior and no other line
   - Verification: `$ uv run devops ci test tests/telemetry/test_telemetry_instruments.py` passes
 
 ## Criteria
