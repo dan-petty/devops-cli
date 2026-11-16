@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.160.0](https://github.com/dan-petty/devops-cli/compare/v0.159.0...v0.160.0) (2026-11-16)
+
+
+### Features
+
+* **roadmap:** add toolset comparison to the stage eval ([#5786](https://github.com/dan-petty/devops-cli/issues/5786)) ([27b6d39](https://github.com/dan-petty/devops-cli/commit/27b6d39d3b50f5f6c524b2c945a7fb1a5b5027f5))
+* **roadmap:** fix simple stage gate problems with no model call ([#5902](https://github.com/dan-petty/devops-cli/issues/5902)) ([7d0b38d](https://github.com/dan-petty/devops-cli/commit/7d0b38dcc50b05d0aa17055c630163707ebe9c2e))
+* **roadmap:** Give each attempt its own strategy ([#5898](https://github.com/dan-petty/devops-cli/issues/5898)) ([a4390b2](https://github.com/dan-petty/devops-cli/commit/a4390b29c9d2f623e6d7f172ade3402ebafb8472))
+* **roadmap:** name the test module for a changed function ([#5912](https://github.com/dan-petty/devops-cli/issues/5912)) ([7bd61b3](https://github.com/dan-petty/devops-cli/commit/7bd61b3adbf5fdfb03164253c29d0a39b1257951))
+* **roadmap:** one watch row for plan and delivery PRs ([#5906](https://github.com/dan-petty/devops-cli/issues/5906)) ([85b15fa](https://github.com/dan-petty/devops-cli/commit/85b15fa71f3a39a7caf505e02bc53b692364eec1)), closes [#5024](https://github.com/dan-petty/devops-cli/issues/5024)
+* **roadmap:** rebase staged branch onto main before implement ([#5921](https://github.com/dan-petty/devops-cli/issues/5921)) ([42fbc79](https://github.com/dan-petty/devops-cli/commit/42fbc79e11e694e9814aee8ef7af7c74e92df5dc))
+
+
+### Bug Fixes
+
+* **k8s:** the config template holds the job limits ([#5913](https://github.com/dan-petty/devops-cli/issues/5913)) ([c1f3259](https://github.com/dan-petty/devops-cli/commit/c1f3259518927579d93cbf222dc9005ef5b00d21)), closes [#5583](https://github.com/dan-petty/devops-cli/issues/5583)
+* **roadmap:** each job reads a model setting of its own ([#5909](https://github.com/dan-petty/devops-cli/issues/5909)) ([11390b4](https://github.com/dan-petty/devops-cli/commit/11390b488a870890a57fb6a5093aaea03ec58820))
+* **roadmap:** Measure and bound the repair return request ([#5883](https://github.com/dan-petty/devops-cli/issues/5883)) ([c5b21a3](https://github.com/dan-petty/devops-cli/commit/c5b21a3719a6a1ce7cd642e96affa5fbb7c86c70))
+* **roadmap:** return unbuildable premise items during stage ([#5917](https://github.com/dan-petty/devops-cli/issues/5917)) ([0a7e45c](https://github.com/dan-petty/devops-cli/commit/0a7e45c4567fe573b0f2d5e22eeffb4e6e3ffa5a))
+* **tests:** deselect only tests that carry k8s marker ([#5915](https://github.com/dan-petty/devops-cli/issues/5915)) ([e6904f5](https://github.com/dan-petty/devops-cli/commit/e6904f5766fa85a9d060a51cd8b7170a25b13bfa)), closes [#5910](https://github.com/dan-petty/devops-cli/issues/5910)
+
+
+### Performance Improvements
+
+* **cli:** Cut the shared import cost of a CLI start ([#5890](https://github.com/dan-petty/devops-cli/issues/5890)) ([836cec5](https://github.com/dan-petty/devops-cli/commit/836cec5ea2679a85e051a2b46525ca3375f81f1d))
+
 ## [0.159.0](https://github.com/dan-petty/devops-cli/compare/v0.158.0...v0.159.0) (2026-11-15)
 
 
