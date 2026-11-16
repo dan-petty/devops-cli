@@ -1,0 +1,114 @@
+# Cases of the spend panels of k8s/devops/dashboards/ai-spend.json, which
+# tests/prometheus/test_dashboard_queries.py evaluates with promtool (#4724). The test module tells
+# the format, and docs/TESTING.md tells how to add a case.
+#
+# A call through the gateway adds to the gateway's spend counter `litellm_spend_metric_total`.
+# devops-cli also counts its own gateway calls, in `devops_cli_ai_spend_usd_total` with
+# `provider="gateway"`, and its calls that did not go through the gateway, with another provider.
+# The spend panels add the gateway counter and the direct calls, so they count no gateway call twice.
+tests:
+  # Each 15 min for 8 days, the gateway adds $0.25 for a hosted model and $0 for a local model:
+  # $1 each hour. devops-cli sends $0.1875 of its gateway calls each 15 min ($0.75 each hour, 75 %
+  # of the gateway spend: the rest of its telemetry did not arrive) and $0.0625 of direct calls
+  # ($0.25 each hour).
+  - name: the gateway counts its spend and devops-cli sends its direct spend each 15 min
+    shape: sparse_counter
+    interval: 15m
+    input_series:
+      - series: 'litellm_spend_metric_total{job="llm-gateway", api_provider="openrouter", model="deepseek/deepseek-v4.1-flash-1017:floor", requested_model="deepseek-v4.1-flash-1017"}'
+        values: '0+0.25x768'
+      - series: 'litellm_spend_metric_total{job="llm-gateway", api_provider="ollama_chat", model="qwen3.8:27b", requested_model="local/qwen3.8:27b"}'
+        values: '0+0x768'
+      - series: 'devops_cli_ai_spend_usd_total{job="roadmap-service", provider="gateway", server="llm-gateway", backend="llm-gateway", model="deepseek-v4.1-flash-1017"}'
+        values: '0+0.1875x768'
+      - series: 'devops_cli_ai_spend_usd_total{job="devops-cli", provider="openai", server="example.com", backend="openai", model="gpt-4o"}'
+        values: '0+0.0625x768'
+    promql_expr_test:
+      # 24 h of the gateway ($24) and of the direct calls ($6). devops-cli's own count of its
+      # gateway calls ($18) is not added.
+      - panel: Cloud Spend in Range
+        ref_id: A
+        variables: {__range: 24h}
+        expr: '(sum(increase(litellm_spend_metric_total[$__range])) or vector(0)) + (sum(increase(devops_cli_ai_spend_usd_total{provider!="gateway"}[$__range])) or vector(0))'
+        eval_time: 192h
+        exp_samples:
+          - labels: '{}'
+            value: 30
+      # The last 7 days hold $168 of the gateway and $42 of direct calls: $30 each day, so $900
+      # for 30 days. The projection is the same for a range of 6 h and of 7 d. The values are
+      # as promtool gives them, with the float error of the rate.
+      - panel: Projected 30-Day Run Rate
+        ref_id: A
+        variables: {__range: 6h}
+        expr: '((sum(rate(litellm_spend_metric_total[7d])) or vector(0)) + (sum(rate(devops_cli_ai_spend_usd_total{provider!="gateway"}[7d])) or vector(0))) * 86400 * 30'
+        eval_time: 192h
+        exp_samples:
+          - labels: '{}'
+            value: 900.0000000000002
+      - panel: Projected 30-Day Run Rate
+        ref_id: A
+        variables: {__range: 7d}
+        expr: '((sum(rate(litellm_spend_metric_total[7d])) or vector(0)) + (sum(rate(devops_cli_ai_spend_usd_total{provider!="gateway"}[7d])) or vector(0))) * 86400 * 30'
+        eval_time: 192h
+        exp_samples:
+          - labels: '{}'
+            value: 900.0000000000002
+      - panel: Projected 90-Day Run Rate
+        ref_id: A
+        variables: {__range: 24h}
+        expr: '((sum(rate(litellm_spend_metric_total[7d])) or vector(0)) + (sum(rate(devops_cli_ai_spend_usd_total{provider!="gateway"}[7d])) or vector(0))) * 86400 * 90'
+        eval_time: 192h
+        exp_samples:
+          - labels: '{}'
+            value: 2700.0000000000005
+      - panel: Projected 1-Year Run Rate
+        ref_id: A
+        variables: {__range: 24h}
+        expr: '((sum(rate(litellm_spend_metric_total[7d])) or vector(0)) + (sum(rate(devops_cli_ai_spend_usd_total{provider!="gateway"}[7d])) or vector(0))) * 86400 * 365'
+        eval_time: 192h
+        exp_samples:
+          - labels: '{}'
+            value: 10950.000000000002
+      # 24 hourly bars of $1.25 add up to the spend of the range.
+      - panel: 'Spend: USD per hour'
+        ref_id: A
+        variables: {__interval: 1h}
+        expr: 'sum(increase(litellm_spend_metric_total[$__interval]) or increase(devops_cli_ai_spend_usd_total{provider!="gateway"}[$__interval]))'
+        bars: 24h
+        total: 30
+        eval_time: 192h
+        exp_samples:
+          - labels: '{}'
+            value: 30
+      # The gateway bars of the hosted model add up to $24. The local model spent $0, so it has
+      # no bar and no legend entry.
+      - panel: 'Spend by model: USD per hour'
+        ref_id: A
+        variables: {__interval: 1h}
+        expr: 'sum by (model, api_provider) (increase(litellm_spend_metric_total[$__interval])) > 0'
+        bars: 24h
+        total: 24
+        eval_time: 192h
+        exp_samples:
+          - labels: '{api_provider="openrouter", model="deepseek/deepseek-v4.1-flash-1017:floor"}'
+            value: 24
+      # The bars of the direct calls add up to $6, and devops-cli's gateway calls have no bar.
+      - panel: 'Spend by model: USD per hour'
+        ref_id: B
+        variables: {__interval: 1h}
+        expr: 'sum by (model, provider) (increase(devops_cli_ai_spend_usd_total{provider!="gateway"}[$__interval])) > 0'
+        bars: 24h
+        total: 6
+        eval_time: 192h
+        exp_samples:
+          - labels: '{model="gpt-4o", provider="openai"}'
+            value: 6
+      # devops-cli counted $18 of the $24 that the gateway counted.
+      - panel: devops-cli Coverage of Gateway Spend
+        ref_id: A
+        variables: {__range: 24h}
+        expr: 'sum(increase(devops_cli_ai_spend_usd_total{provider="gateway"}[$__range])) / sum(increase(litellm_spend_metric_total[$__range]))'
+        eval_time: 192h
+        exp_samples:
+          - labels: '{}'
+            value: 0.75

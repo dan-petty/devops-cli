@@ -966,8 +966,16 @@ def _zero_fallback(query: str) -> str:
 
 def test_every_spend_query_shows_zero_when_no_spend_series_matches() -> None:
     """Verify each query of the spend counter falls back to 0, so a dashboard shows $0, not
-    "No data", which a broken pipeline also shows (#1631)."""
-    spend_queries = [q for q in _all_queries() if "devops_cli_ai_spend_usd_total" in q]
+    "No data", which a broken pipeline also shows (#1631). The AI spend dashboard takes the spend
+    of a gateway call from the gateway's counter, and
+    tests/prometheus/test_k8s_monitoring_dashboards.py checks its fallbacks (#4724)."""
+    spend_queries = [
+        query
+        for dashboard in _devops_cli_dashboards()
+        if dashboard.name not in _GATEWAY_SERIES_DASHBOARDS
+        for query in _queries(dashboard)
+        if "devops_cli_ai_spend_usd_total" in query
+    ]
 
     assert (
         len(spend_queries) > 0,

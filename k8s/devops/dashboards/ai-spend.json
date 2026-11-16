@@ -26,7 +26,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "LLM spend over the dashboard's time range. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "LLM spend over the dashboard's time range. A call through the gateway comes from the gateway's spend counter `litellm_spend_metric_total`, which Prometheus scrapes each 15 s and which counts every caller of the gateway. A call that did not go through the gateway comes from devops-cli's `devops_cli_ai_spend_usd_total{provider!=\"gateway\"}` (#4724). The direct part is approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -72,7 +72,7 @@
           "values": false
         }
       },
-      "title": "Direct Cloud Spend in Range",
+      "title": "Cloud Spend in Range",
       "type": "stat",
       "targets": [
         {
@@ -80,7 +80,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(devops_cli_ai_spend_usd_total[$__range])) or vector(0)",
+          "expr": "(sum(increase(litellm_spend_metric_total[$__range])) or vector(0)) + (sum(increase(devops_cli_ai_spend_usd_total{provider!=\"gateway\"}[$__range])) or vector(0))",
           "instant": true,
           "legendFormat": "Spend USD",
           "refId": "A"
@@ -336,9 +336,9 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(devops_cli_ai_spend_usd_total[$__range])) * 86400 * 30 or vector(0)",
+          "expr": "((sum(rate(litellm_spend_metric_total[7d])) or vector(0)) + (sum(rate(devops_cli_ai_spend_usd_total{provider!=\"gateway\"}[7d])) or vector(0))) * 86400 * 30",
           "instant": true,
-          "legendFormat": "Projected Spend (30d)",
+          "legendFormat": "Projected Spend (30d, from the last 7d)",
           "refId": "A"
         },
         {
@@ -351,7 +351,8 @@
           "legendFormat": "Projected Savings (30d)",
           "refId": "B"
         }
-      ]
+      ],
+      "description": "Spend: the spend of the last 7 days, as a rate, for 30 days. The value does not change with the time range of the dashboard. A call through the gateway comes from the gateway's spend counter `litellm_spend_metric_total`, which Prometheus scrapes each 15 s and which counts every caller of the gateway. A call that did not go through the gateway comes from devops-cli's `devops_cli_ai_spend_usd_total{provider!=\"gateway\"}` (#4724). Savings: the local savings of the time range of the dashboard, as a rate, for 30 days."
     },
     {
       "datasource": {
@@ -394,9 +395,9 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(devops_cli_ai_spend_usd_total[$__range])) * 86400 * 90 or vector(0)",
+          "expr": "((sum(rate(litellm_spend_metric_total[7d])) or vector(0)) + (sum(rate(devops_cli_ai_spend_usd_total{provider!=\"gateway\"}[7d])) or vector(0))) * 86400 * 90",
           "instant": true,
-          "legendFormat": "Projected Spend (90d)",
+          "legendFormat": "Projected Spend (90d, from the last 7d)",
           "refId": "A"
         },
         {
@@ -409,7 +410,8 @@
           "legendFormat": "Projected Savings (90d)",
           "refId": "B"
         }
-      ]
+      ],
+      "description": "Spend: the spend of the last 7 days, as a rate, for 90 days. The value does not change with the time range of the dashboard. A call through the gateway comes from the gateway's spend counter `litellm_spend_metric_total`, which Prometheus scrapes each 15 s and which counts every caller of the gateway. A call that did not go through the gateway comes from devops-cli's `devops_cli_ai_spend_usd_total{provider!=\"gateway\"}` (#4724). Savings: the local savings of the time range of the dashboard, as a rate, for 90 days."
     },
     {
       "datasource": {
@@ -452,9 +454,9 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(devops_cli_ai_spend_usd_total[$__range])) * 86400 * 365 or vector(0)",
+          "expr": "((sum(rate(litellm_spend_metric_total[7d])) or vector(0)) + (sum(rate(devops_cli_ai_spend_usd_total{provider!=\"gateway\"}[7d])) or vector(0))) * 86400 * 365",
           "instant": true,
-          "legendFormat": "Projected Spend (1y)",
+          "legendFormat": "Projected Spend (1y, from the last 7d)",
           "refId": "A"
         },
         {
@@ -467,7 +469,8 @@
           "legendFormat": "Projected Savings (1y)",
           "refId": "B"
         }
-      ]
+      ],
+      "description": "Spend: the spend of the last 7 days, as a rate, for 365 days. The value does not change with the time range of the dashboard. A call through the gateway comes from the gateway's spend counter `litellm_spend_metric_total`, which Prometheus scrapes each 15 s and which counts every caller of the gateway. A call that did not go through the gateway comes from devops-cli's `devops_cli_ai_spend_usd_total{provider!=\"gateway\"}` (#4724). Savings: the local savings of the time range of the dashboard, as a rate, for 365 days."
     },
     {
       "collapsed": false,
@@ -493,11 +496,18 @@
           },
           "custom": {
             "axisCenteredZero": false,
-            "drawStyle": "line",
-            "lineInterpolation": "smooth"
+            "axisLabel": "USD per hour",
+            "drawStyle": "bars",
+            "fillOpacity": 50,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "showPoints": "never",
+            "barAlignment": -1
           },
+          "min": 0,
           "unit": "currencyUSD"
-        }
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -512,7 +522,7 @@
           "placement": "bottom"
         }
       },
-      "title": "AI Spend Rate ($/hour)",
+      "title": "Spend: USD per hour",
       "type": "timeseries",
       "targets": [
         {
@@ -520,27 +530,20 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(devops_cli_ai_spend_usd_total[5m])) * 3600 or vector(0)",
-          "legendFormat": "Spend Rate ($/hr)",
+          "expr": "sum(increase(litellm_spend_metric_total[$__interval]) or increase(devops_cli_ai_spend_usd_total{provider!=\"gateway\"}[$__interval]))",
+          "legendFormat": "spend",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum(rate(devops_cli_ai_spend_usd_total[1h])) * 3600 or vector(0)",
-          "legendFormat": "Spend Rate Rolling Avg (1h)",
-          "refId": "B"
         }
-      ]
+      ],
+      "description": "The LLM spend in each hour. Each bar is the hour before its time (Min interval 1h), and the bars of a range add up to Cloud Spend in Range. A call through the gateway comes from the gateway's spend counter `litellm_spend_metric_total`, which Prometheus scrapes each 15 s and which counts every caller of the gateway. A call that did not go through the gateway comes from devops-cli's `devops_cli_ai_spend_usd_total{provider!=\"gateway\"}` (#4724). The direct part is approximate: increase() needs two samples of a series inside its window, and delta points from one process can arrive out of order (#792), so a count can come out low.",
+      "interval": "1h"
     },
     {
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "LLM spend per hour, by backend, server and provider. A backend that served requests at no cost shows $0. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "The LLM spend in each hour, by model. Each bar is the hour before its time (Min interval 1h), and the bars of one hour stack to the bar of Spend: USD per hour. A call through the gateway comes from the gateway's spend counter `litellm_spend_metric_total`, by its deployment model and `api_provider`. A call that did not go through the gateway comes from devops-cli's `devops_cli_ai_spend_usd_total{provider!=\"gateway\"}`, by model and provider (#4724). A model with no spend in an hour has no bar, so a local model shows no bar. The direct part is approximate: increase() needs two samples of a series inside its window, and delta points from one process can arrive out of order (#792), so a count can come out low.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -548,10 +551,22 @@
           },
           "custom": {
             "axisCenteredZero": false,
-            "drawStyle": "bars"
+            "axisLabel": "USD per hour",
+            "drawStyle": "bars",
+            "fillOpacity": 50,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "showPoints": "never",
+            "barAlignment": -1,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
           },
+          "min": 0,
           "unit": "currencyUSD"
-        }
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -566,7 +581,7 @@
           "placement": "bottom"
         }
       },
-      "title": "Spend per Hour by Backend Server",
+      "title": "Spend by model: USD per hour",
       "type": "timeseries",
       "targets": [
         {
@@ -574,8 +589,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (server, backend, provider) (increase(devops_cli_ai_spend_usd_total[1h])) or sum by (server, backend, provider) (increase(devops_cli_ai_requests_total{cached=\"false\"}[1h])) * 0",
-          "legendFormat": "{{backend}} via {{server}} ({{provider}})",
+          "expr": "sum by (model, api_provider) (increase(litellm_spend_metric_total[$__interval])) > 0",
+          "legendFormat": "{{model}} ({{api_provider}})",
           "refId": "A"
         },
         {
@@ -583,11 +598,12 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(devops_cli_ai_spend_usd_total[6h])) * 3600 or vector(0)",
-          "legendFormat": "Total Rolling Avg (6h)",
+          "expr": "sum by (model, provider) (increase(devops_cli_ai_spend_usd_total{provider!=\"gateway\"}[$__interval])) > 0",
+          "legendFormat": "{{model}} ({{provider}})",
           "refId": "B"
         }
-      ]
+      ],
+      "interval": "1h"
     },
     {
       "collapsed": false,
@@ -1098,15 +1114,31 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "devops-cli's own count of its gateway calls that got a reply, as a share of all the gateway's replied chat and embedding requests over the dashboard's time range. The rest came from other callers, or from devops-cli calls whose telemetry did not arrive; Gateway Requests and Tokens by Caller tells them apart (#1668). Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall on either side of the ratio, so a share can come out high or low.",
+      "description": "devops-cli's own spend of its gateway calls (`devops_cli_ai_spend_usd_total{provider=\"gateway\"}`), as a share of the spend that the gateway counts (`litellm_spend_metric_total`) over the dashboard's time range (#4724). A value under 95 % or over 105 % shows red. The rest is gateway spend whose devops-cli telemetry did not arrive, or spend of other callers; Gateway Requests and Tokens by Caller tells the callers apart. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The spend lost can fall on either side of the ratio, so a share can come out high or low.",
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "thresholds"
           },
           "decimals": 1,
-          "max": 1,
           "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "text",
+                "value": 0.95
+              },
+              {
+                "color": "red",
+                "value": 1.05
+              }
+            ]
+          },
           "unit": "percentunit"
         }
       },
@@ -1130,7 +1162,7 @@
           "values": false
         }
       },
-      "title": "devops-cli Coverage of Gateway Requests",
+      "title": "devops-cli Coverage of Gateway Spend",
       "type": "stat",
       "targets": [
         {
@@ -1138,7 +1170,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(devops_cli_ai_requests_total{provider=\"gateway\", cached=\"false\"}[$__range])) / sum(increase(litellm_proxy_total_requests_metric_total{route=~\"/v1/(chat/completions|embeddings)\", status_code=~\"2..\"}[$__range]))",
+          "expr": "sum(increase(devops_cli_ai_spend_usd_total{provider=\"gateway\"}[$__range])) / sum(increase(litellm_spend_metric_total[$__range]))",
           "instant": true,
           "legendFormat": "Coverage",
           "refId": "A"
