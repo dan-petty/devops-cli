@@ -1641,7 +1641,7 @@ class RoadmapCommandHelp:
         "ceiling. "
         "It matches each finding to one labeled defect of the same type. It stores the report as "
         "JSON under the data directory and writes it again when each case ends, so a stopped run "
-        "keeps the cases that ended. It calls the model of the verification task through the "
+        "keeps the cases that ended. It calls the model of the task stage_review through the "
         "gateway, one agent run per case, with one request for each model reply. It leaves out "
         "a case that holds no commit and names it in the report. A change of the model or of "
         "the prompt states this score."

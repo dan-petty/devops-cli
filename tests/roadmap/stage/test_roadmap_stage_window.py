@@ -307,7 +307,7 @@ def test_a_repair_return_request_of_a_large_plan_leaves_room_for_the_tools(
     monkeypatch.setattr(
         stage,
         "task_window",
-        lambda task: CONFIGURED_WINDOW if task == "verification" else WINDOW,
+        lambda task: CONFIGURED_WINDOW if task == "stage_review" else WINDOW,
     )
     seed_stageable(store)
     earlier = _long_plan()

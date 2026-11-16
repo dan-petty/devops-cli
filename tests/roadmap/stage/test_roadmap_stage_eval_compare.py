@@ -327,7 +327,7 @@ def test_the_verification_column_shows_not_run_without_a_pass(
     monkeypatch.setattr(
         factory,
         "get_task_model",
-        lambda name, *, settings=None: review.model() if name == "verification" else plan.model(),
+        lambda name, *, settings=None: review.model() if name == "stage_review" else plan.model(),
     )
     folder = _live_set(tmp_path, stage_repo, cases)
     common = (
