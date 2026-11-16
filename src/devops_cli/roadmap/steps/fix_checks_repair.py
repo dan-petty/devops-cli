@@ -8,9 +8,10 @@ The command `devops roadmap step fix-checks --confirm` gives the step `job_repai
   the new commits to the head branch with a lease on the judged head, so it never overwrites a push
   of another writer. The worktree and its local branch go when the round ends.
 - Tier 1, with no model: for a lint failure, `ruff check --fix` and `ruff format` on the Python
-  files that the pull request changes (a toolchain with the ruff gates), `devops docs generate` (a
-  toolchain with the docs step), and `uv lock` when the log names `uv.lock`. It commits the
-  tracked files that the fixers changed.
+  files that the pull request changes (a toolchain with the ruff gates); for a lint or a docs
+  failure, `devops docs generate` (a toolchain with the docs step); and for a lockfile failure,
+  `uv lock`. A docs or a lockfile failure starts tier 1 in a check of any class (#5983). It commits
+  the tracked files that the fixers changed.
 - Tier 2: the fix step of the implement job (`run_fix_step`) on the model of the task
   `ai.tasks.fix_checks`, with no ladder, the hooks and the recorded tests of the default branch,
   and the cap `roadmap.fix_checks.token_budget` of new tokens.
@@ -36,7 +37,6 @@ from devops_cli.git.worktree_add import add_worktree
 from devops_cli.github.client import PullStatus
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.clone_git import default_branch, git
-from devops_cli.roadmap.failure import FailureClass, FailureEvidence, classify_failure
 from devops_cli.roadmap.implement.git_isolation import OriginGit, origin_url
 from devops_cli.roadmap.implement.implement_hooks import install_hook_environments, trusted_config
 from devops_cli.roadmap.implement.implement_limits import TokenCap
@@ -49,7 +49,14 @@ from devops_cli.roadmap.implement.implement_step import (
 from devops_cli.roadmap.plan_read import PlanReadError, merged_recorded_tests
 from devops_cli.roadmap.project_profile import resolve_profile
 from devops_cli.roadmap.run import model_clone
-from devops_cli.roadmap.steps.fix_checks import Fixed, Fixer, PullCheckout, Repair
+from devops_cli.roadmap.steps.fix_checks import (
+    Fixed,
+    Fixer,
+    PullCheckout,
+    Repair,
+    Tier1Causes,
+    tier1_causes,
+)
 from devops_cli.roadmap.toolchains import ToolchainPreset
 
 logger = logging.getLogger(__name__)
@@ -142,21 +149,23 @@ def _changed_python_files(path: Path, base: str) -> list[str]:
 
 @dataclass(frozen=True)
 class Tier1Commands:
-    """The fixers of tier 1 for a lint failure, and the checks that run again after their commit."""
+    """The fixers of tier 1 for the causes of a failure, and the checks that run again after their
+    commit."""
 
     fixes: tuple[tuple[str, ...], ...]
     checks: tuple[tuple[str, ...], ...]
 
 
 def tier1_commands(
-    path: Path, preset: ToolchainPreset, files: Sequence[str], log: str
+    path: Path, preset: ToolchainPreset, files: Sequence[str], causes: Tier1Causes
 ) -> Tier1Commands:
-    """The fixers of tier 1 for a lint failure in the checkout `path`, and their checks: ruff on the
-    changed Python files for a toolchain with the ruff gates, the documents for a toolchain with
-    the docs step, and the lock file when the log names it."""
+    """The fixers of tier 1 for `causes` in the checkout `path`, and their checks: for a lint
+    failure, ruff on the changed Python files for a toolchain with the ruff gates; for a lint or a
+    docs failure, the documents for a toolchain with the docs step; and for a lockfile failure, the
+    lock file."""
     fixes: list[tuple[str, ...]] = []
     checks: list[tuple[str, ...]] = []
-    if preset.step_gates == _RUFF_GATES and files:
+    if causes.lint and preset.step_gates == _RUFF_GATES and files:
         fixes += [
             (BIN_UV, "run", BIN_RUFF, "check", "--fix", "--", *files),
             (BIN_UV, "run", BIN_RUFF, "format", "--", *files),
@@ -165,11 +174,11 @@ def tier1_commands(
             (BIN_UV, "run", BIN_RUFF, "check", "--", *files),
             (BIN_UV, "run", BIN_RUFF, "format", "--check", "--", *files),
         ]
-    if preset.docs_step:
+    if (causes.lint or causes.docs) and preset.docs_step:
         fixes.append((BIN_UV, "run", BIN_DEVOPS, "docs", "generate"))
         if preset.docs_verification:
             checks.append(preset.docs_verification)
-    if _LOCK_FILE in log and (path / _LOCK_FILE).is_file():
+    if causes.lock and (path / _LOCK_FILE).is_file():
         fixes.append((BIN_UV, "lock"))
         checks.append((BIN_UV, "lock", "--check"))
     return Tier1Commands(tuple(fixes), tuple(checks))
@@ -186,15 +195,16 @@ def _exit_status(path: Path, argv: Sequence[str], limit: int) -> int | None:
 
 
 def tier1_fix(path: Path, item: int, check: str, log: str) -> Fixed:
-    """Tier 1, with no model request: run the fixers of a lint failure, commit the tracked files
-    that they changed, and run their checks again. A fixer that exits non-zero, as `ruff check
-    --fix` does when an error stays, does not stop the others. Done when the commit exists and
-    every check passes; a commit whose check still fails stays for the model fix."""
-    if classify_failure(FailureEvidence(check=check, log=log)) is not FailureClass.LINT:
-        return Fixed(done=False, reason="Tier 1 fixes only a lint failure")
+    """Tier 1, with no model request: run the fixers of a lint, a docs or a lockfile failure, commit
+    the tracked files that they changed, and run their checks again. A fixer that exits non-zero,
+    as `ruff check --fix` does when an error stays, does not stop the others. Done when the commit
+    exists and every check passes; a commit whose check still fails stays for the model fix."""
+    causes = tier1_causes(check, log)
+    if not causes.found:
+        return Fixed(done=False, reason="Tier 1 fixes only a lint, a docs or a lockfile failure")
     base = _base(path)
     preset = resolve_profile(path, base).preset
-    commands = tier1_commands(path, preset, _changed_python_files(path, base), log)
+    commands = tier1_commands(path, preset, _changed_python_files(path, base), causes)
     limit = load_settings().roadmap.implement.command_timeout_seconds
     for argv in commands.fixes:
         status = _exit_status(path, argv, limit)

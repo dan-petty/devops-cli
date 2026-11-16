@@ -61,6 +61,11 @@ LINK = f"https://github.com/{REPO}/actions/runs/1/job/2"
 NO_LINT = Fixed(done=False, reason="not a lint failure")
 DONE = Fixed(done=True)
 TICKED = "# Tasks\n\n## 1. Group\n\nChanges: `src/devops_cli/sample.py`.\n\n- [x] 1.1 Do it\n"
+# What `uv sync --locked` (uv 0.13) says when `uv.lock` does not match `pyproject.toml`.
+LOCK_LOG = (
+    "error: The lockfile at `uv.lock` needs to be updated, but `--locked` was provided.\n\n"
+    "hint: To update the lockfile, run `uv lock`.\n"
+)
 
 
 def _run(name: str, conclusion: str = "failure") -> dict[str, Any]:
@@ -251,6 +256,104 @@ def test_the_head_cap_stops(world: PullWorld) -> None:
     assert "head" in report.reason.lower()
 
 
+# ── The guards of #5983 ──────────────────────────────────────────────────────────────────
+
+RUNNER = "devops-cli-runner-example-project-1"
+
+
+def test_an_item_that_a_live_implement_job_holds_is_skipped(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """The repair loop of the implement Job owns the failed check while the Job lives (#5983)."""
+    pull = world.item(record={ImplementRecordKey.JOB: RUNNER})
+    world.pull(pull)
+    repair = FakeRepair(tmp_path)
+
+    report = world.run(pull, confirm=True, repair=repair.build())
+
+    assert (report.result, report.reason) == (
+        FixChecksResult.SKIPPED,
+        f"A runner Job works on it: `{RUNNER}`",
+    )
+    assert (repair.calls, world.comments()) == ([], [])
+    assert set(world.record(pull).values()) == {None}
+
+
+def test_an_item_whose_implement_job_ended_is_judged(world: PullWorld) -> None:
+    """The record keeps `implement.job` after the Job ends; the state of the Job tells it ended."""
+    pull = world.item(
+        record={ImplementRecordKey.JOB: RUNNER, ImplementRecordKey.JOB_STATE: "failed"}
+    )
+    world.pull(pull)
+
+    report = world.run(pull)
+
+    assert report.result == FixChecksResult.PLANNED
+
+
+@pytest.mark.parametrize(
+    ("check", "log", "ended"),
+    [
+        (STATIC, PLAN_LOG, "failed"),
+        (STATIC, PLAN_LOG, "stopped"),
+        ("Test Job Duration", "Job duration exceeded runner limit", "wait"),
+    ],
+    ids=["failed", "stopped", "wait"],
+)
+def test_a_round_that_ended_on_the_same_head_and_check_is_not_repeated(
+    world: PullWorld, tmp_path: Path, check: str, log: str, ended: str
+) -> None:
+    """A second call on the same head and check makes no model request, no checkout, no comment
+    and no mark (#5983)."""
+    record: dict[Any, str | None] = {
+        FixChecksRecordKey.KEY: f"{HEAD_SHA}:{check}",
+        FixChecksRecordKey.RESULT: ended,
+        FixChecksRecordKey.HEADS: HEAD_SHA,
+    }
+    pull = world.item(record=record)
+    world.pull(pull, runs=[_run(check)], log=log)
+    repair = FakeRepair(tmp_path)
+
+    report = world.run(pull, confirm=True, repair=repair.build())
+
+    assert report.result == FixChecksResult.SKIPPED
+    assert ended in report.reason
+    assert (repair.calls, world.comments()) == ([], [])
+    assert world.record(pull) == {**dict.fromkeys(FixChecksRecordKey), **record}
+
+
+@pytest.mark.parametrize(
+    "key", [f"{'0' * 40}:{STATIC}", f"{HEAD_SHA}:Tests & Coverage"], ids=["new-head", "new-check"]
+)
+def test_a_new_head_or_a_new_failed_check_starts_a_round(
+    world: PullWorld, tmp_path: Path, key: str
+) -> None:
+    pull = world.item(record={FixChecksRecordKey.KEY: key, FixChecksRecordKey.RESULT: "failed"})
+    world.pull(pull)
+    repair = FakeRepair(tmp_path)
+
+    report = world.run(pull, confirm=True, repair=repair.build())
+
+    assert report.result == FixChecksResult.REPAIRED
+    assert "model" in repair.calls
+    assert world.record(pull)[FixChecksRecordKey.KEY] == f"{HEAD_SHA}:{STATIC}"
+
+
+def test_a_lockfile_failure_in_a_check_of_the_class_ci_infra_goes_to_tier1(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """A stale `uv.lock` fails `uv sync --locked` in every job, also in one whose name the class
+    reads as infrastructure. Tier 1 has a fixer for it, so the round does not wait (#5983)."""
+    pull = world.item()
+    world.pull(pull, runs=[_run("Dependency Freshness")], log=LOCK_LOG)
+    repair = FakeRepair(tmp_path, tier1=DONE)
+
+    report = world.run(pull, confirm=True, repair=repair.build())
+
+    assert (report.result, world.comments()) == (FixChecksResult.REPAIRED, [])
+    assert repair.calls == [f"checkout feat/{pull}-sample {pull}", "tier1"]
+
+
 # ── Without --confirm ────────────────────────────────────────────────────────────────────
 
 
@@ -412,10 +515,11 @@ def test_passing_checks_skipped(world: PullWorld) -> None:
 # ── The ready mark after a repair ────────────────────────────────────────────────────────
 
 
-def _repaired_draft(world: PullWorld, tasks: str) -> int:
+def _repaired_draft(world: PullWorld, tasks: str, **record: str) -> int:
     """A draft that the step repaired: its checks pass, and its compare lists the archived change
-    of the item, whose `tasks.md` is `tasks`."""
-    pull = world.item(record={FixChecksRecordKey.RESULT: "repaired"})
+    of the item, whose `tasks.md` is `tasks`. `record` holds more marks of the step."""
+    marks = {FixChecksRecordKey(f"fix_checks.{key}"): value for key, value in record.items()}
+    pull = world.item(record={FixChecksRecordKey.RESULT: "repaired", **marks})
     held = world.store.item(pull)
     assert held is not None
     world.store.set_marks(held, {ImplementRecordKey.PR: str(pull)})
@@ -455,6 +559,20 @@ def test_a_repaired_draft_whose_checks_pass_is_marked_ready(world: PullWorld) ->
     assert report.result == FixChecksResult.READY
     assert calls == [("pr", "ready", str(pull), "--repo", REPO)]
     assert world.record(pull)[FixChecksRecordKey.RESULT] == "ready"
+
+
+def test_a_draft_whose_checks_pass_after_the_third_repair_is_marked_ready(
+    world: PullWorld,
+) -> None:
+    """The third repair pushes the fourth head. The cap of heads stops a repair, not the ready
+    mark of a head whose checks pass (#5983)."""
+    pull = _repaired_draft(world, TICKED, heads="h1,h2,h3", rounds="3")
+    calls = _ready_calls(world)
+
+    report = world.run(pull, confirm=True)
+
+    assert report.result == FixChecksResult.READY
+    assert calls == [("pr", "ready", str(pull), "--repo", REPO)]
 
 
 def test_a_repaired_draft_that_the_readiness_rule_refuses_stays_a_draft(world: PullWorld) -> None:
