@@ -848,7 +848,7 @@
           "instant": true
         }
       ],
-      "description": "Times in the time range the router took a deployment out of rotation after repeated failures (allowed_fails 3, cooldown_time 30 s), by the status that caused it. increase() needs two samples of a series, so the first cooldown of a new series adds nothing."
+      "description": "Times in the time range the router took a deployment out of rotation after repeated failures (3 failures within 30 s cool a deployment for 30 s; one failure cools order 1 of deepseek-v4.1-flash-1017 for 120 s), by the status that caused it. increase() needs two samples of a series, so the first cooldown of a new series adds nothing."
     },
     {
       "datasource": {

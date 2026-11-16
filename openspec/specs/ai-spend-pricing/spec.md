@@ -262,7 +262,7 @@ The warning that names a hosted model that neither genai-prices, a built-in pric
 - **THEN** a call of 1,000,000 prompt and 1,000,000 completion tokens costs 0.242 USD with the source `custom_override`
 
 ### Requirement: Every hosted gateway group has a price
-The pricing registry SHALL price every hosted group of `k8s/llm/gateway/config.yaml` with no setting and no price file, under the route name of the group and under its deployment model. For a group that genai-prices does not price, the registry SHALL take the built-in price of the group.
+The pricing registry SHALL price every hosted group of `k8s/llm/gateway/config.yaml` with no setting and no price file, under the route name of the group and under the deployment model of each of its deployments. For a group that genai-prices does not price, the registry SHALL take the built-in price of the group.
 
 #### Scenario: Each hosted group by both names
 - **WHEN** a reply of each hosted group of the gateway config names the route name, or the deployment model such as `openrouter/deepseek/deepseek-v4.1-flash-1017`, and no backend, and no setting and no file price the model
@@ -298,11 +298,11 @@ A price SHALL hold an optional cached input rate in USD per million tokens. The 
 - **THEN** the cost is 1.00 USD
 
 ### Requirement: The client price of a hosted group is the price in the gateway config
-For each hosted group whose gateway config sets an input price, the client cost of a call SHALL be the cost at the input, cached input, cache write and output prices of that group in `k8s/llm/gateway/config.yaml`. A group that sets no cached input price or no cache write price SHALL cost those tokens at its input price.
+For each hosted deployment whose gateway config sets an input price, the client cost of a call whose reply names its deployment model SHALL be the cost at the input, cached input, cache write and output prices of that deployment in `k8s/llm/gateway/config.yaml`. A deployment that sets no cached input price or no cache write price SHALL cost those tokens at its input price.
 
 #### Scenario: A call with cached tokens
-- **WHEN** each hosted group that sets its prices prices a call of 10,000 prompt tokens, 6,000 of them cache reads and 2,000 of them cache writes, and 1,000 completion tokens
-- **THEN** the client cost of the call equals the cost at the prices of the gateway config, and the groups include `deepseek-v4.1-flash-1017`, `claude-sonnet-5-5` and `claude-haiku-5-5`
+- **WHEN** each hosted deployment that sets its prices prices a call of 10,000 prompt tokens, 6,000 of them cache reads and 2,000 of them cache writes, and 1,000 completion tokens
+- **THEN** the client cost of the call equals the cost at the prices of the gateway config, the groups include `deepseek-v4.1-flash-1017`, `claude-sonnet-5-5` and `claude-haiku-5-5`, and both deployments of `deepseek-v4.1-flash-1017` are checked
 
 ### Requirement: An agent of build_agent records and counts each model request
 The spend hook of `build_agent` SHALL write one spend record for each model request, with the cached prompt tokens of the reply, and SHALL add 1 to `devops_cli_ai_model_answers_total` for a reply that names its model, with the labels of `record_run_spend`. A request SHALL add one count only.

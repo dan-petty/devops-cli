@@ -253,12 +253,12 @@ def test_every_chat_model_slot_of_the_rendered_template_names_one_hosted_group()
         {
             name: model
             for name, model in chat_slots.items()
-            if model != "openrouter/deepseek/deepseek-v4.1-flash"
+            if model != "openrouter/deepseek/deepseek-v4.1-flash-1017"
         },
         ai.for_task("embedding").model,
         (ai.for_task("refine").context_window, ai.for_task("stage").context_window),
     ) == (
-        "openrouter/deepseek/deepseek-v4.1-flash",
+        "openrouter/deepseek/deepseek-v4.1-flash-1017",
         {task: "local/qwen3.8:27b" for task in ("intake", "retitle")},
         "local/qwen3-embedding:0.6b",
         (256000, 256000),

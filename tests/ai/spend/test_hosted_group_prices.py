@@ -131,10 +131,12 @@ def test_every_model_of_the_service_template_is_a_gateway_group_that_is_priced_o
 def test_the_client_price_of_a_hosted_group_is_the_price_in_the_gateway_config(
     tmp_path: Path,
 ) -> None:
-    """The gateway config sets the input, cached input, cache write and output price of a group
-    that the cost map of LiteLLM does not price right. The client prices a call of the group at
-    the same rates, so the spend of the client and the spend of the gateway agree. A group that
-    sets no cache write price costs a cache write at the input price (#3658)."""
+    """The gateway config sets the input, cached input, cache write and output price of each
+    deployment that the cost map of LiteLLM does not price right. The client prices a call that
+    the reply header names a deployment model of at the rates of that deployment, so the spend of
+    the client and the spend of the gateway agree. Each deployment of a group with two orders has
+    its own price (#5990). A group that sets no cache write price costs a cache write at the
+    input price (#3658)."""
     registry = PricingRegistry(data_dir=tmp_path)
     priced = [
         (group, deployment)
@@ -156,7 +158,7 @@ def test_the_client_price_of_a_hosted_group_is_the_price_in_the_gateway_config(
         )
 
     costs = {
-        group: (
+        (group, deployment["litellm_params"]["model"]): (
             registry.calculate_request_cost(
                 group,
                 _PROMPT,
@@ -172,9 +174,15 @@ def test_the_client_price_of_a_hosted_group_is_the_price_in_the_gateway_config(
     }
 
     assert (
-        {"deepseek-v4.1-flash-1017", "claude-sonnet-5-5", "claude-haiku-5-5"} <= costs.keys(),
-        {group: pair for group, pair in costs.items() if pair[0] != pytest.approx(pair[1])},
-    ) == (True, {})
+        {"deepseek-v4.1-flash-1017", "claude-sonnet-5-5", "claude-haiku-5-5"}
+        <= {group for group, _ in costs},
+        sorted(model for group, model in costs if group == "deepseek-v4.1-flash-1017"),
+        {key: pair for key, pair in costs.items() if pair[0] != pytest.approx(pair[1])},
+    ) == (
+        True,
+        ["openrouter/deepseek/deepseek-v4.1-flash", "openrouter/deepseek/deepseek-v4.1-flash-1017"],
+        {},
+    )
 
 
 def test_a_price_with_a_cached_input_rate_prices_cached_prompt_tokens_at_that_rate(

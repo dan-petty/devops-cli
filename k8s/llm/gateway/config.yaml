@@ -203,10 +203,23 @@ model_list:
   # OpenRouter reports the real cost of a call. devops-cli prices the group at the same rates
   # (`_HOSTED_GROUP_PRICES` in src/devops_cli/ai/spend/pricing.py), and a test fails when they
   # differ. A caller sets the reasoning effort (`ai.tasks.<task>.reasoning_effort`).
+  # The group has two deployments, and the router sends a call to the lowest order that is not
+  # cooled and did not fail its last health check (#5990). Order 1 calls the dated model. On
+  # 2026-11-16 it gave no first token for about 300 s for more than 5 hours, and OpenRouter then
+  # sent a 408 inside the stream, which LiteLLM 1.103.11 raises with no retry and no fallback.
+  # - `allowed_fails: 0`: one failure cools order 1, so the next call goes to order 2. Against a
+  #   mock provider that sends that 408, the next call got order 2 in 0.01 s. With the router
+  #   value, 3 failures must come within its 30 s `cooldown_time`, and calls that each stall for
+  #   300 s never do.
+  # - `cooldown_time: 120`: one health check cycle (60 s, and 30 s for the check) ends before
+  #   the cooldown, so order 1 gets calls again only when its last check passed.
+  # - `health_check_timeout: 30`: a check with no reply in 30 s takes order 1 out of the
+  #   routing before any call fails on it (general_settings).
   - model_name: deepseek-v4.1-flash-1017
     litellm_params:
       model: openrouter/deepseek/deepseek-v4.1-flash-1017
       api_key: os.environ/OPENROUTER_API_KEY
+      order: 1
       extra_body:
         provider:
           quantizations: [fp8]
@@ -217,6 +230,28 @@ model_list:
       output_cost_per_token: 2.352e-07
       cache_read_input_token_cost: 2.352e-09
       supports_response_schema: true
+      allowed_fails: 0
+      cooldown_time: 120
+      health_check_timeout: 30
+  # Order 2 of the group: the undated model with the filters, window and prices of the group
+  # deepseek-v4.1-flash below. Its input costs about 4 times that of order 1. It uses the
+  # `allowed_fails` and `cooldown_time` of the router.
+  - model_name: deepseek-v4.1-flash-1017
+    litellm_params:
+      model: openrouter/deepseek/deepseek-v4.1-flash
+      api_key: os.environ/OPENROUTER_API_KEY
+      order: 2
+      extra_body:
+        provider:
+          quantizations: [fp8]
+          data_collection: deny
+    model_info:
+      max_input_tokens: 1048576
+      input_cost_per_token: 3.0e-07
+      output_cost_per_token: 1.2e-06
+      cache_read_input_token_cost: 6.0e-09
+      supports_response_schema: true
+      health_check_timeout: 30
   # The fallback of deepseek-v4.1-flash-1017 (owner decision of 2026-11-13, #5564). It calls the
   # undated model with no `floor` route, so OpenRouter balances a call across its providers when
   # the cheapest provider of the dated model fails. It asks for the same fp8 weights and the same
@@ -237,6 +272,7 @@ model_list:
       output_cost_per_token: 1.2e-06
       cache_read_input_token_cost: 6.0e-09
       supports_response_schema: true
+      health_check_timeout: 30
 litellm_settings:
   # Do not put the model-group and fallback wiring of the router into the message that a client
   # reads (#5302). LiteLLM 1.103.11 defaults this to true, and a later major release changes the
@@ -303,7 +339,14 @@ router_settings:
   # event: LiteLLM raises an error with a 4xx status other than 429 inside a stream with no retry
   # and no fallback, and an OpenRouter timeout comes in the stream as code 408.
   num_retries: 5
-  allowed_fails: 3
+  # A deployment that sets no `allowed_fails` of its own cools for `cooldown_time` after 3
+  # failures within that time, and the next call goes to the next order or the fallback (#5990).
+  # 3 is the LiteLLM default, and at that value the router counts no failures: it cools a
+  # deployment only by the failure rate of the minute, and never a group with one deployment.
+  # Against a mock Ollama tier that refuses connections, each call then took 25 s of retries
+  # before its fallback. At 2 the first call cooled the tier in 2.1 s, and the next calls went to
+  # the fallback at once. tests/invariants/test_k8s_manifests.py keeps it below 3.
+  allowed_fails: 2
   cooldown_time: 30
   # The longest wait for a deployment's reply, or for its next token in a streamed call. Long
   # code reviews on the 32B model stream for several minutes, and each token resets the wait.
@@ -338,8 +381,12 @@ router_settings:
     # the Flash Lite, Gemma and older Gemini models found 7 to 25%, so they are no fallback. The
     # prompt then goes to the OpenRouter provider and not to Anthropic.
     - claude-sonnet-5-5: [deepseek-v4.1-flash-1017]
-    # A failed call of deepseek-v4.1-flash-1017, such as a timeout of its `floor` route, goes to
-    # the undated model through the same provider with the same filters (#5564).
+    # A call of deepseek-v4.1-flash-1017 that the deployments of its group cannot answer goes to
+    # the undated model through the same provider with the same filters (#5564). Order 2 of the
+    # group calls the same model, so the fallback matters only when both deployments are cooled:
+    # the group deepseek-v4.1-flash has its own deployment and its own cooldown. Against a mock
+    # provider, with order 1 stalled and order 2 cooled after 3 failures, the fallback answered
+    # in 0.34 s; without it the call failed with "No deployments available" (#5990).
     - deepseek-v4.1-flash-1017: [deepseek-v4.1-flash]
     # Fallback chain: devops-review -> devops-background -> qwen3.8:27b means background and
     # review work can reach ollama-48gib-fast when the 64gib-standard tier fails. devops-triage
@@ -362,9 +409,24 @@ general_settings:
   # allow_requests_on_db_unavailable stays unset (false): the gateway is reachable from outside
   # the cluster, so a key that it cannot check while the database is down is refused.
   proxy_batch_write_at: 10
-  # background_health_checks stays false, and the Admin UI health column is empty on purpose:
-  # each Ollama tier serves one request (OLLAMA_NUM_PARALLEL 1), and a 60 s health check would
-  # take that slot from a caller (#5302).
+  # Background health checks cover the two DeepSeek groups and no other group (#5990). Each
+  # 60 s the gateway sends each of their 3 deployments a chat call of at most 16 output tokens,
+  # with the filters of the deployment. A deployment that gives an error, or no reply in its
+  # `health_check_timeout` (30 s), gets no new call until a later check passes
+  # (`enable_health_check_routing`), and a call goes to the next order. So a stall moves the new
+  # calls within 90 s, before any call fails, but a call in flight still fails. Against a mock
+  # provider on LiteLLM 1.103.11 with these values, /health named order 1 unhealthy 83.5 s after
+  # its stall began, the next call got order 2 in 0.02 s, and order 1 got its calls back 61.7 s
+  # after it recovered. The checks cost at most about 0.12 USD a day (4,320 calls of at most 30
+  # prompt and 16 output tokens at the price of order 2). The one deployment of
+  # deepseek-v4.1-flash cannot route around itself: its checks give the health of the undated
+  # model in /health. No Ollama group is checked, and the Admin UI health column of these groups
+  # is empty on purpose: each Ollama tier serves one request (OLLAMA_NUM_PARALLEL 1), and a check
+  # would take that slot from a caller (#5302).
+  background_health_checks: true
+  health_check_interval: 60
+  enable_health_check_routing: true
+  background_health_check_model_groups: [deepseek-v4.1-flash-1017, deepseek-v4.1-flash]
   # The spend-log table gets about 71,000 rows a week, and no code reads a row older than a
   # month: the AI spend dashboard reads Prometheus. The gateway deletes the rows older than 30
   # days, so the database stays inside its 5Gi claim (#4994). LiteLLM runs the cleanup 24 hours
