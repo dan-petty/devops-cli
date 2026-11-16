@@ -268,7 +268,7 @@ def test_the_implement_step_runs_on_a_hosted_gateway_group_that_fits_its_window(
     ) == ([], [], True, True, True)
 
 
-DEEPSEEK = "openrouter/deepseek/deepseek-v4.1-flash-1017"
+DEEPSEEK = "openrouter/deepseek/deepseek-v4.1-flash"
 
 
 # The task of each model role of a roadmap job, with the window it had through its old slot

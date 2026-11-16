@@ -551,7 +551,7 @@ def test_the_planner_and_the_review_both_run_on_deepseek_with_a_window_that_fits
     tasks = [_example_task(name) for name in names]
 
     assert [(task["model"], task["context_window"]) for task in tasks] == [
-        ("openrouter/deepseek/deepseek-v4.1-flash-1017", 256_000)
+        ("openrouter/deepseek/deepseek-v4.1-flash", 256_000)
     ] * len(names)
 
 
