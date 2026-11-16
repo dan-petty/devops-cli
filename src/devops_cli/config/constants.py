@@ -1782,6 +1782,10 @@ CONST_SERVICE_METRIC_WEBHOOK_DELIVERY_FAILURES: Final[str] = (
 CONST_SERVICE_METRIC_IMPLEMENT_FAILURES: Final[str] = "devops_cli_service_implement_failures_total"
 # Counts the runner Jobs that the implement row reports, by `repo`, `item_class` and `result` (#3069).
 CONST_SERVICE_METRIC_IMPLEMENT_JOBS: Final[str] = "devops_cli_service_implement_jobs_total"
+# Counts the items with kept work, by `repo`, failure `class` and `outcome` (#3650): `continued`
+# when the next Job starts from the kept work, `finished` when it reaches the ready mark, and
+# `blocked` when it stops again.
+CONST_SERVICE_METRIC_KEPT_WORK: Final[str] = "devops_cli_service_kept_work_total"
 # Counts the stage Jobs of the stage row, by `repo`, `result` and `class` (#4559): `created` and
 # `existed` (a create that got 409) with the class `none`, and the end of a Job that the row
 # recovered, `evicted`, `deadline`, `failed` or `succeeded`, with the failure class or `none`.

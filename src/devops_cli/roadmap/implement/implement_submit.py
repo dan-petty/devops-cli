@@ -50,6 +50,13 @@ has only its log, so the round classifies that log (`failure.py`), records the c
 and names the class and the action left in its comment. The runner pod is not scraped, so the Service
 counts.
 
+**Kept work** (#3650). The counter `devops_cli_service_kept_work_total` counts what became of an item
+whose kept work a next Job continued, by `repo`, the failure `class` and the `outcome`. The Job that
+starts from the kept work of a stop counts `continued` with the class of that stop. The report of
+that Job counts `finished` when it reaches the ready mark, and `blocked` with the class of the new
+stop when it stops again. A yield or a return counts no outcome, so the count of `continued` less
+those of `finished` and `blocked` is the kept runs that yielded, returned or still run.
+
 **Needs fix.** The plan leaves out a Staged item while its draft holds the label `verdict/fix-plan`
 of a plan with an open finding (`implement.py`, #4477). The round returns such an item once for
 each draft, for the row to log, and records the draft in `implement.needs_fix`. A round that judges
@@ -88,6 +95,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_IMPLEMENT_JOBS,
     CONST_SERVICE_METRIC_IMPLEMENT_REPAIR_ROUNDS,
     CONST_SERVICE_METRIC_IMPLEMENT_TOKENS,
+    CONST_SERVICE_METRIC_KEPT_WORK,
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_LIMIT
 from devops_cli.config.env import setting_variables
@@ -364,7 +372,11 @@ def _report(
     # count means the record started again: the whole spend is new (#4200).
     new_tokens = spend - counted if spend >= counted else spend
     result = _attempt_result(item)
-    marks: dict[ImplementRecordKey, str | None] = {ImplementRecordKey.JOB_STATE: state}
+    kept = _record(item, ImplementRecordKey.CONTINUED)
+    marks: dict[ImplementRecordKey, str | None] = {
+        ImplementRecordKey.JOB_STATE: state,
+        ImplementRecordKey.CONTINUED: None,
+    }
     if result == ImplementResult.RETURNED.value:
         # A return keeps the spend for this count only: the next plan of the item starts with
         # none (#5881).
@@ -373,6 +385,8 @@ def _report(
     elif spend > 0:
         marks[ImplementRecordKey.SPEND_COUNTED] = str(spend)
     service_release(store, item.number, marks)
+    if kept is not None:
+        _count_kept_work(repo, kept, failure, result)
     if stops and failure is not None:
         write_status(
             store,
@@ -435,6 +449,22 @@ def _outcome(state: str, failure: FailureClass | None) -> str:
     A runner that writes its own stop exits 0, so its Job is Complete and the attempt failed
     (#4703)."""
     return JobState.FAILED.value if failure is not None else state
+
+
+def _count_kept_work(repo: str, kept: str, failure: FailureClass | None, result: str) -> None:
+    """Count what became of an item whose kept work a Job continued (#3650): a new stop is
+    `blocked` under the class of that stop, the ready mark is `finished` under the class of the
+    kept stop, and a yield or a return is neither, so it counts nothing."""
+    if failure is not None:
+        outcome, failure_class = "blocked", failure.value
+    elif result == ImplementResult.READY.value:
+        outcome, failure_class = "finished", kept
+    else:
+        return
+    GLOBAL_METRICS.increment_counter(
+        CONST_SERVICE_METRIC_KEPT_WORK,
+        labels={"repo": repo, "class": failure_class, "outcome": outcome},
+    )
 
 
 def _emit_implement_metrics(
@@ -513,12 +543,17 @@ def _create(
     settings = load_settings().roadmap.implement
     name = runner_job_name(RepoRef(repo), number)
     cronjob = jobs.cronjob(RUNNER_TEMPLATE)
+    kept = _record(target.item, ImplementRecordKey.CONTINUED)
+    work = _record(target.item, ImplementRecordKey.WIP)
+    kept_work = kept if work is not None else None
     marks = {
         ImplementRecordKey.JOB: name,
         ImplementRecordKey.JOB_STATE: None,
         ImplementRecordKey.RESULT: None,
         ImplementRecordKey.JOB_DIGEST: image_digest(cronjob, RUNNER_TEMPLATE),
     }
+    if kept is not None and kept_work is None:
+        marks[ImplementRecordKey.CONTINUED] = None
     if not service_claim(store, number, marks):
         return None
     try:
@@ -542,6 +577,11 @@ def _create(
     except ClusterJobError:
         service_release(store, number, {ImplementRecordKey.JOB: None})
         raise
+    if kept_work is not None:
+        GLOBAL_METRICS.increment_counter(
+            CONST_SERVICE_METRIC_KEPT_WORK,
+            labels={"repo": repo, "class": kept_work, "outcome": "continued"},
+        )
     return name
 
 
