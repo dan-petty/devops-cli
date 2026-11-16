@@ -18,6 +18,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_WEBHOOK_DELIVERY_FAILURES,
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES
+from devops_cli.config.settings import RoadmapConfig
 from devops_cli.github.session import reset_github_session
 from devops_cli.roadmap.run import (
     DEFAULT_DUE_TABLE,
@@ -78,6 +79,7 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
     reads the remote's two past tags, and the job counts the open item of the store it was given
     (#2263). It logs no warning, so every GitHub read it made was answered."""
     row = next(row for row in DEFAULT_DUE_TABLE if row.name == "metrics")
+    interval = row.cadence(RoadmapConfig()).interval_minutes if row.cadence else None
     remote = bare_remote(tmp_path)
     for tag in ("v0.1.0", "v0.2.0"):
         git_in(remote, "tag", tag, "main")
@@ -103,14 +105,14 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
         )
     clone = data_dir / "roadmap" / "example" / "roadmap" / "clone"
     assert (
-        (row.needs_clone, row.first_run_due, row.interval),
+        (row.needs_clone, row.first_run_due, interval),
         ran,
         (clone / ".git").is_dir(),
         otlp.points(PROJECT_RELEASES.name),
         otlp.points(PROJECT_ITEMS.name),
         [record.getMessage() for record in caplog.records if record.levelno >= logging.WARNING],
     ) == (
-        (True, True, timedelta(minutes=DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES)),
+        (True, True, DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES),
         ("metrics",),
         True,
         [({"repo": REPO}, 2.0)],

@@ -77,6 +77,8 @@ CONST_PROCESS_SAFETY_RULES: Final[tuple[str, ...]] = (
     "process-nonblocking-std-fd",
     "process-setrlimit-nproc",
 )
+# The rule that each GitHub request scope names its row, so no request counts as `other` (#6012).
+CONST_REQUEST_SCOPE_RULES: Final[tuple[str, ...]] = ("github-request-scope-row",)
 # The hand-written CSS of the package, which reads only token variables (docs/DESIGN.md). The token
 # CSS that Style Dictionary writes is beside the package module, outside this folder.
 CONST_DESIGN_CSS_FILES: Final[tuple[str, ...]] = ("src/devops_cli/design/css/**",)
@@ -89,6 +91,7 @@ CONST_REVIEW_CWD_READ_FILES: Final[tuple[str, ...]] = (
 CONST_AST_GREP_RULE_FILES: Final[dict[str, tuple[str, ...]]] = {
     **dict.fromkeys(CONST_NET_CONSTRUCT_RULES, ("src/**",)),
     **dict.fromkeys(CONST_PROCESS_SAFETY_RULES, ("src/**",)),
+    **dict.fromkeys(CONST_REQUEST_SCOPE_RULES, ("src/**",)),
     **dict.fromkeys(CONST_TEST_CONSTRUCT_RULES, ("tests/**",)),
     "review-cwd-read": CONST_REVIEW_CWD_READ_FILES,
     "css-color-literal": CONST_DESIGN_CSS_FILES,
@@ -175,6 +178,11 @@ VIOLATIONS: Final[tuple[Violation, ...]] = (
         "process-killpg-guarded",
         "src",
         "os.killpg(os.getpgid(pid), signal.SIGTERM)\n",
+    ),
+    Violation(
+        "github-request-scope-row",
+        "src",
+        "with request_scope(repo=repo):\n    read_issues()\n",
     ),
 )
 

@@ -223,17 +223,17 @@ serverFiles:
               description: "The webhook route of the roadmap Service rejected more than 20 deliveries in 15 minutes: a hook whose secret is wrong, or forged deliveries. Check the last response of each hook (docs/CLUSTER.md, Roadmap service)."
           # GitHub's record of the deliveries of the hooks (#5017). A refusal at the Cloudflare
           # edge answers before Traefik and the route, so the counter above cannot see it. The
-          # metrics row of the Service sets the gauge, by repo and code, to the deliveries of the
-          # last 15 minutes with no 2xx answer, each time it runs (every 13 minutes), and keeps
-          # the value of its last read between reads.
+          # metrics row of the Service sets the gauge, by repo and code, to the deliveries with no
+          # 2xx answer since its last read, and at least in the last 15 minutes, each time it runs
+          # (#6012), and keeps the value of its last read between reads.
           - alert: RoadmapServiceWebhookDeliveriesFailed
             expr: sum by (repo) (devops_cli_service_webhook_delivery_failures{job="roadmap-service"}) > 5
             for: 0m
             labels:
               severity: warning
             annotations:
-              summary: 'GitHub could not deliver {{ printf "%.0f" $value }} webhook deliveries of {{ $labels.repo }} in 15 minutes'
-              description: "More than 5 deliveries of the hooks of {{ $labels.repo }} got no 2xx answer in 15 minutes, as GitHub records them. GitHub does not send a failed delivery again. A 403 with the header Server: cloudflare comes from the Cloudflare edge, which RoadmapServiceWebhooksRejected cannot see. Read the failed deliveries of each hook (docs/CLUSTER.md, Roadmap service)."
+              summary: 'GitHub could not deliver {{ printf "%.0f" $value }} webhook deliveries of {{ $labels.repo }} since the last read'
+              description: "More than 5 deliveries of the hooks of {{ $labels.repo }} got no 2xx answer since the last read of the metrics row, as GitHub records them. GitHub does not send a failed delivery again. A 403 with the header Server: cloudflare comes from the Cloudflare edge, which RoadmapServiceWebhooksRejected cannot see. Read the failed deliveries of each hook (docs/CLUSTER.md, Roadmap service)."
       # What the roadmap Service writes, the deliveries of its own writes, and its web search
       # (#2475): a burst of comments or label writes, an echo loop with another bot or workflow,
       # and a search provider that refuses for want of credits or at its rate limit. Each count of the last hour

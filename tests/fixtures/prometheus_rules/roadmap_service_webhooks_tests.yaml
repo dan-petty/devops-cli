@@ -111,8 +111,8 @@ tests:
               severity: warning
               repo: example/app
             exp_annotations:
-              summary: "GitHub could not deliver 6 webhook deliveries of example/app in 15 minutes"
-              description: "More than 5 deliveries of the hooks of example/app got no 2xx answer in 15 minutes, as GitHub records them. GitHub does not send a failed delivery again. A 403 with the header Server: cloudflare comes from the Cloudflare edge, which RoadmapServiceWebhooksRejected cannot see. Read the failed deliveries of each hook (docs/CLUSTER.md, Roadmap service)."
+              summary: "GitHub could not deliver 6 webhook deliveries of example/app since the last read"
+              description: "More than 5 deliveries of the hooks of example/app got no 2xx answer since the last read of the metrics row, as GitHub records them. GitHub does not send a failed delivery again. A 403 with the header Server: cloudflare comes from the Cloudflare edge, which RoadmapServiceWebhooksRejected cannot see. Read the failed deliveries of each hook (docs/CLUSTER.md, Roadmap service)."
 
   - name: A read that sets the code to 0 ends the alert
     interval: 1m
@@ -128,8 +128,8 @@ tests:
               severity: warning
               repo: example/app
             exp_annotations:
-              summary: "GitHub could not deliver 8 webhook deliveries of example/app in 15 minutes"
-              description: "More than 5 deliveries of the hooks of example/app got no 2xx answer in 15 minutes, as GitHub records them. GitHub does not send a failed delivery again. A 403 with the header Server: cloudflare comes from the Cloudflare edge, which RoadmapServiceWebhooksRejected cannot see. Read the failed deliveries of each hook (docs/CLUSTER.md, Roadmap service)."
+              summary: "GitHub could not deliver 8 webhook deliveries of example/app since the last read"
+              description: "More than 5 deliveries of the hooks of example/app got no 2xx answer since the last read of the metrics row, as GitHub records them. GitHub does not send a failed delivery again. A 403 with the header Server: cloudflare comes from the Cloudflare edge, which RoadmapServiceWebhooksRejected cannot see. Read the failed deliveries of each hook (docs/CLUSTER.md, Roadmap service)."
       - eval_time: 15m
         alertname: RoadmapServiceWebhookDeliveriesFailed
         exp_alerts: []

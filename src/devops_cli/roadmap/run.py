@@ -71,6 +71,7 @@ from pydantic import ValidationError as MalformedRecordError
 from devops_cli.ai.client.factory import get_task_model
 from devops_cli.config.constants import (
     CONST_GIT_CLI,
+    CONST_GITHUB_REQUEST_ROW_IDLE_CHECK,
     CONST_ROADMAP_INTAKE_BATCH_KEYS,
     CONST_ROADMAP_INTAKE_RECORD_FILENAME,
     CONST_ROADMAP_REFINE_BATCH_KEYS,
@@ -98,14 +99,14 @@ from devops_cli.config.defaults import (
     DEFAULT_GH_REST_PER_PAGE,
     DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_INTAKE_LIMIT,
-    DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_PLAN_DRIFT_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_RELEASE_COMMENTS_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_RETITLE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_RETITLE_LIMIT,
+    DEFAULT_ROADMAP_STATUS_PAGE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_WATCH_INTERVAL_MINUTES,
 )
-from devops_cli.config.settings import load_settings
+from devops_cli.config.settings import RowCadenceConfig, load_settings
 from devops_cli.core import clock
 from devops_cli.core.paths import (
     is_forbidden_system_path,
@@ -193,7 +194,7 @@ from devops_cli.telemetry.instruments import (
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 
 if TYPE_CHECKING:
-    from devops_cli.config.settings import RoadmapConfig, RowCadenceConfig
+    from devops_cli.config.settings import RoadmapConfig, RowIntervalConfig
     from devops_cli.roadmap.intake.intake_model import IntakeModel
 
 logger = logging.getLogger(__name__)
@@ -255,7 +256,7 @@ class JobRow:
 
     name: str
     interval: timedelta | None = None
-    cadence: Callable[[RoadmapConfig], RowCadenceConfig] | None = None
+    cadence: Callable[[RoadmapConfig], RowIntervalConfig] | None = None
     batch_keys: tuple[tuple[str, str, str], ...] = ()
     runner: Callable[..., JobOutcome] = field(default_factory=lambda: lambda **_: JobOutcome())
     needs_clone: bool = False
@@ -356,13 +357,13 @@ class _Cadences:
     the queue that the last round of each row recorded in `record`."""
 
     record: Path
-    sections: Mapping[str, RowCadenceConfig] = field(default_factory=dict)
+    sections: Mapping[str, RowIntervalConfig] = field(default_factory=dict)
     queues: Mapping[str, int] = field(default_factory=dict)
 
     @classmethod
     def read(cls, rows: Sequence[JobRow], repo_dir: Path) -> _Cadences:
-        """The cadences of `rows`. A table with no row that has a cadence, such as the status
-        lane's, reads no settings and no record."""
+        """The cadences of `rows`. A table with no row that has a cadence, such as the lane of
+        `watch`, reads no settings and no record."""
         record = repo_dir / CONST_ROADMAP_ROW_QUEUES_FILENAME
         cadenced = [(row.name, row.cadence) for row in rows if row.cadence is not None]
         if not cadenced:
@@ -397,7 +398,7 @@ class _Cadences:
                 threshold=section.backlog_threshold,
                 minutes=minutes,
             )
-            if section.in_backlog(queue)
+            if isinstance(section, RowCadenceConfig) and section.in_backlog(queue)
             else texts.run_row_queue.format(row=row, repo=repo, queue=queue, minutes=minutes)
         )
         logger.info(line, extra={"repo": repo})
@@ -983,10 +984,10 @@ def _run_metrics_adapter(
     """Collect the project metrics, walking the version tags of the job's clone of `repo` and
     counting the Items of `store`, into OTLP (#1358). The Items also give the age of the oldest
     Item of each state, which only this row asks for (#2919). Then read the deliveries of the
-    hooks of the repository that got no 2xx answer before `now`, into the Service's gauge
-    (#5017). A failed collection, a failed read of the hooks and a missing clone fail the row
-    (#4052); the status pages have rows of their own. The inbox of the repository gives one gauge
-    for each counted kind, and a failed read of it sends none this round (#2968)."""
+    hooks of the repository that got no 2xx answer since its last read, into the Service's gauge
+    (#5017, #6012). A failed collection, a failed read of the hooks and a missing clone fail the
+    row (#4052); the status pages have rows of their own. The inbox of the repository gives one
+    gauge for each counted kind, and a failed read of it sends none this round (#2968)."""
     from devops_cli.github.hook_deliveries import report_delivery_failures
     from devops_cli.github.metrics import (
         collect_project_metrics_report,
@@ -1056,7 +1057,7 @@ def _run_cloudflare_status_adapter(**_: Any) -> JobOutcome:
 STATUS_LANE_ROWS: tuple[JobRow, ...] = (
     JobRow(
         name="metrics",
-        interval=timedelta(minutes=DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES),
+        cadence=attrgetter("metrics"),
         runner=_run_metrics_adapter,
         needs_clone=True,
         first_run_due=True,
@@ -1105,13 +1106,13 @@ STATUS_LANE_ROWS: tuple[JobRow, ...] = (
     ),
     JobRow(
         name="github_status",
-        interval=timedelta(minutes=DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES),
+        interval=timedelta(minutes=DEFAULT_ROADMAP_STATUS_PAGE_INTERVAL_MINUTES),
         runner=_run_github_status_adapter,
         first_run_due=True,
     ),
     JobRow(
         name="cloudflare_status",
-        interval=timedelta(minutes=DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES),
+        interval=timedelta(minutes=DEFAULT_ROADMAP_STATUS_PAGE_INTERVAL_MINUTES),
         runner=_run_cloudflare_status_adapter,
         first_run_due=True,
     ),
@@ -2101,8 +2102,8 @@ def service_job(
     """Service mode adapter that runs the due roadmap jobs of the lane `lane`, `table`, for a
     coalesced trigger batch, on the roadmap store of the batch's repository, counting its failed
     rounds in `failures`. `idle` receives whether the repository has no open work after the
-    round (#3672). The clone rows work in the clone of the lane, `lanes/<lane>`, so no two
-    lanes share a working tree (#5553). The store reads every issue through `listing` when one is
+    round (#3672); that read counts under the row `idle_check` (#6012). The clone rows work in
+    the clone of the lane, `lanes/<lane>`, so no two lanes share a working tree (#5553). The store reads every issue through `listing` when one is
     given, else the whole listing. The store reads no repository file: a repository needs no
     roadmap configuration (ADR 0016)."""
     from devops_cli.roadmap.stores import store as roadmap_store
@@ -2120,7 +2121,8 @@ def service_job(
         polls=polls,
     )
     if idle is not None:
-        idle(repo, repository_is_idle(store))
+        with request_scope(row=CONST_GITHUB_REQUEST_ROW_IDLE_CHECK):
+            idle(repo, repository_is_idle(store))
 
 
 def service_jobs(
@@ -2135,26 +2137,26 @@ def service_jobs(
     that holds `intake` reads every issue through the listing snapshot in `state_dir`, as the
     scoped intake of a delivery does (#3670); its rounds and the scoped updates run one at a time
     on its worker, so one writer keeps the snapshot of each repository. Each other lane reads
-    every issue through a snapshot of its own, which only its worker writes (#4854)."""
+    every issue through a snapshot of its own, which only its worker writes (#4854). Only the
+    lane of `intake` reads the open work of the repository for `idle` after its round: each lane
+    runs a round for each trigger, so one read gives the state that a read in each lane gave, at
+    one request in place of one for each lane (#6012)."""
     groups = load_settings().service.lanes if lanes is None else lanes
     failures = FailureLedger(record=state_dir / CONST_SERVICE_FAILURES_FILENAME)
     cache = PollCache()
-    return {
-        lane: partial(
+    jobs: dict[str, LaneJob] = {}
+    for lane, rows in service_lanes(groups).items():
+        triage = any(row.name == _SCOPED_INTAKE.job for row in rows)
+        jobs[lane] = partial(
             service_job,
             table=rows,
             lane=lane,
             failures=failures,
-            listing=(
-                intake_listing(state_dir)
-                if any(row.name == _SCOPED_INTAKE.job for row in rows)
-                else lane_listing(state_dir, lane)
-            ),
+            listing=intake_listing(state_dir) if triage else lane_listing(state_dir, lane),
             polls=cache,
-            idle=idle,
+            idle=idle if triage else None,
         )
-        for lane, rows in service_lanes(groups).items()
-    }
+    return jobs
 
 
 def _report_unremoved(function: Callable[..., Any], path: str, error: BaseException) -> None:

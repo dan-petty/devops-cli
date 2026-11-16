@@ -1028,11 +1028,18 @@ def test_a_job_reports_its_suspension_until_new_input_or_a_success_ends_it() -> 
     assert seen == [0, 1, 0, 1, 0]
 
 
+@pytest.mark.parametrize(
+    ("source", "event", "action"),
+    [("webhook", "issues", "labeled"), ("poll", "", "")],
+    ids=["webhook", "poll"],
+)
 def test_each_github_request_of_a_round_names_the_workers_repository_and_its_job_row(
-    tmp_path: Path,
+    tmp_path: Path, source: str, event: str, action: str
 ) -> None:
-    """A worker's round runs in the scope of its repository, one of `service.repos`, and each
-    job row in the scope of its row. A request outside a worker names neither (#2475)."""
+    """A worker's round runs in the scope of its repository, one of `service.repos`, and of the
+    loop that started it, `webhook` or `poll`; each job row runs in the scope of its row. So no
+    request of a round counts as `other` (#6012). A request outside a worker names neither
+    (#2475)."""
     seen: list[dict[str, str]] = []
 
     def row(**_: Any) -> JobOutcome:
@@ -1047,7 +1054,7 @@ def test_each_github_request_of_a_round_names_the_workers_repository_and_its_job
 
     manager = _manager({"lane": lane}, clock=_Clock())
     try:
-        manager.enqueue_trigger(REPO_A, "webhook", "issues", "labeled")
+        manager.enqueue_trigger(REPO_A, source, event, action)
         assert wait_until(lambda: len(seen) == 3)
         assert manager.workers[(REPO_A, "lane")].wait_active(THREAD_HANDOFF_BOUND_SECONDS)
     finally:
@@ -1055,9 +1062,49 @@ def test_each_github_request_of_a_round_names_the_workers_repository_and_its_job
 
     assert (seen, request_labels()) == (
         [
-            {"repo": REPO_A, "row": "other"},
+            {"repo": REPO_A, "row": source},
             {"repo": REPO_A, "row": "intake"},
             {"repo": REPO_A, "row": "refine"},
         ],
         {"repo": "other", "row": "other"},
     )
+
+
+def test_a_round_with_a_webhook_and_a_poll_names_the_webhook() -> None:
+    """A webhook that joins a pending poll makes the round's own reads count under `webhook`, as
+    the round also runs for the delivery (#6012)."""
+    seen: list[dict[str, str]] = []
+    gate = threading.Event()
+
+    def lane(_batch: TriggerBatch) -> None:
+        seen.append(request_labels())
+        gate.wait(THREAD_HANDOFF_BOUND_SECONDS)
+
+    manager = _manager({"lane": lane}, clock=_Clock())
+    try:
+        manager.enqueue_trigger(REPO_A, "poll", "", "")
+        assert wait_until(lambda: len(seen) == 1)
+        manager.enqueue_trigger(REPO_A, "poll", "", "")
+        manager.enqueue_trigger(REPO_A, "webhook", "issues", "labeled")
+        gate.set()
+        assert wait_until(lambda: len(seen) == 2)
+        assert manager.workers[(REPO_A, "lane")].wait_active(THREAD_HANDOFF_BOUND_SECONDS)
+    finally:
+        gate.set()
+        _stop(manager)
+
+    assert [labels["row"] for labels in seen] == ["poll", "webhook"]
+
+
+def test_a_scoped_update_names_the_webhook_loop() -> None:
+    """A scoped update runs only for a webhook delivery, so the requests that it sends outside the
+    row of its job count under `webhook` (#6012)."""
+    seen: list[dict[str, str]] = []
+    manager = _manager({"lane": lambda _batch: None}, clock=_Clock())
+    try:
+        assert manager.enqueue_scoped(REPO_A, "lane", lambda: seen.append(request_labels()))
+        assert wait_until(lambda: len(seen) == 1)
+    finally:
+        _stop(manager)
+
+    assert seen == [{"repo": REPO_A, "row": "webhook"}]

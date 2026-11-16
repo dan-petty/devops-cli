@@ -1051,6 +1051,9 @@ CONST_GITHUB_DIFF_MEDIA_TYPE: Final[str] = "application/vnd.github.diff"
 CONST_GITHUB_COMPARE_FILES_LIMIT: Final[int] = 300
 # The `repo` and `row` of a GitHub request that no Service worker and no job row sent (#2475).
 CONST_GITHUB_REQUEST_SCOPE_OTHER: Final[str] = "other"
+# The `row` of the read of the open work of a repository after a Service round, which sets the
+# poll interval of the repository (#3672, #6012).
+CONST_GITHUB_REQUEST_ROW_IDLE_CHECK: Final[str] = "idle_check"
 # The characters that open and close an expression in a URI template (RFC 6570, section 2.2).
 # gidgethub expands every path as a template, so the session sends them percent-encoded.
 CONST_URI_TEMPLATE_EXPRESSION_DELIMITERS: Final[str] = "{}"
@@ -1770,9 +1773,9 @@ CONST_SERVICE_METRIC_JOB_RETRY_AFTER_SECONDS: Final[str] = (
 # 1 while the last write of a state record that the Service keeps on its volume failed, else 0, by
 # `record`: `budget`, `halt` or `ledger` (#4048). The first write of a record creates its series.
 CONST_SERVICE_METRIC_STATE_UNKEPT: Final[str] = "devops_cli_service_state_unkept"
-# The deliveries of the hooks of a repository that got no 2xx answer in the last
-# `DEFAULT_SERVICE_HOOK_DELIVERY_WINDOW_MINUTES`, by `repo` and `code`, as GitHub records them
-# (#5017). A refusal at the Cloudflare edge never gets to the webhook route, so the deliveries
+# The deliveries of the hooks of a repository that got no 2xx answer since the last read of the
+# metrics row, and at least in the last `DEFAULT_SERVICE_HOOK_DELIVERY_WINDOW_MINUTES`, by `repo`
+# and `code`, as GitHub records them (#5017, #6012). A refusal at the Cloudflare edge never gets to the webhook route, so the deliveries
 # counter of the route cannot show it. The metrics row sets it.
 CONST_SERVICE_METRIC_WEBHOOK_DELIVERY_FAILURES: Final[str] = (
     "devops_cli_service_webhook_delivery_failures"
