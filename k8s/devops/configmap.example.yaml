@@ -16,12 +16,13 @@ data:
       provider: gateway
       gateway_url: http://llm-gateway.llm.svc.cluster.local:4000/v1
       allow_private_network: true
-      # One chat model for every slot of the Service, by the owner decision of 2026-11-07
-      # (#3874): ai.model and the tasks analysis, stage, implement, verification, chat and
-      # triage name the same group. A failure then shows one model and not a mix. Undo this when
-      # most steps of the roadmap jobs work most of the time: then name a model for each slot
-      # again. The embedding slot stays the embedding model, because a chat model cannot embed.
-      # Each prompt of a chat slot leaves the cluster to OpenRouter (SECURITY.md rule 13).
+      # One hosted chat model for the Service, by the owner decision of 2026-11-07 (#3874):
+      # ai.model and the tasks stage, implement, verification and chat name the same group. A
+      # failure then shows one model and not a mix. A job moves to the local model only when it
+      # works most of the time: triage (intake, retitle) since 2026-11-15, and analysis (refine,
+      # alternatives) as a trial since 2026-11-16 (#5583). The embedding slot stays the embedding
+      # model, because a chat model cannot embed. Each prompt of a hosted slot leaves the cluster
+      # to OpenRouter (SECURITY.md rule 13).
       model: openrouter/deepseek/deepseek-v4.1-flash-1017
       # `model` and `tasks.*.model` name generative models: they write the plans, comments, code
       # and findings, and they use tools. A decision model is a different kind: it answers one
@@ -71,11 +72,13 @@ data:
         # and the model answered with a placeholder (#3880). 256,000 tokens is the smallest window
         # that an fp8 provider of the gateway group offers; the group allows 1,048,576.
         # By the owner decision of 2026-11-10 the slot names DeepSeek again (#4369), and the
-        # one-model rule of #3874 holds for every chat slot. Sonnet was the slot's model from
+        # one-model rule of #3874 holds for every hosted chat slot. Sonnet was the slot's model from
         # 2026-11-09 (#4204) and cost about 67 USD a week there. A later trial may name Sonnet
         # again with context_window 200000; the Sonnet group allows 1,000,000 input tokens.
+        # By the owner decision of 2026-11-16 refine and alternatives run a trial on the local
+        # model (#5583). Both local backends of the group serve a window of 262,144 tokens.
         analysis:
-          model: openrouter/deepseek/deepseek-v4.1-flash-1017
+          model: local/qwen3.8:27b
           context_window: 256000
         # The stage job has its own entry, as the cluster ConfigMap has. Without it the task
         # takes the model and the window of analysis, so a trial of another model in analysis
@@ -102,8 +105,9 @@ data:
           model: openrouter/deepseek/deepseek-v4.1-flash-1017
         embedding:
           model: local/qwen3-embedding:0.6b
+        # Intake and retitle run on the local model by the owner decision of 2026-11-15 (#5583).
         triage:
-          model: openrouter/deepseek/deepseek-v4.1-flash-1017
+          model: local/qwen3.8:27b
     # devops-cli's cache Valkey in namespace llm (llm/valkey-devops.yaml): the embedding cache
     # and the threat-intelligence cache. Its password reaches the pod from Secret devops-cli as
     # DEVOPS_CLI_VALKEY_PASSWORD, never from this ConfigMap.
@@ -159,6 +163,15 @@ data:
         # The stage Jobs that run at once in the cluster, for every repository together (#4559).
         # Each Job plans one item in a pod of its own, with one model call in flight.
         jobs: 1
+        # The limits that end a stage attempt (#5440) are twice the code defaults, by the owner
+        # decision of 2026-11-13 for the jobs under 80%, and again on 2026-11-16 (#5583).
+        verify_repair_rounds: 4
+        verify_repair_rounds_ceiling: 8
+        gate_returns: 6
+        gate_return_extensions: 2
+        plan_defect_limit: 6
+        max_requests: 500
+        max_tool_calls: 400
       # What TypeSafe Jev does in intake (#4395, ADR 0019): `off` makes no request, `shadow` keeps
       # the triage model for every label and records the Jev answers in the job record of each
       # issue (`devops roadmap eval jev --from-shadow` reads them), `on` lets Jev decide. Jev
@@ -171,6 +184,10 @@ data:
       # better revision. Each new row starts in `plan`, and a person sets `on`.
       fix_plan:
         mode: plan
+        # The limits of an attempt, twice the code defaults (#5583).
+        time_budget_seconds: 7200
+        head_attempts: 4
+        revisions: 6
       # The mode of each decision point (ADR 0020): `off`, `shadow` or `on`. The verify screen
       # (`stage.verify_screen`) asks the decision model before the model review of a plan. In
       # `shadow` the review always runs and the log records the band and the result of the review.
@@ -203,3 +220,28 @@ data:
         # template and replaces only the `service` section, so a value that a person sets in the
         # live ConfigMap alone is lost at the next deploy.
         max_memory_limit: 16Gi
+        # The limits that end an implement attempt (#5440) are twice the code defaults, by the
+        # owner decision of 2026-11-13 for the jobs under 80%, and again on 2026-11-16 (#5583).
+        # The token budgets count new tokens: input that the cache does not hold, and output.
+        # The times nest: a command ends before its step, and a step before its item. The item
+        # time is not twice its default of 12600 s: it stops at the 14400 s ceiling of the
+        # deadline of the Job.
+        repair_rounds: 6
+        step_token_budget: 16000000
+        item_token_budget: 40000000
+        command_timeout_seconds: 3600
+        request_timeout_seconds: 2400
+        monitor_timeout_seconds: 7200
+        step_time_limit_seconds: 10800
+        item_time_limit_seconds: 14400
+        deadline_stall_seconds: 8400
+        deadline_extension_seconds: 10800
+        digest_clears_per_class: 2
+        digest_clears_per_item: 6
+        continuations_per_item: 4
+        max_requests: 1000
+        max_tool_calls: 3000
+        tool_retries: 10
+        max_refusals: 60
+        max_consecutive_refusals: 6
+        model_resends: 2

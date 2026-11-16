@@ -7,6 +7,7 @@ from typing import Any
 
 import yaml
 
+from devops_cli.config import defaults
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_HOSTED_MODELS,
     CONST_OTEL_SERVICE_NAME,
@@ -270,11 +271,14 @@ def test_the_implement_step_runs_on_a_hosted_gateway_group_that_fits_its_window(
 DEEPSEEK = "openrouter/deepseek/deepseek-v4.1-flash-1017"
 
 
-def test_every_chat_slot_is_deepseek_and_the_stage_slot_is_set_in_the_template() -> None:
-    """The owner moved `analysis` back to DeepSeek on 2026-11-10 (#4369), as the cluster
-    ConfigMap has it. The task `stage` has its own entry, so a later trial of another model in
-    `analysis` does not move the stage job. Every chat slot stays on DeepSeek (#3874), and the
-    embedding slot stays the embedding model."""
+LOCAL = "local/qwen3.8:27b"
+
+
+def test_each_chat_slot_is_deepseek_but_the_local_trials_and_the_stage_slot_is_set() -> None:
+    """Every chat slot stays on DeepSeek (#3874), but the owner put `triage` (intake and retitle,
+    2026-11-15) and `analysis` (refine and alternatives, 2026-11-16) on the local model (#5583).
+    The task `stage` has its own entry, so the trial in `analysis` leaves the stage job on
+    DeepSeek. The embedding slot stays the embedding model."""
     template = _doc("configmap.example.yaml")["data"]["devops-cli.yaml"]
     ai = Settings.model_validate(yaml.safe_load(template)).ai
     slots = {name: ai.for_task(name).model for name in AITasksConfig.model_fields}
@@ -285,7 +289,101 @@ def test_every_chat_slot_is_deepseek_and_the_stage_slot_is_set_in_the_template()
         ai.for_task("analysis").context_window,
         ai.for_task("stage").context_window,
         "stage" in yaml.safe_load(template)["ai"]["tasks"],
-    ) == (DEEPSEEK, {"embedding": "local/qwen3-embedding:0.6b"}, 256000, 256000, True)
+    ) == (
+        DEEPSEEK,
+        {"embedding": "local/qwen3-embedding:0.6b", "analysis": LOCAL, "triage": LOCAL},
+        256000,
+        256000,
+        True,
+    )
+
+
+def test_the_template_holds_the_doubled_attempt_limits() -> None:
+    """The owner chose twice the default limits of the stage, implement and fix-plan attempts
+    (2026-11-13, again 2026-11-16). A deploy renders the template, so a limit that only the live
+    ConfigMap holds is lost (#5583). The item time stops at the ceiling of the Job deadline."""
+    template = _doc("configmap.example.yaml")["data"]["devops-cli.yaml"]
+    roadmap = Settings.model_validate(yaml.safe_load(template)).roadmap
+    stage, implement, fix_plan = roadmap.stage, roadmap.implement, roadmap.fix_plan
+
+    assert {
+        "stage": (
+            stage.verify_repair_rounds,
+            stage.verify_repair_rounds_ceiling,
+            stage.gate_returns,
+            stage.gate_return_extensions,
+            stage.plan_defect_limit,
+            stage.max_requests,
+            stage.max_tool_calls,
+        ),
+        "implement": (
+            implement.repair_rounds,
+            implement.step_token_budget,
+            implement.item_token_budget,
+            implement.command_timeout_seconds,
+            implement.request_timeout_seconds,
+            implement.monitor_timeout_seconds,
+            implement.step_time_limit_seconds,
+            implement.deadline_stall_seconds,
+            implement.deadline_extension_seconds,
+            implement.digest_clears_per_class,
+            implement.digest_clears_per_item,
+            implement.continuations_per_item,
+            implement.max_requests,
+            implement.max_tool_calls,
+            implement.tool_retries,
+            implement.max_refusals,
+            implement.max_consecutive_refusals,
+            implement.model_resends,
+        ),
+        "item": (implement.item_time_limit_seconds, implement.deadline_ceiling_seconds),
+        "fix_plan": (fix_plan.time_budget_seconds, fix_plan.head_attempts, fix_plan.revisions),
+    } == {
+        "stage": tuple(
+            2 * value
+            for value in (
+                defaults.DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS,
+                defaults.DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING,
+                defaults.DEFAULT_ROADMAP_STAGE_GATE_RETURNS,
+                defaults.DEFAULT_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS,
+                defaults.DEFAULT_ROADMAP_STAGE_PLAN_DEFECT_LIMIT,
+                defaults.DEFAULT_ROADMAP_STAGE_MAX_REQUESTS,
+                defaults.DEFAULT_ROADMAP_STAGE_MAX_TOOL_CALLS,
+            )
+        ),
+        "implement": tuple(
+            2 * value
+            for value in (
+                defaults.DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS,
+                defaults.DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_BUDGET,
+                defaults.DEFAULT_ROADMAP_IMPLEMENT_ITEM_TOKEN_BUDGET,
+                defaults.DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
+                defaults.DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
+                defaults.DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
+                defaults.DEFAULT_ROADMAP_IMPLEMENT_STEP_TIME_LIMIT_SECONDS,
+                defaults.DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_STALL_SECONDS,
+                defaults.DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_EXTENSION_SECONDS,
+                defaults.DEFAULT_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_CLASS,
+                defaults.DEFAULT_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_ITEM,
+                defaults.DEFAULT_ROADMAP_IMPLEMENT_CONTINUATIONS_PER_ITEM,
+                defaults.DEFAULT_ROADMAP_IMPLEMENT_MAX_REQUESTS,
+                defaults.DEFAULT_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
+                defaults.DEFAULT_ROADMAP_IMPLEMENT_TOOL_RETRIES,
+                defaults.DEFAULT_ROADMAP_IMPLEMENT_MAX_REFUSALS,
+                defaults.DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS,
+                defaults.DEFAULT_ROADMAP_IMPLEMENT_MODEL_RESENDS,
+            )
+        ),
+        "item": (defaults.DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_CEILING_SECONDS,) * 2,
+        "fix_plan": tuple(
+            2 * value
+            for value in (
+                defaults.DEFAULT_ROADMAP_FIX_PLAN_TIME_BUDGET_SECONDS,
+                defaults.DEFAULT_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS,
+                defaults.DEFAULT_ROADMAP_FIX_PLAN_REVISIONS,
+            )
+        ),
+    }
 
 
 def test_the_comment_above_the_analysis_slot_names_the_decision_the_cost_and_the_trial() -> None:
