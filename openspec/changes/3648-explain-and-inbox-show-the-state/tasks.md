@@ -49,9 +49,9 @@ Kind: other. Reads: `src/devops_cli/roadmap/inbox.py`, `src/devops_cli/roadmap/s
 
 Kind: other. Reads: `docs/ROADMAP_WORKFLOW.md`, `src/devops_cli/lang/en/help.py`, `tests/roadmap/test_roadmap_command_help.py`, `tests/invariants/test_roadmap_workflow_doc.py`. Changes: `docs/ROADMAP_WORKFLOW.md`, `src/devops_cli/lang/en/help.py`, `tests/roadmap/test_roadmap_command_help.py`.
 
-- [ ] 6.1 State in the stop and retry section of `docs/ROADMAP_WORKFLOW.md` that `devops roadmap inbox` and `devops roadmap explain` print the class, the attempts, the kept work and the action left of a stop from the job record. In `src/devops_cli/lang/en/help.py`, rewrite the second sentence of the `inbox` help to name the class and the action left of a stopped item, so the help keeps three sentences, and add the stop state to the `explain` help. Update the help case in `tests/roadmap/test_roadmap_command_help.py`
+- [x] 6.1 State in the stop and retry section of `docs/ROADMAP_WORKFLOW.md` that `devops roadmap inbox` and `devops roadmap explain` print the class, the attempts, the kept work and the action left of a stop from the job record. In `src/devops_cli/lang/en/help.py`, rewrite the second sentence of the `inbox` help to name the class and the action left of a stopped item, so the help keeps three sentences, and add the stop state to the `explain` help. Update the help case in `tests/roadmap/test_roadmap_command_help.py`
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_command_help.py tests/invariants/test_roadmap_workflow_doc.py` passes
-- [ ] 6.2 Edit `docs/ROADMAP_WORKFLOW.md`, the help of `devops roadmap inbox` and `devops roadmap explain` in `src/devops_cli/lang/en/help.py`, and the help case in `tests/roadmap/test_roadmap_command_help.py`, and run `uv run devops docs generate`
+- [x] 6.2 Edit `docs/ROADMAP_WORKFLOW.md`, the help of `devops roadmap inbox` and `devops roadmap explain` in `src/devops_cli/lang/en/help.py`, and the help case in `tests/roadmap/test_roadmap_command_help.py`, and run `uv run devops docs generate`
   - Verification: `$ uv run devops ci docs` passes
 
 ## 7. Regenerate the command reference
