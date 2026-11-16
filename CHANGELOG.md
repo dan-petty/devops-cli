@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.162.0](https://github.com/dan-petty/devops-cli/compare/v0.161.0...v0.162.0) (2026-11-16)
+
+
+### Features
+
+* **roadmap:** a refused alternatives reply goes back once ([#5955](https://github.com/dan-petty/devops-cli/issues/5955)) ([bb9e908](https://github.com/dan-petty/devops-cli/commit/bb9e9082a35a47c853d7935b30fa523dd5108d53))
+* **roadmap:** stage limits changed files per task group ([#5944](https://github.com/dan-petty/devops-cli/issues/5944)) ([181f85e](https://github.com/dan-petty/devops-cli/commit/181f85e67784b566a246f6821af841006ec53c9a))
+
+
+### Bug Fixes
+
+* **roadmap:** a stage plan reads back with the same criteria ([#5957](https://github.com/dan-petty/devops-cli/issues/5957)) ([167451f](https://github.com/dan-petty/devops-cli/commit/167451f671c379ed45dc1606e27dc8433fd09c3f))
+* **roadmap:** the strength check fits in the runner home volume ([#5961](https://github.com/dan-petty/devops-cli/issues/5961)) ([09c9107](https://github.com/dan-petty/devops-cli/commit/09c91077e41293dc2d1a63525fe36faf51f4b7b4)), closes [#5960](https://github.com/dan-petty/devops-cli/issues/5960)
+
 ## [0.161.0](https://github.com/dan-petty/devops-cli/compare/v0.160.1...v0.161.0) (2026-11-16)
 
 
