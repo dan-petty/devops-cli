@@ -67,8 +67,7 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/consolidate_apply.py`, `src/devop
 
 ## Criteria
 
-- Group 2: The command refuses a run without `--confirm`, and refuses a group id that is not in the latest plan.
-- Group 3: `--apply <group-id>` joins the command of part 2, with help in `RoadmapCommandHelp` and regenerated command docs.
+- Group 3: `--apply <group-id>` joins the command of part 2, with help in `RoadmapCommandHelp` and regenerated command docs. It refuses to run without `--confirm`, and refuses a group id that is not in the latest plan.
 - Group 4: **merge-into-anchor:** appends a marked section (`<!-- devops-roadmap-consolidate:start -->` to `:end -->`) headed `## Consolidated from #a, #b` to the anchor body through `write_issue_body`. It copies each member's acceptance criteria and key questions verbatim, adds the root cause as plain text, then closes each member as not planned with the comment `Merged into #<anchor>: <one line>`. Text outside the section stays byte-identical.
 - Group 5: **parent-task-with-children:** adds sub-issue links with `add_sub_issue`, or blocked-by links when the anchor lands first, and posts one fixed-template comment on the anchor that lists the children and their order. The blocked-by write is a new store operation (`POST /repos/{owner}/{repo}/issues/{number}/dependencies/blocked_by`, upstream REST reference) on the protocol, the GitHub store and the memory store, with contract tests on both stores. The read operation comes from #1127.
 - Group 6: **close-as-duplicate:** closes the member with `close`, with one comment naming the anchor. First confirm in the upstream REST reference whether `state_reason: duplicate` is accepted, and use `CloseReason.DUPLICATE` if it is; else use not planned with the comment `Duplicate of #<anchor>`. No GraphQL `duplicateIssueId` call.
