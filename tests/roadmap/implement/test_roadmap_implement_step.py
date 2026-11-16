@@ -1931,13 +1931,18 @@ def test_a_400_inside_a_stream_on_every_send_stops_the_step_with_the_body(
 
     outcome = _step(store, checkout, script)
 
-    first, named = outcome.reason.splitlines()
+    first, named, *rest = outcome.reason.splitlines()
     assert (outcome.status, first, is_clean_at(checkout, head)) == (
         StepStatus.STOPPED,
         f"ModelHTTPError: HTTP 400, model example-model, body: {XML_ERROR}",
         True,
     )
     assert "tool call parsing failed" in named
+    assert rest == [
+        MESSAGES.roadmap.implement_stop_one_tier.format(
+            tier=setting_default("roadmap.implement.ladder")["edit"][0]
+        )
+    ]
     assert len(script.seen) == 1 + 1 + setting_default("roadmap.implement.model_resends")
     assert outcome.failure_class is FailureClass.PARSER
     assert "diff --git a/src/sample.py b/src/sample.py" in outcome.diff

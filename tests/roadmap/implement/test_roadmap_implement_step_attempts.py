@@ -112,6 +112,22 @@ def test_a_failing_check_that_passes_on_the_second_attempt_shows_both_attempts(
     assert "class" not in second
 
 
+def test_the_attempt_events_name_the_planned_and_repo_map_strategies(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
+) -> None:
+    config(roadmap={"implement": {"repair_rounds": 1}})
+    _lint_fails_on_an_unused_import(programs)
+    script = ModelScript(FIRST, say("Done."), FIX, say("Removed the import."))
+
+    trace, reason, _ = _run(store, checkout, script)
+
+    assert reason == ""
+    assert [a["strategy"] for a in _attempts(trace)] == ["planned", "repo_map"]
+
+
 def test_a_failure_that_stays_ends_the_last_attempt_with_stop_and_names_the_rounds(
     store: InMemoryRoadmapStore,
     checkout: Path,
@@ -169,6 +185,7 @@ def test_a_group_that_changes_no_file_is_one_attempt_of_class_plan_defect(
             "tier": "devops-coder",
             "outcome": "failed",
             "next": "stop",
+            "strategy": "planned",
             "class": "plan_defect",
             "evidence": "The group 2 (The second group) changed no file. The group may be too large or already done. Return the item for a smaller replacement of group 2, or amend the plan with a request of kind `group` that keeps the number and has fewer tasks.",
         }

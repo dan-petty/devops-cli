@@ -142,6 +142,11 @@ from devops_cli.roadmap.implement.implement_shell_policy import (
     shown,
 )
 from devops_cli.roadmap.implement.implement_shell_refusal import ShellRefusal
+from devops_cli.roadmap.implement.implement_strategy import (
+    AttemptStrategy,
+    repo_map_section,
+    strategy_for,
+)
 from devops_cli.roadmap.implement.implement_strays import stray_files, unplanned_paths
 from devops_cli.roadmap.implement.implement_test_form import (
     TestForm,
@@ -1827,20 +1832,34 @@ def _matches_base(source: Path, base: str, name: str) -> bool:
     return _git(source, "diff", "--cached", "--quiet", base, "--", name).returncode == 0
 
 
-def _extra_ask(failure: _Failure | None, log: ToolCallLog) -> _Ask | None:
+def _extra_ask(
+    failure: _Failure | None,
+    log: ToolCallLog,
+    *,
+    source: Path,
+    inputs: StepInputs,
+    strategy: AttemptStrategy,
+) -> _Ask | None:
     """The extra turn that a failed static check or hook earns, or None. No turn asks for a tick:
     the job ticks the group when its checks pass (#3488). The message names the stray files that
     the step deleted, and why (#3092). A failure with no repair paths, as a group that changed no
-    file (`plan_defect`), gets no turn: no attempt can fix it (#3053). The caller counts the turns
-    against `repair_rounds`."""
+    file (`plan_defect`), gets no turn: no attempt can fix it (#3053). A turn whose strategy is
+    `repo_map` also gets the repository map of the files that the failure names (#3569). The
+    caller counts the turns against `repair_rounds`."""
     if failure is None or failure.repair_paths is None:
         return None
     texts = MESSAGES.roadmap
     removed = texts.implement_removed_note.format(paths=log.removed_text()) if log.removed else ""
     template = texts.implement_hook_turn if failure.hook else texts.implement_repair_turn
+    section = (
+        repo_map_section(source, failure.reason, inputs.group)
+        if strategy is AttemptStrategy.REPO_MAP
+        else ""
+    )
     message = template.format(
         failure=mask_secrets(failure.reason)[:CONST_ROADMAP_IMPLEMENT_REASON_CHARS],
         removed=removed,
+        map=section,
     )
     return _Ask(message, failure.repair_paths, texts.implement_stop_repair_turn_changed)
 
@@ -1917,7 +1936,8 @@ def _commit_group(
 class _Rounds:
     """Where the repair rounds of a step stand (#3053): the last turn, its first failing exit
     check, the rounds used, the number of the attempt that the turn made, and the rounds allowed.
-    `spent` says that the step wanted another round and had none."""
+    `spent` says that the step wanted another round and had none. `move` holds the extra turn of
+    the next attempt when that attempt runs on another tier of the ladder instead (#3569)."""
 
     run: _Run
     failure: _Failure | None
@@ -1925,6 +1945,7 @@ class _Rounds:
     number: int
     allowed: int
     spent: bool = False
+    move: _Ask | None = None
 
 
 def _repair_rounds(
@@ -1937,19 +1958,26 @@ def _repair_rounds(
     start: _Rounds,
     *,
     tier: str,
+    tier_move: bool,
+    strategy: AttemptStrategy,
     trace: ImplementTrace | None,
     usage_limits: UsageLimits,
 ) -> _Rounds:
     """Judge the attempt of `start`, and run an extra turn for its failure while a round is left
-    and the failure can be repaired. Each attempt is an event of the trace, with whether a round
-    follows (#3053). The state after the last attempt."""
+    and the failure can be repaired. Each attempt is an event of the trace, with its strategy and
+    whether a round follows (#3053, #3569). With `tier_move`, the extra turn of the attempt
+    numbered 2 is the move to the next tier, which the caller makes: the state holds its message,
+    and the attempt spends no round (#3569). The state after the last attempt."""
     run, failure, used, number = start.run, start.failure, start.used, start.number
     while True:
-        ask = _extra_ask(failure, log)
+        following = strategy_for(number + 1, moves_tier=_moves_tier(run))
+        ask = _extra_ask(failure, log, source=source, inputs=inputs, strategy=following)
         repair = ask is not None and used < start.allowed
-        _trace_attempt(trace, number, tier, failure, repair=repair)
+        _trace_attempt(trace, number, tier, failure, repair=repair, strategy=strategy)
         if ask is None or not repair:
             return _Rounds(run, failure, used, number, start.allowed, spent=ask is not None)
+        if tier_move and number == 2:
+            return _Rounds(run, failure, used, number, start.allowed, move=ask)
         if trace is not None:
             trace.retry(failure.reason if failure else "")
         run, failure = _extra_turn(
@@ -1957,6 +1985,7 @@ def _repair_rounds(
         )
         used += 1
         number += 1
+        strategy = following
 
 
 def _failure_class(failure: _Failure | None) -> FailureClass | None:
@@ -1968,6 +1997,21 @@ def _failure_class(failure: _Failure | None) -> FailureClass | None:
     return failure.klass or classify_failure(FailureEvidence(text=failure.reason))
 
 
+def _one_tier_reason(reason: str, failure: _Failure | None, tiers: Sequence[str]) -> str:
+    """`reason` with the line that names `roadmap.implement.ladder` when the failure of the run
+    selects `change_tier` and the ladder holds one tier (#3569). The class is the one that the
+    failure carries, as the tier decision reads it: a check whose log reads like a parser failure
+    asks for no other tier. A person then sees the setting to change and the tier that the step
+    cannot move past."""
+    if not reason or len(tiers) != 1:
+        return reason
+    klass = failure.klass if failure is not None else None
+    if klass is None or ACTION_BY_CLASS[klass] is not FailureAction.CHANGE_TIER:
+        return reason
+    line = MESSAGES.roadmap.implement_stop_one_tier.format(tier=tiers[0])
+    return f"{reason}\n{line}"
+
+
 def _trace_attempt(
     trace: ImplementTrace | None,
     number: int,
@@ -1975,14 +2019,41 @@ def _trace_attempt(
     failure: _Failure | None,
     *,
     repair: bool,
+    strategy: AttemptStrategy,
 ) -> None:
-    """Add the attempt `number` to the `trace`: its outcome, its class and its evidence, and
-    whether a repair round follows (#3053)."""
+    """Add the attempt `number` to the `trace`: its outcome, its class and its evidence, whether a
+    repair round follows, and the strategy of the attempt (#3053, #3569)."""
     if trace is None:
         return
     klass = _failure_class(failure)
     evidence = failure.reason if failure and klass else ""
-    trace.attempt(number, tier, klass.value if klass else "", evidence, repair=repair)
+    trace.attempt(
+        number,
+        tier,
+        klass.value if klass else "",
+        evidence,
+        repair=repair,
+        strategy=strategy.value,
+    )
+
+
+def _moved_message(
+    run: _Run,
+    repaired: _Rounds,
+    *,
+    attempt: int,
+    tiers: Sequence[str],
+    message: str,
+) -> str | None:
+    """The message of the next attempt when the step moves to another tier of the ladder, else
+    None. A run that ends on a provider error or on a class that selects `change_tier` moves at
+    once, with the message of the step (#3060). A ladder that holds another tier moves the third
+    attempt with the repair message of the failure (#3569)."""
+    if attempt + 1 >= len(tiers):
+        return None
+    if _moves_tier(run):
+        return message
+    return repaired.move.message if repaired.move is not None else None
 
 
 def _attempt(
@@ -2008,7 +2079,9 @@ def _attempt(
     a round could have taken, and no round left, says so in its reason (#3053). A run that ends on a provider error or
     on a class that selects `change_tier` moves to the next healthy tier at once, spends no repair
     round, and discards the checkout of the failed attempt, back to the last `wip:` commit of the
-    keeper (#3060, #3054). Each attempt is an event of the `trace`, and the agent stops before a
+    keeper (#3060, #3054). The third attempt of a ladder that holds another tier moves there too,
+    spends no round, and starts a new conversation with the repair message of the failure (#3569).
+    Each attempt is an event of the `trace`, with its strategy, and the agent stops before a
     request when `limits` is spent. Each run of the agent has the requests and tool calls of
     `usage_limits`, and its extra turns count against them."""
     settings = load_settings()
@@ -2021,6 +2094,8 @@ def _attempt(
         )
     rounds = 0
     number = 1
+    strategy = strategy_for(number)
+    message = inputs.message
     rounds_spent = False
     tool_calls = 0
     first_request = largest_request = 0
@@ -2047,9 +2122,7 @@ def _attempt(
             log.fail_to_pass = None
             log.verified.clear()
             log.parser_failures = 0
-            run = _turn(
-                agent, tier_model, log, inputs.message, source=source, usage_limits=usage_limits
-            )
+            run = _turn(agent, tier_model, log, message, source=source, usage_limits=usage_limits)
             first_request = first_request or run.first_request_tokens
             failure = (
                 _Failure(run.reason, klass=run.failure_class)
@@ -2065,6 +2138,8 @@ def _attempt(
                 keeper,
                 _Rounds(run, failure, rounds, number, budget),
                 tier=tier,
+                tier_move=attempt + 1 < len(tiers),
+                strategy=strategy,
                 trace=trace,
                 usage_limits=usage_limits,
             )
@@ -2080,13 +2155,19 @@ def _attempt(
             tool_calls += run.tool_calls
             if tier:
                 spent[tier] = spent.get(tier, TierSpend()).plus(run)
-            if failure is None or not _moves_tier(run) or attempt + 1 >= len(tiers):
+            moved = _moved_message(
+                run, repaired, attempt=attempt, tiers=tiers, message=inputs.message
+            )
+            if moved is None:
                 break
             keeper.discard()
             attempt += 1
             number += 1
+            strategy = strategy_for(number, moves_tier=True)
+            message = moved
     reason = failure.reason if failure else ""
     klass = failure.klass if failure else None
+    reason = _one_tier_reason(reason, failure, tiers)
     outcome = StepOutcome(
         item=item,
         group=inputs.group.number,
