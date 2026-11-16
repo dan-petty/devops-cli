@@ -726,6 +726,9 @@ CHECK_COMMANDS = (*TEST_COMMANDS, "uv run devops ci docs", "uv run devops opensp
 # `plan` and `plan-check` sort in one order as names and in the other as paths of spec files.
 CAPABILITIES = ("plan", "plan-check", "plan/reader", "comment-thread")
 texts = st.lists(st.sampled_from(WORDS), min_size=1, max_size=4).map(" ".join)
+# The step that the writer adds at the end of a documents task of a group that changes a command,
+# an option or a message.
+DOCUMENTS_STEP = ", and run `uv run devops docs generate`"
 # The line that the writer adds to `## What Changes`, which a model may also write.
 FITS_ONE_PR = MESSAGES.roadmap.stage_fits_one_pr
 
@@ -744,9 +747,13 @@ def _group(draw: st.DrawFn) -> dict[str, Any]:
         "changes": changes,
         "creates": creates,
         "creates_lines": {path: draw(st.integers(1, 400)) for path in creates},
-        "implementation": draw(texts),
+        # A work can name the command that writes the generated documents again (#5952).
+        "implementation": draw(texts | texts.map(lambda work: f"{work}{DOCUMENTS_STEP} again")),
         "documentation": draw(
-            st.none() | texts | st.sampled_from(["SECURITY.md", "docs/TESTING.md"])
+            st.none()
+            | texts
+            | texts.map(lambda work: f"{work}{DOCUMENTS_STEP} again")
+            | st.sampled_from(["SECURITY.md", "docs/TESTING.md"])
         ),
     }
     if kind is GroupKind.OTHER and draw(st.booleans()):
@@ -787,11 +794,24 @@ def _reference(draw: st.DrawFn) -> dict[str, Any]:
     }
 
 
+# A text of a criterion as a model can copy it: the words with a line break, two spaces or a
+# U+FEFF between them, and spaces around them (#5952).
+spaced_texts = st.builds(
+    lambda words, gap, edge: f"{edge}{gap.join(words)}{edge}",
+    st.lists(st.sampled_from(WORDS), min_size=1, max_size=4),
+    st.sampled_from([" ", "  ", "\n", "\ufeff"]),
+    st.sampled_from(["", " ", "\n"]),
+)
+
+
 @st.composite
 def _criterion(draw: st.DrawFn) -> dict[str, Any]:
+    criterion = draw(texts | spaced_texts)
     if draw(st.booleans()):
-        return {"criterion": draw(texts), "group": PENDING_PERSON, "reason": draw(texts)}
-    return {"criterion": draw(texts), "group": draw(st.integers(1, 5))}
+        return {"criterion": criterion, "group": PENDING_PERSON, "reason": draw(spaced_texts)}
+    # The prompt asks for a string `reason` in each entry, so a model gives one to a group too.
+    reason = draw(st.none() | st.just("") | texts)
+    return {"criterion": criterion, "group": draw(st.integers(1, 5)), "reason": reason}
 
 
 @st.composite
@@ -889,3 +909,174 @@ def test_read_back_problems_names_each_fact_that_differs() -> None:
         spec_delta = original.specs[0].model_copy(update={"requirements": ["Different req"]})
         diff_prop = original.model_copy(update={"specs": [spec_delta]})
         assert read_back_problems(files, diff_prop) == []
+
+
+# ── The read-back of the stage plans that failed on 2026-11-16 (#5952) ──────────────────────
+
+# The acceptance criteria of the items whose stage plans failed the read-back on `criteria`, as
+# the bodies of the issues hold them.
+FAILED_CRITERIA: dict[int, tuple[str, ...]] = {
+    2202: (
+        "The check query above returns no series (record the date and output in the PR).",
+        "The savings queries name no series without `local`, and the dashboard tests pass with "
+        "the record of the current label set only.",
+    ),
+    3655: (
+        "The dashboard is in the repository, and the render of the monitoring kustomization "
+        'holds it in a ConfigMap with the label `grafana_dashboard: "1"`.',
+        "A test fails and names the query when a panel reads a metric that the Service does not "
+        "emit.",
+        'Each new alert selects `job="roadmap-service"` and has a promtool test that it fires, '
+        "that it stays quiet on a normal series, and that it holds over a pod change.",
+        "Each new alert has a runbook entry in the Alerts section of `k8s/README.md`.",
+        "A test evaluates the panel queries on fixture series of a sample item and compares each "
+        "value with the job record of that item.",
+    ),
+    3671: ("A test: a draft with a failed check backs off, and the test holds the interval.",),
+}
+
+
+@pytest.mark.parametrize("reason", ["", "Group 1 adds the test."])
+@pytest.mark.parametrize("item", sorted(FAILED_CRITERIA))
+def test_a_criterion_of_a_group_reads_back_with_the_reason_that_the_model_gave(
+    item: int, reason: str
+) -> None:
+    from devops_cli.roadmap.plan_read import read_back_problems
+
+    proposal = make_stage_proposal(
+        criteria=[
+            {"criterion": criterion, "group": 1, "reason": reason}
+            for criterion in FAILED_CRITERIA[item]
+        ]
+    )
+
+    assert read_back_problems(_files(proposal), proposal) == []
+
+
+def test_a_criterion_with_a_line_break_reads_back() -> None:
+    from devops_cli.roadmap.plan_read import read_back_problems
+
+    criterion = FAILED_CRITERIA[3671][0].replace(" backs off,", "\nbacks off, ")
+    proposal = make_stage_proposal(
+        criteria=[
+            {"criterion": f" {criterion}\n", "group": 1},
+            {
+                "criterion": FAILED_CRITERIA[2202][0].replace(" ", "\ufeff", 1),
+                "group": PENDING_PERSON,
+                "reason": "A person runs the query on the live\ncluster.",
+            },
+        ]
+    )
+
+    assert read_back_problems(_files(proposal), proposal) == []
+    assert [entry.criterion for entry in proposal.criteria] == [
+        FAILED_CRITERIA[3671][0],
+        FAILED_CRITERIA[2202][0],
+    ]
+
+
+# The work of a group that writes a generated document again, as a model can write it: it names
+# the command of the step that the writer adds to a documents task.
+REGENERATING_WORK = (
+    "Add the series and its labels to the metric table, and run `uv run devops docs generate` to "
+    "write `docs/TELEMETRY.md` again"
+)
+
+
+@pytest.mark.parametrize(
+    "documentation", [None, "Edit `k8s/README.md`: add a row for the alert"], ids=("two", "three")
+)
+def test_a_work_that_names_the_documents_command_reads_back(documentation: str | None) -> None:
+    from devops_cli.roadmap.plan_read import read_back_problems
+
+    group = make_stage_proposal().groups[0].model_dump()
+    proposal = make_stage_proposal(
+        groups=[{**group, "implementation": REGENERATING_WORK, "documentation": documentation}]
+    )
+
+    assert read_back_problems(_files(proposal), proposal) == []
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [["docs/TELEMETRY.md"], ["src/devops_cli/commands/sample.py", "docs/TELEMETRY.md"]],
+    ids=("no-step", "step"),
+)
+def test_a_documents_work_that_names_the_documents_command_reads_back(
+    changes: list[str],
+) -> None:
+    from devops_cli.roadmap.plan_read import read_back_problems
+
+    proposal = make_stage_proposal(
+        groups=[
+            {
+                "title": "Write the series in the telemetry reference",
+                "kind": "other",
+                "changes": changes,
+                "implementation": "Name the series and its labels",
+                "documentation": f"Edit `docs/TELEMETRY.md`{DOCUMENTS_STEP} to write it again",
+                "verify": "uv run devops ci docs",
+            }
+        ]
+    )
+
+    assert read_back_problems(_files(proposal, known=set()), proposal) == []
+
+
+# ── The record of a read-back difference (#5952) ─────────────────────────────────────────────
+
+
+def _with_criteria(proposal: StageProposal, *entries: dict[str, Any]) -> StageProposal:
+    """`proposal` with `entries` as its criteria, built with no validation: the form of a value
+    that the writer drops or changes."""
+    from devops_cli.roadmap.stage.stage_criteria import StageCriterion
+
+    criteria = [StageCriterion.model_construct(**entry) for entry in entries]
+    return proposal.model_copy(update={"criteria": criteria})
+
+
+def test_a_difference_names_the_first_place_and_both_values() -> None:
+    from devops_cli.roadmap.plan_read import ReadBackDifference, read_back_differences
+
+    criterion = {"criterion": FAILED_CRITERIA[3671][0], "group": 1, "reason": None}
+    original = make_stage_proposal(criteria=[criterion, criterion])
+    written = _with_criteria(original, criterion, {**criterion, "reason": ""})
+
+    assert read_back_differences(_files(original), written) == [
+        ReadBackDifference(problem="criteria", place="[1].reason", written="''", read="None")
+    ]
+
+
+def test_a_text_difference_names_the_first_character_that_differs() -> None:
+    from devops_cli.roadmap.plan_read import read_back_differences
+
+    original = make_stage_proposal()
+    group = original.groups[0]
+    work = f"{group.implementation} in the last step"
+    written = original.model_copy(
+        update={"groups": [group.model_copy(update={"implementation": work})]}
+    )
+
+    (difference,) = read_back_differences(_files(original), written)
+
+    assert (difference.problem, difference.place) == (
+        "group 1: implementation",
+        f"[{len(group.implementation)}]",
+    )
+    assert "in the last step" in difference.written
+    assert "in the last step" not in difference.read
+
+
+def test_a_difference_masks_a_secret_and_cuts_a_long_value() -> None:
+    from devops_cli.config.constants import CONST_ROADMAP_READ_BACK_VALUE_MAX_CHARS
+    from devops_cli.roadmap.plan_read import read_back_differences
+
+    token = "ghp_" + "a1B2" * 9
+    criterion = {"criterion": "Set the token", "group": 1, "reason": None}
+    original = make_stage_proposal(criteria=[criterion])
+    written = _with_criteria(original, {**criterion, "reason": f"{token} {'word ' * 200}"})
+
+    (difference,) = read_back_differences(_files(original), written)
+
+    assert token not in difference.written
+    assert len(difference.written) <= CONST_ROADMAP_READ_BACK_VALUE_MAX_CHARS

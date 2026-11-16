@@ -3419,6 +3419,11 @@ CONST_ROADMAP_STAGE_SPEC_MAX_CHARS: Final[int] = 16000
 # So the file is at most about 2 x (128 KiB + 8,000 characters) in size.
 CONST_ROADMAP_STAGE_REFUSED_REPLY_MAX_BYTES: Final[int] = 131_072
 CONST_ROADMAP_STAGE_REFUSED_PROBLEM_MAX_CHARS: Final[int] = 8_000
+# A fact of a plan that reads back with another value (#5952): the Job log and the error give the
+# two values at the first difference, each masked and cut to this many characters. A text starts
+# this many characters before its first different character, so the log shows what comes before.
+CONST_ROADMAP_READ_BACK_VALUE_MAX_CHARS: Final[int] = 200
+CONST_ROADMAP_READ_BACK_TEXT_BEFORE_CHARS: Final[int] = 40
 # A failure of the plan run for a broken schema (#4269) names at most 3 violations. Each of their
 # texts (the location, the type and the message) is masked for secrets and cut to 200 characters,
 # so the failure line, the log and the refused-reply file stay small and hold no model text of any

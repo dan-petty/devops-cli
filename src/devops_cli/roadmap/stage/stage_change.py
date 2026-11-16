@@ -68,9 +68,11 @@ from devops_cli.roadmap.runner_tools import NOT_IN_RUNNER
 from devops_cli.roadmap.stage.stage_commands import command_citation_problems
 from devops_cli.roadmap.stage.stage_constants import constant_problems
 from devops_cli.roadmap.stage.stage_criteria import (
+    JS_SPACE,
     PENDING_PERSON,
     StageCriterion,
     criterion_problems,
+    one_line,
 )
 from devops_cli.roadmap.stage.stage_form import form_problems, search_problems
 from devops_cli.roadmap.stage.stage_move import (
@@ -337,22 +339,10 @@ RepositoryPath = Annotated[str, AfterValidator(_repository_path)]
 LineCount = Annotated[int, Field(ge=1)]
 
 
-# U+FEFF is white space for the JavaScript `\\s` that `openspec` reads, and it is none for
-# Python. Every other character of that class is white space for Python too.
-_JS_SPACE: Final[dict[int, str]] = {0xFEFF: " "}
-
-
-def _one_line(text: str) -> str:
-    """The text on one line, so that a text of the reply adds no line, no task, no group, no
-    section and no `Verification:` line to a file of the change. Each run of white space, a line
-    break of markdown (`\\n`, `\\r`) and one of `str.splitlines` among them, becomes one space."""
-    return " ".join(text.translate(_JS_SPACE).split())
-
-
 def _join_lines(text: str) -> str:
     """The text on one line, with each line break as one space and every other space kept: a
     command may hold two spaces in a quoted word."""
-    return " ".join(text.translate(_JS_SPACE).splitlines()).strip()
+    return " ".join(text.translate(JS_SPACE).splitlines()).strip()
 
 
 # What starts a block in markdown, at the start of a line: a heading, a quote, a list marker or a
@@ -376,7 +366,7 @@ def _block_free(text: str) -> str:
 Text = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1),
-    AfterValidator(_one_line),
+    AfterValidator(one_line),
 ]
 # A command: on one line, with its spaces kept.
 Command = Annotated[
@@ -386,11 +376,11 @@ Command = Annotated[
 ]
 # A text of a file of the change that is not a task: on one line, and at the start of a line only
 # when it starts with no block syntax.
-Line = Annotated[str, StringConstraints(strip_whitespace=True), AfterValidator(_one_line)]
+Line = Annotated[str, StringConstraints(strip_whitespace=True), AfterValidator(one_line)]
 LineStart = Annotated[
     str,
     StringConstraints(strip_whitespace=True),
-    AfterValidator(_one_line),
+    AfterValidator(one_line),
     AfterValidator(_block_free),
 ]
 
@@ -408,7 +398,7 @@ def _sentence(text: str) -> str:
 Sentence = Annotated[
     str,
     StringConstraints(strip_whitespace=True),
-    AfterValidator(_one_line),
+    AfterValidator(one_line),
     AfterValidator(_sentence),
 ]
 
@@ -417,7 +407,7 @@ Sentence = Annotated[
 Process = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1),
-    AfterValidator(_one_line),
+    AfterValidator(one_line),
 ]
 
 
@@ -2976,16 +2966,23 @@ def _documents_task(documentation: str, changes: Sequence[str]) -> str:
     generated text (#3226)."""
     texts = MESSAGES.roadmap
     work = document_work(documentation)
-    if any(path.startswith(_REGENERATE_PREFIXES) for path in changes):
+    if regenerates_documents(changes):
         work += texts.stage_task_regenerate.format(command=REGENERATE_DOCUMENTS)
     return texts.stage_task_documents.format(work=work)
+
+
+def regenerates_documents(changes: Sequence[str]) -> bool:
+    """Whether the documents task of a group that changes `changes` ends with the step that
+    regenerates the documents: the group changes a command, an option or a message. The plan
+    reader cuts that step only from such a task (#5952)."""
+    return any(path.startswith(_REGENERATE_PREFIXES) for path in changes)
 
 
 def group_text(index: int, group: StageGroup) -> str:
     """The group as `tasks.md` holds it, numbered `index`: its kind and its files on one line, and
     the tasks of its kind. The plan reader reads the kind from that line, because a `manifest`
     group has the tasks of a `behavior` group (#5205). `group` is a validated group: its texts are
-    on one line (`_one_line`), and `verify` holds no backtick (`form_problems`). A group built with
+    on one line (`one_line`), and `verify` holds no backtick (`form_problems`). A group built with
     `model_construct` skips that check, and no caller renders one."""
     texts = MESSAGES.roadmap
     files = texts.stage_group_files.format(
@@ -3004,15 +3001,16 @@ def criteria_section(criteria: Sequence[StageCriterion]) -> str:
     """The `## Criteria` section of `tasks.md`: one line for each acceptance criterion with the
     group that delivers it, or `pending-person` and the reason. It is no task, so it has no box.
     A line starts with a fixed word and holds the folded text of the criterion, which comes from
-    the issue: a criterion `## 2. X` is no heading of the file. A plan with no criterion has no
-    section."""
+    the issue: a criterion `## 2. X` is no heading of the file. `StageCriterion` folds its texts
+    with the same `one_line` and keeps no reason for a group, so an entry holds what its line
+    holds (#5952). A plan with no criterion has no section."""
     texts = MESSAGES.roadmap
     lines = [
         texts.stage_criteria_pending.format(
-            criterion=_one_line(c.criterion), reason=_one_line(c.reason or "")
+            criterion=one_line(c.criterion), reason=one_line(c.reason or "")
         )
         if c.group == PENDING_PERSON
-        else texts.stage_criteria_line.format(criterion=_one_line(c.criterion), group=c.group)
+        else texts.stage_criteria_line.format(criterion=one_line(c.criterion), group=c.group)
         for c in criteria
     ]
     return f"## {texts.stage_criteria_title}\n\n{_bullets(lines)}\n\n" if lines else ""

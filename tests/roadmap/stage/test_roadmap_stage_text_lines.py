@@ -438,10 +438,8 @@ OTHER_CHECKS = {
     ("StageSpec", "capability"): "is_valid_slug",
     ("StageProposal", "summary"): "safe_text on the title",
     ("StageProposal", "pull_request_body"): "safe_text on the body",
-    ("StageCriterion", "criterion"): "folded when the line is written",
-    ("StageCriterion", "reason"): "folded when the line is written",
 }
-FOLDS = ("_one_line", "_join_lines", "_repository_path")
+FOLDS = ("one_line", "_join_lines", "_repository_path")
 
 
 def _declared(field: FieldInfo) -> str:

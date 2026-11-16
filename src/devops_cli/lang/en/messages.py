@@ -4181,6 +4181,11 @@ class RoadmapMessages:
     stage_model_call_log: str = (
         "stage model call failed: item=#%d error=%s code=%s status=%s timed_out=%s"
     )
+    # The log line of a fact of a plan that reads back with another value (#5952): the fact, the
+    # place of its first difference, and the written and the read value, masked and cut.
+    stage_read_back_log: str = (
+        "stage plan read-back difference: item=#%d fact=%s place=%s written=%s read=%s"
+    )
     # The notice at the end of a tool answer from the call budget of a run (#4346).
     stage_calls_notice: str = (
         "[Notice: this was tool call {calls} of the run, and the call budget is used. Read no "

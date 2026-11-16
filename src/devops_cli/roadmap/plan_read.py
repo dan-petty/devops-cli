@@ -35,9 +35,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Literal
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
-from devops_cli.config.constants import CONST_OPENSPEC_CHANGES_DIR, CONST_OPENSPEC_SPECS_DIR
+from devops_cli.config.constants import (
+    CONST_OPENSPEC_CHANGES_DIR,
+    CONST_OPENSPEC_SPECS_DIR,
+    CONST_ROADMAP_READ_BACK_TEXT_BEFORE_CHARS,
+    CONST_ROADMAP_READ_BACK_VALUE_MAX_CHARS,
+)
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.clone_git import git
 from devops_cli.roadmap.implement.implement_shell_policy import shown, verification_problem
@@ -57,10 +62,12 @@ from devops_cli.roadmap.stage.stage_change import (
     WeakenedCheck,
     changes_source,
     document_work,
+    regenerates_documents,
 )
 from devops_cli.roadmap.stage.stage_criteria import StageCriterion
 from devops_cli.roadmap.stage.stage_specs import BaseSpec, read_spec
 from devops_cli.roadmap.step_files import FAILS_ON_BASE, KIND_LINE, TaskGroup, parse_task_groups
+from devops_cli.security.sanitizer import mask_secrets
 
 _CHANGE_FILE: Final[str] = "/.openspec.yaml"
 # A capability is flat, `<name>`, or nested, `<area>/<name>`, as `openspec list --specs` finds it.
@@ -423,11 +430,14 @@ def _split_process(text: str) -> tuple[str, str | None]:
     return text.strip(), None
 
 
-def _split_documents(text: str) -> tuple[str, str | None]:
-    if _DOCUMENTS_MARK and _DOCUMENTS_MARK in text:
-        work, _, _ = text.partition(_DOCUMENTS_MARK)
-        return work.strip(), _DOCUMENTS_MARK
-    return text.strip(), None
+def _documents(text: str, changes: Sequence[str]) -> str:
+    """The work of the documents task `text` of a group that changes `changes`: the text without
+    the step that the writer adds at its end (`regenerates_documents`). A work that names the
+    command of the step keeps it, so the reader cuts the step only at the end and only from a
+    task that the writer gives one (#5952)."""
+    if regenerates_documents(changes):
+        return text.removesuffix(_DOCUMENTS_MARK).strip()
+    return text.strip()
 
 
 @dataclass(frozen=True)
@@ -515,13 +525,15 @@ def _group(group: TaskGroup) -> StageGroup:
         raise PlanReadError(_TASKS, " ".join(problems))
     kind = _kind(group, first, files.changes)
     if kind is not GroupKind.OTHER:
-        # A `behavior` group and a `manifest` group have the same tasks: the case first.
+        # A `behavior` group and a `manifest` group have the same tasks: the case first, then
+        # the work, then the documents task. The work is the whole second task, so a work that
+        # names the command of the documents step reads back the same (#5952).
         if len(group.tasks) < 2:
             raise PlanReadError(_TASKS, MESSAGES.roadmap.plan_read_bad_task.format(text=first.text))
-        second = _task(group, 1)
-        implementation, documentation = _split_documents(second.text)
-        if len(group.tasks) > 2:
-            documentation, _ = _split_documents(_task(group, 2).text)
+        implementation = _task(group, 1).text
+        documentation = (
+            _documents(_task(group, 2).text, files.changes) if len(group.tasks) > 2 else None
+        )
         return StageGroup(
             title=group.title,
             kind=kind,
@@ -535,9 +547,9 @@ def _group(group: TaskGroup) -> StageGroup:
             verify=first.verification,
         )
     implementation, process = _split_process(first.text)
-    other_documentation: str | None = None
-    if len(group.tasks) > 1:
-        other_documentation, _ = _split_documents(_task(group, 1).text)
+    other_documentation = (
+        _documents(_task(group, 1).text, files.changes) if len(group.tasks) > 1 else None
+    )
     return StageGroup(
         title=group.title,
         kind=GroupKind.OTHER,
@@ -796,35 +808,120 @@ _GROUP_FIELDS: Final[tuple[str, ...]] = (
 )
 
 
-def _group_problems(i: int, read_group: StageGroup, exp_group: StageGroup) -> list[str]:
-    """The problems between `read_group` and `exp_group` for group `i`."""
-    return [
-        f"group {i}: {field}"
-        for field in _GROUP_FIELDS
-        if getattr(read_group, field) != getattr(exp_group, field)
-    ]
+@dataclass(frozen=True)
+class ReadBackDifference:
+    """One fact of a plan that reads back with another value (#5952). `problem` names the fact as
+    `read_back_problems` does. `place` is where the first difference is in the fact: the index
+    of an entry, the name of a field, and the index of a character in a text, as `[1].reason`.
+    `written` is the value of `file_facts` there and `read` the value that the reader gives, each
+    as Python shows it (`repr`), masked (`mask_secrets`) and cut to
+    `CONST_ROADMAP_READ_BACK_VALUE_MAX_CHARS`. A text value starts
+    `CONST_ROADMAP_READ_BACK_TEXT_BEFORE_CHARS` before its first different character."""
+
+    problem: str
+    place: str
+    written: str
+    read: str
 
 
-def read_back_problems(files: Mapping[str, str], proposal: StageProposal) -> list[str]:
-    """The problems that `read_change` finds when reading `files` back: each group and field that
-    differs from `file_facts(proposal)`.
+class _NoEntry:
+    """The value at an index past the end of the shorter list."""
+
+    def __repr__(self) -> str:
+        return "<no entry>"
+
+
+_NO_ENTRY: Final[_NoEntry] = _NoEntry()
+
+
+def _first_index(written: Sequence[object], read: Sequence[object]) -> int:
+    """The index of the first entry or character that differs, or the length of the shorter."""
+    return next(
+        (
+            index
+            for index, pair in enumerate(zip(written, read, strict=False))
+            if pair[0] != pair[1]
+        ),
+        min(len(written), len(read)),
+    )
+
+
+def _first_difference(written: object, read: object, place: str = "") -> tuple[str, str, str]:
+    """The place of the first difference between `written` and `read`, and the two values there,
+    masked and cut. A model goes on to its first field that differs, and a list to its first
+    entry that differs. A text gives the index of its first different character, counted in the
+    masked text, so that no cut leaves a part of a secret that the mask does not know."""
+    if isinstance(written, BaseModel) and type(written) is type(read):
+        name = next(
+            (
+                key
+                for key in type(written).model_fields
+                if getattr(written, key) != getattr(read, key)
+            ),
+            None,
+        )
+        if name is not None:
+            return _first_difference(getattr(written, name), getattr(read, name), f"{place}.{name}")
+    if isinstance(written, str) and isinstance(read, str):
+        written, read = mask_secrets(written), mask_secrets(read)
+        index = _first_index(written, read)
+        start = max(0, index - CONST_ROADMAP_READ_BACK_TEXT_BEFORE_CHARS)
+        return f"{place}[{index}]", _shown(written[start:]), _shown(read[start:])
+    if isinstance(written, list | tuple) and isinstance(read, list | tuple):
+        index = _first_index(written, read)
+        if index < len(written) and index < len(read):
+            return _first_difference(written[index], read[index], f"{place}[{index}]")
+        return (
+            f"{place}[{index}]",
+            _shown(written[index] if index < len(written) else _NO_ENTRY),
+            _shown(read[index] if index < len(read) else _NO_ENTRY),
+        )
+    return place, _shown(written), _shown(read)
+
+
+def _shown(value: object) -> str:
+    """`value` as Python shows it, masked and cut, for one log line."""
+    return mask_secrets(repr(value))[:CONST_ROADMAP_READ_BACK_VALUE_MAX_CHARS]
+
+
+def _difference(problem: str, written: object, read: object) -> ReadBackDifference:
+    place, written_value, read_value = _first_difference(written, read)
+    return ReadBackDifference(problem=problem, place=place, written=written_value, read=read_value)
+
+
+def read_back_differences(
+    files: Mapping[str, str], proposal: StageProposal
+) -> list[ReadBackDifference]:
+    """Each fact that `read_change` reads back from `files` with a value other than
+    `file_facts(proposal)`, with the place and the two values of its first difference (#5952).
 
     The check compares each group (title, kind, reads, changes, creates, test, implementation,
     verify, process, documentation), the unchanged references and the criteria. It does not
-    compare specs, because `_restored` puts back base scenarios that the proposal does not hold.
-    Each problem names the group and field with no text of the plan (#5214)."""
+    compare specs, because `_restored` puts back base scenarios that the proposal does not hold."""
     read = read_change(files)
     expected = file_facts(proposal)
-    problems: list[str] = []
+    differences: list[ReadBackDifference] = []
 
     if len(read.groups) != len(expected.groups):
-        problems.append(f"group count: read {len(read.groups)} != expected {len(expected.groups)}")
+        problem = f"group count: read {len(read.groups)} != expected {len(expected.groups)}"
+        differences.append(_difference(problem, expected.groups, read.groups))
     for i, (read_group, exp_group) in enumerate(zip(read.groups, expected.groups, strict=False), 1):
-        problems.extend(_group_problems(i, read_group, exp_group))
+        differences.extend(
+            _difference(
+                f"group {i}: {field}", getattr(exp_group, field), getattr(read_group, field)
+            )
+            for field in _GROUP_FIELDS
+            if getattr(read_group, field) != getattr(exp_group, field)
+        )
 
-    if read.references != expected.references:
-        problems.append("references")
-    if read.criteria != expected.criteria:
-        problems.append("criteria")
+    for field in ("references", "criteria"):
+        if getattr(read, field) != getattr(expected, field):
+            differences.append(_difference(field, getattr(expected, field), getattr(read, field)))
 
-    return problems
+    return differences
+
+
+def read_back_problems(files: Mapping[str, str], proposal: StageProposal) -> list[str]:
+    """The problem of each fact that `read_back_differences` finds: the group and the field that
+    differ, with no text of the plan (#5214)."""
+    return [difference.problem for difference in read_back_differences(files, proposal)]

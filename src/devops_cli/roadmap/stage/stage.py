@@ -94,7 +94,7 @@ import logging
 import shutil
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, date, datetime
 from enum import StrEnum
 from functools import cache, cached_property, partial
@@ -169,7 +169,12 @@ from devops_cli.roadmap.failure import FailureClass, StepName, failure_class_of,
 from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
 from devops_cli.roadmap.owner_question import OwnerQuestion, QuestionOption
 from devops_cli.roadmap.plan_check import PlanFolder, staged_problems
-from devops_cli.roadmap.plan_read import PlanReadError, read_back_problems, read_change
+from devops_cli.roadmap.plan_read import (
+    PlanReadError,
+    ReadBackDifference,
+    read_back_differences,
+    read_change,
+)
 from devops_cli.roadmap.planned import (
     PlannedChanges,
     open_plan_creates,
@@ -2520,8 +2525,8 @@ class _Planner:
             read_change(files)
         except PlanReadError as exc:
             return check_findings(READ_GATE, [exc.reason])
-        if problems := read_back_problems(files, proposal):
-            raise RoadmapPlanReadBackError(problems, failed_items=[target.item.number])
+        if differences := read_back_differences(files, proposal):
+            raise read_back_error(target.item.number, differences)
         return check_findings(PLAN_CHECK_GATE, self._plan_check(target, title, body, files))
 
     def _plan_check(
@@ -2654,6 +2659,29 @@ def _failure_of(
         degenerate=isinstance(exc, RoadmapStageDegenerateError),
         problems=problems,
         stopped_by_checks=stopped_by_checks,
+    )
+
+
+def read_back_error(
+    item: int, differences: Sequence[ReadBackDifference]
+) -> RoadmapPlanReadBackError:
+    """The error of a plan whose files read back with other facts (#5214). Its message names each
+    fact with no text of the plan, as the comment at the limit shows it. The Job log and the
+    details of the error also give, for each fact, the place of its first difference and both
+    values, masked and cut, so a person can find the defect after the run (#5952)."""
+    for difference in differences:
+        logger.warning(
+            MESSAGES.roadmap.stage_read_back_log,
+            item,
+            difference.problem,
+            difference.place,
+            difference.written,
+            difference.read,
+        )
+    return RoadmapPlanReadBackError(
+        [difference.problem for difference in differences],
+        failed_items=[item],
+        details={"differences": [asdict(difference) for difference in differences]},
     )
 
 

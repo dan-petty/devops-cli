@@ -121,6 +121,14 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "kept",
         "the size of the problem text of a refused reply that the job keeps for a person",
     ),
+    "CONST_ROADMAP_READ_BACK_VALUE_MAX_CHARS": (
+        "kept",
+        "the size of one value of a read-back difference in the Job log line; protects a log",
+    ),
+    "CONST_ROADMAP_READ_BACK_TEXT_BEFORE_CHARS": (
+        "kept",
+        "the text before the first difference that a read-back log line shows; protects a log",
+    ),
     "CONST_ROADMAP_STAGE_VIOLATIONS_SHOWN": (
         "kept",
         "the violations that a failure line, a log line and the refused file name; protects a log",
