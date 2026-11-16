@@ -489,6 +489,17 @@ class TestK8sLLMGatewayManifests:
             {"devops-coder": ["devops-chat"]},
         )
 
+    def test_no_openrouter_route_uses_the_floor_variant(self) -> None:
+        """No gateway deployment and no alias names an OpenRouter `:floor` route (#5978).
+
+        `:floor` makes flex endpoints eligible. On 2026-11-16 the cheapest flex endpoint of
+        DeepSeek V4.1 Flash 1017 gave no first token in 300 s, and every job of the group failed.
+        """
+        config = _full_gateway_config()
+        models = [entry["litellm_params"]["model"] for entry in config["model_list"]]
+        aliases = list(config.get("router_settings", {}).get("model_group_alias", {}))
+        assert [name for name in models + aliases if name.endswith(":floor")] == []
+
     def test_gateway_maps_local_and_provider_model_group_aliases(self) -> None:
         """Verify the gateway defines model_group_alias for local/ models and provider-prefixed
         hosted models, and that every alias targets an existing model_name (#5853)."""
@@ -510,7 +521,6 @@ class TestK8sLLMGatewayManifests:
             "anthropic/claude-haiku-5-5": "claude-haiku-5-5",
             "gemini/gemini-3.8-flash": "gemini-3.8-flash",
             "openrouter/deepseek/deepseek-v4.1-flash-1017": "deepseek-v4.1-flash-1017",
-            "openrouter/deepseek/deepseek-v4.1-flash-1017:floor": "deepseek-v4.1-flash-1017",
             "openrouter/deepseek/deepseek-v4.1-flash": "deepseek-v4.1-flash",
         }
         for alias, target in expected_aliases.items():

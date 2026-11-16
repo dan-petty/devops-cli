@@ -2978,7 +2978,6 @@ CONST_AI_GATEWAY_HOSTED_MODELS: Final[tuple[str, ...]] = (
     "gemini/gemini-3.8-flash",
     "anthropic/claude-sonnet-5-5",
     "anthropic/claude-haiku-5-5",
-    "openrouter/deepseek/deepseek-v4.1-flash-1017:floor",
     "openrouter/deepseek/deepseek-v4.1-flash-1017",
     "openrouter/deepseek/deepseek-v4.1-flash",
 )
