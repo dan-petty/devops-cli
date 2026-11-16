@@ -1561,6 +1561,7 @@ def test_a_revision_that_does_not_read_back_is_not_pushed(
     monkeypatch: pytest.MonkeyPatch,
     gated: bool,
 ) -> None:
+    from devops_cli.roadmap.plan_read import ReadBackDifference
     from devops_cli.roadmap.stage import stage as stage_module
 
     plan = (
@@ -1575,14 +1576,14 @@ def test_a_revision_that_does_not_read_back_is_not_pushed(
     else:
         model_fake.answer(repaired)
 
-    original_read_back = stage_module.read_back_problems
+    original_read_back = stage_module.read_back_differences
 
-    def read_back_fake(files: Any, proposal: Any) -> list[str]:
+    def read_back_fake(files: Any, proposal: Any) -> list[ReadBackDifference]:
         if proposal.why == REPAIRED_WHY:
-            return ["group 1 test differs"]
+            return [ReadBackDifference("group 1: test", "[0]", "'a'", "'b'")]
         return original_read_back(files, proposal)
 
-    monkeypatch.setattr(stage_module, "read_back_problems", read_back_fake)
+    monkeypatch.setattr(stage_module, "read_back_differences", read_back_fake)
 
     with caplog.at_level(logging.INFO):
         run = _run(store, stage_repo, verifier)

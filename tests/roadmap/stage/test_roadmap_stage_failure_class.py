@@ -9,6 +9,7 @@ the budget clear all four keys.
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -359,3 +360,26 @@ def test_a_read_back_error_has_the_class_plan_unreadable() -> None:
         "plan_unreadable",
         "plan",
     )
+
+
+def test_a_read_back_error_logs_the_first_difference_of_each_fact(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from devops_cli.roadmap.plan_read import ReadBackDifference
+    from devops_cli.roadmap.stage.stage import read_back_error
+
+    difference = ReadBackDifference(
+        problem="criteria", place="[1].reason", written="''", read="None"
+    )
+
+    with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.stage.stage"):
+        exc = read_back_error(3671, [difference])
+
+    assert (exc.problems, str(exc)) == (("criteria",), "criteria")
+    assert exc.details["differences"] == [
+        {"problem": "criteria", "place": "[1].reason", "written": "''", "read": "None"}
+    ]
+    assert (
+        "stage plan read-back difference: item=#3671 fact=criteria place=[1].reason "
+        "written='' read=None"
+    ) in caplog.text

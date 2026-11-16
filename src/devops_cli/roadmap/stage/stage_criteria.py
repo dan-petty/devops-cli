@@ -26,11 +26,11 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from typing import Final, Literal, Self
+from typing import Annotated, Final, Literal, Self
 
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, model_validator
 
 from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_END_MARKER,
@@ -52,26 +52,48 @@ _CODE_SPAN: Final[re.Pattern[str]] = re.compile(r"`([^`\n]+)`")
 # does. A version such as `v1.2` is no path.
 _PATH_SUFFIX: Final[re.Pattern[str]] = re.compile(r"\.[A-Za-z]+$")
 _REQUIREMENT_ID: Final[str] = "REQ-{number:03d}"
+# U+FEFF is white space for the JavaScript `\\s` that `openspec` reads, and it is none for
+# Python. Every other character of that class is white space for Python too.
+JS_SPACE: Final[dict[int, str]] = {0xFEFF: " "}
+
+
+def one_line(text: str) -> str:
+    """The text on one line, so that a text of the reply adds no line, no task, no group, no
+    section and no `Verification:` line to a file of the change. Each run of white space, a line
+    break of markdown (`\\n`, `\\r`) and one of `str.splitlines` among them, becomes one space.
+    The writer of the change folder and `StageCriterion` use this one fold (#5952)."""
+    return " ".join(text.translate(JS_SPACE).split())
+
+
+# A text of a criterion entry: on one line, as the line of `## Criteria` holds it.
+_CriterionText = Annotated[str, AfterValidator(one_line)]
 
 
 class StageCriterion(BaseModel):
     """One acceptance criterion of the issue and who delivers it: the number of a group (from 1),
-    or `pending-person`. A `pending-person` entry holds a reason."""
+    or `pending-person`. A `pending-person` entry holds a reason.
+
+    An entry holds what its line of `## Criteria` holds, so a plan reads back with the same
+    criteria (#5952): the texts are on one line (`one_line`), and an entry of a group keeps no
+    reason, because the line of a group has none. The prompt asks for a string `reason` in each
+    entry, so a model also gives one to an entry of a group."""
 
     model_config = ConfigDict(extra="forbid")
 
-    criterion: str
+    criterion: _CriterionText
     group: int | Literal["pending-person"]
-    reason: str | None = None
+    reason: _CriterionText | None = None
 
     @model_validator(mode="after")
     def _pending_has_reason(self) -> Self:
         if isinstance(self.group, int) and self.group < 1:
             raise ValueError(MESSAGES.roadmap.stage_criterion_bad_group.format(group=self.group))
-        if self.group == PENDING_PERSON and not (self.reason and self.reason.strip()):
+        if self.group == PENDING_PERSON and not self.reason:
             raise ValueError(
                 MESSAGES.roadmap.stage_criterion_no_reason.format(criterion=self.criterion)
             )
+        if isinstance(self.group, int):
+            self.reason = None
         return self
 
 
@@ -86,10 +108,6 @@ class RequirementLine(BaseModel):
     kind: RequirementKind
     text: str
     source_line: int
-
-
-def _one_line(text: str) -> str:
-    return " ".join(text.split())
 
 
 def _without_refine_block(body: str) -> str:
@@ -110,7 +128,7 @@ def _is_repository_path(word: str) -> bool:
 def _requirement_of_text(text: str) -> tuple[RequirementKind, str] | None:
     """The kind and the text of a requirement line, or `None` for prose that names no
     requirement. A decision line keeps its text, and a command or a path gives the literal."""
-    one = _one_line(text)
+    one = one_line(text)
     if not one:
         return None
     if one.startswith(_DECISION_PREFIX):
@@ -134,7 +152,7 @@ def _item_text(tokens: Sequence[Token], index: int) -> str:
     """The text of the list item at `index`, on one line, with no task-list mark."""
     for token in tokens[index + 1 :]:
         if token.type == "inline":
-            return _one_line(_TASK_MARK.sub("", token.content.strip()))
+            return one_line(_TASK_MARK.sub("", token.content.strip()))
         if token.type == "list_item_close" and token.level == tokens[index].level:
             break
     return ""
@@ -216,7 +234,7 @@ def acceptance_criteria(body: str) -> list[str]:
             level = int(token.tag[1:]) if _HEADING_TITLE.fullmatch(title) else 0
         elif level and token.type == "list_item_open" and token.level == _ITEM_LEVEL:
             inline = next(t for t in tokens[index + 1 :] if t.type == "inline")
-            text = _one_line(_TASK_MARK.sub("", inline.content.strip()))
+            text = one_line(_TASK_MARK.sub("", inline.content.strip()))
             # A strikethrough that wraps the item cancels it (#4024). An inline span in an active
             # item does not start or end the text, so it stays.
             if text.startswith("~~") and text.endswith("~~") and len(text) > 4:
@@ -259,7 +277,7 @@ def criterion_problems(
     to copy."""
     texts = MESSAGES.roadmap
     accepted = acceptance_criteria(issue_body)
-    mapped = {_one_line(entry.criterion) for entry in _resolved(criteria, accepted)}
+    mapped = {one_line(entry.criterion) for entry in _resolved(criteria, accepted)}
     problems = [
         texts.stage_problem_criterion.format(criterion=criterion)
         for criterion in accepted
