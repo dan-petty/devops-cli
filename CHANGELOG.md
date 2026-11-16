@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.165.2](https://github.com/dan-petty/devops-cli/compare/v0.165.1...v0.165.2) (2026-11-16)
+
+
+### Bug Fixes
+
+* **k8s:** Run the DeepSeek jobs on v4.1-flash while 1017 stalls ([#5989](https://github.com/dan-petty/devops-cli/issues/5989)) ([c07fc35](https://github.com/dan-petty/devops-cli/commit/c07fc35e9b5ef89d7b24eeb2da9e066a16b7f554)), closes [#5988](https://github.com/dan-petty/devops-cli/issues/5988)
+* **roadmap:** Guard fix-checks against a live Job and repeats ([#5986](https://github.com/dan-petty/devops-cli/issues/5986)) ([8ed4bd4](https://github.com/dan-petty/devops-cli/commit/8ed4bd475dcf0e54789725389ffc4a166ceecb57)), closes [#5983](https://github.com/dan-petty/devops-cli/issues/5983)
+
 ## [0.165.1](https://github.com/dan-petty/devops-cli/compare/v0.165.0...v0.165.1) (2026-11-16)
 
 
