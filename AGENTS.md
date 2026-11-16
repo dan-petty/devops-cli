@@ -18,7 +18,7 @@
 12. **Keep your own files out of git.** Put agent files under `.data/agent/` and scratch scripts under `.data/agent/scratch/`. Back up a file outside the workspace before you edit it. Never change `config.yaml`.
 13. **Keep tool output small.** Search before you read, and read only the lines you need. Ask each command for less output: `git diff --stat`, `--jq`, `--limit`, a Loki `limit`. Keep each necessary fact: error lines, `file:line`, failed test IDs.
 
-**Only a person** merges pull requests, records verdicts, plans milestones and changes secrets, repository settings and hardware. Agents run every other project command, but no release step.
+**Only a person** merges pull requests (one exception: Renovate merges a security fix after the required checks pass, #6031), records verdicts, plans milestones and changes secrets, repository settings and hardware. Agents run every other project command, but no release step.
 
 ## Where to look
 
