@@ -4,9 +4,9 @@
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/pull_form.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_pull_form.py`. Changes: `src/devops_cli/roadmap/pull_form.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_pull_form.py`.
 
-- [ ] 1.1 Write `test_a_body_text_that_ends_with_a_cut_mark_is_refused` in `tests/roadmap/test_roadmap_pull_form.py` first: `body_problems` and `build_body` name a problem for a why that ends with `...` or `…`, and `body_problems` finds no problem for a why that holds `...` inside a sentence; it fails on the base because the body rule is absent
+- [x] 1.1 Write `test_a_body_text_that_ends_with_a_cut_mark_is_refused` in `tests/roadmap/test_roadmap_pull_form.py` first: `body_problems` and `build_body` name a problem for a why that ends with `...` or `…`, and `body_problems` finds no problem for a why that holds `...` inside a sentence; it fails on the base because the body rule is absent
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_pull_form.py` fails on the base
-- [ ] 1.2 Add `form_body_cut` to the messages, and a check at the end of `_text_problems` in `src/devops_cli/roadmap/pull_form.py` that appends it when the text above `Closes` or `Plans` ends with `...` or `…`, so `body_problems` and `plan_body_problems` refuse a cut text and `build_body` raises with every problem and writes nothing
+- [x] 1.2 Add `form_body_cut` to the messages, and a check at the end of `_text_problems` in `src/devops_cli/roadmap/pull_form.py` that appends it when the text above `Closes` or `Plans` ends with `...` or `…`, so `body_problems` and `plan_body_problems` refuse a cut text and `build_body` raises with every problem and writes nothing
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_pull_form.py` passes
 
 ## 2. Add the refused_reply failure class
