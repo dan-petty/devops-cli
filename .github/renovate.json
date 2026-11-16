@@ -155,6 +155,9 @@
       "datasourceTemplate": "npm"
     }
   ],
+  "dependencyDashboard": {
+    "footer": "Held security fixes: `mcp` and `opentelemetry-api` in `src/devops_cli/tools_lock/semgrep.txt`. Semgrep pins their vulnerable versions, so uv finds no lock with the fixes. #3988 tracks them."
+  },
   "packageRules": [
     {
       "description": "OpenTofu reads its providers from the OpenTofu registry.",
@@ -318,6 +321,24 @@
       "description": "pydantic-ai 2.67 and later cap google-genai below 3, and the lock holds an older pydantic-ai, so lock maintenance would move google-genai to 3 alone. The pydantic-ai move of #5098 removes this hold.",
       "matchPackageNames": ["google-genai"],
       "allowedVersions": "<3"
+    },
+    {
+      "description": "semgrep pins mcp==1.29.0, also in its newest release (1.185.0 on 2026-11-16), so uv finds no lock of the semgrep tool with the security fix, and Renovate stopped the fix as an empty commit at each run. The hold ends when the lock takes the fix. #3988 tracks the advisories of the tools lock.",
+      "matchManagers": ["pip-compile"],
+      "matchFileNames": ["src/devops_cli/tools_lock/semgrep.in"],
+      "matchDepTypes": ["indirect"],
+      "matchPackageNames": ["mcp"],
+      "matchCurrentVersion": "<1.30.0",
+      "enabled": false
+    },
+    {
+      "description": "semgrep pins opentelemetry-api~=1.37.0, also in its newest release (1.185.0 on 2026-11-16), so uv finds no lock of the semgrep tool with the security fix, and Renovate stopped the fix as an empty commit at each run. The hold ends when the lock takes the fix. #3988 tracks the advisories of the tools lock.",
+      "matchManagers": ["pip-compile"],
+      "matchFileNames": ["src/devops_cli/tools_lock/semgrep.in"],
+      "matchDepTypes": ["indirect"],
+      "matchPackageNames": ["opentelemetry-api"],
+      "matchCurrentVersion": "<1.45.2",
+      "enabled": false
     }
   ]
 }
