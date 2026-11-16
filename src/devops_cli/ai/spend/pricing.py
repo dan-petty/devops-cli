@@ -77,7 +77,7 @@ _DEEPSEEK_V4_1_FLASH_PRICE = ModelPricing(
 # The price of each hosted gateway group that genai-prices does not price, under the route name
 # and under the deployment model of each deployment of the group. A run of an agent names the
 # route name, which the gateway writes in the reply body; a chat call names the deployment model
-# of the reply header (`x-litellm-model-name`). The model_info of each deployment in
+# of the reply header. The model_info of each deployment in
 # k8s/llm/gateway/config.yaml holds the same rates, and tests/ai/spend/test_hosted_group_prices.py
 # fails when they differ or a hosted group has no price. The group deepseek-v4.1-flash-1017 has
 # two deployments (#5990). Its route name has the price of order 1, which answers each call
