@@ -36,6 +36,8 @@ from devops_cli.roadmap.stores.store import (
     CloseReason,
     GitHubState,
 )
+from tests.support.fakes.github import GitHubApiFake, github_json
+from tests.support.fakes.process import ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_run import (
     NOW,
@@ -98,11 +100,11 @@ def _stamp_the_default_table(
 
 
 def test_the_table_runs_the_lanes_in_order_and_names_no_release_job() -> None:
-    """The status lane's metrics, implement, plan_drift, stage_ready, stage, release_comments,
-    github_status, cloudflare_status and pr_conflicts rows run first, then
+    """The status lane's metrics, implement, plan_drift, watch, stage, release_comments,
+    github_status and cloudflare_status rows run first, then
     the triage lane's intake row, then the model lane's retitle, fix_plan, refine and
     alternatives rows; no row closes items, cuts or starts a release
-    (#1360, #1534, #2652, #2659, #2667, #2757, #2865, #3535, #4559, #5061)."""
+    (#1360, #1534, #2652, #2659, #2667, #2757, #2865, #3535, #4559, #5024, #5061)."""
     assert (
         [row.name for row in DEFAULT_DUE_TABLE],
         DEFAULT_DUE_TABLE == (*STATUS_LANE_ROWS, *TRIAGE_LANE_ROWS, *MODEL_LANE_ROWS),
@@ -112,12 +114,11 @@ def test_the_table_runs_the_lanes_in_order_and_names_no_release_job() -> None:
             "metrics",
             "implement",
             "plan_drift",
-            "stage_ready",
+            "watch",
             "stage",
             "release_comments",
             "github_status",
             "cloudflare_status",
-            "pr_conflicts",
             "intake",
             "retitle",
             "fix_plan",
@@ -483,11 +484,10 @@ def test_idle_records_zero_or_one_store_calls(
         stage=TWENTY_MINUTES_AGO,
         implement=recent,
         plan_drift=recent,
-        stage_ready=recent,
+        watch=recent,
         release_comments=recent,
         github_status=recent,
         cloudflare_status=recent,
-        pr_conflicts=recent,
         metrics=recent,
         alternatives=recent,
         fix_plan=recent,
@@ -509,8 +509,26 @@ def test_no_prompt_and_cli_modes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     cli: Callable[..., Any],
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
 ) -> None:
     """Stub called with no confirm argument; CLI without confirm or with dry-run runs none."""
+    api, _ = github_api_and_gh
+    api.route(
+        "POST",
+        "/graphql",
+        github_json(
+            {
+                "data": {
+                    "repository": {
+                        "pullRequests": {
+                            "nodes": [],
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        }
+                    }
+                }
+            }
+        ),
+    )
     received_args: list[dict[str, Any]] = []
 
     def stub_runner(**kwargs: Any) -> JobOutcome:
@@ -522,18 +540,18 @@ def test_no_prompt_and_cli_modes(
     had_confirm = "confirm" in received_args[0] if received_args else True
 
     monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path))
-    _stamp_the_default_table(tmp_path, except_for=("stage_ready",), stage_ready=timedelta(days=1))
+    _stamp_the_default_table(tmp_path, except_for=("watch",), watch=timedelta(days=1))
     res_plain = cli(["roadmap", "run", "-R", REPO])
     res_dry = cli(["roadmap", "run", "--dry-run", "--confirm", "-R", REPO])
-    stamped_before = read_schedule(tmp_path)["stage_ready"]
+    stamped_before = read_schedule(tmp_path)["watch"]
     res_confirm = cli(["roadmap", "run", "--confirm", "-R", REPO])
 
     assert (
         had_confirm,
         res_plain.exit_code,
-        "Due: stage_ready" in res_plain.output,
+        "Due: watch" in res_plain.output,
         res_dry.exit_code,
-        "Due: stage_ready" in res_dry.output,
+        "Due: watch" in res_dry.output,
         res_confirm.exit_code,
-        read_schedule(tmp_path)["stage_ready"] != stamped_before,
+        read_schedule(tmp_path)["watch"] != stamped_before,
     ) == (False, 0, True, 0, True, 0, True)

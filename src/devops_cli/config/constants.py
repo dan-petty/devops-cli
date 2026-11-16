@@ -3713,6 +3713,10 @@ CONST_ROADMAP_RELEASE_LEDGER_FILENAME: Final[str] = "release_comments.json"
 # The pr_conflicts row's ledger beside schedule.json: the head commit of each pull request that it
 # found with merge conflicts, so it comments once for each conflict (#4027).
 CONST_ROADMAP_PR_CONFLICTS_LEDGER_FILENAME: Final[str] = "pr_conflicts.json"
+# The watch row's ledger beside schedule.json: the state and backoff of each watched pull request (#5024).
+CONST_ROADMAP_WATCH_LEDGER_FILENAME: Final[str] = "watch.json"
+# Marker on comments posted by the watch row (ADR 0021, section 8; #5024).
+CONST_ROADMAP_WATCH_MARKER: Final[str] = "<!-- devops roadmap watch -->"
 # The releases that the release_comments row comments on: those published within this many hours
 # of a round, out of the newest `CONST_ROADMAP_RELEASE_COMMENTS_LIST` (#2917).
 CONST_ROADMAP_RELEASE_COMMENTS_WINDOW_HOURS: Final[int] = 12

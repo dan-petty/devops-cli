@@ -37,6 +37,7 @@ from devops_cli.roadmap.stores.store import RoadmapStore, install_roadmap_store
 from devops_cli.server.service import ServiceManager, TriggerBatch
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from tests.support.fakes.github import RunnerSession
+from tests.support.fakes.process import ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_run import (
     NOW,
@@ -150,12 +151,13 @@ def test_each_lane_reads_every_issue_through_its_own_snapshot(
 
 @pytest.mark.usefixtures("roadmap_bot")
 def test_a_lane_round_with_a_kept_snapshot_reads_only_the_changed_issues(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
 ) -> None:
-    """Test first for #4854: the first round of the lane of `stage_ready` reads the whole listing
+    """Test first for #4854: the first round of the lane of `watch` reads the whole listing
     and keeps a snapshot. The next round reads only the issues changed since its watermark, one
     request, and not every page again."""
     github = service_github([])
+    github.install(process_fake)
     serve_over(tmp_path, monkeypatch, github, stamped=False)
     install_roadmap_store(
         lambda repo, *, listing=None, **_: GitHubRoadmapStore(
@@ -163,9 +165,9 @@ def test_a_lane_round_with_a_kept_snapshot_reads_only_the_changed_issues(
         )
     )
     recent = datetime.now(UTC) - timedelta(minutes=1)
-    others = {row.name: recent for row in STATUS_LANE_ROWS if row.name != "stage_ready"}
+    others = {row.name: recent for row in STATUS_LANE_ROWS if row.name != "watch"}
     jobs = service_jobs(tmp_path)
-    lane = jobs[_lane_of(jobs, "stage_ready")]
+    lane = jobs[_lane_of(jobs, "watch")]
     for _ in range(2):
         stamp_successes(tmp_path, **others)
         lane(POLL)
@@ -371,12 +373,11 @@ def test_the_implement_row_is_due_on_the_status_lane_by_its_interval_and_by_no_h
     fresh = {
         "metrics": NOW - timedelta(minutes=1),
         "plan_drift": NOW - timedelta(minutes=1),
-        "stage_ready": NOW - timedelta(minutes=1),
+        "watch": NOW - timedelta(minutes=1),
         "stage": NOW - timedelta(minutes=1),
         "release_comments": NOW - timedelta(minutes=1),
         "github_status": NOW - timedelta(minutes=1),
         "cloudflare_status": NOW - timedelta(minutes=1),
-        "pr_conflicts": NOW - timedelta(minutes=1),
     }
     first = ran({POLL_KEY: 1})
     too_soon = ran({POLL_KEY: 1}, **fresh, implement=NOW - timedelta(minutes=6, seconds=59))
@@ -388,12 +389,11 @@ def test_the_implement_row_is_due_on_the_status_lane_by_its_interval_and_by_no_h
             "metrics",
             "implement",
             "plan_drift",
-            "stage_ready",
+            "watch",
             "stage",
             "release_comments",
             "github_status",
             "cloudflare_status",
-            "pr_conflicts",
         ),
         (),
         ("implement",),
@@ -445,12 +445,11 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
             "metrics",
             "implement",
             "plan_drift",
-            "stage_ready",
+            "watch",
             "stage",
             "release_comments",
             "github_status",
             "cloudflare_status",
-            "pr_conflicts",
         ),
         {
             "intake": later.isoformat(),
@@ -461,12 +460,11 @@ def test_each_lanes_success_stays_in_schedule_json_when_their_rounds_interleave(
             "metrics": NOW.isoformat(),
             "implement": NOW.isoformat(),
             "plan_drift": NOW.isoformat(),
-            "stage_ready": NOW.isoformat(),
+            "watch": NOW.isoformat(),
             "stage": NOW.isoformat(),
             "release_comments": NOW.isoformat(),
             "github_status": NOW.isoformat(),
             "cloudflare_status": NOW.isoformat(),
-            "pr_conflicts": NOW.isoformat(),
         },
     )
 

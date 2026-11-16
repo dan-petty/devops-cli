@@ -49,6 +49,16 @@ class PRVerdict(StrEnum):
     HEAD_MOVED = "head_moved"
 
 
+class DueStep(StrEnum):
+    """The due steps that a pull request verdict routes to (#5024)."""
+
+    READY = "ready"
+    COMMENT_CONFLICT = "comment_conflict"
+    COMMENT_CI_INFRA = "comment_ci_infra"
+    STATUS_SYNC = "status_sync"
+    CLEANUP = "cleanup"
+
+
 @dataclass(frozen=True)
 class WatchVerdict:
     """The outcome of the verdict function."""
@@ -90,6 +100,23 @@ class WatchState:
     commit_message: str | None = None
     checks: CheckVerdictSummary | Sequence[PRCheckItem] | None = None
     unresolved_threads: int | Sequence[ReviewThread] = 0
+    author: str = ""
+    is_bot: bool = False
+    is_plan: bool = False
+    has_live_unit: bool = False
+
+    @property
+    def bot(self) -> bool:
+        """Whether this pull request was created by the Service or App bot."""
+        if self.is_bot:
+            return True
+        if self.author:
+            return (
+                self.author.endswith("[bot]")
+                or self.author.startswith("app/")
+                or self.author == "devops-cli-service"
+            )
+        return False
 
 
 def _first_failure(failing: Sequence[PRCheckItem]) -> PRCheckItem:
@@ -208,6 +235,46 @@ def verdict(state: WatchState) -> WatchVerdict | None:
         return lifecycle
 
     return _checks_verdict(state)
+
+
+def due_steps(state: WatchState) -> tuple[DueStep, ...]:
+    """One pure function gives the due steps for a pull request (ADR 0021, section 8; #5024).
+
+    Routes:
+    - Live unit active: skipped (returns ())
+    - Skip-ci: no verdict (returns ())
+    - READY: `ready` step for bot PRs; nothing for person PRs
+    - CONFLICT: `comment_conflict` for person PRs; nothing for bot PRs (writes no due mark)
+    - FAILED: `comment_ci_infra` for bot PRs with CI_INFRA; nothing for person PRs
+    - MERGED / CLOSED: `status_sync` (plus `cleanup` for bot plan PRs)
+    - PENDING / BEHIND / THREADS / HEAD_MOVED: ()
+    """
+    if state.has_live_unit:
+        return ()
+
+    v = verdict(state)
+    if v is None:
+        return ()
+
+    is_bot = state.bot
+
+    if v.verdict is PRVerdict.READY:
+        return (DueStep.READY,) if is_bot else ()
+
+    if v.verdict is PRVerdict.CONFLICT:
+        return () if is_bot else (DueStep.COMMENT_CONFLICT,)
+
+    if v.verdict is PRVerdict.FAILED:
+        if is_bot and v.failure_class == FailureClass.CI_INFRA:
+            return (DueStep.COMMENT_CI_INFRA,)
+        return ()
+
+    if v.verdict in (PRVerdict.MERGED, PRVerdict.CLOSED):
+        if is_bot and state.is_plan:
+            return (DueStep.STATUS_SYNC, DueStep.CLEANUP)
+        return (DueStep.STATUS_SYNC,)
+
+    return ()
 
 
 def _read_watch_state(

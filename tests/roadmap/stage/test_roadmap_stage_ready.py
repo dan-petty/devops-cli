@@ -390,7 +390,7 @@ def test_the_decision_of_one_function_rules_the_round(
     assert (applied.marked, ready.calls) == ((), [])
 
 
-STAGE_READY_ROW = next(row for row in STATUS_LANE_ROWS if row.name == "stage_ready")
+WATCH_ROW = next(row for row in STATUS_LANE_ROWS if row.name == "watch")
 
 
 def test_the_row_follows_implement_on_the_status_lane_needs_no_clone_and_is_due_every_three_minutes() -> (
@@ -399,21 +399,20 @@ def test_the_row_follows_implement_on_the_status_lane_needs_no_clone_and_is_due_
     """The row calls no model, so a long model-lane round never delays it."""
     assert (
         [row.name for row in STATUS_LANE_ROWS],
-        "stage_ready" in [row.name for row in MODEL_LANE_ROWS],
-        STAGE_READY_ROW.needs_clone,
-        STAGE_READY_ROW.first_run_due,
-        STAGE_READY_ROW.interval,
+        "watch" in [row.name for row in MODEL_LANE_ROWS],
+        WATCH_ROW.needs_clone,
+        WATCH_ROW.first_run_due,
+        WATCH_ROW.interval,
     ) == (
         [
             "metrics",
             "implement",
             "plan_drift",
-            "stage_ready",
+            "watch",
             "stage",
             "release_comments",
             "github_status",
             "cloudflare_status",
-            "pr_conflicts",
         ],
         False,
         False,
@@ -429,7 +428,7 @@ def test_a_round_of_the_row_marks_the_green_draft_ready(
     _pull(api)
     _checks(api, PASS)
 
-    outcome = STAGE_READY_ROW.runner(store=store, repo=STAGE_REPO)
+    outcome = WATCH_ROW.runner(store=store, repo=STAGE_REPO)
 
     assert (outcome, ready.calls) == (
         JobOutcome(),

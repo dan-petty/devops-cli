@@ -326,7 +326,7 @@ ROADMAP_CONFLICTED_PULLS = Instrument(
     "1",
     "Open ready delivery pull requests that GitHub reports with merge conflicts against the "
     "default branch, by repo. The Service sends it at the end of each round of the row "
-    "pr_conflicts. A pull request whose mergeable state GitHub has not computed does not count",
+    "watch. A pull request whose mergeable state GitHub has not computed does not count",
 )
 ROADMAP_ALTERNATIVES_SEARCHES = Instrument(
     "devops_cli_roadmap_alternatives_searches",
@@ -548,7 +548,7 @@ ROADMAP_ROW_SECONDS = Instrument(
     "Seconds that a roadmap row took to run, one sample for each run, by repo, row and result: "
     "success, error or stopped, and by lane in a round of the Service. A row that is not due, "
     "that the failure ledger suspends, or that a clone failure keeps from running adds no "
-    "sample. One repository adds at most 42 series: 14 rows and 3 results, because the default "
+    "sample. One repository adds at most 39 series: 13 rows and 3 results, because the default "
     "lane of a row has the name of the row",
 )
 ROADMAP_ROW_QUEUE_ITEMS = Instrument(

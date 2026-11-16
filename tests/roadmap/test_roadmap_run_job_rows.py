@@ -95,9 +95,8 @@ def test_the_dry_run_of_the_cli_lists_the_alternatives_row(
 
     assert (
         result.exit_code,
-        "Due: metrics, implement, plan_drift, stage_ready, stage, release_comments, github_status,"
-        " cloudflare_status, pr_conflicts, intake, retitle, fix_plan, refine, alternatives\n"
-        in result.output,
+        "Due: metrics, implement, plan_drift, watch, stage, release_comments, github_status,"
+        " cloudflare_status, intake, retitle, fix_plan, refine, alternatives\n" in result.output,
     ) == (0, True)
 
 

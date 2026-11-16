@@ -11,7 +11,15 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, NamedTuple
 from urllib.parse import quote, urlencode
 
-from pydantic import AliasPath, BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    AliasChoices,
+    AliasPath,
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+)
 
 from devops_cli.config.constants import (
     CONST_GH_API_GRAPHQL_ENDPOINT,
@@ -143,6 +151,10 @@ class PullStatus(BaseModel):
     base_ref: str = Field(default="", validation_alias=AliasPath("base", "ref"))
     default_branch: str = Field(
         default="", validation_alias=AliasPath("base", "repo", "default_branch")
+    )
+    author: str = Field(
+        default="",
+        validation_alias=AliasChoices(AliasPath("user", "login"), "author"),
     )
 
     @field_validator("labels", mode="before")

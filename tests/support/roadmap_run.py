@@ -517,12 +517,11 @@ DEFAULT_JOB_NAMES = (
     "metrics",
     "implement",
     "plan_drift",
-    "stage_ready",
+    "watch",
     "stage",
     "release_comments",
     "github_status",
     "cloudflare_status",
-    "pr_conflicts",
     "intake",
     "refine",
 )
