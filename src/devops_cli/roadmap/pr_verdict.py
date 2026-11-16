@@ -174,6 +174,13 @@ def verdict_of(kind: PullKind, label: str) -> Verdict | None:
     return VERDICT_LABELS[kind].get(label)
 
 
+def verdict_label(kind: PullKind, verdict: Verdict) -> str | None:
+    """The label that records `verdict` on a pull request of `kind`, the one that `verdict_of`
+    reads back; None for a verdict of the other kind, such as discard plan on a delivery. The step
+    review writes it (#5969)."""
+    return next((name for name, held in VERDICT_LABELS[kind].items() if held is verdict), None)
+
+
 def _share(count: int, total: int) -> float | None:
     return round(count / total, 4) if total else None
 
@@ -359,6 +366,7 @@ __all__ = [
     "plan_verdict_request",
     "pull_kind",
     "read_bot_pulls",
+    "verdict_label",
     "verdict_of",
     "verdict_search",
 ]

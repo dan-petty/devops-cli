@@ -117,6 +117,12 @@ DEFAULT_AI_CONTEXT_WINDOW: int = 32768
 # measurement.
 DEFAULT_AI_IMPLEMENT_MODEL: str = "devops-coder"
 DEFAULT_AI_IMPLEMENT_CONTEXT_WINDOW: int = 128000
+# The model and the window of the task `review` of `devops roadmap step review` (#5969). A new job
+# starts on DeepSeek through the gateway (owner rule of 2026-11-16) until its grade holds 80%. The
+# window is the smallest that an fp8 provider of that gateway group offers. The ConfigMap of a
+# release before this task cannot hold the key, so the code holds the model.
+DEFAULT_AI_REVIEW_MODEL: str = "openrouter/deepseek/deepseek-v4.1-flash-1017"
+DEFAULT_AI_REVIEW_CONTEXT_WINDOW: int = 256000
 DEFAULT_OLLAMA_MAX_PARALLEL: int = 2
 DEFAULT_OLLAMA_SLOT_TIMEOUT_SECONDS: float = 900.0
 DEFAULT_OLLAMA_SLOT_POLL_INTERVAL_SECONDS: float = 2.0
@@ -1163,6 +1169,12 @@ DEFAULT_ROADMAP_FIX_CHECKS_MODE: RowMode = "plan"
 # The model Jobs that run at once in the cluster, for every repository together: implement, stage
 # and fix-checks Jobs (#5027). ADR 0021, section 5, gives the semaphore `agent` 2 pods.
 DEFAULT_ROADMAP_MODEL_JOBS: int = 2
+# The step review (#5969): it starts in `plan`, as each new step does. A pull request gets at most
+# 3 reviews (owner, 2026-11-16: "Repeat 2 or 3 times"), and one review may use as many new tokens
+# as the model fix of fix-checks (owner direction of 2026-11-16: a generous token limit).
+DEFAULT_ROADMAP_REVIEW_MODE: RowMode = "plan"
+DEFAULT_ROADMAP_REVIEW_ROUNDS: int = 3
+DEFAULT_ROADMAP_REVIEW_TOKEN_BUDGET: int = 16_000_000
 # The mode of a decision point in `roadmap.decisions` (ADR 0020).
 DecisionMode = Literal["off", "shadow", "on"]
 DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS: float = 1.0

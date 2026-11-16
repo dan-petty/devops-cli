@@ -284,6 +284,17 @@ class RoadmapTimeBudgetError(DevOpsCLIError):
     error_code = "ROADMAP_TIME_BUDGET"
 
 
+class RoadmapPullReviewLimitError(DevOpsCLIError):
+    """Raised before the model call of the step `review` when its request is over the cap of new
+    tokens of one review (#5969).
+
+    The message names the setting `roadmap.review.token_budget`, its value and the count of the
+    request. The step stops with the failure class `limit_reached`.
+    """
+
+    error_code = "ROADMAP_PULL_REVIEW_LIMIT"
+
+
 class RoadmapStageDegenerateError(RoadmapStageError):
     """Raised for an item whose plan reply holds a placeholder in every text of the plan (#4204).
 

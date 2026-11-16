@@ -62,7 +62,8 @@ class RoadmapJob(StrEnum):
     """A roadmap job that logs one result line for each attempt. `REFINE_JUDGE` is the review of
     the proposal of refine for an item that a bot opened (`refine_judge`). `FIX_PLAN` is the step
     that repairs a plan pull request with open findings (#5061). `FIX_CHECKS` is the fix-checks Job
-    that the watch row starts, which the Service reports when it ends (#5027)."""
+    that the watch row starts, which the Service reports when it ends (#5027). `REVIEW` is the step
+    that gives a bot pull request its verdict (#5969)."""
 
     STAGE = "stage"
     IMPLEMENT = "implement"
@@ -73,6 +74,7 @@ class RoadmapJob(StrEnum):
     FIX_PLAN = "fix_plan"
     FIX_CHECKS = "fix_checks"
     RETITLE = "retitle"
+    REVIEW = "review"
 
 
 # The intended result of each job (owner rule 2026-11-11): a stage attempt opens a plan pull
@@ -82,7 +84,9 @@ class RoadmapJob(StrEnum):
 # review finds better than the review of the head in the same attempt (#5213): `regated`, `dismissed`,
 # `unchanged`, `stopped`, `failed` and `timeout` (#5363) repair no finding of that review, and
 # `unreadable` writes no line. A fix-checks Job pushes a repair or marks its repaired draft ready
-# (#5027). Each value is a member of the result enum of its job.
+# (#5027). A review attempt gives the pull request one verdict (#5969); an attempt that waits for
+# its checks, or that a guard skips, writes no line. Each value is a member of the result enum of
+# its job.
 SUCCESS_RESULTS: Final[Mapping[RoadmapJob, frozenset[str]]] = MappingProxyType(
     {
         RoadmapJob.STAGE: frozenset({"staged"}),
@@ -96,6 +100,7 @@ SUCCESS_RESULTS: Final[Mapping[RoadmapJob, frozenset[str]]] = MappingProxyType(
         RoadmapJob.FIX_PLAN: frozenset({"revised", "cleared"}),
         RoadmapJob.FIX_CHECKS: frozenset({"repaired", "ready"}),
         RoadmapJob.RETITLE: frozenset({"retitled", "kept"}),
+        RoadmapJob.REVIEW: frozenset({"judged"}),
     }
 )
 

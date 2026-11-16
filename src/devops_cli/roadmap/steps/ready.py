@@ -24,6 +24,18 @@ def draft_readiness(draft: Any, extra_checks: Sequence[Callable[[Any], Any]] = (
     return _draft_readiness(draft, extra_checks)
 
 
+def _check_head(repo: str, pull: int, expected_head: str | None) -> None:
+    """Raise `RoadmapImplementError` when the remote head of `pull` is not `expected_head`."""
+    if expected_head:
+        client = get_github_session().client
+        status = client.get_pull_status(repo, pull)
+        if status.head_sha != expected_head:
+            raise RoadmapImplementError(
+                f"PR #{pull} head moved: current {status.head_sha[:12]} does not match "
+                f"expected {expected_head[:12]}."
+            )
+
+
 def mark_ready(
     repo: str,
     pull: int,
@@ -34,16 +46,20 @@ def mark_ready(
     Checks that the remote head equals `expected_head` before marking ready.
     Raises `RoadmapImplementError` when head moved or `gh` fails.
     """
-    if expected_head:
-        client = get_github_session().client
-        status = client.get_pull_status(repo, pull)
-        if status.head_sha != expected_head:
-            raise RoadmapImplementError(
-                f"PR #{pull} head moved: current {status.head_sha[:12]} does not match "
-                f"expected {expected_head[:12]}."
-            )
+    _run_ready(repo, pull, expected_head)
 
-    done = run_gh([CONST_GH_CLI, "pr", "ready", str(pull), "--repo", repo], check=False)
+
+def mark_draft(repo: str, pull: int, expected_head: str | None = None) -> None:
+    """Make the pull request `pull` of `repo` a draft again with `gh pr ready --undo`, so the fix
+    rows take it and no person merges it (#5969). The head check and the errors are the ones of
+    `mark_ready`."""
+    _run_ready(repo, pull, expected_head, undo=True)
+
+
+def _run_ready(repo: str, pull: int, expected_head: str | None, *, undo: bool = False) -> None:
+    _check_head(repo, pull, expected_head)
+    flags = ["--undo"] if undo else []
+    done = run_gh([CONST_GH_CLI, "pr", "ready", str(pull), *flags, "--repo", repo], check=False)
     if done.returncode != 0:
         raw_output = (done.stderr or done.stdout or "").strip()
         output = mask_secrets(raw_output)

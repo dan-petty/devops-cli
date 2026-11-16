@@ -791,6 +791,25 @@ devops roadmap step ready [OPTIONS]
 | `--force`, `-f` | `boolean` | - | Bypass draft readiness verification. |
 | `--dry-run` | `boolean` | - | Make no network request and mark nothing ready. |
 
+### `devops roadmap step review`
+
+**Give a bot pull request one verdict: mergeable, needs fix, discard or issue changed (#5969).**
+
+```bash
+devops roadmap step review [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--pull`, `-p` | `integer` | - | Number of the pull request to review. |
+| `--head` | `string` | - | Expected commit SHA of the pull request head. |
+| `--source` | `path` | - | Clone of the repository that a discard deletes the branch from (default: the clone model-clone of the data folder). |
+| `--confirm` | `boolean` | - | Write the verdict and take its next action in a runner Job, in the mode on of roadmap.review.mode. Without it, the step prints the verdict and writes nothing. |
+| `--dry-run` | `boolean` | - | Make no network request and change nothing. |
+
 ### `devops roadmap step scaffold`
 
 **Make, resume, adopt or hold the item branch for a roadmap stage run (#5499).**

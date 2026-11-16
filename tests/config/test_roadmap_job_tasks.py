@@ -72,6 +72,28 @@ def test_the_fix_checks_task_takes_the_model_of_ai_and_the_window_of_a_step() ->
     )
 
 
+def test_the_review_task_starts_on_deepseek_with_a_wide_window() -> None:
+    """A new job starts on DeepSeek (owner rule of 2026-11-16), and the ConfigMap of an older
+    release cannot hold the key, so the code holds the model and the window of the step review
+    (#5969)."""
+    ai = AIConfig(model=BASE_MODEL, context_window=BASE_WINDOW)
+
+    task = ai.for_task("review")
+
+    assert (task.model, task.context_window, task.task_name) == (
+        "openrouter/deepseek/deepseek-v4.1-flash-1017",
+        256000,
+        "review",
+    )
+
+
+def test_a_model_set_for_review_moves_review_alone() -> None:
+    ai = AIConfig(model=BASE_MODEL, tasks={"review": {"model": "trial-model"}})
+
+    assert ai.for_task("review").model == "trial-model"
+    assert _models(ai) == dict.fromkeys(JOB_TASKS, BASE_MODEL)
+
+
 def test_the_stage_task_takes_nothing_from_the_analysis_task() -> None:
     ai = AIConfig(
         model=BASE_MODEL,

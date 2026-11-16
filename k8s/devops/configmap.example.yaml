@@ -233,6 +233,17 @@ data:
       # An image from before #5027 ignores the key.
       fix_checks:
         mode: "on"
+      # The step review gives a bot pull request one verdict (#5969). `off` sends no request,
+      # `plan` judges and logs the verdict and writes nothing, and `on` lets
+      # `devops roadmap step review --confirm` write the label and the comment and take the next
+      # action. A pull request gets at most `rounds` verdicts, and one review at most
+      # `token_budget` new tokens. It starts in `plan`, and a person sets `on`. The model of the
+      # task `ai.tasks.review` stays out of this file until the release with the task runs: an
+      # older image refuses the key, and the code default is DeepSeek.
+      review:
+        mode: plan
+        rounds: 3
+        token_budget: 16000000
       # The most model Jobs that run at once in the cluster, for all repositories together: the
       # implement, stage and fix-checks Jobs, with the fix-checks Jobs first (#6017). The owner
       # chose 6 on 2026-11-16. The code default is 2. An image from before #5027 ignores the key.

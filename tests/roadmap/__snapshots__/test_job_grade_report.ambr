@@ -14,6 +14,7 @@
   fix_plan      -              0   0   -     -             too few  -      -       -           -      0/0       0/0
   fix_checks    -              0   0   -     -             too few  -      -       -           -      0/0       0/0
   retitle       -              0   0   -     -             too few  -      -       -           -      0/0       0/0
+  review        -              0   0   -     -             too few  -      -       -           -      0/0       0/0
   
   stage example/app: grade too few (Not graded). Show p and the interval. Give no grade.
     Failure classes: plan_defect 1.
