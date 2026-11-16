@@ -31,9 +31,9 @@ Kind: behavior. Reads: `src/devops_cli/k8s/volume_move_measure.py`, `src/devops_
 
 Kind: behavior. Reads: `src/devops_cli/k8s/volume_move_measure.py`, `tests/k8s/test_k8s_volume_measure.py`, `tests/support/fakes/process.py`. Changes: `src/devops_cli/k8s/volume_move_measure.py`, `tests/k8s/test_k8s_volume_measure.py`.
 
-- [ ] 4.1 Write `tests/k8s/test_k8s_volume_measure.py::test_the_dry_run_lists_the_requests` first: it fails on the base because the module has no entry point. It asserts that the dry run prints the requests and starts no process through `tests/support/fakes/process.py`, and that `main` returns 1 for a report that holds a problem
+- [x] 4.1 Write `tests/k8s/test_k8s_volume_measure.py::test_the_dry_run_lists_the_requests` first: it fails on the base because the module has no entry point. It asserts that the dry run prints the requests and starts no process through `tests/support/fakes/process.py`, and that `main` returns 1 for a report that holds a problem
   - Verification: `$ uv run devops ci test tests/k8s/test_k8s_volume_measure.py` fails on the base
-- [ ] 4.2 Add `main(argv)` to `src/devops_cli/k8s/volume_move_measure.py` with `--source-node`, `--target-node`, `--context`, `--storage-class` and `--dry-run`, and the `if __name__ == "__main__"` call. The storage class defaults to `local-path`. It builds the plan with `plan_measure`, prints the requests of `measure_requests` for a dry run, and otherwise runs `run_measure`, prints the report and returns 1 with each problem of `report_problems`. The test answers `run_subprocess` through `tests/support/fakes/process.py`
+- [x] 4.2 Add `main(argv)` to `src/devops_cli/k8s/volume_move_measure.py` with `--source-node`, `--target-node`, `--context`, `--storage-class` and `--dry-run`, and the `if __name__ == "__main__"` call. The storage class defaults to `local-path`. It builds the plan with `plan_measure`, prints the requests of `measure_requests` for a dry run, and otherwise runs `run_measure`, prints the report and returns 1 with each problem of `report_problems`. The test answers `run_subprocess` through `tests/support/fakes/process.py`
   - Verification: `$ uv run devops ci test tests/k8s/test_k8s_volume_measure.py` passes
 
 ## 5. Document the live measure in the k8s guide

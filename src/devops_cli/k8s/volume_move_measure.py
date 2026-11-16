@@ -12,8 +12,10 @@ whether the copies passed or failed.
 
 from __future__ import annotations
 
+import argparse
 import json
 import subprocess
+import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Final
@@ -35,17 +37,19 @@ from devops_cli.config.defaults import (
     DEFAULT_K8S_VOLUME_MOVE_WAIT_SECONDS,
 )
 from devops_cli.core.process import run_subprocess
-from devops_cli.dry_run.requests import PlannedRequest
+from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.exceptions.k8s import VolumeMoveError, VolumeMoveRefusedError
 from devops_cli.k8s.volume_move import copy_argv, digest_args, empty_args
 from devops_cli.lang import MESSAGES
-from devops_cli.output import write_stdout
+from devops_cli.output import write_stderr, write_stdout
 
 MEASURE_COPIES: Final[int] = 20
 MEASURE_BYTES: Final[int] = 104_857_600
 _MEASURE_NAMESPACE: Final[str] = "volume-move-measure"
 _MEASURE_CLAIM_SIZE: Final[str] = "1Gi"
 _MEASURE_SOURCE_FILE: Final[str] = "data.bin"
+_DEFAULT_STORAGE_CLASS: Final[str] = "local-path"
+_PLAN_HEADING: Final[str] = "Plan for the volume move copy measure"
 _SAME_NODE: Final[str] = (
     "The measure needs two different nodes, and it got {node} for both the source and the target."
 )
@@ -490,12 +494,52 @@ def _copy_problem(plan: MeasurePlan, run: CopyRun) -> str:
     )
 
 
+# ── The entry point ──────────────────────────────────────────────────────────
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """List the requests of a dry run, or run the measure and print its report.
+
+    Exit status 0 when every copy completed with a matching digest, and 1 when one did not, so a
+    short measure never reads as clean.
+    """
+    parser = argparse.ArgumentParser(
+        prog="python -m devops_cli.k8s.volume_move_measure",
+        description=__doc__.splitlines()[0],
+    )
+    parser.add_argument("--source-node", required=True, help="The node of the source claim.")
+    parser.add_argument("--target-node", required=True, help="The node of the destination claim.")
+    parser.add_argument("--context", help="The kubectl context of the cluster.")
+    parser.add_argument(
+        "--storage-class",
+        default=_DEFAULT_STORAGE_CLASS,
+        help="The storage class of the two claims.",
+    )
+    parser.add_argument("--dry-run", action="store_true", help="List the requests and start none.")
+    args = parser.parse_args(argv)
+    plan = plan_measure(args.source_node, args.target_node, args.storage_class)
+    if args.dry_run:
+        render_request_plan(_PLAN_HEADING, measure_requests(plan, args.context), described=True)
+        return 0
+    runs = run_measure(plan, args.context)
+    render_report(plan, runs)
+    problems = report_problems(plan, runs)
+    for problem in problems:
+        write_stderr(problem + "\n")
+    return 1 if problems else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+
+
 __all__ = [
     "MEASURE_BYTES",
     "MEASURE_COPIES",
     "CopyRun",
     "MeasurePlan",
     "claim_manifests",
+    "main",
     "measure_requests",
     "plan_measure",
     "pod_manifests",

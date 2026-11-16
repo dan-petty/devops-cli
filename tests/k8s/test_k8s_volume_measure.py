@@ -257,6 +257,57 @@ def test_all_copies_match(capsys: pytest.CaptureFixture[str]) -> None:
     assert report_problems(plan, runs) == []
 
 
+def test_the_dry_run_lists_the_requests(
+    process_fake: ProcessFake, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The dry run prints the namespace, the two claims, the two pods and the 20 copies."""
+    from devops_cli.k8s.volume_move_measure import MEASURE_COPIES, main, plan_measure
+
+    code = main(
+        [
+            "--source-node",
+            SOURCE_NODE,
+            "--target-node",
+            TARGET_NODE,
+            "--context",
+            CONTEXT,
+            "--dry-run",
+        ]
+    )
+
+    output = capsys.readouterr().out
+    plan = plan_measure(SOURCE_NODE, TARGET_NODE, STORAGE_CLASS)
+    assert code == 0
+    assert f"namespace {plan.namespace}" in output
+    assert f"claim {plan.source_claim}" in output
+    assert f"claim {plan.destination_claim}" in output
+    assert f"pod {plan.source_pod}" in output
+    assert f"pod {plan.destination_pod}" in output
+    assert f"copy 1/{MEASURE_COPIES}" in output
+    assert f"copy {MEASURE_COPIES}/{MEASURE_COPIES}" in output
+    assert output.count("mkfifo") == MEASURE_COPIES
+    assert process_fake.calls == []
+
+
+def test_main_returns_one_for_a_failed_report(
+    process_fake: ProcessFake, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A run whose copy fails prints the report, names the copy and returns 1."""
+    from devops_cli.k8s.volume_move_measure import main
+
+    cluster = MeasureCluster(failing_copy=3)
+    process_fake.answer(lambda _call: True, ProcessAnswer(side_effect=cluster))
+
+    code = main(["--source-node", SOURCE_NODE, "--target-node", TARGET_NODE, "--context", CONTEXT])
+
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "| Complete copies | 19/20 |" in captured.out
+    assert "| Digest matches | 19/20 |" in captured.out
+    assert "3/20" in captured.err
+    assert cluster.started == 20
+
+
 def test_one_short_copy_fails_the_report() -> None:
     """A copy that did not complete fails the report, which names it by its copy number."""
     from devops_cli.k8s.volume_move_measure import plan_measure, report_problems
