@@ -43,8 +43,10 @@ logger = logging.getLogger(__name__)
 _GENAI_PRICES_UNPRICED_ERRORS: tuple[type[Exception], ...] = (LookupError, ValueError)
 
 _HOSTED_GROUP_PRICE_SOURCE = "builtin:hosted_group_prices"
-# DeepSeek V4.1 Flash 1017 through OpenRouter, on the route `:floor` with fp8 weights and
-# `data_collection: deny` (k8s/llm/gateway/config.yaml). genai-prices 0.1.13 does not know the
+# DeepSeek V4.1 Flash 1017 through OpenRouter with fp8 weights and `data_collection: deny`
+# (k8s/llm/gateway/config.yaml). The rates below were measured on the route `:floor`, which the
+# gateway used until 2026-11-16 (#5978); the key of that route stays, so the spend records of that
+# time keep their price. genai-prices 0.1.13 does not know the
 # snapshot, and 0.2.3 gives the list price of DeepSeek (0.30 and 1.20 USD), not the price of the
 # route. These are the rates of the endpoint deepinfra/fp8/flex in the OpenRouter API
 # /api/v1/models/deepseek/deepseek-v4.1-flash-1017/endpoints on 2026-11-11. The cost that

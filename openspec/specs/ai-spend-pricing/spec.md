@@ -265,7 +265,7 @@ The warning that names a hosted model that neither genai-prices, a built-in pric
 The pricing registry SHALL price every hosted group of `k8s/llm/gateway/config.yaml` with no setting and no price file, under the route name of the group and under its deployment model. For a group that genai-prices does not price, the registry SHALL take the built-in price of the group.
 
 #### Scenario: Each hosted group by both names
-- **WHEN** a reply of each hosted group of the gateway config names the route name, or the deployment model such as `openrouter/deepseek/deepseek-v4.1-flash-1017:floor`, and no backend, and no setting and no file price the model
+- **WHEN** a reply of each hosted group of the gateway config names the route name, or the deployment model such as `openrouter/deepseek/deepseek-v4.1-flash-1017`, and no backend, and no setting and no file price the model
 - **THEN** no call has the pricing source `unknown`
 
 #### Scenario: An agent run on the DeepSeek group

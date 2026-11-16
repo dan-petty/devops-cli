@@ -192,10 +192,11 @@ model_list:
       output_cost_per_token: 5.0e-07
       cache_creation_input_token_cost: 1.25e-07
       cache_read_input_token_cost: 1.0e-08
-  # OpenRouter routes a prompt to a provider of its choice (#3144). The suffix `:floor` picks the
-  # cheapest provider, `quantizations: [fp8]` keeps it to fp8 weights, and `data_collection: deny`
-  # keeps it to providers that do not store or train on prompts. A provider that fails a filter is
-  # skipped, so the price can be higher than the cheapest fp8 provider. The cost map of the pinned
+  # OpenRouter routes a prompt to a provider of its choice (#3144) with its default routing, which
+  # prefers the low prices and has no flex endpoints. `quantizations: [fp8]` keeps it to fp8
+  # weights, and `data_collection: deny` keeps it to providers that do not store or train on
+  # prompts. Do not add the suffix `:floor`: it makes flex endpoints eligible, and on 2026-11-16 the
+  # cheapest flex endpoint gave no first token in 300 s, so every job of the group failed (#5978). The cost map of the pinned
   # LiteLLM image lists no -1017 snapshot, so the group sets its window and its prices (USD per
   # token): the endpoint deepinfra/fp8/flex in the OpenRouter API on 2026-11-11, which is within 7%
   # of the cost that OpenRouter reported for the calls of the group from 2026-11-08 to 2026-11-11.
@@ -204,7 +205,7 @@ model_list:
   # differ. A caller sets the reasoning effort (`ai.tasks.<task>.reasoning_effort`).
   - model_name: deepseek-v4.1-flash-1017
     litellm_params:
-      model: openrouter/deepseek/deepseek-v4.1-flash-1017:floor
+      model: openrouter/deepseek/deepseek-v4.1-flash-1017
       api_key: os.environ/OPENROUTER_API_KEY
       extra_body:
         provider:
@@ -283,7 +284,6 @@ router_settings:
     "anthropic/claude-haiku-5-5": "claude-haiku-5-5"
     "gemini/gemini-3.8-flash": "gemini-3.8-flash"
     "openrouter/deepseek/deepseek-v4.1-flash-1017": "deepseek-v4.1-flash-1017"
-    "openrouter/deepseek/deepseek-v4.1-flash-1017:floor": "deepseek-v4.1-flash-1017"
     "openrouter/deepseek/deepseek-v4.1-flash": "deepseek-v4.1-flash"
   # least-busy routes requests to the backend with the fewest in-flight requests,
   # preventing pile-ups behind long generations across Ollama nodes.
