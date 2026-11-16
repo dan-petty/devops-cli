@@ -128,8 +128,10 @@ class _Run:
     skipped: list[str] = field(default_factory=list)
     false_premises: list[str] = field(default_factory=list)
     absent: frozenset[tuple[str, str]] = frozenset()
+    identifiers: tuple[str, ...] = ()
     _tree: StagedTree | None = None
     _surfaces: dict[str, tuple[str, dict[str, int]] | None] = field(default_factory=dict)
+    _test_modules: dict[str, list[str]] | None = None
 
     def git(self, source: Path, *args: str) -> tuple[int, str]:
         """Run one command of the budget in `source`, which is the checkout of the run."""
@@ -195,6 +197,36 @@ class _Run:
         date subject`, or an empty text when it finds none (the command costs one of the budget)."""
         code, out = self.git(self.source, "log", "-n1", _LOG_FORMAT, *args)
         return out.strip() if code == 0 else ""
+
+    def test_modules(self) -> dict[str, list[str]] | None:
+        """The test modules that name each cited identifier, or None when no command is left.
+        A run with no cited identifier spends no command. The command runs once for the run."""
+        if self._test_modules is not None:
+            return self._test_modules
+        if not self.identifiers:
+            self._test_modules = {}
+            return self._test_modules
+        if self.left < 1:
+            return None
+        args = ["grep", "-n", "-w", "-F"]
+        for name in self.identifiers:
+            args.extend(["-e", name])
+        args.extend([self.sha, "--", "tests/"])
+        code, out = self.git(self.source, *args)
+        if code != 0:
+            self._test_modules = {name: [] for name in self.identifiers}
+            return self._test_modules
+        modules: dict[str, set[str]] = {name: set() for name in self.identifiers}
+        for line in out.splitlines():
+            line_clean = line.removeprefix(f"{self.sha}:")
+            parts = line_clean.split(":", 2)
+            if len(parts) >= 3:
+                path, _, content = parts
+                for name in self.identifiers:
+                    if re.search(rf"\b{re.escape(name)}\b", content):
+                        modules[name].add(path)
+        self._test_modules = {name: sorted(modules[name]) for name in self.identifiers}
+        return self._test_modules
 
     def path_or_field(self, name: str) -> None:
         """Probe `name` as a class field when the staging commit defines the class of its left
@@ -280,6 +312,14 @@ class _Run:
             for hit in hits:
                 where = hit.removeprefix(f"{self.sha}:").strip()
                 self.lines.append(texts.stage_probe_defined.format(name=name, where=where))
+            modules = self.test_modules()
+            if modules is None:
+                self.lines.append(texts.stage_probe_test_modules_bound)
+            elif modules.get(name):
+                paths = ", ".join(f"`{path}`" for path in modules[name])
+                self.lines.append(texts.stage_probe_test_modules.format(name=name, modules=paths))
+            else:
+                self.lines.append(texts.stage_probe_test_modules_none.format(name=name))
             return
         self.missing.append(name)
         if self.left < 1:
@@ -352,10 +392,12 @@ def probe_premise(source: Path, sha: str, body: str) -> Probe:
         for class_name, field_name in absent
         if f"{class_name}.{field_name}" not in paths
     ]
+    identifiers = tuple(cited_identifiers(body))
+    run.identifiers = identifiers
     items = [
         *(("path", p) for p in paths),
         *(("field", f) for f in fields),
-        *(("identifier", i) for i in cited_identifiers(body)),
+        *(("identifier", i) for i in identifiers),
     ]
     for kind, name in items:
         if run.left < 1:

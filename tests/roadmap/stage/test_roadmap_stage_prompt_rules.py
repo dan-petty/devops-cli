@@ -912,3 +912,15 @@ def test_the_stage_prompt_names_the_declared_dependencies() -> None:
         "issue_dependencies" in _PROMPT,
         "#<number>: <reason>" in _PROMPT,
     ) == (True, True)
+
+
+def test_the_prompts_name_the_test_module_of_a_changed_function() -> None:
+    change_prompt = load_task_prompt("roadmap_stage_change.md")
+    split_prompt = load_task_prompt("roadmap_stage_split.md")
+    extended_prompt = load_task_prompt("roadmap_stage_tools_extended.md")
+
+    for prompt in (change_prompt, split_prompt):
+        assert "test module that `probes` names" in prompt
+
+    assert "references" in extended_prompt
+    assert "test module that the answer lists" in extended_prompt
