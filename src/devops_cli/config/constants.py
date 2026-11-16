@@ -4213,6 +4213,8 @@ CONST_K8S_REASON_ERR_IMAGE_PULL: Final[str] = "ErrImagePull"
 CONST_K8S_REASON_CRASH_LOOP_BACKOFF: Final[str] = "CrashLoopBackOff"
 CONST_K8S_REASON_OOM_KILLED: Final[str] = "OOMKilled"
 CONST_K8S_REASON_ERROR: Final[str] = "Error"
+# The reason of a pod that the kubelet evicted, such as for a volume over its size limit (#5960).
+CONST_K8S_REASON_EVICTED: Final[str] = "Evicted"
 
 CONST_K8S_DOCTOR_RULE_NODE_NOT_READY: Final[str] = "node-not-ready"
 CONST_K8S_DOCTOR_RULE_NODE_CORDONED: Final[str] = "node-cordoned"

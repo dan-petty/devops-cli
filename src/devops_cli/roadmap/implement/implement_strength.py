@@ -14,6 +14,7 @@ the later groups of #3051.
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
@@ -41,6 +42,11 @@ _TEST_MODULE_PREFIX = "test_"
 # The file and the key from which mutmut 3.8.1 reads the test selection of its stats run.
 _MUTMUT_CONFIG = "pyproject.toml"
 _MUTMUT_SELECTION = "pytest_add_cli_args_test_selection"
+# The key of the files that mutmut 3.8.1 mutates. Each other file of `source_paths` is copied as
+# it is, so the tree has no mutated copy of a file that holds no target (#5960).
+_MUTMUT_ONLY = "only_mutate"
+# The directory in which mutmut 3.8.1 writes its copy of the checkout and its results.
+_MUTMUT_TREE = "mutants"
 
 
 @dataclass(frozen=True)
@@ -148,21 +154,24 @@ def mutation_targets(
 
 
 @contextmanager
-def _mutmut_test_selection(source: Path, tests: Sequence[str]) -> Iterator[None]:
-    """Add `tests` to the test selection of mutmut in the checkout `source` while the block runs,
-    then give the file its bytes again.
+def _mutmut_table(source: Path, tests: Sequence[str], files: Sequence[str]) -> Iterator[None]:
+    """Add `tests` to the test selection of mutmut in the checkout `source`, and set the files that
+    it mutates to `files`, while the block runs, then give the file its bytes again.
 
     `mutmut run` 3.8.1 takes no pytest argument. It reads `pytest_add_cli_args_test_selection` of
     `[tool.mutmut]` in `pyproject.toml`, and its stats run gives that list to pytest. The process
     runner refuses the key `PYTEST_ADDOPTS` (#2747), so the selection goes in the file. The entries
-    of the table stay first. A checkout with no `pyproject.toml` gets one for the block, and has
-    none after it. The job commits no change of the file: the block ends before any commit, and
-    the bytes come back when the run raises or runs out of time too. With no `tests`, the file
-    stays as it is, and mutmut runs the selection of the table.
+    of the table stay first. With no `tests`, mutmut runs the selection of the table.
+
+    mutmut also writes a mutated copy of each file of `source_paths` that `only_mutate` does not
+    leave out: 681 MB for the 896 files of `src/devops_cli`, which filled the home volume of a
+    runner Job (#5960). `only_mutate` holds `files` for the block, so mutmut mutates only the files
+    of the targets and copies the others as they are.
+
+    A checkout with no `pyproject.toml` gets one for the block, and has none after it. The job
+    commits no change of the file: the block ends before any commit, and the bytes come back when
+    the run raises or runs out of time too.
     """
-    if not tests:
-        yield
-        return
     path = source / _MUTMUT_CONFIG
     original = path.read_bytes() if path.is_file() else None
     document = (
@@ -170,7 +179,12 @@ def _mutmut_test_selection(source: Path, tests: Sequence[str]) -> Iterator[None]
     )
     tool = document.setdefault("tool", tomlkit.table(is_super_table=True))
     table = tool.setdefault("mutmut", tomlkit.table())
-    table[_MUTMUT_SELECTION] = [*(str(entry) for entry in table.get(_MUTMUT_SELECTION, [])), *tests]
+    if tests:
+        table[_MUTMUT_SELECTION] = [
+            *(str(entry) for entry in table.get(_MUTMUT_SELECTION, [])),
+            *tests,
+        ]
+    table[_MUTMUT_ONLY] = list(files)
     path.write_text(tomlkit.dumps(document), encoding="utf-8")
     try:
         yield
@@ -191,12 +205,14 @@ def run_mutation(
 ) -> MutationOutcome:
     """Run mutmut over `targets` in `source`, with stats collection scoped to `tests`.
 
-    `uv run mutmut run` reads `tests` from the test selection of its table
-    (`_mutmut_test_selection`), so stats collection runs only the scoped test modules, bounded by
-    `timeout` (defaulting to `roadmap.implement.command_timeout_seconds`). The run sets no
-    environment key. When the run times out or finishes, `uv run mutmut results --all true` is read
-    through `tally`. A run that reaches the timeout retains the survivors collected so far and marks
-    `timeout=True`.
+    `uv run mutmut run` reads `tests` from the test selection of its table, and mutates only the
+    files of `targets` (`_mutmut_table`), so stats collection runs only the scoped test modules,
+    bounded by `timeout` (defaulting to `roadmap.implement.command_timeout_seconds`). The run sets
+    no environment key. When the run times out or finishes, `uv run mutmut results --all true` is
+    read through `tally`, with the same table. A run that reaches the timeout retains the survivors
+    collected so far and marks `timeout=True`. The tree `mutants/` of the run is removed after the
+    results are read, also when a command raises, so it holds no space on the home volume of the
+    runner Job for the rest of the run (#5960).
     """
     if not targets:
         return MutationOutcome(skipped_files=tuple(skipped_files))
@@ -207,16 +223,21 @@ def run_mutation(
         else load_settings().roadmap.implement.command_timeout_seconds
     )
     globs = [glob for target in targets for glob in target.run_globs]
+    files = list(dict.fromkeys(target.path for target in targets))
     cmd = [BIN_UV, "run", "mutmut", "run", *globs]
-    timed_out = False
-    with _mutmut_test_selection(source, tests):
-        try:
-            run_subprocess(cmd, cwd=source, timeout=float(limit), quiet=True)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-
     results_cmd = [BIN_UV, "run", "mutmut", "results", "--all", "true"]
-    done = run_subprocess(results_cmd, cwd=source, quiet=True)
+    timed_out = False
+    try:
+        with _mutmut_table(source, tests, files):
+            try:
+                run_subprocess(cmd, cwd=source, timeout=float(limit), quiet=True)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+            done = run_subprocess(results_cmd, cwd=source, quiet=True)
+    finally:
+        tree = source / _MUTMUT_TREE
+        if tree.is_dir():
+            shutil.rmtree(tree)
     report = tally(done.stdout or "", targets)
     return MutationOutcome(
         survivors=report.survivors,

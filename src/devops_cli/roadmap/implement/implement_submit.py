@@ -73,6 +73,7 @@ from pathlib import Path
 
 from devops_cli.config.constants import (
     CONST_GITHUB_APP_TOKEN_REPOSITORY_SETTING,
+    CONST_K8S_REASON_EVICTED,
     CONST_ROADMAP_IMPLEMENT_ANNOTATION_PROGRESS_AT,
     CONST_ROADMAP_IMPLEMENT_ANNOTATION_STALLED,
     CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
@@ -101,7 +102,7 @@ from devops_cli.k8s.cluster_job import (
     repository_label,
     runner_job_name,
 )
-from devops_cli.k8s.cluster_job_api import ClusterJob, ClusterJobs, JobState
+from devops_cli.k8s.cluster_job_api import ClusterJob, ClusterJobs, JobState, PodEnd
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.claim import claimed_by, service_claim, service_release
 from devops_cli.roadmap.commit_title import commit_type
@@ -239,20 +240,27 @@ def _recorded_failure(item: Item) -> FailureClass | None:
 
 
 def _failure_of(
-    item: Item, log: str, *, exit_status: int | None, stops: bool, stalled: bool
+    item: Item, log: str, *, pod: PodEnd, stops: bool, stalled: bool
 ) -> FailureClass | None:
     """The class of the failure that a Job left. A stop that the runner wrote has its class on
-    record. A Job that left the item without a result has only its log and the exit status of its
-    pod, so the class comes from them (#3065, #3727). A Job that the Service ended for a stall went
-    over its deadline, which is the exit status 143 of a Job over its active deadline (#3063). A
-    Job that ended with a result has no failure."""
+    record. A Job that left the item without a result has only its log and the status of its pod,
+    so the class comes from them (#3065, #3727): the exit status and the reason of the container,
+    and the reason and the message of a pod that the kubelet evicted (#5960). A Job that the
+    Service ended for a stall went over its deadline, which is the exit status 143 of a Job over
+    its active deadline (#3063). A Job that ended with a result has no failure."""
     if stops:
-        return classify_failure(
-            FailureEvidence(
+        evidence = (
+            FailureEvidence(text=log, exit_status=_DEADLINE_EXIT_STATUS)
+            if stalled
+            else FailureEvidence(
                 text=log,
-                exit_status=_DEADLINE_EXIT_STATUS if stalled else exit_status,
+                exit_status=pod.exit_status,
+                container_reason=pod.container_reason,
+                pod_reason=pod.reason,
+                pod_message=pod.message,
             )
         )
+        return classify_failure(evidence)
     if _record(item, ImplementRecordKey.STOPPED):
         return _recorded_failure(item)
     return None
@@ -267,6 +275,7 @@ def _comment(
     stopped: bool,
     digest: str | None,
     stall: str | None = None,
+    evicted: str = "",
 ) -> str:
     texts = MESSAGES.roadmap
     shown = texts.implement_job_report_digest.format(digest=digest) if digest else ""
@@ -290,6 +299,8 @@ def _comment(
         )
     if stall:
         body += texts.implement_job_report_stalled.format(seconds=stall)
+    if evicted:
+        body += texts.implement_job_report_evicted.format(message=evicted)
     if not stopped or failure is None:
         return body
     return body + texts.implement_job_report_stopped.format(failure=failure_lines(failure))
@@ -304,13 +315,13 @@ def _log_of(jobs: ClusterJobs, name: str) -> str:
         return ""
 
 
-def _exit_status_of(jobs: ClusterJobs, name: str) -> int | None:
-    """The exit status of the terminated container of Job `name`'s pod, or None when the API
-    refuses the read: the report must not wait for a status that is not there (#3727)."""
+def _pod_end_of(jobs: ClusterJobs, name: str) -> PodEnd:
+    """The end of Job `name`'s pod, or an empty end when the API refuses the read: the report must
+    not wait for a status that is not there (#3727)."""
     try:
-        return jobs.exit_status(name)
+        return jobs.pod_end(name)
     except ClusterJobError:
-        return None
+        return PodEnd()
 
 
 def _report(
@@ -328,17 +339,24 @@ def _report(
     does not close it: a stop that the runner writes after this read can still be overwritten."""
     state = ended.state.value if ended else _GONE
     log = _log_of(jobs, name) if ended else ""
-    exit_status = _exit_status_of(jobs, name) if ended else None
+    pod = _pod_end_of(jobs, name) if ended else PodEnd()
     item = _fresh(store, item.number)
     stops = _settles_as_stop(item)
     stall = ended.annotations.get(CONST_ROADMAP_IMPLEMENT_ANNOTATION_STALLED) if ended else None
-    failure = _failure_of(
-        item, log, exit_status=exit_status, stops=stops, stalled=stall is not None
-    )
+    failure = _failure_of(item, log, pod=pod, stops=stops, stalled=stall is not None)
     digest = _record(item, ImplementRecordKey.JOB_DIGEST)
     store.comment(
         item.number,
-        _comment(name, state, log, failure=failure, stopped=stops, digest=digest, stall=stall),
+        _comment(
+            name,
+            state,
+            log,
+            failure=failure,
+            stopped=stops,
+            digest=digest,
+            stall=stall,
+            evicted=pod.message if pod.reason == CONST_K8S_REASON_EVICTED else "",
+        ),
     )
     spend = _spend_tokens(item)
     counted = _counted_tokens(item)

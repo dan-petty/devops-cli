@@ -3,30 +3,35 @@ action that the class takes by default.
 
 A stop of the implement job holds one reason and the last error. Before this module a person chose
 the recovery each time. `classify_failure` is a pure function: it reads the exit status, the error
-text, the refusal of a tool, the name of the check and the log of the check, and returns one
-`FailureClass`. It reads no file, makes no request and changes no state. It never reads the last
+text, the refusal of a tool, the name of the check, the log of the check and, for a runner Job
+that ended, the status of its pod, and returns one `FailureClass`. It reads no file, makes no request and changes no state. It never reads the last
 message of the agent, which is a claim that no check verified (#3476). `ACTION_BY_CLASS` is the one
 table of defaults: each class has exactly one `FailureAction`.
 
 **Typed classes.** A stop site that knows its cause passes the class itself: `no_change_in_fix`,
 `tests_lost`, `head_moved`, `output_cap`, `limit_reached` and `outside_plan` come from the step, and
-`git_config` from the check of the git settings of the implement job; no rule below makes them. A
-command of the implement job that the process runner refuses (`SecurityError`) gives `refused_tool`,
-which a rule below also reads from the text.
+`git_config` from the check of the git settings of the implement job; no rule below makes them,
+except the rule of an evicted pod, which gives `limit_reached` (#5960). A command of the implement
+job that the process runner refuses (`SecurityError`) gives `refused_tool`, which a rule below also
+reads from the text.
 The rules are the fallback for a stop whose cause has no class of its own.
 
 **Order of the rules.** The first rule that matches wins, and the order goes from the cause that is
 most sure to the one that is least sure:
 
-1. An exit status that a signal gives: 137 is `oom`, and 124 and 143 are `timeout`.
-2. A refusal of a tool is `refused_tool`.
-3. The text, for the causes outside the code of the item: `oom`, `timeout`, `read_only_path`,
+1. The status of a pod that the kubelet evicted (#5960): a volume or a container over its storage
+   limit is `limit_reached`, and a node low on a resource is `ci_infra`.
+2. An exit status that a signal gives: 137 is `oom`, and 124 and 143 are `timeout`. A container
+   that has a reason gives 137 only for the reason `OOMKilled`: the kubelet kills a container
+   that ignores SIGTERM with the same signal, and its reason is `Error`.
+3. A refusal of a tool is `refused_tool`.
+4. The text, for the causes outside the code of the item: `oom`, `timeout`, `read_only_path`,
    `conflict`, `parser` (before `provider`, as a provider that cannot parse the call answers with
    an HTTP error too), `provider`, `refused_tool`.
-4. The text, then the log of the check, for the checks of the item: `types`, `lint`, `test`.
-5. `premise_false` and `plan_defect`, from the text.
-6. The name of the check, for a check whose log shows no sign of its class.
-7. Anything else is `ci_infra`, whose default action is one retry. A failure that matches no rule
+5. The text, then the log of the check, for the checks of the item: `types`, `lint`, `test`.
+6. `premise_false` and `plan_defect`, from the text.
+7. The name of the check, for a check whose log shows no sign of its class.
+8. Anything else is `ci_infra`, whose default action is one retry. A failure that matches no rule
    must not stop the item for good, and the class list is fixed.
 
 **What the job does with a class.** The default action is the action that remains for the item. The
@@ -45,6 +50,7 @@ from types import MappingProxyType
 from typing import Final, NamedTuple
 
 from devops_cli.ai.client.models import AIClientError, StructuredOutputValidationError
+from devops_cli.config.constants import CONST_K8S_REASON_EVICTED, CONST_K8S_REASON_OOM_KILLED
 from devops_cli.exceptions import (
     DevOpsCLIError,
     GitHubOperationError,
@@ -203,6 +209,9 @@ def failure_class_of(exc: DevOpsCLIError) -> FailureClass:
 class FailureEvidence(NamedTuple):
     """What the classifier reads: the error text, the exit status of the command that failed, the
     text of the refusal of a tool, the name of the check that failed, and the log of that check.
+    For the pod of a runner Job that ended, it also reads the reason of the terminated container
+    (such as `OOMKilled` or `Error`), and the reason and the message of the pod (such as `Evicted`
+    and the message of the kubelet, #5960). A command of a step has no container and no pod.
     Each field is empty or None when the failure has none. The last message of the agent is no
     evidence: it is a claim that no check verified (#3476)."""
 
@@ -211,6 +220,9 @@ class FailureEvidence(NamedTuple):
     refusal: str = ""
     check: str = ""
     log: str = ""
+    container_reason: str = ""
+    pod_reason: str = ""
+    pod_message: str = ""
 
 
 # The signals of the kernel and of the Job controller: SIGKILL of a pod that went over its memory
@@ -220,6 +232,18 @@ _EXIT_STATUS: Final[Mapping[int, FailureClass]] = MappingProxyType(
 )
 
 _FLAGS = re.IGNORECASE | re.MULTILINE
+_KILL_EXIT_STATUS: Final[int] = 137
+
+# The messages of the kubelet for a pod that went over a storage limit of its own: an `emptyDir`
+# volume over its `sizeLimit`, a container over its `ephemeral-storage` limit, and a pod over the
+# sum of the limits of its containers (`pkg/kubelet/eviction`). A pod that the kubelet evicts for
+# a node low on a resource is not over its own limit, so it is `ci_infra`.
+_OWN_STORAGE_LIMIT: Final[re.Pattern[str]] = re.compile(
+    r"Usage of EmptyDir volume .* exceeds the limit"
+    r"|exceeded its local ephemeral storage limit"
+    r"|ephemeral local storage usage exceeds the total limit",
+    _FLAGS,
+)
 
 
 def _text_around(template: str, *fields: str) -> str:
@@ -336,12 +360,32 @@ def _first(
     return next((klass for klass, pattern in rules if pattern.search(text)), None)
 
 
+def _evicted(evidence: FailureEvidence) -> FailureClass | None:
+    """The class of a pod that the kubelet evicted, or None for a pod that it did not evict."""
+    if evidence.pod_reason != CONST_K8S_REASON_EVICTED:
+        return None
+    if _OWN_STORAGE_LIMIT.search(evidence.pod_message):
+        return FailureClass.LIMIT_REACHED
+    return FailureClass.CI_INFRA
+
+
+def _by_signal(evidence: FailureEvidence) -> FailureClass | None:
+    """The class of a signal exit status. A container that has a reason other than `OOMKilled`
+    was not killed for its memory, so its exit status 137 gives no class."""
+    if not evidence.exit_status:
+        return None
+    killed_not_for_memory = evidence.container_reason not in {"", CONST_K8S_REASON_OOM_KILLED}
+    if evidence.exit_status == _KILL_EXIT_STATUS and killed_not_for_memory:
+        return None
+    return _EXIT_STATUS.get(evidence.exit_status)
+
+
 def classify_failure(evidence: FailureEvidence) -> FailureClass:
     """The class of the failure that `evidence` shows. Pure: the same evidence gives the same
     class, and nothing is read or written. A failure that matches no rule is `ci_infra`."""
-    by_signal = _EXIT_STATUS.get(evidence.exit_status) if evidence.exit_status else None
-    if by_signal is not None:
-        return by_signal
+    by_pod = _evicted(evidence) or _by_signal(evidence)
+    if by_pod is not None:
+        return by_pod
     if evidence.refusal.strip() or _REFUSED_AT_START.search(evidence.text):
         return FailureClass.REFUSED_TOOL
     found = (

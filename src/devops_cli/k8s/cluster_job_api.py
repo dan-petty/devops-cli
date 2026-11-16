@@ -67,6 +67,20 @@ class ClusterJob:
     message: str = ""
 
 
+@dataclass(frozen=True)
+class PodEnd:
+    """What the status of the pod of a Job says of its end: the exit status of its terminated
+    container (None when no container terminated) and the reason of that termination (such as
+    `OOMKilled` or `Error`), and the reason and the message of the pod (such as `Evicted` and the
+    message of the kubelet that names the volume and its limit, #5960). Each text is empty when
+    the status has none."""
+
+    exit_status: int | None = None
+    container_reason: str = ""
+    reason: str = ""
+    message: str = ""
+
+
 def _started(job: Mapping[str, Any]) -> datetime | None:
     """The `status.startTime` of a Job as a time, or None when the controller has not set it."""
     text = (job.get("status") or {}).get("startTime")
@@ -275,9 +289,10 @@ class ClusterJobs:
         except api_error_type() as error:
             raise self._refused("read the log of a Job", error) from error
 
-    def exit_status(self, name: str) -> int | None:
-        """The exit status of the terminated container of Job `name`'s pod, read from `state` and
-        then from `lastState`, or None when no container terminated (#3727).
+    def pod_end(self, name: str) -> PodEnd:
+        """The end of Job `name`'s pod: the terminated container, read from `state` and then from
+        `lastState` (#3727), and the reason and the message of the pod (#5960). A Job with no pod,
+        or a pod with no terminated container, gives the fields that it has.
 
         Raises ClusterJobError when the API refuses the read.
         """
@@ -289,8 +304,10 @@ class ClusterJobs:
         except api_error_type() as error:
             raise self._refused("read the status of a Job pod", error) from error
         if not pods.items:
-            return None
+            return PodEnd()
         status = getattr(pods.items[0], "status", None)
+        reason = str(getattr(status, "reason", None) or "")
+        message = str(getattr(status, "message", None) or "")
         for container in getattr(status, "container_statuses", None) or []:
             for state in (
                 getattr(container, "state", None),
@@ -299,8 +316,9 @@ class ClusterJobs:
                 terminated = getattr(state, "terminated", None) if state is not None else None
                 code = getattr(terminated, "exit_code", None) if terminated is not None else None
                 if code is not None:
-                    return int(code)
-        return None
+                    ended = str(getattr(terminated, "reason", None) or "")
+                    return PodEnd(int(code), ended, reason, message)
+        return PodEnd(reason=reason, message=message)
 
     def cronjob(self, template: JobTemplate) -> dict[str, Any]:
         """The CronJob of `template`, as the API returns it.

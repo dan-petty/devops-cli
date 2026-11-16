@@ -80,6 +80,7 @@ def test_the_mutation_run_stops_at_command_timeout_seconds_and_keeps_its_survivo
 
     def out_of_time(call: ProcessCall) -> subprocess.CompletedProcess[str]:
         seen.append(_selection(implement_checkout))
+        (implement_checkout / "mutants").mkdir()
         raise subprocess.TimeoutExpired(cmd="uv", timeout=1)
 
     implement_programs.answer(
@@ -97,9 +98,11 @@ def test_the_mutation_run_stops_at_command_timeout_seconds_and_keeps_its_survivo
         timeout=True,
         skipped_files=(),
     )
-    # A checkout with no `pyproject.toml` gets one for the run, and has none after it.
+    # A checkout with no `pyproject.toml` gets one for the run, and has none after it. The tree
+    # of the run is removed after the results are read (#5960).
     assert seen == [["tests/test_sample.py"]]
     assert not (implement_checkout / "pyproject.toml").exists()
+    assert not (implement_checkout / "mutants").exists()
 
 
 def test_the_mutation_run_sets_no_environment_key_that_the_process_runner_refuses(
@@ -153,6 +156,50 @@ def test_the_mutation_run_adds_the_scoped_tests_to_the_mutmut_table_and_restores
     run_mutation(implement_checkout, [target], ["tests/test_sample.py", "tests/test_other.py"])
 
     assert seen == [["--ignore=tests/test_docs.py", "tests/test_sample.py", "tests/test_other.py"]]
+    assert pyproject.read_text(encoding="utf-8") == MUTMUT_TABLE
+
+
+def test_the_mutation_run_mutates_only_the_files_of_its_targets_and_removes_its_tree(
+    implement_checkout: Path, implement_programs: ProcessFake
+) -> None:
+    """mutmut 3.8.1 writes a mutated copy of each file of `source_paths` into `mutants/` unless
+    `only_mutate` names the files: 723 MB for `src/devops_cli`, which filled the home volume of a
+    runner Job (#5960). The run names the files of its targets while mutmut runs and reads the
+    results, and then removes `mutants/`."""
+    import subprocess
+    import tomllib
+
+    from devops_cli.ci.mutate import MutationTarget
+    from devops_cli.roadmap.implement.implement_strength import run_mutation
+
+    pyproject = implement_checkout / "pyproject.toml"
+    pyproject.write_text(MUTMUT_TABLE, encoding="utf-8")
+    tree = implement_checkout / "mutants"
+    targets = [
+        MutationTarget(path="src/sample.py", line=1, class_name=None, name="shout"),
+        MutationTarget(path="src/sample.py", line=5, class_name=None, name="whisper"),
+        MutationTarget(path="src/other.py", line=1, class_name=None, name="hum"),
+    ]
+    seen: list[tuple[str, list[str], bool]] = []
+
+    def record(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        table = tomllib.loads(pyproject.read_text(encoding="utf-8"))["tool"]["mutmut"]
+        seen.append(
+            (command_text(call).split()[3], list(table.get("only_mutate", [])), tree.is_dir())
+        )
+        (tree / "src").mkdir(parents=True, exist_ok=True)
+        (tree / "src" / "sample.py").write_text("mutated\n", encoding="utf-8")
+        return subprocess.CompletedProcess([], 0, "", "")
+
+    implement_programs.answer(
+        lambda call: "mutmut" in command_text(call), ProcessAnswer(side_effect=record)
+    )
+
+    run_mutation(implement_checkout, targets, ["tests/test_sample.py"])
+
+    only = ["src/sample.py", "src/other.py"]
+    assert seen == [("run", only, False), ("results", only, True)]
+    assert not tree.exists()
     assert pyproject.read_text(encoding="utf-8") == MUTMUT_TABLE
 
 
