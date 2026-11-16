@@ -207,11 +207,11 @@
       "allowedVersions": "<2.0.0"
     },
     {
-      "description": "SearXNG publishes many tags a day, and the tests hold the engine names of the pinned image. A tag has no minimum release age (CONTRIBUTING.md, Dependency Versions), so a person refreshes the engine names at each bump. Each tag ends in a commit hash, which the versioning ignores.",
+      "description": "SearXNG publishes many tags a day. A tag has no minimum release age (CONTRIBUTING.md, Dependency Versions). Each tag ends in a commit hash, which the versioning ignores.",
       "matchPackageNames": ["searxng/searxng", "docker.io/searxng/searxng"],
       "versioning": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-[0-9a-f]+$",
       "prBodyNotes": [
-        "Before the merge, follow the bump steps in `docs/CLUSTER.md`, section SearXNG: refresh `tests/fixtures/searxng/default_engine_names.txt` from the new image and read its notes on the engines that the settings keep."
+        "Before the merge, read the notes of the release on the engines that the settings keep, and run `devops k8s searxng-check` against the new image on the cluster (`docs/CLUSTER.md`, section SearXNG)."
       ]
     },
     {

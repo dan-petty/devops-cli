@@ -20,7 +20,6 @@ from devops_cli.http.entry import http_client
 from devops_cli.k8s.searxng_check import (
     HEALTH_PATH,
     NAMESPACE,
-    SEARXNG_IMAGE,
     SERVICE,
     SERVICE_PORT,
     PodRow,
@@ -137,9 +136,7 @@ def k8s_searxng_check(
             MESSAGES.k8s.searxng_check_failed.format(count=len(failed), detail="; ".join(failed))
         )
     print_success(
-        MESSAGES.k8s.searxng_check_passed.format(
-            rows=len(searches), destinations=len(pods), image=SEARXNG_IMAGE
-        )
+        MESSAGES.k8s.searxng_check_passed.format(rows=len(searches), destinations=len(pods))
     )
 
 

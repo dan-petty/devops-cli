@@ -33,17 +33,6 @@ The settings SHALL set `server.limiter`, `server.public_instance` and `server.im
 - **WHEN** a test reads the settings of ConfigMap `searxng-settings`
 - **THEN** the three server switches are false and `json` is in `search.formats`
 
-### Requirement: The settings keep only engines that need no key
-The settings SHALL keep, with `use_default_settings` and `engines.keep_only`, the engines `duckduckgo`, `wikipedia`, `github`, `stackoverflow`, `askubuntu`, `superuser`, `arxiv`, `mdn` and `docker hub`, and no other. They SHALL keep none of `brave`, `braveapi`, `google`, `bing`, `startpage`, `mojeek` and `qwant`. Every kept name SHALL be an engine name in the default settings of the pinned image.
-
-#### Scenario: A suspended engine is kept
-- **WHEN** a test reads `keep_only` and the engine names file of the pinned image
-- **THEN** no kept name is a forbidden engine, and every kept name is in the names file
-
-#### Scenario: A bump leaves the names file behind
-- **WHEN** a test compares the tag in the first line of the names file with the tag of the Deployment
-- **THEN** the tags are the same
-
 ### Requirement: The settings keep no engine that never answers
 The settings SHALL keep no engine that `tests/fixtures/searxng/engines_that_never_answer.txt` lists. Each line of that file SHALL give a date and a reason.
 
@@ -79,13 +68,6 @@ Every file of `k8s/devops/searxng/` SHALL be in its `kustomization.yaml`, in `k8
 - **WHEN** a test compares the files of the folder with the three lists
 - **THEN** the lists name the same files
 
-### Requirement: A bump of the image tells the person what to check
-The Renovate configuration SHALL hold a rule for the image whose pull request text names the refresh of the engine names file and names no age of the tag.
-
-#### Scenario: The note is missing
-- **WHEN** a test reads `.github/renovate.json`
-- **THEN** one rule matches the image, its note names the engine names file, and its note does not hold `days old`
-
 ### Requirement: The ConfigMap explains the two log lines of the start
 The file `k8s/devops/searxng/configmap.yaml` SHALL hold a comment, outside the text of `settings.yml`, that names the ERROR "X-Forwarded-For nor X-Real-IP header is set!" with its source `searx/botdetection/trusted_proxies.py`, and the WARNING for a missing `limiter.toml` with its source `searx/botdetection/config.py`, and that says both are harmless with the limiter off.
 
@@ -99,3 +81,17 @@ The Deployment SHALL set `GRANIAN_WORKERS_MAX_RSS` to `512`, and its memory limi
 #### Scenario: A worker that grows
 - **WHEN** a test reads the container of Deployment `searxng`
 - **THEN** its environment holds `GRANIAN_WORKERS_MAX_RSS` with the value `512`, and its memory request is `256Mi` and its limit `1Gi`
+
+### Requirement: The settings keep only keyless engines
+The settings SHALL keep, with `use_default_settings` and `engines.keep_only`, the engines `duckduckgo`, `wikipedia`, `github`, `stackoverflow`, `askubuntu`, `superuser`, `arxiv`, `mdn` and `docker hub`, and no other. They SHALL keep none of `brave`, `braveapi`, `google`, `bing`, `startpage`, `mojeek` and `qwant`.
+
+#### Scenario: A suspended engine is kept
+- **WHEN** a test reads `keep_only`
+- **THEN** no kept name is a forbidden engine
+
+### Requirement: A SearXNG bump updates like any other image
+No test SHALL compare a file or a constant with the pinned SearXNG image. The Renovate rule of the image SHALL give the pull request a note that names `devops k8s searxng-check` and names no age of the tag.
+
+#### Scenario: A bump of the image
+- **WHEN** Renovate opens a pull request that moves the SearXNG image
+- **THEN** its text names `devops k8s searxng-check`, and no test fails only because the image moved

@@ -822,26 +822,6 @@ def test_every_manifest_that_pins_an_image_tag_matches_a_pattern() -> None:
     assert (bool(pinned), unmatched) == (True, [])
 
 
-def test_a_searxng_bump_tells_the_person_to_refresh_the_engine_names_and_names_no_tag_age() -> None:
-    """The tests hold the engine names of the pinned image, so the text of the pull request carries
-    the refresh (#3924). The project sets no minimum release age, so the text names none (#4810).
-    Each tag ends in a commit hash, which the versioning ignores, so a newer date is an update."""
-    (rule,) = [
-        r
-        for r in _rules()
-        if "prBodyNotes" in r and "searxng/searxng" in r.get("matchPackageNames", [])
-    ]
-    (note,) = rule["prBodyNotes"]
-    versioning = _python_pattern(rule["versioning"].removeprefix("regex:"))
-
-    assert (
-        "docker.io/searxng/searxng" in rule["matchPackageNames"],
-        "days old" in note,
-        "tests/fixtures/searxng/default_engine_names.txt" in note,
-        bool(versioning.match("2026.10.23-629368e40")),
-    ) == (True, False, True, True)
-
-
 @cache
 def _applications_that_pin_a_chart() -> list[str]:
     """Each tracked file under `k8s/` that holds an Argo CD Application with a Helm chart source."""
