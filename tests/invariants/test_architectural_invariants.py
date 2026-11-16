@@ -2405,3 +2405,41 @@ def test_the_breach_message_names_the_ceiling_definition_and_the_fix() -> None:
         "write the stub under `typings/`" in breaches[0],
         "only the owner can allow it" in breaches[0],
     ) == (True, True, True)
+
+
+# ── roadmap comment callers ──────────────────────────────────────────────────
+
+_ROADMAP_SRC_DIR = REPO_ROOT / "src" / "devops_cli" / "roadmap"
+_ALLOWED_COMMENT_CALLER = _ROADMAP_SRC_DIR / "steps" / "comment.py"
+_FORBIDDEN_COMMENT_CALLS = {"comment_on_issue", "comment_on_pull"}
+
+
+def find_comment_callers(root: Path) -> list[tuple[Path, int, str]]:
+    """Find any calls to `comment_on_issue` or `comment_on_pull` under `root` (#5025)."""
+    violations: list[tuple[Path, int, str]] = []
+    for path in root.rglob("*.py"):
+        if path.resolve() == _ALLOWED_COMMENT_CALLER.resolve():
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                if node.func.attr in _FORBIDDEN_COMMENT_CALLS:
+                    violations.append((path, node.lineno, node.func.attr))
+    return violations
+
+
+def test_no_module_outside_steps_comment_calls_comment_on_issue_or_comment_on_pull() -> None:
+    """A structural test fails when a module other than steps/comment.py calls comment_on_issue
+    or comment_on_pull (#5025)."""
+    violations = find_comment_callers(_ROADMAP_SRC_DIR)
+    assert not violations, f"Forbidden direct comment calls found: {violations}"
+
+
+def test_find_comment_callers_detects_forbidden_call(tmp_path: Path) -> None:
+    """Ensure the detector catches calls to comment_on_issue and comment_on_pull (#5025)."""
+    sample_file = tmp_path / "bad_caller.py"
+    sample_file.write_text("client.comment_on_pull('org/repo', 1, 'bad')\n", encoding="utf-8")
+
+    violations = find_comment_callers(tmp_path)
+    assert len(violations) == 1
+    assert violations[0][2] == "comment_on_pull"

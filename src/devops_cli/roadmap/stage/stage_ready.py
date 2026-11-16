@@ -44,6 +44,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from functools import partial
 
+from devops_cli.config.constants import CONST_ROADMAP_STAGE_COMMENT_MARKER
 from devops_cli.config.settings import load_settings
 from devops_cli.exceptions import GitHubRateLimitError
 from devops_cli.github.check_verdict import read_check_runs
@@ -65,6 +66,7 @@ from devops_cli.roadmap.stage.stage import StageFailure, raise_for_failed, write
 from devops_cli.roadmap.stage.stage_criteria import acceptance_criteria
 from devops_cli.roadmap.stage.stage_verify import FIX_PLAN_LABEL
 from devops_cli.roadmap.status_sync import facts_of, sync_status
+from devops_cli.roadmap.steps.comment import Target, post
 from devops_cli.roadmap.steps.ready import mark_ready
 from devops_cli.roadmap.stores.store import (
     GitHubState,
@@ -124,7 +126,12 @@ def _jev_holds(store: RoadmapStore, repo: str, item: Item, number: int, status: 
         return False
     error_mark = f"{head}:{CompletenessOutcome.ERROR}"
     if not (result.outcome is CompletenessOutcome.ERROR and mark == error_mark):
-        client.comment_on_pull(repo, number, completeness_note(result, number))
+        post(
+            Target(repo, number, client=client),
+            CONST_ROADMAP_STAGE_COMMENT_MARKER,
+            f"jev-{head}",
+            completeness_note(result, number),
+        )
     store.set_marks(item, {StageRecordKey.JEV: f"{head}:{result.outcome}"})
     return True
 
@@ -145,8 +152,11 @@ def _settle(store: RoadmapStore, repo: str, item: Item, number: int) -> _Outcome
         return _Outcome.WAITING
     if FIX_PLAN_LABEL in status.labels:
         if item.job_record.get(StageRecordKey.NEEDS_FIX) != str(number):
-            client.comment_on_pull(
-                repo, number, MESSAGES.roadmap.stage_ready_needs_fix.format(pull=number)
+            post(
+                Target(repo, number, client=client),
+                CONST_ROADMAP_STAGE_COMMENT_MARKER,
+                f"needs-fix-{number}",
+                MESSAGES.roadmap.stage_ready_needs_fix.format(pull=number),
             )
             store.set_marks(item, {StageRecordKey.NEEDS_FIX: str(number)})
         return _Outcome.WAITING

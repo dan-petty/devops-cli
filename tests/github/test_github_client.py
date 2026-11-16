@@ -914,3 +914,19 @@ def test_a_comment_on_a_pull_request_goes_to_its_issue(
 
     assert github_api.requested == [f"POST {API}/repos/octocat/Hello-World/issues/9/comments"]
     assert json.loads(github_api.sent[0].content) == {"body": "Step 1 passed."}
+
+
+def test_a_comment_on_an_issue_returns_the_comment_id(
+    github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    github_api.route(
+        "POST",
+        "/repos/octocat/Hello-World/issues/10/comments",
+        github_json({"id": 42}, status=201),
+    )
+
+    comment_id = _client().comment_on_issue("octocat/Hello-World", 10, "Issue comment.")
+
+    assert comment_id == 42
+    assert github_api.requested == [f"POST {API}/repos/octocat/Hello-World/issues/10/comments"]
+    assert json.loads(github_api.sent[0].content) == {"body": "Issue comment."}
