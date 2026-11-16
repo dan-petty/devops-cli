@@ -224,6 +224,60 @@ def test_a_bot_pull_request_with_a_failed_test_check_gets_one_fix_job_and_no_git
     assert [(r.method, r.url.path) for r in github_api.sent] == [("POST", "/graphql")]
 
 
+@pytest.mark.parametrize(("repaired", "calls"), [(True, 1), (False, 0)])
+def test_a_green_delivery_draft_gets_the_ready_path_only_after_a_fix_and_once_for_each_head(
+    store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    repaired: bool,
+    calls: int,
+) -> None:
+    """A delivery draft whose implement Job ended is the implement Job's: the row marks nothing.
+    A draft that a fix Job repaired gets the ready path of the step, in mode `plan` without
+    `--confirm`, once for its head (#5027)."""
+    from devops_cli.roadmap import watch_row
+    from devops_cli.roadmap.steps.fix_checks import FixChecksReport, FixChecksResult
+    from devops_cli.roadmap.stores.store import FixChecksRecordKey
+
+    issue = store.seed_issue("Issue 1", fields={ItemField.PRIORITY: "P1-High"})
+    held = store.item(issue)
+    assert held is not None
+    marks: dict[Any, str | None] = {
+        ImplementRecordKey.JOB: f"devops-cli-implement-project-{issue}-abc123",
+        ImplementRecordKey.JOB_STATE: "succeeded",
+    }
+    if repaired:
+        marks[FixChecksRecordKey.RESULT] = "repaired"
+    store.set_marks(held, marks)
+    pr_num = store.seed_pull("feat: delivery PR", head_ref=f"feat/{issue}-deliv", draft=True)
+    node = _graphql_pr_node(
+        number=pr_num,
+        head=HEAD_PASS,
+        is_draft=True,
+        body=f"Closes #{issue}",
+        author="devops-cli-service",
+        check_state="SUCCESS",
+        check_conclusion="SUCCESS",
+    )
+    seen: list[tuple[int, str | None, bool]] = []
+
+    def ready_path(store: Any, repo: str, pull: int, **kwargs: Any) -> FixChecksReport:
+        seen.append((pull, kwargs.get("head"), kwargs.get("confirm", False)))
+        return FixChecksReport(repo=repo, pull=pull, result=FixChecksResult.PLANNED)
+
+    monkeypatch.setattr(watch_row, "run_fix_checks", ready_path)
+    ledger = tmp_path / CONST_ROADMAP_WATCH_LEDGER_FILENAME
+    for tick in range(2):
+        _route_graphql(github_api, [node])
+        result = watch_round(
+            store, repo=REPO, ledger_path=ledger, now=NOW + timedelta(minutes=tick)
+        )
+
+    assert (seen, result.marked_ready) == ([(pr_num, HEAD_PASS, False)] * calls, ())
+    assert [r for r in github_api.sent if r.method != "POST" or r.url.path != "/graphql"] == []
+
+
 def test_watch_row_dry_run_sends_zero_requests(
     store: InMemoryRoadmapStore, github_api: GitHubApiFake, tmp_path: Path
 ) -> None:

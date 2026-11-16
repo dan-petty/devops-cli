@@ -16,9 +16,9 @@
 
 ## 3. Behavior: the due predicate and the live unit of the watch row
 
-- [x] 3.1 Write failing tests: `due_steps` gives `fix_checks` for a failed test or lint check of a bot pull request with the shard first and no cancelled check, and the watch row starts one Job for a bot delivery pull request whose implement Job ended, with no GitHub write
+- [x] 3.1 Write failing tests: `due_steps` gives `fix_checks` for a failed test or lint check of a bot pull request with the shard first and no cancelled check, the watch row starts one Job for a bot delivery pull request whose implement Job ended, with no GitHub write, and a green delivery draft gets the ready path only after a fix, once for each head
   - Verification: `$ uv run devops ci test tests/roadmap/steps/test_roadmap_due_steps.py tests/roadmap/test_roadmap_watch_row.py`
-- [x] 3.2 Add `DueStep.FIX_CHECKS` and `fix_checks_check`, read the live unit with `job_holds`, and call the fix round after the ledger write
+- [x] 3.2 Add `DueStep.FIX_CHECKS` and `fix_checks_check`, read the live unit with `job_holds`, run the ready path of the step on a repaired delivery draft, and call the fix round after the ledger write
   - Verification: `$ uv run devops ci test tests/roadmap/steps/test_roadmap_due_steps.py tests/roadmap/test_roadmap_watch_row.py tests/roadmap/test_roadmap_status_round.py`
 
 ## 4. Behavior: the launcher seam, the fix round and the shared limit

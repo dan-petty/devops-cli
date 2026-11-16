@@ -11,7 +11,7 @@ A finished bot pull request that fails a check later waits for a person: only th
 - The deadline of a fix Job is the step limit plus 1800 s, and the limits nest under 14400 s.
 - The row reports each ended fix Job once, from its result line. A Job with no result line is `none`, fires `RoadmapFixChecksJobWithoutResult`, and gets the next attempt within `roadmap.implement.continuations_per_item`.
 - The step takes `--check`, does not stop on `owner/service`, and gives `skipped` when the lease refuses a push because the head moved. A SIGTERM exits 75. `fix-conflict` reads `owner/service` in lower case.
-- The watch row treats a runner Job as live only while no round reported it (`job_holds`).
+- The watch row treats a runner Job as live only while no round reported it (`job_holds`). It runs the ready path of the step on a delivery draft only after a fix Job repaired it, once for each head.
 - The implement repair loop no longer writes the `fix_checks.*` counts.
 
 The command, the settings, the manifests and the Service behavior change, so the change has spec deltas.
