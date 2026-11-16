@@ -1580,7 +1580,9 @@ class RoadmapCommandHelp:
     step_fix_checks: str = "Repair a failed check of an open pull request (#5023)."
     step_fix_checks_pull: str = "Number of the pull request to repair."
     step_fix_checks_head: str = "Expected commit SHA of the pull request head."
-    step_fix_checks_confirm: str = "Confirm and apply check repairs."
+    step_fix_checks_confirm: str = (
+        "Repair and push in a runner Job. Without it, the step prints its plan and writes nothing."
+    )
     step_fix_checks_dry_run: str = "Make no network request and change nothing."
     eval_app: str = (
         "Score the roadmap jobs. grades reads the live result lines of each job in Loki. Each "

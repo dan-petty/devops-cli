@@ -39,20 +39,28 @@ def fix_checks_cmd(
         bool, typer.Option("--dry-run", help=HELP.roadmap.step_fix_checks_dry_run)
     ] = False,
 ) -> None:
-    """Repair a failed check on a pull request (#5023)."""
+    """Repair a failed check on a pull request (#5023). With `--confirm` the command runs only in
+    a runner Job, and gives the step the checkout of the pull request and its fixers (#5971)."""
     if pull is None:
         print_error("Pass --pull <number>.")
         raise typer.Exit(1)
     if dry_run or is_dry_run():
         return
 
-    from devops_cli.roadmap.steps.fix_checks import run_fix_checks
+    from devops_cli.roadmap.steps.fix_checks import Repair, run_fix_checks
     from devops_cli.roadmap.stores.store import get_roadmap_store
 
     target = _repository(repo)
     store = get_roadmap_store(target)
     try:
-        report = run_fix_checks(store, target, pull, head=head, confirm=confirm)
+        repair: Repair | None = None
+        if confirm:
+            from devops_cli.roadmap.implement.implement_run import require_runner
+            from devops_cli.roadmap.steps.fix_checks_repair import job_repair
+
+            require_runner(target)
+            repair = job_repair(store, target)
+        report = run_fix_checks(store, target, pull, head=head, confirm=confirm, repair=repair)
     except DevOpsCLIError as exc:
         print_error(f"Could not fix checks on PR #{pull}: {exc}", safe=True)
         raise typer.Exit(1) from exc

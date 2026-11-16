@@ -19,7 +19,13 @@ from devops_cli.config import env
 from devops_cli.config.settings import load_settings
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.roadmap.failure import ACTION_BY_CLASS, FailureAction, FailureClass
-from devops_cli.roadmap.implement.implement_limits import ItemSpend, StepBudget, new_tokens
+from devops_cli.roadmap.implement.implement_limits import (
+    ItemSpend,
+    ProgressDigest,
+    StepBudget,
+    TokenCap,
+    new_tokens,
+)
 from devops_cli.roadmap.implement.implement_step import StepOutcome, StepStatus, run_step
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -165,6 +171,28 @@ def test_an_item_time_limit_above_the_ceiling_of_the_job_is_refused(
         load_settings()
 
 
+def test_the_cap_of_the_model_fix_of_a_fix_checks_run_is_16_million_new_tokens() -> None:
+    assert load_settings().roadmap.fix_checks.token_budget == 16_000_000
+
+
+def test_a_token_cap_gets_no_extension_and_names_its_setting() -> None:
+    """A cap replaces the step budget and its extension (#5971): a digest that would extend the
+    step budget does not move the cap."""
+    budget = StepBudget(
+        progress=lambda: ProgressDigest(calls=20, edits=5, refused=0),
+        cap=TokenCap(setting="roadmap.fix_checks.token_budget", value=100),
+    )
+    budget.add(99)
+    before = budget.spent()
+    budget.add(1)
+
+    reason = budget.spent()
+
+    assert (before, budget.extension) == (None, None)
+    assert reason is not None
+    assert "`roadmap.fix_checks.token_budget=100`" in reason
+
+
 def test_a_spent_budget_is_a_class_whose_action_is_to_raise_the_limit() -> None:
     assert ACTION_BY_CLASS[FailureClass.LIMIT_REACHED] is FailureAction.RAISE_LIMIT
 
@@ -189,6 +217,27 @@ def test_a_step_that_spends_its_token_budget_makes_no_further_request_and_names_
         FailureClass.LIMIT_REACHED,
     )
     assert "`roadmap.implement.step_token_budget=50`" in outcome.reason
+
+
+def test_a_step_with_a_token_cap_stops_at_the_cap_and_names_its_setting(
+    implement_store: InMemoryRoadmapStore,
+    implement_checkout: Path,
+    implement_programs: ProcessFake,
+) -> None:
+    script = ModelScript(READ, say("Done."))
+
+    outcome = run_step(
+        implement_store,
+        item=1,
+        group=1,
+        source=implement_checkout,
+        model=script.model(),
+        window=WINDOW,
+        token_cap=TokenCap(setting="roadmap.fix_checks.token_budget", value=50),
+    )
+
+    assert (len(script.seen), outcome.failure_class) == (1, FailureClass.LIMIT_REACHED)
+    assert "`roadmap.fix_checks.token_budget=50`" in outcome.reason
 
 
 def test_the_tokens_of_the_earlier_steps_of_the_run_count_for_the_item_budget(

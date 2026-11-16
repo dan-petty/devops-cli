@@ -130,6 +130,7 @@ from devops_cli.roadmap.implement.implement_limits import (
     BudgetExtension,
     ItemSpend,
     StepBudget,
+    TokenCap,
     limit_hooks,
 )
 from devops_cli.roadmap.implement.implement_output_cap import output_cap_hooks
@@ -2272,6 +2273,7 @@ def run_step(
     mcp_toolset: AbstractToolset[Any] | None = None,
     earlier: EarlierStop | None = None,
     usage_limits: UsageLimits | None = None,
+    token_cap: TokenCap | None = None,
 ) -> StepOutcome:
     """Run group `group` of item `item` in the checkout `source`, with the pydantic-ai `model`.
 
@@ -2299,7 +2301,8 @@ def run_step(
     (#3053): the input tokens or the seconds of the step, or those of the run of the item. `spend`
     is what the run spent before this step; without it the item has spent nothing. A step that
     reaches its token budget gets one extension when the digest of its last tool calls shows
-    progress (#4394, `StepBudget`).
+    progress (#4394, `StepBudget`). A `token_cap` replaces the token budget of the step and its
+    extension (#5971).
 
     `recorded_tests` holds each test, as `path::name`, that the step may lose (#3490). The caller
     reads it from a text that the agent cannot edit. With no value, each lost test stops the step.
@@ -2341,7 +2344,7 @@ def run_step(
             tiers=_ladder_tiers(step_class, ladder),
             model_for_tier=model_for_tier,
             tier_health=tier_health or _gateway_tier_health,
-            limits=StepBudget(spend, progress=log.progress),
+            limits=StepBudget(spend, progress=log.progress, cap=token_cap),
             usage_limits=usage_limits or step_usage_limits(log.limits),
             trace=trace,
             mcp_toolset=mcp_toolset,
@@ -2370,12 +2373,13 @@ def run_fix_step(
     spend: ItemSpend | None = None,
     recorded_tests: frozenset[str] = frozenset(),
     usage_limits: UsageLimits | None = None,
+    token_cap: TokenCap | None = None,
 ) -> StepOutcome:
     """Run the fix of the failed check `fix` for item `item` in the checkout `source`: a step
     whose group is "Make check <name> pass". It commits with the type and the scope of the item,
     that title and the issue reference (`step_commit_title`) when the exit checks pass, and
     `tasks.md` is as it was. Its ladder is the `repair` ladder (#3060). `usage_limits` is as in
-    `run_step`."""
+    `run_step`, and so is `token_cap`."""
     return run_step(
         store,
         item=item,
@@ -2394,6 +2398,7 @@ def run_fix_step(
         spend=spend,
         recorded_tests=recorded_tests,
         usage_limits=usage_limits,
+        token_cap=token_cap,
     )
 
 
