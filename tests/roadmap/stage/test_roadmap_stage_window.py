@@ -541,16 +541,18 @@ def test_the_review_window_of_the_example_configmap_fits_the_first_request_and_t
 
 def test_the_planner_and_the_review_both_run_on_deepseek_with_a_window_that_fits() -> None:
     """The planner returned to DeepSeek on 2026-11-10 (#4369), and the review stays on it
-    (#3874). Each window fits its own first request."""
-    tasks = [_example_task(name) for name in ("verification", "analysis", "stage")]
+    (#3874). The planner reads the task `stage`, which has its own entry, so the trial of the
+    local model in `analysis` (#5583) does not move it. Each window fits its own first
+    request."""
+    tasks = [_example_task(name) for name in ("verification", "stage")]
 
     assert [(task["model"], task["context_window"]) for task in tasks] == [
         ("openrouter/deepseek/deepseek-v4.1-flash-1017", 256_000)
-    ] * 3
+    ] * 2
 
 
-def test_the_documented_window_of_analysis_and_its_source_are_the_files_values() -> None:
-    configured = _example_task("analysis")
+def test_the_documented_window_of_the_planner_and_its_source_are_the_files_values() -> None:
+    configured = _example_task("stage")
     gateway_data = _data_of("k8s/llm/gateway/config.yaml")
     gateway = {entry["model_name"]: entry for entry in gateway_data["model_list"]}
     aliases = gateway_data.get("router_settings", {}).get("model_group_alias", {})
