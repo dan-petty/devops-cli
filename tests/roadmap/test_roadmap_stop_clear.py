@@ -25,7 +25,14 @@ from devops_cli.roadmap.digest_clears import (
 from devops_cli.roadmap.failure import ACTION_BY_CLASS, FailureAction, FailureClass
 from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.stop_clear import ClearLimits, StopsCleared, clear_stops
-from devops_cli.roadmap.stores.store import ImplementRecordKey, IssueComment, Item, ItemField
+from devops_cli.roadmap.stores.store import (
+    ImplementRecordKey,
+    IssueComment,
+    Item,
+    ItemField,
+    encode_job_record,
+    with_record,
+)
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_stage import STAGE_REPO
 
@@ -67,11 +74,17 @@ def _blocked(
     status: str = "Blocked",
     stopped: str | None = "group 1",
     implement_failure: str | None = "provider",
+    record: dict[str, str] | None = None,
     **marks: str,
 ) -> int:
     """An item that a stop of the job set Blocked, with its stop comment. The class of the stop is
-    `provider`, whose action is `retry`."""
-    number = store.seed_issue("fix(cli): one", fields={ItemField.PRIORITY: "P2-Medium"})
+    `provider`, whose action is `retry`. `record` seeds a raw record key that the job record holds,
+    such as one of an older release."""
+    number = store.seed_issue(
+        "fix(cli): one",
+        body=with_record("", encode_job_record({}, record)) if record else "",
+        fields={ItemField.PRIORITY: "P2-Medium"},
+    )
     item = store.item(number)
     assert item is not None
     store.set_field(
@@ -176,6 +189,47 @@ def test_a_clear_by_digest_removes_the_action_left_with_the_stop(
 
     record = _record(store, number)
     assert [record.get(k) for k in ("implement.stopped", "implement.left_action")] == [None, None]
+
+
+def test_a_clear_keeps_the_class_of_the_stop_with_kept_work_in_implement_continued(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """A clear removes `implement.failure`, and the class of the stop is the only record of the
+    class that the next Job continues (#3650). So the clear keeps it in `implement.continued`."""
+    number = _blocked(
+        store,
+        implement_failure="parser",
+        implement_wip='{"group": "1", "tasks": ["1.1"]}',
+    )
+    _ask_retry(store, number)
+
+    _clear(store, Template(DIGEST_B))
+
+    record = _record(store, number)
+    assert [record.get(k) for k in ("implement.continued", "implement.failure")] == ["parser", None]
+
+
+def test_a_clear_removes_implement_continued_without_kept_work_or_class(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """An item with no kept work counts nothing, so the clear removes a mark of an earlier clear.
+    A class outside the taxonomy gives no count either, because the label `class` holds only the
+    taxonomy (#3650)."""
+    without_kept_work = _blocked(store, record={"implement.continued": "parser"})
+    no_class = _blocked(
+        store,
+        implement_failure="no_such_class",
+        implement_wip='{"group": "1", "tasks": ["1.1"]}',
+        record={"implement.continued": "parser"},
+    )
+    _ask_retry(store, no_class)
+
+    _clear(store, Template(DIGEST_B))
+
+    assert [
+        _record(store, without_kept_work).get("implement.continued"),
+        _record(store, no_class).get("implement.continued"),
+    ] == [None, None]
 
 
 def test_a_clear_keeps_the_conflicted_files_for_the_next_job(store: InMemoryRoadmapStore) -> None:

@@ -173,6 +173,7 @@ These are all the keys of the job record, by the job that writes them:
 | Implement | `implement.job`, `implement.job_state`, `implement.job_digest` | The runner Job that the Service made, its state after a round reported it, and the digest of the runner image that the Job ran |
 | Implement | `implement.needs_fix` | The draft pull request that the Service logged as left out for the label `verdict/fix-plan`. A round that judges the Item and does not leave it out for the label clears it, so a new label is logged again |
 | Implement | `implement.continuations` | The count of the Jobs that the Service made to continue a run that ended with no result. It holds a count and no other data, and it stays after a clear |
+| Implement | `implement.continued` | The class of the stop whose kept work the next Job continues. The clear of a stop writes it with the class of the stop when the record holds `implement.wip`, and the report of the next Job removes it (#3650) |
 | Implement | `implement.digest_clears`, `implement.digest_clear_commented_at` | The clears of a stop by a new runner image (the class, the digest and the time of each), which stay after a clear, and the time of the last comment of such a clear |
 
 ## The stop and retry path

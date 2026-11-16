@@ -52,6 +52,11 @@ READERS: Final[dict[str, tuple[str, ...]]] = {
     "implement.digest_clears": ("code", f"{ROADMAP}/digest_clears.py"),
     "implement.digest_clear_commented_at": ("code", f"{ROADMAP}/digest_clears.py"),
     "implement.continuations": ("code", f"{ROADMAP}/stop_clear.py"),
+    "implement.continued": (
+        "text",
+        DOCUMENT,
+        "The class of the stop whose kept work the next Job continues",
+    ),
     "implement.repair_rounds": ("code", f"{ROADMAP}/implement/implement_submit.py"),
     "implement.needs_fix": ("code", f"{ROADMAP}/implement/implement_submit.py"),
 }
