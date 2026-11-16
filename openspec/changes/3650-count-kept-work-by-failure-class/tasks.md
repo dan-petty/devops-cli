@@ -38,7 +38,7 @@ Kind: other. Reads: `src/devops_cli/docs/generator.py`, `docs/TELEMETRY.md`. Cha
 
 Kind: other. Reads: `k8s/README.md`, `docs/CLUSTER.md`. Changes: `k8s/README.md`, `docs/CLUSTER.md`.
 
-- [ ] 5.1 Add a section `## Roadmap Service metrics` at the end of `k8s/README.md` that lists `devops_cli_service_kept_work_total` with the labels `repo`, `class` and `outcome`, the outcomes `continued`, `finished` and `blocked`, and the class as a failure class of the taxonomy, and links `../docs/CLUSTER.md#roadmap-service`. In item 12 of `docs/CLUSTER.md`, add the counter with its labels and outcomes before `devops_cli_service_implement_failures_total`
+- [x] 5.1 Add a section `## Roadmap Service metrics` at the end of `k8s/README.md` that lists `devops_cli_service_kept_work_total` with the labels `repo`, `class` and `outcome`, the outcomes `continued`, `finished` and `blocked`, and the class as a failure class of the taxonomy, and links `../docs/CLUSTER.md#roadmap-service`. In item 12 of `docs/CLUSTER.md`, add the counter with its labels and outcomes before `devops_cli_service_implement_failures_total`
   - Verification: `$ uv run devops ci docs` passes
 
 ## 6. Name the Service kept-work counter in the instruments module
