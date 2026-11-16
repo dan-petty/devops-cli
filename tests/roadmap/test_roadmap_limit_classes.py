@@ -784,6 +784,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "new (#5969); the verdicts of one pull request, by the owner direction of 2026-11-16: "
         '"Repeat 2 or 3 times"',
     ),
+    "DEFAULT_ROADMAP_REVIEW_INFRA_WAIT_HOURS": (
+        "setting",
+        "new (#6024); the hours that a head waits on CI infrastructure before a person decides",
+    ),
     "DEFAULT_ROADMAP_REVIEW_TOKEN_BUDGET": (
         "setting",
         "new (#5969); the cap of the model call of one review, by the owner direction of "

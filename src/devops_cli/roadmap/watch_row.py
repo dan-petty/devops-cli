@@ -102,6 +102,11 @@ query OpenRoadmapPulls($owner: String!, $name: String!, $cursor: String) {
         author {
           login
         }
+        labels(first: 20) {
+          nodes {
+            name
+          }
+        }
         commits(last: 1) {
           nodes {
             commit {
@@ -323,8 +328,10 @@ def _evaluate_pull(
     author: str,
     checks: CheckVerdictSummary,
     commit_message: str | None = None,
+    labels: tuple[str, ...] = (),
 ) -> None:
-    """Evaluate one roadmap pull request and apply lifecycle steps."""
+    """Evaluate one roadmap pull request and apply lifecycle steps. `labels` are the labels of the
+    pull request: a verdict label other than `verdict/mergeable` holds the ready mark (#6024)."""
     ctx.watched_count += 1
     has_live_unit = job_holds(item) or bool(item.job_record.get(StageRecordKey.JOB))
 
@@ -355,6 +362,7 @@ def _evaluate_pull(
         is_bot=is_bot,
         is_plan=is_plan,
         has_live_unit=has_live_unit,
+        labels=labels,
     )
 
     v = verdict(state)
@@ -498,6 +506,8 @@ def _process_graphql_nodes(
             checks = CheckVerdictSummary(items=_parse_contexts(contexts))
 
         mergeable, mergeable_state = _parse_mergeable(node.get("mergeable"))
+        label_nodes = (node.get("labels") or {}).get("nodes") or []
+        labels = tuple(str(label.get("name") or "") for label in label_nodes)
 
         _evaluate_pull(
             ctx,
@@ -512,6 +522,7 @@ def _process_graphql_nodes(
             author=author_login,
             checks=checks,
             commit_message=commit_message,
+            labels=labels,
         )
 
 
@@ -586,6 +597,7 @@ def _process_rest_pulls(ctx: _WatchContext, default_branch: str) -> None:
             mergeable_state=pull_status.mergeable_state,
             author=pull_author,
             checks=checks,
+            labels=pull_status.labels,
         )
 
 

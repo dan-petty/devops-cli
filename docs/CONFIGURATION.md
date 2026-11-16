@@ -315,7 +315,7 @@ roadmap configuration settings.
 | `fix_conflict` | `RoadmapFixConflictConfig` | `interval_minutes=37 backlog_interval_minutes=None backlog_threshold=None tier1_mode='on' tier2_mode='plan' soft_cap_rounds=2 hard_cap_rounds=4` | - | - |
 | `fix_checks` | `RoadmapFixChecksConfig` | `mode='plan' token_budget=16000000 max_wait_minutes=360` | - | - |
 | `open` | `RoadmapOpenConfig` | `interval_minutes=7 backlog_interval_minutes=None backlog_threshold=None mode='plan'` | - | - |
-| `review` | `RoadmapReviewConfig` | `mode='plan' rounds=3 token_budget=16000000` | - | - |
+| `review` | `RoadmapReviewConfig` | `mode='plan' rounds=3 token_budget=16000000 infra_wait_hours=6` | - | - |
 | `refine` | `RoadmapRefineConfig` | `interval_minutes=7 backlog_interval_minutes=None backlog_threshold=None` | - | - |
 | `model_jobs` | `int` | `2` | `DEVOPS_CLI_ROADMAP_MODEL_JOBS` | The most model Jobs that run at once in the cluster, for every repository together: the implement, stage and fix-checks Jobs (#5027, ADR 0021 section 5). A fix-checks Job that finds no free place is created suspended, and the implement and stage rows leave its place free, so a fix Job goes before a new implement or stage Job. `roadmap.stage.jobs` and the one implement Job of each repository still hold inside this limit |
 | `mcp` | `RoadmapMcpConfig` | `url=None timeout_seconds=30.0` | - | - |
