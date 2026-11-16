@@ -251,6 +251,7 @@ def test_deploy_stack_dry_run_lists_the_secrets_and_key_names_and_runs_nothing()
             "devops/crawl4ai: CRAWL4AI_API_TOKEN (if namespace devops exists)",
             "devops/searxng: SEARXNG_SECRET (if namespace devops exists)",
             "devops/mcp-server: DEVOPS_CLI_MCP_TOKEN (if namespace devops exists)",
+            "devops/renovate: DEVOPS_CLI_RENOVATE_GITHUB_APP_ID, DEVOPS_CLI_RENOVATE_GITHUB_APP_INSTALLATION_ID, DEVOPS_CLI_RENOVATE_GITHUB_APP_PRIVATE_KEY (if namespace devops exists)",
             "devops/devops-cli: DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY, DEVOPS_CLI_AI_API_KEY, DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS, DEVOPS_CLI_FIRECRAWL_API_KEY, DEVOPS_CLI_VALKEY_PASSWORD, DEVOPS_CLI_MATTERMOST_COMMAND_TOKEN, DEVOPS_CLI_CRAWL4AI_API_TOKEN, DEVOPS_CLI_MCP_STAGE_TOKEN, DEVOPS_CLI_MCP_IMPLEMENT_TOKEN, DEVOPS_CLI_QDRANT_API_KEY (if namespace devops exists)",
             "devops/roadmap-service-llm-key: api-key (if namespace devops exists)",
             "devops/qdrant-api-key: api-key (if namespace devops exists)",
@@ -2152,8 +2153,9 @@ def test_deploy_stack_on_a_native_cluster_applies_the_rendered_config_map_and_no
     res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
     applied = cluster.writes()
     config_map = yaml.safe_load(cluster.stdin_of(_APPLY_STDIN))
-    # The only ConfigMap file that the stack applies is the settings of SearXNG (#3924). The
-    # ConfigMap `devops-cli-config` has no file: it is rendered and sent on stdin.
+    # The only ConfigMap files that the stack applies are the settings of SearXNG (#3924) and the
+    # global config of Renovate (#4905). The ConfigMap `devops-cli-config` has no file: it is
+    # rendered and sent on stdin.
     assert (
         res.exit_code,
         applied[:2],
@@ -2163,7 +2165,10 @@ def test_deploy_stack_on_a_native_cluster_applies_the_rendered_config_map_and_no
         0,
         [["kubectl", "apply", "-k", str(TREE.root), *_CONTEXT], _APPLY_STDIN],
         "devops-cli-config",
-        [["kubectl", "apply", "-f", str(TREE.path("devops/searxng/configmap.yaml")), *_CONTEXT]],
+        [
+            ["kubectl", "apply", "-f", str(TREE.path("devops/searxng/configmap.yaml")), *_CONTEXT],
+            ["kubectl", "apply", "-f", str(TREE.path("devops/renovate/configmap.yaml")), *_CONTEXT],
+        ],
     )
 
 

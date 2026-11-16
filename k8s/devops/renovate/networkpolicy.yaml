@@ -1,0 +1,58 @@
+# The perimeter of the Renovate pod (#4905). Renovate runs the `postUpgradeTasks` commands that a
+# repository names, which its docs call an insider-attack risk. So the pod accepts no connection
+# and reaches only CoreDNS, the OTLP/HTTP port of the OTel collector and public HTTPS: GitHub,
+# the registries, the chart repositories, PyPI, npm, the OpenTofu registry and the OSV database.
+# `devops-default-perimeter` skips this pod, so it gets no path to the gateway, the cache Valkey,
+# Qdrant or the API server.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: renovate-perimeter
+  namespace: devops
+  labels:
+    app.kubernetes.io/name: renovate
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: renovate
+  policyTypes:
+    - Ingress
+    - Egress
+  egress:
+    # 1. CoreDNS lookups
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # 2. OpenTelemetry collector in namespace otel, on its OTLP/HTTP port only.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: otel
+      ports:
+        - protocol: TCP
+          port: 4318
+    # 3. Public HTTPS only. The ranges are those of `devops-default-perimeter`: no private range,
+    #    no shared address space, no link-local range, no cloud metadata endpoint, and no IETF
+    #    protocol or benchmarking range.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+              - 169.254.169.254/32
+              - 192.0.0.0/24
+              - 198.18.0.0/15
+      ports:
+        - protocol: TCP
+          port: 443

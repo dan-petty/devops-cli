@@ -457,13 +457,14 @@ def test_perimeter_admits_no_ingress_and_exactly_five_egress_rules() -> None:
         spec["egress"],
     ) == (
         "devops-default-perimeter",
-        # Every pod but the Crawl4AI and SearXNG pods, which have their own policies (#3884, #3924)
+        # Every pod but the Crawl4AI, SearXNG and Renovate pods, which have their own policies
+        # (#3884, #3924, #4905)
         {
             "matchExpressions": [
                 {
                     "key": "app.kubernetes.io/name",
                     "operator": "NotIn",
-                    "values": ["crawl4ai", "searxng"],
+                    "values": ["crawl4ai", "searxng", "renovate"],
                 }
             ]
         },
@@ -535,7 +536,9 @@ def test_kustomization_lists_every_manifest_and_pins_no_image_and_stays_out_of_t
         and not p.name.endswith(".example.yaml")
         and p.name != "configmap.yaml"
     ]
-    manifests = sorted([*on_disk, "crawl4ai", "mcp-server", "roadmap-service", "searxng"])
+    manifests = sorted(
+        [*on_disk, "crawl4ai", "mcp-server", "renovate", "roadmap-service", "searxng"]
+    )
     root = yaml.safe_load((K8S_DIR / "kustomization.yaml").read_text(encoding="utf-8"))
     assert (
         sorted(kustomization["resources"]),

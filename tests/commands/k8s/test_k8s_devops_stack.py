@@ -76,7 +76,7 @@ def test_devops_stack_manifests_integrity() -> None:
             if f"{p.parent.name}/{p.name}" in rate_limit_then_ingress
         ],
     ) == (
-        33,
+        37,
         True,
         True,
         True,

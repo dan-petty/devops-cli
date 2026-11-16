@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from devops_cli.k8s.searxng_check import SEARXNG_IMAGE
 from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
+RENOVATE_IMAGE = re.compile(r"ghcr\.io/renovatebot/renovate:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}")
 
 
 def check_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when_missing(
@@ -46,14 +48,21 @@ def check_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when
     workloads = [
         d for d in yaml.safe_load_all(rendered) if d and d["kind"] in ("CronJob", "Deployment")
     ]
-    containers = {
-        (workload["kind"], container["name"], container["image"], container["imagePullPolicy"])
+    pods = [
+        (
+            workload["kind"],
+            (
+                workload["spec"]["jobTemplate"]["spec"]
+                if workload["kind"] == "CronJob"
+                else workload["spec"]
+            )["template"]["spec"],
+        )
         for workload in workloads
-        for container in (
-            workload["spec"]["jobTemplate"]["spec"]
-            if workload["kind"] == "CronJob"
-            else workload["spec"]
-        )["template"]["spec"]["containers"]
+    ]
+    containers = {
+        (kind, container["name"], container["image"], container["imagePullPolicy"])
+        for kind, pod in pods
+        for container in [*pod.get("initContainers", []), *pod["containers"]]
     }
     # The runner has no entry here: Image Updater writes its own entry (#2667).
     # Deployment `crawl4ai` pins a third-party image by tag and digest (#3884). `devops k8s
@@ -78,10 +87,21 @@ def check_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when
         "image, then set SEARXNG_IMAGE in src/devops_cli/k8s/searxng_check.py."
     )
     containers.discard(searxng)
+    # CronJob `renovate` pins the Renovate release by tag and digest, and its init container
+    # `seed` runs the same image (#4905). Its init container `token` runs the Service image, so
+    # Image Updater's digest reaches it as it reaches the other containers of that image.
+    renovate = {c for c in containers if c[1] in ("renovate", "seed")}
+    containers -= renovate
+    assert (
+        {c[0] for c in renovate},
+        len({c[2] for c in renovate}),
+        all(RENOVATE_IMAGE.fullmatch(c[2]) and c[3] == "IfNotPresent" for c in renovate),
+    ) == ({"CronJob"}, 1, True)
     assert containers == {
         ("CronJob", "devops-cli", f"{service}:latest@{digest}", "IfNotPresent"),
         ("CronJob", "runner", "ghcr.io/dan-petty/devops-cli/runner", "IfNotPresent"),
         ("CronJob", "stage", f"{service}:latest@{digest}", "IfNotPresent"),
+        ("CronJob", "token", f"{service}:latest@{digest}", "IfNotPresent"),
         ("Deployment", "mcp-server", "ghcr.io/dan-petty/devops-cli/mcp-server", "IfNotPresent"),
         ("Deployment", "service", f"{service}:latest@{digest}", "IfNotPresent"),
     }
