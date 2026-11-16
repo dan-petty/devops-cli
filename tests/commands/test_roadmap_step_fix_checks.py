@@ -67,7 +67,14 @@ def test_fix_checks_command_success(
     assert '"result": "skipped"' in result.output
 
 
-def test_fix_checks_command_error(cli: Cli) -> None:
+def test_fix_checks_command_error(
+    cli: Cli, github_api: GitHubApiFake, roadmap_store: InMemoryRoadmapStore
+) -> None:
+    github_api.route(
+        "GET",
+        "/repos/example/project/pulls/42",
+        github_json({"message": "Server error"}, status=500),
+    )
     result = cli("roadmap", "step", "fix-checks", "--repo", "example/project", "--pull", "42")
     assert result.exit_code == 1
     assert "Could not fix checks on PR #42" in result.output
