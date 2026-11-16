@@ -3,6 +3,12 @@
   "extends": [
     "github>dan-petty/devops-cli//.github/renovate/base"
   ],
+  "vulnerabilityAlerts": {
+    "description": "Owner, 2026-11-16 (#6031): each security fix merges itself, major versions too, after the required checks of the ruleset main pass. GitHub auto-merge does the merge, so no check is skipped. The shared preset turns no automerge on.",
+    "automerge": true,
+    "automergeType": "pr",
+    "platformAutomerge": true
+  },
   "kubernetes": {
     "managerFilePatterns": ["/^k8s/.+\\.ya?ml$/"]
   },

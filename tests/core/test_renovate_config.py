@@ -913,3 +913,33 @@ def test_the_pull_request_body_has_no_controls_and_no_footer() -> None:
         False,
         True,
     )
+
+
+def _automerge_paths(value: Any, path: str = "") -> Iterator[str]:
+    """The path of each `automerge` key that is true in a config, at any depth."""
+    if isinstance(value, dict):
+        for key, child in value.items():
+            here = f"{path}.{key}" if path else key
+            if key == "automerge" and child is True:
+                yield here
+            else:
+                yield from _automerge_paths(child, here)
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            yield from _automerge_paths(child, f"{path}[{index}]")
+
+
+def test_only_a_security_fix_of_this_repository_merges_itself() -> None:
+    """Owner, 2026-11-16 (#6031): each security fix merges itself, major versions too, through
+    GitHub auto-merge after the required checks of the ruleset `main`. No other update merges
+    itself, and the shared preset turns no automerge on, because a repository with no required
+    checks would merge with no gate."""
+    alerts = _renovate()["vulnerabilityAlerts"]
+
+    assert (
+        list(_automerge_paths(_renovate())),
+        list(_automerge_paths(_preset())),
+        alerts.get("automergeType"),
+        alerts.get("platformAutomerge"),
+        "matchUpdateTypes" in alerts,
+    ) == (["vulnerabilityAlerts.automerge"], [], "pr", True, False)
