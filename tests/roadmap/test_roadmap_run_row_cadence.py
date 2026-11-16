@@ -89,8 +89,8 @@ def _round(
 
 
 def test_each_row_with_a_cadence_reads_the_section_of_its_name() -> None:
-    """The rows intake, stage, fix_plan, open, refine and alternatives of the lanes have a cadence, and
-    no other row has one. Each row reads the section of `roadmap` that has its name. A change that
+    """The rows metrics, intake, stage, fix_plan, open, refine and alternatives of the lanes have a
+    cadence, and no other row has one. Each row reads the section of `roadmap` that has its name. A change that
     builds a row again, such as the stage row of #4559, must keep its cadence."""
     roadmap = RoadmapConfig()
 
@@ -101,7 +101,7 @@ def test_each_row_with_a_cadence_reads_the_section_of_its_name() -> None:
     }
 
     assert found == dict.fromkeys(
-        ("intake", "stage", "open", "fix_plan", "refine", "alternatives"), True
+        ("metrics", "intake", "stage", "open", "fix_plan", "refine", "alternatives"), True
     )
 
 
@@ -122,6 +122,32 @@ def test_a_variable_changes_the_interval_of_the_next_round(
         True,
         False,
     )
+
+
+def _metrics_due(store: InMemoryRoadmapStore, tmp_path: Path, minutes: int) -> bool:
+    """Whether a dry round lists metrics when its last success was `minutes` ago, and intake ran a
+    minute ago."""
+    stamp_successes(
+        tmp_path, intake=NOW - timedelta(minutes=1), metrics=NOW - timedelta(minutes=minutes)
+    )
+    table = build_stub_table(include_metrics=True)
+    due = run_due_jobs(REPO, store, table=table, data_dir=tmp_path, dry_run=True, now=NOW)
+    return "metrics" in due
+
+
+def test_a_variable_slows_the_metrics_row_with_no_release(
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The metrics row keeps its old interval of 13 minutes, and a variable sets a longer one that
+    the next round uses, so the cluster can slow the row with no release (#6012)."""
+    before = (_metrics_due(seeded_store, tmp_path, 13), _metrics_due(seeded_store, tmp_path, 12))
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_METRICS_INTERVAL_MINUTES", "26")
+
+    assert (
+        before,
+        _metrics_due(seeded_store, tmp_path, 26),
+        _metrics_due(seeded_store, tmp_path, 25),
+    ) == ((True, False), True, False)
 
 
 # ── The backlog rule ──────────────────────────────────────────────────────────

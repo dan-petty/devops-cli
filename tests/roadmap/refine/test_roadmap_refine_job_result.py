@@ -16,7 +16,7 @@ from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity
 from devops_cli.roadmap.stage.stage_verify import Finding, Locator, PlanPart, Verification
 from devops_cli.roadmap.stores.store import ItemField
 from tests.support.roadmap_job_result import result_fields
-from tests.support.roadmap_refine import READY, REPO, seed_new_items
+from tests.support.roadmap_refine import READY, REPO, seed_item, seed_new_items
 from tests.support.roadmap_stage import STAGE_NAME
 
 if TYPE_CHECKING:
@@ -108,6 +108,26 @@ def test_a_round_logs_the_next_step_of_each_item_and_the_class_of_a_failed_model
             (second, "error", "false", "provider", "true", "false", {}),
         )
     ]
+
+
+def test_a_ready_proposal_that_waits_on_the_alternatives_verdict_logs_a_success(
+    store: InMemoryRoadmapStore,
+    git_repo: Path,
+    model_fake: ModelFake,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A ready proposal of a public item with no verdict of the alternatives row waits on that
+    verdict (#2951). The wait is the intended result of refine, so the line is a success (#6037)."""
+    number = seed_item(store, "New", "P1-High")
+    model_fake.answer(READY)
+
+    with caplog.at_level(logging.INFO):
+        REFINE_ROW.runner(store=store, repo=REPO, clone_path=git_repo)
+
+    assert [
+        (line["item"], line["result"], line["success"], line["first_pass"])
+        for line in result_fields(caplog)
+    ] == [(f"#{number}", "alternatives", "true", "true")]
 
 
 @pytest.mark.parametrize(

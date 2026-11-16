@@ -2,11 +2,12 @@
 fields through (ADR 0001, ADR 0016).
 
 An Item is an issue of this repository, never a pull request, that holds a `priority/*` label:
-intake placed it, or a person did. A Candidate is an open issue that holds none. A Milestone is
-a GitHub milestone: a planning bucket with any title. Its number identifies it, so a rename
-keeps it, and its due date orders it. Both adapters keep the same promises: reads page through
-every result, and a read that cannot complete raises instead of returning an empty or partial
-result. No store reads or writes a project board.
+intake placed it, or a person did. A Candidate is an open issue that holds none. An issue that a
+bot of `roadmap.skip_authors` opened, such as the Dependency Dashboard of Renovate, is neither
+(`roadmap_issues`, #6038). A Milestone is a GitHub milestone: a planning bucket with any title.
+Its number identifies it, so a rename keeps it, and its due date orders it. Both adapters keep
+the same promises: reads page through every result, and a read that cannot complete raises
+instead of returning an empty or partial result. No store reads or writes a project board.
 
 **Fields.** Each of an Item's Status, Priority, Value, Effort and Owner is one label family: the label
 is the field's name and the value, lower case, with a hyphen for each space (`status/in-progress`
@@ -51,6 +52,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STATUS_BLOCKED,
     CONST_ROADMAP_STATUS_VALUES,
 )
+from devops_cli.config.settings import load_settings
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.exceptions.roadmap import RoadmapItemChangedError
 from devops_cli.lang import MESSAGES
@@ -1052,21 +1054,31 @@ def item_of(issue: IssueRecord) -> Item:
     return Item.model_validate(held | field_values(issue.labels, issue.job_record))
 
 
+def roadmap_issues(issues: Iterable[IssueRecord]) -> list[IssueRecord]:
+    """The issues among `issues` that a roadmap row may take: never a pull request, and never an
+    issue whose author is a bot of `roadmap.skip_authors`. Such a bot owns its issue, as Renovate
+    owns its Dependency Dashboard and writes it again each run, so it is no work item (#6038).
+    Every selection of the rows starts here: `select_items`, `select_candidates` and the listing
+    of intake."""
+    skipped = frozenset(load_settings().roadmap.skip_authors)
+    return [
+        issue for issue in issues if not issue.pull_request and issue.author_login not in skipped
+    ]
+
+
 def select_items(issues: Iterable[IssueRecord]) -> list[Item]:
-    """The Items among `issues`: the issues, never pull requests, that hold a Priority."""
-    items = (item_of(issue) for issue in issues if not issue.pull_request)
+    """The Items among `issues`: the issues of `roadmap_issues` that hold a Priority."""
+    items = (item_of(issue) for issue in roadmap_issues(issues))
     return sorted((item for item in items if item.priority is not None), key=lambda i: i.number)
 
 
 def select_candidates(issues: Iterable[IssueRecord]) -> list[Candidate]:
-    """The Candidates among `issues`: open issues, never pull requests, with no Priority."""
+    """The Candidates among `issues`: the open issues of `roadmap_issues` with no Priority."""
     return sorted(
         (
             Candidate.model_validate(issue.model_dump(include=set(Candidate.model_fields)))
-            for issue in issues
-            if issue.state is GitHubState.OPEN
-            and not issue.pull_request
-            and item_of(issue).priority is None
+            for issue in roadmap_issues(issues)
+            if issue.state is GitHubState.OPEN and item_of(issue).priority is None
         ),
         key=lambda candidate: candidate.number,
     )
@@ -1415,6 +1427,7 @@ __all__ = [
     "require_unchanged",
     "require_value",
     "reset_roadmap_store",
+    "roadmap_issues",
     "select_candidates",
     "select_items",
     "split_record",

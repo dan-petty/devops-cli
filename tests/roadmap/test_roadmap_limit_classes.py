@@ -742,6 +742,7 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     "DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_RETITLE_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES": ("other", "a schedule"),
+    "DEFAULT_ROADMAP_STATUS_PAGE_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_PLAN_DRIFT_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_WATCH_INTERVAL_MINUTES": ("other", "a schedule"),

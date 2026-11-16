@@ -40,6 +40,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_TRIGGERS,
     CONST_SERVICE_PROBE_PATHS,
     CONST_SERVICE_SOURCE_POLL,
+    CONST_SERVICE_SOURCE_WEBHOOK,
     CONST_SERVICE_STOP_CUT_SECONDS,
     CONST_SERVICE_STOP_DRAIN_SECONDS,
 )
@@ -117,6 +118,15 @@ LaneJob = Callable[[TriggerBatch], None]
 """What one lane of a repository runs for each batch of its triggers. A lane is one worker with
 its trigger queue for each repository; the roadmap Service runs one lane for each row of its due
 table by default (#5553)."""
+
+
+def round_loop(counts: Mapping[tuple[str, str, str], int]) -> str:
+    """The loop that the round of a batch with the trigger `counts` sends its own GitHub requests
+    for, the `row` that they count under (#6012): `webhook` when a trigger is a webhook delivery,
+    else `poll`. Each job row of the round names its own row."""
+    if all(source == CONST_SERVICE_SOURCE_POLL for source, _, _ in counts):
+        return CONST_SERVICE_SOURCE_POLL
+    return CONST_SERVICE_SOURCE_WEBHOOK
 
 
 def default_service_job(batch: TriggerBatch) -> None:
@@ -644,7 +654,8 @@ class RepoWorker:
             },
         ) as span:
             try:
-                with request_scope(repo=self.repo):
+                # A scoped update runs only for a webhook delivery (#6012).
+                with request_scope(repo=self.repo, row=CONST_SERVICE_SOURCE_WEBHOOK):
                     scoped_func()
             except Exception as exc:
                 if ended_by_stop(exc):
@@ -702,7 +713,7 @@ class RepoWorker:
             },
         ) as span:
             try:
-                with request_scope(repo=self.repo):
+                with request_scope(repo=self.repo, row=round_loop(batch.counts)):
                     self.job_func(batch)
             except Exception as exc:
                 if ended_by_stop(exc):

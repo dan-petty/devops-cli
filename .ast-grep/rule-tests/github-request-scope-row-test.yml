@@ -1,0 +1,18 @@
+id: github-request-scope-row
+valid:
+  - |
+    with request_scope(row=row.name):
+        row.runner()
+  - |
+    with request_scope(repo=self.repo, row=loop):
+        self.job_func(batch)
+  - |
+    with request_scope(repo=target, row="stage"):
+        run_stage()
+invalid:
+  - |
+    with request_scope(repo=self.repo):
+        self.job_func(batch)
+  - |
+    with request_scope():
+        read_issues()

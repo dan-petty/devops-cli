@@ -119,7 +119,10 @@ def test_first_pass_table_and_boundary_values() -> None:
     assert is_fp(roadmap_job.REFINE, "person", {"tries": 1}) is True
     assert is_fp(roadmap_job.REFINE, "split", {"tries": 1}) is True
     assert is_fp(roadmap_job.REFINE, "blocked", {"tries": 1}) is True
+    assert is_fp(roadmap_job.REFINE, "alternatives", {"tries": 1}) is True
+    assert is_fp(roadmap_job.REFINE, "edit", {"tries": 1}) is True
     assert is_fp(roadmap_job.REFINE, "ready", {"tries": 2}) is False
+    assert is_fp(roadmap_job.REFINE, "retry", {"tries": 1}) is False
     assert is_fp(roadmap_job.REFINE, "error", {"tries": 1}) is False
 
     # 5. refine_judge: approved with round = 1 and findings = 0
