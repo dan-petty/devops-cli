@@ -58,6 +58,7 @@ from devops_cli.roadmap.pull_labels import (
     stale_labels,
 )
 from devops_cli.roadmap.status_sync import StatusFacts, write_status
+from devops_cli.roadmap.steps.comment import Target, post
 from devops_cli.roadmap.stores.store import (
     ImplementRecordKey,
     RoadmapStore,
@@ -273,27 +274,14 @@ def checked_request(request: OpenRequest, declared: tuple[str, ...] | None) -> O
 
 
 def _upsert_marked_comment(repo: str, pull_number: int, comment_body: str) -> bool:
-    """Upsert one marked comment on pull request `pull_number` (#5020)."""
-    client = get_github_session().client
-    marker = None
+    """Upsert one marked comment on pull request `pull_number` (#5020, #5025)."""
+    marker = ""
     for line in comment_body.splitlines():
         if line.startswith("<!--") and line.endswith("-->"):
             marker = line.strip()
             break
-    if not marker:
-        client.comment_on_pull(repo, pull_number, comment_body)
-        return True
-
-    existing_comments = client.list_issue_comments(repo, pull_number)
-    for c in existing_comments:
-        if marker in c.body:
-            if c.body != comment_body:
-                client.update_issue_comment(repo, c.id, comment_body)
-                return True
-            return False
-
-    client.comment_on_pull(repo, pull_number, comment_body)
-    return True
+    target = Target(repo, pull_number)
+    return post(target, marker, None, comment_body)
 
 
 def _record_pr_marks(

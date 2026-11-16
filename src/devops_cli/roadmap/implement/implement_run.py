@@ -98,6 +98,7 @@ from devops_cli.exceptions import (
     GitOperationError,
     RoadmapImplementError,
     SecurityError,
+    ServiceStoppingError,
 )
 from devops_cli.exceptions.roadmap import GitSettingsError, OverWindowError
 from devops_cli.git.worktree_add import add_worktree
@@ -209,6 +210,7 @@ from devops_cli.roadmap.stage.stage_split import ask_split
 from devops_cli.roadmap.status_sync import StatusFacts, write_status
 from devops_cli.roadmap.step_files import TaskGroup, parse_task_groups, section_text
 from devops_cli.roadmap.step_metrics import observe_implement
+from devops_cli.roadmap.steps.comment import Target, post
 from devops_cli.roadmap.steps.fix_checks import count_errors
 from devops_cli.roadmap.stores.store import (
     FixChecksRecordKey,
@@ -615,8 +617,7 @@ class _ItemRun:
     published_sha: str | None = field(default=None, init=False)
     # The comment of this run on the pull request: its id once it is posted or found, and whether
     # the comments were listed already (#4070).
-    comment_id: int | None = field(default=None, init=False)
-    comments_listed: bool = field(default=False, init=False)
+    _comment_target: Target | None = field(default=None, init=False)
     # The pull request that holds the delivery title, body and labels (#3991), so a second call
     # writes nothing.
     metadata_written: int | None = field(default=None, init=False)
@@ -1700,8 +1701,11 @@ class _ItemRun:
         except GitHubUnauthenticatedError:
             raise
         except GitHubOperationError as exc:
-            client.comment_on_pull(
-                self.repo, pull, texts.implement_pull_labels_failed.format(error=exc)
+            post(
+                Target(self.repo, pull, client=client),
+                CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
+                f"labels-failed-{pull}",
+                f"{CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER}\nlabels-failed-{pull}\n\n{texts.implement_pull_labels_failed.format(error=exc)}",
             )
         self.metadata_written = pull
 
@@ -1742,21 +1746,14 @@ class _ItemRun:
             marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, run=run, lines=body
         )
         client = get_github_session().client
-        if self.comment_id is None and not self.comments_listed:
-            self.comments_listed = True
-            head = [CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, run]
-            self.comment_id = next(
-                (
-                    found.id
-                    for found in client.list_issue_comments(self.repo, pull)
-                    if found.body.splitlines()[:2] == head
-                ),
-                None,
-            )
-        if self.comment_id is None:
-            self.comment_id = client.comment_on_pull(self.repo, pull, comment)
-        else:
-            client.update_issue_comment(self.repo, self.comment_id, comment)
+        if self._comment_target is None or self._comment_target.number != pull:
+            self._comment_target = Target(self.repo, pull, client=client)
+        post(
+            self._comment_target,
+            CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
+            run,
+            comment,
+        )
 
     def _check_lines(self) -> list[str]:
         """The lines of the checks of the outcomes (#3042): the fail-to-pass result of
@@ -2305,7 +2302,7 @@ def _implement_item(
             return ImplementResult.YIELDED
         except _StopError as stop:
             return run.end_stopped(stop)
-        except AICredentialsError, GitHubUnauthenticatedError:
+        except AICredentialsError, GitHubUnauthenticatedError, ServiceStoppingError:
             raise
         except (DevOpsCLIError, AIClientError, subprocess.TimeoutExpired) as exc:
             return run.end_stopped(_error_stop(run.step, exc))
@@ -2357,7 +2354,7 @@ def apply_implement(
                 splitter=splitter,
                 rewriter=rewriter,
             )
-        except AICredentialsError, GitHubUnauthenticatedError:
+        except AICredentialsError, GitHubUnauthenticatedError, ServiceStoppingError:
             raise
         except (DevOpsCLIError, AIClientError) as exc:
             failed.append(

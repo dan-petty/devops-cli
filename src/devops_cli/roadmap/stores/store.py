@@ -654,6 +654,7 @@ class IssueComment(BaseModel):
 
     body: str
     created_at: datetime
+    id: int | None = None
     author_association: str | None = None
     author_login: str | None = None
     on_pull_request: bool = False

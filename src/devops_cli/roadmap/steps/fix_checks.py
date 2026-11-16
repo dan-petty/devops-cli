@@ -61,6 +61,7 @@ from devops_cli.roadmap.implement.implement_pull import (
 from devops_cli.roadmap.implement.implement_step import find_change
 from devops_cli.roadmap.status_sync import job_holds
 from devops_cli.roadmap.step_files import parse_task_groups
+from devops_cli.roadmap.steps.comment import Target, post
 from devops_cli.roadmap.steps.ready import draft_readiness, mark_ready
 from devops_cli.roadmap.stores.store import (
     FixChecksRecordKey,
@@ -558,7 +559,13 @@ def run_fix_checks(
             f"CI infrastructure failure detected on check `{failed_check.name}`. "
             "Waiting for infrastructure resolution."
         )
-        client.comment_on_pull(repo, pull, comment)
+        marker = "<!-- devops roadmap fix-checks -->"
+        post(
+            Target(repo, pull, client=client),
+            marker,
+            failed_check.name,
+            f"{marker}\n{failed_check.name}\n\n{comment}",
+        )
         _end(store, facts, FixChecksResult.WAIT)
         return facts.report(FixChecksResult.WAIT, "CI infrastructure failure; waiting")
 

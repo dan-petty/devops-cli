@@ -15,6 +15,7 @@ from typing import Any, Final
 from pydantic import BaseModel, Field
 from pydantic import ValidationError as MalformedRecordError
 
+from devops_cli.config.constants import CONST_ROADMAP_STAGE_COMMENT_MARKER
 from devops_cli.config.defaults import (
     DEFAULT_GH_GRAPHQL_BUDGET_FLOOR,
 )
@@ -44,6 +45,7 @@ from devops_cli.roadmap.jev_completeness import (
 from devops_cli.roadmap.release_feed import closing_numbers
 from devops_cli.roadmap.stage.stage_criteria import acceptance_criteria
 from devops_cli.roadmap.status_sync import facts_of, sync_status
+from devops_cli.roadmap.steps.comment import Target, post
 from devops_cli.roadmap.steps.ready import mark_ready
 from devops_cli.roadmap.steps.watch import (
     DueStep,
@@ -240,7 +242,12 @@ def _jev_holds(
         return False
     error_mark = f"{head}:{CompletenessOutcome.ERROR}"
     if not (result.outcome is CompletenessOutcome.ERROR and mark == error_mark):
-        client.comment_on_pull(repo, number, completeness_note(result, number))
+        post(
+            Target(repo, number, client=client),
+            CONST_ROADMAP_STAGE_COMMENT_MARKER,
+            f"jev-{head}",
+            completeness_note(result, number),
+        )
     store.set_marks(item, {StageRecordKey.JEV: f"{head}:{result.outcome}"})
     return True
 
@@ -392,7 +399,13 @@ def _apply_due_steps(
             note = MESSAGES.roadmap.pr_conflicts_comment.format(
                 number=pr_number, base=base_ref, head=head_sha[:_HEAD_CHARS]
             )
-            client.comment_on_pull(ctx.repo, pr_number, note)
+            marker = "<!-- devops roadmap pr_conflicts -->"
+            post(
+                Target(ctx.repo, pr_number, client=client),
+                marker,
+                head_sha[:_HEAD_CHARS],
+                note,
+            )
             if pr_number in ctx.recorded_pulls:
                 ctx.recorded_pulls[pr_number].commented_head = head_sha
             ctx.commented_conflicts.append(pr_number)
