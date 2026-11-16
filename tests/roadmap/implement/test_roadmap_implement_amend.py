@@ -464,3 +464,201 @@ def test_judge_refuses_a_replacement_that_names_a_new_path() -> None:
 
     assert isinstance(outcome, Refused)
     assert "src/devops_cli/other.py" in outcome.reason
+
+
+# ── Bounded path additions (#4099) ───────────────────────────────────────────
+
+
+def test_parse_request_returns_add_path_request() -> None:
+    message = (
+        "I need an omitted file.\n\n"
+        "```plan-request\n"
+        "{\n"
+        '  "kind": "add_path",\n'
+        '  "group": 1,\n'
+        '  "defect": "Missing constants file",\n'
+        '  "evidence": "Need CONST_VAL",\n'
+        '  "new": "src/devops_cli/constants.py",\n'
+        '  "header": "Reads"\n'
+        "}\n"
+        "```"
+    )
+    request = parse_request(message)
+    assert request is not None
+    assert request.kind == "add_path"
+    assert request.group == 1
+    assert request.defect == "Missing constants file"
+    assert request.evidence == "Need CONST_VAL"
+    assert request.new == "src/devops_cli/constants.py"
+    assert request.header == "Reads"
+    assert request.old is None
+
+
+def test_judge_appends_path_to_reads_header() -> None:
+    tree = StagedTree(
+        [
+            "src/devops_cli/sample.py",
+            "tests/commands/test_sample.py",
+            "src/devops_cli/constants.py",
+        ]
+    )
+    request = PlanRequest(
+        kind="add_path",
+        group=1,
+        defect="Missing constants file",
+        evidence="Import required",
+        new="src/devops_cli/constants.py",
+        header="Reads",
+    )
+    outcome = judge(request, SAMPLE_TASKS, tree)
+    assert isinstance(outcome, Applied)
+    assert outcome.amendment == Amendment(
+        group=1,
+        kind="add_path",
+        defect="Missing constants file",
+        evidence="Import required",
+        old="",
+        new="src/devops_cli/constants.py",
+    )
+    assert (
+        "Reads: `src/devops_cli/sample.py`, `src/devops_cli/constants.py`. Changes:"
+        in outcome.tasks_md
+    )
+    assert "## Amendments" in outcome.tasks_md
+    assert "`src/devops_cli/constants.py`" in outcome.tasks_md
+    assert "->" not in outcome.tasks_md.split("## Amendments")[1]
+    assert "`src/devops_cli/constants.py`" in outcome.amendment.line()
+
+
+def test_judge_appends_path_to_changes_header() -> None:
+    tree = StagedTree(
+        [
+            "src/devops_cli/sample.py",
+            "tests/commands/test_sample.py",
+            "src/devops_cli/extra.py",
+        ]
+    )
+    request = PlanRequest(
+        kind="add_path",
+        group=1,
+        defect="Missing extra file",
+        evidence="Must edit extra.py",
+        new="src/devops_cli/extra.py",
+        header="Changes",
+    )
+    outcome = judge(request, SAMPLE_TASKS, tree)
+    assert isinstance(outcome, Applied)
+    assert (
+        "`tests/commands/test_sample.py`, `src/devops_cli/new_file.py` (new), `src/devops_cli/extra.py`"
+        in outcome.tasks_md
+    )
+
+
+def test_judge_appends_path_to_separate_reads_line() -> None:
+    tasks = """\
+# Tasks
+
+## 1. First group
+
+Reads: `src/app/a.py`
+Changes: `src/app/b.py`.
+
+- [ ] 1.1 First task
+"""
+    tree = StagedTree(["src/app/a.py", "src/app/b.py", "src/app/constants.py"])
+    request = PlanRequest(
+        kind="add_path",
+        group=1,
+        defect="Missing constants file",
+        evidence="Import required",
+        new="src/app/constants.py",
+        header="Reads",
+    )
+    outcome = judge(request, tasks, tree)
+    assert isinstance(outcome, Applied)
+    assert "Reads: `src/app/a.py`, `src/app/constants.py`\n" in outcome.tasks_md
+
+
+def test_judge_refuses_add_path_when_absent_from_tree() -> None:
+    tree = StagedTree(["src/devops_cli/sample.py"])
+    request = PlanRequest(
+        kind="add_path",
+        group=1,
+        defect="Missing file",
+        evidence="Does not exist",
+        new="src/devops_cli/nonexistent.py",
+        header="Reads",
+    )
+    outcome = judge(request, SAMPLE_TASKS, tree)
+    assert isinstance(outcome, Refused)
+    assert outcome.reason == MESSAGES.roadmap.implement_amend_refused_path_status
+
+
+def test_judge_refuses_add_path_under_openspec() -> None:
+    tree = StagedTree(["src/devops_cli/sample.py", "openspec/changes/4099-test/tasks.md"])
+    request = PlanRequest(
+        kind="add_path",
+        group=1,
+        defect="Plan file",
+        evidence="openspec file",
+        new="openspec/changes/4099-test/tasks.md",
+        header="Reads",
+    )
+    outcome = judge(request, SAMPLE_TASKS, tree)
+    assert isinstance(outcome, Refused)
+    assert outcome.reason == MESSAGES.roadmap.implement_amend_refused_path_status
+
+
+def test_judge_refuses_add_path_when_group_has_no_matching_header() -> None:
+    tasks = """\
+# Tasks
+
+## 1. First group
+
+Changes: `src/devops_cli/sample.py`.
+
+- [ ] 1.1 Task
+"""
+    tree = StagedTree(["src/devops_cli/sample.py", "src/devops_cli/constants.py"])
+    request = PlanRequest(
+        kind="add_path",
+        group=1,
+        defect="Missing constants file",
+        evidence="Reads needed",
+        new="src/devops_cli/constants.py",
+        header="Reads",
+    )
+    outcome = judge(request, tasks, tree)
+    assert isinstance(outcome, Refused)
+    assert outcome.reason == MESSAGES.roadmap.implement_amend_refused_path_status
+
+
+def test_judge_refuses_add_path_already_in_group() -> None:
+    tree = StagedTree(["src/devops_cli/sample.py"])
+    request = PlanRequest(
+        kind="add_path",
+        group=1,
+        defect="Duplicate path",
+        evidence="Already listed",
+        new="src/devops_cli/sample.py",
+        header="Reads",
+    )
+    outcome = judge(request, SAMPLE_TASKS, tree)
+    assert isinstance(outcome, Refused)
+    assert outcome.reason == MESSAGES.roadmap.implement_amend_refused_path_status
+
+
+def test_judge_refuses_add_path_with_old_given() -> None:
+    tree = StagedTree(["src/devops_cli/sample.py", "src/devops_cli/constants.py"])
+    request = PlanRequest(
+        kind="add_path",
+        group=1,
+        defect="Rename form on add_path",
+        evidence="Has old",
+        old="src/devops_cli/old.py",
+        new="src/devops_cli/constants.py",
+        header="Reads",
+    )
+    outcome = judge(request, SAMPLE_TASKS, tree)
+    assert isinstance(outcome, Refused)
+    assert outcome.reason == MESSAGES.roadmap.implement_amend_refused_path_status
