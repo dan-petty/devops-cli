@@ -254,7 +254,7 @@ def test_a_repository_that_is_no_owner_and_name_is_refused_before_any_read(
 
 
 @pytest.mark.parametrize(
-    "flags", [["--limit", "2"], ["--filter", "status=ready"], ["--source", "."]]
+    "flags", [["--limit", "2"], ["--filter", "status=ready"], ["--source", "."], ["--no-rebase"]]
 )
 def test_a_dry_run_ignores_the_options_that_need_the_runner_and_prints_the_job(
     cli: Callable[..., Any],
@@ -280,6 +280,7 @@ def test_a_dry_run_ignores_the_options_that_need_the_runner_and_prints_the_job(
         (["--source", "."], "--source"),
         (["--filter", "status=ready"], "--filter"),
         (["--limit", "2"], "--limit"),
+        (["--no-rebase"], "--no-rebase"),
     ],
 )
 def test_an_option_that_needs_the_runner_is_refused_with_the_run_job_command(

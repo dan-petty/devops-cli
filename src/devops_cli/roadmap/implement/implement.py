@@ -645,13 +645,17 @@ def plan_implement(
 
 
 def dry_run_implement(
-    repo: str, *, item: int | None = None, limit: int | None = None
+    repo: str,
+    *,
+    item: int | None = None,
+    limit: int | None = None,
+    rebase: bool = True,
 ) -> ImplementPlan:
     """The plan a dry run returns, having made no request: the requests and the git commands that a
     run makes, in order, and the writes that `--confirm` adds."""
     from devops_cli.roadmap.request_plan import implement_requests
 
-    reads, writes = implement_requests(repo, item=item, limit=limit)
+    reads, writes = implement_requests(repo, item=item, limit=limit, rebase=rebase)
     return ImplementPlan(repo, dry_run=True, requests=reads, write_requests=writes)
 
 

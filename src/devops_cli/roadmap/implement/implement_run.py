@@ -582,6 +582,7 @@ class _ItemRun:
     origin: OriginGit
     model_for_tier: Callable[[str], Any] | None = None
     splitter: Any = None
+    rebase: bool = True
     split_done: bool = False
     change: str = ""
     outcomes: list[StepOutcome] = field(default_factory=list)
@@ -841,6 +842,8 @@ class _ItemRun:
     def _sync(self) -> None:
         """Fetch the default branch and rebase onto it. A conflict aborts the rebase, which puts the
         branch back on its tip, and stops the item."""
+        if not self.rebase:
+            return
         self.origin.fetch(self.default)
         self._rebase(self.path)
 
@@ -1475,6 +1478,8 @@ class _ItemRun:
     def _rebased_copy(self) -> str:
         """The tip of the commits of `HEAD` rebased onto `origin/<default>` in a detached worktree
         that goes at once, or `HEAD` when the default branch has no commit that it lacks."""
+        if not self.rebase:
+            return self._head()
         self.origin.fetch(self.default)
         if not self._git("rev-list", "-n", "1", f"HEAD..origin/{self.default}"):
             return self._head()
@@ -2193,6 +2198,7 @@ def _implement_item(
     url: str,
     model: Any,
     window: int,
+    rebase: bool = True,
     model_for_tier: Callable[[str], Any] | None = None,
     splitter: Any = None,
 ) -> ImplementResult:
@@ -2210,6 +2216,7 @@ def _implement_item(
             OriginGit(path, url),
             model_for_tier=model_for_tier,
             splitter=splitter,
+            rebase=rebase,
         )
         try:
             run.execute()
@@ -2234,6 +2241,7 @@ def apply_implement(
     source: Path | str,
     model: Any,
     window: int,
+    rebase: bool = True,
     model_for_tier: Callable[[str], Any] | None = None,
     splitter: Any = None,
 ) -> ImplementApplied:
@@ -2263,6 +2271,7 @@ def apply_implement(
                 url=url,
                 model=model,
                 window=window,
+                rebase=rebase,
                 model_for_tier=model_for_tier,
                 splitter=splitter,
             )

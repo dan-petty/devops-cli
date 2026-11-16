@@ -969,6 +969,7 @@ def implement_requests(
     *,
     item: int | None = None,
     limit: int | None = None,
+    rebase: bool = True,
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
     """What `devops roadmap implement` reads, in order, and the writes `--confirm` makes after
     them (#2665, #2714). The run updates its clone, reads every issue, the comments of an item
@@ -1075,7 +1076,7 @@ def implement_requests(
         ),
         *within(store.write_status(target), repeat=each_item),
         *within(store.set_marks(target), cond["clear_stop"], repeat=each_item),
-        git("rebase", tree, "rebase", "origin/main"),
+        *([git("rebase", tree, "rebase", "origin/main")] if rebase else []),
         other("model", "model_step", "model", repeat=each_group),
         other("model", "model_split", "model", when=cond["split"], repeat=each_item),
         git("commit", tree, "commit", "-m", _p("title"), repeat=each_group),

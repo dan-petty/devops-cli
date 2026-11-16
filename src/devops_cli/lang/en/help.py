@@ -1850,6 +1850,10 @@ class RoadmapCommandHelp:
         "Also list the open items that the filter does not name, each with the family it "
         "misses, under 'Matched no filter'. Without it, the plan does not list them."
     )
+    implement_rebase: str = (
+        "Rebase the staged branch onto origin/<default> before the first step and before the "
+        "push. --no-rebase skips the fetch and the rebase."
+    )
     stage: str = (
         "Make Ready items Staged: for each item, push a branch with its OpenSpec change in one commit "
         "and open a draft plan pull request. The Service marks the draft ready when its checks pass. "

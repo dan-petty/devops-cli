@@ -628,6 +628,16 @@ def test_the_implement_plan_names_the_comment_endpoint_and_the_lease_that_the_jo
     )
 
 
+def test_the_implement_plan_with_no_rebase_omits_the_rebase_request() -> None:
+    from devops_cli.roadmap.request_plan import implement_requests
+
+    _, writes_default = implement_requests(REPO)
+    _, writes_no_rebase = implement_requests(REPO, rebase=False)
+
+    assert any(request.argv[3:4] == ("rebase",) for request in writes_default)
+    assert not any(request.argv[3:4] == ("rebase",) for request in writes_no_rebase)
+
+
 def test_the_stage_plan_reads_the_change_folders_of_the_default_branch_with_one_ls_tree() -> None:
     from devops_cli.roadmap.request_plan import stage_requests
 

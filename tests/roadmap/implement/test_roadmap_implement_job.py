@@ -934,6 +934,22 @@ def test_a_conflict_on_the_rebase_stops_the_item_before_any_step(job_world: JobW
     assert job_world.origin_log() == ["fix(roadmap): plan"]
 
 
+def test_no_rebase_skips_fetch_and_rebase_at_the_start_and_before_push(job_world: JobWorld) -> None:
+    clone = job_world.repo.clone
+    folder = clone / "openspec" / "changes" / CHANGE
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "tasks.md").write_text("A different file.\n", encoding="utf-8")
+    job_world.repo.git("add", "-A")
+    job_world.repo.git("commit", "-q", "-m", "main also adds the tasks")
+    job_world.repo.git("push", "-q", "origin", "main")
+    script = two_groups()
+
+    applied = job_world.run(script, rebase=False)
+
+    assert applied.ready == (1,)
+    assert job_world.repo.origin_git("rev-list", "--count", f"{BRANCH}..main") == "2"
+
+
 THREE_GROUP_TASKS_CONTEXT = """\
 # Tasks
 

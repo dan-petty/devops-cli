@@ -49,7 +49,11 @@ def run_job_command(repo: str) -> str:
 
 
 def runner_only_options(
-    *, source: Path | None, filters: Sequence[str] | None, limit: int
+    *,
+    source: Path | None,
+    filters: Sequence[str] | None,
+    limit: int,
+    rebase: bool = True,
 ) -> list[str]:
     """The options that the call gave and that only the job in a runner uses: `--source` is the
     clone of the job, and `--filter` and `--limit` choose the items. `--item` takes the one item
@@ -58,6 +62,7 @@ def runner_only_options(
         "--source": source is not None,
         "--filter": bool(filters),
         "--limit": limit != DEFAULT_ROADMAP_IMPLEMENT_LIMIT,
+        "--no-rebase": not rebase,
     }
     return [option for option, used in given.items() if used]
 
