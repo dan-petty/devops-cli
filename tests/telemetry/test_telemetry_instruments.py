@@ -773,7 +773,7 @@ def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sen
         ("devops_cli_qdrant_retries_total", "error_type"),
         ("devops_cli_ai_requests_total", "operation"),
         ("devops_cli_ai_tokens_total", "operation"),
-        ("devops_cli_ai_ollama_slot_wait_seconds", "priority"),
+        ("devops_cli_ai_gateway_slot_wait_seconds", "outcome"),
     }
     queries = _all_queries()
     grouped = {
@@ -793,7 +793,7 @@ def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sen
             "devops_cli_review_duration_seconds": {0.5, 0.95},
             "devops_cli_rag_query_duration_ms": {0.5, 0.95},
             "devops_cli_project_release_interval_days": {0.5, 0.95},
-            "devops_cli_ai_ollama_slot_wait_seconds": {0.95},
+            "devops_cli_ai_gateway_slot_wait_seconds": {0.95},
         },
     )
 
@@ -941,37 +941,21 @@ def test_a_grouped_query_adds_no_unlabelled_zero_series() -> None:
     ] == []
 
 
-def _zero_fallback(query: str) -> str:
-    """A spend query as it reads with its fallback to 0.
-
-    An ungrouped result falls back to `vector(0)`. A grouped one falls back to the requests a
-    model answered, grouped the same and times 0, so each backend that served requests shows
-    $0 with its labels.
-    """
-    spend, _, _ = query.partition(" or ")
-    if not re.search(r"\bby\b", _outermost(spend)):
-        return f"{spend} or vector(0)"
-    requests = re.sub(r"\s*\*\s*\d+$", "", spend)
-    requests = re.sub(
-        r"devops_cli_ai_spend_usd_total(?:\{([^}]*)\})?",
-        lambda found: (
-            "devops_cli_ai_requests_total{"
-            + (f"{found.group(1)}," if found.group(1) else "")
-            + 'cached="false"}'
-        ),
-        requests,
-    )
-    return f"{spend} or {requests} * 0"
-
-
 def test_every_spend_query_shows_zero_when_no_spend_series_matches() -> None:
     """Verify each query of the spend counter falls back to 0, so a dashboard shows $0, not
-    "No data", which a broken pipeline also shows (#1631)."""
-    spend_queries = [q for q in _all_queries() if "devops_cli_ai_spend_usd_total" in q]
+    "No data", which a broken pipeline also shows (#1631). Spend coverage is a ratio and backend
+    spend bars drop the fallback (#4724)."""
+    spend_queries = [
+        q
+        for q in _all_queries()
+        if "devops_cli_ai_spend_usd_total" in q
+        and 'provider="gateway"' not in q
+        and not re.search(r"\bby\b", _outermost(q))
+    ]
 
     assert (
         len(spend_queries) > 0,
-        [q for q in spend_queries if q != _zero_fallback(q)],
+        [q for q in spend_queries if "or vector(0)" not in q],
     ) == (True, [])
 
 

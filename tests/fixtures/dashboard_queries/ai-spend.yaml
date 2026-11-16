@@ -1,0 +1,99 @@
+# Cases of the panels of k8s/devops/dashboards/ai-spend.json, which
+# tests/prometheus/test_dashboard_queries.py evaluates with promtool (#4680, #4724). The test module tells
+# the format, and docs/TESTING.md tells how to add a case.
+#
+# Each test group models one series shape that the telemetry writes (#4675). Its series start at
+# 0 and have one sample each `interval`. A range selector holds the samples after its start and
+# up to its end, so `[86400s]` at 48h reads the samples from 24h15m to 48h.
+tests:
+  - name: the gateway and CLI send spend counters and slot wait histograms
+    shape: sparse_counter
+    interval: 15m
+    input_series:
+      - series: 'litellm_spend_metric_total'
+        values: '100+1x672'
+      - series: 'devops_cli_ai_spend_usd_total{provider="azure", server="eastus"}'
+        values: '20+0.5x672'
+      - series: 'devops_cli_ai_spend_usd_total{provider="gateway", server="gateway-a"}'
+        values: '10+0.75x672'
+      - series: 'devops_cli_ai_gateway_slot_wait_seconds{outcome="ok"}'
+        values: '{{schema:0 count:0 sum:0}}+{{schema:0 count:10 sum:15 buckets:[10] offset:1}}x672'
+      - series: 'devops_cli_ai_gateway_slot_wait_seconds{outcome="timeout"}'
+        values: '{{schema:0 count:0 sum:0}}+{{schema:0 count:2 sum:60 buckets:[2] offset:5}}x672'
+    promql_expr_test:
+      # 96 samples in 24 h: 96 x 1 + 96 x 0.5 = 144.
+      - panel: 'AI Spend: in range'
+        ref_id: A
+        variables: {__range: 24h}
+        expr: '(sum(increase(litellm_spend_metric_total[$__range])) or vector(0)) + (sum(increase(devops_cli_ai_spend_usd_total{provider!="gateway"}[$__range])) or vector(0))'
+        eval_time: 48h
+        exp_samples:
+          - labels: '{}'
+            value: 144
+
+      # 24 hourly bars of spend: 24 x (4 x 1 + 4 x 0.5) = 144.
+      - panel: 'AI Spend: per hour'
+        ref_id: A
+        variables: {__interval: 1h}
+        expr: '(sum(increase(litellm_spend_metric_total[$__interval])) or vector(0)) + (sum(increase(devops_cli_ai_spend_usd_total{provider!="gateway"}[$__interval])) or vector(0))'
+        bars: 24h
+        total: 144
+        eval_time: 48h
+        exp_samples:
+          - labels: '{}'
+            value: 144
+
+      # 30-day run rate based on fixed 7d baseline: ((672 x 1 + 672 x 0.5) / 7) * 30 = 4320.
+      # Evaluated with range 6h.
+      - panel: 'Projected 30-Day Run Rate: 7d baseline'
+        ref_id: A
+        variables: {__range: 6h}
+        expr: '((sum(increase(litellm_spend_metric_total[7d])) or vector(0)) + (sum(increase(devops_cli_ai_spend_usd_total{provider!="gateway"}[7d])) or vector(0))) / 7 * 30'
+        eval_time: 168h
+        exp_samples:
+          - labels: '{}'
+            value: 4320
+
+      # The same run rate evaluated with range 7d evaluates to the exact same value.
+      - panel: 'Projected 30-Day Run Rate: 7d baseline'
+        ref_id: A
+        variables: {__range: 7d}
+        expr: '((sum(increase(litellm_spend_metric_total[7d])) or vector(0)) + (sum(increase(devops_cli_ai_spend_usd_total{provider!="gateway"}[7d])) or vector(0))) / 7 * 30'
+        eval_time: 168h
+        exp_samples:
+          - labels: '{}'
+            value: 4320
+
+      # Slot wait p95 grouped by outcome over the last hour.
+      - panel: 'Gateway Slot Wait: by outcome (p95)'
+        ref_id: A
+        variables: {}
+        expr: 'histogram_quantile(0.95, sum by (outcome) (increase(devops_cli_ai_gateway_slot_wait_seconds[1h])))'
+        eval_time: 168h
+        exp_samples:
+          - labels: '{outcome="ok"}'
+            value: 1.931872657849691
+          - labels: '{outcome="timeout"}'
+            value: 30.909962525595063
+
+      # Slot wait observation counts grouped by outcome over the last hour.
+      - panel: 'Gateway Slot Wait: by outcome (p95)'
+        ref_id: B
+        variables: {}
+        expr: 'histogram_count(sum by (outcome) (increase(devops_cli_ai_gateway_slot_wait_seconds[1h])))'
+        eval_time: 168h
+        exp_samples:
+          - labels: '{outcome="ok"}'
+            value: 40
+          - labels: '{outcome="timeout"}'
+            value: 8
+
+      # Spend coverage ratio: 96 x 0.75 / 96 x 1 = 0.75.
+      - panel: 'Spend Coverage: devops-cli of gateway'
+        ref_id: A
+        variables: {__range: 24h}
+        expr: 'sum(increase(devops_cli_ai_spend_usd_total{provider="gateway"}[$__range])) / sum(increase(litellm_spend_metric_total[$__range]))'
+        eval_time: 48h
+        exp_samples:
+          - labels: '{}'
+            value: 0.75

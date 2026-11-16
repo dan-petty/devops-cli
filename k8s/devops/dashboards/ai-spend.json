@@ -26,7 +26,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "LLM spend over the dashboard's time range. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "Total AI spend over the dashboard time range: gateway counter plus direct cloud spend. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so the first sample of a series, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -72,7 +72,7 @@
           "values": false
         }
       },
-      "title": "Direct Cloud Spend in Range",
+      "title": "AI Spend: in range",
       "type": "stat",
       "targets": [
         {
@@ -80,9 +80,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(devops_cli_ai_spend_usd_total[$__range])) or vector(0)",
-          "instant": true,
-          "legendFormat": "Spend USD",
+          "expr": "(sum(increase(litellm_spend_metric_total[$__range])) or vector(0)) + (sum(increase(devops_cli_ai_spend_usd_total{provider!=\"gateway\"}[$__range])) or vector(0))",
           "refId": "A"
         }
       ]
@@ -328,7 +326,7 @@
           "values": false
         }
       },
-      "title": "Projected 30-Day Run Rate",
+      "title": "Projected 30-Day Run Rate: 7d baseline",
       "type": "stat",
       "targets": [
         {
@@ -336,7 +334,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(devops_cli_ai_spend_usd_total[$__range])) * 86400 * 30 or vector(0)",
+          "expr": "((sum(increase(litellm_spend_metric_total[7d])) or vector(0)) + (sum(increase(devops_cli_ai_spend_usd_total{provider!=\"gateway\"}[7d])) or vector(0))) / 7 * 30",
           "instant": true,
           "legendFormat": "Projected Spend (30d)",
           "refId": "A"
@@ -351,7 +349,8 @@
           "legendFormat": "Projected Savings (30d)",
           "refId": "B"
         }
-      ]
+      ],
+      "description": "Projected spend based on the 7-day baseline: ((gateway + direct) / 7) * 30. Approximate: increase() needs two samples of a series inside its window, so the first sample of a series, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall on either side of the ratio, so a share can come out high or low."
     },
     {
       "datasource": {
@@ -386,7 +385,7 @@
           "values": false
         }
       },
-      "title": "Projected 90-Day Run Rate",
+      "title": "Projected 90-Day Run Rate: 7d baseline",
       "type": "stat",
       "targets": [
         {
@@ -394,7 +393,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(devops_cli_ai_spend_usd_total[$__range])) * 86400 * 90 or vector(0)",
+          "expr": "((sum(increase(litellm_spend_metric_total[7d])) or vector(0)) + (sum(increase(devops_cli_ai_spend_usd_total{provider!=\"gateway\"}[7d])) or vector(0))) / 7 * 90",
           "instant": true,
           "legendFormat": "Projected Spend (90d)",
           "refId": "A"
@@ -409,7 +408,8 @@
           "legendFormat": "Projected Savings (90d)",
           "refId": "B"
         }
-      ]
+      ],
+      "description": "Projected spend based on the 7-day baseline: ((gateway + direct) / 7) * 90. Approximate: increase() needs two samples of a series inside its window, so the first sample of a series, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall on either side of the ratio, so a share can come out high or low."
     },
     {
       "datasource": {
@@ -444,7 +444,7 @@
           "values": false
         }
       },
-      "title": "Projected 1-Year Run Rate",
+      "title": "Projected 1-Year Run Rate: 7d baseline",
       "type": "stat",
       "targets": [
         {
@@ -452,7 +452,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(devops_cli_ai_spend_usd_total[$__range])) * 86400 * 365 or vector(0)",
+          "expr": "((sum(increase(litellm_spend_metric_total[7d])) or vector(0)) + (sum(increase(devops_cli_ai_spend_usd_total{provider!=\"gateway\"}[7d])) or vector(0))) / 7 * 365",
           "instant": true,
           "legendFormat": "Projected Spend (1y)",
           "refId": "A"
@@ -467,7 +467,8 @@
           "legendFormat": "Projected Savings (1y)",
           "refId": "B"
         }
-      ]
+      ],
+      "description": "Projected spend based on the 7-day baseline: ((gateway + direct) / 7) * 365. Approximate: increase() needs two samples of a series inside its window, so the first sample of a series, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall on either side of the ratio, so a share can come out high or low."
     },
     {
       "collapsed": false,
@@ -493,7 +494,7 @@
           },
           "custom": {
             "axisCenteredZero": false,
-            "drawStyle": "line",
+            "drawStyle": "bars",
             "lineInterpolation": "smooth"
           },
           "unit": "currencyUSD"
@@ -512,7 +513,7 @@
           "placement": "bottom"
         }
       },
-      "title": "AI Spend Rate ($/hour)",
+      "title": "AI Spend: per hour",
       "type": "timeseries",
       "targets": [
         {
@@ -520,27 +521,20 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(devops_cli_ai_spend_usd_total[5m])) * 3600 or vector(0)",
-          "legendFormat": "Spend Rate ($/hr)",
+          "expr": "(sum(increase(litellm_spend_metric_total[$__interval])) or vector(0)) + (sum(increase(devops_cli_ai_spend_usd_total{provider!=\"gateway\"}[$__interval])) or vector(0))",
+          "legendFormat": "Spend per hour",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum(rate(devops_cli_ai_spend_usd_total[1h])) * 3600 or vector(0)",
-          "legendFormat": "Spend Rate Rolling Avg (1h)",
-          "refId": "B"
         }
-      ]
+      ],
+      "description": "AI spend per hour: gateway spend plus direct cloud spend per interval. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so the first sample of a series, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "interval": "1h"
     },
     {
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "LLM spend per hour, by backend, server and provider. A backend that served requests at no cost shows $0. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "AI spend per hour, by backend, server and provider. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so the first sample of a series, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -566,7 +560,7 @@
           "placement": "bottom"
         }
       },
-      "title": "Spend per Hour by Backend Server",
+      "title": "Spend by Backend Server: per hour",
       "type": "timeseries",
       "targets": [
         {
@@ -574,7 +568,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (server, backend, provider) (increase(devops_cli_ai_spend_usd_total[1h])) or sum by (server, backend, provider) (increase(devops_cli_ai_requests_total{cached=\"false\"}[1h])) * 0",
+          "expr": "sum by (server, backend, provider) (increase(devops_cli_ai_spend_usd_total[$__interval]))",
           "legendFormat": "{{backend}} via {{server}} ({{provider}})",
           "refId": "A"
         },
@@ -587,7 +581,8 @@
           "legendFormat": "Total Rolling Avg (6h)",
           "refId": "B"
         }
-      ]
+      ],
+      "interval": "1h"
     },
     {
       "collapsed": false,
@@ -736,7 +731,7 @@
           },
           "custom": {
             "axisCenteredZero": false,
-            "drawStyle": "line",
+            "drawStyle": "bars",
             "lineInterpolation": "smooth"
           },
           "unit": "short"
@@ -755,7 +750,7 @@
           "placement": "bottom"
         }
       },
-      "title": "Token Processing Rate (tokens/sec)",
+      "title": "Tokens Processed: per hour",
       "type": "timeseries",
       "targets": [
         {
@@ -763,8 +758,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (operation, type) (rate(devops_cli_ai_tokens_total[5m]))",
-          "legendFormat": "{{operation}} {{type}} tokens/sec",
+          "expr": "sum by (operation, type) (increase(devops_cli_ai_tokens_total[$__interval]))",
+          "legendFormat": "{{operation}} {{type}}",
           "refId": "A"
         },
         {
@@ -776,14 +771,16 @@
           "legendFormat": "Total Rolling Avg (30m)",
           "refId": "B"
         }
-      ]
+      ],
+      "description": "Tokens processed per hour by operation and token type. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so the first sample of a series, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "interval": "1h"
     },
     {
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "LLM calls and embedding requests per second by operation and model, replies the response cache answered included.",
+      "description": "Requests per hour by operation, model and provider. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so the first sample of a series, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -791,10 +788,10 @@
           },
           "custom": {
             "axisCenteredZero": false,
-            "drawStyle": "line",
+            "drawStyle": "bars",
             "lineInterpolation": "smooth"
           },
-          "unit": "reqps"
+          "unit": "short"
         }
       },
       "gridPos": {
@@ -810,7 +807,7 @@
           "placement": "bottom"
         }
       },
-      "title": "Request Rate by Model",
+      "title": "Requests by Model: per hour",
       "type": "timeseries",
       "targets": [
         {
@@ -818,7 +815,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (operation, model, provider) (rate(devops_cli_ai_requests_total[5m]))",
+          "expr": "sum by (operation, model, provider) (increase(devops_cli_ai_requests_total[$__interval]))",
           "legendFormat": "{{model}} ({{provider}}, {{operation}})",
           "refId": "A"
         },
@@ -831,7 +828,8 @@
           "legendFormat": "Total Rolling Avg (30m)",
           "refId": "B"
         }
-      ]
+      ],
+      "interval": "1h"
     },
     {
       "datasource": {
@@ -886,7 +884,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "The 95th percentile of the time a call to Ollama waited in its process for a slot on one of its nodes, over the last hour, by priority (high, normal or as_available), with the count of calls that asked for a slot on the right axis. A call that timed out counts at the wait it had. Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low.",
+      "description": "p95 gateway slot wait duration in seconds, grouped by outcome. Approximate: increase() needs two samples of a series inside its window, so the first sample of a series, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall in any bucket, so a quantile can come out high or low.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -936,7 +934,7 @@
           "placement": "bottom"
         }
       },
-      "title": "Ollama Slot Wait by Priority (p95)",
+      "title": "Gateway Slot Wait: by outcome (p95)",
       "type": "timeseries",
       "targets": [
         {
@@ -944,8 +942,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (priority) (increase(devops_cli_ai_ollama_slot_wait_seconds[1h])))",
-          "legendFormat": "p95 {{priority}}",
+          "expr": "histogram_quantile(0.95, sum by (outcome) (increase(devops_cli_ai_gateway_slot_wait_seconds[1h])))",
+          "legendFormat": "p95 {{outcome}}",
           "refId": "A"
         },
         {
@@ -953,8 +951,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_count(sum by (priority) (increase(devops_cli_ai_ollama_slot_wait_seconds[1h])))",
-          "legendFormat": "calls {{priority}}",
+          "expr": "histogram_count(sum by (outcome) (increase(devops_cli_ai_gateway_slot_wait_seconds[1h])))",
+          "legendFormat": "calls {{outcome}}",
           "refId": "B"
         }
       ]
@@ -1098,7 +1096,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "devops-cli's own count of its gateway calls that got a reply, as a share of all the gateway's replied chat and embedding requests over the dashboard's time range. The rest came from other callers, or from devops-cli calls whose telemetry did not arrive; Gateway Requests and Tokens by Caller tells them apart (#1668). Approximate: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall on either side of the ratio, so a share can come out high or low.",
+      "description": "Share of gateway AI spend accounted for by devops-cli invocations. Approximate: increase() needs two samples of a series inside its window, so the first sample of a series, and any series seen only once in the window, add nothing, and delta points from one process can arrive out of order (#792). The counts lost can fall on either side of the ratio, so a share can come out high or low.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1107,7 +1105,20 @@
           "decimals": 1,
           "max": 1,
           "min": 0,
-          "unit": "percentunit"
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0.95
+              }
+            ]
+          }
         }
       },
       "gridPos": {
@@ -1130,7 +1141,7 @@
           "values": false
         }
       },
-      "title": "devops-cli Coverage of Gateway Requests",
+      "title": "Spend Coverage: devops-cli of gateway",
       "type": "stat",
       "targets": [
         {
@@ -1138,9 +1149,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(devops_cli_ai_requests_total{provider=\"gateway\", cached=\"false\"}[$__range])) / sum(increase(litellm_proxy_total_requests_metric_total{route=~\"/v1/(chat/completions|embeddings)\", status_code=~\"2..\"}[$__range]))",
-          "instant": true,
-          "legendFormat": "Coverage",
+          "expr": "sum(increase(devops_cli_ai_spend_usd_total{provider=\"gateway\"}[$__range])) / sum(increase(litellm_spend_metric_total[$__range]))",
           "refId": "A"
         }
       ]

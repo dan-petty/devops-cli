@@ -53,11 +53,11 @@ AI Requests in Range SHALL count the gateway's chat and embedding requests with 
 - **THEN** each selects one gateway series and one devops-cli series with the matchers above, and neither names `provider="gateway"`
 
 ### Requirement: The dashboard shows the gateway's attempts, callers and coverage
-The AI spend dashboard SHALL hold Gateway Attempts by Status (the gateway's chat and embedding requests by `status_code`), Gateway Requests and Tokens by Caller (its replied requests and its tokens by `end_user`), and devops-cli Coverage of Gateway Requests (devops-cli's replied gateway calls over the gateway's replied requests, as a stat in percent).
+The AI spend dashboard SHALL hold Gateway Attempts by Status (the gateway's chat and embedding requests by `status_code`), Gateway Requests and Tokens by Caller (its replied requests and its tokens by `end_user`), and Spend Coverage: devops-cli of gateway (devops-cli's gateway spend over the gateway's total spend, as a stat in percent).
 
 #### Scenario: The gateway row
 - **WHEN** the three panels are read
-- **THEN** the attempts group by `status_code` and match no status, the caller panel's two queries group by `end_user`, and the coverage stat divides devops-cli's `provider="gateway"` requests by the gateway's 2xx requests, in `percentunit`
+- **THEN** the attempts group by `status_code` and match no status, the caller panel's two queries group by `end_user`, and the coverage stat divides devops-cli's `provider="gateway"` spend by the gateway's spend, in `percentunit`
 
 ### Requirement: The dashboard reads only gateway series that the gateway serves
 Each gateway series that `ai-spend.json` reads SHALL be in the LiteLLM capture with each label that a query matches or groups by, and SHALL be read through `rate(` or `increase(`.

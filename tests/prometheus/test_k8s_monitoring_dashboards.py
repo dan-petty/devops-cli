@@ -522,6 +522,7 @@ def test_the_records_hold_each_kind_of_series_and_a_range_before_the_price_rule(
 # own calls that ended with a reply, so the dashboard takes gateway traffic from the gateway (#1668).
 GATEWAY_REQUESTS = "litellm_proxy_total_requests_metric_total"
 GATEWAY_TOKENS = "litellm_total_tokens_metric_total"
+GATEWAY_SPEND = "litellm_spend_metric_total"
 GATEWAY_MODEL_CALLS = 'route=~"/v1/(chat/completions|embeddings)"'
 GATEWAY_REPLIED = 'status_code=~"2.."'
 
@@ -565,11 +566,11 @@ def test_the_gateway_row_shows_attempts_by_status_traffic_by_caller_and_devops_c
 ):
     """The gateway's model calls by status show the attempts that failed, such as its 408
     timeouts. Its replied requests and its tokens by `end_user` show each caller that names
-    itself. The coverage stat is the share of the gateway's replied requests that devops-cli's
-    own series count (#1668)."""
+    itself. The coverage stat is the share of the gateway's AI spend that devops-cli's
+    own series count (#1668, #4724)."""
     attempts = _ai_spend_panel("Gateway Attempts by Status")
     callers = _ai_spend_panel("Gateway Requests and Tokens by Caller")
-    coverage = _ai_spend_panel("devops-cli Coverage of Gateway Requests")
+    coverage = _ai_spend_panel("Spend Coverage: devops-cli of gateway")
     (coverage_expr,) = _targets(coverage)
     numerator, _, denominator = coverage_expr.partition(" / ")
 
@@ -584,8 +585,8 @@ def test_the_gateway_row_shows_attempts_by_status_traffic_by_caller_and_devops_c
         ],
         coverage["type"],
         coverage["fieldConfig"]["defaults"]["unit"],
-        'devops_cli_ai_requests_total{provider="gateway", cached="false"}' in numerator,
-        GATEWAY_REQUESTS in denominator and GATEWAY_REPLIED in denominator,
+        'devops_cli_ai_spend_usd_total{provider="gateway"}' in numerator,
+        GATEWAY_SPEND in denominator,
     ) == (
         [({"status_code"}, True, False)],
         [

@@ -580,9 +580,9 @@ def test_enhanced_dashboard_panels_and_visualizations() -> None:
         cli_command_var,
     ) == (
         [
-            "Projected 30-Day Run Rate",
-            "Projected 90-Day Run Rate",
-            "Projected 1-Year Run Rate",
+            "Projected 30-Day Run Rate: 7d baseline",
+            "Projected 90-Day Run Rate: 7d baseline",
+            "Projected 1-Year Run Rate: 7d baseline",
         ],
         ("line", 20),
         ("line", 100),
@@ -606,7 +606,9 @@ def test_grafana_dashboard_projections_and_dcgm_grid_layout() -> None:
 
     ai_roll_legends = [ai_panels[pid]["targets"][1]["legendFormat"] for pid in (8, 15, 10, 11)]
     ai_proj_ranges = [
-        all("[$__range]" in t["expr"] for t in ai_panels[pid]["targets"]) for pid in (16, 17, 18)
+        "[7d]" in ai_panels[pid]["targets"][0]["expr"]
+        and "[$__range]" in ai_panels[pid]["targets"][1]["expr"]
+        for pid in (16, 17, 18)
     ]
     ttft_panel = llm_panels[8]
     dcgm_coords = [
