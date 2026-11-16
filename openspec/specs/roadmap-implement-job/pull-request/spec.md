@@ -62,8 +62,8 @@ Once the job has finished the change and before it pushes the commits, it SHALL 
 - **THEN** the body holds the title of the issue as its why
 
 #### Scenario: A refused body stops the item
-- **WHEN** `build_body` refuses the body, for a title of the issue that is a placeholder
-- **THEN** the job stops the item at the step `pull request`, makes no `PATCH` of the pull request, and the stop comment names the problem
+- **WHEN** `build_body` refuses the rebuilt body too
+- **THEN** the job stops the item at the step `pull request` with the class `refused_reply`, makes no `PATCH` of the pull request, makes no third model call, and the stop comment names the problems
 
 #### Scenario: The metadata comes before the archived push
 - **WHEN** a Staged item archives its change and a scoped check fails before the push
@@ -450,3 +450,18 @@ A checkpoint, `wip:` or stop push whose rebase conflicts SHALL abort the rebase,
 #### Scenario: The option skips both syncs
 - **WHEN** a runner Job runs `roadmap implement --repo <owner/name> --item 7 --confirm --no-rebase` in a real repository whose `origin/main` holds a commit that the branch lacks
 - **THEN** the worktree gets no `git fetch -q origin main` and no `git rebase` at the start or before the push, the branch keeps its commits, and the job pushes them with the lease
+
+### Requirement: A refused body is rebuilt once
+The job SHALL send every problem of a refused pull request body to the model one time, and SHALL rebuild the body from the reply. A rebuilt body that passes `body_problems` SHALL be written to the pull request. A rebuilt body that fails SHALL stop the item with the class `refused_reply`, and the job SHALL make no third model call.
+
+#### Scenario: The first refusal
+- **WHEN** `build_body` refuses the body that the job built
+- **THEN** the job makes one model call that carries the refused text and every problem, and rebuilds the body from the reply
+
+#### Scenario: The rebuilt body passes
+- **WHEN** `body_problems` returns an empty problem list for the rebuilt body
+- **THEN** the job writes the rebuilt body to the pull request and continues the step with no stop
+
+#### Scenario: A second refusal
+- **WHEN** `build_body` refuses the rebuilt body
+- **THEN** the job stops the item with the class `refused_reply` and makes no third model call

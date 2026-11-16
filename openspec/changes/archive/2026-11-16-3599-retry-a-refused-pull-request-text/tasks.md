@@ -42,9 +42,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/implement/implement_run.py`, `src
 
 Kind: other. Reads: `docs/roadmap/implement.md`, `docs/ROADMAP_WORKFLOW.md`. Changes: `docs/roadmap/implement.md`.
 
-- [ ] 5.1 State in `docs/roadmap/implement.md` that the job rebuilds a body that the form check refuses one time, writes the rebuilt body when it passes, and stops the item with `refused_reply` on a second refusal, so no text with `...` or a placeholder reaches the pull request
+- [x] 5.1 State in `docs/roadmap/implement.md` that the job rebuilds a body that the form check refuses one time, writes the rebuilt body when it passes, and stops the item with `refused_reply` on a second refusal, so no text with `...` or a placeholder reaches the pull request
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 5.2 Edit `docs/roadmap/implement.md` for the one retry and the second refusal
+- [x] 5.2 Edit `docs/roadmap/implement.md` for the one retry and the second refusal
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
