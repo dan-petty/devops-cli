@@ -394,7 +394,10 @@ class ImplementRecordKey(StrEnum):
     spend. A return to New keeps the spend, and the report of that Job counts it and then clears
     the spend and its count (#5881). `implement.needs_fix` holds the draft that the Service logged
     as left out for the label `verdict/fix-plan`, so it logs the item once (#4477); a round that
-    judges the item and does not leave it out for the label clears the mark."""
+    judges the item and does not leave it out for the label clears the mark. `implement.left_action`
+    holds the action left with the stop (#3648), as a value of `FailureAction`, so a person reads it
+    in `devops roadmap explain` and `devops roadmap inbox`; a retry and each clear rule of the
+    Service remove it with the stop."""
 
     GROUP = "implement.group"
     SHA = "implement.sha"
@@ -402,6 +405,7 @@ class ImplementRecordKey(StrEnum):
     PR = "implement.pr"
     STOPPED = "implement.stopped"
     FAILURE = "implement.failure"
+    LEFT_ACTION = "implement.left_action"
     CHECK = "implement.check"
     CHECK_LOG = "implement.check_log"
     CONFLICT = "implement.conflict"

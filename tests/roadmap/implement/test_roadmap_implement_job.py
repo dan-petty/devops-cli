@@ -738,6 +738,7 @@ def test_the_stop_comment_names_the_failure_class_the_action_taken_and_the_actio
     assert "Failure class: `plan_defect`.\nAction taken: none.\nAction left: `amend`:" in comment
     assert comment.index("Failure class") < comment.index("Reason:")
     assert record.get("implement.failure") == "plan_defect"
+    assert record.get("implement.left_action") == "amend"
 
 
 def test_the_trace_holds_the_class_and_the_action_left_of_a_stop(
@@ -759,7 +760,12 @@ def test_a_retry_clears_the_failure_class_with_the_stop(job_world: JobWorld) -> 
     item = job_world.store.item(1)
     assert item is not None
     job_world.store.set_marks(
-        item, {ImplementRecordKey.STOPPED: "group 2", ImplementRecordKey.FAILURE: "types"}
+        item,
+        {
+            ImplementRecordKey.STOPPED: "group 2",
+            ImplementRecordKey.FAILURE: "types",
+            ImplementRecordKey.LEFT_ACTION: "wait",
+        },
     )
     job_world.store.comment(1, f"{MARKER}\nStopped at group 2.")
     job_world.store.seed_comment(1, "implement: retry", author_association="OWNER")
@@ -768,6 +774,8 @@ def test_a_retry_clears_the_failure_class_with_the_stop(job_world: JobWorld) -> 
 
     _, record = _item(job_world)
     assert record.get("implement.failure") is None
+    assert record.get("implement.stopped") is None
+    assert record.get("implement.left_action") is None
 
 
 TOKEN = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"

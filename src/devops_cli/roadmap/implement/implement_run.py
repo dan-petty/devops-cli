@@ -825,6 +825,7 @@ class _ItemRun:
         if self.target.retry:
             marks[ImplementRecordKey.STOPPED] = None
             marks[ImplementRecordKey.FAILURE] = None
+            marks[ImplementRecordKey.LEFT_ACTION] = None
             marks[ImplementRecordKey.CHECK] = None
             marks[ImplementRecordKey.SPEND] = None
             marks[ImplementRecordKey.SPEND_COUNTED] = None
@@ -2116,6 +2117,7 @@ class _ItemRun:
         marks: dict[Any, str | int | None] = {
             ImplementRecordKey.STOPPED: stop.step,
             ImplementRecordKey.FAILURE: klass.value,
+            ImplementRecordKey.LEFT_ACTION: left.value,
             ImplementRecordKey.CHECK: check or None,
             ImplementRecordKey.CHECK_LOG: check_log or None,
             ImplementRecordKey.CONFLICT: json.dumps(

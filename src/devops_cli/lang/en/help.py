@@ -1999,6 +1999,8 @@ class RoadmapCommandHelp:
         "Status, the owner, the stop on record, the plan and the branch), the setting "
         "roadmap.stage.planned_limit, which is a rule of the stage job only, and the limit of "
         "a run. For refine the reason is the wait of the item, such as a question for a person. "
+        "For a stopped item it prints the state of the stop from the job record: the class, the "
+        "attempts of the stopped step, the work that the stop kept and the action left. "
         "The reasons are the texts of the 'Left out' list of stage --plan and implement "
         "--plan. The command reads "
         "GitHub and git, calls no model and writes nothing. It uses the filter and the limit "
@@ -2140,9 +2142,9 @@ class RoadmapCommandHelp:
     )
     inbox: str = (
         "List what waits for a person in each repository of service.repos, or in the one that "
-        "--repo names. Each line has its number, its age and the step that clears it, and an old "
-        "wait is marked. It reads GitHub, calls no model and writes nothing; details: "
-        "docs/roadmap/inbox.md."
+        "--repo names. Each line has its number, its age and the step that clears it, the line "
+        "of a stopped item names the class and the action left, and an old wait is marked. It "
+        "reads GitHub, calls no model and writes nothing; details: docs/roadmap/inbox.md."
     )
     inbox_kind: str = (
         "List only the lines of one class, such as refine, split, alternatives, failed, draft or "

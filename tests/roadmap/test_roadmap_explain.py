@@ -182,13 +182,60 @@ def test_a_claimed_item_names_its_owner_for_both_jobs(job_world: JobWorld) -> No
 def test_a_stopped_item_names_its_stop_for_the_implement_job(job_world: JobWorld) -> None:
     held = job_world.store.item(job_world.number)
     assert held is not None
-    job_world.store.set_marks(held, {ImplementRecordKey.STOPPED: "group 2"})
+    trace = ImplementTrace(step="group 2")
+    trace.attempt(1, "standard", "check_failed", "ruff check . exited 1", repair=True)
+    trace.attempt(2, "standard", "", "", repair=False)
+    job_world.store.set_marks(
+        held,
+        {
+            ImplementRecordKey.STOPPED: "group 2",
+            ImplementRecordKey.FAILURE: "check_failed",
+            ImplementRecordKey.WIP: '{"group": "group 2", "done": 3, "of": 5, "sha": "abc123"}',
+            ImplementRecordKey.TRACE: trace.encode(),
+        },
+    )
 
     explained = _explain(job_world, job_world.number)
 
     assert explained.implement == JobVerdict(
         False, TEXTS.implement_left_stopped.format(stopped="group 2")
     )
+    stop = getattr(explained, "stop", None)
+    assert stop is not None, "the explanation gives no stop of the item"
+    assert (
+        stop.step,
+        stop.failure_class,
+        stop.attempts,
+        stop.kept_group,
+        stop.kept_done,
+        stop.kept_total,
+    ) == ("group 2", "check_failed", 2, "group 2", 3, 5)
+    lines = render_explanation(explained).splitlines()
+    assert "Stop: step group 2." in lines
+    assert "Stop class: check_failed." in lines
+    assert "Stop attempts: 2." in lines
+    assert "Stop kept work: group 2, 3 of 5 tasks." in lines
+    assert "Stop action left: none is recorded." in lines
+
+    job_world.store.set_marks(held, {ImplementRecordKey.LEFT_ACTION: "wait"})
+
+    acted = _explain(job_world, job_world.number)
+
+    assert acted.stop is not None
+    assert acted.stop.action_left == "wait"
+    assert "Stop action left: `wait`." in render_explanation(acted).splitlines()
+
+    bare = _seed(job_world)
+    bare_item = job_world.store.item(bare)
+    assert bare_item is not None
+    job_world.store.set_marks(bare_item, {ImplementRecordKey.STOPPED: "group 3"})
+
+    bare_lines = render_explanation(_explain(job_world, bare)).splitlines()
+
+    assert "Stop: step group 3." in bare_lines
+    assert "Stop class: none is recorded." in bare_lines
+    assert "Stop action left: none is recorded." in bare_lines
+    assert "Stop attempts: 0." not in bare_lines
 
 
 def test_an_unplanned_item_is_taken_by_stage_and_left_out_by_implement(
