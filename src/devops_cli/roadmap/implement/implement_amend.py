@@ -26,7 +26,8 @@ from devops_cli.roadmap.step_files import (
 )
 from devops_cli.security.sanitizer import mask_secrets
 
-Kind = Literal["path", "command", "task", "premise", "scope", "group"]
+Kind = Literal["path", "add_path", "command", "task", "premise", "scope", "group"]
+Header = Literal["Changes", "Reads"]
 
 
 class PlanRequest(BaseModel):
@@ -41,6 +42,7 @@ class PlanRequest(BaseModel):
     old: str | None = None
     new: str | None = None
     verify: str | None = None
+    header: Header | None = None
 
 
 @dataclass(frozen=True)
@@ -162,6 +164,49 @@ def _judge_path(
         defect=request.defect,
         evidence=request.evidence,
         old=request.old,
+        new=request.new,
+    )
+    return new_text, amendment
+
+
+def _format_header_line(target_line: str, header: Header, new_path: str) -> str:
+    """Append new_path in code span to target_line for header."""
+    if header == "Reads" and ". Changes:" in target_line:
+        reads_part, changes_part = target_line.split(". Changes:", 1)
+        return f"{reads_part}, `{new_path}`. Changes:{changes_part}"
+    if target_line.rstrip().endswith("."):
+        stripped = target_line.rstrip()[:-1]
+        return f"{stripped}, `{new_path}`."
+    return f"{target_line.rstrip()}, `{new_path}`"
+
+
+def _judge_add_path(
+    request: PlanRequest, target: TaskGroup, tree: StagedTree
+) -> tuple[str, Amendment] | Refused:
+    texts = MESSAGES.roadmap
+    if request.old or not request.new or not request.header:
+        return Refused(texts.implement_amend_refused_path_status, request=request)
+    if request.new not in tree.files:
+        return Refused(texts.implement_amend_refused_path_status, request=request)
+    if request.new.startswith("openspec/") or request.new == "openspec":
+        return Refused(texts.implement_amend_refused_path_status, request=request)
+    if any(request.new == span for span in _spans_in(target.text)):
+        return Refused(texts.implement_amend_refused_path_status, request=request)
+
+    target_header = f"{request.header}:"
+    lines = target.text.splitlines()
+    found_idx = next((i for i, line in enumerate(lines) if target_header in line), -1)
+    if found_idx == -1:
+        return Refused(texts.implement_amend_refused_path_status, request=request)
+
+    lines[found_idx] = _format_header_line(lines[found_idx], request.header, request.new)
+    new_text = "\n".join(lines) + ("\n" if target.text.endswith("\n") else "")
+    amendment = Amendment(
+        group=request.group,
+        kind="add_path",
+        defect=request.defect,
+        evidence=request.evidence,
+        old="",
         new=request.new,
     )
     return new_text, amendment
@@ -289,31 +334,40 @@ def _structural_refusal(request: PlanRequest) -> Refused | None:
     return None
 
 
+def _validate_target(request: PlanRequest, target: TaskGroup | None) -> Refused | None:
+    """Validate that target group exists, is not completed, and satisfies criteria bounds."""
+    texts = MESSAGES.roadmap
+    if target is None:
+        return Refused(
+            texts.implement_amend_refused_no_group.format(group=request.group), request=request
+        )
+    if target.tasks and all(task.ticked for task in target.tasks):
+        return Refused(
+            texts.implement_amend_refused_done.format(group=request.group), request=request
+        )
+    if request.kind != "add_path":
+        group_spans = _spans_in(target.text)
+        if request.old is not None and not any(request.old in span for span in group_spans):
+            return Refused(texts.implement_amend_refused_criteria, request=request)
+    return None
+
+
 def judge(request: PlanRequest, tasks_md: str, tree: StagedTree) -> Applied | Refused:
     """Judge a plan amendment request against the repository tree and tasks.md."""
-    texts = MESSAGES.roadmap
     if (refused := _structural_refusal(request)) is not None:
         return refused
 
     groups = parse_task_groups(tasks_md)
     target = next((g for g in groups if g.number == request.group), None)
-    if target is None:
-        return Refused(
-            texts.implement_amend_refused_no_group.format(group=request.group), request=request
-        )
+    if (refused := _validate_target(request, target)) is not None:
+        return refused
 
-    if target.tasks and all(task.ticked for task in target.tasks):
-        return Refused(
-            texts.implement_amend_refused_done.format(group=request.group), request=request
-        )
-
-    group_spans = _spans_in(target.text)
-    if request.old is not None and not any(request.old in span for span in group_spans):
-        return Refused(texts.implement_amend_refused_criteria, request=request)
-
+    assert target is not None
     match request.kind:
         case "path":
             result = _judge_path(request, target, tree)
+        case "add_path":
+            result = _judge_add_path(request, target, tree)
         case "command":
             result = _judge_command(request, target, tree)
         case "task":
@@ -321,7 +375,7 @@ def judge(request: PlanRequest, tasks_md: str, tree: StagedTree) -> Applied | Re
         case "group":
             result = _judge_group(request, target)
         case _:
-            return Refused(texts.implement_amend_refused_scope, request=request)
+            return Refused(MESSAGES.roadmap.implement_amend_refused_scope, request=request)
 
     if isinstance(result, Refused):
         return result
