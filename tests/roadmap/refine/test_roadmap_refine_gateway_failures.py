@@ -37,7 +37,6 @@ from devops_cli.roadmap.run import (
 from devops_cli.roadmap.stores.store import Item, ItemField
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_refine import (
-    GATEWAY_ATTEMPTS,
     NO_OPEN_TOOL,
     QUESTION,
     READY,
@@ -203,7 +202,8 @@ def test_a_gateway_timeout_on_candidate_2_still_applies_candidate_1(
         _bodies_written(store),
     ) == (
         [(second, "AIClientError", 0)],
-        {first: 1, second: GATEWAY_ATTEMPTS, third: 1},
+        # A gateway 504 is sent once: the gateway retried it already (#5965).
+        {first: 1, second: 1, third: 1},
         True,
         CONST_ROADMAP_STATUS_READY,
         [first, third],

@@ -8,9 +8,11 @@ from typing import cast
 import httpx2
 
 from devops_cli.ai.client.models import AIClientError
+from devops_cli.config.constants import CONST_AI_GATEWAY_PROVIDER
 from devops_cli.config.settings import AIConfig
 from devops_cli.http.egress import EgressLevel, configured_level
 from devops_cli.http.entry import http_client
+from devops_cli.http.retry import ConnectRetryPolicy
 
 
 def _clean_http_error_body(raw_body: str) -> str:
@@ -60,6 +62,14 @@ class BaseLLMProviderMixin:
         retries = getattr(cfg, "max_retries", None) if cfg is not None else None
         return int(retries) + 1 if retries is not None and int(retries) >= 0 else 5
 
+    def _retries(self) -> int | ConnectRetryPolicy:
+        """The retry rule of the client's transport. The LLM gateway retries a call and tries its
+        fallbacks itself, so a gateway call goes again only when it did not reach the gateway
+        (#5965). A call to another provider goes again after any transient failure."""
+        if getattr(self._config, "provider", None) == CONST_AI_GATEWAY_PROVIDER:
+            return ConnectRetryPolicy(self._max_attempts())
+        return self._max_attempts()
+
     def _egress_level(self) -> EgressLevel:
         """The provider's URL comes from configuration: loopback, or private with the flag."""
         return configured_level(self._config)
@@ -82,7 +92,7 @@ class BaseLLMProviderMixin:
             level=self._egress_level(),
             timeout=timeout or self._request_timeout(),
             http2=True,
-            retries=self._max_attempts(),
+            retries=self._retries(),
         )
 
     def _shared_client(self) -> httpx2.Client:
@@ -110,7 +120,7 @@ class BaseLLMProviderMixin:
         except Exception:
             b_type = "default"
         key = f"llm:{type(self).__name__}:{b_type}"
-        return http_client(self._egress_level(), key=key, retries=self._max_attempts())
+        return http_client(self._egress_level(), key=key, retries=self._retries())
 
     def _format_status_error(self, exc: httpx2.HTTPError, status: int) -> AIClientError:
         """Extract response body preview for HTTP status errors."""

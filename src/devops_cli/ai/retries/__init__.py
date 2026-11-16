@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any, Final, cast
 
 import httpx2
 from pydantic_ai.retries import (
@@ -18,6 +18,16 @@ from devops_cli.config.constants import CONST_RETRYABLE_HTTP_STATUS_CODES
 from devops_cli.core import clock
 
 DEFAULT_RETRYABLE_STATUS_CODES: tuple[int, ...] = CONST_RETRYABLE_HTTP_STATUS_CODES
+
+# The failures of a request that never reached the server: a failed connect, and no free
+# connection in the pool.
+_NOT_SENT_ERRORS: Final = (httpx2.ConnectError, httpx2.ConnectTimeout, httpx2.PoolTimeout)
+
+
+def connect_failed(exc: BaseException) -> bool:
+    """Whether `exc` ended a request before it reached the server: the retry rule of a client
+    whose server retries every other failure itself, as the LLM gateway does (#5965)."""
+    return isinstance(exc, _NOT_SENT_ERRORS)
 
 
 def is_retryable_status_code(
@@ -37,9 +47,13 @@ def create_retry_config(
     max_wait: float = 60.0,
     retry_statuses: tuple[int, ...] = DEFAULT_RETRYABLE_STATUS_CODES,
     reraise: bool = True,
+    retry_on: Callable[[BaseException], bool] | None = None,
     **kwargs: Any,
 ) -> RetryConfig:
-    """Construct a native RetryConfig with tenacity stop, wait_retry_after, and retry strategies."""
+    """Construct a native RetryConfig with tenacity stop, wait_retry_after, and retry strategies.
+
+    `retry_on` replaces the rule that says which failure is sent again, such as `connect_failed`.
+    """
 
     def should_retry(exc: BaseException) -> bool:
         if isinstance(exc, (httpx2.TransportError, httpx2.TimeoutException)):
@@ -58,7 +72,7 @@ def create_retry_config(
     config: RetryConfig = {
         "stop": stop_after_attempt(max_attempts),
         "wait": wait_strategy,
-        "retry": retry_if_exception(should_retry),
+        "retry": retry_if_exception(retry_on or should_retry),
         "reraise": reraise,
     }
     cast(dict[str, Any], config).update(kwargs)
@@ -110,19 +124,21 @@ def create_retry_transport(
     max_wait: float = 60.0,
     retry_statuses: tuple[int, ...] = DEFAULT_RETRYABLE_STATUS_CODES,
     validate_response: Callable[[httpx2.Response], Any] | None = None,
+    retry_on: Callable[[BaseException], bool] | None = None,
     **kwargs: Any,
 ) -> HTTPX2TenacityTransport:
     """Construct a synchronous HTTPX2TenacityTransport with automatic Retry-After inspection.
 
     `wrapped` is the transport that sends each attempt. It has no default, because a default
     transport would dial without the egress check: a caller passes the one that
-    `devops_cli.http.client` builds.
+    `devops_cli.http.client` builds. `retry_on` is the rule of `create_retry_config`.
     """
     base_config = config or create_retry_config(
         max_attempts=max_attempts,
         min_wait=min_wait,
         max_wait=max_wait,
         retry_statuses=retry_statuses,
+        retry_on=retry_on,
         **kwargs,
     )
     active_config: RetryConfig = {"sleep": clock.sleep, **base_config}
@@ -176,6 +192,7 @@ def create_async_retry_transport(
 
 
 __all__ = [
+    "connect_failed",
     "create_async_retry_transport",
     "create_retry_config",
     "create_retry_transport",

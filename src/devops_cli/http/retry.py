@@ -95,6 +95,16 @@ SERVICE_READ_RETRY: Final = ReadRetryPolicy()
 
 
 @dataclass(frozen=True, slots=True)
+class ConnectRetryPolicy:
+    """Send a request again only when it did not reach the server: its connect failed, or the
+    pool had no free connection. `attempts` counts the first send. The waits are those of the
+    integer form of `retries`. A client whose server retries every other failure itself, as the
+    LLM gateway does, uses it (#5965)."""
+
+    attempts: int
+
+
+@dataclass(frozen=True, slots=True)
 class RequestAttempts:
     """The attempts of one request and the seconds from the first attempt to the last reply."""
 

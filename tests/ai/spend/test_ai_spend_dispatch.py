@@ -551,16 +551,17 @@ def _stream(client: LLMClient) -> None:
     list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
 
 
+def _failed_chat(client: LLMClient) -> None:
+    with pytest.raises(AIClientError, match="HTTP 500"):
+        _chat(client)
+
+
 @pytest.mark.parametrize(
     ("statuses", "call", "rows"),
     [
         ([200], _chat, [("chat_dispatch", "stop", 0.033477)]),
         ([200], _stream, [("stream", "stop", 0.033477)]),
-        (
-            [500, 200],
-            _chat,
-            [("chat_dispatch", "error", 0.033477), ("chat_dispatch", "stop", 0.033477)],
-        ),
+        ([500], _failed_chat, [("chat_dispatch", "error", 0.033477)]),
     ],
     ids=["chat", "stream", "failed-attempt"],
 )
@@ -575,7 +576,8 @@ def test_a_chat_call_on_the_deepseek_group_costs_its_cached_and_new_input_and_it
     """A chat call gives the ledger the prompt tokens that the reply names as cached, as an agent
     run does (#4403). Of 1,000,000 prompt tokens, 900,000 come from the cache: 0.1 x 0.0784 +
     0.9 x 0.002352 + 0.1 x 0.2352 USD for 100,000 completion tokens. A failed attempt whose error
-    body names its usage costs the same."""
+    body names its usage costs the same. The gateway retried a call that it answers with 500, so
+    the client sends it one time (#5965)."""
     config(ai={"gateway_url": _GATEWAY_URL})
     client = LLMClient(
         AIConfig(provider="gateway", model=_DEEPSEEK, gateway_url=_GATEWAY_URL),

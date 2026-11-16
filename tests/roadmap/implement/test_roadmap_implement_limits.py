@@ -212,7 +212,8 @@ def test_a_step_over_its_time_limit_makes_no_further_request_and_names_the_setti
     implement_programs: ProcessFake,
     config: Callable[..., Path],
 ) -> None:
-    config(roadmap={"implement": {"step_time_limit_seconds": 60}})
+    # The deadline of a model call is not above the step limit (#5965).
+    config(roadmap={"implement": {"step_time_limit_seconds": 60, "request_timeout_seconds": 30}})
     clock = Clock()
     script = ModelScript(READ, say("Done."), effects={1: clock.advance(61)})
 
@@ -278,7 +279,8 @@ def test_a_repair_turn_makes_no_request_when_the_step_has_spent_its_time(
     implement_programs: ProcessFake,
     config: Callable[..., Path],
 ) -> None:
-    config(roadmap={"implement": {"step_time_limit_seconds": 60}})
+    # The deadline of a model call is not above the step limit (#5965).
+    config(roadmap={"implement": {"step_time_limit_seconds": 60, "request_timeout_seconds": 30}})
     clock = Clock()
     implement_programs.answer(
         lambda call: command_text(call).startswith("uv run ruff check"),

@@ -34,7 +34,6 @@ from devops_cli.roadmap.stores.store import RefineRecordKey
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_refine import (
-    GATEWAY_ATTEMPTS,
     NO_OPEN_TOOL,
     REPO,
     SCHEMA_MISS,
@@ -120,7 +119,8 @@ def test_a_timeout_records_class_step_and_time_and_does_not_mark_the_item_as_at_
     clock: ClockFake,
 ) -> None:
     """The three keys ride on one marks write, the plan says it has a write, and the item holds no
-    failed body hash: the timeout says nothing about its text (#1526)."""
+    failed body hash: the timeout says nothing about its text (#1526). The gateway retried the
+    call that it answers with 504, so the client sends it once and waits no time (#5965)."""
     (first,) = seed_new_items(store, ("P1-High",))
     scripted_gateway({first: TIMEOUT})
     before = store.writes.count("set_marks")
@@ -132,8 +132,8 @@ def test_a_timeout_records_class_step_and_time_and_does_not_mark_the_item_as_at_
         _marks(store, first),
         require_item(store, first).job_record.get(RefineRecordKey.FAILED_BODY_HASH),
         store.writes.count("set_marks") - before,
-        bool(clock.waits),
-    ) == (True, ((START + _waited(clock)).isoformat(), "investigate", "provider"), None, 1, True)
+        clock.waits,
+    ) == (True, ((START + _waited(clock)).isoformat(), "investigate", "provider"), None, 1, [])
 
 
 def test_the_next_round_skips_the_item_until_the_time_passes_and_takes_the_others(
@@ -162,11 +162,12 @@ def test_the_next_round_skips_the_item_until_the_time_passes_and_takes_the_other
         requests_per_item(sent)[first],
         _marks(store, first),
     ) == (
-        {first: GATEWAY_ATTEMPTS, second: 1, third: 1},
+        # A gateway 504 is sent once: the gateway retried it already (#5965).
+        {first: 1, second: 1, third: 1},
         [(first, "retry")],
         [],
         [first],
-        2 * GATEWAY_ATTEMPTS,
+        2,
         ((START + HOUR + _waited(clock)).isoformat(), "investigate", "provider"),
     )
 

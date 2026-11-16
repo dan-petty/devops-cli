@@ -127,6 +127,12 @@ DEFAULT_AI_STREAM_MAX_EVENT_BYTES: int = 1024 * 1024
 DEFAULT_AI_PREWARM_KEEP_ALIVE: str = "1h"
 DEFAULT_AI_EVICT_KEEP_ALIVE: int = 0
 DEFAULT_AI_MAX_RETRIES: int = 4
+# The one deadline of a pydantic-ai call to a gateway chat group: every send of the call and the
+# read of its stream (#5965). It is above the router timeout of k8s/llm/gateway/config.yaml (900 s)
+# and each deployment timeout there, so the gateway ends a stuck attempt first and can retry it or
+# fall back, and it is below the margin of a stage Job (1800 s) and the deadline of a runner Job
+# (7200 s). A test holds this order.
+DEFAULT_AI_REQUEST_TIMEOUT_SECONDS: int = 1200
 DEFAULT_AI_GATEWAY_PROVIDER: str = "litellm"
 DEFAULT_AI_GATEWAY_URL: str = "http://localhost:4000/v1"
 DEFAULT_PORTKEY_GATEWAY_URL: str = "http://localhost:8787/v1"
@@ -1055,10 +1061,11 @@ DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES: int = 7
 # The time limits of the implement job (#3206), in seconds, which the settings
 # `roadmap.implement.request_timeout_seconds`, `command_timeout_seconds` and
 # `monitor_timeout_seconds` change. The deadline of one model call is one clock over the whole
-# call, the read of the stream included. It is more than a cold read of the largest window (about
-# 90 s) and a reply at the output cap (a quarter of the window, 32,000 tokens) at the average rate
-# of the longest measured call (38 tokens per second, about 840 s), and under the timeout of the
-# router in `k8s/llm/gateway/config.yaml` (1500 s), which a test holds. A command is one
+# call: every send of it and the read of the stream. It is more than a cold read of the largest
+# window (about 90 s) and a reply at the output cap (a quarter of the window, 32,000 tokens) at the
+# average rate of the longest measured call (38 tokens per second, about 840 s), and above the
+# timeout of the router in `k8s/llm/gateway/config.yaml` (900 s), so the gateway ends a stuck
+# attempt and can retry it or fall back first (#5965), which a test holds. A command is one
 # verification command, static check or hook of a step. The monitor is the most time that the
 # checks of a pull request may take to settle: CI that takes more than 5 minutes is a P0 bug, so
 # an hour is an outer bound. The Job deadline ends a run that these limits do not.

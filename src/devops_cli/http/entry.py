@@ -47,7 +47,7 @@ from devops_cli.http.pool import (
 from devops_cli.telemetry.context import inject_traceparent_headers
 
 if TYPE_CHECKING:
-    from devops_cli.http.retry import ReadRetryPolicy
+    from devops_cli.http.retry import ConnectRetryPolicy, ReadRetryPolicy
 
 _POOL_FIXES = "A pooled client fixes its timeout, protocol, limits and transport"
 
@@ -56,7 +56,7 @@ def http_client(
     level: EgressLevel,
     *,
     key: str | None = None,
-    retries: int | ReadRetryPolicy | None = None,
+    retries: int | ReadRetryPolicy | ConnectRetryPolicy | None = None,
     verify: ssl.SSLContext | bool = True,
     read_timeout: float | None = None,
     timeout: httpx2.Timeout | float | None = None,
@@ -79,9 +79,11 @@ def http_client(
     those semantics, as the AI clients are, passes it. A `ReadRetryPolicy` (`devops_cli.http.retry`)
     wraps it in `ReadRetryTransport`, which sends an idempotent read of a cluster service again
     after 429, 502, 503, 504 or a failed connect or read, and gives the last reply or error as one
-    attempt does. A refusal (`SSRFBlockedError`) is not an httpx2 error and is never retried. A
-    pooled client keys on its `retries` too, so callers with different retry options do not share
-    one.
+    attempt does. A `ConnectRetryPolicy` puts the same tenacity transport on it, which sends a
+    request again only after a failed connect or a full pool, for a server that retries every
+    other failure itself. A refusal (`SSRFBlockedError`) is not an httpx2 error and is never
+    retried. A pooled client keys on its `retries` too, so callers with different retry options
+    do not share one.
 
     A pooled client follows redirects unless the caller says otherwise, and uses the default
     timeout and the default connection limits.
@@ -123,7 +125,7 @@ def _build_client(
     verify: ssl.SSLContext | bool,
     http2: bool,
     limits: httpx2.Limits | None = None,
-    retries: int | ReadRetryPolicy | None = None,
+    retries: int | ReadRetryPolicy | ConnectRetryPolicy | None = None,
     transport: httpx2.BaseTransport | None = None,
     **options: Unpack[ClientOptions],
 ) -> httpx2.Client:
@@ -144,9 +146,19 @@ def _build_client(
             max_attempts=retries, wrapped=effective_transport
         )
     elif retries is not None:
-        from devops_cli.http.retry import ReadRetryTransport
+        from devops_cli.http.retry import ConnectRetryPolicy, ReadRetryTransport
 
-        effective_transport = ReadRetryTransport(effective_transport, retries)
+        if isinstance(retries, ConnectRetryPolicy):
+            from devops_cli.ai.retries import connect_failed, create_retry_transport
+            from devops_cli.ai.spend.transport import AttemptRecordingTransport
+
+            effective_transport = create_retry_transport(
+                max_attempts=retries.attempts,
+                wrapped=AttemptRecordingTransport(effective_transport),
+                retry_on=connect_failed,
+            )
+        else:
+            effective_transport = ReadRetryTransport(effective_transport, retries)
     return httpx2.Client(
         timeout=resolve_client_timeout(timeout, read_timeout),
         transport=effective_transport,

@@ -16,7 +16,11 @@ import yaml
 from packaging.version import Version
 
 from devops_cli.commands.k8s.stack_lifecycle import HELM_RELEASES_BY_STACK
-from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS
+from devops_cli.config.constants import CONST_ROADMAP_STAGE_JOB_MARGIN_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_AI_REQUEST_TIMEOUT_SECONDS,
+    DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
+)
 from devops_cli.config.env import keyring_names, option_env_vars
 from devops_cli.config.settings import RoadmapFixPlanConfig
 from devops_cli.k8s.cluster_secrets import (
@@ -61,14 +65,27 @@ OLLAMA_FIRST_LLAMA_SERVER_EMBEDDING_RELEASE = Version("0.40.4")
 TRAEFIK_FIRST_CHART_WITH_V3_7_16 = Version("42.1.1")
 
 
-def test_the_deadline_of_a_step_call_is_under_the_router_timeout() -> None:
-    """A call of an implement step ends at its default deadline, so a runaway call is gone long before
-    the router gives up on it, and it does not hold the one slot of the tier until then (#2869)."""
+def test_a_gateway_attempt_ends_before_the_deadline_of_the_call() -> None:
+    """The timeouts nest, and the inner one ends first (#5965). The gateway ends a stuck attempt
+    before the client ends the call, so the gateway can retry it or fall back. Each default call
+    deadline ends before the stage margin and the runner Job deadline. The client deadline still
+    frees the slot of a tier through `cancel_on_disconnect` (#2869)."""
     config = yaml.safe_load((REPO_ROOT / "k8s/llm/gateway/config.yaml").read_text(encoding="utf-8"))
+    runner = yaml.safe_load((REPO_ROOT / "k8s/devops/cronjob-runner.yaml").read_text("utf-8"))
+    attempts = [config["router_settings"]["timeout"]] + [
+        deployment["litellm_params"]["timeout"]
+        for deployment in config["model_list"]
+        if "timeout" in deployment["litellm_params"]
+    ]
+    calls = (DEFAULT_AI_REQUEST_TIMEOUT_SECONDS, DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS)
+    runner_deadline = runner["spec"]["jobTemplate"]["spec"]["activeDeadlineSeconds"]
 
-    timeout = config["router_settings"]["timeout"]
-
-    assert 0 < DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS < timeout
+    assert (
+        max(attempts) < min(calls),
+        DEFAULT_AI_REQUEST_TIMEOUT_SECONDS
+        < min(CONST_ROADMAP_STAGE_JOB_MARGIN_SECONDS, runner_deadline),
+        config["general_settings"]["cancel_on_disconnect"],
+    ) == (True, True, True)
 
 
 def test_the_fix_plan_time_budget_ends_before_the_deadline_of_each_job_template() -> None:
