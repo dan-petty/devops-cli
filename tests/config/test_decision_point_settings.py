@@ -125,8 +125,8 @@ def test_the_registry_holds_each_point_with_its_fitted_cuts() -> None:
         point = REGISTRY.point(name)
         assert point.cuts.is_file()
         assert point.thresholds().step == name
-    assert REGISTRY.names == ("stage.verify_screen",)
-    assert REGISTRY.series_count == 8
+    assert REGISTRY.names == ("alternatives.reply_fixable", "stage.verify_screen")
+    assert REGISTRY.series_count == 16
 
 
 def test_a_point_runs_only_in_shadow_or_on_and_with_a_decision_model(jev: JevFake) -> None:

@@ -23,7 +23,10 @@ _SHOWN_FROM: Final[Path] = Path(__file__).resolve().parents[2]
 _FITTED_MODES: Final[frozenset[str]] = frozenset({"shadow", "on"})
 
 POINT_CUTS: Final[Mapping[str, Path]] = MappingProxyType(
-    {"stage.verify_screen": _ROADMAP_DIR / "stage" / "jev_screen_cuts.json"}
+    {
+        "alternatives.reply_fixable": _ROADMAP_DIR / "alternatives_cuts.json",
+        "stage.verify_screen": _ROADMAP_DIR / "stage" / "jev_screen_cuts.json",
+    }
 )
 
 

@@ -222,6 +222,7 @@ class AlternativesRecordKey(StrEnum):
     ADR_HASH = "alternatives.adr_hash"
     FAILED_AT = "alternatives.failed_at"
     FAILED_ERROR = "alternatives.failed_error"
+    FAILED_REASON = "alternatives.failed_reason"
 
 
 class StageRecordKey(StrEnum):
