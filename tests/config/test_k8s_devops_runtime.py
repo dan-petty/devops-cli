@@ -287,7 +287,7 @@ JOB_WINDOWS = {
     "intake": None,
     "retitle": None,
 }
-LOCAL_JOBS = {"intake", "retitle", "alternatives"}
+LOCAL_JOBS = {"intake", "retitle"}
 
 
 def test_each_job_has_its_own_entry_in_the_template_and_no_job_reads_an_old_slot() -> None:

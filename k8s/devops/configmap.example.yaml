@@ -99,11 +99,11 @@ data:
         refine_review:
           model: openrouter/deepseek/deepseek-v4.1-flash-1017
           context_window: 256000
-        # The alternatives check runs on the local model in a trial of the owner of 2026-11-16;
-        # both backends serve a window of 262,144 tokens. Name DeepSeek again when the check
-        # passes less than 85% of 20 runs, or a structured reply fails, or a local queue times out.
+        # The alternatives check ran a trial on the local model from 2026-11-16, and returned to
+        # DeepSeek on the same day: it passed 8 of 20 runs, and 11 ended with no structured reply
+        # (UnexpectedModelBehavior) (#5933).
         alternatives:
-          model: local/qwen3.8:27b
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
           context_window: 256000
         consolidate:
           model: openrouter/deepseek/deepseek-v4.1-flash-1017
