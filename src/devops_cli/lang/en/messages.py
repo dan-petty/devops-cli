@@ -5557,7 +5557,8 @@ class RoadmapMessages:
             "more_labels": "{names}, and {more} more",
             "queue": (
                 "The count of Planned items is {count}, and roadmap.stage.planned_limit is "
-                "{limit}. The stage job plans only items with the priority {priorities}."
+                "{limit}. The stage job plans only items with the priority {priorities}. A refine "
+                "round still takes New items."
             ),
             "owner": "{title}: the owner question waits: {question}",
         }
