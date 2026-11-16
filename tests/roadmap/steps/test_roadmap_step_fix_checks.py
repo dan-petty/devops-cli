@@ -29,7 +29,7 @@ from typing import Any
 
 import pytest
 
-from devops_cli.exceptions import RoadmapImplementError
+from devops_cli.exceptions import GitOperationError, RoadmapImplementError
 from devops_cli.github.client import PullStatus
 from devops_cli.roadmap.steps.fix_checks import (
     FixChecksResult,
@@ -215,6 +215,90 @@ def test_owner_label_stops(world: PullWorld) -> None:
 
     assert report.result == FixChecksResult.STOPPED
     assert "owner" in report.reason.lower()
+
+
+def test_the_service_claim_does_not_stop_the_step(world: PullWorld) -> None:
+    """The Service's own `owner/service` claims nothing against its jobs: only `owner/agent`,
+    `owner/human` and the rest of the family stop the step (#5027, ADR 0021 section 8)."""
+    pull = world.item("owner/service")
+    world.pull(pull, labels=["owner/service"])
+
+    report = world.run(pull)
+
+    assert report.result == FixChecksResult.PLANNED
+
+
+def test_the_named_check_is_the_check_of_the_round(world: PullWorld) -> None:
+    """The fix-checks Job names the check of its unit, so the round works on that check and not
+    on the first failed check (#5027)."""
+    pull = world.item()
+    world.pull(pull, runs=[_run(STATIC), _run("Tests & Coverage (shard 1)")])
+
+    named = world.run(pull, check="Tests & Coverage (shard 1)")
+    gone = world.run(pull, check="Type Check")
+
+    assert (named.result, "`Tests & Coverage (shard 1)`" in named.reason) == (
+        FixChecksResult.PLANNED,
+        True,
+    )
+    assert (gone.result, gone.reason) == (
+        FixChecksResult.SKIPPED,
+        "Check `Type Check` does not fail on this head",
+    )
+
+
+@dataclass
+class RefusedCheckout:
+    """A checkout whose push the lease refuses."""
+
+    path: Path
+
+    def push(self) -> str | None:
+        raise GitOperationError("git push refused: stale info", operation="roadmap.fix_checks")
+
+
+def _refused_repair(tmp_path: Path) -> Repair:
+    @contextmanager
+    def checkout(status: PullStatus, item: int) -> Iterator[RefusedCheckout]:
+        yield RefusedCheckout(tmp_path)
+
+    return Repair(checkout=checkout, tier1=lambda *_: DONE, model=lambda *_: DONE)
+
+
+def _status(pull: int, head: str) -> dict[str, Any]:
+    return {
+        "state": "open",
+        "draft": True,
+        "head": {"ref": f"feat/{pull}-sample", "sha": head},
+        "base": {"ref": "main"},
+        "user": {"login": BOT_USER},
+    }
+
+
+def test_a_push_that_the_lease_refuses_after_a_move_of_the_head_is_skipped(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """Another writer moved the head after the judgment: the step records nothing, so no round
+    counts as failed, and the new head is a new unit. A refusal on a head that did not move stays
+    an error (#5027)."""
+    pull = world.item()
+    world.pull(pull)
+    with pytest.raises(GitOperationError, match="stale info"):
+        world.run(pull, confirm=True, repair=_refused_repair(tmp_path))
+    world.api.route(
+        "GET",
+        f"/repos/{REPO}/pulls/{pull}",
+        github_json(_status(pull, HEAD_SHA)),
+        github_json(_status(pull, NEW_HEAD)),
+    )
+
+    report = world.run(pull, confirm=True, repair=_refused_repair(tmp_path))
+
+    assert (report.result, report.reason) == (
+        FixChecksResult.SKIPPED,
+        "Head has moved: the lease refused the push",
+    )
+    assert world.record(pull) == dict.fromkeys(FixChecksRecordKey)
 
 
 def test_moved_head_returns_skipped(world: PullWorld) -> None:

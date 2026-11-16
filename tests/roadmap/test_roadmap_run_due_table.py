@@ -506,6 +506,7 @@ def test_idle_records_zero_or_one_store_calls(
     )
 
 
+@pytest.mark.usefixtures("cluster")
 def test_no_prompt_and_cli_modes(
     seeded_store: InMemoryRoadmapStore,
     tmp_path: Path,

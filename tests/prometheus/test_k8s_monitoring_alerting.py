@@ -35,6 +35,7 @@ from devops_cli.config.constants import (
     CONST_GH_MUTATION_HTTP_METHODS,
     CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER,
     CONST_SERVICE_METRIC_BUDGET_LIMIT,
+    CONST_SERVICE_METRIC_FIX_CHECKS_JOBS,
     CONST_SERVICE_METRIC_IDENTITY_REFUSED,
     CONST_SERVICE_METRIC_JOB_RETRY_AFTER_SECONDS,
     CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
@@ -290,6 +291,8 @@ SERVED_SERIES = frozenset(
         CONST_SERVICE_METRIC_IDENTITY_REFUSED,
         CONST_SERVICE_METRIC_JOBS,
         CONST_SERVICE_METRIC_JOB_START_TIMESTAMP,
+        # The fix-checks Jobs that the watch row starts and reports (#5027).
+        CONST_SERVICE_METRIC_FIX_CHECKS_JOBS,
         # The suspended rows and the seconds before each runs again (#4065).
         CONST_SERVICE_METRIC_JOB_SUSPENDED,
         CONST_SERVICE_METRIC_JOB_RETRY_AFTER_SECONDS,
@@ -523,6 +526,7 @@ def test_the_baseline_rule_set() -> None:
         ("PyroscopeQueryErrors", "warning"),
         ("RagIngestBehind", "warning"),
         ("ResearchCriticalFindings", "critical"),
+        ("RoadmapFixChecksJobWithoutResult", "warning"),
         ("RoadmapServiceAlternativesNotSearching", "warning"),
         ("RoadmapServiceGitHubRequestsHigh", "warning"),
         ("RoadmapServiceGitHubThrottled", "critical"),
@@ -1080,6 +1084,13 @@ ROADMAP_SERVICE_RULES = [
         " unless on (repo, lane, row)"
         ' sum by (repo, lane, row) (increase(devops_cli_service_jobs_total{job="roadmap-service", result="success"}[1h])) > 0',
         "30m",
+        "warning",
+    ),
+    (
+        "RoadmapFixChecksJobWithoutResult",
+        "sum by (repo) (increase(devops_cli_service_fix_checks_jobs_total"
+        '{job="roadmap-service", result=~"none|error"}[1h])) > 0',
+        "0m",
         "warning",
     ),
     (

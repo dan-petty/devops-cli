@@ -3,13 +3,16 @@
 Enforces safety bounds:
 - Bot pull requests only.
 - Skip an item that a live implement Job holds: its repair loop owns the check (#5983).
-- Stop on an owner/* label.
-- Skip when the head commit moved.
+- Stop on an owner/* label but the Service's own `owner/service` (`claim_labels`, #5027).
+- Skip when the head commit moved, also when the lease of the push finds that it moved (#5027).
 - Skip a head and check whose last round ended failed, stopped or wait (#5983).
 - Soft cap of 3 rounds (extendable when error count decreases).
 - Hard cap of 5 rounds.
 - At most 3 distinct heads per pull request with a failed check. A head whose checks pass goes to
   the ready path first, so the head that the third repair pushes can be marked ready (#5983).
+
+The round repairs the check that `check` names, which the watch row gives the fix-checks Job, or
+else the first failed check (#5027). A named check that does not fail on the head is skipped.
 
 Two tiers of repair:
 - Tier 1 (deterministic, 0 model calls): ruff check --fix and format for a lint failure, devops docs
@@ -39,6 +42,7 @@ from typing import Any, Final, NamedTuple, Protocol
 
 from devops_cli.config.constants import CONST_ROADMAP_OWNER_SERVICE
 from devops_cli.config.settings import load_settings
+from devops_cli.exceptions import GitOperationError
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.git.branch_form import parse_branch
 from devops_cli.github.check_verdict import (
@@ -49,6 +53,7 @@ from devops_cli.github.check_verdict import (
 )
 from devops_cli.github.client import PullStatus
 from devops_cli.github.session import get_github_session
+from devops_cli.roadmap.claim import claim_labels
 from devops_cli.roadmap.failure import FailureClass, FailureEvidence, classify_failure
 from devops_cli.roadmap.implement.implement_fix_scope import repair_scope
 from devops_cli.roadmap.implement.implement_pull import (
@@ -182,13 +187,10 @@ def is_bot_author(author: str) -> bool:
     return bool(bot and author == bot)
 
 
-def _has_owner_label(labels: Sequence[Any]) -> bool:
-    """Check if labels contain an owner/* label."""
-    for label in labels:
-        name = label.get("name") if isinstance(label, dict) else getattr(label, "name", str(label))
-        if isinstance(name, str) and name.startswith("owner/"):
-            return True
-    return False
+def _has_owner_label(labels: Sequence[str]) -> bool:
+    """Whether `labels` hold an owner/* label that claims against the Service: `owner/agent`,
+    `owner/human` or another of the family, but not `owner/service` (#5027)."""
+    return bool(claim_labels(labels))
 
 
 def check_scope(worktree: Path, item_num: int, log: str, is_stage_plan: bool) -> bool:
@@ -422,9 +424,16 @@ def _end(store: RoadmapStore, facts: _Round, result: FixChecksResult) -> None:
     _record_outcome(store, facts.item, facts.status.head_sha, facts.check, result, facts.heads)
 
 
-def _repair(store: RoadmapStore, facts: _Round, repair: Repair) -> FixChecksReport:
+def _head_moved(client: Any, facts: _Round) -> bool:
+    """Whether another writer moved the head of the pull request after the judgment: the cause of
+    a push that the lease refuses (#5027)."""
+    return bool(client.get_pull_status(facts.repo, facts.pull).head_sha != facts.status.head_sha)
+
+
+def _repair(store: RoadmapStore, client: Any, facts: _Round, repair: Repair) -> FixChecksReport:
     """Run tier 1, then the scope check and tier 2, in the checkout of the head, and push the
-    commit of the fixer that made one (#5971)."""
+    commit of the fixer that made one (#5971). A push that the lease refuses because the head
+    moved is a skip with no record: a new head is a new unit (#5027)."""
     is_plan = kind_of(facts.item, facts.pull) == DraftKind.STAGE_PLAN
     with repair.checkout(facts.status, facts.item_num) as checkout:
         tier1 = repair.tier1(checkout.path, facts.item_num, facts.check, facts.log)
@@ -440,7 +449,14 @@ def _repair(store: RoadmapStore, facts: _Round, repair: Repair) -> FixChecksRepo
                 reason = "Model repair failed" + (f": {model.reason}" if model.reason else "")
                 return facts.report(FixChecksResult.FAILED, reason)
             done = "Tier 2 model repaired check"
-        new_head = checkout.push()
+        try:
+            new_head = checkout.push()
+        except GitOperationError:
+            if not _head_moved(client, facts):
+                raise
+            return facts.report(
+                FixChecksResult.SKIPPED, "Head has moved: the lease refused the push"
+            )
     if new_head is None:
         _end(store, facts, FixChecksResult.FAILED)
         return facts.report(FixChecksResult.FAILED, "The repair made no commit to push")
@@ -493,17 +509,27 @@ def _ready_after_repair(
     return facts.report(FixChecksResult.READY, "Marked the repaired draft ready for review")
 
 
+def _selected(failed: Sequence[PRCheckItem], check: str | None) -> PRCheckItem | None:
+    """The failed check of the round: the one that `check` names, or the first. None when `check`
+    names no failed check of the head (#5027)."""
+    if check is None:
+        return failed[0]
+    return next((item for item in failed if item.name == check), None)
+
+
 def run_fix_checks(
     store: RoadmapStore,
     repo: str,
     pull: int,
     *,
     head: str | None = None,
+    check: str | None = None,
     confirm: bool = False,
     repair: Repair | None = None,
 ) -> FixChecksReport:
     """Run one repair round for failed checks on pull request `pull` (#5023). Without `confirm`
-    the round plans and writes nothing; with it, a repair needs `repair` (#5971)."""
+    the round plans and writes nothing; with it, a repair needs `repair` (#5971). The round takes
+    the failed check that `check` names, or the first failed check (#5027)."""
     client = get_github_session().client
     status: PullStatus = client.get_pull_status(repo, pull)
 
@@ -525,8 +551,9 @@ def run_fix_checks(
     failed_checks = [c for c in checks_summary.items if c.bucket == CheckBucket.FAIL]
     if checks_summary.is_passing or not failed_checks:
         return _ready_after_repair(store, client, facts, checks_summary, confirm=confirm)
-
-    failed_check: PRCheckItem = failed_checks[0]
+    failed_check = _selected(failed_checks, check)
+    if failed_check is None:
+        return facts.report(FixChecksResult.SKIPPED, f"Check `{check}` does not fail on this head")
     if ended := _check_failed_head(facts, failed_check.name):
         return ended
     log = failed_log(repo, failed_check)
@@ -574,4 +601,4 @@ def run_fix_checks(
             "The step fix-checks needs a repair to act: the checkout of the pull request and its "
             "fixers."
         )
-    return _repair(store, facts, repair)
+    return _repair(store, client, facts, repair)

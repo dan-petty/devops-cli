@@ -15,22 +15,25 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from devops_cli.config.constants import (
     CONST_ROADMAP_WATCH_LEDGER_FILENAME,
 )
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.stores.store import ItemField, StageRecordKey
+from devops_cli.roadmap.stores.store import ImplementRecordKey, ItemField, StageRecordKey
 from devops_cli.roadmap.watch_row import (
     WatchLedger,
     watch_round,
 )
 from tests.support.fakes.github import GitHubApiFake, github_json
+from tests.support.fakes.kubernetes import FakeCluster
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_run import NOW, REPO
 
-pytestmark = pytest.mark.usefixtures("keyring_store")
+pytestmark = pytest.mark.usefixtures("keyring_store", "cluster")
 
 HEAD_FAIL = "1" * 40
 HEAD_NEW = "2" * 40
@@ -178,6 +181,47 @@ def test_watch_row_sends_one_graphql_request_and_backs_off_failed_head(
 
     graphql_reqs_3 = [r for r in github_api.sent if r.url.path == "/graphql"]
     assert len(graphql_reqs_3) == 3
+
+
+def test_a_bot_pull_request_with_a_failed_test_check_gets_one_fix_job_and_no_github_write(
+    store: InMemoryRoadmapStore, github_api: GitHubApiFake, tmp_path: Path, cluster: FakeCluster
+) -> None:
+    """A finished bot delivery PR, whose implement Job ended, with a failed `Tests & Coverage`:
+    the row starts one fix-checks Job in mode `plan`, with no `--confirm`, and writes nothing to
+    GitHub. The record of the ended Job holds nothing against the PR (#5027)."""
+    template = yaml.safe_load((REPO_ROOT / "k8s/devops/cronjob-runner.yaml").read_text("utf-8"))
+    cluster.custom_objects.objects[("batch", "v1", "cronjobs")] = [template]
+    issue = store.seed_issue("Issue 1", fields={ItemField.PRIORITY: "P1-High"})
+    held = store.item(issue)
+    assert held is not None
+    store.set_marks(
+        held,
+        {
+            ImplementRecordKey.JOB: f"devops-cli-implement-project-{issue}-abc123",
+            ImplementRecordKey.JOB_STATE: "succeeded",
+        },
+    )
+    pr_num = store.seed_pull("feat: delivery PR", head_ref=f"feat/{issue}-deliv")
+    node = _graphql_pr_node(
+        number=pr_num,
+        head=HEAD_FAIL,
+        body=f"Closes #{issue}",
+        author="devops-cli-service",
+    )
+    _route_graphql(github_api, [node])
+
+    result = watch_round(
+        store, repo=REPO, ledger_path=tmp_path / CONST_ROADMAP_WATCH_LEDGER_FILENAME, now=NOW
+    )
+
+    (job,) = cluster.custom_objects.objects[("batch", "v1", "jobs")]
+    args = job["spec"]["template"]["spec"]["containers"][0]["args"]
+    assert (result.fix_checks.created, args[-2:], "--confirm" in args) == (
+        (job["metadata"]["name"],),
+        ["--check", "Tests & Coverage"],
+        False,
+    )
+    assert [(r.method, r.url.path) for r in github_api.sent] == [("POST", "/graphql")]
 
 
 def test_watch_row_dry_run_sends_zero_requests(

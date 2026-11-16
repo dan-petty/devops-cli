@@ -18,7 +18,7 @@ Service claims with `service_claim` and releases with `service_release`; `claim_
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Final
@@ -38,7 +38,14 @@ from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.request_plan import StoreRequests, within
 from devops_cli.roadmap.status_sync import StatusFacts, job_holds, write_status
 from devops_cli.roadmap.stores import store as roadmap_store
-from devops_cli.roadmap.stores.store import GitHubState, Item, ItemField, RoadmapStore
+from devops_cli.roadmap.stores.store import (
+    GitHubState,
+    Item,
+    ItemField,
+    RoadmapStore,
+    family_prefix,
+    field_label,
+)
 
 
 class Claimant(StrEnum):
@@ -64,6 +71,21 @@ class ClaimPlan:
     repo: str
     current: str | None
     target: str | None
+
+
+_OWNER_PREFIX: Final[str] = family_prefix(ItemField.OWNER)
+_SERVICE_LABEL: Final[str] = field_label(ItemField.OWNER, CONST_ROADMAP_OWNER_SERVICE)
+
+
+def claim_labels(labels: Iterable[str]) -> tuple[str, ...]:
+    """The labels of `labels` that claim an item or a pull request against the Service: each
+    label of the Owner family but the Service's own `owner/service`, in any case. The Service's
+    claim holds nothing against its jobs (ADR 0016, ADR 0021 section 8)."""
+    return tuple(
+        label
+        for label in labels
+        if label.lower().startswith(_OWNER_PREFIX) and label.lower() != _SERVICE_LABEL
+    )
 
 
 def claimed_by(item: Item) -> str | None:
@@ -242,6 +264,7 @@ __all__ = [
     "Claimant",
     "apply_claim",
     "claim_as_agent",
+    "claim_labels",
     "claim_request_lines",
     "claimed_by",
     "dry_run_claim",

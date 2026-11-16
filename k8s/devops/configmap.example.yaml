@@ -225,6 +225,14 @@ data:
       # body and the labels with the rules of CI. It starts in `plan`, and a person sets `on`.
       open:
         mode: plan
+      # The watch row starts one fix-checks Job from CronJob devops-cli-runner for a bot pull
+      # request whose check fails with the class test, lint, types or plan check (#5027). `off`
+      # starts none, `plan` runs the step without --confirm, so the Job logs the repair that it
+      # would make and writes nothing, and `on` repairs the check and pushes. The code starts in
+      # `plan`; by the owner direction of 2026-11-16 this cluster runs `on`, with no week in `plan`.
+      # An image from before #5027 ignores the key.
+      fix_checks:
+        mode: "on"
       # The mode of each decision point (ADR 0020): `off`, `shadow` or `on`. The verify screen
       # (`stage.verify_screen`) asks the decision model before the model review of a plan. In
       # `shadow` the review always runs and the log records the band and the result of the review.

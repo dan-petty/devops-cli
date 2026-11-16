@@ -4524,6 +4524,10 @@ class RoadmapMessages:
         "#{number}. The attempt counts as attempt {count} on head {head}."
     )
     fix_plan_sigterm: str = "SIGTERM ended fix-plan. The class of the kill: {kill}."
+    fix_checks_sigterm: str = (
+        "SIGTERM ended fix-checks before its result line: exit 75, so the Service can start the "
+        "next attempt."
+    )
     # The stage Job of one item (#5483).
     stage_job_item_needs: str = "--job-item needs --confirm and no --item."
     stage_job_token_scope_refused: str = (

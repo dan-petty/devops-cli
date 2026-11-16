@@ -34,6 +34,7 @@ def test_first_pass_table_and_boundary_values() -> None:
     }
     assert hasattr(roadmap_job, "RETITLE"), "RoadmapJob must have RETITLE"
     expected_jobs.add(roadmap_job.RETITLE)
+    expected_jobs.add(roadmap_job.FIX_CHECKS)
 
     assert set(first_pass_table.keys()) == expected_jobs
 
@@ -138,6 +139,12 @@ def test_first_pass_table_and_boundary_values() -> None:
     assert is_fp(roadmap_job.INTAKE, "duplicate", {"fallbacks": 0}) is True
     assert is_fp(roadmap_job.INTAKE, "placed", {"fallbacks": 1}) is False
     assert is_fp(roadmap_job.INTAKE, "skipped", {"fallbacks": 0}) is False
+
+    # 8. fix_checks: a repair or a ready mark on the first attempt (#5027)
+    assert is_fp(roadmap_job.FIX_CHECKS, "repaired", {"attempt": 1}) is True
+    assert is_fp(roadmap_job.FIX_CHECKS, "ready", {"attempt": 1}) is True
+    assert is_fp(roadmap_job.FIX_CHECKS, "repaired", {"attempt": 2}) is False
+    assert is_fp(roadmap_job.FIX_CHECKS, "planned", {"attempt": 1}) is False
 
     # 8. retitle: retitled or kept on first reply (model_calls <= 1)
     assert is_fp(roadmap_job.RETITLE, "retitled", {"model_calls": 1}) is True

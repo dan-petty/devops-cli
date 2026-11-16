@@ -1,13 +1,19 @@
 """The status-lane row `watch`: one row watches open plan and delivery pull requests,
 batches status queries via GraphQL with REST fallback during quota holds, maintains a
 ledger with 30-minute failed-head backoff, and routes lifecycle steps (ADR 0021, section 8; #5024).
+
+A live unit holds a pull request: a runner Job that no round reported (`job_holds`), or the
+check-out of a stage Job. The record keeps the name of a runner Job that ended, so that name alone
+holds nothing. After the ledger is written, the row runs the fix-checks units of the repository:
+it starts a fix Job for each bot pull request that `due_steps` routes to `fix_checks`, and reports
+the fix Jobs that ended (`fix_checks_row.py`, #5027).
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Final
@@ -37,6 +43,7 @@ from devops_cli.github.client import PullStatus
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.fix_checks_row import FixChecksRound, FixDue, run_fix_checks_round
 from devops_cli.roadmap.jev_completeness import (
     CompletenessOutcome,
     check_completeness,
@@ -44,7 +51,7 @@ from devops_cli.roadmap.jev_completeness import (
 )
 from devops_cli.roadmap.release_feed import closing_numbers
 from devops_cli.roadmap.stage.stage_criteria import acceptance_criteria
-from devops_cli.roadmap.status_sync import facts_of, sync_status
+from devops_cli.roadmap.status_sync import facts_of, job_holds, sync_status
 from devops_cli.roadmap.steps.comment import Target, post
 from devops_cli.roadmap.steps.ready import mark_ready
 from devops_cli.roadmap.steps.watch import (
@@ -52,11 +59,11 @@ from devops_cli.roadmap.steps.watch import (
     PRVerdict,
     WatchState,
     due_steps,
+    fix_checks_check,
     verdict,
 )
 from devops_cli.roadmap.stores.store import (
     GitHubState,
-    ImplementRecordKey,
     Item,
     RoadmapStore,
     StageRecordKey,
@@ -163,6 +170,7 @@ class WatchRoundResult:
     commented_conflicts: tuple[int, ...] = ()
     failed_heads: tuple[int, ...] = ()
     requests_sent: int = 0
+    fix_checks: FixChecksRound = field(default_factory=FixChecksRound)
 
 
 def _parse_contexts(contexts_nodes: Sequence[Mapping[str, Any]]) -> list[PRCheckItem]:
@@ -282,6 +290,7 @@ class _WatchContext:
     marked_ready: list[int]
     commented_conflicts: list[int]
     failed_heads: list[int]
+    fix_due: list[FixDue] = field(default_factory=list[FixDue])
     total_conflicted: int = 0
     watched_count: int = 0
 
@@ -303,9 +312,7 @@ def _evaluate_pull(
 ) -> None:
     """Evaluate one roadmap pull request and apply lifecycle steps."""
     ctx.watched_count += 1
-    has_live_unit = bool(
-        item.job_record.get(ImplementRecordKey.JOB) or item.job_record.get(StageRecordKey.JOB)
-    )
+    has_live_unit = job_holds(item) or bool(item.job_record.get(StageRecordKey.JOB))
 
     entry = ctx.recorded_pulls.get(pr_number)
     if entry is not None and entry.verdict == PRVerdict.FAILED.value:
@@ -338,6 +345,8 @@ def _evaluate_pull(
 
     v = verdict(state)
     steps = due_steps(state)
+    if DueStep.FIX_CHECKS in steps and (check := fix_checks_check(state)) is not None:
+        ctx.fix_due.append(FixDue(pr_number, head_sha, check, item.number))
 
     if v is not None:
         if v.verdict is PRVerdict.FAILED:
@@ -623,10 +632,12 @@ def watch_round(
         WatchLedger(pulls=ctx.recorded_pulls).write(ledger_path)
 
     emit(ROADMAP_CONFLICTED_PULLS, ctx.total_conflicted, {"repo": repo})
+    fixes = run_fix_checks_round(repo, ctx.fix_due, now=current_time)
 
     return WatchRoundResult(
         watched=ctx.watched_count,
         marked_ready=tuple(ctx.marked_ready),
         commented_conflicts=tuple(ctx.commented_conflicts),
         failed_heads=tuple(ctx.failed_heads),
+        fix_checks=fixes,
     )

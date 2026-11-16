@@ -345,6 +345,36 @@ def test_the_jobs_limit_counts_the_running_stage_jobs_of_every_repository(
     assert (result.created, result.recovered, _deletes(kube), result.running) == ((), (), [], 1)
 
 
+def test_a_waiting_fix_job_goes_before_a_new_stage_job(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    kube: FakeCluster,
+    config: Callable[..., Path],
+) -> None:
+    """With one place for a model Job, a fix-checks Job that waits suspended holds it: the round
+    creates no stage Job (#5027)."""
+    config(roadmap={"model_jobs": 1})
+    seed_stageable(store)
+    _hold(
+        kube,
+        {
+            "metadata": {
+                "name": "devops-cli-fix-checks-roadmap-9-0123456789",
+                "namespace": "devops",
+                "labels": {
+                    "app.kubernetes.io/managed-by": "devops-cli",
+                    "app.kubernetes.io/component": "roadmap-fix-checks",
+                },
+            },
+            "spec": {"suspend": True},
+        },
+    )
+
+    result = _round(store, stage_repo)
+
+    assert (result.created, _creates(kube)) == ((), [])
+
+
 def test_a_round_with_1_job_and_a_running_job_creates_none(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, kube: FakeCluster
 ) -> None:

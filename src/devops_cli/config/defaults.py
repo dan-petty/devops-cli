@@ -1157,6 +1157,12 @@ DEFAULT_ROADMAP_FIX_CONFLICT_HARD_CAP: int = 4
 # The most new tokens of the model fix of one run of the step fix-checks (#5971), by the owner
 # direction of 2026-11-16 that gives each job a generous token limit.
 DEFAULT_ROADMAP_FIX_CHECKS_TOKEN_BUDGET: int = 16_000_000
+# The mode of the fix-checks unit that the watch row starts (#5027). It starts in `plan`, as each
+# new row does (ADR 0021, section 8, rule 5).
+DEFAULT_ROADMAP_FIX_CHECKS_MODE: RowMode = "plan"
+# The model Jobs that run at once in the cluster, for every repository together: implement, stage
+# and fix-checks Jobs (#5027). ADR 0021, section 5, gives the semaphore `agent` 2 pods.
+DEFAULT_ROADMAP_MODEL_JOBS: int = 2
 # The mode of a decision point in `roadmap.decisions` (ADR 0020).
 DecisionMode = Literal["off", "shadow", "on"]
 DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS: float = 1.0

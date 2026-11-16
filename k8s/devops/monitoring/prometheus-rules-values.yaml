@@ -66,6 +66,19 @@ serverFiles:
             annotations:
               summary: "All {{ $labels.row }} jobs of {{ $labels.repo }} failed in the last hour, on the {{ $labels.lane }} lane"
               description: '{namespace="devops"} | json | repo="{{ $labels.repo }}" | lane="{{ $labels.lane }}" (docs/CLUSTER.md, Roadmap service)'
+          # A fix-checks Job that ended with no result line (#5027). The watch row counts it with
+          # the result `none` when an eviction, a drain (exit 75), its deadline or a kill ended
+          # it, and starts the next attempt within its cap; and with `error` when the command
+          # exited 1, which gets no attempt. The Service starts the series at zero, so increase()
+          # counts the first one.
+          - alert: RoadmapFixChecksJobWithoutResult
+            expr: sum by (repo) (increase(devops_cli_service_fix_checks_jobs_total{job="roadmap-service", result=~"none|error"}[1h])) > 0
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: "A fix-checks Job of {{ $labels.repo }} ended with no result line in the last hour"
+              description: "The pod of the Job wrote no result line. After an eviction, a drain, its deadline or a kill (result none) the watch row starts the next attempt within roadmap.implement.continuations_per_item; after an exit 1 (result error) it starts none. Read the Job with kubectl get jobs -n devops -l app.kubernetes.io/component=roadmap-fix-checks (docs/CLUSTER.md, Roadmap service)."
           # Each poll starts a round on every lane, every 5 minutes by default. A worker sets the
           # job start of its lane when it starts, so a lane of a new pod that starts no job also
           # fires (#2505). A replica that is not available starts no job, and

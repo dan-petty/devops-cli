@@ -313,9 +313,10 @@ roadmap configuration settings.
 | `intake` | `RoadmapIntakeConfig` | `interval_minutes=29 backlog_interval_minutes=None backlog_threshold=None jev='off'` | - | - |
 | `fix_plan` | `RoadmapFixPlanConfig` | `interval_minutes=53 backlog_interval_minutes=None backlog_threshold=None mode='plan' time_budget_seconds=3600 head_attempts=2 revisions=3` | - | - |
 | `fix_conflict` | `RoadmapFixConflictConfig` | `interval_minutes=37 backlog_interval_minutes=None backlog_threshold=None tier1_mode='on' tier2_mode='plan' soft_cap_rounds=2 hard_cap_rounds=4` | - | - |
-| `fix_checks` | `RoadmapFixChecksConfig` | `token_budget=16000000` | - | - |
+| `fix_checks` | `RoadmapFixChecksConfig` | `mode='plan' token_budget=16000000` | - | - |
 | `open` | `RoadmapOpenConfig` | `interval_minutes=7 backlog_interval_minutes=None backlog_threshold=None mode='plan'` | - | - |
 | `refine` | `RoadmapRefineConfig` | `interval_minutes=7 backlog_interval_minutes=None backlog_threshold=None` | - | - |
+| `model_jobs` | `int` | `2` | `DEVOPS_CLI_ROADMAP_MODEL_JOBS` | The most model Jobs that run at once in the cluster, for every repository together: the implement, stage and fix-checks Jobs (#5027, ADR 0021 section 5). A fix-checks Job that finds no free place is created suspended, and the implement and stage rows leave its place free, so a fix Job goes before a new implement or stage Job. `roadmap.stage.jobs` and the one implement Job of each repository still hold inside this limit |
 | `mcp` | `RoadmapMcpConfig` | `url=None timeout_seconds=30.0` | - | - |
 | `stall` | `RoadmapStallConfig` | `hours=24` | - | - |
 | `verdict_partial_score` | `float` | `0.5` | `DEVOPS_CLI_ROADMAP_VERDICT_PARTIAL_SCORE` | The score of the verdict needs fix in the verdict score of stage and implement that `devops roadmap eval grades` gives. Mergeable scores 1, and a discard of the work of the job scores 0 |

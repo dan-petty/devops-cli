@@ -149,7 +149,7 @@ def test_each_lane_reads_every_issue_through_its_own_snapshot(
     ]
 
 
-@pytest.mark.usefixtures("roadmap_bot")
+@pytest.mark.usefixtures("roadmap_bot", "cluster")
 def test_a_lane_round_with_a_kept_snapshot_reads_only_the_changed_issues(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
 ) -> None:

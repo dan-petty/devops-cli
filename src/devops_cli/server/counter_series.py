@@ -21,6 +21,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_JOB_RESULT_SUCCESS,
     CONST_SERVICE_METRIC_BUDGET_HOLDS,
     CONST_SERVICE_METRIC_CHAT_COMMANDS,
+    CONST_SERVICE_METRIC_FIX_CHECKS_JOBS,
     CONST_SERVICE_METRIC_IMPLEMENT_FAILURES,
     CONST_SERVICE_METRIC_IMPLEMENT_JOBS,
     CONST_SERVICE_METRIC_IMPLEMENT_REPAIR_ROUNDS,
@@ -59,6 +60,10 @@ _KEPT_WORK_OUTCOMES = ("continued", "finished", "blocked")
 """The values of the label `outcome` of an item with kept work (#3650): `continued` when the next
 Job starts from it, `finished` when it reaches the ready mark, and `blocked` when it stops again."""
 
+_FIX_CHECKS_JOB_ACTIONS = ("created", "queued", "existed", "resumed", "none", "error")
+"""The values of the label `result` of the fix-checks Jobs that the watch row counts (#5027), with
+the results of the step: what the row did with a Job, and `none` (a kill) or `error` (exit 1) for
+an ended Job with no result line."""
 _SERVICE_TRIGGER_SOURCES = (CONST_SERVICE_SOURCE_WEBHOOK, CONST_SERVICE_SOURCE_POLL)
 """The values of the label `source` of a trigger, as the Service enqueues it."""
 
@@ -85,6 +90,7 @@ def prime_service_counters(
     # The roadmap run imports the Service, so the lane table is read when the counters are
     # primed, not when this module is imported.
     from devops_cli.roadmap.run import service_lanes
+    from devops_cli.roadmap.steps.fix_checks import FixChecksResult
 
     lane_rows = tuple(service_lanes(lanes).items())
     repo_names = list(repos)
@@ -132,6 +138,14 @@ def prime_service_counters(
             {"repo": repo, "result": result, "class": klass}
             for repo in repo_names
             for result, klass in _STAGE_JOB_SERIES
+        ),
+    )
+    GLOBAL_METRICS.prime_counter(
+        CONST_SERVICE_METRIC_FIX_CHECKS_JOBS,
+        (
+            {"repo": repo, "result": result}
+            for repo in repo_names
+            for result in (*_FIX_CHECKS_JOB_ACTIONS, *FixChecksResult)
         ),
     )
     GLOBAL_METRICS.prime_counter(

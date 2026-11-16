@@ -83,6 +83,7 @@ def test_each_workflow_and_repository_gets_one_row(web: WebFake) -> None:
         ("alternatives", None),
         ("intake", "example/app"),
         ("fix_plan", None),
+        ("fix_checks", None),
         ("retitle", None),
     ]
 

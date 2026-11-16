@@ -9,6 +9,7 @@ import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Final
 
 from devops_cli.config.constants import (
     CONST_CI_TEST_JOB_NAME,
@@ -34,6 +35,12 @@ _SKIP_CI_RE = re.compile(r"\[(?:skip ci|ci skip)\]", re.IGNORECASE)
 # A monitor stops when this many polls in a row fail to read the pull request (#4838).
 _MAX_CONSECUTIVE_READ_FAILURES = 3
 
+# The classes of a failed check that a fix-checks unit takes (ADR 0021, section 8; #5027). A
+# `ci_infra` failure, such as a failed `Semantic PR title`, gets no unit.
+FIX_CHECK_CLASSES: Final[frozenset[FailureClass]] = frozenset(
+    {FailureClass.TEST, FailureClass.LINT, FailureClass.TYPES, FailureClass.PLAN_DEFECT}
+)
+
 
 class PRVerdict(StrEnum):
     """The verdict of watching a pull request."""
@@ -55,6 +62,7 @@ class DueStep(StrEnum):
     READY = "ready"
     COMMENT_CONFLICT = "comment_conflict"
     COMMENT_CI_INFRA = "comment_ci_infra"
+    FIX_CHECKS = "fix_checks"
     STATUS_SYNC = "status_sync"
     CLEANUP = "cleanup"
 
@@ -164,6 +172,27 @@ def _lifecycle_verdict(state: WatchState) -> WatchVerdict | None:
     return None
 
 
+def _check_items(state: WatchState) -> Sequence[PRCheckItem]:
+    if state.checks is None:
+        return ()
+    return state.checks.items if isinstance(state.checks, CheckVerdictSummary) else state.checks
+
+
+def fix_checks_check(state: WatchState) -> str | None:
+    """The check of the fix-checks unit of `state` (#5027): the failed check whose log holds the
+    cause, a shard of `Tests & Coverage` first (`_first_failure`), when the class of its name is
+    one of `FIX_CHECK_CLASSES`. None when no check failed or the class is `ci_infra`. A cancelled
+    check is no failure of the code, so it gives no unit. The watch row reads no log, so the class
+    comes from the name, as the verdict reads it."""
+    failed = [check for check in _check_items(state) if check.bucket is CheckBucket.FAIL]
+    if not failed:
+        return None
+    first = _first_failure(failed)
+    if classify_failure(FailureEvidence(check=first.name)) not in FIX_CHECK_CLASSES:
+        return None
+    return first.name
+
+
 def _checks_verdict(state: WatchState) -> WatchVerdict:
     """Judge check runs and review threads on a settled commit."""
     # A poll that reads no check is PENDING (#4927).
@@ -245,7 +274,8 @@ def due_steps(state: WatchState) -> tuple[DueStep, ...]:
     - Skip-ci: no verdict (returns ())
     - READY: `ready` step for bot PRs; nothing for person PRs
     - CONFLICT: `comment_conflict` for person PRs; nothing for bot PRs (writes no due mark)
-    - FAILED: `comment_ci_infra` for bot PRs with CI_INFRA; nothing for person PRs
+    - FAILED: `comment_ci_infra` for bot PRs with CI_INFRA; `fix_checks` for bot PRs whose failed
+      check `fix_checks_check` names (#5027); nothing for person PRs
     - MERGED / CLOSED: `status_sync` (plus `cleanup` for bot plan PRs)
     - PENDING / BEHIND / THREADS / HEAD_MOVED: ()
     """
@@ -265,9 +295,11 @@ def due_steps(state: WatchState) -> tuple[DueStep, ...]:
         return () if is_bot else (DueStep.COMMENT_CONFLICT,)
 
     if v.verdict is PRVerdict.FAILED:
-        if is_bot and v.failure_class == FailureClass.CI_INFRA:
+        if not is_bot:
+            return ()
+        if v.failure_class == FailureClass.CI_INFRA:
             return (DueStep.COMMENT_CI_INFRA,)
-        return ()
+        return (DueStep.FIX_CHECKS,) if fix_checks_check(state) is not None else ()
 
     if v.verdict in (PRVerdict.MERGED, PRVerdict.CLOSED):
         if is_bot and state.is_plan:

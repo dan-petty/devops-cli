@@ -25,11 +25,14 @@ time (`implement_deadline.py`, #3063).
 records it, and a person's `devops roadmap implement --item` starts such a Job too (#2913). The API
 is the lock, so a restart of the Service loses nothing. The lock is best effort: the round lists
 the Jobs again just before it creates one, but a Job that starts between that list and the create
-is not seen. A hard lock needs an object on the server, such as a Lease.
+is not seen. A hard lock needs an object on the server, such as a Lease. The round also waits when
+the model Jobs of the cluster leave no place for a new Job (`job_launcher.model_slots`, #5027): a
+fix-checks Job that waits suspended holds its place, so the fix goes first.
 
 **Submit.** Else the round plans the Staged and Planned items that the default filter names and
-creates one Job for the first of them, from CronJob `devops-cli-runner`, with the item's
-arguments and a token for the one repository (`service.github_app.token_repository`). The record
+creates one Job for the first of them, from CronJob `devops-cli-runner` through the launcher seam
+(`job_launcher.launch`), with the item's arguments and a token for the one repository
+(`service.github_app.token_repository`). The record
 of the item then names the Job. The Job has the CPU and the memory request of the row of the size
 table that fits the number of files in the tasks of the plan, and the memory limit of the setting
 `roadmap.implement.max_memory_limit` (`implement_size.py`, #3193).
@@ -79,7 +82,6 @@ from functools import partial
 from pathlib import Path
 
 from devops_cli.config.constants import (
-    CONST_GITHUB_APP_TOKEN_REPOSITORY_SETTING,
     CONST_K8S_REASON_EVICTED,
     CONST_ROADMAP_IMPLEMENT_ANNOTATION_PROGRESS_AT,
     CONST_ROADMAP_IMPLEMENT_ANNOTATION_STALLED,
@@ -98,11 +100,10 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_KEPT_WORK,
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_LIMIT
-from devops_cli.config.env import setting_variables
 from devops_cli.config.settings import load_settings
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.exceptions.roadmap import RoadmapImplementError
-from devops_cli.github.repo_ref import RepoRef
+from devops_cli.github.repo_ref import RepoRef, ServiceRow
 from devops_cli.k8s.cluster_job import (
     ITEM_LABEL,
     RUNNER_TEMPLATE,
@@ -132,6 +133,7 @@ from devops_cli.roadmap.implement.implement import (
 )
 from devops_cli.roadmap.implement.implement_deadline import manage_deadlines
 from devops_cli.roadmap.implement.implement_size import RunnerSize, plan_file_count, runner_size
+from devops_cli.roadmap.job_launcher import RunnerUnit, launch, model_slots
 from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
 from devops_cli.roadmap.plan_read import tasks_at
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
@@ -541,7 +543,8 @@ def _create(
     None, with nothing written, when an agent or a person claimed the item since the plan."""
     number = target.item.number
     settings = load_settings().roadmap.implement
-    name = runner_job_name(RepoRef(repo), number)
+    ref = RepoRef(repo)
+    name = runner_job_name(ref, number)
     cronjob = jobs.cronjob(RUNNER_TEMPLATE)
     kept = _record(target.item, ImplementRecordKey.CONTINUED)
     work = _record(target.item, ImplementRecordKey.WIP)
@@ -556,24 +559,21 @@ def _create(
         marks[ImplementRecordKey.CONTINUED] = None
     if not service_claim(store, number, marks):
         return None
+    unit = RunnerUnit(
+        row=ServiceRow.IMPLEMENT,
+        repo=ref,
+        item=number,
+        args=("roadmap", "implement", "--repo", repo, "--item", str(number), "--confirm"),
+        size=size,
+        name=name,
+        deadline=settings.deadline_extension_seconds,
+        labels={CONST_ROADMAP_IMPLEMENT_JOB_LABEL: label},
+        annotations={
+            CONST_ROADMAP_IMPLEMENT_ANNOTATION_PROGRESS_AT: str(int(datetime.now(UTC).timestamp()))
+        },
+    )
     try:
-        jobs.create(
-            ["roadmap", "implement", "--repo", repo, "--item", str(number), "--confirm"],
-            template=RUNNER_TEMPLATE,
-            env={setting_variables()[CONST_GITHUB_APP_TOKEN_REPOSITORY_SETTING]: repo, **size.env},
-            resources=size.resources(settings.max_memory_limit),
-            labels={CONST_ROADMAP_IMPLEMENT_JOB_LABEL: label},
-            name=name,
-            cronjob=cronjob,
-            deadline=settings.deadline_extension_seconds,
-            annotations={
-                CONST_ROADMAP_IMPLEMENT_ANNOTATION_PROGRESS_AT: str(
-                    int(datetime.now(UTC).timestamp())
-                )
-            },
-            repo=repo,
-            item=number,
-        )
+        launch(jobs, unit, cronjob=cronjob)
     except ClusterJobError:
         service_release(store, number, {ImplementRecordKey.JOB: None})
         raise
@@ -655,7 +655,7 @@ def run_implement_round(
         return SubmitResult(
             reported=reported, status_failed=failed, cleared=stops.cleared, needs_fix=needs_fix
         )
-    if _runs(api, label):
+    if _runs(api, label) or model_slots(api).for_new <= 0:
         return SubmitResult(
             reported=reported,
             waiting=True,

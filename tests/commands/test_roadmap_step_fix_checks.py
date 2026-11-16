@@ -154,3 +154,58 @@ def test_the_command_without_confirm_plans_a_repair_and_writes_nothing(
         "scope",
     }
     assert [request.method for request in api.sent] == ["GET", "GET"]
+
+
+def test_the_command_passes_the_check_of_the_unit_to_the_step(
+    cli: Cli,
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+    roadmap_store: InMemoryRoadmapStore,
+) -> None:
+    """The fix-checks Job names the check of its unit with `--check` (#5027): a check that does not
+    fail on the head gives `skipped`."""
+    api, _ = github_api_and_gh
+    api.route(
+        "GET",
+        "/repos/example/project/pulls/42",
+        github_json(
+            {
+                "state": "open",
+                "draft": True,
+                "head": {"ref": "feat/42-foo", "sha": HEAD},
+                "base": {"ref": "main"},
+                "user": {"login": "devops-cli[bot]"},
+                "labels": [],
+            }
+        ),
+    )
+    api.route(
+        "GET",
+        f"/repos/example/project/commits/{HEAD}/check-runs?per_page=100",
+        github_json({"total_count": 1, "check_runs": [STATIC_FAIL]}),
+    )
+
+    result = cli(
+        "roadmap", "step", "fix-checks", "--repo", "example/project", "--pull", "42",
+        "--head", HEAD, "--check", "Type Check",
+    )  # fmt: skip
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["result"] == "skipped"
+
+
+def test_a_sigterm_during_the_step_exits_75_with_no_result_line(
+    cli: Cli, roadmap_store: InMemoryRoadmapStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An eviction, a drain or the deadline of the Job ends the step: the command exits 75
+    (`EX_TEMPFAIL`) with no result line, so the Service starts the next attempt (#5027)."""
+    from devops_cli.roadmap.attempt_kill import AttemptKilled
+    from devops_cli.roadmap.steps import fix_checks
+
+    def killed(*_: Any, **__: Any) -> Any:
+        raise AttemptKilled
+
+    monkeypatch.setattr(fix_checks, "run_fix_checks", killed)
+
+    result = cli("roadmap", "step", "fix-checks", "--repo", "example/project", "--pull", "42")
+
+    assert (result.exit_code, '"job"' in result.stdout) == (75, False)

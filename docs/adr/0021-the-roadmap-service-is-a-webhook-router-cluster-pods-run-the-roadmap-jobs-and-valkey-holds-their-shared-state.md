@@ -330,3 +330,5 @@ The naming record of #4533 owns the object names, the labels, the Valkey key for
 2026-11-16: Fact out of date: section 8, Spend. The model fix of a `fix-checks` unit stops at `roadmap.fix_checks.token_budget`, 16,000,000 new tokens by default (#5971).
 
 2026-11-16: Amended by the owner decision in #5974, section 8.
+
+2026-11-16: Fact out of date: section 8, rows `watch` and `fix-checks`. The fix-checks unit exists (#5027): `watch` starts its Job by the predicate of `due_steps`, with no due mark, and the Job is due again only for a new head or another check. The cluster template sets `roadmap.fix_checks.mode` to `on` with no week in `plan`, by the owner direction of 2026-11-16. A fix Job that finds no free place among `roadmap.model_jobs` waits suspended in the cluster. The unit deadline is `roadmap.implement.step_time_limit_seconds` plus 1800 s, and the next attempt of a Job with no result line follows `roadmap.implement.continuations_per_item` ([Runner Jobs](../CLUSTER.md#runner-jobs)).
