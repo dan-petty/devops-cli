@@ -422,14 +422,14 @@ def test_onboard_row_7_is_present_for_a_hook_that_also_sends_other_events(
 ) -> None:
     """The consumer events are a subset of the hook events (#5035): a hook that sends each event
     that the Service takes, and other events too, posts the roadmap events. The Service
-    acknowledges an event that no consumer takes."""
-    monkeypatch.setattr("devops_cli.roadmap.onboard.acts_as_github_app", lambda: True)
+    acknowledges an event that no consumer takes. Row 2 does not change row 7, so the command
+    runs with no App key."""
+    monkeypatch.delenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, raising=False)
     _seed_valid_repo(roadmap_store, github_api)
     events = ["issues", "milestone", "pull_request", "release"]
     github_api.route(
         "GET", f"/repos/{REPO}/hooks", github_json([{**MATCHING_HOOK, "events": events}])
     )
-    route_installation_repositories(github_api, [REPO])
     config(service={"repos": [REPO]})
 
     result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
@@ -446,13 +446,12 @@ def test_onboard_row_7_names_events_when_the_hook_does_not_send_an_event_the_ser
 ) -> None:
     """A hook with the Service URL that does not send the Issues event is wrong, also when it
     sends other events (#5035)."""
-    monkeypatch.setattr("devops_cli.roadmap.onboard.acts_as_github_app", lambda: True)
+    monkeypatch.delenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, raising=False)
     _seed_valid_repo(roadmap_store, github_api)
     events = ["pull_request", "release"]
     github_api.route(
         "GET", f"/repos/{REPO}/hooks", github_json([{**MATCHING_HOOK, "events": events}])
     )
-    route_installation_repositories(github_api, [REPO])
     config(service={"repos": [REPO]})
 
     result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
