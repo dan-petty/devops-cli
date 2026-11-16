@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.165.0](https://github.com/dan-petty/devops-cli/compare/v0.164.0...v0.165.0) (2026-11-16)
+
+
+### Features
+
+* **k8s:** Add the volume move copy reliability harness ([#5920](https://github.com/dan-petty/devops-cli/issues/5920)) ([8430d5f](https://github.com/dan-petty/devops-cli/commit/8430d5fdc1fee3b15d10696f5413ac3aa5180a4b))
+* **roadmap:** Give failed checks and lost tests a repair turn ([#5904](https://github.com/dan-petty/devops-cli/issues/5904)) ([7923750](https://github.com/dan-petty/devops-cli/commit/7923750975cc235a69218adbf7f08960b730c835))
+* **roadmap:** score each bot pull request by its first verdict ([#5975](https://github.com/dan-petty/devops-cli/issues/5975)) ([87621df](https://github.com/dan-petty/devops-cli/commit/87621dfa34e7bb63f30c863cc80590fddd2700b8)), closes [#5968](https://github.com/dan-petty/devops-cli/issues/5968)
+
+
+### Bug Fixes
+
+* **roadmap:** Give the fix-checks command a checkout and its fixers ([#5976](https://github.com/dan-petty/devops-cli/issues/5976)) ([a73b2b9](https://github.com/dan-petty/devops-cli/commit/a73b2b9ba6b04624ab8be04d6ad3cbcb99e11f6c))
+* **security:** judge Trivy DS-0029 in task-template Dockerfile ([#5977](https://github.com/dan-petty/devops-cli/issues/5977)) ([9b3ca72](https://github.com/dan-petty/devops-cli/commit/9b3ca721f5c5a32b9c1d416bec16031f182aaad5))
+
 ## [0.164.0](https://github.com/dan-petty/devops-cli/compare/v0.163.0...v0.164.0) (2026-11-16)
 
 
