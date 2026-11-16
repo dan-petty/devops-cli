@@ -303,6 +303,10 @@ from devops_cli.roadmap.stage.stage_removal_references import scan_removal_refer
 from devops_cli.roadmap.stage.stage_request import StageRequest, gate_arguments
 from devops_cli.roadmap.stage.stage_return import bound_previous
 from devops_cli.roadmap.stage.stage_rewrite import apply_mechanical_rewrites
+from devops_cli.roadmap.stage.stage_scoped_tests import (
+    apply_scoped_tests,
+    apply_scoped_tests_to_groups,
+)
 from devops_cli.roadmap.stage.stage_specs import BaseSpec, read_base_specs
 from devops_cli.roadmap.stage.stage_split import ask_split
 from devops_cli.roadmap.stage.stage_time import job_time_failure, job_time_premise
@@ -2271,6 +2275,12 @@ class _Planner:
             lines = (line.removeprefix("- ") for line in str(exc).splitlines())
             return self._refusal(check_findings(BODY_GATE, [" ".join(lines)]), proposal)
 
+    @staticmethod
+    def _assert_no_secrets(files: Mapping[str, str], target: StageTarget) -> None:
+        for path, text in files.items():
+            if redact_text(text) != text:
+                raise _stage_error(MESSAGES.roadmap.stage_secret.format(path=path), target)
+
     def _settle(
         self,
         target: StageTarget,
@@ -2281,6 +2291,7 @@ class _Planner:
     ) -> StagedChange | OverBudget | _Refused:
         """The outcome for one reply: a change, a stop on the budget, or the problem that sends
         the reply back."""
+        proposal, scoped_warnings = apply_scoped_tests(self._source, proposal)
         texts = [
             *plan_texts(proposal),
             *(
@@ -2308,7 +2319,7 @@ class _Planner:
         body = self._plan_body(target, title, proposal)
         if isinstance(body, _Refused):
             return body
-        asked, files, measured = self._fit(target, proposal)
+        asked, files, measured, split_warnings = self._fit(target, proposal)
         if asked is not proposal:
             # The split gave new groups, and the model can bring back a fault that only one gate
             # refuses. Every gate of the first reply judges the split too.
@@ -2326,12 +2337,11 @@ class _Planner:
         if any(m.tokens > self._budget for m in measured):
             return OverBudget(target, tuple(measured), self._budget)
         files = self._restored(target.change, proposal, files)
-        for path, text in files.items():
-            if redact_text(text) != text:
-                raise _stage_error(MESSAGES.roadmap.stage_secret.format(path=path), target)
+        self._assert_no_secrets(files, target)
         if findings := self._file_findings(target, title, body, files, proposal):
             return self._refusal(findings, proposal)
-        warnings = _check_removal_references(self._source, target, files)
+        removal_warnings = _check_removal_references(self._source, target, files)
+        warnings = tuple(dict.fromkeys((*scoped_warnings, *split_warnings, *removal_warnings)))
         return StagedChange(
             target,
             title,
@@ -2459,13 +2469,13 @@ class _Planner:
 
     def _fit(
         self, target: StageTarget, proposal: StageProposal
-    ) -> tuple[StageProposal, dict[str, str], list[MeasuredGroup]]:
+    ) -> tuple[StageProposal, dict[str, str], list[MeasuredGroup], tuple[str, ...]]:
         """The proposal with its groups measured. When a group is over the budget, the model
         splits the groups once for the item and the new groups are measured. After that split, a
         group over the budget stays over it."""
         files, measured = self._build(target, proposal)
         if self._split_asked or all(m.tokens <= self._budget for m in measured):
-            return proposal, files, measured
+            return proposal, files, measured, ()
         self._split_asked = True
         asked = {
             "number": target.item.number,
@@ -2478,9 +2488,10 @@ class _Planner:
             "criteria": [entry.model_dump() for entry in proposal.criteria],
         }
         split = ask_split(self._client, asked)
-        proposal = proposal.model_copy(update={"groups": split.groups, "criteria": split.criteria})
+        split_groups, split_warnings = apply_scoped_tests_to_groups(self._source, split.groups)
+        proposal = proposal.model_copy(update={"groups": split_groups, "criteria": split.criteria})
         files, measured = self._build(target, proposal)
-        return proposal, files, measured
+        return proposal, files, measured, split_warnings
 
     def _restored(
         self, change: str, proposal: StageProposal, files: Mapping[str, str]
@@ -3715,8 +3726,9 @@ def _stage_one(
     (#4051); the record clears it."""
     target = change.target
     source_warnings = _check_removal_references(source, target, change.files)
-    if source_warnings and not change.warnings:
-        change = replace(change, warnings=source_warnings)
+    if source_warnings:
+        combined = tuple(dict.fromkeys((*change.warnings, *source_warnings)))
+        change = replace(change, warnings=combined)
     with _worktree(source, target, base) as path:
         store.set_marks(
             target.item,
