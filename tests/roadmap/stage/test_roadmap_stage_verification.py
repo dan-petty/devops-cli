@@ -394,7 +394,7 @@ def test_a_quote_of_a_file_that_the_verifier_read_past_the_cap_returns_the_plan(
     )
 
 
-def test_the_review_takes_its_window_from_the_task_verification_and_not_from_stage(
+def test_the_review_takes_its_window_from_the_task_stage_review_and_not_from_stage(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
     model_fake: ModelFake,
@@ -405,7 +405,7 @@ def test_the_review_takes_its_window_from_the_task_verification_and_not_from_sta
         ai={
             "tasks": {
                 "stage": {"context_window": 262_144},
-                "verification": {"context_window": window},
+                "stage_review": {"context_window": window},
             }
         }
     )
@@ -422,13 +422,13 @@ def test_the_review_takes_its_window_from_the_task_verification_and_not_from_sta
     )
 
     # The window of 12,000 tokens ends the tools of the review after one call, so the review run
-    # fails the item (#3911), and the reason names the window of the task `verification`.
+    # fails the item (#3911), and the reason names the window of the task `stage_review`.
     request = json.loads(reads.prompt())
     (failure,) = plan.failed
     assert (plan.ready, request["files"]) == ((), {})
     assert (bool(reads.tools_offered[0]), reads.tools_offered[1]) == (True, [])
     assert (failure.error, "12000 tokens" in failure.reason) == ("RoadmapStageError", True)
-    assert "ai.tasks.verification.context_window" in failure.reason
+    assert "ai.tasks.stage_review.context_window" in failure.reason
 
 
 def test_the_plan_is_returned_twice_then_stays_in_draft(

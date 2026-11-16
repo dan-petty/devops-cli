@@ -1,7 +1,7 @@
 """`devops roadmap eval verify`: the verification pass of the stage job on its golden set (#3153).
 
 The command runs the pass on each case of `tests/fixtures/roadmap_eval/stage/` with the model of
-the `verification` task, or with `--model`, and prints the recall of the labeled defects and the
+the `stage_review` task, or with `--model`, and prints the recall of the labeled defects and the
 findings on the good plans. It stores the score as JSON in a new file of its own under the data
 directory, also when another run starts in the same second (#4488), and writes the file again when
 each case ends. `--resume` takes such a file, runs only the cases that the file lacks or that
@@ -28,11 +28,11 @@ if TYPE_CHECKING:
     from devops_cli.roadmap.stage.stage_verify_eval import CaseOutcome
 
 _STORE = "roadmap_eval/verify"
-_TASK = "verification"
+_TASK = "stage_review"
 
 
 def _review_model(settings: Settings, model: str | None) -> Any:
-    """The pydantic-ai model of the review: the model of the task `verification`, or `--model` in
+    """The pydantic-ai model of the review: the model of the task `stage_review`, or `--model` in
     its place with the rest of the task, such as its provider and its sampling (#3039). The review
     reads the repository with the read tools, so it needs this model and not only the client of
     the task."""
@@ -40,7 +40,7 @@ def _review_model(settings: Settings, model: str | None) -> Any:
 
     if model is None:
         return get_task_model(_TASK, settings=settings)
-    override = settings.ai.tasks.verification.model_copy(update={"model": model})
+    override = getattr(settings.ai.tasks, _TASK).model_copy(update={"model": model})
     tasks = settings.ai.tasks.model_copy(update={_TASK: override})
     ai = settings.ai.model_copy(update={"tasks": tasks})
     return get_task_model(_TASK, settings=settings.model_copy(update={"ai": ai}))

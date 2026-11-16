@@ -234,11 +234,13 @@ def test_the_repository_template_renders_one_model_retry_for_the_cluster() -> No
     assert Settings.model_validate(inner).ai.max_retries == 1
 
 
-def test_each_chat_model_slot_of_the_rendered_template_names_its_decided_group() -> None:
-    """The Service uses one hosted chat model (#3874), but the owner put `triage` (2026-11-15) and
-    `analysis` (2026-11-16) on the local model (#5583). Every other task of `ai.tasks` and the
-    default `ai.model` resolve to the hosted model. The embedding slot is the embedding model,
-    because a chat model cannot embed."""
+def test_every_chat_model_slot_of_the_rendered_template_names_one_hosted_group() -> None:
+    """The Service uses one hosted chat model (#3874). The planner returned to it on 2026-11-10
+    (#4369) after the Sonnet trial of 2026-11-09 (#4204). Every task of `ai.tasks` and the default
+    `ai.model` resolve to the one model, except intake and retitle, which the owner moved to the
+    local model on 2026-11-15, and refine and the alternatives check, which run on it in the owner
+    trial of 2026-11-16. The embedding slot is the embedding model, because a chat model cannot
+    embed. Each job reads its own window (#5903)."""
     rendered = render_active_devops_configmap(PRODUCT, settings=_settings(["owner/repo"], APP))
     inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
     ai = Settings.model_validate(inner).ai
@@ -254,10 +256,10 @@ def test_each_chat_model_slot_of_the_rendered_template_names_its_decided_group()
             if model != "openrouter/deepseek/deepseek-v4.1-flash-1017"
         },
         ai.for_task("embedding").model,
-        (ai.for_task("analysis").context_window, ai.for_task("stage").context_window),
+        (ai.for_task("refine").context_window, ai.for_task("stage").context_window),
     ) == (
         "openrouter/deepseek/deepseek-v4.1-flash-1017",
-        {"analysis": "local/qwen3.8:27b", "triage": "local/qwen3.8:27b"},
+        {task: "local/qwen3.8:27b" for task in ("intake", "retitle", "alternatives")},
         "local/qwen3-embedding:0.6b",
         (256000, 256000),
     )

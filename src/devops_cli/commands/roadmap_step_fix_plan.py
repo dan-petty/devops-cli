@@ -95,8 +95,8 @@ def fix_plan_cmd(
                 confirm=confirm,
                 item=item,
                 pull=pull,
-                model=ToolboxModel(get_task_model("stage")) if confirm else None,
-                verifier=ToolboxModel(get_task_model("verification")) if confirm else None,
+                model=ToolboxModel(get_task_model("fix_plan")) if confirm else None,
+                verifier=ToolboxModel(get_task_model("fix_plan_review")) if confirm else None,
                 skip_wait=skip_wait,
             )
     except DevOpsCLIError as exc:

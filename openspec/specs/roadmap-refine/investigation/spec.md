@@ -31,11 +31,11 @@ When the investigation stops with no proposal, refine SHALL keep the first propo
 - **WHEN** the investigation of an item with a `(missing verified source)` question stops with `Exceeded maximum output retries (2)`
 - **THEN** the item has the next step `retry`, its job record names the check `investigation_stopped` and holds the error, and no comment lists the question
 
-### Requirement: The investigation reads the context window of the analysis task
-The investigation of an item SHALL pass the context window of the `analysis` task to the run, so that the run offers no tool to a request when its messages and a quarter of the window reach the window. The window SHALL end the tools of a run before the counts of requests and tool calls do when the window is small. The run SHALL keep both counts as the loop guard of the job.
+### Requirement: The investigation reads the context window of the refine task
+The investigation of an item SHALL pass the context window of the `refine` task to the run, so that the run offers no tool to a request when its messages and a quarter of the window reach the window. The window SHALL end the tools of a run before the counts of requests and tool calls do when the window is small. The run SHALL keep both counts as the loop guard of the job.
 
 #### Scenario: A small window
-- **WHEN** the window of the `analysis` task is 6000 tokens and the model calls a tool in every reply
+- **WHEN** the window of the `refine` task is 6000 tokens and the model calls a tool in every reply
 - **THEN** a request offers no tool before the count of requests, and the reply of the model ends the run with its proposal
 
 #### Scenario: A large window

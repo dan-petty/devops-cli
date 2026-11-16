@@ -143,13 +143,16 @@ def test_an_unknown_shape_fails_the_schema(model_fake: ModelFake) -> None:
         judge(model_fake).judge(case())
 
 
-def test_the_judge_asks_the_client_of_the_analysis_task_and_no_other(model_fake: ModelFake) -> None:
+def test_the_judge_asks_the_client_of_its_own_task_and_no_other(model_fake: ModelFake) -> None:
+    """A model set only for refine leaves the judge on `ai.model` (#5903)."""
     scripted(model_fake)
+    ai = AIConfig(model="base-model", tasks={"refine": {"model": "refine-model"}})
 
-    GatewayShortlistJudge(AIConfig()).judge(case())
+    GatewayShortlistJudge(ai).judge(case())
 
-    assert {call["task"] for call in model_fake.factory_calls} == {"analysis"}
-    assert "consolidate" not in AIConfig().tasks.model_dump()
+    assert {(call["task"], call["config"].model) for call in model_fake.factory_calls} == {
+        ("consolidate", "base-model")
+    }
 
 
 def test_a_call_that_cannot_reach_the_gateway_names_the_gateway(model_fake: ModelFake) -> None:

@@ -389,7 +389,22 @@ A cheaper model or a lower cap must keep the score of the baseline on the same e
 
 ### The model of the stage planner
 
-The setting `ai.tasks.stage.model` sets the model of the stage planner, of the call that splits the groups, and of `devops roadmap eval stage`. The variable is `DEVOPS_CLI_AI_TASK_STAGE_MODEL`. A field of `ai.tasks.stage` that is not set takes the value of `ai.tasks.analysis`. So the planner moves to another model without a move of refine, intake and alternatives, and the planner reads the `context_window` of its own task. The variables `DEVOPS_CLI_AI_TASK_STAGE_CONTEXT_WINDOW` and `DEVOPS_CLI_AI_TASK_STAGE_MAX_TOKENS` set the window and the reply limit of the task, so a trial of a model with a larger window needs no change of the config file. The tasks `analysis` and `verification` have the same two variables. Only a person changes this setting in the deployed config.
+The setting `ai.tasks.stage.model` sets the model of the stage planner, of the call that splits the groups, and of `devops roadmap eval stage`. The variable is `DEVOPS_CLI_AI_TASK_STAGE_MODEL`. A field of `ai.tasks.stage` that is not set takes the value of `ai`, and of no other task.
+
+Each model role of a roadmap job has a task of its own in `ai.tasks`, so a model trial moves exactly one job (#5903):
+
+| Task | Job and role |
+| :--- | :--- |
+| `intake` | The proposal of intake, `devops roadmap eval intake` and `devops roadmap eval jev` |
+| `retitle` | The row `retitle` |
+| `refine`, `refine_review` | The proposal and the investigation of refine, and the review of a proposal for an item of a bot |
+| `alternatives` | The alternatives check |
+| `consolidate` | The judge of `devops roadmap consolidate` |
+| `stage`, `stage_review` | The stage planner and its verification pass, `devops roadmap eval stage` and `eval verify` |
+| `fix_plan`, `fix_plan_review` | The planner and the verification pass of `devops roadmap step fix-plan` |
+| `implement`, `implement_split` | The steps of the implement job, and the call that splits a task group |
+
+A new step job adds a task of its own. A new job starts on `openrouter/deepseek/deepseek-v4.1-flash-1017`, and a person tries it on `local/qwen3.8:27b` only after its grade reaches 80%. No roadmap job reads the tasks `analysis`, `verification` and `triage`. Each job task has the variables `DEVOPS_CLI_AI_TASK_<TASK>_PROVIDER`, `_MODEL`, `_REASONING_EFFORT`, `_OLLAMA_URLS`, `_CONTEXT_WINDOW` and `_MAX_TOKENS`, so a trial of a model with a larger window needs no change of the config file. Only a person changes these settings in the deployed config.
 
 ### Find the cheapest model that is acceptable
 
@@ -411,7 +426,7 @@ A run makes at least one model call for each case of the set. With the toolbox i
 
 ### Measure the verification pass
 
-After the gates, the stage job asks a model of the task `ai.tasks.verification` to review the plan with the issue, the start of each file that the plan cites (#3153) and the read tools of the planner (#3039). The same golden set measures it:
+After the gates, the stage job asks a model of the task `ai.tasks.stage_review` to review the plan with the issue, the start of each file that the plan cites (#3153) and the read tools of the planner (#3039). The same golden set measures it:
 
 ```text
 uv run devops roadmap eval verify --model <model> --source <repository>

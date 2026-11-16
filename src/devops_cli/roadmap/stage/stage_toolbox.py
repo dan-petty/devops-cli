@@ -68,6 +68,15 @@ _AGENT_ROWS: Final[Mapping[type[BaseModel], str]] = {
     Verification: REVIEW_ROW,
     LaterVerification: REVIEW_ROW,
 }
+# The tasks of `ai.tasks` whose model and window the stage job plans and reviews with (#5903).
+# Another job that plans with the stage planner, such as `fix-plan`, passes tasks of its own.
+STAGE_TASK: Final = "stage"
+STAGE_REVIEW_TASK: Final = "stage_review"
+_DEFAULT_TASKS: Final[Mapping[type[BaseModel], str]] = {
+    StageProposal: STAGE_TASK,
+    Verification: STAGE_REVIEW_TASK,
+    LaterVerification: STAGE_REVIEW_TASK,
+}
 
 
 def run_limits() -> UsageLimits:
@@ -100,6 +109,8 @@ class ToolboxClient:
     answers that GitHub is not available. `usage_limits` holds the requests and the tool calls of
     each run: `run_limits` when the caller gives none (#4688, #5440). The client reads the call
     budget of each run from `roadmap.stage` when it is made, so each round reads the settings.
+    `task` is the task of `ai.tasks` whose window the client has, which the error of a run that the
+    window starves names; without it, the task of the stage job for the schema of the run (#5903).
 
     Raises `RoadmapStageError` when the checkout is not the commit `sha` with no change, because
     three tools read its files and the others read the commit.
@@ -119,8 +130,10 @@ class ToolboxClient:
         traces: list[RunTrace] | None = None,
         mcp_toolset: RoadmapMcpToolset | None = None,
         usage_limits: UsageLimits | None = None,
+        task: str | None = None,
     ) -> None:
         self._model = model
+        self._task = task
         self._usage_limits = usage_limits or run_limits()
         self._inner = inner
         settings = load_settings()
@@ -206,6 +219,7 @@ class ToolboxClient:
                     window=self._window,
                     calls=len(trace.tool_calls),
                     minimum=CONST_ROADMAP_STAGE_MIN_TOOL_CALLS,
+                    task=self._task or _DEFAULT_TASKS[schema],
                 )
             )
         if isinstance(result, InvestigationStopped):

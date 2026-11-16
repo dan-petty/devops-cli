@@ -6,7 +6,7 @@ and returns a `Judgement` (the group, and one `MemberVerdict` for each member). 
 never ask how a judge made its verdicts, so another judge can replace this one.
 
 `GatewayShortlistJudge` makes two tool-less `chat_structured` calls with the client of
-`ai.for_task("analysis")`: a proposal, then a refutation that sees the proposal and the member
+`ai.for_task("consolidate")`: a proposal, then a refutation that sees the proposal and the member
 bodies and returns kept, weakened (link-only) or dropped, with reasons. The texts of the items are
 data in the user message and never an instruction. A reply is a proposal and nothing more: code
 checks it, and a verdict only flags a group. A call that cannot reach its model raises
@@ -223,7 +223,7 @@ def refutation_request(case: ShortlistCase, proposal: Proposal) -> str:
 
 
 class GatewayShortlistJudge:
-    """The judge that asks the model of the `analysis` task twice. The client is built on first
+    """The judge that asks the model of the `consolidate` task twice. The client is built on first
     use. A test passes its own `client`."""
 
     def __init__(
@@ -279,7 +279,7 @@ class GatewayShortlistJudge:
             from devops_cli.ai.client import get_llm_client
 
             self._client = get_llm_client(
-                task="analysis", config=self._ai.for_task("analysis"), api_key=self._api_key
+                task="consolidate", config=self._ai.for_task("consolidate"), api_key=self._api_key
             )
         return self._client
 

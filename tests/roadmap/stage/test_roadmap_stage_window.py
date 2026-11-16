@@ -72,7 +72,7 @@ pytestmark = pytest.mark.usefixtures("keyring_store", "model_fake")
 
 # A small planner window, for the scripted runs that test the caps of the first request.
 WINDOW = 65536
-# The window of the `analysis` task in the example ConfigMap, and of its model in the gateway.
+# The window of the `stage` task in the example ConfigMap, and of its model in the gateway.
 CONFIGURED_WINDOW = 256_000
 GATEWAY_WINDOW = 1_048_576
 # The first plan request at its caps, measured on 2026-11-07 (#3880), and the tokens of the longest
@@ -198,7 +198,8 @@ def test_a_first_request_with_the_context_and_the_body_at_their_caps_offers_the_
     stage_repo: StageRepo,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(stage, "task_window", lambda task: WINDOW)
+    # The job reads the windows of its own two tasks and of no other (#5903).
+    monkeypatch.setattr(stage, "task_window", {"stage": WINDOW, "stage_review": WINDOW}.__getitem__)
     stage_repo.track(
         {"docs/adr/0001-a-decision.md": _words(3 * CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS)}
     )
@@ -306,7 +307,7 @@ def test_a_repair_return_request_of_a_large_plan_leaves_room_for_the_tools(
     monkeypatch.setattr(
         stage,
         "task_window",
-        lambda task: CONFIGURED_WINDOW if task == "verification" else WINDOW,
+        lambda task: CONFIGURED_WINDOW if task == "stage_review" else WINDOW,
     )
     seed_stageable(store)
     earlier = _long_plan()
@@ -489,13 +490,13 @@ def _example_task(name: str) -> dict[str, Any]:
 def test_the_planner_window_of_the_example_configmap_fits_the_first_request_and_the_minimum_calls() -> (
     None
 ):
-    """The plan run reads the window of the task `stage`, and the template sets it with the same
-    value as `analysis`. At 65,536 tokens the tools end after 4 to 6 calls, and the model writes
-    `x` in every text field of its plan (#3880)."""
+    """The plan runs of the stage job and of `fix-plan` read the windows of their own tasks, and
+    the template sets each of them. At 65,536 tokens the tools end after 4 to 6 calls, and the
+    model writes `x` in every text field of its plan (#3880, #5903)."""
     needed = (
         FIRST_REQUEST_TOKENS + constants.CONST_ROADMAP_STAGE_MIN_TOOL_CALLS * TOOL_ANSWER_TOKENS
     )
-    windows = [_example_task(name)["context_window"] for name in ("analysis", "stage")]
+    windows = [_example_task(name)["context_window"] for name in ("stage", "fix_plan")]
 
     assert ([_limit(window) >= needed for window in windows], _limit(WINDOW) < needed) == (
         [True, True],
@@ -525,33 +526,36 @@ def _review_first_request_tokens() -> int:
 def test_the_review_window_of_the_example_configmap_fits_the_first_request_and_the_minimum_calls() -> (
     None
 ):
-    """The task `verification` has no parent task, so it takes the window of `ai` when it sets
-    none: 32,768 tokens, which ends the tools of a review at 24,576 (#3911)."""
+    """A review task takes the window of `ai` when it sets none: 32,768 tokens, which ends the
+    tools of a review at 24,576 (#3911). The reviews of the stage job and of `fix-plan` each set
+    their own window (#5903)."""
     needed = (
         _review_first_request_tokens()
         + constants.CONST_ROADMAP_STAGE_MIN_TOOL_CALLS * TOOL_ANSWER_TOKENS
     )
-    window = _example_task("verification").get("context_window", DEFAULT_AI_CONTEXT_WINDOW)
+    windows = [
+        _example_task(name).get("context_window", DEFAULT_AI_CONTEXT_WINDOW)
+        for name in ("stage_review", "fix_plan_review")
+    ]
 
-    assert (tool_stop(window) >= needed, tool_stop(DEFAULT_AI_CONTEXT_WINDOW) < needed) == (
-        True,
-        True,
-    )
+    assert (
+        [tool_stop(window) >= needed for window in windows],
+        tool_stop(DEFAULT_AI_CONTEXT_WINDOW) < needed,
+    ) == ([True, True], True)
 
 
 def test_the_planner_and_the_review_both_run_on_deepseek_with_a_window_that_fits() -> None:
     """The planner returned to DeepSeek on 2026-11-10 (#4369), and the review stays on it
-    (#3874). The planner reads the task `stage`, which has its own entry, so the trial of the
-    local model in `analysis` (#5583) does not move it. Each window fits its own first
-    request."""
-    tasks = [_example_task(name) for name in ("verification", "stage")]
+    (#3874). Each window fits its own first request."""
+    names = ("stage", "stage_review", "fix_plan", "fix_plan_review")
+    tasks = [_example_task(name) for name in names]
 
     assert [(task["model"], task["context_window"]) for task in tasks] == [
         ("openrouter/deepseek/deepseek-v4.1-flash-1017", 256_000)
-    ] * 2
+    ] * len(names)
 
 
-def test_the_documented_window_of_the_planner_and_its_source_are_the_files_values() -> None:
+def test_the_documented_window_of_stage_and_its_source_are_the_files_values() -> None:
     configured = _example_task("stage")
     gateway_data = _data_of("k8s/llm/gateway/config.yaml")
     gateway = {entry["model_name"]: entry for entry in gateway_data["model_list"]}

@@ -7,7 +7,7 @@ message and answers with a `ModelProposal`. The reply schema lists the values of
 has a fixed list (#2370), so the structured output of the model keeps to them; intake's own
 checks still decide which values stand. Both calls
 go through the existing clients, the embedder (`ai.tasks.embedding`) and the LLM client
-(`ai.tasks.triage`), and so through the gateway when one is configured. A call that can't
+(`ai.tasks.intake`), and so through the gateway when one is configured. A call that can't
 reach its model raises `ModelGatewayUnreachableError`, which names the gateway (the error masks
 any password in it), so a run writes nothing. A model that answers, but never in the schema, raises
 `UnusableProposalError` for that one candidate, which intake skips.
@@ -232,7 +232,7 @@ class GatewayIntakeModel:
         from devops_cli.ai.client import get_llm_client
 
         return get_llm_client(
-            task="triage", config=self._ai.for_task("triage"), api_key=self._api_key
+            task="intake", config=self._ai.for_task("intake"), api_key=self._api_key
         )
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
@@ -245,7 +245,7 @@ class GatewayIntakeModel:
             ) from exc
 
     def propose(self, request: ProposalRequest) -> ModelProposal:
-        """Ask the `triage` task's model for its proposal."""
+        """Ask the `intake` task's model for its proposal."""
         from devops_cli.ai.client.models import StructuredOutputValidationError
 
         try:

@@ -3,7 +3,7 @@
 The deterministic gates of the job (`check_proposal`, `openspec validate`) judge the shape of a
 plan and its paths. A reviewer also finds false premises, code that already exists and tests that
 prove nothing. The pass sends the issue, the plan and the start of each file that the plan cites
-to the model of the task slot `ai.tasks.verification`, and gets findings of the nine defect types
+to the model of the task `ai.tasks.stage_review`, and gets findings of the nine defect types
 of the golden set (`stage_eval_cases.DefectType`). A reply with another type fails the schema, and
 `chat_structured` sends it back once. In the stage job and in its eval the model is an agent: it
 also reads the repository with the read tools of the planner, and a quote may come from the answer

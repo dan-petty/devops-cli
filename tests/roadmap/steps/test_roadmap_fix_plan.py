@@ -211,6 +211,39 @@ def test_the_planner_gets_the_head_plan_as_previous_and_each_open_finding_as_pro
     assert "task_order" in request["problem"]
 
 
+def test_the_repair_asks_the_client_and_the_windows_of_the_fix_plan_tasks(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    verifier: ModelFake,
+    github_api: GitHubApiFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The step reads its own tasks and not those of the stage job, so a model trial of the
+    stage planner leaves it (#5903)."""
+    from devops_cli.roadmap.stage import stage
+
+    windows: list[str] = []
+
+    def task_window(task: str) -> int:
+        windows.append(task)
+        return 262144
+
+    monkeypatch.setattr(stage, "task_window", task_window)
+    needs_fix_plan(store, stage_repo, github_api)
+    verifier.answer(
+        Verification(findings=[finding(DefectType.CRITERION_DROPPED)]), later_review(GONE)
+    )
+    model_fake.answer(make_stage_proposal(why=REPAIRED_WHY))
+
+    _run(store, stage_repo, verifier)
+
+    assert ([call["task"] for call in model_fake.factory_calls], windows) == (
+        ["fix_plan"],
+        ["fix_plan", "fix_plan_review"],
+    )
+
+
 def test_a_revision_with_fewer_open_findings_is_pushed_and_keeps_the_label(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,

@@ -105,7 +105,7 @@ The first request of a plan run SHALL cap the context at `CONST_ROADMAP_STAGE_CO
 - **THEN** the context counts 4096 tokens and the body counts 2048 tokens
 
 ### Requirement: The context and the largest spec answer stay under half of the window
-The context of the first plan request and the longest answer of `read_spec` SHALL together stay under half of the context window of the `analysis` task.
+The context of the first plan request and the longest answer of `read_spec` SHALL together stay under half of the context window of the `stage` task.
 
 #### Scenario: The longest spec answer
 - **WHEN** a test adds an answer of `CONST_ROADMAP_STAGE_SPEC_MAX_CHARS` characters to a context of `CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS` tokens
@@ -122,8 +122,8 @@ The context of the first plan request and the longest answer of `read_spec` SHAL
 - **WHEN** `RunTrace.combined` gets two traces that hold one and two entries
 - **THEN** the result holds the three entries in order
 
-### Requirement: The window of the analysis task is documented with its source
-The page `docs/roadmap/stage.md` SHALL state the `context_window` of the task `analysis` and the file that sets it, and the `max_input_tokens` of the model of that task and the file that sets it. The stated values SHALL equal the values in `k8s/devops/configmap.example.yaml` and `k8s/llm/gateway/config.yaml`.
+### Requirement: The window of the stage task is documented with its source
+The page `docs/roadmap/stage.md` SHALL state the `context_window` of the task `stage` and the file that sets it, and the `max_input_tokens` of the model of that task and the file that sets it. The stated values SHALL equal the values in `k8s/devops/configmap.example.yaml` and `k8s/llm/gateway/config.yaml`.
 
 #### Scenario: The page and the files agree
 - **WHEN** a test reads the two files and the page
@@ -226,18 +226,18 @@ The comment of an item that the toolbox planned SHALL add one line after the lis
 - **THEN** the comment holds no line that starts with `Tool calls:`
 
 ### Requirement: The verification request fits the window of its task
-The request and the run of the verifier SHALL use the context window of the task `verification`. With its instructions, the request SHALL stay `CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS` tokens below the point where the run offers no more tools.
+The request and the run of the verifier SHALL use the context window of the task of the review: `stage_review` in the stage job and `fix_plan_review` in `fix-plan`. With its instructions, the request SHALL stay `CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS` tokens below the point where the run offers no more tools.
 
 #### Scenario: A request that does not fit the window
-- **WHEN** the cited files of a plan do not fit the limit of the window of the task `verification`
+- **WHEN** the cited files of a plan do not fit the limit of the window of the task `stage_review`
 - **THEN** the request keeps the cited files in plan order up to that limit, and drops the others
 
 #### Scenario: A full request gets the tools
-- **WHEN** the window of the task `verification` is 65536 tokens and a plan cites more files than fit
+- **WHEN** the window of the task `stage_review` is 65536 tokens and a plan cites more files than fit
 - **THEN** the first request of the run is offered the read tools
 
 #### Scenario: The two tasks have different windows
-- **WHEN** the task `stage` has a window of 262144 tokens and the task `verification` a window of 12000 tokens
+- **WHEN** the task `stage` has a window of 262144 tokens and the task `stage_review` a window of 12000 tokens
 - **THEN** the request of the verifier and the tool limit of its run follow the window of 12000 tokens
 
 ### Requirement: A review run has its own row in the metrics of the tool calls
@@ -262,11 +262,11 @@ The comment of a staged item whose plan runs made no tool call SHALL say on how 
 - **THEN** the comment says that the run offered tools on 1 of 1 request(s) and the model called none
 
 ### Requirement: A plan run whose window ends the tools too soon fails the item
-When the context window ends the tools of a plan run or of a review run before the run made `CONST_ROADMAP_STAGE_MIN_TOOL_CALLS` tool calls, the run SHALL raise `RoadmapStageError`, whatever its reply is. The message SHALL name the window, the count of calls and the setting to raise. The job SHALL record that error for the item.
+When the context window ends the tools of a plan run or of a review run before the run made `CONST_ROADMAP_STAGE_MIN_TOOL_CALLS` tool calls, the run SHALL raise `RoadmapStageError`, whatever its reply is. The message SHALL name the window, the count of calls and the window setting of the task of the run, `ai.tasks.<task>.context_window`. The job SHALL record that error for the item.
 
 #### Scenario: The window ends the tools after one call
 - **WHEN** a plan run has a window of 12000 tokens, reads a big file, and the window takes the tools after fewer calls than the least number
-- **THEN** the run raises `RoadmapStageError` that names the window, `ai.tasks.stage.context_window` and the parent `ai.tasks.analysis.context_window`, though the model gave a valid plan
+- **THEN** the run raises `RoadmapStageError` that names the window and `ai.tasks.stage.context_window` and no setting of `ai.tasks.analysis`, though the model gave a valid plan
 
 #### Scenario: The window ends the tools after the least number of calls
 - **WHEN** a plan run has a window that ends the tools after `CONST_ROADMAP_STAGE_MIN_TOOL_CALLS` calls or more, and the model gives its plan
@@ -274,7 +274,7 @@ When the context window ends the tools of a plan run or of a review run before t
 
 #### Scenario: A review run
 - **WHEN** a review run has a window of 12000 tokens that ends its tools after fewer calls than the least number, and the model gives no finding
-- **THEN** the run raises `RoadmapStageError` that names the window and `ai.tasks.verification.context_window`, and not `ai.tasks.stage.context_window`
+- **THEN** the run raises `RoadmapStageError` that names the window and `ai.tasks.stage_review.context_window`, and not `ai.tasks.stage.context_window`
 
 #### Scenario: A review run whose window ends the tools after the least number of calls
 - **WHEN** a review run has a window that ends the tools after `CONST_ROADMAP_STAGE_MIN_TOOL_CALLS` calls or more, and the model gives its findings
@@ -284,19 +284,23 @@ When the context window ends the tools of a plan run or of a review run before t
 - **WHEN** the stage job runs an item with a window of 8192 tokens, and the model answers a plan after one call
 - **THEN** the item fails with `RoadmapStageError` and the reason names `ai.tasks.stage.context_window`
 
+#### Scenario: A review run of fix-plan
+- **WHEN** a review run of the task `fix_plan_review` has a window of 12000 tokens that ends its tools after fewer calls than the least number
+- **THEN** the run raises `RoadmapStageError` that names `ai.tasks.fix_plan_review.context_window`, and not `ai.tasks.stage_review`
+
 ### Requirement: The planner window of the example ConfigMap fits a plan run
-The context window of the task `analysis` in `k8s/devops/configmap.example.yaml` SHALL leave room, below the point where the run ends its tools, for the first plan request and `CONST_ROADMAP_STAGE_MIN_TOOL_CALLS` tool answers of the longest size.
+The context window of each of the tasks `stage` and `fix_plan` in `k8s/devops/configmap.example.yaml` SHALL leave room, below the point where the run ends its tools, for the first plan request and `CONST_ROADMAP_STAGE_MIN_TOOL_CALLS` tool answers of the longest size.
 
 #### Scenario: The example window
-- **WHEN** a test reads the window of the task `analysis` in the example ConfigMap
-- **THEN** the point where the run ends its tools is at least the tokens of the first request plus the tokens of the least number of long tool answers, and the window of 65536 tokens is below that point
+- **WHEN** a test reads the windows of the tasks `stage` and `fix_plan` in the example ConfigMap
+- **THEN** the point where the run ends its tools is at least the tokens of the first request plus the tokens of the least number of long tool answers, for each window, and the window of 65536 tokens is below that point
 
 ### Requirement: The review window of the example ConfigMap fits a review run
-The context window of the task `verification` in `k8s/devops/configmap.example.yaml` SHALL leave room, below the point where the run ends its tools, for the first review request with no cited file and `CONST_ROADMAP_STAGE_MIN_TOOL_CALLS` tool answers of the longest size. The task SHALL name its window, so it does not take the default window of the `ai` settings.
+The context window of each of the tasks `stage_review` and `fix_plan_review` in `k8s/devops/configmap.example.yaml` SHALL leave room, below the point where the run ends its tools, for the first review request with no cited file and `CONST_ROADMAP_STAGE_MIN_TOOL_CALLS` tool answers of the longest size. Each task SHALL name its window, so it does not take the default window of the `ai` settings.
 
 #### Scenario: The example window
-- **WHEN** a test reads the window of the task `verification` in the example ConfigMap
-- **THEN** the point where the run ends its tools is at least the tokens of the first review request plus the tokens of the least number of long tool answers, and the default window of 32768 tokens is below that point
+- **WHEN** a test reads the windows of the tasks `stage_review` and `fix_plan_review` in the example ConfigMap
+- **THEN** the point where the run ends its tools is at least the tokens of the first review request plus the tokens of the least number of long tool answers, for each window, and the default window of 32768 tokens is below that point
 
 ### Requirement: A run has a call budget
 From call `roadmap.stage.plan_calls_notice` of a stage plan run, and from call `roadmap.stage.review_calls_notice` of a review run, the answer of each tool SHALL end with a notice that names the call number and tells the model to read no more and give its reply. The tools SHALL stay on, and each run SHALL start its count at zero.

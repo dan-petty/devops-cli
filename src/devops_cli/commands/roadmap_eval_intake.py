@@ -39,7 +39,7 @@ def intake_cmd(
         settings.ai, api_key=get_ai_api_key(settings), embedder=duplicate_eval.SameVector()
     )
     score = duplicate_eval.evaluate_duplicates(cases, meter.model(intake_model), labels)
-    model = settings.ai.for_task("analysis").model
+    model = settings.ai.for_task("intake").model
     spend = meter.spend()
     spent = MESSAGES.roadmap.intake_eval_spent.format(
         calls=spend.model_calls, github=spend.rest + spend.search + spend.graphql

@@ -18,7 +18,7 @@ With `roadmap.intake.jev` set to `on`, intake SHALL ask Jev, in one request, for
 
 #### Scenario: The setting is off
 - **WHEN** the setting is `off`
-- **THEN** `build_intake_model()` returns the model of the `triage` task and no Jev request is made
+- **THEN** `build_intake_model()` returns the model of the `intake` task and no Jev request is made
 
 #### Scenario: The old bool is refused
 - **WHEN** the setting is the bool `true`

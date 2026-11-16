@@ -733,8 +733,8 @@ _TASK_VARIABLES: tuple[str, ...] = ("provider", "model", "reasoning_effort", "ol
 _TASK_WINDOW_VARIABLES: tuple[str, ...] = ("context_window", "max_tokens")
 
 
-# A task whose unset fields take the value of another task, not of the top level of `ai`.
-_TASK_PARENTS: dict[str, str] = {"stage": "analysis"}
+# The task of one model role of a roadmap job (#5903): each variable of the task, as for `stage`.
+_JobTask = Annotated[AITaskOverride, Variable(fields=(*_TASK_VARIABLES, *_TASK_WINDOW_VARIABLES))]
 
 
 class AITasksConfig(BaseModel):
@@ -748,9 +748,13 @@ class AITasksConfig(BaseModel):
     )
     analysis: Annotated[
         AITaskOverride, Variable(fields=(*_TASK_VARIABLES, *_TASK_WINDOW_VARIABLES))
-    ] = AITaskOverride()
-    verification: Annotated[AITaskOverride, Variable(fields=_TASK_WINDOW_VARIABLES)] = (
-        AITaskOverride()
+    ] = Field(
+        default_factory=AITaskOverride,
+        description="The task of `devops review` and of `devops ai agent-audit`. No roadmap job reads it",
+    )
+    verification: Annotated[AITaskOverride, Variable(fields=_TASK_WINDOW_VARIABLES)] = Field(
+        default_factory=AITaskOverride,
+        description="The verification model of the review profile. No roadmap job reads it",
     )
     compose: AITaskOverride = AITaskOverride()
     embedding: Annotated[
@@ -762,13 +766,51 @@ class AITasksConfig(BaseModel):
     )
     triage: AITaskOverride = Field(
         default_factory=AITaskOverride,
-        description="The task of roadmap intake",
+        description="An old task that no command reads. The task `intake` has the model of intake",
     )
-    stage: Annotated[
-        AITaskOverride, Variable(fields=(*_TASK_VARIABLES, *_TASK_WINDOW_VARIABLES))
-    ] = Field(
+    # Each model role of a roadmap job has a task of its own, so a model trial moves one job
+    # (#5903). A field that a task leaves unset takes the value of `ai`, never of another task.
+    intake: _JobTask = Field(
         default_factory=AITaskOverride,
-        description="The task of the stage job and of `devops roadmap eval stage`: the planner of a change. A field that it leaves unset takes the value of the task `analysis`",
+        description="The task of roadmap intake and of `devops roadmap eval intake` and `eval jev`",
+    )
+    retitle: _JobTask = Field(
+        default_factory=AITaskOverride, description="The task of the retitle row"
+    )
+    refine: _JobTask = Field(
+        default_factory=AITaskOverride,
+        description="The task of the refine job: the proposal and the investigation of an item",
+    )
+    refine_review: _JobTask = Field(
+        default_factory=AITaskOverride,
+        description="The task of the review of a refine proposal for an item of a bot",
+    )
+    alternatives: _JobTask = Field(
+        default_factory=AITaskOverride, description="The task of the alternatives check"
+    )
+    consolidate: _JobTask = Field(
+        default_factory=AITaskOverride,
+        description="The task of the judge of `devops roadmap consolidate`",
+    )
+    stage: _JobTask = Field(
+        default_factory=AITaskOverride,
+        description="The task of the stage job and of `devops roadmap eval stage`: the planner of a change",
+    )
+    stage_review: _JobTask = Field(
+        default_factory=AITaskOverride,
+        description="The task of the verification pass of the stage job and of `devops roadmap eval verify`",
+    )
+    fix_plan: _JobTask = Field(
+        default_factory=AITaskOverride,
+        description="The task of the planner of `devops roadmap step fix-plan`",
+    )
+    fix_plan_review: _JobTask = Field(
+        default_factory=AITaskOverride,
+        description="The task of the verification pass of `devops roadmap step fix-plan`",
+    )
+    implement_split: _JobTask = Field(
+        default_factory=AITaskOverride,
+        description="The task of the call that splits a task group of the implement job",
     )
 
 
@@ -955,14 +997,9 @@ class AIConfig(BaseModel):
         return cleaned
 
     def for_task(self, task: str) -> AIConfig:
-        """Return a copy with task-specific overrides from ai.tasks.<task> applied. A task in
-        `_TASK_PARENTS` applies the overrides of its parent first, so a field that it leaves
-        unset takes the value of the parent task."""
-        if task in _TASK_PARENTS:
-            return self.for_task(_TASK_PARENTS[task])._with_task(task)
-        return self._with_task(task)
-
-    def _with_task(self, task: str) -> AIConfig:
+        """Return a copy with task-specific overrides from ai.tasks.<task> applied. A field that
+        the task leaves unset keeps the value of `ai`: no task takes a field of another task
+        (#5903)."""
         override: AITaskOverride = getattr(self.tasks, task, AITaskOverride())
         updates = {
             k: v

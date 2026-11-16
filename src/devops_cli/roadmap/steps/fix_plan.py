@@ -5,7 +5,8 @@ The stage job keeps a plan in draft with `plan/needs-fix` when an open finding o
 remains after the repair rounds (#3264). The stage job does not select a staged item again, the
 implement job leaves such a draft out, and the row `stage_ready` keeps it a draft. This step is
 the later round that removes the label, and it runs the same way each time: only the plan runs of
-the stage planner and of the verification pass call a model.
+the stage planner and of the verification pass call a model, on the tasks `fix_plan` and
+`fix_plan_review` of the step and not on the tasks of the stage job (#5903).
 
 **Selection.** An open item with the Status Ready whose record holds `stage.pr` (a Staged item),
 with no `implement.job` and no claim of an agent or a person (`claimed_by`). Its pull request is
@@ -186,6 +187,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _GIT_OPERATION: Final[str] = "roadmap.fix_plan"
+# The tasks of `ai.tasks` whose model and window the repair and its review use, apart from the
+# tasks of the stage job, so a model trial moves one job (#5903).
+_TASK: Final[str] = "fix_plan"
+_REVIEW_TASK: Final[str] = "fix_plan_review"
 # One line of `finding_line`: "- <severity> `<type>` at <part> (<section>): <problem>", with the
 # capability of a requirement after the part (#5410), and ' Evidence: "<quote>"' after it when the
 # finding has a quote. A capability holds no space and no bracket (`Locator`). The section ends at
@@ -1273,6 +1278,8 @@ def _attempt(
             open_creates=_open_creates(store, source, attempt.base),
             screen=screen,
             time_budget=attempt.budget,
+            task=_TASK,
+            review_task=_REVIEW_TASK,
         )
     except ServiceStoppingError as stop:
         _killed(attempt, len(listed), kill_of(attempt.budget, stop))
@@ -1307,7 +1314,7 @@ def run_fix_plan(
     """Select one plan pull request of `repo` and, with `confirm`, run one attempt on it in the
     clone `source`, as the module says. Without `confirm` the call makes no model call and no
     write. `model`, `verifier` and `screen` are those of `plan_stage`; with no `verifier`, the
-    model of the task `verification` reviews. `skip_wait` is the rule of `select_fix_plan` for a
+    model of the task `fix_plan_review` reviews. `skip_wait` is the rule of `select_fix_plan` for a
     named item (#5413). A failed read or write of GitHub or git raises after the attempt marks, and
     a kill raises `AttemptKilled` with its class after the marks of the kill. The time budget
     `roadmap.fix_plan.time_budget_seconds` starts with the call (#5363)."""
@@ -1357,7 +1364,7 @@ def run_fix_plan(
         from devops_cli.ai.client.factory import get_task_model
         from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 
-        verifier = ToolboxModel(get_task_model("verification"))
+        verifier = ToolboxModel(get_task_model(_REVIEW_TASK))
     base = target.status.base_ref or default_branch(source, operation=_GIT_OPERATION)
     done = _attempt(
         _Attempt(store, repo, source, target, base, budget),

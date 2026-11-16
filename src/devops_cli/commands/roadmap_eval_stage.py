@@ -203,7 +203,7 @@ def _compare(
         return
     client = get_llm_client(task="stage", settings=settings, model=model)
     planner = eval_model(model, task="stage")[0]
-    verifier = eval_model(model, task="verification")[0] if verify else None
+    verifier = eval_model(model, task="stage_review")[0] if verify else None
     rows = [
         run_toolset(
             toolset,

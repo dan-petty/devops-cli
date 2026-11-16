@@ -339,7 +339,7 @@ def run_stage_jobs(
 ) -> list[Any]:
     """Run the stage Job of each item of `numbers`, in order, in the clone of `repo`, as the pod of
     each stage Job of the Service runs it (#4559), with the models of the tasks `stage` and
-    `verification` as `devops roadmap stage --job-item` takes them. The run of each Job."""
+    `stage_review` as `devops roadmap stage --job-item` takes them. The run of each Job."""
     # Imported here, as `apply_stage` imports the writer.
     from devops_cli.ai.client.factory import get_task_model
     from devops_cli.roadmap.stage.stage_job import run_stage_job
@@ -352,7 +352,7 @@ def run_stage_jobs(
             item=number,
             source=repo.clone,
             model=ToolboxModel(get_task_model("stage")),
-            verifier=ToolboxModel(get_task_model("verification")),
+            verifier=ToolboxModel(get_task_model("stage_review")),
             now=now,
         )
         for number in numbers
@@ -362,7 +362,7 @@ def run_stage_jobs(
 def stage_round(store: InMemoryRoadmapStore, repo: StageRepo) -> StageApplied:
     """One round of `devops roadmap stage --confirm` in the clone of `repo`: the plan of each
     item that the settings select, written as each item ends, with the models of the tasks `stage`
-    and `verification`, and the count of each item. What the round wrote."""
+    and `stage_review`, and the count of each item. What the round wrote."""
     from devops_cli.ai.client.factory import get_task_model
     from devops_cli.roadmap.stage.stage import (
         StageWriter,
@@ -379,7 +379,7 @@ def stage_round(store: InMemoryRoadmapStore, repo: StageRepo) -> StageApplied:
         source=repo.clone,
         filters=parse_filters(()),
         model=ToolboxModel(get_task_model("stage")),
-        verifier=ToolboxModel(get_task_model("verification")),
+        verifier=ToolboxModel(get_task_model("stage_review")),
         writer=writer,
     )
     applied = writer.applied()

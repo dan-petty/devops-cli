@@ -118,7 +118,7 @@ def test_the_command_plans_with_the_model_of_the_stage_task_as_a_toolbox_model(
     seed_stageable(roadmap_store)
     script = Script(call("read_file", path="src/devops_cli/sample.py"), make_stage_proposal())
     review = Script(Verification())
-    models = {"stage": script, "verification": review}
+    models = {"stage": script, "stage_review": review}
     tasks: list[str] = []
 
     def task_model(task: str) -> Any:
@@ -131,7 +131,7 @@ def test_the_command_plans_with_the_model_of_the_stage_task_as_a_toolbox_model(
 
     assert result.exit_code == 0, result.output
     assert (tasks, script.tools_offered[0][:2], review.tools_offered[0][:1]) == (
-        ["stage", "verification"],
+        ["stage", "stage_review"],
         ["list_files", "read_file"],
         ["list_files"],
     )

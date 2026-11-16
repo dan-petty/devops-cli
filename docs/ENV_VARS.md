@@ -22,6 +22,12 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_AI_REFERENCE_EMBEDDING_MODEL` | `ai.reference_embedding_model` | No | Hosted embedding model whose genai-prices price values the local embedding tokens in the AI spend reports |
 | `DEVOPS_CLI_AI_REFERENCE_MODEL` | `ai.reference_model` | No | Hosted chat model whose genai-prices price values the local chat tokens in the AI spend reports |
 | `DEVOPS_CLI_AI_REFERENCE_PROVIDER` | `ai.reference_provider` | No | Provider in genai-prices of the two reference models |
+| `DEVOPS_CLI_AI_TASK_ALTERNATIVES_CONTEXT_WINDOW` | `ai.tasks.alternatives.context_window` | No | Context window of this task in tokens, in place of `ai.context_window` |
+| `DEVOPS_CLI_AI_TASK_ALTERNATIVES_MAX_TOKENS` | `ai.tasks.alternatives.max_tokens` | No | Limit of the reply of this task in tokens, in place of `ai.max_tokens` |
+| `DEVOPS_CLI_AI_TASK_ALTERNATIVES_MODEL` | `ai.tasks.alternatives.model` | No | AI model of this task, in place of `ai.model` |
+| `DEVOPS_CLI_AI_TASK_ALTERNATIVES_OLLAMA_URLS` | `ai.tasks.alternatives.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
+| `DEVOPS_CLI_AI_TASK_ALTERNATIVES_PROVIDER` | `ai.tasks.alternatives.provider` | No | AI provider of this task, in place of `ai.provider` |
+| `DEVOPS_CLI_AI_TASK_ALTERNATIVES_REASONING_EFFORT` | `ai.tasks.alternatives.reasoning_effort` | No | Reasoning effort of this task, in place of `ai.reasoning_effort` |
 | `DEVOPS_CLI_AI_TASK_ANALYSIS_CONTEXT_WINDOW` | `ai.tasks.analysis.context_window` | No | Context window of this task in tokens, in place of `ai.context_window` |
 | `DEVOPS_CLI_AI_TASK_ANALYSIS_MAX_TOKENS` | `ai.tasks.analysis.max_tokens` | No | Limit of the reply of this task in tokens, in place of `ai.max_tokens` |
 | `DEVOPS_CLI_AI_TASK_ANALYSIS_MODEL` | `ai.tasks.analysis.model` | No | AI model of this task, in place of `ai.model` |
@@ -32,21 +38,75 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_AI_TASK_CHAT_OLLAMA_URLS` | `ai.tasks.chat.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
 | `DEVOPS_CLI_AI_TASK_CHAT_PROVIDER` | `ai.tasks.chat.provider` | No | AI provider of this task, in place of `ai.provider` |
 | `DEVOPS_CLI_AI_TASK_CHAT_REASONING_EFFORT` | `ai.tasks.chat.reasoning_effort` | No | Reasoning effort of this task, in place of `ai.reasoning_effort` |
+| `DEVOPS_CLI_AI_TASK_CONSOLIDATE_CONTEXT_WINDOW` | `ai.tasks.consolidate.context_window` | No | Context window of this task in tokens, in place of `ai.context_window` |
+| `DEVOPS_CLI_AI_TASK_CONSOLIDATE_MAX_TOKENS` | `ai.tasks.consolidate.max_tokens` | No | Limit of the reply of this task in tokens, in place of `ai.max_tokens` |
+| `DEVOPS_CLI_AI_TASK_CONSOLIDATE_MODEL` | `ai.tasks.consolidate.model` | No | AI model of this task, in place of `ai.model` |
+| `DEVOPS_CLI_AI_TASK_CONSOLIDATE_OLLAMA_URLS` | `ai.tasks.consolidate.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
+| `DEVOPS_CLI_AI_TASK_CONSOLIDATE_PROVIDER` | `ai.tasks.consolidate.provider` | No | AI provider of this task, in place of `ai.provider` |
+| `DEVOPS_CLI_AI_TASK_CONSOLIDATE_REASONING_EFFORT` | `ai.tasks.consolidate.reasoning_effort` | No | Reasoning effort of this task, in place of `ai.reasoning_effort` |
 | `DEVOPS_CLI_AI_TASK_EMBEDDING_MODEL` | `ai.tasks.embedding.model` | No | AI model of this task, in place of `ai.model` |
 | `DEVOPS_CLI_AI_TASK_EMBEDDING_OLLAMA_URLS` | `ai.tasks.embedding.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
 | `DEVOPS_CLI_AI_TASK_EMBEDDING_PROVIDER` | `ai.tasks.embedding.provider` | No | AI provider of this task, in place of `ai.provider` |
 | `DEVOPS_CLI_AI_TASK_EMBEDDING_REASONING_EFFORT` | `ai.tasks.embedding.reasoning_effort` | No | Reasoning effort of this task, in place of `ai.reasoning_effort` |
 | `DEVOPS_CLI_AI_TASK_EMBEDDING_TIMEOUT` | `ai.tasks.embedding.timeout` | No | Seconds this task's requests wait for the next data of their reply, in place of `ai.timeout` |
+| `DEVOPS_CLI_AI_TASK_FIX_PLAN_CONTEXT_WINDOW` | `ai.tasks.fix_plan.context_window` | No | Context window of this task in tokens, in place of `ai.context_window` |
+| `DEVOPS_CLI_AI_TASK_FIX_PLAN_MAX_TOKENS` | `ai.tasks.fix_plan.max_tokens` | No | Limit of the reply of this task in tokens, in place of `ai.max_tokens` |
+| `DEVOPS_CLI_AI_TASK_FIX_PLAN_MODEL` | `ai.tasks.fix_plan.model` | No | AI model of this task, in place of `ai.model` |
+| `DEVOPS_CLI_AI_TASK_FIX_PLAN_OLLAMA_URLS` | `ai.tasks.fix_plan.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
+| `DEVOPS_CLI_AI_TASK_FIX_PLAN_PROVIDER` | `ai.tasks.fix_plan.provider` | No | AI provider of this task, in place of `ai.provider` |
+| `DEVOPS_CLI_AI_TASK_FIX_PLAN_REASONING_EFFORT` | `ai.tasks.fix_plan.reasoning_effort` | No | Reasoning effort of this task, in place of `ai.reasoning_effort` |
+| `DEVOPS_CLI_AI_TASK_FIX_PLAN_REVIEW_CONTEXT_WINDOW` | `ai.tasks.fix_plan_review.context_window` | No | Context window of this task in tokens, in place of `ai.context_window` |
+| `DEVOPS_CLI_AI_TASK_FIX_PLAN_REVIEW_MAX_TOKENS` | `ai.tasks.fix_plan_review.max_tokens` | No | Limit of the reply of this task in tokens, in place of `ai.max_tokens` |
+| `DEVOPS_CLI_AI_TASK_FIX_PLAN_REVIEW_MODEL` | `ai.tasks.fix_plan_review.model` | No | AI model of this task, in place of `ai.model` |
+| `DEVOPS_CLI_AI_TASK_FIX_PLAN_REVIEW_OLLAMA_URLS` | `ai.tasks.fix_plan_review.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
+| `DEVOPS_CLI_AI_TASK_FIX_PLAN_REVIEW_PROVIDER` | `ai.tasks.fix_plan_review.provider` | No | AI provider of this task, in place of `ai.provider` |
+| `DEVOPS_CLI_AI_TASK_FIX_PLAN_REVIEW_REASONING_EFFORT` | `ai.tasks.fix_plan_review.reasoning_effort` | No | Reasoning effort of this task, in place of `ai.reasoning_effort` |
+| `DEVOPS_CLI_AI_TASK_IMPLEMENT_SPLIT_CONTEXT_WINDOW` | `ai.tasks.implement_split.context_window` | No | Context window of this task in tokens, in place of `ai.context_window` |
+| `DEVOPS_CLI_AI_TASK_IMPLEMENT_SPLIT_MAX_TOKENS` | `ai.tasks.implement_split.max_tokens` | No | Limit of the reply of this task in tokens, in place of `ai.max_tokens` |
+| `DEVOPS_CLI_AI_TASK_IMPLEMENT_SPLIT_MODEL` | `ai.tasks.implement_split.model` | No | AI model of this task, in place of `ai.model` |
+| `DEVOPS_CLI_AI_TASK_IMPLEMENT_SPLIT_OLLAMA_URLS` | `ai.tasks.implement_split.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
+| `DEVOPS_CLI_AI_TASK_IMPLEMENT_SPLIT_PROVIDER` | `ai.tasks.implement_split.provider` | No | AI provider of this task, in place of `ai.provider` |
+| `DEVOPS_CLI_AI_TASK_IMPLEMENT_SPLIT_REASONING_EFFORT` | `ai.tasks.implement_split.reasoning_effort` | No | Reasoning effort of this task, in place of `ai.reasoning_effort` |
+| `DEVOPS_CLI_AI_TASK_INTAKE_CONTEXT_WINDOW` | `ai.tasks.intake.context_window` | No | Context window of this task in tokens, in place of `ai.context_window` |
+| `DEVOPS_CLI_AI_TASK_INTAKE_MAX_TOKENS` | `ai.tasks.intake.max_tokens` | No | Limit of the reply of this task in tokens, in place of `ai.max_tokens` |
+| `DEVOPS_CLI_AI_TASK_INTAKE_MODEL` | `ai.tasks.intake.model` | No | AI model of this task, in place of `ai.model` |
+| `DEVOPS_CLI_AI_TASK_INTAKE_OLLAMA_URLS` | `ai.tasks.intake.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
+| `DEVOPS_CLI_AI_TASK_INTAKE_PROVIDER` | `ai.tasks.intake.provider` | No | AI provider of this task, in place of `ai.provider` |
+| `DEVOPS_CLI_AI_TASK_INTAKE_REASONING_EFFORT` | `ai.tasks.intake.reasoning_effort` | No | Reasoning effort of this task, in place of `ai.reasoning_effort` |
 | `DEVOPS_CLI_AI_TASK_METADATA_MODEL` | `ai.tasks.metadata.model` | No | AI model of this task, in place of `ai.model` |
 | `DEVOPS_CLI_AI_TASK_METADATA_OLLAMA_URLS` | `ai.tasks.metadata.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
 | `DEVOPS_CLI_AI_TASK_METADATA_PROVIDER` | `ai.tasks.metadata.provider` | No | AI provider of this task, in place of `ai.provider` |
 | `DEVOPS_CLI_AI_TASK_METADATA_REASONING_EFFORT` | `ai.tasks.metadata.reasoning_effort` | No | Reasoning effort of this task, in place of `ai.reasoning_effort` |
+| `DEVOPS_CLI_AI_TASK_REFINE_CONTEXT_WINDOW` | `ai.tasks.refine.context_window` | No | Context window of this task in tokens, in place of `ai.context_window` |
+| `DEVOPS_CLI_AI_TASK_REFINE_MAX_TOKENS` | `ai.tasks.refine.max_tokens` | No | Limit of the reply of this task in tokens, in place of `ai.max_tokens` |
+| `DEVOPS_CLI_AI_TASK_REFINE_MODEL` | `ai.tasks.refine.model` | No | AI model of this task, in place of `ai.model` |
+| `DEVOPS_CLI_AI_TASK_REFINE_OLLAMA_URLS` | `ai.tasks.refine.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
+| `DEVOPS_CLI_AI_TASK_REFINE_PROVIDER` | `ai.tasks.refine.provider` | No | AI provider of this task, in place of `ai.provider` |
+| `DEVOPS_CLI_AI_TASK_REFINE_REASONING_EFFORT` | `ai.tasks.refine.reasoning_effort` | No | Reasoning effort of this task, in place of `ai.reasoning_effort` |
+| `DEVOPS_CLI_AI_TASK_REFINE_REVIEW_CONTEXT_WINDOW` | `ai.tasks.refine_review.context_window` | No | Context window of this task in tokens, in place of `ai.context_window` |
+| `DEVOPS_CLI_AI_TASK_REFINE_REVIEW_MAX_TOKENS` | `ai.tasks.refine_review.max_tokens` | No | Limit of the reply of this task in tokens, in place of `ai.max_tokens` |
+| `DEVOPS_CLI_AI_TASK_REFINE_REVIEW_MODEL` | `ai.tasks.refine_review.model` | No | AI model of this task, in place of `ai.model` |
+| `DEVOPS_CLI_AI_TASK_REFINE_REVIEW_OLLAMA_URLS` | `ai.tasks.refine_review.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
+| `DEVOPS_CLI_AI_TASK_REFINE_REVIEW_PROVIDER` | `ai.tasks.refine_review.provider` | No | AI provider of this task, in place of `ai.provider` |
+| `DEVOPS_CLI_AI_TASK_REFINE_REVIEW_REASONING_EFFORT` | `ai.tasks.refine_review.reasoning_effort` | No | Reasoning effort of this task, in place of `ai.reasoning_effort` |
+| `DEVOPS_CLI_AI_TASK_RETITLE_CONTEXT_WINDOW` | `ai.tasks.retitle.context_window` | No | Context window of this task in tokens, in place of `ai.context_window` |
+| `DEVOPS_CLI_AI_TASK_RETITLE_MAX_TOKENS` | `ai.tasks.retitle.max_tokens` | No | Limit of the reply of this task in tokens, in place of `ai.max_tokens` |
+| `DEVOPS_CLI_AI_TASK_RETITLE_MODEL` | `ai.tasks.retitle.model` | No | AI model of this task, in place of `ai.model` |
+| `DEVOPS_CLI_AI_TASK_RETITLE_OLLAMA_URLS` | `ai.tasks.retitle.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
+| `DEVOPS_CLI_AI_TASK_RETITLE_PROVIDER` | `ai.tasks.retitle.provider` | No | AI provider of this task, in place of `ai.provider` |
+| `DEVOPS_CLI_AI_TASK_RETITLE_REASONING_EFFORT` | `ai.tasks.retitle.reasoning_effort` | No | Reasoning effort of this task, in place of `ai.reasoning_effort` |
 | `DEVOPS_CLI_AI_TASK_STAGE_CONTEXT_WINDOW` | `ai.tasks.stage.context_window` | No | Context window of this task in tokens, in place of `ai.context_window` |
 | `DEVOPS_CLI_AI_TASK_STAGE_MAX_TOKENS` | `ai.tasks.stage.max_tokens` | No | Limit of the reply of this task in tokens, in place of `ai.max_tokens` |
 | `DEVOPS_CLI_AI_TASK_STAGE_MODEL` | `ai.tasks.stage.model` | No | AI model of this task, in place of `ai.model` |
 | `DEVOPS_CLI_AI_TASK_STAGE_OLLAMA_URLS` | `ai.tasks.stage.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
 | `DEVOPS_CLI_AI_TASK_STAGE_PROVIDER` | `ai.tasks.stage.provider` | No | AI provider of this task, in place of `ai.provider` |
 | `DEVOPS_CLI_AI_TASK_STAGE_REASONING_EFFORT` | `ai.tasks.stage.reasoning_effort` | No | Reasoning effort of this task, in place of `ai.reasoning_effort` |
+| `DEVOPS_CLI_AI_TASK_STAGE_REVIEW_CONTEXT_WINDOW` | `ai.tasks.stage_review.context_window` | No | Context window of this task in tokens, in place of `ai.context_window` |
+| `DEVOPS_CLI_AI_TASK_STAGE_REVIEW_MAX_TOKENS` | `ai.tasks.stage_review.max_tokens` | No | Limit of the reply of this task in tokens, in place of `ai.max_tokens` |
+| `DEVOPS_CLI_AI_TASK_STAGE_REVIEW_MODEL` | `ai.tasks.stage_review.model` | No | AI model of this task, in place of `ai.model` |
+| `DEVOPS_CLI_AI_TASK_STAGE_REVIEW_OLLAMA_URLS` | `ai.tasks.stage_review.ollama_urls` | No | Ollama service URLs of this task, in place of `ai.ollama_urls` |
+| `DEVOPS_CLI_AI_TASK_STAGE_REVIEW_PROVIDER` | `ai.tasks.stage_review.provider` | No | AI provider of this task, in place of `ai.provider` |
+| `DEVOPS_CLI_AI_TASK_STAGE_REVIEW_REASONING_EFFORT` | `ai.tasks.stage_review.reasoning_effort` | No | Reasoning effort of this task, in place of `ai.reasoning_effort` |
 | `DEVOPS_CLI_AI_TASK_VERIFICATION_CONTEXT_WINDOW` | `ai.tasks.verification.context_window` | No | Context window of this task in tokens, in place of `ai.context_window` |
 | `DEVOPS_CLI_AI_TASK_VERIFICATION_MAX_TOKENS` | `ai.tasks.verification.max_tokens` | No | Limit of the reply of this task in tokens, in place of `ai.max_tokens` |
 | `DEVOPS_CLI_ANTHROPIC_API_KEY` | `anthropic.api_key` | 🔒 Yes | Anthropic API key that `devops k8s push-secrets` writes to the LLM gateway Secret (stored in OS keyring) |

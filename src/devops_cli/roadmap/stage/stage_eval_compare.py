@@ -39,7 +39,7 @@ from devops_cli.roadmap.stage.stage_verify import VerificationInput
 from devops_cli.roadmap.stage.stage_verify_eval import matched_defects
 
 _OPERATION: Final[str] = "roadmap.eval.stage-compare"
-_VERIFY_TASK: Final[str] = "verification"
+_VERIFY_TASK: Final[str] = "stage_review"
 _NOT_RUN: Final[str] = "not run"
 _UNPRICED: Final[str] = "unpriced"
 _COMPARE_HEADER: Final[str] = (

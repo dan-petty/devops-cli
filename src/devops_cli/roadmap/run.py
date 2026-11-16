@@ -794,7 +794,7 @@ def _run_fix_plan_adapter(
     """Run the step fix-plan in the mode of `roadmap.fix_plan.mode` (#5061): `off` sends no
     request, `plan` selects and logs one plan pull request with `plan/needs-fix` and makes no model
     call and no write, and `on` runs one attempt on it in the job's clone, with the models of the
-    tasks `stage` and `verification`. A round takes at most one plan. Its queue is the open pull
+    tasks `fix_plan` and `fix_plan_review` (#5903). A round takes at most one plan. Its queue is the open pull
     requests with `plan/needs-fix` in the listing that the selection read, so the count sends no
     request; the mode `off` reads nothing and gives no queue (#5470)."""
     mode = load_settings().roadmap.fix_plan.mode
@@ -806,8 +806,8 @@ def _run_fix_plan_adapter(
         repo=repo,
         source=_job_clone("fix_plan", clone_path),
         confirm=acts,
-        model=ToolboxModel(get_task_model("stage")) if acts else None,
-        verifier=ToolboxModel(get_task_model("verification")) if acts else None,
+        model=ToolboxModel(get_task_model("fix_plan")) if acts else None,
+        verifier=ToolboxModel(get_task_model("fix_plan_review")) if acts else None,
         mode=mode,
     )
     return JobOutcome(queue=len(store.labelled_pulls(PLAN_NEEDS_FIX_LABEL)))

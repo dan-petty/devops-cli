@@ -513,7 +513,7 @@ def stage_cmd(
             limit=limit,
             step_tokens=step_tokens,
             model=ToolboxModel(get_task_model("stage")),
-            verifier=ToolboxModel(get_task_model("verification")),
+            verifier=ToolboxModel(get_task_model("stage_review")),
             why=why,
             writer=writer,
         )
@@ -563,7 +563,7 @@ def _stage_job(target: str, number: int, source: Path | None) -> NoReturn:
             item=number,
             source=source,
             model=ToolboxModel(get_task_model("stage")),
-            verifier=ToolboxModel(get_task_model("verification")),
+            verifier=ToolboxModel(get_task_model("stage_review")),
         )
     if run.plan is not None:
         write_stdout(render_stage_plan(run.plan) + "\n")
@@ -841,7 +841,7 @@ def _implement_job(
             model=get_task_model("implement"),
             window=load_settings().ai.for_task("implement").context_window,
             model_for_tier=get_tier_model,
-            splitter=get_llm_client(task="analysis"),
+            splitter=get_llm_client(task="implement_split"),
         )
     print_success(
         MESSAGES.roadmap.implement_job_applied.format(

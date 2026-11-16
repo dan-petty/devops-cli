@@ -59,7 +59,7 @@ files with the same name, and a missing path after the last return stops the ite
 opens. The groups of a split are checked in the same
 way. After the checks, the model review of the plan (`stage_verify`, #3153) reads the issue, the
 plan and the files that the plan cites, and reads the repository with the read tools, on the model
-of the task `verification` (#3039). A finding is open when it is of the type `missing_path`,
+of the task `stage_review` (#3039, #5903). A finding is open when it is of the type `missing_path`,
 `false_premise`, `ignores_existing_code`, `task_order`, `verify_form`, `spec_delta_wrong` or
 `criterion_dropped` and quotes its evidence, or when it reports a placeholder. An open finding sends
 the plan back to the planner, with each open finding of that round (#5059). It does so
@@ -309,6 +309,8 @@ from devops_cli.roadmap.stage.stage_time import job_time_failure, job_time_premi
 from devops_cli.roadmap.stage.stage_toolbox import (
     PLAN_ROW,
     REVIEW_ROW,
+    STAGE_REVIEW_TASK,
+    STAGE_TASK,
     ToolboxClient,
     ToolboxModel,
     review,
@@ -3071,9 +3073,9 @@ def plan_stage(
     `source` is the clone of the repository, at the default branch. `limit` and `step_tokens`
     override `roadmap.stage.limit` and `roadmap.stage.step_tokens`. At `roadmap.stage.planned_limit`
     Planned items the plan holds only P0 and P1 items (#3487, #3692). A client as `model` replaces
-    the client of the `analysis` task and plans with the one call and no tool. A `ToolboxModel`
-    plans with the read-only tools (#3037), and the client of the `analysis` task answers the call
-    that splits the groups. A `verifier`, the model of the `verification` task, makes an agent with
+    the client of the `stage` task and plans with the one call and no tool. A `ToolboxModel`
+    plans with the read-only tools (#3037), and the client of the `stage` task answers the call
+    that splits the groups. A `verifier`, the model of the `stage_review` task, makes an agent with
     the read-only tools review each plan after the checks (#3153, #3039); without one, the job makes
     no review call, as the golden-set run of the planner does. With `why`, the plan also lists the
     open items that the filter does not name (#2911). An item that failed less than
@@ -3170,24 +3172,26 @@ def _planner_of(
     gate_returns: int | None = None,
     time_budget: TimeBudget | None = None,
     dependency_title: Callable[[int], str | None] | None = None,
+    task: str = STAGE_TASK,
+    review_task: str = STAGE_REVIEW_TASK,
 ) -> _Planner:
     """The planner for the checkout at `sha`: it reads the tracked files, the capabilities and the
-    context window of the `stage` task once. With a `toolbox` model, a plan run calls the
+    context window of the task `task` once. With a `toolbox` model, a plan run calls the
     read-only tools on the checkout, and `client` answers the other calls. The toolset
     `roadmap.stage.toolset` chooses the tools; with `repo`, `read_issue` and `find_issues` of the
     toolset `extended` read that repository on GitHub with the client of the session (#3238). A
-    `verifier` makes the model review of each plan (#3153): an agent of the task `verification`
+    `verifier` makes the model review of each plan (#3153): an agent of the task `review_task`
     with the same tools, and with the window of that task, because the two tasks can resolve to
     different windows (#3039). `rejected` holds the reason of each rejected plan by issue number,
     for the request of an item that a person rejected (#3503). `facts_source` is a checkout whose
     `HEAD` supplies a runner fact file that the staged commit lacks (#4207). `gate_returns` is the
     returns of a refused reply; without it, the planner reads `roadmap.stage.gate_returns`.
     `time_budget` stops the planner before a model call once it is spent (#5363)."""
-    window = task_window("stage")
-    verify_window = task_window("verification")
+    window = task_window(task)
+    verify_window = task_window(review_task)
     traces: list[RunTrace] = []
 
-    def runner_of(model: ToolboxModel, tokens: int) -> ToolboxClient:
+    def runner_of(model: ToolboxModel, tokens: int, of_task: str) -> ToolboxClient:
         return ToolboxClient(
             model.model,
             client,
@@ -3197,11 +3201,12 @@ def _planner_of(
             openspec=tool,
             github=None if repo is None else StageGitHub(repo),
             traces=traces,
+            task=of_task,
         )
 
-    runner = None if toolbox is None else runner_of(toolbox, window)
+    runner = None if toolbox is None else runner_of(toolbox, window, task)
     # A review makes only agent runs, so the client of the job as its inner client gets no call.
-    reviewer = None if verifier is None else runner_of(verifier, verify_window)
+    reviewer = None if verifier is None else runner_of(verifier, verify_window, review_task)
     return _Planner(
         client=runner or client,
         toolbox=runner,
@@ -3281,6 +3286,8 @@ def revise_plan(
     open_creates: Callable[[], Mapping[str, int]] | None = None,
     screen: ResolverChain[ScreenCase] | None = None,
     time_budget: TimeBudget | None = None,
+    task: str = STAGE_TASK,
+    review_task: str = STAGE_REVIEW_TASK,
 ) -> PlanRevision:
     """Revise `proposal`, the plan of the open pull request of `target`, in the clone `checkout`
     at `sha`, the default branch of `origin` after the fetch, and write nothing (#5061). The clone
@@ -3294,13 +3301,15 @@ def revise_plan(
     the review of the head that the planner got before the failure. `time_budget` is the budget of
     the step: once it is spent, no plan run and no review starts, and the revision is a
     `StageFailure` with the class `timeout` and the step in which it ended. Each review logs one
-    progress line (#5363). Rejected credentials and the stop of the Service raise."""
+    progress line (#5363). `task` and `review_task` name the tasks whose client and windows the
+    planner and the review use, so a job that repairs a plan reads its own tasks (#5903). Rejected
+    credentials and the stop of the Service raise."""
     settings = load_settings()
     _move_clone(checkout, sha)
     toolbox = model if isinstance(model, ToolboxModel) else None
     client: StageClient
     if isinstance(model, ToolboxModel) or model is None:
-        client = get_llm_client(task="stage", settings=settings)
+        client = get_llm_client(task=task, settings=settings)
     else:
         client = model
     started = clock.monotonic()
@@ -3318,6 +3327,8 @@ def revise_plan(
             open_creates=open_creates,
             gate_returns=settings.roadmap.stage.gate_returns,
             time_budget=time_budget,
+            task=task,
+            review_task=review_task,
         )
         try:
             revision = planner.revise(target, proposal, findings)

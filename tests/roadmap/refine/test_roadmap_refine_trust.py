@@ -504,8 +504,8 @@ def test_item_refines_an_item_of_a_bot_with_the_review_too(
     assert (len(verifier.prompts), _status(store, number)) == (1, "New")
 
 
-@pytest.mark.parametrize(("login", "tasks"), [(APP, ["verification"]), ("a-person", [])])
-def test_the_review_uses_the_client_of_the_verification_task_and_builds_it_only_for_a_bot_item(
+@pytest.mark.parametrize(("login", "tasks"), [(APP, ["refine_review"]), ("a-person", [])])
+def test_the_review_uses_the_client_of_the_refine_review_task_and_builds_it_only_for_a_bot_item(
     store: InMemoryRoadmapStore,
     git_repo: Path,
     model_fake: ModelFake,
