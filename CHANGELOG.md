@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.165.1](https://github.com/dan-petty/devops-cli/compare/v0.165.0...v0.165.1) (2026-11-16)
+
+
+### Bug Fixes
+
+* **k8s:** Route DeepSeek 1017 without the floor variant ([#5982](https://github.com/dan-petty/devops-cli/issues/5982)) ([e0a14f5](https://github.com/dan-petty/devops-cli/commit/e0a14f5a530466975ae477d8226c7aaefa59b2df)), closes [#5978](https://github.com/dan-petty/devops-cli/issues/5978)
+* **roadmap:** restore Status on claim release ([#5979](https://github.com/dan-petty/devops-cli/issues/5979)) ([0e35fb0](https://github.com/dan-petty/devops-cli/commit/0e35fb07e5069024552c57b28b66c724282a3adc))
+
 ## [0.165.0](https://github.com/dan-petty/devops-cli/compare/v0.164.0...v0.165.0) (2026-11-16)
 
 
