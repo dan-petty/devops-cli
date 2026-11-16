@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.168.0](https://github.com/dan-petty/devops-cli/compare/v0.167.1...v0.168.0) (2026-11-16)
+
+
+### Features
+
+* **k8s:** run self-hosted Renovate as a CronJob in devops ([#6014](https://github.com/dan-petty/devops-cli/issues/6014)) ([dfc56b3](https://github.com/dan-petty/devops-cli/commit/dfc56b388574644173389d81ef7ba20c23a37182)), closes [#4905](https://github.com/dan-petty/devops-cli/issues/4905)
+* **roadmap:** Give each bot PR one verdict with a review step ([#6015](https://github.com/dan-petty/devops-cli/issues/6015)) ([d180c23](https://github.com/dan-petty/devops-cli/commit/d180c23910de529ad325dd5a061302fa4f28e76e)), closes [#5969](https://github.com/dan-petty/devops-cli/issues/5969)
+* **roadmap:** The watch row starts fix-checks Jobs ([#6009](https://github.com/dan-petty/devops-cli/issues/6009)) ([0a14af8](https://github.com/dan-petty/devops-cli/commit/0a14af83668b6293c8bbd2d9b5498f0b57ab7d28)), closes [#5027](https://github.com/dan-petty/devops-cli/issues/5027)
+
 ## [0.167.1](https://github.com/dan-petty/devops-cli/compare/v0.167.0...v0.167.1) (2026-11-16)
 
 
