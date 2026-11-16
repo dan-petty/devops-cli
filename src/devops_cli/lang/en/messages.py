@@ -5238,6 +5238,12 @@ class RoadmapMessages:
         "commit defines no `{member}` member. Name a member that the class defines, or name no "
         "member."
     )
+    # A design claim that names a module under `src/` quotes a statement of that module (#3458).
+    stage_problem_module_quote: str = (
+        "The plan names `{path}` in the {section} and gives no code span that holds a statement "
+        "of that module at the staged commit. Add a code span with a line of `{path}`, or name no "
+        "module."
+    )
     stage_problem_verify: str = (
         "Group {group} gives the `verify` command `{command}`. A `verify` command starts with "
         "`uv run devops`, such as `uv run devops ci test tests/roadmap/test_feature.py`, or is a "

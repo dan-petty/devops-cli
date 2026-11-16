@@ -2722,9 +2722,9 @@ def group_files_problems(groups: Sequence[StageGroup], tree: StagedTree) -> list
 _CLASS_SPAN: Final[re.Pattern[str]] = re.compile(r"^(?P<name>[A-Za-z_]\w*)(?:\.[A-Za-z_]\w*)*$")
 
 
-def _class_claim_lines(proposal: StageProposal) -> list[tuple[str, str]]:
-    """Each line of the plan that makes a design claim, with the name of its section (#3407): a
-    design decision, a rejected alternative and a feasibility line."""
+def _claim_lines(proposal: StageProposal) -> list[tuple[str, str]]:
+    """Each line of the plan that makes a design claim, with the name of its section (#3407,
+    #3458): a design decision, a rejected alternative and a feasibility line."""
     lines: list[tuple[str, str]] = []
     for decision in proposal.decisions:
         lines.append(("design decision", decision.decision))
@@ -2759,7 +2759,7 @@ def claimed_classes(proposal: StageProposal) -> set[str]:
     `src/` defines."""
     return {
         name
-        for _, line in _class_claim_lines(proposal)
+        for _, line in _claim_lines(proposal)
         for span in code_spans(line)
         if (name := _claim_span_name(span)) is not None
     }
@@ -2820,7 +2820,7 @@ def class_claim_problems(
     seen: set[tuple[str, str]] = set()
     return [
         problem
-        for section, line in _class_claim_lines(proposal)
+        for section, line in _claim_lines(proposal)
         for problem in _class_claim_line_problems(section, line, squashed, members, seen)
     ]
 
@@ -2838,6 +2838,76 @@ def _refine_decision_problems(proposal: StageProposal, issue_body: str) -> list[
     if rejected and not proposal.rejected:
         problems.append(texts.stage_problem_refine_rejected)
     return problems
+
+
+def _is_module_span(span: str) -> bool:
+    """Whether a code span names a Python module under `src/` (#3458)."""
+    return span.startswith(_SOURCE_DIRECTORY) and _is_source_module(span)
+
+
+def _is_module_quote(span: str, source: str) -> bool:
+    """Whether `span` holds a statement of the squashed module `source` (#3458). A quote shorter
+    than the bound of the citation rule matches almost any source, so it is no quote."""
+    quote = _squash(span)
+    return len(quote) >= _CITATION_MIN_CHARS and quote in source
+
+
+def _module_source(
+    span: str, squashed: dict[str, str], read_text: Callable[[str], str | None]
+) -> str | None:
+    """The squashed text of the module that `span` names, or None when the reader gives none
+    (#3458)."""
+    if span not in squashed:
+        text = read_text(span)
+        if text is None:
+            return None
+        squashed[span] = _squash(text)
+    return squashed[span]
+
+
+def _module_quote_line_problems(
+    section: str,
+    line: str,
+    squashed: dict[str, str],
+    read_text: Callable[[str], str | None],
+    seen: set[tuple[str, str]],
+) -> list[str]:
+    """What is wrong with one design claim line about the modules under `src/` that it names
+    (#3458): a module that the line gives no quote of. A module whose text the reader does not give
+    is not judged."""
+    spans = code_spans(line)
+    problems: list[str] = []
+    for span in spans:
+        if not _is_module_span(span) or (span, section) in seen:
+            continue
+        source = _module_source(span, squashed, read_text)
+        if source is None:
+            continue
+        if any(other != span and _is_module_quote(other, source) for other in spans):
+            continue
+        seen.add((span, section))
+        problems.append(
+            MESSAGES.roadmap.stage_problem_module_quote.format(path=span, section=section)
+        )
+    return problems
+
+
+def module_quote_problems(
+    proposal: StageProposal,
+    read_text: Callable[[str], str | None] | None,
+) -> list[str]:
+    """One problem for each design claim line that names a module under `src/` in a code span and
+    gives no other code span that holds a statement of that module at the staged commit (#3458). A
+    check with no reader, and a module whose text the reader does not give, judges no line."""
+    if read_text is None:
+        return []
+    squashed: dict[str, str] = {}
+    seen: set[tuple[str, str]] = set()
+    return [
+        problem
+        for section, line in _claim_lines(proposal)
+        for problem in _module_quote_line_problems(section, line, squashed, read_text, seen)
+    ]
 
 
 def check_gates(
@@ -2887,6 +2957,7 @@ def check_gates(
         ProposalGate.CONTENT: content_problems(proposal, probes),
         ProposalGate.CITATION: [
             *_plan_citation_problems(proposal, read_text),
+            *module_quote_problems(proposal, read_text),
             *command_citation_problems(proposal),
             *proposal_evidence_problems(proposal),
         ],

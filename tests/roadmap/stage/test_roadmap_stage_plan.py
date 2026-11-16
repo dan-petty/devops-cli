@@ -213,6 +213,8 @@ def test_a_valid_plan_gives_the_branch_the_title_the_body_and_the_files(
 
 
 SAMPLE_PROBE = "The path `src/devops_cli/sample.py` is a file of the staging commit."
+# A feasibility line that names a module under `src/` quotes a statement of it (#3458).
+SAMPLE_STATEMENT = "The file holds `def keep(comments):`."
 
 
 @pytest.mark.usefixtures("openspec")
@@ -223,7 +225,9 @@ def test_the_model_input_holds_the_probe_of_each_cited_path_and_identifier(
     open_pulls_api: GitHubApiFake,
 ) -> None:
     seed_stageable(store, body="Fix `keep` in `src/devops_cli/sample.py`, not `gone_function`.")
-    model_fake.answer(make_stage_proposal(feasibility=[f"The probe shows: {SAMPLE_PROBE}"]))
+    model_fake.answer(
+        make_stage_proposal(feasibility=[f"The probe shows: {SAMPLE_PROBE} {SAMPLE_STATEMENT}"])
+    )
 
     _plan(store, stage_repo)
 
@@ -369,7 +373,7 @@ def test_the_model_input_holds_an_overlap_and_the_other_senders_of_a_cited_metri
     )
     model_fake.answer(
         make_stage_proposal(
-            feasibility=[f"The probe shows: {SAMPLE_PROBE}"],
+            feasibility=[f"The probe shows: {SAMPLE_PROBE} {SAMPLE_STATEMENT}"],
             dependencies=["#3173 changes `src/devops_cli/sample.py`, so this plan waits for it."],
         )
     )
@@ -400,7 +404,9 @@ def test_a_feasibility_that_quotes_no_probe_line_goes_back_to_the_model_with_the
     open_pulls_api: GitHubApiFake,
 ) -> None:
     seed_stageable(store, body="Fix the file `src/devops_cli/sample.py`.")
-    quoted = make_stage_proposal(feasibility=[f"The probe shows: {SAMPLE_PROBE}"])
+    quoted = make_stage_proposal(
+        feasibility=[f"The probe shows: {SAMPLE_PROBE} {SAMPLE_STATEMENT}"]
+    )
     model_fake.answer(make_stage_proposal(), quoted)
 
     plan = _plan(store, stage_repo, model=model_fake.checking_replies())
@@ -418,7 +424,9 @@ def test_a_feasibility_that_quotes_a_probe_line_is_accepted_at_once(
     open_pulls_api: GitHubApiFake,
 ) -> None:
     seed_stageable(store, body="Fix the file `src/devops_cli/sample.py`.")
-    model_fake.answer(make_stage_proposal(feasibility=[f"The probe shows: {SAMPLE_PROBE}"]))
+    model_fake.answer(
+        make_stage_proposal(feasibility=[f"The probe shows: {SAMPLE_PROBE} {SAMPLE_STATEMENT}"])
+    )
 
     plan = _plan(store, stage_repo, model=model_fake.checking_replies())
 
@@ -2968,7 +2976,9 @@ def test_the_request_lists_the_declared_dependencies_with_their_titles(
     store.seed_issue("fix(roadmap): the first dependency", state=GitHubState.CLOSED, fields=fields)
     store.seed_issue("fix(roadmap): the second dependency", state=GitHubState.CLOSED, fields=fields)
     open_pulls_api.route("POST", "/graphql", github_json(_pull_page([])))
-    model_fake.answer(make_stage_proposal(feasibility=[f"The probe shows: {SAMPLE_PROBE}"]))
+    model_fake.answer(
+        make_stage_proposal(feasibility=[f"The probe shows: {SAMPLE_PROBE} {SAMPLE_STATEMENT}"])
+    )
 
     _plan(store, stage_repo)
 
