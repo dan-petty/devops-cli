@@ -694,6 +694,24 @@ devops roadmap review run [OPTIONS]
 devops roadmap step COMMAND [ARGS]...
 ```
 
+### `devops roadmap step fix-checks`
+
+**Repair a failed check of an open pull request (#5023).**
+
+```bash
+devops roadmap step fix-checks [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--pull`, `-p` | `integer` | - | Number of the pull request to repair. |
+| `--head` | `string` | - | Expected commit SHA of the pull request head. |
+| `--confirm` | `boolean` | - | Confirm and apply check repairs. |
+| `--dry-run` | `boolean` | - | Make no network request and change nothing. |
+
 ### `devops roadmap step fix-conflict`
 
 **Settle merge conflicts on a pull request with the default branch (#5019). Runs deterministic tier 1 resolutions (archive, generated docs, lockfile) and tier 2 model resolution. Without --confirm, tier 2 logs the plan.**
