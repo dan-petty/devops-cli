@@ -162,23 +162,33 @@ def test_a_failed_check_needs_a_fix_and_names_the_check(kind: PullKind, due: Due
 def test_only_a_failed_check_of_ci_infrastructure_waits() -> None:
     checks = _checks(_check("Tests"), _check("Test Job Duration", CheckBucket.FAIL))
 
-    assert isinstance(rule_judgement(_facts(checks=checks)), Waiting)
+    assert rule_judgement(_facts(checks=checks)) == Waiting(
+        "Only CI infrastructure failed: Test Job Duration."
+    )
 
 
 @pytest.mark.parametrize(
-    "checks",
+    ("checks", "reason"),
     [
-        _checks(_check("Tests", CheckBucket.PENDING)),
-        CheckVerdictSummary(
-            items=[
-                PRCheckItem(name="no checks reported", state="pending", bucket=CheckBucket.PENDING)
-            ]
+        (_checks(_check("Tests", CheckBucket.PENDING)), "1 check(s) still run."),
+        (
+            CheckVerdictSummary(
+                items=[
+                    PRCheckItem(
+                        name="no checks reported", state="pending", bucket=CheckBucket.PENDING
+                    )
+                ]
+            ),
+            "The head reports no check run yet.",
         ),
-        CheckVerdictSummary(unread_reason="GitHub answered 502"),
+        (CheckVerdictSummary(unread_reason="The read answered 502"), "The read answered 502"),
     ],
+    ids=("pending", "no-check-run", "unread"),
 )
-def test_a_check_that_runs_or_cannot_be_read_waits(checks: CheckVerdictSummary) -> None:
-    assert isinstance(rule_judgement(_facts(checks=checks)), Waiting)
+def test_a_check_that_runs_or_cannot_be_read_waits(
+    checks: CheckVerdictSummary, reason: str
+) -> None:
+    assert rule_judgement(_facts(checks=checks)) == Waiting(reason)
 
 
 def test_a_plan_with_open_findings_needs_fix_plan() -> None:
