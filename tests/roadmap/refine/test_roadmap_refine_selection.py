@@ -309,6 +309,39 @@ def test_a_backlog_full_of_ready_items_stops_refine_from_no_new_item_up_to_the_l
     ]
 
 
+def test_the_planned_limit_does_not_stop_a_round_from_setting_a_new_item_ready(
+    git_repo: Path,
+    store: InMemoryRoadmapStore,
+    model_fake: ModelFake,
+    config: Callable[..., Path],
+) -> None:
+    """The Planned limit is a rule of the stage job alone: with it at 1 and 50 Planned items, a
+    refine round still takes the one New item of the backlog and sets it Ready with one model
+    call, as it does with no Planned items (#3633)."""
+    config(roadmap={"stage": {"planned_limit": 1}})
+    store.seed_visibility(is_private=True)
+    for _ in range(50):
+        seed_item(store, "Planned", "P2-Medium")
+    number = seed_item(store, "New", "P3-Low")
+    model_fake.answer(
+        json.dumps(
+            {
+                "existing_tool": NO_OPEN_TOOL,
+                "problem_statement": "The item needs a design.",
+                "acceptance_criteria": [CRITERION_JSON],
+            }
+        )
+    )
+
+    apply_refine(store, plan_refine(store, repo=REPO, source=git_repo, limit=1))
+
+    assert (
+        model_fake.call_count,
+        [json.loads(call.prompt)["number"] for call in model_fake.calls],
+        require_item(store, number).status,
+    ) == (1, [number], CONST_ROADMAP_STATUS_READY)
+
+
 def test_a_round_after_refine_left_items_new_leaves_them_waiting_reading_no_body_or_model(
     git_repo: Path,
     store: BodyReadCountingStore,
