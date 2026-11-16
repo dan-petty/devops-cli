@@ -416,6 +416,7 @@ TYPED_BY_SITE = {
     FailureClass.LIMIT_REACHED,
     FailureClass.OUTSIDE_PLAN,
     FailureClass.GIT_CONFIG,
+    FailureClass.REFUSED_REPLY,
     *(
         (getattr(FailureClass, "PLAN_UNREADABLE"),)
         if hasattr(FailureClass, "PLAN_UNREADABLE")
@@ -531,7 +532,7 @@ def test_exit_status_137_of_a_container_is_oom_only_when_its_reason_is_oom_kille
     ] == [FailureClass.OOM, FailureClass.CI_INFRA, FailureClass.OOM]
 
 
-def test_the_classes_are_the_twenty_of_the_taxonomy() -> None:
+def test_the_classes_are_the_twenty_one_of_the_taxonomy() -> None:
     expected = {
         "provider",
         "parser",
@@ -543,6 +544,7 @@ def test_the_classes_are_the_twenty_of_the_taxonomy() -> None:
         "oom",
         "timeout",
         "refused_tool",
+        "refused_reply",
         "conflict",
         "ci_infra",
         "no_change_in_fix",
@@ -557,6 +559,11 @@ def test_the_classes_are_the_twenty_of_the_taxonomy() -> None:
     if hasattr(FailureClass, "PLAN_UNREADABLE"):
         expected.add("plan_unreadable")
     assert {klass.value for klass in FailureClass} == expected
+
+
+test_the_classes_are_the_twenty_of_the_taxonomy = (
+    test_the_classes_are_the_twenty_one_of_the_taxonomy
+)
 
 
 def test_each_class_has_exactly_one_default_action_in_one_table() -> None:
@@ -576,6 +583,7 @@ def test_the_default_actions_are_the_ones_of_the_design() -> None:
         "oom": "raise_limit",
         "timeout": "retry",
         "refused_tool": "wait",
+        "refused_reply": "wait",
         "conflict": "repair",
         "ci_infra": "retry",
         "no_change_in_fix": "wait",

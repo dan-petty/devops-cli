@@ -13,7 +13,8 @@ table of defaults: each class has exactly one `FailureAction`.
 `git_config` from the check of the git settings of the implement job; no rule below makes them,
 except the rule of an evicted pod, which gives `limit_reached` (#5960). A command of the implement
 job that the process runner refuses (`SecurityError`) gives `refused_tool`, which a rule below also
-reads from the text.
+reads from the text. A pull request title or body that breaks a form rule two times gives
+`refused_reply` (#3599).
 The rules are the fallback for a stop whose cause has no class of its own.
 
 **Order of the rules.** The first rule that matches wins, and the order goes from the cause that is
@@ -76,6 +77,7 @@ class FailureClass(StrEnum):
     OOM = "oom"
     TIMEOUT = "timeout"
     REFUSED_TOOL = "refused_tool"
+    REFUSED_REPLY = "refused_reply"
     CONFLICT = "conflict"
     CI_INFRA = "ci_infra"
     NO_CHANGE_IN_FIX = "no_change_in_fix"
@@ -137,6 +139,7 @@ ACTION_BY_CLASS: Final[Mapping[FailureClass, FailureAction]] = MappingProxyType(
         FailureClass.OOM: FailureAction.RAISE_LIMIT,
         FailureClass.TIMEOUT: FailureAction.RETRY,
         FailureClass.REFUSED_TOOL: FailureAction.WAIT,
+        FailureClass.REFUSED_REPLY: FailureAction.WAIT,
         FailureClass.CONFLICT: FailureAction.REPAIR,
         FailureClass.CI_INFRA: FailureAction.RETRY,
         FailureClass.NO_CHANGE_IN_FIX: FailureAction.WAIT,
