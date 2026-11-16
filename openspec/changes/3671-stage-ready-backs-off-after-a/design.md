@@ -1,0 +1,18 @@
+# Design
+
+## Decisions
+
+- **Deliver the wait in the `watch` row and restore no `stage_ready` row.**: The due table holds 13 rows and no `stage_ready` (`src/devops_cli/roadmap/run.py:1032:STATUS_LANE_ROWS: tuple[JobRow, ...] = (`), the retired module `src/devops_cli/roadmap/stage/stage_ready.py` has no caller in `src/`, and `watch` already backs a failed head off.
+- **Keep the wait in the watch ledger `watch.json`, per pull request, and add no `stage_ready.*` key to the item job record.**: The ledger already holds the head, the verdict and the next read time of each pull request (`src/devops_cli/roadmap/watch_row.py:119:class WatchLedgerEntry(BaseModel):`), it is written at each round and survives a Service restart, and a store write per pull request would cost one request a round.
+- **Grow the wait 15, 30, 60 and hold it at 60 minutes.**: The issue body confirms the 15-to-60-minute plan of #3497, and the row is due every 3 minutes (`docs/CLUSTER.md:49`).
+- **Start the wait on the failed verdict of the row only, and clear it on a moved head or base.**: The row gives a failed head the one value `failed` (`src/devops_cli/roadmap/steps/watch.py:38:class PRVerdict(StrEnum):` holds the values), the row reads the head and the base of each pull request each round so a moved head costs no extra request, and a running check keeps the pending verdict and records no wait.
+- **Leave the webhook clear of the wait to the open item #5653.**: #5653 is open for that part, `src/devops_cli/roadmap/run.py:1207:SCOPED_UPDATES: Mapping[tuple[str, str], ScopedUpdate] = MappingProxyType(` holds the `issues` events only, and the row reads the pull request each round, so a push clears the wait at the next round.
+- **Leave the retired row module and its two test modules untouched.**: `src/devops_cli/roadmap/stage/stage_ready.py`, `tests/roadmap/stage/test_roadmap_stage_ready.py` and `tests/roadmap/stage/test_roadmap_stage_ready_jev.py` have no production caller, so the change touches none of them.
+
+## Rejected alternatives
+
+- **Add three keys to the stage record of the item job record and write them on the item.**: The row that wrote those keys is gone: the due table holds 13 rows and no `stage_ready`, and `src/devops_cli/roadmap/watch_row.py:119:class WatchLedgerEntry(BaseModel):` already holds the head and the next read time of each pull request.
+- **Keep the flat 30-minute wait and correct the document only.**: The Expected of the issue asks for a wait that starts short and grows to a limit, and `src/devops_cli/roadmap/watch_row.py:338:next_read_iso = (ctx.current_time + timedelta(minutes=30)).isoformat()` gives one value to every failed head.
+- **Back off on a failed check only, and keep the 3-minute cadence for a cancelled or unread check.**: `src/devops_cli/roadmap/steps/watch.py:191:c for c in items if c.bucket in (CheckBucket.FAIL, CheckBucket.CANCEL, CheckBucket.UNREAD)` gives the one failed verdict to a cancelled and an unread check too, and `due_steps` routes on that one verdict, so a second judgement of the check buckets inside the row would split the row's single verdict.
+- **Skip the pull request read as well as the check read while the wait runs.**: The row reads every open pull request in one batched GraphQL query (`src/devops_cli/roadmap/watch_row.py:def watch_round`), so a skipped pull request saves no request, and skipping the head read would leave a push unseen for up to 60 minutes.
+- **Clear the wait on a webhook delivery in this change.**: #5653 is open for that part, and `src/devops_cli/roadmap/run.py:1207:SCOPED_UPDATES: Mapping[tuple[str, str], ScopedUpdate] = MappingProxyType(` holds the `issues` events only, so a `pull_request` or `check_run` delivery has no scoped update to clear the wait.
