@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 import yaml
+from packaging.version import Version
 
 from devops_cli.config.defaults import DEFAULT_PYTHON_VERSION
 from devops_cli.roadmap.runner_tools import NODE_MAJOR, UV_VERSION
@@ -258,6 +259,7 @@ def test_a_security_fix_comes_at_once_as_a_fix_with_the_newest_release() -> None
             "commitMessageSuffix": "",
             "prConcurrentLimit": 4,
             "vulnerabilityFixStrategy": "highest",
+            "separateMajorMinor": False,
         },
         {
             "enabled": True,
@@ -268,6 +270,16 @@ def test_a_security_fix_comes_at_once_as_a_fix_with_the_newest_release() -> None
         },
         "1 year",
     )
+
+
+def test_a_security_fix_branch_holds_one_update_of_each_dependency() -> None:
+    """The branch name of a security fix has no major part. With the major and the minor split,
+    the mcp branch held the update to 1.30.0 and the update to 2.3.0, and uv got both pins in one
+    command and found no solution (#6032). With no split, the branch holds only the newest fixed
+    release, as `vulnerabilityFixStrategy` asks."""
+    alerts = _preset()["vulnerabilityAlerts"]
+
+    assert (alerts["vulnerabilityFixStrategy"], alerts["separateMajorMinor"]) == ("highest", False)
 
 
 def test_a_migration_waits_for_an_approval_on_the_dashboard() -> None:
@@ -455,6 +467,49 @@ def test_lock_file_maintenance_keeps_google_genai_below_3_until_the_pydantic_ai_
     ) == ("<3", True, True)
 
 
+# The first fixed release of each package that semgrep pins below its security fix (#3988).
+_SEMGREP_HELD_FIXES = {"mcp": "1.30.0", "opentelemetry-api": "1.45.2"}
+
+
+def test_renovate_holds_the_security_fixes_that_the_semgrep_pins_block() -> None:
+    """semgrep pins `mcp==1.29.0` and `opentelemetry-api~=1.37.0`, so uv finds no lock of the
+    semgrep tool with their fixes, and Renovate stopped each fix as an empty commit at each run
+    (#6032). A hold matches only a locked version below the fix, so it ends when the lock takes the
+    fix. The test fails then: delete the hold. The Dashboard footer says why the fixes wait."""
+    holds = {
+        rule["matchPackageNames"][0]: rule
+        for rule in _renovate()["packageRules"]
+        if rule.get("matchDepTypes") == ["indirect"]
+    }
+    locked = dict(
+        re.findall(r"^([a-z0-9-]+)==(\S+)", _text("src/devops_cli/tools_lock/semgrep.txt"), re.M)
+    )
+    footer = _renovate()["dependencyDashboard"]["footer"]
+
+    assert {name: _without_description(rule) for name, rule in holds.items()} == {
+        name: {
+            "matchManagers": ["pip-compile"],
+            "matchFileNames": ["src/devops_cli/tools_lock/semgrep.in"],
+            "matchDepTypes": ["indirect"],
+            "matchPackageNames": [name],
+            "matchCurrentVersion": f"<{fixed}",
+            "enabled": False,
+        }
+        for name, fixed in _SEMGREP_HELD_FIXES.items()
+    }
+    assert [
+        name
+        for name, fixed in _SEMGREP_HELD_FIXES.items()
+        if Version(locked[name]) >= Version(fixed)
+    ] == []
+    assert [name for name in _SEMGREP_HELD_FIXES if f"`{name}`" not in footer] == []
+    assert [
+        text
+        for text in [footer, *(r["description"] for r in holds.values())]
+        if "#3988" not in text
+    ] == []
+
+
 @cache
 def _expected_custom_deps() -> dict[str, list[tuple[str, str]]]:
     """Each pin that only a custom manager reads, by file, from the files that hold it."""
@@ -616,6 +671,40 @@ def test_actions_and_dockerfiles_pin_digests() -> None:
     pinned = [rule["matchManagers"] for rule in _preset()["packageRules"] if rule.get("pinDigests")]
 
     assert pinned == [["github-actions", "dockerfile"]]
+
+
+def _pins_digest(manager: str, dep_type: str) -> bool:
+    """Whether Renovate pins the digest of a dependency: the last preset rule that matches its
+    manager and its type sets it, because Renovate applies the rules in order."""
+    pinned = False
+    for rule in _preset()["packageRules"]:
+        if (
+            "pinDigests" in rule
+            and manager in rule["matchManagers"]
+            and dep_type in rule.get("matchDepTypes", [dep_type])
+        ):
+            pinned = rule["pinDigests"]
+    return pinned
+
+
+def test_a_version_input_of_an_action_pins_no_digest() -> None:
+    """The `version` input of trivy-action and of setup-uv names a release tag, and the file has no
+    place for a digest. Renovate made a digest pin of each input and could not write it, so the
+    `trivy` and `uv` branches stopped with "update failure" at each run (#6032). The action
+    references and the images keep their digest pins."""
+    dependencies = [
+        ("github-actions", "action"),
+        ("github-actions", "docker"),
+        ("github-actions", "container"),
+        ("github-actions", "service"),
+        ("github-actions", "uses-with"),
+        ("dockerfile", "final"),
+        ("dockerfile", "stage"),
+    ]
+
+    assert [dep for dep in dependencies if not _pins_digest(*dep)] == [
+        ("github-actions", "uses-with")
+    ]
 
 
 def _python_versions() -> Iterator[tuple[str, str, str]]:

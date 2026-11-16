@@ -31,7 +31,8 @@
     "commitMessagePrefix": "fix(deps):",
     "commitMessageSuffix": "",
     "prConcurrentLimit": 4,
-    "vulnerabilityFixStrategy": "highest"
+    "vulnerabilityFixStrategy": "highest",
+    "separateMajorMinor": false
   },
   "lockFileMaintenance": {
     "enabled": true,
@@ -136,6 +137,12 @@
     {
       "matchManagers": ["github-actions", "dockerfile"],
       "pinDigests": true
+    },
+    {
+      "description": "A version input of an action, such as the version of trivy-action or setup-uv, names a release tag and has no place for a digest. Renovate cannot write a digest pin of it (update failure), so only the action references and the images pin a digest.",
+      "matchManagers": ["github-actions"],
+      "matchDepTypes": ["uses-with"],
+      "pinDigests": false
     }
   ]
 }
