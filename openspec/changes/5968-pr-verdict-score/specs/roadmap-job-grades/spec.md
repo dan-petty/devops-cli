@@ -22,8 +22,8 @@ A bot pull request whose title starts with `docs(openspec): plan #` SHALL score 
 `devops roadmap eval grades` SHALL read the pull requests that the bot of `service.github_app.slug` opened in the window, with their label events, in one GraphQL search for each 100 pull requests. `--repo` SHALL put the repository in the search.
 
 #### Scenario: The search of the window and the repository
-- **WHEN** a person runs `devops roadmap eval grades --repo example/app` at 2026-11-16T12:00:00Z with the slug `example-bot`
-- **THEN** the command sends one GraphQL search for `is:pr author:app/example-bot created:>=2026-11-09T12:00:00Z repo:example/app`
+- **WHEN** a person runs `devops roadmap eval grades --repo example/app` at 2026-11-09T12:00:00Z with the slug `example-bot`
+- **THEN** the command sends one GraphQL search for `is:pr author:app/example-bot created:>=2026-11-02T12:00:00Z repo:example/app`
 
 #### Scenario: No slug
 - **WHEN** `service.github_app.slug` is not set
