@@ -522,6 +522,29 @@ When a move stops after the point of no return, the old claim is gone, the new v
 2. Scale the workloads back to their replicas, and make sure that their pods run on the target node.
 3. Turn on automated sync again: the Application, then `bootstrap`, which restores `cluster`, which restores the others from git.
 
+#### Measure the copy path
+
+The module `src/devops_cli/k8s/volume_move_measure.py` measures the reliability of the copy path between two nodes. It plans the same copy command as `devops k8s volume move` and compares the two sides with the SHA-256 digest script.
+
+```bash
+uv run python -m devops_cli.k8s.volume_move_measure --source-node <source-node> --target-node <target-node>
+```
+
+Options:
+- `--source-node`: The node of the source claim (required).
+- `--target-node`: The node of the destination claim (required). The two node names must differ.
+- `--context`: The kubectl context of the cluster.
+- `--storage-class`: The storage class of the two claims (defaults to `local-path`).
+- `--dry-run`: List the planned requests in order and make no request.
+
+The measure creates one temporary namespace (`volume-move-measure`) with two 1 Gi claims and two pods. The source pod runs on `--source-node` and the destination pod runs on `--target-node`. It runs 20 copies of 100 MiB (104,857,600 bytes) of random data:
+1. It writes fresh random data to the source claim.
+2. It empties the destination claim.
+3. It runs the copy pipe.
+4. It reads the SHA-256 digest of both sides and compares them.
+
+The run deletes the temporary namespace when it ends, whether the copies pass or fail. The report prints a Markdown table with the count of complete copies and digest matches. At least 20 copies must complete with a matching digest (20/20 complete copies and 20/20 digest matches), else the command exits non-zero. A person runs the live measure against the cluster and records the 20/20 numbers in #3953.
+
 ## Capacity targets
 
 The [Kubernetes guideline](../docs/guidelines/kubernetes.md) sets the targets and the tuning method of a cluster. This section holds only the decisions of this cluster. [Tracker #5542](https://github.com/dan-petty/devops-cli/issues/5542) holds the open capacity gaps of this cluster, so this section holds no gap row. The project review report gives the measured values.

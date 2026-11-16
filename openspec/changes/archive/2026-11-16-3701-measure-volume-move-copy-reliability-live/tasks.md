@@ -40,9 +40,9 @@ Kind: behavior. Reads: `src/devops_cli/k8s/volume_move_measure.py`, `tests/k8s/t
 
 Kind: other. Reads: `k8s/README.md`. Changes: `k8s/README.md`.
 
-- [ ] 5.1 Add a subsection Measure the copy path under the volume move section of `k8s/README.md`: the module and its options, the two nodes, the 20 copies of 100 MiB of random data, the digest of each side, the rule of 20 complete copies with a matching digest, the temporary namespace that the run deletes, and the step of the person who runs it and records 20/20 complete copies and 20/20 digest matches in #3953
+- [x] 5.1 Add a subsection Measure the copy path under the volume move section of `k8s/README.md`: the module and its options, the two nodes, the 20 copies of 100 MiB of random data, the digest of each side, the rule of 20 complete copies with a matching digest, the temporary namespace that the run deletes, and the step of the person who runs it and records 20/20 complete copies and 20/20 digest matches in #3953
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 5.2 Edit `k8s/README.md` with the live measure and the numbers that a person records in #3953
+- [x] 5.2 Edit `k8s/README.md` with the live measure and the numbers that a person records in #3953
   - Verification: `$ uv run devops ci docs` passes
 
 ## Workflow follow-up
