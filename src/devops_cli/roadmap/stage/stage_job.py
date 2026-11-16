@@ -94,6 +94,7 @@ from devops_cli.roadmap.failure import (
     failure_class_of,
 )
 from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
+from devops_cli.roadmap.return_item import apply_return, plan_return
 from devops_cli.roadmap.round_log import log_failed_item
 from devops_cli.roadmap.stage.stage import (
     StageApplied,
@@ -107,7 +108,6 @@ from devops_cli.roadmap.stage.stage import (
     plan_stage,
     stage_results,
 )
-from devops_cli.roadmap.status_sync import StatusFacts, write_status
 from devops_cli.roadmap.stores.store import Item, RoadmapStore, StageRecordKey
 from devops_cli.roadmap.time_budget import TimeBudget
 from devops_cli.server.service import RequestBudget
@@ -295,7 +295,7 @@ def check_in(
     count, body = plan_defects(item)
     limit = load_settings().roadmap.stage.plan_defect_limit
     if failure in SPLIT_CLASSES and count >= limit:
-        _return_for_split(store, item, result, count, limit, written)
+        _return_for_split(store, repo, item, result, count, limit, written)
     else:
         if failure in SPLIT_CLASSES:
             written |= {
@@ -310,6 +310,7 @@ def check_in(
 
 def _return_for_split(
     store: RoadmapStore,
+    repo: str,
     item: Item,
     result: str,
     count: int,
@@ -320,16 +321,23 @@ def _return_for_split(
     comment that asks refine to split it, set New with `marks` and no count, then release the
     claim of the Service. The comment goes first, so a failed write never leaves a return that no
     one was told about. The item is too large for one plan, so it is divided, not tried again."""
-    store.comment(
-        item.number,
+    comment = (
         f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\n\n"
-        + MESSAGES.roadmap.stage_returned_job_ends.format(result=result, count=count, limit=limit),
+        + MESSAGES.roadmap.stage_returned_job_ends.format(result=result, count=count, limit=limit)
     )
-    write_status(
+    apply_return(
         store,
-        item,
-        StatusFacts(needs_refine=True),
-        marks={**marks, StageRecordKey.PLAN_DEFECTS: None, StageRecordKey.PLAN_DEFECTS_BODY: None},
+        plan_return(
+            store,
+            item.number,
+            comment,
+            repo,
+            marks={
+                **marks,
+                StageRecordKey.PLAN_DEFECTS: None,
+                StageRecordKey.PLAN_DEFECTS_BODY: None,
+            },
+        ),
     )
     held = store.item(item.number)
     if held is not None and held.owner == CONST_ROADMAP_OWNER_SERVICE:

@@ -194,6 +194,7 @@ from devops_cli.roadmap.refine.refine import (
     stage_comment_text,
 )
 from devops_cli.roadmap.refine.refine_investigation import task_window
+from devops_cli.roadmap.return_item import apply_return, plan_return
 from devops_cli.roadmap.round_log import (
     log_fix_plan_progress,
     log_gate_extension,
@@ -327,7 +328,6 @@ from devops_cli.roadmap.stage.stage_verify import (
     repair_round_due,
     return_problem,
 )
-from devops_cli.roadmap.status_sync import StatusFacts, write_status
 from devops_cli.roadmap.step_files import code_spans
 from devops_cli.roadmap.step_metrics import observe_step
 from devops_cli.roadmap.stores.store import (
@@ -357,9 +357,6 @@ logger = logging.getLogger(__name__)
 
 # The row of the step seconds that this job sends (#4066).
 _ROW = "stage"
-
-# A rejected, blocked or returned item waits for refine: its Status is New.
-_RETURNED: Final[StatusFacts] = StatusFacts(needs_refine=True)
 
 # ── The filter ────────────────────────────────────────────────────────────────
 
@@ -3852,7 +3849,14 @@ def _delete_rejected_branch(source: Path, branch: str, tip: str) -> None:
             logger.warning("The branch %s changed after the plan judged it, so it stays.", branch)
 
 
-def _reject_plan(store: RoadmapStore, source: Path, rejection: Rejection, *, staged: bool) -> None:
+def _reject_plan(
+    store: RoadmapStore,
+    source: Path,
+    rejection: Rejection,
+    *,
+    staged: bool,
+    repo: str = "",
+) -> None:
     """Write a rejected plan (#3503): delete the staged branch, post the comment with the reason,
     then record the rejection and clear every other key of the plan (`STAGE_PLAN_KEYS`), which
     keeps the check-out of a stage Job. The branch goes first and the
@@ -3861,12 +3865,22 @@ def _reject_plan(store: RoadmapStore, source: Path, rejection: Rejection, *, sta
     it (`staged`): then its Status stays as it is."""
     if rejection.branch is not None:
         _delete_rejected_branch(source, rejection.branch, rejection.branch_sha)
-    store.comment(rejection.number, rejection.comment)
     marks = dict.fromkeys(STAGE_PLAN_KEYS) | {StageRecordKey.REJECTED: rejection.plan.record}
     if staged:
+        store.comment(rejection.number, rejection.comment)
         store.set_marks(rejection.item, marks)
     else:
-        write_status(store, rejection.item, _RETURNED, marks=marks)
+        target_repo = repo or getattr(store, "repo", getattr(store, "_repo", ""))
+        apply_return(
+            store,
+            plan_return(
+                store,
+                rejection.number,
+                rejection.comment,
+                target_repo,
+                marks=marks,
+            ),
+        )
 
 
 _STOP_THE_RUN: tuple[type[DevOpsCLIError], ...] = (GitHubUnauthenticatedError, ServiceStoppingError)
@@ -3894,7 +3908,7 @@ def write_each(
             done.append(item.number)
 
 
-def _return_blocked(store: RoadmapStore, blocked: Blocked) -> None:
+def _return_blocked(store: RoadmapStore, blocked: Blocked, *, repo: str = "") -> None:
     """Return the item to New with its open blockers in `refine.blocked_by`, and say why in a
     comment (#3418). Refine waits on that record until each blocker closes, and the stage
     selection leaves the item out meanwhile."""
@@ -3902,16 +3916,25 @@ def _return_blocked(store: RoadmapStore, blocked: Blocked) -> None:
     item = blocked.target.item
     issues = ", ".join(f"#{number}" for number in blocked.blockers)
     paths = ", ".join(f"`{path}`" for path in blocked.paths)
-    store.comment(
-        item.number,
+    comment = (
         f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\n\n"
-        f"{texts.stage_returned_blocked.format(issues=issues, paths=paths)}",
+        f"{texts.stage_returned_blocked.format(issues=issues, paths=paths)}"
     )
     marks = {
         RefineRecordKey.BLOCKED_BY: ",".join(str(number) for number in blocked.blockers),
         RefineRecordKey.NEXT_STEP: NextStep.BLOCKED.value,
     }
-    write_status(store, item, _RETURNED, marks=marks)
+    target_repo = repo or getattr(store, "repo", getattr(store, "_repo", ""))
+    apply_return(
+        store,
+        plan_return(
+            store,
+            item.number,
+            comment,
+            target_repo,
+            marks=marks,
+        ),
+    )
 
 
 def _false_premise(target: StageTarget, evidence: tuple[str, ...]) -> FalsePremise | None:
@@ -3920,21 +3943,36 @@ def _false_premise(target: StageTarget, evidence: tuple[str, ...]) -> FalsePremi
     return FalsePremise(target, evidence) if evidence else None
 
 
-def _return_premise(store: RoadmapStore, premise: FalsePremise) -> None:
+def _return_premise(store: RoadmapStore, premise: FalsePremise, *, repo: str = "") -> None:
     """Return the item to New with the probe evidence in a comment, and record a body edit as the
     next step (#3406). The body says that a class field is absent, and the staging commit defines
     it, so the body must change before refine plans the item again."""
     texts = MESSAGES.roadmap
     item = premise.target.item
-    store.comment(
-        item.number,
+    comment = (
         f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\n\n"
-        f"{texts.stage_returned_premise.format(evidence=' '.join(premise.evidence))}",
+        f"{texts.stage_returned_premise.format(evidence=' '.join(premise.evidence))}"
     )
-    write_status(store, item, _RETURNED, marks={RefineRecordKey.NEXT_STEP: NextStep.EDIT.value})
+    target_repo = repo or getattr(store, "repo", getattr(store, "_repo", ""))
+    apply_return(
+        store,
+        plan_return(
+            store,
+            item.number,
+            comment,
+            target_repo,
+            marks={RefineRecordKey.NEXT_STEP: NextStep.EDIT.value},
+        ),
+    )
 
 
-def _record_failures(store: RoadmapStore, failures: Sequence[StageFailure], now: datetime) -> None:
+def _record_failures(
+    store: RoadmapStore,
+    failures: Sequence[StageFailure],
+    now: datetime,
+    *,
+    repo: str = "",
+) -> None:
     """Record each failure in the job record of its item: the time, the type of the error (#3493),
     the step and the failure class (#4056), in one write. The item waits for the wait of its class, and the job goes on with the others. A
     `plan_defect` or `plan_unreadable` failure also writes its count on the body (#4491, #5214), and the failure that reaches
@@ -3956,7 +3994,7 @@ def _record_failures(store: RoadmapStore, failures: Sequence[StageFailure], now:
             continue
         count, body = plan_defects(item)
         if count >= limit:
-            _return_plan_defects(store, item, failure, count, marks, limit)
+            _return_plan_defects(store, item, failure, count, marks, limit, repo=repo)
             continue
         marks |= {StageRecordKey.PLAN_DEFECTS: str(count), StageRecordKey.PLAN_DEFECTS_BODY: body}
         store.set_marks(item, marks)
@@ -3989,6 +4027,8 @@ def _return_plan_defects(
     count: int,
     marks: Mapping[StageRecordKey, str | None],
     limit: int,
+    *,
+    repo: str = "",
 ) -> None:
     """Return `item` to New after its `count`th refused plan on the same body, at `limit`
     (#4491, #5440): post the problems of the last plan in order, then set New with the failure `marks`
@@ -4000,24 +4040,28 @@ def _return_plan_defects(
     problems = failure.problems
     if not (failure.stopped_by_checks and problems):
         problems = (*problems, failure.reason or failure.error)
-    store.comment(
-        item.number,
+    comment = (
         f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\n\n"
         + texts.stage_returned_plan_defects.format(
             count=count,
             limit=limit,
             problems="\n".join(f"- {safe_text(problem)}" for problem in problems),
-        ),
+        )
     )
-    write_status(
+    target_repo = repo or getattr(store, "repo", getattr(store, "_repo", ""))
+    apply_return(
         store,
-        item,
-        _RETURNED,
-        marks={
-            **marks,
-            StageRecordKey.PLAN_DEFECTS: None,
-            StageRecordKey.PLAN_DEFECTS_BODY: None,
-        },
+        plan_return(
+            store,
+            item.number,
+            comment,
+            target_repo,
+            marks={
+                **marks,
+                StageRecordKey.PLAN_DEFECTS: None,
+                StageRecordKey.PLAN_DEFECTS_BODY: None,
+            },
+        ),
     )
     logger.info(
         texts.stage_returned_plan_defects_log,
@@ -4042,11 +4086,18 @@ class StageWriter:
     no failed item: the failures before it are recorded, and the run ends with the stop (#2753).
     """
 
-    def __init__(self, store: RoadmapStore, source: Path | str, *, now: datetime | None = None):
+    def __init__(
+        self,
+        store: RoadmapStore,
+        source: Path | str,
+        *,
+        now: datetime | None = None,
+        repo: str = "",
+    ):
         self._store = store
         self._source = Path(source)
         self._now = now
-        self._repo = ""
+        self._repo = repo
         self._sha = ""
         self._rejections: dict[int, Rejection] = {}
         self._removed: list[int] = []
@@ -4083,7 +4134,14 @@ class StageWriter:
                 [
                     (
                         r.item,
-                        partial(_reject_plan, self._store, self._source, r, staged=False),
+                        partial(
+                            _reject_plan,
+                            self._store,
+                            self._source,
+                            r,
+                            staged=False,
+                            repo=self._repo,
+                        ),
                     )
                     for r in plan.rejections
                     if r.number not in selected
@@ -4126,7 +4184,19 @@ class StageWriter:
         if (rejection := self._rejections.pop(item.number, None)) is not None:
             staged = isinstance(result, StagedChange)
             write_each(
-                [(item, partial(_reject_plan, store, source, rejection, staged=staged))],
+                [
+                    (
+                        item,
+                        partial(
+                            _reject_plan,
+                            store,
+                            source,
+                            rejection,
+                            staged=staged,
+                            repo=self._repo,
+                        ),
+                    )
+                ],
                 self._rejected,
                 self._failed,
             )
@@ -4138,11 +4208,15 @@ class StageWriter:
             )
         elif isinstance(result, Blocked):
             write_each(
-                [(item, partial(_return_blocked, store, result))], self._returned, self._failed
+                [(item, partial(_return_blocked, store, result, repo=self._repo))],
+                self._returned,
+                self._failed,
             )
         elif isinstance(result, FalsePremise):
             write_each(
-                [(item, partial(_return_premise, store, result))], self._returned, self._failed
+                [(item, partial(_return_premise, store, result, repo=self._repo))],
+                self._returned,
+                self._failed,
             )
 
     def _stage(self, change: StagedChange) -> None:
@@ -4169,7 +4243,10 @@ class StageWriter:
 
     def _record(self, planned: Iterable[StageFailure], mark: int) -> None:
         _record_failures(
-            self._store, [*planned, *self._failed[mark:]], self._now or datetime.now(UTC)
+            self._store,
+            [*planned, *self._failed[mark:]],
+            self._now or datetime.now(UTC),
+            repo=self._repo,
         )
 
 

@@ -17,7 +17,7 @@ from devops_cli.roadmap.return_item import (
     plan_return,
     render_return_plan,
 )
-from devops_cli.roadmap.stores.store import ItemField
+from devops_cli.roadmap.stores.store import ItemField, RefineRecordKey, StageRecordKey
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "owner/repo"
@@ -51,6 +51,21 @@ def test_a_returned_item_is_new_with_the_evidence_comment() -> None:
     assert [comment.body for comment in store.comments_on(number)] == [
         "Upstream library removed this API."
     ]
+
+
+def test_a_returned_item_preserves_custom_marks() -> None:
+    store = InMemoryRoadmapStore(repo=REPO)
+    number = _item(store, "Unworkable item with marks", "Ready")
+
+    marks = {RefineRecordKey.NEXT_STEP: "edit", StageRecordKey.PLAN_DEFECTS: None}
+    plan = plan_return(store, number, "Premise failed.", REPO, marks=marks)
+    apply_return(store, plan)
+
+    returned = store.item(number)
+    assert returned is not None
+    assert returned.status == "New"
+    assert returned.job_record.get(RefineRecordKey.NEXT_STEP) == "edit"
+    assert returned.job_record.get(StageRecordKey.PLAN_DEFECTS) is None
 
 
 def test_the_plan_names_the_item_the_status_and_the_evidence() -> None:

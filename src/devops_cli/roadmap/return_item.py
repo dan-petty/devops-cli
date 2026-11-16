@@ -7,8 +7,9 @@ re-scope/refactor, sets its Status to New (the `status/new` label), and stops.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import DevOpsCLIError
@@ -31,6 +32,7 @@ class ReturnPlan:
     title: str
     comment: str
     repo: str
+    marks: Mapping[Any, str | int | None] | None = None
 
     @property
     def target_status(self) -> str:
@@ -43,6 +45,8 @@ def plan_return(
     item_number: int,
     comment: str,
     repo: str,
+    *,
+    marks: Mapping[Any, str | int | None] | None = None,
 ) -> ReturnPlan:
     """Validate that the issue is an item of the roadmap and return the ReturnPlan."""
     item = store.item(item_number)
@@ -56,6 +60,7 @@ def plan_return(
         title=item.title,
         comment=clean_comment,
         repo=repo,
+        marks=marks,
     )
 
 
@@ -65,7 +70,7 @@ def apply_return(store: RoadmapStore, plan: ReturnPlan) -> None:
     if item is None:
         raise DevOpsCLIError(f"#{plan.item_number} is not an item of the roadmap.")
     store.comment(plan.item_number, plan.comment)
-    write_status(store, item, _RETURNED)
+    write_status(store, item, _RETURNED, marks=plan.marks)
 
 
 def dry_run_return(
