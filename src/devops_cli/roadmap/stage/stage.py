@@ -116,7 +116,6 @@ from devops_cli.config.constants import (
     CONST_CI_WORKFLOW_FILE,
     CONST_GIT_MAIN_BRANCH,
     CONST_OPENSPEC_CONFIG_PATH,
-    CONST_ROADMAP_EPIC_LABEL,
     CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
     CONST_ROADMAP_PLANNED_LIMIT_PRIORITIES,
     CONST_ROADMAP_PRIORITY_VALUES,
@@ -689,9 +688,8 @@ class _Judge:
 
     def _tracker(self, item: Item) -> str | None:
         """A tracker has sub-issues or the label `type/epic`: its sub-issues deliver it, so no
-        plan of its own makes sense (#1985)."""
-        is_tracker = item.sub_issues > 0 or CONST_ROADMAP_EPIC_LABEL in item.labels
-        return MESSAGES.roadmap.stage_left_tracker if is_tracker else None
+        plan of its own makes sense (#1985). `Item.is_tracker` holds the one test of it (#3703)."""
+        return MESSAGES.roadmap.stage_left_tracker if item.is_tracker else None
 
     def _author(self, item: Item) -> str | None:
         """An account that the jobs do not trust opened the item (#3502)."""
