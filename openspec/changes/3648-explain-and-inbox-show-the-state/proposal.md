@@ -67,5 +67,5 @@ No open, maintained tool or library covers this need: the output is this project
 
 ## Dependencies
 
-- #5786: changes `src/devops_cli/lang/en/messages.py`, the file that this change also changes for the new texts of the two commands.
-- #5834: changes `src/devops_cli/lang/en/messages.py`, the file that this change also changes for the new texts of the two commands.
+- PR #5786: changes `src/devops_cli/lang/en/messages.py`, the file that this change also changes for the new texts of the two commands.
+- PR #5834: changes `src/devops_cli/lang/en/messages.py`, the file that this change also changes for the new texts of the two commands.
