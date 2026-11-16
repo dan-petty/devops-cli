@@ -111,11 +111,12 @@ def code_spans(text: str) -> tuple[str, ...]:
 
 
 def _outside_spans(line: str) -> str:
-    """The text of `line` that no code span holds, without the separators of the names."""
+    """The words of `line` that no code span holds, joined with a comma, or an empty text when
+    each name is in a code span."""
     rest = line
     for span in code_spans(line):
         rest = rest.replace(f"`{span}`", "")
-    return _ADDS_SEPARATORS.sub("", rest)
+    return ", ".join(word for word in _ADDS_SEPARATORS.split(rest) if word)
 
 
 def adds_problem(text: str) -> str | None:
