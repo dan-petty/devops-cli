@@ -65,7 +65,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -117,8 +117,11 @@ from devops_cli.http.entry import http_client
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.adr import Adr, fit_to_budget, names, read_adrs, rejects
 from devops_cli.roadmap.agent_run import error_answer
+from devops_cli.roadmap.alternatives_reply_fixable import REPLY_FIXABLE
 from devops_cli.roadmap.body_hash import extract_section_and_outside, hash_text
 from devops_cli.roadmap.commit_title import commit_type
+from devops_cli.roadmap.decision_point import Mode, ResolverChain, chain_of
+from devops_cli.roadmap.decision_step import Band
 from devops_cli.roadmap.failure import FailureClass, failure_class_of
 from devops_cli.roadmap.inventory import (
     Inventory,
@@ -533,13 +536,17 @@ class Check:
 class CheckFailure:
     """An item the job skipped, and why: a failed model call, a run that ended with no reply, or a
     reply the job refused. `error_class` and `failed_at` go to the item's job record.
-    `failure_class` is the class of a failed model call, which the result line logs (#4845)."""
+    `failure_class` is the class of a failed model call, which the result line logs (#4845).
+    `reason_code` is the stable code of a refused reply or stopped run (#4864).
+    `band` is the decision band from alternatives.reply_fixable (#4864)."""
 
     item: Item
     reason: str
     error_class: str
     failed_at: datetime
     failure_class: FailureClass | None = None
+    reason_code: str | None = None
+    band: Band | None = None
 
 
 @dataclass(frozen=True)
@@ -750,44 +757,44 @@ def _search_missing(tools: AlternativesTools) -> str | None:
     return None if tools.queries else MESSAGES.roadmap.alternatives_retry_search
 
 
-def _retry_message(reply: AlternativesReply, tools: AlternativesTools) -> str | None:
-    """The message that sends `reply` back to the model once, or None. Another turn can mend a
-    verdict that only the job sets, and a reply that follows no answered search (#3505, #4044)."""
+def _retry_message(code: str, text: str, reply: AlternativesReply, tools: AlternativesTools) -> str:
+    """The message that sends `reply` back to the model once."""
     texts = MESSAGES.roadmap
-    messages = [
-        message
-        for message in (
-            texts.alternatives_retry_verdict.format(verdict=reply.verdict.value)
-            if reply.verdict in _JOB_VERDICTS
-            else None,
-            _search_missing(tools),
-        )
-        if message is not None
-    ]
-    return " ".join(messages) or None
+    if code in ("job_verdict", "skip_only"):
+        return texts.alternatives_retry_verdict.format(verdict=reply.verdict.value)
+    if code == "no_search":
+        return texts.alternatives_retry_search
+    return text
 
 
-def _refusal(reply: AlternativesReply, tools: AlternativesTools) -> str | None:
-    """Why the job refuses `reply`, or None. The model cannot give `not-applicable`, since the job
-    sets it for a skip class only, nor `rejected` or `in-use`, which the job gives when it
-    confirms `adr` and `in_use`; every verdict must follow a search; a tool verdict needs a tool
-    whose facts a tool read; and every source must be a URL that a tool returned."""
+def _refusal_reason(reply: AlternativesReply, tools: AlternativesTools) -> tuple[str, str] | None:
+    """The stable reason code and refusal message of `reply`, or None."""
     texts = MESSAGES.roadmap
     if reply.verdict is Verdict.NOT_APPLICABLE:
-        return texts.alternatives_reason_skip_only
+        return "skip_only", texts.alternatives_reason_skip_only
     if reply.verdict in _JOB_VERDICTS:
-        return texts.alternatives_reason_job_verdict.format(verdict=reply.verdict.value)
+        return "job_verdict", texts.alternatives_reason_job_verdict.format(
+            verdict=reply.verdict.value
+        )
     if not tools.queries:
-        return texts.alternatives_reason_no_search
+        return "no_search", texts.alternatives_reason_no_search
     if reply.verdict in _TOOL_VERDICTS:
         if reply.tool_url is None:
-            return texts.alternatives_reason_no_tool.format(verdict=reply.verdict.value)
+            return "no_tool", texts.alternatives_reason_no_tool.format(verdict=reply.verdict.value)
         if normalize_url(reply.tool_url) not in tools.facts:
-            return texts.alternatives_reason_no_facts.format(url=reply.tool_url)
+            return "no_facts", texts.alternatives_reason_no_facts.format(url=reply.tool_url)
     unknown = next(
         (url for url in reply.sources if normalize_url(url) not in tools.allowed_urls), None
     )
-    return texts.alternatives_reason_url.format(url=unknown) if unknown is not None else None
+    if unknown is not None:
+        return "url", texts.alternatives_reason_url.format(url=unknown)
+    return None
+
+
+def _refusal(reply: AlternativesReply, tools: AlternativesTools) -> str | None:
+    """Why the job refuses `reply`, or None."""
+    reason = _refusal_reason(reply, tools)
+    return reason[1] if reason is not None else None
 
 
 def _checked_tool(
@@ -994,7 +1001,9 @@ def _skip_check(item: Item, skip_class: str, now: datetime) -> Check | CheckFail
     or the failure when the body holds an unpaired marker."""
     problem = _marker_problem(item.body)
     if problem is not None:
-        return CheckFailure(item, problem, CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR, now)
+        return CheckFailure(
+            item, problem, CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR, now, reason_code="marker"
+        )
     return _completed(
         Check(
             item=item,
@@ -1073,14 +1082,30 @@ def validate_reply(
     *,
     inventory: Inventory | None = None,
     returns: int = 0,
+    chain: ResolverChain[Mapping[str, Any]] | None = None,
+    band: Band | None = None,
 ) -> Check | CheckFailure:
     """The check that `reply` makes, or the failure when the job refuses it. `adrs` are the ADRs
     in force that the model saw, which confirm the ADR that the reply names. `inventory` holds the
     tools that the repository uses (#4661); a read of deps.dev that it makes can raise
     `httpx2.HTTPError` or `ValidationError`."""
-    refusal = _refusal(reply, tools) or _marker_problem(item.body)
+    refusal = _refusal_reason(reply, tools)
     if refusal is not None:
-        return CheckFailure(item, refusal, CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR, now)
+        code, text = refusal
+        if band is None and chain is not None:
+            earlier_code = item.job_record.get(AlternativesRecordKey.FAILED_REASON)
+            record = chain.decide(
+                {"code": code, "earlier_code": earlier_code}, subject=f"#{item.number}"
+            )
+            band = record.band
+        return CheckFailure(
+            item, text, CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR, now, reason_code=code, band=band
+        )
+    problem = _marker_problem(item.body)
+    if problem is not None:
+        return CheckFailure(
+            item, problem, CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR, now, reason_code="marker"
+        )
     allowed = tools.allowed_urls
     tool = _checked_tool(reply, tools, now)
     verdict, adr, in_repository = _verdict_of(item, reply, tool, adrs, inventory)
@@ -1121,6 +1146,91 @@ def _stopped_reason(stopped: InvestigationStopped) -> str:
     )
 
 
+def _stopped_code(stopped: InvestigationStopped) -> str:
+    """The stable reason code of an investigation that stopped."""
+    if stopped.schema_broken:
+        return "schema_broken"
+    if stopped.output_limit:
+        return "output_limit"
+    if stopped.invalid_arguments:
+        return "invalid_arguments"
+    if stopped.reason == "UsageLimitExceeded":
+        return "timeout"
+    return stopped.reason.lower()
+
+
+class _OutputChecker:
+    """Evaluates an investigation answer against refusal rules and decision chain."""
+
+    def __init__(
+        self,
+        tools: AlternativesTools,
+        chain: ResolverChain[Mapping[str, Any]] | None,
+        item_number: int,
+        earlier_code: str | None,
+    ) -> None:
+        self.tools = tools
+        self.chain = chain
+        self.item_number = item_number
+        self.earlier_code = earlier_code
+        self.last_band: Band | None = None
+        self.returns = 0
+
+    def check(self, answer: AlternativesReply) -> str | None:
+        refusal = _refusal_reason(answer, self.tools)
+        if refusal is None:
+            return None
+        code, text = refusal
+        band: Band | None = None
+        if self.chain is not None:
+            record = self.chain.decide(
+                {"code": code, "earlier_code": self.earlier_code}, subject=f"#{self.item_number}"
+            )
+            band = record.band
+        self.last_band = band
+
+        if self.returns > 0 or band is Band.CONTINUE:
+            return None
+        if self.chain is not None and self.chain.mode is Mode.ON:
+            if band is Band.REVIEW:
+                self.returns += 1
+                return _retry_message(code, text, answer, self.tools)
+            return None
+        if code in ("job_verdict", "no_search", "skip_only"):
+            self.returns += 1
+            return _retry_message(code, text, answer, self.tools)
+        return None
+
+
+def _stopped_failure(
+    item: Item,
+    reply: InvestigationStopped,
+    now: datetime,
+    chain: ResolverChain[Mapping[str, Any]] | None,
+    earlier_code: str | None,
+) -> CheckFailure:
+    logger.warning(
+        "The alternatives check of #%d was skipped: its run stopped (%s).",
+        item.number,
+        reply.reason,
+    )
+    code = _stopped_code(reply)
+    band = None
+    if chain is not None:
+        record = chain.decide(
+            {"code": code, "earlier_code": earlier_code}, subject=f"#{item.number}"
+        )
+        band = record.band
+    return CheckFailure(
+        item,
+        _stopped_reason(reply),
+        reply.reason,
+        now,
+        reason_code=code,
+        band=band,
+    )
+
+
 def _check_one(
     store: RoadmapStore,
     item: Item,
@@ -1130,6 +1240,7 @@ def _check_one(
     inventory: Inventory | None,
     now: datetime,
     fetch: bool,
+    chain: ResolverChain[Mapping[str, Any]] | None = None,
 ) -> Check | CheckFailure:
     """One item's check: the skip check of a skip class, else its agent run and its validated
     reply. A failed read of deps.dev skips the item (#4661). Raises `AICredentialsError` when the
@@ -1143,14 +1254,10 @@ def _check_one(
     tools = AlternativesTools(store=store, pages=pages)
     request = _request(item, trusted_replies(store.comments_on(item.number)), adrs, fetch=fetch)
     texts = MESSAGES.roadmap
-    returns = 0
-
-    def _check_output(answer: AlternativesReply) -> str | None:
-        nonlocal returns
-        msg = _retry_message(answer, tools)
-        if msg is not None:
-            returns += 1
-        return msg
+    if chain is None:
+        chain = chain_of(REPLY_FIXABLE, load_settings())
+    earlier_code = item.job_record.get(AlternativesRecordKey.FAILED_REASON)
+    checker = _OutputChecker(tools, chain, item.number, earlier_code)
 
     try:
         reply = investigate(
@@ -1159,7 +1266,7 @@ def _check_one(
             request,
             tools,
             AlternativesReply,
-            output_check=_check_output,
+            output_check=checker.check,
             window=task_window("alternatives"),
         )
     except AICredentialsError:
@@ -1174,14 +1281,19 @@ def _check_one(
         reason = texts.alternatives_reason_error.format(error=error)
         return CheckFailure(item, reason, error, now, failure_class_of(exc))
     if isinstance(reply, InvestigationStopped):
-        logger.warning(
-            "The alternatives check of #%d was skipped: its run stopped (%s).",
-            item.number,
-            reply.reason,
-        )
-        return CheckFailure(item, _stopped_reason(reply), reply.reason, now)
+        return _stopped_failure(item, reply, now, chain, earlier_code)
     try:
-        return validate_reply(item, reply, tools, now, adrs, inventory=inventory, returns=returns)
+        return validate_reply(
+            item,
+            reply,
+            tools,
+            now,
+            adrs,
+            inventory=inventory,
+            returns=checker.returns,
+            chain=chain,
+            band=checker.last_band if checker.returns == 0 else None,
+        )
     except (httpx2.HTTPError, ValidationError) as exc:
         logger.warning(
             "The alternatives check of #%d was skipped: its read of the tools in use failed (%s).",
@@ -1334,6 +1446,7 @@ class AlternativesWriter:
                 {
                     AlternativesRecordKey.FAILED_AT: outcome.failed_at.isoformat(),
                     AlternativesRecordKey.FAILED_ERROR: outcome.error_class,
+                    AlternativesRecordKey.FAILED_REASON: outcome.reason_code,
                 },
             )
             self._log(outcome)
@@ -1342,20 +1455,19 @@ class AlternativesWriter:
             return
         number = outcome.item.number
         changed = _result_changed(outcome)
-        self._store.set_marks(
-            outcome.item,
-            {
-                AlternativesRecordKey.CHECKED_AT: outcome.checked_at.isoformat(),
-                AlternativesRecordKey.BODY_HASH: outcome.body_hash,
-                AlternativesRecordKey.VERDICT: outcome.verdict.value,
-                AlternativesRecordKey.TOOL: outcome.tool.url if outcome.tool else None,
-                AlternativesRecordKey.TOOL_ID: outcome.tool.canonical_id if outcome.tool else None,
-                AlternativesRecordKey.ADR_HASH: outcome.adr_hash,
-                AlternativesRecordKey.FAILED_AT: None,
-                AlternativesRecordKey.FAILED_ERROR: None,
-            },
-            body=outcome.new_body,
-        )
+        marks: dict[str, str | None] = {
+            AlternativesRecordKey.CHECKED_AT: outcome.checked_at.isoformat(),
+            AlternativesRecordKey.BODY_HASH: outcome.body_hash,
+            AlternativesRecordKey.VERDICT: outcome.verdict.value,
+            AlternativesRecordKey.TOOL: outcome.tool.url if outcome.tool else None,
+            AlternativesRecordKey.TOOL_ID: outcome.tool.canonical_id if outcome.tool else None,
+            AlternativesRecordKey.ADR_HASH: outcome.adr_hash,
+            AlternativesRecordKey.FAILED_AT: None,
+            AlternativesRecordKey.FAILED_ERROR: None,
+        }
+        if AlternativesRecordKey.FAILED_REASON in outcome.item.job_record:
+            marks[AlternativesRecordKey.FAILED_REASON] = None
+        self._store.set_marks(outcome.item, marks, body=outcome.new_body)
         if changed:
             self._store.comment(number, outcome.comment)
         emit(ROADMAP_ALTERNATIVES_TOTAL, 1, {"verdict": outcome.verdict.value})
@@ -1371,10 +1483,21 @@ class AlternativesWriter:
         """Log the result line of one item: the verdict of a check, or `refused` for a reply that
         the job refused and `failed` for another failure, with the code of the error as the
         reason. The reason of a check is its skip class, or `none`."""
+        names: dict[str, str] = {}
         if isinstance(outcome, CheckFailure):
-            refused = outcome.error_class == CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR
+            refused = (
+                outcome.error_class == CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR
+                or outcome.reason_code is not None
+            )
             result = "refused" if refused else "failed"
-            failure, searches, reason, returns = outcome.failure_class, 0, outcome.error_class, 0
+            failure, searches, reason, returns = (
+                outcome.failure_class,
+                0,
+                outcome.reason_code or outcome.error_class,
+                0,
+            )
+            if outcome.band is not None:
+                names["band"] = outcome.band.value
         else:
             result, failure = outcome.verdict.value, None
             searches, reason, returns = (
@@ -1382,6 +1505,7 @@ class AlternativesWriter:
                 outcome.skip_class or "none",
                 outcome.returns,
             )
+        names["reason"] = reason
         log_job_result(
             RoadmapJob.ALTERNATIVES,
             self._repo,
@@ -1389,7 +1513,7 @@ class AlternativesWriter:
             result,
             failure=failure,
             counts={"searches": searches, "returns": returns},
-            names={"reason": reason},
+            names=names,
         )
 
 

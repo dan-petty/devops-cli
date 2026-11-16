@@ -11,9 +11,10 @@ from __future__ import annotations
 
 from typing import Final
 
+from devops_cli.roadmap.alternatives_reply_fixable import REPLY_FIXABLE
 from devops_cli.roadmap.decision_point import Registry
 from devops_cli.roadmap.stage.stage_jev_screen import VERIFY_SCREEN
 
-REGISTRY: Final[Registry] = Registry((VERIFY_SCREEN,))
+REGISTRY: Final[Registry] = Registry((VERIFY_SCREEN, REPLY_FIXABLE))
 
 __all__ = ["REGISTRY"]

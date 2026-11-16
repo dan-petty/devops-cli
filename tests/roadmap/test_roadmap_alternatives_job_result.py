@@ -88,7 +88,7 @@ def test_a_reply_that_the_job_refused_logs_a_refusal_with_its_code(
     lines = _settled(store, reply, caplog)
 
     assert [(line["result"], line["success"], line["reason"]) for line in lines] == [
-        ("refused", "false", "RefusedReply")
+        ("refused", "false", "skip_only")
     ]
 
 

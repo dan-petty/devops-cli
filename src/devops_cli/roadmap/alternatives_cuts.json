@@ -1,0 +1,18 @@
+{
+  "step": "alternatives.reply_fixable",
+  "model": "rule",
+  "fitted": "2026-11-15",
+  "cases": 7,
+  "cuts": {},
+  "report": {
+    "fixable_codes": [
+      "skip_only",
+      "job_verdict",
+      "no_search",
+      "no_tool",
+      "no_facts",
+      "url",
+      "schema_broken"
+    ]
+  }
+}
