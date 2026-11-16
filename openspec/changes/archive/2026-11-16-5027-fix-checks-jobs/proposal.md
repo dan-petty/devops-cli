@@ -21,7 +21,7 @@ The command, the settings, the manifests and the Service behavior change, so the
 - `roadmap-watch-row`: the `due_steps` requirement is modified.
 
 ## Impact
-Code under `src/devops_cli/roadmap/`, `src/devops_cli/k8s/`, `src/devops_cli/config/` and `src/devops_cli/server/counter_series.py`; the ConfigMap template; one alert rule; `docs/CLUSTER.md`, `docs/TELEMETRY.md`, `docs/roadmap/job-success.md` and ADR 0021. The change fits one pull request.
+Code under `src/devops_cli/roadmap/`, `src/devops_cli/k8s/`, `src/devops_cli/config/` and `src/devops_cli/server/counter_series.py`; the ConfigMap template; one alert rule and one dashboard panel; `docs/CLUSTER.md`, `docs/TELEMETRY.md`, `docs/roadmap/job-success.md` and ADR 0021. The change fits one pull request.
 
 ## Feasibility
 The admission policy admits a runner Job with any args, a deadline up to 14400 s, `backoffLimit: 0` and `spec.suspend` (`k8s/devops/roadmap-service/admissionpolicy.yaml`); the gate check `tests/gate/k8s_checks/job_admission_policy.py` evaluates the manifest of the seam in both modes and suspended. The Role allows `patch` on `jobs`, which resumes a Job. A suspended Job starts no pod, and its deadline counts from the resume (Kubernetes Job `spec.suspend`, GA in 1.24). The step's command, fixers and guards exist (#5976, #5986).

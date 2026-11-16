@@ -929,7 +929,8 @@ def _cli_dashboard_row(title: str) -> list[dict[str, Any]]:
 
 def test_cli_dashboard_service_row_charts_the_state_of_the_service() -> None:
     """The row "Roadmap Service" holds a panel for the rounds, the budget, the queues, the stops
-    and the inputs of the Service (#2479), and for the failed deliveries of the hooks (#5017)."""
+    and the inputs of the Service (#2479), for the failed deliveries of the hooks (#5017), and
+    for the stage and fix-checks Jobs (#4559, #5027)."""
     selector = '{job=~"$job"}'
     selector_repo = '{job=~"$job",repo=~"$repo"}'
 
@@ -994,6 +995,9 @@ def test_cli_dashboard_service_row_charts_the_state_of_the_service() -> None:
         ],
         "Service Stage Jobs by Result": [
             f"sum by (result) (increase(devops_cli_service_stage_jobs_total{selector_repo}[1h]))"
+        ],
+        "Service Fix-Checks Jobs by Result": [
+            f"sum by (result) (increase(devops_cli_service_fix_checks_jobs_total{selector_repo}[1h]))"
         ],
     }
 

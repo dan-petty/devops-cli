@@ -70,6 +70,7 @@ def test_json_gives_one_object_for_each_workflow_and_repository(
         ("alternatives", None, "too few"),
         ("intake", "example/app", "60"),
         ("fix_plan", None, "too few"),
+        ("fix_checks", None, "too few"),
         ("retitle", None, "too few"),
     ]
 

@@ -821,6 +821,51 @@
       ]
     },
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The fix-checks Jobs of the watch row in the last hour, by result (#5027): created, queued (created suspended, as no model place was free), existed (a create that got 409) and resumed, and the outcome of an ended Job: the result of its result line, none for a Job that a kill ended with no result line, or error for a Job whose command exited 1.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 41
+      },
+      "id": 68,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Service Fix-Checks Jobs by Result",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (result) (increase(devops_cli_service_fix_checks_jobs_total{job=~\"$job\",repo=~\"$repo\"}[1h]))",
+          "legendFormat": "{{result}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
       "collapsed": false,
       "gridPos": {
         "h": 1,

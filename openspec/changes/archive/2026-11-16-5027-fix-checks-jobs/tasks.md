@@ -32,8 +32,8 @@
 
 - [x] 5.1 Write failing tests: the counter `devops_cli_service_fix_checks_jobs_total` is a served series of the Service, and `RoadmapFixChecksJobWithoutResult` fires for the result `none`
   - Verification: `$ uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py tests/telemetry/test_telemetry_instruments.py`
-- [x] 5.2 Prime the counter at zero and add the rule
-  - Verification: `$ uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py tests/telemetry/test_telemetry_instruments.py tests/server`
+- [x] 5.2 Prime the counter at zero, add the rule, and chart the counter in the row Roadmap Service of `k8s/devops/dashboards/roadmap-service-telemetry.json`
+  - Verification: `$ uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py tests/telemetry/test_telemetry_instruments.py tests/server tests/grafana/test_grafana_dashboards.py`
 
 ## 6. Manifests
 
