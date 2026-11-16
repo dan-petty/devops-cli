@@ -98,7 +98,6 @@ from devops_cli.exceptions import (
     GitOperationError,
     RoadmapImplementError,
     SecurityError,
-    ValidationError,
 )
 from devops_cli.exceptions.roadmap import GitSettingsError, OverWindowError
 from devops_cli.git.worktree_add import add_worktree
@@ -192,6 +191,7 @@ from devops_cli.roadmap.pull_labels import (
     remove_pull_labels,
     stale_labels,
 )
+from devops_cli.roadmap.pull_retry import GatewayPullBody, RefusedPullReply, retried_body
 from devops_cli.roadmap.return_item import apply_return, plan_return
 from devops_cli.roadmap.stage.stage_change import (
     closing_keyword_in,
@@ -589,6 +589,7 @@ class _ItemRun:
     origin: OriginGit
     model_for_tier: Callable[[str], Any] | None = None
     splitter: Any = None
+    rewriter: Any = None
     rebase: bool = True
     split_done: bool = False
     change: str = ""
@@ -1636,13 +1637,28 @@ class _ItemRun:
         the `Change:` line for the folder `change`. A body that breaks the form stops the item
         before the job writes it."""
         room = BODY_MAX_CHARS - len(f"\n\nCloses #{self.number}\n\nChange: `{change}/`")
+        why = self._why(change, room)
+
+        def _build(w: str) -> str:
+            return build_body(why=w, issue=self.number, change=change)
+
+        rewrite_fn = None
+        if self.rewriter is not None:
+            if hasattr(self.rewriter, "rewrite"):
+                rewrite_fn = self.rewriter.rewrite
+            elif hasattr(self.rewriter, "chat_structured"):
+                rewrite_fn = GatewayPullBody(client=self.rewriter).rewrite
+            elif callable(self.rewriter):
+                rewrite_fn = self.rewriter
+
         try:
-            return build_body(why=self._why(change, room), issue=self.number, change=change)
-        except ValidationError as exc:
-            problems = " ".join(line.removeprefix("- ") for line in str(exc).splitlines())
+            return retried_body(text=why, build=_build, rewrite=rewrite_fn)
+        except RefusedPullReply as exc:
+            problems = " ".join(exc.problems)
             raise _StopError(
                 self.step,
                 MESSAGES.roadmap.implement_stop_body_refused.format(problems=problems),
+                failure_class=FailureClass.REFUSED_REPLY,
                 push=False,
             ) from exc
 
@@ -2261,6 +2277,7 @@ def _implement_item(
     rebase: bool = True,
     model_for_tier: Callable[[str], Any] | None = None,
     splitter: Any = None,
+    rewriter: Any = None,
 ) -> ImplementResult:
     """Run one item: how its run ended (`ImplementResult`). `url` is the URL of `origin`."""
     default = default_branch(source, operation=GIT_OPERATION)
@@ -2276,6 +2293,7 @@ def _implement_item(
             OriginGit(path, url),
             model_for_tier=model_for_tier,
             splitter=splitter,
+            rewriter=rewriter,
             rebase=rebase,
         )
         try:
@@ -2304,6 +2322,7 @@ def apply_implement(
     rebase: bool = True,
     model_for_tier: Callable[[str], Any] | None = None,
     splitter: Any = None,
+    rewriter: Any = None,
 ) -> ImplementApplied:
     """Run each selected item of the plan, one after the other. A stopped item does not stop the
     run, and an item whose writes fail is reported while the others still run. Rejected GitHub or
@@ -2334,6 +2353,7 @@ def apply_implement(
                 rebase=rebase,
                 model_for_tier=model_for_tier,
                 splitter=splitter,
+                rewriter=rewriter,
             )
         except AICredentialsError, GitHubUnauthenticatedError:
             raise
