@@ -413,6 +413,53 @@ def test_onboard_row_7_names_an_inactive_hook(
     assert "Wrong: active." in result.stdout
 
 
+def test_onboard_row_7_is_present_for_a_hook_that_also_sends_other_events(
+    cli: Callable[..., Any],
+    roadmap_store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    config: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The consumer events are a subset of the hook events (#5035): a hook that sends each event
+    that the Service takes, and other events too, posts the roadmap events. The Service
+    acknowledges an event that no consumer takes."""
+    monkeypatch.setattr("devops_cli.roadmap.onboard.acts_as_github_app", lambda: True)
+    _seed_valid_repo(roadmap_store, github_api)
+    events = ["issues", "milestone", "pull_request", "release"]
+    github_api.route(
+        "GET", f"/repos/{REPO}/hooks", github_json([{**MATCHING_HOOK, "events": events}])
+    )
+    route_installation_repositories(github_api, [REPO])
+    config(service={"repos": [REPO]})
+
+    result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
+
+    assert (result.exit_code, f"{ROW_7}: present" in result.stdout) == (0, True), result.output
+
+
+def test_onboard_row_7_names_events_when_the_hook_does_not_send_an_event_the_service_takes(
+    cli: Callable[..., Any],
+    roadmap_store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    config: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hook with the Service URL that does not send the Issues event is wrong, also when it
+    sends other events (#5035)."""
+    monkeypatch.setattr("devops_cli.roadmap.onboard.acts_as_github_app", lambda: True)
+    _seed_valid_repo(roadmap_store, github_api)
+    events = ["pull_request", "release"]
+    github_api.route(
+        "GET", f"/repos/{REPO}/hooks", github_json([{**MATCHING_HOOK, "events": events}])
+    )
+    route_installation_repositories(github_api, [REPO])
+    config(service={"repos": [REPO]})
+
+    result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
+
+    assert (f"{ROW_7}: wrong" in result.stdout, "Wrong: events." in result.stdout) == (True, True)
+
+
 def test_onboard_row_7_is_not_readable_without_administration_read(
     cli: Callable[..., Any],
     roadmap_store: InMemoryRoadmapStore,
@@ -436,10 +483,13 @@ def test_onboard_row_7_is_not_readable_without_administration_read(
 
 
 def test_the_service_step_and_the_webhook_row_name_the_same_events() -> None:
+    """Setup step 8 names the events that the webhook row requires of the hook, and lets the
+    hook send more (#5035)."""
     step = Path("docs/CLUSTER.md").read_text(encoding="utf-8")
     section = step.split("8. Add each repo's webhook:", 1)[1].split("\n", 1)[0]
 
     assert (
-        "only the Issues event" in section,
+        "at least the Issues event" in section,
+        "its `events` must hold `issues`" in section,
         CONST_ROADMAP_WEBHOOK_EVENTS == frozenset({"issues"}),
-    ) == (True, True)
+    ) == (True, True, True)
