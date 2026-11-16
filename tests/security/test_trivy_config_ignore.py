@@ -88,3 +88,25 @@ def test_the_repository_ignore_file_holds_the_pod_security_context_entry() -> No
     exp = entry.get("expired_at")
     assert exp is not None
     assert isinstance(exp, date) or date.fromisoformat(str(exp))
+
+
+def test_the_repository_ignore_file_holds_the_harbor_entry() -> None:
+    path = REPO_ROOT / ".trivyignore.yaml"
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    entries = [
+        entry
+        for entry in data.get("misconfigurations", [])
+        if entry.get("id", "").endswith("DS-0029")
+        and ".venv/lib/python3.14/site-packages/harbor/cli/template-adapter/task-template/environment/Dockerfile"
+        in entry.get("paths", [])
+    ]
+    assert len(entries) == 1
+    entry = entries[0]
+    statement = entry.get("statement", "")
+    assert "harbor" in statement.lower()
+    assert "#5947" in statement
+    exp = entry.get("expired_at")
+    assert exp is not None
+    parsed_date = exp if isinstance(exp, date) else date.fromisoformat(str(exp))
+    assert parsed_date >= date(2026, 11, 16)
+    assert not any("*" in p for p in entry.get("paths", []))
