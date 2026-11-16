@@ -22,7 +22,7 @@ plan does not change. Each open finding returns the plan to the planner (#5059).
 more for each review that fixes more earlier findings than it adds, up to
 `roadmap.stage.verify_repair_rounds_ceiling` rounds (`repair_round_due`, #3039, #5066, #5409,
 #5440). An open finding of the last review keeps the plan in
-draft with the label `plan/needs-fix` (#3264). Every other finding is advice: the job lists it in
+draft with the label `verdict/fix-plan` (#3264). Every other finding is advice: the job lists it in
 its comment. The pass never merges and never marks a pull request ready. `devops roadmap eval
 verify` scores the first review of a plan on the golden set (`stage_verify_eval`).
 
@@ -84,7 +84,7 @@ _REPLY_RETURNS: Final[int] = 1
 # planner, and, in the last review, keeps the plan in draft. A finding that reports a placeholder is
 # open too (#3264). `task_order` and `verify_form` came with #3039, `spec_delta_wrong` with #3264
 # and `criterion_dropped` with #3448. Each open finding returns the plan (#5059): an open finding
-# that the planner never sees keeps the draft with `plan/needs-fix`, and no job repairs it.
+# that the planner never sees keeps the draft with `verdict/fix-plan`, and no job repairs it.
 OPEN_TYPES: Final[frozenset[DefectType]] = frozenset(
     {
         DefectType.MISSING_PATH,
@@ -105,7 +105,7 @@ OPEN_SEVERITIES: Final[frozenset[Severity]] = frozenset({Severity.BLOCKER, Sever
 # The nine types that the verification prompt and reply schema name.
 VERIFY_TYPES: Final[frozenset[DefectType]] = OPEN_TYPES
 # The label of a plan pull request with an open finding (#3264).
-PLAN_NEEDS_FIX_LABEL: Final[str] = "plan/needs-fix"
+FIX_PLAN_LABEL: Final[str] = "verdict/fix-plan"
 # The keys of a group of the plan that name files.
 _FILE_KEYS: Final[tuple[str, ...]] = ("reads", "changes")
 # The keys of the plan that the task groups and the spec delta hold. Each other key of the plan,
@@ -719,9 +719,9 @@ def open_findings_section(findings: Sequence[Finding]) -> str:
 
 
 __all__ = [
+    "FIX_PLAN_LABEL",
     "OPEN_SEVERITIES",
     "OPEN_TYPES",
-    "PLAN_NEEDS_FIX_LABEL",
     "EarlierVerdict",
     "Finding",
     "Judgement",

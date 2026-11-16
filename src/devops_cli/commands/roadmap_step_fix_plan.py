@@ -1,5 +1,5 @@
 """`devops roadmap step fix-plan`: one repair of an open plan pull request that holds the label
-`plan/needs-fix` (#5061). The step is `devops_cli.roadmap.steps.fix_plan`. Without `--confirm` the
+`verdict/fix-plan` (#5061). The step is `devops_cli.roadmap.steps.fix_plan`. Without `--confirm` the
 command prints the plan pull request that the step selects, calls no model and writes nothing.
 `--confirm` runs the attempt in every mode of `roadmap.fix_plan.mode`, because a person chose it.
 `--dry-run` makes no request. During an attempt the command writes the line of each round and the
@@ -54,7 +54,7 @@ def fix_plan_cmd(
         bool, typer.Option("--skip-wait", help=HELP.roadmap.step_fix_plan_skip_wait)
     ] = False,
 ) -> None:
-    """Repair one open plan pull request that holds the label plan/needs-fix."""
+    """Repair one open plan pull request that holds the label verdict/fix-plan."""
     if dry_run and confirm:
         print_error(MESSAGES.roadmap.plan_modes_exclusive.format(modes="--dry-run and --confirm"))
         raise typer.Exit(1)

@@ -271,7 +271,7 @@ def has_person_cause(item: Item) -> bool:
         return True
     if bool(record.get(StageRecordKey.NEEDS_FIX)):
         return True
-    if "plan/needs-fix" in item.labels:
+    if "verdict/fix-plan" in item.labels:
         return True
     return False
 

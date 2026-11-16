@@ -1,7 +1,7 @@
 # roadmap-plan-drift Specification
 
 ## Purpose
-The plan drift row: the Service checks each open plan pull request against the default branch, labels a drifted plan `plan/needs-fix`, and keeps one comment with each problem.
+The plan drift row: the Service checks each open plan pull request against the default branch, labels a drifted plan `verdict/fix-plan`, and keeps one comment with each problem.
 
 ## Requirements
 

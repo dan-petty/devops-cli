@@ -201,7 +201,7 @@ data:
       # must not decide yet. An image from before #4395 refuses `shadow`: roll the image first.
       intake:
         jev: "off"
-      # The row fix_plan repairs one plan pull request with the label plan/needs-fix in a round
+      # The row fix_plan repairs one plan pull request with the label verdict/fix-plan in a round
       # (#5061, ADR 0021 section 8). `off` sends no request, `plan` logs the pull request that it
       # would take and writes nothing, and `on` revises the plan with the models of the tasks
       # fix_plan and fix_plan_review and pushes a better revision. Each new row starts in `plan`, and a person sets `on`.

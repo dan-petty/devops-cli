@@ -4,11 +4,14 @@ implement (#5968).
 The pull request review gate gives each plan and delivery pull request of the bot one verdict
 (owner, 2026-11-16): mergeable (success), needs fix (partial success), discard plan (failure of
 stage), discard implementation (failure of implement) and issue changed (not scored). A workflow
-label records the verdict (`roadmap/workflow_labels.py`). On a plan, the verdict needs fix is
-`plan/needs-fix`, which the step fix-plan reads; on a delivery, it is `verdict/needs-fix`. So each
-verdict of each kind of pull request has one label. A person or an agent vet sets the label.
+label records the verdict (`roadmap/workflow_labels.py`). Needs fix has one label for each kind:
+`verdict/fix-plan` on a plan, which the step fix-plan also reads, and `verdict/fix-implementation`
+on a delivery. Discard plan belongs to a plan and discard implementation to a delivery. A person or
+an agent vet sets the label, and the stage review and the row `plan_drift` set `verdict/fix-plan`.
+A first verdict label of the other kind, such as `verdict/fix-plan` on a delivery, leaves the pull
+request unscored, and the read logs why.
 
-The first verdict scores the pull request. The step fix-plan removes `plan/needs-fix` after a
+The first verdict scores the pull request. The step fix-plan removes `verdict/fix-plan` after a
 repair, and a later verdict can follow a fix, so the labels of today can lose the first verdict.
 The read takes the label events of the timeline, which GitHub keeps after an unlabel. One GraphQL
 search gives the pull requests of the window with their label events: one request for each 100
@@ -17,6 +20,7 @@ pull requests.
 
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -64,22 +68,27 @@ class Verdict(StrEnum):
 # of the stage title. A test holds the two equal; the import of that module costs about 1 s.
 PLAN_TITLE_PREFIX: Final = "docs(openspec): plan #"
 
+logger = logging.getLogger(__name__)
+
 # The label of each verdict that a kind of pull request reads.
 VERDICT_LABELS: Final[Mapping[PullKind, Mapping[str, Verdict]]] = {
     PullKind.PLAN: {
         "verdict/mergeable": Verdict.MERGEABLE,
-        "plan/needs-fix": Verdict.NEEDS_FIX,
+        "verdict/fix-plan": Verdict.NEEDS_FIX,
         "verdict/discard-plan": Verdict.DISCARD_PLAN,
         "verdict/issue-changed": Verdict.ISSUE_CHANGED,
     },
     PullKind.DELIVERY: {
         "verdict/mergeable": Verdict.MERGEABLE,
-        "verdict/needs-fix": Verdict.NEEDS_FIX,
-        "verdict/discard-plan": Verdict.DISCARD_PLAN,
+        "verdict/fix-implementation": Verdict.NEEDS_FIX,
         "verdict/discard-implementation": Verdict.DISCARD_IMPLEMENTATION,
         "verdict/issue-changed": Verdict.ISSUE_CHANGED,
     },
 }
+# Each verdict label of either kind.
+VERDICT_LABEL_NAMES: Final = frozenset(
+    name for labels in VERDICT_LABELS.values() for name in labels
+)
 
 # The job that each kind of pull request scores, and the discard that is a failure of that job.
 KIND_JOBS: Final[Mapping[PullKind, RoadmapJob]] = {
@@ -117,12 +126,14 @@ _GRAPHQL_URL: Final = f"{CONST_URL_GITHUB_API_BASE}/{CONST_GH_API_GRAPHQL_ENDPOI
 @dataclass(frozen=True)
 class BotPull:
     """One pull request of the bot: its repository, its number, its kind and its first verdict,
-    or None while it has no verdict."""
+    or None while it has no verdict. `unscored` is its first verdict label when that label is a
+    label of the other kind."""
 
     repo: str
     number: int
     kind: PullKind
     verdict: Verdict | None
+    unscored: str | None = None
 
 
 class VerdictGrade(BaseModel):
@@ -132,6 +143,10 @@ class VerdictGrade(BaseModel):
 
     pulls: int = Field(description="Bot pull requests of the job that were opened in the window")
     open: int = Field(description="Pull requests with no verdict yet")
+    unscored: int = Field(
+        default=0,
+        description="Pull requests whose first verdict label is a label of the other kind",
+    )
     counts: dict[Verdict, int] = Field(description="Pull requests with each first verdict")
     shares: dict[Verdict, float | None] = Field(
         description="The count of each verdict over the pull requests with a verdict"
@@ -147,11 +162,16 @@ def pull_kind(title: str) -> PullKind:
     return PullKind.PLAN if title.strip().startswith(PLAN_TITLE_PREFIX) else PullKind.DELIVERY
 
 
-def first_verdict(kind: PullKind, labels: Iterable[str]) -> Verdict | None:
-    """The verdict of the first label of `labels`, in the order of their events, that `kind`
-    reads as a verdict; None when no label is one."""
-    readable = VERDICT_LABELS[kind]
-    return next((readable[name] for name in labels if name in readable), None)
+def first_verdict_label(labels: Iterable[str]) -> str | None:
+    """The first label of `labels`, in the order of their events, that is a verdict label of
+    either kind; None when no label is one."""
+    return next((name for name in labels if name in VERDICT_LABEL_NAMES), None)
+
+
+def verdict_of(kind: PullKind, label: str) -> Verdict | None:
+    """The verdict that `label` gives a pull request of `kind`; None for a label of the other
+    kind, such as `verdict/fix-plan` on a delivery."""
+    return VERDICT_LABELS[kind].get(label)
 
 
 def _share(count: int, total: int) -> float | None:
@@ -159,19 +179,25 @@ def _share(count: int, total: int) -> float | None:
 
 
 def grade_verdicts(
-    job: RoadmapJob, verdicts: Sequence[Verdict | None], *, partial_score: float
+    job: RoadmapJob,
+    verdicts: Sequence[Verdict | None],
+    *,
+    partial_score: float,
+    unscored: int = 0,
 ) -> VerdictGrade:
     """The counts, the shares and the score of the first verdicts of the pull requests of `job`.
-    A verdict of None is an open pull request. Needs fix scores `partial_score`, and only the
-    discard of the work of `job` is a failure."""
+    A verdict of None is an open pull request, and `unscored` counts the pull requests whose first
+    verdict label is of the other kind. Needs fix scores `partial_score`, and only the discard of
+    the work of `job` is a failure."""
     counted = Counter(verdict for verdict in verdicts if verdict is not None)
     judged = sum(counted.values())
     failures = counted[_FAILURES[job]]
     scored = counted[Verdict.MERGEABLE] + counted[Verdict.NEEDS_FIX] + failures
     points = counted[Verdict.MERGEABLE] + partial_score * counted[Verdict.NEEDS_FIX]
     return VerdictGrade(
-        pulls=len(verdicts),
+        pulls=len(verdicts) + unscored,
         open=len(verdicts) - judged,
+        unscored=unscored,
         counts={verdict: counted[verdict] for verdict in Verdict},
         shares={verdict: _share(counted[verdict], judged) for verdict in Verdict},
         score=round(points / scored, 4) if scored else None,
@@ -283,6 +309,28 @@ def _search_page(reads: GraphQLReads, search: str, cursor: str | None) -> _Searc
     return found
 
 
+def _bot_pull(node: _Pull) -> BotPull:
+    """The kind and the first verdict of one pull request of the search. A first verdict label of
+    the other kind leaves it unscored, and the read logs why."""
+    kind = pull_kind(node.title)
+    repo = node.repository.name_with_owner
+    label = first_verdict_label(
+        event.label.name for event in node.timeline_items.nodes if event.label
+    )
+    verdict = verdict_of(kind, label) if label is not None else None
+    unscored = label if label is not None and verdict is None else None
+    if unscored is not None:
+        logger.warning(
+            "Pull request %s#%d is a %s, and its first verdict label %s is a label of the other "
+            "kind, so the grade does not score it.",
+            repo,
+            node.number,
+            kind,
+            unscored,
+        )
+    return BotPull(repo=repo, number=node.number, kind=kind, verdict=verdict, unscored=unscored)
+
+
 def read_bot_pulls(reads: GraphQLReads, search: str) -> list[BotPull]:
     """Each pull request that `search` finds, with its kind and its first verdict, from one
     GraphQL request for each page of 100."""
@@ -290,17 +338,7 @@ def read_bot_pulls(reads: GraphQLReads, search: str) -> list[BotPull]:
     cursor: str | None = None
     while True:
         page = _search_page(reads, search, cursor)
-        for node in page.nodes:
-            kind = pull_kind(node.title)
-            labels = (event.label.name for event in node.timeline_items.nodes if event.label)
-            pulls.append(
-                BotPull(
-                    repo=node.repository.name_with_owner,
-                    number=node.number,
-                    kind=kind,
-                    verdict=first_verdict(kind, labels),
-                )
-            )
+        pulls.extend(_bot_pull(node) for node in page.nodes)
         cursor = page.page_info.end_cursor if page.page_info.has_next_page else None
         if not cursor:
             return pulls
@@ -310,15 +348,17 @@ __all__ = [
     "KIND_JOBS",
     "PLAN_TITLE_PREFIX",
     "VERDICT_LABELS",
+    "VERDICT_LABEL_NAMES",
     "BotPull",
     "GraphQLReads",
     "PullKind",
     "Verdict",
     "VerdictGrade",
-    "first_verdict",
+    "first_verdict_label",
     "grade_verdicts",
     "plan_verdict_request",
     "pull_kind",
     "read_bot_pulls",
+    "verdict_of",
     "verdict_search",
 ]

@@ -114,7 +114,7 @@ OPEN_DRAFT = {
     "labels": [],
 }
 # The draft after the review of its plan found an open finding: the stage job labels it (#3264).
-NEEDS_FIX_DRAFT = {**OPEN_DRAFT, "labels": [{"name": "plan/needs-fix"}]}
+NEEDS_FIX_DRAFT = {**OPEN_DRAFT, "labels": [{"name": "verdict/fix-plan"}]}
 
 
 def branch_of(number: int, slug: str = "the-job-drops-a-comment") -> str:

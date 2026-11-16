@@ -1,4 +1,4 @@
-"""The row `plan_drift`: a plan pull request that the default branch broke gets `plan/needs-fix`
+"""The row `plan_drift`: a plan pull request that the default branch broke gets `verdict/fix-plan`
 (#3968).
 
 The Service opens one plan pull request for each staged item. A later merge can make an open plan
@@ -12,7 +12,7 @@ the pull request head and runs the deterministic gates of the plan check against
 default branch, which is where a moved path is missing. It calls no model, and it runs before
 `stage_ready`, so a drifted draft holds its label before readiness is decided.
 
-A plan with problems gets the label `plan/needs-fix` and one marked comment that lists them. A
+A plan with problems gets the label `verdict/fix-plan` and one marked comment that lists them. A
 later round updates that comment in place. The stage review, the step fix-plan and a vet write the
 same label, so the comment also holds the claim of the row (`DriftClaim`): `added` when the row
 added the label, `held` when another check held it at the first round with problems (#5884). A
@@ -48,7 +48,7 @@ from devops_cli.roadmap.plan_check import (
 from devops_cli.roadmap.plan_read import change_root, scenario_names_at, specs_at, tree_files
 from devops_cli.roadmap.stage.stage_paths import StagedTree
 from devops_cli.roadmap.stage.stage_registry import registry_table
-from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL
+from devops_cli.roadmap.stage.stage_verify import FIX_PLAN_LABEL
 from devops_cli.roadmap.steps.fix_plan import comment_open_findings, plan_comment
 from devops_cli.roadmap.stores.store import RoadmapStore, split_record
 
@@ -60,7 +60,7 @@ GIT_OPERATION: Final[str] = "roadmap.plan-drift"
 
 
 class DriftClaim(StrEnum):
-    """What the drift comment says about the label `plan/needs-fix` (#5884)."""
+    """What the drift comment says about the label `verdict/fix-plan` (#5884)."""
 
     ADDED = "added"
     """The plan has problems, and the row added the label: a passing round removes it."""
@@ -114,7 +114,7 @@ def drift_cleared_comment() -> str:
 
 def drift_comment(problems: Sequence[PlanProblem], *, held: bool = False) -> str:
     """The one marked comment of a drifted plan, which lists each problem (#3968). `held` says
-    that another check held the label `plan/needs-fix` first (#5884)."""
+    that another check held the label `verdict/fix-plan` first (#5884)."""
     lines = [
         PLAN_DRIFT_MARKER,
         *([_CLAIM_LINES[DriftClaim.HELD]] if held else []),
@@ -204,7 +204,7 @@ def _clear(
     comment: IssueComment | None,
 ) -> None:
     """Clear the claim of the drift comment `comment` of a plan that passes, and remove the label
-    `plan/needs-fix` only when the row added it and no open finding of the plan comment keeps it
+    `verdict/fix-plan` only when the row added it and no open finding of the plan comment keeps it
     (#5884)."""
     if comment is None:
         return
@@ -213,10 +213,10 @@ def _clear(
         return
     if (
         claim is DriftClaim.ADDED
-        and pull in store.labelled_pulls(PLAN_NEEDS_FIX_LABEL)
+        and pull in store.labelled_pulls(FIX_PLAN_LABEL)
         and not _has_open_finding(store, issue, pull)
     ):
-        store.unlabel_issue(pull, PLAN_NEEDS_FIX_LABEL)
+        store.unlabel_issue(pull, FIX_PLAN_LABEL)
     writes.update_issue_comment(repo, comment.id, drift_cleared_comment())
 
 
@@ -261,9 +261,9 @@ def run_plan_drift(
             continue
         failing.append(pull.number)
         added = comment is not None and drift_claim(comment.body) is DriftClaim.ADDED
-        labelled = pull.number in store.labelled_pulls(PLAN_NEEDS_FIX_LABEL)
+        labelled = pull.number in store.labelled_pulls(FIX_PLAN_LABEL)
         body = drift_comment(problems, held=labelled and not added)
-        store.label_issue(pull.number, PLAN_NEEDS_FIX_LABEL)
+        store.label_issue(pull.number, FIX_PLAN_LABEL)
         if comment is None:
             reads.create_issue_comment(repo, pull.number, body)
         elif comment.body != body:

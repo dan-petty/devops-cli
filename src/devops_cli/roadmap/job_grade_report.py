@@ -256,12 +256,17 @@ class VerdictRead:
         pull request."""
         if job not in (RoadmapJob.STAGE, RoadmapJob.IMPLEMENT):
             return None
-        verdicts = [
-            pull.verdict
+        pulls = [
+            pull
             for pull in self.pulls
             if KIND_JOBS[pull.kind] == job and pull.repo.casefold() == (repo or "").casefold()
         ]
-        return grade_verdicts(RoadmapJob(job), verdicts, partial_score=self.partial_score)
+        return grade_verdicts(
+            RoadmapJob(job),
+            [pull.verdict for pull in pulls if pull.unscored is None],
+            partial_score=self.partial_score,
+            unscored=sum(pull.unscored is not None for pull in pulls),
+        )
 
     def keys(self) -> set[tuple[str, str | None]]:
         """The job and the repository of each pull request."""
@@ -756,6 +761,7 @@ def _verdict_lines(report: GradeReport) -> list[str]:
         texts.grades_column_ratio,
         texts.grades_column_pulls,
         texts.grades_column_open,
+        texts.grades_column_unscored,
         texts.grades_column_mergeable,
         texts.grades_column_needs_fix,
         texts.grades_column_discard_plan,
@@ -770,6 +776,7 @@ def _verdict_lines(report: GradeReport) -> list[str]:
             _ratio_text(row.measure.ratio),
             str(row.verdicts.pulls),
             str(row.verdicts.open),
+            str(row.verdicts.unscored),
             *(_verdict_cell(row.verdicts, verdict) for verdict in Verdict),
             _ratio_text(row.verdicts.score),
         ]

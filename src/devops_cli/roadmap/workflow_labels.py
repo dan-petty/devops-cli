@@ -122,19 +122,19 @@ WORKFLOW_LABELS: Final[tuple[LabelSpec, ...]] = (
         "Too big for one pull request; split it before work starts",
     ),
     _label(
-        "plan/needs-fix",
-        LabelColor.STOPS_WORK,
-        "Verdict Needs fix of a plan: a check found an open finding; the plan stays in draft",
-    ),
-    _label(
         "verdict/mergeable",
         LabelColor.PASSES,
         "Verdict Mergeable: the bot pull request can merge as it is",
     ),
     _label(
-        "verdict/needs-fix",
+        "verdict/fix-plan",
         LabelColor.STOPS_WORK,
-        "Verdict Needs fix of a delivery: usable after a fix (a plan gets plan/needs-fix)",
+        "Verdict Needs fix of a plan: an open finding keeps the plan in draft until a fix",
+    ),
+    _label(
+        "verdict/fix-implementation",
+        LabelColor.STOPS_WORK,
+        "Verdict Needs fix of a delivery: the code is usable after a fix",
     ),
     _label(
         "verdict/discard-plan",

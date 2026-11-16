@@ -135,16 +135,18 @@ def _graphql_searches(github_api: GitHubApiFake) -> list[str]:
 
 def _bot_pulls(github_api: GitHubApiFake) -> None:
     """Six plans with the first verdicts mergeable, mergeable, needs fix, discard plan, issue
-    changed and none, and one delivery with the first verdict discard plan."""
+    changed and none; one delivery that needs a fix, and one whose first verdict label is the
+    label of a plan."""
     _verdict_replies(
         github_api,
         _plan(1, "type/docs", "verdict/mergeable"),
         _plan(2, "verdict/mergeable", "verdict/issue-changed"),
-        _plan(3, "plan/needs-fix", "verdict/mergeable"),
+        _plan(3, "verdict/fix-plan", "verdict/mergeable"),
         _plan(4, "verdict/discard-plan"),
         _plan(5, "verdict/issue-changed"),
         _plan(6, "type/docs"),
-        pull_node(7, "feat(roadmap): Add the part", ("type/feature", "verdict/discard-plan")),
+        pull_node(7, "feat(roadmap): Add the part", ("type/feature", "verdict/fix-plan")),
+        pull_node(8, "fix(roadmap): Mend the part", ("verdict/fix-implementation",)),
     )
 
 
@@ -152,7 +154,7 @@ def test_the_report_scores_the_first_verdict_of_each_bot_pull_request(
     cli: Cli, config: Callable[..., Path], github_api: GitHubApiFake, clock: ClockFake
 ) -> None:
     """The stage row gives the verdicts of the plans and the score (2 + 0.5) / 4; the implement row
-    counts the delivery that its plan discarded and gives no score."""
+    scores the delivery that needs a fix, and counts the delivery with a plan label as unscored."""
     config(loki={"url": LOKI_URL}, service={"github_app": {"slug": "example-bot"}})
     clock.move_to(VERDICT_NOW)
     route_grade_replies(github_api, repo=RepoRef(GRADES_REPO))
@@ -177,11 +179,12 @@ def test_the_report_scores_the_first_verdict_of_each_bot_pull_request(
         "issue_changed": 1,
     }
     assert stage["shares"]["mergeable"] == 0.4
-    assert (implement["pulls"], implement["counts"]["discard_plan"], implement["score"]) == (
-        1,
-        1,
-        None,
-    )
+    assert (
+        implement["pulls"],
+        implement["unscored"],
+        implement["counts"]["needs_fix"],
+        implement["score"],
+    ) == (2, 1, 1, 0.5)
     assert rows["refine", GRADES_REPO] is None
 
 
@@ -195,7 +198,7 @@ def test_the_partial_score_setting_weighs_needs_fix(
     )
     clock.move_to(VERDICT_NOW)
     route_grade_replies(github_api)
-    _verdict_replies(github_api, _plan(1, "verdict/mergeable"), _plan(2, "plan/needs-fix"))
+    _verdict_replies(github_api, _plan(1, "verdict/mergeable"), _plan(2, "verdict/fix-plan"))
 
     result = cli("roadmap", "eval", "grades", "--json")
 
@@ -218,14 +221,14 @@ def test_the_text_gives_the_verdict_score_beside_the_attempt_ratio(
     assert result.exit_code == 0, result.output
     verdicts = result.output[result.output.index("Verdicts of the pull requests") :]
     assert verdicts.splitlines()[2:] == [
-        "Workflow   Repository     p     PRs  Open  Mergeable  Needs fix  Discard plan  "
+        "Workflow   Repository     p     PRs  Open  Unscored  Mergeable  Needs fix  Discard plan  "
         "Discard implementation  Issue changed  Score",
-        "stage      example/app    0.67  6    1     2 (0.40)   1 (0.20)   1 (0.20)      "
+        "stage      example/app    0.67  6    1     0         2 (0.40)   1 (0.20)   1 (0.20)      "
         "0 (0.00)                1 (0.20)       0.62",
-        "stage      example/infra  -     0    0     0 (-)      0 (-)      0 (-)         "
+        "stage      example/infra  -     0    0     0         0 (-)      0 (-)      0 (-)         "
         "0 (-)                   0 (-)          -",
-        "implement  example/app    0.00  1    0     0 (0.00)   0 (0.00)   1 (1.00)      "
-        "0 (0.00)                0 (0.00)       -",
+        "implement  example/app    0.00  2    0     1         0 (0.00)   1 (1.00)   0 (0.00)      "
+        "0 (0.00)                0 (0.00)       0.50",
     ]
 
 

@@ -732,7 +732,7 @@ devops roadmap step fix-conflict [OPTIONS]
 
 ### `devops roadmap step fix-plan`
 
-**Repair one open plan pull request that holds the label plan/needs-fix: the stage planner revises the plan with the open findings of a model review, and a better revision is pushed. Without --confirm, print the plan pull request that it selects. Details: docs/roadmap/stage.md.**
+**Repair one open plan pull request that holds the label verdict/fix-plan: the stage planner revises the plan with the open findings of a model review, and a better revision is pushed. Without --confirm, print the plan pull request that it selects. Details: docs/roadmap/stage.md.**
 
 ```bash
 devops roadmap step fix-plan [OPTIONS]

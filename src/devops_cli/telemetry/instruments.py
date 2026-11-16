@@ -367,7 +367,7 @@ ROADMAP_FIX_PLAN_TOTAL = Instrument(
     "devops_cli_roadmap_fix_plan_total",
     InstrumentKind.COUNTER,
     "1",
-    "Attempts of the step fix-plan on a plan pull request with the label plan/needs-fix, one count "
+    "Attempts of the step fix-plan on a plan pull request with the label verdict/fix-plan, one count "
     "for each attempt, by repository and result: revised for a pushed revision with fewer open "
     "findings, cleared for a pushed revision with no open finding left (the label goes), regated "
     "for a pushed plan that passes the checks in place of a head that they refused, dismissed for "

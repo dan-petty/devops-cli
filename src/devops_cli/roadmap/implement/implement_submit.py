@@ -50,7 +50,7 @@ has only its log, so the round classifies that log (`failure.py`), records the c
 and names the class and the action left in its comment. The runner pod is not scraped, so the Service
 counts.
 
-**Needs fix.** The plan leaves out a Staged item while its draft holds the label `plan/needs-fix`
+**Needs fix.** The plan leaves out a Staged item while its draft holds the label `verdict/fix-plan`
 of a plan with an open finding (`implement.py`, #4477). The round returns such an item once for
 each draft, for the row to log, and records the draft in `implement.needs_fix`. A round that judges
 the item and does not leave it out for the label clears the mark, so a new label is logged again.
@@ -156,7 +156,7 @@ class SubmitResult:
     and the item it left because an agent or a person claimed it after the plan (#2910), and the
     items whose Status it could not set, and the items whose stop it cleared (#2912). `effort` and
     `fallback` name the effort pass that selected the item (#3385). `needs_fix` holds the items
-    that the round left out for the label `plan/needs-fix` and had not logged yet."""
+    that the round left out for the label `verdict/fix-plan` and had not logged yet."""
 
     reported: tuple[str, ...] = ()
     waiting: bool = False
@@ -546,7 +546,7 @@ def _create(
 
 
 def _note_needs_fix(store: RoadmapStore, plan: ImplementPlan) -> tuple[NeedsFix, ...]:
-    """The items that `plan` leaves out for the label `plan/needs-fix` and that no round noted for
+    """The items that `plan` leaves out for the label `verdict/fix-plan` and that no round noted for
     the same draft. The round records the draft in `implement.needs_fix`, and clears the mark of
     an item that the plan judged and did not leave out for the label."""
     new = tuple(

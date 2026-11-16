@@ -1,13 +1,15 @@
 """The verdict of each bot pull request and the verdict score of stage and implement (#5968).
 
-The verdict labels are workflow labels. A plan uses `plan/needs-fix` for the verdict needs fix,
-and a delivery uses `verdict/needs-fix`. The first label event of a verdict label gives the verdict,
-and GitHub's GraphQL search gives the label events of each pull request of the window.
+The verdict labels are workflow labels. A plan uses `verdict/fix-plan` for the verdict needs fix,
+and a delivery uses `verdict/fix-implementation`. The first label event of a verdict label gives the
+verdict, a first label of the other kind leaves the pull request unscored, and GitHub's GraphQL
+search gives the label events of each pull request of the window.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
@@ -25,10 +27,11 @@ from devops_cli.roadmap.pr_verdict import (
     BotPull,
     PullKind,
     Verdict,
-    first_verdict,
+    first_verdict_label,
     grade_verdicts,
     pull_kind,
     read_bot_pulls,
+    verdict_of,
     verdict_search,
 )
 from devops_cli.roadmap.stage.stage_change import STAGING_TYPE
@@ -54,18 +57,17 @@ def _page(nodes: list[dict[str, Any]], *, total: int, cursor: str | None = None)
 
 
 def test_each_kind_reads_one_label_for_each_verdict() -> None:
-    """A plan reads `plan/needs-fix` and a delivery `verdict/needs-fix`, and each verdict label is
-    a workflow label."""
+    """A plan reads `verdict/fix-plan` and a delivery `verdict/fix-implementation`, and each
+    verdict label is a workflow label."""
     assert VERDICT_LABELS[PullKind.PLAN] == {
         "verdict/mergeable": Verdict.MERGEABLE,
-        "plan/needs-fix": Verdict.NEEDS_FIX,
+        "verdict/fix-plan": Verdict.NEEDS_FIX,
         "verdict/discard-plan": Verdict.DISCARD_PLAN,
         "verdict/issue-changed": Verdict.ISSUE_CHANGED,
     }
     assert VERDICT_LABELS[PullKind.DELIVERY] == {
         "verdict/mergeable": Verdict.MERGEABLE,
-        "verdict/needs-fix": Verdict.NEEDS_FIX,
-        "verdict/discard-plan": Verdict.DISCARD_PLAN,
+        "verdict/fix-implementation": Verdict.NEEDS_FIX,
         "verdict/discard-implementation": Verdict.DISCARD_IMPLEMENTATION,
         "verdict/issue-changed": Verdict.ISSUE_CHANGED,
     }
@@ -93,17 +95,37 @@ def test_the_title_gives_the_kind(title: str, kind: PullKind) -> None:
 @pytest.mark.parametrize(
     ("kind", "events", "verdict"),
     [
-        (PullKind.PLAN, ["type/docs", "plan/needs-fix", "verdict/mergeable"], Verdict.NEEDS_FIX),
-        (PullKind.PLAN, ["verdict/needs-fix", "verdict/mergeable"], Verdict.MERGEABLE),
-        (PullKind.DELIVERY, ["type/feature", "plan/needs-fix"], None),
-        (PullKind.DELIVERY, ["verdict/needs-fix", "verdict/mergeable"], Verdict.NEEDS_FIX),
+        (PullKind.PLAN, ["type/docs", "verdict/fix-plan", "verdict/mergeable"], Verdict.NEEDS_FIX),
+        (PullKind.PLAN, ["plan/needs-fix", "verdict/mergeable"], Verdict.MERGEABLE),
+        (PullKind.DELIVERY, ["verdict/fix-implementation", "verdict/mergeable"], Verdict.NEEDS_FIX),
         (PullKind.DELIVERY, ["verdict/mergeable", "verdict/issue-changed"], Verdict.MERGEABLE),
+        (PullKind.DELIVERY, ["type/feature"], None),
     ],
 )
 def test_the_first_verdict_label_event_gives_the_verdict(
     kind: PullKind, events: list[str], verdict: Verdict | None
 ) -> None:
-    assert first_verdict(kind, events) is verdict
+    label = first_verdict_label(events)
+    assert (verdict_of(kind, label) if label is not None else None) is verdict
+
+
+@pytest.mark.parametrize(
+    ("kind", "label"),
+    [
+        (PullKind.DELIVERY, "verdict/fix-plan"),
+        (PullKind.DELIVERY, "verdict/discard-plan"),
+        (PullKind.PLAN, "verdict/fix-implementation"),
+        (PullKind.PLAN, "verdict/discard-implementation"),
+    ],
+)
+def test_a_label_of_the_other_kind_gives_no_verdict(kind: PullKind, label: str) -> None:
+    assert (
+        first_verdict_label(["type/docs", label, "verdict/mergeable"]),
+        verdict_of(kind, label),
+    ) == (
+        label,
+        None,
+    )
 
 
 def test_the_score_of_stage() -> None:
@@ -133,11 +155,14 @@ def test_the_score_of_stage() -> None:
     assert grade.shares[Verdict.MERGEABLE] == 0.4
 
 
-def test_a_delivery_discarded_for_its_plan_has_no_score() -> None:
-    """Discard plan is a failure of stage, so the implement score leaves it out."""
-    grade = grade_verdicts(RoadmapJob.IMPLEMENT, [Verdict.DISCARD_PLAN, None], partial_score=0.5)
+def test_an_unscored_pull_request_counts_and_stays_out_of_the_score() -> None:
+    """A delivery whose first verdict label is of the other kind counts as unscored."""
+    grade = grade_verdicts(
+        RoadmapJob.IMPLEMENT, [Verdict.MERGEABLE, None], partial_score=0.5, unscored=1
+    )
 
-    assert (grade.counts[Verdict.DISCARD_PLAN], grade.open, grade.score) == (1, 1, None)
+    assert (grade.pulls, grade.open, grade.unscored, grade.score) == (3, 1, 1, 1.0)
+    assert grade.shares[Verdict.MERGEABLE] == 1.0
 
 
 def test_discard_implementation_is_a_failure_of_implement() -> None:
@@ -181,7 +206,7 @@ def test_the_search_names_the_bot_the_window_and_the_repository() -> None:
 
 
 def test_the_read_sends_one_search_for_each_page_and_reads_the_label_events(
-    github_api: GitHubApiFake,
+    github_api: GitHubApiFake, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Two pages of the search give the pull requests of the window, each with its first
     verdict."""
@@ -191,21 +216,39 @@ def test_the_read_sends_one_search_for_each_page_and_reads_the_label_events(
         "/graphql",
         _page(
             [
-                pull_node(5, "docs(openspec): plan #1 Add x", ["type/docs", "plan/needs-fix"]),
+                pull_node(5, "docs(openspec): plan #1 Add x", ["type/docs", "verdict/fix-plan"]),
                 pull_node(6, "feat(roadmap): Add x", ["verdict/mergeable"], repo="Example/Infra"),
             ],
-            total=3,
+            total=4,
             cursor="page-2",
         ),
-        _page([pull_node(7, "fix(roadmap): Mend y", ["type/bug"])], total=3),
+        _page(
+            [
+                pull_node(7, "fix(roadmap): Mend y", ["type/bug"]),
+                pull_node(8, "fix(roadmap): Mend z", ["verdict/fix-plan", "verdict/mergeable"]),
+            ],
+            total=4,
+        ),
     )
 
-    pulls = read_bot_pulls(get_github_session().client, "is:pr author:app/example-bot")
+    with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.pr_verdict"):
+        pulls = read_bot_pulls(get_github_session().client, "is:pr author:app/example-bot")
 
     assert pulls == [
         BotPull(repo="example/app", number=5, kind=PullKind.PLAN, verdict=Verdict.NEEDS_FIX),
         BotPull(repo="Example/Infra", number=6, kind=PullKind.DELIVERY, verdict=Verdict.MERGEABLE),
         BotPull(repo="example/app", number=7, kind=PullKind.DELIVERY, verdict=None),
+        BotPull(
+            repo="example/app",
+            number=8,
+            kind=PullKind.DELIVERY,
+            verdict=None,
+            unscored="verdict/fix-plan",
+        ),
+    ]
+    assert [record.getMessage() for record in caplog.records] == [
+        "Pull request example/app#8 is a delivery, and its first verdict label verdict/fix-plan "
+        "is a label of the other kind, so the grade does not score it."
     ]
     variables = [json.loads(request.content)["variables"] for request in github_api.sent]
     assert variables == [

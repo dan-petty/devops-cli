@@ -21,7 +21,7 @@ from devops_cli.roadmap.run import (
     build_stub_table,
     run_due_jobs,
 )
-from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL
+from devops_cli.roadmap.stage.stage_verify import FIX_PLAN_LABEL
 from tests.support.roadmap_jobs import due_job_runner
 from tests.support.roadmap_run import (
     NOW,
@@ -243,10 +243,10 @@ def test_the_fix_plan_row_counts_the_open_plans_with_the_label_unless_it_is_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """In the mode `off` the row reads nothing and gives no queue. In the mode `plan` it gives
-    the open pull requests that hold `plan/needs-fix`."""
+    the open pull requests that hold `verdict/fix-plan`."""
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_FIX_PLAN_MODE", mode)
     for title in ("plan one", "plan two"):
-        seeded_store.seed_issue(title, pull_request=True, labels=(PLAN_NEEDS_FIX_LABEL,))
+        seeded_store.seed_issue(title, pull_request=True, labels=(FIX_PLAN_LABEL,))
     seeded_store.seed_issue("plan three", pull_request=True)
     run: Callable[..., JobOutcome] = due_job_runner("fix_plan")
 
