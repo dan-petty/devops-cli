@@ -1,5 +1,6 @@
-"""The cadence settings of the rows intake, stage, fix_plan, refine and alternatives: the interval of
-each row, and the backlog rule that makes a row with a large queue due sooner (#5470)."""
+"""The cadence settings of the rows metrics, intake, stage, fix_plan, refine and alternatives: the
+interval of each row, and the backlog rule that makes a row with a large queue due sooner (#5470,
+#6012)."""
 
 from __future__ import annotations
 
@@ -55,6 +56,25 @@ def test_a_variable_sets_each_field_of_each_row(name: str, monkeypatch: pytest.M
         31,
         11,
         40,
+    )
+
+
+def test_the_metrics_section_holds_only_its_interval(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The metrics row counts no queue, so its section holds no backlog setting that would do
+    nothing. Its interval keeps the old 13 minutes, and a variable sets it (#6012)."""
+    default = RoadmapConfig().metrics
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_METRICS_INTERVAL_MINUTES", "26")
+
+    loaded = settings.load_settings().roadmap.metrics
+
+    assert (
+        sorted(type(default).model_fields),
+        default.interval_minutes,
+        loaded.interval_minutes,
+    ) == (
+        ["interval_minutes"],
+        13,
+        26,
     )
 
 

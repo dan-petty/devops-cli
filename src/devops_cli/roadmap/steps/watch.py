@@ -26,6 +26,7 @@ from devops_cli.roadmap.failure import (
     FailureEvidence,
     classify_failure,
 )
+from devops_cli.roadmap.pr_verdict import VERDICT_LABEL_NAMES
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +113,7 @@ class WatchState:
     is_bot: bool = False
     is_plan: bool = False
     has_live_unit: bool = False
+    labels: tuple[str, ...] = ()
 
     @property
     def bot(self) -> bool:
@@ -266,13 +268,24 @@ def verdict(state: WatchState) -> WatchVerdict | None:
     return _checks_verdict(state)
 
 
+# The verdict label that lets a green pull request be marked ready.
+_MERGEABLE_LABEL = "verdict/mergeable"
+
+
+def ready_held(labels: Sequence[str]) -> bool:
+    """Whether a verdict label other than `verdict/mergeable` holds the ready mark of a green
+    pull request: the review step or another check sent the work back (#6024)."""
+    return any(name in VERDICT_LABEL_NAMES and name != _MERGEABLE_LABEL for name in labels)
+
+
 def due_steps(state: WatchState) -> tuple[DueStep, ...]:
     """One pure function gives the due steps for a pull request (ADR 0021, section 8; #5024).
 
     Routes:
     - Live unit active: skipped (returns ())
     - Skip-ci: no verdict (returns ())
-    - READY: `ready` step for bot PRs; nothing for person PRs
+    - READY: `ready` step for bot PRs, unless a verdict label other than `verdict/mergeable`
+      holds it (#6024); nothing for person PRs
     - CONFLICT: `comment_conflict` for person PRs; nothing for bot PRs (writes no due mark)
     - FAILED: `comment_ci_infra` for bot PRs with CI_INFRA; `fix_checks` for bot PRs whose failed
       check `fix_checks_check` names (#5027); nothing for person PRs
@@ -289,7 +302,7 @@ def due_steps(state: WatchState) -> tuple[DueStep, ...]:
     is_bot = state.bot
 
     if v.verdict is PRVerdict.READY:
-        return (DueStep.READY,) if is_bot else ()
+        return (DueStep.READY,) if is_bot and not ready_held(state.labels) else ()
 
     if v.verdict is PRVerdict.CONFLICT:
         return () if is_bot else (DueStep.COMMENT_CONFLICT,)

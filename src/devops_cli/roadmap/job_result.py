@@ -91,7 +91,12 @@ SUCCESS_RESULTS: Final[Mapping[RoadmapJob, frozenset[str]]] = MappingProxyType(
     {
         RoadmapJob.STAGE: frozenset({"staged"}),
         RoadmapJob.IMPLEMENT: frozenset({"ready"}),
-        RoadmapJob.REFINE: frozenset({"ready", "person", "split", "blocked"}),
+        # Each next step of refine that is a wait is a success: `alternatives` waits on the
+        # verdict of the alternatives row (#2951), and `edit` on a body edit, because the body
+        # stops the design. `retry` and `failed` are failures of the job (#6037).
+        RoadmapJob.REFINE: frozenset(
+            {"ready", "person", "split", "blocked", "alternatives", "edit"}
+        ),
         RoadmapJob.REFINE_JUDGE: frozenset({"approved"}),
         RoadmapJob.ALTERNATIVES: frozenset(
             {"covers", "partly", "none", "not-applicable", "rejected", "in-use"}

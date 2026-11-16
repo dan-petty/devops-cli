@@ -886,11 +886,19 @@ DEFAULT_ROADMAP_VERDICT_PARTIAL_SCORE: float = 0.5
 # How often refine is due on its own, besides its cross-job trigger (#1515).
 DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES: int = 7
 DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES: int = 13
-# The minutes of hook deliveries that the metrics row counts in the gauge of failed deliveries
-# (#5017). It is longer than the metrics interval, so each delivery is in at least one read.
+# How often the rows `github_status` and `cloudflare_status` read their public status page
+# (#4052). They send no GitHub request, so the setting of the metrics row does not slow them.
+DEFAULT_ROADMAP_STATUS_PAGE_INTERVAL_MINUTES: int = 13
+# The fewest minutes of hook deliveries that a read of the metrics row counts in the gauge of
+# failed deliveries (#5017). A read counts from its last good read when that is earlier, because
+# the time between two reads is the interval of the row and the wait for the next trigger (#6012).
 DEFAULT_SERVICE_HOOK_DELIVERY_WINDOW_MINUTES: int = 15
-# The newest deliveries of one hook that the metrics row reads: one page, the most GitHub gives.
+# The deliveries of one hook in one page of a read of the metrics row: the most GitHub gives.
 DEFAULT_SERVICE_HOOK_DELIVERY_PAGE_SIZE: int = 100
+# The most pages of deliveries of one hook that one read of the metrics row reads (#6012): 1000
+# deliveries, about 3.7 hours of devops-cli on 2026-11-16, so a long stop of the row costs a
+# bounded number of requests.
+DEFAULT_SERVICE_HOOK_DELIVERY_MAX_PAGES: int = 10
 # The most items one refine round takes. It is the only cap of a round (#2004).
 DEFAULT_ROADMAP_REFINE_LIMIT: int = 7
 # The most candidates one Service round of intake decides, one model call each (#1360).
@@ -1166,6 +1174,10 @@ DEFAULT_ROADMAP_FIX_CHECKS_TOKEN_BUDGET: int = 16_000_000
 # The mode of the fix-checks unit that the watch row starts (#5027). It starts in `plan`, as each
 # new row does (ADR 0021, section 8, rule 5).
 DEFAULT_ROADMAP_FIX_CHECKS_MODE: RowMode = "plan"
+# The longest time that a fix-checks Job waits suspended for a model place before the watch row
+# deletes it (#6018): 6 hours, above the cap of 4 hours on the deadline of a running model Job, so
+# a working watch row resumes each fix Job before the limit.
+DEFAULT_ROADMAP_FIX_CHECKS_MAX_WAIT_MINUTES: int = 360
 # The model Jobs that run at once in the cluster, for every repository together: implement, stage
 # and fix-checks Jobs (#5027). ADR 0021, section 5, gives the semaphore `agent` 2 pods.
 DEFAULT_ROADMAP_MODEL_JOBS: int = 2
@@ -1175,6 +1187,9 @@ DEFAULT_ROADMAP_MODEL_JOBS: int = 2
 DEFAULT_ROADMAP_REVIEW_MODE: RowMode = "plan"
 DEFAULT_ROADMAP_REVIEW_ROUNDS: int = 3
 DEFAULT_ROADMAP_REVIEW_TOKEN_BUDGET: int = 16_000_000
+# The hours that the step review waits on a head whose only failed checks are of CI
+# infrastructure before it leaves the pull request for a person (#6024).
+DEFAULT_ROADMAP_REVIEW_INFRA_WAIT_HOURS: int = 6
 # The mode of a decision point in `roadmap.decisions` (ADR 0020).
 DecisionMode = Literal["off", "shadow", "on"]
 DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS: float = 1.0

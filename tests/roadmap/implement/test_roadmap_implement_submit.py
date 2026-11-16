@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import time
 from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
@@ -33,10 +34,12 @@ from devops_cli.config.env import setting_variables
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.github.repo_ref import RepoRef
+from devops_cli.k8s.cluster_job import OWNER_LABEL, REPO_LABEL
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement.implement import parse_implement_filters, plan_implement
 from devops_cli.roadmap.implement.implement_submit import run_implement_round
+from devops_cli.roadmap.job_launcher import CREATED_AT_ANNOTATION
 from devops_cli.roadmap.run import MODEL_LANE_ROWS, STATUS_LANE_ROWS, TRIAGE_LANE_ROWS, JobOutcome
 from devops_cli.roadmap.stores.store import (
     CloseReason,
@@ -380,7 +383,10 @@ def test_a_running_job_of_another_repository_does_not_block_this_one(
 
 
 def _fix_job(*, suspend: bool) -> dict[str, Any]:
-    """A fix-checks Job of the watch row in the cluster, waiting suspended or running (#5027)."""
+    """A fix-checks Job of the watch row of the repository in the cluster, created now, waiting
+    suspended or running (#5027). A waiting Job holds a place only while its repository is in
+    `service.repos` and it waits within `roadmap.fix_checks.max_wait_minutes` (#6018)."""
+    ref = RepoRef(STAGE_REPO)
     return {
         "metadata": {
             "name": "devops-cli-fix-checks-project-9-0123456789",
@@ -388,7 +394,10 @@ def _fix_job(*, suspend: bool) -> dict[str, Any]:
             "labels": {
                 "app.kubernetes.io/managed-by": "devops-cli",
                 "app.kubernetes.io/component": "roadmap-fix-checks",
+                OWNER_LABEL: ref.owner_label,
+                REPO_LABEL: ref.repo_label,
             },
+            "annotations": {CREATED_AT_ANNOTATION: str(int(time.time()))},
         },
         "spec": {"suspend": suspend},
     }
@@ -404,7 +413,7 @@ def test_a_waiting_fix_job_goes_before_a_new_implement_job(
     """With one place for a model Job, a fix-checks Job that waits suspended holds it: the round
     creates no implement Job and waits. Once the fix Job runs and a place is free, it holds no
     implement lock: it has its own component and no label `implement-repo` (#5027)."""
-    config(roadmap={"model_jobs": 1})
+    config(roadmap={"model_jobs": 1}, service={"repos": [STAGE_REPO]})
     kube.custom_objects.objects[JOBS] = [_fix_job(suspend=True)]
     seed_staged(store)
 

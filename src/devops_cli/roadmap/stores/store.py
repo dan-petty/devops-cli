@@ -348,26 +348,37 @@ class FixChecksRecordKey(StrEnum):
     """What the step `fix-checks` records in an Item's job record (#5023): `fix_checks.key` is
     the head commit and the check name `<head>:<check>`, `fix_checks.rounds` counts the rounds on that
     pull request, `fix_checks.errors` counts the errors, `fix_checks.result` holds the result, and
-    `fix_checks.heads` records the distinct heads seen."""
+    `fix_checks.heads` records the distinct heads seen. The watch row writes `fix_checks.units` in
+    mode `on`: a JSON object of the attempt, the outcome and the next allowed time of each fix
+    unit `<pr>:<head>:<check>`, so the TTL of a Job does not reset them (#6018)."""
 
     KEY = "fix_checks.key"
     ROUNDS = "fix_checks.rounds"
     ERRORS = "fix_checks.errors"
     RESULT = "fix_checks.result"
     HEADS = "fix_checks.heads"
+    UNITS = "fix_checks.units"
 
 
 class ReviewRecordKey(StrEnum):
     """What the step `review` records in an Item's job record (#5969): `review.pull` is the pull
     request that `review.rounds` counts the written verdicts of, `review.key` is the pull request,
     the head and the hash of the text of the item that the last verdict judged
-    (`<pull>:<head>:<text hash>`), and `review.verdict` is that verdict. A verdict on another pull
-    request starts the count again."""
+    (`<pull>:<head>:<text hash>`), `review.verdict` is that verdict and `review.source` whether a
+    rule or the model gave it. A verdict on another pull request starts the count again.
+    `review.text` is the hash of the issue text that an Issue changed verdict answered, so the same
+    text gives no second one (#6024). `review.wait` is the head and the time of the first wait on
+    CI infrastructure (`<head> <time>`), and `review.discard` the pull request and the head of a
+    discard that started (`<pull>:<head>`), so a later call ends it."""
 
     PULL = "review.pull"
     ROUNDS = "review.rounds"
     KEY = "review.key"
     VERDICT = "review.verdict"
+    SOURCE = "review.source"
+    TEXT = "review.text"
+    WAIT = "review.wait"
+    DISCARD = "review.discard"
 
 
 class ImplementResult(StrEnum):

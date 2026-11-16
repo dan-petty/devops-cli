@@ -273,7 +273,8 @@ class ClusterJobs:
     def delete_job(self, name: str) -> None:
         """Delete Job `name`. The garbage collector deletes its pods after the Job is gone
         (propagation `Background`). A Job that is gone already is no error. The admission policy
-        `roadmap-service-job-deletes` lets the Service delete a stage Job and no other Job.
+        `roadmap-service-job-deletes` lets the Service delete a stage Job and a suspended
+        fix-checks Job (#6018), and no other Job.
 
         Raises ClusterJobError when the API refuses the delete.
         """

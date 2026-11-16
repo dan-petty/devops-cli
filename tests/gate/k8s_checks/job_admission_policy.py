@@ -696,15 +696,19 @@ def check_the_plain_env_names_of_a_stage_job_are_those_of_the_template_and_the_s
     assert listed == plain | set(stage_job_env(STAGE_REPO, "x", STAGE_DEADLINE))
 
 
-def check_the_service_may_delete_a_stage_job_and_no_other_job() -> None:
+def check_the_service_may_delete_a_stage_job_and_a_waiting_fix_job_and_no_other_job() -> None:
+    """The Service deletes a stage Job (#5483) and a fix-checks Job that waits suspended past
+    `roadmap.fix_checks.max_wait_minutes` (#6018), and no runner Job that runs."""
     runner = _template_job()
     stage = _stage_job()
 
     assert (
         _delete_refusals(stage),
+        _delete_refusals(_fix_job(suspend=True)),
+        len(_delete_refusals(_fix_job(suspend=False))),
         len(_delete_refusals(runner)),
         _delete_refusals(runner, "kubernetes-admin"),
-    ) == ([], 1, [])
+    ) == ([], [], 1, 1, [])
 
 
 def check_the_delete_policy_covers_the_delete_of_jobs_in_namespace_devops_and_fails_closed() -> (

@@ -17,13 +17,17 @@ this place after the engine step (#4566).
 controller starts no pod, and the Job waits in the cluster, so a restart of the Service loses
 nothing. The implement and stage rows leave the place of each waiting fix Job free, and the watch
 row resumes the waiting fix Jobs, oldest first, so a fix Job goes before a new implement or stage
-Job. While `roadmap.fix_checks.mode` is `off`, a waiting fix Job holds no place.
+Job. A waiting fix Job holds a place only while `roadmap.fix_checks.mode` is not `off`, its
+repository is in `service.repos`, and it has waited at most `roadmap.fix_checks.max_wait_minutes`
+(#6018): only the watch row of its own repository resumes it, and the watch row deletes it after
+that limit (`stale`).
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 
 from devops_cli.config.constants import CONST_GITHUB_APP_TOKEN_REPOSITORY_SETTING
@@ -36,6 +40,8 @@ from devops_cli.k8s.cluster_job import (
     MANAGED_BY_LABEL,
     MANAGED_BY_LABEL_VALUE,
     MODEL_COMPONENTS,
+    OWNER_LABEL,
+    REPO_LABEL,
     RUNNER_TEMPLATE,
     build_job,
 )
@@ -117,7 +123,7 @@ def launch(jobs: ClusterJobs, unit: RunnerUnit, *, cronjob: dict[str, Any] | Non
 @dataclass(frozen=True)
 class ModelSlots:
     """The model Jobs of the cluster against `roadmap.model_jobs`: the limit, the Jobs that run,
-    and the fix-checks Jobs that wait suspended, oldest first."""
+    and the fix-checks Jobs that wait suspended and hold a place, oldest first."""
 
     limit: int
     running: int = 0
@@ -135,46 +141,81 @@ class ModelSlots:
         return max(self.limit - self.running - len(self.waiting), 0)
 
 
-def _created_at(job: ClusterJob) -> int:
+def created_at(job: ClusterJob) -> int:
+    """The time (epoch seconds) at which the Service created `job`, from its annotation, or 0
+    when it has none."""
     text = job.annotations.get(CREATED_AT_ANNOTATION, "")
     return int(text) if text.isdecimal() else 0
 
 
-def model_slots(jobs: ClusterJobs) -> ModelSlots:
-    """The model Jobs that run and wait in the cluster, as the module says: the Jobs of the
-    Service (`app.kubernetes.io/managed-by: devops-cli`) whose component is a model component and
-    that have not ended. A suspended fix Job waits while `roadmap.fix_checks.mode` is not `off`.
+def waits(job: ClusterJob) -> bool:
+    """Whether `job` is a fix-checks Job that waits suspended for a model place."""
+    return (
+        job.suspended
+        and job.state is JobState.RUNNING
+        and job.labels.get(COMPONENT_LABEL) == FIX_CHECKS_COMPONENT
+    )
+
+
+def stale(job: ClusterJob, now: datetime) -> bool:
+    """Whether the waiting fix Job `job` has waited longer than
+    `roadmap.fix_checks.max_wait_minutes` at `now`. A Job with no time of creation is stale."""
+    limit = timedelta(minutes=load_settings().roadmap.fix_checks.max_wait_minutes)
+    return waits(job) and now - datetime.fromtimestamp(created_at(job), UTC) > limit
+
+
+def oldest_first(jobs: Iterable[ClusterJob]) -> tuple[ClusterJob, ...]:
+    """`jobs` in the order of their creation, oldest first."""
+    return tuple(sorted(jobs, key=lambda job: (created_at(job), job.name)))
+
+
+def _service_repos() -> frozenset[tuple[str, str]]:
+    """The values of the labels owner and repo of each repository of `service.repos`."""
+    refs = (RepoRef(repo) for repo in load_settings().service.repos)
+    return frozenset((ref.owner_label, ref.repo_label) for ref in refs)
+
+
+def model_slots(jobs: ClusterJobs, *, now: datetime | None = None) -> ModelSlots:
+    """The model Jobs that run and wait in the cluster at `now`, as the module says: the Jobs of
+    the Service (`app.kubernetes.io/managed-by: devops-cli`) whose component is a model component
+    and that have not ended. A suspended fix Job waits while `roadmap.fix_checks.mode` is not
+    `off`, its repository is in `service.repos`, and it is not `stale`.
 
     Raises ClusterJobError when the API refuses the list.
     """
     roadmap = load_settings().roadmap
+    moment = now or datetime.now(UTC)
     listed = jobs.list_jobs({MANAGED_BY_LABEL: MANAGED_BY_LABEL_VALUE})
     live = [
         job
         for job in listed
         if job.labels.get(COMPONENT_LABEL) in MODEL_COMPONENTS and job.state is JobState.RUNNING
     ]
+    served = _service_repos()
     waiting = (
-        sorted(
-            (
-                job
-                for job in live
-                if job.suspended and job.labels.get(COMPONENT_LABEL) == FIX_CHECKS_COMPONENT
-            ),
-            key=lambda job: (_created_at(job), job.name),
+        oldest_first(
+            job
+            for job in live
+            if waits(job)
+            and (job.labels.get(OWNER_LABEL), job.labels.get(REPO_LABEL)) in served
+            and not stale(job, moment)
         )
         if roadmap.fix_checks.mode != "off"
-        else []
+        else ()
     )
     running = sum(1 for job in live if not job.suspended)
-    return ModelSlots(roadmap.model_jobs, running, tuple(waiting))
+    return ModelSlots(roadmap.model_jobs, running, waiting)
 
 
 __all__ = [
     "CREATED_AT_ANNOTATION",
     "ModelSlots",
     "RunnerUnit",
+    "created_at",
     "launch",
     "model_slots",
+    "oldest_first",
     "runner_job",
+    "stale",
+    "waits",
 ]

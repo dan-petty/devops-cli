@@ -1,0 +1,13 @@
+# Design
+
+## Decisions
+- **No digest pin of a version input.** A preset rule after the digest pin rule sets `pinDigests: false` for `matchManagers: ["github-actions"]` and `matchDepTypes: ["uses-with"]`. Renovate applies the rules in order, so this rule wins for the inputs only. Renovate 44.239.1 `doAutoReplace` raises `update-failure` when the replaced text does not hold the new digest, and a `version: v0.76.2` input has no digest to replace.
+- **One update for each security fix.** `vulnerabilityAlerts.separateMajorMinor: false`. Renovate forces `vulnerabilityAlerts` onto the dependency, and with no split, the lookup puts every candidate into the bucket `latest`. With `vulnerabilityFixStrategy: highest`, that is the newest release, as the preset asks.
+- **A hold that ends by itself.** Each hold rule matches the manager `pip-compile`, the package file `semgrep.in`, the type `indirect`, one package and `matchCurrentVersion: "<fix>"`. For an indirect dependency, Renovate compares a range with the locked version. When a semgrep release allows the fix and lock file maintenance takes it, the rule stops matching. A test fails then, so the hold is deleted. `enabled: false` wins over the vulnerability rule, because that rule carries no `enabled`, and Renovate keeps a dependency off when a package rule turned it off.
+- **The Dashboard says why.** The Dashboard lists only advisories with no fixed version as unresolved, so a held fix would show nowhere. `dependencyDashboard.footer` of the repository config names the held packages and #3988. `dependencyDashboard` is mergeable, so the preset settings stay.
+
+## Rejected alternatives
+- **A uv `--override` file for the semgrep lock.** Renovate allows `--override` in the header, but the fix of opentelemetry-api needs overrides of opentelemetry-sdk, the exporter, the semantic conventions and the instrumentation packages too, against the requirements that semgrep declares. SECURITY.md, "A Finding with No Fix", applies when no release of the pinned package (semgrep 1.185.0) holds the fix; #3988 owns that path for the tools lock.
+- **`dependencyDashboardApproval` on the held fixes.** Renovate forces the `vulnerabilityAlerts` settings onto a security fix, and their default sets `dependencyDashboardApproval: false`, so the approval would not hold.
+- **The repinning of #4902.** The two failures do not come from the sha256 pins of the tools lock: no manager reads those pins, and the failed branches update only the `version` inputs.
+- **A change to the CronJob or to `binarySource`.** The debug run installed Python 3.14.10 and uv 0.13.8 through containerbase with no error, so the read-only root and the seed copy are not a cause.

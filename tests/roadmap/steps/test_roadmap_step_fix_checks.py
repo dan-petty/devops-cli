@@ -681,6 +681,23 @@ def test_a_repaired_draft_without_confirm_is_not_marked_ready(world: PullWorld) 
     assert world.record(pull)[FixChecksRecordKey.RESULT] == "repaired"
 
 
+@pytest.mark.parametrize("check", [STATIC, "Test Job Duration"])
+def test_the_ready_path_skips_a_check_that_failed_after_the_read_of_the_watch_row(
+    world: PullWorld, check: str
+) -> None:
+    """The watch row read passing checks, and the step reads a failed check: the ready path gives
+    `skipped` with no repair, no comment and no ready mark, and the next round judges the head
+    (#6018)."""
+    pull = world.item(record={FixChecksRecordKey.RESULT: "repaired"})
+    world.pull(pull, runs=[_run(check)], log="Job duration exceeded runner limit")
+    calls = _ready_calls(world)
+
+    report = world.run(pull, head=HEAD_SHA, confirm=True, ready_only=True)
+
+    assert (report.result, world.comments(), calls) == (FixChecksResult.SKIPPED, [], [])
+    assert world.record(pull)[FixChecksRecordKey.RESULT] == "repaired"
+
+
 def test_a_draft_that_the_step_did_not_repair_is_left_to_the_watch_row(world: PullWorld) -> None:
     pull = world.item()
     world.pull(pull, runs=[_run(STATIC, "success")])

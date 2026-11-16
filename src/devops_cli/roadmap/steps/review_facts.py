@@ -3,11 +3,13 @@
 `read_facts` reads the facts that the rules of `review.py` decide on, with no model: the check runs
 of the head, the files of the diff since the merge base (the compare of the base branch and the
 head), one GraphQL request for the unresolved review threads and for the merged pull requests of
-the base branch since the merge base with the files that they share with the diff, the open
+the base branch since the merge base with the files that they share with the diff, the login that
+last marked the pull request ready, the open
 findings of the last plan comment of a plan, and the `tasks.md` of the change folder of a delivery
 for `draft_readiness`. The text of the issue changed when its hash is not the hash that the stage
-job recorded for the plan (`stage.text_hash`). The update time of an issue is no such fact: each
-label and each record write moves it.
+job recorded for the plan (`stage.text_hash`), and no Issue changed verdict answered that text yet
+(`review.text`). The update time of an issue is no such fact: each label and each record write
+moves it.
 
 `read_case` reads what the model reads: the diff since the merge base, the Markdown files of the
 change folder of the item at the head, and the text of the issue.
@@ -42,6 +44,7 @@ from devops_cli.roadmap.stores.store import (
     GitHubState,
     ImplementRecordKey,
     Item,
+    ReviewRecordKey,
     RoadmapStore,
     StageRecordKey,
 )
@@ -61,6 +64,9 @@ query($owner: String!, $name: String!, $number: Int!, $base: String!) {{
   repository(owner: $owner, name: $name) {{
     pullRequest(number: $number) {{
       reviewThreads(first: {_PAGE}) {{ nodes {{ isResolved isOutdated path line }} }}
+      timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT], last: 1) {{
+        nodes {{ ... on ReadyForReviewEvent {{ actor {{ login }} }} }}
+      }}
     }}
     ref(qualifiedName: $base) {{
       target {{
@@ -102,7 +108,8 @@ class ReviewFacts:
     `own_plan` the plan pull request of the item (`stage.pr`), `text_changed` whether the text of
     the item is not the text that the plan came from, `folder` the change folder of the item in the
     diff, `findings` the open findings of the last plan comment, `threads` the place of each
-    unresolved review thread, and `incomplete` the reason of `draft_readiness` when it refuses."""
+    unresolved review thread, `incomplete` the reason of `draft_readiness` when it refuses, and
+    `ready_by` the login that last marked the pull request ready for review, or None."""
 
     pull: int
     kind: PullKind
@@ -122,6 +129,7 @@ class ReviewFacts:
     findings: tuple[str, ...] = ()
     threads: tuple[str, ...] = ()
     incomplete: str | None = None
+    ready_by: str | None = None
 
 
 class ReplyVerdict(StrEnum):
@@ -227,8 +235,21 @@ class _Threads(_Answered):
     nodes: list[_Thread] = Field(default_factory=list)
 
 
+class _Actor(_Answered):
+    login: str = ""
+
+
+class _ReadyEvent(_Answered):
+    actor: _Actor | None = None
+
+
+class _ReadyEvents(_Answered):
+    nodes: list[_ReadyEvent] = Field(default_factory=list)
+
+
 class _Pull(_Answered):
     review_threads: _Threads = Field(default_factory=_Threads)
+    timeline_items: _ReadyEvents = Field(default_factory=_ReadyEvents)
 
 
 class _Repository(_Answered):
@@ -250,6 +271,7 @@ class _Graph:
     threads: tuple[str, ...]
     related: tuple[RelatedPull, ...]
     truncated: bool
+    ready_by: str | None = None
 
 
 def _read_graph(
@@ -280,16 +302,19 @@ def _read_graph(
         for thread in nodes
         if not thread.is_resolved and not thread.is_outdated
     )
+    events = repository.pull_request.timeline_items.nodes if repository.pull_request else []
+    actors = [event.actor.login for event in events if event.actor and event.actor.login]
+    ready_by = actors[-1] if actors else None
     target = repository.ref.target if repository.ref else None
     related: list[RelatedPull] = []
     for commit in target.history.nodes if target else []:
         if commit.oid == merge_base:
-            return _Graph(threads, tuple(related), truncated=False)
+            return _Graph(threads, tuple(related), truncated=False, ready_by=ready_by)
         for merged in commit.associated_pull_requests.nodes:
             shared = tuple(sorted(files & {node.path for node in merged.files.nodes}))
             if merged.merged and merged.number != pull and shared:
                 related.append(RelatedPull(merged.number, shared))
-    return _Graph(threads, tuple(related), truncated=True)
+    return _Graph(threads, tuple(related), truncated=True, ready_by=ready_by)
 
 
 # ── The facts ────────────────────────────────────────────────────────────────────────────────
@@ -379,6 +404,9 @@ def read_facts(
     graph = _read_graph(client, ref, pull, status.base_ref, compared.merge_base, set(files))
     folder = _change_folder(files, item.number)
     recorded = item.job_record.get(StageRecordKey.TEXT_HASH)
+    text = body_hashes(item.body)[0]
+    # An Issue changed verdict answered this text already, so the updated work is judged (#6024).
+    answered = item.job_record.get(ReviewRecordKey.TEXT) == text
     return ReviewFacts(
         pull=pull,
         kind=kind,
@@ -389,7 +417,7 @@ def read_facts(
         mergeable_state=status.mergeable_state,
         checks=checks,
         item_open=item.state is GitHubState.OPEN,
-        text_changed=bool(recorded) and recorded != body_hashes(item.body)[0],
+        text_changed=bool(recorded) and recorded != text and not answered,
         own_plan=record_number(item, StageRecordKey.PR),
         files=files,
         folder=folder[0],
@@ -398,6 +426,7 @@ def read_facts(
         findings=_plan_findings(store, item.number, pull) if kind is PullKind.PLAN else (),
         threads=graph.threads,
         incomplete=_incomplete(client, repo, status, item, kind, folder),
+        ready_by=graph.ready_by,
     )
 
 

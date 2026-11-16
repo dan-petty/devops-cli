@@ -19,7 +19,7 @@ from devops_cli.config.constants import (
     CONST_URL_CLOUDFLARE_STATUS_SUMMARY,
     CONST_URL_GITHUB_STATUS_SUMMARY,
 )
-from devops_cli.config.defaults import DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES
+from devops_cli.config.defaults import DEFAULT_ROADMAP_STATUS_PAGE_INTERVAL_MINUTES
 from devops_cli.exceptions import RoadmapRunError
 from devops_cli.roadmap.run import (
     DEFAULT_DUE_TABLE,
@@ -105,15 +105,16 @@ def test_row_names_of_the_status_lane_end_with_the_two_status_reads() -> None:
     ) == (STATUS_ROW_NAMES, STATUS_ROW_NAMES)
 
 
-def test_row_names_of_the_status_reads_need_no_clone_and_use_the_metrics_interval() -> None:
-    """A status read fetches a public page, so its row needs no clone. It uses the interval of the
-    metrics row and is due on a first run. `metrics` keeps its clone (#4052)."""
+def test_row_names_of_the_status_reads_need_no_clone_and_use_the_status_page_interval() -> None:
+    """A status read fetches a public page, so its row needs no clone. It is due every 13 minutes,
+    the old interval of the metrics row, and on a first run; the setting of the metrics row does
+    not slow it, as it sends no GitHub request (#6012). `metrics` keeps its clone (#4052)."""
     reads = [_row(name) for name in STATUS_READS]
     assert (
         [(row.needs_clone, row.first_run_due, row.interval) for row in reads],
         _row("metrics").needs_clone,
     ) == (
-        [(False, True, timedelta(minutes=DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES))] * 2,
+        [(False, True, timedelta(minutes=DEFAULT_ROADMAP_STATUS_PAGE_INTERVAL_MINUTES))] * 2,
         True,
     )
 

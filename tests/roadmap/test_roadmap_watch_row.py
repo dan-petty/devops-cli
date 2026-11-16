@@ -10,6 +10,7 @@ Verifies:
 from __future__ import annotations
 
 import json
+import logging
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,7 @@ import yaml
 
 from devops_cli.config.constants import (
     CONST_ROADMAP_WATCH_LEDGER_FILENAME,
+    CONST_SERVICE_METRIC_FIX_CHECKS_JOBS,
 )
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.stores.store import ImplementRecordKey, ItemField, StageRecordKey
@@ -26,6 +28,7 @@ from devops_cli.roadmap.watch_row import (
     WatchLedger,
     watch_round,
 )
+from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from tests.support.fakes.github import GitHubApiFake, github_json
 from tests.support.fakes.kubernetes import FakeCluster
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
@@ -67,12 +70,14 @@ def _graphql_pr_node(
     body: str = "",
     title: str = "feat: test",
     base_ref: str = "main",
+    labels: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     return {
         "number": number,
         "title": title,
         "body": body,
         "isDraft": is_draft,
+        "labels": {"nodes": [{"name": name} for name in labels]},
         "mergeable": mergeable,
         "headRefOid": head,
         "baseRefName": base_ref,
@@ -224,6 +229,56 @@ def test_a_bot_pull_request_with_a_failed_test_check_gets_one_fix_job_and_no_git
     assert [(r.method, r.url.path) for r in github_api.sent] == [("POST", "/graphql")]
 
 
+@pytest.mark.parametrize("broken", ["cronjob", "limits"])
+def test_a_kubernetes_or_configuration_error_of_the_fix_round_does_not_fail_the_row(
+    store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    tmp_path: Path,
+    cluster: FakeCluster,
+    config: Any,
+    caplog: pytest.LogCaptureFixture,
+    broken: str,
+) -> None:
+    """A missing CronJob (`ClusterJobError`) or limits that do not nest (`ConfigurationError`)
+    stop only the fix-checks round: the row logs and counts the error, writes its ledger and
+    gives its result (#6018)."""
+    if broken == "limits":
+        template = yaml.safe_load((REPO_ROOT / "k8s/devops/cronjob-runner.yaml").read_text("utf-8"))
+        cluster.custom_objects.objects[("batch", "v1", "cronjobs")] = [template]
+        config(roadmap={"implement": {"step_time_limit_seconds": 13000}})
+    issue = store.seed_issue("Issue 1", fields={ItemField.PRIORITY: "P1-High"})
+    held = store.item(issue)
+    assert held is not None
+    store.set_marks(
+        held,
+        {
+            ImplementRecordKey.JOB: f"devops-cli-implement-project-{issue}-abc123",
+            ImplementRecordKey.JOB_STATE: "succeeded",
+        },
+    )
+    pr_num = store.seed_pull("feat: delivery PR", head_ref=f"feat/{issue}-deliv")
+    node = _graphql_pr_node(
+        number=pr_num, head=HEAD_FAIL, body=f"Closes #{issue}", author="devops-cli-service"
+    )
+    _route_graphql(github_api, [node])
+    ledger = tmp_path / CONST_ROADMAP_WATCH_LEDGER_FILENAME
+    labels = {"repo": REPO, "result": "round_error"}
+    before = GLOBAL_METRICS.get_counter_value(CONST_SERVICE_METRIC_FIX_CHECKS_JOBS, labels=labels)
+
+    with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.fix_checks_row"):
+        result = watch_round(store, repo=REPO, ledger_path=ledger, now=NOW)
+
+    after = GLOBAL_METRICS.get_counter_value(CONST_SERVICE_METRIC_FIX_CHECKS_JOBS, labels=labels)
+    assert (
+        result.watched,
+        result.failed_heads,
+        result.fix_checks.created,
+        after - before,
+        any("fix-checks round" in r.getMessage() for r in caplog.records),
+        pr_num in WatchLedger.read(ledger).pulls,
+    ) == (1, (pr_num,), (), 1, True, True)
+
+
 @pytest.mark.parametrize(("repaired", "calls"), [(True, 1), (False, 0)])
 def test_a_green_delivery_draft_gets_the_ready_path_only_after_a_fix_and_once_for_each_head(
     store: InMemoryRoadmapStore,
@@ -263,6 +318,9 @@ def test_a_green_delivery_draft_gets_the_ready_path_only_after_a_fix_and_once_fo
     seen: list[tuple[int, str | None, bool]] = []
 
     def ready_path(store: Any, repo: str, pull: int, **kwargs: Any) -> FixChecksReport:
+        # The row asks for the ready path only, so a check that fails between the read of the
+        # row and the read of the step needs no repair (#6018).
+        assert kwargs.get("ready_only") is True
         seen.append((pull, kwargs.get("head"), kwargs.get("confirm", False)))
         return FixChecksReport(repo=repo, pull=pull, result=FixChecksResult.PLANNED)
 
@@ -330,6 +388,37 @@ def test_watch_row_marks_ready_bot_plan_draft(
     updated_item = store.item(issue_num)
     assert updated_item is not None
     assert updated_item.job_record.get(StageRecordKey.READY) == str(pr_num)
+
+
+def test_watch_row_holds_the_ready_mark_of_a_plan_that_a_verdict_sent_back(
+    store: InMemoryRoadmapStore, github_api: GitHubApiFake, tmp_path: Path
+) -> None:
+    """A green plan draft with a verdict label other than `verdict/mergeable` stays a draft, so
+    the review step and the watch row do not undo each other (#6024)."""
+    issue_num = store.seed_issue("Plan Issue", fields={ItemField.PRIORITY: "P2-Medium"})
+    pr_num = store.seed_pull("plan: my plan", head_ref="plan/1-test", draft=True)
+    item = store.item(issue_num)
+    assert item is not None
+    store.set_marks(item, {StageRecordKey.PR: str(pr_num)})
+    node = _graphql_pr_node(
+        number=pr_num,
+        head=HEAD_PASS,
+        is_draft=True,
+        author="devops-cli-service[bot]",
+        check_state="SUCCESS",
+        check_conclusion="SUCCESS",
+        labels=("verdict/issue-changed",),
+    )
+    _route_graphql(github_api, [node])
+
+    res = watch_round(
+        store, repo=REPO, ledger_path=tmp_path / CONST_ROADMAP_WATCH_LEDGER_FILENAME, now=NOW
+    )
+
+    assert pr_num not in res.marked_ready
+    updated = store.item(issue_num)
+    assert updated is not None
+    assert updated.job_record.get(StageRecordKey.READY) is None
 
 
 def test_watch_row_comments_on_person_conflict(

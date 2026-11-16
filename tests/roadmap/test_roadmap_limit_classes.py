@@ -742,6 +742,7 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     "DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_RETITLE_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES": ("other", "a schedule"),
+    "DEFAULT_ROADMAP_STATUS_PAGE_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_PLAN_DRIFT_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_WATCH_INTERVAL_MINUTES": ("other", "a schedule"),
@@ -784,6 +785,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "new (#5969); the verdicts of one pull request, by the owner direction of 2026-11-16: "
         '"Repeat 2 or 3 times"',
     ),
+    "DEFAULT_ROADMAP_REVIEW_INFRA_WAIT_HOURS": (
+        "setting",
+        "new (#6024); the hours that a head waits on CI infrastructure before a person decides",
+    ),
     "DEFAULT_ROADMAP_REVIEW_TOKEN_BUDGET": (
         "setting",
         "new (#5969); the cap of the model call of one review, by the owner direction of "
@@ -806,6 +811,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     "DEFAULT_ROADMAP_MODEL_JOBS": (
         "setting",
         "new (#5027); the model Jobs of every row together, the semaphore agent of ADR 0021 section 5",
+    ),
+    "DEFAULT_ROADMAP_FIX_CHECKS_MAX_WAIT_MINUTES": (
+        "setting",
+        "new (#6018); the wait of a suspended fix-checks Job, above the 4 hours of the deadline cap",
     ),
     "DEFAULT_ROADMAP_STAGE_JOBS": (
         "setting",

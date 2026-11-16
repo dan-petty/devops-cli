@@ -29,14 +29,17 @@ def _repository(repo: str | None) -> str:
 def job_withdraw(repo: str, source: Path | None) -> Withdraw:
     """The delete of a branch of `origin` in the clone `source`, or in the clone `model-clone`,
     which is made or updated only when a discard needs it. The push carries a lease on the judged
-    head, so a push of another writer keeps the branch."""
+    head, so a push of another writer keeps the branch. A branch that is gone needs no delete, so
+    a call that ends an earlier discard can run it again (#6024)."""
 
     def withdraw(branch: str, lease: str) -> None:
         from devops_cli.roadmap.implement.git_isolation import OriginGit, origin_url
         from devops_cli.roadmap.run import model_clone
 
         clone = source or model_clone(repo)
-        OriginGit(clone, origin_url(clone)).push(branch, None, lease=lease)
+        origin = OriginGit(clone, origin_url(clone))
+        if origin.heads(branch):
+            origin.push(branch, None, lease=lease)
 
     return withdraw
 

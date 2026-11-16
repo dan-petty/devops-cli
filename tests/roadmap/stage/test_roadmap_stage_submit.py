@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import json
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -26,8 +27,15 @@ from devops_cli.config.settings import RoadmapConfig
 from devops_cli.exceptions import RoadmapStageError
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.github.repo_ref import RepoRef
-from devops_cli.k8s.cluster_job import JOB_NAME_LABEL, JOB_NAME_LABEL_VALUE, stage_job_labels
+from devops_cli.k8s.cluster_job import (
+    JOB_NAME_LABEL,
+    JOB_NAME_LABEL_VALUE,
+    OWNER_LABEL,
+    REPO_LABEL,
+    stage_job_labels,
+)
 from devops_cli.roadmap import run
+from devops_cli.roadmap.job_launcher import CREATED_AT_ANNOTATION
 from devops_cli.roadmap.run import MODEL_LANE_ROWS, STATUS_LANE_ROWS, JobOutcome
 from devops_cli.roadmap.stage.stage_job import JobCheckIn, recorded_check_in
 from devops_cli.roadmap.stage.stage_left_out import LeftOutKind
@@ -351,9 +359,10 @@ def test_a_waiting_fix_job_goes_before_a_new_stage_job(
     kube: FakeCluster,
     config: Callable[..., Path],
 ) -> None:
-    """With one place for a model Job, a fix-checks Job that waits suspended holds it: the round
-    creates no stage Job (#5027)."""
-    config(roadmap={"model_jobs": 1})
+    """With one place for a model Job, a fix-checks Job of a repository of `service.repos` that
+    waits suspended within its wait limit holds it: the round creates no stage Job (#5027,
+    #6018)."""
+    config(roadmap={"model_jobs": 1}, service={"repos": [STAGE_REPO]})
     seed_stageable(store)
     _hold(
         kube,
@@ -364,7 +373,10 @@ def test_a_waiting_fix_job_goes_before_a_new_stage_job(
                 "labels": {
                     "app.kubernetes.io/managed-by": "devops-cli",
                     "app.kubernetes.io/component": "roadmap-fix-checks",
+                    OWNER_LABEL: REPO.owner_label,
+                    REPO_LABEL: REPO.repo_label,
                 },
+                "annotations": {CREATED_AT_ANNOTATION: str(int(time.time()))},
             },
             "spec": {"suspend": True},
         },

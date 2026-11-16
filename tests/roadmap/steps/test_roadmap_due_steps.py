@@ -246,3 +246,29 @@ def test_the_fix_unit_takes_the_failed_shard_and_no_cancelled_check() -> None:
         None,
         (),
     )
+
+
+@pytest.mark.parametrize(
+    ("labels", "expected_steps"),
+    [
+        ((), (DueStep.READY,)),
+        (("verdict/mergeable",), (DueStep.READY,)),
+        (("verdict/fix-plan",), ()),
+        (("type/feature", "verdict/issue-changed"), ()),
+        (("verdict/fix-implementation",), ()),
+    ],
+)
+def test_a_verdict_label_that_sends_the_work_back_holds_the_ready_step(
+    labels: tuple[str, ...], expected_steps: tuple[DueStep, ...]
+) -> None:
+    """The watch row does not mark ready a green bot pull request that a verdict sent back (#6024)."""
+    state = WatchState(
+        pull=101,
+        head_sha="a" * 40,
+        checks=_passing_checks(),
+        is_bot=True,
+        is_plan=True,
+        labels=labels,
+    )
+
+    assert due_steps(state) == expected_steps

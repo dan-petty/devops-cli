@@ -120,6 +120,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
     DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
     DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS,
+    DEFAULT_ROADMAP_FIX_CHECKS_MAX_WAIT_MINUTES,
     DEFAULT_ROADMAP_FIX_CHECKS_MODE,
     DEFAULT_ROADMAP_FIX_CHECKS_TOKEN_BUDGET,
     DEFAULT_ROADMAP_FIX_CONFLICT_HARD_CAP,
@@ -162,10 +163,12 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_INTAKE_JEV,
     DEFAULT_ROADMAP_MCP_TIMEOUT_SECONDS,
+    DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_MODEL_JOBS,
     DEFAULT_ROADMAP_OPEN_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_OPEN_MODE,
     DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES,
+    DEFAULT_ROADMAP_REVIEW_INFRA_WAIT_HOURS,
     DEFAULT_ROADMAP_REVIEW_MODE,
     DEFAULT_ROADMAP_REVIEW_ROUNDS,
     DEFAULT_ROADMAP_REVIEW_TOKEN_BUDGET,
@@ -1214,7 +1217,28 @@ def _interval_minutes(default: int) -> Any:
     return Field(description=_INTERVAL_MINUTES_TEXT, default=default, ge=1)
 
 
-class RowCadenceConfig(BaseModel):
+_ROW_INTERVAL_TEXT = "The minutes from the start of a round of this row of the Service to the start of its next round. Each round reads it again, so a change needs no restart"
+
+
+class RowIntervalConfig(BaseModel):
+    """How often the Service runs one row that counts no queue (#6012): its interval only, so the
+    section holds no backlog setting that would do nothing. `RowCadenceConfig` adds the backlog
+    rule for a row that counts its queue."""
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    interval_minutes: Annotated[int, Variable()] = Field(description=_ROW_INTERVAL_TEXT, ge=1)
+
+    def minutes_for(self, queue: int | None) -> int:
+        """The minutes between two rounds of the row: its interval, for any `queue`."""
+        return self.interval_minutes
+
+    def in_backlog(self, queue: int | None) -> bool:
+        """Whether the backlog rule applies to a queue of `queue` items: never, with no rule."""
+        return False
+
+
+class RowCadenceConfig(RowIntervalConfig):
     """How often the Service runs one row (#5470): its interval, and the shorter interval while the
     queue that its last round counted holds `backlog_threshold` or more items. The rule applies
     only when both backlog settings have a value. Each section that holds the cadence of a row
@@ -1883,6 +1907,17 @@ class RoadmapInboxConfig(BaseModel):
     )
 
 
+class RoadmapMetricsConfig(RowIntervalConfig):
+    """The interval of the metrics row of the Service (#6012). The row reads the metrics of the
+    whole repository and counts no queue, so the section has no backlog rule."""
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    interval_minutes: Annotated[int, Variable()] = Field(
+        description=_ROW_INTERVAL_TEXT, default=DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES, ge=1
+    )
+
+
 class RoadmapIntakeConfig(RowCadenceConfig):
     """What `devops roadmap intake` asks of its models (#4298), and the cadence of the intake row
     of the Service (#5470)."""
@@ -1992,6 +2027,12 @@ class RoadmapFixChecksConfig(BaseModel):
         ge=1,
     )
 
+    max_wait_minutes: Annotated[int, Variable()] = Field(
+        description="The longest time that a fix-checks Job waits suspended for a place of `roadmap.model_jobs` (#6018). The watch row of each repository deletes a waiting fix Job that is older, also the Job of a repository that left `service.repos`, and writes a log line. Such a Job holds no place. Keep it above 240, the cap of the deadline of a running model Job, so that a working watch row resumes each fix Job first",
+        default=DEFAULT_ROADMAP_FIX_CHECKS_MAX_WAIT_MINUTES,
+        ge=1,
+    )
+
 
 class RoadmapReviewConfig(BaseModel):
     """What the step `review` does and may spend (#5969)."""
@@ -2011,6 +2052,11 @@ class RoadmapReviewConfig(BaseModel):
     token_budget: Annotated[int, Variable()] = Field(
         description="The most new tokens that the model of one review may use, summed over the attempts of its structured reply. Before the call the step counts the tokens of the request, and at the cap it stops with the class `limit_reached` and names this setting",
         default=DEFAULT_ROADMAP_REVIEW_TOKEN_BUDGET,
+        ge=1,
+    )
+    infra_wait_hours: Annotated[int, Variable()] = Field(
+        description="The hours that the step review waits on a head whose only failed checks are of CI infrastructure. Each wait logs one line. With `--confirm` in the mode `on`, the step records the time of the first wait of the head, and after this many hours it comments once that a person must run the check again, and gives no verdict",
+        default=DEFAULT_ROADMAP_REVIEW_INFRA_WAIT_HOURS,
         ge=1,
     )
 
@@ -2057,6 +2103,7 @@ class RoadmapConfig(BaseModel):
     implement: RoadmapImplementConfig = Field(default_factory=RoadmapImplementConfig)
     inbox: RoadmapInboxConfig = Field(default_factory=RoadmapInboxConfig)
     intake: RoadmapIntakeConfig = Field(default_factory=RoadmapIntakeConfig)
+    metrics: RoadmapMetricsConfig = Field(default_factory=RoadmapMetricsConfig)
     fix_plan: RoadmapFixPlanConfig = Field(default_factory=RoadmapFixPlanConfig)
     fix_conflict: RoadmapFixConflictConfig = Field(default_factory=RoadmapFixConflictConfig)
     fix_checks: RoadmapFixChecksConfig = Field(default_factory=RoadmapFixChecksConfig)

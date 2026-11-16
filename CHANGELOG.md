@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.169.0](https://github.com/dan-petty/devops-cli/compare/v0.168.0...v0.169.0) (2026-11-16)
+
+
+### Features
+
+* **deps:** Merge each Renovate security fix after its checks ([#6036](https://github.com/dan-petty/devops-cli/issues/6036)) ([c750132](https://github.com/dan-petty/devops-cli/commit/c75013263fc512d04d669e8468f4e7754d33e554))
+
+
+### Bug Fixes
+
+* **deps:** Make the four failed Renovate updates work ([#6040](https://github.com/dan-petty/devops-cli/issues/6040)) ([4c1ace5](https://github.com/dan-petty/devops-cli/commit/4c1ace51a1cc89115a10c413edbfcc925bb38937))
+* **roadmap:** Keep the fix-checks Job queue bounded and safe ([#6027](https://github.com/dan-petty/devops-cli/issues/6027)) ([31617f0](https://github.com/dan-petty/devops-cli/commit/31617f0e313442d0d7cc32a34fc7179eda53af9b))
+* **roadmap:** Make the review step safe before its on mode ([#6035](https://github.com/dan-petty/devops-cli/issues/6035)) ([5972ad8](https://github.com/dan-petty/devops-cli/commit/5972ad8e06546037fe930d2885815cc9f3d31daa)), closes [#6024](https://github.com/dan-petty/devops-cli/issues/6024)
+
 ## [0.168.0](https://github.com/dan-petty/devops-cli/compare/v0.167.1...v0.168.0) (2026-11-16)
 
 
