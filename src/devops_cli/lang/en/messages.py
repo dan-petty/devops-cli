@@ -3233,7 +3233,7 @@ class RoadmapMessages:
         "that is ticked, and runs the scoped checks again."
     )
     implement_stop_repair_turn_changed: str = (
-        "The extra turn for the static check changed files that the step had not changed: {paths}."
+        "The extra turn for the failure changed files that the step had not changed: {paths}."
     )
     implement_paths_more: str = " and {count} more"
     implement_model_call_model: str = "model {model}"
@@ -3357,6 +3357,16 @@ class RoadmapMessages:
     implement_repair_turn: str = (
         "A static check of your group failed:\n\n{failure}{map}\n\nFix what the check reports. "
         "Change only the files that you changed.{removed} Then reply with one short message."
+    )
+    implement_verification_turn: str = (
+        "A verification command of your group failed:\n\n{failure}{map}\n\nFix what the command "
+        "reports. Change only the files that you changed.{removed} Then reply with one short "
+        "message."
+    )
+    implement_tests_lost_turn: str = (
+        "Tests that existed at the start were lost:\n\n{failure}{map}\n\nRestore the lost tests "
+        "or update the record. Change only the files that you changed.{removed} Then reply with "
+        "one short message."
     )
     implement_map_heading: str = "\n\n# Repository map\n\n{note}\n\n{lines}"
     implement_map_note: str = (

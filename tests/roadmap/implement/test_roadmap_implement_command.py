@@ -17,7 +17,14 @@ from devops_cli.roadmap.stores.store import ImplementRecordKey, ItemField
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
-from tests.support.implement_step import BODY, DOCS, command_text, git, the_whole_group
+from tests.support.implement_step import (
+    BODY,
+    DOCS,
+    command_text,
+    git,
+    rounds_spent,
+    the_whole_group,
+)
 from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_implement import BRANCH, PULL, TITLE, JobWorld, two_groups
 from tests.support.roadmap_stage import STAGE_REPO
@@ -111,7 +118,9 @@ def test_a_stopped_step_exits_1_and_prints_its_reason_as_json(
     item: int,
     implement_checkout: Path,
     implement_programs: ProcessFake,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 0}})
     implement_programs.answer(
         lambda call: command_text(call) == DOCS, ProcessAnswer(returncode=1, stdout="no docs\n")
     )
@@ -125,7 +134,7 @@ def test_a_stopped_step_exits_1_and_prints_its_reason_as_json(
     assert (result.exit_code, printed["status"], printed["reason"], printed["commit"]) == (
         1,
         "stopped",
-        f"{DOCS} exited with status 1.\nno docs",
+        f"{DOCS} exited with status 1.\nno docs" + rounds_spent(0),
         "",
     )
 

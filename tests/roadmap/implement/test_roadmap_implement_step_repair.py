@@ -266,8 +266,7 @@ def test_an_extra_turn_that_changes_a_file_the_step_did_not_change_stops_the_ste
         is_clean_at_wip(checkout, head),
     ) == (
         StepStatus.STOPPED,
-        "The extra turn for the static check changed files that the step had not changed: "
-        "src/other.py.",
+        "The extra turn for the failure changed files that the step had not changed: src/other.py.",
         "",
         FailureClass.OUTSIDE_PLAN,
         True,
@@ -287,7 +286,7 @@ def test_an_extra_turn_that_writes_a_new_file_stops_the_step(
 
     assert (outcome.status, outcome.reason) == (
         StepStatus.STOPPED,
-        "The extra turn for the static check changed files that the step had not changed: "
+        "The extra turn for the failure changed files that the step had not changed: "
         "tests/test_sample_more.py.",
     )
 
@@ -325,9 +324,13 @@ def test_a_task_that_the_repair_turn_leaves_unticked_is_ticked_by_the_job(
     assert git(checkout, "show", f"HEAD:{TASKS_PATH}") + "\n" == TICKED
 
 
-def test_a_failed_verification_command_gets_no_extra_turn(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+def test_a_failed_verification_command_gets_no_extra_turn_when_no_round_is_left(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 0}})
     programs.answer(
         lambda call: command_text(call) == "uv run devops docs check",
         ProcessAnswer(returncode=1, stdout="no docs\n"),

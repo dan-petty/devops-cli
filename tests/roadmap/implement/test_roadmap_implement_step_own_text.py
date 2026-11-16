@@ -8,6 +8,7 @@ The model is a pydantic-ai `FunctionModel` from `ModelScript`. Git runs for real
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -36,6 +37,7 @@ from tests.support.implement_step import (
     is_clean_at,
     make_checkout,
     programs_run,
+    rounds_spent,
     write_call,
 )
 from tests.support.model_script import ModelScript, say, tool_calls
@@ -146,8 +148,12 @@ def test_a_rewrite_of_the_own_group_and_a_tick_of_a_later_group_are_both_restore
 
 
 def test_a_command_that_the_model_rewrites_to_pass_does_not_run_and_the_original_is_named(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 0}})
     head = git(checkout, "rev-parse", "HEAD")
     weak = TICKED.replace(f"Verification: `$ {CHECK}`\n", f"Verification: `$ {DOCS}`\n", 1)
     programs.answer(
@@ -158,7 +164,7 @@ def test_a_command_that_the_model_rewrites_to_pass_does_not_run_and_the_original
     result = _step(store, checkout, script)
 
     assert (result, is_clean_at(checkout, head), programs_run(programs, "uv")) == (
-        (StepStatus.STOPPED, f"{CHECK} exited with status 1.\nno test"),
+        (StepStatus.STOPPED, f"{CHECK} exited with status 1.\nno test" + rounds_spent(0)),
         True,
         # Two runs at the ticks of the two tasks, which fail, and then the exit checks (#3054).
         [CHECK, CHECK, "uv run ruff format -- src/sample.py tests/test_sample.py", CHECK],

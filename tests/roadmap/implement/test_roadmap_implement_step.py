@@ -350,8 +350,12 @@ def test_the_exit_checks_format_first_run_each_command_once_then_the_static_chec
 
 
 def test_a_failed_verification_command_stops_the_step_and_resets_the_checkout(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 0}})
     head = git(checkout, "rev-parse", "HEAD")
     programs.answer(
         lambda call: command_text(call) == CHECK, ProcessAnswer(returncode=1, stdout="no docs\n")
@@ -369,7 +373,7 @@ def test_a_failed_verification_command_stops_the_step_and_resets_the_checkout(
         "def shout" in (checkout / "src" / "sample.py").read_text(encoding="utf-8"),
     ) == (
         StepStatus.STOPPED,
-        f"{CHECK} exited with status 1.\nno docs",
+        f"{CHECK} exited with status 1.\nno docs" + rounds_spent(0),
         "",
         True,
         False,
@@ -970,20 +974,24 @@ def test_an_agent_that_forgot_the_ticks_ends_done_with_no_extra_turn(
     )
 
 
-def test_a_failed_verification_command_stops_the_step_with_no_extra_turn(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+def test_a_failed_verification_command_gets_one_repair_round_and_stops_after_it(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 1}})
     programs.answer(
         lambda call: command_text(call) == DOCS, ProcessAnswer(returncode=1, stdout="no docs\n")
     )
-    script = ModelScript(tool_calls(*WORK), say(FORGOT))
+    script = ModelScript(tool_calls(*WORK), say(FORGOT), say("Fixed."))
 
     outcome = _step(store, checkout, script)
 
     assert (outcome.status, outcome.reason, len(script.seen)) == (
         StepStatus.STOPPED,
-        f"{DOCS} exited with status 1.\nno docs",
-        2,
+        f"{DOCS} exited with status 1.\nno docs" + rounds_spent(1),
+        3,
     )
 
 

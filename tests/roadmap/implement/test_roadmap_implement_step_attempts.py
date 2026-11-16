@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from devops_cli.roadmap.explain import render_trace
-from devops_cli.roadmap.implement.implement_step import run_step
+from devops_cli.roadmap.implement.implement_step import StepStatus, run_step
 from devops_cli.roadmap.implement.implement_trace import (
     ImplementTrace,
     TraceEvent,
@@ -152,20 +152,58 @@ def test_a_failure_that_stays_ends_the_last_attempt_with_stop_and_names_the_roun
     assert first
 
 
-def test_a_failed_verification_command_gets_no_round_and_names_no_rounds(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+def test_a_failed_verification_command_gets_one_round_and_ends_done(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 1}})
+    runs = 0
+
+    def _answer(call: object) -> ProcessAnswer:
+        nonlocal runs
+        runs += 1
+        return (
+            ProcessAnswer(returncode=1, stdout="1 failed")
+            if runs == 1
+            else ProcessAnswer(returncode=0)
+        )
+
     programs.answer(
         lambda call: command_text(call) == CHECK,
-        ProcessAnswer(returncode=1, stdout="1 failed"),
+        _answer,
     )
-    script = ModelScript(FIRST, say("Done."))
-
-    trace, reason, requests = _run(store, checkout, script)
-
-    assert "repair_rounds" not in reason
-    assert requests == 2
-    assert [(a["number"], a["next"]) for a in _attempts(trace)] == [(1, "stop")]
+    first_turn = tool_calls(
+        write_call("tests/test_sample.py", BAD_TEST),
+        write_call("src/sample.py", SHOUT_CODE),
+    )
+    repair_turn = tool_calls(
+        write_call("tests/test_sample.py", TEST_BODY),
+    )
+    script = ModelScript(first_turn, say("Done."), repair_turn, say("Fixed the test."))
+    trace = ImplementTrace(step="group 1")
+    outcome = run_step(
+        store,
+        item=1,
+        group=1,
+        source=checkout,
+        model=script.model(),
+        window=WINDOW,
+        trace=trace,
+    )
+    assert outcome.status is StepStatus.DONE
+    assert outcome.reason == ""
+    assert outcome.requests == 4
+    first, second = _attempts(trace)
+    assert (first["number"], first["outcome"], first["next"], first["class"]) == (
+        1,
+        "failed",
+        "repair",
+        "test",
+    )
+    assert "1 failed" in str(first["evidence"])
+    assert (second["number"], second["outcome"], second["next"]) == (2, "passed", "stop")
 
 
 def test_a_group_that_changes_no_file_is_one_attempt_of_class_plan_defect(

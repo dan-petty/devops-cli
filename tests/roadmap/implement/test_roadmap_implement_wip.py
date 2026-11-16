@@ -7,6 +7,7 @@ The model is a pydantic-ai `FunctionModel` from `ModelScript`. Git runs for real
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -98,8 +99,12 @@ def _first_task_then_a_stop(programs: ProcessFake) -> ModelScript:
 
 
 def test_a_stopped_step_keeps_the_task_that_passed_its_verification(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 0}})
     start = git(checkout, "rev-parse", "HEAD")
     kept: list[WipCommit] = []
 
@@ -120,8 +125,12 @@ def test_a_stopped_step_keeps_the_task_that_passed_its_verification(
 
 
 def test_the_diff_of_a_stopped_step_holds_only_the_work_after_the_last_kept_task(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 0}})
     outcome = _step(store, checkout, _first_task_then_a_stop(programs))
 
     assert "+def shout(" in outcome.diff
@@ -129,8 +138,12 @@ def test_the_diff_of_a_stopped_step_holds_only_the_work_after_the_last_kept_task
 
 
 def test_a_second_attempt_starts_from_the_kept_task_and_ends_done_in_one_commit(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 0}})
     start = git(checkout, "rev-parse", "HEAD")
     _step(store, checkout, _first_task_then_a_stop(programs))
     second = ModelScript(tool_calls(CODE_FILE, write_call(TASKS_PATH, TICKED)), say("Done."))
@@ -149,8 +162,12 @@ def test_a_second_attempt_starts_from_the_kept_task_and_ends_done_in_one_commit(
 
 
 def test_a_task_that_fails_its_verification_is_not_kept(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 0}})
     start = git(checkout, "rev-parse", "HEAD")
     programs.answer(
         lambda call: command_text(call) == CHECK, ProcessAnswer(returncode=1, stdout="red\n")

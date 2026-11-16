@@ -9,6 +9,7 @@ The model is a pydantic-ai `FunctionModel` from `ModelScript`. Git runs for real
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,7 @@ from devops_cli.roadmap.implement.implement_step import (
     run_fix_step,
     run_step,
 )
+from devops_cli.roadmap.implement.implement_trace import ImplementTrace, TraceEventKind
 from devops_cli.roadmap.implement.implement_wip import WipCommit
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -133,8 +135,12 @@ def _lint_fails_on(word: str, programs: ProcessFake) -> None:
 
 
 def test_a_step_that_replaces_a_test_file_and_drops_tests_stops_and_names_them(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 0}})
     head = git(checkout, "rev-parse", "HEAD")
     script = _script(write_call(OLD_PATH, "def test_new() -> None: ...\n"), SOURCE)
 
@@ -142,7 +148,7 @@ def test_a_step_that_replaces_a_test_file_and_drops_tests_stops_and_names_them(
 
     assert (outcome.status, outcome.reason, outcome.commit) == (
         StepStatus.STOPPED,
-        f"{REASON}{OLD_PATH}: TestKept.test_c, test_a, test_b",
+        f"{REASON}{OLD_PATH}: TestKept.test_c, test_a, test_b" + rounds_spent(0),
         "",
     )
     assert outcome.failure_class is FailureClass.TESTS_LOST
@@ -171,8 +177,12 @@ def test_a_removal_of_a_test_of_a_class_that_the_record_names_passes(
 
 
 def test_a_removal_that_the_record_does_not_name_stops_and_names_only_that_test(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 0}})
     after = OLD.replace("def test_a", "def helper_a").replace("def test_b", "def helper_b")
     script = _script(write_call(OLD_PATH, after), SOURCE)
 
@@ -180,21 +190,25 @@ def test_a_removal_that_the_record_does_not_name_stops_and_names_only_that_test(
 
     assert (outcome.status, outcome.reason, outcome.failure_class) == (
         StepStatus.STOPPED,
-        f"{REASON}{OLD_PATH}: test_b",
+        f"{REASON}{OLD_PATH}: test_b" + rounds_spent(0),
         FailureClass.TESTS_LOST,
     )
 
 
 def test_a_record_of_the_same_name_in_another_file_does_not_pass(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 0}})
     script = _script(write_call(OLD_PATH, OLD.replace("def test_a", "def helper_a")), SOURCE)
 
     outcome = _run(store, checkout, script, frozenset({"tests/test_other.py::test_a"}))
 
     assert (outcome.status, outcome.reason) == (
         StepStatus.STOPPED,
-        f"{REASON}{OLD_PATH}: test_a",
+        f"{REASON}{OLD_PATH}: test_a" + rounds_spent(0),
     )
 
 
@@ -255,8 +269,12 @@ def test_a_kept_task_makes_its_commit_when_the_record_names_the_lost_test(
 
 
 def test_a_kept_task_makes_no_commit_when_the_lost_test_is_not_in_the_record(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 0}})
     kept: list[WipCommit] = []
     script = _script(write_call(OLD_PATH, OLD.replace("def test_a", "def helper_a")), SOURCE)
 
@@ -294,8 +312,12 @@ def test_a_fix_step_passes_a_removal_that_the_record_names(
 
 
 def test_the_check_runs_before_the_formatter_and_the_verification_commands(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 0}})
     script = _script(write_call(OLD_PATH, "def test_new() -> None: ...\n"), SOURCE)
 
     outcome = _run(store, checkout, script)
@@ -317,31 +339,46 @@ def test_a_step_that_adds_a_test_to_an_existing_file_ends_done(
 
 
 def test_a_step_that_renames_a_test_stops(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 0}})
     script = _script(write_call(OLD_PATH, OLD.replace("def test_a(", "def test_z(")), SOURCE)
 
     outcome = _run(store, checkout, script)
 
-    assert (outcome.status, outcome.reason) == (StepStatus.STOPPED, f"{REASON}{OLD_PATH}: test_a")
+    assert (outcome.status, outcome.reason) == (
+        StepStatus.STOPPED,
+        f"{REASON}{OLD_PATH}: test_a" + rounds_spent(0),
+    )
 
 
 def test_a_step_that_deletes_a_test_file_stops(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 0}})
     script = _script(SOURCE, removes=checkout / OLD_PATH)
 
     outcome = _run(store, checkout, script)
 
     assert (outcome.status, outcome.reason) == (
         StepStatus.STOPPED,
-        f"{REASON}{OLD_PATH}: TestKept.test_c, test_a, test_b",
+        f"{REASON}{OLD_PATH}: TestKept.test_c, test_a, test_b" + rounds_spent(0),
     )
 
 
 def test_a_step_that_moves_the_tests_to_a_new_file_stops(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 0}})
     """Every test stays in its file. A person moves tests in a pull request of their own."""
     script = _script(write_call("tests/test_moved.py", OLD), SOURCE, removes=checkout / OLD_PATH)
 
@@ -349,33 +386,41 @@ def test_a_step_that_moves_the_tests_to_a_new_file_stops(
 
     assert (outcome.status, outcome.reason) == (
         StepStatus.STOPPED,
-        f"{REASON}{OLD_PATH}: TestKept.test_c, test_a, test_b",
+        f"{REASON}{OLD_PATH}: TestKept.test_c, test_a, test_b" + rounds_spent(0),
     )
 
 
 def test_a_step_that_moves_the_tests_to_a_file_that_pytest_does_not_collect_stops(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 0}})
     script = _script(write_call("tests/conftest.py", OLD), SOURCE, removes=checkout / OLD_PATH)
 
     outcome = _run(store, checkout, script)
 
     assert (outcome.status, outcome.reason) == (
         StepStatus.STOPPED,
-        f"{REASON}{OLD_PATH}: TestKept.test_c, test_a, test_b",
+        f"{REASON}{OLD_PATH}: TestKept.test_c, test_a, test_b" + rounds_spent(0),
     )
 
 
 def test_a_step_that_replaces_a_test_file_with_a_byte_order_mark_still_stops(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 0}})
     script = _script(write_call(OLD_PATH, "\ufeffdef test_new() -> None: ...\n"), SOURCE)
 
     outcome = _run(store, checkout, script)
 
     assert (outcome.status, outcome.reason) == (
         StepStatus.STOPPED,
-        f"{REASON}{OLD_PATH}: TestKept.test_c, test_a, test_b",
+        f"{REASON}{OLD_PATH}: TestKept.test_c, test_a, test_b" + rounds_spent(0),
     )
 
 
@@ -409,8 +454,12 @@ def test_a_test_file_that_does_not_parse_after_the_run_is_judged_by_the_static_c
 
 
 def test_the_reason_names_a_bounded_number_of_tests(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 0}})
     count = constants.CONST_ROADMAP_IMPLEMENT_REASON_TESTS + 2
     many = "".join(f"def test_{n:02d}() -> None: ...\n" for n in range(count))
     (checkout / OLD_PATH).write_text(many, encoding="utf-8")
@@ -422,12 +471,16 @@ def test_the_reason_names_a_bounded_number_of_tests(
     names = ", ".join(
         f"test_{n:02d}" for n in range(constants.CONST_ROADMAP_IMPLEMENT_REASON_TESTS)
     )
-    assert outcome.reason == f"{REASON}{OLD_PATH}: {names} and 2 more"
+    assert outcome.reason == f"{REASON}{OLD_PATH}: {names} and 2 more" + rounds_spent(0)
 
 
 def test_a_fix_step_keeps_the_tests_as_well(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 0}})
     script = ModelScript(
         tool_calls(SOURCE), say("Done."), effects={2: (checkout / OLD_PATH).unlink}
     )
@@ -446,8 +499,12 @@ def test_a_fix_step_keeps_the_tests_as_well(
 
 
 def test_the_extra_turn_for_a_static_failure_cannot_remove_a_test(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 1}})
     _lint_fails_on("import os", programs)
     added = OLD + "\n\ndef test_added() -> None: ...\n"
     script = ModelScript(
@@ -461,5 +518,47 @@ def test_the_extra_turn_for_a_static_failure_cannot_remove_a_test(
 
     assert (outcome.status, outcome.reason) == (
         StepStatus.STOPPED,
-        f"{REASON}{OLD_PATH}: TestKept.test_c, test_a, test_b",
+        f"{REASON}{OLD_PATH}: TestKept.test_c, test_a, test_b" + rounds_spent(1),
     )
+
+
+def test_a_lost_test_gets_one_repair_turn_that_restores_it(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    config: Callable[..., Path],
+) -> None:
+    config(roadmap={"implement": {"repair_rounds": 1}})
+    first_turn = tool_calls(
+        write_call(OLD_PATH, OLD.replace("def test_a", "def helper_a")),
+        SOURCE,
+        TICK,
+    )
+    repair_turn = tool_calls(write_call(OLD_PATH, OLD))
+    script = ModelScript(first_turn, say("Done."), repair_turn, say("Restored the test."))
+    trace = ImplementTrace(step="group 1")
+
+    outcome = run_step(
+        store,
+        item=1,
+        group=1,
+        source=checkout,
+        model=script.model(),
+        window=WINDOW,
+        trace=trace,
+    )
+
+    assert outcome.status is StepStatus.DONE
+    assert outcome.reason == ""
+    assert outcome.requests == 4
+    attempts = [event.fields for event in trace.events if event.kind is TraceEventKind.ATTEMPT]
+    first, second = attempts
+    assert (first["number"], first["outcome"], first["next"], first["class"]) == (
+        1,
+        "failed",
+        "repair",
+        "tests_lost",
+    )
+    assert OLD_PATH in str(first["evidence"])
+    assert "test_a" in str(first["evidence"])
+    assert (second["number"], second["outcome"], second["next"]) == (2, "passed", "stop")
