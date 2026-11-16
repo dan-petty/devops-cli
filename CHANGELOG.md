@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.163.0](https://github.com/dan-petty/devops-cli/compare/v0.162.0...v0.163.0) (2026-11-16)
+
+
+### Features
+
+* **roadmap:** a fix-checks step fixes a failed check ([#5023](https://github.com/dan-petty/devops-cli/issues/5023)) ([#5939](https://github.com/dan-petty/devops-cli/issues/5939)) ([71ad891](https://github.com/dan-petty/devops-cli/commit/71ad891d00520aa5c1198dbb7d696366c5c4b4f8))
+* **roadmap:** a plan states the identifiers that a behavior group adds ([#5935](https://github.com/dan-petty/devops-cli/issues/5935)) ([27f1595](https://github.com/dan-petty/devops-cli/commit/27f159559b97cfd5addbf8c6709f5e14f15db6e3))
+
 ## [0.162.0](https://github.com/dan-petty/devops-cli/compare/v0.161.0...v0.162.0) (2026-11-16)
 
 
