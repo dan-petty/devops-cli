@@ -29,9 +29,9 @@ from devops_cli.roadmap.refine.refine_investigation import tool_stop
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity, load_cases
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient, review
 from devops_cli.roadmap.stage.stage_verify import (
+    FIX_PLAN_LABEL,
     OPEN_SEVERITIES,
     OPEN_TYPES,
-    PLAN_NEEDS_FIX_LABEL,
     VERIFY_TYPES,
     Finding,
     Verification,
@@ -148,7 +148,7 @@ def test_the_open_types_are_the_seven_types_that_the_planner_can_fix() -> None:
         DefectType.CONTRIVED_TEST,
         DefectType.OTHER,
     }
-    assert PLAN_NEEDS_FIX_LABEL == "plan/needs-fix"
+    assert FIX_PLAN_LABEL == "verdict/fix-plan"
     given = _input()
     findings = [
         _finding(DefectType.TASK_ORDER, "The job drops the last comment"),
@@ -700,7 +700,7 @@ def test_the_open_findings_section_lists_each_open_finding_first() -> None:
 
     section = open_findings_section([finding])
 
-    assert PLAN_NEEDS_FIX_LABEL in section
+    assert FIX_PLAN_LABEL in section
     assert "placeholder" in section
     assert open_findings_section([]) == ""
 

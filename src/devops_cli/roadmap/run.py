@@ -9,7 +9,7 @@ batches status queries via GraphQL, and routes lifecycle steps. The row
 stage submits one stage Job for each Ready item (`stage_submit.py`): the Job plans the item. The row
 release_comments comments the version, and the time it runs, on the issues of a release (#2917).
 The row fix_plan runs the step fix-plan in the mode of `roadmap.fix_plan.mode`: it repairs at most
-one stage plan pull request with the label `plan/needs-fix` in a round (#5061).
+one stage plan pull request with the label `verdict/fix-plan` in a round (#5061).
 `devops roadmap run` runs the whole table in one round. The Service runs each row in a lane of its
 own (`service_lanes`, #5553): a lane is one worker with its trigger queue for each repository, its
 own clone `lanes/<lane>` and its own listing snapshot, so a round of one lane never waits for a
@@ -161,7 +161,7 @@ from devops_cli.roadmap.stage.plan_drift import run_plan_drift
 from devops_cli.roadmap.stage.stage import raise_for_failed
 from devops_cli.roadmap.stage.stage_submit import run_stage_round
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
-from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL
+from devops_cli.roadmap.stage.stage_verify import FIX_PLAN_LABEL
 from devops_cli.roadmap.steps.fix_plan import run_fix_plan
 from devops_cli.roadmap.stores.listing_snapshot import (
     IncrementalListing,
@@ -792,10 +792,10 @@ def _run_fix_plan_adapter(
     **_: Any,
 ) -> JobOutcome:
     """Run the step fix-plan in the mode of `roadmap.fix_plan.mode` (#5061): `off` sends no
-    request, `plan` selects and logs one plan pull request with `plan/needs-fix` and makes no model
+    request, `plan` selects and logs one plan pull request with `verdict/fix-plan` and makes no model
     call and no write, and `on` runs one attempt on it in the job's clone, with the models of the
     tasks `fix_plan` and `fix_plan_review` (#5903). A round takes at most one plan. Its queue is the open pull
-    requests with `plan/needs-fix` in the listing that the selection read, so the count sends no
+    requests with `verdict/fix-plan` in the listing that the selection read, so the count sends no
     request; the mode `off` reads nothing and gives no queue (#5470)."""
     mode = load_settings().roadmap.fix_plan.mode
     if mode == "off":
@@ -810,7 +810,7 @@ def _run_fix_plan_adapter(
         verifier=ToolboxModel(get_task_model("fix_plan_review")) if acts else None,
         mode=mode,
     )
-    return JobOutcome(queue=len(store.labelled_pulls(PLAN_NEEDS_FIX_LABEL)))
+    return JobOutcome(queue=len(store.labelled_pulls(FIX_PLAN_LABEL)))
 
 
 def _run_implement_adapter(
@@ -836,7 +836,7 @@ def _run_implement_adapter(
     for held in result.needs_fix:
         logger.info(
             MESSAGES.roadmap.implement_round_needs_fix.format(
-                number=held.item.number, pull=held.pull, label=PLAN_NEEDS_FIX_LABEL
+                number=held.item.number, pull=held.pull, label=FIX_PLAN_LABEL
             )
         )
     if result.created is not None and result.effort:
@@ -1140,7 +1140,7 @@ MODEL_LANE_ROWS: tuple[JobRow, ...] = (
 )
 """The rows that call the model, which answers one call at a time: retitle, fix_plan, refine and
 the daily check for alternative tools (#2652). fix_plan repairs at most one plan pull request with
-`plan/needs-fix` in a round (#5061). A stage Job plans in a pod of its own, so stage holds no
+`verdict/fix-plan` in a round (#5061). A stage Job plans in a pod of its own, so stage holds no
 place on this lane (#4559)."""
 
 DEFAULT_DUE_TABLE: tuple[JobRow, ...] = (*STATUS_LANE_ROWS, *TRIAGE_LANE_ROWS, *MODEL_LANE_ROWS)

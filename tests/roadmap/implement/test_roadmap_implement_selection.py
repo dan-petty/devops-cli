@@ -496,7 +496,7 @@ def test_an_item_whose_draft_holds_the_label_plan_needs_fix_is_left_out_with_the
 
     assert plan.selected == ()
     assert _reasons(plan) == {
-        number: f"Its pull request #{PULL} holds the label `plan/needs-fix`: the review of its "
+        number: f"Its pull request #{PULL} holds the label `verdict/fix-plan`: the review of its "
         "plan found an open finding. The job takes the item again when the label is gone."
     }
 

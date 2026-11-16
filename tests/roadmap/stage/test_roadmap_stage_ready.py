@@ -20,7 +20,7 @@ from devops_cli.roadmap.implement.implement_pull import Answer, Readiness
 from devops_cli.roadmap.run import MODEL_LANE_ROWS, STATUS_LANE_ROWS, JobOutcome
 from devops_cli.roadmap.stage import stage_ready
 from devops_cli.roadmap.stage.stage_ready import mark_stage_ready
-from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL
+from devops_cli.roadmap.stage.stage_verify import FIX_PLAN_LABEL
 from devops_cli.roadmap.stores.store import (
     CloseReason,
     GitHubState,
@@ -128,7 +128,7 @@ def test_a_green_draft_with_the_open_finding_label_stays_a_draft_and_is_not_mark
     store: InMemoryRoadmapStore, api: GitHubApiFake, ready: _Ready
 ) -> None:
     number = seed_staged(store)
-    _pull(api, labels=(PLAN_NEEDS_FIX_LABEL,))
+    _pull(api, labels=(FIX_PLAN_LABEL,))
     _checks(api, PASS, {**PASS, "name": "Lint"})
     api.route(
         "POST",
@@ -152,7 +152,7 @@ def test_a_green_draft_with_the_open_finding_label_stays_a_draft_and_is_not_mark
         ready.calls,
         StageRecordKey.READY in _record(store, number),
         StageRecordKey.NEEDS_FIX in _record(store, number),
-        PLAN_NEEDS_FIX_LABEL in comments[0],
+        FIX_PLAN_LABEL in comments[0],
     ) == ((), (number,), (), 1, [], False, True, True)
 
 

@@ -1628,7 +1628,7 @@ def test_a_round_creates_no_job_while_the_draft_holds_the_label_plan_needs_fix_a
         _round(store, staged_repo)
 
     assert [line for line in caplog.messages if line.startswith(f"Left #{number}")] == [
-        f"Left #{number}: its pull request #{PULL} holds the label `plan/needs-fix`. "
+        f"Left #{number}: its pull request #{PULL} holds the label `verdict/fix-plan`. "
         "The row takes the item again when the label is gone."
     ]
     assert _creates(kube) == []
@@ -1676,7 +1676,7 @@ def test_a_round_logs_the_label_plan_needs_fix_again_when_it_comes_back_after_it
         _round(store, staged_repo)
 
     assert [line for line in caplog.messages if line.startswith(f"Left #{number}")] == [
-        f"Left #{number}: its pull request #{PULL} holds the label `plan/needs-fix`. "
+        f"Left #{number}: its pull request #{PULL} holds the label `verdict/fix-plan`. "
         "The row takes the item again when the label is gone."
     ]
     assert _creates(kube) == []

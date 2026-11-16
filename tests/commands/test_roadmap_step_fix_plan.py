@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL, Verification
+from devops_cli.roadmap.stage.stage_verify import FIX_PLAN_LABEL, Verification
 from devops_cli.roadmap.stores.store import FixPlanRecordKey
 from tests.support.roadmap_fix_plan import PLAN_PATH, needs_fix_plan, valid_changes
 from tests.support.roadmap_stage import STAGE_REPO
@@ -65,7 +65,7 @@ def test_confirm_with_item_runs_the_attempt(
 
     assert result.exit_code == 0, result.output
     assert "dismissed" in result.output
-    assert PLAN_NEEDS_FIX_LABEL not in roadmap_store._roadmap.issues[plan.pull].labels
+    assert FIX_PLAN_LABEL not in roadmap_store._roadmap.issues[plan.pull].labels
 
 
 def test_confirm_writes_the_progress_and_the_result_lines_to_stderr(
@@ -179,5 +179,5 @@ def test_sigterm_during_the_attempt_exits_75_and_records_the_eviction(
         item.job_record.get(FixPlanRecordKey.ATTEMPTS),
         item.job_record.get(FixPlanRecordKey.EVICTED),
     ) == ("evicted", "0", "1")
-    assert PLAN_NEEDS_FIX_LABEL in roadmap_store._roadmap.issues[plan.pull].labels
+    assert FIX_PLAN_LABEL in roadmap_store._roadmap.issues[plan.pull].labels
     assert signal.getsignal(signal.SIGTERM) == before

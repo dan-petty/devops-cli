@@ -874,6 +874,9 @@ DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES: int = 29
 DEFAULT_ROADMAP_INBOX_DRAFT_DAYS: int = 7
 DEFAULT_ROADMAP_INBOX_WAIT_DAYS: int = 7
 DEFAULT_ROADMAP_STALL_HOURS: int = 24
+# The score of the verdict needs fix of a bot pull request: a partial success (owner, 2026-11-16,
+# #5968). Mergeable scores 1 and a discard of the work of the job 0.
+DEFAULT_ROADMAP_VERDICT_PARTIAL_SCORE: float = 0.5
 # How often refine is due on its own, besides its cross-job trigger (#1515).
 DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES: int = 7
 DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES: int = 13

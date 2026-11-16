@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from devops_cli.roadmap.run import MODEL_LANE_ROWS
-from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL, Verification
+from devops_cli.roadmap.stage.stage_verify import FIX_PLAN_LABEL, Verification
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_fix_plan import PLAN_BRANCH, PLAN_PATH, needs_fix_plan, valid_changes
 from tests.support.roadmap_stage import STAGE_REPO, StageRepo
@@ -102,5 +102,5 @@ def test_mode_on_runs_the_attempt(
 
     FIX_PLAN_ROW.runner(store=store, repo=STAGE_REPO, clone_path=stage_repo.clone)
 
-    assert PLAN_NEEDS_FIX_LABEL not in store._roadmap.issues[plan.pull].labels
+    assert FIX_PLAN_LABEL not in store._roadmap.issues[plan.pull].labels
     assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) == plan.head

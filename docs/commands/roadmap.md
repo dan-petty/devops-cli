@@ -588,7 +588,7 @@ devops roadmap eval completeness [OPTIONS]
 
 ### `devops roadmap eval grades`
 
-**Print the job grade of each roadmap workflow and repository from its result lines in Loki (docs/roadmap/job-success.md). For each row: the attempts with no infrastructure cut, the successes, p, the Wilson 95% interval, the grade (100, 90, 80, 70, 60, <60, or too few under 30 attempts), the point grade and the range of grades of the interval, the first-pass ratio, the all-attempts ratio and the infrastructure share, the top 3 failure classes, the owner action of the grade, the tokens and seconds of each attempt and of each success, each version with 10 attempts or more, the attempts in 24 h and in 6 h, and the broken and infrastructure signals. It sends LogQL metric queries to the instant query endpoint of Loki and changes nothing. The 100 grade needs the first-pass counts that only the stage, implement and fix_plan lines hold today.**
+**Print the job grade of each roadmap workflow and repository from its result lines in Loki (docs/roadmap/job-success.md). For each row: the attempts with no infrastructure cut, the successes, p, the Wilson 95% interval, the grade (100, 90, 80, 70, 60, <60, or too few under 30 attempts), the point grade and the range of grades of the interval, the first-pass ratio, the all-attempts ratio and the infrastructure share, the top 3 failure classes, the owner action of the grade, the tokens and seconds of each attempt and of each success, each version with 10 attempts or more, the attempts in 24 h and in 6 h, and the broken and infrastructure signals. It sends LogQL metric queries to the instant query endpoint of Loki and changes nothing. The 100 grade needs the first-pass counts that only the stage, implement and fix_plan lines hold today. For stage and implement it also reads the pull requests that the bot of service.github_app.slug opened in the window, with one GraphQL search to GitHub for each 100, and gives the share of each first verdict label and the verdict score beside p.**
 
 ```bash
 devops roadmap eval grades [OPTIONS]
@@ -732,7 +732,7 @@ devops roadmap step fix-conflict [OPTIONS]
 
 ### `devops roadmap step fix-plan`
 
-**Repair one open plan pull request that holds the label plan/needs-fix: the stage planner revises the plan with the open findings of a model review, and a better revision is pushed. Without --confirm, print the plan pull request that it selects. Details: docs/roadmap/stage.md.**
+**Repair one open plan pull request that holds the label verdict/fix-plan: the stage planner revises the plan with the open findings of a model review, and a better revision is pushed. Without --confirm, print the plan pull request that it selects. Details: docs/roadmap/stage.md.**
 
 ```bash
 devops roadmap step fix-plan [OPTIONS]

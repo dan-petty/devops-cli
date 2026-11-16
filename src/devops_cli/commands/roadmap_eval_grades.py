@@ -2,7 +2,9 @@
 
 The `eval` group scores a job on a golden set; this command scores each job on its live result
 lines. The report lives in `roadmap/job_grade_report.py` and the grade table in
-`roadmap/job_grade.py`. With `--dry-run` it sends no request and prints the queries.
+`roadmap/job_grade.py`. For stage and implement it also gives the verdicts of the bot pull
+requests from GitHub (`roadmap/pr_verdict.py`, #5968). With `--dry-run` it sends no request and
+prints the queries and the GitHub search.
 """
 
 from __future__ import annotations
@@ -24,7 +26,8 @@ if TYPE_CHECKING:
 
 
 def _print_plan(window: GradeWindow, repo: RepoRef | None, url: str) -> None:
-    from devops_cli.roadmap.job_grade_report import plan_grade_queries
+    from devops_cli.roadmap.job_grade_report import plan_grade_queries, plan_verdict_search
+    from devops_cli.roadmap.pr_verdict import plan_verdict_request
 
     queries = plan_grade_queries(window, repo)
     endpoint = f"{url.strip().rstrip('/')}/loki/api/v1/query"
@@ -35,6 +38,11 @@ def _print_plan(window: GradeWindow, repo: RepoRef | None, url: str) -> None:
             for query in queries
         ],
     )
+    search = plan_verdict_search(window, repo)
+    if search is None:
+        write_stdout(MESSAGES.roadmap.grades_verdicts_unread + "\n")
+        return
+    render_request_plan(MESSAGES.roadmap.grades_dry_run_verdicts, [plan_verdict_request(search)])
 
 
 @dry_run_class("request-plan")
@@ -56,7 +64,8 @@ def grades_cmd(
         bool, typer.Option("--dry-run", help=HELP.roadmap.eval_grades_dry_run)
     ] = False,
 ) -> None:
-    """Print the job grade of each roadmap workflow from its result lines in Loki."""
+    """Print the job grade of each roadmap workflow from its result lines in Loki, and the
+    verdicts of the bot pull requests of stage and implement from GitHub."""
     from devops_cli.github.repo_ref import RepoRef
     from devops_cli.k8s.logql import resolve_loki_url
     from devops_cli.roadmap.job_grade_report import grade_report, render_grade_report

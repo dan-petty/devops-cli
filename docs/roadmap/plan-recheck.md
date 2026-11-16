@@ -97,7 +97,7 @@ pull request. The option has these checks:
 A merged plan that stays `new-plan` has no way forward. The implement job leaves its item out with
 the reason `Its plan fails the stage check: <first problem>`, or with the reader error, and
 `devops roadmap explain <issue>` prints that reason (#3393). The job does not use the label
-`plan/needs-fix`: it belongs to a plan pull request. A person plans the item again.
+`verdict/fix-plan`: it belongs to a plan pull request. A person plans the item again.
 
 The command does not tell a sample path from a stale path in a `Reads:` or `Changes:` line. A path
 that the tree lacks is a `new-plan` problem.

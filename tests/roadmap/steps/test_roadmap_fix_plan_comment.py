@@ -18,7 +18,7 @@ from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.stage.stage_verify import (
-    PLAN_NEEDS_FIX_LABEL,
+    FIX_PLAN_LABEL,
     PlanPart,
     Verification,
 )
@@ -235,7 +235,7 @@ def test_the_planner_gets_the_open_findings_of_the_comment_and_of_the_review_of_
         1,
         0,
     )
-    assert PLAN_NEEDS_FIX_LABEL not in store._roadmap.issues[plan.pull].labels
+    assert FIX_PLAN_LABEL not in store._roadmap.issues[plan.pull].labels
 
 
 def test_a_head_that_its_review_finds_clean_keeps_the_label_when_the_comment_lists_a_finding(
@@ -258,7 +258,7 @@ def test_a_head_that_its_review_finds_clean_keeps_the_label_when_the_comment_lis
     )
     assert run.attempt.comment == 1
     assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) == plan.head
-    assert PLAN_NEEDS_FIX_LABEL in store._roadmap.issues[plan.pull].labels
+    assert FIX_PLAN_LABEL in store._roadmap.issues[plan.pull].labels
 
 
 def test_two_lines_the_reader_cannot_read_keep_the_label(
@@ -281,7 +281,7 @@ def test_two_lines_the_reader_cannot_read_keep_the_label(
 
     assert run.attempt is not None
     assert run.attempt.result.value == "unreadable_findings"
-    assert PLAN_NEEDS_FIX_LABEL in store._roadmap.issues[plan.pull].labels
+    assert FIX_PLAN_LABEL in store._roadmap.issues[plan.pull].labels
     (line,) = result_fields(caplog)
     assert line["result"] == "unreadable_findings"
     assert line["unreadable"] == "2"

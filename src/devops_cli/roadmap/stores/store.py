@@ -232,7 +232,7 @@ class StageRecordKey(StrEnum):
     file cap in tokens of the measure that made the stop: a stop under another cap is stale. The
     Service records `stage.ready`, the number of the draft pull request that it has seen leave the
     draft state (#2865), and `stage.needs_fix`, the number of the draft that it told about the
-    label `plan/needs-fix` (#3264), and `stage.jev`, the head commit that the Jev completeness
+    label `verdict/fix-plan` (#3264), and `stage.jev`, the head commit that the Jev completeness
     check judged with its outcome, `<sha>:held` or `<sha>:error` (#4308). When the last plan or write of the item failed, the record
     holds the time of the failure and the type of its error (#3493), the step that failed
     (`stage.failed_step`, `plan` or `apply`) and the failure class (`stage.failed_class`, a
@@ -393,7 +393,7 @@ class ImplementRecordKey(StrEnum):
     holds (#4200): the Service writes it when it reports a Job, and a retry clears it with the
     spend. A return to New keeps the spend, and the report of that Job counts it and then clears
     the spend and its count (#5881). `implement.needs_fix` holds the draft that the Service logged
-    as left out for the label `plan/needs-fix`, so it logs the item once (#4477); a round that
+    as left out for the label `verdict/fix-plan`, so it logs the item once (#4477); a round that
     judges the item and does not leave it out for the label clears the mark."""
 
     GROUP = "implement.group"

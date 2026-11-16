@@ -733,6 +733,11 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "setting",
         "the hours an item may remain in one phase before the alert counts it; a setting since #5495",
     ),
+    "DEFAULT_ROADMAP_VERDICT_PARTIAL_SCORE": (
+        "other",
+        "the score of the verdict needs fix in the report of eval grades (#5968); a score, not a "
+        "limit of a job",
+    ),
     "CONST_ROADMAP_RELEASE_COMMENTS_WINDOW_HOURS": (
         "kept",
         "the releases that the first run of the release_comments row comments on",

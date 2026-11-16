@@ -4345,7 +4345,7 @@ class RoadmapMessages:
     )
     stage_comment_open_findings: str = (
         "\n\nA model review of the plan found these open findings. The stage keeps this pull "
-        "request a draft with the label `plan/needs-fix` until a later round clears them:\n\n"
+        "request a draft with the label `verdict/fix-plan` until a later round clears them:\n\n"
         "{findings}"
     )
     stage_comment_not_validated: str = (
@@ -4435,7 +4435,7 @@ class RoadmapMessages:
     stage_ready_failed: str = "the stage_ready row failed for {count} pull request(s): {items}"
     stage_ready_needs_fix: str = (
         "The stage_ready row leaves pull request #{pull} a draft. It holds the label "
-        "`plan/needs-fix`, because the model review of its plan found an open finding. Fix the "
+        "`verdict/fix-plan`, because the model review of its plan found an open finding. Fix the "
         "plan, or remove the label when the finding is no defect."
     )
     # The time budget of a step (#5363).
@@ -4460,7 +4460,7 @@ class RoadmapMessages:
         "The step pushed {count} revisions to pull request #{pull}, which is the limit."
     )
     fix_plan_left_not_draft: str = "Pull request #{pull} is not an open draft."
-    fix_plan_left_no_label: str = "Pull request #{pull} does not hold the label `plan/needs-fix`."
+    fix_plan_left_no_label: str = "Pull request #{pull} does not hold the label `verdict/fix-plan`."
     fix_plan_left_attempts: str = (
         "The step tried head {head} of pull request #{pull} {count} times, which is the limit."
     )
@@ -4572,12 +4572,12 @@ class RoadmapMessages:
     fix_plan_comment_revised: str = (
         "{marker}\nThe step fix-plan pushed a revision of the plan of #{pull} ({head}). The model "
         "review found {before} open finding(s) in the plan before the repair and {after} after "
-        "it, so the pull request keeps the label `plan/needs-fix`.{findings}"
+        "it, so the pull request keeps the label `verdict/fix-plan`.{findings}"
     )
     fix_plan_comment_cleared: str = (
         "{marker}\nThe step fix-plan pushed a revision of the plan of #{pull} ({head}). The model "
         "review found {before} open finding(s) in the plan before the repair and none after it, "
-        "so the pull request loses the label `plan/needs-fix`."
+        "so the pull request loses the label `verdict/fix-plan`."
     )
     fix_plan_comment_regated: str = (
         "{marker}\nThe step fix-plan pushed a new plan of #{pull} ({head}). The checks refused "
@@ -4586,20 +4586,20 @@ class RoadmapMessages:
     )
     fix_plan_regated_clean: str = (
         "The model review found no open finding in the new plan, so the pull request loses the "
-        "label `plan/needs-fix`."
+        "label `verdict/fix-plan`."
     )
     fix_plan_regated_open: str = (
         "The model review found {before} open finding(s) in the new plan, and the repair gave no "
-        "better plan, so the pull request keeps the label `plan/needs-fix`."
+        "better plan, so the pull request keeps the label `verdict/fix-plan`."
     )
     fix_plan_regated_failed: str = (
         "Then the step `{step}` failed with the class {failure}, so the pull request keeps the "
-        "label `plan/needs-fix`."
+        "label `verdict/fix-plan`."
     )
     fix_plan_comment_dismissed: str = (
         "{marker}\nThe step fix-plan reviewed the plan of #{pull} ({head}) at the latest default "
         "branch and found no open finding, so the pull request loses the label "
-        "`plan/needs-fix`. The plan stays as it is.{dismissed}"
+        "`verdict/fix-plan`. The plan stays as it is.{dismissed}"
     )
     fix_plan_dismissed_findings: str = (
         "\n\nThe step dismisses these open findings of the last plan comment, because the review "
@@ -4607,14 +4607,14 @@ class RoadmapMessages:
     )
     fix_plan_comment_stopped: str = (
         "{marker}\nThe step fix-plan stopped before the review of the plan of #{pull} ({head}). "
-        "The pull request keeps the label `plan/needs-fix`, and the step does not return the item "
+        "The pull request keeps the label `verdict/fix-plan`, and the step does not return the item "
         "to New: a person decides. {evidence}{findings}"
     )
     fix_plan_comment_timeout: str = (
         "{marker}\nThe time budget of the step fix-plan ({budget} seconds, "
         "`roadmap.fix_plan.time_budget_seconds`) ended in the step `{step}` of the attempt on "
         "the plan of #{pull} ({head}). The step pushed nothing, and the pull request keeps the label "
-        "`plan/needs-fix`. The attempt made {counts}.{findings}"
+        "`verdict/fix-plan`. The attempt made {counts}.{findings}"
     )
     fix_plan_stop_premise: str = (
         "The body of the item says that a class field is absent, and the default branch defines "
@@ -5107,7 +5107,7 @@ class RoadmapMessages:
     plan_drift_comment_item: str = "- {problem}"
     plan_drift_comment_cleared: str = (
         "The plan check of this pull request passes again on the default branch. The drift row "
-        "removes the label `plan/needs-fix` only when it added the label and the last plan "
+        "removes the label `verdict/fix-plan` only when it added the label and the last plan "
         "comment lists no open finding."
     )
     plan_drift_failed: str = (
@@ -6342,6 +6342,32 @@ class RoadmapMessages:
         "Dry run: no request was made. A run sends these {count} LogQL instant queries to Loki "
         "at {url}, in order:"
     )
+    # The verdicts of the bot pull requests in `devops roadmap eval grades` (#5968).
+    grades_dry_run_verdicts: str = (
+        "Then the run sends this GraphQL search to GitHub, for the verdicts of the pull requests "
+        "of the bot:"
+    )
+    grades_verdict_request: str = "search: {search}"
+    grades_verdict_repeat: str = "for each {size} pull requests, while the search has a next page"
+    grades_verdicts_unread: str = (
+        "Verdicts: not read. Set service.github_app.slug to read the verdicts of the pull "
+        "requests of the bot."
+    )
+    grades_verdicts_title: str = (
+        "Verdicts of the pull requests that {bot} opened in the {window} window. The first "
+        "verdict of each pull request counts, and needs fix scores {partial}. A share counts the "
+        "pull requests with a verdict, and the score leaves out issue changed. Unscored counts the "
+        "pull requests whose first verdict label is a label of the other kind."
+    )
+    grades_column_pulls: str = "PRs"
+    grades_column_open: str = "Open"
+    grades_column_unscored: str = "Unscored"
+    grades_column_mergeable: str = "Mergeable"
+    grades_column_needs_fix: str = "Needs fix"
+    grades_column_discard_plan: str = "Discard plan"
+    grades_column_discard_implementation: str = "Discard implementation"
+    grades_column_issue_changed: str = "Issue changed"
+    grades_column_score: str = "Score"
     intake_spend: str = (
         "Spent: {github} GitHub request(s) (REST {rest}, REST search {search}, GraphQL "
         "{graphql}; GraphQL points not known), {embeddings} embedding call(s) for {texts} "

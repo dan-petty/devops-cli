@@ -29,7 +29,7 @@ its author is not the owner, a member or a collaborator, its branch is gone from
 a commit by anyone but the App (a clean merge by a person does not count, #3392), a worktree holds
 the issue, its plan fails the stage gates of `check_proposal` or the reader cannot read it (#3393;
 a branch whose change the job archived already passed them, and a retry takes it, #3645),
-its pull request is not an open draft or holds the label `plan/needs-fix` of a plan with an open
+its pull request is not an open draft or holds the label `verdict/fix-plan` of a plan with an open
 finding (the job takes the item again when the label is gone, #4477), or, for a Planned item, a
 branch of `origin` holds the issue, its change is archived, it has no branch name, its change has
 no `tasks.md` on the default branch, or every task of its change is ticked. A run takes at most `--limit` items,
@@ -113,7 +113,7 @@ from devops_cli.roadmap.stage.stage import (
 )
 from devops_cli.roadmap.stage.stage_change import check_proposal, issue_dependencies
 from devops_cli.roadmap.stage.stage_paths import StagedTree
-from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL
+from devops_cli.roadmap.stage.stage_verify import FIX_PLAN_LABEL
 from devops_cli.roadmap.status_sync import job_holds
 from devops_cli.roadmap.step_files import parse_task_groups
 from devops_cli.roadmap.stores.store import (
@@ -195,7 +195,7 @@ class ImplementTarget:
 
 
 class NeedsFix(NamedTuple):
-    """An item that the job leaves out while its draft `pull` holds the label `plan/needs-fix`
+    """An item that the job leaves out while its draft `pull` holds the label `verdict/fix-plan`
     (#4477)."""
 
     item: Item
@@ -209,7 +209,7 @@ class ImplementPlan:
     when the plan was asked for them (`--why`). `beyond` holds the numbers of the items that pass
     every rule but come after the limit (`walk_named`). `effort` is the effort of the pass that
     takes the run, and `fallback` is true when that pass is a later value of the set (#3385).
-    `needs_fix` holds the left-out items whose draft holds the label `plan/needs-fix`. A dry run
+    `needs_fix` holds the left-out items whose draft holds the label `verdict/fix-plan`. A dry run
     holds the requests of a run and nothing else."""
 
     repo: str
@@ -496,7 +496,7 @@ class _Judge:
 
     def _pull_reason(self, item: Item, pull: int) -> str | None:
         """Why the job leaves out the draft `pull` of `item`, or None when it takes it. A draft
-        with the label `plan/needs-fix` holds a plan with an open finding: the job leaves it out
+        with the label `verdict/fix-plan` holds a plan with an open finding: the job leaves it out
         until the label is gone, and keeps the item in `needs_fix`."""
         texts = MESSAGES.roadmap
         try:
@@ -510,9 +510,9 @@ class _Judge:
             if status.state == "open" and plan:
                 return texts.implement_left_plan_ready.format(pull=pull)
             return texts.implement_left_pull.format(pull=pull)
-        if PLAN_NEEDS_FIX_LABEL in status.labels:
+        if FIX_PLAN_LABEL in status.labels:
             self.needs_fix[item.number] = NeedsFix(item, pull)
-            return texts.implement_left_needs_fix.format(pull=pull, label=PLAN_NEEDS_FIX_LABEL)
+            return texts.implement_left_needs_fix.format(pull=pull, label=FIX_PLAN_LABEL)
         if status.head_sha:
             owner, name = self._repo.split("/", 1)
             reason = _check_reason(self._check_reader(owner, name, status.head_sha))

@@ -337,7 +337,7 @@ _PREMISE = re.compile(
 # step (#3476).
 _PLAN = re.compile(
     r"has a task that is not ticked"
-    r"|inputs of the step measure|not a file on the default branch|open finding|plan/needs-fix",
+    r"|inputs of the step measure|not a file on the default branch|open finding|verdict/fix-plan",
     _FLAGS,
 )
 

@@ -1,5 +1,5 @@
 """The `plan_drift` row: an open plan pull request that the default branch broke (#3968). The row
-removes only the label `plan/needs-fix` that it added (#5884)."""
+removes only the label `verdict/fix-plan` that it added (#5884)."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ ISSUE = 1
 BRANCH = "plan/1-keep-the-last-comment"
 CHANGE = "1-keep-the-last-comment"
 NOW = datetime(2026, 11, 14, tzinfo=UTC)
-LABEL = "plan/needs-fix"
+LABEL = "verdict/fix-plan"
 TITLE = "docs(openspec): plan #1 Keep the comment"
 PROBLEM = PlanProblem("src/a.py", "paths", "not a file on the default branch")
 
@@ -173,7 +173,7 @@ def test_the_row_labels_and_comments_a_drifted_plan_and_skips_a_delivery(
         reads.created,
         reads.updated,
         store.removed,
-    ) == ((PULL,), (PULL,), [(PULL, "plan/needs-fix")], [], [(11, reads.updated[0][1])], [])
+    ) == ((PULL,), (PULL,), [(PULL, "verdict/fix-plan")], [], [(11, reads.updated[0][1])], [])
 
 
 def _plan(labelled: tuple[int, ...] = ()) -> tuple[_Reads, _Store]:

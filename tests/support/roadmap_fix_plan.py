@@ -1,4 +1,4 @@
-"""A plan pull request with the label `plan/needs-fix`, for the tests of the step `fix-plan` (#5061).
+"""A plan pull request with the label `verdict/fix-plan`, for the tests of the step `fix-plan` (#5061).
 
 `needs_fix_plan` seeds the Staged item #1 and its draft plan pull request #5 in the store, pushes
 the change folder of `make_stage_proposal()` as one commit by the clone identity to the branch of
@@ -19,7 +19,7 @@ from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap.stage.stage_change import render_change
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity
 from devops_cli.roadmap.stage.stage_verify import (
-    PLAN_NEEDS_FIX_LABEL,
+    FIX_PLAN_LABEL,
     Finding,
     findings_section,
     open_findings_section,
@@ -144,7 +144,7 @@ def route_plan_pull(
     api: GitHubApiFake,
     head: str,
     *,
-    labels: tuple[str, ...] = (PLAN_NEEDS_FIX_LABEL,),
+    labels: tuple[str, ...] = (FIX_PLAN_LABEL,),
     draft: bool = True,
     state: str = "open",
 ) -> None:
@@ -170,7 +170,7 @@ def needs_fix_plan(
     repo: StageRepo,
     api: GitHubApiFake,
     *,
-    labels: tuple[str, ...] = (PLAN_NEEDS_FIX_LABEL,),
+    labels: tuple[str, ...] = (FIX_PLAN_LABEL,),
     draft: bool = True,
     marks: Mapping[Any, str | None] | None = None,
     files: Mapping[str, str] | None = None,

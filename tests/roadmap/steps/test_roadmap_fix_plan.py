@@ -1,4 +1,4 @@
-"""The step `fix-plan` repairs an open plan pull request that holds `plan/needs-fix` (#5061).
+"""The step `fix-plan` repairs an open plan pull request that holds `verdict/fix-plan` (#5061).
 
 Git is real in `tmp_path`: the plan branch is on a bare `origin`, and the step pushes to it. The
 planner is the model edge of the `stage` task and the verifier a model edge of its own. GitHub's
@@ -24,7 +24,7 @@ from devops_cli.roadmap.service_stop import begin_service_stop
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity
 from devops_cli.roadmap.stage.stage_jev_screen import QUESTIONS, VERIFY_SCREEN
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
-from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL, Verification
+from devops_cli.roadmap.stage.stage_verify import FIX_PLAN_LABEL, Verification
 from devops_cli.roadmap.steps.fix_plan import (
     FixPlanResult,
     FixPlanRun,
@@ -175,7 +175,7 @@ def test_a_revision_with_no_open_finding_is_pushed_on_the_latest_main_and_clears
         "rev-parse", "main"
     )
     assert REPAIRED_WHY in _origin_file(stage_repo, "proposal.md")
-    assert PLAN_NEEDS_FIX_LABEL not in store._roadmap.issues[plan.pull].labels
+    assert FIX_PLAN_LABEL not in store._roadmap.issues[plan.pull].labels
     assert _record(store) == {
         FixPlanRecordKey.KEY: f"{plan.pull}:{head}",
         FixPlanRecordKey.ATTEMPTS: "0",
@@ -267,7 +267,7 @@ def test_a_revision_with_fewer_open_findings_is_pushed_and_keeps_the_label(
         1,
     )
     assert head != plan.head
-    assert PLAN_NEEDS_FIX_LABEL in store._roadmap.issues[plan.pull].labels
+    assert FIX_PLAN_LABEL in store._roadmap.issues[plan.pull].labels
     assert _record(store)[FixPlanRecordKey.KEY] == f"{plan.pull}:{head}"
     assert _record(store)[FixPlanRecordKey.RESULT] == "revised"
     assert len(_comments(store)) == 1
@@ -299,7 +299,7 @@ def test_a_revision_that_fixes_the_head_finding_is_kept(
     )
     assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) != plan.head
     assert REPAIRED_WHY in _origin_file(stage_repo, "proposal.md")
-    assert PLAN_NEEDS_FIX_LABEL not in store._roadmap.issues[plan.pull].labels
+    assert FIX_PLAN_LABEL not in store._roadmap.issues[plan.pull].labels
     # The review of the revision judged the finding of the head against the changed text.
     later = json.loads(verifier.calls[1].prompt)
     assert later["earlier"][0]["type"] == "spec_delta_wrong"
@@ -328,7 +328,7 @@ def test_a_revision_that_is_not_better_writes_nothing_to_github_but_the_record(
         1,
     )
     assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) == plan.head
-    assert PLAN_NEEDS_FIX_LABEL in store._roadmap.issues[plan.pull].labels
+    assert FIX_PLAN_LABEL in store._roadmap.issues[plan.pull].labels
     assert _comments(store) == []
     assert github_api.requested == [f"GET https://api.github.com{PLAN_PATH}"]
     assert _record(store) == {
@@ -363,7 +363,7 @@ def test_a_clean_head_with_no_open_findings_is_dismissed(
     )
     assert model_fake.call_count == 0
     assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) == plan.head
-    assert PLAN_NEEDS_FIX_LABEL not in store._roadmap.issues[plan.pull].labels
+    assert FIX_PLAN_LABEL not in store._roadmap.issues[plan.pull].labels
     (line,) = result_fields(caplog)
     assert (line["result"], line["success"], line["before"]) == ("dismissed", "false", "0")
     assert "after" not in line
@@ -398,7 +398,7 @@ def test_an_open_finding_of_an_old_form_comment_keeps_the_label(
 
     assert run.attempt is not None
     assert run.attempt.result is FixPlanResult.UNCHANGED
-    assert PLAN_NEEDS_FIX_LABEL in store._roadmap.issues[plan.pull].labels
+    assert FIX_PLAN_LABEL in store._roadmap.issues[plan.pull].labels
 
 
 def test_a_head_with_only_a_minor_finding_is_dismissed_and_lists_it_as_advice(
@@ -424,7 +424,7 @@ def test_a_head_with_only_a_minor_finding_is_dismissed_and_lists_it_as_advice(
     assert (run.attempt.result, run.attempt.before) == (FixPlanResult.DISMISSED, 0)
     assert model_fake.call_count == 0
     assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) == plan.head
-    assert PLAN_NEEDS_FIX_LABEL not in store._roadmap.issues[plan.pull].labels
+    assert FIX_PLAN_LABEL not in store._roadmap.issues[plan.pull].labels
     (_, comment) = _comments(store)
     assert "They stop no draft" in comment
     assert f"- minor `spec_delta_wrong` at issue ({ISSUE_QUOTE})" in comment
@@ -505,7 +505,7 @@ def test_a_claimed_item_or_an_item_that_is_not_staged_is_left_out(
     assert (run.target, model_fake.call_count, verifier.call_count) == (None, 0, 0)
 
 
-@pytest.mark.parametrize(("labels", "draft"), [((), True), ((PLAN_NEEDS_FIX_LABEL,), False)])
+@pytest.mark.parametrize(("labels", "draft"), [((), True), ((FIX_PLAN_LABEL,), False)])
 def test_a_pull_request_without_the_label_or_out_of_draft_is_left_out(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
@@ -1004,7 +1004,7 @@ def test_an_unreadable_head_writes_no_result_line_and_uses_no_attempt(
         FixPlanRecordKey.RESULT: "unreadable",
     }
     assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) == plan.head
-    assert PLAN_NEEDS_FIX_LABEL in store._roadmap.issues[plan.pull].labels
+    assert FIX_PLAN_LABEL in store._roadmap.issues[plan.pull].labels
     assert _comments(store) == []
     points = otlp.points(ROADMAP_FIX_PLAN_TOTAL.name)
     assert [(attrs["result"], value) for attrs, value in points] == [("unreadable", 1.0)]
@@ -1084,7 +1084,7 @@ def test_a_gate_failure_before_the_review_has_no_review_counts(
     )
     assert verifier.call_count == 0
     assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) == plan.head
-    assert PLAN_NEEDS_FIX_LABEL in store._roadmap.issues[plan.pull].labels
+    assert FIX_PLAN_LABEL in store._roadmap.issues[plan.pull].labels
     (line,) = result_fields(caplog)
     assert (line["result"], line["class"], line["step"]) == ("failed", "plan_defect", "gate")
     assert "before" not in line
@@ -1142,7 +1142,7 @@ def test_a_stop_before_the_review_is_stopped_with_its_name(
     )
     assert verifier.call_count == 0
     assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) == plan.head
-    assert PLAN_NEEDS_FIX_LABEL in store._roadmap.issues[plan.pull].labels
+    assert FIX_PLAN_LABEL in store._roadmap.issues[plan.pull].labels
     (line,) = result_fields(caplog)
     assert (line["result"], line["stop"], line["success"]) == ("stopped", stop, "false")
     assert line["class"] == ("premise_false" if stop == "premise" else "none")
@@ -1184,7 +1184,7 @@ def test_a_gated_plan_is_pushed_when_the_repair_fails(
         "rev-parse", "main"
     )
     assert MISSING_PATH not in _origin_file(stage_repo, "tasks.md")
-    assert PLAN_NEEDS_FIX_LABEL in store._roadmap.issues[plan.pull].labels
+    assert FIX_PLAN_LABEL in store._roadmap.issues[plan.pull].labels
     (line,) = result_fields(caplog)
     assert (line["result"], line["class"], line["success"], line["before"]) == (
         "regated",
@@ -1224,7 +1224,7 @@ def test_a_gated_plan_that_differs_is_pushed_after_a_clean_review(
         "rev-parse", "main"
     )
     assert REPAIRED_WHY in _origin_file(stage_repo, "proposal.md")
-    assert PLAN_NEEDS_FIX_LABEL not in store._roadmap.issues[plan.pull].labels
+    assert FIX_PLAN_LABEL not in store._roadmap.issues[plan.pull].labels
     assert _record(store)[FixPlanRecordKey.RESULT] == "regated"
     assert _record(store)[FixPlanRecordKey.REVISIONS] == "1"
     (comment,) = _comments(store)
@@ -1256,7 +1256,7 @@ def test_a_repair_that_returns_the_same_plan_is_unchanged(
         0,
     )
     assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) == plan.head
-    assert PLAN_NEEDS_FIX_LABEL in store._roadmap.issues[plan.pull].labels
+    assert FIX_PLAN_LABEL in store._roadmap.issues[plan.pull].labels
     (line,) = result_fields(caplog)
     assert (line["result"], line["success"], line["before"], line["after"]) == (
         "unchanged",
@@ -1365,7 +1365,7 @@ def test_the_replay_of_4917_is_regated_with_a_push(
     assert run.attempt is not None
     assert (run.attempt.result, run.attempt.comment) == (FixPlanResult.REGATED, 1)
     assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) != before
-    assert PLAN_NEEDS_FIX_LABEL not in store._roadmap.issues[pull].labels
+    assert FIX_PLAN_LABEL not in store._roadmap.issues[pull].labels
 
 
 @pytest.mark.parametrize(
@@ -1427,7 +1427,7 @@ def _route_pull(
     branch: str,
     number: int,
     *,
-    labels: tuple[str, ...] = (PLAN_NEEDS_FIX_LABEL,),
+    labels: tuple[str, ...] = (FIX_PLAN_LABEL,),
     draft: bool = True,
 ) -> None:
     payload = {
@@ -1462,7 +1462,7 @@ def _seed_fix_plan(
     )
     branch = f"feat/{number}-{slug}"
     pull = store.seed_pull(f"Plan {branch}", head_ref=branch, draft=True)
-    store.label_issue(pull, PLAN_NEEDS_FIX_LABEL)
+    store.label_issue(pull, FIX_PLAN_LABEL)
     item = store.item(number)
     assert item is not None
     store.set_marks(

@@ -18,7 +18,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_LABELS_PATH,
     CONST_ROADMAP_SOURCE_AGENT_LABEL,
 )
-from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL
+from devops_cli.roadmap.stage.stage_verify import FIX_PLAN_LABEL
 from devops_cli.roadmap.stores.store import FIELD_VALUES, ItemField, field_label
 from devops_cli.roadmap.title_labels import declared_label_specs
 from devops_cli.roadmap.workflow_labels import (
@@ -38,6 +38,7 @@ WORKFLOW_FAMILIES = (
     "owner/",
     "review/",
     "plan/",
+    "verdict/",
     "source/",
 )
 
@@ -54,7 +55,7 @@ def test_the_package_declares_every_label_the_roadmap_code_writes() -> None:
         CONST_ROADMAP_EPIC_LABEL,
         *CONST_ROADMAP_CRITICAL_FIX_LABELS,
         CONST_ROADMAP_SOURCE_AGENT_LABEL,
-        PLAN_NEEDS_FIX_LABEL,
+        FIX_PLAN_LABEL,
     }
     assert sorted(written - {spec.name for spec in WORKFLOW_LABELS}) == []
 

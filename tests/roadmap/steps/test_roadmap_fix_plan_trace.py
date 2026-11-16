@@ -18,7 +18,7 @@ import pytest
 
 from devops_cli.roadmap.stage.stage_change import StageProposal
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
-from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL, Verification
+from devops_cli.roadmap.stage.stage_verify import FIX_PLAN_LABEL, Verification
 from devops_cli.roadmap.steps.fix_plan import FixPlanResult, FixPlanRun, run_fix_plan
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.model import ModelFake
@@ -113,7 +113,7 @@ def test_a_repair_keeps_a_citation_that_only_the_stage_run_read(
     assert run.attempt is not None
     assert run.attempt.result == FixPlanResult.REGATED, run.attempt.reason
     assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) != plan.head
-    assert PLAN_NEEDS_FIX_LABEL not in store._roadmap.issues[plan.pull].labels
+    assert FIX_PLAN_LABEL not in store._roadmap.issues[plan.pull].labels
 
 
 def test_a_repair_that_cites_a_file_that_no_run_read_is_still_refused(

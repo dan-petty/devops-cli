@@ -33,7 +33,7 @@ A line holds no text of an issue, of a model or of a log. Each value is a number
 | `refine_judge` | Each review of the proposal for an item that a bot opened that calls the model. A kept approval writes no line. | `approved`, `refused` | `approved` | `round`, `findings` |
 | `alternatives` | Each check that the round wrote, and each failed check. | The verdict, `refused` or `failed` | Each verdict | `searches`, `returns`, `reason` (the skip class, or the code of the error) |
 | `intake` | Each candidate that a round wrote. | `placed`, `duplicate`, `skipped`, `failed` | `placed` and `duplicate` | `fallbacks` |
-| `fix_plan` | Each attempt of the step `fix-plan` on a plan pull request with `plan/needs-fix`. A plan that the selection or the branch check leaves out writes no line, and a plan that the plan reader refuses (`unreadable`) writes no line, because the defect is in the writer or the reader of the plan. An attempt that an eviction, a node drain or a stop of the Service ends (`evicted`) writes no line, and an attempt that SIGTERM ends after its time budget, at the deadline of its Job, writes `timeout` with `kill=deadline` (#5413). A revision that fails the read-back writes its line with the class `plan_unreadable` (`failed`, or `regated` when a gated plan exists) (#5214). | `revised`, `cleared`, `regated`, `dismissed`, `unchanged`, `stopped`, `failed`, `timeout` | `revised` and `cleared`: the step pushed a repair whose reviews fixed more open findings of the review of the head than they added, in the same attempt (#5409). `regated`, `dismissed`, `unchanged`, `stopped`, `failed` and `timeout` repair no finding of that review. | `plan_calls`, `gate_returns`, `verify_rounds`, `tokens`, `seconds`, `comment` (the open findings that the last plan comment lists), `before` (the review of the head, only when it ran), `after` (the last review of the revision, only when one ran). A stop adds `stop`, and a failure and a `timeout` add `step`. A deadline kill holds only `comment`, and adds `kill=deadline`. |
+| `fix_plan` | Each attempt of the step `fix-plan` on a plan pull request with `verdict/fix-plan`. A plan that the selection or the branch check leaves out writes no line, and a plan that the plan reader refuses (`unreadable`) writes no line, because the defect is in the writer or the reader of the plan. An attempt that an eviction, a node drain or a stop of the Service ends (`evicted`) writes no line, and an attempt that SIGTERM ends after its time budget, at the deadline of its Job, writes `timeout` with `kill=deadline` (#5413). A revision that fails the read-back writes its line with the class `plan_unreadable` (`failed`, or `regated` when a gated plan exists) (#5214). | `revised`, `cleared`, `regated`, `dismissed`, `unchanged`, `stopped`, `failed`, `timeout` | `revised` and `cleared`: the step pushed a repair whose reviews fixed more open findings of the review of the head than they added, in the same attempt (#5409). `regated`, `dismissed`, `unchanged`, `stopped`, `failed` and `timeout` repair no finding of that review. | `plan_calls`, `gate_returns`, `verify_rounds`, `tokens`, `seconds`, `comment` (the open findings that the last plan comment lists), `before` (the review of the head, only when it ran), `after` (the last review of the revision, only when one ran). A stop adds `stop`, and a failure and a `timeout` add `step`. A deadline kill holds only `comment`, and adds `kill=deadline`. |
 | `retitle` | Each item that the retitle job decides (#5168). | `retitled`, `kept`, `failed` | `retitled` and `kept`: the title summary is within the limit or kept for an unlisted type. | none |
 
 A `stage` item that is staged with an open finding of the review is `failed` with the class `plan_defect`. An `implement` Job that recorded no result, such as a pod that the kernel killed, is `stopped`. Its `seconds` run from the start of its pod to its end, and are 0 when the Job is gone.
@@ -94,6 +94,30 @@ Each roadmap workflow gets a job grade from its result lines: `100`, `90`, `80`,
 ### The 80% rule
 
 The roadmap jobs use [the 80% rule](../guidelines/agentic-jobs.md#the-80-rule) of the guideline with no change. `devops roadmap eval grades` gives its input at each daily check.
+
+## The verdicts of the bot pull requests
+
+The result line of `stage` and `implement` tells only how the attempt ended. The pull request review gate gives each plan and delivery pull request of the bot one verdict, which tells whether its work can be used (owner, 2026-11-16, #5968). A workflow label records the verdict (`src/devops_cli/roadmap/workflow_labels.py`), and `devops gh label sync` creates the labels. A person or an agent vet sets the label by hand.
+
+| Verdict | Meaning | Label on a plan | Label on a delivery | Score |
+| :--- | :--- | :--- | :--- | :--- |
+| Mergeable | The pull request can merge as it is. | `verdict/mergeable` | `verdict/mergeable` | 1 (success) |
+| Needs fix | The work is usable after a fix of the pull request. | `verdict/fix-plan` | `verdict/fix-implementation` | `roadmap.verdict_partial_score`, default 0.5 (partial success) |
+| Discard plan, plan again | The plan cannot be built; the stage job plans the item again. | `verdict/discard-plan` | none | 0 (failure of stage) |
+| Discard implementation, implement again | The code cannot be fixed; the implement job builds the plan again. | none | `verdict/discard-implementation` | 0 (failure of implement) |
+| Issue changed | The issue was updated or related work merged, so the work must change to match. | `verdict/issue-changed` | `verdict/issue-changed` | not scored |
+
+- **One label for each verdict and kind.** `verdict/fix-plan` is the verdict needs fix of a plan: the stage review, the row `plan_drift` and a vet set it, and the step fix-plan repairs the plan and removes it. `verdict/fix-implementation` is the verdict needs fix of a delivery. A first verdict label of the other kind, such as `verdict/fix-plan` on a delivery, leaves the pull request unscored, and the read logs why.
+- **The kind and the job.** A pull request of the bot whose title starts with `docs(openspec): plan #` is a plan and scores `stage`. Each other pull request of the bot is a delivery and scores `implement`.
+- **The first verdict.** The first label event of a verdict label gives the verdict of a pull request. A later verdict, such as `verdict/mergeable` after a fix, keeps the history and does not change the score. A pull request with no verdict is open, and stays out of the score.
+- **The read.** `devops roadmap eval grades` reads the pull requests that the bot of `service.github_app.slug` opened in the window, with one GraphQL search for each 100 pull requests. The same request gives the label events. `--repo` puts the repository in the search, and `--dry-run` prints the search. With no slug, the report reads no verdict and names the setting.
+- **The report.** For each stage and implement row, the report gives the attempt ratio `p`, the pull requests, the open and the unscored ones, the count of each verdict with its share of the pull requests with a verdict, and the verdict score:
+
+  ```text
+  score = (mergeable + w × needs fix) / (mergeable + needs fix + failures of the job)
+  ```
+
+  `w` is `roadmap.verdict_partial_score`. The score is none when no pull request has a scored verdict. `--format json` gives the same values in the field `verdicts` of each row.
 
 ## Specs
 

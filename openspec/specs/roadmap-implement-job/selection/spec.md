@@ -300,11 +300,11 @@ The job SHALL give each step the tests that the `## Weakened checks` section of 
 - **WHEN** the default branch gets such a line after the plan selected the item
 - **THEN** the item stops with the class `plan_defect` before the step calls the model
 
-### Requirement: The job leaves out a Staged item whose draft holds the label plan/needs-fix
-The implement selection SHALL leave out a Staged item while its open draft pull request holds the label `plan/needs-fix`, with a reason that names the label and the pull request. The row `implement` of the Service SHALL log such an item once for each draft and record the draft in `implement.needs_fix`. The selection SHALL take the item again when the label is gone, and a round that judges the item and does not leave it out for the label SHALL clear the mark.
+### Requirement: The job leaves out a Staged item whose draft holds the label verdict/fix-plan
+The implement selection SHALL leave out a Staged item while its open draft pull request holds the label `verdict/fix-plan`, with a reason that names the label and the pull request. The row `implement` of the Service SHALL log such an item once for each draft and record the draft in `implement.needs_fix`. The selection SHALL take the item again when the label is gone, and a round that judges the item and does not leave it out for the label SHALL clear the mark.
 
 #### Scenario: The draft holds the label
-- **WHEN** the open draft of a Staged item holds the label `plan/needs-fix`
+- **WHEN** the open draft of a Staged item holds the label `verdict/fix-plan`
 - **THEN** `plan_implement` returns no target for the item, and its reason names the label and the pull request
 
 #### Scenario: The Service logs the item once

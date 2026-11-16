@@ -19,7 +19,7 @@ from devops_cli.roadmap.stage.stage import (
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.stage.stage_verify import (
-    PLAN_NEEDS_FIX_LABEL,
+    FIX_PLAN_LABEL,
     Finding,
     Locator,
     PlanPart,
@@ -355,7 +355,7 @@ def test_an_open_task_order_finding_keeps_the_draft_with_the_label(
     (change,) = plan.ready
     assert (model_fake.call_count, verifier.call_count) == (3, 3)
     assert change.open_findings == (finding,)
-    assert store._roadmap.issues[5].labels == (PLAN_NEEDS_FIX_LABEL,)
+    assert store._roadmap.issues[5].labels == (FIX_PLAN_LABEL,)
     assert json.loads(github_api.sent[0].content)["draft"] is True
 
 
@@ -581,7 +581,7 @@ def test_a_placeholder_finding_keeps_the_draft_and_applies_the_label(
     (comment,) = [c.body for c in store.comments_on(1)]
     assert applied.staged == (1,)
     assert change.open_findings == (placeholder,)
-    assert store._roadmap.issues[5].labels == (PLAN_NEEDS_FIX_LABEL,)
+    assert store._roadmap.issues[5].labels == (FIX_PLAN_LABEL,)
     assert json.loads(github_api.sent[0].content)["draft"] is True
     assert "placeholder" in comment
     assert (
@@ -610,7 +610,7 @@ def test_a_clean_review_applies_no_needs_fix_label(
 
     (change,) = plan.ready
     assert change.open_findings == ()
-    assert PLAN_NEEDS_FIX_LABEL not in store._roadmap.issues[5].labels
+    assert FIX_PLAN_LABEL not in store._roadmap.issues[5].labels
 
 
 def test_a_minor_finding_is_a_point_of_the_comment_and_applies_no_label(
@@ -620,7 +620,7 @@ def test_a_minor_finding_is_a_point_of_the_comment_and_applies_no_label(
     github_api: GitHubApiFake,
 ) -> None:
     """A quoted finding of an open type with the severity minor returns no plan and keeps no
-    draft with `plan/needs-fix`: the comment lists it with the points (#5411)."""
+    draft with `verdict/fix-plan`: the comment lists it with the points (#5411)."""
     store = _placeholder_store()
     github_api.route(
         "POST",
@@ -638,7 +638,7 @@ def test_a_minor_finding_is_a_point_of_the_comment_and_applies_no_label(
     (change,) = plan.ready
     assert (model_fake.call_count, verifier.call_count) == (1, 1)
     assert (change.findings, change.open_findings) == ((minor,), ())
-    assert PLAN_NEEDS_FIX_LABEL not in store._roadmap.issues[5].labels
+    assert FIX_PLAN_LABEL not in store._roadmap.issues[5].labels
     (comment,) = [c.body for c in store.comments_on(1)]
     assert "- minor `spec_delta_wrong` at tasks (1): Problem of spec_delta_wrong." in comment
     assert "They stop no draft" in comment
@@ -651,21 +651,19 @@ def test_a_clean_round_removes_the_open_finding_label(
 ) -> None:
     store = _placeholder_store()
     _seed_pull_5(store)
-    store.label_issue(5, PLAN_NEEDS_FIX_LABEL)
+    store.label_issue(5, FIX_PLAN_LABEL)
     model_fake.answer(make_stage_proposal())
     verifier.answer(Verification())
 
     (change,) = _plan(store, stage_repo, verifier).ready
     note = _label_needs_fix(
         store,
-        CreatedPull(
-            number=5, html_url="https://example.com/pull/5", labels=(PLAN_NEEDS_FIX_LABEL,)
-        ),
+        CreatedPull(number=5, html_url="https://example.com/pull/5", labels=(FIX_PLAN_LABEL,)),
         change,
     )
 
     assert note == ""
-    assert PLAN_NEEDS_FIX_LABEL not in store._roadmap.issues[5].labels
+    assert FIX_PLAN_LABEL not in store._roadmap.issues[5].labels
 
 
 def test_the_verifier_reads_the_repository_with_the_tools_and_its_reads_are_traced(

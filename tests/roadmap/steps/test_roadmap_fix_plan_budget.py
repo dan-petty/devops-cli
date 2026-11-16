@@ -24,7 +24,7 @@ from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.service_stop import begin_service_stop
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
-from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL, Verification, finding_line
+from devops_cli.roadmap.stage.stage_verify import FIX_PLAN_LABEL, Verification, finding_line
 from devops_cli.roadmap.steps.fix_plan import FixPlanResult, FixPlanRun, run_fix_plan
 from devops_cli.roadmap.stores.store import FixPlanRecordKey
 from devops_cli.telemetry.instruments import ROADMAP_FIX_PLAN_TOTAL
@@ -154,7 +154,7 @@ def test_a_spent_budget_ends_the_attempt_with_a_timeout_comment_and_no_push(
     )
     assert model_fake.call_count == 0
     assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) == plan.head
-    assert PLAN_NEEDS_FIX_LABEL in store._roadmap.issues[plan.pull].labels
+    assert FIX_PLAN_LABEL in store._roadmap.issues[plan.pull].labels
     item = store.item(plan.number)
     assert item is not None
     assert (
@@ -211,7 +211,7 @@ def test_a_budget_that_ends_after_the_plan_run_pushes_no_revision(
     )
     assert (model_fake.call_count, verifier.call_count) == (1, 1)
     assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) == plan.head
-    assert PLAN_NEEDS_FIX_LABEL in store._roadmap.issues[plan.pull].labels
+    assert FIX_PLAN_LABEL in store._roadmap.issues[plan.pull].labels
     (line,) = result_fields(caplog)
     assert (line.get("result"), line.get("class"), line.get("step")) == (
         "timeout",

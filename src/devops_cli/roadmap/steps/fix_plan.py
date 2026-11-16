@@ -1,7 +1,7 @@
 """`devops roadmap step fix-plan`: one repair of an open plan pull request that holds the label
-`plan/needs-fix` (#5061).
+`verdict/fix-plan` (#5061).
 
-The stage job keeps a plan in draft with `plan/needs-fix` when an open finding of its model review
+The stage job keeps a plan in draft with `verdict/fix-plan` when an open finding of its model review
 remains after the repair rounds (#3264). The stage job does not select a staged item again, the
 implement job leaves such a draft out, and the row `stage_ready` keeps it a draft. This step is
 the later round that removes the label, and it runs the same way each time: only the plan runs of
@@ -10,7 +10,7 @@ the stage planner and of the verification pass call a model, on the tasks `fix_p
 
 **Selection.** An open item with the Status Ready whose record holds `stage.pr` (a Staged item),
 with no `implement.job` and no claim of an agent or a person (`claimed_by`). Its pull request is
-an open draft that holds `plan/needs-fix`. The item has fewer than
+an open draft that holds `verdict/fix-plan`. The item has fewer than
 `roadmap.fix_plan.head_attempts` attempts on the head of the pull request, no attempt in the
 last `CONST_ROADMAP_FIX_PLAN_WAIT_HOURS` hours, and fewer than `roadmap.fix_plan.revisions`
 revisions that the step pushed to the pull request (#5440). The highest priority goes first
@@ -153,7 +153,7 @@ from devops_cli.roadmap.stage.stage import (
 from devops_cli.roadmap.stage.stage_change import safe_text, write_change_files
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity
 from devops_cli.roadmap.stage.stage_verify import (
-    PLAN_NEEDS_FIX_LABEL,
+    FIX_PLAN_LABEL,
     Finding,
     Locator,
     PlanPart,
@@ -419,13 +419,17 @@ def comment_open_findings(body: str) -> CommentFindings:
     """The open findings that the comment `body` lists first, in the section that
     `open_findings_section` writes (#3264): the stage comment, or the comment of an attempt of
     this step that kept the label. A comment with no such section gives none. A line of the section
-    that does not read as a finding is left out and logged, with no text of the comment."""
+    that does not read as a finding is left out and logged, with no text of the comment.
+
+    The first sentence of the heading finds the section. It names no label, so a comment written
+    before the rename of the label to `verdict/fix-plan` still reads (#5968)."""
     heading = MESSAGES.roadmap.stage_comment_open_findings.split("{findings}")[0].strip()
-    _, found, rest = body.partition(heading)
+    marker = heading.partition(". ")[0] + "."
+    _, found, rest = body.partition(marker)
     if not found:
         return CommentFindings()
     lines = []
-    for line in rest.lstrip("\n").splitlines():
+    for line in rest.partition("\n")[2].lstrip("\n").splitlines():
         if not line.startswith("- "):
             break
         lines.append(line)
@@ -548,7 +552,7 @@ def _pull_reason(
     count = marks.attempts_on(pull, status.head_sha)
     if not status.is_open_draft:
         return texts.fix_plan_left_not_draft.format(pull=pull)
-    if PLAN_NEEDS_FIX_LABEL not in status.labels:
+    if FIX_PLAN_LABEL not in status.labels:
         return texts.fix_plan_left_no_label.format(pull=pull)
     if count >= load_settings().roadmap.fix_plan.head_attempts and not (
         skip_wait and _older_release(marks.version)
@@ -1006,7 +1010,7 @@ def _settle(
             client = get_github_session().client
             client.update_pull(attempt.repo, target.pull, title=pushed.title, body=pushed.body)
     if decision.unlabel:
-        remove_pull_labels(attempt.store, target.pull, (PLAN_NEEDS_FIX_LABEL,))
+        remove_pull_labels(attempt.store, target.pull, (FIX_PLAN_LABEL,))
     done = _attempt_of(target, revision, decision, head)
     comment = _comment(target, done, decision, revision, listed, attempt.budget.seconds)
     if comment is not None:

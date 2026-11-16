@@ -40,5 +40,7 @@
     Version 0.118.0: 20 of 34, p 0.59 [0.42, 0.74].
     Signal: broken. 5 attempts or more in 6 h, and no success.
   
+  Verdicts: not read. Set service.github_app.slug to read the verdicts of the pull requests of the bot.
+  
   '''
 # ---

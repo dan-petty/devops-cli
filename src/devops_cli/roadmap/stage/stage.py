@@ -69,7 +69,7 @@ review after a repair is a later review: it gets the open findings of the review
 text that the revision changed, says for each finding whether it still holds, and opens a new
 finding only in the changed text (#5409). No round starts
 after the Service stops (#4925). If the last review has an open finding, the job keeps the draft
-with the label `plan/needs-fix` and puts the finding first in the comment (#3264). The comment
+with the label `verdict/fix-plan` and puts the finding first in the comment (#3264). The comment
 lists every other finding of each round (#3039).
 The review never merges and never marks a draft ready. `plan_item` plans one item with a given client
 and checkout: the golden set of the job runs
@@ -335,7 +335,7 @@ from devops_cli.roadmap.stage.stage_toolbox import (
 )
 from devops_cli.roadmap.stage.stage_validate import restore_omitted_scenarios, validate_change
 from devops_cli.roadmap.stage.stage_verify import (
-    PLAN_NEEDS_FIX_LABEL,
+    FIX_PLAN_LABEL,
     Finding,
     Judgement,
     VerificationInput,
@@ -959,7 +959,7 @@ class StagedChange:
     for an item planned with one call and no review. `proposal` is the plan that the files render. `findings` are the points that each model
     review of the plan raised in each repair round (#3153, #3039): the comment lists them.
     `open_findings` are the findings of the last review that keep the draft with the label
-    `plan/needs-fix` (#3264); they are a part of `findings`."""
+    `verdict/fix-plan` (#3264); they are a part of `findings`."""
 
     target: StageTarget
     title: str
@@ -2022,7 +2022,7 @@ class _Planner:
         findings of the review of the head and the plan that passed the checks. No round starts
         after the Service stops (#4925), and a round past the setting logs its extension. Every
         finding of each round stays on the change for the comment (#3039). The last review judges
-        the last plan, so only its open findings keep the draft with `plan/needs-fix` (#3264).
+        the last plan, so only its open findings keep the draft with `verdict/fix-plan` (#3264).
         Each review logs one line with its counts (#4535)."""
         number = target.item.number
         judged = self._review(target, change, verifier, earlier=earlier, previous=previous)
@@ -3785,14 +3785,14 @@ def _label_pull(store: RoadmapStore, pull_number: int, title: str) -> str:
 
 
 def _label_needs_fix(store: RoadmapStore, pull: CreatedPull, change: StagedChange) -> str:
-    """Apply `plan/needs-fix` when `change` has an open finding, and remove it when it has none
+    """Apply `verdict/fix-plan` when `change` has an open finding, and remove it when it has none
     (#3264). A refused label gives a failure note for the comment; rejected credentials stop the
     run."""
     try:
         if change.open_findings:
-            add_pull_labels(store, pull.number, (PLAN_NEEDS_FIX_LABEL,))
-        elif PLAN_NEEDS_FIX_LABEL in pull.labels:
-            remove_pull_labels(store, pull.number, (PLAN_NEEDS_FIX_LABEL,))
+            add_pull_labels(store, pull.number, (FIX_PLAN_LABEL,))
+        elif FIX_PLAN_LABEL in pull.labels:
+            remove_pull_labels(store, pull.number, (FIX_PLAN_LABEL,))
     except GitHubUnauthenticatedError:
         raise
     except GitHubOperationError as exc:

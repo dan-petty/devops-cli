@@ -3,7 +3,7 @@ round: the queue of the fix_plan row (#5470)."""
 
 from __future__ import annotations
 
-from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL
+from devops_cli.roadmap.stage.stage_verify import FIX_PLAN_LABEL
 from devops_cli.roadmap.stores.store import GitHubState
 from tests.support.fakes.github import API
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -24,17 +24,17 @@ def test_the_github_store_gives_the_open_pulls_with_the_label_from_the_kept_list
     an issue that is no pull request holds it: the store gives the two open pull requests. The read
     of the items before it keeps the listing, so the count sends no request."""
     listing = [
-        {**labeled(PULL, PLAN_NEEDS_FIX_LABEL), "state": "open"},
-        {**labeled(PULL, PLAN_NEEDS_FIX_LABEL), "number": 921, "state": "open"},
-        {**labeled(PULL, PLAN_NEEDS_FIX_LABEL), "number": 922, "state": "closed"},
+        {**labeled(PULL, FIX_PLAN_LABEL), "state": "open"},
+        {**labeled(PULL, FIX_PLAN_LABEL), "number": 921, "state": "open"},
+        {**labeled(PULL, FIX_PLAN_LABEL), "number": 922, "state": "closed"},
         {**PULL, "number": 923, "state": "open"},
-        labeled(OPEN_ISSUES[2], PLAN_NEEDS_FIX_LABEL),
+        labeled(OPEN_ISSUES[2], FIX_PLAN_LABEL),
         *ISSUES_IN_MILESTONE,
     ]
     store, runner = recorded_store({"issues?state=all": listing})
 
     store.items()
-    found = store.labelled_pulls(PLAN_NEEDS_FIX_LABEL)
+    found = store.labelled_pulls(FIX_PLAN_LABEL)
 
     assert (found, [args for args, _ in runner.calls]) == (
         [918, 921],
@@ -45,15 +45,15 @@ def test_the_github_store_gives_the_open_pulls_with_the_label_from_the_kept_list
 def test_the_fake_store_gives_the_open_pulls_with_the_label() -> None:
     """The fake of the tests gives the same answer as the GitHub store."""
     store = InMemoryRoadmapStore(repo=REPO)
-    first = store.seed_issue("plan one", pull_request=True, labels=(PLAN_NEEDS_FIX_LABEL,))
-    second = store.seed_issue("plan two", pull_request=True, labels=(PLAN_NEEDS_FIX_LABEL,))
+    first = store.seed_issue("plan one", pull_request=True, labels=(FIX_PLAN_LABEL,))
+    second = store.seed_issue("plan two", pull_request=True, labels=(FIX_PLAN_LABEL,))
     store.seed_issue(
         "plan three",
         pull_request=True,
-        labels=(PLAN_NEEDS_FIX_LABEL,),
+        labels=(FIX_PLAN_LABEL,),
         state=GitHubState.CLOSED,
     )
     store.seed_issue("plan four", pull_request=True)
-    store.seed_issue("an issue", labels=(PLAN_NEEDS_FIX_LABEL,))
+    store.seed_issue("an issue", labels=(FIX_PLAN_LABEL,))
 
-    assert store.labelled_pulls(PLAN_NEEDS_FIX_LABEL) == [first, second]
+    assert store.labelled_pulls(FIX_PLAN_LABEL) == [first, second]
