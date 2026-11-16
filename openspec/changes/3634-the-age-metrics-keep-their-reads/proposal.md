@@ -62,7 +62,7 @@ None.
 - `read_file` of `tests/telemetry/test_telemetry_instruments.py` lines 70 to 90 showed tests/telemetry/test_telemetry_instruments.py:81:`("prefix", "devops_cli_", "src/devops_cli/telemetry/instruments.py"),`; the change adds no series there, so the registry count and its test stay as they are.
 - `read_file` of `docs/CLUSTER.md` lines 40 to 45 showed docs/CLUSTER.md:42:`so each file has one writer` and docs/CLUSTER.md:43:`sum by (repo, row, method) (increase(devops_cli_github_requests_total{job="roadmap-service"}[1h]))`, the place of the record file and of the live check.
 - `list_files` of `tests/github` and `tests/roadmap` showed `tests/github/test_github_metrics.py`, `tests/github/test_github_metrics_request_budget.py` and `tests/roadmap/test_roadmap_run_metrics.py` at the commit, so no group creates them.
-- `find_issues` for `metrics row item label times` and `read_issue` of #3941 showed #3941 open, `fix(service): the metrics row sends too many counted requests`, which changes `collect_project_metrics_report` and the same request-budget test, so it merges first.
+- `find_issues` for `metrics row item label times` showed #3941 open; this change addresses item label times persistence across restarts and bounds them per round, which is independent.
 - The probe answers that `design.md` is no file at the root of the staging commit, so the measured number goes into the pull request body, which the acceptance criterion of the issue names.
 - `collect_project_metrics_report` needs a checkout of the repository at `root` for its git tags, and a client of GitHub with a network for the CI runs, the milestones, the open issues, the traffic and the label events.
 - `get_item_age_metrics` and `GitHubRoadmapStore.label_changes` need a client of GitHub with a network, and no checkout.
@@ -78,5 +78,4 @@ No open tool or library keeps a per-item cache across a pod. The change reuses p
 
 ## Dependencies
 
-- #3941: it is open, `fix(service): the metrics row sends too many counted requests`, and it changes `collect_project_metrics_report` and the request-budget test of the metrics row, so it merges first and this plan rebases onto it.
-- devops_cli_github_requests_total: the name is also held by `docs/CLUSTER.md`, `docs/TELEMETRY.md`, `k8s/devops/dashboards/devops-cli.json`, `k8s/devops/dashboards/roadmap-service-telemetry.json`, `k8s/devops/monitoring/prometheus-rules-values.yaml`, `tests/telemetry/test_telemetry_instruments.py`, `tests/grafana/test_grafana_dashboards.py`, `tests/prometheus/test_k8s_monitoring_alerting.py`, `tests/fixtures/dashboard_queries/devops-cli.yaml` and the rest of the files that the context lists; the change adds no series and alters no query, so each stays unchanged.
+None.
