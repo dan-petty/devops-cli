@@ -807,6 +807,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "setting",
         "new (#5027); the model Jobs of every row together, the semaphore agent of ADR 0021 section 5",
     ),
+    "DEFAULT_ROADMAP_FIX_CHECKS_MAX_WAIT_MINUTES": (
+        "setting",
+        "new (#6018); the wait of a suspended fix-checks Job, above the 4 hours of the deadline cap",
+    ),
     "DEFAULT_ROADMAP_STAGE_JOBS": (
         "setting",
         "new (#4559); one stage Job at a time keeps one model call in flight and one request budget",
