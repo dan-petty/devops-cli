@@ -219,6 +219,7 @@ The review workflow runs as `ReviewPipelineOrchestrator` methods (pre-analysis, 
 Check the size of a file before you read it into memory (`MAX_REPOMAP_FILE_SIZE_BYTES`, 50 MiB). Resolve a path inside a root with `safe_resolve_subpath` (`devops_cli.core.paths`), which refuses a symlink or `..` that leaves the root.
 
 ### 7. Service Work and Shared State
+- **Service design patterns**: [docs/SERVICE_PATTERNS.md](docs/SERVICE_PATTERNS.md) gives the rules of each service and workload in the cluster, with the reason and the check of each rule. The bullets below are the rules of the code.
 - **Jobs and Workflows**: Design new Service work as a Kubernetes Job or an Argo Workflow that an event or a CronWorkflow starts. Do not add a loop to the Service pod ([ADR 0021](docs/adr/0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md)).
 - **Service tasks**: Each automated task is a unit of its own. It selects its own items and needs no coordinator. It is idempotent, and each comment that it writes holds its marker. It has a limit on the items of a run, on the model spend and on the time, and its time limit is shorter than its deadline. It keeps an audit trail that a person can read, and it stays consistent when it stops before its end.
 - **Source of truth**: GitHub holds the truth, and the issues, the labels and the releases show the state of the project. Valkey is a cache and a coordination store, and it never holds the only copy of a decision.
