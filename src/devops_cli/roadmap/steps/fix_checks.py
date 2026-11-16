@@ -26,6 +26,7 @@ from typing import Any, Final
 
 from devops_cli.config.constants import CONST_ROADMAP_OWNER_SERVICE
 from devops_cli.config.settings import load_settings
+from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.git.branch_form import parse_branch
 from devops_cli.github.check_verdict import CheckBucket, PRCheckItem, read_check_runs
 from devops_cli.github.client import PullStatus
@@ -33,7 +34,7 @@ from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.failure import FailureClass, FailureEvidence, classify_failure
 from devops_cli.roadmap.implement.implement_fix_scope import repair_scope
 from devops_cli.roadmap.implement.implement_pull import DraftKind, failed_log, kind_of
-from devops_cli.roadmap.implement.implement_step import RoadmapImplementError, find_change
+from devops_cli.roadmap.implement.implement_step import find_change
 from devops_cli.roadmap.step_files import parse_task_groups
 from devops_cli.roadmap.stores.store import FixChecksRecordKey, Item, RoadmapStore
 
