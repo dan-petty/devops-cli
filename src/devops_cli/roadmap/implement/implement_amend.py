@@ -334,13 +334,9 @@ def _structural_refusal(request: PlanRequest) -> Refused | None:
     return None
 
 
-def _validate_target(request: PlanRequest, target: TaskGroup | None) -> Refused | None:
+def _validate_target(request: PlanRequest, target: TaskGroup) -> Refused | None:
     """Validate that target group exists, is not completed, and satisfies criteria bounds."""
     texts = MESSAGES.roadmap
-    if target is None:
-        return Refused(
-            texts.implement_amend_refused_no_group.format(group=request.group), request=request
-        )
     if target.tasks and all(task.ticked for task in target.tasks):
         return Refused(
             texts.implement_amend_refused_done.format(group=request.group), request=request
@@ -359,10 +355,14 @@ def judge(request: PlanRequest, tasks_md: str, tree: StagedTree) -> Applied | Re
 
     groups = parse_task_groups(tasks_md)
     target = next((g for g in groups if g.number == request.group), None)
+    if target is None:
+        return Refused(
+            MESSAGES.roadmap.implement_amend_refused_no_group.format(group=request.group),
+            request=request,
+        )
     if (refused := _validate_target(request, target)) is not None:
         return refused
 
-    assert target is not None
     match request.kind:
         case "path":
             result = _judge_path(request, target, tree)
