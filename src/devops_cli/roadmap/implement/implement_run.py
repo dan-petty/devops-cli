@@ -941,13 +941,14 @@ class _ItemRun:
         self._return_to_new(MESSAGES.roadmap.implement_comment_premise_failed, request.evidence)
 
     def _check_premise(self, groups: Sequence[TaskGroup]) -> bool:
-        """Return the item to New, and say so, when a task of an open behavior group of `groups`
-        adds a guard that the branch already defines (#3417). The run calls it once, before its
-        first step, so a false premise costs no model request and loses no group that passed in the
-        run (#5881). The check reads the last commit that is no `wip:` commit, so the guard that an
-        earlier attempt of a group kept is no defect of the plan. A group whose tasks are all ticked
-        passed in an earlier Job, and a group of another kind adds no product guard, so neither gets
-        a check."""
+        """Return the item to New, and say so, when the `Adds:` line of an open behavior group of
+        `groups` names an identifier that the branch already defines (#3417, #3453). The line
+        alone decides: a group with no `Adds:` line gets no check, and no rule reads the prose of
+        a task. The run calls it once, before its first step, so a false premise costs no model
+        request and loses no group that passed in the run (#5881). The check reads the last commit
+        that is no `wip:` commit, so the name that an earlier attempt of a group kept is no defect
+        of the plan. A group whose tasks are all ticked passed in an earlier Job, and a group of
+        another kind adds no product identifier, so neither gets a check."""
         base = wip_base(self._git)
         evidence = [
             line

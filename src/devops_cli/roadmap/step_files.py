@@ -36,12 +36,9 @@ FAILS_ON_BASE = MESSAGES.roadmap.stage_task_test.rsplit("`", 1)[1].strip()
 KIND_LINE: re.Pattern[str] = re.compile(r"^Kind: (?P<kind>\w+)\.", re.M)
 # The `Adds:` line of a group names each identifier that the group adds, each in a code span (#3453).
 ADDS_LINE: re.Pattern[str] = re.compile(r"^Adds: (?P<adds>.+?)[ \t]*$", re.M)
-# What a name of the line looks like outside its code span: the separators are no name.
+# The text between the code spans of the line that names nothing: the commas, the spaces and a
+# full stop.
 _ADDS_SEPARATORS: re.Pattern[str] = re.compile(r"[,\s.]+")
-_ADDS_OUTSIDE_SPAN: str = (
-    "The `Adds:` line of a group names {text} outside a code span. Write each identifier that the "
-    "group adds in a code span, such as `_delivery_title`."
-)
 
 
 @dataclass(frozen=True)
@@ -132,7 +129,7 @@ def adds_problem(text: str) -> str | None:
     outside = _outside_spans(line)
     if code_spans(line) and not outside:
         return None
-    return _ADDS_OUTSIDE_SPAN.format(text=outside or line)
+    return MESSAGES.roadmap.plan_read_adds_outside_span.format(text=outside or line)
 
 
 def _list_items(tokens: Sequence[Token]) -> Iterator[Sequence[Token]]:

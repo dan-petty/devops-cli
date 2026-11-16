@@ -3936,13 +3936,13 @@ class RoadmapMessages:
         "Evidence:\n\n{evidence}"
     )
     implement_comment_premise_defined: str = (
-        "{marker}\nThe implement job returned the item to New. A task of a behavior group adds "
-        "a guard that the branch already defines. The job checks each open behavior group "
-        "before the first step of the run, so this run made no model request and wrote no "
-        "code.\n\nEvidence:\n\n{evidence}"
+        "{marker}\nThe implement job returned the item to New. The `Adds:` line of a behavior "
+        "group names an identifier that the branch already defines. The job checks each open "
+        "behavior group before the first step of the run, so this run made no model request and "
+        "wrote no code.\n\nEvidence:\n\n{evidence}"
     )
     premise_guard_defined: str = (
-        '- The task "{task}" adds `{name}`. The branch already defines it: {line}'
+        "- The `Adds:` line of group {group} names `{name}`. The branch already defines it: {line}"
     )
     implement_stop_question_empty_premise: str = (
         "The agent asked to return the item on a premise failure, but gave no evidence."
@@ -5282,6 +5282,11 @@ class RoadmapMessages:
         "is `- `<path>` (<kind>): <reason>`."
     )
     plan_read_bad_task: str = "`tasks.md` holds a task that the reader cannot read: {text}"
+    # The reason of a malformed `Adds:` line of a group (#3453).
+    plan_read_adds_outside_span: str = (
+        "The `Adds:` line of a group names {text} outside a code span. Write each identifier that "
+        "the group adds in a code span, such as `_delivery_title`."
+    )
     plan_read_bad_group: str = "Group `{title}` breaks a rule of the plan: {reason}"
     plan_read_bad_verification: str = (
         "Group {group} names the verification `{command}`, and the step cannot run it: {reason}."

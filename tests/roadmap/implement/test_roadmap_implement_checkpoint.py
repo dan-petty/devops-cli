@@ -391,9 +391,9 @@ def test_a_withdraw_that_fails_blocks_the_item_and_does_not_return_it(world: Job
 
 
 class TestAGuardThatTheBranchTipDefines:
-    """Group 3 is a behavior group whose task adds a guard that the default branch defines
-    (#3417). The check reads every open behavior group once, before the first step, so the item
-    goes back to New before the step of group 1 (#5881)."""
+    """Group 3 is a behavior group whose `Adds:` line names a guard that the default branch
+    defines (#3417, #3453). The check reads every open behavior group once, before the first step,
+    so the item goes back to New before the step of group 1 (#5881)."""
 
     GUARD = "_delivery_title"
     TITLES = f'"""The titles."""\n\n\ndef {GUARD}(text: str) -> str:\n    return text.strip()\n'
@@ -409,7 +409,8 @@ class TestAGuardThatTheBranchTipDefines:
         )
         behavior = (
             "## 3. The guard\n\n"
-            "Reads: `CONTEXT.md`. Changes: `tests/test_g3.py` (new), `src/devops_cli/g3.py` (new).\n\n"
+            "Reads: `CONTEXT.md`. Changes: `tests/test_g3.py` (new), `src/devops_cli/g3.py` (new).\n"
+            "Adds: `_delivery_title`\n\n"
             "- [ ] 3.1 Add the failing test `tests/test_g3.py` for `src/devops_cli/g3.py`\n"
             "  - Verification: `$ uv run devops ci test tests/test_g3.py` fails on the base\n"
             "- [ ] 3.2 Add the guard `_delivery_title` to `src/devops_cli/g3.py`\n"

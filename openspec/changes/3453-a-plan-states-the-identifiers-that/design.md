@@ -8,6 +8,8 @@
 - **Add the `adds` field, write the line, and name the field in `roadmap_stage_change.md` and `roadmap_stage_split.md` in one group.**: Two prompt tests compare each prompt with the fields of `StageGroup` (`test_a_stage_prompt_names_each_kind_and_each_field_of_a_group` and `test_the_keys_of_a_group_in_the_prompts_are_the_fields_of_a_group`), so a field with no prompt line fails them and a prompt line with no field fails them too.
 - **Refuse a malformed `Adds:` line in `read_change`, and refuse `adds` on a group that is not a behavior group in the schema of `StageGroup`.**: `check_proposal` takes a validated `StageProposal`, so the schema judges the reply of the model and the reader judges a hand-written file; the plan check reports the refusal of the reader as a read problem of `tasks.md`.
 - **Keep `false_premises` and change it to read `TaskGroup.added_names`, delete `added_guard` with its two patterns, and delete its table test and the guard-add fixtures that read the prose rule in the same group.**: One function holds the check and three test modules hold its cases, so the prose rule and every test that reads it go together and the verify command of the group passes.
+- **The shared fixture `_guard_tasks` writes the `Adds:` line of its argument, not a fixed name.**: The helper builds the group of a false premise from `_delivery_title` and the group of a true premise from `_missing_guard`, so a fixed name would return the item of the true premise.
+- **Skip a code span of the line that is no identifier.**: `definition_lines` reads the definition of one identifier, so a span such as `TaskGroup.added_names` gets no check, as the prose rule skipped such a span before.
 - **Keep the check for a behavior group only, and keep the return to New with the definition line.**: A group of another kind adds no product guard, and a person needs the definition line to judge the return.
 
 ## Rejected alternatives
@@ -21,4 +23,4 @@
 
 ## Unchanged references
 
-- `src/devops_cli/roadmap/implement/implement_run.py` (import): The module imports `false_premises`, which stays, and never names `added_guard`, so the deletion leaves it as it is.
+- `src/devops_cli/roadmap/implement/implement_run.py` (import): The module imports `false_premises`, which stays, and never names `added_guard`, so the deletion changes only the docstring of `_check_premise`.

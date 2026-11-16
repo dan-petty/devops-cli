@@ -56,6 +56,13 @@ the head commit, whatever the working tree of the checkout holds.
   each other group as `other`. The reader reads
   `## Unchanged references` of `design.md` into the references of the plan, which the gate of a
   moved module reads.
+  The reader takes the `Adds:` line of a group into its `adds` field (#3453). The line names each
+  identifier that a behavior group adds, each in a code span, such as ``Adds: `_delivery_title` ``.
+  A group with no such line adds no identifier. The reader refuses a line that names an
+  identifier outside a code span, or that holds no code span, as a `read` problem of `tasks.md`.
+  The implement job reads the same line through `TaskGroup.added_names` for the premise check of
+  a behavior group: it returns the item to New when the branch tip already defines a name of the
+  line.
 - The size of each task group (#3499): the command measures each group with `measure_groups`, the
   function of the stage job, on the tracked files of the head commit. The item and the files of the
   change folder are the shared text, as in the stage job. It reports a `group-over-budget` problem

@@ -196,12 +196,14 @@ def test_typed_result_a_claim_before_the_first_group_writes_yielded(job_world: J
 
 
 class TestTypedResultOfAReturn:
-    """A false premise of a behavior group returns the item to New."""
+    """A false premise of a behavior group returns the item to New: its `Adds:` line names a guard
+    that the branch defines (#3453)."""
 
     TITLES_PATH = "src/devops_cli/titles.py"
     TASKS = (
         "# Tasks\n\n## 1. The first group\n\n"
-        "Reads: `CONTEXT.md`. Changes: `tests/test_shout.py` (new), `src/devops_cli/shout.py` (new).\n\n"
+        "Reads: `CONTEXT.md`. Changes: `tests/test_shout.py` (new), `src/devops_cli/shout.py` (new).\n"
+        "Adds: `_delivery_title`\n\n"
         "- [ ] 1.1 Add the failing test `tests/test_shout.py` for `src/devops_cli/shout.py`\n"
         "  - Verification: `$ uv run devops ci test tests/test_shout.py` fails on the base\n"
         "- [ ] 1.2 Add the guard `_delivery_title` to `src/devops_cli/shout.py`\n"

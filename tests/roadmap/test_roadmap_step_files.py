@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement.implement_shell_policy import verification_problem
-from devops_cli.roadmap.step_files import TaskGroup, _task_of, parse_task_groups
+from devops_cli.roadmap.step_files import TaskGroup, _task_of, adds_problem, parse_task_groups
 
 TEST_COMMAND = "uv run devops ci test tests/roadmap/test_roadmap_step_files.py"
 
@@ -103,8 +103,6 @@ def test_a_group_with_no_adds_line_adds_no_name() -> None:
 
 
 def test_an_adds_line_that_names_no_code_span_is_a_problem() -> None:
-    from devops_cli.roadmap.step_files import adds_problem
-
     group = _plan_group("Adds: _delivery_title.")
 
     problem = adds_problem(group.text)
@@ -113,9 +111,13 @@ def test_an_adds_line_that_names_no_code_span_is_a_problem() -> None:
     assert "_delivery_title" in problem
 
 
-def test_an_adds_line_that_names_a_word_outside_a_code_span_is_a_problem() -> None:
-    from devops_cli.roadmap.step_files import adds_problem
+def test_a_well_formed_adds_line_is_no_problem() -> None:
+    group = _plan_group("Adds: `_delivery_title`, `_publish`.")
 
+    assert adds_problem(group.text) is None
+
+
+def test_an_adds_line_that_names_a_word_outside_a_code_span_is_a_problem() -> None:
     group = _plan_group("Adds: `_delivery_title`, _publish.")
 
     problem = adds_problem(group.text)
