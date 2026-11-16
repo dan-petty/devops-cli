@@ -7,7 +7,7 @@
 - **The eval command of a job reads the task of the job.** `devops roadmap eval intake` and `eval jev` read `intake`. `eval verify` and the screen and verify evals of the stage review read `stage_review`. `eval stage` keeps `stage`.
 - **The old tasks stay valid.** `analysis`, `verification` and `triage` stay in `AITasksConfig`, because `devops review`, `devops ai agents` grouping and the review profile read `analysis` and `verification`, and a config file or a live ConfigMap that sets `triage` must still load. No roadmap job reads them.
 - **Each new task has the variables of `stage`.** The provider, the model, the reasoning effort, the Ollama URLs, the window and the reply limit.
-- **The template names each job.** `k8s/devops/configmap.example.yaml` names DeepSeek with `context_window` 256000 for each job task that had that window through its old slot, and `local/qwen3.8:27b` for `intake` and `retitle`. A job reaches `local/qwen3.8:27b` only after its grade reaches 80% (owner direction of 2026-11-16).
+- **The template names each job.** `k8s/devops/configmap.example.yaml` names `local/qwen3.8:27b` for `intake` and `retitle`, `local/qwen3.8:27b` for `refine` and `alternatives` in the owner trial of 2026-11-16, and DeepSeek for each other job task. Each job task that had the window 256000 through its old slot keeps it. A job reaches `local/qwen3.8:27b` only after its grade reaches 80% (owner direction of 2026-11-16).
 
 ## Rejected alternatives
 - **Settings under `roadmap.<job>.model`.** The client factory, the gateway address, the spend stage and `get_task_model` read `ai.tasks.<task>` (`ai/client/factory.py`, `ai/spend/stage.py`). A second place for a model needs a second resolver for each of them.

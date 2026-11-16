@@ -103,7 +103,7 @@ The command group `devops roadmap eval` SHALL hold the golden-set commands. The 
 - **THEN** the model gets one request with no tool, and the table has the same rows
 
 ### Requirement: The verify command scores the verification pass
-`devops roadmap eval verify` SHALL run the verification pass on the plan of each case of the golden set as an agent with the read-only tools of the stage job, on the checkout of the commit of the case, with the model of the `verification` task or `--model`. It SHALL print the recall of the labeled defects (all, and the blocker and major ones), the recall for each type, and the count of findings on the `good` plans, and SHALL store the score as JSON under `.data/`.
+`devops roadmap eval verify` SHALL run the verification pass on the plan of each case of the golden set as an agent with the read-only tools of the stage job, on the checkout of the commit of the case, with the model of the `stage_review` task or `--model`. It SHALL print the recall of the labeled defects (all, and the blocker and major ones), the recall for each type, and the count of findings on the `good` plans, and SHALL store the score as JSON under `.data/`.
 
 #### Scenario: A finding on a good plan
 - **WHEN** the verifier returns a finding for a case with the verdict `good`
@@ -193,14 +193,14 @@ The JSON report and the printed score of a live run SHALL state the input tokens
 - **THEN** it names `eval stage` with `--no-toolbox`, `eval verify`, `ai.tasks.stage.model` and the parked items #3066 and #3060
 
 ### Requirement: The verify run is the pass of the stage job
-The run SHALL give the agent the OpenSpec tool that the stage job gives `read_spec` and the context window of the task `verification`, and `--model` SHALL keep the other settings of that task.
+The run SHALL give the agent the OpenSpec tool that the stage job gives `read_spec` and the context window of the task `stage_review`, and `--model` SHALL keep the other settings of that task.
 
 #### Scenario: A run reads a spec
 - **WHEN** the verifier calls `read_spec` in a run
 - **THEN** the tool answers from the specs of the checkout of the case
 
 #### Scenario: The model option keeps the task
-- **WHEN** the command runs with `--model` and the task `verification` sets a provider
+- **WHEN** the command runs with `--model` and the task `stage_review` sets a provider
 - **THEN** the review runs on that provider with the model of the option
 
 ### Requirement: The verify report states the recall floor

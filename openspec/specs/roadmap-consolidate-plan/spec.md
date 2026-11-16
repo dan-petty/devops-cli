@@ -41,7 +41,7 @@ The run SHALL save the model output of each shortlist as soon as that shortlist 
 - **THEN** the output lists the reads and the model calls of a run, the store and the judge get no call, and no plan file exists
 
 ### Requirement: Two tool-less calls judge each shortlist
-Each shortlist SHALL go through one function that takes the shortlist and its item texts and returns the verdict for each member. The model implementation SHALL make two tool-less `chat_structured` calls with the client of `ai.for_task("analysis")`: a proposal, then a refutation that sees the proposal and the member bodies and returns kept, weakened (link-only) or dropped, with reasons. Only a kept group SHALL have a non-link action. The change SHALL add no task key.
+Each shortlist SHALL go through one function that takes the shortlist and its item texts and returns the verdict for each member. The model implementation SHALL make two tool-less `chat_structured` calls with the client of `ai.for_task("consolidate")`: a proposal, then a refutation that sees the proposal and the member bodies and returns kept, weakened (link-only) or dropped, with reasons. Only a kept group SHALL have a non-link action. The judge SHALL read the task `consolidate`.
 
 #### Scenario: The refutation decides the group
 - **WHEN** a test scripts a proposal and a refutation of each of the three verdicts
