@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.160.1](https://github.com/dan-petty/devops-cli/compare/v0.160.0...v0.160.1) (2026-11-16)
+
+
+### Bug Fixes
+
+* **monitoring:** read AI spend from the gateway counter ([#5924](https://github.com/dan-petty/devops-cli/issues/5924)) ([f391129](https://github.com/dan-petty/devops-cli/commit/f391129b08b2713b16869f9ae664361d60734572))
+* **telemetry:** a Job pod exports its metrics while it runs ([#5926](https://github.com/dan-petty/devops-cli/issues/5926)) ([00bfc49](https://github.com/dan-petty/devops-cli/commit/00bfc4942fb25e2d3a5c50296a7d895f0229a4eb))
+
 ## [0.160.0](https://github.com/dan-petty/devops-cli/compare/v0.159.0...v0.160.0) (2026-11-16)
 
 
