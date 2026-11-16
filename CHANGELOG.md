@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.161.0](https://github.com/dan-petty/devops-cli/compare/v0.160.1...v0.161.0) (2026-11-16)
+
+
+### Features
+
+* **roadmap:** a fix-conflict step settles merge conflicts ([#5930](https://github.com/dan-petty/devops-cli/issues/5930)) ([cddb8f3](https://github.com/dan-petty/devops-cli/commit/cddb8f30aa9ccca54056254aa986274451f21ae0)), closes [#5019](https://github.com/dan-petty/devops-cli/issues/5019)
+* **roadmap:** allow bounded path additions in implement plan-request ([#5937](https://github.com/dan-petty/devops-cli/issues/5937)) ([bcb0c5b](https://github.com/dan-petty/devops-cli/commit/bcb0c5b0bf89572990a544e7cb3b7adc3d3697e4))
+* **roadmap:** surface scoped tests in plan reads ([#5938](https://github.com/dan-petty/devops-cli/issues/5938)) ([1a3d2b8](https://github.com/dan-petty/devops-cli/commit/1a3d2b849c814ea88f8e69866d0b1fc10cc58ea4))
+
+
+### Bug Fixes
+
+* **k8s:** alternatives returns to DeepSeek ([#5934](https://github.com/dan-petty/devops-cli/issues/5934)) ([dc5e3b6](https://github.com/dan-petty/devops-cli/commit/dc5e3b66e0af1230498d8af84577d11d4418fa06))
+* **monitoring:** price local savings at the reference model ([#5931](https://github.com/dan-petty/devops-cli/issues/5931)) ([fc58f9f](https://github.com/dan-petty/devops-cli/commit/fc58f9ff0ca4a5e75a23d7788f0e560a4145252d))
+* **roadmap:** implement runs commit hooks on docs and archive ([#5928](https://github.com/dan-petty/devops-cli/issues/5928)) ([6cf45d6](https://github.com/dan-petty/devops-cli/commit/6cf45d6a1d7a0e47fd1297dd78c131dd62f4ae55))
+
 ## [0.160.1](https://github.com/dan-petty/devops-cli/compare/v0.160.0...v0.160.1) (2026-11-16)
 
 
