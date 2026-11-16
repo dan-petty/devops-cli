@@ -181,6 +181,7 @@ from devops_cli.roadmap.stores.store import (
     encode_job_record,
     field_label,
     item_of,
+    roadmap_issues,
     select_items,
     with_record,
 )
@@ -1323,13 +1324,14 @@ def plan_intake(
     the `new` candidate, writing nothing; with `limit`, at most that many, fresh ones first, by
     what `waiting` says was decided before. A candidate whose placement failed, by `failed`, less
     than the wait of its failure class before `now` is left out before any model call, and its
-    number is in `held` (#4061).
+    number is in `held` (#4061). The run reads only the issues of `roadmap_issues`, so an issue of
+    a bot of `roadmap.skip_authors` is no candidate and no item to compare with (#6038).
 
     A `new` candidate whose text looks like it holds a secret raises `SecurityError` first.
     """
     if new is not None:
         new.refuse_secrets()
-    listed = store.issues()
+    listed = roadmap_issues(store.issues())
     run = _Run(
         store=store,
         repo=repo,

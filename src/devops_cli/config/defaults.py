@@ -18,6 +18,7 @@ from devops_cli.config.constants import (
     CONST_LOGS_DIR_NAME,
     CONST_MODELS_DIR_NAME,
     CONST_RAG_DIR_NAME,
+    CONST_RENOVATE_GITHUB_APP_SLUG,
     CONST_REVIEWS_DIR_NAME,
     CONST_RUNS_DIR_NAME,
     CONST_SAMPLES_DIR_NAME,
@@ -1181,6 +1182,9 @@ DEFAULT_ROADMAP_FIX_CHECKS_MAX_WAIT_MINUTES: int = 360
 # The model Jobs that run at once in the cluster, for every repository together: implement, stage
 # and fix-checks Jobs (#5027). ADR 0021, section 5, gives the semaphore `agent` 2 pods.
 DEFAULT_ROADMAP_MODEL_JOBS: int = 2
+# The bots whose issues no roadmap row takes (#6038): the bot of the Renovate App, whose Dependency
+# Dashboard is a tracking issue that Renovate owns and writes again each run, so it is no work item.
+DEFAULT_ROADMAP_SKIP_AUTHORS: Final[tuple[str, ...]] = (f"{CONST_RENOVATE_GITHUB_APP_SLUG}[bot]",)
 # The step review (#5969): it starts in `plan`, as each new step does. A pull request gets at most
 # 3 reviews (owner, 2026-11-16: "Repeat 2 or 3 times"), and one review may use as many new tokens
 # as the model fix of fix-checks (owner direction of 2026-11-16: a generous token limit).
