@@ -91,6 +91,7 @@ _MECHANICAL: Final[frozenset[str]] = frozenset(
         "stage_problem_dependencies",
         "stage_problem_missing_module_test",
         "stage_problem_missing_perimeter_test",
+        "stage_problem_registry",
     }
 )
 
