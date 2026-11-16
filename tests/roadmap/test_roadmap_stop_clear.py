@@ -167,6 +167,17 @@ def test_a_clear_removes_the_failure_class_and_the_check_with_the_stop_and_keeps
     ] == [None, None, "a.py:3: error: bad"]
 
 
+def test_a_clear_by_digest_removes_the_action_left_with_the_stop(
+    store: InMemoryRoadmapStore,
+) -> None:
+    number = _blocked(store, implement_left_action="wait")
+
+    _clear(store, Template(DIGEST_B))
+
+    record = _record(store, number)
+    assert [record.get(k) for k in ("implement.stopped", "implement.left_action")] == [None, None]
+
+
 def test_a_clear_keeps_the_conflicted_files_for_the_next_job(store: InMemoryRoadmapStore) -> None:
     number = _blocked(store, implement_conflict='["docs/a.md"]')
 

@@ -15,9 +15,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/implement/implement_run.py`, `src
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/stop_clear.py`, `src/devops_cli/roadmap/stores/store.py`, `tests/roadmap/test_roadmap_stop_clear.py`. Changes: `src/devops_cli/roadmap/stop_clear.py`, `tests/roadmap/test_roadmap_stop_clear.py`.
 
-- [ ] 2.1 `test_a_clear_by_digest_removes_the_action_left_with_the_stop` in `tests/roadmap/test_roadmap_stop_clear.py`, which delivers the scenario `A clear by digest on a stopped item` of the requirement `A retry and a clear rule remove the action left with the stop`: a record that holds `implement.stopped` and `implement.left_action` loses both
+- [x] 2.1 `test_a_clear_by_digest_removes_the_action_left_with_the_stop` in `tests/roadmap/test_roadmap_stop_clear.py`, which delivers the scenario `A clear by digest on a stopped item` of the requirement `A retry and a clear rule remove the action left with the stop`: a record that holds `implement.stopped` and `implement.left_action` loses both
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_stop_clear.py` fails on the base
-- [ ] 2.2 Write the case first, in the shape of the record that `tests/roadmap/test_roadmap_stop_clear.py` builds for a clear by digest. Add `ImplementRecordKey.LEFT_ACTION: None` to the marks of `_marks` in `src/devops_cli/roadmap/stop_clear.py`, beside `ImplementRecordKey.CHECK` at line 321, and say in the docstring of `_marks` that it removes the action left with the stop
+- [x] 2.2 Write the case first, in the shape of the record that `tests/roadmap/test_roadmap_stop_clear.py` builds for a clear by digest. Add `ImplementRecordKey.LEFT_ACTION: None` to the marks of `_marks` in `src/devops_cli/roadmap/stop_clear.py`, beside `ImplementRecordKey.CHECK` at line 321, and say in the docstring of `_marks` that it removes the action left with the stop
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_stop_clear.py` passes
 
 ## 3. Read the state of a stop and print it in explain
