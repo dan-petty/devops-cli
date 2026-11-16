@@ -31,6 +31,7 @@ class LabelColor(StrEnum):
     KEEPS_BEHAVIOR = "002D9C"  # color-data-cat-3
     STOPS_WORK = "86867F"  # color-border-strong
     RECORD = "DCDCD6"  # color-border
+    PASSES = "007A5E"  # color-status-ok
 
 
 # The design token of each color, so a test can hold the hex value to the token files (#4786).
@@ -44,6 +45,7 @@ LABEL_COLOR_TOKENS: Final[dict[LabelColor, str]] = {
     LabelColor.KEEPS_BEHAVIOR: "color-data-cat-3",
     LabelColor.STOPS_WORK: "color-border-strong",
     LabelColor.RECORD: "color-border",
+    LabelColor.PASSES: "color-status-ok",
 }
 
 
@@ -122,7 +124,32 @@ WORKFLOW_LABELS: Final[tuple[LabelSpec, ...]] = (
     _label(
         "plan/needs-fix",
         LabelColor.STOPS_WORK,
-        "The model review of the plan found an open finding; the plan stays in draft",
+        "Verdict Needs fix of a plan: a check found an open finding; the plan stays in draft",
+    ),
+    _label(
+        "verdict/mergeable",
+        LabelColor.PASSES,
+        "Verdict Mergeable: the bot pull request can merge as it is",
+    ),
+    _label(
+        "verdict/needs-fix",
+        LabelColor.STOPS_WORK,
+        "Verdict Needs fix of a delivery: usable after a fix (a plan gets plan/needs-fix)",
+    ),
+    _label(
+        "verdict/discard-plan",
+        LabelColor.STOPS_WORK,
+        "Verdict Discard plan: the plan cannot be built; stage plans the item again",
+    ),
+    _label(
+        "verdict/discard-implementation",
+        LabelColor.STOPS_WORK,
+        "Verdict Discard implementation: the code cannot be fixed; implement builds it again",
+    ),
+    _label(
+        "verdict/issue-changed",
+        LabelColor.RECORD,
+        "Verdict Issue changed: the issue changed or related work merged; not scored",
     ),
     _label("source/agent", LabelColor.RECORD, "Filed by an agent"),
 )

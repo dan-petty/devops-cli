@@ -1713,7 +1713,10 @@ class RoadmapCommandHelp:
         "and of each success, each version with 10 attempts or more, the attempts in 24 h and in "
         "6 h, and the broken and infrastructure signals. It sends LogQL metric queries to the "
         "instant query endpoint of Loki and changes nothing. The 100 grade needs the first-pass "
-        "counts that only the stage, implement and fix_plan lines hold today."
+        "counts that only the stage, implement and fix_plan lines hold today. For stage and "
+        "implement it also reads the pull requests that the bot of service.github_app.slug "
+        "opened in the window, with one GraphQL search to GitHub for each 100, and gives the "
+        "share of each first verdict label and the verdict score beside p."
     )
     eval_grades_repo: str = "Report only this repository (owner/name). Default: all repositories."
     eval_grades_window: str = (

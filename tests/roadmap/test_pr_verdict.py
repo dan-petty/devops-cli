@@ -12,7 +12,15 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+
+from devops_cli.exceptions.git import GitHubUnreadError
+from devops_cli.github.repo_ref import RepoRef
+from devops_cli.github.session import get_github_session
+from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.job_grade import GradeWindow
+from devops_cli.roadmap.job_result import RoadmapJob
 from devops_cli.roadmap.pr_verdict import (
+    PLAN_TITLE_PREFIX,
     VERDICT_LABELS,
     BotPull,
     PullKind,
@@ -23,15 +31,10 @@ from devops_cli.roadmap.pr_verdict import (
     read_bot_pulls,
     verdict_search,
 )
-
-from devops_cli.exceptions.git import GitHubUnreadError
-from devops_cli.github.repo_ref import RepoRef
-from devops_cli.github.session import get_github_session
-from devops_cli.roadmap.job_grade import GradeWindow
-from devops_cli.roadmap.job_result import RoadmapJob
+from devops_cli.roadmap.stage.stage_change import STAGING_TYPE
 from devops_cli.roadmap.workflow_labels import WORKFLOW_LABELS
 from tests.support.fakes.github import GitHubApiFake, github_json
-from tests.support.roadmap_job_grades import pull_node
+from tests.support.roadmap_job_grades import hold_graphql_quota, pull_node
 
 NOW = datetime(2026, 11, 9, 12, 0, tzinfo=UTC)
 
@@ -68,6 +71,11 @@ def test_each_kind_reads_one_label_for_each_verdict() -> None:
     }
     declared = {spec.name for spec in WORKFLOW_LABELS}
     assert sorted({name for labels in VERDICT_LABELS.values() for name in labels} - declared) == []
+
+
+def test_the_plan_prefix_is_the_title_of_the_stage_job() -> None:
+    lead = MESSAGES.roadmap.stage_title_lead.partition("{number}")[0]
+    assert PLAN_TITLE_PREFIX == f"{STAGING_TYPE}: {lead}"
 
 
 @pytest.mark.parametrize(
@@ -177,6 +185,7 @@ def test_the_read_sends_one_search_for_each_page_and_reads_the_label_events(
 ) -> None:
     """Two pages of the search give the pull requests of the window, each with its first
     verdict."""
+    hold_graphql_quota()
     github_api.route(
         "POST",
         "/graphql",
@@ -208,6 +217,7 @@ def test_the_read_sends_one_search_for_each_page_and_reads_the_label_events(
 def test_a_search_with_more_results_than_github_returns_stops_the_read(
     github_api: GitHubApiFake,
 ) -> None:
+    hold_graphql_quota()
     github_api.route("POST", "/graphql", _page([], total=1001))
 
     with pytest.raises(GitHubUnreadError, match="1001"):
@@ -215,6 +225,7 @@ def test_a_search_with_more_results_than_github_returns_stops_the_read(
 
 
 def test_a_graphql_error_stops_the_read(github_api: GitHubApiFake) -> None:
+    hold_graphql_quota()
     github_api.route(
         "POST", "/graphql", github_json({"errors": [{"message": "Something went wrong"}]})
     )

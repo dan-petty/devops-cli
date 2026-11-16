@@ -19,12 +19,14 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Final
 
 import httpx2
 
+from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap.job_grade_report import GradeWindow, plan_grade_queries
 from devops_cli.roadmap.job_result import LINE_PREFIX, RoadmapJob, log_job_result
 from tests.support.paths import FIXTURES
@@ -123,6 +125,14 @@ def route_grade_replies(
     for query in plan_grade_queries(window, repo):
         url = httpx2.URL(endpoint, params={"query": query.expr})
         api.route("GET", str(url), httpx2.Response(200, json=_vector(replies.get(query.key, []))))
+
+
+def hold_graphql_quota() -> None:
+    """A fresh GraphQL quota whose reset is ahead of the clock, so the pacing of the search of
+    the verdicts runs no `gh api rate_limit`."""
+    get_github_rate_limiter().update_quota(
+        "graphql", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
+    )
 
 
 def pull_node(

@@ -14,6 +14,7 @@ from syrupy.assertion import SnapshotAssertion
 
 from devops_cli.exceptions import ServiceRequestError
 from devops_cli.github.repo_ref import RepoRef
+from devops_cli.k8s.logql import query_loki_metrics
 from devops_cli.roadmap.job_grade import EfficiencyWork, JobGrade, grade_policy, measure_grade
 from devops_cli.roadmap.job_grade_report import (
     ClassCount,
@@ -21,14 +22,17 @@ from devops_cli.roadmap.job_grade_report import (
     GradeReport,
     GradeSignal,
     GradeWindow,
+    VerdictRead,
     VersionGrade,
     WindowGrade,
     WorkflowGrade,
+    build_grade_report,
     grade_report,
     plan_grade_queries,
     render_grade_report,
 )
 from devops_cli.roadmap.job_result import RoadmapJob
+from devops_cli.roadmap.pr_verdict import BotPull, PullKind, Verdict
 from devops_cli.server.json_logs import JsonLogFormatter
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.http import WebFake
@@ -363,3 +367,38 @@ def test_the_table_shows_each_workflow(web: WebFake, snapshot: SnapshotAssertion
 
     report = grade_report(GradeWindow.D7, None, LOKI_URL)
     assert render_grade_report(report) == snapshot
+
+
+def test_a_repository_that_github_spells_in_another_case_joins_the_row_of_loki(
+    web: WebFake,
+) -> None:
+    """A bot pull request of `Example/App` counts in the row `example/app` of Loki, a repository
+    with no line gets its own row, and a job that opens no pull request has no verdicts (#5968)."""
+    serve_grade_replies(web)
+    queries = plan_grade_queries(GradeWindow.D7)
+    answers = query_loki_metrics([query.expr for query in queries], LOKI_URL)
+    verdicts = VerdictRead(
+        bot="example-bot[bot]",
+        partial_score=0.5,
+        pulls=[
+            BotPull("Example/App", 1, PullKind.PLAN, Verdict.MERGEABLE),
+            BotPull("example/web", 2, PullKind.DELIVERY, None),
+        ],
+    )
+
+    report = build_grade_report(
+        GradeWindow.D7,
+        None,
+        LOKI_URL,
+        {query.key: answer for query, answer in zip(queries, answers, strict=True)},
+        verdicts,
+    )
+
+    rows = {(row.job, row.repo): row.verdicts for row in report.workflows}
+    stage = rows["stage", "example/app"]
+    assert stage is not None
+    assert (stage.pulls, stage.score, ("stage", "Example/App") in rows) == (1, 1.0, False)
+    web_row = rows["implement", "example/web"]
+    assert web_row is not None
+    assert (web_row.pulls, web_row.open, web_row.score) == (1, 1, None)
+    assert rows["refine", "example/app"] is None

@@ -24,6 +24,7 @@ from tests.support.roadmap_job_grades import (
     LOKI_URL,
     QUERY_PATH,
     VERDICT_NOW,
+    hold_graphql_quota,
     pull_node,
     route_grade_replies,
     serve_grade_replies,
@@ -106,6 +107,7 @@ def _plan(number: int, *labels: str) -> dict[str, Any]:
 
 
 def _verdict_replies(github_api: GitHubApiFake, *nodes: dict[str, Any]) -> None:
+    hold_graphql_quota()
     github_api.route(
         "POST",
         "/graphql",
@@ -215,12 +217,14 @@ def test_the_text_gives_the_verdict_score_beside_the_attempt_ratio(
 
     assert result.exit_code == 0, result.output
     verdicts = result.output[result.output.index("Verdicts of the pull requests") :]
-    assert verdicts.splitlines()[2:5] == [
-        "Workflow   Repository   p     PRs  Open  Mergeable  Needs fix  Discard plan  "
+    assert verdicts.splitlines()[2:] == [
+        "Workflow   Repository     p     PRs  Open  Mergeable  Needs fix  Discard plan  "
         "Discard implementation  Issue changed  Score",
-        "stage      example/app  0.00  6    1     2 (0.40)   1 (0.20)   1 (0.20)      "
+        "stage      example/app    0.67  6    1     2 (0.40)   1 (0.20)   1 (0.20)      "
         "0 (0.00)                1 (0.20)       0.62",
-        "implement  example/app  -     1    0     0 (0.00)   0 (0.00)   1 (1.00)      "
+        "stage      example/infra  -     0    0     0 (-)      0 (-)      0 (-)         "
+        "0 (-)                   0 (-)          -",
+        "implement  example/app    0.00  1    0     0 (0.00)   0 (0.00)   1 (1.00)      "
         "0 (0.00)                0 (0.00)       -",
     ]
 

@@ -12,6 +12,10 @@ ratio, the top failure classes, the action of the grade, the efficiency measures
   `_INFRA_SHARE`.
 
 A plan of the queries (`plan_grade_queries`) is the dry run of the report: it sends no request.
+
+For stage and implement the report also gives the verdicts of the pull requests that the bot of
+`service.github_app.slug` opened in the window, and their score (`roadmap/pr_verdict.py`, #5968),
+beside the attempt ratio. With no slug there is no bot, and the report reads no verdict.
 """
 
 from __future__ import annotations
@@ -20,11 +24,13 @@ import re
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from devops_cli.config.settings import load_settings
 from devops_cli.github.repo_ref import RepoRef
 from devops_cli.k8s.logql import query_loki_metrics
 from devops_cli.lang import MESSAGES
@@ -38,6 +44,15 @@ from devops_cli.roadmap.job_grade import (
     share,
 )
 from devops_cli.roadmap.job_result import FIRST_PASS_LIMITS, LINE_PREFIX, CountLimit, RoadmapJob
+from devops_cli.roadmap.pr_verdict import (
+    KIND_JOBS,
+    BotPull,
+    Verdict,
+    VerdictGrade,
+    grade_verdicts,
+    read_bot_pulls,
+    verdict_search,
+)
 
 
 class GradeQueryKind(StrEnum):
@@ -201,6 +216,11 @@ class WorkflowGrade(BaseModel):
     versions: list[VersionGrade] = Field(description="Versions with 10 attempts or more")
     trend: list[WindowGrade] = Field(description="The measure in 24 h and in 6 h")
     signals: list[GradeSignal] = Field(description="Broken in 6 h, infrastructure share in 24 h")
+    verdicts: VerdictGrade | None = Field(
+        default=None,
+        description="The verdicts of the bot pull requests of stage or implement; None for "
+        "another job, or when the report read no verdict",
+    )
 
 
 class GradeReport(BaseModel):
@@ -212,6 +232,40 @@ class GradeReport(BaseModel):
     repo: str | None = Field(description="The repository of `--repo`; None for all")
     loki_url: str = Field(description="The Loki that the queries read")
     workflows: list[WorkflowGrade] = Field(description="One row for each workflow and repository")
+    verdict_bot: str | None = Field(
+        default=None,
+        description="The bot whose pull requests gave the verdicts; None when the report read no "
+        "verdict, as with no `service.github_app.slug`",
+    )
+    verdict_partial_score: float | None = Field(
+        default=None, description="The score of needs fix, `roadmap.verdict_partial_score`"
+    )
+
+
+@dataclass(frozen=True)
+class VerdictRead:
+    """The pull requests of the bot in the window, with their first verdicts, and the score of
+    needs fix."""
+
+    bot: str
+    partial_score: float
+    pulls: Sequence[BotPull]
+
+    def grade(self, job: str, repo: str | None) -> VerdictGrade | None:
+        """The verdicts of the pull requests of `job` in `repo`; None for a job that opens no
+        pull request."""
+        if job not in (RoadmapJob.STAGE, RoadmapJob.IMPLEMENT):
+            return None
+        verdicts = [
+            pull.verdict
+            for pull in self.pulls
+            if KIND_JOBS[pull.kind] == job and pull.repo.casefold() == (repo or "").casefold()
+        ]
+        return grade_verdicts(RoadmapJob(job), verdicts, partial_score=self.partial_score)
+
+    def keys(self) -> set[tuple[str, str | None]]:
+        """The job and the repository of each pull request."""
+        return {(KIND_JOBS[pull.kind].value, pull.repo) for pull in self.pulls}
 
 
 def _lines(repo: RepoRef | None) -> str:
@@ -421,7 +475,7 @@ def _parse(window: GradeWindow, answers: Mapping[str, PrometheusQueryResult]) ->
     )
 
 
-def _workflow(key: _Key, parsed: _Answers) -> WorkflowGrade:
+def _workflow(key: _Key, parsed: _Answers, verdicts: VerdictRead | None) -> WorkflowGrade:
     job, repo = key
     counts = parsed.counts[parsed.window].get(key, _Counts())
     first_pass = parsed.first_passes[key] if _first_pass_limits(job) else None
@@ -456,6 +510,7 @@ def _workflow(key: _Key, parsed: _Answers) -> WorkflowGrade:
         ],
         trend=[_window_grade(at, trend[at]) for at in TREND_WINDOWS],
         signals=_signals(trend),
+        verdicts=verdicts.grade(job, repo) if verdicts is not None else None,
     )
 
 
@@ -465,10 +520,18 @@ def _job_order(job: str) -> tuple[int, str]:
     return (jobs.index(RoadmapJob(job)), job) if job in RoadmapJob else (len(jobs), job)
 
 
-def _row_keys(parsed: _Answers, repo: RepoRef | None) -> list[_Key]:
-    """Each workflow and repository with a line in a window, and one row with no repository (or
-    with `--repo`) for each job that has no line."""
+def _row_keys(parsed: _Answers, repo: RepoRef | None, verdicts: VerdictRead | None) -> list[_Key]:
+    """Each workflow and repository with a line in a window or a bot pull request, and one row
+    with no repository (or with `--repo`) for each job that has neither. A repository that Loki
+    and GitHub spell in another case gives one row, with the spelling of Loki."""
     seen = {key for window_counts in parsed.counts.values() for key in window_counts}
+    if verdicts is not None:
+        spelled = {(job, (name or "").casefold()) for job, name in seen}
+        seen |= {
+            (job, name)
+            for job, name in verdicts.keys()
+            if (job, (name or "").casefold()) not in spelled
+        }
     jobs = {job for job, _ in seen}
     empty = repo.display if repo is not None else None
     seen |= {(job.value, empty) for job in RoadmapJob if job.value not in jobs}
@@ -480,26 +543,58 @@ def build_grade_report(
     repo: RepoRef | None,
     loki_url: str,
     answers: Mapping[str, PrometheusQueryResult],
+    verdicts: VerdictRead | None = None,
 ) -> GradeReport:
-    """The report from the answer of each planned query, by the key of the query."""
+    """The report from the answer of each planned query, by the key of the query, and the
+    verdicts of the bot pull requests when the report read them."""
     parsed = _parse(window, answers)
     return GradeReport(
         window=window,
         repo=repo.display if repo is not None else None,
         loki_url=loki_url,
-        workflows=[_workflow(key, parsed) for key in _row_keys(parsed, repo)],
+        workflows=[_workflow(key, parsed, verdicts) for key in _row_keys(parsed, repo, verdicts)],
+        verdict_bot=verdicts.bot if verdicts is not None else None,
+        verdict_partial_score=verdicts.partial_score if verdicts is not None else None,
     )
 
 
-def grade_report(window: GradeWindow, repo: RepoRef | None, loki_url: str) -> GradeReport:
-    """Send the planned queries to Loki and build the report."""
+def plan_verdict_search(
+    window: GradeWindow, repo: RepoRef | None, now: datetime | None = None
+) -> str | None:
+    """The GitHub search of the bot pull requests of the window; None with no
+    `service.github_app.slug`, as then there is no bot."""
+    slug = load_settings().service.github_app.slug
+    if not slug:
+        return None
+    return verdict_search(window, repo, slug, now or datetime.now(UTC))
+
+
+def _read_verdicts(search: str) -> VerdictRead:
+    """The bot pull requests that `search` finds, read through the GitHub session."""
+    from devops_cli.github.session import get_github_session
+
+    settings = load_settings()
+    return VerdictRead(
+        bot=settings.service.github_app.bot_login or "",
+        partial_score=settings.roadmap.verdict_partial_score,
+        pulls=read_bot_pulls(get_github_session().client, search),
+    )
+
+
+def grade_report(
+    window: GradeWindow, repo: RepoRef | None, loki_url: str, *, now: datetime | None = None
+) -> GradeReport:
+    """Send the planned queries to Loki, read the verdicts of the bot pull requests from GitHub
+    when a bot is set, and build the report."""
     queries = plan_grade_queries(window, repo)
     answers = query_loki_metrics([query.expr for query in queries], loki_url)
+    search = plan_verdict_search(window, repo, now)
     return build_grade_report(
         window,
         repo,
         loki_url,
         {query.key: answer for query, answer in zip(queries, answers, strict=True)},
+        _read_verdicts(search) if search is not None else None,
     )
 
 
@@ -641,7 +736,50 @@ def render_grade_report(report: GradeReport) -> str:
     for row in report.workflows:
         if row.all_attempts or any(trend.all_attempts for trend in row.trend):
             lines += ["", *_details(row)]
+    lines += _verdict_lines(report)
     return "\n".join(lines) + "\n"
+
+
+def _verdict_cell(grade: VerdictGrade, verdict: Verdict) -> str:
+    return f"{grade.counts[verdict]} ({_ratio_text(grade.shares[verdict])})"
+
+
+def _verdict_lines(report: GradeReport) -> list[str]:
+    """The verdicts of the bot pull requests: one table line for each stage and implement row,
+    with the attempt ratio `p` of the row beside the verdict score."""
+    texts = MESSAGES.roadmap
+    if report.verdict_bot is None:
+        return ["", texts.grades_verdicts_unread]
+    header = [
+        texts.grades_column_job,
+        texts.grades_column_repo,
+        texts.grades_column_ratio,
+        texts.grades_column_pulls,
+        texts.grades_column_open,
+        texts.grades_column_mergeable,
+        texts.grades_column_needs_fix,
+        texts.grades_column_discard_plan,
+        texts.grades_column_discard_implementation,
+        texts.grades_column_issue_changed,
+        texts.grades_column_score,
+    ]
+    rows = [
+        [
+            row.job,
+            row.repo or texts.grades_none,
+            _ratio_text(row.measure.ratio),
+            str(row.verdicts.pulls),
+            str(row.verdicts.open),
+            *(_verdict_cell(row.verdicts, verdict) for verdict in Verdict),
+            _ratio_text(row.verdicts.score),
+        ]
+        for row in report.workflows
+        if row.verdicts is not None
+    ]
+    title = texts.grades_verdicts_title.format(
+        bot=report.verdict_bot, window=report.window, partial=report.verdict_partial_score
+    )
+    return ["", title, "", *_table([header, *rows])]
 
 
 __all__ = [
@@ -655,11 +793,13 @@ __all__ = [
     "GradeReport",
     "GradeSignal",
     "GradeWindow",
+    "VerdictRead",
     "VersionGrade",
     "WindowGrade",
     "WorkflowGrade",
     "build_grade_report",
     "grade_report",
     "plan_grade_queries",
+    "plan_verdict_search",
     "render_grade_report",
 ]

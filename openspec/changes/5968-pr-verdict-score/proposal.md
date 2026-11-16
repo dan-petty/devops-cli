@@ -28,7 +28,7 @@ None.
 ## Impact
 
 - Code: `src/devops_cli/roadmap/workflow_labels.py`, a new `src/devops_cli/roadmap/pr_verdict.py`, `src/devops_cli/roadmap/job_grade.py`, `src/devops_cli/roadmap/job_grade_report.py`, `src/devops_cli/commands/roadmap_eval_grades.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/config/defaults.py`, `src/devops_cli/lang/en/messages.py`.
-- Tests: `tests/roadmap/test_pr_verdict.py`, `tests/commands/test_roadmap_eval_grades.py`.
+- Tests: `tests/roadmap/test_pr_verdict.py`, `tests/commands/test_roadmap_eval_grades.py`, `tests/roadmap/test_job_grade_report.py`.
 - Documents: `docs/roadmap/job-success.md`, the generated `docs/ENV_VARS.md` and command reference.
 - GitHub: one GraphQL request (1 point) for each 100 bot pull requests of the window. On 2026-11-16 the 7-day window held 113 pull requests: 2 requests.
 

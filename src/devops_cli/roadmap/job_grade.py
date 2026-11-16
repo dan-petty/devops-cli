@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import timedelta
 from enum import StrEnum
 from typing import Final
 
@@ -41,6 +42,18 @@ class GradeWindow(StrEnum):
     H6 = "6h"
     H24 = "24h"
     D7 = "7d"
+
+    @property
+    def span(self) -> timedelta:
+        """The length of the window."""
+        return _WINDOW_SPANS[self]
+
+
+_WINDOW_SPANS: Final[dict[GradeWindow, timedelta]] = {
+    GradeWindow.H6: timedelta(hours=6),
+    GradeWindow.H24: timedelta(hours=24),
+    GradeWindow.D7: timedelta(days=7),
+}
 
 
 class EfficiencyWork(StrEnum):

@@ -95,6 +95,30 @@ Each roadmap workflow gets a job grade from its result lines: `100`, `90`, `80`,
 
 The roadmap jobs use [the 80% rule](../guidelines/agentic-jobs.md#the-80-rule) of the guideline with no change. `devops roadmap eval grades` gives its input at each daily check.
 
+## The verdicts of the bot pull requests
+
+The result line of `stage` and `implement` tells only how the attempt ended. The pull request review gate gives each plan and delivery pull request of the bot one verdict, which tells whether its work can be used (owner, 2026-11-16, #5968). A workflow label records the verdict (`src/devops_cli/roadmap/workflow_labels.py`), and `devops gh label sync` creates the labels. A person or an agent vet sets the label by hand.
+
+| Verdict | Meaning | Label on a plan | Label on a delivery | Score |
+| :--- | :--- | :--- | :--- | :--- |
+| Mergeable | The pull request can merge as it is. | `verdict/mergeable` | `verdict/mergeable` | 1 (success) |
+| Needs fix | The work is usable after a fix of the pull request. | `plan/needs-fix` | `verdict/needs-fix` | `roadmap.verdict_partial_score`, default 0.5 (partial success) |
+| Discard plan, plan again | The plan cannot be built; the stage job plans the item again. | `verdict/discard-plan` | `verdict/discard-plan` | 0 for stage (failure); not scored for implement |
+| Discard implementation, implement again | The code cannot be fixed; the implement job builds the plan again. | none | `verdict/discard-implementation` | 0 for implement (failure) |
+| Issue changed | The issue was updated or related work merged, so the work must change to match. | `verdict/issue-changed` | `verdict/issue-changed` | not scored |
+
+- **One label for each verdict.** `plan/needs-fix` is the verdict needs fix of a plan: the stage review, the row `plan_drift` and a vet set it, and the step fix-plan repairs the plan and removes it. A plan does not get `verdict/needs-fix`, and a delivery does not get `plan/needs-fix`.
+- **The kind and the job.** A pull request of the bot whose title starts with `docs(openspec): plan #` is a plan and scores `stage`. Each other pull request of the bot is a delivery and scores `implement`.
+- **The first verdict.** The first label event of a verdict label of its kind gives the verdict of a pull request. A later verdict, such as `verdict/mergeable` after a fix, keeps the history and does not change the score. A pull request with no verdict is open, and stays out of the score.
+- **The read.** `devops roadmap eval grades` reads the pull requests that the bot of `service.github_app.slug` opened in the window, with one GraphQL search for each 100 pull requests. The same request gives the label events. `--repo` puts the repository in the search, and `--dry-run` prints the search. With no slug, the report reads no verdict and names the setting.
+- **The report.** For each stage and implement row, the report gives the attempt ratio `p`, the pull requests, the open ones, the count of each verdict with its share of the pull requests with a verdict, and the verdict score:
+
+  ```text
+  score = (mergeable + w × needs fix) / (mergeable + needs fix + failures of the job)
+  ```
+
+  `w` is `roadmap.verdict_partial_score`. The score is none when no pull request has a scored verdict. `--format json` gives the same values in the field `verdicts` of each row.
+
 ## Specs
 
 - `openspec/specs/roadmap-service-logs/spec.md`, requirement "Each roadmap job logs one result line for each attempt".

@@ -6315,6 +6315,31 @@ class RoadmapMessages:
         "Dry run: no request was made. A run sends these {count} LogQL instant queries to Loki "
         "at {url}, in order:"
     )
+    # The verdicts of the bot pull requests in `devops roadmap eval grades` (#5968).
+    grades_dry_run_verdicts: str = (
+        "Then the run sends this GraphQL search to GitHub, for the verdicts of the pull requests "
+        "of the bot:"
+    )
+    grades_verdict_request: str = "search: {search}"
+    grades_verdict_repeat: str = "for each {size} pull requests, while the search has a next page"
+    grades_verdicts_unread: str = (
+        "Verdicts: not read. Set service.github_app.slug to read the verdicts of the pull "
+        "requests of the bot."
+    )
+    grades_verdicts_title: str = (
+        "Verdicts of the pull requests that {bot} opened in the {window} window. The first "
+        "verdict of each pull request counts, and needs fix scores {partial}. A share counts the "
+        "pull requests with a verdict. The score leaves out issue changed and a discard of the "
+        "other job."
+    )
+    grades_column_pulls: str = "PRs"
+    grades_column_open: str = "Open"
+    grades_column_mergeable: str = "Mergeable"
+    grades_column_needs_fix: str = "Needs fix"
+    grades_column_discard_plan: str = "Discard plan"
+    grades_column_discard_implementation: str = "Discard implementation"
+    grades_column_issue_changed: str = "Issue changed"
+    grades_column_score: str = "Score"
     intake_spend: str = (
         "Spent: {github} GitHub request(s) (REST {rest}, REST search {search}, GraphQL "
         "{graphql}; GraphQL points not known), {embeddings} embedding call(s) for {texts} "
