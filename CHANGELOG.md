@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.164.0](https://github.com/dan-petty/devops-cli/compare/v0.163.0...v0.164.0) (2026-11-16)
+
+
+### Features
+
+* **roadmap:** Verify a claimed missing check in a helper ([#5868](https://github.com/dan-petty/devops-cli/issues/5868)) ([e6cf731](https://github.com/dan-petty/devops-cli/commit/e6cf73110c7d0920e8150fa9f1494c064b406a8b))
+
+
+### Bug Fixes
+
+* **ai:** one retry layer for a gateway call ([#5973](https://github.com/dan-petty/devops-cli/issues/5973)) ([87ebf9f](https://github.com/dan-petty/devops-cli/commit/87ebf9ff0f3b7ad78bd43531e9473070dafdaa19)), closes [#5965](https://github.com/dan-petty/devops-cli/issues/5965)
+* **roadmap:** Refuse a class claim the staged source lacks ([#5834](https://github.com/dan-petty/devops-cli/issues/5834)) ([b12cca7](https://github.com/dan-petty/devops-cli/commit/b12cca7326a6e158166287d10bfd3bb2ed67defe))
+
 ## [0.163.0](https://github.com/dan-petty/devops-cli/compare/v0.162.0...v0.163.0) (2026-11-16)
 
 
