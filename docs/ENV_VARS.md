@@ -284,6 +284,7 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_VALKEY_URL` | `valkey.url` | No | The Valkey endpoint, such as `valkeys://example.com:6380/0`: the scheme, the host, the port and the database. The scheme `valkeys` connects over TLS and checks the certificate against the host. The scheme `valkey` connects in plaintext. The URL holds no password: `valkey.password` is in the OS keyring |
 | `DEVOPS_CLI_WORKSPACE_FILE` | `workspace.file` | No | Path to VS Code workspace file |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | *None* | No | OpenTelemetry's standard collector variable, read only when `telemetry.endpoint` is unset (default: http://localhost:4318) |
+| `OTEL_METRIC_EXPORT_INTERVAL` | *None* | No | OpenTelemetry's standard interval of the metric export, in milliseconds: a process that runs on exports its metrics at this interval, and once more when it ends (default: 60000) |
 
 ## Usage Notes
 

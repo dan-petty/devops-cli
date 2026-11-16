@@ -8,6 +8,7 @@ import contextvars
 import functools
 import hashlib
 import logging
+import math
 import os
 import platform
 import secrets
@@ -34,6 +35,7 @@ from devops_cli.config.defaults import (
     DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS,
     DEFAULT_OTEL_ENDPOINT,
     DEFAULT_OTEL_EXPORT_QUEUE_MAX_PAYLOADS,
+    DEFAULT_OTEL_METRIC_EXPORT_INTERVAL_MS,
     DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS,
     DEFAULT_OTEL_TEST_TIMEOUT,
     DEFAULT_OTEL_WARNING_INTERVAL_SECONDS,
@@ -867,6 +869,30 @@ def _flush_library_spans(timeout: float) -> None:
         library_spans.flush_library_spans(timeout)
 
 
+def _metric_export_interval_seconds() -> float:
+    """The seconds between two metric exports of a process that runs on: OpenTelemetry's
+    `OTEL_METRIC_EXPORT_INTERVAL` in milliseconds, or the SDK's default of 60000 for a value that
+    is not a number of milliseconds above zero."""
+    from devops_cli.config.env import ENV_OTEL_METRIC_EXPORT_INTERVAL
+
+    raw = os.getenv(ENV_OTEL_METRIC_EXPORT_INTERVAL)
+    if raw is None:
+        return DEFAULT_OTEL_METRIC_EXPORT_INTERVAL_MS / 1000
+    try:
+        millis = float(raw)
+    except ValueError:
+        millis = math.nan
+    if not 0 < millis < math.inf:
+        logger.warning(
+            "%s=%r is not a number of milliseconds above zero, so the metrics go out every %.0f ms",
+            ENV_OTEL_METRIC_EXPORT_INTERVAL,
+            raw,
+            DEFAULT_OTEL_METRIC_EXPORT_INTERVAL_MS,
+        )
+        millis = DEFAULT_OTEL_METRIC_EXPORT_INTERVAL_MS
+    return millis / 1000
+
+
 class OTelTelemetryClient:
     """Builds OpenTelemetry traces, metrics and logs, and hands them to an OTLP exporter."""
 
@@ -915,6 +941,12 @@ class OTelTelemetryClient:
         self._export_slots = threading.BoundedSemaphore(DEFAULT_OTEL_EXPORT_QUEUE_MAX_PAYLOADS)
         self.export_dropped = 0
         self.last_export_error = ""
+        # A process that runs on, such as the one command of a Job pod, exports its metrics every
+        # `metric_export_interval` seconds from the first metric on, and not only when it ends
+        # (#5916). A shorter command exports only at its flush, as before.
+        self.metric_export_interval = _metric_export_interval_seconds()
+        self._periodic_export: threading.Thread | None = None
+        self._periodic_export_stop = threading.Event()
 
         # Cache pre-computed resource attributes for zero-allocation reuse across all spans and metrics
         vcs_meta = _detect_vcs_metadata()
@@ -1092,7 +1124,34 @@ class OTelTelemetryClient:
                     shutdown_on_exit=False,
                 )
                 self._meter = self._meter_provider.get_meter("devops-cli.telemetry")
+                self._start_periodic_export()
             return self._meter
+
+    def _start_periodic_export(self) -> None:
+        """Start the thread that exports the metrics at the interval while the process runs.
+
+        The thread calls `flush`, which collects and waits for the export under the flush lock,
+        so its export and the flush of the Service after a round never pass each other. The
+        SDK's `PeriodicExportingMetricReader` collects outside such a lock: a later delta can
+        then reach the collector first, and `deltatocumulative` drops the earlier one as out of
+        order.
+        """
+        self._periodic_export = threading.Thread(
+            target=self._export_periodically, name="devops-otel-metrics", daemon=True
+        )
+        self._periodic_export.start()
+
+    def _export_periodically(self) -> None:
+        while not self._periodic_export_stop.wait(self.metric_export_interval):
+            self.flush()
+
+    def _stop_periodic_export(self) -> None:
+        """Stop the periodic export thread: it waits for the interval, so it ends at once, or
+        after the export it runs."""
+        self._periodic_export_stop.set()
+        thread, self._periodic_export = self._periodic_export, None
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS)
 
     def _get_sdk_instrument(self, kind: str, name: str, unit: str) -> Any:
         """Return or create a cached OTel SDK metric instrument."""
@@ -1463,6 +1522,7 @@ class OTelTelemetryClient:
         command queues its spans at the very end, and cancelling them lost its root span. The
         wait happens before taking the client lock, which the exports need.
         """
+        self._stop_periodic_export()
         self.flush()
         if self._executor is not None:
             try:
@@ -1644,6 +1704,14 @@ def get_current_span_context() -> dict[str, str | None]:
     """Retrieve the current active span and trace IDs as a dictionary."""
     trace_id, span_id = _active_span_ids()
     return {"trace_id": trace_id, "span_id": span_id}
+
+
+def flush_tracer(timeout: float = DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS) -> None:
+    """Export what the process's tracer holds, when the process built one, and wait up to
+    `timeout` seconds for the exports. The SIGTERM handler of the CLI calls it (#5916)."""
+    tracer = _GLOBAL_TRACER
+    if tracer is not None:
+        tracer.flush(timeout)
 
 
 def shutdown_tracer(timeout_millis: int = DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS) -> None:

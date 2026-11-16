@@ -13,7 +13,8 @@ of the OTLP/JSON request it encodes, so one plain-value view reads both.
 
 The `otlp` fixture installs the fake as the process's exporter with export on, so code under test
 exports to it. Each read first waits for the exports the tracer queued, through the tracer's
-public `flush()`, so no test sleeps. `tests/telemetry/test_otlp_exporter_contract.py` holds the
+public `flush()`, so no test sleeps. `received` reads with no flush, for an export that the process
+makes by itself while it runs. `tests/telemetry/test_otlp_exporter_contract.py` holds the
 fake to `HttpOtlpExporter` over a loopback OTLP/HTTP receiver.
 
 Every support module is a plugin of each run, and the fail-to-pass replay runs new tests on the
@@ -227,6 +228,11 @@ class FakeCollector:
     def payloads(self, signal: OtlpSignal) -> list[dict[str, Any]]:
         """The export requests of one signal, once the exports queued so far are done."""
         self._flush()
+        return self.received(signal)
+
+    def received(self, signal: OtlpSignal) -> list[dict[str, Any]]:
+        """The export requests of one signal that came in so far, with no flush: what the
+        collector holds while the process still runs (#5916)."""
         with self._lock:
             return [export.payload for export in self.exports if export.signal == signal]
 

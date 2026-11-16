@@ -594,6 +594,9 @@ DEFAULT_OTEL_TEST_TIMEOUT: float = 1.0
 DEFAULT_OTEL_SHUTDOWN_TIMEOUT_MS: int = 50
 # Longest a command's exit waits for telemetry exports still in flight.
 DEFAULT_OTEL_DRAIN_TIMEOUT_SECONDS: float = 1.0
+# Milliseconds between two metric exports of a process that runs on, such as the command of a Job
+# pod, when `OTEL_METRIC_EXPORT_INTERVAL` is not set: the default of the OpenTelemetry SDK (#5916).
+DEFAULT_OTEL_METRIC_EXPORT_INTERVAL_MS: float = 60000.0
 # The most export payloads that wait for the two export threads of one client (#4116). A collector
 # that answers slowly for hours would else leave every payload in an unbounded queue. A payload
 # past the cap is dropped and counted in `export_dropped`.

@@ -48,7 +48,12 @@ def main(argv: list[str] | None = None) -> None:
     requested = is_dry_run_requested(raw_args)
     mark_dry_run_invocation(requested)
 
-    # 3. Standard Typer execution for delegated subcommands and help
+    # 3. SIGTERM exports the telemetry before the process stops (#5916)
+    from devops_cli.telemetry.sigterm_export import install_sigterm_export
+
+    install_sigterm_export()
+
+    # 4. Standard Typer execution for delegated subcommands and help
     from devops_cli.main import app
 
     app(raw_args, prog_name="devops")
