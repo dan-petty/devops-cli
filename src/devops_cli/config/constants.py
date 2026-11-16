@@ -3936,6 +3936,9 @@ CONST_ROADMAP_RETITLE_COMMENT_MARKER: Final[str] = "<!-- devops roadmap retitle 
 # (`roadmap.fix_plan.head_attempts` and `revisions`, #5440).
 CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER: Final[str] = "<!-- devops roadmap fix-plan -->"
 CONST_ROADMAP_FIX_PLAN_WAIT_HOURS: Final[int] = 6
+# The marker of the comment of the step `review` (#5969): one comment for each head that it judges,
+# on the pull request, and one on the issue when it returns the item.
+CONST_ROADMAP_REVIEW_COMMENT_MARKER: Final[str] = "<!-- devops roadmap review -->"
 # The marker of every roadmap job's comment: a comment that holds none of them is a person's.
 CONST_ROADMAP_JOB_COMMENT_MARKERS: Final[tuple[str, ...]] = (
     CONST_ROADMAP_RETITLE_COMMENT_MARKER,
@@ -3946,6 +3949,7 @@ CONST_ROADMAP_JOB_COMMENT_MARKERS: Final[tuple[str, ...]] = (
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
     CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
     CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER,
+    CONST_ROADMAP_REVIEW_COMMENT_MARKER,
 )
 # `devops roadmap consolidate` (#1127): where its files are, under the data directory.
 CONST_ROADMAP_CONSOLIDATE_DIR: Final[str] = "roadmap/consolidate"

@@ -119,6 +119,7 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `RoadmapOpenRefusedError` | `ROADMAP_OPEN_REFUSED` | `1` | Roadmap | Raised when devops roadmap step open refuses to open or update a pull request (#5020). |
 | `RoadmapPlanReadBackError` | `ROADMAP_PLAN_READ_BACK_MISMATCH` | `1` | Roadmap | Raised when the plan reader cannot read back the rendered files of a plan, or reads facts |
 | `RoadmapPlanRewriteError` | `ROADMAP_PLAN_REWRITE_REFUSED` | `1` | Roadmap | Raised when `devops roadmap plan-recheck --confirm` refuses to write a rewritten plan (#3556). |
+| `RoadmapPullReviewLimitError` | `ROADMAP_PULL_REVIEW_LIMIT` | `1` | Roadmap | Raised before the model call of the step `review` when its request is over the cap of new |
 | `RoadmapRecordMarkLostError` | `ROADMAP_RECORD_MARK_LOST` | `1` | Roadmap | Raised after a job record write when a mark remains missing after two rewrites (#4555). |
 | `RoadmapRefineError` | `ROADMAP_REFINE_FAILED` | `1` | Roadmap | Raised after a refine run in which the model call failed for one or more items. |
 | `RoadmapReviewError` | `ROADMAP_REVIEW_FAILED` | `1` | Roadmap | Raised when `devops roadmap review run` cannot resolve its window or read git (#4686). |

@@ -357,6 +357,19 @@ class FixChecksRecordKey(StrEnum):
     HEADS = "fix_checks.heads"
 
 
+class ReviewRecordKey(StrEnum):
+    """What the step `review` records in an Item's job record (#5969): `review.pull` is the pull
+    request that `review.rounds` counts the written verdicts of, `review.key` is the pull request,
+    the head and the hash of the text of the item that the last verdict judged
+    (`<pull>:<head>:<text hash>`), and `review.verdict` is that verdict. A verdict on another pull
+    request starts the count again."""
+
+    PULL = "review.pull"
+    ROUNDS = "review.rounds"
+    KEY = "review.key"
+    VERDICT = "review.verdict"
+
+
 class ImplementResult(StrEnum):
     """How the run of an implement Job ended (#4071). The runner records the word in
     `implement.result`, and the Service compares with it."""
@@ -503,6 +516,7 @@ JobRecord = dict[
     | StageRecordKey
     | FixPlanRecordKey
     | FixChecksRecordKey
+    | ReviewRecordKey
     | ImplementRecordKey
     | RetitleRecordKey
     | IntakeRecordKey
@@ -816,6 +830,7 @@ _JOB_RECORD_KEYS = frozenset(
         *FixPlanRecordKey,
         *ImplementRecordKey,
         *FixChecksRecordKey,
+        *ReviewRecordKey,
         *RetitleRecordKey,
         *IntakeRecordKey,
         *ConsolidateRecordKey,
@@ -1367,6 +1382,7 @@ __all__ = [
     "RefineRecordKey",
     "RepositoryFacts",
     "RetitleRecordKey",
+    "ReviewRecordKey",
     "RoadmapStore",
     "ScaffoldRecordKey",
     "StageRecordKey",

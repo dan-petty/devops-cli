@@ -16,6 +16,7 @@ from devops_cli.roadmap.refine.refine import NextStep
 from devops_cli.roadmap.stage.stage import StageResult
 from devops_cli.roadmap.steps.fix_checks import FixChecksResult
 from devops_cli.roadmap.steps.fix_plan import FixPlanResult
+from devops_cli.roadmap.steps.review import ReviewResult
 from devops_cli.roadmap.stores.store import ImplementResult, JudgeVerdict, Verdict
 from tests.support.roadmap_job_result import result_lines
 
@@ -90,6 +91,7 @@ def test_each_intended_result_is_a_result_of_its_job() -> None:
         RoadmapJob.INTAKE: {result.value for result in CandidateResult},
         RoadmapJob.FIX_PLAN: {result.value for result in FixPlanResult},
         RoadmapJob.FIX_CHECKS: {result.value for result in FixChecksResult},
+        RoadmapJob.REVIEW: {result.value for result in ReviewResult},
     }
     if RetitleResult is not None and hasattr(RoadmapJob, "RETITLE"):
         results[RoadmapJob.RETITLE] = {result.value for result in RetitleResult}

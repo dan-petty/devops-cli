@@ -75,6 +75,8 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_REFERENCE_MODEL,
     DEFAULT_AI_REFERENCE_PROVIDER,
     DEFAULT_AI_REQUEST_TIMEOUT_SECONDS,
+    DEFAULT_AI_REVIEW_CONTEXT_WINDOW,
+    DEFAULT_AI_REVIEW_MODEL,
     DEFAULT_AI_SUPPORTS_REASONING,
     DEFAULT_AI_TEMPERATURE,
     DEFAULT_AI_TOP_P,
@@ -164,6 +166,9 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_OPEN_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_OPEN_MODE,
     DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES,
+    DEFAULT_ROADMAP_REVIEW_MODE,
+    DEFAULT_ROADMAP_REVIEW_ROUNDS,
+    DEFAULT_ROADMAP_REVIEW_TOKEN_BUDGET,
     DEFAULT_ROADMAP_STAGE_FILTER,
     DEFAULT_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS,
     DEFAULT_ROADMAP_STAGE_GATE_RETURNS,
@@ -775,6 +780,23 @@ class AIFixChecksTaskOverride(AITaskOverride):
     )
 
 
+class AIReviewTaskOverride(AITaskOverride):
+    """The task of the model of `devops roadmap step review` (#5969): whether the diff of a bot
+    pull request does what its plan and its issue ask. A new job starts on DeepSeek through the
+    gateway (owner rule of 2026-11-16), so the task has that model and its window until a source
+    sets another."""
+
+    model: str | None = Field(
+        default=DEFAULT_AI_REVIEW_MODEL,
+        description="AI model of this task, in place of `ai.model`",
+    )
+    context_window: int | None = Field(
+        default=DEFAULT_AI_REVIEW_CONTEXT_WINDOW,
+        gt=0,
+        description="Context window of this task in tokens, in place of `ai.context_window`",
+    )
+
+
 # The fields of a task that a variable sets, such as `DEVOPS_CLI_AI_TASK_CHAT_MODEL`.
 _TASK_VARIABLES: tuple[str, ...] = ("provider", "model", "reasoning_effort", "ollama_urls")
 
@@ -866,6 +888,12 @@ class AITasksConfig(BaseModel):
     ] = Field(
         default_factory=AIFixChecksTaskOverride,
         description="The task of the model fix of `devops roadmap step fix-checks`",
+    )
+    review: Annotated[
+        AIReviewTaskOverride, Variable(fields=(*_TASK_VARIABLES, *_TASK_WINDOW_VARIABLES))
+    ] = Field(
+        default_factory=AIReviewTaskOverride,
+        description="The task of the model of `devops roadmap step review`: does the diff of a bot pull request do what its plan and its issue ask",
     )
 
 
@@ -1965,6 +1993,28 @@ class RoadmapFixChecksConfig(BaseModel):
     )
 
 
+class RoadmapReviewConfig(BaseModel):
+    """What the step `review` does and may spend (#5969)."""
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    mode: Annotated[RowMode, Variable()] = Field(
+        description="What the step `devops roadmap step review` does (ADR 0021, section 8). `off` sends no request. `plan` reads the facts of the pull request, asks the model when the facts leave the verdict open, logs the verdict and the action, and writes nothing, also with `--confirm`. `on` with `--confirm` writes the verdict label and the comment and takes the next action: mark the draft ready, leave the due fix, or close the pull request and return the item",
+        default=DEFAULT_ROADMAP_REVIEW_MODE,
+    )
+    rounds: Annotated[int, Variable()] = Field(
+        description="The most verdicts that the step review writes on one pull request. A pull request with this many verdicts gets one comment that leaves it for a person, and no model call. The settings load refuses a value above 4 times the default",
+        default=DEFAULT_ROADMAP_REVIEW_ROUNDS,
+        ge=1,
+        le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_REVIEW_ROUNDS,
+    )
+    token_budget: Annotated[int, Variable()] = Field(
+        description="The most new tokens that the model of one review may use, summed over the attempts of its structured reply. Before the call the step counts the tokens of the request, and at the cap it stops with the class `limit_reached` and names this setting",
+        default=DEFAULT_ROADMAP_REVIEW_TOKEN_BUDGET,
+        ge=1,
+    )
+
+
 class RoadmapRefineConfig(RowCadenceConfig):
     """The cadence of the refine row of the Service (#5470)."""
 
@@ -2011,6 +2061,7 @@ class RoadmapConfig(BaseModel):
     fix_conflict: RoadmapFixConflictConfig = Field(default_factory=RoadmapFixConflictConfig)
     fix_checks: RoadmapFixChecksConfig = Field(default_factory=RoadmapFixChecksConfig)
     open: RoadmapOpenConfig = Field(default_factory=RoadmapOpenConfig)
+    review: RoadmapReviewConfig = Field(default_factory=RoadmapReviewConfig)
     refine: RoadmapRefineConfig = Field(default_factory=RoadmapRefineConfig)
     model_jobs: Annotated[int, Variable()] = Field(
         description="The most model Jobs that run at once in the cluster, for every repository together: the implement, stage and fix-checks Jobs (#5027, ADR 0021 section 5). A fix-checks Job that finds no free place is created suspended, and the implement and stage rows leave its place free, so a fix Job goes before a new implement or stage Job. `roadmap.stage.jobs` and the one implement Job of each repository still hold inside this limit",

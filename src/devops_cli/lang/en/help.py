@@ -1597,6 +1597,18 @@ class RoadmapCommandHelp:
         "Repair and push in a runner Job. Without it, the step prints its plan and writes nothing."
     )
     step_fix_checks_dry_run: str = "Make no network request and change nothing."
+    step_review: str = (
+        "Give a bot pull request one verdict: mergeable, needs fix, discard or issue changed "
+        "(#5969)."
+    )
+    step_review_pull: str = "Number of the pull request to review."
+    step_review_head: str = "Expected commit SHA of the pull request head."
+    step_review_source: str = "Clone of the repository that a discard deletes the branch from (default: the clone model-clone of the data folder)."
+    step_review_confirm: str = (
+        "Write the verdict and take its next action in a runner Job, in the mode on of "
+        "roadmap.review.mode. Without it, the step prints the verdict and writes nothing."
+    )
+    step_review_dry_run: str = "Make no network request and change nothing."
     eval_app: str = (
         "Score the roadmap jobs. grades reads the live result lines of each job in Loki. Each "
         "other command runs a job's real code on committed cases with a chosen model. Each is on "
