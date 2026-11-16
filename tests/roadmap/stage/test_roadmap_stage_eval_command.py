@@ -31,6 +31,7 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 Cli = Callable[..., Any]
 CHANGE = "1-the-job-drops-a-comment"
 SET = REPO_ROOT / CASES_DIRECTORY
+CASES_COUNT = 61
 
 
 @pytest.fixture(scope="module")
