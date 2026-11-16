@@ -15,7 +15,7 @@
 #    NetworkPolicy lets it reach only CoreDNS, the OTel collector and public HTTPS.
 #
 # The timeouts nest: `executionTimeout` (15 minutes) < `activeDeadlineSeconds` (3000 s) < the
-# token life (3600 s). Until #4909 measures the first runs, Renovate runs as a lookup dry run.
+# token life (3600 s). Renovate opens update pull requests (#6022); no post-upgrade task runs until #6020.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -148,9 +148,6 @@ spec:
               env:
                 - name: RENOVATE_CONFIG_FILE
                   value: /config/config.js
-                # #4909 removes the dry run after it measures the first run.
-                - name: RENOVATE_DRY_RUN
-                  value: lookup
                 - name: RENOVATE_USE_CLOUD_METADATA_SERVICES
                   value: "false"
                 # The package cache is a SQLite file in cacheDir, on the claim.

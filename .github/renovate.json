@@ -274,25 +274,8 @@
       "description": "The OpenSpec package, its lockfile and the tools lock. The skills that OpenSpec generates hold its version, so the branch writes them again.",
       "matchPackageNames": ["@fission-ai/openspec"],
       "groupName": "openspec",
-      "postUpgradeTasks": {
-        "commands": [
-          "uv run --frozen devops install-tools --tool openspec",
-          "uv run --frozen devops openspec regenerate"
-        ],
-        "fileFilters": [
-          ".claude/skills/openspec-*/**/*",
-          ".agents/skills/openspec-*/**/*",
-          ".kilocode/skills/openspec-*/**/*",
-          ".agents/skills/.openspec-target"
-        ],
-        "executionMode": "branch",
-        "installTools": {
-          "python": {},
-          "uv": {},
-          "node": {}
-        }
-      },
       "prBodyNotes": [
+        "Before the merge, run `uv run --frozen devops install-tools --tool openspec` and `uv run --frozen devops openspec regenerate` on this branch and push the generated skills; Renovate runs no upgrade task until #6020.",
         "Before the merge, record OpenSpec again for the tests that replay it (`tests/support/openspec_recording.py` says how), and run `uv run devops openspec check`."
       ]
     },
@@ -300,19 +283,9 @@
       "description": "A feature update writes the devcontainer lockfile again with the pinned Dev Containers CLI.",
       "matchManagers": ["devcontainer"],
       "matchDatasources": ["docker"],
-      "postUpgradeTasks": {
-        "commands": [
-          "uv run --frozen devops install-tools --tool devcontainers-cli",
-          "devcontainer upgrade --workspace-folder . --config .devcontainer/image/devcontainer.json"
-        ],
-        "fileFilters": [".devcontainer/image/devcontainer-lock.json"],
-        "executionMode": "branch",
-        "installTools": {
-          "python": {},
-          "uv": {},
-          "node": {}
-        }
-      }
+      "prBodyNotes": [
+        "Before the merge, run `uv run --frozen devops install-tools --tool devcontainers-cli` and `devcontainer upgrade --workspace-folder . --config .devcontainer/image/devcontainer.json` on this branch and push `.devcontainer/image/devcontainer-lock.json`; Renovate runs no upgrade task until #6020."
+      ]
     },
     {
       "description": "The gh-dash schema fixture holds the schema of the pinned version.",

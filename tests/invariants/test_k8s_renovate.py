@@ -354,32 +354,28 @@ def _post_upgrade_commands() -> list[str]:
     return commands
 
 
-def test_each_allowed_command_is_anchored_and_matches_a_command_of_the_repository() -> None:
-    """Renovate runs a command of `postUpgradeTasks` only when an `allowedCommands` regex matches
-    it, and never in a shell. Each regex holds a whole command line, and each command of the
-    repository config has a regex (#4896; #4902 adds its own)."""
+def test_no_upgrade_task_runs_until_the_token_is_out_of_its_reach() -> None:
+    """A command of `postUpgradeTasks` runs in the container that can read the installation token
+    (#6020). Until #6020 keeps the token away from the tasks, the self-hosted config allows no
+    command, the repository config names no task, and no command runs in a shell (#6022)."""
     config = _config()
-    patterns = config["allowedCommands"]
-    commands = _post_upgrade_commands()
 
     assert (
         config["allowShellExecutorForPostUpgradeCommands"],
-        [p for p in patterns if not (p.startswith("^") and p.endswith("$"))],
-        [c for c in commands if not any(re.fullmatch(p, c) for p in patterns)],
-        [p for p in patterns if not any(re.fullmatch(p, c) for c in commands)],
-        len(commands) >= 4,
-    ) == (False, [], [], [], True)
+        config["allowedCommands"],
+        _post_upgrade_commands(),
+    ) == (False, [], [])
 
 
-def test_the_environment_starts_with_a_lookup_dry_run_and_no_metadata_service() -> None:
-    """#4909 removes the dry run after it measures the first run."""
+def test_the_environment_opens_update_pull_requests_and_uses_no_metadata_service() -> None:
+    """The first measured run (#4909) worked, so Renovate runs with no dry run (#6022)."""
     env = _env(_containers()["renovate"])
     config_mount = _mounts(_containers()["renovate"])[
         str(PurePosixPath(env["RENOVATE_CONFIG_FILE"]).parent)
     ]
 
     assert (
-        env["RENOVATE_DRY_RUN"],
+        "RENOVATE_DRY_RUN" in env,
         env["RENOVATE_USE_CLOUD_METADATA_SERVICES"],
         env["RENOVATE_X_SQLITE_PACKAGE_CACHE"],
         env["OSV_OFFLINE_DATABASE_FORMAT"],
@@ -387,7 +383,7 @@ def test_the_environment_starts_with_a_lookup_dry_run_and_no_metadata_service() 
         PurePosixPath(env["RENOVATE_CONFIG_FILE"]).name,
         _volumes()[config_mount["name"]]["configMap"]["name"],
         config_mount["readOnly"],
-    ) == ("lookup", "false", "true", "split", "6h", "config.js", "renovate-config", True)
+    ) == (False, "false", "true", "split", "6h", "config.js", "renovate-config", True)
 
 
 def test_the_config_uses_no_hosted_mend_service() -> None:

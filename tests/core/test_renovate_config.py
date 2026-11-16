@@ -19,7 +19,6 @@ from typing import Any
 import pytest
 import yaml
 
-from devops_cli.config.constants import CONST_OPENSPEC_GENERATED_GLOBS
 from devops_cli.config.defaults import DEFAULT_PYTHON_VERSION
 from devops_cli.roadmap.runner_tools import NODE_MAJOR, UV_VERSION
 from devops_cli.roadmap.workflow_labels import WORKFLOW_LABELS
@@ -552,20 +551,18 @@ def test_each_coupled_custom_pin_is_in_the_group_of_its_package() -> None:
     } == (dict.fromkeys(pins, (True, True)))
 
 
-def test_an_openspec_bump_writes_the_generated_skills_again() -> None:
-    """The skills that OpenSpec generates embed its version, so the branch runs the regeneration
-    and commits each generated file."""
+def test_an_openspec_bump_names_the_regeneration_in_its_body() -> None:
+    """The skills that OpenSpec generates embed its version. Renovate runs no upgrade task until
+    #6020 keeps the token away from the tasks (#6022), so the pull request body names the
+    commands that write the generated files again before the merge."""
     (rule,) = [rule for rule in _rules() if rule.get("groupName") == "openspec"]
-    tasks = rule["postUpgradeTasks"]
+    notes = " ".join(rule["prBodyNotes"])
 
-    assert (tasks["commands"], tasks["fileFilters"], tasks["executionMode"]) == (
-        [
-            "uv run --frozen devops install-tools --tool openspec",
-            "uv run --frozen devops openspec regenerate",
-        ],
-        list(CONST_OPENSPEC_GENERATED_GLOBS),
-        "branch",
-    )
+    assert (
+        "postUpgradeTasks" in rule,
+        "uv run --frozen devops install-tools --tool openspec" in notes,
+        "uv run --frozen devops openspec regenerate" in notes,
+    ) == (False, True, True)
 
 
 def _labels(value: Any) -> Iterator[str]:
