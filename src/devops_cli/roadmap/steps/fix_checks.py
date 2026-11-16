@@ -430,13 +430,11 @@ def run_fix_checks(
     *,
     head: str | None = None,
     confirm: bool = False,
-    session: Any = None,
     repair: Repair | None = None,
 ) -> FixChecksReport:
     """Run one repair round for failed checks on pull request `pull` (#5023). Without `confirm`
     the round plans and writes nothing; with it, a repair needs `repair` (#5971)."""
-    gh_session = session or get_github_session()
-    client = gh_session.client
+    client = get_github_session().client
     status: PullStatus = client.get_pull_status(repo, pull)
 
     parsed = parse_branch(status.head_ref)

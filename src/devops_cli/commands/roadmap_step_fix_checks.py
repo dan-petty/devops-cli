@@ -32,6 +32,9 @@ def fix_checks_cmd(
     head: Annotated[
         str | None, typer.Option("--head", help=HELP.roadmap.step_fix_checks_head)
     ] = None,
+    source: Annotated[
+        Path | None, typer.Option("--source", help=HELP.roadmap.step_fix_checks_source)
+    ] = None,
     confirm: Annotated[
         bool, typer.Option("--confirm", help=HELP.roadmap.step_fix_checks_confirm)
     ] = False,
@@ -59,7 +62,7 @@ def fix_checks_cmd(
             from devops_cli.roadmap.steps.fix_checks_repair import job_repair
 
             require_runner(target)
-            repair = job_repair(store, target)
+            repair = job_repair(store, target, source=source)
         report = run_fix_checks(store, target, pull, head=head, confirm=confirm, repair=repair)
     except DevOpsCLIError as exc:
         print_error(f"Could not fix checks on PR #{pull}: {exc}", safe=True)

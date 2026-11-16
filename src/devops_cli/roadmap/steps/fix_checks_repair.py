@@ -85,11 +85,14 @@ class WorktreeCheckout:
 
 
 @contextmanager
-def pull_checkout(repo: str, status: PullStatus, item: int) -> Iterator[WorktreeCheckout]:
-    """The worktree of the head branch of the pull request of `status`, the branch of `item`. The
-    take-over refuses a branch with a commit past main that the App did not write. The worktree
-    must be on the head branch of the pull request and at its judged head."""
-    source = model_clone(repo)
+def pull_checkout(
+    repo: str, status: PullStatus, item: int, source: Path | None = None
+) -> Iterator[WorktreeCheckout]:
+    """The worktree of the clone `source`, or of the clone `model-clone` of `repo`, on the head
+    branch of the pull request of `status`, the branch of `item`. The take-over refuses a branch
+    with a commit past main that the App did not write. The worktree must be on the head branch of
+    the pull request and at its judged head."""
+    source = source or model_clone(repo)
     url = origin_url(source)
     report = add_worktree(source, issue=item, origin=OriginGit(source, url))
     path = Path(report.path)
@@ -249,11 +252,11 @@ def model_fix(store: ItemReader) -> Fixer:
     return fix
 
 
-def job_repair(store: ItemReader, repo: str) -> Repair:
-    """The repair of a runner Job for `repo`. The clone is made only when a round opens the
-    checkout."""
+def job_repair(store: ItemReader, repo: str, *, source: Path | None = None) -> Repair:
+    """The repair of a runner Job for `repo`, in the clone `source`, or in the clone `model-clone`,
+    which is made or updated only when a round opens the checkout."""
 
     def checkout(status: PullStatus, item: int) -> AbstractContextManager[PullCheckout]:
-        return pull_checkout(repo, status, item)
+        return pull_checkout(repo, status, item, source)
 
     return Repair(checkout=checkout, tier1=tier1_fix, model=model_fix(store))

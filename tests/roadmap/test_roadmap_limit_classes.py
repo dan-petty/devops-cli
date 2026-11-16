@@ -753,6 +753,11 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "setting",
         "new (#5019); the hard cap of conflicting files for automated conflict resolution",
     ),
+    "DEFAULT_ROADMAP_FIX_CHECKS_TOKEN_BUDGET": (
+        "setting",
+        "new (#5971); the cap of the model fix of one fix-checks run, by the owner direction of "
+        "2026-11-16",
+    ),
     "DEFAULT_ROADMAP_FIX_PLAN_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_FIX_PLAN_TIME_BUDGET_SECONDS": (
         "setting",

@@ -194,7 +194,7 @@ The issue stewards of tracker #4780 add the rows `resolve`, `group` and `split`.
 - **Trigger.** The sweep reads the due mark and creates the unit. Until the sweep step (#4574), the poll of the Service does this. Until the fix units exist (#5027, #5028), the runner Job calls the same step in its own loop, and no fix unit exists.
 - **Unit.** Before the engine step, a Job from the suspended CronJob `devops-cli-runner` with arguments only, which the admission policy admits now. After the engine step, a Workflow from a WorkflowTemplate.
 - **Order.** A fix unit counts against the limit of model pods (section 5). The creator puts it before a new implement or stage unit.
-- **Spend.** Each fix row runs 1 week in mode `plan` first. Mode `on` needs the spend decision of the owner on tracker #5014: at most 16,000,000 new tokens for the model fix of each `fix-checks` unit (`roadmap.fix_checks.token_budget`, owner direction of 2026-11-16), 2,000,000 tokens for each `fix-conflict` unit, and 20 fix units a day for each repository. Tier 1 uses 0 tokens.
+- **Spend.** Each fix row runs 1 week in mode `plan` first. Mode `on` needs the spend decision of the owner on tracker #5014: at most 4,000,000 tokens for each `fix-checks` unit, 2,000,000 for each `fix-conflict` unit, and 20 fix units a day for each repository. Tier 1 uses 0 tokens.
 - **Deadline.** The deadline of a unit is the sum of its step limits plus at least 300 s, because the start of a pod takes up to 108 s.
 - **Valkey.** No key.
 
@@ -298,8 +298,6 @@ The pull request of #5056 amends rule 5 of section 8 on 2026-11-12. Only the fiv
 
 The pull request of #5061 amends this record on 2026-11-12. It adds the row `fix-plan` of tracker #5014 to section 2 and section 8. The merge of that pull request is the approval of the row.
 
-The pull request of #5971 amends section 8 on 2026-11-16. The cap of the model fix of a `fix-checks` unit is 16,000,000 new tokens, in the setting `roadmap.fix_checks.token_budget`, by the owner direction of 2026-11-16 that gives each job a generous token limit.
-
 The verdict of ADR 0008 is go. The owner recorded "warm p95 11 s - go" on [#1535](https://github.com/dan-petty/devops-cli/issues/1535#issuecomment-6787508710) on 2026-11-11, after the [measurement](https://github.com/dan-petty/devops-cli/issues/1535#issuecomment-6787453030) of the same day:
 
 | Measure | Value | Limit of ADR 0008 |
@@ -329,3 +327,4 @@ The naming record of #4533 owns the object names, the labels, the Valkey key for
 2026-11-13: Fact out of date: section 8, row `fix-plan`, Marker. [The fix-plan step](../roadmap/stage.md#the-fix-plan-step) holds the keys `fix_plan.version` and `fix_plan.evicted` and the kill classes (#5413).
 
 2026-11-13: Fact out of date: section 8, row `fix-plan`, Bounds. The attempts on a head and the revisions are settings with these defaults (#5440).
+2026-11-16: Fact out of date: section 8, Spend. The model fix of a `fix-checks` unit stops at `roadmap.fix_checks.token_budget`, 16,000,000 new tokens by default (#5971).

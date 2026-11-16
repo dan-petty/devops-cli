@@ -13,14 +13,15 @@ Verifies:
 - A log within plan scope runs a fix step, and the step pushes its commit
 - A repaired draft whose checks pass is marked ready by the readiness rule
 
-The GitHub client is a fake. The checks and the failed log are answered at the two functions that
-read them, and the checkout is a fake that records its push.
+GitHub's REST API and `gh` are faked at their edges. The repair is given to the step as its
+parameter: a checkout that records its push, and fixers that record their calls.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+import subprocess
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,101 +29,115 @@ from typing import Any
 
 import pytest
 
-from devops_cli.config.constants import CONST_GIT_MAIN_BRANCH
 from devops_cli.exceptions import RoadmapImplementError
-from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
 from devops_cli.github.client import PullStatus
-from devops_cli.roadmap.implement.implement_pull import Answer, Draft, DraftKind, Readiness
-from devops_cli.roadmap.steps import fix_checks
 from devops_cli.roadmap.steps.fix_checks import (
     FixChecksResult,
     Fixed,
     Repair,
+    check_scope,
     dry_run_fix_checks,
     run_fix_checks,
 )
 from devops_cli.roadmap.stores.store import FixChecksRecordKey, ImplementRecordKey
+from tests.support.fakes.github import (
+    GitHubApiFake,
+    github_json,
+    route_compare_files,
+    route_file,
+)
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 REPO = "example/project"
 BOT_USER = "devops-cli-service[bot]"
-BRANCH = "feat/42-sample"
 HEAD_SHA = "1111111111111111111111111111111111111111"
 NEW_HEAD = "2222222222222222222222222222222222222222"
 STATIC = "Static Analysis"
 PLAN_LOG = "src/devops_cli/sample.py:10: error: undefined name 'foo'"
+LINK = f"https://github.com/{REPO}/actions/runs/1/job/2"
 NO_LINT = Fixed(done=False, reason="not a lint failure")
-COMMITTED = Fixed(done=True)
-READY = Readiness(Answer.READY)
+DONE = Fixed(done=True)
+TICKED = "# Tasks\n\n## 1. Group\n\nChanges: `src/devops_cli/sample.py`.\n\n- [x] 1.1 Do it\n"
 
 
-def _summary(name: str = STATIC, bucket: CheckBucket = CheckBucket.FAIL) -> CheckVerdictSummary:
-    return CheckVerdictSummary(
-        items=[
-            PRCheckItem(
-                name=name,
-                bucket=bucket,
-                link="https://github.com/example/project/actions/runs/1/job/2",
-            ),
-        ],
-    )
+def _run(name: str, conclusion: str = "failure") -> dict[str, Any]:
+    return {"name": name, "status": "completed", "conclusion": conclusion, "html_url": LINK}
 
 
-class FakeGitHubClient:
-    """The pull request, its checks and the log of its failed check, and the comments the step
-    posts. The last client made answers the reads of the checks and of the log."""
+@dataclass
+class PullWorld:
+    """Pull requests of `REPO` as GitHub and `gh` answer them, and the store of their items."""
 
-    last: FakeGitHubClient | None = None
+    api: GitHubApiFake
+    gh: ProcessFake
+    store: InMemoryRoadmapStore = field(default_factory=lambda: InMemoryRoadmapStore(repo=REPO))
 
-    def __init__(
+    def item(self, *labels: str, record: dict[Any, str | None] | None = None) -> int:
+        """An item whose number is also the number of its pull request."""
+        number = self.store.seed_issue("Sample feature", labels=["priority/p2-medium", *labels])
+        if record:
+            held = self.store.item(number)
+            assert held is not None
+            self.store.set_marks(held, record)
+        return number
+
+    def pull(
         self,
-        status: PullStatus | None = None,
-        checks: CheckVerdictSummary | None = None,
-        log: str = "",
+        number: int,
+        *,
+        author: str = BOT_USER,
+        state: str = "open",
+        labels: Sequence[str] = (),
+        runs: Sequence[dict[str, Any]] = (),
+        log: str = PLAN_LOG,
     ) -> None:
-        self.status = status or PullStatus.model_validate(
-            {
-                "state": "open",
-                "draft": True,
-                "head": {"ref": BRANCH, "sha": HEAD_SHA},
-                "base": {"ref": CONST_GIT_MAIN_BRANCH},
-                "user": {"login": BOT_USER},
-                "labels": [],
-            }
+        """Pull request `number` on the branch of item `number`, with its check runs and the log
+        of its failed run."""
+        status = {
+            "state": state,
+            "draft": True,
+            "head": {"ref": f"feat/{number}-sample", "sha": HEAD_SHA},
+            "base": {"ref": "main"},
+            "user": {"login": author},
+            "labels": [{"name": name} for name in labels],
+        }
+        self.api.route("GET", f"/repos/{REPO}/pulls/{number}", github_json(status))
+        checks = list(runs) or [_run(STATIC)]
+        self.api.route(
+            "GET",
+            f"/repos/{REPO}/commits/{HEAD_SHA}/check-runs?per_page=100",
+            github_json({"total_count": len(checks), "check_runs": checks}),
         )
-        self.checks = checks or _summary()
-        self.log = log or PLAN_LOG
-        self.comments: list[str] = []
-        type(self).last = self
+        self.api.route(
+            "POST",
+            f"/repos/{REPO}/issues/{number}/comments",
+            github_json({"id": 1}, status=201),
+        )
+        self.gh.answer(lambda call: call.argv[1:3] == ("run", "view"), ProcessAnswer(stdout=log))
 
-    def get_pull_status(self, repo: str, pull: int) -> PullStatus:
-        return self.status
+    def comments(self) -> list[str]:
+        return [
+            json.loads(request.content)["body"]
+            for request in self.api.sent
+            if request.method == "POST" and request.url.path.endswith("/comments")
+        ]
 
-    def comment_on_pull(self, repo: str, pull: int, body: str) -> None:
-        self.comments.append(body)
+    def record(self, number: int) -> dict[str, str | None]:
+        held = self.store.item(number)
+        assert held is not None
+        return {key: held.job_record.get(key) for key in FixChecksRecordKey}
+
+    def run(self, number: int, **kwargs: Any) -> Any:
+        return run_fix_checks(self.store, REPO, number, **kwargs)
 
 
-class FakeGitHubSession:
-    def __init__(self, client: FakeGitHubClient) -> None:
-        self.client = client
-
-
-@pytest.fixture(autouse=True)
-def github_edges(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The step reads the check runs and the failed log through these two functions."""
-
-    def checks(owner: str, name: str, sha: str) -> CheckVerdictSummary:
-        assert FakeGitHubClient.last is not None
-        return FakeGitHubClient.last.checks
-
-    def log(repo: str, check: PRCheckItem) -> str:
-        assert FakeGitHubClient.last is not None
-        return FakeGitHubClient.last.log
-
-    monkeypatch.setattr(fix_checks, "read_check_runs", checks)
-    monkeypatch.setattr(fix_checks, "failed_log", log)
+@pytest.fixture
+def world(github_api_and_gh: tuple[GitHubApiFake, ProcessFake]) -> PullWorld:
+    api, gh = github_api_and_gh
+    return PullWorld(api, gh)
 
 
 @dataclass
@@ -145,7 +160,7 @@ class FakeRepair:
 
     path: Path
     tier1: Fixed = NO_LINT
-    model: Fixed = COMMITTED
+    model: Fixed = DONE
     in_scope: bool = True
     pushed_head: str | None = NEW_HEAD
     calls: list[str] = field(default_factory=list)
@@ -173,134 +188,65 @@ class FakeRepair:
         return Repair(checkout=checkout, tier1=tier1, model=model, scope=scope)
 
 
-def _seed_item(
-    store: InMemoryRoadmapStore,
-    labels: list[str] | None = None,
-    record: dict[Any, str | None] | None = None,
-) -> int:
-    all_labels = ["priority/p2-medium", *(labels or [])]
-    num = store.seed_issue("Sample feature", labels=all_labels)
-    if record:
-        item = store.item(num)
-        assert item is not None
-        store.set_marks(item, record)
-    return num
-
-
-def _fake_status(pull: int = 42, **kwargs: Any) -> PullStatus:
-    data: dict[str, Any] = {
-        "state": "open",
-        "draft": True,
-        "head": {"ref": f"feat/{pull}-sample", "sha": HEAD_SHA},
-        "base": {"ref": CONST_GIT_MAIN_BRANCH},
-        "user": {"login": BOT_USER},
-        "labels": [],
-    }
-    data.update(kwargs)
-    return PullStatus.model_validate(data)
-
-
-def _record(store: InMemoryRoadmapStore, pull: int) -> dict[str, str | None]:
-    item = store.item(pull)
-    assert item is not None
-    return {key: item.job_record.get(key) for key in FixChecksRecordKey}
-
-
 def test_dry_run_sees_zero_requests() -> None:
     reads, writes = dry_run_fix_checks(REPO, 42)
     assert reads == ()
     assert writes == ()
 
 
-def test_person_pull_request_is_stopped() -> None:
-    store = InMemoryRoadmapStore(repo=REPO)
-    human_status = PullStatus.model_validate(
-        {
-            "state": "open",
-            "draft": True,
-            "head": {"ref": BRANCH, "sha": HEAD_SHA},
-            "base": {"ref": CONST_GIT_MAIN_BRANCH},
-            "user": {"login": "human-dev"},
-            "labels": [],
-        }
-    )
-    client = FakeGitHubClient(status=human_status)
-    session = FakeGitHubSession(client)
+def test_person_pull_request_is_stopped(world: PullWorld) -> None:
+    world.pull(42, author="human-dev")
 
-    report = run_fix_checks(store, REPO, 42, session=session)
+    report = world.run(42)
+
     assert report.result == FixChecksResult.STOPPED
     assert "bot" in report.reason.lower()
 
 
-def test_owner_label_stops() -> None:
-    store = InMemoryRoadmapStore(repo=REPO)
-    status = PullStatus.model_validate(
-        {
-            "state": "open",
-            "draft": True,
-            "head": {"ref": BRANCH, "sha": HEAD_SHA},
-            "base": {"ref": CONST_GIT_MAIN_BRANCH},
-            "user": {"login": BOT_USER},
-            "labels": ["owner/human"],
-        }
-    )
-    client = FakeGitHubClient(status=status)
-    session = FakeGitHubSession(client)
+def test_owner_label_stops(world: PullWorld) -> None:
+    world.pull(42, labels=["owner/human"])
 
-    report = run_fix_checks(store, REPO, 42, session=session)
+    report = world.run(42)
+
     assert report.result == FixChecksResult.STOPPED
     assert "owner" in report.reason.lower()
 
 
-def test_moved_head_returns_skipped() -> None:
-    store = InMemoryRoadmapStore(repo=REPO)
-    client = FakeGitHubClient()
-    session = FakeGitHubSession(client)
+def test_moved_head_returns_skipped(world: PullWorld) -> None:
+    world.pull(42)
 
-    report = run_fix_checks(store, REPO, 42, head=NEW_HEAD, session=session)
+    report = world.run(42, head=NEW_HEAD)
+
     assert report.result == FixChecksResult.SKIPPED
     assert "moved" in report.reason.lower()
 
 
-def test_caps_hold_soft_and_hard() -> None:
-    store = InMemoryRoadmapStore(repo=REPO)
-    pull = _seed_item(store, record={FixChecksRecordKey.ROUNDS: "5"})
-    client = FakeGitHubClient(status=_fake_status(pull))
-    session = FakeGitHubSession(client)
+def test_the_hard_cap_stops(world: PullWorld) -> None:
+    pull = world.item(record={FixChecksRecordKey.ROUNDS: "5"})
+    world.pull(pull)
 
-    # Hard cap reached (5 rounds)
-    report = run_fix_checks(store, REPO, pull, session=session)
+    report = world.run(pull)
+
     assert report.result == FixChecksResult.STOPPED
     assert "hard cap" in report.reason.lower()
 
-    # Soft cap reached without error reduction
-    store = InMemoryRoadmapStore(repo=REPO)
-    pull = _seed_item(
-        store,
-        record={
-            FixChecksRecordKey.ROUNDS: "3",
-            FixChecksRecordKey.ERRORS: "1",
-        },
-    )
-    # Failed log has 2 errors (> 1)
-    client_more_err = FakeGitHubClient(
-        status=_fake_status(pull),
-        log="error: one\nerror: two",
-    )
-    report = run_fix_checks(store, REPO, pull, session=FakeGitHubSession(client_more_err))
+
+def test_the_soft_cap_stops_without_error_reduction(world: PullWorld) -> None:
+    pull = world.item(record={FixChecksRecordKey.ROUNDS: "3", FixChecksRecordKey.ERRORS: "1"})
+    world.pull(pull, log="error: one\nerror: two")
+
+    report = world.run(pull)
+
     assert report.result == FixChecksResult.STOPPED
     assert "soft cap" in report.reason.lower()
 
-    # Head count limit (more than 3 heads)
-    store = InMemoryRoadmapStore(repo=REPO)
-    pull = _seed_item(
-        store,
-        record={
-            FixChecksRecordKey.HEADS: "h1,h2,h3",
-        },
-    )
-    client_heads = FakeGitHubClient(status=_fake_status(pull))
-    report = run_fix_checks(store, REPO, pull, session=FakeGitHubSession(client_heads))
+
+def test_the_head_cap_stops(world: PullWorld) -> None:
+    pull = world.item(record={FixChecksRecordKey.HEADS: "h1,h2,h3"})
+    world.pull(pull)
+
+    report = world.run(pull)
+
     assert report.result == FixChecksResult.STOPPED
     assert "head" in report.reason.lower()
 
@@ -308,103 +254,83 @@ def test_caps_hold_soft_and_hard() -> None:
 # ── Without --confirm ────────────────────────────────────────────────────────────────────
 
 
-def test_a_run_without_confirm_plans_the_repair_and_writes_nothing(tmp_path: Path) -> None:
+def test_a_run_without_confirm_plans_the_repair_and_writes_nothing(
+    world: PullWorld, tmp_path: Path
+) -> None:
     """The case of #5971: a failed `Static Analysis` check whose log names a file of the plan."""
-    store = InMemoryRoadmapStore(repo=REPO)
-    pull = _seed_item(store)
-    client = FakeGitHubClient(status=_fake_status(pull))
+    pull = world.item()
+    world.pull(pull)
     repair = FakeRepair(tmp_path)
 
-    report = run_fix_checks(
-        store, REPO, pull, session=FakeGitHubSession(client), repair=repair.build()
-    )
+    report = world.run(pull, repair=repair.build())
 
     assert (report.result, report.head) == (FixChecksResult.PLANNED, HEAD_SHA)
     assert STATIC in report.reason
-    assert (repair.calls, client.comments) == ([], [])
-    assert set(_record(store, pull).values()) == {None}
+    assert (repair.calls, world.comments()) == ([], [])
+    assert set(world.record(pull).values()) == {None}
 
 
-def test_a_ci_infra_failure_without_confirm_posts_no_comment() -> None:
-    store = InMemoryRoadmapStore(repo=REPO)
-    pull = _seed_item(store)
-    client = FakeGitHubClient(
-        status=_fake_status(pull),
-        checks=_summary("Test Job Duration"),
-        log="Job duration exceeded runner limit",
-    )
+def test_a_ci_infra_failure_without_confirm_posts_no_comment(world: PullWorld) -> None:
+    pull = world.item()
+    world.pull(pull, runs=[_run("Test Job Duration")], log="Job duration exceeded runner limit")
 
-    report = run_fix_checks(store, REPO, pull, session=FakeGitHubSession(client))
+    report = world.run(pull)
 
     assert report.result == FixChecksResult.PLANNED
-    assert client.comments == []
-    assert set(_record(store, pull).values()) == {None}
+    assert world.comments() == []
+    assert set(world.record(pull).values()) == {None}
 
 
 # ── With --confirm ───────────────────────────────────────────────────────────────────────
 
 
-def test_ci_infra_failure_posts_comment_and_waits() -> None:
-    store = InMemoryRoadmapStore(repo=REPO)
-    pull = _seed_item(store)
-    client = FakeGitHubClient(
-        status=_fake_status(pull),
-        checks=_summary("Test Job Duration"),
-        log="Job duration exceeded runner limit",
-    )
-    session = FakeGitHubSession(client)
+def test_ci_infra_failure_posts_comment_and_waits(world: PullWorld) -> None:
+    pull = world.item()
+    world.pull(pull, runs=[_run("Test Job Duration")], log="Job duration exceeded runner limit")
 
-    report = run_fix_checks(store, REPO, pull, session=session, confirm=True)
+    report = world.run(pull, confirm=True)
+
     assert report.result == FixChecksResult.WAIT
-    assert len(client.comments) == 1
-    assert (
-        "infrastructure" in client.comments[0].lower() or "ci_infra" in client.comments[0].lower()
-    )
-    assert _record(store, pull)[FixChecksRecordKey.RESULT] == "wait"
+    [comment] = world.comments()
+    assert "infrastructure" in comment.lower()
+    assert world.record(pull)[FixChecksRecordKey.RESULT] == "wait"
 
 
-def test_a_confirmed_repair_needs_a_repair() -> None:
-    store = InMemoryRoadmapStore(repo=REPO)
-    pull = _seed_item(store)
-    client = FakeGitHubClient(status=_fake_status(pull))
+def test_a_confirmed_repair_needs_a_repair(world: PullWorld) -> None:
+    pull = world.item()
+    world.pull(pull)
 
     with pytest.raises(RoadmapImplementError, match="repair"):
-        run_fix_checks(store, REPO, pull, session=FakeGitHubSession(client), confirm=True)
+        world.run(pull, confirm=True)
 
 
-def test_tier1_fixes_lint_with_zero_model_requests(tmp_path: Path) -> None:
-    store = InMemoryRoadmapStore(repo=REPO)
-    pull = _seed_item(store)
-    client = FakeGitHubClient(status=_fake_status(pull), log="ruff check found 2 errors")
-    repair = FakeRepair(tmp_path, tier1=Fixed(done=True))
+def test_tier1_fixes_lint_with_zero_model_requests(world: PullWorld, tmp_path: Path) -> None:
+    pull = world.item()
+    world.pull(pull, log="ruff check found 2 errors")
+    repair = FakeRepair(tmp_path, tier1=DONE)
 
-    report = run_fix_checks(
-        store, REPO, pull, session=FakeGitHubSession(client), confirm=True, repair=repair.build()
-    )
+    report = world.run(pull, confirm=True, repair=repair.build())
 
     assert repair.calls == [f"checkout feat/{pull}-sample {pull}", "tier1"]
     assert (report.result, report.head) == (FixChecksResult.REPAIRED, NEW_HEAD)
     assert "0 model requests" in report.reason
-    record = _record(store, pull)
+    record = world.record(pull)
     assert (record[FixChecksRecordKey.RESULT], record[FixChecksRecordKey.ROUNDS]) == (
         "repaired",
         "1",
     )
 
 
-def test_outside_plan_scope_stops_with_zero_model_requests(tmp_path: Path) -> None:
-    store = InMemoryRoadmapStore(repo=REPO)
-    pull = _seed_item(store)
-    client = FakeGitHubClient(
-        status=_fake_status(pull),
-        checks=_summary("Unit Tests"),
-        log="FAILED tests/unrelated/test_other.py::test_foo",
+def test_outside_plan_scope_stops_with_zero_model_requests(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    pull = world.item()
+    world.pull(
+        pull, runs=[_run("Unit Tests")], log="FAILED tests/unrelated/test_other.py::test_foo"
     )
     repair = FakeRepair(tmp_path, in_scope=False)
 
-    report = run_fix_checks(
-        store, REPO, pull, session=FakeGitHubSession(client), confirm=True, repair=repair.build()
-    )
+    report = world.run(pull, confirm=True, repair=repair.build())
 
     assert "model" not in repair.calls
     assert repair.checkout is not None
@@ -413,83 +339,72 @@ def test_outside_plan_scope_stops_with_zero_model_requests(tmp_path: Path) -> No
     assert "outside" in report.reason.lower()
 
 
-def test_a_failed_check_whose_log_names_a_file_of_the_plan_ends_repaired(tmp_path: Path) -> None:
+def test_a_failed_check_whose_log_names_a_file_of_the_plan_ends_repaired(
+    world: PullWorld, tmp_path: Path
+) -> None:
     """The case of #5971 with the real scope check: the checkout holds the archived change of the
     item, and the log of the failed `Static Analysis` check names a file that the plan changes."""
-    store = InMemoryRoadmapStore(repo=REPO)
-    pull = _seed_item(store)
+    pull = world.item()
+    world.pull(pull)
     archived = tmp_path / "openspec" / "changes" / "archive" / f"2026-11-16-{pull}-sample"
     archived.mkdir(parents=True)
-    (archived / "tasks.md").write_text(
-        "# Tasks\n\n## 1. Group\n\nChanges: `src/devops_cli/sample.py`.\n\n- [x] 1.1 Do it\n",
-        encoding="utf-8",
-    )
-    client = FakeGitHubClient(status=_fake_status(pull))
+    (archived / "tasks.md").write_text(TICKED, encoding="utf-8")
     repair = FakeRepair(tmp_path)
     built = repair.build()
     real_scope = Repair(
-        checkout=built.checkout, tier1=built.tier1, model=built.model, scope=fix_checks.check_scope
+        checkout=built.checkout, tier1=built.tier1, model=built.model, scope=check_scope
     )
 
-    report = run_fix_checks(
-        store, REPO, pull, session=FakeGitHubSession(client), confirm=True, repair=real_scope
-    )
+    report = world.run(pull, confirm=True, repair=real_scope)
 
     assert (report.result, report.head, report.rounds) == (FixChecksResult.REPAIRED, NEW_HEAD, 1)
     assert repair.calls == [f"checkout feat/{pull}-sample {pull}", "tier1", "model"]
     assert repair.checkout is not None
     assert repair.checkout.pushes == 1
-    assert _record(store, pull)[FixChecksRecordKey.KEY] == f"{HEAD_SHA}:{STATIC}"
+    assert world.record(pull)[FixChecksRecordKey.KEY] == f"{HEAD_SHA}:{STATIC}"
 
 
-def test_model_fix_failure_names_its_reason(tmp_path: Path) -> None:
-    store = InMemoryRoadmapStore(repo=REPO)
-    pull = _seed_item(store)
-    client = FakeGitHubClient(status=_fake_status(pull))
+def test_model_fix_failure_names_its_reason(world: PullWorld, tmp_path: Path) -> None:
+    pull = world.item()
+    world.pull(pull)
     repair = FakeRepair(tmp_path, model=Fixed(done=False, reason="limit reached"))
 
-    report = run_fix_checks(
-        store, REPO, pull, session=FakeGitHubSession(client), confirm=True, repair=repair.build()
-    )
+    report = world.run(pull, confirm=True, repair=repair.build())
 
     assert report.result == FixChecksResult.FAILED
     assert "model repair failed" in report.reason.lower()
     assert "limit reached" in report.reason
     assert repair.checkout is not None
     assert repair.checkout.pushes == 0
-    assert _record(store, pull)[FixChecksRecordKey.RESULT] == "failed"
+    assert world.record(pull)[FixChecksRecordKey.RESULT] == "failed"
 
 
-def test_a_repair_that_leaves_the_judged_head_fails(tmp_path: Path) -> None:
-    store = InMemoryRoadmapStore(repo=REPO)
-    pull = _seed_item(store)
-    client = FakeGitHubClient(status=_fake_status(pull))
+def test_a_repair_that_leaves_the_judged_head_fails(world: PullWorld, tmp_path: Path) -> None:
+    pull = world.item()
+    world.pull(pull)
     repair = FakeRepair(tmp_path, pushed_head=None)
 
-    report = run_fix_checks(
-        store, REPO, pull, session=FakeGitHubSession(client), confirm=True, repair=repair.build()
-    )
+    report = world.run(pull, confirm=True, repair=repair.build())
 
     assert report.result == FixChecksResult.FAILED
     assert "no commit" in report.reason.lower()
 
 
-def test_closed_pull_request_skipped() -> None:
-    store = InMemoryRoadmapStore(repo=REPO)
-    status = _fake_status(42, state="closed")
-    client = FakeGitHubClient(status=status)
-    session = FakeGitHubSession(client)
-    report = run_fix_checks(store, REPO, 42, session=session)
+def test_closed_pull_request_skipped(world: PullWorld) -> None:
+    world.pull(42, state="closed")
+
+    report = world.run(42)
+
     assert report.result == FixChecksResult.SKIPPED
     assert "closed" in report.reason.lower()
 
 
-def test_passing_checks_skipped() -> None:
-    store = InMemoryRoadmapStore(repo=REPO)
-    pull = _seed_item(store)
-    client = FakeGitHubClient(status=_fake_status(pull), checks=_summary(bucket=CheckBucket.PASS))
-    session = FakeGitHubSession(client)
-    report = run_fix_checks(store, REPO, pull, session=session, confirm=True)
+def test_passing_checks_skipped(world: PullWorld) -> None:
+    pull = world.item()
+    world.pull(pull, runs=[_run(STATIC, "success")])
+
+    report = world.run(pull, confirm=True)
+
     assert report.result == FixChecksResult.SKIPPED
     assert "no failed check" in report.reason.lower()
 
@@ -497,93 +412,82 @@ def test_passing_checks_skipped() -> None:
 # ── The ready mark after a repair ────────────────────────────────────────────────────────
 
 
-@dataclass
-class ReadyEdge:
-    """The answer of the readiness rule, and the ready marks the step sends."""
-
-    answer: Readiness = READY
-    drafts: list[Draft] = field(default_factory=list)
-    marked: list[tuple[str, int, str | None]] = field(default_factory=list)
-
-
-@pytest.fixture
-def ready_edge(monkeypatch: pytest.MonkeyPatch) -> ReadyEdge:
-    edge = ReadyEdge()
-
-    def read(repo: str, number: int, **kwargs: Any) -> Draft:
-        return Draft(DraftKind.IMPLEMENT, kwargs["pull"], checks=kwargs["checks"])
-
-    def judge(draft: Draft) -> Readiness:
-        edge.drafts.append(draft)
-        return edge.answer
-
-    def mark(repo: str, pull: int, expected_head: str | None = None) -> None:
-        edge.marked.append((repo, pull, expected_head))
-
-    monkeypatch.setattr(fix_checks, "read_draft", read)
-    monkeypatch.setattr(fix_checks, "draft_readiness", judge)
-    monkeypatch.setattr(fix_checks, "mark_ready", mark)
-    return edge
-
-
-def _repaired_item(store: InMemoryRoadmapStore) -> int:
-    pull = _seed_item(store, record={FixChecksRecordKey.RESULT: "repaired"})
-    item = store.item(pull)
-    assert item is not None
-    store.set_marks(item, {ImplementRecordKey.PR: str(pull)})
+def _repaired_draft(world: PullWorld, tasks: str) -> int:
+    """A draft that the step repaired: its checks pass, and its compare lists the archived change
+    of the item, whose `tasks.md` is `tasks`."""
+    pull = world.item(record={FixChecksRecordKey.RESULT: "repaired"})
+    held = world.store.item(pull)
+    assert held is not None
+    world.store.set_marks(held, {ImplementRecordKey.PR: str(pull)})
+    world.pull(pull, runs=[_run(STATIC, "success")])
+    path = f"openspec/changes/archive/2026-11-16-{pull}-sample/tasks.md"
+    route_compare_files(
+        world.api,
+        REPO,
+        "main",
+        HEAD_SHA,
+        {"filename": path, "status": "added"},
+        merge_base="c" * 40,
+    )
+    route_file(world.api, REPO, path, HEAD_SHA, tasks)
     return pull
 
 
-def test_a_repaired_draft_whose_checks_pass_is_marked_ready(ready_edge: ReadyEdge) -> None:
-    store = InMemoryRoadmapStore(repo=REPO)
-    pull = _repaired_item(store)
-    client = FakeGitHubClient(status=_fake_status(pull), checks=_summary(bucket=CheckBucket.PASS))
+def _ready_calls(world: PullWorld) -> list[tuple[str, ...]]:
+    calls: list[tuple[str, ...]] = []
 
-    report = run_fix_checks(store, REPO, pull, session=FakeGitHubSession(client), confirm=True)
+    def ready(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        calls.append(call.argv[1:])
+        return subprocess.CompletedProcess(call.argv, 0, stdout="")
+
+    world.gh.answer(
+        lambda call: call.argv[1:3] == ("pr", "ready"), ProcessAnswer(side_effect=ready)
+    )
+    return calls
+
+
+def test_a_repaired_draft_whose_checks_pass_is_marked_ready(world: PullWorld) -> None:
+    pull = _repaired_draft(world, TICKED)
+    calls = _ready_calls(world)
+
+    report = world.run(pull, confirm=True)
 
     assert report.result == FixChecksResult.READY
-    assert ready_edge.marked == [(REPO, pull, HEAD_SHA)]
-    assert _record(store, pull)[FixChecksRecordKey.RESULT] == "ready"
+    assert calls == [("pr", "ready", str(pull), "--repo", REPO)]
+    assert world.record(pull)[FixChecksRecordKey.RESULT] == "ready"
 
 
-def test_a_repaired_draft_that_the_readiness_rule_holds_stays_a_draft(
-    ready_edge: ReadyEdge,
-) -> None:
-    ready_edge.answer = Readiness(Answer.WAIT, "A task of the change is not ticked")
-    store = InMemoryRoadmapStore(repo=REPO)
-    pull = _repaired_item(store)
-    client = FakeGitHubClient(status=_fake_status(pull), checks=_summary(bucket=CheckBucket.PASS))
+def test_a_repaired_draft_that_the_readiness_rule_refuses_stays_a_draft(world: PullWorld) -> None:
+    pull = _repaired_draft(world, TICKED.replace("- [x]", "- [ ]"))
+    calls = _ready_calls(world)
 
-    report = run_fix_checks(store, REPO, pull, session=FakeGitHubSession(client), confirm=True)
+    report = world.run(pull, confirm=True)
 
     assert report.result == FixChecksResult.SKIPPED
-    assert "not ticked" in report.reason
-    assert ready_edge.marked == []
+    assert report.reason.startswith("Draft is not ready")
+    assert calls == []
 
 
-def test_a_repaired_draft_without_confirm_is_not_marked_ready(ready_edge: ReadyEdge) -> None:
-    store = InMemoryRoadmapStore(repo=REPO)
-    pull = _repaired_item(store)
-    client = FakeGitHubClient(status=_fake_status(pull), checks=_summary(bucket=CheckBucket.PASS))
+def test_a_repaired_draft_without_confirm_is_not_marked_ready(world: PullWorld) -> None:
+    pull = _repaired_draft(world, TICKED)
+    calls = _ready_calls(world)
 
-    report = run_fix_checks(store, REPO, pull, session=FakeGitHubSession(client))
+    report = world.run(pull)
 
     assert report.result == FixChecksResult.PLANNED
-    assert ready_edge.marked == []
-    assert _record(store, pull)[FixChecksRecordKey.RESULT] == "repaired"
+    assert calls == []
+    assert world.record(pull)[FixChecksRecordKey.RESULT] == "repaired"
 
 
-def test_a_draft_that_the_step_did_not_repair_is_left_to_the_watch_row(
-    ready_edge: ReadyEdge,
-) -> None:
-    store = InMemoryRoadmapStore(repo=REPO)
-    pull = _seed_item(store)
-    client = FakeGitHubClient(status=_fake_status(pull), checks=_summary(bucket=CheckBucket.PASS))
+def test_a_draft_that_the_step_did_not_repair_is_left_to_the_watch_row(world: PullWorld) -> None:
+    pull = world.item()
+    world.pull(pull, runs=[_run(STATIC, "success")])
+    calls = _ready_calls(world)
 
-    report = run_fix_checks(store, REPO, pull, session=FakeGitHubSession(client), confirm=True)
+    report = world.run(pull, confirm=True)
 
     assert report.result == FixChecksResult.SKIPPED
-    assert (ready_edge.drafts, ready_edge.marked) == ([], [])
+    assert calls == []
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────────────────
@@ -611,8 +515,6 @@ def test_is_bot_author_patterns() -> None:
 
 
 def test_check_scope_helper(tmp_path: Path) -> None:
-    from devops_cli.roadmap.steps.fix_checks import check_scope
-
     # Stage plan
     plan_dir = tmp_path / "openspec" / "changes" / "98-test-plan"
     plan_dir.mkdir(parents=True)
