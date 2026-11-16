@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.167.0](https://github.com/dan-petty/devops-cli/compare/v0.166.0...v0.167.0) (2026-11-16)
+
+
+### Features
+
+* **roadmap:** Count kept work by failure class and outcome ([#5959](https://github.com/dan-petty/devops-cli/issues/5959)) ([4c1bb67](https://github.com/dan-petty/devops-cli/commit/4c1bb6752a3d15454d016b477b815b35fa4f625b))
+
+
+### Code Refactoring
+
+* **roadmap:** One marked-comment writer for every job ([#5998](https://github.com/dan-petty/devops-cli/issues/5998)) ([11b9a3c](https://github.com/dan-petty/devops-cli/commit/11b9a3c27db8fc6e5301b383e6166a9482959b61))
+
 ## [0.166.0](https://github.com/dan-petty/devops-cli/compare/v0.165.2...v0.166.0) (2026-11-16)
 
 
