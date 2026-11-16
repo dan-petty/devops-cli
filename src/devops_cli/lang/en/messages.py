@@ -2732,6 +2732,15 @@ class RoadmapMessages:
     explain_effort_applies: str = "applies"
     explain_effort_not_applies: str = "does not apply"
     explain_effort_explicit: str = "The filter names effort, so the effort set does not apply."
+    # The state of a stop in the report (#3648): the step, the class, the attempts, the work that
+    # the stop kept and the action that is left.
+    explain_stop_step: str = "Stop: step {step}."
+    explain_stop_class: str = "Stop class: {failure_class}."
+    explain_stop_no_class: str = "Stop class: none is recorded."
+    explain_stop_attempts: str = "Stop attempts: {count}."
+    explain_stop_kept: str = "Stop kept work: {group}, {done} of {total} tasks."
+    explain_stop_action: str = "Stop action left: `{action}`."
+    explain_stop_no_action: str = "Stop action left: none is recorded."
     # The report of `devops roadmap explain --trace` (#3032).
     explain_trace_none: str = "Issue #{number} has no trace of a run."
     explain_trace_model: str = "{step}: model {model}, {tokens_in}/{tokens_out} tokens, {seconds} s"

@@ -10,7 +10,8 @@ issue is an open item, then the filter, then the rules of the job, then the limi
 
 The command calls no model and writes nothing to git or to GitHub. It reads what the plans read.
 The report gives the totals of the last implement run, from the trace in the job record of the
-issue that the command reads (#3217).
+issue that the command reads (#3217). It gives the state of a stop of the item too: the step, the
+class, the attempts, the work that the stop kept and the action that is left (#3648).
 The stage job finds a task group over the budget only after the model plans the item, so the
 command reports that rule from the record of an earlier run (`stage.needs_split`), as the job
 does. The failures ledger of the Service counts failed rounds for each job, not for each item, and
@@ -50,6 +51,7 @@ from devops_cli.roadmap.phase import phase_age as derive_phase_age
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
 from devops_cli.roadmap.refine.refine import refine_left_out
 from devops_cli.roadmap.stage.stage import LeftOut, StageFilter, read_stage_selection
+from devops_cli.roadmap.stop_state import StopState, stop_state_of
 from devops_cli.roadmap.stores.store import GitHubState, ImplementRecordKey, Item, RoadmapStore
 
 _GIT_OPERATION: Final[str] = "roadmap.explain"
@@ -97,7 +99,8 @@ def trace_totals(trace: ImplementTrace) -> TraceTotals:
 @dataclass(frozen=True)
 class Explanation:
     """The verdict of each job for one issue. `title` is empty for an issue that is no item.
-    `totals` is None for an issue whose record holds no trace of an implement run."""
+    `totals` is None for an issue whose record holds no trace of an implement run, and `stop` is
+    None for an item whose record holds no stop."""
 
     repo: str
     number: int
@@ -109,6 +112,7 @@ class Explanation:
     totals: TraceTotals | None = None
     phase: str = ""
     phase_age: float = 0.0
+    stop: StopState | None = None
 
     def as_dict(self) -> dict[str, object]:
         """The explanation as the JSON object of `explain --json` (#3217): the number, the totals
@@ -314,6 +318,7 @@ def explain_item(
         totals=totals,
         phase=item_phase,
         phase_age=item_phase_age,
+        stop=stop_state_of(item),
     )
 
 
@@ -343,10 +348,40 @@ def _totals_lines(explained: Explanation) -> list[str]:
     return lines
 
 
+def _stop_lines(explained: Explanation) -> list[str]:
+    """The lines of the stop of the item (#3648): the step, the class, the attempts, the work that
+    the stop kept and the action that is left. A record with no class and no action left says that
+    it holds none, and a record with no attempt event states no count."""
+    stop = explained.stop
+    if stop is None:
+        return []
+    texts = MESSAGES.roadmap
+    lines = [texts.explain_stop_step.format(step=stop.step)]
+    lines.append(
+        texts.explain_stop_class.format(failure_class=stop.failure_class)
+        if stop.failure_class
+        else texts.explain_stop_no_class
+    )
+    if stop.attempts:
+        lines.append(texts.explain_stop_attempts.format(count=stop.attempts))
+    if stop.kept_group:
+        lines.append(
+            texts.explain_stop_kept.format(
+                group=stop.kept_group, done=stop.kept_done, total=stop.kept_total
+            )
+        )
+    lines.append(
+        texts.explain_stop_action.format(action=stop.action_left)
+        if stop.action_left
+        else texts.explain_stop_no_action
+    )
+    return lines
+
+
 def render_explanation(explained: Explanation) -> str:
     """The explanation as the report of the command: the issue, then one line for each job, the
-    line of the effort set, the command that follows the run of the item, and the totals of the
-    last implement run."""
+    lines of the stop of the item, the line of the effort set, the command that follows the run of
+    the item, and the totals of the last implement run."""
     texts = MESSAGES.roadmap
     title = (
         texts.explain_title.format(
@@ -371,6 +406,7 @@ def render_explanation(explained: Explanation) -> str:
     ):
         line = texts.explain_line_yes if verdict.takes else texts.explain_line_no
         lines.append(line.format(job=job, reason=verdict.reason))
+    lines.extend(_stop_lines(explained))
     if explained.implement_effort:
         lines.append(explained.implement_effort)
     lines.append(texts.explain_follow.format(command=follow_command(explained.number)))
