@@ -101,6 +101,36 @@ def test_each_intended_result_is_a_result_of_its_job() -> None:
     )
 
 
+# The next steps of refine that are no wait: the job failed (`retry`, `failed`), or refine changes
+# no item (`none`). Each other next step is a wait that refine set (#6037).
+REFINE_NO_WAIT = frozenset({NextStep.RETRY, NextStep.FAILED, NextStep.NONE})
+
+
+def test_refine_counts_each_wait_as_a_success() -> None:
+    """Each next step that is a wait is in the success set of refine, and no other next step is
+    in it, so a new next step cannot be left out (#6037). `alternatives` waits on the verdict of
+    the alternatives row (#2951). `edit` waits on a body edit: the body stops the design, and the
+    job did not fail."""
+    waits = {step.value for step in NextStep} - {step.value for step in REFINE_NO_WAIT}
+
+    assert SUCCESS_RESULTS[RoadmapJob.REFINE] == waits
+
+
+def test_a_refine_wait_on_the_alternatives_verdict_is_a_first_pass(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The first try of refine that sets the next step `alternatives` is a first pass, and a try
+    that sets `retry` is a failure (#6037)."""
+    with caplog.at_level(logging.INFO):
+        log_job_result(RoadmapJob.REFINE, "owner/repo", 7, "alternatives", counts={"tries": 1})
+        log_job_result(RoadmapJob.REFINE, "owner/repo", 8, "retry", counts={"tries": 1})
+
+    assert [line.split(" result=")[1].split(" tries=")[0] for line in result_lines(caplog)] == [
+        "alternatives success=true class=none infra=false first_pass=true",
+        "retry success=false class=none infra=false first_pass=false",
+    ]
+
+
 def test_fix_plan_counts_only_a_pushed_repair_as_success() -> None:
     """A fix-plan attempt is a success only when it pushes a repair that its review finds better
     than the review of the head in the same attempt (#5213)."""
