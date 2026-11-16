@@ -89,7 +89,7 @@ After the last repair round, the plan SHALL keep each open finding of the last r
 
 #### Scenario: The second repair round still has a finding
 - **WHEN** the plan still has a return finding after the second repair round
-- **THEN** the planner makes no further request, the job keeps the draft with the label plan/needs-fix, and the issue receives a comment with the findings
+- **THEN** the planner makes no further request, the job keeps the draft with the label verdict/fix-plan, and the issue receives a comment with the findings
 
 #### Scenario: The comment lists each repair round
 - **WHEN** the verifier returns a return finding on each of the first two reviews, and no finding on the third
@@ -341,11 +341,11 @@ Each finding of a verification reply SHALL have a `severity` that is one of `blo
 - **THEN** its line of `severity` names `blocker`, `major`, `minor` and `nit`, the values of the schema, and the prompt says that only a `blocker` or `major` finding can stop the plan
 
 ### Requirement: Only a blocker or a major finding is open
-Only a finding of the severity `blocker` or `major` SHALL be open. The type SHALL NOT keep a finding out of the open set, so a major finding of the type `other` SHALL be open. A `minor` or a `nit` finding SHALL be advice: it SHALL return no plan, keep no draft with `plan/needs-fix`, and go into the comment. A later review SHALL open a new finding by the same rule, and an earlier finding SHALL keep its severity.
+Only a finding of the severity `blocker` or `major` SHALL be open. The type SHALL NOT keep a finding out of the open set, so a major finding of the type `other` SHALL be open. A `minor` or a `nit` finding SHALL be advice: it SHALL return no plan, keep no draft with `verdict/fix-plan`, and go into the comment. A later review SHALL open a new finding by the same rule, and an earlier finding SHALL keep its severity.
 
 #### Scenario: A minor finding with a quote
 - **WHEN** the verifier returns a finding of the severity `minor`, whose quote is in the input and whose place the plan holds
-- **THEN** the planner gets no second request, the draft pull request gets no `plan/needs-fix`, and the comment lists the minor finding with the points that stop no draft
+- **THEN** the planner gets no second request, the draft pull request gets no `verdict/fix-plan`, and the comment lists the minor finding with the points that stop no draft
 
 #### Scenario: A nit placeholder finding
 - **WHEN** the verifier returns a finding with the severity `nit` that reports a placeholder that the plan holds
@@ -357,7 +357,7 @@ Only a finding of the severity `blocker` or `major` SHALL be open. The type SHAL
 
 #### Scenario: A major finding of type other
 - **WHEN** the verifier returns an `other` finding with the severity `major`, whose quote is in the input and whose place the plan holds
-- **THEN** the finding is open, it returns the plan to the planner, and the draft pull request keeps `plan/needs-fix`
+- **THEN** the finding is open, it returns the plan to the planner, and the draft pull request keeps `verdict/fix-plan`
 
 ### Requirement: A spec delta finding needs a scenario with no part that a test can assert
 The prompt of the pass SHALL describe a `spec_delta_wrong` scenario defect as a scenario where no test can assert any part of its THEN, and SHALL grade a scenario with one part that no test can assert as `minor` when a test can assert the other parts.

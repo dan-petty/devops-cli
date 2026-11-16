@@ -39,7 +39,7 @@ The runner of each of the five rows SHALL give the size of its queue in `JobOutc
 - **THEN** Its outcome holds no queue.
 
 ### Requirement: The queue of each row
-The queue SHALL be: for `intake`, the candidates of the round (decided, left and held); for `stage`, the open items that the stage filter names; for `fix_plan`, the open pull requests of the issue listing that hold `plan/needs-fix`; for `refine`, the items that the selection orders before the rules of each item and the limit; for `alternatives`, the items that the check can take and has not checked.
+The queue SHALL be: for `intake`, the candidates of the round (decided, left and held); for `stage`, the open items that the stage filter names; for `fix_plan`, the open pull requests of the issue listing that hold `verdict/fix-plan`; for `refine`, the items that the selection orders before the rules of each item and the limit; for `alternatives`, the items that the check can take and has not checked.
 
 #### Scenario: The stage selection counts the items that the filter names
 - **WHEN** The store holds 4 open Ready items and the stage limit is 1.
@@ -50,8 +50,8 @@ The queue SHALL be: for `intake`, the candidates of the round (decided, left and
 - **THEN** The selection takes 1 item and the queue of the plan is 3.
 
 #### Scenario: The store counts the plans with the label from its listing
-- **WHEN** The store holds 2 open pull requests with `plan/needs-fix`, 1 closed pull request with it and 1 open pull request without it.
-- **THEN** `labelled_pulls("plan/needs-fix")` gives the 2 open ones.
+- **WHEN** The store holds 2 open pull requests with `verdict/fix-plan`, 1 closed pull request with it and 1 open pull request without it.
+- **THEN** `labelled_pulls("verdict/fix-plan")` gives the 2 open ones.
 
 ### Requirement: The round keeps the last queue of each row
 When a row with a cadence succeeds and its outcome holds a queue, the round SHALL write the queue to `queues.json` beside `schedule.json` and keep the queues of the other rows. A failed row and an outcome with no queue SHALL keep the last record. A `queues.json` that exists and cannot be read SHALL stop the round with `RoadmapRunError` that names the file, and no row SHALL run.

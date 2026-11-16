@@ -1,15 +1,15 @@
 # roadmap-stage/fix-plan Specification
 
 ## Purpose
-How the step `fix-plan` repairs an open plan pull request that holds `plan/needs-fix`: its selection and bounds, the repair with the stage planner and the verification pass, the writes, the marks, the Service row and the command.
+How the step `fix-plan` repairs an open plan pull request that holds `verdict/fix-plan`: its selection and bounds, the repair with the stage planner and the verification pass, the writes, the marks, the Service row and the command.
 
 ## Requirements
 
-### Requirement: The step selects one plan pull request that holds the label plan/needs-fix
-The step `fix-plan` SHALL select at most one repository item: an open item with Status Ready whose record holds `stage.pr`, without `implement.job` or claims. Its pull request SHALL be an open draft with `plan/needs-fix`. Attempts and revisions SHALL be under bounds, with no attempt in 6 hours. Priority SHALL order items. A candidate with a branch stop SHALL log a warning and let selection continue. In mode `plan`, the step SHALL judge all candidates and log the selection and reasons.
+### Requirement: The step selects one plan pull request that holds the label verdict/fix-plan
+The step `fix-plan` SHALL select at most one repository item: an open item with Status Ready whose record holds `stage.pr`, without `implement.job` or claims. Its pull request SHALL be an open draft with `verdict/fix-plan`. Attempts and revisions SHALL be under bounds, with no attempt in 6 hours. Priority SHALL order items. A candidate with a branch stop SHALL log a warning and let selection continue. In mode `plan`, the step SHALL judge all candidates and log the selection and reasons.
 
 #### Scenario: A plan pull request with the label
-- **WHEN** a Staged item has an open draft plan pull request that holds `plan/needs-fix` and no fix-plan mark
+- **WHEN** a Staged item has an open draft plan pull request that holds `verdict/fix-plan` and no fix-plan mark
 - **THEN** the step selects that pull request
 
 #### Scenario: The bounds leave an item out
@@ -25,7 +25,7 @@ The step `fix-plan` SHALL select at most one repository item: an open item with 
 - **THEN** the settings load fails with an error that names `roadmap.fix_plan.head_attempts`
 
 #### Scenario: The pull request is not an open draft with the label
-- **WHEN** the recorded pull request has no `plan/needs-fix` label or is not an open draft
+- **WHEN** the recorded pull request has no `verdict/fix-plan` label or is not an open draft
 - **THEN** the step selects no pull request and makes no model call
 
 #### Scenario: A person pushed to the branch
@@ -52,7 +52,7 @@ The step SHALL read the plan of the head of the pull request with `read_change` 
 - **THEN** the request of the review of the revision holds that finding in `earlier` and the new `why` in `answer`
 
 ### Requirement: The review of the head counts the open findings before the repair
-In each attempt the verification pass SHALL review the plan of the head. The step SHALL give the planner the open findings of that review and the open findings of the last trusted plan comment. When the review of the head has no open finding but the comment lists an open finding, the step SHALL NOT dismiss the plan, SHALL keep `plan/needs-fix`, and SHALL report `unchanged`.
+In each attempt the verification pass SHALL review the plan of the head. The step SHALL give the planner the open findings of that review and the open findings of the last trusted plan comment. When the review of the head has no open finding but the comment lists an open finding, the step SHALL NOT dismiss the plan, SHALL keep `verdict/fix-plan`, and SHALL report `unchanged`.
 
 #### Scenario: No comment lists an open finding
 - **WHEN** no trusted comment of the item lists an open finding for the pull request, and the review of the head plan has one
@@ -68,7 +68,7 @@ In each attempt the verification pass SHALL review the plan of the head. The ste
 
 #### Scenario: The review of the head finds no open finding that the comment lists
 - **WHEN** the stage comment lists an open finding and the review of the head plan has none
-- **THEN** the planner gets no request, the head of the branch does not change, the pull request keeps `plan/needs-fix`, and the result is `unchanged`
+- **THEN** the planner gets no request, the head of the branch does not change, the pull request keeps `verdict/fix-plan`, and the result is `unchanged`
 
 #### Scenario: The screen does not decide the review of the head
 - **WHEN** the screen of stage.verify_screen is in mode on and gives the band continue
@@ -79,26 +79,26 @@ When the revision of a repair is not the same plan as the plan that passed the c
 
 #### Scenario: A revision with fewer open findings
 - **WHEN** the review of the head has two open findings, and the review of the revision marks one `gone` and the other `holds`
-- **THEN** the branch holds one new commit whose parent is the latest default branch, the result is `revised`, and the pull request keeps `plan/needs-fix`
+- **THEN** the branch holds one new commit whose parent is the latest default branch, the result is `revised`, and the pull request keeps `verdict/fix-plan`
 
 #### Scenario: A revision that fixes the finding of the head and opens a finding on unchanged text
 - **WHEN** the review of the head has one open finding, and the review of the revision marks it `gone` and opens one finding whose quote is in text that the revision did not change
-- **THEN** the new finding is advice, the step pushes the revision, the result is `cleared`, and the pull request loses `plan/needs-fix`
+- **THEN** the new finding is advice, the step pushes the revision, the result is `cleared`, and the pull request loses `verdict/fix-plan`
 
 #### Scenario: A repair that gives the same plan
 - **WHEN** the review of the head has one open finding, the planner answers the plan of the head, and the review of that plan marks the finding `gone`
-- **THEN** the two plans are the same plan, because `render_change` gives the same files for both with one change name and one date, so the head of the branch does not change, the result is `unchanged`, the result line holds `success=false`, and the pull request keeps `plan/needs-fix`
+- **THEN** the two plans are the same plan, because `render_change` gives the same files for both with one change name and one date, so the head of the branch does not change, the result is `unchanged`, the result line holds `success=false`, and the pull request keeps `verdict/fix-plan`
 
 ### Requirement: The label goes when no open finding remains
-The step SHALL remove `plan/needs-fix` for the result `cleared` (a pushed revision whose last review has no open finding), for `dismissed` (a review of the head with no open finding and no open finding listed in the last plan comment), and for `regated` only when the review of the gated plan has no open finding and no step failed. It SHALL keep the label for each other result.
+The step SHALL remove `verdict/fix-plan` for the result `cleared` (a pushed revision whose last review has no open finding), for `dismissed` (a review of the head with no open finding and no open finding listed in the last plan comment), and for `regated` only when the review of the gated plan has no open finding and no step failed. It SHALL keep the label for each other result.
 
 #### Scenario: A revision with no open finding
 - **WHEN** the review of the head has an open finding and the review of the revision has none
-- **THEN** the branch holds the new commit, the result is `cleared`, and the pull request loses `plan/needs-fix`
+- **THEN** the branch holds the new commit, the result is `cleared`, and the pull request loses `verdict/fix-plan`
 
 #### Scenario: A head plan with no open finding
 - **WHEN** the checks pass the plan of the head, the review of it has no open finding, and the last plan comment lists no open finding
-- **THEN** the planner gets no request, the head of the branch does not change, the pull request loses `plan/needs-fix`, the result is `dismissed`, and the comment lists the findings as advice
+- **THEN** the planner gets no request, the head of the branch does not change, the pull request loses `verdict/fix-plan`, the result is `dismissed`, and the comment lists the findings as advice
 
 ### Requirement: A revision that is not better writes only the record
 When no rule of a push or of a label holds, the step SHALL write nothing to GitHub except the record of the item, with the result `unchanged`. A failure before a gated plan exists, or a failure after the checks when the plan that passed them is the plan of the head, SHALL write only the record with the result `failed`.
@@ -167,25 +167,25 @@ When the checks refuse the plan of the head and pass a new plan of the planner t
 
 #### Scenario: A gated plan with a clean review
 - **WHEN** the checks refuse the plan of the head, the planner answers a plan that they pass, and the review of that plan has no open finding
-- **THEN** the branch holds one new commit on the latest default branch, the result is `regated`, the pull request loses `plan/needs-fix`, and the comment says that the checks refused the old head
+- **THEN** the branch holds one new commit on the latest default branch, the result is `regated`, the pull request loses `verdict/fix-plan`, and the comment says that the checks refused the old head
 
 #### Scenario: A gated plan with a failed repair
 - **WHEN** the checks refuse the plan of the head, the planner answers a plan that they pass, its review has one open finding, and the model call of the repair fails
-- **THEN** the branch holds one new commit, the result line holds `result=regated` and `class=provider`, and the pull request keeps `plan/needs-fix`
+- **THEN** the branch holds one new commit, the result line holds `result=regated` and `class=provider`, and the pull request keeps `verdict/fix-plan`
 
 ### Requirement: A stop of the planner before the review is stopped
-When a false premise, an open item whose plan on the default branch creates a path that the premise cites, or a head over the budget stops the planner before a gated plan exists, the step SHALL end the attempt with the result `stopped`, keep `plan/needs-fix` and the Status of the item, post one fix-plan comment with the evidence, and log `stop=premise`, `stop=blocked` or `stop=over_budget`, with the class `premise_false` for a false premise.
+When a false premise, an open item whose plan on the default branch creates a path that the premise cites, or a head over the budget stops the planner before a gated plan exists, the step SHALL end the attempt with the result `stopped`, keep `verdict/fix-plan` and the Status of the item, post one fix-plan comment with the evidence, and log `stop=premise`, `stop=blocked` or `stop=over_budget`, with the class `premise_false` for a false premise.
 
 #### Scenario: Each stop
 - **WHEN** the planner stops on a false premise, an open blocker or a head over the budget
 - **THEN** the result is `stopped`, the result line names the stop and holds no `before`, the label and the Status stay, and one fix-plan comment holds the evidence
 
 ### Requirement: The step ends at its time budget
-The setting `roadmap.fix_plan.time_budget_seconds` SHALL start with each call of the step. The step SHALL start no plan run and no review run once the budget is spent. Such an attempt SHALL end with the result `timeout`, SHALL push nothing, SHALL keep the label `plan/needs-fix` and SHALL keep its attempt marks.
+The setting `roadmap.fix_plan.time_budget_seconds` SHALL start with each call of the step. The step SHALL start no plan run and no review run once the budget is spent. Such an attempt SHALL end with the result `timeout`, SHALL push nothing, SHALL keep the label `verdict/fix-plan` and SHALL keep its attempt marks.
 
 #### Scenario: The budget ends during the review of the head
 - **WHEN** the budget is 600 seconds and the review of the head ends at 600 seconds with one open finding
-- **THEN** the planner gets no request, the head of the branch does not change, the pull request keeps `plan/needs-fix`, and `fix_plan.result` is `timeout`
+- **THEN** the planner gets no request, the head of the branch does not change, the pull request keeps `verdict/fix-plan`, and `fix_plan.result` is `timeout`
 
 #### Scenario: The budget ends after a plan run
 - **WHEN** the budget of 600 seconds ends while the planner writes a revision of the plan
@@ -295,15 +295,15 @@ The step SHALL count only a blocker or a major finding as open. A head whose rev
 
 #### Scenario: A head with only a minor finding
 - **WHEN** the last plan comment lists no blocker or major finding, and the review of the head has only a quoted finding with the severity `minor`
-- **THEN** the planner gets no request, the head of the branch does not change, the result is `dismissed` with `before` 0, the pull request loses `plan/needs-fix`, and the comment lists the minor finding as advice
+- **THEN** the planner gets no request, the head of the branch does not change, the result is `dismissed` with `before` 0, the pull request loses `verdict/fix-plan`, and the comment lists the minor finding as advice
 
 #### Scenario: A minor finding of the comment is advice
 - **WHEN** the last plan comment lists a minor finding, and the review of the head has no open finding
-- **THEN** the result is `dismissed`, and the pull request loses `plan/needs-fix`
+- **THEN** the result is `dismissed`, and the pull request loses `verdict/fix-plan`
 
 #### Scenario: A pushed revision lists its minor finding as advice
 - **WHEN** the step pushes a revision whose review holds a quoted minor finding and no blocker or major finding
-- **THEN** the pull request loses `plan/needs-fix`, and the comment lists the minor finding as advice
+- **THEN** the pull request loses `verdict/fix-plan`, and the comment lists the minor finding as advice
 
 ### Requirement: A plan comment line is read in either of its forms
 The step SHALL read a finding line of a plan comment in the current form and in the form that a release before #5418 wrote. A line with no severity SHALL read as a major finding. An old place SHALL give the part of its finding from its first word, and the whole old place SHALL be the section of that part. The finding of an old line SHALL name no capability.
@@ -325,23 +325,23 @@ The step SHALL read a finding line of a plan comment in the current form and in 
 - **THEN** it reads the finding back with the severity `blocker`
 
 ### Requirement: A plan comment line that the step cannot read keeps the label
-The step SHALL count each line of the open findings section of the last plan comment that matches neither line form. When that count is above zero, the step SHALL end the attempt with the result `unreadable_findings` before any model call, SHALL keep `plan/needs-fix`, and SHALL write no `dismissed`, `cleared` or `revised` result. The result line SHALL hold `unreadable` with that count, and the step SHALL log one line for each line that it could not read.
+The step SHALL count each line of the open findings section of the last plan comment that matches neither line form. When that count is above zero, the step SHALL end the attempt with the result `unreadable_findings` before any model call, SHALL keep `verdict/fix-plan`, and SHALL write no `dismissed`, `cleared` or `revised` result. The result line SHALL hold `unreadable` with that count, and the step SHALL log one line for each line that it could not read.
 
 #### Scenario: Two lines that neither form matches
 - **WHEN** the open findings section of the last plan comment holds two lines that match neither form
-- **THEN** the result is `unreadable_findings`, the pull request keeps `plan/needs-fix`, and the result line holds `unreadable` with the count 2
+- **THEN** the result is `unreadable_findings`, the pull request keeps `verdict/fix-plan`, and the result line holds `unreadable` with the count 2
 
 #### Scenario: An unreadable line starts no model call
 - **WHEN** the open findings section of the last plan comment holds a line that matches neither form
 - **THEN** the step makes no plan call and no review call, and the record counts the attempt on the head
 
 ### Requirement: An open finding of the last plan comment keeps the label
-The step SHALL dismiss a plan only when the review of the head and the last plan comment list no blocker or major finding. A head with no open findings in its review, but whose last plan comment lists a blocker or a major finding, SHALL NOT be dismissed, SHALL keep `plan/needs-fix`, and the attempt SHALL be `unchanged`.
+The step SHALL dismiss a plan only when the review of the head and the last plan comment list no blocker or major finding. A head with no open findings in its review, but whose last plan comment lists a blocker or a major finding, SHALL NOT be dismissed, SHALL keep `verdict/fix-plan`, and the attempt SHALL be `unchanged`.
 
 #### Scenario: An old-form comment keeps the label
 - **WHEN** the last plan comment holds a finding line of the old form, and the review of the head has no open finding
-- **THEN** the result is `unchanged`, and the pull request keeps `plan/needs-fix`
+- **THEN** the result is `unchanged`, and the pull request keeps `verdict/fix-plan`
 
 #### Scenario: A comment with no open finding is dismissed
 - **WHEN** the last plan comment lists no blocker or major finding, and the review of the head has no open finding
-- **THEN** the result is `dismissed`, and the pull request loses `plan/needs-fix`
+- **THEN** the result is `dismissed`, and the pull request loses `verdict/fix-plan`
