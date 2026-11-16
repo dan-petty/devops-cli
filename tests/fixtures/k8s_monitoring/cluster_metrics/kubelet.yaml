@@ -1,6 +1,6 @@
 ---
 # Copied from charts/feature-cluster-metrics/default-allow-lists/kubelet.yaml in grafana/k8s-monitoring (#1136).
-# chart: grafana/k8s-monitoring 4.6.0
+# chart: grafana/k8s-monitoring 4.6.1
 # The minimal set of metrics from the Kubelet required for Kubernetes Monitoring
 metrics:
   - go_goroutines

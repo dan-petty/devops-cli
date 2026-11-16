@@ -117,8 +117,8 @@ CHART_CLAIMS: dict[
     ("plugin-barman-cloud", "0.9.0"): (),
     ("prometheus-operator-crds", "33.0.2"): (),
     ("grafana", "14.4.1"): (ClaimSite("grafana", _on(("persistence.enabled", False)), "affinity"),),
-    ("k8s-monitoring", "4.6.0"): _alloy_collectors,
-    ("loki", "21.2.1"): (ClaimSite("singleBinary", _loki_mode, "singleBinary.affinity"),),
+    ("k8s-monitoring", "4.6.1"): _alloy_collectors,
+    ("loki", "21.2.3"): (ClaimSite("singleBinary", _loki_mode, "singleBinary.affinity"),),
     ("mattermost-operator", "1.0.5"): (),
     ("open-webui", "18.3.0"): (
         ClaimSite("open-webui", _on(("persistence.enabled", True)), "affinity"),
@@ -145,7 +145,7 @@ CHART_CLAIMS: dict[
         ClaimSite("pyroscope", _on(("pyroscope.persistence.enabled", False)), "pyroscope.affinity"),
     ),
     # The chart's StatefulSet always has the claim template `qdrant-storage`.
-    ("qdrant", "1.20.0"): (ClaimSite("qdrant", lambda values: True, "affinity"),),
+    ("qdrant", "1.20.2"): (ClaimSite("qdrant", lambda values: True, "affinity"),),
     ("tempo", "3.2.1"): (ClaimSite("tempo", _on(("persistence.enabled", False)), "affinity"),),
     ("traefik", "42.3.2"): (ClaimSite("traefik", _on(("persistence.enabled", False)), "affinity"),),
 }
