@@ -29,11 +29,16 @@ delivery), or whether the plan can be built and is correct (a plan). Its reply i
 step keeps only evidence that names a file of the diff, and a discard with no such evidence becomes
 needs fix. `review_judge.py` holds the cap of new tokens, `roadmap.review.token_budget`.
 
-**Guards.** `roadmap.review.mode` `off` sends no request. The step skips a pull request that is not
-open, whose head moved from `--head`, whose item a live runner Job holds (`job_holds`), or whose
-head and issue text already have a verdict (`review.key`). It stops on a pull request of a person
-and on an `owner/*` label. A pull request with `roadmap.review.rounds` verdicts gets one comment
-that leaves it for a person, and no model call.
+**Guards.** `roadmap.review.mode` `off` sends no request. The step skips a pull request whose head
+moved from `--head`, or whose item a live Job holds (`job_holds` or `stage.job`). It stops on a pull
+request of a person and on a claim label (`claim_labels`, which leaves out `owner/service`). The
+rules run on each call, so a new fact of a judged head gives a new verdict; only the model is asked
+once for each head and issue text (`review.key`, `review.source`). A rule verdict that the record
+and the label hold writes nothing again. A pull request with `roadmap.review.rounds` verdicts gets
+one comment that leaves it for a person, and no model call. A wait on CI infrastructure logs one
+line, and with writes it ends after `roadmap.review.infra_wait_hours` with one comment for a
+person. An Issue changed verdict answers one issue text (`review.text`), so the updated work of
+that text is judged.
 
 **Writes.** Only with `confirm` in the mode `on`; else the step returns the verdict and the action
 that it would take, and writes nothing. Before the first write the step reads the pull request
@@ -44,24 +49,30 @@ and the step fix-plan also write it. Then:
 - Mergeable: a draft is marked ready (`mark_ready` with the judged head). The pipeline is then done
   with the item until a person merges.
 - Needs fix: the label and the due fix stay for the watch row; `verdict/fix-plan` starts the row
-  fix-plan. A ready pull request becomes a draft again (`mark_draft`), because the fix rows take
-  only a draft and no person must merge it.
-- Discard: the step closes the pull request, deletes its branch with a lease on the judged head
-  (`Withdraw`), and returns the item to New with `apply_return`, which clears the keys of the plan
-  or of the delivery. A delivery on the branch of its plan pull request is left for a person.
-- Issue changed: the label marks the work for an update, a ready pull request becomes a draft
-  again, and the verdict scores nothing.
+  fix-plan. A pull request that a bot marked ready becomes a draft again (`mark_draft`), because the
+  fix rows take only a draft; one that a person marked ready stays ready. The watch row holds the
+  ready mark while a verdict label other than `verdict/mergeable` is on the pull request.
+- Discard of the model alone: the label and the comment, and a person decides the close (#6024).
+- Discard of a rule: the step checks the shared branch and the withdraw before the first write,
+  marks the start (`review.discard`), deletes the branch with a lease on the judged head
+  (`Withdraw`), closes the pull request, and returns the item to New with `apply_return`, which
+  clears the keys of the plan or of the delivery. A call on the closed pull request ends a discard
+  that stopped on the way. A branch that holds the work of the other kind is left for a person.
+- Issue changed: the label marks the work for an update, a ready pull request goes back to draft as
+  for needs fix, and the verdict scores nothing.
 
-The record keeps the count of verdicts of the pull request and the key of the last one
-(`ReviewRecordKey`). Each judged or failed attempt logs one result line (job `review`).
+The record keeps the count of verdicts of the pull request, the key, the verdict and the source of
+the last one (`ReviewRecordKey`). Each judged or failed attempt logs one result line (job
+`review`).
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Final, Protocol
 
@@ -73,6 +84,7 @@ from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary
 from devops_cli.github.merge_readiness import merge_conflict
 from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.body_hash import body_hashes
+from devops_cli.roadmap.claim import claim_labels
 from devops_cli.roadmap.failure import FailureClass, FailureEvidence, classify_failure
 from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
 from devops_cli.roadmap.pr_verdict import PullKind, Verdict, verdict_label
@@ -186,9 +198,10 @@ class Judgement:
 
 @dataclass(frozen=True)
 class Waiting:
-    """No verdict yet: a check runs, or only CI infrastructure failed."""
+    """No verdict yet: a check runs, or only CI infrastructure failed (`infra`)."""
 
     reason: str
+    infra: bool = False
 
 
 class ReviewJudge(Protocol):
@@ -302,7 +315,7 @@ def _check_rules(facts: ReviewFacts) -> Judgement | Waiting | None:
             _fix_of(facts, DueFix.FIX_CHECKS),
         )
     if infra:
-        return Waiting(f"Only CI infrastructure failed: {', '.join(infra)}.")
+        return Waiting(f"Only CI infrastructure failed: {', '.join(infra)}.", infra=True)
     if checks.pending_count:
         return Waiting(f"{checks.pending_count} check(s) still run.")
     return None
@@ -377,9 +390,9 @@ def model_judgement(facts: ReviewFacts, reply: ReviewReply) -> Judgement:
 
 
 @dataclass(frozen=True)
-class _Call:
-    """One call of the step: what it read, how it may write, and the verdicts of the pull request
-    so far."""
+class ReviewCall:
+    """One call of the step: what it read, how it may write, the verdicts of the pull request so
+    far, and the login that last marked the pull request ready (`ready_by`)."""
 
     store: RoadmapStore
     repo: str
@@ -390,6 +403,7 @@ class _Call:
     mode: str
     writes: bool
     rounds: int
+    ready_by: str | None = None
 
     def report(self, result: ReviewResult, reason: str, **fields: Any) -> ReviewReport:
         return ReviewReport(
@@ -404,9 +418,14 @@ class _Call:
         )
 
     @property
+    def text(self) -> str:
+        """The hash of the issue text now."""
+        return body_hashes(self.item.body)[0]
+
+    @property
     def key(self) -> str:
         """The key of a verdict: the pull request, its head and the hash of the issue text."""
-        return f"{self.pull}:{self.status.head_sha}:{body_hashes(self.item.body)[0][:12]}"
+        return f"{self.pull}:{self.status.head_sha}:{self.text[:12]}"
 
 
 def _rounds(item: Item, pull: int) -> int:
@@ -417,20 +436,22 @@ def _rounds(item: Item, pull: int) -> int:
     return int(value) if value.isdigit() else 0
 
 
-def _has_owner_label(labels: Sequence[str]) -> bool:
-    return any(label.startswith("owner/") for label in labels)
+def _live_unit(item: Item) -> str | None:
+    """The live unit that works on the item, as the watch row reads it: a runner Job
+    (`job_holds`) or a stage Job (`stage.job`, #6024)."""
+    if job_holds(item):
+        return item.job_record.get(ImplementRecordKey.JOB)
+    return item.job_record.get(StageRecordKey.JOB) or None
 
 
 def _guard(
     store: RoadmapStore, repo: str, pull: int, status: PullStatus, head: str | None
 ) -> ReviewReport | Item:
-    """The item of the pull request, or the report of the guard that stops the call."""
+    """The item of the open pull request, or the report of the guard that stops the call."""
 
     def stop(result: ReviewResult, reason: str) -> ReviewReport:
         return ReviewReport(repo, pull, result, head=status.head_sha, reason=reason)
 
-    if status.state != "open":
-        return stop(ReviewResult.SKIPPED, "The pull request is closed or merged.")
     if head is not None and status.head_sha != head:
         return stop(ReviewResult.SKIPPED, "The head moved from the judged head.")
     if not is_bot_author(status.author):
@@ -439,23 +460,61 @@ def _guard(
     item = store.item(number) if number is not None else None
     if item is None:
         return stop(ReviewResult.SKIPPED, "The branch names no item of the roadmap.")
-    if job_holds(item):
-        job = item.job_record.get(ImplementRecordKey.JOB)
-        return stop(ReviewResult.SKIPPED, f"A runner Job works on the item: `{job}`.")
-    if _has_owner_label(status.labels) or _has_owner_label(item.labels):
+    if unit := _live_unit(item):
+        return stop(ReviewResult.SKIPPED, f"A live Job works on the item: `{unit}`.")
+    # `owner/service` is the claim of the Service itself and holds nothing against its jobs.
+    if claim_labels(status.labels) or claim_labels(item.labels):
         return stop(ReviewResult.STOPPED, "The item or the pull request holds an owner label.")
     return item
 
 
-def _comment(call: _Call, key: str, body: str) -> None:
+def _comment(call: ReviewCall, key: str, body: str) -> None:
     """Post or update the comment of the step for `key` on the pull request."""
     keyed = f"<!-- devops roadmap review: {key} -->"
     text = f"{CONST_ROADMAP_REVIEW_COMMENT_MARKER}\n{keyed}\n{body}"
     post(Target(call.repo, call.pull, client=get_github_session().client), keyed, None, text)
 
 
-def _planned(call: _Call, judgement: Judgement) -> str:
+def _acts(judgement: Judgement) -> bool:
+    """Whether the step carries out the discard itself: only a discard of a rule. A discard of the
+    model alone gets its label and its comment, and a person decides the close (#6024)."""
+    return judgement.verdict in _DISCARDS and judgement.source == "rule"
+
+
+def _may_draft(call: ReviewCall) -> bool:
+    """Whether the step may make the ready pull request a draft again: a bot marked it ready, or
+    a bot opened it ready. A person who marked it ready decides (#6024)."""
+    return is_bot_author(call.ready_by or call.status.author)
+
+
+def _shares_branch(call: ReviewCall) -> bool:
+    """Whether the branch of the pull request holds the work of the other kind too: a plan branch
+    that the implement job builds on, or a delivery on the branch of its plan pull request. A
+    delete of the branch would lose that work (#6024)."""
+    record, branch = call.item.job_record, call.status.head_ref
+    if call.kind is PullKind.PLAN:
+        return (
+            record.get(ImplementRecordKey.BRANCH) == branch
+            or record_number(call.item, ImplementRecordKey.PR) == call.pull
+        )
+    return (
+        record.get(StageRecordKey.BRANCH) == branch
+        or record_number(call.item, StageRecordKey.PR) == call.pull
+    )
+
+
+def _back(call: ReviewCall) -> str:
+    """The first words of the action of a verdict that sends the work back."""
+    if call.status.draft:
+        return ""
+    if _may_draft(call):
+        return _DRAFT_AGAIN
+    return "a person marked the pull request ready, so it stays ready; "
+
+
+def _planned(call: ReviewCall, judgement: Judgement) -> str:
     """The next action of the verdict, in words."""
+    work = "a new plan" if call.kind is PullKind.PLAN else "a new implementation"
     match judgement.verdict:
         case Verdict.MERGEABLE:
             if call.status.draft:
@@ -463,20 +522,19 @@ def _planned(call: _Call, judgement: Judgement) -> str:
             return "none: the pull request is ready for review; a person merges it"
         case Verdict.NEEDS_FIX:
             fix = judgement.due.value if judgement.due else "a fix by a person"
-            return f"{_DRAFT_AGAIN if not call.status.draft else ''}the watch row starts {fix}"
-        case Verdict.DISCARD_PLAN:
-            return "close the pull request, delete its branch and return the item for a new plan"
-        case Verdict.DISCARD_IMPLEMENTATION:
+            return f"{_back(call)}the watch row starts {fix}"
+        case Verdict.DISCARD_PLAN | Verdict.DISCARD_IMPLEMENTATION if _acts(judgement):
+            return f"delete the branch, close the pull request and return the item for {work}"
+        case Verdict.DISCARD_PLAN | Verdict.DISCARD_IMPLEMENTATION:
             return (
-                "close the pull request, delete its branch and return the item for a new "
-                "implementation"
+                "a person decides the discard: close the pull request and return the item for "
+                f"{work}, or remove the label"
             )
         case Verdict.ISSUE_CHANGED:
-            again = _DRAFT_AGAIN if not call.status.draft else ""
-            return f"{again}the work waits for an update to the issue or to the merged work"
+            return f"{_back(call)}the work waits for an update to the issue or to the merged work"
 
 
-def _verdict_text(call: _Call, judgement: Judgement, label: str) -> str:
+def _verdict_text(call: ReviewCall, judgement: Judgement, label: str) -> str:
     limit = load_settings().roadmap.review.rounds
     lines = [
         f"**Verdict: {_VERDICT_NAMES[judgement.verdict]}** (`{label}`), review "
@@ -490,7 +548,7 @@ def _verdict_text(call: _Call, judgement: Judgement, label: str) -> str:
     return "\n".join(lines)
 
 
-def _relabel(call: _Call, label: str) -> None:
+def _relabel(call: ReviewCall, label: str) -> None:
     """Add `label`, and remove the other verdict labels that only this step writes."""
     stale = tuple(name for name in call.status.labels if name in OWN_LABELS and name != label)
     if stale:
@@ -499,40 +557,88 @@ def _relabel(call: _Call, label: str) -> None:
         add_pull_labels(call.store, call.pull, (label,))
 
 
-def _discard(call: _Call, judgement: Judgement, withdraw: Withdraw) -> None:
-    """Close the pull request, delete its branch with a lease on the judged head, and return the
-    item to New with the keys of its plan or its delivery cleared."""
-    get_github_session().client.close_pull(call.repo, call.pull)
-    withdraw(call.status.head_ref, call.status.head_sha)
-    plan = call.kind is PullKind.PLAN
+def _return_item(store: RoadmapStore, repo: str, pull: int, number: int, kind: PullKind) -> None:
+    """Return item `number` to New with the keys of its plan or its delivery and the keys of the
+    step cleared, so the stage job plans it again or the implement job builds its plan again."""
+    plan = kind is PullKind.PLAN
     cleared: tuple[Any, ...] = STAGE_REMOVAL_KEYS if plan else _DELIVERY_KEYS
     marks: dict[Any, str | int | None] = dict.fromkeys((*cleared, *ReviewRecordKey))
     work = "a new plan" if plan else "a new implementation of its plan"
     comment = (
-        f"{CONST_ROADMAP_REVIEW_COMMENT_MARKER}\nThe review discarded pull request #{call.pull} "
-        f"({_VERDICT_NAMES[judgement.verdict]}): {judgement.reason}\n\nThe item goes back to "
-        f"New for {work}."
+        f"{CONST_ROADMAP_REVIEW_COMMENT_MARKER}\nThe review discarded pull request #{pull}. The "
+        f"item goes back to New for {work}."
     )
-    returned = plan_return(call.store, call.item.number, comment, call.repo, marks=marks)
-    apply_return(call.store, returned)
+    apply_return(store, plan_return(store, number, comment, repo, marks=marks))
 
 
-def _act(call: _Call, judgement: Judgement, withdraw: Withdraw | None) -> None:
-    """Take the next action of the verdict."""
+def _discard(call: ReviewCall, withdraw: Withdraw) -> None:
+    """Carry out a discard in an order that a later call can end (#6024): mark the start, delete
+    the branch with a lease on the judged head, close the pull request, and return the item. A
+    failed delete leaves the pull request open for the next call; after the delete, the next call
+    ends the discard on the closed pull request."""
     head = call.status.head_sha
-    if judgement.verdict is Verdict.MERGEABLE and call.status.draft:
-        mark_ready(call.repo, call.pull, expected_head=head)
-    elif judgement.verdict in _BACK_TO_DRAFT and not call.status.draft:
-        mark_draft(call.repo, call.pull, expected_head=head)
-    elif judgement.verdict in _DISCARDS:
-        if withdraw is None:
-            raise RoadmapImplementError(
-                "The step review needs a withdraw to discard: the delete of the branch."
-            )
-        _discard(call, judgement, withdraw)
+    call.store.set_marks(call.item, {ReviewRecordKey.DISCARD: f"{call.pull}:{head}"})
+    withdraw(call.status.head_ref, head)
+    get_github_session().client.close_pull(call.repo, call.pull)
+    _return_item(call.store, call.repo, call.pull, call.item.number, call.kind)
 
 
-def _log(call: _Call, judgement: Judgement | None, failure: FailureClass | None = None) -> None:
+def _finish_discard(
+    store: RoadmapStore,
+    repo: str,
+    pull: int,
+    status: PullStatus,
+    *,
+    writes: bool,
+    withdraw: Withdraw | None,
+) -> ReviewReport:
+    """End a discard that this step started on the closed pull request `pull`: delete the branch
+    if it is still there, and return the item. A closed pull request with no such mark is skipped."""
+    skipped = ReviewReport(
+        repo,
+        pull,
+        ReviewResult.SKIPPED,
+        head=status.head_sha,
+        reason="The pull request is closed or merged.",
+    )
+    number = issue_of_branch(status.head_ref)
+    item = store.item(number) if number is not None else None
+    mark = f"{pull}:{status.head_sha}"
+    if status.merged or item is None or item.job_record.get(ReviewRecordKey.DISCARD) != mark:
+        return skipped
+    kind = pull_kind_of(item, pull, status.title)
+    verdict = Verdict.DISCARD_PLAN if kind is PullKind.PLAN else Verdict.DISCARD_IMPLEMENTATION
+    action = "delete the branch if it is there, and return the item"
+    report = ReviewReport(repo, pull, ReviewResult.JUDGED, head=status.head_sha, kind=kind)
+    if not writes:
+        return replace(report, verdict=verdict, action=f"Plan: {action}")
+    if withdraw is None:
+        raise RoadmapImplementError(
+            "The step review needs a withdraw to end a discard: the delete of the branch."
+        )
+    withdraw(status.head_ref, status.head_sha)
+    _return_item(store, repo, pull, item.number, kind)
+    return replace(report, verdict=verdict, action=action, written=True)
+
+
+def _record(call: ReviewCall, judgement: Judgement) -> None:
+    """Record the verdict: its pull request and round, its key, the verdict and its source, and
+    the issue text that an Issue changed verdict answered."""
+    marks: dict[Any, str | None] = {
+        ReviewRecordKey.PULL: str(call.pull),
+        ReviewRecordKey.ROUNDS: str(call.rounds + 1),
+        ReviewRecordKey.KEY: call.key,
+        ReviewRecordKey.VERDICT: judgement.verdict.value,
+        ReviewRecordKey.SOURCE: judgement.source,
+    }
+    if judgement.verdict is Verdict.ISSUE_CHANGED:
+        marks[ReviewRecordKey.TEXT] = call.text
+    call.store.set_marks(call.item, marks)
+
+
+def _log(
+    call: ReviewCall, judgement: Judgement | None, failure: FailureClass | None = None
+) -> None:
     """The result line of an attempt that judged or failed."""
     names = {"kind": call.kind.value, "mode": call.mode}
     if judgement is not None:
@@ -549,7 +655,9 @@ def _log(call: _Call, judgement: Judgement | None, failure: FailureClass | None 
     )
 
 
-def _judge(call: _Call, facts: ReviewFacts, judge: ReviewJudge | None) -> Judgement | ReviewReport:
+def _judge(
+    call: ReviewCall, facts: ReviewFacts, judge: ReviewJudge | None
+) -> Judgement | ReviewReport:
     """The verdict of the model, or the report of a failed call."""
     if judge is None:
         from devops_cli.roadmap.steps.review_judge import GatewayReviewJudge
@@ -567,7 +675,7 @@ def _judge(call: _Call, facts: ReviewFacts, judge: ReviewJudge | None) -> Judgem
     return model_judgement(facts, reply)
 
 
-def _capped(call: _Call) -> ReviewReport:
+def _capped(call: ReviewCall) -> ReviewReport:
     """The report of a pull request at the cap of verdicts, and its one comment."""
     reason = (
         f"The pull request has {call.rounds} verdicts, the most that `roadmap.review.rounds` "
@@ -578,42 +686,69 @@ def _capped(call: _Call) -> ReviewReport:
     return call.report(ReviewResult.CAPPED, reason, written=call.writes)
 
 
-def _write(
-    call: _Call, judgement: Judgement, label: str, withdraw: Withdraw | None
+def _wait(call: ReviewCall, waiting: Waiting, now: datetime) -> ReviewReport:
+    """A wait for the checks. A wait on CI infrastructure logs one line, and with writes it has a
+    limit of `roadmap.review.infra_wait_hours` from the first wait of the head (#6024)."""
+    if not waiting.infra:
+        return call.report(ReviewResult.WAIT, waiting.reason)
+    head = call.status.head_sha
+    logger.info(
+        "The review of %s#%d waits on CI infrastructure at head %s: %s",
+        call.repo,
+        call.pull,
+        head[:12],
+        waiting.reason,
+    )
+    if not call.writes:
+        return call.report(ReviewResult.WAIT, waiting.reason)
+    waited, _, since = (call.item.job_record.get(ReviewRecordKey.WAIT) or "").partition(" ")
+    if waited != head or not since:
+        call.store.set_marks(call.item, {ReviewRecordKey.WAIT: f"{head} {now.isoformat()}"})
+        return call.report(ReviewResult.WAIT, waiting.reason)
+    hours = load_settings().roadmap.review.infra_wait_hours
+    if now - datetime.fromisoformat(since) < timedelta(hours=hours):
+        return call.report(ReviewResult.WAIT, waiting.reason)
+    reason = (
+        f"{waiting.reason} The head {head[:12]} waited {hours} hours or more "
+        "(`roadmap.review.infra_wait_hours`): a person runs the failed check again."
+    )
+    _comment(call, f"infra-{head}", reason)
+    return call.report(ReviewResult.STOPPED, reason, written=True)
+
+
+def write_verdict(
+    call: ReviewCall, judgement: Judgement, *, withdraw: Withdraw | None = None
 ) -> ReviewReport:
-    """Read the head again, then comment, label, act and record."""
+    """Write the verdict of `call`: read the head again, check the discard before the first write,
+    then comment, label, act and record."""
     now = get_github_session().client.get_pull_status(call.repo, call.pull)
     if now.head_sha != call.status.head_sha or now.state != "open":
         return call.report(
             ReviewResult.SKIPPED, "The head moved, or the pull request closed, after the read."
         )
-    discard = judgement.verdict in _DISCARDS
-    if (
-        discard
-        and call.kind is PullKind.DELIVERY
-        and (record_number(call.item, StageRecordKey.PR) == call.pull)
-    ):
+    label = verdict_label(call.kind, judgement.verdict) or ""
+    acts = _acts(judgement)
+    if acts and _shares_branch(call):
         reason = (
-            "The delivery is on the branch of its plan pull request, so a person decides the "
-            f"discard. Reason of the review: {judgement.reason}"
+            "The branch of this pull request holds the work of the plan and of its delivery, so a "
+            f"person decides the discard. Reason of the review: {judgement.reason}"
         )
         _comment(call, "shared", reason)
-        # The key keeps the next call on this head from asking the model again.
-        call.store.set_marks(call.item, {ReviewRecordKey.KEY: call.key})
         return call.report(ReviewResult.STOPPED, reason, verdict=judgement.verdict, written=True)
+    if acts and withdraw is None:
+        raise RoadmapImplementError(
+            "The step review needs a withdraw to discard: the delete of the branch."
+        )
     _comment(call, call.status.head_sha, _verdict_text(call, judgement, label))
     _relabel(call, label)
-    _act(call, judgement, withdraw)
-    if not discard:
-        call.store.set_marks(
-            call.item,
-            {
-                ReviewRecordKey.PULL: str(call.pull),
-                ReviewRecordKey.ROUNDS: str(call.rounds + 1),
-                ReviewRecordKey.KEY: call.key,
-                ReviewRecordKey.VERDICT: judgement.verdict.value,
-            },
-        )
+    if acts and withdraw is not None:
+        _discard(call, withdraw)
+    else:
+        if judgement.verdict is Verdict.MERGEABLE and call.status.draft:
+            mark_ready(call.repo, call.pull, expected_head=call.status.head_sha)
+        elif judgement.verdict in _BACK_TO_DRAFT and not call.status.draft and _may_draft(call):
+            mark_draft(call.repo, call.pull, expected_head=call.status.head_sha)
+        _record(call, judgement)
     return call.report(
         ReviewResult.JUDGED,
         judgement.reason,
@@ -623,6 +758,21 @@ def _write(
         evidence=judgement.evidence,
         action=_planned(call, judgement),
         written=True,
+    )
+
+
+def _holds(call: ReviewCall, judgement: Judgement | None) -> bool:
+    """Whether the head and the issue text already have this verdict: a rule verdict that the
+    record and the label hold, or a verdict of the model, which only a new head or a new text asks
+    again. The rules run on each call; only the model call is saved (#6024)."""
+    record = call.item.job_record
+    if record.get(ReviewRecordKey.KEY) != call.key:
+        return False
+    if judgement is None:
+        return record.get(ReviewRecordKey.SOURCE) == "model"
+    label = verdict_label(call.kind, judgement.verdict)
+    return record.get(ReviewRecordKey.VERDICT) == judgement.verdict.value and (
+        label in call.status.labels
     )
 
 
@@ -636,58 +786,65 @@ def run_review(
     judge: ReviewJudge | None = None,
     withdraw: Withdraw | None = None,
     mode: RowMode | None = None,
+    now: datetime | None = None,
 ) -> ReviewReport:
     """Give pull request `pull` of `repo` one verdict (#5969), as the module text says. The step
-    writes only with `confirm` in the mode `on`, and a discard then needs `withdraw`."""
+    writes only with `confirm` in the mode `on`, and a discard of a rule then needs `withdraw`."""
     settings = load_settings().roadmap.review
     mode = mode or settings.mode
     if mode == "off":
         return ReviewReport(repo, pull, ReviewResult.SKIPPED, reason="roadmap.review.mode is off.")
+    writes = confirm and mode == "on"
     status = get_github_session().client.get_pull_status(repo, pull)
+    if status.state != "open":
+        return _finish_discard(store, repo, pull, status, writes=writes, withdraw=withdraw)
     guarded = _guard(store, repo, pull, status, head)
     if isinstance(guarded, ReviewReport):
         return guarded
-    call = _Call(
+    facts = read_facts(store, repo, pull, status, guarded)
+    call = ReviewCall(
         store=store,
         repo=repo,
         pull=pull,
         status=status,
         item=guarded,
-        kind=pull_kind_of(guarded, pull, status.title),
+        kind=facts.kind,
         mode=mode,
-        writes=confirm and mode == "on",
+        writes=writes,
         rounds=_rounds(guarded, pull),
+        ready_by=facts.ready_by,
     )
-    if guarded.job_record.get(ReviewRecordKey.KEY) == call.key:
-        return call.report(ReviewResult.SKIPPED, "This head and this issue text have a verdict.")
-    if call.rounds >= settings.rounds:
-        return _capped(call)
-    facts = read_facts(store, repo, pull, status, guarded)
     outcome = rule_judgement(facts)
     if isinstance(outcome, Waiting):
-        return call.report(ReviewResult.WAIT, outcome.reason)
+        return _wait(call, outcome, now or datetime.now(UTC))
+    if _holds(call, outcome):
+        return call.report(
+            ReviewResult.SKIPPED, "This head and this issue text hold their verdict."
+        )
+    if call.rounds >= settings.rounds:
+        return _capped(call)
     judged = outcome if outcome is not None else _judge(call, facts, judge)
     if isinstance(judged, ReviewReport):
         return judged
-    label = verdict_label(call.kind, judged.verdict) or ""
     _log(call, judged)
     if not call.writes:
         return call.report(
             ReviewResult.JUDGED,
             judged.reason,
             verdict=judged.verdict,
-            label=label,
+            label=verdict_label(call.kind, judged.verdict) or "",
             due=judged.due,
             evidence=judged.evidence,
             action=f"Plan: {_planned(call, judged)}",
         )
-    return _write(call, judged, label, withdraw)
+    return write_verdict(call, judged, withdraw=withdraw)
 
 
 __all__ = [
     "OWN_LABELS",
     "DueFix",
     "Judgement",
+    "ReviewCall",
     "ReviewJudge",
     "ReviewReport",
     "ReviewResult",
@@ -696,4 +853,5 @@ __all__ = [
     "model_judgement",
     "rule_judgement",
     "run_review",
+    "write_verdict",
 ]

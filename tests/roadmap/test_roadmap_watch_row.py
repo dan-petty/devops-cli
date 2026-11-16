@@ -70,12 +70,14 @@ def _graphql_pr_node(
     body: str = "",
     title: str = "feat: test",
     base_ref: str = "main",
+    labels: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     return {
         "number": number,
         "title": title,
         "body": body,
         "isDraft": is_draft,
+        "labels": {"nodes": [{"name": name} for name in labels]},
         "mergeable": mergeable,
         "headRefOid": head,
         "baseRefName": base_ref,
@@ -386,6 +388,37 @@ def test_watch_row_marks_ready_bot_plan_draft(
     updated_item = store.item(issue_num)
     assert updated_item is not None
     assert updated_item.job_record.get(StageRecordKey.READY) == str(pr_num)
+
+
+def test_watch_row_holds_the_ready_mark_of_a_plan_that_a_verdict_sent_back(
+    store: InMemoryRoadmapStore, github_api: GitHubApiFake, tmp_path: Path
+) -> None:
+    """A green plan draft with a verdict label other than `verdict/mergeable` stays a draft, so
+    the review step and the watch row do not undo each other (#6024)."""
+    issue_num = store.seed_issue("Plan Issue", fields={ItemField.PRIORITY: "P2-Medium"})
+    pr_num = store.seed_pull("plan: my plan", head_ref="plan/1-test", draft=True)
+    item = store.item(issue_num)
+    assert item is not None
+    store.set_marks(item, {StageRecordKey.PR: str(pr_num)})
+    node = _graphql_pr_node(
+        number=pr_num,
+        head=HEAD_PASS,
+        is_draft=True,
+        author="devops-cli-service[bot]",
+        check_state="SUCCESS",
+        check_conclusion="SUCCESS",
+        labels=("verdict/issue-changed",),
+    )
+    _route_graphql(github_api, [node])
+
+    res = watch_round(
+        store, repo=REPO, ledger_path=tmp_path / CONST_ROADMAP_WATCH_LEDGER_FILENAME, now=NOW
+    )
+
+    assert pr_num not in res.marked_ready
+    updated = store.item(issue_num)
+    assert updated is not None
+    assert updated.job_record.get(StageRecordKey.READY) is None
 
 
 def test_watch_row_comments_on_person_conflict(

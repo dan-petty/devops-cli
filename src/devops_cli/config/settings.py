@@ -167,6 +167,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_OPEN_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_OPEN_MODE,
     DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES,
+    DEFAULT_ROADMAP_REVIEW_INFRA_WAIT_HOURS,
     DEFAULT_ROADMAP_REVIEW_MODE,
     DEFAULT_ROADMAP_REVIEW_ROUNDS,
     DEFAULT_ROADMAP_REVIEW_TOKEN_BUDGET,
@@ -2018,6 +2019,11 @@ class RoadmapReviewConfig(BaseModel):
     token_budget: Annotated[int, Variable()] = Field(
         description="The most new tokens that the model of one review may use, summed over the attempts of its structured reply. Before the call the step counts the tokens of the request, and at the cap it stops with the class `limit_reached` and names this setting",
         default=DEFAULT_ROADMAP_REVIEW_TOKEN_BUDGET,
+        ge=1,
+    )
+    infra_wait_hours: Annotated[int, Variable()] = Field(
+        description="The hours that the step review waits on a head whose only failed checks are of CI infrastructure. Each wait logs one line. With `--confirm` in the mode `on`, the step records the time of the first wait of the head, and after this many hours it comments once that a person must run the check again, and gives no verdict",
+        default=DEFAULT_ROADMAP_REVIEW_INFRA_WAIT_HOURS,
         ge=1,
     )
 

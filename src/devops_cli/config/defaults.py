@@ -1179,6 +1179,9 @@ DEFAULT_ROADMAP_MODEL_JOBS: int = 2
 DEFAULT_ROADMAP_REVIEW_MODE: RowMode = "plan"
 DEFAULT_ROADMAP_REVIEW_ROUNDS: int = 3
 DEFAULT_ROADMAP_REVIEW_TOKEN_BUDGET: int = 16_000_000
+# The hours that the step review waits on a head whose only failed checks are of CI
+# infrastructure before it leaves the pull request for a person (#6024).
+DEFAULT_ROADMAP_REVIEW_INFRA_WAIT_HOURS: int = 6
 # The mode of a decision point in `roadmap.decisions` (ADR 0020).
 DecisionMode = Literal["off", "shadow", "on"]
 DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS: float = 1.0

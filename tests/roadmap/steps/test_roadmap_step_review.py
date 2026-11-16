@@ -9,15 +9,17 @@ step as parameters.
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 
 from devops_cli.config.settings import Settings
-from devops_cli.exceptions import DevOpsCLIError
+from devops_cli.exceptions import DevOpsCLIError, GitOperationError, RoadmapImplementError
 from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
 from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.body_hash import body_hashes
@@ -34,11 +36,14 @@ from devops_cli.roadmap.pr_verdict import (
 )
 from devops_cli.roadmap.steps.review import (
     DueFix,
+    Judgement,
+    ReviewCall,
     ReviewResult,
     Waiting,
     model_judgement,
     rule_judgement,
     run_review,
+    write_verdict,
 )
 from devops_cli.roadmap.steps.review_facts import (
     RelatedPull,
@@ -73,6 +78,7 @@ BASE = "3333333333333333333333333333333333333333"
 CODE = "src/devops_cli/sample.py"
 TICKED = "# Tasks\n\n## 1. Group\n\n- [x] 1.1 Do it\n"
 BODY = "## Problem\n\nThe sample does not work.\n"
+_RUN_PASSED = {"name": "Tests", "status": "completed", "conclusion": "success"}
 
 
 def _check(name: str, bucket: CheckBucket = CheckBucket.PASS) -> PRCheckItem:
@@ -163,7 +169,7 @@ def test_only_a_failed_check_of_ci_infrastructure_waits() -> None:
     checks = _checks(_check("Tests"), _check("Test Job Duration", CheckBucket.FAIL))
 
     assert rule_judgement(_facts(checks=checks)) == Waiting(
-        "Only CI infrastructure failed: Test Job Duration."
+        "Only CI infrastructure failed: Test Job Duration.", infra=True
     )
 
 
@@ -335,6 +341,7 @@ class World:
     gh: ProcessFake
     store: InMemoryRoadmapStore = field(default_factory=lambda: InMemoryRoadmapStore(repo=REPO))
     withdrawn: list[tuple[str, str]] = field(default_factory=list)
+    closes_before_withdraw: list[int] = field(default_factory=list)
     ready: list[tuple[str, ...]] = field(default_factory=list)
 
     def item(self, *labels: str, record: dict[Any, str | None] | None = None, **seed: Any) -> int:
@@ -361,9 +368,12 @@ class World:
         threads: Sequence[dict[str, Any]] = (),
         history: Sequence[dict[str, Any]] = (),
         kind: PullKind = PullKind.DELIVERY,
+        ready_by: str | None = None,
+        state: str = "open",
     ) -> int:
         """The pull request of `item` on its branch, with its check runs, its diff, its threads,
-        the history of the base branch, and the change folder of the item."""
+        the history of the base branch, the login that marked it ready, and the change folder of
+        the item."""
         branch = f"{'docs' if kind is PullKind.PLAN else 'feat'}/{item}-sample"
         number = self.store.seed_pull(
             title, head_ref=branch, head_sha=HEAD, draft=draft, labels=labels
@@ -372,25 +382,15 @@ class World:
         held = self.store.item(item)
         assert held is not None
         self.store.set_marks(held, {key: str(number)})
-        self.api.route(
-            "GET",
-            f"/repos/{REPO}/pulls/{number}",
-            *(
-                github_json(
-                    {
-                        "state": "open",
-                        "draft": draft,
-                        "title": title,
-                        "head": {"ref": branch, "sha": head},
-                        "base": {"ref": "main"},
-                        "user": {"login": author},
-                        "labels": [{"name": name} for name in labels],
-                        "mergeable": True,
-                        "mergeable_state": "clean",
-                    }
-                )
-                for head in heads
-            ),
+        self.status(
+            number,
+            heads=heads,
+            state=state,
+            draft=draft,
+            title=title,
+            branch=branch,
+            author=author,
+            labels=labels,
         )
         check_runs = [
             {"name": name, "status": "completed", "conclusion": conclusion}
@@ -420,7 +420,12 @@ class World:
         graph = {
             "data": {
                 "repository": {
-                    "pullRequest": {"reviewThreads": {"nodes": list(threads)}},
+                    "pullRequest": {
+                        "reviewThreads": {"nodes": list(threads)},
+                        "timelineItems": {
+                            "nodes": [{"actor": {"login": ready_by}}] if ready_by else []
+                        },
+                    },
                     "ref": {"target": {"history": {"nodes": [*history, _commit(BASE)]}}},
                 }
             }
@@ -443,8 +448,45 @@ class World:
         )
         return number
 
+    def status(
+        self,
+        number: int,
+        *,
+        heads: Sequence[str] = (HEAD,),
+        state: str = "open",
+        draft: bool = True,
+        title: str = "feat(roadmap): Add the sample",
+        branch: str = "",
+        author: str = BOT,
+        labels: Sequence[str] = (),
+    ) -> None:
+        """Answer the reads of pull request `number` with these fields, one answer for each of
+        `heads`."""
+        self.api.route(
+            "GET",
+            f"/repos/{REPO}/pulls/{number}",
+            *(
+                github_json(
+                    {
+                        "state": state,
+                        "draft": draft,
+                        "title": title,
+                        "head": {"ref": branch, "sha": head},
+                        "base": {"ref": "main"},
+                        "user": {"login": author},
+                        "labels": [{"name": name} for name in labels],
+                        "mergeable": True,
+                        "mergeable_state": "clean",
+                    }
+                )
+                for head in heads
+            ),
+        )
+
     def withdraw(self, branch: str, lease: str) -> None:
+        """Record the delete of `branch` and how many closes were sent before it."""
         self.withdrawn.append((branch, lease))
+        self.closes_before_withdraw.append(len(self.closed()))
 
     def run(self, pull: int, judge: FakeJudge | None = None, **kwargs: Any) -> Any:
         return run_review(
@@ -651,64 +693,308 @@ def test_a_ready_pull_request_that_needs_work_goes_back_to_draft(
     assert world.ready == [("pr", "ready", str(pull), "--undo", "--repo", REPO)]
 
 
-def test_a_discarded_delivery_is_closed_withdrawn_and_returned_for_a_new_implementation(
-    world: World,
+@pytest.mark.parametrize(
+    ("kind", "title", "verdict", "label"),
+    [
+        (
+            PullKind.DELIVERY,
+            "feat(roadmap): Add the sample",
+            Verdict.DISCARD_IMPLEMENTATION,
+            "verdict/discard-implementation",
+        ),
+        (
+            PullKind.PLAN,
+            "docs(openspec): plan #1 Add the sample",
+            Verdict.DISCARD_PLAN,
+            "verdict/discard-plan",
+        ),
+    ],
+)
+def test_a_discard_of_the_model_alone_labels_and_comments_and_leaves_the_close_to_a_person(
+    world: World, kind: PullKind, title: str, verdict: Verdict, label: str
 ) -> None:
-    item = world.item(record={ImplementRecordKey.BRANCH: "feat/1-sample"})
-    pull = world.pull(item)
+    """Issue text can steer the model, so a discard of the model alone closes nothing and needs
+    no withdraw (#6024, items 7 and 8)."""
+    item = world.item()
+    pull = world.pull(item, title=title, kind=kind)
     judge = FakeJudge(_reply(ReplyVerdict.DISCARD, CODE))
 
-    report = world.run(pull, judge, mode="on", confirm=True)
+    report = run_review(world.store, REPO, pull, judge=judge, mode="on", confirm=True)
 
-    assert (report.verdict, report.label) == (
-        Verdict.DISCARD_IMPLEMENTATION,
-        "verdict/discard-implementation",
+    assert (report.result, report.verdict, report.label, report.written) == (
+        ReviewResult.JUDGED,
+        verdict,
+        label,
+        True,
     )
-    assert world.closed() == [pull]
-    assert world.withdrawn == [(f"feat/{item}-sample", HEAD)]
+    assert report.action.startswith("a person decides the discard")
+    assert (world.closed(), world.withdrawn, world.labels(pull)) == ([], [], (label,))
+    [comment] = world.comments()
+    assert "a person decides the discard" in comment
     held = world.store.item(item)
     assert held is not None
-    assert held.status == "New"
-    assert held.job_record.get(ImplementRecordKey.PR) is None
-    assert held.job_record.get(ImplementRecordKey.BRANCH) is None
+    assert held.status != "New"
+    assert world.record(item)["review.source"] == "model"
+
+
+def _rule_discard(world: World, item: int, pull: int, kind: PullKind) -> ReviewCall:
+    """The call of the step on `pull`, as `run_review` builds it, for a discard of a rule."""
+    held = world.store.item(item)
+    assert held is not None
+    status = get_github_session().client.get_pull_status(REPO, pull)
+    return ReviewCall(world.store, REPO, pull, status, held, kind, "on", True, 0, BOT)
+
+
+_RULE_DISCARD = Judgement(Verdict.DISCARD_IMPLEMENTATION, "The work cannot be fixed.")
+
+
+@pytest.mark.parametrize(
+    ("kind", "title", "verdict", "key"),
+    [
+        (
+            PullKind.DELIVERY,
+            "feat(roadmap): Add the sample",
+            Verdict.DISCARD_IMPLEMENTATION,
+            ImplementRecordKey.PR,
+        ),
+        (PullKind.PLAN, "docs(openspec): plan #1 Add", Verdict.DISCARD_PLAN, StageRecordKey.PR),
+    ],
+)
+def test_a_discard_deletes_the_branch_first_then_closes_then_returns_the_item(
+    world: World, kind: PullKind, title: str, verdict: Verdict, key: Any
+) -> None:
+    """A delete that fails would leave a closed pull request and an item that never goes back
+    (#6024, item 2)."""
+    item = world.item(record={ImplementRecordKey.BRANCH: "feat/0-other"})
+    pull = world.pull(item, title=title, kind=kind)
+    branch = f"{'docs' if kind is PullKind.PLAN else 'feat'}/{item}-sample"
+
+    report = write_verdict(
+        _rule_discard(world, item, pull, kind),
+        Judgement(verdict, "The work cannot be fixed."),
+        withdraw=world.withdraw,
+    )
+
+    assert (report.result, report.verdict) == (ReviewResult.JUDGED, verdict)
+    assert (world.withdrawn, world.closes_before_withdraw, world.closed()) == (
+        [(branch, HEAD)],
+        [0],
+        [pull],
+    )
+    held = world.store.item(item)
+    assert held is not None
+    assert (held.status, held.job_record.get(key)) == ("New", None)
     assert set(world.record(item).values()) == {None}
 
 
-def test_a_discarded_plan_clears_the_keys_of_the_plan(world: World) -> None:
-    item = world.item()
-    pull = world.pull(item, title="docs(openspec): plan #1 Add the sample", kind=PullKind.PLAN)
-    judge = FakeJudge(_reply(ReplyVerdict.DISCARD, f"openspec/changes/{item}-sample/tasks.md"))
-
-    report = world.run(pull, judge, mode="on", confirm=True)
-
-    assert (report.verdict, report.label) == (Verdict.DISCARD_PLAN, "verdict/discard-plan")
-    assert world.withdrawn == [(f"docs/{item}-sample", HEAD)]
-    held = world.store.item(item)
-    assert held is not None
-    assert (held.status, held.job_record.get(StageRecordKey.PR)) == ("New", None)
-
-
-def test_a_delivery_on_the_branch_of_its_plan_is_left_for_a_person(world: World) -> None:
-    """A delete of the branch would lose the plan too, so the step comments and stops, and the
-    next call on the same head asks no model."""
-    item = world.item()
+def test_a_failed_delete_closes_nothing_and_the_next_call_can_try_again(world: World) -> None:
+    item = world.item(record={ImplementRecordKey.BRANCH: "feat/0-other"})
     pull = world.pull(item)
+
+    def refuse(branch: str, lease: str) -> None:
+        raise GitOperationError("the lease of the delete broke", operation="roadmap.review")
+
+    with pytest.raises(GitOperationError, match="lease"):
+        write_verdict(
+            _rule_discard(world, item, pull, PullKind.DELIVERY), _RULE_DISCARD, withdraw=refuse
+        )
+
+    assert world.closed() == []
     held = world.store.item(item)
     assert held is not None
-    world.store.set_marks(held, {StageRecordKey.PR: str(pull)})
-    judge = FakeJudge(_reply(ReplyVerdict.DISCARD, CODE))
+    assert held.job_record.get(ImplementRecordKey.PR) == str(pull)
+    assert world.record(item)["review.discard"] == f"{pull}:{HEAD}"
+
+
+def test_a_call_on_the_closed_pull_request_ends_a_discard_that_stopped(world: World) -> None:
+    """The delete ran, and GitHub closed the pull request, but the return did not (#6024)."""
+    item = world.item()
+    pull = world.pull(item, state="closed")
+    unmarked = world.run(pull, mode="on", confirm=True)
+    held = world.store.item(item)
+    assert held is not None
+    world.store.set_marks(held, {ReviewRecordKey.DISCARD: f"{pull}:{HEAD}"})
+
+    report = world.run(pull, mode="on", confirm=True)
+
+    assert unmarked.result is ReviewResult.SKIPPED
+
+    assert (report.result, report.verdict, report.written) == (
+        ReviewResult.JUDGED,
+        Verdict.DISCARD_IMPLEMENTATION,
+        True,
+    )
+    assert world.withdrawn == [(f"feat/{item}-sample", HEAD)]
+    held = world.store.item(item)
+    assert held is not None
+    assert (held.status, held.job_record.get(ImplementRecordKey.PR)) == ("New", None)
+    assert held.job_record.get(ReviewRecordKey.DISCARD) is None
+
+
+def test_a_discard_without_a_withdraw_writes_nothing(world: World) -> None:
+    """The check of the withdraw comes before the first write (#6024, item 8)."""
+    item = world.item(record={ImplementRecordKey.BRANCH: "feat/0-other"})
+    pull = world.pull(item)
+
+    with pytest.raises(RoadmapImplementError, match="withdraw"):
+        write_verdict(_rule_discard(world, item, pull, PullKind.DELIVERY), _RULE_DISCARD)
+
+    assert (world.comments(), world.labels(pull), world.closed()) == ([], (), [])
+
+
+@pytest.mark.parametrize(
+    ("kind", "record"),
+    [
+        (PullKind.PLAN, "implement.branch"),
+        (PullKind.DELIVERY, "stage.pr"),
+    ],
+)
+def test_a_discard_of_a_branch_that_holds_other_work_is_left_for_a_person(
+    world: World, kind: PullKind, record: str
+) -> None:
+    """A plan branch that the implement job builds on, or a delivery on the branch of its plan,
+    keeps its branch (#6024, item 6)."""
+    title = "docs(openspec): plan #1 Add" if kind is PullKind.PLAN else "feat(roadmap): Add"
+    item = world.item()
+    pull = world.pull(item, title=title, kind=kind)
+    branch = f"{'docs' if kind is PullKind.PLAN else 'feat'}/{item}-sample"
+    held = world.store.item(item)
+    assert held is not None
+    shared = ImplementRecordKey.BRANCH if record == "implement.branch" else StageRecordKey.PR
+    world.store.set_marks(held, {shared: branch if record == "implement.branch" else str(pull)})
+    verdict = Verdict.DISCARD_PLAN if kind is PullKind.PLAN else Verdict.DISCARD_IMPLEMENTATION
+
+    report = write_verdict(
+        _rule_discard(world, item, pull, kind),
+        Judgement(verdict, "The work cannot be fixed."),
+        withdraw=world.withdraw,
+    )
+
+    assert report.result is ReviewResult.STOPPED
+    assert (world.withdrawn, world.closed(), world.labels(pull)) == ([], [], ())
+    [comment] = world.comments()
+    assert "a person decides the discard" in comment
+
+
+def test_a_new_fact_on_a_judged_head_gives_a_new_verdict(world: World) -> None:
+    """A plan is judged Mergeable and marked ready; plan drift then adds `verdict/fix-plan`. The
+    rules run again on the same head, the model is not asked again, and the plan goes back to
+    draft for fix-plan (#6024, item 1)."""
+    item = world.item()
+    title = "docs(openspec): plan #1 Add the sample"
+    pull = world.pull(item, title=title, kind=PullKind.PLAN)
+    judge = FakeJudge(_reply(ReplyVerdict.MERGEABLE))
+    world.run(pull, judge, mode="on", confirm=True)
+    branch = f"docs/{item}-sample"
+    labels = ("verdict/mergeable", "verdict/fix-plan")
+    world.store.label_issue(pull, "verdict/fix-plan")
+    world.status(pull, draft=False, title=title, branch=branch, labels=labels)
 
     report = world.run(pull, judge, mode="on", confirm=True)
-    again = world.run(pull, judge, mode="on", confirm=True)
 
-    assert (report.result, report.verdict) == (
-        ReviewResult.STOPPED,
-        Verdict.DISCARD_IMPLEMENTATION,
+    assert (report.result, report.verdict, report.due) == (
+        ReviewResult.JUDGED,
+        Verdict.NEEDS_FIX,
+        DueFix.FIX_PLAN,
     )
-    assert (world.closed(), world.withdrawn) == ([], [])
+    assert len(judge.cases) == 1
+    assert world.ready[-1] == ("pr", "ready", str(pull), "--undo", "--repo", REPO)
+    assert world.labels(pull) == ("verdict/fix-plan",)
+    assert world.record(item)["review.rounds"] == "2"
+
+
+def test_a_ready_pull_request_that_a_person_marked_ready_stays_ready(world: World) -> None:
+    """The step does not take back the ready mark of a person (#6024, item 3)."""
+    item = world.item()
+    pull = world.pull(item, runs=(("Static Analysis", "failure"),), draft=False, ready_by="person")
+
+    report = world.run(pull, mode="on", confirm=True)
+
+    assert (report.verdict, report.written) == (Verdict.NEEDS_FIX, True)
+    assert report.action.startswith("a person marked the pull request ready")
+    assert world.ready == []
+
+
+def test_an_item_that_a_live_stage_job_holds_is_skipped(world: World) -> None:
+    """The watch row and the open row skip a live `stage.job` too (#6024, item 4)."""
+    item = world.item(record={StageRecordKey.JOB: "stage-12-abc"})
+    pull = world.pull(item)
+    judge = FakeJudge(_reply(ReplyVerdict.MERGEABLE))
+
+    report = world.run(pull, judge, mode="on", confirm=True)
+
+    assert (report.result, judge.cases, world.comments()) == (ReviewResult.SKIPPED, [], [])
+    assert "stage-12-abc" in report.reason
+
+
+def test_the_claim_of_the_service_does_not_stop_the_review(world: World) -> None:
+    """`owner/service` holds nothing against the jobs of the Service (`claim_labels`, item 5)."""
+    pull = world.pull(world.item("owner/service"), labels=("owner/service",))
+
+    report = world.run(pull, mode="on")
+
+    assert (report.result, report.verdict) == (ReviewResult.JUDGED, Verdict.MERGEABLE)
+
+
+def test_a_wait_on_ci_infrastructure_logs_and_ends_after_its_limit(
+    world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The first wait of a head records its time; after `infra_wait_hours` the step comments once
+    for a person (#6024, item 9)."""
+    item = world.item()
+    pull = world.pull(item, runs=(("Tests", "success"), ("Test Job Duration", "failure")))
+    start = datetime(2026, 11, 16, 8, 0, tzinfo=UTC)
+
+    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.steps.review"):
+        first = world.run(pull, mode="on", confirm=True, now=start)
+    later = world.run(pull, mode="on", confirm=True, now=start + timedelta(hours=6))
+
+    assert (first.result, later.result) == (ReviewResult.WAIT, ReviewResult.STOPPED)
+    assert world.record(item)["review.wait"] == f"{HEAD} {start.isoformat()}"
+    assert "waits on CI infrastructure" in caplog.text
     [comment] = world.comments()
-    assert "a person decides" in comment
-    assert (again.result, len(judge.cases)) == (ReviewResult.SKIPPED, 1)
+    assert "a person runs the failed check again" in comment
+
+
+def test_an_issue_text_that_an_issue_changed_verdict_answered_is_not_judged_again(
+    world: World,
+) -> None:
+    """After an issue edit, the updated work of that text gets its own verdict, not Issue changed
+    on each new head (#6024, item 9)."""
+    item = world.item(record={StageRecordKey.TEXT_HASH: "0" * 64})
+    pull = world.pull(item)
+    world.run(pull, mode="on", confirm=True)
+    assert world.record(item)["review.text"] == body_hashes(BODY)[0]
+    world.status(pull, heads=(NEW_HEAD,), branch=f"feat/{item}-sample")
+    world.api.route(
+        "GET",
+        f"/repos/{REPO}/commits/{NEW_HEAD}/check-runs?per_page=100",
+        github_json({"total_count": 1, "check_runs": [_RUN_PASSED]}),
+    )
+    route_compare_files(
+        world.api,
+        REPO,
+        "main",
+        NEW_HEAD,
+        {"filename": CODE, "status": "modified"},
+        {
+            "filename": f"openspec/changes/archive/2026-11-16-{item}-sample/tasks.md",
+            "status": "added",
+        },
+        merge_base=BASE,
+    )
+    route_compare_diff(world.api, REPO, "main", NEW_HEAD, "diff")
+    route_file(
+        world.api,
+        REPO,
+        f"openspec/changes/archive/2026-11-16-{item}-sample/tasks.md",
+        NEW_HEAD,
+        TICKED,
+    )
+
+    report = world.run(pull, mode="on")
+
+    assert report.verdict is Verdict.MERGEABLE
 
 
 def test_a_head_that_moves_after_the_read_writes_nothing(world: World) -> None:

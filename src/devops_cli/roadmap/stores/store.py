@@ -364,13 +364,21 @@ class ReviewRecordKey(StrEnum):
     """What the step `review` records in an Item's job record (#5969): `review.pull` is the pull
     request that `review.rounds` counts the written verdicts of, `review.key` is the pull request,
     the head and the hash of the text of the item that the last verdict judged
-    (`<pull>:<head>:<text hash>`), and `review.verdict` is that verdict. A verdict on another pull
-    request starts the count again."""
+    (`<pull>:<head>:<text hash>`), `review.verdict` is that verdict and `review.source` whether a
+    rule or the model gave it. A verdict on another pull request starts the count again.
+    `review.text` is the hash of the issue text that an Issue changed verdict answered, so the same
+    text gives no second one (#6024). `review.wait` is the head and the time of the first wait on
+    CI infrastructure (`<head> <time>`), and `review.discard` the pull request and the head of a
+    discard that started (`<pull>:<head>`), so a later call ends it."""
 
     PULL = "review.pull"
     ROUNDS = "review.rounds"
     KEY = "review.key"
     VERDICT = "review.verdict"
+    SOURCE = "review.source"
+    TEXT = "review.text"
+    WAIT = "review.wait"
+    DISCARD = "review.discard"
 
 
 class ImplementResult(StrEnum):
