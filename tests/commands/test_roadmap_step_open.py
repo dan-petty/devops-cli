@@ -79,7 +79,11 @@ def test_open_cmd_creates_pr_and_prints_json_line(
         "--title",
         TITLE,
         "--body",
-        "Body text",
+        # A plan body in the form that the open step checks (#5974).
+        (
+            f"Plan the open step for every pull request.\n\nPlans #{number}\n\n"
+            f"Change: `openspec/changes/{number}-open-step/`"
+        ),
         "--kind",
         "plan",
     )
