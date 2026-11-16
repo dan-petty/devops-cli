@@ -8,6 +8,8 @@ other programs are answered at the process edge.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -64,7 +66,9 @@ def test_a_removal_that_the_merged_plan_records_passes_the_step(planned_world: J
 
 def test_a_removal_that_the_merged_plan_does_not_record_stops_and_waits(
     planned_world: JobWorld,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 0}})
     planned_world.repo.track({OLD_PATH: OLD})
 
     applied = planned_world.run(_removal())
@@ -81,7 +85,9 @@ def test_a_removal_that_the_merged_plan_does_not_record_stops_and_waits(
 
 def test_an_entry_that_the_agent_writes_in_its_checkout_waives_nothing(
     planned_world: JobWorld,
+    config: Callable[..., Path],
 ) -> None:
+    config(roadmap={"implement": {"repair_rounds": 0}})
     planned_world.repo.track({OLD_PATH: OLD})
     own_entry = write_call(PROPOSAL_PATH, PROPOSAL + SECTION)
 
@@ -91,7 +97,11 @@ def test_an_entry_that_the_agent_writes_in_its_checkout_waives_nothing(
     assert _record(planned_world).get("implement.failure") == "tests_lost"
 
 
-def test_a_plan_only_on_its_staged_branch_records_nothing(job_world: JobWorld) -> None:
+def test_a_plan_only_on_its_staged_branch_records_nothing(
+    job_world: JobWorld,
+    config: Callable[..., Path],
+) -> None:
+    config(roadmap={"implement": {"repair_rounds": 0}})
     """Nobody merged the plan of a Staged item, so its record is the agent's own."""
     job_world.repo.track({OLD_PATH: OLD})
     repo = job_world.repo

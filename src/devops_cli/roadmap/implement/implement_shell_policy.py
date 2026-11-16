@@ -28,16 +28,20 @@ with `!`: the negative search `! git grep [options] <literal> [--] <path>...`, w
 git finds no match (#3263). `read_negative_search` reads its words against one table: the
 options below, a literal of plain characters and relative paths. The gate of the stage job reads
 the same function, so a plan cannot pass the gate with a command that the step refuses.
+`verification_class` reads the program of a failed verification command, so the step gives its
+failure the class of that program (#3577).
 """
 
 from __future__ import annotations
 
 import re
 import shlex
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from types import MappingProxyType
+from typing import Final
 
 from devops_cli.config.commands import (
     BIN_DEVOPS,
@@ -45,6 +49,7 @@ from devops_cli.config.commands import (
     BIN_GIT,
     BIN_MYPY,
     BIN_OPENSPEC,
+    BIN_PYTEST,
     BIN_RUFF,
     BIN_UV,
 )
@@ -54,6 +59,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS,
 )
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.failure import FailureClass
 
 
 class ShellAccess(StrEnum):
@@ -535,6 +541,36 @@ def read_verification(command: str) -> Verification | str:
             program=shown(words[0]), allowed=", ".join(VERIFICATION_FIRST_WORDS)
         )
     return Verification(words)
+
+
+_UV_RUN: Final[tuple[str, ...]] = (BIN_UV, "run")
+_CI_WORDS: Final[tuple[str, ...]] = (BIN_DEVOPS, "ci")
+# The class of a verification command, by the program after `uv run`. A program that is not here
+# names no class, and its failure still gets a repair turn (#3577).
+_PROGRAM_CLASS: Final[Mapping[str, FailureClass]] = MappingProxyType(
+    {
+        BIN_PYTEST: FailureClass.TEST,
+        BIN_MYPY: FailureClass.TYPES,
+        BIN_RUFF: FailureClass.LINT,
+    }
+)
+# The class of a row of `devops ci`, read after `uv run devops ci` (#3577).
+_CI_ROW_CLASS: Final[Mapping[str, FailureClass]] = MappingProxyType(
+    {"test": FailureClass.TEST, "lint": FailureClass.LINT, "typecheck": FailureClass.TYPES}
+)
+
+
+def verification_class(argv: Sequence[str]) -> FailureClass | None:
+    """The class of the verification command `argv`: `pytest` is a test, `mypy` is types and `ruff`
+    is lint, and the row after `devops ci` gives the same three. A program that names none of them,
+    such as `devops docs check`, has no class: its failure still gets a repair turn, and its message
+    names no class."""
+    words = list(argv)
+    if tuple(words[:2]) == _UV_RUN:
+        del words[:2]
+    if tuple(words[:2]) == _CI_WORDS:
+        return _CI_ROW_CLASS.get(words[2]) if len(words) > 2 else None
+    return _PROGRAM_CLASS.get(words[0]) if words else None
 
 
 def verification_problem(command: str) -> str | None:

@@ -140,6 +140,7 @@ from devops_cli.roadmap.implement.implement_shell_policy import (
     fill_prompt,
     read_verification,
     shown,
+    verification_class,
 )
 from devops_cli.roadmap.implement.implement_shell_refusal import ShellRefusal
 from devops_cli.roadmap.implement.implement_strategy import (
@@ -1160,6 +1161,15 @@ def _tick_group(source: Path, inputs: StepInputs) -> str | None:
     return None
 
 
+@dataclass(frozen=True)
+class _CommandStop:
+    """The stop of one verification command: its argv, exit status and negative flag (#3577)."""
+
+    argv: Sequence[str]
+    status: int
+    negative: bool
+
+
 def _command_failure(
     source: Path,
     argv: Sequence[str],
@@ -1168,11 +1178,13 @@ def _command_failure(
     negative: bool = False,
     trace: ImplementTrace | None = None,
     verified: list[VerifiedCommand] | None = None,
+    stops: list[_CommandStop] | None = None,
 ) -> str | None:
     """Run `argv` in the checkout. None when it exits 0, else why the step stops. A `negative`
     search passes on exit 1 (git found no match), and a match (exit 0) is why it stops. With a
     `trace`, the run is a `check` event: its exit status, or none for a timeout (#3032). With
-    `verified`, the run is added to it with its masked, bounded output (#3042)."""
+    `verified`, the run is added to it with its masked, bounded output (#3042). With `stops`,
+    the command that failed is appended to it (#3577)."""
     limit = load_settings().roadmap.implement.command_timeout_seconds
     try:
         done = run_subprocess(list(argv), cwd=source, quiet=True, timeout=limit)
@@ -1188,6 +1200,8 @@ def _command_failure(
         )
     if done.returncode == (1 if negative else 0):
         return None
+    if stops is not None:
+        stops.append(_CommandStop(argv=argv, status=done.returncode, negative=negative))
     if negative and done.returncode == 0:
         return MESSAGES.roadmap.implement_stop_search_found.format(
             command=named, output=_tail(done)
@@ -1202,6 +1216,7 @@ def commands_failure(
     commands: Iterable[str],
     trace: ImplementTrace | None = None,
     verified: list[VerifiedCommand] | None = None,
+    stops: list[_CommandStop] | None = None,
 ) -> str | None:
     """Run each of `commands` in the checkout, in order: None when all exit 0, else why the first
     that did not stops the run. A command whose program is not on the allowlist does not run. A
@@ -1216,7 +1231,13 @@ def commands_failure(
                 command=named, reason=found
             )
         failure = _command_failure(
-            source, found.argv, named, negative=found.negative, trace=trace, verified=verified
+            source,
+            found.argv,
+            named,
+            negative=found.negative,
+            trace=trace,
+            verified=verified,
+            stops=stops,
         )
         if failure is not None:
             return failure
@@ -1405,11 +1426,13 @@ class _Failure:
     """Why the step stops, and, for a failed static check or hook, the paths that the step changed:
     the files that an extra turn for that failure may change (#2795). `repair_paths` is None for
     a failure that gets no such turn. `hook` says that a hook of the project failed (#3043).
-    `klass` is the class of the failure, when the check that failed knows its cause (#3476)."""
+    `verification` says that a verification command failed (#3577). `klass` is the class of the
+    failure, when the check that failed knows its cause (#3476)."""
 
     reason: str
     repair_paths: frozenset[str] | None = None
     hook: bool = False
+    verification: bool = False
     klass: FailureClass | None = None
 
 
@@ -1613,7 +1636,9 @@ def _outside_plan_failure(source: Path, inputs: StepInputs, base: str) -> _Failu
     )
 
 
-def _plan_failure(source: Path, inputs: StepInputs, keeper: WipKeeper) -> _Failure | None:
+def _plan_failure(
+    source: Path, inputs: StepInputs, keeper: WipKeeper, changed: Sequence[str]
+) -> _Failure | None:
     """Why the step stops for the plan of the change, else None. A fix step stops when it changed a
     path that the plan does not name (#3824). Any step stops when a test file lost a test that
     existed at the base commit (#3490)."""
@@ -1622,8 +1647,33 @@ def _plan_failure(source: Path, inputs: StepInputs, keeper: WipKeeper) -> _Failu
         return outside
     lost = _tests_failure(source, keeper.base, inputs.recorded_tests)
     if lost:
-        return _Failure(lost, klass=FailureClass.TESTS_LOST)
+        return _Failure(lost, frozenset(changed), klass=FailureClass.TESTS_LOST)
     return None
+
+
+def _early_failure(
+    source: Path, inputs: StepInputs, changed: list[str], log: ToolCallLog
+) -> _Failure | None:
+    """The format or verification failure of the step, or None when all pass."""
+    format_failure = (
+        _format_failure(source, changed, log.trace)
+        if inputs.preset.step_gates == "ruff-mypy"
+        else None
+    )
+    stops: list[_CommandStop] = []
+    early = format_failure or commands_failure(
+        source, inputs.group.verification_commands, log.trace, log.verified, stops
+    )
+    if not early:
+        return None
+    if stops and stops[0].status == 1 and not stops[0].negative:
+        return _Failure(
+            early,
+            frozenset(changed),
+            verification=True,
+            klass=verification_class(stops[0].argv),
+        )
+    return _Failure(early)
 
 
 def _exit_failure(
@@ -1657,19 +1707,12 @@ def _exit_failure(
             ),
             klass=no_change,
         )
-    outside = _plan_failure(source, inputs, keeper)
+    outside = _plan_failure(source, inputs, keeper, changed)
     if outside is not None:
         return outside
-    format_failure = (
-        _format_failure(source, changed, log.trace)
-        if inputs.preset.step_gates == "ruff-mypy"
-        else None
-    )
-    early = format_failure or commands_failure(
-        source, inputs.group.verification_commands, log.trace, log.verified
-    )
-    if early:
-        return _Failure(early)
+    early = _early_failure(source, inputs, changed, log)
+    if early is not None:
+        return early
     form = _test_form_failure(source, inputs, log.trace)
     if form is not None:
         return form
@@ -1846,11 +1889,22 @@ def _extra_ask(
     file (`plan_defect`), gets no turn: no attempt can fix it (#3053). A turn whose strategy is
     `repo_map` also gets the repository map of the files that the failure names (#3569). The
     caller counts the turns against `repair_rounds`."""
-    if failure is None or failure.repair_paths is None:
+    if failure is None:
+        return None
+    if failure.klass in (FailureClass.PLAN_DEFECT, FailureClass.PREMISE_FALSE):
+        return None
+    if failure.repair_paths is None:
         return None
     texts = MESSAGES.roadmap
     removed = texts.implement_removed_note.format(paths=log.removed_text()) if log.removed else ""
-    template = texts.implement_hook_turn if failure.hook else texts.implement_repair_turn
+    if failure.verification:
+        template = texts.implement_verification_turn
+    elif failure.klass is FailureClass.TESTS_LOST:
+        template = texts.implement_tests_lost_turn
+    elif failure.hook:
+        template = texts.implement_hook_turn
+    else:
+        template = texts.implement_repair_turn
     section = (
         repo_map_section(source, failure.reason, inputs.group)
         if strategy is AttemptStrategy.REPO_MAP
