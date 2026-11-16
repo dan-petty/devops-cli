@@ -1240,13 +1240,13 @@ def _missing_live_binary(item: pytest.Item) -> str | None:
 
 
 def _deselect_by_marker(config: pytest.Config, items: list[pytest.Item], marker: str) -> None:
-    """Drop the tests that carry `marker` from `items`, unless `-m` names it (#4007)."""
+    """Drop the tests that carry `marker` from `items`, unless `-m` names it (#4007, #5910)."""
     if marker in config.getoption("-m", ""):
         return
     selected: list[pytest.Item] = []
     deselected: list[pytest.Item] = []
     for item in items:
-        (deselected if marker in item.keywords else selected).append(item)
+        (deselected if item.get_closest_marker(marker) is not None else selected).append(item)
     if deselected:
         config.hook.pytest_deselected(items=deselected)
         items[:] = selected
