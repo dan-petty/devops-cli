@@ -88,6 +88,8 @@ def _moves(groups: Sequence[StageGroup], tree: StagedTree) -> Iterator[_PrefixMo
     for number, group in enumerate(groups, start=1):
         seen: set[tuple[PurePosixPath, str]] = set()
         for old in group.changes:
+            if old in group.creates:
+                continue
             old_path = PurePosixPath(old)
             if old_path.suffix != _PYTHON_SUFFIX:
                 continue
