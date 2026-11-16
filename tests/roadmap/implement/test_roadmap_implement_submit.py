@@ -27,6 +27,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_IMPLEMENT_JOBS,
     CONST_SERVICE_METRIC_IMPLEMENT_REPAIR_ROUNDS,
     CONST_SERVICE_METRIC_IMPLEMENT_TOKENS,
+    CONST_SERVICE_METRIC_KEPT_WORK,
 )
 from devops_cli.config.env import setting_variables
 from devops_cli.exceptions.k8s import ClusterJobError
@@ -604,6 +605,14 @@ def _implement_jobs(item_class: str, result: str, repo: str = STAGE_REPO) -> flo
     return GLOBAL_METRICS.get_counter(
         CONST_SERVICE_METRIC_IMPLEMENT_JOBS,
         labels={"repo": repo, "item_class": item_class, "result": result},
+    )
+
+
+def _kept_work(failure_class: str, outcome: str, repo: str = STAGE_REPO) -> float:
+    """The count of items with kept work for `failure_class` and `outcome` in `repo` (#3650)."""
+    return GLOBAL_METRICS.get_counter(
+        CONST_SERVICE_METRIC_KEPT_WORK,
+        labels={"repo": repo, "class": failure_class, "outcome": outcome},
     )
 
 
@@ -2015,3 +2024,151 @@ def test_each_ended_job_logs_one_attempt_line_with_its_counts_and_digest(
         f"implement attempt: repo={STAGE_REPO} item=#{number} state=failed class=oom "
         f"repair_rounds=0 tokens=0 digest={DIGEST_A}"
     ]
+
+
+def test_a_job_that_starts_from_kept_work_counts_continued_with_the_class_of_the_stop(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """The clear keeps the class of the stop of a run that kept its work, and the Job that starts
+    from that work counts `continued` with it (#3650)."""
+    number = seed_staged(store)
+    store.set_marks(
+        _held(store, number),
+        {
+            ImplementRecordKey.WIP: '{"group": "1", "commit": "abc"}',
+            ImplementRecordKey.CONTINUED: FailureClass.PARSER.value,
+        },
+    )
+    before = _kept_work(FailureClass.PARSER.value, "continued")
+
+    _round(store, staged_repo)
+
+    assert (
+        _kept_work(FailureClass.PARSER.value, "continued") - before,
+        len(_creates(kube)),
+    ) == (1, 1)
+
+
+def test_kept_work_that_reaches_the_ready_mark_counts_finished(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """A Job that starts from kept work and ends with the ready mark counts `finished` with the
+    class of the kept stop, and removes the mark (#3650)."""
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    store.set_marks(
+        _held(store, number),
+        {
+            ImplementRecordKey.CONTINUED: FailureClass.PARSER.value,
+            ImplementRecordKey.RESULT: ImplementResult.READY.value,
+        },
+    )
+    store.set_field(_held(store, number), ItemField.STATUS, "In Review")
+    _end(kube, "Complete")
+    before = (
+        _kept_work(FailureClass.PARSER.value, "finished"),
+        _implement_jobs("fix", "succeeded"),
+    )
+
+    _round(store, staged_repo)
+    reported = (
+        _kept_work(FailureClass.PARSER.value, "finished") - before[0],
+        _implement_jobs("fix", "succeeded") - before[1],
+        _record(store, number).get("implement.continued"),
+    )
+    _round(store, staged_repo)
+
+    assert reported == (1, 1, None)
+    assert (
+        _kept_work(FailureClass.PARSER.value, "finished") - before[0],
+        _implement_jobs("fix", "succeeded") - before[1],
+    ) == (1, 1)
+
+
+def test_kept_work_that_stops_again_counts_blocked(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """A Job that starts from kept work and stops again counts `blocked` with the class of the new
+    stop, not the class of the kept one (#3650)."""
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    name = _jobs(kube)[0]["metadata"]["name"]
+    store.set_marks(_held(store, number), {ImplementRecordKey.CONTINUED: FailureClass.PARSER.value})
+    store.set_field(_held(store, number), ItemField.STATUS, "In Progress")
+    _end(kube, "Failed")
+    kube.core.answers["list_namespaced_pod"] = [pod(f"{name}-x1", namespace="devops")]
+    kube.core.answers["read_namespaced_pod_log"] = "MemoryError: Cannot allocate memory\n"
+    before = (
+        _kept_work(FailureClass.OOM.value, "blocked"),
+        _kept_work(FailureClass.PARSER.value, "blocked"),
+    )
+
+    _round(store, staged_repo)
+
+    assert (
+        _kept_work(FailureClass.OOM.value, "blocked") - before[0],
+        _kept_work(FailureClass.PARSER.value, "blocked") - before[1],
+        _record(store, number).get("implement.continued"),
+    ) == (1, 0, None)
+
+
+def test_a_job_with_no_kept_work_adds_no_outcome(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """A mark of kept work on an item with no kept work counts nothing: the claim removes it, and
+    the report of its Job adds no outcome (#3650)."""
+    number = seed_staged(store)
+    store.set_marks(_held(store, number), {ImplementRecordKey.CONTINUED: FailureClass.PARSER.value})
+    outcomes = ("continued", "finished", "blocked")
+    before = {outcome: _kept_work(FailureClass.PARSER.value, outcome) for outcome in outcomes}
+    before_jobs = _implement_jobs("fix", "succeeded")
+
+    _round(store, staged_repo)
+
+    created = (_record(store, number).get("implement.continued"), len(_creates(kube)))
+    store.set_field(_held(store, number), ItemField.STATUS, "In Review")
+    _end(kube, "Complete")
+    _round(store, staged_repo)
+
+    assert (
+        created,
+        {
+            outcome: _kept_work(FailureClass.PARSER.value, outcome) - before[outcome]
+            for outcome in outcomes
+        },
+        _implement_jobs("fix", "succeeded") - before_jobs,
+    ) == ((None, 1), dict.fromkeys(outcomes, 0), 1)
+
+
+@pytest.mark.parametrize("result", [ImplementResult.YIELDED.value, ImplementResult.RETURNED.value])
+def test_a_yield_or_a_return_of_kept_work_counts_no_outcome(
+    store: InMemoryRoadmapStore,
+    staged_repo: StageRepo,
+    api: GitHubApiFake,
+    kube: FakeCluster,
+    result: str,
+) -> None:
+    """A yield is no stop and no ready mark, and a return to New ends the plan, so neither counts
+    an outcome. Both remove the mark of kept work (#3650)."""
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    store.set_marks(
+        _held(store, number),
+        {
+            ImplementRecordKey.CONTINUED: FailureClass.PARSER.value,
+            ImplementRecordKey.RESULT: result,
+        },
+    )
+    _end(kube, "Complete")
+    outcomes = ("continued", "finished", "blocked")
+    before = {outcome: _kept_work(FailureClass.PARSER.value, outcome) for outcome in outcomes}
+
+    _round(store, staged_repo)
+
+    assert (
+        _record(store, number).get("implement.continued"),
+        {
+            outcome: _kept_work(FailureClass.PARSER.value, outcome) - before[outcome]
+            for outcome in outcomes
+        },
+    ) == (None, dict.fromkeys(outcomes, 0))

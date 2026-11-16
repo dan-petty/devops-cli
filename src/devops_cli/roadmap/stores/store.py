@@ -397,7 +397,9 @@ class ImplementRecordKey(StrEnum):
     judges the item and does not leave it out for the label clears the mark. `implement.left_action`
     holds the action left with the stop (#3648), as a value of `FailureAction`, so a person reads it
     in `devops roadmap explain` and `devops roadmap inbox`; a retry and each clear rule of the
-    Service remove it with the stop."""
+    Service remove it with the stop. `implement.continued` holds the class of the stop whose kept
+    work the next Job continues (#3650): the clear of a stop writes it with the class of the stop
+    when the record holds kept work, and the report of the next Job removes it."""
 
     GROUP = "implement.group"
     SHA = "implement.sha"
@@ -423,6 +425,7 @@ class ImplementRecordKey(StrEnum):
     DIGEST_CLEARS = "implement.digest_clears"
     DIGEST_CLEAR_COMMENTED_AT = "implement.digest_clear_commented_at"
     CONTINUATIONS = "implement.continuations"
+    CONTINUED = "implement.continued"
     REPAIR_ROUNDS = "implement.repair_rounds"
     NEEDS_FIX = "implement.needs_fix"
 

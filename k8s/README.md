@@ -1482,3 +1482,13 @@ k8s/
 │   └── gateway/              # LiteLLM gateway: Deployment, NodePort Service, NetworkPolicy, ServiceMonitor, and config.yaml, from which kustomization.yaml generates the routing ConfigMap
 └── README.md                 # This file
 ```
+
+## Roadmap Service metrics
+
+The roadmap Service serves its counters on the `/metrics` route of the deployment ([Roadmap service](../docs/CLUSTER.md#roadmap-service)). The counter `devops_cli_service_kept_work_total` counts the items whose implement job kept its work (#3650). It has the labels `repo`, `class` and `outcome`:
+
+- `repo`: the repository of the item, `owner/name`.
+- `class`: the failure class of the stop, one value of [the failure classes](../docs/ROADMAP_WORKFLOW.md#the-failure-classes).
+- `outcome`: `continued` when the next runner Job starts from the kept work, `finished` when the kept work reaches the ready mark, and `blocked` when the kept work stops again.
+
+The Service starts each label set at zero. An item with no kept work adds no count.

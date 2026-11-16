@@ -311,16 +311,31 @@ def _comment(decision: _Decision, item: Item, status: str, limits: ClearLimits) 
     )
 
 
-def _marks(decision: _Decision, now: datetime) -> dict[ImplementRecordKey, str | None]:
+def _continued(item: Item) -> str | None:
+    """The class of the stop whose kept work the next Job continues, or None when the record holds
+    no kept work or no class of the taxonomy. The clear removes `implement.failure`, so it keeps the
+    class here for the next Job (#3650)."""
+    if item.job_record.get(ImplementRecordKey.WIP) is None:
+        return None
+    try:
+        return FailureClass(item.job_record.get(ImplementRecordKey.FAILURE) or "").value
+    except ValueError:
+        return None
+
+
+def _marks(decision: _Decision, item: Item, now: datetime) -> dict[ImplementRecordKey, str | None]:
     """What a clear writes in the record with the Status: it removes the stop, its class, the action
     left and the failed check. It keeps the log of the check
     and the conflicted files: the next Job hands them to its first step and clears them (#4071). A clear
-    by digest also keeps the list of the clears, and the time of its comment when it writes one."""
+    by digest also keeps the list of the clears, and the time of its comment when it writes one. The
+    clear keeps the class of a stop with kept work in `implement.continued`, and removes the mark of
+    an item with no kept work (#3650)."""
     marks: dict[ImplementRecordKey, str | None] = {
         ImplementRecordKey.STOPPED: None,
         ImplementRecordKey.FAILURE: None,
         ImplementRecordKey.LEFT_ACTION: None,
         ImplementRecordKey.CHECK: None,
+        ImplementRecordKey.CONTINUED: _continued(item),
     }
     if decision.rule is ClearRule.CONTINUE:
         marks[ImplementRecordKey.CONTINUATIONS] = str(decision.continuations)
@@ -355,7 +370,7 @@ def _clear_one(
     if (decided := _rule(current, retry, template_digest, limits, now)) is None:
         return
     facts = StatusFacts(plan_merged=plan_merged(current, planned))
-    status = write_status(store, current, facts, marks=_marks(decided, now)).status
+    status = write_status(store, current, facts, marks=_marks(decided, current, now)).status
     if decided.comment:
         store.comment(current.number, _comment(decided, current, status, limits))
     cleared.append(current.number)

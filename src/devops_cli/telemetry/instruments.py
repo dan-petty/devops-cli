@@ -7,6 +7,9 @@ is exponential, so Prometheus stores it as a native histogram under the instrume
 with no `_bucket`, `_sum` or `_count` series (#792); a dashboard reads it with
 `histogram_quantile`, `histogram_avg` and `histogram_count`. Dashboards query only the metrics
 defined here; `tests/test_telemetry_instruments.py` checks each query.
+The series that the Service serves on its `/metrics` route, such as
+`devops_cli_service_kept_work_total` with the labels `repo`, `class` and `outcome`,
+are declared in the config constants and are no instrument of this module.
 """
 
 from __future__ import annotations
