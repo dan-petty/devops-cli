@@ -1577,6 +1577,11 @@ class RoadmapCommandHelp:
     step_ready_head: str = "Expected commit SHA of the pull request head."
     step_ready_force: str = "Bypass draft readiness verification."
     step_ready_dry_run: str = "Make no network request and mark nothing ready."
+    step_fix_checks: str = "Repair a failed check of an open pull request (#5023)."
+    step_fix_checks_pull: str = "Number of the pull request to repair."
+    step_fix_checks_head: str = "Expected commit SHA of the pull request head."
+    step_fix_checks_confirm: str = "Confirm and apply check repairs."
+    step_fix_checks_dry_run: str = "Make no network request and change nothing."
     eval_app: str = (
         "Score the roadmap jobs. grades reads the live result lines of each job in Loki. Each "
         "other command runs a job's real code on committed cases with a chosen model. Each is on "
