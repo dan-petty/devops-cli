@@ -364,6 +364,34 @@ def _tasks_with(group_text: str) -> dict[str, str]:
     return files
 
 
+def _group_with_adds(line: str) -> dict[str, str]:
+    """The files of a change whose only group is a `behavior` group with the `Adds:` line `line`."""
+    return _tasks_with(
+        "## 1. Keep the last comment\n\n"
+        "Kind: behavior. Reads: `src/devops_cli/sample.py`. "
+        "Changes: `src/devops_cli/sample.py`, `tests/test_sample.py`.\n"
+        f"{line}\n\n"
+        "- [ ] 1.1 Write the failing test\n"
+        "  - Verification: `$ uv run devops ci test tests/test_sample.py` fails on the base\n"
+        "- [ ] 1.2 Keep the last comment\n"
+        "  - Verification: `$ uv run devops ci test tests/test_sample.py` passes\n"
+    )
+
+
+def test_the_reader_takes_the_added_names_of_a_group_from_its_adds_line() -> None:
+    (group,) = read_change(_group_with_adds("Adds: `_delivery_title`, `_publish`")).groups
+
+    assert group.adds == ["_delivery_title", "_publish"]
+
+
+def test_the_reader_refuses_an_adds_line_with_no_code_span() -> None:
+    with pytest.raises(PlanReadError) as found:
+        read_change(_group_with_adds("Adds: _delivery_title"))
+
+    assert found.value.path == "tasks.md"
+    assert "_delivery_title" in found.value.reason
+
+
 # The group of #3187: `Changes:` names no file in a code span.
 NO_CHANGED_FILE = (
     "## 1. Prove the move\n\n"
@@ -875,6 +903,7 @@ def test_read_back_problems_names_each_fact_that_differs() -> None:
         ("reads", ["different/read.py"]),
         ("changes", ["different/change.py"]),
         ("creates", ["different/create.py"]),
+        ("adds", ["_different_guard"]),
         ("test", "different test command"),
         ("implementation", "different implementation"),
         ("verify", "different verify command"),

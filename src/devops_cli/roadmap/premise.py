@@ -8,8 +8,8 @@ line defines it, one more `git grep` reads the files of the other languages that
 tree-sitter grammar of the language of each file confirms a definition, as `TreeSitterEngine` reads
 the symbols of a file for the code map. The stage probe asks the staging commit whether an
 identifier that the issue cites is defined (#3011). The implement job asks the branch tip whether a
-guard that a behavior group adds is already there (#3417). Both ask one question, so both call this
-module.
+name of the `Adds:` line of a behavior group is already there (#3417, #3453). Both ask one
+question, so both call this module.
 
 The check reads the commit, never the working tree: a line that only an uncommitted change holds
 is no definition of the commit.
@@ -17,7 +17,6 @@ is no definition of the commit.
 
 from __future__ import annotations
 
-import keyword
 import re
 from collections import defaultdict
 from collections.abc import Callable, Iterator
@@ -130,49 +129,27 @@ def defines(source: Path, sha: str, name: str, git: GitResult = git_result) -> b
     return bool(definition_lines(source, sha, name, git))
 
 
-# A task names the guard it adds when the code span directly follows the word guard or check, as in
-# "Add the guard `name`" or "Create a check named `name`". A span after a preposition ("Add a check
-# to `run_step`") names code that the task changes, not code that it adds.
-_ADD_VERB = re.compile(r"\b(?:add|adds|create|creates|introduce|introduces)\b", re.IGNORECASE)
-_GUARD_SPAN = re.compile(
-    r"\b(?:guards?|checks?)\s+(?:(?:named|called)\s+)?`([^`]*)`", re.IGNORECASE
-)
-
-
-def added_guard(task_text: str) -> str | None:
-    """The name of the guard that the task adds, or None. A task adds a guard when an add verb is
-    followed by the word guard or check and then by one code span that holds an identifier (a path,
-    a command or a phrase is no identifier). A span after any other word names code that the task
-    changes. A task with two such names does not say which one it adds, so it names none."""
-    verb = _ADD_VERB.search(task_text)
-    if verb is None:
-        return None
-    names = {
-        span
-        for span in _GUARD_SPAN.findall(task_text, verb.end())
-        if span.isidentifier() and not keyword.iskeyword(span)
-    }
-    return names.pop() if len(names) == 1 else None
-
-
 def false_premises(
     source: Path, sha: str, group: TaskGroup, git: GitResult = git_result
 ) -> tuple[str, ...]:
-    """The evidence for each task of `group` that adds a guard which commit `sha` already defines:
-    the task, the name and the definition line. Empty when the premise of the group holds. The
-    check reads the commit and writes nothing."""
+    """The evidence for each name of the `Adds:` line of `group` that commit `sha` already
+    defines: the group, the name and the definition line. Empty when the premise of the group
+    holds. The plan states the names in that line (#3453), so no rule reads the prose of a task: a
+    task that names a guard only as the place of a change, or as the text of a test, adds nothing.
+    A code span of the line that is no identifier, such as `TaskGroup.added_names`, gets no check,
+    because the lookup reads a definition of one identifier. The check reads the commit and writes
+    nothing."""
     found: list[str] = []
-    for task in group.tasks:
-        name = added_guard(task.text)
-        if name is None:
+    for name in group.added_names:
+        if not name.isidentifier():
             continue
         if lines := definition_lines(source, sha, name, git):
             found.append(
                 MESSAGES.roadmap.premise_guard_defined.format(
-                    task=task.text.strip(), name=name, line=lines[0]
+                    group=group.number, name=name, line=lines[0]
                 )
             )
     return tuple(found)
 
 
-__all__ = ["added_guard", "defines", "definition_lines", "false_premises"]
+__all__ = ["defines", "definition_lines", "false_premises"]

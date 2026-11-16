@@ -4,16 +4,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import pytest
-
 from devops_cli.config.constants import CONST_ROADMAP_DEFINITION_READ_FILES
-from devops_cli.roadmap.premise import added_guard, definition_lines
+from devops_cli.roadmap.premise import definition_lines, false_premises
 from devops_cli.roadmap.refine.refine import git_result
+from devops_cli.roadmap.step_files import parse_task_groups
 from tests.support.paths import REPO_ROOT
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from devops_cli.roadmap.step_files import TaskGroup
     from tests.support.roadmap_stage import StageRepo
 
 
@@ -27,28 +27,31 @@ def test_the_definition_lines_of_an_identifier_come_from_the_commit() -> None:
     )
 
 
-@pytest.mark.parametrize(
-    ("task", "name"),
-    [
-        (
-            "- [ ] 1.2 Add the guard `_delivery_title` to `src/devops_cli/shout.py`",
-            "_delivery_title",
-        ),
-        ("- [ ] 1.2 Create a check `title_ok` in `src/devops_cli/shout.py`", "title_ok"),
-        ("- [ ] 1.2 Add `shout` to `src/devops_cli/shout.py`", None),
-        ("- [ ] 1.2 Change the guard `_delivery_title` in `src/devops_cli/shout.py`", None),
-        ("- [ ] 1.2 Add the guard `one` and the check `two`", None),
-        ("- [ ] 1.1 Add the failing test `test_title_check` for `src/devops_cli/shout.py`", None),
-        ("- [ ] 1.2 Add a guard to `run_step` that refuses an empty plan", None),
-        ("- [ ] 1.2 Add a check in `_return_premise` for a blank title", None),
-        ("- [ ] 1.2 Add a check to `apply_return` that reads the item", None),
-        ("- [ ] 1.2 Create a check named `title_ok` in `src/devops_cli/shout.py`", "title_ok"),
-    ],
-)
-def test_a_task_adds_a_guard_only_when_the_identifier_follows_the_guard_word(
-    task: str, name: str | None
-) -> None:
-    assert added_guard(task) == name
+def _group(adds: str) -> TaskGroup:
+    """A behavior group whose `Adds:` line is `adds`, and whose task names the defined guard
+    `_delivery_title` as the place of the change."""
+    [group] = parse_task_groups(
+        "## 1. A group\n\n"
+        "Kind: behavior. Reads: `a.py`. Changes: `b.py`.\n"
+        f"{adds}\n\n"
+        "- [ ] 1.1 Add a check beside the guard `_delivery_title` in `b.py`\n"
+    )
+    return group
+
+
+def test_a_name_of_the_adds_line_that_the_commit_defines_is_a_false_premise() -> None:
+    (line,) = false_premises(REPO_ROOT, "HEAD", _group("Adds: `_delivery_title`"))
+
+    assert line.startswith("- The `Adds:` line of group 1 names `_delivery_title`.")
+    assert "HEAD:src/devops_cli/roadmap/implement/implement_run.py:" in line
+
+
+def test_a_group_with_no_adds_line_has_no_false_premise() -> None:
+    assert false_premises(REPO_ROOT, "HEAD", _group("")) == ()
+
+
+def test_a_code_span_that_is_no_identifier_gets_no_check() -> None:
+    assert false_premises(REPO_ROOT, "HEAD", _group("Adds: `Job._delivery_title`")) == ()
 
 
 SCOUT = "src/scout.rs"

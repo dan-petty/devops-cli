@@ -14,6 +14,7 @@ import subprocess
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from markdown_it import MarkdownIt
@@ -75,6 +76,9 @@ from tests.support.roadmap_implement import (
     two_groups,
 )
 from tests.support.roadmap_stage import STAGE_REPO, StageRepo
+
+if TYPE_CHECKING:
+    from devops_cli.roadmap.implement.implement_run import ImplementApplied
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -1913,25 +1917,23 @@ TITLES_PATH = "src/devops_cli/titles.py"
 TITLES_LINE = f"{TITLES_PATH}:4:def _delivery_title(text: str) -> str:"
 
 
-def _guard_tasks(name: str, *, behavior: bool) -> str:
-    """A change of two groups whose first group adds the guard `name`. With `behavior`, the first
-    group is a behavior group: a failing test, then the guard. Otherwise it is a group of kind
-    `other` with one task that adds the guard."""
-    if behavior:
-        first = (
-            "Reads: `CONTEXT.md`. Changes: `tests/test_shout.py` (new), "
-            "`src/devops_cli/shout.py` (new).\n\n"
-            "- [ ] 1.1 Add the failing test `tests/test_shout.py` for `src/devops_cli/shout.py`\n"
-            "  - Verification: `$ uv run devops ci test tests/test_shout.py` fails on the base\n"
-            f"- [ ] 1.2 Add the guard `{name}` to `src/devops_cli/shout.py`\n"
-            "  - Verification: `$ uv run devops ci test tests/test_shout.py`\n"
-        )
-    else:
-        first = (
-            "Reads: `CONTEXT.md`. Changes: `src/devops_cli/shout.py` (new), `tests/test_shout.py` (new).\n\n"
-            f"- [ ] 1.1 Add the guard `{name}` to `src/devops_cli/shout.py`\n"
-            "  - Verification: `$ uv run devops ci test tests/test_shout.py`\n"
-        )
+def _behavior_tasks(task: str, adds: str | None) -> str:
+    """A change of two groups whose first group is a behavior group: a failing test, then `task`.
+    With `adds`, the group has the `Adds:` line of that name (#3453)."""
+    line = f"Adds: `{adds}`\n" if adds else ""
+    first = (
+        "Reads: `CONTEXT.md`. Changes: `tests/test_shout.py` (new), "
+        f"`src/devops_cli/shout.py` (new).\n{line}\n"
+        "- [ ] 1.1 Add the failing test `tests/test_shout.py` for `src/devops_cli/shout.py`\n"
+        "  - Verification: `$ uv run devops ci test tests/test_shout.py` fails on the base\n"
+        f"- [ ] 1.2 {task}\n"
+        "  - Verification: `$ uv run devops ci test tests/test_shout.py`\n"
+    )
+    return _two_groups_with(first)
+
+
+def _two_groups_with(first: str) -> str:
+    """A change whose group 1 has the files and tasks `first`, and whose group 2 documents it."""
     return (
         f"# Tasks\n\n## 1. The first group\n\n{first}\n"
         "## 2. The second group\n\n"
@@ -1940,6 +1942,39 @@ def _guard_tasks(name: str, *, behavior: bool) -> str:
         "  - Verification: `$ uv run devops docs check`\n\n"
         "## Criteria\n\n- Group 1: The job keeps every comment.\n"
     )
+
+
+def _guard_tasks(name: str, *, behavior: bool) -> str:
+    """A change of two groups whose first group adds the guard `name`. With `behavior`, the first
+    group is a behavior group: a failing test, then the guard, and its `Adds:` line names `name`
+    (#3453). Otherwise it is a group of kind `other` with one task that adds the guard, and no
+    `Adds:` line."""
+    if behavior:
+        return _behavior_tasks(f"Add the guard `{name}` to `src/devops_cli/shout.py`", name)
+    first = (
+        "Reads: `CONTEXT.md`. Changes: `src/devops_cli/shout.py` (new), `tests/test_shout.py` (new).\n\n"
+        f"- [ ] 1.1 Add the guard `{name}` to `src/devops_cli/shout.py`\n"
+        "  - Verification: `$ uv run devops ci test tests/test_shout.py`\n"
+    )
+    return _two_groups_with(first)
+
+
+def _run_group_one(job_world: JobWorld, tasks: str) -> ImplementApplied:
+    """Run the change `tasks` with a model that passes both groups: the failing test, then the
+    module, of group 1, and the document of group 2."""
+    answer_pytest_on_base(job_world.programs, junit((SHOUT_TEST_ID, "failed")))
+    first, both = _ticked(tasks)
+    script = ModelScript(
+        tool_calls(
+            write_call("tests/test_shout.py", TEST_BODY),
+            write_call("src/devops_cli/shout.py", SHOUT),
+            write_call(TASKS_PATH, first),
+        ),
+        say("Group 1 is done."),
+        tool_calls(*group_two_calls(both)),
+        say("Group 2 is done."),
+    )
+    return job_world.run(script)
 
 
 def _ticked(tasks: str) -> tuple[str, str]:
@@ -1957,7 +1992,8 @@ class _PremiseWorld:
 
 
 class TestAFalsePremiseOfABehaviorGroup(_PremiseWorld):
-    """A task of a behavior group adds a guard that the branch tip defines (#3417)."""
+    """The `Adds:` line of a behavior group names a guard that the branch tip defines (#3417,
+    #3453)."""
 
     @pytest.fixture
     def staged_tasks(self) -> str:
@@ -1986,27 +2022,89 @@ class TestAFalsePremiseOfABehaviorGroup(_PremiseWorld):
 
 
 class TestATruePremiseOfABehaviorGroup(_PremiseWorld):
-    """A task of a behavior group adds a guard that the branch tip lacks (#3417)."""
+    """The `Adds:` line of a behavior group names a guard that the branch tip lacks (#3417,
+    #3453)."""
 
     @pytest.fixture
     def staged_tasks(self) -> str:
         return _guard_tasks("_missing_guard", behavior=True)
 
     def test_a_behavior_group_whose_guard_the_base_lacks_runs(self, job_world: JobWorld) -> None:
-        answer_pytest_on_base(job_world.programs, junit((SHOUT_TEST_ID, "failed")))
-        first, both = _ticked(_guard_tasks("_missing_guard", behavior=True))
-        script = ModelScript(
-            tool_calls(
-                write_call("tests/test_shout.py", TEST_BODY),
-                write_call("src/devops_cli/shout.py", SHOUT),
-                write_call(TASKS_PATH, first),
-            ),
-            say("Group 1 is done."),
-            tool_calls(*group_two_calls(both)),
-            say("Group 2 is done."),
+        applied = _run_group_one(job_world, _guard_tasks("_missing_guard", behavior=True))
+
+        assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+        assert "src/devops_cli/shout.py" in job_world.repo.origin_git(
+            "diff", "--name-only", f"main..{BRANCH}"
         )
 
+
+# A task of a behavior group that names no guard, and one that names the defined guard
+# `_delivery_title` only as the place of the change (#3453).
+NO_GUARD_TASK = "Write the function `shout` in `src/devops_cli/shout.py`"
+BESIDE_GUARD_TASK = "Add a check beside the guard `_delivery_title` in `src/devops_cli/shout.py`"
+ADDS_DEFINED = _behavior_tasks(NO_GUARD_TASK, "_delivery_title")
+NO_ADDS_LINE = _behavior_tasks(BESIDE_GUARD_TASK, None)
+ADDS_UNDEFINED = _behavior_tasks(
+    "Add `_missing_guard` beside the guard `_delivery_title` in `src/devops_cli/shout.py`",
+    "_missing_guard",
+)
+
+
+class TestTheAddsLineNamesADefinedName(_PremiseWorld):
+    """The `Adds:` line of a behavior group names `_delivery_title`, which the branch tip defines,
+    and no task names a guard: the line alone decides the premise (#3453)."""
+
+    @pytest.fixture
+    def staged_tasks(self) -> str:
+        return ADDS_DEFINED
+
+    def test_a_behavior_group_that_adds_a_defined_name_returns_the_item(
+        self, job_world: JobWorld
+    ) -> None:
+        script = two_groups()
+
         applied = job_world.run(script)
+
+        status, _ = _item(job_world)
+        (comment,) = job_world.issue_comments()
+        assert (applied.ready, applied.stopped, applied.failed, status) == ((), (), (), "New")
+        assert TITLES_LINE in comment
+        assert "`_delivery_title`" in comment
+        assert NO_GUARD_TASK not in comment
+        assert script.seen == []
+
+
+class TestASentenceNamesAGuardWithNoAddsLine(_PremiseWorld):
+    """A task of a behavior group says to add a check beside the defined guard `_delivery_title`,
+    and the group has no `Adds:` line: the sentence adds no guard (#3453)."""
+
+    @pytest.fixture
+    def staged_tasks(self) -> str:
+        return NO_ADDS_LINE
+
+    def test_a_sentence_that_names_a_defined_guard_with_no_adds_line_runs_the_group(
+        self, job_world: JobWorld
+    ) -> None:
+        applied = _run_group_one(job_world, NO_ADDS_LINE)
+
+        assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+        assert "src/devops_cli/shout.py" in job_world.repo.origin_git(
+            "diff", "--name-only", f"main..{BRANCH}"
+        )
+
+
+class TestTheAddsLineNamesAnUndefinedGuard(_PremiseWorld):
+    """The `Adds:` line names `_missing_guard`, which the branch tip lacks, and a task names the
+    defined guard `_delivery_title` as the place of the change (#3453)."""
+
+    @pytest.fixture
+    def staged_tasks(self) -> str:
+        return ADDS_UNDEFINED
+
+    def test_a_behavior_group_whose_adds_line_names_an_undefined_guard_runs_the_group(
+        self, job_world: JobWorld
+    ) -> None:
+        applied = _run_group_one(job_world, ADDS_UNDEFINED)
 
         assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
         assert "src/devops_cli/shout.py" in job_world.repo.origin_git(

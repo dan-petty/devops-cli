@@ -11,6 +11,10 @@ Before the job runs a behavior group, the job SHALL read the identifiers of the 
 - **WHEN** A behavior group holds an `Adds:` line with `_missing_guard`, and the branch tip defines no `_missing_guard`
 - **THEN** The job runs the group and commits the file that the group writes.
 
+#### Scenario: A task names a defined guard and the group has no Adds line
+- **WHEN** A behavior group task says to add a check beside the guard `_delivery_title`, which the branch tip defines, and the group holds no `Adds:` line
+- **THEN** The job returns no item to New and runs the group.
+
 #### Scenario: A group that is not behavior adds a defined name
 - **WHEN** A group whose kind is not behavior names the guard `_delivery_title`, which the branch tip defines, and holds no `Adds:` line
 - **THEN** The job returns no item to New and runs the group.

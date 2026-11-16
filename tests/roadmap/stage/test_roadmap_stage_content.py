@@ -25,6 +25,7 @@ from devops_cli.roadmap.stage.stage_change import (
     StageReference,
     check_proposal,
     content_problems,
+    group_text,
     proposal_evidence_problems,
     render_change,
     staging_title,
@@ -1116,3 +1117,54 @@ def test_an_open_change_proposal_reaches_the_citation_gate() -> None:
     problems = check_proposal(proposal, ["comment-thread"], TREE, registry=())
 
     assert any("not archived" in problem for problem in problems)
+
+
+# ── The identifiers that a group adds (#3453) ────────────────────────────────
+
+
+def test_a_behavior_group_renders_the_identifiers_that_it_adds() -> None:
+    group = _group(adds=["_delivery_title", "_publish"])
+
+    text = group_text(1, group)
+
+    assert "\nAdds: `_delivery_title`, `_publish`\n" in text
+
+
+def test_the_plan_of_this_change_has_no_content_problem() -> None:
+    """The plan's own acceptance test (#3404): the plan changes the plan check, so it builds its own
+    `StageProposal` and asserts that `content_problems` returns no problem for it."""
+    sample = make_stage_proposal()
+    group = sample.groups[0].model_copy(
+        update={
+            "title": "Give a group the identifiers that it adds",
+            "kind": GroupKind.BEHAVIOR,
+            "changes": [PLAN_CHECK_FILE, MESSAGES_FILE],
+            "creates": [],
+            "creates_lines": {},
+            "verify": f"uv run devops ci test {TEST_FILE}",
+            "test": (
+                "Write `test_the_plan_of_this_change_has_no_content_problem` in "
+                f"`{TEST_FILE}` first, build the plan's own `StageProposal`, assert that "
+                "`content_problems` returns no problem for it, and verify that "
+                "`src/devops_cli/sample.py` fails on the base"
+            ),
+        }
+    )
+    plan = make_stage_proposal(
+        summary="Give a group the identifiers that it adds",
+        why=(
+            "Issue #3453: the plan records no identifier that a behavior group adds, so the "
+            "implement job guesses one from the prose of a task."
+        ),
+        what_changes=[
+            f"`{PLAN_CHECK_FILE}` gives a group the field `adds` and writes its `Adds:` line.",
+            f"`{MESSAGES_FILE}` holds the message of that line.",
+        ],
+        existing_tool=(
+            "No open tool parses the plan files: about 4k tokens to build, 1k tokens to keep and "
+            "about 1 hour of elapsed time."
+        ),
+        groups=[group],
+    )
+
+    assert content_problems(plan) == []

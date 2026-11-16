@@ -34,6 +34,11 @@ COMMAND_MARK = "$ "
 # template), and the `Kind:` line that a plan may write for a group (#3042).
 FAILS_ON_BASE = MESSAGES.roadmap.stage_task_test.rsplit("`", 1)[1].strip()
 KIND_LINE: re.Pattern[str] = re.compile(r"^Kind: (?P<kind>\w+)\.", re.M)
+# The `Adds:` line of a group names each identifier that the group adds, each in a code span (#3453).
+ADDS_LINE: re.Pattern[str] = re.compile(r"^Adds: (?P<adds>.+?)[ \t]*$", re.M)
+# The text between the code spans of the line that names nothing: the commas, the spaces and a
+# full stop.
+_ADDS_SEPARATORS: re.Pattern[str] = re.compile(r"[,\s.]+")
 
 
 @dataclass(frozen=True)
@@ -82,6 +87,18 @@ class TaskGroup:
         """The code spans of the text of the tasks, each once: the files the group may name."""
         return tuple(dict.fromkeys(p for task in self.tasks for p in task.paths))
 
+    @property
+    def added_names(self) -> tuple[str, ...]:
+        """The code spans of the `Adds:` line of the group, each once, in file order, and none for
+        a group with no such line."""
+        return tuple(
+            dict.fromkeys(
+                span
+                for found in ADDS_LINE.finditer(self.text)
+                for span in code_spans(found["adds"])
+            )
+        )
+
 
 def _code_spans(inline: Token) -> tuple[str, ...]:
     """The code spans of an inline token."""
@@ -91,6 +108,29 @@ def _code_spans(inline: Token) -> tuple[str, ...]:
 def code_spans(text: str) -> tuple[str, ...]:
     """The code spans of `text`, a line of inline markdown, in order."""
     return tuple(span for token in MARKDOWN.parseInline(text) for span in _code_spans(token))
+
+
+def _outside_spans(line: str) -> str:
+    """The words of `line` that no code span holds, joined with a comma, or an empty text when
+    each name is in a code span."""
+    rest = line
+    for span in code_spans(line):
+        rest = rest.replace(f"`{span}`", "")
+    return ", ".join(word for word in _ADDS_SEPARATORS.split(rest) if word)
+
+
+def adds_problem(text: str) -> str | None:
+    """Why the `Adds:` line of `text` is malformed, or None when the group has no such line or
+    names each identifier that it adds in a code span. A line that holds no code span, or that
+    names an identifier outside one, is malformed (#3453)."""
+    found = ADDS_LINE.search(text)
+    if found is None:
+        return None
+    line = found["adds"]
+    outside = _outside_spans(line)
+    if code_spans(line) and not outside:
+        return None
+    return MESSAGES.roadmap.plan_read_adds_outside_span.format(text=outside or line)
 
 
 def _list_items(tokens: Sequence[Token]) -> Iterator[Sequence[Token]]:
@@ -216,10 +256,12 @@ def packed_file(path: Path) -> str:
 
 
 __all__ = [
+    "ADDS_LINE",
     "CHECKBOXES",
     "MARKDOWN",
     "GroupTask",
     "TaskGroup",
+    "adds_problem",
     "code_spans",
     "file_lines",
     "named_files",
