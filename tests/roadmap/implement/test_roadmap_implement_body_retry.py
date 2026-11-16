@@ -8,6 +8,7 @@ from typing import Any
 from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement.implement_run import apply_implement
 from devops_cli.roadmap.pull_form import body_problems
+from devops_cli.roadmap.pull_retry import BodyReply
 from devops_cli.roadmap.stores.store import ImplementRecordKey
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.implement_step import WINDOW, command_text
@@ -44,9 +45,11 @@ def test_a_refused_body_is_rebuilt_once_and_written(job_world: JobWorld) -> None
     _rewrite_why(job_world, "The job drops the last comment of a thread (#1)...")
     calls: list[tuple[str, list[str]]] = []
 
-    def fake_rewriter(text: str, problems: Any) -> str:
-        calls.append((text, list(problems)))
-        return "The job drops the last comment of a thread (#1). It must keep it."
+    class Rewriter:
+        @staticmethod
+        def rewrite(text: str, problems: Any) -> str:
+            calls.append((text, list(problems)))
+            return "The job drops the last comment of a thread (#1). It must keep it."
 
     applied = apply_implement(
         job_world.store,
@@ -54,7 +57,7 @@ def test_a_refused_body_is_rebuilt_once_and_written(job_world: JobWorld) -> None
         source=job_world.repo.clone,
         model=two_groups().model(),
         window=WINDOW,
-        rewriter=fake_rewriter,
+        rewriter=Rewriter(),
     )
 
     assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
@@ -66,11 +69,13 @@ def test_a_refused_body_is_rebuilt_once_and_written(job_world: JobWorld) -> None
 
 def test_a_second_refusal_stops_the_item_as_refused_reply(job_world: JobWorld) -> None:
     _rewrite_why(job_world, "The job drops the last comment of a thread (#1)...")
-    calls: list[tuple[str, list[str]]] = []
+    calls: list[str] = []
 
-    def fake_rewriter(text: str, problems: Any) -> str:
-        calls.append((text, list(problems)))
-        return "Still a bad why that ends with a cut mark..."
+    class StructuredRewriter:
+        @staticmethod
+        def chat_structured(system: str, prompt: str, schema: Any) -> BodyReply:
+            calls.append(prompt)
+            return BodyReply(text="Still a bad why that ends with a cut mark...")
 
     applied = apply_implement(
         job_world.store,
@@ -78,7 +83,7 @@ def test_a_second_refusal_stops_the_item_as_refused_reply(job_world: JobWorld) -
         source=job_world.repo.clone,
         model=two_groups().model(),
         window=WINDOW,
-        rewriter=fake_rewriter,
+        rewriter=StructuredRewriter(),
     )
 
     assert (applied.ready, applied.stopped, applied.failed) == ((), (1,), ())
