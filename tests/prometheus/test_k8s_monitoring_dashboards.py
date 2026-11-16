@@ -14,23 +14,21 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
-import genai_prices
 import pytest
 import yaml
 from opentelemetry.semconv._incubating.attributes.gen_ai_attributes import (
     GenAiOperationNameValues,
 )
 
-from devops_cli.config.defaults import (
-    DEFAULT_AI_REFERENCE_EMBEDDING_MODEL,
-    DEFAULT_AI_REFERENCE_MODEL,
-    DEFAULT_AI_REFERENCE_PROVIDER,
-)
+from devops_cli.ai.spend.pricing import PricingRegistry
+from devops_cli.config.settings import Settings
+from devops_cli.prometheus.client import parse_duration
 from devops_cli.prometheus.promql import falls_back_to_constant, grouping_labels, selectors
 from devops_cli.roadmap.job_result import LINE_PREFIX
 from tests.support.paths import FIXTURES, REPO_ROOT
@@ -87,16 +85,31 @@ PRICE_TERM = re.compile(
     r'label_replace\(label_replace\(vector\(([0-9.]+) / 1e6\), "operation", "(\w+)", "", ""\), '
     r'"type", "(\w+)", "", ""\)'
 )
-# The local tokens: a series that says so, or a series from before the `local` label (#1672) that
-# the gateway served, because the gateway serves only local models. Chat is every operation but
-# embeddings, so a series from before the `operation` label (#1623) is chat.
+# The local tokens: the gateway's own token counters of the deployments that an in-cluster Ollama
+# serves. LiteLLM names the provider of a chat deployment `ollama_chat` and of an embedding
+# deployment `ollama`, so the provider gives the operation. A label that a client puts on its own
+# token series does not change them (#5867, #5914).
+GATEWAY_INPUT_TOKENS = "litellm_input_tokens_metric_total"
+GATEWAY_OUTPUT_TOKENS = "litellm_output_tokens_metric_total"
+GATEWAY_DEPLOYMENT_REQUESTS = "litellm_deployment_total_requests_total"
+LOCAL_PROVIDERS = {
+    "ollama_chat": GenAiOperationNameValues.CHAT.value,
+    "ollama": GenAiOperationNameValues.EMBEDDINGS.value,
+}
+LOCAL_DEPLOYMENTS = f'api_provider=~"{"|".join(LOCAL_PROVIDERS)}"'
 LOCAL_TOKEN_SELECTORS = tuple(
-    f"devops_cli_ai_tokens_total{{{local}, {operation}}}"
-    for operation in ('operation!="embeddings"', 'operation="embeddings"')
-    for local in ('local="true"', 'local="", provider="gateway", server!="cache"')
+    f"{metric}{{{LOCAL_DEPLOYMENTS}}}" for metric in (GATEWAY_INPUT_TOKENS, GATEWAY_OUTPUT_TOKENS)
+)
+OPERATION_OF_PROVIDER = tuple(
+    f'"operation", "{operation}", "api_provider", "{provider}"'
+    for provider, operation in LOCAL_PROVIDERS.items()
 )
 SAVINGS_RECORD = FIXTURES / "recorded_queries" / "ai_spend_local_savings.yaml"
 SAVINGS_IN_RANGE = "Local Cloud Savings in Range"
+SAVINGS_BY_BACKEND = "Local savings by backend server: USD per hour"
+HOURLY_SAVINGS = ("Local savings: USD per hour", SAVINGS_BY_BACKEND)
+SERVICE_CONFIGMAP = DEVOPS_DIR / "configmap.example.yaml"
+GATEWAY_CONFIG = K8S_DIR / "llm" / "gateway" / "config.yaml"
 
 
 def _kustomization(directory: Path) -> dict[str, Any]:
@@ -349,24 +362,34 @@ def _dashboard_prices(variable: dict[str, Any]) -> dict[tuple[str, str], Decimal
     return prices
 
 
-def _genai_prices_per_million(model: str) -> dict[str, Decimal]:
-    """genai-prices' bundled USD price per million prompt and completion tokens of a model."""
-    usage = genai_prices.Usage(input_tokens=1_000_000, output_tokens=1_000_000)
-    price = genai_prices.calc_price(usage, model, provider_id=DEFAULT_AI_REFERENCE_PROVIDER)
-    return {"prompt": price.input_price, "completion": price.output_price}
+def _service_settings() -> Settings:
+    """The settings of the Service ConfigMap template, which its spend reports read."""
+    configmap = yaml.safe_load(SERVICE_CONFIGMAP.read_text(encoding="utf-8"))
+    return Settings.model_validate(yaml.safe_load(configmap["data"]["devops-cli.yaml"]))
 
 
-def _reference_prices() -> dict[tuple[str, str], Decimal]:
-    """genai-prices' price of the default reference model of each operation, by token type."""
+def _reference_prices(settings: Settings, data_dir: Path) -> dict[tuple[str, str], Decimal]:
+    """The USD price per million tokens of each operation and token type that the pricing
+    registry of the spend reports gives the reference model of the operation. A reference that
+    has no price is put in as -1."""
+    registry = PricingRegistry(data_dir=data_dir, settings=settings)
     references = {
-        GenAiOperationNameValues.CHAT.value: DEFAULT_AI_REFERENCE_MODEL,
-        GenAiOperationNameValues.EMBEDDINGS.value: DEFAULT_AI_REFERENCE_EMBEDDING_MODEL,
+        GenAiOperationNameValues.CHAT.value: ("ai.reference_model", settings.ai.reference_model),
+        GenAiOperationNameValues.EMBEDDINGS.value: (
+            "ai.reference_embedding_model",
+            settings.ai.reference_embedding_model,
+        ),
     }
-    return {
-        (operation, token_type): price
-        for operation, model in references.items()
-        for token_type, price in _genai_prices_per_million(model).items()
-    }
+    prices: dict[tuple[str, str], Decimal] = {}
+    for operation, (setting, model) in references.items():
+        price = registry.price_reference(
+            model, setting=setting, kind=operation, provider=settings.ai.reference_provider
+        )
+        prices[(operation, "prompt")] = Decimal(str(price.prompt_usd_per_million if price else -1))
+        prices[(operation, "completion")] = Decimal(
+            str(price.completion_usd_per_million if price else -1)
+        )
+    return prices
 
 
 def _price_rules() -> list[str]:
@@ -386,23 +409,50 @@ def _price_rules() -> list[str]:
     ]
 
 
-def test_the_dashboard_holds_the_genai_prices_price_of_each_default_reference() -> None:
-    """The AI spend dashboard holds, in one hidden constant, the price that genai-prices gives
-    the default reference model of each operation and token type that devops-cli sends. The chat
-    reference is gpt-4o, the `ai.reference_model` of the owner, so the dashboard and
-    `devops ai cost` price at one model. No recording rule holds a second copy of a price
+def test_the_dashboard_holds_the_reference_prices_of_the_service_configmap(
+    tmp_path: Path,
+) -> None:
+    """The AI spend dashboard holds, in one hidden constant, the price of each operation and
+    token type that the spend reports of the Service give a local token: the price of
+    `ai.reference_model` and `ai.reference_embedding_model` in the ConfigMap template, from its
+    `ai.price_overrides` (#4241, #4242). A change of a reference model or of its price in the
+    template fails here until the dashboard changes with it, so the dashboard and the reports
+    cannot price at two prices (#5914). No recording rule holds a second copy of a price
     (#2194)."""
+    settings = _service_settings()
     variable = _price_variable(_ai_spend_dashboard())
     description = variable.get("description", "")
-    references = (DEFAULT_AI_REFERENCE_MODEL, DEFAULT_AI_REFERENCE_EMBEDDING_MODEL)
+    named = (settings.ai.reference_model, settings.ai.reference_embedding_model, "price_overrides")
 
     assert (
-        DEFAULT_AI_REFERENCE_MODEL,
         (variable.get("type"), variable.get("hide")),
         _dashboard_prices(variable),
-        [model for model in references if f"`{model}`" not in description],
+        [name for name in named if f"`{name}`" not in description],
         _price_rules(),
-    ) == ("gpt-4o", ("constant", 2), _reference_prices(), [], [])
+    ) == (("constant", 2), _reference_prices(settings, tmp_path), [], [])
+
+
+def test_the_prices_of_the_template_are_the_owner_reference_prices(tmp_path: Path) -> None:
+    """The owner values a local token at the hosted price of `qwen3.8:27b`, 0.035 USD prompt and
+    1.50 USD completion per million tokens, and of `qwen/qwen3-embedding-8b`, 0.01 USD (#4241).
+    The dashboard took 2.5, 10 and 0.02 USD from gpt-4o and text-embedding-3-small, and its
+    savings were 71 times too high for each prompt token (#5914)."""
+    settings = _service_settings()
+
+    assert (
+        settings.ai.reference_model,
+        settings.ai.reference_embedding_model,
+        _reference_prices(settings, tmp_path),
+    ) == (
+        "qwen3.8:27b",
+        "qwen/qwen3-embedding-8b",
+        {
+            ("chat", "prompt"): Decimal("0.035"),
+            ("chat", "completion"): Decimal("1.5"),
+            ("embeddings", "prompt"): Decimal("0.01"),
+            ("embeddings", "completion"): Decimal("0"),
+        },
+    )
 
 
 def _savings_targets(dashboard: dict[str, Any]) -> list[str]:
@@ -412,27 +462,30 @@ def _savings_targets(dashboard: dict[str, Any]) -> list[str]:
         target["expr"]
         for panel in dashboard["panels"]
         for target in panel.get("targets", [])
-        if "Savings" in panel.get("title", "") or "Savings" in target.get("legendFormat", "")
+        if "savings" in panel.get("title", "").lower()
+        or "savings" in target.get("legendFormat", "").lower()
     ]
 
 
 def _misses_a_local_token_or_the_price(expr: str) -> bool:
-    """Whether a savings query leaves out a kind of local token or the dashboard prices, or
-    reads a series other than the token counter."""
+    """Whether a savings query leaves out a kind of local token, the operation of a local
+    provider or the dashboard prices, or reads a series other than the gateway's token counters
+    and its map of deployments."""
     return (
         any(selector not in expr for selector in LOCAL_TOKEN_SELECTORS)
-        or '"operation", "chat", "", ""' not in expr
+        or any(operation not in expr for operation in OPERATION_OF_PROVIDER)
         or PRICED not in expr
-        or {selector.metric for selector in selectors(expr)} != {"devops_cli_ai_tokens_total"}
+        or {selector.metric for selector in selectors(expr)} - {GATEWAY_DEPLOYMENT_REQUESTS}
+        != {GATEWAY_INPUT_TOKENS, GATEWAY_OUTPUT_TOKENS}
     )
 
 
-def test_each_savings_query_prices_all_local_tokens_at_the_dashboard_prices() -> None:
-    """Each savings query multiplies the local tokens by the dashboard prices on operation and
-    token type, and reads no series other than the token counter. The recording rule that priced
-    the queries had samples only from its first evaluation, so every range that ended before
-    it showed $0 (#2194). The local tokens include the series from before the `local` (#1672)
-    and `operation` (#1623) labels, and no query reads a price that a process computed."""
+def test_each_savings_query_prices_the_gateways_local_tokens_at_the_dashboard_prices() -> None:
+    """Each savings query multiplies the tokens of the gateway's local deployments by the
+    dashboard prices on operation and token type. It reads the gateway's own token counters and
+    not devops-cli's token series, whose `local` label a client sets: before #5874, hosted
+    DeepSeek tokens had `local="true"` (#5867), and every range that holds those points counted
+    them as savings (#5914). No query reads a price that a process computed (#2194)."""
     dashboard = _ai_spend_dashboard()
     targets = _savings_targets(dashboard)
 
@@ -440,7 +493,86 @@ def test_each_savings_query_prices_all_local_tokens_at_the_dashboard_prices() ->
         len(targets),
         [expr for expr in targets if _misses_a_local_token_or_the_price(expr)],
         [expr for expr in _expressions(dashboard) if "cost_equivalent" in expr],
-    ) == (8, [], [])
+    ) == (6, [], [])
+
+
+def test_each_projection_reads_its_spend_and_its_savings_from_the_last_7_days() -> None:
+    """Both values of a projection take the rate of the last 7 days, so the range picker changes
+    neither and both have one baseline (#4724, #5914)."""
+    targets = {
+        title: [(target["legendFormat"], target["expr"]) for target in panel["targets"]]
+        for title in PROJECTIONS
+        for panel in [_ai_spend_panel(title)]
+    }
+
+    assert {
+        title: [
+            (legend.endswith("from the last 7d)"), "[7d]" in expr, "$__range" in expr)
+            for legend, expr in pairs
+        ]
+        for title, pairs in targets.items()
+    } == dict.fromkeys(PROJECTIONS, [(True, True, False)] * 2)
+
+
+def _gateway_deployments() -> list[dict[str, Any]]:
+    config: dict[str, Any] = yaml.safe_load(GATEWAY_CONFIG.read_text(encoding="utf-8"))
+    deployments: list[dict[str, Any]] = config["model_list"]
+    return deployments
+
+
+def test_each_in_cluster_gateway_deployment_has_a_provider_that_the_savings_price() -> None:
+    """Each deployment of the gateway that an in-cluster backend serves names `ollama_chat` for a
+    chat model or `ollama` for an embedding model, the two providers that the savings queries
+    select and map to an operation. A local deployment of another provider would add no savings,
+    and an `ollama` chat model would be priced as embeddings."""
+    found = sorted(
+        {
+            (
+                entry["litellm_params"]["model"].partition("/")[0],
+                entry.get("model_info", {}).get("mode", "chat"),
+            )
+            for entry in _gateway_deployments()
+            if ".svc.cluster.local" in entry["litellm_params"].get("api_base", "")
+        }
+    )
+
+    assert found == [("ollama", "embedding"), ("ollama_chat", "chat")]
+
+
+def _backend_regex(expr: str) -> re.Pattern[str]:
+    """The regex with which the query takes the backend name from `api_base`."""
+    (pattern,) = re.findall(r'"backend", "\$1", "api_base", "([^"]+)"', expr)
+    return re.compile(pattern)
+
+
+def test_the_savings_by_backend_name_each_kubernetes_service_of_the_gateway_config() -> None:
+    """Local savings by backend server shows one series for each in-cluster backend, named by
+    its Kubernetes service: the query joins the gateway's tokens on `model_id` to the service
+    name in the `api_base` of `litellm_deployment_total_requests_total`. LiteLLM gives an
+    embedding deployment no `api_base`, so its model (`litellm_model_name`) names it. No series
+    names only the gateway, as `via llm-gateway...` did (#5914). promtool checks the values in
+    `tests/fixtures/dashboard_queries/ai-spend.yaml`."""
+    panel = _ai_spend_panel(SAVINGS_BY_BACKEND)
+    (target,) = panel["targets"]
+    expr = target["expr"]
+    pattern = _backend_regex(expr)
+    services = {
+        f"{api_base}/api/chat": str(urlsplit(api_base).hostname).partition(".")[0]
+        for entry in _gateway_deployments()
+        if ".svc.cluster.local" in (api_base := entry["litellm_params"].get("api_base", ""))
+    }
+
+    assert (
+        target["legendFormat"],
+        grouping_labels(expr) >= {"model_id", "backend"},
+        "* on (model_id) group_left (backend) (" in expr,
+        f'{GATEWAY_DEPLOYMENT_REQUESTS}{{{LOCAL_DEPLOYMENTS}, model_id!="", api_base!=""}}' in expr,
+        '"backend", "$1", "litellm_model_name", "(.+)"' in expr,
+        {
+            api_base: (match.group(1) if (match := pattern.fullmatch(api_base)) else None)
+            for api_base in services
+        },
+    ) == ("{{backend}}", True, True, True, True, services)
 
 
 def _savings_record() -> dict[str, Any]:
@@ -448,28 +580,16 @@ def _savings_record() -> dict[str, Any]:
     return loaded
 
 
-def _is_local(labels: dict[str, str]) -> bool:
-    """Whether a local model ran the tokens of a series. A series from before the `local` label
-    (#1672) is local when the gateway served it, because the gateway serves only local models.
-    The response cache is no model (#816)."""
-    if "local" in labels:
-        return labels["local"] == "true"
-    return labels.get("provider") == "gateway" and labels.get("server") != "cache"
-
-
 def _priced_total(series: list[dict[str, Any]], prices: dict[tuple[str, str], Decimal]) -> Decimal:
-    """The local savings of recorded series in USD: each local token at the price per million
-    tokens of its operation and type. A series with no operation is chat (#1623), and a type
-    with no price, such as reasoning, adds nothing."""
+    """The local savings of recorded gateway token series in USD: each token of a local provider
+    at the price per million tokens of its operation and type. A hosted provider adds nothing."""
     return sum(
         (
             Decimal(point["value"])
-            * prices.get(
-                (point["labels"].get("operation", "chat"), point["labels"]["type"]), Decimal(0)
-            )
+            * prices[(LOCAL_PROVIDERS[point["labels"]["api_provider"]], point["labels"]["type"])]
             / 1_000_000
             for point in series
-            if _is_local(point["labels"])
+            if point["labels"]["api_provider"] in LOCAL_PROVIDERS
         ),
         Decimal(0),
     )
@@ -483,11 +603,11 @@ def _priced_total(series: list[dict[str, Any]], prices: dict[tuple[str, str], De
 def test_local_cloud_savings_in_range_gives_the_priced_total_of_the_recorded_series(
     record: dict[str, Any],
 ) -> None:
-    """Prometheus' answer to the query of the panel is the total of the recorded token series
-    at the dashboard prices, for series with and without the `local` and `operation` labels.
-    From 2026-10-01 to 2026-10-22 it is $423 at gpt-4o, where the panel showed $0 (#2194). The
-    record is of the query of the panel as it is now, so a changed query or price fails here
-    until a person records it again."""
+    """Prometheus' answer to the query of the panel is the total of the recorded gateway token
+    series of the local providers at the dashboard prices, and the hosted tokens add nothing. For
+    the 6 h to 2026-11-16T01:35Z the panel showed $167.87, and the 30-day projection $20,143
+    (#5914). The record is of the query of the panel as it is now, so a changed query or price
+    fails here until the record is made again against live Prometheus."""
     dashboard = _ai_spend_dashboard()
     (panel,) = [panel for panel in dashboard["panels"] if panel.get("title") == SAVINGS_IN_RANGE]
     to_the_micro_dollar = Decimal("0.000001")
@@ -499,23 +619,28 @@ def test_local_cloud_savings_in_range_gives_the_priced_total_of_the_recorded_ser
     ) == ([_savings_record()["expr"]], total.quantize(to_the_micro_dollar))
 
 
-def test_the_records_hold_each_kind_of_series_and_a_range_before_the_price_rule() -> None:
-    """The records hold token series with both labels, without `local` (#1672), and without
-    `local` and `operation` (#1623), and a range that ends before the first sample of the
-    recording rule that priced the panel before #2194."""
+def test_the_records_hold_hosted_tokens_and_a_range_before_the_client_label_fix() -> None:
+    """The records hold tokens of each local provider and of a hosted provider, and a range that
+    starts before #5874 went live, when the client series gave hosted DeepSeek tokens
+    `local="true"` (#5867)."""
     saved = _savings_record()
-    kinds = {
-        ("local" in point["labels"], "operation" in point["labels"])
+    providers = {
+        point["labels"]["api_provider"]
         for record in saved["records"]
         for point in record["series"]
         if Decimal(point["value"]) > 0
     }
-    first_price = datetime.fromisoformat(saved["deleted_price_rule_first_sample"])
+    fixed = datetime.fromisoformat(saved["client_label_fix"])
 
     assert (
-        kinds,
-        any(datetime.fromisoformat(record["end"]) < first_price for record in saved["records"]),
-    ) == ({(True, True), (False, True), (False, False)}, True)
+        sorted((set(LOCAL_PROVIDERS) | {"openrouter"}) - providers),
+        any(
+            datetime.fromisoformat(record["end"])
+            - timedelta(seconds=parse_duration(record["range"]))
+            < fixed
+            for record in saved["records"]
+        ),
+    ) == ([], True)
 
 
 # The gateway counts every caller's model calls and their status, and devops-cli counts only its
@@ -573,7 +698,8 @@ SPEND_STATS = (
     "Projected 1-Year Run Rate",
 )
 PROJECTIONS = SPEND_STATS[1:]
-HOURLY_SPEND = ("Spend: USD per hour", "Spend by model: USD per hour")
+SPEND_BY_PROVIDER = "Spend by provider and model: USD per hour"
+HOURLY_SPEND = ("Spend: USD per hour", SPEND_BY_PROVIDER)
 
 
 def _spend_targets(title: str) -> list[str]:
@@ -629,6 +755,40 @@ def test_the_hourly_spend_panels_draw_bars_that_follow_the_step() -> None:
         [line for panel in panels for line in readability_problems(panel)],
         [e for panel in panels for e in _targets(panel) if "[$__interval]" not in e],
     ) == ([("1h", "bars", "currencyUSD")] * len(HOURLY_SPEND), [], [])
+
+
+def test_the_hourly_savings_panels_draw_bars_that_follow_the_step() -> None:
+    """The local savings of each hour is a bar of `increase(...[$__interval])` with a Min interval
+    of 1h, as the spend of each hour is, so the bars of a range add up to Local Cloud Savings in
+    Range. The rolling `[1h]` and `[6h]` lines and the `[5m]` rate go (#5784, #5914). The bars by
+    backend stack, so the bars of one hour add up to the bar of all backends. Each panel follows
+    the chart rules of #4707."""
+    panels = [_ai_spend_panel(title) for title in HOURLY_SAVINGS]
+
+    assert (
+        [
+            (
+                panel["interval"],
+                panel["fieldConfig"]["defaults"]["custom"]["drawStyle"],
+                panel["fieldConfig"]["defaults"]["unit"],
+            )
+            for panel in panels
+        ],
+        panels[1]["fieldConfig"]["defaults"]["custom"].get("stacking", {}).get("mode"),
+        [line for panel in panels for line in readability_problems(panel)],
+        [e for panel in panels for e in _targets(panel) if "[$__interval]" not in e],
+    ) == ([("1h", "bars", "currencyUSD")] * len(HOURLY_SAVINGS), "normal", [], [])
+
+
+def test_the_spend_by_provider_panel_names_the_provider_first() -> None:
+    """The spend of each hosted model is named by its provider first, in the title and in each
+    legend, so the panel shows what openrouter, anthropic and gemini cost (#5914)."""
+    panel = _ai_spend_panel(SPEND_BY_PROVIDER)
+
+    assert [target["legendFormat"] for target in panel["targets"]] == [
+        "{{api_provider}}: {{model}}",
+        "{{provider}}: {{model}}",
+    ]
 
 
 def test_the_gateway_row_shows_attempts_by_status_traffic_by_caller_and_devops_cli_coverage() -> (
@@ -730,6 +890,8 @@ GOLDEN_SIGNALS = (
 # The range windows that follow the step of a time series, so its points do not overlap.
 STEP_WINDOWS = frozenset({"$__interval", "$__rate_interval"})
 RANGE_WINDOW = re.compile(r"\[([^\]]+)\]")
+# A string of a query, such as the regex of `label_replace`, holds no range window.
+QUOTED = re.compile(r'"(?:[^"\\]|\\.)*"')
 DURATION_UNITS = frozenset({"s", "ms"})
 # The functions of a native histogram that give a duration: each histogram that a duration panel
 # reads counts seconds or milliseconds.
@@ -773,7 +935,7 @@ def _time_series_problems(title: str, expr: str) -> list[str]:
     """The problems of one target of a time series: a window that does not follow the step, and
     a line for each command or sub-command."""
     problems = []
-    windows = sorted(set(RANGE_WINDOW.findall(expr)) - STEP_WINDOWS)
+    windows = sorted(set(RANGE_WINDOW.findall(QUOTED.sub('""', expr))) - STEP_WINDOWS)
     if windows or "$__range" in expr:
         problems.append(f"{title}: the window {windows} does not follow the step")
     if grouping_labels(expr) & {"command", "sub_command"}:
@@ -916,6 +1078,11 @@ def _override(prop: str, value: object) -> dict[str, Any]:
             {"targets": [{"expr": _P95.replace("$__rate_interval", "$__range")}]},
             "does not follow the step",
             id="the range as a window",
+        ),
+        pytest.param(
+            {"targets": [{"expr": f'label_replace({_P95}, "le", "$1", "le", "([^.]+)")'}]},
+            None,
+            id="a bracket in a regex is no window",
         ),
         pytest.param(
             {"targets": [{"expr": _P95.replace("sum(", "sum by (command) (")}]},

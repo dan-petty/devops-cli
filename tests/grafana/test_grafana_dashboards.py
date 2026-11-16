@@ -558,7 +558,9 @@ def test_enhanced_dashboard_panels_and_visualizations() -> None:
 
     ai_projections = [p["title"] for p in ai_dash["panels"] if "Projected" in p.get("title", "")]
     savings_panel = next(
-        p for p in ai_dash["panels"] if p.get("title") == "Local Savings per Hour by Backend Server"
+        p
+        for p in ai_dash["panels"]
+        if p.get("title") == "Local savings by backend server: USD per hour"
     )
     custom_savings = savings_panel.get("fieldConfig", {}).get("defaults", {}).get("custom", {})
     gpu_mem_panel = next(
@@ -584,7 +586,7 @@ def test_enhanced_dashboard_panels_and_visualizations() -> None:
             "Projected 90-Day Run Rate",
             "Projected 1-Year Run Rate",
         ],
-        ("line", 20),
+        ("bars", 50),
         ("line", 100),
         True,
         True,
@@ -593,7 +595,7 @@ def test_enhanced_dashboard_panels_and_visualizations() -> None:
 
 def test_grafana_dashboard_projections_and_dcgm_grid_layout() -> None:
     """Verify aggregated rolling averages, projections, TTFT, and DCGM 2x2 grid. A projection
-    takes its spend from the last 7 days (#4724) and its savings from the range."""
+    takes its spend (#4724) and its savings (#5914) from the last 7 days."""
     ai_dash = json.loads((_PRODUCT_DASHBOARDS / "ai-spend.json").read_text(encoding="utf-8"))
     llm_dash = json.loads((_REPO_DASHBOARDS / "llm-stack.json").read_text(encoding="utf-8"))
     dcgm_dash = json.loads((_REPO_DASHBOARDS / "nvidia-dcgm.json").read_text(encoding="utf-8"))
@@ -605,7 +607,7 @@ def test_grafana_dashboard_projections_and_dcgm_grid_layout() -> None:
     dcgm_panels = {p["id"]: p for p in dcgm_dash.get("panels", [])}
     llm_panels = {p["id"]: p for p in llm_dash.get("panels", [])}
 
-    ai_roll_legends = [ai_panels[pid]["targets"][1]["legendFormat"] for pid in (15, 10, 11)]
+    ai_roll_legends = [ai_panels[pid]["targets"][1]["legendFormat"] for pid in (10, 11)]
     ai_proj_ranges = [
         [("[7d]" in t["expr"], "[$__range]" in t["expr"]) for t in ai_panels[pid]["targets"]]
         for pid in (16, 17, 18)
@@ -634,11 +636,10 @@ def test_grafana_dashboard_projections_and_dcgm_grid_layout() -> None:
         proj_has_increase,
     ) == (
         [
-            "Total Rolling Avg (6h)",
             "Total Rolling Avg (30m)",
             "Total Rolling Avg (30m)",
         ],
-        [[(True, False), (False, True)]] * 3,
+        [[(True, False), (True, False)]] * 3,
         "Time to First Token p95 per Model",
         True,
         [(0, 16, 12), (12, 16, 12), (0, 24, 12), (12, 24, 12)],

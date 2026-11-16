@@ -92,7 +92,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Equivalent cloud spend avoided by local model execution over the dashboard's time range. The local prompt and completion tokens of each operation are priced at the hosted reference price that the dashboard constant reference_price_usd_per_token holds for them, so every process and every range is priced at one reference (#1672, #2194). A series from before the local label that the gateway served counts as local, because the gateway serves only local models, and a series from before the operation label counts as chat. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "The hosted spend that local models saved in the time range of the dashboard. The tokens come from the gateway's own counters `litellm_input_tokens_metric_total` (prompt) and `litellm_output_tokens_metric_total` (completion) of the deployments that an in-cluster Ollama serves: `api_provider` `ollama_chat` for chat and `ollama` for embeddings. A hosted call does not count, whatever label a client gives its own token series (#5867, #5914). Each token has the reference price that the dashboard constant reference_price_usd_per_token holds for its operation and type: the hosted price of `qwen3.8:27b` and of `qwen/qwen3-embedding-8b`, which the spend reports of the Service also use (#4241).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -142,7 +142,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum((label_replace(sum by (type) (increase(devops_cli_ai_tokens_total{local=\"true\", operation!=\"embeddings\"}[$__range]) or increase(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation!=\"embeddings\"}[$__range])), \"operation\", \"chat\", \"\", \"\") or sum by (operation, type) (increase(devops_cli_ai_tokens_total{local=\"true\", operation=\"embeddings\"}[$__range]) or increase(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation=\"embeddings\"}[$__range]))) * on (operation, type) group_left () (${reference_price_usd_per_token:raw})) or vector(0)",
+          "expr": "sum(label_replace(label_replace(label_replace(sum by (api_provider) (increase(litellm_input_tokens_metric_total{api_provider=~\"ollama_chat|ollama\"}[$__range])), \"type\", \"prompt\", \"\", \"\") or label_replace(sum by (api_provider) (increase(litellm_output_tokens_metric_total{api_provider=~\"ollama_chat|ollama\"}[$__range])), \"type\", \"completion\", \"\", \"\"), \"operation\", \"chat\", \"api_provider\", \"ollama_chat\"), \"operation\", \"embeddings\", \"api_provider\", \"ollama\") * on (operation, type) group_left () (${reference_price_usd_per_token:raw})) or vector(0)",
           "instant": true,
           "legendFormat": "Savings USD",
           "refId": "A"
@@ -346,13 +346,13 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum((label_replace(sum by (type) (rate(devops_cli_ai_tokens_total{local=\"true\", operation!=\"embeddings\"}[$__range]) or rate(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation!=\"embeddings\"}[$__range])), \"operation\", \"chat\", \"\", \"\") or sum by (operation, type) (rate(devops_cli_ai_tokens_total{local=\"true\", operation=\"embeddings\"}[$__range]) or rate(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation=\"embeddings\"}[$__range]))) * on (operation, type) group_left () (${reference_price_usd_per_token:raw})) * 86400 * 30 or vector(0)",
+          "expr": "sum(label_replace(label_replace(label_replace(sum by (api_provider) (rate(litellm_input_tokens_metric_total{api_provider=~\"ollama_chat|ollama\"}[7d])), \"type\", \"prompt\", \"\", \"\") or label_replace(sum by (api_provider) (rate(litellm_output_tokens_metric_total{api_provider=~\"ollama_chat|ollama\"}[7d])), \"type\", \"completion\", \"\", \"\"), \"operation\", \"chat\", \"api_provider\", \"ollama_chat\"), \"operation\", \"embeddings\", \"api_provider\", \"ollama\") * on (operation, type) group_left () (${reference_price_usd_per_token:raw})) * 86400 * 30 or vector(0)",
           "instant": true,
-          "legendFormat": "Projected Savings (30d)",
+          "legendFormat": "Projected Savings (30d, from the last 7d)",
           "refId": "B"
         }
       ],
-      "description": "Spend: the spend of the last 7 days, as a rate, for 30 days. The value does not change with the time range of the dashboard. A call through the gateway comes from the gateway's spend counter `litellm_spend_metric_total`, which Prometheus scrapes each 15 s and which counts every caller of the gateway. A call that did not go through the gateway comes from devops-cli's `devops_cli_ai_spend_usd_total{provider!=\"gateway\"}` (#4724). Savings: the local savings of the time range of the dashboard, as a rate, for 30 days."
+      "description": "Spend: the spend of the last 7 days, as a rate, for 30 days. The value does not change with the time range of the dashboard. A call through the gateway comes from the gateway's spend counter `litellm_spend_metric_total`, which Prometheus scrapes each 15 s and which counts every caller of the gateway. A call that did not go through the gateway comes from devops-cli's `devops_cli_ai_spend_usd_total{provider!=\"gateway\"}` (#4724). Savings: the local savings of the last 7 days, as a rate, for 30 days, so both values have one baseline. They come from the gateway's token counters of the in-cluster Ollama deployments, at the reference prices of the dashboard constant reference_price_usd_per_token (#5914)."
     },
     {
       "datasource": {
@@ -405,13 +405,13 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum((label_replace(sum by (type) (rate(devops_cli_ai_tokens_total{local=\"true\", operation!=\"embeddings\"}[$__range]) or rate(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation!=\"embeddings\"}[$__range])), \"operation\", \"chat\", \"\", \"\") or sum by (operation, type) (rate(devops_cli_ai_tokens_total{local=\"true\", operation=\"embeddings\"}[$__range]) or rate(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation=\"embeddings\"}[$__range]))) * on (operation, type) group_left () (${reference_price_usd_per_token:raw})) * 86400 * 90 or vector(0)",
+          "expr": "sum(label_replace(label_replace(label_replace(sum by (api_provider) (rate(litellm_input_tokens_metric_total{api_provider=~\"ollama_chat|ollama\"}[7d])), \"type\", \"prompt\", \"\", \"\") or label_replace(sum by (api_provider) (rate(litellm_output_tokens_metric_total{api_provider=~\"ollama_chat|ollama\"}[7d])), \"type\", \"completion\", \"\", \"\"), \"operation\", \"chat\", \"api_provider\", \"ollama_chat\"), \"operation\", \"embeddings\", \"api_provider\", \"ollama\") * on (operation, type) group_left () (${reference_price_usd_per_token:raw})) * 86400 * 90 or vector(0)",
           "instant": true,
-          "legendFormat": "Projected Savings (90d)",
+          "legendFormat": "Projected Savings (90d, from the last 7d)",
           "refId": "B"
         }
       ],
-      "description": "Spend: the spend of the last 7 days, as a rate, for 90 days. The value does not change with the time range of the dashboard. A call through the gateway comes from the gateway's spend counter `litellm_spend_metric_total`, which Prometheus scrapes each 15 s and which counts every caller of the gateway. A call that did not go through the gateway comes from devops-cli's `devops_cli_ai_spend_usd_total{provider!=\"gateway\"}` (#4724). Savings: the local savings of the time range of the dashboard, as a rate, for 90 days."
+      "description": "Spend: the spend of the last 7 days, as a rate, for 90 days. The value does not change with the time range of the dashboard. A call through the gateway comes from the gateway's spend counter `litellm_spend_metric_total`, which Prometheus scrapes each 15 s and which counts every caller of the gateway. A call that did not go through the gateway comes from devops-cli's `devops_cli_ai_spend_usd_total{provider!=\"gateway\"}` (#4724). Savings: the local savings of the last 7 days, as a rate, for 90 days, so both values have one baseline. They come from the gateway's token counters of the in-cluster Ollama deployments, at the reference prices of the dashboard constant reference_price_usd_per_token (#5914)."
     },
     {
       "datasource": {
@@ -464,13 +464,13 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum((label_replace(sum by (type) (rate(devops_cli_ai_tokens_total{local=\"true\", operation!=\"embeddings\"}[$__range]) or rate(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation!=\"embeddings\"}[$__range])), \"operation\", \"chat\", \"\", \"\") or sum by (operation, type) (rate(devops_cli_ai_tokens_total{local=\"true\", operation=\"embeddings\"}[$__range]) or rate(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation=\"embeddings\"}[$__range]))) * on (operation, type) group_left () (${reference_price_usd_per_token:raw})) * 86400 * 365 or vector(0)",
+          "expr": "sum(label_replace(label_replace(label_replace(sum by (api_provider) (rate(litellm_input_tokens_metric_total{api_provider=~\"ollama_chat|ollama\"}[7d])), \"type\", \"prompt\", \"\", \"\") or label_replace(sum by (api_provider) (rate(litellm_output_tokens_metric_total{api_provider=~\"ollama_chat|ollama\"}[7d])), \"type\", \"completion\", \"\", \"\"), \"operation\", \"chat\", \"api_provider\", \"ollama_chat\"), \"operation\", \"embeddings\", \"api_provider\", \"ollama\") * on (operation, type) group_left () (${reference_price_usd_per_token:raw})) * 86400 * 365 or vector(0)",
           "instant": true,
-          "legendFormat": "Projected Savings (1y)",
+          "legendFormat": "Projected Savings (1y, from the last 7d)",
           "refId": "B"
         }
       ],
-      "description": "Spend: the spend of the last 7 days, as a rate, for 365 days. The value does not change with the time range of the dashboard. A call through the gateway comes from the gateway's spend counter `litellm_spend_metric_total`, which Prometheus scrapes each 15 s and which counts every caller of the gateway. A call that did not go through the gateway comes from devops-cli's `devops_cli_ai_spend_usd_total{provider!=\"gateway\"}` (#4724). Savings: the local savings of the time range of the dashboard, as a rate, for 365 days."
+      "description": "Spend: the spend of the last 7 days, as a rate, for 365 days. The value does not change with the time range of the dashboard. A call through the gateway comes from the gateway's spend counter `litellm_spend_metric_total`, which Prometheus scrapes each 15 s and which counts every caller of the gateway. A call that did not go through the gateway comes from devops-cli's `devops_cli_ai_spend_usd_total{provider!=\"gateway\"}` (#4724). Savings: the local savings of the last 7 days, as a rate, for 365 days, so both values have one baseline. They come from the gateway's token counters of the in-cluster Ollama deployments, at the reference prices of the dashboard constant reference_price_usd_per_token (#5914)."
     },
     {
       "collapsed": false,
@@ -543,7 +543,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "The LLM spend in each hour, by model. Each bar is the hour before its time (Min interval 1h), and the bars of one hour stack to the bar of Spend: USD per hour. A call through the gateway comes from the gateway's spend counter `litellm_spend_metric_total`, by its deployment model and `api_provider`. A call that did not go through the gateway comes from devops-cli's `devops_cli_ai_spend_usd_total{provider!=\"gateway\"}`, by model and provider (#4724). A model with no spend in an hour has no bar, so a local model shows no bar. The direct part is approximate: increase() needs two samples of a series inside its window, and delta points from one process can arrive out of order (#792), so a count can come out low.",
+      "description": "The LLM spend in each hour, by hosted provider and model, such as openrouter, anthropic and gemini. Each bar is the hour before its time (Min interval 1h), and the bars of one hour stack to the bar of Spend: USD per hour. A call through the gateway comes from the gateway's spend counter `litellm_spend_metric_total`, by its `api_provider` and deployment model. A call that did not go through the gateway comes from devops-cli's `devops_cli_ai_spend_usd_total{provider!=\"gateway\"}`, by provider and model (#4724, #5914). A model with no spend in an hour has no bar, so a local model shows no bar. The direct part is approximate: increase() needs two samples of a series inside its window, and delta points from one process can arrive out of order (#792), so a count can come out low.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -581,7 +581,7 @@
           "placement": "bottom"
         }
       },
-      "title": "Spend by model: USD per hour",
+      "title": "Spend by provider and model: USD per hour",
       "type": "timeseries",
       "targets": [
         {
@@ -589,8 +589,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (model, api_provider) (increase(litellm_spend_metric_total[$__interval])) > 0",
-          "legendFormat": "{{model}} ({{api_provider}})",
+          "expr": "sum by (api_provider, model) (increase(litellm_spend_metric_total[$__interval])) > 0",
+          "legendFormat": "{{api_provider}}: {{model}}",
           "refId": "A"
         },
         {
@@ -598,8 +598,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (model, provider) (increase(devops_cli_ai_spend_usd_total{provider!=\"gateway\"}[$__interval])) > 0",
-          "legendFormat": "{{model}} ({{provider}})",
+          "expr": "sum by (provider, model) (increase(devops_cli_ai_spend_usd_total{provider!=\"gateway\"}[$__interval])) > 0",
+          "legendFormat": "{{provider}}: {{model}}",
           "refId": "B"
         }
       ],
@@ -622,7 +622,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Equivalent hosted cloud spend avoided per hour by local model execution. The local prompt and completion tokens of each operation are priced at the hosted reference price that the dashboard constant reference_price_usd_per_token holds for them, so every process and every range is priced at one reference (#1672, #2194). A series from before the local label that the gateway served counts as local, because the gateway serves only local models, and a series from before the operation label counts as chat.",
+      "description": "The local savings in each hour. Each bar is the hour before its time (Min interval 1h), and the bars of a range add up to Local Cloud Savings in Range. The tokens come from the gateway's own counters `litellm_input_tokens_metric_total` (prompt) and `litellm_output_tokens_metric_total` (completion) of the deployments that an in-cluster Ollama serves: `api_provider` `ollama_chat` for chat and `ollama` for embeddings. A hosted call does not count, whatever label a client gives its own token series (#5867, #5914). Each token has the reference price that the dashboard constant reference_price_usd_per_token holds for its operation and type: the hosted price of `qwen3.8:27b` and of `qwen/qwen3-embedding-8b`, which the spend reports of the Service also use (#4241).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -630,11 +630,18 @@
           },
           "custom": {
             "axisCenteredZero": false,
-            "drawStyle": "line",
-            "lineInterpolation": "smooth"
+            "axisLabel": "USD per hour",
+            "drawStyle": "bars",
+            "fillOpacity": 50,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "showPoints": "never",
+            "barAlignment": -1
           },
+          "min": 0,
           "unit": "currencyUSD"
-        }
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -649,7 +656,7 @@
           "placement": "bottom"
         }
       },
-      "title": "Local Hardware Savings Rate ($/hour)",
+      "title": "Local savings: USD per hour",
       "type": "timeseries",
       "targets": [
         {
@@ -657,27 +664,19 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum((label_replace(sum by (type) (rate(devops_cli_ai_tokens_total{local=\"true\", operation!=\"embeddings\"}[5m]) or rate(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation!=\"embeddings\"}[5m])), \"operation\", \"chat\", \"\", \"\") or sum by (operation, type) (rate(devops_cli_ai_tokens_total{local=\"true\", operation=\"embeddings\"}[5m]) or rate(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation=\"embeddings\"}[5m]))) * on (operation, type) group_left () (${reference_price_usd_per_token:raw})) * 3600 or vector(0)",
-          "legendFormat": "Savings Rate ($/hr)",
+          "expr": "sum(label_replace(label_replace(label_replace(sum by (api_provider) (increase(litellm_input_tokens_metric_total{api_provider=~\"ollama_chat|ollama\"}[$__interval])), \"type\", \"prompt\", \"\", \"\") or label_replace(sum by (api_provider) (increase(litellm_output_tokens_metric_total{api_provider=~\"ollama_chat|ollama\"}[$__interval])), \"type\", \"completion\", \"\", \"\"), \"operation\", \"chat\", \"api_provider\", \"ollama_chat\"), \"operation\", \"embeddings\", \"api_provider\", \"ollama\") * on (operation, type) group_left () (${reference_price_usd_per_token:raw}))",
+          "legendFormat": "savings",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum((label_replace(sum by (type) (rate(devops_cli_ai_tokens_total{local=\"true\", operation!=\"embeddings\"}[1h]) or rate(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation!=\"embeddings\"}[1h])), \"operation\", \"chat\", \"\", \"\") or sum by (operation, type) (rate(devops_cli_ai_tokens_total{local=\"true\", operation=\"embeddings\"}[1h]) or rate(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation=\"embeddings\"}[1h]))) * on (operation, type) group_left () (${reference_price_usd_per_token:raw})) * 3600 or vector(0)",
-          "legendFormat": "Savings Rate Rolling Avg (1h)",
-          "refId": "B"
         }
-      ]
+      ],
+      "interval": "1h"
     },
     {
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Equivalent hosted cloud spend avoided per hour by local model execution, grouped by backend, server and provider. The local prompt and completion tokens of each operation are priced at the hosted reference price that the dashboard constant reference_price_usd_per_token holds for them, so every process and every range is priced at one reference (#1672, #2194). A series from before the local label that the gateway served counts as local, because the gateway serves only local models, and a series from before the operation label counts as chat. Approximate, and low for sparse series: increase() needs two samples of a series inside its window, so a series' first sample, and any series seen only once in the window, add nothing. Delta points from one process can arrive out of order, and totals then come out low (#792).",
+      "description": "The local savings in each hour, by backend server: one bar for each Kubernetes service of an in-cluster Ollama, such as ollama-48gib-fast and ollama-64gib-standard. Each bar is the hour before its time (Min interval 1h), and the bars of one hour stack to the bar of Local savings: USD per hour. The query joins the tokens of each deployment (`model_id`) to the service name in the `api_base` of `litellm_deployment_total_requests_total`. LiteLLM gives an embedding deployment no `api_base`, so its model (`litellm_model_name`) names its bar (`qwen3-embedding:0.6b`), and that bar holds all embedding backends. A backend with no savings in an hour has no bar. The tokens come from the gateway's own counters `litellm_input_tokens_metric_total` (prompt) and `litellm_output_tokens_metric_total` (completion) of the deployments that an in-cluster Ollama serves: `api_provider` `ollama_chat` for chat and `ollama` for embeddings. A hosted call does not count, whatever label a client gives its own token series (#5867, #5914). Each token has the reference price that the dashboard constant reference_price_usd_per_token holds for its operation and type: the hosted price of `qwen3.8:27b` and of `qwen/qwen3-embedding-8b`, which the spend reports of the Service also use (#4241).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -685,12 +684,22 @@
           },
           "custom": {
             "axisCenteredZero": false,
-            "drawStyle": "line",
-            "fillOpacity": 20,
-            "lineInterpolation": "smooth"
+            "axisLabel": "USD per hour",
+            "drawStyle": "bars",
+            "fillOpacity": 50,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "showPoints": "never",
+            "barAlignment": -1,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
           },
+          "min": 0,
           "unit": "currencyUSD"
-        }
+        },
+        "overrides": []
       },
       "gridPos": {
         "h": 8,
@@ -705,7 +714,7 @@
           "placement": "bottom"
         }
       },
-      "title": "Local Savings per Hour by Backend Server",
+      "title": "Local savings by backend server: USD per hour",
       "type": "timeseries",
       "targets": [
         {
@@ -713,20 +722,12 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (server, backend, provider) ((label_replace(sum by (server, backend, provider, type) (increase(devops_cli_ai_tokens_total{local=\"true\", operation!=\"embeddings\"}[1h]) or increase(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation!=\"embeddings\"}[1h])), \"operation\", \"chat\", \"\", \"\") or sum by (server, backend, provider, operation, type) (increase(devops_cli_ai_tokens_total{local=\"true\", operation=\"embeddings\"}[1h]) or increase(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation=\"embeddings\"}[1h]))) * on (operation, type) group_left () (${reference_price_usd_per_token:raw}))",
-          "legendFormat": "{{backend}} via {{server}} ({{provider}})",
+          "expr": "sum by (backend) (label_replace(label_replace(label_replace(sum by (api_provider, model_id) (increase(litellm_input_tokens_metric_total{api_provider=~\"ollama_chat|ollama\"}[$__interval])), \"type\", \"prompt\", \"\", \"\") or label_replace(sum by (api_provider, model_id) (increase(litellm_output_tokens_metric_total{api_provider=~\"ollama_chat|ollama\"}[$__interval])), \"type\", \"completion\", \"\", \"\"), \"operation\", \"chat\", \"api_provider\", \"ollama_chat\"), \"operation\", \"embeddings\", \"api_provider\", \"ollama\") * on (operation, type) group_left () (${reference_price_usd_per_token:raw}) * on (model_id) group_left (backend) (group by (model_id, backend) (label_replace(increase(litellm_deployment_total_requests_total{api_provider=~\"ollama_chat|ollama\", model_id!=\"\", api_base!=\"\"}[$__interval]), \"backend\", \"$1\", \"api_base\", \"https?://([^.:/]+).*\")) or on (model_id) group by (model_id, backend) (label_replace(increase(litellm_deployment_total_requests_total{api_provider=~\"ollama_chat|ollama\", model_id!=\"\"}[$__interval]), \"backend\", \"$1\", \"litellm_model_name\", \"(.+)\")))) > 0",
+          "legendFormat": "{{backend}}",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum((label_replace(sum by (type) (rate(devops_cli_ai_tokens_total{local=\"true\", operation!=\"embeddings\"}[6h]) or rate(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation!=\"embeddings\"}[6h])), \"operation\", \"chat\", \"\", \"\") or sum by (operation, type) (rate(devops_cli_ai_tokens_total{local=\"true\", operation=\"embeddings\"}[6h]) or rate(devops_cli_ai_tokens_total{local=\"\", provider=\"gateway\", server!=\"cache\", operation=\"embeddings\"}[6h]))) * on (operation, type) group_left () (${reference_price_usd_per_token:raw})) * 3600",
-          "legendFormat": "Total Rolling Avg (6h)",
-          "refId": "B"
         }
-      ]
+      ],
+      "interval": "1h"
     },
     {
       "collapsed": false,
@@ -1192,11 +1193,11 @@
   "templating": {
     "list": [
       {
-        "description": "The hosted price of one local token in USD, by operation and token type: genai-prices' price of `gpt-4o` for chat and of `text-embedding-3-small` for embeddings, the default reference models of devops-cli, written as USD per million tokens. The savings queries multiply the local tokens by it, and put it in with the raw format, so Grafana does not escape its quotes. tests/test_k8s_monitoring_dashboards.py fails when a price differs from genai-prices.",
+        "description": "The hosted price of one local token in USD, by operation and token type, written as USD per million tokens: the price of `qwen3.8:27b` for chat and of `qwen/qwen3-embedding-8b` for embeddings. These are `ai.reference_model` and `ai.reference_embedding_model` of the Service, with their prices from `price_overrides` in k8s/devops/configmap.example.yaml (#4241), so the dashboard and the spend reports of the Service use the same prices. The savings queries multiply the local tokens by it, and put it in with the raw format, so Grafana does not escape its quotes. tests/prometheus/test_k8s_monitoring_dashboards.py fails when a price differs from the price that the spend reports give the reference models of the template.",
         "hide": 2,
         "label": "Reference price (USD per token)",
         "name": "reference_price_usd_per_token",
-        "query": "label_replace(label_replace(vector(2.5 / 1e6), \"operation\", \"chat\", \"\", \"\"), \"type\", \"prompt\", \"\", \"\") or label_replace(label_replace(vector(10 / 1e6), \"operation\", \"chat\", \"\", \"\"), \"type\", \"completion\", \"\", \"\") or label_replace(label_replace(vector(0.02 / 1e6), \"operation\", \"embeddings\", \"\", \"\"), \"type\", \"prompt\", \"\", \"\") or label_replace(label_replace(vector(0 / 1e6), \"operation\", \"embeddings\", \"\", \"\"), \"type\", \"completion\", \"\", \"\")",
+        "query": "label_replace(label_replace(vector(0.035 / 1e6), \"operation\", \"chat\", \"\", \"\"), \"type\", \"prompt\", \"\", \"\") or label_replace(label_replace(vector(1.5 / 1e6), \"operation\", \"chat\", \"\", \"\"), \"type\", \"completion\", \"\", \"\") or label_replace(label_replace(vector(0.01 / 1e6), \"operation\", \"embeddings\", \"\", \"\"), \"type\", \"prompt\", \"\", \"\") or label_replace(label_replace(vector(0 / 1e6), \"operation\", \"embeddings\", \"\", \"\"), \"type\", \"completion\", \"\", \"\")",
         "skipUrlSync": true,
         "type": "constant"
       }
