@@ -15,7 +15,7 @@ import yaml
 
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE
-from devops_cli.k8s.cluster_job_api import ClusterJobs, JobState, job_state
+from devops_cli.k8s.cluster_job_api import ClusterJobs, JobState, PodEnd, job_state
 from tests.support.fakes.kubernetes import (
     FakeCluster,
     api_exception,
@@ -309,8 +309,8 @@ def test_a_job_is_created_with_the_resources_given_and_keeps_the_other_values_of
     env = {entry["name"]: entry["value"] for entry in container["env"]}
     assert (container["resources"], env["PYTEST_XDIST_AUTO_NUM_WORKERS"]) == (
         {
-            "requests": {"cpu": "1", "memory": "2Gi", "ephemeral-storage": "2Gi"},
-            "limits": {"cpu": "1", "memory": "12Gi", "ephemeral-storage": "6Gi"},
+            "requests": {"cpu": "1", "memory": "2Gi", "ephemeral-storage": "4Gi"},
+            "limits": {"cpu": "1", "memory": "12Gi", "ephemeral-storage": "10Gi"},
         },
         "1",
     )
@@ -324,8 +324,8 @@ def test_a_job_keeps_the_resources_of_the_template_when_the_caller_gives_none(
     (job,) = kube.custom_objects.objects[JOBS]
     (container,) = job["spec"]["template"]["spec"]["containers"]
     assert container["resources"] == {
-        "requests": {"cpu": "2", "memory": "4Gi", "ephemeral-storage": "2Gi"},
-        "limits": {"cpu": "2", "memory": "8Gi", "ephemeral-storage": "6Gi"},
+        "requests": {"cpu": "2", "memory": "4Gi", "ephemeral-storage": "4Gi"},
+        "limits": {"cpu": "2", "memory": "8Gi", "ephemeral-storage": "10Gi"},
     }
 
 
@@ -515,16 +515,36 @@ def test_a_listed_job_carries_its_labels_and_the_reason_and_message_of_its_failu
     ]
 
 
-def test_the_exit_status_of_a_job_pod_is_the_terminated_code(kube: FakeCluster) -> None:
+def test_the_end_of_a_job_pod_is_the_terminated_code_and_its_reason(kube: FakeCluster) -> None:
     """The report of an ended Job reads the terminated code of the pod of its Job (#3727)."""
     kube.core.answers["list_namespaced_pod"] = [
         pod("runner", namespace="devops", statuses=[status("runner", terminated(137, "OOMKilled"))])
     ]
 
-    assert ClusterJobs().exit_status("devops-cli-stage-a-1") == 137
+    assert ClusterJobs().pod_end("devops-cli-stage-a-1") == PodEnd(137, "OOMKilled")
 
 
-def test_the_exit_status_uses_the_last_state_of_a_restarted_container(kube: FakeCluster) -> None:
+def test_the_end_of_an_evicted_pod_holds_the_reason_and_the_message_of_the_pod(
+    kube: FakeCluster,
+) -> None:
+    """The kubelet evicted the pod for its home volume and killed it at the end of the grace
+    period: the container says `Error`, and only the pod names the cause (#5960)."""
+    message = 'Usage of EmptyDir volume "home" exceeds the limit "4Gi". '
+    kube.core.answers["list_namespaced_pod"] = [
+        pod(
+            "runner",
+            namespace="devops",
+            phase="Failed",
+            reason="Evicted",
+            message=message,
+            statuses=[status("runner", terminated(137, "Error"))],
+        )
+    ]
+
+    assert ClusterJobs().pod_end("devops-cli-stage-a-1") == PodEnd(137, "Error", "Evicted", message)
+
+
+def test_the_end_uses_the_last_state_of_a_restarted_container(kube: FakeCluster) -> None:
     kube.core.answers["list_namespaced_pod"] = [
         pod(
             "runner",
@@ -533,25 +553,31 @@ def test_the_exit_status_uses_the_last_state_of_a_restarted_container(kube: Fake
         )
     ]
 
-    assert ClusterJobs().exit_status("devops-cli-stage-a-1") == 137
+    assert ClusterJobs().pod_end("devops-cli-stage-a-1") == PodEnd(137)
 
 
-def test_the_exit_status_is_none_without_a_terminated_container(kube: FakeCluster) -> None:
+def test_the_end_has_no_exit_status_without_a_terminated_container(kube: FakeCluster) -> None:
     kube.core.answers["list_namespaced_pod"] = [
         pod("runner", namespace="devops", statuses=[status("runner", running())])
     ]
 
-    assert ClusterJobs().exit_status("devops-cli-stage-a-1") is None
+    assert ClusterJobs().pod_end("devops-cli-stage-a-1") == PodEnd()
 
 
-def test_the_exit_status_names_the_job_in_the_pod_selector(kube: FakeCluster) -> None:
-    ClusterJobs().exit_status("devops-cli-stage-a-1")
+def test_the_end_of_a_job_with_no_pod_is_empty(kube: FakeCluster) -> None:
+    kube.core.answers["list_namespaced_pod"] = []
+
+    assert ClusterJobs().pod_end("devops-cli-stage-a-1") == PodEnd()
+
+
+def test_the_end_names_the_job_in_the_pod_selector(kube: FakeCluster) -> None:
+    ClusterJobs().pod_end("devops-cli-stage-a-1")
 
     call = next(c for c in kube.core.calls if c[0] == "list_namespaced_pod")
     assert call[1]["label_selector"] == "batch.kubernetes.io/job-name=devops-cli-stage-a-1"
 
 
-def test_the_exit_status_raises_when_the_api_refuses(
+def test_the_end_raises_when_the_api_refuses(
     kube: FakeCluster, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def refuse(*_: Any, **__: Any) -> Any:
@@ -562,4 +588,4 @@ def test_the_exit_status_raises_when_the_api_refuses(
     with pytest.raises(
         ClusterJobError, match="read the status of a Job pod in namespace devops: HTTP 403"
     ):
-        ClusterJobs().exit_status("devops-cli-stage-a-1")
+        ClusterJobs().pod_end("devops-cli-stage-a-1")

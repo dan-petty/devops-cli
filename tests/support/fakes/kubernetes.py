@@ -104,6 +104,7 @@ def pod(
     sidecars: tuple[str, ...] = (),
     init_statuses: list[Any] | None = None,
     reason: str | None = None,
+    message: str | None = None,
     conditions: dict[str, str] | None = None,
     annotations: dict[str, str] | None = None,
     deleted: bool = False,
@@ -112,7 +113,8 @@ def pod(
     creation_timestamp: datetime.datetime | None = None,
     deletion_timestamp: datetime.datetime | None = None,
 ) -> Any:
-    """A pod. `sidecars` names the init containers whose restart policy is Always."""
+    """A pod. `sidecars` names the init containers whose restart policy is Always. `reason` and
+    `message` are those of the pod status, such as `Evicted` and the message of the kubelet."""
     spec_inits = [
         client.V1Container(
             name=init,
@@ -143,6 +145,7 @@ def pod(
         status=client.V1PodStatus(
             phase=phase,
             reason=reason,
+            message=message,
             conditions=[
                 client.V1PodCondition(type=kind, status=value)
                 for kind, value in (conditions or {}).items()

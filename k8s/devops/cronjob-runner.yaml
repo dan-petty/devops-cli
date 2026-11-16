@@ -95,16 +95,19 @@ spec:
               volumeMounts:
                 - name: tmp
                   mountPath: /tmp
-                # The clone, the worktree, its venv and the uv cache, which fit in 4 GiB
-                # (measured: 1.1 GB for the venv and the cache).
+                # The clone, the worktree, its venv, the uv cache and the caches of the checks.
+                # Measured on 2026-11-16 (#5960): 1.8 GB for the clone, the worktree, the venv and
+                # the cache, and 68 MB for the tree of the mutation run, which the strength check
+                # removes after its run. A run of #3648 went over 4 GiB, so the limit is twice that.
                 - name: home
                   mountPath: /home/devops
                 - name: config
                   mountPath: /config
                   readOnly: true
               resources:
-                # The storage limit covers both volumes below (4 Gi and 1 Gi) and the log, so a
-                # step cannot fill the disk of the node. The memory request is the normal peak of
+                # The storage limit covers both volumes below (8 Gi and 1 Gi) and the log, so a
+                # step cannot fill the disk of the node. The storage request is the 4 GiB that a
+                # run of #3648 used (#5960). The memory request is the normal peak of
                 # a Job (1.24 GB at most over the 10 Jobs that did not run out of memory). The
                 # memory limit is a burst class (#2806): twice the 4.13 GB that the killed Job had
                 # reached, and below the 15 Gi that the smallest node can allocate, so a pod that
@@ -112,18 +115,18 @@ spec:
                 requests:
                   cpu: "2"
                   memory: 4Gi
-                  ephemeral-storage: 2Gi
+                  ephemeral-storage: 4Gi
                 limits:
                   cpu: "2"
                   memory: 8Gi
-                  ephemeral-storage: 6Gi
+                  ephemeral-storage: 10Gi
           volumes:
             - name: tmp
               emptyDir:
                 sizeLimit: 1Gi
             - name: home
               emptyDir:
-                sizeLimit: 4Gi
+                sizeLimit: 8Gi
             - name: config
               configMap:
                 name: devops-cli-config

@@ -3842,6 +3842,7 @@ class RoadmapMessages:
         "\n\nThe Job made no progress for {seconds} seconds, so the Service ended it by its "
         "deadline. Its log did not change in that time."
     )
+    implement_job_report_evicted: str = "\n\nThe kubelet evicted the pod of the Job: {message}"
     implement_deadline_extended: str = (
         "The Service moved the deadline of Job {job} from {previous} to {seconds} seconds: "
         "{reason}."

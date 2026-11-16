@@ -702,6 +702,44 @@ def test_a_pod_killed_for_memory_with_no_log_stops_the_item_as_oom(
     ) == ("oom", "job", 1)
 
 
+@pytest.mark.usefixtures("no_continuation")
+def test_a_pod_evicted_for_its_home_volume_stops_as_limit_reached_and_names_the_volume(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """The kubelet evicted the runner of #3648 for its home volume and killed it at the end of the
+    grace period: exit status 137 with the container reason `Error` (#5960). More memory does not
+    help, so the class is not `oom`, and the comment names the volume and its limit."""
+    message = 'Usage of EmptyDir volume "home" exceeds the limit "4Gi". '
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    name = _jobs(kube)[0]["metadata"]["name"]
+    store.set_field(_held(store, number), ItemField.STATUS, "In Progress")
+    _end(kube, "Failed")
+    kube.core.answers["list_namespaced_pod"] = [
+        pod(
+            f"{name}-x1",
+            namespace="devops",
+            phase="Failed",
+            reason="Evicted",
+            message=message,
+            statuses=[status("runner", terminated(137, "Error"))],
+        )
+    ]
+    kube.core.answers["read_namespaced_pod_log"] = b""
+
+    _round(store, staged_repo)
+    _round(store, staged_repo)
+
+    (comment,) = [c for c in _comments(store, number) if c.startswith(MARKER)]
+    assert (
+        _record(store, number)["implement.failure"],
+        _record(store, number)["implement.stopped"],
+        len(_creates(kube)),
+    ) == ("limit_reached", "job", 1)
+    assert message.strip() in comment
+    assert "Failure class: `limit_reached`." in comment
+
+
 def test_the_last_state_of_a_restarted_container_gives_the_exit_status(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
 ) -> None:

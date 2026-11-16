@@ -484,6 +484,53 @@ def test_a_signal_exit_status_beats_the_text() -> None:
     assert classify_failure(FailureEvidence(text="ruff failed", exit_status=1)) is FailureClass.LINT
 
 
+# The message of the kubelet for the runner pod of #3648 that it evicted on 2026-11-16 (#5960).
+EVICTED_HOME = 'Usage of EmptyDir volume "home" exceeds the limit "4Gi". '
+
+
+def test_a_pod_evicted_for_a_volume_limit_is_limit_reached_and_not_oom() -> None:
+    """The kubelet evicted the runner and killed it at the end of its grace period: exit status
+    137, container reason `Error`, pod reason `Evicted` (#5960). More memory does not help."""
+    evidence = FailureEvidence(
+        exit_status=137, container_reason="Error", pod_reason="Evicted", pod_message=EVICTED_HOME
+    )
+
+    assert classify_failure(evidence) is FailureClass.LIMIT_REACHED
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        'Container runner exceeded its local ephemeral storage limit "6Gi". ',
+        "Pod ephemeral local storage usage exceeds the total limit of containers 6Gi. ",
+    ],
+    ids=["container-limit", "pod-limit"],
+)
+def test_a_pod_evicted_for_its_storage_limit_is_limit_reached(message: str) -> None:
+    evidence = FailureEvidence(exit_status=137, pod_reason="Evicted", pod_message=message)
+
+    assert classify_failure(evidence) is FailureClass.LIMIT_REACHED
+
+
+def test_a_pod_evicted_for_a_node_low_on_a_resource_is_ci_infra() -> None:
+    """The node, not a limit of the pod, ran short: another node or a later round can succeed."""
+    message = (
+        "The node was low on resource: ephemeral-storage. Threshold quantity: 10Gi, "
+        "available: 9Gi. "
+    )
+    evidence = FailureEvidence(exit_status=137, pod_reason="Evicted", pod_message=message)
+
+    assert classify_failure(evidence) is FailureClass.CI_INFRA
+
+
+def test_exit_status_137_of_a_container_is_oom_only_when_its_reason_is_oom_killed() -> None:
+    """A command of a step has no container reason, so its exit status 137 stays `oom`."""
+    assert [
+        classify_failure(FailureEvidence(exit_status=137, container_reason=reason))
+        for reason in ("OOMKilled", "Error", "")
+    ] == [FailureClass.OOM, FailureClass.CI_INFRA, FailureClass.OOM]
+
+
 def test_the_classes_are_the_twenty_of_the_taxonomy() -> None:
     expected = {
         "provider",
