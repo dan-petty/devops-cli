@@ -9,7 +9,7 @@
 - The report of a runner Job reads the reason and the message of the pod and the reason of the terminated container. A pod that the kubelet evicted for a storage limit of its own gets `limit_reached`, and the report quotes the message of the kubelet. A pod evicted for a node low on a resource gets `ci_infra`. The exit status 137 gives `oom` only with the container reason `OOMKilled`, or with no container reason.
 
 ## Capabilities
-- Modified: `roadmap-implement-job/stops` (the report reads the status of the pod) and `roadmap-implement-job/repair` (the mutation run mutates only the files of its targets and removes its tree).
+- Modified: `roadmap-implement-job/stops` (the report reads the reason of the container, and a new requirement classifies an evicted pod) and `roadmap-implement-job/repair` (the mutation run mutates only the files of its targets and removes its tree).
 
 ## Impact
 - A runner Job asks the scheduler for 4 Gi of storage, not 2 Gi. The runner Jobs run on node hog, which had 68 GB of free disk on 2026-11-16.
