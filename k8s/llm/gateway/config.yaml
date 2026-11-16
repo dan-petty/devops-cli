@@ -298,12 +298,21 @@ router_settings:
       models:
         - qwen3-embedding:0.6b
       routing_strategy: simple-shuffle
+  # The gateway owns the retries and the fallbacks of a call (#5965). A client sends a call again
+  # only when the call did not reach the gateway, or when its stream failed before its first
+  # event: LiteLLM raises an error with a 4xx status other than 429 inside a stream with no retry
+  # and no fallback, and an OpenRouter timeout comes in the stream as code 408.
   num_retries: 5
   allowed_fails: 3
   cooldown_time: 30
   # The longest wait for a deployment's reply, or for its next token in a streamed call. Long
-  # code reviews on the 32B model can generate for several minutes.
-  timeout: 1500
+  # code reviews on the 32B model stream for several minutes, and each token resets the wait.
+  # The timeouts nest, and the inner one ends first: the grace period of the pod (600 s) < this
+  # timeout and each deployment timeout < the deadline of a client call (1200 s,
+  # `ai.request_timeout_seconds` and `roadmap.implement.request_timeout_seconds`). So the gateway
+  # ends a stuck attempt and can retry it or fall back before the client ends the call.
+  # tests/invariants/test_k8s_manifests.py holds this order.
+  timeout: 900
   # Check prompt size against the max_input_tokens of each deployment before calling a backend,
   # so a prompt never reaches a deployment whose window it exceeds. A prompt longer than every
   # window of a group tries the plain fallbacks below, and fails with a ContextWindowExceededError

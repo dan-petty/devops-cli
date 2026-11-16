@@ -57,6 +57,7 @@ class _LazyPydanticProviders(dict[str, Any]):
 _PYDANTIC_PROVIDERS = _LazyPydanticProviders()
 
 _EXCLUDE_BASE_URL_NAMES: frozenset[str] = frozenset({"deepseek", "openrouter"})
+_SYSTEM_ONE_NAMES: Final[frozenset[str]] = frozenset({"system-one", "typesafe"})
 
 
 def is_pydantic_ai_provider(name: str) -> bool:
@@ -168,12 +169,17 @@ def create_pydantic_ai_provider(
             from devops_cli.ai.client.network import name_gateway_caller
             from devops_cli.telemetry.library_spans import instrument_gateway_client
 
+            # The router of the gateway retries a chat call, and `GatewayCallModel` sends it again
+            # only before it reaches the gateway or before its first event, so the client of a chat
+            # group has no retry transport (#5965). A System One call goes through a pass-through
+            # route that the gateway does not retry, so its transport keeps the retries.
+            retries = 3 if prov_name in _SYSTEM_ONE_NAMES else None
             gateway_client = async_http_client(
-                level, event_hooks={"request": [name_gateway_caller]}, retries=3
+                level, event_hooks={"request": [name_gateway_caller]}, retries=retries
             )
             instrument_gateway_client(gateway_client)
             init_kwargs["http_client"] = gateway_client
-        elif prov_name in {"system-one", "typesafe"}:
+        elif prov_name in _SYSTEM_ONE_NAMES:
             client = async_http_client(level, retries=3)
             client._transport = jev_retry_transport(client._transport)
             init_kwargs["http_client"] = client

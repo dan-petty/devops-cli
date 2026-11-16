@@ -74,6 +74,7 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_REFERENCE_EMBEDDING_MODEL,
     DEFAULT_AI_REFERENCE_MODEL,
     DEFAULT_AI_REFERENCE_PROVIDER,
+    DEFAULT_AI_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_AI_SUPPORTS_REASONING,
     DEFAULT_AI_TEMPERATURE,
     DEFAULT_AI_TOP_P,
@@ -928,9 +929,14 @@ class AIConfig(BaseModel):
         default=False, description="Permit private-IP network targets"
     )
     max_retries: Annotated[int, Variable()] = Field(
-        description="Maximum retry count for AI requests upon response validation failure",
+        description="Maximum retry count for AI requests upon response validation failure. A call to the LLM gateway is also sent at most this many times again, and only when it did not reach the gateway, or when its stream failed before its first event: the gateway retries every other failure",
         default=DEFAULT_AI_MAX_RETRIES,
         ge=0,
+    )
+    request_timeout_seconds: Annotated[int, Variable()] = Field(
+        description="The seconds that one pydantic-ai call to a chat group of the LLM gateway may take: every send of the call and the read of its stream. A call past it raises ModelRequestTimeout and is not sent again. Keep it above the router timeout of the gateway, so the gateway can retry a stuck attempt or fall back first. The implement step uses `roadmap.implement.request_timeout_seconds`",
+        default=DEFAULT_AI_REQUEST_TIMEOUT_SECONDS,
+        ge=1,
     )
     timeout: float | None = Field(
         default=None,
@@ -1452,7 +1458,7 @@ class RoadmapImplementConfig(BaseModel):
         },
     )
     request_timeout_seconds: Annotated[int, Variable()] = Field(
-        description="The seconds that one model call of an implementation step may take, the read of its stream included. A call that runs past it ends the step as stopped. Keep it under the timeout of the LLM gateway router (1500 s in the stack), or the router ends the call first",
+        description="The seconds that one model call of an implementation step may take: every send of the call and the read of its stream. A call that runs past it ends the step as stopped. Keep it above the router timeout of the LLM gateway (900 s in the stack), so the gateway can retry a stuck attempt or fall back first. It must not be above `step_time_limit_seconds`",
         default=DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
         ge=1,
     )
@@ -1562,8 +1568,9 @@ class RoadmapImplementConfig(BaseModel):
 
     @model_validator(mode="after")
     def _limits_nest(self) -> RoadmapImplementConfig:
-        """The refusals in a row are not above all refusals, and the refused commands of the rule
-        of the extension are not above its window (#5440). The error names both settings."""
+        """The refusals in a row are not above all refusals, the refused commands of the rule of
+        the extension are not above its window (#5440), and the deadline of a model call is not
+        above the time limit of its step (#5965). The error names both settings."""
         _check_nested(
             (self.max_consecutive_refusals, "max_consecutive_refusals"),
             (self.max_refusals, "max_refusals"),
@@ -1571,6 +1578,10 @@ class RoadmapImplementConfig(BaseModel):
         _check_nested(
             (self.extension_max_refused, "extension_max_refused"),
             (self.extension_calls, "extension_calls"),
+        )
+        _check_nested(
+            (self.request_timeout_seconds, "request_timeout_seconds"),
+            (self.step_time_limit_seconds, "step_time_limit_seconds"),
         )
         return self
 

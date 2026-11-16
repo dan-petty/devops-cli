@@ -75,6 +75,17 @@ def test_a_limit_of_zero_is_refused(config: Callable[..., Path], name: str) -> N
         load_settings()
 
 
+def test_a_call_deadline_above_the_step_limit_is_refused(config: Callable[..., Path]) -> None:
+    """The timeouts nest: a model call ends before the step that makes it (#5965)."""
+    config(roadmap={"implement": {"request_timeout_seconds": 600, "step_time_limit_seconds": 300}})
+
+    with pytest.raises(
+        ConfigurationError,
+        match="request_timeout_seconds must not be above step_time_limit_seconds",
+    ):
+        load_settings()
+
+
 # ── The readers ───────────────────────────────────────────────────────────────────────────
 
 

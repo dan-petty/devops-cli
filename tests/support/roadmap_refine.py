@@ -319,11 +319,6 @@ SCHEMA_MISS = json.dumps(
 )
 
 
-# The retry transport of the model client sends a request that the gateway answers with a 5xx
-# five times, so a failing item costs this many requests in a round.
-GATEWAY_ATTEMPTS = 5
-
-
 # What the gateway answers for an issue: the reply's text, or the HTTP response itself.
 Answer = str | httpx2.Response
 

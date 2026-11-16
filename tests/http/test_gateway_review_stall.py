@@ -4,7 +4,8 @@ Tests:
 1. `devops ai gateway connect` saves NodePort URL probing only /health/liveliness and /model/info.
 2. Fake transport answering 400 once: persona call fails without second attempt, report shows status.
 3. 5 personas on 1 page with 1 transient 503: fake transport sees exactly 6 calls (not 10).
-4. Fake transport answering 503: exactly max_retries + 1 sends per call (one retry layer).
+4. Fake gateway answering 503: one send, since the gateway owns the retries (#5965); a connect
+   that fails: exactly max_retries + 1 sends per call (one retry layer).
 5. Closed-by-peer / cut connection: client connection pool holds no closed-by-peer connection.
 6. Slots config table defines DEFAULT_GATEWAY_REVIEW_SLOTS and sum equals DEFAULT_GATEWAY_REVIEW_CONCURRENCY.
 7. Six files of two personas over three Ollama URLs keep at most the slot sum in flight (#1354).
@@ -236,12 +237,11 @@ class TestConnectionPoolPurgeOnCut:
 
 
 class TestSingleRetryLayerAndStatusRules:
-    """Verify exactly one retry layer retries 503, 400 fails immediately, and persona retries alone."""
+    """Verify the client sends again only a failed connect, a status fails at once, and persona retries alone."""
 
-    def test_transport_answers_503_sees_exactly_max_retries_plus_one_sends(
-        self, web: WebFake, clock: ClockFake
-    ) -> None:
-        """Verify a call that always encounters 503 sees max_retries + 1 sends (single retry layer)."""
+    def test_a_gateway_503_is_sent_once(self, web: WebFake, clock: ClockFake) -> None:
+        """Verify a call that the gateway answers with 503 is sent one time: the gateway retried it
+        and tried its fallbacks already (#5965)."""
         sent = serve_llm(web, lambda request: httpx2.Response(503, text="Service Unavailable"))
         config = AIConfig(
             provider="gateway",
@@ -255,10 +255,31 @@ class TestSingleRetryLayerAndStatusRules:
         with pytest.raises(AIClientError) as exc_info:
             client.chat("system prompt", "review test prompt")
 
-        assert (
-            len(sent),
-            "503" in str(exc_info.value),
-        ) == (4, True)
+        assert (len(sent), exc_info.value.status) == (1, 503)
+
+    def test_each_failed_connect_to_the_gateway_is_sent_max_retries_plus_one_times(
+        self, web: WebFake, clock: ClockFake
+    ) -> None:
+        """Verify a call whose connect fails each time is sent `ai.max_retries` + 1 times: the call
+        never reached the gateway, so only the client can send it again (#5965)."""
+
+        def refuse(request: httpx2.Request) -> httpx2.Response:
+            raise httpx2.ConnectError("Connection refused", request=request)
+
+        sent = serve_llm(web, refuse)
+        config = AIConfig(
+            provider="gateway",
+            gateway_url="http://example.com/v1",
+            model="devops-review",
+            max_retries=3,
+            allow_private_network=True,
+        )
+        client = LLMClient(config)
+
+        with pytest.raises(AIClientError, match="Cannot connect to AI provider API"):
+            client.chat("system prompt", "review test prompt")
+
+        assert len(sent) == 4
 
     @pytest.mark.usefixtures("scanner_fake")
     def test_transport_answers_400_once_fails_without_second_attempt_and_reports_status(
@@ -301,10 +322,10 @@ class TestSingleRetryLayerAndStatusRules:
             reset_llm_response_cache()
 
     @pytest.mark.usefixtures("scanner_fake")
-    def test_five_personas_with_one_transient_503_sees_exactly_six_calls(
+    def test_five_personas_with_one_failed_connect_sees_exactly_six_calls(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, web: WebFake, clock: ClockFake
     ) -> None:
-        """Verify 5 personas on 1 page with 1 transient 503 sees exactly 6 calls (retries alone, not 10)."""
+        """Verify 5 personas on 1 page with 1 failed connect sees exactly 6 calls (retries alone, not 10)."""
         monkeypatch.setenv("DEVOPS_CLI_DATA_DIR", str(tmp_path / ".data"))
         spend_ledger = SpendLedger(db_path=tmp_path / ".data" / "ai" / "spend.db")
         monkeypatch.setattr(
@@ -335,7 +356,7 @@ class TestSingleRetryLayerAndStatusRules:
                 first_failure = not transient_hit
                 transient_hit = True
             if first_failure:
-                return httpx2.Response(503, text="Service Unavailable")
+                raise httpx2.ConnectError("Connection refused", request=request)
             return httpx2.Response(
                 200, text=review_reply, headers={"content-type": "application/json"}
             )
@@ -354,7 +375,7 @@ class TestSingleRetryLayerAndStatusRules:
         client = LLMClient(config, cache_enabled=False)
 
         try:
-            # 5 calls with 1 transient 503 sees exactly 6 calls (1 failed + 1 retry + 4 successful)
+            # 5 calls with 1 failed connect see exactly 6 calls (1 failed + 1 retry + 4 successful)
             for n in range(5):
                 client.chat("system prompt", f"prompt {n}")
 
