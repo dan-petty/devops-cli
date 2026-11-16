@@ -80,3 +80,10 @@ The shared preset SHALL set `vulnerabilityAlerts.separateMajorMinor` to false, s
 - **WHEN** a test reads the package rules of type `indirect`, the footer and `semgrep.txt`
 - **THEN** each hold matches `pip-compile`, `semgrep.in`, one package and a version below its fix, and sets `enabled` to false
 - **AND** each held package is locked below its fix, and the footer and each hold name #3988
+
+### Requirement: A chart update has the prefix of a release
+The repository configuration SHALL give each update of the `helm` datasource the prefix `fix(deps):`, because the update also changes the version of its release in `HELM_RELEASES_BY_STACK`, which is runtime code. Each coupled group that holds a chart of `HELM_RELEASES_BY_STACK` SHALL set the same prefix.
+
+#### Scenario: A chart update
+- **WHEN** Renovate opens a pull request that moves a chart, alone or in the group `dcgm-exporter`
+- **THEN** its title has the prefix `fix(deps):`, and release-please adds a changelog line for it

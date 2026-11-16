@@ -215,9 +215,14 @@
       ]
     },
     {
-      "description": "A base image update of the service image is a fix, so release-please releases it. Other updates stay chore and release nothing alone.",
+      "description": "A base image update of the service image is a fix, so release-please releases it. Other updates stay chore and release nothing alone, except a chart update.",
       "matchManagers": ["dockerfile"],
       "matchFileNames": ["Dockerfile"],
+      "commitMessagePrefix": "fix(deps):"
+    },
+    {
+      "description": "A chart update also moves the version of its release in HELM_RELEASES_BY_STACK, which deploy-stack installs. That is runtime code, so the update is a fix, and release-please releases it (#6054).",
+      "matchDatasources": ["helm"],
       "commitMessagePrefix": "fix(deps):"
     },
     {
@@ -275,9 +280,10 @@
       "groupName": "actionlint"
     },
     {
-      "description": "The DCGM exporter chart and image: the exporter version of the image tag is the version of the chart.",
+      "description": "The DCGM exporter chart and image: the exporter version of the image tag is the version of the chart. A group takes the prefix of its first update, so the group sets the fix prefix of a chart update.",
       "matchPackageNames": ["dcgm-exporter", "nvcr.io/nvidia/k8s/dcgm-exporter"],
-      "groupName": "dcgm-exporter"
+      "groupName": "dcgm-exporter",
+      "commitMessagePrefix": "fix(deps):"
     },
     {
       "description": "The OpenSpec package, its lockfile and the tools lock. The skills that OpenSpec generates hold its version, so the branch writes them again.",
