@@ -4,9 +4,9 @@
 
 Kind: behavior. Reads: `src/devops_cli/k8s/volume_move.py`, `tests/k8s/test_k8s_volume_move.py`. Changes: `src/devops_cli/k8s/volume_move.py`, `tests/k8s/test_k8s_volume_move.py`.
 
-- [ ] 1.1 Write `tests/k8s/test_k8s_volume_move.py::test_the_copy_command_comes_from_copy_argv` first: it fails on the base because `copy_argv` does not exist, and it pins that the copy stream of the move runs the command that `copy_argv` builds for the namespace, the two pods and the context
+- [x] 1.1 Write `tests/k8s/test_k8s_volume_move.py::test_the_copy_command_comes_from_copy_argv` first: it fails on the base because `copy_argv` does not exist, and it pins that the copy stream of the move runs the command that `copy_argv` builds for the namespace, the two pods and the context
   - Verification: `$ uv run devops ci test tests/k8s/test_k8s_volume_move.py` fails on the base
-- [ ] 1.2 Rename `_copy_argv` in `src/devops_cli/k8s/volume_move.py` to `copy_argv(namespace, source_pod, destination_pod, context)`, rename `_digest_args` to `digest_args`, and rename `_empty_destination_args` to `empty_args(pod, namespace)`. Update the callers in `_MoveRun._stream`, `_MoveRun.copy`, `_MoveRun._side` and `_dry_run_copy` of the same file. Keep the named pipe, the two `kubectl exec` streams and `bash -o pipefail` unchanged
+- [x] 1.2 Rename `_copy_argv` in `src/devops_cli/k8s/volume_move.py` to `copy_argv(namespace, source_pod, destination_pod, context)`, rename `_digest_args` to `digest_args`, and rename `_empty_destination_args` to `empty_args(pod, namespace)`. Update the callers in `_MoveRun._stream`, `_MoveRun.copy`, `_MoveRun._side` and `_dry_run_copy` of the same file. Keep the named pipe, the two `kubectl exec` streams and `bash -o pipefail` unchanged
   - Verification: `$ uv run devops ci test tests/k8s/test_k8s_volume_move.py` passes
 
 ## 2. Plan the measure: two pods on two nodes and twenty copies of 100 MiB

@@ -274,7 +274,7 @@ def _delete_args(kind: str, names: Sequence[str], namespace: str, *, missing_ok:
     return [*args, "--ignore-not-found"] if missing_ok else args
 
 
-def _digest_args(pod: str, namespace: str, directory: str) -> list[str]:
+def digest_args(pod: str, namespace: str, directory: str) -> list[str]:
     return [
         "exec",
         pod,
@@ -289,12 +289,12 @@ def _digest_args(pod: str, namespace: str, directory: str) -> list[str]:
     ]
 
 
-def _empty_destination_args(plan: VolumeMovePlan) -> list[str]:
+def empty_args(pod: str, namespace: str) -> list[str]:
     return [
         "exec",
-        plan.destination_pod,
+        pod,
         "-n",
-        plan.namespace,
+        namespace,
         "--",
         "find",
         CONST_K8S_VOLUME_MOVE_DESTINATION_DIR,
@@ -304,7 +304,9 @@ def _empty_destination_args(plan: VolumeMovePlan) -> list[str]:
     ]
 
 
-def _copy_argv(plan: VolumeMovePlan, context: str | None) -> list[str]:
+def copy_argv(
+    namespace: str, source_pod: str, destination_pod: str, context: str | None
+) -> list[str]:
     """One pipe between two exec streams through the API server, which reach each pod's node.
 
     `run_subprocess` starts one program, so bash holds the pipe; `pipefail` fails the copy when
@@ -321,9 +323,9 @@ def _copy_argv(plan: VolumeMovePlan, context: str | None) -> list[str]:
         [
             "exec",
             "-i",
-            plan.source_pod,
+            source_pod,
             "-n",
-            plan.namespace,
+            namespace,
             "--",
             "bash",
             "-c",
@@ -347,9 +349,9 @@ def _copy_argv(plan: VolumeMovePlan, context: str | None) -> list[str]:
         [
             "exec",
             "-i",
-            plan.destination_pod,
+            destination_pod,
             "-n",
-            plan.namespace,
+            namespace,
             "--",
             "tar",
             "-C",
@@ -983,7 +985,12 @@ class _MoveRun:
 
     def _stream(self) -> None:
         _run(
-            _copy_argv(self.plan, self.context),
+            copy_argv(
+                self.plan.namespace,
+                self.plan.source_pod,
+                self.plan.destination_pod,
+                self.context,
+            ),
             "the copy",
             timeout=DEFAULT_K8S_VOLUME_MOVE_COPY_TIMEOUT_SECONDS,
         )
@@ -995,14 +1002,14 @@ class _MoveRun:
         except VolumeMoveError as exc:
             self.progress(MESSAGES.k8s.volume_move_copy_retry.format(reason=exc))
             self._kubectl(
-                _empty_destination_args(self.plan),
+                empty_args(self.plan.destination_pod, self.plan.namespace),
                 timeout=DEFAULT_K8S_VOLUME_MOVE_COPY_TIMEOUT_SECONDS,
             )
             self._stream()
 
     def _side(self, pod: str, directory: str) -> CopyDigest:
         output = self._kubectl(
-            _digest_args(pod, self.plan.namespace, directory),
+            digest_args(pod, self.plan.namespace, directory),
             timeout=DEFAULT_K8S_VOLUME_MOVE_COPY_TIMEOUT_SECONDS,
         )
         return _parse_digest(output, pod)
@@ -1292,21 +1299,24 @@ def _dry_run_reads(
 
 def _dry_run_copy(plan: VolumeMovePlan, context: str | None) -> list[PlannedRequest]:
     ns = plan.namespace
-    copy_argv = tuple(_copy_argv(plan, context))
+    stream = tuple(copy_argv(ns, plan.source_pod, plan.destination_pod, context))
     retry = "the copy fails one time"
     return [
-        PlannedRequest(method=BIN_BASH, target="the copy", argv=copy_argv),
+        PlannedRequest(method=BIN_BASH, target="the copy", argv=stream),
         _planned(
-            _empty_destination_args(plan), context, f"pod {plan.destination_pod}", condition=retry
+            empty_args(plan.destination_pod, ns),
+            context,
+            f"pod {plan.destination_pod}",
+            condition=retry,
         ),
-        PlannedRequest(method=BIN_BASH, target="the copy", argv=copy_argv, condition=retry),
+        PlannedRequest(method=BIN_BASH, target="the copy", argv=stream, condition=retry),
         _planned(
-            _digest_args(plan.source_pod, ns, CONST_K8S_VOLUME_MOVE_SOURCE_DIR),
+            digest_args(plan.source_pod, ns, CONST_K8S_VOLUME_MOVE_SOURCE_DIR),
             context,
             f"pod {plan.source_pod}",
         ),
         _planned(
-            _digest_args(plan.destination_pod, ns, CONST_K8S_VOLUME_MOVE_DESTINATION_DIR),
+            digest_args(plan.destination_pod, ns, CONST_K8S_VOLUME_MOVE_DESTINATION_DIR),
             context,
             f"pod {plan.destination_pod}",
         ),
@@ -1489,9 +1499,12 @@ __all__ = [
     "VolumeMovePlan",
     "VolumeMoveResult",
     "Workload",
+    "copy_argv",
     "delete_old_volume_command",
     "describe_volume_move",
+    "digest_args",
     "dry_run_volume_move",
+    "empty_args",
     "parse_claim_ref",
     "plan_volume_move",
     "rebound_claim",

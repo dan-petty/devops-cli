@@ -679,6 +679,22 @@ def test_the_copy_pods_mount_each_claim_on_its_own_node(
     ]
 
 
+def test_the_copy_command_comes_from_copy_argv(
+    cluster: Cluster, process_fake: ProcessFake, tmp_path: Path
+) -> None:
+    """The move streams the command that `copy_argv` builds, so a measure runs the same pipe."""
+    # Imported here, so the file collects on the base commit and this test fails there.
+    from devops_cli.k8s.volume_move import copy_argv
+
+    plan = _plan()
+    _move(tmp_path)
+
+    streamed = next(call.argv for call in process_fake.calls if call.argv[0] == "bash")
+    assert list(streamed) == copy_argv(
+        plan.namespace, plan.source_pod, plan.destination_pod, CONTEXT
+    )
+
+
 def _copy_sides(process_fake: ProcessFake) -> tuple[list[str], list[str]]:
     """The two sides of the pipe of the copy as words, each with its redirection last."""
     script = next(call.argv[-1] for call in process_fake.calls if call.argv[0] == "bash")
