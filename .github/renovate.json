@@ -345,6 +345,12 @@
       "matchPackageNames": ["opentelemetry-api"],
       "matchCurrentVersion": "<1.45.2",
       "enabled": false
+    },
+    {
+      "description": "A person runs devops k8s searxng-check against each new SearXNG image on the cluster, so a SearXNG update waits for an approval on the Dependency Dashboard. It gets its own branch, so that the other container images do not wait for it (#6029, #6051).",
+      "matchPackageNames": ["searxng/searxng", "docker.io/searxng/searxng"],
+      "groupName": "searxng",
+      "dependencyDashboardApproval": true
     }
   ]
 }
