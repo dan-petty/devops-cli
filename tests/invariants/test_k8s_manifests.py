@@ -55,6 +55,11 @@ CLOUDFLARE_PROXY_READ_TIMEOUT_SECONDS = 125
 # push, the comment and the result line after it.
 FIX_PLAN_STOP_MARGIN_SECONDS = 1200
 
+# The router-level `allowed_fails` that LiteLLM 1.103.11 takes as unset (`DEFAULT_ALLOWED_FAILS`
+# in litellm/constants.py). At this value the router counts no failures: it cools a deployment
+# only by the failure rate of the minute, and never a group with one deployment (#5990).
+LITELLM_DEFAULT_ALLOWED_FAILS = 3
+
 # The first Ollama release that runs a multimodal embedding model, such as embeddinggemma-2,
 # through llama-server, its runner on Linux. 0.40.0 ran that model on Apple MLX only (#2395).
 OLLAMA_FIRST_LLAMA_SERVER_EMBEDDING_RELEASE = Version("0.40.4")
@@ -85,6 +90,41 @@ def test_a_gateway_attempt_ends_before_the_deadline_of_the_call() -> None:
         DEFAULT_AI_REQUEST_TIMEOUT_SECONDS
         < min(CONST_ROADMAP_STAGE_JOB_MARGIN_SECONDS, runner_deadline),
         config["general_settings"]["cancel_on_disconnect"],
+    ) == (True, True, True)
+
+
+def test_the_gateway_router_counts_failures_below_the_litellm_default() -> None:
+    """At the LiteLLM default of 3 the router counts no failures, so a group with one deployment
+    never cooled: against a mock provider that stalls, 6 of 6 calls of such a group failed with
+    no cooldown and no fallback before the call (#5990). Below the default the router cools a deployment after
+    `allowed_fails` + 1 failures within `cooldown_time`, and the next call goes to the next order
+    or the fallback. Above 0, so one failure does not cool an Ollama tier."""
+    config = yaml.safe_load((REPO_ROOT / "k8s/llm/gateway/config.yaml").read_text(encoding="utf-8"))
+
+    allowed_fails = config["router_settings"]["allowed_fails"]
+
+    assert 0 < allowed_fails < LITELLM_DEFAULT_ALLOWED_FAILS
+
+
+def test_a_cooled_deepseek_deployment_is_checked_again_before_its_cooldown_ends() -> None:
+    """The health check of each checked deployment ends before the next check cycle starts, and
+    a deployment with its own `cooldown_time` stays cooled for at least one full cycle (#5990).
+    So a deployment that cooled after a failure gets a new verdict before it gets calls again,
+    and a deployment that still stalls stays out of the routing."""
+    config = yaml.safe_load((REPO_ROOT / "k8s/llm/gateway/config.yaml").read_text(encoding="utf-8"))
+    general = config["general_settings"]
+    interval = general["health_check_interval"]
+    checked = [
+        m["model_info"]
+        for m in config["model_list"]
+        if m["model_name"] in general["background_health_check_model_groups"]
+    ]
+    cooled = [info for info in checked if "cooldown_time" in info]
+
+    assert (
+        bool(cooled),
+        all(info["health_check_timeout"] < interval for info in checked),
+        all(info["cooldown_time"] >= interval + info["health_check_timeout"] for info in cooled),
     ) == (True, True, True)
 
 

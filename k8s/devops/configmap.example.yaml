@@ -22,10 +22,14 @@ data:
       # 80%. A task that sets no model uses ai.model. The embedding slot stays the embedding
       # model, because a chat model cannot embed.
       # Each prompt of a DeepSeek slot leaves the cluster to OpenRouter (SECURITY.md rule 13).
-      # The DeepSeek slots name deepseek-v4.1-flash, not deepseek-v4.1-flash-1017: from 2026-11-16
-      # the -1017 model waited about 300 s for its first token on OpenRouter, and every job call
-      # failed (#5988). Name -1017 again when a probe of it gives its first token in less than 10 s.
-      model: openrouter/deepseek/deepseek-v4.1-flash
+      # The DeepSeek slots name the gateway group deepseek-v4.1-flash-1017. On 2026-11-16 its
+      # dated model waited about 300 s for its first token on OpenRouter, and every job call
+      # failed until a person moved the slots to deepseek-v4.1-flash (#5988). The group now does
+      # this itself (#5990): a failed call or a failed health check takes the dated model out of
+      # the routing, the next calls go to order 2 (the undated model, about 4 times the input
+      # price), and the dated model gets its calls back when its checks pass. A call in flight
+      # when the stall begins still fails, and the client sends it again (#5965).
+      model: openrouter/deepseek/deepseek-v4.1-flash-1017
       # `model` and `tasks.*.model` name generative models: they write the plans, comments, code
       # and findings, and they use tools. A decision model is a different kind: it answers one
       # closed question (yes/no, one option or a rubric) with a calibrated probability and writes
@@ -67,8 +71,9 @@ data:
           prompt_usd_per_million: 0.042
           completion_usd_per_million: 0.0
       tasks:
-        # The roadmap jobs plan with DeepSeek through the gateway group deepseek-v4.1-flash
-        # (#5988; the group deepseek-v4.1-flash-1017 until 2026-11-16, #3155). By the owner decision of 2026-11-10 the planner names
+        # The roadmap jobs plan with DeepSeek through the gateway group deepseek-v4.1-flash-1017
+        # (#3155), which moves a call to the undated model while the dated model stalls (#5990).
+        # By the owner decision of 2026-11-10 the planner names
         # DeepSeek again (#4369), and the one-model rule of #3874 holds for each job that has no
         # trial. Sonnet was the planner's model from 2026-11-09 (#4204) and cost about
         # 67 USD a week there. A later trial may name Sonnet again with context_window 200000;
@@ -79,39 +84,39 @@ data:
         # (#3880). 256,000 tokens is the smallest window that an fp8 provider of the gateway group
         # offers; the group allows 1,048,576.
         stage:
-          model: openrouter/deepseek/deepseek-v4.1-flash
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
           context_window: 256000
         # The review run of a plan has the read tools of the planner, so it takes the default
         # window of 32,768 tokens when it sets none. The run ends its tools at three quarters of
         # the window, which is 24,576 tokens: too soon for the first request and 8 tool calls
         # (#3911). A run that the window ends too soon fails the item.
         stage_review:
-          model: openrouter/deepseek/deepseek-v4.1-flash
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
           context_window: 256000
         # The step fix-plan repairs a plan with the stage planner and its review, on tasks of its
         # own, so a trial of the stage job does not move it.
         fix_plan:
-          model: openrouter/deepseek/deepseek-v4.1-flash
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
           context_window: 256000
         fix_plan_review:
-          model: openrouter/deepseek/deepseek-v4.1-flash
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
           context_window: 256000
         # Refine ran a trial on the local model from 2026-11-16, and returned to DeepSeek on the
         # same day: 2 of its first 8 runs ended with no structured reply (UnexpectedModelBehavior).
         refine:
-          model: openrouter/deepseek/deepseek-v4.1-flash
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
           context_window: 256000
         refine_review:
-          model: openrouter/deepseek/deepseek-v4.1-flash
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
           context_window: 256000
         # The alternatives check ran a trial on the local model from 2026-11-16, and returned to
         # DeepSeek on the same day: it passed 8 of 20 runs, and 11 ended with no structured reply
         # (UnexpectedModelBehavior) (#5933).
         alternatives:
-          model: openrouter/deepseek/deepseek-v4.1-flash
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
           context_window: 256000
         consolidate:
-          model: openrouter/deepseek/deepseek-v4.1-flash
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
           context_window: 256000
         # The implement job runs every step on the same group (#3573). Its prompts, which hold
         # the code of the repository, leave the cluster to OpenRouter (SECURITY.md rule 13). The
@@ -119,10 +124,10 @@ data:
         # gateway group allows 1,048,576. The task implement_split is the call that splits a task
         # group of the job.
         implement:
-          model: openrouter/deepseek/deepseek-v4.1-flash
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
           context_window: 256000
         implement_split:
-          model: openrouter/deepseek/deepseek-v4.1-flash
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
           context_window: 256000
         # Intake and retitle run on the local model in the cluster, by the owner decision of
         # 2026-11-15, so their prompts stay in the cluster.
@@ -131,7 +136,7 @@ data:
         retitle:
           model: local/qwen3.8:27b
         chat:
-          model: openrouter/deepseek/deepseek-v4.1-flash
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
         embedding:
           model: local/qwen3-embedding:0.6b
     # devops-cli's cache Valkey in namespace llm (llm/valkey-devops.yaml): the embedding cache
@@ -244,8 +249,8 @@ data:
           - low
           - medium
         ladder:
-          edit: [openrouter/deepseek/deepseek-v4.1-flash]
-          repair: [openrouter/deepseek/deepseek-v4.1-flash]
+          edit: [openrouter/deepseek/deepseek-v4.1-flash-1017]
+          repair: [openrouter/deepseek/deepseek-v4.1-flash-1017]
         # The memory limit of a runner Job, above the 2Gi or 6Gi request of its plan. The code
         # default 8Gi is the limit at which the kernel killed two runner Jobs, on 2026-11-12 and
         # on 2026-11-13 (#3727), so this cluster sets 16Gi (#5484). A deploy renders this

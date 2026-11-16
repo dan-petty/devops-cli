@@ -2127,7 +2127,9 @@ def _hosted_violations(config: dict[str, Any], deployment: dict[str, Any]) -> li
     gateway Secret, which `CLUSTER_SECRETS` writes without requiring it, so the gateway starts
     without the key. A group sets its window and, where the cost map of the pinned image lacks the
     model, its prices. A Claude group drops the sampling parameters that its API refuses. No pool, fallback or routing group names a hosted group, so a prompt leaves
-    the cluster only when its caller names the group.
+    the cluster only when its caller names the group. A hosted group with more than one
+    deployment gives each deployment its own `order`, so the router tries them one after the
+    other and does not spread the calls over them (#5990).
 
     A Claude group asks Anthropic to cache its prefix (#3658): one injection point on the system
     messages caches the tools and the system prompt, and one on the last message caches the
@@ -2152,10 +2154,15 @@ def _hosted_violations(config: dict[str, Any], deployment: dict[str, Any]) -> li
     } | {name for group in router.get("routing_groups", []) for name in group["models"]}
     hosted = set(HOSTED_GROUPS)
     listed = [m["model_name"] for m in entries]
-    problems = [
-        f"{name} is listed {listed.count(name)} times"
+    orders = {
+        name: {m["litellm_params"].get("order") for m in entries if m["model_name"] == name}
         for name in HOSTED_GROUPS
-        if listed.count(name) != 1
+    }
+    problems = [f"{name} is not listed" for name in HOSTED_GROUPS if name not in listed]
+    problems += [
+        f"{name} has deployments with no distinct order"
+        for name in HOSTED_GROUPS
+        if listed.count(name) > 1 and len(orders[name] - {None}) != listed.count(name)
     ]
     problems += [
         f"{name} is in a pool or a fallback" for name in sorted(routed & set(HOSTED_GROUPS))
@@ -2235,35 +2242,105 @@ def test_every_local_deployment_names_its_backend_so_the_ledger_counts_it_as_loc
     assert no_backend == set(HOSTED_GROUPS)
 
 
-def test_the_deepseek_group_falls_back_to_the_undated_model_with_the_same_provider_filter() -> None:
-    """A failed call of `deepseek-v4.1-flash-1017`, such as an OpenRouter timeout of its `floor`
-    route, goes to `deepseek-v4.1-flash` (owner decision of 2026-11-13, #5564). The fallback
-    group calls the undated model with no `floor` route, so OpenRouter balances the call across
-    its providers. It asks for the same fp8 weights and the same `data_collection: deny`, so the
-    privacy control of SECURITY.md item 13 does not change. Both groups take a structured reply
-    (`supports_response_schema`), so a call that falls back keeps its response format (#5571)."""
+# The two DeepSeek groups, and the OpenRouter filter of each of their deployments: fp8 weights
+# only, and only providers that do not store or train on prompts (SECURITY.md item 13).
+DEEPSEEK_GROUPS = ("deepseek-v4.1-flash-1017", "deepseek-v4.1-flash")
+DEEPSEEK_PROVIDER_FILTER = {"quantizations": ["fp8"], "data_collection": "deny"}
+DEEPSEEK_WINDOW = 1048576
+
+
+def _hosted_deployments(group: str) -> list[dict[str, Any]]:
+    """Return the deployments of one hosted group, in configuration order."""
+    return [m for m in _hosted_models() if m["model_name"] == group]
+
+
+def test_the_dated_deepseek_group_tries_the_dated_model_first_and_the_undated_model_next() -> None:
+    """The group `deepseek-v4.1-flash-1017` has two deployments (#5990). Order 1 calls the dated
+    model. One failure cools it for 120 s (`allowed_fails: 0`), and a failed health check takes
+    it out of the routing, so the next call goes to order 2 in the same group: the undated model
+    with no `floor` route. Each deployment asks OpenRouter for fp8 weights and
+    `data_collection: deny`, takes a structured reply (#5571) and has the same window, so a call
+    that order 2 answers keeps its privacy filter, its response format and its prompt."""
+    deployments = _hosted_deployments("deepseek-v4.1-flash-1017")
+
+    assert [
+        (
+            d["litellm_params"].get("order"),
+            d["litellm_params"]["model"],
+            d["litellm_params"]["extra_body"]["provider"],
+            {
+                key: d["model_info"].get(key)
+                for key in ("allowed_fails", "cooldown_time", "health_check_timeout")
+            },
+            d["model_info"]["max_input_tokens"],
+            d["model_info"].get("supports_response_schema"),
+        )
+        for d in deployments
+    ] == [
+        (
+            1,
+            "openrouter/deepseek/deepseek-v4.1-flash-1017",
+            DEEPSEEK_PROVIDER_FILTER,
+            {"allowed_fails": 0, "cooldown_time": 120, "health_check_timeout": 30},
+            DEEPSEEK_WINDOW,
+            True,
+        ),
+        (
+            2,
+            "openrouter/deepseek/deepseek-v4.1-flash",
+            DEEPSEEK_PROVIDER_FILTER,
+            {"allowed_fails": None, "cooldown_time": None, "health_check_timeout": 30},
+            DEEPSEEK_WINDOW,
+            True,
+        ),
+    ]
+
+
+def test_the_deepseek_group_falls_back_to_the_undated_group_with_the_same_provider_filter() -> None:
+    """A call of `deepseek-v4.1-flash-1017` that both of its deployments cannot answer goes to
+    the group `deepseek-v4.1-flash` (owner decision of 2026-11-13, #5564). That group has its own
+    deployment and its own cooldown, so it answers when both deployments of the dated group are
+    cooled (#5990). It calls the undated model with the same filter, so the privacy control of
+    SECURITY.md item 13 does not change, and it takes a structured reply."""
     config = _full_gateway_config()
-    groups = {m["model_name"]: m for m in config["model_list"]}
-    primary, fallback = groups["deepseek-v4.1-flash-1017"], groups["deepseek-v4.1-flash"]
+    (fallback,) = _hosted_deployments("deepseek-v4.1-flash")
 
     assert (
         {"deepseek-v4.1-flash-1017": ["deepseek-v4.1-flash"]}
         in config["router_settings"]["fallbacks"],
         fallback["litellm_params"]["model"],
         fallback["litellm_params"]["extra_body"]["provider"],
-        primary["litellm_params"]["extra_body"]["provider"],
         fallback["model_info"]["max_input_tokens"],
-        primary["model_info"].get("supports_response_schema"),
         fallback["model_info"].get("supports_response_schema"),
     ) == (
         True,
         "openrouter/deepseek/deepseek-v4.1-flash",
-        {"quantizations": ["fp8"], "data_collection": "deny"},
-        {"quantizations": ["fp8"], "data_collection": "deny"},
-        primary["model_info"]["max_input_tokens"],
-        True,
+        DEEPSEEK_PROVIDER_FILTER,
+        DEEPSEEK_WINDOW,
         True,
     )
+
+
+def test_health_checks_cover_only_the_hosted_deepseek_groups() -> None:
+    """The gateway checks each DeepSeek deployment every 60 s and keeps a new call off a
+    deployment that failed its last check, before any call fails on it (#5990). No Ollama group
+    is checked: each Ollama tier serves one request at a time, and a check would take that slot
+    from a caller (#5302). Each checked deployment ends its check after 30 s, so a check cycle
+    ends before the next one starts."""
+    config = _full_gateway_config()
+    general = config["general_settings"]
+    checked = general.get("background_health_check_model_groups") or []
+    deployments = [m for m in config["model_list"] if m["model_name"] in checked]
+
+    assert (
+        general.get("background_health_checks"),
+        general.get("enable_health_check_routing"),
+        general.get("health_check_interval"),
+        sorted(checked),
+        sorted({d["model_name"] for d in deployments} - set(HOSTED_GROUPS)),
+        sorted({d["litellm_params"]["model"].partition("/")[0] for d in deployments}),
+        [d["model_info"].get("health_check_timeout") for d in deployments],
+    ) == (True, True, 60, sorted(DEEPSEEK_GROUPS), [], ["openrouter"], [30, 30, 30])
 
 
 def test_the_hosted_groups_call_providers_with_optional_keys_and_join_no_pool() -> None:
@@ -2372,6 +2449,22 @@ def test_the_hosted_groups_call_providers_with_optional_keys_and_join_no_pool() 
             ),
             "deepseek-v4.1-flash-1017 sets cache points, which only a Claude group sets",
             id="cache-points-on-a-group-that-is-not-claude",
+        ),
+        pytest.param(
+            lambda config, deployment: [
+                m["litellm_params"].update(order=1)
+                for m in config["model_list"]
+                if m["model_name"] == "deepseek-v4.1-flash-1017"
+            ],
+            "deepseek-v4.1-flash-1017 has deployments with no distinct order",
+            id="two-hosted-deployments-with-one-order",
+        ),
+        pytest.param(
+            lambda config, deployment: config["model_list"].remove(
+                next(m for m in config["model_list"] if m["model_name"] == "gemini-3.8-flash")
+            ),
+            "gemini-3.8-flash is not listed",
+            id="hosted-group-missing",
         ),
     ],
 )
