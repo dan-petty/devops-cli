@@ -48,6 +48,16 @@ spec:
             app.kubernetes.io/part-of: devops-cli-stack
         spec:
           restartPolicy: Never
+          # local-path binds the cache volume on the node where the pod first runs, and the root
+          # disk of the control-plane node has the least free space (k8s/README.md, Local-Path
+          # Volume Placement).
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node-role.kubernetes.io/control-plane
+                        operator: DoesNotExist
           # The pod calls no Kubernetes API, so it mounts no token.
           automountServiceAccountToken: false
           securityContext:

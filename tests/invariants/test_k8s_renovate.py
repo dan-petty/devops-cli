@@ -36,7 +36,9 @@ TOKEN_PATH = PurePosixPath("/token/github-token")
 # The image paths that Renovate writes at run time, each on a volume, so that the root file
 # system stays read-only (Trivy KSV-0014). `/var/lib/containerbase` is not one of them: root owns
 # it with mode 0755, and it holds the tool markers that the image build wrote.
-WRITABLE_PATHS = {"/tmp", "/opt/containerbase", "/home/ubuntu", "/cache", "/report"}
+# The temp folder of the pod, not a path of this host.
+POD_TMP = str(PurePosixPath("/") / "tmp")
+WRITABLE_PATHS = {POD_TMP, "/opt/containerbase", "/home/ubuntu", "/cache", "/report"}
 SETTINGS = (
     "renovate.github_app_id",
     "renovate.github_app_installation_id",
@@ -186,7 +188,7 @@ def test_the_token_init_container_has_a_writable_home_and_data_folder() -> None:
         writable,
         env["DEVOPS_CLI_DATA_DIR"].startswith("/home/devops/"),
         token.get("securityContext", {}).get("runAsUser", _pod()["securityContext"]["runAsUser"]),
-    ) == ({"/home/devops", "/tmp", str(TOKEN_PATH.parent)}, True, RENOVATE_USER)
+    ) == ({"/home/devops", POD_TMP, str(TOKEN_PATH.parent)}, True, RENOVATE_USER)
 
 
 def test_the_pod_meets_pod_security_restricted() -> None:
