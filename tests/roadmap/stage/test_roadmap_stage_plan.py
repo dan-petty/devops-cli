@@ -229,6 +229,7 @@ def test_the_model_input_holds_the_probe_of_each_cited_path_and_identifier(
     assert request["probes"].splitlines() == [
         "The path `src/devops_cli/sample.py` is a file of the staging commit.",
         "`keep` is defined at src/devops_cli/sample.py:1:def keep(comments):",
+        "No test module names `keep`.",
         "`gone_function` has no definition at the staging commit. "
         "No commit in the history added or removed its text.",
     ]

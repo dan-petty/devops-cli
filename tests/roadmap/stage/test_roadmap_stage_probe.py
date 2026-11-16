@@ -21,8 +21,12 @@ if TYPE_CHECKING:
 
 LIVE = "src/devops_cli/live.py"
 GONE = "src/devops_cli/gone.py"
+TEST_SAMPLE = "tests/test_sample.py"
 LIVE_SOURCE = "def keep_comment(comments):\n    return comments[:-1]\n\nLIMIT = 3\n"
 GONE_SOURCE = "def validate_url(url):\n    return url\n"
+TEST_SAMPLE_SOURCE = (
+    "from devops_cli.live import keep_comment\n\ndef test_keep():\n    keep_comment([])\n"
+)
 MODEL = "src/devops_cli/model.py"
 MODEL_SOURCE = "class PullStatus:\n    labels: tuple[str, ...] = ()\n    state: str = ''\n"
 
@@ -30,7 +34,7 @@ MODEL_SOURCE = "class PullStatus:\n    labels: tuple[str, ...] = ()\n    state: 
 @pytest.fixture
 def repo(stage_repo: StageRepo) -> StageRepo:
     """A repository where `gone.py` (with `validate_url`) was added and then deleted."""
-    stage_repo.track({LIVE: LIVE_SOURCE, GONE: GONE_SOURCE})
+    stage_repo.track({LIVE: LIVE_SOURCE, GONE: GONE_SOURCE, TEST_SAMPLE: TEST_SAMPLE_SOURCE})
     stage_repo.git("rm", "-q", GONE)
     stage_repo.git("commit", "-q", "-m", "remove the url check")
     stage_repo.git("push", "-q", "origin", "main")
@@ -48,6 +52,30 @@ def test_a_present_path_and_a_defined_identifier_are_confirmed(repo: StageRepo) 
     assert f"`keep_comment` is defined at {LIVE}:1" in probe.text
     assert probe.missing == ()
     assert probe.skipped == ()
+
+
+def test_the_probe_names_the_test_module_of_a_cited_function(repo: StageRepo) -> None:
+    probe = _probe(repo, "Fix `keep_comment`.")
+
+    assert "tests/test_sample.py" in probe.text
+
+
+def test_the_probe_states_when_no_test_module_names_a_function(repo: StageRepo) -> None:
+    probe = _probe(repo, "Fix `LIMIT`.")
+
+    assert "No test module names `LIMIT`." in probe.text
+
+
+def test_the_probe_states_when_the_bound_leaves_the_test_module_listing_out(
+    repo: StageRepo,
+) -> None:
+    paths = {f"src/devops_cli/p{i}.py": "x = 1\n" for i in range(9)}
+    repo.track(paths)
+    body = " ".join(f"`{p}`" for p in paths) + " `keep_comment`"
+
+    probe = _probe(repo, body)
+
+    assert "The bound left the test module listing out." in probe.text
 
 
 def test_a_constant_counts_as_a_definition(repo: StageRepo) -> None:
