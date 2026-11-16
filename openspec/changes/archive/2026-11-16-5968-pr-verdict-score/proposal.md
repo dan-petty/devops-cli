@@ -39,4 +39,4 @@ None.
 
 ## Existing Tool Considered
 
-GitHub's GraphQL search and the label events of the timeline hold the record, `devops gh label sync` creates the labels, and the GitHub session of devops-cli paces and counts the requests. The change builds about 250 lines of code and tests (about 40k tokens, 1 hour) to read and count the verdicts; no open tool scores a GitHub label per job. It deletes no internal code.
+GitHub's GraphQL search and the label events of the timeline hold the record, `devops gh label sync` creates the labels, and the GitHub session of devops-cli paces and counts the requests. The change builds about 480 lines of code and 490 lines of tests (about 150k tokens, 2 hours) to read and count the verdicts; no open tool scores a GitHub label per job. It deletes no internal code.
