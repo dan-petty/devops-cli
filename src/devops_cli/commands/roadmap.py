@@ -703,6 +703,7 @@ def _start_implement_job(
     source: Path | None,
     filters: list[str] | None,
     limit: int,
+    rebase: bool = True,
     context: str | None,
     wait: bool,
     preview: bool,
@@ -720,7 +721,9 @@ def _start_implement_job(
     from devops_cli.roadmap.implement import implement_outside as outside
 
     check_repo(target)
-    options = outside.runner_only_options(source=source, filters=filters, limit=limit)
+    options = outside.runner_only_options(
+        source=source, filters=filters, limit=limit, rebase=rebase
+    )
     if options and not preview:
         _refuse(outside.refusal(target, options=options))
     before: list[PlannedRequest] = []
@@ -752,6 +755,7 @@ def _implement_job(
     dry_run: bool,
     plan_only: bool,
     confirm: bool,
+    rebase: bool = True,
     why: bool,
     context: str | None = None,
     wait: bool = True,
@@ -784,19 +788,20 @@ def _implement_job(
             source=source,
             filters=filters,
             limit=limit,
+            rebase=rebase,
             context=context,
             wait=wait,
             preview=preview,
         )
         return
     if preview:
-        planned = dry_run_implement(target, item=item, limit=limit)
+        planned = dry_run_implement(target, item=item, limit=limit, rebase=rebase)
         render_dry_run("implement", target, planned.requests, planned.write_requests)
         return
     if confirm and outside:
         from devops_cli.roadmap.implement.implement_outside import refusal, runner_only_options
 
-        options = runner_only_options(source=source, filters=filters, limit=limit)
+        options = runner_only_options(source=source, filters=filters, limit=limit, rebase=rebase)
         _refuse(refusal(target, options=options))
     if confirm:
         with _exit_on_failure("Could not run the job"):
@@ -832,6 +837,7 @@ def _implement_job(
             store,
             plan,
             source=clone,
+            rebase=rebase,
             model=get_task_model("implement"),
             window=load_settings().ai.for_task("implement").context_window,
             model_for_tier=get_tier_model,
@@ -878,6 +884,9 @@ def implement_cmd(
     confirm: Annotated[
         bool, typer.Option("--confirm", help=HELP.roadmap.implement_confirm)
     ] = False,
+    rebase: Annotated[
+        bool, typer.Option("--rebase/--no-rebase", help=HELP.roadmap.implement_rebase)
+    ] = True,
     why: Annotated[bool, typer.Option("--why", help=HELP.roadmap.implement_why)] = False,
     context: Annotated[
         str | None, typer.Option("--context", "-c", help=HELP.options.context)
@@ -897,13 +906,15 @@ def implement_cmd(
             dry_run=dry_run,
             plan_only=plan_only,
             confirm=confirm,
+            rebase=rebase,
             why=why,
             context=context,
             wait=wait,
         )
         return
-    if filters or plan_only or confirm or why:
+    if filters or plan_only or confirm or why or not rebase:
         _refuse(MESSAGES.roadmap.implement_step_job_options)
+
     from devops_cli.output.serialization import resolve_format
 
     fmt = resolve_format(output_format, json_output=json_output)

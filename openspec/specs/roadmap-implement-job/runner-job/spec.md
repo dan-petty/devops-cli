@@ -153,7 +153,7 @@ The row `implement` SHALL run in a lane that holds no row that calls a model. A 
 - **THEN** the Job is created, its name is printed, and the log is not followed
 
 ### Requirement: A start from a workstation is refused when it cannot succeed
-Before it creates the Job, the command SHALL refuse an Item that an agent or a person claimed, an Item whose Status is neither Ready nor Planned, a closed issue or an issue that is no Item, a repository that is not `owner/name`, and a repository that has a runner Job that has not ended. With `--confirm` it SHALL also refuse `--source`, `--filter`, `--limit` and a missing `--item`, and name the `run-job` command.
+Before it creates the Job, the command SHALL refuse an Item that an agent or a person claimed, an Item whose Status is neither Ready nor Planned, a closed issue or an issue that is no Item, a repository that is not `owner/name`, and a repository that has a runner Job that has not ended. With `--confirm` it SHALL also refuse `--source`, `--filter`, `--limit`, `--no-rebase` and a missing `--item`, and name the `run-job` command.
 
 #### Scenario: A claimed Item
 - **WHEN** the Item holds `owner/human` or `owner/agent`
@@ -168,7 +168,7 @@ Before it creates the Job, the command SHALL refuse an Item that an agent or a p
 - **THEN** the command exits 1, names the Job, and creates no Job
 
 #### Scenario: An option that needs the runner
-- **WHEN** the command runs with `--confirm` and `--source`, `--filter` or `--limit`
+- **WHEN** the command runs with `--confirm` and `--source`, `--filter`, `--limit` or `--no-rebase`
 - **THEN** the command exits 1, names the option and the `run-job` command, and sends no request
 
 #### Scenario: A repository that is no owner and name

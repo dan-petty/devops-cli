@@ -576,6 +576,7 @@ class JobWorld:
         *,
         limit: int = 1,
         item: int | None = None,
+        rebase: bool = True,
         splitter: Any = None,
         window: int = WINDOW,
     ) -> ImplementApplied:
@@ -584,6 +585,7 @@ class JobWorld:
             self.store,
             self.plan(item=item, limit=limit),
             source=self.repo.clone,
+            rebase=rebase,
             model=script.model(),
             window=window,
             splitter=splitter,
