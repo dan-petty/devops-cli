@@ -4311,6 +4311,7 @@ class RoadmapMessages:
         "OpenSpec gate of CI judges the change."
     )
     stage_comment_warnings: str = "\n\nWarnings:\n{warnings}"
+    stage_warning_missing_scoped_test: str = "Scoped test `{path}` does not exist."
     stage_problem_unhandled_test_reference: str = "{path}: unhandled reference to {name!r}."
     # The owner question that a stop on the budget asks (#3077): the group that is still over the
     # budget, the two answers and what the job does with each, the answer that the job recommends,
