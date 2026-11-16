@@ -560,16 +560,87 @@ def test_requests_and_tokens_in_range_take_gateway_traffic_from_the_gateways_own
     )
 
 
+# The gateway counts the spend of every call through it, and Prometheus scrapes its counter each
+# 15 s. devops-cli's own spend series of a Job pod have a few samples an hour, so the spend panels
+# take a gateway call from the gateway, and devops-cli's series only for a direct call (#4724).
+GATEWAY_SPEND = "litellm_spend_metric_total"
+CLI_SPEND = "devops_cli_ai_spend_usd_total"
+DIRECT_SPEND = f'{CLI_SPEND}{{provider!="gateway"}}'
+SPEND_STATS = (
+    "Cloud Spend in Range",
+    "Projected 30-Day Run Rate",
+    "Projected 90-Day Run Rate",
+    "Projected 1-Year Run Rate",
+)
+PROJECTIONS = SPEND_STATS[1:]
+HOURLY_SPEND = ("Spend: USD per hour", "Spend by model: USD per hour")
+
+
+def _spend_targets(title: str) -> list[str]:
+    """The queries of a panel that read a spend counter."""
+    return [
+        expr
+        for expr in _targets(_ai_spend_panel(title))
+        if {s.metric for s in selectors(expr)} & {GATEWAY_SPEND, CLI_SPEND}
+    ]
+
+
+def test_the_spend_panels_take_gateway_spend_from_the_gateways_spend_counter() -> None:
+    """A call through the gateway is spend of the gateway's counter, whoever sent it. devops-cli's
+    own spend series add only the calls that did not go through the gateway, and never a gateway
+    call a second time. Each stat falls back to $0 for each counter (#1631). A projection reads
+    the last 7 days, so the range picker does not change it (#4724)."""
+    spend = {title: _spend_targets(title) for title in (*SPEND_STATS, *HOURLY_SPEND)}
+
+    assert (
+        {title: {s.metric for e in exprs for s in selectors(e)} for title, exprs in spend.items()},
+        [
+            e
+            for exprs in spend.values()
+            for e in exprs
+            if e.count(CLI_SPEND) != e.count(DIRECT_SPEND)
+        ],
+        [e for title in SPEND_STATS for e in spend[title] if not falls_back_to_constant(e)],
+        [e for title in PROJECTIONS for e in spend[title] if "[7d]" not in e or "$__range" in e],
+    ) == (
+        {title: {GATEWAY_SPEND, CLI_SPEND} for title in spend},
+        [],
+        [],
+        [],
+    )
+
+
+def test_the_hourly_spend_panels_draw_bars_that_follow_the_step() -> None:
+    """The spend of each hour is a bar of `increase(...[$__interval])` with a Min interval of 1h,
+    so the bars of a range add up to the spend of the range. A fixed `[5m]` window missed the
+    sparse samples of a Job pod, and a rolling `[1h]` window at a step under 1 h drew spikes
+    (#4724). Each panel follows the chart rules of #4707."""
+    panels = [_ai_spend_panel(title) for title in HOURLY_SPEND]
+
+    assert (
+        [
+            (
+                panel["interval"],
+                panel["fieldConfig"]["defaults"]["custom"]["drawStyle"],
+                panel["fieldConfig"]["defaults"]["unit"],
+            )
+            for panel in panels
+        ],
+        [line for panel in panels for line in readability_problems(panel)],
+        [e for panel in panels for e in _targets(panel) if "[$__interval]" not in e],
+    ) == ([("1h", "bars", "currencyUSD")] * len(HOURLY_SPEND), [], [])
+
+
 def test_the_gateway_row_shows_attempts_by_status_traffic_by_caller_and_devops_cli_coverage() -> (
     None
 ):
     """The gateway's model calls by status show the attempts that failed, such as its 408
     timeouts. Its replied requests and its tokens by `end_user` show each caller that names
-    itself. The coverage stat is the share of the gateway's replied requests that devops-cli's
-    own series count (#1668)."""
+    itself (#1668). The coverage stat is the share of the gateway's spend that devops-cli's own
+    spend series count, red under 95 % and over 105 % (#4724)."""
     attempts = _ai_spend_panel("Gateway Attempts by Status")
     callers = _ai_spend_panel("Gateway Requests and Tokens by Caller")
-    coverage = _ai_spend_panel("devops-cli Coverage of Gateway Requests")
+    coverage = _ai_spend_panel("devops-cli Coverage of Gateway Spend")
     (coverage_expr,) = _targets(coverage)
     numerator, _, denominator = coverage_expr.partition(" / ")
 
@@ -584,8 +655,13 @@ def test_the_gateway_row_shows_attempts_by_status_traffic_by_caller_and_devops_c
         ],
         coverage["type"],
         coverage["fieldConfig"]["defaults"]["unit"],
-        'devops_cli_ai_requests_total{provider="gateway", cached="false"}' in numerator,
-        GATEWAY_REQUESTS in denominator and GATEWAY_REPLIED in denominator,
+        [
+            (step["color"], step["value"])
+            for step in coverage["fieldConfig"]["defaults"]["thresholds"]["steps"]
+        ],
+        {s.metric for s in selectors(numerator)},
+        f'{CLI_SPEND}{{provider="gateway"}}' in numerator,
+        {s.metric for s in selectors(denominator)},
     ) == (
         [({"status_code"}, True, False)],
         [
@@ -594,8 +670,10 @@ def test_the_gateway_row_shows_attempts_by_status_traffic_by_caller_and_devops_c
         ],
         "stat",
         "percentunit",
+        [("red", None), ("text", 0.95), ("red", 1.05)],
+        {CLI_SPEND},
         True,
-        True,
+        {GATEWAY_SPEND},
     )
 
 

@@ -592,7 +592,8 @@ def test_enhanced_dashboard_panels_and_visualizations() -> None:
 
 
 def test_grafana_dashboard_projections_and_dcgm_grid_layout() -> None:
-    """Verify aggregated rolling averages, dynamic projections, TTFT, and DCGM 2x2 grid."""
+    """Verify aggregated rolling averages, projections, TTFT, and DCGM 2x2 grid. A projection
+    takes its spend from the last 7 days (#4724) and its savings from the range."""
     ai_dash = json.loads((_PRODUCT_DASHBOARDS / "ai-spend.json").read_text(encoding="utf-8"))
     llm_dash = json.loads((_REPO_DASHBOARDS / "llm-stack.json").read_text(encoding="utf-8"))
     dcgm_dash = json.loads((_REPO_DASHBOARDS / "nvidia-dcgm.json").read_text(encoding="utf-8"))
@@ -604,9 +605,10 @@ def test_grafana_dashboard_projections_and_dcgm_grid_layout() -> None:
     dcgm_panels = {p["id"]: p for p in dcgm_dash.get("panels", [])}
     llm_panels = {p["id"]: p for p in llm_dash.get("panels", [])}
 
-    ai_roll_legends = [ai_panels[pid]["targets"][1]["legendFormat"] for pid in (8, 15, 10, 11)]
+    ai_roll_legends = [ai_panels[pid]["targets"][1]["legendFormat"] for pid in (15, 10, 11)]
     ai_proj_ranges = [
-        all("[$__range]" in t["expr"] for t in ai_panels[pid]["targets"]) for pid in (16, 17, 18)
+        [("[7d]" in t["expr"], "[$__range]" in t["expr"]) for t in ai_panels[pid]["targets"]]
+        for pid in (16, 17, 18)
     ]
     ttft_panel = llm_panels[8]
     dcgm_coords = [
@@ -633,11 +635,10 @@ def test_grafana_dashboard_projections_and_dcgm_grid_layout() -> None:
     ) == (
         [
             "Total Rolling Avg (6h)",
-            "Total Rolling Avg (6h)",
             "Total Rolling Avg (30m)",
             "Total Rolling Avg (30m)",
         ],
-        [True, True, True],
+        [[(True, False), (False, True)]] * 3,
         "Time to First Token p95 per Model",
         True,
         [(0, 16, 12), (12, 16, 12), (0, 24, 12), (12, 24, 12)],
