@@ -14,7 +14,8 @@ when someone changed the Status since the caller read the item (ADR 0016, #5114)
 returns the would-be write and sends no request. Every job writes the Status through it: the rows `stage`, `stage_ready` and
 `implement`, the runner Job (In Progress, In Review and Blocked), the Job report and the clear rules
 of a stop, refine, repair, intake, `devops roadmap return`, the claim of
-`devops repos worktrees add`, and `devops pr create` and `devops pr ready` (`pull_status.py`). No other module writes a Status label: a structural test holds
+`devops repos worktrees add`, the release of an agent claim (`claim.py`), and `devops pr create` and
+`devops pr ready` (`pull_status.py`). No other module writes a Status label: a structural test holds
 that. The writer holds no guard of its own: each caller decides whether the item is its to write.
 
 **What the sweep writes.** `sync_status` writes the derived Status only for an open item that holds

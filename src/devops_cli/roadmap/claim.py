@@ -27,12 +27,16 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_OWNER_AGENT,
     CONST_ROADMAP_OWNER_HUMAN,
     CONST_ROADMAP_OWNER_SERVICE,
+    CONST_ROADMAP_STATUS_IN_PROGRESS,
+    CONST_ROADMAP_STATUS_PLANNED,
 )
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.exceptions.roadmap import RoadmapClaimError, RoadmapItemChangedError
+from devops_cli.git.branch_form import issue_of_branch
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.request_plan import StoreRequests, within
+from devops_cli.roadmap.status_sync import StatusFacts, job_holds, write_status
 from devops_cli.roadmap.stores import store as roadmap_store
 from devops_cli.roadmap.stores.store import GitHubState, Item, ItemField, RoadmapStore
 
@@ -109,6 +113,24 @@ def plan_claim(store: RoadmapStore, number: int, claimant: Claimant | None, repo
     return ClaimPlan(number, item.title, repo, item.owner, target)
 
 
+def released_facts(store: RoadmapStore, item: Item) -> StatusFacts | None:
+    """The Status facts of `item` when an agent claim is released, or None when no Status is
+    written."""
+    if item.state is GitHubState.CLOSED:
+        return None
+    if item.status != CONST_ROADMAP_STATUS_IN_PROGRESS:
+        return None
+    if item.job_record.get(ItemField.STATUS) != CONST_ROADMAP_STATUS_IN_PROGRESS:
+        return None
+    plan_merged = (
+        item.job_record.get(roadmap_store.ClaimRecordKey.REPLACED_STATUS)
+        == CONST_ROADMAP_STATUS_PLANNED
+    )
+    job_active = job_holds(item)
+    pull_open = any(issue_of_branch(pull.head_ref) == item.number for pull in store.open_pulls())
+    return StatusFacts(plan_merged=plan_merged, job_active=job_active, pull_open=pull_open)
+
+
 def apply_claim(store: RoadmapStore, plan: ClaimPlan) -> bool:
     """Write the plan. The Item is read again and judged again, so a claim made after the plan is
     refused and never reverted. True when a label was written, False when the Item had the owner
@@ -117,7 +139,13 @@ def apply_claim(store: RoadmapStore, plan: ClaimPlan) -> bool:
     _require_allowed(item, plan.target)
     if item.owner == plan.target:
         return False
+    was_agent = item.owner == CONST_ROADMAP_OWNER_AGENT
     store.set_field(item, ItemField.OWNER, plan.target)
+    if was_agent and plan.target is None:
+        fresh = _item(store, plan.number)
+        facts = released_facts(store, fresh)
+        if facts is not None:
+            write_status(store, fresh, facts)
     return True
 
 
@@ -219,6 +247,7 @@ __all__ = [
     "dry_run_claim",
     "plan_claim",
     "progress_as_agent",
+    "released_facts",
     "render_claim_plan",
     "service_claim",
     "service_release",

@@ -22,6 +22,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.roadmap.stores.store import (
     AlternativesRecordKey,
+    ClaimRecordKey,
     ImplementRecordKey,
     ItemField,
     RefineRecordKey,
@@ -54,6 +55,7 @@ RECORD_KEYS = frozenset(
         StageRecordKey,
         ImplementRecordKey,
         ScaffoldRecordKey,
+        ClaimRecordKey,
     )
     for key in keys
 )
