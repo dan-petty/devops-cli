@@ -77,6 +77,7 @@ from devops_cli.roadmap.stage.stage_criteria import (
     refine_decisions,
 )
 from devops_cli.roadmap.stage.stage_form import form_problems, search_problems
+from devops_cli.roadmap.stage.stage_models import parse_class_members
 from devops_cli.roadmap.stage.stage_move import (
     is_prefix_move_group,
     move_prefix_problems,
@@ -2741,6 +2742,16 @@ def _claim_span_name(span: str) -> str | None:
     return match.group("name") if match else None
 
 
+def _claim_span_member(span: str) -> str | None:
+    """The member name of a `Class.member` code span, or None for a span that names no member
+    (#3458)."""
+    match = _CLASS_SPAN.match(span.strip())
+    if match is None:
+        return None
+    parts = match.group(0).split(".")
+    return parts[1] if len(parts) > 1 else None
+
+
 def claimed_classes(proposal: StageProposal) -> set[str]:
     """The name that each code span of a design claim may name (#3407). A span that starts with a
     class name, as the bare name or the name and a dotted member, is a claim, and no other span is
@@ -2761,32 +2772,57 @@ def _is_class_quote(span: str, source: str) -> bool:
     return len(quote) >= _CITATION_MIN_CHARS and quote in source
 
 
+def _class_claim_line_problems(
+    section: str,
+    line: str,
+    squashed: Mapping[str, str],
+    members: Mapping[str, set[str]],
+    seen: set[tuple[str, str]],
+) -> list[str]:
+    """What is wrong with one design claim line about the classes that it names (#3407, #3458): a
+    member that the class body lacks, or a class that the line gives no quote of."""
+    spans = code_spans(line)
+    problems: list[str] = []
+    for span in spans:
+        name = _claim_span_name(span)
+        if name is None or name not in squashed or (name, section) in seen:
+            continue
+        member = _claim_span_member(span)
+        if member is not None and member not in members[name]:
+            seen.add((name, section))
+            problems.append(
+                MESSAGES.roadmap.stage_problem_class_member.format(
+                    name=name, member=member, section=section
+                )
+            )
+            continue
+        if any(other != span and _is_class_quote(other, squashed[name]) for other in spans):
+            continue
+        seen.add((name, section))
+        problems.append(
+            MESSAGES.roadmap.stage_problem_class_claim.format(name=name, section=section)
+        )
+    return problems
+
+
 def class_claim_problems(
     proposal: StageProposal,
     classes: Mapping[str, str] | None,
 ) -> list[str]:
-    """What is wrong with a design claim about an internal class whose quote the class lacks
-    (#3407). A design decision, a rejected alternative or a feasibility line that names a class
+    """What is wrong with a design claim about an internal class or a member of one (#3407,
+    #3458). A design decision, a rejected alternative or a feasibility line that names a class
     under `src/` in a code span gives another code span whose text the class holds at the staged
-    commit."""
+    commit, and a `Class.member` span names a member that the class body defines."""
     if not classes:
         return []
     squashed = {name: _squash(text) for name, text in classes.items()}
-    problems: list[str] = []
+    members = {name: parse_class_members(text) for name, text in classes.items()}
     seen: set[tuple[str, str]] = set()
-    for section, line in _class_claim_lines(proposal):
-        spans = code_spans(line)
-        for span in spans:
-            name = _claim_span_name(span)
-            if name is None or name not in squashed or (name, section) in seen:
-                continue
-            if any(other != span and _is_class_quote(other, squashed[name]) for other in spans):
-                continue
-            seen.add((name, section))
-            problems.append(
-                MESSAGES.roadmap.stage_problem_class_claim.format(name=name, section=section)
-            )
-    return problems
+    return [
+        problem
+        for section, line in _class_claim_lines(proposal)
+        for problem in _class_claim_line_problems(section, line, squashed, members, seen)
+    ]
 
 
 def _refine_decision_problems(proposal: StageProposal, issue_body: str) -> list[str]:
