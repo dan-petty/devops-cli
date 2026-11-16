@@ -233,11 +233,12 @@ def _check_row_6(repo: str, settings: Settings) -> OnboardingRow:
 
 
 def webhook_step(settings: Settings) -> str:
-    """The step for a person that adds the repository webhook (#3772). It names no secret."""
+    """The step for a person that adds the repository webhook (#3772). It names no secret. The
+    hook can send more events than the Service takes (#5035)."""
     events = ", ".join(sorted(CONST_ROADMAP_WEBHOOK_EVENTS))
     return (
         f"Add the webhook {settings.service.webhook_url} with content type application/json and "
-        f"the events {events}, set it active, and store its secret with "
+        f"at least the events {events}, set it active, and store its secret with "
         "`devops config set service.webhook_secrets`."
     )
 
@@ -262,7 +263,7 @@ def _check_row_7(session: GitHubSession, repo: str, settings: Settings) -> Onboa
     events = set(CONST_ROADMAP_WEBHOOK_EVENTS)
     matching = [hook for hook in hooks if hook.url == url]
     if any(
-        hook.active and hook.content_type == "json" and set(hook.events) == events
+        hook.active and hook.content_type == "json" and events <= set(hook.events)
         for hook in matching
     ):
         return OnboardingRow(7, _ROW_7_PREREQUISITE, "present")
@@ -283,7 +284,7 @@ def _wrong_webhook_fields(hook: RepositoryHook, *, known_url: bool, events: set[
         wrong.append("active")
     if hook.content_type != "json":
         wrong.append("content_type")
-    if set(hook.events) != events:
+    if not events <= set(hook.events):
         wrong.append("events")
     return wrong
 

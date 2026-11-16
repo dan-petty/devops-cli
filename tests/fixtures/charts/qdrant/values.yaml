@@ -52,6 +52,7 @@ ingress:
         - path: /
           pathType: Prefix
           servicePort: 6333
+          # serviceName: custom-service # Optional; defaults to the Qdrant service.
   tls: []
     # - hosts:
     #    - example-domain.com
@@ -214,11 +215,11 @@ metrics:
     targetPort: http
     targetPath: "/metrics"
     ## MetricRelabelConfigs to apply to samples after scraping, but before ingestion.
-    ## ref: https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/api.md#relabelconfig
+    ## ref: https://prometheus-operator.dev/docs/api-reference/api/#monitoring.coreos.com/v1.RelabelConfig
     ##
     metricRelabelings: []
     ## RelabelConfigs to apply to samples before scraping
-    ## ref: https://github.com/prometheus-operator/prometheus-operator/blob/main/Documentation/api.md#relabelconfig
+    ## ref: https://prometheus-operator.dev/docs/api-reference/api/#monitoring.coreos.com/v1.RelabelConfig
     ##
     relabelings: []
     ## Authorization to apply to the metrics endpoint for the cases when the API key(s) are configured externally
@@ -230,6 +231,16 @@ metrics:
     #   credentials:
     #     name: external-secret-with-api-key
     #     key: api-key
+    ## TLS configuration to scrape the metrics endpoint when config.service.enable_tls is true
+    ## ref: https://prometheus-operator.dev/docs/api-reference/api/#monitoring.coreos.com/v1.TLSConfig
+    ##
+    tlsConfig: {}
+    # tlsConfig:
+    #   serverName: qdrant.example.com
+    #   ca:
+    #     secret:
+    #       name: qdrant-tls
+    #       key: ca.pem
 
 serviceAccount:
   create: true

@@ -29,6 +29,7 @@ from devops_cli.config.constants import (
     CONST_GH_WEBHOOK_SIGNATURE_HEADER,
     CONST_GRAPHQL_REFUSAL_RESET_KEY,
     CONST_MAX_ERROR_DETAIL_LENGTH,
+    CONST_ROADMAP_WEBHOOK_EVENTS,
     CONST_SERVICE_LANE_DEFAULT,
     CONST_SERVICE_MAX_BODY_BYTES,
     CONST_SERVICE_METRIC_JOB_SECONDS,
@@ -37,6 +38,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_QUEUE_DEPTH,
     CONST_SERVICE_METRIC_TRIGGERS,
     CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
+    CONST_SERVICE_SOURCE_WEBHOOK,
     WebhookProviderName,
 )
 from devops_cli.config.settings import GitHubAppConfig, ServiceConfig, Settings
@@ -44,7 +46,7 @@ from devops_cli.exceptions import ConfigurationError, RoadmapRunError, ServiceSt
 from devops_cli.exceptions.git import GitHubRateLimitError
 from devops_cli.github.project_read import GraphQLBudget, require_budget
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.run import JobOutcome
+from devops_cli.roadmap.run import DEFAULT_DUE_TABLE, JobOutcome
 from devops_cli.roadmap.service_stop import service_stopping
 from devops_cli.roadmap.stores.listing_snapshot import (
     FileSnapshotStore,
@@ -60,6 +62,7 @@ from devops_cli.server.routes.webhooks import (
     create_webhook_router,
     invalid_payload_detail,
     roadmap_consumer,
+    service_consumers,
 )
 from devops_cli.server.service import (
     IdleRepos,
@@ -2184,6 +2187,39 @@ def test_a_consumer_receives_only_the_events_it_subscribes_to() -> None:
     assert (answers, received) == (
         [{"status": "accepted"}, {"status": "no_subscriber"}, {"status": "no_subscriber"}],
         [(REPO_A, "issue_comment", "created")],
+    )
+
+
+def test_each_event_that_the_service_takes_is_an_event_that_the_hook_must_send() -> None:
+    """The consumer events are a subset of the hook events (#5035). Each event that a GitHub
+    consumer of the Service takes, and each webhook event that a batch key of a due-table row
+    names, is an event that `devops roadmap onboard` and setup step 8 require of the repository
+    hook. A consumer of an event that the hook does not send would never get a delivery."""
+    manager = ServiceManager(
+        config=_make_settings(repos=[REPO_A]).service,
+        secrets={},
+        jobs={"lane": lambda _batch: None},
+        clock=lambda: datetime(2026, 11, 16, tzinfo=UTC),
+        sleep_func=asyncio.sleep,
+    )
+    consumed = frozenset[str]().union(
+        *(
+            consumer.events
+            for consumer in service_consumers(manager)
+            if consumer.provider == WebhookProviderName.GITHUB
+        )
+    )
+    keyed = {
+        event
+        for row in DEFAULT_DUE_TABLE
+        for source, event, _action in row.batch_keys
+        if source == CONST_SERVICE_SOURCE_WEBHOOK
+    }
+
+    assert (consumed - CONST_ROADMAP_WEBHOOK_EVENTS, keyed - consumed, bool(consumed)) == (
+        frozenset(),
+        set(),
+        True,
     )
 
 

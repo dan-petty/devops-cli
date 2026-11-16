@@ -205,7 +205,7 @@ def test_loki_runs_the_grafana_community_chart_whose_loki_fixes_cve_2026_21729()
     """`grafana/loki` in grafana.github.io/helm-charts became the Grafana Enterprise Logs chart,
     and its newest version still runs Loki 3.6. CVE-2026-21729 affects Loki before 3.7.0: one
     `detected_fields` request with a very large limit makes Loki allocate memory until it stops.
-    The open-source chart moved to grafana-community/helm-charts, and its 21.2.1 runs Loki 3.7.9
+    The open-source chart moved to grafana-community/helm-charts, and its 21.2.3 runs Loki 3.7.10
     (#1632). The Argo CD Application installs that chart from a repository that its project
     admits. The chart takes the Loki image from its appVersion, so the Application gives the
     chart the values file and no other value, and the values set no Loki image: `loki.image` and
@@ -232,7 +232,7 @@ def test_loki_runs_the_grafana_community_chart_whose_loki_fixes_cve_2026_21729()
         "singleBinary.image": values.get("singleBinary", {}).get("image"),
         "monitoring.selfMonitoring": values.get("monitoring", {}).get("selfMonitoring"),
     } == {
-        "chart": ("https://grafana-community.github.io/helm-charts", "loki", "21.2.1"),
+        "chart": ("https://grafana-community.github.io/helm-charts", "loki", "21.2.3"),
         "project admits the repository": True,
         "helm": {"valueFiles": ["$values/k8s/logging/loki-values.yaml"]},
         "loki.image": None,
@@ -347,7 +347,7 @@ def _token(
 
 
 def _loki(values: dict[str, Any]) -> bool:
-    """Loki chart 21.2.1 sets the field on the single binary pod from
+    """Loki chart 21.2.3 sets the field on the single binary pod from
     `singleBinary.automountServiceAccountToken`, or else from `defaults.automountServiceAccountToken`,
     which is true by default. The pod field wins over `serviceAccount.automountServiceAccountToken`,
     which counts only when neither value is a bool."""
@@ -493,7 +493,7 @@ _CHART_TOKENS: dict[
             ),
         ),
     ),
-    ("k8s-monitoring", "4.6.0"): lambda values: (
+    ("k8s-monitoring", "4.6.1"): lambda values: (
         TokenSite("alloy-operator", _when(), "ClusterRole k8s-monitoring-alloy-operator"),
         TokenSite(
             "kube-state-metrics",
@@ -516,7 +516,7 @@ _CHART_TOKENS: dict[
     ),
     # The chart binds the ClusterRole loki-clusterrole, which has no rules while the rules sidecar
     # is off. The canary and the gateway have token values of their own.
-    ("loki", "21.2.1"): (
+    ("loki", "21.2.3"): (
         TokenSite("loki", _loki),
         TokenSite(
             "canary",
@@ -557,7 +557,7 @@ _CHART_TOKENS: dict[
     # Storage v2 finds the members of the cluster through the API.
     ("pyroscope", "2.4.3"): (TokenSite("pyroscope", _when(), "Role pyroscope-discovery"),),
     # Chart 1.20.0 has no token value.
-    ("qdrant", "1.20.0"): (TokenSite("qdrant", _when()),),
+    ("qdrant", "1.20.2"): (TokenSite("qdrant", _when()),),
     ("tempo", "3.2.1"): (
         TokenSite("tempo", _token("serviceAccount.automountServiceAccountToken", True)),
     ),
