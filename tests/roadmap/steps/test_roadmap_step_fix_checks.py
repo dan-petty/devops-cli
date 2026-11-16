@@ -14,6 +14,7 @@ Verifies:
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -374,3 +375,133 @@ def test_within_plan_scope_runs_model_fix() -> None:
     updated = store.item(pull)
     assert updated is not None
     assert updated.job_record.get(FixChecksRecordKey.RESULT) == "repaired"
+
+
+def test_model_fix_failure() -> None:
+    store = InMemoryRoadmapStore(repo=REPO)
+    pull = _seed_item(store)
+
+    test_checks = CheckVerdictSummary(
+        items=[
+            PRCheckItem(
+                name="Unit Tests",
+                bucket=CheckBucket.FAIL,
+                link="https://github.com/example/project/actions/runs/1/job/2",
+            ),
+        ],
+    )
+    client = FakeGitHubClient(
+        status=_fake_status(pull),
+        checks=test_checks,
+        log="FAILED tests/roadmap/test_sample.py::test_bar - AssertionError",
+    )
+    session = FakeGitHubSession(client)
+
+    report = run_fix_checks(
+        store,
+        REPO,
+        pull,
+        session=session,
+        tier1_fixer=lambda repo, pull, check, log_text: False,
+        model_fixer=lambda *args: False,
+        scope_checker=lambda log, num: True,
+    )
+    assert report.result == FixChecksResult.FAILED
+    assert "model repair failed" in report.reason.lower()
+
+
+def test_closed_pull_request_skipped() -> None:
+    store = InMemoryRoadmapStore(repo=REPO)
+    status = _fake_status(42, state="closed")
+    client = FakeGitHubClient(status=status)
+    session = FakeGitHubSession(client)
+    report = run_fix_checks(store, REPO, 42, session=session)
+    assert report.result == FixChecksResult.SKIPPED
+    assert "closed" in report.reason.lower()
+
+
+def test_passing_checks_skipped() -> None:
+    store = InMemoryRoadmapStore(repo=REPO)
+    pull = _seed_item(store)
+    passing_checks = CheckVerdictSummary(
+        items=[
+            PRCheckItem(
+                name="Static Analysis",
+                bucket=CheckBucket.PASS,
+                link="https://github.com/example/project/actions/runs/1/job/2",
+            ),
+        ],
+    )
+    client = FakeGitHubClient(status=_fake_status(pull), checks=passing_checks)
+    session = FakeGitHubSession(client)
+    report = run_fix_checks(store, REPO, pull, session=session)
+    assert report.result == FixChecksResult.SKIPPED
+    assert "no failed check" in report.reason.lower()
+
+
+def test_count_errors_patterns() -> None:
+    from devops_cli.roadmap.steps.fix_checks import count_errors
+
+    assert count_errors("") == 0
+    assert count_errors("3 failed, 10 passed") == 3
+    assert count_errors("Found 4 errors in project") == 4
+    assert count_errors("1 error found") == 1
+    assert count_errors("something bad\nERROR: bad\nFAIL: test\nfooter") == 2
+    assert count_errors("generic line without markers") == 1
+
+
+def test_is_bot_author_patterns() -> None:
+    from devops_cli.config.constants import CONST_ROADMAP_OWNER_SERVICE
+    from devops_cli.roadmap.steps.fix_checks import _is_bot_author
+
+    assert _is_bot_author("") is False
+    assert _is_bot_author("custom-bot") is True
+    assert _is_bot_author("github-actions[bot]") is True
+    assert _is_bot_author(CONST_ROADMAP_OWNER_SERVICE) is True
+
+
+def test_check_scope_helper(tmp_path: Path) -> None:
+    from devops_cli.roadmap.steps.fix_checks import _check_scope
+
+    # Stage plan
+    plan_dir = tmp_path / "openspec" / "changes" / "98-test-plan"
+    plan_dir.mkdir(parents=True)
+    assert (
+        _check_scope(
+            tmp_path, 98, "error at openspec/changes/98-test-plan/tasks.md", is_stage_plan=True
+        )
+        is True
+    )
+    assert _check_scope(tmp_path, 98, "error at src/other.py", is_stage_plan=True) is False
+
+    # Archived change with tasks.md
+    archive_dir = tmp_path / "openspec" / "changes" / "archive" / "2026-11-16-99-test-plan"
+    archive_dir.mkdir(parents=True)
+    (archive_dir / "tasks.md").write_text(
+        "# Tasks\n\n## 1. Group\nReads: `src/read.py`.\nChanges: `src/mod.py`.\n- [ ] 1.1 Do it\n",
+        encoding="utf-8",
+    )
+    assert _check_scope(tmp_path, 99, "FAILED src/mod.py::test", is_stage_plan=False) is True
+    assert _check_scope(tmp_path, 99, "FAILED src/other.py", is_stage_plan=False) is False
+    # Missing tasks.md or non-existent change
+    assert _check_scope(tmp_path, 888, "FAILED src/mod.py", is_stage_plan=False) is False
+
+
+def test_report_to_json() -> None:
+    from devops_cli.roadmap.steps.fix_checks import FixChecksReport
+
+    report = FixChecksReport(
+        repo=REPO,
+        pull=42,
+        result=FixChecksResult.REPAIRED,
+        head="sha123",
+        rounds=2,
+        errors=3,
+        reason="tier 2 repaired",
+    )
+    data = json.loads(report.to_json())
+    assert data["job"] == "fix_checks"
+    assert data["head"] == "sha123"
+    assert data["rounds"] == 2
+    assert data["errors"] == 3
+    assert data["reason"] == "tier 2 repaired"

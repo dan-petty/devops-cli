@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -12,6 +13,14 @@ from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.lang import HELP
 from devops_cli.output import print_error, write_stdout
+
+_RUNNER: Callable[..., Any] | None = None
+
+
+def set_fix_checks_runner(runner: Callable[..., Any] | None) -> None:
+    """Set an override runner for tests (#5023)."""
+    global _RUNNER
+    _RUNNER = runner
 
 
 def _repository(repo: str | None) -> str:
@@ -51,8 +60,9 @@ def fix_checks_cmd(
 
     target = _repository(repo)
     store = get_roadmap_store(target)
+    runner = _RUNNER or run_fix_checks
     try:
-        report = run_fix_checks(store, target, pull, head=head, confirm=confirm)
+        report = runner(store, target, pull, head=head, confirm=confirm)
     except DevOpsCLIError as exc:
         print_error(f"Could not fix checks on PR #{pull}: {exc}", safe=True)
         raise typer.Exit(1) from exc
