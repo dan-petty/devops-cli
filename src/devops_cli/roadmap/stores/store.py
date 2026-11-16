@@ -43,6 +43,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from pydantic import ValidationError as MalformedRecordError
 
 from devops_cli.config.constants import (
+    CONST_ROADMAP_EPIC_LABEL,
     CONST_ROADMAP_OWNER_VALUES,
     CONST_ROADMAP_PRIORITY_VALUES,
     CONST_ROADMAP_RECORD_MARKER,
@@ -593,6 +594,12 @@ class Item(BaseModel):
             and self.job_record.get(ItemField.STATUS) == CONST_ROADMAP_STATUS_BLOCKED
             and bool(self.job_record.get(ImplementRecordKey.STOPPED))
         )
+
+    @property
+    def is_tracker(self) -> bool:
+        """Whether the Item is a tracker: it has sub-issues or the label `type/epic`, so its
+        sub-issues deliver it and no job plans or refines it of its own (#1985, #3703)."""
+        return self.sub_issues > 0 or CONST_ROADMAP_EPIC_LABEL in self.labels
 
 
 class Change(BaseModel):
