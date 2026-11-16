@@ -380,6 +380,34 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         restarts=(Workload("deployment", "mcp-server"),),
         labels={"app.kubernetes.io/name": "mcp-server"},
     ),
+    # The GitHub App that self-hosted Renovate acts as (#4905). The keys are the variables of the
+    # settings, so the token init container of CronJob `renovate` takes the Secret with `envFrom`
+    # and `devops gh app-token --app renovate` reads it. Each run reads the Secret at its start,
+    # so no workload restarts. A person types each value, so the push makes none. Renovate is an
+    # optional feature: a push with no Renovate settings skips the keys and writes no Secret.
+    ClusterSecret(
+        namespace="devops",
+        name="renovate",
+        stack="devops",
+        entries=(
+            SecretEntry(
+                "DEVOPS_CLI_RENOVATE_GITHUB_APP_ID",
+                SettingSource("renovate.github_app_id"),
+                required=False,
+            ),
+            SecretEntry(
+                "DEVOPS_CLI_RENOVATE_GITHUB_APP_INSTALLATION_ID",
+                SettingSource("renovate.github_app_installation_id"),
+                required=False,
+            ),
+            SecretEntry(
+                "DEVOPS_CLI_RENOVATE_GITHUB_APP_PRIVATE_KEY",
+                KeyringSource.for_credential("renovate.github_app_private_key"),
+                required=False,
+            ),
+        ),
+        labels={"app.kubernetes.io/name": "renovate"},
+    ),
     ClusterSecret(
         namespace="devops",
         name="devops-cli",
@@ -620,7 +648,10 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
 # The Secrets that serve an optional feature: a workload starts without one, and only that
 # feature is unavailable. A pull request that adds a reference to one of these makes the reference
 # optional, so a missing Secret never stops a required Service (#5200).
-OPTIONAL_FEATURE_SECRETS: Final[tuple[str, ...]] = ("monitoring/grafana-image-renderer",)
+OPTIONAL_FEATURE_SECRETS: Final[tuple[str, ...]] = (
+    "monitoring/grafana-image-renderer",
+    "devops/renovate",
+)
 
 
 def secret_names(table: Iterable[ClusterSecret] = CLUSTER_SECRETS) -> list[str]:

@@ -168,6 +168,7 @@ EXPECTED_MANIFEST_PODS = frozenset(
     {
         "k8s/devops/roadmap-service/cronjob-planner-run.yaml:CronJob/devops-cli-planner-run",
         "k8s/devops/roadmap-service/deployment.yaml:Deployment/roadmap-service",
+        "k8s/devops/renovate/cronjob.yaml:CronJob/renovate",
         "k8s/llm/valkey-runs.yaml:Deployment/valkey-runs",
         "k8s/mattermost/database.yaml:Cluster/mattermost-db",
     }

@@ -672,11 +672,12 @@ def _public_egress_rule(spec: dict[str, Any]) -> dict[str, Any]:
     return rule
 
 
-def test_the_default_perimeter_of_devops_skips_the_crawl4ai_and_searxng_pods() -> None:
+def test_the_default_perimeter_of_devops_skips_the_crawl4ai_searxng_and_renovate_pods() -> None:
     """A browser that renders hostile pages must reach neither the gateway nor the cache Valkey,
-    and the search service needs neither. So `devops-default-perimeter` selects every pod of the
-    namespace but `crawl4ai` and `searxng`, the shape that `portkey-perimeter` uses (#3884, #3924).
-    Each pod has its own policy."""
+    the search service needs neither, and Renovate runs commands that a repository names. So
+    `devops-default-perimeter` selects every pod of the namespace but `crawl4ai`, `searxng` and
+    `renovate`, the shape that `portkey-perimeter` uses (#3884, #3924, #4905). Each pod has its
+    own policy."""
     selector = _devops_policies()["devops-default-perimeter"]["podSelector"]
 
     assert selector == {
@@ -684,7 +685,7 @@ def test_the_default_perimeter_of_devops_skips_the_crawl4ai_and_searxng_pods() -
             {
                 "key": "app.kubernetes.io/name",
                 "operator": "NotIn",
-                "values": ["crawl4ai", "searxng"],
+                "values": ["crawl4ai", "searxng", "renovate"],
             }
         ]
     }

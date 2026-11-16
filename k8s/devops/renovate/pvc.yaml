@@ -1,0 +1,21 @@
+# The cache of self-hosted Renovate (#4905): `cacheDir` with the SQLite package cache, the
+# repository cache, the containerbase downloads and the OSV database. A lost cache costs only a
+# slower run, but Argo CD never prunes or deletes the claim. `concurrencyPolicy: Forbid` keeps one
+# pod on it, as ReadWriteOnce needs.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: renovate-cache
+  namespace: devops
+  labels:
+    app.kubernetes.io/name: renovate
+    app.kubernetes.io/part-of: devops-cli-stack
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi

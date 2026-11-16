@@ -171,5 +171,6 @@ The links to the OpenSpec change, the spec, the settings and the issue.
 | [0024](0024-the-project-owns-its-design-tokens-in-the-dtcg-format-and-style-dictionary-builds-them.md) | The project owns its design tokens in the DTCG format, and Style Dictionary builds them | accepted | 2026-11-12 |  |
 | [0025](0025-generated-documents-stay-in-git-and-the-project-brain-cites-them.md) | Generated documents stay in git, and the project brain cites them | accepted | 2026-11-11 | amends 0012, 0023 |
 | [0026](0026-github-settings-are-opentofu-code-the-owner-applies.md) | GitHub settings are OpenTofu code the owner applies | accepted | 2026-11-15 |  |
+| [0027](0027-dependency-updates-come-from-self-hosted-renovate.md) | Dependency updates come from self-hosted Renovate | proposed | 2026-11-16 |  |
 
 <!-- ADR_INDEX_END -->

@@ -591,6 +591,7 @@ def test_stack_devops_reads_the_app_key_gateway_key_and_webhook_secrets_and_runs
             "roadmap_service_llm_key",
             "searxng_secret_key",
             "mcp_token",
+            "renovate_github_app_private_key",
             "qdrant_api_key",
             "qdrant_read_only_api_key",
         },

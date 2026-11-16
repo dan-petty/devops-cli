@@ -1,0 +1,228 @@
+# Self-hosted Renovate (#4893, #4905, ADR 0027). Every 2 hours one pod runs Renovate for each
+# repository of the installation of the App `dan-petty-renovate`. The image is the unmodified
+# official image (AGPL-3.0-only); do not patch it (docs/CLUSTER.md, "Renovate"). Renovate bumps
+# the tag and the digest together.
+#
+# The pod runs three containers in turn:
+# 1. `seed` copies `/opt/containerbase` and `/home/ubuntu` of the image into the volume `seeded`.
+#    Renovate installs tools there at run time, and the root file system is read-only. A plain
+#    emptyDir on those paths would hide the tool files that the image build wrote.
+# 2. `token` (the Service image) writes an installation token of the App to the volume `token`.
+#    Only this container reads Secret `renovate`, which holds the App's private key. It runs as
+#    the Renovate user, so that user owns the token file (mode 0600).
+# 3. `renovate` reads the token through config.js. Repositories name the commands that it runs
+#    (`postUpgradeTasks`), so it holds no Secret, mounts no service account token, and its
+#    NetworkPolicy lets it reach only CoreDNS, the OTel collector and public HTTPS.
+#
+# The timeouts nest: `executionTimeout` (15 minutes) < `activeDeadlineSeconds` (3000 s) < the
+# token life (3600 s). Until #4909 measures the first runs, Renovate runs as a lookup dry run.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: renovate
+  namespace: devops
+  labels:
+    app.kubernetes.io/name: renovate
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  schedule: "17 */2 * * *"
+  timeZone: Etc/UTC
+  # One pod at a time: the cache claim is ReadWriteOnce, and two runs would push to the same
+  # branches.
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: renovate
+        app.kubernetes.io/part-of: devops-cli-stack
+    spec:
+      # A run that changed GitHub never runs again on its own. The next schedule runs it.
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 86400
+      activeDeadlineSeconds: 3000
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: renovate
+            app.kubernetes.io/part-of: devops-cli-stack
+        spec:
+          restartPolicy: Never
+          # local-path binds the cache volume on the node where the pod first runs, and the root
+          # disk of the control-plane node has the least free space (k8s/README.md, Local-Path
+          # Volume Placement).
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node-role.kubernetes.io/control-plane
+                        operator: DoesNotExist
+          # The pod calls no Kubernetes API, so it mounts no token.
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            # The ID of user `ubuntu` in the Renovate image. Its own group is 12021; each file of
+            # the image that Renovate reads is readable by other users.
+            runAsUser: 12021
+            runAsGroup: 12021
+            fsGroup: 12021
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            - name: seed
+              image: ghcr.io/renovatebot/renovate:44.239.1@sha256:7dba1a3b916a2cf302ba0df458ddcc8fcbac3c92d0fe9882ac13ba0363de656b
+              imagePullPolicy: IfNotPresent
+              command:
+                - cp
+                - -a
+                - --no-preserve=ownership
+                - --parents
+                - /opt/containerbase
+                - /home/ubuntu
+                - /seed
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              volumeMounts:
+                - name: seeded
+                  mountPath: /seed
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+            - name: token
+              image: ghcr.io/dan-petty/devops-cli/service
+              imagePullPolicy: IfNotPresent
+              args: ["gh", "app-token", "--app", "renovate", "--write", "/token/github-token"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              # DEVOPS_CLI_RENOVATE_GITHUB_APP_ID, DEVOPS_CLI_RENOVATE_GITHUB_APP_INSTALLATION_ID
+              # and DEVOPS_CLI_RENOVATE_GITHUB_APP_PRIVATE_KEY. Renovate is an optional feature:
+              # with no Secret the container starts, names the settings that are not set and
+              # exits 1, and the Job stops with no request to GitHub.
+              envFrom:
+                - secretRef:
+                    name: renovate
+                    optional: true
+              env:
+                - name: DEVOPS_CLI_DATA_DIR
+                  value: /home/devops/.data
+              volumeMounts:
+                - name: token
+                  mountPath: /token
+                # The Renovate user cannot write the home of the image (user 1000).
+                - name: token-home
+                  mountPath: /home/devops
+                - name: token-tmp
+                  mountPath: /tmp
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: "1"
+                  memory: 512Mi
+          containers:
+            - name: renovate
+              image: ghcr.io/renovatebot/renovate:44.239.1@sha256:7dba1a3b916a2cf302ba0df458ddcc8fcbac3c92d0fe9882ac13ba0363de656b
+              imagePullPolicy: IfNotPresent
+              command: ["/usr/local/sbin/renovate-entrypoint.sh"]
+              args: ["renovate"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              env:
+                - name: RENOVATE_CONFIG_FILE
+                  value: /config/config.js
+                # #4909 removes the dry run after it measures the first run.
+                - name: RENOVATE_DRY_RUN
+                  value: lookup
+                - name: RENOVATE_USE_CLOUD_METADATA_SERVICES
+                  value: "false"
+                # The package cache is a SQLite file in cacheDir, on the claim.
+                - name: RENOVATE_X_SQLITE_PACKAGE_CACHE
+                  value: "true"
+                # The OSV database comes one ecosystem at a time, and again only when it changed.
+                - name: OSV_OFFLINE_DATABASE_FORMAT
+                  value: split
+                - name: OSV_OFFLINE_MAX_AGE
+                  value: 6h
+                # One JSON object per log line, so that Loki queries read the HTTP statistics and
+                # the time of each repository.
+                - name: LOG_FORMAT
+                  value: json
+                # The spans go to the cluster collector over OTLP/HTTP, with the service name
+                # `renovate`.
+                - name: OTEL_EXPORTER_OTLP_ENDPOINT
+                  value: http://otel-collector-opentelemetry-collector.otel.svc.cluster.local:4318
+              volumeMounts:
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+                - name: token
+                  mountPath: /token
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+                - name: seeded
+                  mountPath: /opt/containerbase
+                  subPath: opt/containerbase
+                - name: seeded
+                  mountPath: /home/ubuntu
+                  subPath: home/ubuntu
+                - name: cache
+                  mountPath: /cache
+                - name: report
+                  mountPath: /report
+              # #4909 measures a run and sets these again.
+              resources:
+                requests:
+                  cpu: 500m
+                  memory: 1Gi
+                  ephemeral-storage: 1Gi
+                limits:
+                  cpu: "2"
+                  memory: 4Gi
+                  ephemeral-storage: 12Gi
+          volumes:
+            - name: config
+              configMap:
+                name: renovate-config
+            - name: token
+              emptyDir:
+                medium: Memory
+                sizeLimit: 1Mi
+            - name: token-home
+              emptyDir:
+                sizeLimit: 128Mi
+            - name: token-tmp
+              emptyDir:
+                sizeLimit: 64Mi
+            # The repository clones and the containerbase runtime folder.
+            - name: tmp
+              emptyDir:
+                sizeLimit: 4Gi
+            # The tools that containerbase installs, and the home folder with the tool caches.
+            - name: seeded
+              emptyDir:
+                sizeLimit: 6Gi
+            - name: cache
+              persistentVolumeClaim:
+                claimName: renovate-cache
+            - name: report
+              emptyDir:
+                sizeLimit: 64Mi
