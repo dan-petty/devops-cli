@@ -58,9 +58,9 @@ Kind: other. Reads: `docs/ROADMAP_WORKFLOW.md`, `src/devops_cli/lang/en/help.py`
 
 Kind: other. Reads: `src/devops_cli/lang/en/help.py`, `docs/CLI_REFERENCE.md`, `docs/commands/roadmap.md`. Changes: `docs/CLI_REFERENCE.md`, `docs/commands/roadmap.md`.
 
-- [ ] 7.1 Run `uv run devops docs generate` and commit its output in `docs/CLI_REFERENCE.md` and `docs/commands/roadmap.md`, which now state the new output of `devops roadmap inbox` and `devops roadmap explain`
+- [x] 7.1 Run `uv run devops docs generate` and commit its output in `docs/CLI_REFERENCE.md` and `docs/commands/roadmap.md`, which now state the new output of `devops roadmap inbox` and `devops roadmap explain`
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 7.2 Regenerate `docs/CLI_REFERENCE.md` and `docs/commands/roadmap.md` with `uv run devops docs generate`
+- [x] 7.2 Regenerate `docs/CLI_REFERENCE.md` and `docs/commands/roadmap.md` with `uv run devops docs generate`
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
