@@ -13,6 +13,7 @@ whether the copies passed or failed.
 from __future__ import annotations
 
 import json
+import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Final
@@ -27,12 +28,18 @@ from devops_cli.config.constants import (
     CONST_K8S_VOLUME_MOVE_SOURCE_SUFFIX,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_K8S_VOLUME_MOVE_COPY_TIMEOUT_SECONDS,
+    DEFAULT_K8S_VOLUME_MOVE_DETAIL_CHARS,
     DEFAULT_K8S_VOLUME_MOVE_IMAGE,
+    DEFAULT_K8S_VOLUME_MOVE_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_K8S_VOLUME_MOVE_WAIT_SECONDS,
 )
+from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.requests import PlannedRequest
-from devops_cli.exceptions.k8s import VolumeMoveRefusedError
+from devops_cli.exceptions.k8s import VolumeMoveError, VolumeMoveRefusedError
 from devops_cli.k8s.volume_move import copy_argv, digest_args, empty_args
+from devops_cli.lang import MESSAGES
+from devops_cli.output import write_stdout
 
 MEASURE_COPIES: Final[int] = 20
 MEASURE_BYTES: Final[int] = 104_857_600
@@ -41,6 +48,12 @@ _MEASURE_CLAIM_SIZE: Final[str] = "1Gi"
 _MEASURE_SOURCE_FILE: Final[str] = "data.bin"
 _SAME_NODE: Final[str] = (
     "The measure needs two different nodes, and it got {node} for both the source and the target."
+)
+# The bound of one copy and of one side's digest, which read every byte of the volume.
+_COPY_TIMEOUT: Final[float] = DEFAULT_K8S_VOLUME_MOVE_COPY_TIMEOUT_SECONDS
+# The bound of a `kubectl wait` or of the delete of the namespace: its own timeout, then a request.
+_WAIT_TIMEOUT: Final[float] = (
+    DEFAULT_K8S_VOLUME_MOVE_WAIT_SECONDS + DEFAULT_K8S_VOLUME_MOVE_REQUEST_TIMEOUT_SECONDS
 )
 
 
@@ -74,6 +87,22 @@ class MeasurePlan:
     def destination_pod(self) -> str:
         """The pod that runs the destination side of the pipe."""
         return f"measure{CONST_K8S_VOLUME_MOVE_DESTINATION_SUFFIX}"
+
+
+@dataclass(frozen=True)
+class CopyRun:
+    """One copy of a run: its number, whether it completed, its two digests and why it did not."""
+
+    number: int
+    complete: bool
+    source_digest: str
+    destination_digest: str
+    detail: str = ""
+
+    @property
+    def matched(self) -> bool:
+        """Whether the copy completed and its destination content digest equals its source."""
+        return self.complete and self.source_digest == self.destination_digest
 
 
 def plan_measure(source_node: str, target_node: str, storage_class: str) -> MeasurePlan:
@@ -207,11 +236,21 @@ def _namespace_manifest(plan: MeasurePlan) -> dict[str, Any]:
 
 
 def _planned_create(context: str | None, target: str, manifest: dict[str, Any]) -> PlannedRequest:
-    return _planned(["create", "-f", "-", "-o", "name"], context, target, stdin=manifest)
+    return _planned(_create_args(), context, target, stdin=manifest)
+
+
+def _create_args() -> list[str]:
+    """The create of a manifest from standard input, which answers with the object's name."""
+    return ["create", "-f", "-", "-o", "name"]
 
 
 def _wait_request(context: str | None, plan: MeasurePlan, pod: str) -> PlannedRequest:
-    args = [
+    return _planned(_wait_args(plan, pod), context, f"pod {pod}")
+
+
+def _wait_args(plan: MeasurePlan, pod: str) -> list[str]:
+    """The wait until one copy pod is Ready."""
+    return [
         "wait",
         f"pod/{pod}",
         "-n",
@@ -219,7 +258,6 @@ def _wait_request(context: str | None, plan: MeasurePlan, pod: str) -> PlannedRe
         "--for=condition=Ready",
         f"--timeout={DEFAULT_K8S_VOLUME_MOVE_WAIT_SECONDS}s",
     ]
-    return _planned(args, context, f"pod {pod}")
 
 
 def _copy_requests(plan: MeasurePlan, context: str | None, number: int) -> list[PlannedRequest]:
@@ -247,14 +285,19 @@ def _copy_requests(plan: MeasurePlan, context: str | None, number: int) -> list[
 
 
 def _delete_namespace_request(plan: MeasurePlan, context: str | None) -> PlannedRequest:
-    args = [
+    return _planned(_delete_namespace_args(plan), context, f"namespace {plan.namespace}")
+
+
+def _delete_namespace_args(plan: MeasurePlan) -> list[str]:
+    """The delete of the temporary namespace, with its two claims and its two pods."""
+    return [
         "delete",
         "namespace",
         plan.namespace,
         "--wait=true",
         f"--timeout={DEFAULT_K8S_VOLUME_MOVE_WAIT_SECONDS}s",
+        "--ignore-not-found",
     ]
-    return _planned(args, context, f"namespace {plan.namespace}")
 
 
 def _planned(
@@ -268,17 +311,196 @@ def _planned(
         method=f"kubectl {args[0]}",
         target=target,
         argv=tuple(build_kubectl_cmd(args, context)),
-        stdin=json.dumps(stdin, indent=2) if stdin is not None else None,
+        stdin=_manifest_json(stdin) if stdin is not None else None,
+    )
+
+
+def _manifest_json(manifest: dict[str, Any]) -> str:
+    """A manifest as the body of its create request."""
+    return json.dumps(manifest, indent=2)
+
+
+# ── The run ──────────────────────────────────────────────────────────────────
+
+
+def run_measure(plan: MeasurePlan, context: str | None) -> list[CopyRun]:
+    """Make every copy of the plan, and delete the temporary namespace when the run ends."""
+    runs: list[CopyRun] = []
+    try:
+        _create(_namespace_manifest(plan), context, f"namespace {plan.namespace}")
+        for manifest in claim_manifests(plan):
+            _create(manifest, context, f"claim {manifest['metadata']['name']}")
+        for manifest in pod_manifests(plan):
+            _create(manifest, context, f"pod {manifest['metadata']['name']}")
+        for pod in (plan.source_pod, plan.destination_pod):
+            _kubectl(_wait_args(plan, pod), context, f"pod {pod}", timeout=_WAIT_TIMEOUT)
+        for number in range(1, plan.copies + 1):
+            runs.append(_copy_once(plan, context, number))
+    finally:
+        _delete_namespace(plan, context)
+    return runs
+
+
+def _create(manifest: dict[str, Any], context: str | None, request: str) -> None:
+    _kubectl(_create_args(), context, request, stdin=_manifest_json(manifest))
+
+
+def _delete_namespace(plan: MeasurePlan, context: str | None) -> None:
+    _kubectl(
+        _delete_namespace_args(plan),
+        context,
+        f"namespace {plan.namespace}",
+        timeout=_WAIT_TIMEOUT,
+    )
+
+
+def _copy_once(plan: MeasurePlan, context: str | None, number: int) -> CopyRun:
+    """One copy: fresh random data, an empty destination, the pipe of the move and two digests."""
+    request = f"copy {number}/{plan.copies}"
+    try:
+        _kubectl(random_data_args(plan), context, request, timeout=_COPY_TIMEOUT)
+        _kubectl(
+            empty_args(plan.destination_pod, plan.namespace),
+            context,
+            request,
+            timeout=_COPY_TIMEOUT,
+        )
+        _run(
+            copy_argv(plan.namespace, plan.source_pod, plan.destination_pod, context),
+            request,
+            timeout=_COPY_TIMEOUT,
+        )
+        source = _side(plan, context, plan.source_pod, CONST_K8S_VOLUME_MOVE_SOURCE_DIR, request)
+        destination = _side(
+            plan, context, plan.destination_pod, CONST_K8S_VOLUME_MOVE_DESTINATION_DIR, request
+        )
+    except VolumeMoveError as exc:
+        return CopyRun(
+            number=number,
+            complete=False,
+            source_digest="",
+            destination_digest="",
+            detail=str(exc),
+        )
+    return CopyRun(
+        number=number,
+        complete=True,
+        source_digest=source,
+        destination_digest=destination,
+    )
+
+
+def _side(plan: MeasurePlan, context: str | None, pod: str, directory: str, request: str) -> str:
+    output = _kubectl(
+        digest_args(pod, plan.namespace, directory), context, request, timeout=_COPY_TIMEOUT
+    )
+    return _content_digest(output, pod)
+
+
+def _content_digest(output: str, pod: str) -> str:
+    """The content digest that the digest script prints, or a refusal when it is missing."""
+    values = {key: value for key, _, value in (line.partition(" ") for line in output.splitlines())}
+    content = values.get("content", "")
+    if not content:
+        raise VolumeMoveError(
+            MESSAGES.k8s.volume_move_digest_unreadable.format(
+                pod=pod, output=output[:DEFAULT_K8S_VOLUME_MOVE_DETAIL_CHARS]
+            )
+        )
+    return content
+
+
+def _kubectl(
+    args: Sequence[str],
+    context: str | None,
+    request: str,
+    *,
+    stdin: str | None = None,
+    timeout: float = DEFAULT_K8S_VOLUME_MOVE_REQUEST_TIMEOUT_SECONDS,
+) -> str:
+    return _run(build_kubectl_cmd(args, context), request, stdin=stdin, timeout=timeout)
+
+
+def _run(argv: Sequence[str], request: str, *, stdin: str | None = None, timeout: float) -> str:
+    """Run one request through `run_subprocess` and return its stdout, raising when it fails."""
+    try:
+        result = run_subprocess(list(argv), input=stdin, quiet=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise VolumeMoveError(
+            MESSAGES.k8s.volume_move_request_timeout.format(request=request, seconds=timeout)
+        ) from exc
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        raise VolumeMoveError(
+            MESSAGES.k8s.volume_move_request_failed.format(
+                request=request,
+                code=result.returncode,
+                detail=detail[:DEFAULT_K8S_VOLUME_MOVE_DETAIL_CHARS],
+            )
+        )
+    return result.stdout or ""
+
+
+# ── The report ───────────────────────────────────────────────────────────────
+
+
+def render_report(plan: MeasurePlan, runs: Sequence[CopyRun]) -> None:
+    """Print the report as a Markdown table: the complete copies and the digest matches."""
+    complete = sum(1 for run in runs if run.complete)
+    matched = sum(1 for run in runs if run.matched)
+    lines = [
+        MESSAGES.k8s.volume_move_measure_report_heading.format(
+            copies=plan.copies,
+            bytes=plan.bytes_per_copy,
+            source_node=plan.source_node,
+            target_node=plan.target_node,
+        ),
+        "",
+        f"| {MESSAGES.k8s.volume_move_measure_table_measure} "
+        f"| {MESSAGES.k8s.volume_move_measure_table_result} |",
+        "| :--- | ---: |",
+        f"| {MESSAGES.k8s.volume_move_measure_complete_copies} | {complete}/{plan.copies} |",
+        f"| {MESSAGES.k8s.volume_move_measure_digest_matches} | {matched}/{plan.copies} |",
+    ]
+    write_stdout("\n".join(lines) + "\n")
+
+
+def report_problems(plan: MeasurePlan, runs: Sequence[CopyRun]) -> list[str]:
+    """One problem for each copy that did not complete or match, and one for a short run."""
+    problems = [_copy_problem(plan, run) for run in runs if not run.matched]
+    matched = sum(1 for run in runs if run.matched)
+    if matched < plan.copies:
+        problems.append(
+            MESSAGES.k8s.volume_move_measure_too_few.format(matched=matched, copies=plan.copies)
+        )
+    return problems
+
+
+def _copy_problem(plan: MeasurePlan, run: CopyRun) -> str:
+    """The problem of one copy: it did not complete, or its two content digests differ."""
+    if not run.complete:
+        return MESSAGES.k8s.volume_move_measure_copy_failed.format(
+            number=run.number, copies=plan.copies, detail=run.detail
+        )
+    return MESSAGES.k8s.volume_move_measure_digest_differs.format(
+        number=run.number,
+        copies=plan.copies,
+        source=run.source_digest,
+        destination=run.destination_digest,
     )
 
 
 __all__ = [
     "MEASURE_BYTES",
     "MEASURE_COPIES",
+    "CopyRun",
     "MeasurePlan",
     "claim_manifests",
     "measure_requests",
     "plan_measure",
     "pod_manifests",
     "random_data_args",
+    "render_report",
+    "report_problems",
+    "run_measure",
 ]

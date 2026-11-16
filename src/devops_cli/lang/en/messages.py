@@ -1156,6 +1156,23 @@ class K8sMessages:
         "it deletes the copy pods and claim {claim}, scales the workloads back, sets the reclaim "
         "policies back and resumes Argo CD."
     )
+    volume_move_measure_report_heading: str = (
+        "### Volume move copy measure: {copies} copies of {bytes} bytes from {source_node} to "
+        "{target_node}"
+    )
+    volume_move_measure_table_measure: str = "Measure"
+    volume_move_measure_table_result: str = "Result"
+    volume_move_measure_complete_copies: str = "Complete copies"
+    volume_move_measure_digest_matches: str = "Digest matches"
+    volume_move_measure_copy_failed: str = "Copy {number}/{copies} did not complete: {detail}"
+    volume_move_measure_digest_differs: str = (
+        "Copy {number}/{copies} does not match: the source content digest is {source} and the "
+        "destination content digest is {destination}."
+    )
+    volume_move_measure_too_few: str = (
+        "{matched}/{copies} copies completed with a matching content digest, and the measure "
+        "needs {copies}."
+    )
 
 
 @dataclass(frozen=True)

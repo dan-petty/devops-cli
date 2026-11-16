@@ -9,6 +9,10 @@ each test fails there on its own.
 
 from __future__ import annotations
 
+import subprocess
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
 import pytest
 
 from devops_cli.config.constants import (
@@ -20,12 +24,20 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_K8S_VOLUME_MOVE_IMAGE
 from devops_cli.exceptions.k8s import VolumeMoveRefusedError
 from devops_cli.k8s.volume_move import copy_argv
-from tests.support.fakes.process import ProcessFake
+from devops_cli.lang import MESSAGES
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+
+if TYPE_CHECKING:
+    from devops_cli.k8s.volume_move_measure import CopyRun
 
 SOURCE_NODE = "node-a"
 TARGET_NODE = "node-b"
 STORAGE_CLASS = "local-path"
 CONTEXT = "test-ctx"
+CONTENT = "b" * 64
+OTHER_CONTENT = "c" * 64
+DIGEST = f"entries 1\nfiles 1\nbytes 104857600\nmetadata {'a' * 64}\ncontent {CONTENT}\n"
+OTHER_DIGEST = DIGEST.replace(CONTENT, OTHER_CONTENT)
 
 
 def test_the_measure_plans_the_copy_command_of_the_move(process_fake: ProcessFake) -> None:
@@ -123,3 +135,140 @@ def test_the_measure_pods_carry_no_service_account_token(process_fake: ProcessFa
         CONST_K8S_VOLUME_MOVE_DESTINATION_DIR,
     ]
     assert process_fake.calls == []
+
+
+def _completed(
+    argv: list[str], code: int, *, stdout: str = "", stderr: str = ""
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess(args=argv, returncode=code, stdout=stdout, stderr=stderr)
+
+
+@dataclass
+class MeasureCluster:
+    """The requests of one measure run, answered from the argv of each command.
+
+    Every `kubectl` request succeeds, and one copy of `failing_copy` fails with the exit code and
+    the error line that a short pipe writes. Each digest request answers with the content digest
+    of its side, so a test can make one destination differ from its source.
+    """
+
+    failing_copy: int | None = None
+    destination_digest: str = DIGEST
+    started: int = 0
+    changes: list[str] = field(default_factory=list)
+
+    def __call__(self, call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        argv = list(call.argv)
+        if argv[0] == "bash":
+            self.started += 1
+            failed = self.started == self.failing_copy
+            return _completed(argv, 1 if failed else 0, stderr="tar: short write" if failed else "")
+        assert argv[:3] == ["kubectl", "--context", CONTEXT], argv
+        args = argv[3:]
+        self.changes.append(" ".join(args[:2]))
+        return _completed(argv, 0, stdout=self._read(args))
+
+    def _read(self, args: list[str]) -> str:
+        if args[0] != "exec":
+            return ""
+        if args[-1] == CONST_K8S_VOLUME_MOVE_SOURCE_DIR:
+            return DIGEST
+        if args[-1] == CONST_K8S_VOLUME_MOVE_DESTINATION_DIR:
+            return self.destination_digest
+        return ""
+
+
+def _copies(count: int, *, mismatch: int | None = None, short: int | None = None) -> list[CopyRun]:
+    """A report fixture of `count` copies, with one mismatched or one short by its number."""
+    from devops_cli.k8s.volume_move_measure import CopyRun
+
+    return [
+        CopyRun(
+            number=number,
+            complete=number != short,
+            source_digest=CONTENT,
+            destination_digest=OTHER_CONTENT if number == mismatch else CONTENT,
+            detail="the copy exited 1" if number == short else "",
+        )
+        for number in range(1, count + 1)
+    ]
+
+
+def test_a_failed_copy_still_removes_the_namespace(process_fake: ProcessFake) -> None:
+    """A copy that fails is recorded, the run goes on, and its temporary namespace is deleted."""
+    from devops_cli.k8s.volume_move_measure import plan_measure, report_problems, run_measure
+
+    plan = plan_measure(SOURCE_NODE, TARGET_NODE, STORAGE_CLASS)
+    cluster = MeasureCluster(failing_copy=3)
+    process_fake.answer(lambda _call: True, ProcessAnswer(side_effect=cluster))
+
+    runs = run_measure(plan, CONTEXT)
+
+    assert len(runs) == plan.copies
+    assert [run.number for run in runs if not run.complete] == [3]
+    assert "exited 1" in runs[2].detail
+    assert sum(1 for run in runs if run.matched) == plan.copies - 1
+    assert {run.source_digest for run in runs if run.complete} == {CONTENT}
+    assert report_problems(plan, runs)
+    deletes = [call.argv for call in process_fake.calls if "delete" in call.argv]
+    assert len(deletes) == 1
+    assert deletes[0][:6] == (
+        "kubectl",
+        "--context",
+        CONTEXT,
+        "delete",
+        "namespace",
+        plan.namespace,
+    )
+    assert process_fake.calls[-1].argv == deletes[0]
+    assert cluster.started == plan.copies
+
+
+def test_a_mismatch_fails_the_report() -> None:
+    """One destination digest that differs from its source fails the report by its copy number."""
+    from devops_cli.k8s.volume_move_measure import plan_measure, report_problems
+
+    plan = plan_measure(SOURCE_NODE, TARGET_NODE, STORAGE_CLASS)
+
+    problems = report_problems(plan, _copies(plan.copies, mismatch=7))
+
+    assert "7/20" in problems[0]
+    assert problems == [
+        MESSAGES.k8s.volume_move_measure_digest_differs.format(
+            number=7, copies=plan.copies, source=CONTENT, destination=OTHER_CONTENT
+        ),
+        MESSAGES.k8s.volume_move_measure_too_few.format(matched=19, copies=plan.copies),
+    ]
+
+
+def test_all_copies_match(capsys: pytest.CaptureFixture[str]) -> None:
+    """Twenty complete copies with matching digests pass, and the table holds both counts."""
+    from devops_cli.k8s.volume_move_measure import plan_measure, render_report, report_problems
+
+    plan = plan_measure(SOURCE_NODE, TARGET_NODE, STORAGE_CLASS)
+    runs = _copies(plan.copies)
+
+    render_report(plan, runs)
+
+    output = capsys.readouterr().out
+    assert "| Measure | Result |" in output
+    assert "| Complete copies | 20/20 |" in output
+    assert "| Digest matches | 20/20 |" in output
+    assert report_problems(plan, runs) == []
+
+
+def test_one_short_copy_fails_the_report() -> None:
+    """A copy that did not complete fails the report, which names it by its copy number."""
+    from devops_cli.k8s.volume_move_measure import plan_measure, report_problems
+
+    plan = plan_measure(SOURCE_NODE, TARGET_NODE, STORAGE_CLASS)
+
+    problems = report_problems(plan, _copies(plan.copies, short=plan.copies))
+
+    assert "20/20" in problems[0]
+    assert problems == [
+        MESSAGES.k8s.volume_move_measure_copy_failed.format(
+            number=20, copies=plan.copies, detail="the copy exited 1"
+        ),
+        MESSAGES.k8s.volume_move_measure_too_few.format(matched=19, copies=plan.copies),
+    ]
