@@ -31,7 +31,7 @@ Kind: behavior. Reads: `src/devops_cli/server/counter_series.py`, `src/devops_cl
 
 Kind: other. Reads: `src/devops_cli/docs/generator.py`, `docs/TELEMETRY.md`. Changes: `src/devops_cli/docs/generator.py`, `docs/TELEMETRY.md`.
 
-- [ ] 4.1 After the sentence of `src/devops_cli/docs/generator.py` that lists the labels of the implement jobs counter, add a sentence that the labels of `devops_cli_service_kept_work_total` are `repo`, `class` and `outcome` (#3650). Regenerate `docs/TELEMETRY.md` with `uv run devops docs generate`, and edit no other line of it by hand
+- [x] 4.1 After the sentence of `src/devops_cli/docs/generator.py` that lists the labels of the implement jobs counter, add a sentence that the labels of `devops_cli_service_kept_work_total` are `repo`, `class` and `outcome` (#3650). Regenerate `docs/TELEMETRY.md` with `uv run devops docs generate`, and edit no other line of it by hand
   - Verification: `$ uv run devops ci docs` passes
 
 ## 5. List the counter and its label values in the cluster README
