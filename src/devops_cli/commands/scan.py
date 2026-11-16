@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import shlex
 from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
@@ -1064,51 +1063,6 @@ def scan_report(
         explicit_scanners=explicit_scanners,
         json_output=(resolved != CONST_OUTPUT_FORMAT_TABLE),
     )
-
-
-def _extract_report_tokens(command_line: str) -> list[str] | None:
-    tokens = shlex.split(command_line.strip())
-    for i in range(len(tokens) - 2):
-        if tokens[i : i + 3] == ["devops", "scan", "report"]:
-            return tokens[i + 3 :]
-    return None
-
-
-def _extract_flag_arguments(tokens: list[str], flag_names: tuple[str, ...]) -> list[str]:
-    values: list[str] = []
-    i = 0
-    while i < len(tokens):
-        tok = tokens[i]
-        for flag in flag_names:
-            if tok.startswith(f"{flag}="):
-                values.append(tok.split("=", 1)[1])
-                break
-            if tok == flag and i + 1 < len(tokens):
-                values.append(tokens[i + 1])
-                i += 1
-                break
-        i += 1
-    return values
-
-
-def resolve_scan_report_scanners(command_line: str) -> list[str]:
-    """Resolve security scanner names reached by a given workflow or CLI command line."""
-    tokens = _extract_report_tokens(command_line)
-    if tokens is None:
-        return []
-
-    scanner_vals = _extract_flag_arguments(tokens, ("--scanner", "-s"))
-    skip_vals = _extract_flag_arguments(tokens, ("--skip", "--skip-scanner"))
-
-    selected_names = _parse_scanner_names(scanner_vals)
-    skip_names = _parse_scanner_names(skip_vals)
-
-    all_registered = global_scanner_registry.list_scanners()
-    if selected_names:
-        return [s for s in selected_names if s in all_registered]
-    if skip_names:
-        return [s for s in all_registered if s not in skip_names]
-    return all_registered
 
 
 @app.command("sarif")

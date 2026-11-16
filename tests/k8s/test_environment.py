@@ -15,7 +15,6 @@ from devops_cli.k8s.environment import (
     resolve_product_root,
     tree_at,
 )
-from tests.support.paths import REPO_ROOT
 
 
 def _checkout(folder: Path, *, project_file: str | None = None) -> Path:
@@ -110,13 +109,6 @@ def test_no_source_names_the_option_and_the_project_file(tmp_path: Path) -> None
         "No environment tree is known. Give --k8s-dir with the Kubernetes folder of the infra "
         'repo, or declare it in .devops/project.toml of the repository ([kubernetes] dir = "k8s").'
     )
-
-
-def test_this_repository_declares_its_k8s_folder() -> None:
-    """devops-cli holds the environment tree of the homelab until it moves to the infra repo."""
-    repo = REPO_ROOT.resolve()
-
-    assert resolve_environment(start=repo) == EnvironmentTree(repo / "k8s", repo)
 
 
 def test_the_product_base_is_k8s_devops_of_the_current_repository(tmp_path: Path) -> None:

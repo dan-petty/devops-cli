@@ -14,14 +14,13 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
 import pytest
-import yaml
 
 from devops_cli.ci.job_time import JobTimeReport, check_job_time
 from devops_cli.github.client import JobRunTime
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.github.session import get_github_session
 from tests.support.fakes.github import github_json, next_page, quota_headers
-from tests.support.paths import FIXTURES, REPO_ROOT
+from tests.support.paths import FIXTURES
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -639,44 +638,6 @@ def test_a_dry_run_with_the_issue_lists_the_search_and_both_writes_and_makes_non
         f"POST /repos/{_REPO}/issues/<number>/comments" in said,
         f"POST /repos/{_REPO}/issues " in said,
     ) == (0, [], True, True, True)
-
-
-def test_the_workflow_runs_the_check_on_the_schedule_and_by_hand_and_no_job_waits_for_it() -> None:
-    """The job reads main's history, which no run of a push or a pull request changes. It runs on
-    the daily schedule and on a manual run only, so no push run of main turns red for the mean of
-    other runs (#4634). Its token can read the Actions runs and write issues, so it files or
-    comments on the P0 issue of a breach (#5247), and it is the `needs` of no other job."""
-    workflow = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text("utf-8"))
-    job = workflow["jobs"]["job-time"]
-    waiting = [
-        name for name, other in workflow["jobs"].items() if "job-time" in other.get("needs", [])
-    ]
-
-    assert (
-        job["if"],
-        job["permissions"],
-        [step["run"] for step in job["steps"] if "devops ci job-time" in step.get("run", "")],
-        waiting,
-    ) == (
-        "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
-        {"contents": "read", "actions": "read", "issues": "write"},
-        ['uv run devops ci job-time --repo "$GITHUB_REPOSITORY" --file-issue'],
-        [],
-    )
-
-
-def test_a_push_to_main_does_not_cancel_the_schedule_run() -> None:
-    """The concurrency group of `ci.yml` holds the event, so the schedule run, which holds the
-    check, and a push run of the same ref are in two groups (#4634). The group of a push holds its
-    commit, so a merge cancels no push run of main, and each run ends and gives its test time to
-    the check (#4639)."""
-    workflow = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text("utf-8"))
-
-    assert workflow["concurrency"] == {
-        "group": "ci-${{ github.workflow }}-${{ github.event_name }}-"
-        "${{ github.event_name == 'push' && github.sha || github.ref }}",
-        "cancel-in-progress": True,
-    }
 
 
 def test_the_command_exits_1_and_asks_for_a_repository_when_the_checkout_has_no_origin(

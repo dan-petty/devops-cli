@@ -820,7 +820,7 @@ class K8sMessages:
     crawl4ai_check_passed: str = (
         "Crawl4AI refused all {internal} requests for internal targets and all {open} requests "
         "without the token, and a pod with its label opens no connection to the {destinations} "
-        "destinations. The check was written for the image {image}."
+        "destinations."
     )
     crawl4ai_check_failed: str = (
         "{count} check(s) of the Crawl4AI service failed: {detail}. The service serves a target "

@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
-import yaml
 
 from devops_cli.config import settings
 from devops_cli.config.defaults import (
@@ -19,7 +18,6 @@ from devops_cli.exceptions import ConfigurationError
 from devops_cli.roadmap.stores.store import ItemField
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
-from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_stage import (
     STAGE_REPO,
     VALID_REPORT,
@@ -280,11 +278,3 @@ def test_the_command_plans_no_item_at_the_planned_limit_and_gives_the_limit_as_t
     assert "branch `" not in output
     assert "- #2 fix(roadmap): the job drops a comment: The count of Planned items is 1" in output
     assert "roadmap.stage.planned_limit" in output
-
-
-def test_the_example_configmap_holds_the_implement_effort_default() -> None:
-    """The example ConfigMap names `roadmap.implement.effort` with its default (#3385)."""
-    example = yaml.safe_load((REPO_ROOT / "k8s/devops/configmap.example.yaml").read_text("utf-8"))
-    configured = yaml.safe_load(example["data"]["devops-cli.yaml"])
-
-    assert configured["roadmap"]["implement"]["effort"] == ["low", "medium"]

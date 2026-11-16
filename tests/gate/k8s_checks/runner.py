@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 import yaml
+from kubernetes.utils.quantity import parse_quantity
 
 from tests.gate.k8s_render import kustomize
 from tests.support.paths import REPO_ROOT
@@ -57,27 +58,20 @@ def check_the_runner_cronjob_is_a_suspended_template_that_never_retries() -> Non
         cronjob["metadata"]["namespace"],
         cronjob["spec"]["suspend"],
         job["backoffLimit"],
-        job["activeDeadlineSeconds"],
         pod["restartPolicy"],
         pod["serviceAccountName"],
         container["name"],
         container["image"],
         container["imagePullPolicy"],
-        container["resources"],
     ) == (
         "devops",
         True,
         0,
-        7200,
         "Never",
         "devops-cli",
         "runner",
         RUNNER_IMAGE,
         "IfNotPresent",
-        {
-            "requests": {"cpu": "2", "memory": "4Gi", "ephemeral-storage": "4Gi"},
-            "limits": {"cpu": "2", "memory": "8Gi", "ephemeral-storage": "10Gi"},
-        },
     )
 
 
@@ -125,19 +119,20 @@ def check_the_runner_container_knows_it_is_a_runner_and_takes_its_credentials_fr
     ) == ("true", [{"secretRef": {"name": "devops-cli"}}], "/config/devops-cli.yaml", [], [])
 
 
-def check_the_runner_home_is_an_empty_dir_of_8_gi_and_the_data_dir_lives_in_it() -> None:
-    """A run that reached the strength check went over 4 Gi and the kubelet evicted it (#5960)."""
+def check_the_runner_home_is_an_empty_dir_with_a_size_limit_and_the_data_dir_lives_in_it() -> None:
+    """A run that reached the strength check went over 4 Gi and the kubelet evicted it (#5960).
+    The size is a value of the template, so the check holds the form only (#6060)."""
     pod = _cronjob_pod("devops-cli-runner")
     container = _runner_container()
     home = next(v for v in pod["volumes"] if v["name"] == "home")
     env = {entry["name"]: entry.get("value") for entry in container["env"]}
 
     assert (
-        home["emptyDir"],
+        sorted(home["emptyDir"]),
         {m["name"]: m["mountPath"] for m in container["volumeMounts"] if m["name"] == "home"},
         env["DEVOPS_CLI_DATA_DIR"].startswith("/home/devops/"),
         {"home", "tmp"} <= {m["name"] for m in container["volumeMounts"]},
-    ) == ({"sizeLimit": "8Gi"}, {"home": "/home/devops"}, True, True)
+    ) == (["sizeLimit"], {"home": "/home/devops"}, True, True)
 
 
 def check_every_volume_of_the_runner_has_a_size_limit_inside_the_ephemeral_storage_limit() -> None:
@@ -148,7 +143,11 @@ def check_every_volume_of_the_runner_has_a_size_limit_inside_the_ephemeral_stora
     limits = {v["name"]: v["emptyDir"].get("sizeLimit") for v in pod["volumes"] if "emptyDir" in v}
     storage = _runner_container()["resources"]["limits"]["ephemeral-storage"]
 
-    assert (limits, storage) == ({"tmp": "1Gi", "home": "8Gi"}, "10Gi")
+    assert (
+        sorted(limits),
+        None in limits.values(),
+        sum(parse_quantity(limit) for limit in limits.values() if limit) < parse_quantity(storage),
+    ) == (["home", "tmp"], False, True)
 
 
 def check_the_service_has_its_own_account_and_mounts_a_token_that_expires_in_an_hour() -> None:

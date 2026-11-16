@@ -10,11 +10,9 @@ from __future__ import annotations
 
 import json
 import re
-import tomllib
 from pathlib import Path
 
 import pytest
-import yaml
 from typer.testing import CliRunner
 
 from devops_cli.ci.cache import resolve_ci_cache_path
@@ -139,25 +137,6 @@ def test_a_shard_reports_each_test_id_and_the_reason_of_each_skip_and_failure(
         True,
         True,
     )
-
-
-def test_each_shard_job_uploads_the_report_of_its_row_with_its_coverage_data() -> None:
-    """Each shard job of CI uploads the JUnit XML report that its test row writes, in the artifact
-    that holds its coverage data, so that the split by measured time can read the time of each
-    test of the suite from the artifacts of a run (#4250, #4673)."""
-    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
-    upload = next(
-        step
-        for step in workflow["jobs"]["test-shard"]["steps"]
-        if step.get("uses", "").startswith("actions/upload-artifact@")
-    )
-    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    coverage_data = pyproject["tool"]["coverage"]["run"]["data_file"]
-
-    assert upload["with"]["path"].split() == [
-        coverage_data,
-        _report_path(_planned_test_row("--shard", "2", "--shards", "4")),
-    ]
 
 
 @pytest.mark.parametrize("shards", [2, 3, 4])

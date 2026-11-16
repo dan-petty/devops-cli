@@ -231,7 +231,7 @@
       "commitMessagePrefix": "fix(deps):"
     },
     {
-      "description": "A chart update also moves the version of its release in HELM_RELEASES_BY_STACK, which deploy-stack installs. That is runtime code, so the update is a fix, and release-please releases it (#6054).",
+      "description": "A chart update changes the chart that deploy-stack and Argo CD install: deploy-stack reads the version from the Application of the chart (#6060). So the update is a fix, and release-please releases it (#6054).",
       "matchDatasources": ["helm"],
       "commitMessagePrefix": "fix(deps):"
     },
@@ -320,7 +320,7 @@
       "description": "The gh-dash schema fixture holds the schema of the pinned version.",
       "matchPackageNames": ["dlvhdr/gh-dash"],
       "prBodyNotes": [
-        "Before the merge, replace `tests/fixtures/gh_dash_schema/` with the schema of the new version. `tests/core/test_gh_dash_config.py` checks it against the version of the tools lock."
+        "Before the merge, replace `tests/fixtures/gh_dash_schema/` with the schema of the new version."
       ]
     },
     {

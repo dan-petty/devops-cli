@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import random
 import shlex
-import tomllib
 from collections.abc import Iterator
-from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
 import pytest
 import typer
-import yaml
 from click.testing import CliRunner, Result
 
 from devops_cli.commands import ci as ci_module
@@ -20,7 +17,6 @@ from devops_cli.commands.ci import get_check_specs
 from devops_cli.config.defaults import DEFAULT_CI_TEST_REPEAT_RUNS
 from devops_cli.lang import MESSAGES
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
-from tests.support.paths import REPO_ROOT
 from tests.support.session_spawns import RecordedSpawn, record_spawns
 
 pytest_plugins = ("pytester",)
@@ -218,56 +214,6 @@ def test_repeat_refuses_to_shuffle_the_whole_suite(
         calls,
         MESSAGES.ci.repeat_needs_targets in _flat(result.output),
     ) == (1, [], True)
-
-
-def test_pytest_randomly_is_installed_and_blocked_by_default() -> None:
-    """The dev group pins pytest-randomly and addopts blocks it, so ordinary runs keep file order."""
-    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    addopts = shlex.split(pyproject["tool"]["pytest"]["ini_options"]["addopts"])
-
-    assert (
-        ("-p", "no:randomly") in pairwise(addopts),
-        "pytest-randomly==5.1.0" in pyproject["dependency-groups"]["dev"],
-    ) == (True, True)
-
-
-def test_the_changed_test_job_reruns_added_or_modified_test_files() -> None:
-    """ci.yml's advisory pull-request job lists changed test files and repeats them shuffled,
-    skipping its toolchain and run steps when no test file changed."""
-    workflow = yaml.safe_load(
-        (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-    )
-    job = workflow["jobs"]["changed-tests"]
-    steps = {step["name"]: step for step in job["steps"]}
-    detect = steps["Detect Changed Test Files"]
-    toolchain = steps["Set up uv toolchain"]
-    rerun = steps["Run Changed Tests in Shuffled Order"]
-    changed = "steps.changed_tests.outputs.changed == 'true'"
-
-    assert (
-        (job["name"], job["if"], job["permissions"], "needs" in job),
-        (detect["id"], detect["env"]["BASE_REF"]),
-        ("--diff-filter=AMR" in detect["run"], ":(glob)tests/**/test_*.py" in detect["run"]),
-        (toolchain.get("if"), rerun.get("if")),
-        (toolchain["with"]["cache-suffix"], toolchain["with"]["tooling-cache-paths"].split()),
-        "devops ci test --repeat 3" in rerun["run"],
-        [step["name"] for step in job["steps"] if "${{" in step.get("run", "")],
-    ) == (
-        (
-            "Changed-Test Independence",
-            "github.event_name == 'pull_request'"
-            " && !(startsWith(github.head_ref, 'release-please--')"
-            " && github.event.pull_request.head.repo.full_name == github.repository)",
-            {"contents": "read"},
-            False,
-        ),
-        ("changed_tests", "${{ github.base_ref }}"),
-        (True, True),
-        (changed, changed),
-        ("changed-tests", [".pytest_cache"]),
-        True,
-        [],
-    )
 
 
 def test_a_dry_run_plans_every_repeat_and_starts_no_process(

@@ -40,6 +40,7 @@ from devops_cli.exceptions.k8s import (
     KubernetesContextError,
     KubernetesDeployError,
 )
+from devops_cli.k8s.app_sources import chart_versions
 from devops_cli.k8s.argocd_overrides import (
     application_patch,
     application_source,
@@ -120,7 +121,9 @@ class StackRelease(TypedDict):
     values: list[str]
     # The values files of the product base `k8s/devops`, after `values`.
     product_values: NotRequired[list[str]]
-    version: str
+    # The chart version, which deploy-stack reads from the Argo CD Application of the release in
+    # the environment tree, so a pin has one place (#6060).
+    version: NotRequired[str]
 
 
 HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
@@ -134,7 +137,6 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "chart": "prometheus-community/prometheus-operator-crds",
             "namespace": "monitoring",
             "values": ["monitoring/prometheus-operator-crds-values.yaml"],
-            "version": "33.0.2",
         },
         # The database operator of every stack that holds a CloudNativePG Cluster: the gateway
         # database of `llm` and the Mattermost database of `chat`. Its podMonitor needs the CRD above.
@@ -143,7 +145,6 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "chart": "cloudnative-pg/cloudnative-pg",
             "namespace": "cnpg-system",
             "values": ["mattermost/cloudnative-pg-values.yaml"],
-            "version": "0.29.1",
         },
         # The TLS certificates of the Barman Cloud plugin. Its start-up check Job holds `--wait`
         # until the webhook answers, so the plugin chart below can create its Issuer.
@@ -152,7 +153,6 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "chart": "jetstack/cert-manager",
             "namespace": "cert-manager",
             "values": ["cert-manager/values.yaml"],
-            "version": "v1.21.3",
         },
         # The backup plugin of CloudNativePG runs in the operator's namespace, and its chart renders
         # cert-manager objects, so it comes after both releases above (#4764).
@@ -161,28 +161,24 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "chart": "cloudnative-pg/plugin-barman-cloud",
             "namespace": "cnpg-system",
             "values": ["cnpg-system/plugin-barman-cloud-values.yaml"],
-            "version": "0.9.0",
         },
         {
             "name": "argocd",
             "chart": "argo/argo-cd",
             "namespace": "argocd",
             "values": ["argocd/values.yaml"],
-            "version": "10.18.0",
         },
         {
             "name": "argo-workflows",
             "chart": "argo/argo-workflows",
             "namespace": "argo-workflows",
             "values": ["argo-workflows/values.yaml"],
-            "version": "2.0.18",
         },
         {
             "name": "k8s-monitoring",
             "chart": "grafana/k8s-monitoring",
             "namespace": "monitoring",
             "values": ["monitoring/k8s-monitoring-values.yaml"],
-            "version": "4.6.1",
         },
         {
             "name": "prometheus",
@@ -191,21 +187,18 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             # The environment values, then the alert rules of devops-cli (#5292).
             "values": ["monitoring/prometheus-values.yaml"],
             "product_values": ["monitoring/prometheus-rules-values.yaml"],
-            "version": "29.47.2",
         },
         {
             "name": "grafana",
             "chart": "grafana-community/grafana",
             "namespace": "monitoring",
             "values": ["monitoring/grafana-values.yaml"],
-            "version": "14.4.1",
         },
         {
             "name": "dcgm-exporter",
             "chart": "nvidia-dcgm/dcgm-exporter",
             "namespace": "monitoring",
             "values": ["monitoring/dcgm-exporter-values.yaml"],
-            "version": "4.8.4",
         },
         # tempo first: the collector's trace exporter has a Tempo to reach when it starts (#409)
         {
@@ -213,28 +206,24 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "chart": "grafana-community/tempo",
             "namespace": "otel",
             "values": ["otel/tempo-values.yaml"],
-            "version": "3.2.1",
         },
         {
             "name": "otel-collector",
             "chart": "open-telemetry/opentelemetry-collector",
             "namespace": "otel",
             "values": ["otel/values.yaml"],
-            "version": "0.178.3",
         },
         {
             "name": "pyroscope",
             "chart": "grafana/pyroscope",
             "namespace": "monitoring",
             "values": ["monitoring/pyroscope-values.yaml"],
-            "version": "2.4.3",
         },
         {
             "name": "traefik",
             "chart": "traefik/traefik",
             "namespace": "kube-system",
             "values": ["ingress/traefik-values.yaml"],
-            "version": "42.3.2",
         },
     ],
     "llm": [
@@ -243,14 +232,12 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "chart": "open-webui/open-webui",
             "namespace": "llm",
             "values": ["llm/values-open-webui.yaml"],
-            "version": "18.3.0",
         },
         {
             "name": "qdrant",
             "chart": "qdrant/qdrant",
             "namespace": "llm",
             "values": ["llm/values-qdrant.yaml"],
-            "version": "1.20.2",
         },
     ],
     "logging": [
@@ -259,7 +246,6 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "chart": "grafana-community/loki",
             "namespace": "logging",
             "values": ["logging/loki-values.yaml"],
-            "version": "21.2.3",
         },
     ],
     # The internal forge and container registry (#1081). Its pod waits for Secret gitea-admin,
@@ -270,7 +256,6 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "chart": "gitea-charts/gitea",
             "namespace": "gitea",
             "values": ["gitea/values.yaml"],
-            "version": "12.7.0",
         },
     ],
     "chat": [
@@ -279,7 +264,6 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "chart": "mattermost/mattermost-operator",
             "namespace": "mattermost-operator",
             "values": ["mattermost/mattermost-operator-values.yaml"],
-            "version": "1.0.5",
         },
     ],
 }
@@ -694,8 +678,8 @@ def _build_helm_upgrade_cmd(
             release["chart"],
         ]
     )
-    if release["version"]:
-        helm_cmd.extend(["--version", release["version"]])
+    if version := release.get("version"):
+        helm_cmd.extend(["--version", version])
     helm_cmd.extend(["--namespace", release["namespace"]])
     for values in release["values"]:
         helm_cmd.extend(["--values", values])
@@ -1210,9 +1194,11 @@ def _collect_deploy_targets(
     all_manifests: list[str] = []
     all_kustomizations: list[Path] = []
     all_post_helm: list[Path] = []
+    versions = chart_versions(env.application_dirs)
     for s_name in selected_stacks:
         all_releases.extend(
-            _release_at(release, env, product) for release in HELM_RELEASES_BY_STACK.get(s_name, [])
+            _release_at(release, env, product, versions)
+            for release in HELM_RELEASES_BY_STACK.get(s_name, [])
         )
         all_manifests.extend(str(product / p) for p in PRODUCT_MANIFESTS_BY_STACK.get(s_name, []))
         all_manifests.extend(str(env.path(p)) for p in MANIFESTS_BY_STACK.get(s_name, []))
@@ -1222,9 +1208,20 @@ def _collect_deploy_targets(
     return all_releases, all_manifests, all_kustomizations, all_post_helm
 
 
-def _release_at(release: StackRelease, env: EnvironmentTree, product: Path) -> StackRelease:
+def _release_at(
+    release: StackRelease, env: EnvironmentTree, product: Path, versions: Mapping[str, str]
+) -> StackRelease:
     """`release` with each values file as a path: the environment files under `env`, then the
-    product files under `product`."""
+    product files under `product`, and with the chart version that its Application in `env` pins
+    (`versions`, by the name of the Application)."""
+    version = versions.get(release["name"])
+    if version is None:
+        folders = ", ".join(str(folder) for folder in env.application_dirs)
+        raise KubernetesDeployError(
+            ERRORS.k8s.chart_version_not_pinned.format(folders=folders, release=release["name"]),
+            chart_or_manifest=release["chart"],
+            exit_code=1,
+        )
     return StackRelease(
         name=release["name"],
         chart=release["chart"],
@@ -1233,7 +1230,7 @@ def _release_at(release: StackRelease, env: EnvironmentTree, product: Path) -> S
             *(str(env.path(values)) for values in release["values"]),
             *(str(product / values) for values in release.get("product_values", [])),
         ],
-        version=release["version"],
+        version=version,
     )
 
 

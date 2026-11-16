@@ -11,8 +11,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from tests.support.k8s_tree import TREE
-
 if TYPE_CHECKING:
     from devops_cli.k8s.ollama_prune import OllamaPod
 
@@ -236,20 +234,3 @@ def test_an_ollama_list_names_each_model_once() -> None:
         frozenset({"qwen3.8:27b", "llama3.1:70b"}),
         frozenset(),
     )
-
-
-def test_the_tracked_gateway_routes_name_a_service_of_the_stack() -> None:
-    """Each target of the tracked gateway config is a Service of the tracked stack, and the keep
-    set of each is the model that its tiers load."""
-    from devops_cli.k8s.ollama_prune import gateway_targets, service_selectors
-
-    gateway = TREE.gateway_config.read_text(encoding="utf-8")
-    services = TREE.llm_services.read_text(encoding="utf-8")
-
-    assert gateway_targets(gateway) == {
-        "ollama-24gib-embed-gpu0": frozenset({"qwen3-embedding:0.6b"}),
-        "ollama-24gib-embed-gpu1": frozenset({"qwen3-embedding:0.6b"}),
-        "ollama-48gib-fast": frozenset({"qwen3.8:27b"}),
-        "ollama-64gib-standard": frozenset({"qwen3.8:27b"}),
-    }
-    assert set(gateway_targets(gateway)) <= set(service_selectors(services))

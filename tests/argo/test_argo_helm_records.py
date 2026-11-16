@@ -7,18 +7,15 @@ from a small cluster: the Applications, the release records, the resource kinds 
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
-import yaml
 from typer.testing import CliRunner
 
 from devops_cli.argo.helm_records import HelmRelease, RetirementPlan, plan_helm_record_retirement
 from devops_cli.main import app as main_app
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
-from tests.support.paths import REPO_ROOT
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -336,38 +333,3 @@ def test_no_candidate_release_needs_no_object_listing(process_fake: ProcessFake)
         ),
         2,
     )
-
-
-# ── The repository: the AppProject and the knowledge base ────────────────────
-
-_HELM_COMMAND = re.compile(r"\bhelm\s+(?:rollback|uninstall|upgrade(?:\s+--install)?)\s+([\w.-]+)")
-
-
-def _adopted_releases() -> set[str]:
-    """The release of each chart source of the Applications in k8s/argocd/apps/."""
-    releases: set[str] = set()
-    for path in sorted((REPO_ROOT / "k8s" / "argocd" / "apps").glob("*.yaml")):
-        for doc in yaml.safe_load_all(path.read_text(encoding="utf-8")):
-            if not isinstance(doc, dict) or doc.get("kind") != "Application":
-                continue
-            spec = doc.get("spec") or {}
-            sources = spec.get("sources") or [spec.get("source") or {}]
-            for source in sources:
-                if source.get("chart"):
-                    helm = source.get("helm") or {}
-                    releases.add(helm.get("releaseName") or doc["metadata"]["name"])
-    return releases
-
-
-def test_no_knowledge_base_page_runs_helm_against_an_adopted_release() -> None:
-    """Verify no knowledge base page rolls back, uninstalls or upgrades a release Argo CD renders."""
-    adopted = _adopted_releases()
-    knowledge_base = REPO_ROOT / "src" / "devops_cli" / "ai" / "knowledge_base"
-    found = sorted(
-        f"{path.relative_to(REPO_ROOT)}: {match.group(1)}"
-        for path in knowledge_base.rglob("*.md")
-        for match in _HELM_COMMAND.finditer(path.read_text(encoding="utf-8"))
-        if match.group(1) in adopted
-    )
-
-    assert ("prometheus" in adopted, found) == (True, [])

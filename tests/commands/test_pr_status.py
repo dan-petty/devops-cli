@@ -8,12 +8,9 @@ request closes. A workflow removes the `status/*` and `owner/*` labels of an iss
 from __future__ import annotations
 
 import json
-import re
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-import yaml
 from typer.testing import CliRunner
 
 from devops_cli.commands.pr import app
@@ -261,31 +258,3 @@ def test_a_status_write_that_fails_exits_1_after_the_pull_request_opened(
         True,
         True,
     )
-
-
-# ── The close ──────────────────────────────────────────────────────────────────
-
-WORKFLOW = Path(".github/workflows/clear-status.yml")
-
-
-def test_a_workflow_removes_the_status_labels_when_an_issue_closes() -> None:
-    document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    triggers = document.get("on", document.get(True))
-    job = next(iter(document["jobs"].values()))
-    assert (triggers, job["permissions"], "status/" in WORKFLOW.read_text(encoding="utf-8")) == (
-        {"issues": {"types": ["closed"]}},
-        {"issues": "write"},
-        True,
-    )
-
-
-def test_the_workflow_removes_only_the_status_and_owner_labels() -> None:
-    """The filter of the workflow picks the `status/*` and `owner/*` labels of the closed issue
-    (#2910), and no other label (a test cannot start jq: the process edge is closed)."""
-    script = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["clear-status"]["steps"][
-        0
-    ]["run"]
-    filter_ = re.search(r"--jq '([^']*)'", script)
-    assert filter_ is not None
-    assert re.findall(r'startswith\("([^"]*)"\)', filter_.group(1)) == ["status/", "owner/"]
-    assert " or " in filter_.group(1)

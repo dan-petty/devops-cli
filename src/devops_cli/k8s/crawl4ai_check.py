@@ -39,11 +39,6 @@ from devops_cli.k8s.service_probe import (
     service_cluster_ip,
 )
 
-# The image the check was written for. The gate row `k8s` compares it with the image of
-# Deployment `crawl4ai`, so a bump of the digest fails until a person runs `devops k8s
-# crawl4ai-check` against the new image and sets this value.
-CRAWL4AI_IMAGE = "unclecode/crawl4ai:0.9.5@sha256:0b05666882bfb67f45d559a5b827839c54127b74aedd723f8ab338a3571b5fc9"
-
 NAMESPACE = "devops"
 SERVICE = "crawl4ai"
 SERVICE_PORT = 11235

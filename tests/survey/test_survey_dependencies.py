@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from devops_cli.survey.dependencies import (
     DependencyMaturity,
     DependencyPin,
@@ -10,17 +12,19 @@ from devops_cli.survey.dependencies import (
     inspect_dependency,
     read_pinned_dependencies,
 )
-from tests.support.paths import REPO_ROOT
 
 
-def test_read_pinned_dependencies_extracts_runtime_pins() -> None:
+def test_read_pinned_dependencies_extracts_runtime_pins(tmp_path: Path) -> None:
     """Reading pyproject.toml extracts direct runtime dependencies with exact version pins."""
-    pyproject_path = REPO_ROOT / "pyproject.toml"
+    pyproject_path = tmp_path / "pyproject.toml"
+    pyproject_path.write_text(
+        '[project]\ndependencies = ["httpx==0.28.1", "click==8.3.0"]\n', encoding="utf-8"
+    )
     deps = read_pinned_dependencies(pyproject_path)
-    assert len(deps) >= 30
-    assert all(isinstance(dep, DependencyPin) for dep in deps)
-    click_dep = next(d for d in deps if d.name == "click")
-    assert click_dep.version != ""
+    assert deps == [
+        DependencyPin(name="click", version="8.3.0"),
+        DependencyPin(name="httpx", version="0.28.1"),
+    ]
 
 
 def test_compute_release_cadence_from_timestamps() -> None:

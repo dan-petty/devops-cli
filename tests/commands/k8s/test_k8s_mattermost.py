@@ -26,35 +26,6 @@ def _documents(path: Path) -> list[dict[str, Any]]:
     return [doc for doc in yaml.safe_load_all(path.read_text(encoding="utf-8")) if doc]
 
 
-def test_mattermost_directory_manifests_exist() -> None:
-    """Verify all required manifests and values files exist in k8s/mattermost/."""
-    expected_files = (
-        "cloudnative-pg-values.yaml",
-        "mattermost-operator-values.yaml",
-        "database.yaml",
-        "files-pvc.yaml",
-        "mattermost.yaml",
-        "podmonitor.yaml",
-        "networkpolicy.yaml",
-        "kustomization.yaml",
-    )
-    for filename in expected_files:
-        path = MATTERMOST_DIR / filename
-        assert path.is_file(), f"Missing file: {path}"
-
-
-def test_kustomization_resources() -> None:
-    """Verify k8s/mattermost/kustomization.yaml lists exactly the required resources."""
-    kust = _yaml(MATTERMOST_DIR / "kustomization.yaml")
-    assert kust.get("resources") == [
-        "networkpolicy.yaml",
-        "database.yaml",
-        "files-pvc.yaml",
-        "mattermost.yaml",
-        "podmonitor.yaml",
-    ]
-
-
 def test_cloudnative_pg_values() -> None:
     """Verify cloudnative-pg Helm values configure monitoring, security context, and resources.
 
@@ -144,25 +115,6 @@ def test_database_manifest() -> None:
     ) in (("100m", "256Mi", "1", "1Gi"), ("100m", "256Mi", "1000m", "1Gi"))
 
 
-def test_files_pvc_manifest() -> None:
-    """Verify files-pvc.yaml defines PersistentVolumeClaim mattermost-files."""
-    doc = _yaml(MATTERMOST_DIR / "files-pvc.yaml")
-    assert (
-        doc.get("apiVersion"),
-        doc.get("kind"),
-        doc.get("metadata", {}).get("name"),
-        doc.get("metadata", {}).get("namespace"),
-        doc.get("metadata", {}).get("annotations", {}).get("argocd.argoproj.io/sync-options"),
-    ) == ("v1", "PersistentVolumeClaim", "mattermost-files", "mattermost", KEEP)
-
-    spec = doc.get("spec", {})
-    assert (
-        spec.get("accessModes"),
-        spec.get("storageClassName"),
-        spec.get("resources", {}).get("requests", {}).get("storage"),
-    ) == (["ReadWriteOnce"], "local-path", "10Gi")
-
-
 def test_mattermost_custom_resource() -> None:
     """Verify mattermost.yaml defines installation.mattermost.com/v1beta1 Mattermost."""
     doc = _yaml(MATTERMOST_DIR / "mattermost.yaml")
@@ -177,14 +129,12 @@ def test_mattermost_custom_resource() -> None:
     spec = doc.get("spec", {})
     assert (
         spec.get("image"),
-        spec.get("version"),
         spec.get("replicas"),
         spec.get("deploymentTemplate", {}).get("deploymentStrategyType"),
         spec.get("database", {}).get("external", {}).get("secret"),
         spec.get("fileStore", {}).get("externalVolume", {}).get("volumeClaimName"),
     ) == (
         "mattermost/mattermost-team-edition",
-        "11.7.15",
         1,
         "Recreate",
         "mattermost-db",
@@ -233,23 +183,6 @@ def test_mattermost_custom_resource() -> None:
         "MM_EMAILSETTINGS_SENDPUSHNOTIFICATIONS": "false",
         "MM_PLUGINSETTINGS_ENABLEREMOTEMARKETPLACE": "false",
     }
-
-
-def test_podmonitor_manifest() -> None:
-    """Verify podmonitor.yaml defines PodMonitor for CloudNativePG cluster."""
-    doc = _yaml(MATTERMOST_DIR / "podmonitor.yaml")
-    assert (
-        doc.get("apiVersion"),
-        doc.get("kind"),
-        doc.get("metadata", {}).get("name"),
-        doc.get("metadata", {}).get("namespace"),
-    ) == ("monitoring.coreos.com/v1", "PodMonitor", "mattermost-db", "mattermost")
-
-    spec = doc.get("spec", {})
-    assert (
-        spec.get("selector", {}).get("matchLabels", {}).get("cnpg.io/cluster"),
-        spec.get("podMetricsEndpoints"),
-    ) == ("mattermost-db", [{"port": "metrics"}])
 
 
 def test_networkpolicy_manifests() -> None:

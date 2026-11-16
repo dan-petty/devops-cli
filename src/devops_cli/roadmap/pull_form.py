@@ -11,7 +11,7 @@ no request: the caller passes the labels that the repository declares.
 
 The `Semantic PR title` workflow (`.github/workflows/pr-title.yml`) cannot read this module: an
 action takes static inputs. `tests/invariants/test_workflow_contracts.py` holds its summary pattern
-and its scope list equal to `SUMMARY_MAX_CHARS` and to the labels file.
+equal to `SUMMARY_MAX_CHARS`.
 """
 
 from __future__ import annotations

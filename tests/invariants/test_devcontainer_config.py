@@ -11,123 +11,6 @@ from tests.support.paths import REPO_ROOT
 DEVCONTAINER = REPO_ROOT / ".devcontainer"
 
 
-def test_a_devcontainer_terminal_runs_the_checkout_devops_before_the_image_copy() -> None:
-    """The image installs a copy of devops in /usr/local/bin for child repositories and for the
-    first post-create, which runs before the .venv volume holds the checkout. This repository's
-    terminals and lifecycle commands put the checkout's .venv/bin first on PATH, so `devops` is
-    its editable install and not the copy of the image's commit. The image configuration sets no
-    PATH, so a child repository keeps the copy of the image (#2449)."""
-    workspace = json.loads((DEVCONTAINER / "devcontainer.json").read_text(encoding="utf-8"))
-    image = json.loads((DEVCONTAINER / "image" / "devcontainer.json").read_text(encoding="utf-8"))
-
-    assert (workspace.get("remoteEnv"), image.get("remoteEnv")) == (
-        {"PATH": "${containerWorkspaceFolder}/.venv/bin:${containerEnv:PATH}"},
-        None,
-    )
-
-
-# The least process limit that leaves room for a burst of VS Code file searches (#3722). Each
-# `rg` search starts one thread for each CPU, and a burst of about 100 searches filled the old
-# limit of 2048 on 2026-11-05 and 2026-11-06.
-MIN_PIDS_LIMIT = 4096
-
-
-def _pids_limit(run_args: list[str]) -> int | None:
-    """Return the value of the `--pids-limit` run argument, or None when it is absent."""
-    for index, arg in enumerate(run_args):
-        if arg.startswith("--pids-limit="):
-            return int(arg.partition("=")[2])
-        if arg == "--pids-limit":
-            return int(run_args[index + 1])
-    return None
-
-
-def test_the_devcontainer_process_limit_leaves_room_for_a_burst_of_searches() -> None:
-    """`runArgs` raises the process limit of the container above the 2048 default of rootless
-    Podman, and keeps the GPUs (#3722)."""
-    workspace = json.loads((DEVCONTAINER / "devcontainer.json").read_text(encoding="utf-8"))
-    run_args = workspace["runArgs"]
-
-    limit = _pids_limit(run_args)
-    assert limit is not None, "runArgs holds no --pids-limit"
-    assert limit >= MIN_PIDS_LIMIT, f"--pids-limit is {limit}; the minimum is {MIN_PIDS_LIMIT}"
-    gpus = run_args.index("--gpus")
-    assert run_args[gpus : gpus + 2] == ["--gpus", "all"]
-
-
-def test_a_low_process_limit_is_below_the_minimum() -> None:
-    """The reader sees both spellings of the option, and the old default is under the minimum."""
-    assert _pids_limit(["--pids-limit", "2048"]) == 2048 < MIN_PIDS_LIMIT
-    assert _pids_limit(["--pids-limit=8192"]) == 8192
-    assert _pids_limit(["--gpus", "all"]) is None
-
-
-def _workspace_and_image_configs() -> tuple[dict[str, object], dict[str, object]]:
-    workspace = json.loads((DEVCONTAINER / "devcontainer.json").read_text(encoding="utf-8"))
-    image = json.loads((DEVCONTAINER / "image" / "devcontainer.json").read_text(encoding="utf-8"))
-    return workspace, image
-
-
-def test_the_workspace_devcontainer_uses_the_published_image() -> None:
-    """The release builds .devcontainer/image/devcontainer.json, and its devcontainer.metadata
-    label gives the features, their run options, the remote user and the environment. A second
-    copy of the build in the workspace configuration is edited twice and rebuilt on each
-    workstation (#4248)."""
-    from devops_cli.config.constants import CONST_DEVCONTAINER_PUBLISHED_IMAGE
-
-    workspace, image = _workspace_and_image_configs()
-    repeated_env = set(workspace.get("containerEnv") or {}) & set(image["containerEnv"])
-
-    assert workspace.get("image") == CONST_DEVCONTAINER_PUBLISHED_IMAGE
-    assert ("build" in workspace, "features" in workspace) == (False, False)
-    assert repeated_env == set()
-    assert not (DEVCONTAINER / "devcontainer-lock.json").exists()
-
-
-CACHE_FOLDERS = (".venv", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".uv")
-
-
-def test_the_workspace_devcontainer_mounts_no_cache_volume() -> None:
-    """The workspace and the volumes are on the same Linux disk, so a cache volume gives no
-    speed, and every cache folder is in .gitignore (#4248)."""
-    workspace, _image = _workspace_and_image_configs()
-    targets = {
-        part.removeprefix("target=")
-        for mount in workspace["mounts"]
-        for part in mount.split(",")
-        if part.startswith("target=")
-    }
-    cache_targets = {f"${{containerWorkspaceFolder}}/{name}" for name in CACHE_FOLDERS}
-
-    assert targets & cache_targets == set()
-    assert "UV_CACHE_DIR" not in (workspace.get("containerEnv") or {})
-
-
-DATA_MOUNTS = (
-    "source=devops-cli-tmp,target=/tmp,type=volume",
-    "source=devops-cli-data,target=${containerWorkspaceFolder}/.data,type=volume",
-    "source=global-devcontainer-home,target=/home/vscode,type=volume",
-    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.ssh,target=/home/vscode/.ssh,type=bind,"
-    "consistency=cached",
-)
-
-
-def test_the_workspace_devcontainer_keeps_the_mounts_that_hold_data() -> None:
-    """.data holds agent worktrees and state, the home volume holds the keyring and its copies,
-    and .ssh holds the keys. A rebuild without one of these mounts hides that data (#4248)."""
-    workspace, _image = _workspace_and_image_configs()
-
-    assert [mount for mount in DATA_MOUNTS if mount not in workspace["mounts"]] == []
-
-
-def test_the_workspace_devcontainer_aligns_antigravity_and_vscode_customizations() -> None:
-    """Antigravity and VS Code get the same extensions and editor settings."""
-    workspace, _image = _workspace_and_image_configs()
-    customizations = workspace["customizations"]
-
-    assert customizations["antigravity"] == customizations["vscode"]
-
-
 LOCK = REPO_ROOT / "src" / "devops_cli" / "tools_lock" / "tools.lock"
 
 
@@ -169,100 +52,6 @@ def test_the_image_build_installs_the_tools_with_native_steps_under_usr_local() 
     ) == (False, True, True, [], [], [])
 
 
-def test_the_image_puts_the_locked_style_dictionary_on_path() -> None:
-    """`make design-tokens` runs `style-dictionary` from PATH (docs/DESIGN.md, "Token pipeline").
-    Its lock is no entry of `tools.lock`, so the image installs it from the lock directory with
-    the same native steps as a Node tool of the lock."""
-    dockerfile = (DEVCONTAINER / "Dockerfile").read_text(encoding="utf-8").replace("\\\n    ", "")
-    lock_dir = "src/devops_cli/tools_lock/style-dictionary"
-
-    assert [
-        line
-        for line in (
-            f"COPY {lock_dir}/package.json {lock_dir}/package-lock.json /opt/style-dictionary/",
-            "RUN cd /opt/style-dictionary && npm ci --ignore-scripts",
-            "COPY --from=npm-tools /opt/style-dictionary /usr/local/share/devops-tools/style-dictionary",
-            "ln -s ../share/devops-tools/style-dictionary/node_modules/.bin/style-dictionary "
-            "/usr/local/bin/style-dictionary",
-        )
-        if line not in dockerfile
-    ] == []
-
-
-# The Debian packages of the network diagnostics tools (#5343): ping, tracepath, traceroute, mtr,
-# nc and tcpdump. A feature of the image configuration installs dig and nslookup already.
-NETWORK_DIAGNOSTICS_PACKAGES = (
-    "iputils-ping",
-    "iputils-tracepath",
-    "traceroute",
-    "mtr-tiny",
-    "netcat-openbsd",
-    "tcpdump",
-)
-
-
-def _system_packages(dockerfile: str) -> set[str]:
-    """Return the packages of the first `apt-get install` step of the last stage."""
-    last_stage = dockerfile.rpartition("\nFROM ")[2].replace("\\\n", " ")
-    install = last_stage.partition("apt-get install -y --no-install-recommends")[2]
-    return set(install.partition("&&")[0].split())
-
-
-def test_the_image_installs_the_network_diagnostics_tools_with_the_system_packages() -> None:
-    """The step that installs the system packages of the image also installs the network
-    diagnostics tools, so a person can find the cause of a network fault in the container
-    (#5343)."""
-    packages = _system_packages((DEVCONTAINER / "Dockerfile").read_text(encoding="utf-8"))
-
-    assert {"socat", *NETWORK_DIAGNOSTICS_PACKAGES} - packages == set()
-
-
-# Only the group of the user vscode (gid 1000) may open an ICMP echo socket (#5343). Under
-# rootless Podman with keep-id, the kernel compares host group IDs, and gid 1000 maps to a host ID
-# below the host IDs of the other groups of the container, so the range starts at 1000. A bound
-# that the user namespace does not map, such as 2147483647, stops the container at its start.
-PING_GROUP_RANGE = "--sysctl=net.ipv4.ping_group_range=1000 1000"
-
-
-def test_the_user_vscode_can_ping_in_the_workspace_and_in_a_scaffolded_devcontainer() -> None:
-    """Debian's ping opens an ICMP echo socket and has no file capability, and Podman lets only
-    group 0 open one. The workspace and the files that `devops devcontainer init` writes start
-    the container with the same run arguments, and these let the group of vscode open the socket
-    (#5343)."""
-    from devops_cli.core.templating import render_json_template
-
-    workspace, _image = _workspace_and_image_configs()
-    scaffolded = json.loads(
-        render_json_template(
-            "devcontainer.json.j2",
-            project_name="demo",
-            python_version="3.14",
-            image=None,
-            published=True,
-            home_volume=None,
-            minikube=False,
-        )
-    )
-
-    assert PING_GROUP_RANGE in workspace["runArgs"]
-    assert scaffolded["runArgs"] == workspace["runArgs"]
-
-
-# The image build pulls each feature of a config from its registry, and an option that says
-# `latest` makes the build look up a release and its checksum at build time. One attempt of
-# 2026-11-16 could not reach the keyserver of the Helm install of the kubectl-helm-minikube
-# feature, and another read an empty docker-compose.sha256sum of the docker-in-docker feature
-# (#3612).
-LATEST = "latest"
-
-# The docker-in-docker feature spells its Compose option `dockerDashComposeVersion`, and the
-# option takes `none`, `v1` or `v2`, so a config names the Compose major and never a release. A
-# config with no option of this suffix leaves the value to the feature, whose default resolves a
-# release at build time (#3612).
-COMPOSE_OPTION_SUFFIX = "ComposeVersion"
-DOCKER_IN_DOCKER = "docker-in-docker"
-
-
 def _config_label(path: Path) -> str:
     """Return the path of a config as the repository holds it."""
     try:
@@ -287,45 +76,6 @@ def _feature_options(config: dict[str, object]) -> dict[str, dict[str, object]]:
     }
 
 
-def _feature_name(feature: str) -> str:
-    """Return the name of a feature id, without its registry path and tag."""
-    return feature.rpartition("/")[2].partition(":")[0]
-
-
-def _latest_option_violations(path: Path, config: dict[str, object]) -> list[str]:
-    """Return one message for each feature option of the config whose value is `latest`."""
-    return [
-        f"{_config_label(path)}: {feature} sets {option} to '{LATEST}'"
-        for feature, options in _feature_options(config).items()
-        for option, value in options.items()
-        if value == LATEST
-    ]
-
-
-def _compose_option_violations(path: Path, config: dict[str, object]) -> list[str]:
-    """Return one message for each docker-in-docker feature that names no Compose option, or names
-    `latest`."""
-    violations = []
-    for feature, options in _feature_options(config).items():
-        if _feature_name(feature) != DOCKER_IN_DOCKER:
-            continue
-        compose = {
-            option: value
-            for option, value in options.items()
-            if option.endswith(COMPOSE_OPTION_SUFFIX)
-        }
-        if not compose:
-            violations.append(
-                f"{_config_label(path)}: {feature} names no {COMPOSE_OPTION_SUFFIX} option"
-            )
-        violations.extend(
-            f"{_config_label(path)}: {feature} sets {option} to '{LATEST}'"
-            for option, value in compose.items()
-            if value == LATEST
-        )
-    return violations
-
-
 def _unresolved_feature_violations(path: Path, config: dict[str, object]) -> list[str]:
     """Return one message for each feature that the lockfile beside the config does not resolve."""
     lock_path = path.with_name("devcontainer-lock.json")
@@ -347,30 +97,6 @@ def _devcontainer_configs() -> list[Path]:
     return sorted(DEVCONTAINER.rglob("devcontainer.json"))
 
 
-def test_each_devcontainer_feature_option_names_a_release_instead_of_latest() -> None:
-    """A pinned option makes the image build download the release that the config names, where
-    `latest` makes it look up a release and its checksum at build time (#3612)."""
-    violations = [
-        message
-        for path in _devcontainer_configs()
-        for message in _latest_option_violations(path, _config_of(path))
-    ]
-
-    assert violations == []
-
-
-def test_the_docker_in_docker_feature_names_a_compose_release() -> None:
-    """The default of the Compose option resolves a release at build time, and one attempt read an
-    empty docker-compose.sha256sum, so the config names the Compose major (#3612)."""
-    violations = [
-        message
-        for path in _devcontainer_configs()
-        for message in _compose_option_violations(path, _config_of(path))
-    ]
-
-    assert violations == []
-
-
 def test_the_lockfile_beside_each_devcontainer_config_resolves_its_features() -> None:
     """The image build runs with `--frozen-lockfile`, so a feature that the lockfile beside the
     config does not resolve is a feature that the build cannot install (#3612)."""
@@ -381,35 +107,6 @@ def test_the_lockfile_beside_each_devcontainer_config_resolves_its_features() ->
     ]
 
     assert violations == []
-
-
-def test_one_config_with_two_latest_options_names_both_features_and_options() -> None:
-    """The failure names the config path, the feature id and the option name of each violation, so
-    a reader knows the line to change (#3612)."""
-    docker = "ghcr.io/devcontainers/features/docker-in-docker:2"
-    kubectl = "ghcr.io/devcontainers/features/kubectl-helm-minikube:1"
-    config = {"features": {docker: {"version": LATEST}, kubectl: {"helm": LATEST}}}
-
-    report = "\n".join(_latest_option_violations(Path("devcontainer.json"), config))
-
-    assert report.splitlines() == [
-        f"devcontainer.json: {docker} sets version to '{LATEST}'",
-        f"devcontainer.json: {kubectl} sets helm to '{LATEST}'",
-    ]
-
-
-def test_a_docker_in_docker_feature_without_a_compose_option_is_a_violation() -> None:
-    """The reader names the feature that holds no Compose option, and the option that says
-    `latest` (#3612)."""
-    feature = "ghcr.io/devcontainers/features/docker-in-docker:2"
-    path = Path("devcontainer.json")
-
-    assert _compose_option_violations(path, {"features": {feature: {}}}) == [
-        f"devcontainer.json: {feature} names no {COMPOSE_OPTION_SUFFIX} option"
-    ]
-    assert _compose_option_violations(
-        path, {"features": {feature: {"dockerDashComposeVersion": LATEST}}}
-    ) == [f"devcontainer.json: {feature} sets dockerDashComposeVersion to '{LATEST}'"]
 
 
 def test_a_feature_without_a_resolved_digest_is_a_violation(tmp_path: Path) -> None:

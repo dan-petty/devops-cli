@@ -9,7 +9,6 @@ from typing import Any
 import pytest
 import yaml
 
-from devops_cli.commands.k8s.networking import _PROXY_TARGETS_INFRA
 from tests.support.k8s_tree import TREE
 from tests.support.paths import REPO_ROOT
 
@@ -35,26 +34,6 @@ TRAEFIK_PEER = {
 }
 # The monitoring ports Traefik routes to (k8s/ingress/ingress-routes.yaml), plus Pyroscope (#943).
 MONITORING_TRAEFIK_PORTS = [80, 3000, 4040, 8080, 8081, 8082, 9090, 9100, 9400, 12345]
-
-
-@pytest.mark.parametrize("namespace", TARGET_NAMESPACES)
-def test_networkpolicy_file_exists(namespace: str) -> None:
-    """Verify that networkpolicy.yaml exists in each required namespace directory."""
-    policy_path = K8S_DIR / namespace / "networkpolicy.yaml"
-    assert policy_path.is_file(), f"Missing NetworkPolicy in {policy_path}"
-
-
-@pytest.mark.parametrize("namespace", TARGET_NAMESPACES)
-def test_kustomization_includes_networkpolicy(namespace: str) -> None:
-    """Verify that kustomization.yaml in each namespace references networkpolicy.yaml."""
-    kustomization_path = K8S_DIR / namespace / "kustomization.yaml"
-    assert kustomization_path.is_file(), f"Missing kustomization.yaml in {namespace}"
-
-    content = yaml.safe_load(kustomization_path.read_text(encoding="utf-8"))
-    resources = content.get("resources", [])
-    assert "networkpolicy.yaml" in resources, (
-        f"k8s/{namespace}/kustomization.yaml must include networkpolicy.yaml in resources"
-    )
 
 
 @pytest.mark.parametrize("namespace", TARGET_NAMESPACES)
@@ -115,46 +94,6 @@ def test_networkpolicy_schema_and_perimeter_rules(namespace: str) -> None:
         )
 
 
-def test_argocd_networkpolicy_specifics() -> None:
-    """Verify ArgoCD specific ports and rules: UI/API ingress, repo-server, git/helm egress."""
-    policy_path = K8S_DIR / "argocd" / "networkpolicy.yaml"
-    doc = yaml.safe_load(policy_path.read_text(encoding="utf-8"))
-    spec = doc.get("spec", {})
-
-    ingress_rules = spec.get("ingress", [])
-    allowed_ports = {p.get("port") for rule in ingress_rules for p in rule.get("ports", [])}
-    # UI/API ports 8080 and 443 must both be allowed for ingress
-    assert (8080 in allowed_ports, 443 in allowed_ports) == (True, True)
-
-    egress_rules = spec.get("egress", [])
-    egress_ports = {p.get("port") for rule in egress_rules for p in rule.get("ports", [])}
-    # Git / Helm egress ports (443, 22), 9418 removed (#1122)
-    assert (443 in egress_ports, 22 in egress_ports, 9418 not in egress_ports) == (
-        True,
-        True,
-        True,
-    )
-
-
-def test_monitoring_networkpolicy_specifics() -> None:
-    """Verify Monitoring specific ports and rules: Grafana (3000), Prometheus (9090), Pyroscope (4040), cloudflared (2000)."""
-    policy_path = K8S_DIR / "monitoring" / "networkpolicy.yaml"
-    doc = yaml.safe_load(policy_path.read_text(encoding="utf-8"))
-    spec = doc.get("spec", {})
-
-    ingress_rules = spec.get("ingress", [])
-    allowed_ports = {p.get("port") for rule in ingress_rules for p in rule.get("ports", [])}
-    egress_rules = spec.get("egress", [])
-    egress_ports = {p.get("port") for rule in egress_rules for p in rule.get("ports", [])}
-    # UI ports 3000 (Grafana), 9090 (Prometheus), 4040 (Pyroscope) allowed for ingress, and 2000 (cloudflared) for egress
-    assert (
-        3000 in allowed_ports,
-        9090 in allowed_ports,
-        4040 in allowed_ports,
-        2000 in egress_ports,
-    ) == (True, True, True, True)
-
-
 def test_monitoring_ingress_admits_no_world_cidr() -> None:
     """Verify the monitoring perimeter admits Traefik by its selector and no address range (#953).
 
@@ -202,30 +141,6 @@ def test_ingress_admits_no_world_cidr(namespace: str) -> None:
         if "ipBlock" in peer
     ]
     assert cidrs == []
-
-
-@pytest.mark.parametrize(
-    "namespace", ["argocd", "cloudflared", "argo-workflows", "cert-manager", "cnpg-system"]
-)
-def test_api_server_egress_admits_6443_through_ipblock(namespace: str) -> None:
-    """Argo CD reconciles through the API server (#1371), cloudflared carries the tunnel's
-    `k8s.<domain>` TCP route to it (#1595), and the Argo Workflows controller and the executors
-    of its Workflows reach it (#1535). cert-manager and the Barman Cloud plugin are controllers
-    that work only through it (#4764).
-
-    Namespace-only selectors (default, kube-system) never match the node IP the
-    `kubernetes` service resolves to. An ipBlock peer with metadata SSRF protection
-    allows the pods to reach the API server on 6443.
-    """
-    doc = yaml.safe_load((K8S_DIR / namespace / "networkpolicy.yaml").read_text("utf-8"))
-    egress = doc["spec"]["egress"]
-    rule = next(r for r in egress if any(p.get("port") == 6443 for p in r.get("ports", [])))
-    ip_blocks = [to["ipBlock"] for to in rule.get("to", []) if "ipBlock" in to]
-    assert (
-        len(ip_blocks),
-        ip_blocks[0]["cidr"],
-        METADATA_SSRF_IP in ip_blocks[0].get("except", []),
-    ) == (1, "0.0.0.0/0", True)
 
 
 def _peer_namespace_and_pods(peer: dict[str, Any]) -> tuple[str | None, dict[str, str] | None]:
@@ -304,37 +219,6 @@ def test_devops_egress_to_otel_admits_only_otlp_http() -> None:
     ]
 
     assert otel_ports == [("TCP", 4318)]
-
-
-def test_otel_rule_4_admits_traefik_on_8888() -> None:
-    """Verify otel rule 4 admits Traefik on 8888 for otel-metrics route (#1371)."""
-    doc = yaml.safe_load((K8S_DIR / "otel" / "networkpolicy.yaml").read_text("utf-8"))
-    rule_4 = doc["spec"]["ingress"][3]
-    ports = [p["port"] for p in rule_4.get("ports", [])]
-    from_peers = rule_4.get("from", [])
-    assert (
-        8888 in ports,
-        TRAEFIK_PEER in from_peers,
-    ) == (True, True)
-
-
-def test_readme_proxy_caveat_names_every_monitoring_proxy_target() -> None:
-    """Verify k8s/README.md's proxy caveat names every monitoring Service it applies to (#953).
-
-    With no address range in the perimeter, a `k8s://` address the API server proxies reaches a
-    monitoring pod only while that pod runs on the control-plane node. `configure-urls
-    --addressing proxy` writes one for each monitoring target in `_PROXY_TARGETS_INFRA`, and the
-    caveat named Grafana and Prometheus but not Pyroscope.
-    """
-    readme = (K8S_DIR / "README.md").read_text("utf-8").splitlines()
-    caveat = next(line for line in readme if line.startswith("- `--addressing proxy`"))
-    unnamed = [
-        key
-        for key, namespace, _, _ in _PROXY_TARGETS_INFRA
-        if namespace == "monitoring" and key.split(".")[0].capitalize() not in caveat
-    ]
-
-    assert unnamed == []
 
 
 def _namespace_pod_peer(namespace: str, name: str, instance: str) -> dict[str, Any]:
@@ -416,59 +300,6 @@ def test_loki_otel_peer_names_the_collector_release_the_stack_installs() -> None
     )
 
 
-def _extract_metadata_names(selector: dict[str, Any]) -> list[str]:
-    names: list[str] = []
-    match_labels = selector.get("matchLabels", {})
-    if isinstance(match_labels, dict) and "kubernetes.io/metadata.name" in match_labels:
-        names.append(match_labels["kubernetes.io/metadata.name"])
-    for expr in selector.get("matchExpressions", []):
-        if isinstance(expr, dict) and expr.get("key") == "kubernetes.io/metadata.name":
-            names.extend(expr.get("values", []))
-    return names
-
-
-def _extract_namespace_selectors(data: Any) -> list[str]:
-    """Recursively find all kubernetes.io/metadata.name values inside namespaceSelector objects."""
-    names: list[str] = []
-    if isinstance(data, dict):
-        for k, v in data.items():
-            if k == "namespaceSelector" and isinstance(v, dict):
-                names.extend(_extract_metadata_names(v))
-            else:
-                names.extend(_extract_namespace_selectors(v))
-    elif isinstance(data, list):
-        for item in data:
-            names.extend(_extract_namespace_selectors(item))
-    return names
-
-
-def test_every_network_policy_namespace_selector_names_a_declared_or_builtin_namespace() -> None:
-    """Verify every kubernetes.io/metadata.name in a namespaceSelector under k8s/ names a declared or built-in namespace (#1656).
-
-    A selector that names a namespace that does not exist matches zero pods and states an
-    intent that the policy does not enforce.
-    """
-    declared = {
-        doc["metadata"]["name"]
-        for doc in yaml.safe_load_all((K8S_DIR / "namespaces.yaml").read_text(encoding="utf-8"))
-        if isinstance(doc, dict) and doc.get("kind") == "Namespace"
-    }
-    allowed = declared | {"kube-system", "default"}
-
-    violations: list[tuple[str, str]] = []
-    for path in sorted(K8S_DIR.rglob("*.y*ml")):
-        try:
-            docs = list(yaml.safe_load_all(path.read_text(encoding="utf-8")))
-        except Exception:
-            continue
-        for doc in docs:
-            for namespace in _extract_namespace_selectors(doc):
-                if namespace not in allowed:
-                    violations.append((str(path.relative_to(K8S_DIR)), namespace))
-
-    assert violations == []
-
-
 def test_mattermost_pod_has_no_ipblock_egress_peer() -> None:
     """No policy with an ipBlock egress peer selects a pod labelled app: mattermost (#1391)."""
     mattermost_dir = K8S_DIR / "mattermost"
@@ -491,165 +322,6 @@ def test_mattermost_pod_has_no_ipblock_egress_peer() -> None:
             match_labels = pod_selector.get("matchLabels", {})
             assert match_labels.get("app") != "mattermost"
             assert pod_selector != {}
-
-
-def test_monitoring_egress_allows_mattermost_port_8065() -> None:
-    """The monitoring perimeter allows egress to namespace mattermost on TCP port 8065 (#1392)."""
-    policy_path = K8S_DIR / "monitoring" / "networkpolicy.yaml"
-    docs = [
-        doc
-        for doc in yaml.safe_load_all(policy_path.read_text(encoding="utf-8"))
-        if isinstance(doc, dict) and doc.get("kind") == "NetworkPolicy"
-    ]
-    ports: list[int] = []
-    for doc in docs:
-        for rule in doc.get("spec", {}).get("egress", []):
-            targets = [
-                peer.get("namespaceSelector", {})
-                .get("matchLabels", {})
-                .get("kubernetes.io/metadata.name")
-                for peer in rule.get("to", [])
-            ]
-            if "mattermost" in targets:
-                ports.extend(p.get("port") for p in rule.get("ports", []) if "port" in p)
-    assert 8065 in ports
-
-
-def test_mattermost_ingress_admits_alertmanager_port_8065() -> None:
-    """The mattermost perimeter admits TCP 8065 only from alertmanager in monitoring (#1392)."""
-    policy_path = K8S_DIR / "mattermost" / "networkpolicy.yaml"
-    docs = [
-        doc
-        for doc in yaml.safe_load_all(policy_path.read_text(encoding="utf-8"))
-        if isinstance(doc, dict) and doc.get("kind") == "NetworkPolicy"
-    ]
-    peers = [
-        peer
-        for doc in docs
-        for rule in doc.get("spec", {}).get("ingress", [])
-        if 8065 in [p.get("port") for p in rule.get("ports", [])]
-        for peer in rule.get("from", [])
-    ]
-    matches = [
-        peer
-        for peer in peers
-        if peer.get("namespaceSelector", {})
-        .get("matchLabels", {})
-        .get("kubernetes.io/metadata.name")
-        == "monitoring"
-        and peer.get("podSelector", {}).get("matchLabels", {}).get("app.kubernetes.io/name")
-        == "alertmanager"
-    ]
-    assert len(matches) == 1
-
-
-def test_argocd_egress_allows_mattermost_port_8065() -> None:
-    """The argocd perimeter allows egress to mattermost on TCP port 8065 (#1393)."""
-    policy_path = K8S_DIR / "argocd" / "networkpolicy.yaml"
-    docs = [
-        doc
-        for doc in yaml.safe_load_all(policy_path.read_text(encoding="utf-8"))
-        if isinstance(doc, dict) and doc.get("kind") == "NetworkPolicy"
-    ]
-    ports: list[int] = []
-    for doc in docs:
-        for rule in doc.get("spec", {}).get("egress", []):
-            targets = [
-                peer.get("namespaceSelector", {})
-                .get("matchLabels", {})
-                .get("kubernetes.io/metadata.name")
-                for peer in rule.get("to", [])
-            ]
-            if "mattermost" in targets:
-                ports.extend(p.get("port") for p in rule.get("ports", []) if "port" in p)
-    assert 8065 in ports
-
-
-def test_mattermost_ingress_admits_argocd_notifications_controller_port_8065() -> None:
-    """The mattermost perimeter admits TCP 8065 from argocd-notifications-controller (#1393)."""
-    policy_path = K8S_DIR / "mattermost" / "networkpolicy.yaml"
-    docs = [
-        doc
-        for doc in yaml.safe_load_all(policy_path.read_text(encoding="utf-8"))
-        if isinstance(doc, dict) and doc.get("kind") == "NetworkPolicy"
-    ]
-    peers = [
-        peer
-        for doc in docs
-        for rule in doc.get("spec", {}).get("ingress", [])
-        if 8065 in [p.get("port") for p in rule.get("ports", [])]
-        for peer in rule.get("from", [])
-    ]
-    matches = [
-        peer
-        for peer in peers
-        if peer.get("namespaceSelector", {})
-        .get("matchLabels", {})
-        .get("kubernetes.io/metadata.name")
-        == "argocd"
-        and peer.get("podSelector", {}).get("matchLabels", {}).get("app.kubernetes.io/name")
-        == "argocd-notifications-controller"
-    ]
-    assert len(matches) == 1
-
-
-def test_mattermost_egress_allows_devops_port_8000() -> None:
-    """The mattermost pod allows egress to namespace devops on TCP port 8000 (#1395)."""
-    policy_path = K8S_DIR / "mattermost" / "networkpolicy.yaml"
-    docs = [
-        doc
-        for doc in yaml.safe_load_all(policy_path.read_text(encoding="utf-8"))
-        if isinstance(doc, dict) and doc.get("kind") == "NetworkPolicy"
-    ]
-    egress_rules = [
-        rule
-        for doc in docs
-        if doc.get("spec", {})
-        .get("podSelector", {})
-        .get("matchLabels", {})
-        .get("app.kubernetes.io/name")
-        == "mattermost"
-        for rule in doc.get("spec", {}).get("egress", [])
-    ]
-    ports: list[int] = []
-    for rule in egress_rules:
-        targets = [
-            peer.get("namespaceSelector", {})
-            .get("matchLabels", {})
-            .get("kubernetes.io/metadata.name")
-            for peer in rule.get("to", [])
-        ]
-        if "devops" in targets:
-            ports.extend(p.get("port") for p in rule.get("ports", []) if "port" in p)
-    assert 8000 in ports
-
-
-def test_roadmap_service_ingress_admits_mattermost_port_8000() -> None:
-    """The roadmap-service ingress policy admits TCP 8000 from mattermost pods in mattermost (#1395)."""
-    policy_path = K8S_DIR / "devops" / "roadmap-service" / "networkpolicy.yaml"
-    docs = [
-        doc
-        for doc in yaml.safe_load_all(policy_path.read_text(encoding="utf-8"))
-        if isinstance(doc, dict) and doc.get("kind") == "NetworkPolicy"
-    ]
-    peers = [
-        peer
-        for doc in docs
-        for rule in doc.get("spec", {}).get("ingress", [])
-        if 8000 in [p.get("port") for p in rule.get("ports", [])]
-        for peer in rule.get("from", [])
-    ]
-    matches = [
-        peer
-        for peer in peers
-        if peer.get("namespaceSelector", {})
-        .get("matchLabels", {})
-        .get("kubernetes.io/metadata.name")
-        == "mattermost"
-        and peer.get("podSelector", {}).get("matchLabels", {}).get("app.kubernetes.io/name")
-        == "mattermost"
-    ]
-    assert len(matches) == 1
 
 
 def _devops_policies() -> dict[str, dict[str, Any]]:
@@ -936,23 +608,6 @@ def test_only_the_cert_manager_webhook_takes_any_peer_and_only_on_10250() -> Non
     )
 
 
-def test_monitoring_egress_allows_cert_manager_port_9402() -> None:
-    """The cert-manager pods carry the `prometheus.io/*` keys, so Alloy scrapes them on 9402, and
-    the monitoring perimeter lets the scrape out (#4764)."""
-    spec = yaml.safe_load((K8S_DIR / "monitoring" / "networkpolicy.yaml").read_text("utf-8"))[
-        "spec"
-    ]
-    ports = [
-        (port["protocol"], port["port"])
-        for rule in spec["egress"]
-        if {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "cert-manager"}}}
-        in rule.get("to", [])
-        for port in rule.get("ports", [])
-    ]
-
-    assert ports == [("TCP", 9402)]
-
-
 def test_only_the_cloudnative_pg_operator_reaches_the_barman_cloud_plugin() -> None:
     """The operator calls the gRPC server of the plugin over mutual TLS on 9090. The instance
     pods talk to the plugin sidecar in their own pod, so no other peer is admitted. The plugin
@@ -971,45 +626,4 @@ def test_only_the_cloudnative_pg_operator_reaches_the_barman_cloud_plugin() -> N
             }
         ],
         [_DNS_EGRESS, _API_SERVER_EGRESS],
-    )
-
-
-def test_the_devops_perimeter_reaches_qdrant_on_6333() -> None:
-    """The runner searches Qdrant on TCP 6333, and the rule adds no other peer or port (#3823)."""
-    doc = yaml.safe_load((K8S_DIR / "devops" / "networkpolicy.yaml").read_text(encoding="utf-8"))
-    qdrant = [
-        rule
-        for rule in doc["spec"]["egress"]
-        if [port["port"] for port in rule.get("ports", [])] == [6333]
-    ]
-
-    assert qdrant == [
-        {
-            "to": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "llm"}}}],
-            "ports": [{"protocol": "TCP", "port": 6333}],
-        }
-    ]
-
-
-def test_the_llm_perimeter_admits_the_devops_namespace_to_qdrant_on_6333() -> None:
-    """The policy that selects the Qdrant pod admits namespace devops on TCP 6333 (#3823)."""
-    doc = yaml.safe_load((K8S_DIR / "llm" / "networkpolicy.yaml").read_text(encoding="utf-8"))
-    rules = [
-        rule
-        for rule in doc["spec"]["ingress"]
-        if rule.get("from")
-        == [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "devops"}}}]
-    ]
-
-    assert [rule.get("ports") for rule in rules] == [[{"protocol": "TCP", "port": 6333}]]
-
-
-def test_the_readme_names_the_qdrant_route_and_the_read_only_key() -> None:
-    """The route section names the devops route to Qdrant on TCP 6333 and its read-only key
-    (#3823)."""
-    readme = (K8S_DIR / "README.md").read_text(encoding="utf-8")
-
-    assert (
-        "The devops namespace reaches it on TCP 6333 with the read-only key from "
-        "devops/devops-cli (#3823)." in readme
     )

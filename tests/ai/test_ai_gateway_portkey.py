@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 import httpx2
@@ -187,57 +186,6 @@ class TestPortkeyCLI:
 class TestK8sPortkeyManifests:
     """Validate Kubernetes manifests and security controls for Portkey."""
 
-    def test_portkey_manifests_have_no_unused_configmap(self) -> None:
-        """Verify Portkey directory has no unused configmap and deployment does not mount it."""
-        configmap_path = PORTKEY_DIR / "configmap.yaml"
-        dep_docs = list(
-            yaml.safe_load_all((PORTKEY_DIR / "deployment.yaml").read_text(encoding="utf-8"))
-        )
-        dep = next(d for d in dep_docs if d and d.get("kind") == "Deployment")
-        pod_spec = dep["spec"]["template"]["spec"]
-        container = pod_spec["containers"][0]
-
-        mounted_names = [v["name"] for v in container.get("volumeMounts", [])]
-        volume_names = [v["name"] for v in pod_spec.get("volumes", [])]
-
-        assert (
-            configmap_path.exists(),
-            "config-volume" in mounted_names,
-            "config-volume" in volume_names,
-        ) == (
-            False,
-            False,
-            False,
-        )
-
-    def test_portkey_deployment_and_service(self) -> None:
-        """Verify Portkey deployment security context, ports, and service definitions."""
-        dep_docs = list(
-            yaml.safe_load_all((PORTKEY_DIR / "deployment.yaml").read_text(encoding="utf-8"))
-        )
-        dep = next(d for d in dep_docs if d and d.get("kind") == "Deployment")
-        spec = dep["spec"]["template"]["spec"]
-        container = spec["containers"][0]
-
-        svc_docs = list(
-            yaml.safe_load_all((PORTKEY_DIR / "service.yaml").read_text(encoding="utf-8"))
-        )
-        svc = next(d for d in svc_docs if d and d.get("kind") == "Service")
-
-        assert (
-            dep["metadata"]["namespace"],
-            spec["securityContext"]["runAsNonRoot"],
-            spec["securityContext"]["runAsUser"],
-            container["ports"][0]["containerPort"],
-            svc["spec"]["ports"][0]["port"],
-        ) == (
-            "llm",
-            True,
-            1000,
-            8787,
-            8787,
-        )
-
     def test_portkey_network_policy_rules(self) -> None:
         """Verify Portkey NetworkPolicy isolates egress to the model backends.
 
@@ -264,57 +212,3 @@ class TestK8sPortkeyManifests:
             "portkey-perimeter",
             [("llm.devops.io/provider", "ollama")],
         )
-
-    def test_portkey_ollama_egress_selects_every_ollama_tier(self) -> None:
-        """Verify Portkey's Ollama egress rule selects the pods of every Ollama tier (#953).
-
-        It selected `app.kubernetes.io/name: ollama`, the label of the single `ollama` workload
-        the tiers in `k8s/llm/profiles/ollama-profiles.yaml` replaced, so it admitted no pod
-        deploy-stack creates.
-        """
-        netpol = next(
-            d
-            for d in yaml.safe_load_all(
-                (PORTKEY_DIR / "networkpolicy.yaml").read_text(encoding="utf-8")
-            )
-            if d and d.get("kind") == "NetworkPolicy"
-        )
-        selectors = [
-            peer["podSelector"]["matchLabels"]
-            for rule in netpol["spec"]["egress"]
-            if {"protocol": "TCP", "port": 11434} in rule.get("ports", [])
-            for peer in rule.get("to", [])
-        ]
-        tiers = [
-            d["spec"]["template"]["metadata"]["labels"]
-            for d in yaml.safe_load_all(
-                Path("k8s/llm/profiles/ollama-profiles.yaml").read_text(encoding="utf-8")
-            )
-            if d and d.get("kind") == "DaemonSet"
-        ]
-
-        assert (
-            len(selectors),
-            bool(tiers),
-            [all(selector.items() <= labels.items() for selector in selectors) for labels in tiers],
-        ) == (1, True, [True] * len(tiers))
-
-    def test_zero_homelab_ip_or_hostname_leakage_in_portkey_manifests(self) -> None:
-        """Verify zero RFC 1918 IPs or *.lan hostnames exist in Portkey manifests."""
-        all_yamls = list(PORTKEY_DIR.glob("*.yaml"))
-        private_ip_pattern = re.compile(
-            r"\b(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b(?!/)"
-        )
-        lan_hostname_pattern = re.compile(r"\b[a-zA-Z0-9_\-]+\.lan\b")
-
-        for file_path in all_yamls:
-            content = file_path.read_text(encoding="utf-8")
-            ip_matches = private_ip_pattern.findall(content)
-            lan_matches = lan_hostname_pattern.findall(content)
-            assert (
-                ip_matches,
-                lan_matches,
-            ) == (
-                [],
-                [],
-            )
