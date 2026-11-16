@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Async retry before first chunk
-The pydantic-ai model of a gateway chat group SHALL send a call again when the call failed before it reached the gateway: a `ModelConnectionError` with the phase `connect` or `pool`. It SHALL send a streamed call again when the stream failed before its first event: an error frame inside the stream (`ModelAPIError.in_stream`), a stream that broke (a `ModelConnectionError` that is not a `ModelTimeoutError`), or a stream that ended with no content (`UnexpectedModelBehavior`). A first chunk that holds only the role is no event.
+The pydantic-ai model of a gateway chat group SHALL send a call again when the call never reached the gateway (a `ModelConnectionError` with the phase `connect` or `pool`), or when its stream failed before its first event: an error frame in the stream, a stream that broke, or a stream with no content. A first chunk with only the role is no event.
 
 #### Scenario: Reset before first chunk
 - **WHEN** a fake gateway answers the first streamed call with status 200, a keepalive comment and the end of the connection, and answers the second call with a reply
