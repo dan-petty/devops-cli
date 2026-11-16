@@ -108,21 +108,17 @@ def test_gateway_pull_body_rewrite_raises_model_gateway_unreachable_on_error() -
     assert "body rewrite wrote nothing" in str(exc_info.value)
 
 
-def test_gateway_pull_body_builds_client_when_none(monkeypatch: pytest.MonkeyPatch) -> None:
-    fake_client = MagicMock()
-    fake_client.chat_structured.return_value = BodyReply(text="built client response")
-    mock_get_client = MagicMock(return_value=fake_client)
-    monkeypatch.setattr("devops_cli.ai.client.get_llm_client", mock_get_client)
+def test_gateway_pull_body_builds_client_when_none(model_fake: Any) -> None:
+    model_fake.answer(BodyReply(text="built client response"))
 
     gateway = GatewayPullBody()
     result = gateway.rewrite("text", ["problem"])
     assert result == "built client response"
-    mock_get_client.assert_called_once()
 
 
 def test_extract_problems_with_problems_attribute() -> None:
     from devops_cli.roadmap.pull_retry import _extract_problems
 
     err = ValidationError("fallback error message")
-    err.problems = ["first rule broken", "second rule broken"]  # type: ignore[attr-defined]
+    setattr(err, "problems", ["first rule broken", "second rule broken"])
     assert _extract_problems(err) == ["first rule broken", "second rule broken"]
