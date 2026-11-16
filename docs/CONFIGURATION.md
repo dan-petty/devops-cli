@@ -305,6 +305,7 @@ roadmap configuration settings.
 | `fix_plan` | `RoadmapFixPlanConfig` | `interval_minutes=53 backlog_interval_minutes=None backlog_threshold=None mode='plan' time_budget_seconds=3600 head_attempts=2 revisions=3` | - | - |
 | `fix_conflict` | `RoadmapFixConflictConfig` | `interval_minutes=37 backlog_interval_minutes=None backlog_threshold=None tier1_mode='on' tier2_mode='plan' soft_cap_rounds=2 hard_cap_rounds=4` | - | - |
 | `fix_checks` | `RoadmapFixChecksConfig` | `token_budget=16000000` | - | - |
+| `open` | `RoadmapOpenConfig` | `interval_minutes=7 backlog_interval_minutes=None backlog_threshold=None mode='plan'` | - | - |
 | `refine` | `RoadmapRefineConfig` | `interval_minutes=7 backlog_interval_minutes=None backlog_threshold=None` | - | - |
 | `mcp` | `RoadmapMcpConfig` | `url=None timeout_seconds=30.0` | - | - |
 | `stall` | `RoadmapStallConfig` | `hours=24` | - | - |
