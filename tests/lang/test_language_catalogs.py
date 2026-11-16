@@ -51,6 +51,16 @@ def test_language_catalogs_integrity() -> None:
     assert "Access Denied" in ERRORS.tools.access_denied_outside_workspace
 
 
+def test_english_language_pack_dynamic_attributes() -> None:
+    """The English language pack exports its catalogs on access (#3550)."""
+    assert isinstance(devops_cli.lang.en.ERRORS, ErrorCatalog)
+    assert isinstance(devops_cli.lang.en.HELP, HelpCatalog)
+    assert isinstance(devops_cli.lang.en.MESSAGES, LanguageCatalog)
+    assert devops_cli.lang.en.ErrorCatalog is ErrorCatalog
+    assert devops_cli.lang.en.HelpCatalog is HelpCatalog
+    assert devops_cli.lang.en.LanguageCatalog is LanguageCatalog
+
+
 def test_domain_message_catalogs() -> None:
     """Verify domain-specific message catalog attributes exist and are non-empty."""
     messages = [
