@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.167.1](https://github.com/dan-petty/devops-cli/compare/v0.167.0...v0.167.1) (2026-11-16)
+
+
+### Bug Fixes
+
+* **roadmap:** Share one tracker rule with refine ([#5963](https://github.com/dan-petty/devops-cli/issues/5963)) ([d1a2ce8](https://github.com/dan-petty/devops-cli/commit/d1a2ce81233dd24b667b818acb958dd707c5a290))
+
 ## [0.167.0](https://github.com/dan-petty/devops-cli/compare/v0.166.0...v0.167.0) (2026-11-16)
 
 
