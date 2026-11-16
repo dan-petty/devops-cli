@@ -2509,6 +2509,78 @@ def group_files_problems(groups: Sequence[StageGroup], tree: StagedTree) -> list
     return problems
 
 
+# A code span that names a class: the bare name, or the name and a dotted member (#3407).
+_CLASS_SPAN: Final[re.Pattern[str]] = re.compile(r"^(?P<name>[A-Za-z_]\w*)(?:\.[A-Za-z_]\w*)*$")
+
+
+def _class_claim_lines(proposal: StageProposal) -> list[tuple[str, str]]:
+    """Each line of the plan that makes a design claim, with the name of its section (#3407): a
+    design decision, a rejected alternative and a feasibility line."""
+    lines: list[tuple[str, str]] = []
+    for decision in proposal.decisions:
+        lines.append(("design decision", decision.decision))
+        lines.append(("design decision", decision.reason))
+    for rejected in proposal.rejected:
+        lines.append(("rejected alternative", rejected.alternative))
+        lines.append(("rejected alternative", rejected.evidence))
+    lines.extend(("feasibility line", line) for line in proposal.feasibility)
+    return lines
+
+
+def _claim_span_name(span: str) -> str | None:
+    """The class name that a code span names, or None for a span that names no class (#3407)."""
+    match = _CLASS_SPAN.match(span.strip())
+    return match.group("name") if match else None
+
+
+def claimed_classes(proposal: StageProposal) -> set[str]:
+    """The name that each code span of a design claim may name (#3407). A span that starts with a
+    class name, as the bare name or the name and a dotted member, is a claim, and no other span is
+    one. The reader takes the leading name, and `class_sources` drops a name that no class of
+    `src/` defines."""
+    return {
+        name
+        for _, line in _class_claim_lines(proposal)
+        for span in code_spans(line)
+        if (name := _claim_span_name(span)) is not None
+    }
+
+
+def _is_class_quote(span: str, source: str) -> bool:
+    """Whether `span` holds text of the squashed class `source` (#3407). A quote shorter than the
+    bound of the citation rule matches almost any source, so it is no quote."""
+    quote = _squash(span)
+    return len(quote) >= _CITATION_MIN_CHARS and quote in source
+
+
+def class_claim_problems(
+    proposal: StageProposal,
+    classes: Mapping[str, str] | None,
+) -> list[str]:
+    """What is wrong with a design claim about an internal class whose quote the class lacks
+    (#3407). A design decision, a rejected alternative or a feasibility line that names a class
+    under `src/` in a code span gives another code span whose text the class holds at the staged
+    commit."""
+    if not classes:
+        return []
+    squashed = {name: _squash(text) for name, text in classes.items()}
+    problems: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    for section, line in _class_claim_lines(proposal):
+        spans = code_spans(line)
+        for span in spans:
+            name = _claim_span_name(span)
+            if name is None or name not in squashed or (name, section) in seen:
+                continue
+            if any(other != span and _is_class_quote(other, squashed[name]) for other in spans):
+                continue
+            seen.add((name, section))
+            problems.append(
+                MESSAGES.roadmap.stage_problem_class_claim.format(name=name, section=section)
+            )
+    return problems
+
+
 def check_gates(
     proposal: StageProposal,
     known: Collection[str],
@@ -2528,6 +2600,7 @@ def check_gates(
     constants: Mapping[str, int] | None = None,
     references: Sequence[str] = (),
     models: Mapping[str, tuple[str, Sequence[str]]] | None = None,
+    classes: Mapping[str, str] | None = None,
     manifest_references: Mapping[str, Sequence[str]] | None = None,
     module_tests: Mapping[str, Sequence[str]] | None = None,
     trace: TraceFacts | None = None,
@@ -2557,6 +2630,7 @@ def check_gates(
             *_move_reference_problems(proposal, references),
             *_stale_test_path_problems(proposal, tree),
             *model_problems(proposal, models),
+            *class_claim_problems(proposal, classes),
         ],
         ProposalGate.WHAT_CHANGES: _what_changes_problems(proposal, tree),
         ProposalGate.MOVE_PREFIX: move_prefix_problems(proposal.groups, tree),
@@ -2596,6 +2670,7 @@ def check_proposal(
     constants: Mapping[str, int] | None = None,
     references: Sequence[str] = (),
     models: Mapping[str, tuple[str, Sequence[str]]] | None = None,
+    classes: Mapping[str, str] | None = None,
     manifest_references: Mapping[str, Sequence[str]] | None = None,
     module_tests: Mapping[str, Sequence[str]] | None = None,
     trace: TraceFacts | None = None,
@@ -2618,9 +2693,12 @@ def check_proposal(
     maps each path that the plan of an open item creates to that item's number (#3418). `read_text`
     returns the text of a cited file at the staged commit, or None when the commit holds no such
     file: the stage job passes the reader of its checkout and commit, and a check with none judges
-    no citation (#3422). `manifest_references` maps each changed YAML manifest of `k8s/` to the
-    tests that reference it: the job records it from its checkout, the replay reads it from its
-    case, and a caller that gives none judges no test of a manifest (#3972). `module_tests` maps
+    no citation (#3422). `classes` maps each internal class that a design claim names to its source
+    at the staged commit: the job reads it, the replay reads it from its case, and a caller that
+    gives none judges no class claim (#3407). `manifest_references` maps each changed YAML manifest
+    of `k8s/` to the tests that reference it: the job records it from its checkout, the replay reads
+    it from its case, and a caller that gives none judges no test of a manifest (#3972).
+    `module_tests` maps
     each Python module under `src/` that a behavior group changes to the existing tests of that
     module: the job records it from its checkout, the recheck reads it from the tree it holds, and
     a caller that gives none judges no test of a module (#3414). `trace` holds the facts of the
@@ -2647,6 +2725,7 @@ def check_proposal(
         constants=constants,
         references=references,
         models=models,
+        classes=classes,
         manifest_references=manifest_references,
         module_tests=module_tests,
         trace=trace,

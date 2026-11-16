@@ -5000,6 +5000,11 @@ class RoadmapMessages:
         "The plan reads `{reference}`, but `{path}` defines no such field. "
         "Add `{path}` to a group's `changes`."
     )
+    # A design claim about a class under `src/` quotes the class at the staged commit (#3407).
+    stage_problem_class_claim: str = (
+        "The plan names `{name}` in the {section} and gives no code span that holds text of the "
+        "class at the staged commit. Add a code span with a line of `{name}`, or name no class."
+    )
     stage_problem_verify: str = (
         "Group {group} gives the `verify` command `{command}`. A `verify` command starts with "
         "`uv run devops`, such as `uv run devops ci test tests/roadmap/test_feature.py`, or is a "

@@ -127,8 +127,12 @@ def parse_class_fields(source_code: str) -> dict[str, dict[str, int]]:
     }
 
 
-def _grep_class_paths(source: Path, sha: str, name: str) -> list[str]:
-    args = ["grep", "-n", f"^class {name}(", sha, "--", "src/"]
+def _grep_class_paths(source: Path, sha: str, name: str, *, with_base: bool = True) -> list[str]:
+    """The modules under `src/` at `sha` that define the class `name`. With `with_base`, the
+    definition declares a base, as the model reader needs; without it, a class that declares none
+    is found too (#3407)."""
+    definition = f"^class {name}(" if with_base else f"^class {name}"
+    args = ["grep", "-n", definition, sha, "--", "src/"]
     try:
         output = git(source, *args, operation="stage model grep")
     except GitOperationError:
@@ -164,3 +168,37 @@ def model_fields(
                 models[name] = (path, parsed_files[path][name])
                 break
     return models
+
+
+def _class_source(code: str, name: str) -> str | None:
+    """The source segment of the class `name` in `code`, or None when it defines no such class."""
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == name:
+            return ast.get_source_segment(code, node)
+    return None
+
+
+def class_sources(source: Path, sha: str, names: Sequence[str] | set[str]) -> dict[str, str]:
+    """The source of each named class that `src/` defines at `sha`, by class name (#3407).
+
+    The reader greps the definition line with no base, so it finds a class that declares none, and
+    `ast` confirms the definition and gives the source of the class. A name that no module of
+    `src/` defines is absent, and so is a module that `git` cannot read."""
+    found: dict[str, str] = {}
+    read: dict[str, str] = {}
+    for name in sorted(set(names)):
+        for path in _grep_class_paths(source, sha, name, with_base=False):
+            if path not in read:
+                try:
+                    read[path] = git(source, "show", f"{sha}:{path}", operation="stage class show")
+                except GitOperationError:
+                    continue
+            segment = _class_source(read[path], name)
+            if segment is not None:
+                found[name] = segment
+                break
+    return found

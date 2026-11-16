@@ -52,7 +52,24 @@ EVALUATED_PULLS = frozenset(
     {2975, 2976, 2977, 2978, 2979, 2980, 2981, 2982, 2983, 2984, 2985, 2986, 2987, 2988, 2989}
     | {2990, 2991, 2992, 2993, 2994, 2995, 2996, 2997, 2998, 2999, 3001, 3002}
     | {2719, 2761, 2766, 2857, 2858, 2859, 2870, 2958, 2971, 2972}
-    | {3167, 3173, 3174, 3183, 3205, 3247, 3278, 3328, 3331, 3344, 3378, 3408, 3411, 3412, 3435}
+    | {
+        3167,
+        3173,
+        3174,
+        3183,
+        3205,
+        3247,
+        3278,
+        3328,
+        3331,
+        3344,
+        3378,
+        3407,
+        3408,
+        3411,
+        3412,
+        3435,
+    }
     | {4435}
 )
 SHA_LENGTH = 40
@@ -68,8 +85,8 @@ def test_the_set_holds_the_reviewed_plans_and_six_good_ones(cases: list[StageCas
     reviewed = {case.pull for case in cases if case.verdict is not Verdict.GOOD}
     good = [case for case in cases if case.verdict is Verdict.GOOD]
 
-    assert (frozenset(reviewed), len(cases), len(good)) == (EVALUATED_PULLS, 60, 6)
-    assert len(EVALUATED_PULLS) == 53
+    assert (frozenset(reviewed), len(cases), len(good)) == (EVALUATED_PULLS, 61, 6)
+    assert len(EVALUATED_PULLS) == 54
 
 
 def test_a_good_case_is_the_twin_of_a_reviewed_case_and_has_no_defect(
@@ -91,6 +108,34 @@ def test_a_reviewed_case_has_a_defect_with_evidence_and_the_commits_are_shas(
         assert len(case.merge_commit) == len(case.base_commit) == SHA_LENGTH
         assert case.verdict is Verdict.GOOD or case.defects
         assert all(defect.evidence.strip() and defect.problem.strip() for defect in case.defects)
+
+
+def test_the_case_of_a_false_class_claim_is_recorded(cases: list[StageCase]) -> None:
+    case = next(c for c in cases if c.pull == 3407)
+
+    (defect,) = case.defects
+
+    assert (case.name, defect.type, defect.gate) == (
+        "3407-a-plan-that-claims-a-class-holds",
+        DefectType.FALSE_PREMISE,
+        GateName.PATHS,
+    )
+    assert "ls-files" in case.facts.classes["StagedTree"]
+    assert any("reads no commit" in note for note in case.notes)
+
+
+def test_the_case_of_a_false_class_claim_joins_the_change() -> None:
+    """The case is the manifest of the change, and the change keeps the tick of the task that
+    records it. The base commit of the group holds the task unticked, so the test fails there."""
+    active = REPO_ROOT / "openspec/changes/3407-check-a-class-claim-against-the/tasks.md"
+    archived = sorted(
+        (REPO_ROOT / "openspec/changes/archive").glob(
+            "*3407-check-a-class-claim-against-the/tasks.md"
+        )
+    )
+    tasks = active if active.is_file() else archived[-1]
+
+    assert "- [x] 3.2 Write the four files of" in tasks.read_text(encoding="utf-8")
 
 
 def test_every_type_of_defect_is_used_by_the_set(cases: list[StageCase]) -> None:

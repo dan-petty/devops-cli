@@ -216,6 +216,7 @@ from devops_cli.roadmap.stage.stage_change import (
     StageGroup,
     StageProposal,
     check_gates,
+    claimed_classes,
     closing_keyword_in,
     feasibility_sentences,
     measure_groups,
@@ -260,7 +261,7 @@ from devops_cli.roadmap.stage.stage_held import (
 )
 from devops_cli.roadmap.stage.stage_jev_screen import ScreenCase, record_review, screen_of
 from devops_cli.roadmap.stage.stage_left_out import LeftOutKind, log_left_out
-from devops_cli.roadmap.stage.stage_models import model_fields, referenced_classes
+from devops_cli.roadmap.stage.stage_models import class_sources, model_fields, referenced_classes
 from devops_cli.roadmap.stage.stage_moved import MovedPath, moved_paths
 from devops_cli.roadmap.stage.stage_overlap import (
     Overlap,
@@ -2308,12 +2309,15 @@ class _Planner:
         ]
         referenced = referenced_classes(texts)
         models = model_fields(self._source, self._sha, referenced)
+        # The source of each class that a design claim names, at the staged commit (#3407).
+        classes = class_sources(self._source, self._sha, claimed_classes(proposal))
         findings = self._problems(
             proposal,
             self._tree_of(target, proposal),
             request,
             change=target.change,
             models=models,
+            classes=classes,
             trace=trace,
         )
         if findings:
@@ -2334,6 +2338,7 @@ class _Planner:
                 request,
                 change=target.change,
                 models=models,
+                classes=classes,
                 trace=trace,
             )
             if findings:
@@ -2368,13 +2373,20 @@ class _Planner:
         *,
         change: str = "",
         models: Mapping[str, tuple[str, Sequence[str]]] | None = None,
+        classes: Mapping[str, str] | None = None,
         trace: TraceFacts | None = None,
     ) -> list[StageFinding]:
         """The findings that every gate makes in one reply: the first one and a split of it. Each
         gate with a problem adds 1 to the refusal counter of the job (#4066)."""
         with observe_step(self._pull_repo, _ROW, StepName.GATE):
             return self._gate_problems(
-                proposal, tree, request, change=change, models=models, trace=trace
+                proposal,
+                tree,
+                request,
+                change=change,
+                models=models,
+                classes=classes,
+                trace=trace,
             )
 
     def _gate_problems(
@@ -2385,6 +2397,7 @@ class _Planner:
         *,
         change: str,
         models: Mapping[str, tuple[str, Sequence[str]]] | None,
+        classes: Mapping[str, str] | None,
         trace: TraceFacts | None,
     ) -> list[StageFinding]:
         evidence = (
@@ -2422,6 +2435,7 @@ class _Planner:
                 constants=constants,
                 references=references,
                 models=models,
+                classes=classes,
                 trace=trace,
                 judged=self._judged,
             ),

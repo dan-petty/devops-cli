@@ -1,0 +1,33 @@
+{
+ "issue": 3407,
+ "pull": 3407,
+ "title": "fix(roadmap): check a class claim against the staged source",
+ "change": "3407-a-plan-that-claims-a-class-holds",
+ "merge_commit": "0000000000000000000000000000000000000000",
+ "base_commit": "0000000000000000000000000000000000000000",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 3,
+  "fidelity": 4,
+  "task_quality": 4,
+  "rule_compliance": 4,
+  "accuracy": 2
+ },
+ "state": "open",
+ "summary": "The design decision claims that `StagedTree` holds the file text of the staged commit, and the class keeps the tracked paths with `ls-files` only. The decision quotes no text of the class, so an implementation step would fail on a text that does not exist.",
+ "notes": [
+  "The plan is the one of the change of #3407 before the class-claim rule of its own check exists: the design decision claims that `StagedTree` holds the file text, and the class holds `ls-files` and no file text.",
+  "The change was never merged as this plan, so pull, merge_commit and base_commit hold the issue number and two placeholders: the case reads no commit, and the facts hold the files of its tree."
+ ],
+ "defects": [
+  {
+   "type": "false_premise",
+   "severity": "major",
+   "where": "design.md, Decisions",
+   "problem": "The design decision says that `StagedTree` holds the file text of the staged commit, and `StagedTree.read` keeps the tracked paths with `ls-files`. The decision quotes no text of the class, so the plan builds on a text that does not exist.",
+   "evidence": "`src/devops_cli/roadmap/stage/stage_paths.py:143:listing = git(source, \"ls-files\", \"-z\", operation=operation)` shows that the tree reader keeps the tracked paths and reads no file text.",
+   "gate": "paths",
+   "message": "The plan names `StagedTree` in the design decision and gives no code span that holds text of the class at the staged commit."
+  }
+ ]
+}

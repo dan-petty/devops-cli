@@ -1,0 +1,109 @@
+{
+ "summary": "refuse a class claim that the source lacks",
+ "pull_request_body": "A stage plan can build on a claim about an internal class that the class source does not hold, and every check accepts the plan. The change adds a rule to the `paths` gate of `check_proposal`: a design decision, a rejected alternative or a feasibility line that names an internal class in a code span gives another code span whose text the class holds at the staged commit. The stage job reads each class that a claim names with `git show`, and the replay reads the class source from the facts of its case.",
+ "why": "The plan of #3350 says that `StagedTree` holds the file text of the staged commit, and `StagedTree.read` keeps the tracked paths only, so an implementation step would fail on a text that does not exist (#3407).",
+ "what_changes": [
+  "Refuse a class claim that gives no quote of the class at the staged commit, in the `paths` gate of `src/devops_cli/roadmap/stage/stage_change.py`.",
+  "Read each class that a claim names at the staged commit in `src/devops_cli/roadmap/stage/stage_models.py`.",
+  "Pass the class sources to the gate in `src/devops_cli/roadmap/stage/stage.py`.",
+  "Add the message `stage_problem_class_claim` to `src/devops_cli/lang/en/messages.py`.",
+  "Hold the cases of the rule in `tests/roadmap/stage/test_roadmap_stage_class_claim.py`."
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "`read_file` of `src/devops_cli/roadmap/stage/stage_paths.py` showed `listing = git(source, \"ls-files\", \"-z\", operation=operation)` in the `read` classmethod, so the tree keeps the tracked paths and reads no file text.",
+  "`class_claim_problems` of `src/devops_cli/roadmap/stage/stage_change.py` is the new rule of the `paths` gate, and it compares a quote with the class source that `class_sources` reads.",
+  "The stage job computes the class sources from the names that `claimed_classes` returns, beside the model fields, and gives them to `check_gates`.",
+  "The facts of a replay case hold the class source, so the replay reads no git and makes no network call."
+ ],
+ "existing_tool": "The change extends `check_proposal` and reuses the `git show` reader and the standard library `ast`, so it adds no dependency and no second grammar of a class.",
+ "builds_own": false,
+ "decisions": [
+  {
+   "decision": "`StagedTree` holds the file text of the staged commit.",
+   "reason": "The plan builds on that reader, so the group adds no second read of the tree and no new field of the case."
+  },
+  {
+   "decision": "Run the class-claim rule in the `paths` gate of `check_proposal`, beside `model_problems`.",
+   "reason": "The stage job and the replay run that gate, so one rule judges both, and the golden case records the defect under it."
+  },
+  {
+   "decision": "Take the source of the class with `ast` and compare a whitespace-squashed quote of at least three characters with the squashed class source.",
+   "reason": "A plan line folds a multi-line quote to one line, and a two-character quote matches almost any source, so the rule keeps the bound of the citation rule."
+  },
+  {
+   "decision": "State a non-goal: the rule judges no class that `src/` does not define, and no plan text other than the decisions, the rejected alternatives and the feasibility lines.",
+   "reason": "A class of the standard library is no internal class, and a What Changes item or a task names a class without making a design claim."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "Reuse the model reader `_grep_class_paths` unchanged for the new reader.",
+   "evidence": "`src/devops_cli/roadmap/stage/stage_models.py:131:args = [\"grep\", \"-n\", f\"^class {name}(\", sha, \"--\", \"src/\"]` matches only a definition line with a base, and the class of the issue declares none, so the reader would return no source for it."
+  },
+  {
+   "alternative": "Compare each quote with the working tree instead of the staged commit.",
+   "evidence": "The citation rule reads the staged commit, and the plan is judged at that commit, so a working tree can hold other text."
+  },
+  {
+   "alternative": "Scan every plan text for a class name.",
+   "evidence": "The issue names the decisions, the rejected alternatives and the feasibility lines, and a What Changes item or a task names a class without making a design claim about it."
+  },
+  {
+   "alternative": "Find a class in the source text with a regular expression.",
+   "evidence": "A regex matches a comment, a string or a local name, and the model reader uses the standard library `ast` to find the classes of a module."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "roadmap-stage/claims",
+   "purpose": null,
+   "added": [
+    {
+     "name": "A class claim quotes the class at the staged commit",
+     "text": "`check_proposal` SHALL return a problem when a design decision, a rejected alternative or a feasibility line names an internal class under `src/` and gives no code span whose text the class holds at the staged commit.",
+     "scenarios": [
+      {
+       "name": "False StagedTree claim",
+       "when": "A design decision names the class StagedTree and quotes no text of the class.",
+       "then": "The plan check returns the class-claim problem for that decision."
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Refuse a class claim that the staged source lacks",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/roadmap/stage/stage_change.py",
+    "src/devops_cli/roadmap/stage/stage_models.py",
+    "src/devops_cli/roadmap/stage/stage_paths.py",
+    "tests/roadmap/stage/test_roadmap_stage_models.py",
+    "tests/roadmap/stage/test_roadmap_stage_apply.py"
+   ],
+   "changes": [
+    "src/devops_cli/roadmap/stage/stage_change.py",
+    "src/devops_cli/roadmap/stage/stage_models.py",
+    "src/devops_cli/roadmap/stage/stage.py",
+    "src/devops_cli/lang/en/messages.py",
+    "tests/roadmap/stage/test_roadmap_stage_class_claim.py"
+   ],
+   "creates": [
+    "tests/roadmap/stage/test_roadmap_stage_class_claim.py"
+   ],
+   "creates_lines": {
+    "tests/roadmap/stage/test_roadmap_stage_class_claim.py": 220
+   },
+   "test": "`tests/roadmap/stage/test_roadmap_stage_class_claim.py` fails on the base for `class_claim_problems`: a decision that names `StagedTree` with no quote is refused, and a test builds the plan's own `StageProposal` and asserts that `content_problems` returns no problem",
+   "implementation": "add `claimed_classes` and `class_claim_problems` to `src/devops_cli/roadmap/stage/stage_change.py` and call the second in the `paths` gate of `check_proposal`, add `class_sources` to `src/devops_cli/roadmap/stage/stage_models.py`, compute the class sources in `src/devops_cli/roadmap/stage/stage.py`, add `stage_problem_class_claim` to `src/devops_cli/lang/en/messages.py`, and run `uv run devops roadmap eval stage --replay` with the score before and after the change",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/roadmap/stage/test_roadmap_stage_class_claim.py",
+   "process": null
+  }
+ ],
+ "dependencies": []
+}
