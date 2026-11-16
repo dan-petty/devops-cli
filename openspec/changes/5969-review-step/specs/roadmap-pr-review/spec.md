@@ -34,11 +34,15 @@ When no rule applies, the step SHALL ask the model of the task `ai.tasks.review`
 - **THEN** the judge raises an error that names the setting and sends no model request
 
 ### Requirement: The step writes one verdict and its next action
-With `--confirm` in the mode `on`, the step SHALL read the head again, post one comment with the verdict, the reason and the evidence, and set the verdict label of the kind of the pull request. Mergeable SHALL mark a draft ready with the judged head. A discard SHALL close the pull request, delete its branch with a lease on the head, and return the item to New with the keys of its plan or delivery cleared.
+With `--confirm` in the mode `on`, the step SHALL read the head again, post one comment with the verdict, the reason and the evidence, and set the verdict label of the kind of the pull request. Mergeable SHALL mark a draft ready with the judged head; needs fix and issue changed SHALL make a ready one a draft. A discard SHALL close the pull request, delete its branch with a lease on the head, and return the item to New with the keys of its plan or delivery cleared.
 
 #### Scenario: Mergeable marks the draft ready
 - **WHEN** the verdict of a draft delivery is mergeable
 - **THEN** the step labels it `verdict/mergeable`, removes its other own verdict labels, comments, marks it ready, and counts one verdict
+
+#### Scenario: A ready pull request that needs a fix becomes a draft
+- **WHEN** the verdict of a pull request that is ready for review is needs fix or issue changed
+- **THEN** the step makes it a draft again with the judged head
 
 #### Scenario: A discarded delivery returns its item
 - **WHEN** the verdict of a delivery is discard implementation

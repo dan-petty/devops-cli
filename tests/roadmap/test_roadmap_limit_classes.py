@@ -779,6 +779,16 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "new (#5971); the cap of the model fix of one fix-checks run, by the owner direction of "
         "2026-11-16",
     ),
+    "DEFAULT_ROADMAP_REVIEW_ROUNDS": (
+        "setting",
+        "new (#5969); the verdicts of one pull request, by the owner direction of 2026-11-16: "
+        '"Repeat 2 or 3 times"',
+    ),
+    "DEFAULT_ROADMAP_REVIEW_TOKEN_BUDGET": (
+        "setting",
+        "new (#5969); the cap of the model call of one review, by the owner direction of "
+        "2026-11-16 that gives each job a generous limit",
+    ),
     "DEFAULT_ROADMAP_FIX_PLAN_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_OPEN_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_FIX_PLAN_TIME_BUDGET_SECONDS": (

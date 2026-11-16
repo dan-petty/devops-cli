@@ -619,6 +619,28 @@ def test_an_issue_text_edit_after_the_plan_is_issue_changed_and_scores_nothing(
     assert world.ready == []
 
 
+@pytest.mark.parametrize(
+    ("runs", "record"),
+    [
+        ((("Static Analysis", "failure"),), {}),
+        ((("Tests", "success"),), {StageRecordKey.TEXT_HASH: "0" * 64}),
+    ],
+    ids=("needs-fix", "issue-changed"),
+)
+def test_a_ready_pull_request_that_needs_work_goes_back_to_draft(
+    world: World, runs: tuple[tuple[str, str], ...], record: dict[Any, str | None]
+) -> None:
+    """A verdict that sends the work back makes a ready pull request a draft again, so the fix
+    rows take it and no person merges work that needs a change."""
+    item = world.item(record=record)
+    pull = world.pull(item, runs=runs, draft=False)
+
+    report = world.run(pull, mode="on", confirm=True)
+
+    assert report.written
+    assert world.ready == [("pr", "ready", str(pull), "--undo", "--repo", REPO)]
+
+
 def test_a_discarded_delivery_is_closed_withdrawn_and_returned_for_a_new_implementation(
     world: World,
 ) -> None:
@@ -654,6 +676,29 @@ def test_a_discarded_plan_clears_the_keys_of_the_plan(world: World) -> None:
     held = world.store.item(item)
     assert held is not None
     assert (held.status, held.job_record.get(StageRecordKey.PR)) == ("New", None)
+
+
+def test_a_delivery_on_the_branch_of_its_plan_is_left_for_a_person(world: World) -> None:
+    """A delete of the branch would lose the plan too, so the step comments and stops, and the
+    next call on the same head asks no model."""
+    item = world.item()
+    pull = world.pull(item)
+    held = world.store.item(item)
+    assert held is not None
+    world.store.set_marks(held, {StageRecordKey.PR: str(pull)})
+    judge = FakeJudge(_reply(ReplyVerdict.DISCARD, CODE))
+
+    report = world.run(pull, judge, mode="on", confirm=True)
+    again = world.run(pull, judge, mode="on", confirm=True)
+
+    assert (report.result, report.verdict) == (
+        ReviewResult.STOPPED,
+        Verdict.DISCARD_IMPLEMENTATION,
+    )
+    assert (world.closed(), world.withdrawn) == ([], [])
+    [comment] = world.comments()
+    assert "a person decides" in comment
+    assert (again.result, len(judge.cases)) == (ReviewResult.SKIPPED, 1)
 
 
 def test_a_head_that_moves_after_the_read_writes_nothing(world: World) -> None:

@@ -44,11 +44,13 @@ and the step fix-plan also write it. Then:
 - Mergeable: a draft is marked ready (`mark_ready` with the judged head). The pipeline is then done
   with the item until a person merges.
 - Needs fix: the label and the due fix stay for the watch row; `verdict/fix-plan` starts the row
-  fix-plan.
+  fix-plan. A ready pull request becomes a draft again (`mark_draft`), because the fix rows take
+  only a draft and no person must merge it.
 - Discard: the step closes the pull request, deletes its branch with a lease on the judged head
   (`Withdraw`), and returns the item to New with `apply_return`, which clears the keys of the plan
   or of the delivery. A delivery on the branch of its plan pull request is left for a person.
-- Issue changed: the label marks the work for an update, and the verdict scores nothing.
+- Issue changed: the label marks the work for an update, a ready pull request becomes a draft
+  again, and the verdict scores nothing.
 
 The record keeps the count of verdicts of the pull request and the key of the last one
 (`ReviewRecordKey`). Each judged or failed attempt logs one result line (job `review`).
@@ -80,7 +82,7 @@ from devops_cli.roadmap.stage.stage_verify import FIX_PLAN_LABEL
 from devops_cli.roadmap.status_sync import job_holds
 from devops_cli.roadmap.steps.comment import Target, post
 from devops_cli.roadmap.steps.fix_checks import is_bot_author
-from devops_cli.roadmap.steps.ready import mark_ready
+from devops_cli.roadmap.steps.ready import mark_draft, mark_ready
 from devops_cli.roadmap.steps.review_facts import (
     EVIDENCE_LINES,
     ReplyVerdict,
@@ -152,6 +154,10 @@ _VERDICT_NAMES: Final[Mapping[Verdict, str]] = {
 _DISCARDS: Final[frozenset[Verdict]] = frozenset(
     {Verdict.DISCARD_PLAN, Verdict.DISCARD_IMPLEMENTATION}
 )
+# The verdicts that send the work back: a ready pull request becomes a draft again, so the fix rows
+# take it and no person merges it.
+_BACK_TO_DRAFT: Final[frozenset[Verdict]] = frozenset({Verdict.NEEDS_FIX, Verdict.ISSUE_CHANGED})
+_DRAFT_AGAIN: Final[str] = "make the pull request a draft again; "
 # The keys of a delivery that a discard clears, as the return of the implement job clears them.
 _DELIVERY_KEYS: Final[tuple[ImplementRecordKey, ...]] = (
     ImplementRecordKey.GROUP,
@@ -457,7 +463,7 @@ def _planned(call: _Call, judgement: Judgement) -> str:
             return "none: the pull request is ready for review; a person merges it"
         case Verdict.NEEDS_FIX:
             fix = judgement.due.value if judgement.due else "a fix by a person"
-            return f"the watch row starts {fix}"
+            return f"{_DRAFT_AGAIN if not call.status.draft else ''}the watch row starts {fix}"
         case Verdict.DISCARD_PLAN:
             return "close the pull request, delete its branch and return the item for a new plan"
         case Verdict.DISCARD_IMPLEMENTATION:
@@ -466,7 +472,8 @@ def _planned(call: _Call, judgement: Judgement) -> str:
                 "implementation"
             )
         case Verdict.ISSUE_CHANGED:
-            return "the work waits for an update to the issue or to the merged work"
+            again = _DRAFT_AGAIN if not call.status.draft else ""
+            return f"{again}the work waits for an update to the issue or to the merged work"
 
 
 def _verdict_text(call: _Call, judgement: Judgement, label: str) -> str:
@@ -512,8 +519,11 @@ def _discard(call: _Call, judgement: Judgement, withdraw: Withdraw) -> None:
 
 def _act(call: _Call, judgement: Judgement, withdraw: Withdraw | None) -> None:
     """Take the next action of the verdict."""
+    head = call.status.head_sha
     if judgement.verdict is Verdict.MERGEABLE and call.status.draft:
-        mark_ready(call.repo, call.pull, expected_head=call.status.head_sha)
+        mark_ready(call.repo, call.pull, expected_head=head)
+    elif judgement.verdict in _BACK_TO_DRAFT and not call.status.draft:
+        mark_draft(call.repo, call.pull, expected_head=head)
     elif judgement.verdict in _DISCARDS:
         if withdraw is None:
             raise RoadmapImplementError(
@@ -588,6 +598,8 @@ def _write(
             f"discard. Reason of the review: {judgement.reason}"
         )
         _comment(call, "shared", reason)
+        # The key keeps the next call on this head from asking the model again.
+        call.store.set_marks(call.item, {ReviewRecordKey.KEY: call.key})
         return call.report(ReviewResult.STOPPED, reason, verdict=judgement.verdict, written=True)
     _comment(call, call.status.head_sha, _verdict_text(call, judgement, label))
     _relabel(call, label)
