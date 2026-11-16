@@ -387,3 +387,14 @@ class RoadmapOpenRefusedError(DevOpsCLIError):
     """Raised when devops roadmap step open refuses to open or update a pull request (#5020)."""
 
     error_code = "ROADMAP_OPEN_REFUSED"
+
+
+class RefusedPullReply(DevOpsCLIError):
+    """The pull request text broke form rules after one retry (#3599)."""
+
+    error_code = "REFUSED_PULL_REPLY"
+
+    def __init__(self, problems: Sequence[str] | None = None) -> None:
+        self.problems: tuple[str, ...] = tuple(problems or ())
+        msg = "; ".join(self.problems) if self.problems else "Refused pull request body"
+        super().__init__(msg)

@@ -16,6 +16,7 @@ from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions.ai import ModelGatewayUnreachableError
 from devops_cli.exceptions.base import DevOpsCLIError
+from devops_cli.exceptions.roadmap import RefusedPullReply
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.roadmap.intake.intake_model import gateway_address
 
@@ -73,17 +74,6 @@ class GatewayPullBody:
             config = self._ai.for_task("analysis") if self._ai else None
             self._client = get_llm_client(task="analysis", config=config, api_key=self._api_key)
         return self._client
-
-
-class RefusedPullReply(DevOpsCLIError):
-    """The pull request text broke form rules after one retry (#3599)."""
-
-    error_code = "REFUSED_PULL_REPLY"
-
-    def __init__(self, problems: Sequence[str] | None = None) -> None:
-        self.problems: tuple[str, ...] = tuple(problems or ())
-        msg = "; ".join(self.problems) if self.problems else "Refused pull request body"
-        super().__init__(msg)
 
 
 def _extract_problems(exc: ValidationError) -> list[str]:
