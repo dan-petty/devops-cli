@@ -102,7 +102,9 @@ def render_score(score: StageScore, *, gateway: str, usage: RunUsage | None = No
     `usage`, the tokens and the spend of the run."""
     texts = MESSAGES.roadmap
     lines = [
-        texts.stage_eval_score_title.format(cases=score.cases, model=score.model, gateway=gateway),
+        texts.stage_eval_score_title.format(
+            cases=score.cases, model=score.model, toolset=score.toolset, gateway=gateway
+        ),
         "",
         texts.stage_eval_score_header,
         *(_score_row(row) for row in score.rows),
@@ -140,6 +142,7 @@ def score_json(
     has no price."""
     data: dict[str, Any] = {
         "model": score.model,
+        "toolset": score.toolset,
         "gateway": gateway,
         "taken": taken,
         "cases": score.cases,

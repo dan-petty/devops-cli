@@ -94,3 +94,16 @@ def test_every_exposed_mcp_command_is_a_command_of_the_tree() -> None:
         walk(top_cmd, (top_name,))
 
     assert exposed_paths - all_cli_commands == set()
+
+
+def test_the_roadmap_eval_stage_command_publishes_no_mcp_tool() -> None:
+    """`roadmap eval stage` resolves in the tree and stays out of the exposure table, so the
+    server publishes no tool for it and the command stays excluded (#3239)."""
+    from devops_cli.ai.mcp.generator import resolve_click_command
+
+    stage_cmd = resolve_click_command(("roadmap", "eval", "stage"))
+    assert stage_cmd.name == "stage"
+
+    exposed_paths = {entry[0] for entry in CONST_MCP_EXPOSURE_TABLE}
+    assert ("roadmap", "eval", "stage") not in exposed_paths
+    assert asyncio.run(mcp.get_tool("roadmap_eval_stage")) is None

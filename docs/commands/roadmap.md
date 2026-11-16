@@ -443,11 +443,17 @@ devops roadmap eval COMMAND [ARGS]...
 
 ### `devops roadmap eval stage`
 
-**Score the stage job on its golden set, the plans of 2026-11-01 with their known defects. For each case the job plans from the issue text, with the checks it runs in a Job. The command prints, for each type of defect that a gate catches, how often the first reply of the model avoids it, and a total score. It stores the report as JSON under the data directory. The model plans with the read-only toolbox of the job, which reads the code of the staging commit; with --no-toolbox it plans with one call and no tool. It calls the model through the gateway, one call per case at least. With --replay it calls no model: it runs the recorded plans through the gates and exits 1 when a gate stops refusing a known-bad plan or refuses a good plan. A live run leaves out a case that holds no commit and names it in the report. A change to the stage prompt or to the checks states this score before and after.**
+**Score the stage job on its golden set, the plans of 2026-11-01 with their known defects. For each case the job plans from the issue text, with the checks it runs in a Job. The command prints, for each type of defect that a gate catches, how often the first reply of the model avoids it, and a total score. It stores the report as JSON under the data directory. The model plans with the read-only toolbox of the job, which reads the code of the staging commit; with --no-toolbox it plans with one call and no tool. The toolbox is the one of --toolset, or the configured roadmap.stage.toolset, and the report names it. It calls the model through the gateway, one call per case at least. With --replay it calls no model: it runs the recorded plans through the gates and exits 1 when a gate stops refusing a known-bad plan or refuses a good plan. A live run leaves out a case that holds no commit and names it in the report. A change to the stage prompt or to the checks states this score before and after.**
 
 ```bash
-devops roadmap eval stage [OPTIONS]
+devops roadmap eval stage [OPTIONS] <form>
 ```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<form>` | `string` | No | The form `compare <toolset>...`: run two or more toolsets over the same cases and print one table with the defects, the tool calls, the requests, the tokens, the time and the cost of each toolset, and one delta line against the first. |
 
 **Options:**
 
@@ -455,12 +461,16 @@ devops roadmap eval stage [OPTIONS]
 |---|---|---|---|
 | `--case` | `string` | - | Run only this case, by folder name or issue number. Repeat the option for more cases. |
 | `--model` | `string` | - | Model for the stage task. Without it, the configured model of the task. |
+| `--toolset` | `choice (base|extended|research)` | - | The tools of each plan run: base, extended or research. Without it, the setting roadmap.stage.toolset. The report names the toolset that the run read. |
 | `--limit` | `integer` | - | Run at most this many cases, the first ones of the set. |
+| `--runs` | `integer` | `3` | Run each case this many times in the compare form, and report the minimum and the maximum of each measured value. Default: 3. |
+| `--verify` | `boolean` | - | In the compare form, run the verification pass on the plan of each run and report the defects that it finds. Without it, the verification column says `not run`. |
 | `--json` | `boolean` | - | Print the report as JSON in place of the table. |
 | `--dry-run` | `boolean` | - | Make no request: list the cases and the model calls that a run makes. |
 | `--replay` | `boolean` | - | Make no model call. Run the recorded plans through the gates and report which known defects each gate catches. |
 | `--record` | `boolean` | - | Write the constants that the plan of each case cites into its facts file. |
 | `--cases` | `path` | - | Folder of the cases. Default: tests/fixtures/roadmap_eval/stage. |
+| `--staged-cases` | `path` | - | In the compare form, the folder of the staged-item replay cases, in the same case format as the golden set. Default: tests/fixtures/roadmap_eval/staged. |
 | `--source` | `path` | - | Repository that holds the staging commits of the cases. Default: this checkout. |
 | `--no-toolbox` | `boolean` | - | Plan each case with one model call and no tool, as the job did before the toolbox. Run the same model with and without this option to compare the two scores. |
 

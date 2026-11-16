@@ -1578,11 +1578,18 @@ class RoadmapCommandHelp:
         "the first reply of the model avoids it, and a total score. It stores the report as "
         "JSON under the data directory. The model plans with the read-only toolbox of the job, "
         "which reads the code of the staging commit; with --no-toolbox it plans with one call "
-        "and no tool. It calls the model through the gateway, one call per case at least. "
+        "and no tool. The toolbox is the one of --toolset, or the configured "
+        "roadmap.stage.toolset, and the report names it. "
+        "It calls the model through the gateway, one call per case at least. "
         "With --replay it calls no model: it runs the recorded plans through the "
         "gates and exits 1 when a gate stops refusing a known-bad plan or refuses a good plan. "
         "A live run leaves out a case that holds no commit and names it in the report. "
         "A change to the stage prompt or to the checks states this score before and after."
+    )
+    eval_stage_form: str = (
+        "The form `compare <toolset>...`: run two or more toolsets over the same cases and print "
+        "one table with the defects, the tool calls, the requests, the tokens, the time and the "
+        "cost of each toolset, and one delta line against the first."
     )
     eval_stage_case: str = (
         "Run only this case, by folder name or issue number. Repeat the option for more cases."
@@ -1590,7 +1597,19 @@ class RoadmapCommandHelp:
     eval_stage_model: str = (
         "Model for the stage task. Without it, the configured model of the task."
     )
+    eval_stage_toolset: str = (
+        "The tools of each plan run: base, extended or research. Without it, the setting "
+        "roadmap.stage.toolset. The report names the toolset that the run read."
+    )
     eval_stage_limit: str = "Run at most this many cases, the first ones of the set."
+    eval_stage_runs: str = (
+        "Run each case this many times in the compare form, and report the minimum and the "
+        "maximum of each measured value. Default: 3."
+    )
+    eval_stage_verify: str = (
+        "In the compare form, run the verification pass on the plan of each run and report the "
+        "defects that it finds. Without it, the verification column says `not run`."
+    )
     eval_stage_json: str = "Print the report as JSON in place of the table."
     eval_stage_dry_run: str = (
         "Make no request: list the cases and the model calls that a run makes."
@@ -1604,6 +1623,10 @@ class RoadmapCommandHelp:
         "defects each gate catches."
     )
     eval_stage_cases: str = "Folder of the cases. Default: tests/fixtures/roadmap_eval/stage."
+    eval_stage_staged_cases: str = (
+        "In the compare form, the folder of the staged-item replay cases, in the same case format "
+        "as the golden set. Default: tests/fixtures/roadmap_eval/staged."
+    )
     eval_stage_source: str = (
         "Repository that holds the staging commits of the cases. Default: this checkout."
     )

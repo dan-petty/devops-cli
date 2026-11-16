@@ -302,6 +302,14 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     ),
     "CONST_ROADMAP_STAGE_VERIFY_FILE_MAX_TOKENS": ("kept", "same reason as the body cap"),
     "CONST_ROADMAP_STAGE_VERIFY_MAX_FILES": ("kept", "same reason as the body cap"),
+    "CONST_ROADMAP_STAGE_EVAL_ESTIMATE_INPUT_TOKENS": (
+        "other",
+        "the input tokens of one plan run, which the dry run of the toolset comparison prices; an estimate cuts no run",
+    ),
+    "CONST_ROADMAP_STAGE_EVAL_ESTIMATE_OUTPUT_TOKENS": (
+        "other",
+        "the output tokens of the same estimate of a plan run; it cuts no run",
+    ),
     "DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING": (
         "setting",
         "the most repair rounds of the review, of the setting and of its extension; 5 review runs and 21 plan runs of an item at the defaults before the gate return extension (#5066, #5440)",

@@ -6025,6 +6025,34 @@ class RoadmapMessages:
         "of each case. Pick a case that holds a commit, or run the replay."
     )
     stage_eval_left_out: str = "Left out of the run, as they hold no commit to check out: {names}."
+    stage_eval_unknown_form: str = (
+        "The form `{form}` is no form of this command. The one form is "
+        "`compare <toolset> <toolset> ...`."
+    )
+    stage_eval_compare_too_few: str = (
+        "The compare form needs at least two toolsets, as "
+        "`devops roadmap eval stage compare <toolset> <toolset> ...`."
+    )
+    stage_eval_unknown_toolset: str = (
+        "The stage toolset setting holds none of {names}. Its values are {toolsets}."
+    )
+    stage_eval_compare_dry_run: str = (
+        "Dry run: no request was made. The compare form would plan {cases} case(s) with the "
+        "toolsets {toolsets} at {gateway}, with the stage model {model}, {runs} run(s) of each "
+        "case, one case at a time."
+    )
+    stage_eval_compare_dry_run_cost: str = (
+        "Estimated cost: {cost:.4f} USD at the hosted price of the model."
+    )
+    stage_eval_compare_dry_run_unpriced: str = "Estimated cost: no price for the model {model}."
+    stage_eval_compare_spread_header: str = (
+        "Case runs and the spread of each measured value, as the minimum and the maximum:"
+    )
+    stage_eval_compare_spread_row: str = (
+        "{toolset}/{case} runs={runs} gate defects {gate} verification {verify} tool calls "
+        "{tools} requests {requests} input tokens {input} output tokens {output} elapsed "
+        "{seconds} cost {cost}"
+    )
     stage_eval_over_budget: str = "A task group is over the step budget."
     stage_eval_no_value: str = "-"
     stage_eval_replay_title: str = (
@@ -6048,7 +6076,8 @@ class RoadmapMessages:
     stage_eval_replay_failed: str = "Result: FAILED. {count} problem(s):"
     stage_eval_pending_gate: str = "{reference}"
     stage_eval_score_title: str = (
-        "# Stage golden set: {cases} case(s), the stage model {model} at {gateway}"
+        "# Stage golden set: {cases} case(s), the stage model {model} with the toolset {toolset} "
+        "at {gateway}"
     )
     stage_eval_score_header: str = "Defect type               Gate     Cases  Avoided  Caught  Rate"
     stage_eval_score_row: str = (

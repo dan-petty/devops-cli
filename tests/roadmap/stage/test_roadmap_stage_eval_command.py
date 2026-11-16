@@ -177,6 +177,35 @@ def test_a_live_run_prints_the_score_and_stores_the_report(
     assert model_fake.call_count == 1
 
 
+def test_the_toolset_option_names_the_toolset_in_the_report(
+    cli: Cli,
+    tmp_path: Path,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec_fake: OpenSpecFake,
+    cases: list[StageCase],
+) -> None:
+    openspec_fake.script_sequence(validate_args(CHANGE), (0, VALID_REPORT))
+    folder = _live_set(tmp_path, stage_repo, cases)
+    model_fake.answer(make_stage_proposal())
+
+    result = _eval(
+        cli,
+        "--cases",
+        str(folder),
+        "--source",
+        str(stage_repo.clone),
+        "--model",
+        "m-1",
+        "--toolset",
+        "base",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "the toolset base" in result.output
+    assert _stored_report(result)["toolset"] == "base"
+
+
 def _live_run(
     cli: Cli,
     tmp_path: Path,

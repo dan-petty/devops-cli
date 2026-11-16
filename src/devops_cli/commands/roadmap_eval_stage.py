@@ -16,6 +16,7 @@ from typing import Annotated
 
 import typer
 
+from devops_cli.config.defaults import StageToolset
 from devops_cli.core.repo import find_repo_root, resolve_store_path
 from devops_cli.dry_run import dry_run_class, is_dry_run, render_request_plan
 from devops_cli.exceptions import ValidationError
@@ -75,6 +76,7 @@ def _run(
     limit: int | None,
     *,
     model: str | None,
+    toolset: StageToolset | None,
     source: Path | None,
     dry_run: bool,
     as_json: bool,
@@ -102,6 +104,7 @@ def _run(
 
     cases, left_out = cases_with_commit(select_cases(load_cases(cases_dir), names, limit))
     settings = load_settings()
+    chosen = toolset or settings.roadmap.stage.toolset
     gateway = gateway_address(settings.ai.for_task("stage"))
     if dry_run:
         render_request_plan(
@@ -121,8 +124,8 @@ def _run(
     planner = eval_model(model, task="stage")[0] if toolbox else None
     usage = RunUsage()
     with observe_llm_calls(usage.add):
-        runs = run_cases(cases, client, source or find_repo_root(), toolbox=planner)
-    score = score_runs(name, cases, runs, left_out=left_out)
+        runs = run_cases(cases, client, source or find_repo_root(), toolbox=planner, toolset=chosen)
+    score = score_runs(name, cases, runs, left_out=left_out, toolset=chosen)
     now = datetime.now(UTC)
     report = score_json(
         score, gateway=gateway, taken=now.isoformat(timespec="seconds"), usage=usage
@@ -138,17 +141,104 @@ def _run(
         raise typer.Exit(1)
 
 
+def _compare(
+    cases_dir: Path | None,
+    staged_cases: Path | None,
+    names: tuple[str, ...],
+    limit: int | None,
+    *,
+    toolsets: tuple[str, ...],
+    runs: int,
+    model: str | None,
+    source: Path | None,
+    dry_run: bool,
+    verify: bool,
+) -> None:
+    """Compare the toolsets over the cases that `names` and `limit` pick, or state the plan of the
+    comparison on a dry run."""
+    from devops_cli.ai.client import get_llm_client
+    from devops_cli.config.settings import load_settings
+    from devops_cli.roadmap.implement.implement_eval_run import eval_model
+    from devops_cli.roadmap.intake.intake_model import gateway_address
+    from devops_cli.roadmap.stage.stage_eval_cases import (
+        cases_with_commit,
+        left_out_note,
+        load_cases,
+        load_staged_cases,
+        select_cases,
+    )
+    from devops_cli.roadmap.stage.stage_eval_compare import (
+        estimated_spend,
+        render_compare,
+        run_toolset,
+        toolsets_of,
+    )
+
+    if len(toolsets) < 2:
+        raise ValidationError(MESSAGES.roadmap.stage_eval_compare_too_few, field="compare")
+    chosen = toolsets_of(toolsets)
+    picked = load_cases(cases_dir) + load_staged_cases(staged_cases)
+    cases, left_out = cases_with_commit(select_cases(picked, names, limit))
+    settings = load_settings()
+    name = model or settings.ai.for_task("stage").model
+    gateway = gateway_address(settings.ai.for_task("stage"))
+    note = left_out_note(left_out)
+    if dry_run:
+        plan = MESSAGES.roadmap.stage_eval_compare_dry_run.format(
+            cases=len(cases),
+            runs=runs,
+            toolsets=", ".join(chosen),
+            model=name,
+            gateway=gateway,
+        )
+        estimate = estimated_spend(len(cases), runs, len(chosen), name)
+        cost = (
+            MESSAGES.roadmap.stage_eval_compare_dry_run_cost.format(cost=estimate)
+            if estimate is not None
+            else MESSAGES.roadmap.stage_eval_compare_dry_run_unpriced.format(model=name)
+        )
+        write_stdout(f"{plan}\n{cost}\n")
+        if note:
+            print_info(note)
+        return
+    client = get_llm_client(task="stage", settings=settings, model=model)
+    planner = eval_model(model, task="stage")[0]
+    verifier = eval_model(model, task="verification")[0] if verify else None
+    rows = [
+        run_toolset(
+            toolset,
+            cases,
+            client,
+            source or find_repo_root(),
+            toolbox=planner,
+            model=name,
+            runs=runs,
+            verifier=verifier,
+        )
+        for toolset in chosen
+    ]
+    write_stdout(render_compare(rows))
+    if note:
+        print_info(note)
+
+
 @dry_run_class("request-plan")
 def eval_stage_cmd(
+    form: Annotated[list[str] | None, typer.Argument(help=HELP.roadmap.eval_stage_form)] = None,
     case: Annotated[
         list[str] | None, typer.Option("--case", help=HELP.roadmap.eval_stage_case)
     ] = None,
     model: Annotated[
         str | None, typer.Option("--model", help=HELP.roadmap.eval_stage_model)
     ] = None,
+    toolset: Annotated[
+        StageToolset | None, typer.Option("--toolset", help=HELP.roadmap.eval_stage_toolset)
+    ] = None,
     limit: Annotated[
         int | None, typer.Option("--limit", min=1, help=HELP.roadmap.eval_stage_limit)
     ] = None,
+    runs: Annotated[int, typer.Option("--runs", min=1, help=HELP.roadmap.eval_stage_runs)] = 3,
+    verify: Annotated[bool, typer.Option("--verify", help=HELP.roadmap.eval_stage_verify)] = False,
     as_json: Annotated[bool, typer.Option("--json", help=HELP.roadmap.eval_stage_json)] = False,
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help=HELP.roadmap.eval_stage_dry_run)
@@ -164,6 +254,10 @@ def eval_stage_cmd(
     cases_dir: Annotated[
         Path | None, typer.Option("--cases", help=HELP.roadmap.eval_stage_cases)
     ] = None,
+    staged_cases: Annotated[
+        Path | None,
+        typer.Option("--staged-cases", help=HELP.roadmap.eval_stage_staged_cases),
+    ] = None,
     source: Annotated[
         Path | None, typer.Option("--source", help=HELP.roadmap.eval_stage_source)
     ] = None,
@@ -173,6 +267,25 @@ def eval_stage_cmd(
 ) -> None:
     """Score the stage job on the golden set: the live run, or the replay through the gates."""
     names = tuple(case or ())
+    words = tuple(form or ())
+    if words:
+        if words[0] != "compare":
+            raise ValidationError(
+                MESSAGES.roadmap.stage_eval_unknown_form.format(form=" ".join(words)), field="form"
+            )
+        _compare(
+            cases_dir,
+            staged_cases,
+            names,
+            limit,
+            toolsets=words[1:],
+            runs=runs,
+            model=model,
+            source=source,
+            dry_run=dry_run or is_dry_run(),
+            verify=verify,
+        )
+        return
     if record:
         if dry_run or is_dry_run():
             raise ValidationError(MESSAGES.roadmap.stage_eval_record_dry_run, field="record")
@@ -186,6 +299,7 @@ def eval_stage_cmd(
         names,
         limit,
         model=model,
+        toolset=toolset,
         source=source,
         dry_run=dry_run or is_dry_run(),
         as_json=as_json,

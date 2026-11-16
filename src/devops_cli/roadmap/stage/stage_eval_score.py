@@ -18,6 +18,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from devops_cli.config.defaults import StageToolset
+from devops_cli.config.settings import load_settings
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType, GateName, StageCase
 from devops_cli.roadmap.stage.stage_eval_gates import PENDING_GATES, gate_for
 from devops_cli.roadmap.stage.stage_eval_run import CaseRun, Outcome
@@ -49,14 +51,16 @@ class DefectScore:
 
 @dataclass(frozen=True)
 class StageScore:
-    """The score of a run: a row for each type of defect, the cases by how they ended, and the
-    names of the cases that the run left out because they hold no commit (#3688)."""
+    """The score of a run: a row for each type of defect, the cases by how they ended, the names of
+    the cases that the run left out because they hold no commit (#3688), and the toolset that the
+    plan runs read."""
 
     model: str
     rows: tuple[DefectScore, ...]
     ended: Mapping[Outcome, int]
     cases: int
-    left_out: tuple[str, ...] = ()
+    left_out: tuple[str, ...]
+    toolset: StageToolset
 
     @property
     def scored(self) -> tuple[int, int]:
@@ -101,14 +105,17 @@ def score_runs(
     runs: Sequence[CaseRun],
     *,
     left_out: tuple[str, ...] = (),
+    toolset: StageToolset | None = None,
 ) -> StageScore:
     """The score of `runs` over `cases`, one row for each type of defect. `left_out` names the
-    cases that the run did not take."""
+    cases that the run did not take. `toolset` is the tools of the plan runs; without it, the
+    configured toolset of the stage job, which the runs read by default."""
     by_name = {run.name: run for run in runs}
     types = [*DefectType]
     ended = {outcome: sum(run.outcome is outcome for run in runs) for outcome in Outcome}
     rows = tuple(_row(t, cases, by_name) for t in types)
-    return StageScore(model, rows, ended, len(cases), left_out)
+    chosen = toolset or load_settings().roadmap.stage.toolset
+    return StageScore(model, rows, ended, len(cases), left_out, chosen)
 
 
 def pending_reference(defect_type: DefectType) -> str:
