@@ -464,9 +464,10 @@ def _times_out_from(world: JobWorld, prefix: str, first: int, last: int = 99) ->
 def test_a_hook_stage_that_runs_out_of_time_in_a_fix_step_keeps_the_work_of_both_groups(
     job_world: JobWorld,
 ) -> None:
-    """The stage of the fix step is the third run of the stage: one for each group before it."""
+    """The stage of the fix step is the fifth run of the stage: one for each group, one for docs
+    and one for archive before it."""
     _fails_until(job_world, STATIC, RULE, times=1)
-    _times_out_from(job_world, PRE_COMMIT, 3)
+    _times_out_from(job_world, PRE_COMMIT, 5)
 
     applied = job_world.run(two_groups(*_fix(1)))
 
@@ -478,12 +479,16 @@ def test_a_hook_stage_that_runs_out_of_time_in_a_fix_step_keeps_the_work_of_both
 
 def test_an_error_in_the_scoped_checks_keeps_the_work_of_both_groups(job_world: JobWorld) -> None:
     """The error of git comes after the archive, in the phase of the scoped checks."""
+    calls: list[int] = []
 
     def broken(call: ProcessCall) -> bool:
         archived = any(
             text.startswith("uv run devops openspec archive") for text in _commands(job_world)
         )
-        return archived and "ls-tree" in call.argv
+        if archived and "ls-tree" in call.argv:
+            calls.append(1)
+            return len(calls) >= 2
+        return False
 
     job_world.programs.answer(
         broken, ProcessAnswer(returncode=128, stderr="fatal: Not a valid object name")

@@ -78,6 +78,7 @@ from devops_cli.config.constants import (
     CONST_EXIT_FAILURE,
     CONST_OPENSPEC_ARCHIVE_DIR,
     CONST_OPENSPEC_CHANGES_DIR,
+    CONST_PRE_COMMIT_COMMIT_STAGE,
     CONST_ROADMAP_IMPLEMENT_CHECK_LOG_CHARS,
     CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
     CONST_ROADMAP_IMPLEMENT_DIFF_CHARS,
@@ -131,7 +132,11 @@ from devops_cli.roadmap.implement.implement_amend import (
 )
 from devops_cli.roadmap.implement.implement_base_replay import BaseStatus
 from devops_cli.roadmap.implement.implement_fix_scope import RepairScope, repair_scope
-from devops_cli.roadmap.implement.implement_hooks import install_hook_environments, trusted_config
+from devops_cli.roadmap.implement.implement_hooks import (
+    commit_stage,
+    install_hook_environments,
+    trusted_config,
+)
 from devops_cli.roadmap.implement.implement_limits import BudgetExtension, ItemSpend, new_tokens
 from devops_cli.roadmap.implement.implement_pull import (
     Answer,
@@ -750,6 +755,27 @@ class _ItemRun:
 
     def _commit_if_changed(self, message: str) -> None:
         self._git("add", "-A")
+        if not self._git("status", "--porcelain"):
+            return
+        config = self._hooks_config()
+        if config is not None:
+            run = commit_stage(self.path, config)
+            if self.trace is not None:
+                self.trace.check(
+                    f"pre-commit {CONST_PRE_COMMIT_COMMIT_STAGE}",
+                    0 if run is None else run.returncode,
+                )
+            if run is not None:
+                reason = MESSAGES.roadmap.implement_stop_hooks_failed.format(
+                    stage=CONST_PRE_COMMIT_COMMIT_STAGE, status=run.returncode, output=run.output
+                )
+                raise _StopError(
+                    self.step,
+                    reason,
+                    status=run.returncode,
+                    check=f"pre-commit {CONST_PRE_COMMIT_COMMIT_STAGE}",
+                    check_log=run.output,
+                )
         if self._git("status", "--porcelain"):
             self._git("commit", "-q", "-m", message)
 
