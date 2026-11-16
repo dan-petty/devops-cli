@@ -1132,6 +1132,12 @@ DEFAULT_ROADMAP_INTAKE_JEV: JevMode = "off"
 # log and nothing to GitHub, and `on` acts. Each new row starts in `plan` (rule 5).
 RowMode = Literal["off", "plan", "on"]
 DEFAULT_ROADMAP_FIX_PLAN_MODE: RowMode = "plan"
+# The cadence, modes and caps of the step fix-conflict (#5019).
+DEFAULT_ROADMAP_FIX_CONFLICT_INTERVAL_MINUTES: int = 37
+DEFAULT_ROADMAP_FIX_CONFLICT_TIER1_MODE: RowMode = "on"
+DEFAULT_ROADMAP_FIX_CONFLICT_TIER2_MODE: RowMode = "plan"
+DEFAULT_ROADMAP_FIX_CONFLICT_SOFT_CAP: int = 2
+DEFAULT_ROADMAP_FIX_CONFLICT_HARD_CAP: int = 4
 # The mode of a decision point in `roadmap.decisions` (ADR 0020).
 DecisionMode = Literal["off", "shadow", "on"]
 DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS: float = 1.0

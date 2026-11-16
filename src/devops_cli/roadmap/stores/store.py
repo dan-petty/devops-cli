@@ -453,6 +453,20 @@ class ScaffoldRecordKey(StrEnum):
     BRANCH = "scaffold.branch"
 
 
+class FixConflictRecordKey(StrEnum):
+    """What the step `fix-conflict` records in an Item's job record (#5019):
+    `fix_conflict.key` is `<base>:<head>`,
+    `fix_conflict.rounds` counts the rounds on that pull request,
+    `fix_conflict.files` holds the conflicted files,
+    `fix_conflict.result` its result.
+    """
+
+    KEY = "fix_conflict.key"
+    ROUNDS = "fix_conflict.rounds"
+    FILES = "fix_conflict.files"
+    RESULT = "fix_conflict.result"
+
+
 JobRecord = dict[
     ItemField
     | RefineRecordKey
@@ -464,7 +478,8 @@ JobRecord = dict[
     | IntakeRecordKey
     | ConsolidateRecordKey
     | OwnerQuestionRecordKey
-    | ScaffoldRecordKey,
+    | ScaffoldRecordKey
+    | FixConflictRecordKey,
     str | None,
 ]
 
@@ -767,6 +782,7 @@ _JOB_RECORD_KEYS = frozenset(
         *ConsolidateRecordKey,
         *OwnerQuestionRecordKey,
         *ScaffoldRecordKey,
+        *FixConflictRecordKey,
     )
 )
 
@@ -1293,6 +1309,7 @@ __all__ = [
     "ConsolidateRecordKey",
     "Evidence",
     "EvidenceKind",
+    "FixConflictRecordKey",
     "FixPlanRecordKey",
     "GitHubState",
     "ImplementRecordKey",

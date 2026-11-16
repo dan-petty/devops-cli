@@ -899,6 +899,16 @@ class _ItemRun:
                 timeout=timeout,
             )
             files = _conflict_files(unmerged.stdout) if unmerged.returncode == 0 else []
+            from devops_cli.roadmap.steps.fix_conflict import fix_rebase_conflict
+
+            if fix_rebase_conflict(
+                path,
+                repo=self.repo,
+                item=self.number,
+                default_branch=self.default,
+                store=self.store,
+            ):
+                return
             aborted = run_subprocess(
                 [BIN_GIT, "-C", str(path), "rebase", "--abort"],
                 check=False,
@@ -917,6 +927,7 @@ class _ItemRun:
                 push=False,
                 failure_class=FailureClass.CONFLICT,
                 conflict_files=files[:CONST_ROADMAP_IMPLEMENT_REASON_PATHS],
+                repair_rounds=1,
             ) from exc
 
     def _require_unclaimed(self, boundary: str) -> None:

@@ -131,7 +131,7 @@ ACTION_BY_CLASS: Final[Mapping[FailureClass, FailureAction]] = MappingProxyType(
         FailureClass.OOM: FailureAction.RAISE_LIMIT,
         FailureClass.TIMEOUT: FailureAction.RETRY,
         FailureClass.REFUSED_TOOL: FailureAction.WAIT,
-        FailureClass.CONFLICT: FailureAction.WAIT,
+        FailureClass.CONFLICT: FailureAction.REPAIR,
         FailureClass.CI_INFRA: FailureAction.RETRY,
         FailureClass.NO_CHANGE_IN_FIX: FailureAction.WAIT,
         FailureClass.TESTS_LOST: FailureAction.WAIT,
