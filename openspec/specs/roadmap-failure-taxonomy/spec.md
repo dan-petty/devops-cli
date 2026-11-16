@@ -6,7 +6,7 @@ The failure taxonomy of the implement job: the 12 classes of a failure, the pure
 ## Requirements
 
 ### Requirement: The failure classes
-The failure taxonomy SHALL have these 21 classes: `provider`, `parser`, `test`, `lint`, `types`, `plan_defect`, `premise_false`, `oom`, `timeout`, `refused_tool`, `conflict`, `ci_infra`, `no_change_in_fix`, `tests_lost`, `head_moved`, `output_cap`, `read_only_path`, `limit_reached`, `outside_plan`, `git_config` and `plan_unreadable`.
+The failure taxonomy SHALL have these 21 classes: `provider`, `parser`, `test`, `lint`, `types`, `plan_defect`, `premise_false`, `oom`, `timeout`, `refused_tool`, `refused_reply`, `conflict`, `ci_infra`, `no_change_in_fix`, `tests_lost`, `head_moved`, `output_cap`, `read_only_path`, `limit_reached`, `outside_plan` and `git_config`.
 
 #### Scenario: The class list
 - **WHEN** a test reads the classes of the taxonomy
@@ -51,7 +51,7 @@ The table test of the classifier SHALL use the stop texts of the issues #2175, #
 - **THEN** the `mypy` stop of #2175 is `types`, the tool retries of #2735 are `refused_tool`, the Ollama error of #2747 is `parser`, the failed tests of #2924 are `test`, and each synthetic stop has the class of its pattern
 
 ### Requirement: One default action for each class
-`ACTION_BY_CLASS` SHALL give each class exactly one default action: `provider`, `timeout`, `ci_infra` and `head_moved` `retry`; `parser` `change_tier`; `test`, `lint` and `types` `repair`; `plan_defect` `amend`; `premise_false` `return`; `oom`, `output_cap` and `limit_reached` `raise_limit`; `refused_tool`, `conflict`, `no_change_in_fix`, `read_only_path`, `tests_lost`, `outside_plan`, `git_config` and `plan_unreadable` `wait`.
+`ACTION_BY_CLASS` SHALL give each class exactly one default action: `provider`, `timeout`, `ci_infra` and `head_moved` `retry`; `parser` `change_tier`; `test`, `lint` and `types` `repair`; `plan_defect` `amend`; `premise_false` `return`; `oom`, `output_cap` and `limit_reached` `raise_limit`; `refused_tool`, `refused_reply`, `conflict`, `no_change_in_fix`, `read_only_path`, `tests_lost`, `outside_plan` and `git_config` `wait`.
 
 #### Scenario: The table
 - **WHEN** a test reads the table

@@ -1629,6 +1629,10 @@ class PRMessages:
     form_summary_cut: str = (
         "The summary ends with `...`. A cut summary reads as broken. Write a shorter summary."
     )
+    form_body_cut: str = (
+        "The text above `Closes` or `Plans` ends with `...`. A cut text reads as broken. Write "
+        "the whole text."
+    )
     form_placeholder: str = "The {part} is a placeholder: `{text}`. Write what the change does."
     form_title_repeat_word: str = (
         "The summary of the title repeats the word `{word}` that comes before `#{number}`. Start "

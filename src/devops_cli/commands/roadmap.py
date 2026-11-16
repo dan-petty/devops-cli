@@ -842,6 +842,7 @@ def _implement_job(
             window=load_settings().ai.for_task("implement").context_window,
             model_for_tier=get_tier_model,
             splitter=get_llm_client(task="implement_split"),
+            rewriter=get_llm_client(task="analysis"),
         )
     print_success(
         MESSAGES.roadmap.implement_job_applied.format(

@@ -390,6 +390,22 @@ def test_a_why_over_the_limit_is_refused_and_not_cut() -> None:
         build_body(why="A reason that is long. " * 50, issue=3198, change=CHANGE)
 
 
+@pytest.mark.parametrize("mark", ["...", "\u2026"])
+def test_a_body_text_that_ends_with_a_cut_mark_is_refused(mark: str) -> None:
+    why = f"{WHY} The change is not done{mark}"
+    body = f"{why}\n\nCloses #3198\n\nChange: `{CHANGE}/`"
+
+    assert ["ends with `...`" in problem for problem in body_problems(body)] == [True]
+    with pytest.raises(ValidationError, match=r"ends with `\.\.\.`"):
+        build_body(why=why, issue=3198, change=CHANGE)
+
+
+def test_a_body_text_that_holds_a_cut_mark_inside_a_sentence_has_no_problem() -> None:
+    body = f"{WHY} The text ... goes on.\n\nCloses #3198\n\nChange: `{CHANGE}/`"
+
+    assert body_problems(body) == []
+
+
 def test_a_placeholder_why_is_refused() -> None:
     with pytest.raises(ValidationError, match="placeholder"):
         build_body(why="placeholder", issue=3198, change=CHANGE)

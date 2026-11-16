@@ -56,6 +56,7 @@ from devops_cli.exceptions.k8s import (
 )
 from devops_cli.exceptions.roadmap import (
     ImplementEvalError,
+    RefusedPullReply,
     RoadmapAlternativesError,
     RoadmapClaimError,
     RoadmapImplementError,
@@ -189,6 +190,7 @@ __all__ = [
     "KubernetesError",
     "KubernetesLoggingError",
     "LogfireConfigurationError",
+    "RefusedPullReply",
     "RegistryReadError",
     "RegistryTagNotFoundError",
     "RoadmapAlternativesError",

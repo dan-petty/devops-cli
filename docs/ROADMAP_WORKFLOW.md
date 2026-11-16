@@ -214,6 +214,7 @@ A stop has a class (`roadmap/failure.py`, #3065). A stop site that knows its cau
 | `oom` | `raise_limit` | A process was killed for memory |
 | `timeout` | `retry` | A command, a model call or the watch of the checks ran out of time, or the step `fix-plan` spent its time budget (`roadmap.fix_plan.time_budget_seconds`) |
 | `refused_tool` | `wait` | A tool refused the calls of the agent, or came back as a retry too often, or the process runner refused a command of the job before it started (`SecurityError`) |
+| `refused_reply` | `wait` | A pull request title or body broke a form rule two times, or held a placeholder |
 | `conflict` | `repair` | A rebase or the pull request has a merge conflict |
 | `ci_infra` | `retry` | The infrastructure failed, and every failure that no other class matches |
 | `no_change_in_fix` | `wait` | A fix step changed no file, so the failed check is as it was. A person reads the failed check in the stop |

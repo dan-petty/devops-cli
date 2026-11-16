@@ -25,6 +25,7 @@ from devops_cli.config import constants
 from devops_cli.exceptions import RoadmapImplementError
 from devops_cli.git.worktree_add import worktree_directory
 from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
+from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement.implement import (
     ImplementPlan,
     parse_implement_filters,
@@ -347,10 +348,16 @@ def test_a_body_that_the_form_check_refuses_stops_the_item_before_the_job_writes
     applied = job_world.run(two_groups())
 
     status, record = _item(job_world)
-    assert (applied.stopped, status, record.get("implement.stopped")) == (
+    assert (
+        applied.stopped,
+        status,
+        record.get("implement.stopped"),
+        record.get(ImplementRecordKey.FAILURE),
+    ) == (
         (1,),
         "Blocked",
         "pull request",
+        FailureClass.REFUSED_REPLY.value,
     )
     assert job_world.sent("PATCH", f"pulls/{PULL}") == []
     assert "does not pass the form check" in job_world.issue_comments()[0]

@@ -40,6 +40,8 @@ from devops_cli.roadmap.commit_title import commit_scope, commit_type
 SUMMARY_MAX_CHARS: Final[int] = 60
 # The characters that JavaScript `.` does not match, so that a title with one has no header.
 _LINE_BREAKS: Final[tuple[str, ...]] = ("\n", "\r", "\u2028", "\u2029")
+# The marks that a text cut short ends with: three periods, or the ellipsis character.
+_CUT_MARKS: Final[tuple[str, ...]] = ("...", "\u2026")
 
 
 def summary_length(text: str) -> int:
@@ -186,7 +188,7 @@ def _summary_problems(summary: str) -> list[str]:
     length = summary_length(summary)
     if length > SUMMARY_MAX_CHARS:
         problems.append(texts.form_summary_long.format(length=length, limit=SUMMARY_MAX_CHARS))
-    if summary.rstrip().endswith(("...", "\u2026")):
+    if summary.rstrip().endswith(_CUT_MARKS):
         problems.append(texts.form_summary_cut)
     return [*problems, *_repeat_problems(summary)]
 
@@ -326,7 +328,8 @@ def plan_body_problems(body: str, issue: int) -> list[str]:
 
 def _text_problems(text: str, measured: str, *, short_message: str | None = None) -> list[str]:
     """The problems of the text above `Closes` or `Plans`, and of the length of `measured`: the
-    body up to the `Change:` line. `short_message` names the line that the text goes above."""
+    body up to the `Change:` line. `short_message` names the line that the text goes above. A text
+    that ends with `...` is cut, and the caller writes the whole text."""
     texts = MESSAGES.pr
     problems = []
     if _ATTRIBUTION.search(text):
@@ -341,6 +344,8 @@ def _text_problems(text: str, measured: str, *, short_message: str | None = None
         )
     if len(measured) > BODY_MAX_CHARS:
         problems.append(texts.form_body_long.format(length=len(measured), limit=BODY_MAX_CHARS))
+    if text.rstrip().endswith(_CUT_MARKS):
+        problems.append(texts.form_body_cut)
     return problems
 
 
