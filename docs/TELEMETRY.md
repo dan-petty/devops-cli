@@ -11,6 +11,9 @@ Each command runs as its own short-lived process. An OpenTelemetry SDK `MeterPro
 with `DELTA` aggregation temporality and `ExponentialBucketHistogramAggregation`
 aggregates every counter, histogram, and gauge recording in memory over the command's
 run and flushes one OTLP `/v1/metrics` batch when the command finishes (`shutdown()`).
+A command that runs longer, such as the command of a Job pod, also flushes every
+60 s from its first metric on (`OTEL_METRIC_EXPORT_INTERVAL` sets the interval in milliseconds).
+SIGTERM flushes once more before the process stops as it did with no handler (#5916).
 `devops serve --service` is one long process, so it also flushes when each lane batch
 ends. One flush runs at a time, so the deltas reach the collector in the order they
 were collected.
@@ -45,7 +48,7 @@ The `/metrics` scrape adds the
 label `pod`, so each pod has its own series there. A running total that starts again from
 zero, for a new pod or for a stream that gets no delta for `max_stale` (`1h` in
 `k8s/otel/values.yaml`), is a counter reset to `rate()` and `increase()`.
-A Job pod exports its metrics once, when it exits.
+A Job pod that ends before its first interval exports its metrics once, when it exits.
 PromQL functions like `increase()` and `rate()` drop series that contain only one sample.
 So the collector sends the running totals to the OTLP receiver of Prometheus
 (`otlp_http/prometheus` in `k8s/otel/values.yaml`), which gets the start time of each point.

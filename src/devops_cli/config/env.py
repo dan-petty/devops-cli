@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict
 
 from devops_cli.config.constants import CONST_PROJECT_CONFIG_ENV
-from devops_cli.config.defaults import DEFAULT_OTEL_ENDPOINT
+from devops_cli.config.defaults import DEFAULT_OTEL_ENDPOINT, DEFAULT_OTEL_METRIC_EXPORT_INTERVAL_MS
 
 if TYPE_CHECKING:
     from pydantic.fields import FieldInfo
@@ -25,6 +25,8 @@ ENV_AGENT_GRANT = "DEVOPS_CLI_AGENT_GRANT"
 # OpenTelemetry's own name for the collector. devops-cli reads it only when its configuration
 # names no `telemetry.endpoint`.
 ENV_OTEL_EXPORTER_OTLP_ENDPOINT = "OTEL_EXPORTER_OTLP_ENDPOINT"
+# OpenTelemetry's own name for the milliseconds between two metric exports (#5916).
+ENV_OTEL_METRIC_EXPORT_INTERVAL = "OTEL_METRIC_EXPORT_INTERVAL"
 
 _VARIABLE_PREFIX = "DEVOPS_CLI"
 
@@ -312,6 +314,14 @@ def get_all_env_var_specs() -> list[EnvVarSpec]:
             False,
             "OpenTelemetry's standard collector variable, read only when `telemetry.endpoint` "
             f"is unset (default: {DEFAULT_OTEL_ENDPOINT})",
+        ),
+        EnvVarSpec(
+            ENV_OTEL_METRIC_EXPORT_INTERVAL,
+            None,
+            False,
+            "OpenTelemetry's standard interval of the metric export, in milliseconds: a process "
+            "that runs on exports its metrics at this interval, and once more when it ends "
+            f"(default: {DEFAULT_OTEL_METRIC_EXPORT_INTERVAL_MS:.0f})",
         ),
         *sorted([*settings, *credentials], key=lambda spec: spec.option_key or ""),
     ]
