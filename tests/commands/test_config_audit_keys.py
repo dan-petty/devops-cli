@@ -73,7 +73,7 @@ def test_config_audit_keys_json_output() -> None:
         "keys" in data,
         "is_compliant" in data,
         len(data["keys"]),
-    ) == (True, True, True, 27)
+    ) == (True, True, True, 28)
 
     keys = {k["key"] for k in data["keys"]}
     assert (
@@ -83,6 +83,7 @@ def test_config_audit_keys_json_output() -> None:
         "argocd.token" in keys,
         "argocd.password" in keys,
         "argocd.github_app_private_key" in keys,
+        "renovate.github_app_private_key" in keys,
         "ai.api_key" in keys,
         "qdrant.api_key" in keys,
         "valkey.password" in keys,
@@ -99,6 +100,7 @@ def test_config_audit_keys_json_output() -> None:
         "mcp.stage_token" in keys,
         "mcp.implement_token" in keys,
     ) == (
+        True,
         True,
         True,
         True,

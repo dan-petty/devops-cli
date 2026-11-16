@@ -80,6 +80,11 @@ CREDENTIALS: tuple[Credential, ...] = (
         "PEM private key of the GitHub App that Argo CD's GitHub notifier acts as (stored in OS "
         "keyring)",
     ),
+    Credential(
+        "renovate.github_app_private_key",
+        "PEM private key of the GitHub App that self-hosted Renovate acts as. `devops gh "
+        "app-token --app renovate` signs the App's JWT with it (stored in OS keyring)",
+    ),
     Credential("ai.api_key", "AI API key (stored in OS keyring)"),
     Credential("qdrant.api_key", "Qdrant API key (stored in OS keyring)", in_file=True),
     Credential(

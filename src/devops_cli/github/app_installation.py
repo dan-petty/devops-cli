@@ -16,12 +16,17 @@ the traffic (#5017, #4757). A runner Job reads neither, so its token cannot read
 through gidgethub's `GitHubAPI`. `core.process` keeps the token, gives it to
 every gh and git child and mints a new one before it expires. The App's login is its bot's,
 `<slug>[bot]`: an installation token cannot read `GET /user`.
+
+`mint_installation_token` also mints the token of another App, such as the Renovate App of
+`devops gh app-token` (#4897): that `GitHubApp` names the permissions its token asks for, and
+where its key comes from.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from http import HTTPStatus
@@ -44,13 +49,20 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class GitHubApp:
-    """One installation of a GitHub App, and the private key that signs its JWTs."""
+    """One installation of a GitHub App, and the private key that signs its JWTs.
 
-    app_id: int
+    `app_id` is the App ID or the App's Client ID: GitHub takes either one as the issuer of the
+    JWT. `permissions` are what its token asks for, when they are not the roadmap's
+    (`_token_permissions`), and `key_source` names where the key comes from, as an error names it.
+    """
+
+    app_id: int | str
     installation_id: int
     slug: str
     private_key: str = field(repr=False)
     token_repository: str | None = None
+    permissions: Mapping[str, str] | None = None
+    key_source: str = CONST_GITHUB_APP_PRIVATE_KEY_ENV
 
     @property
     def bot_login(self) -> str:
@@ -93,8 +105,9 @@ def configured_app() -> GitHubApp:
     )
 
 
-def mint_installation_token() -> tuple[str, str, datetime | None]:
-    """A new installation token of the App and when it expires, or "" and why GitHub gave none.
+def mint_installation_token(app: GitHubApp | None = None) -> tuple[str, str, datetime | None]:
+    """A new installation token of `app`, else of the App the process acts as, and when it
+    expires, or "" and why GitHub gave none.
 
     The token carries only the permissions of `_token_permissions`, and the log names the
     permissions of GitHub's reply, without their levels. A reply that grants more is no error.
@@ -110,7 +123,7 @@ def mint_installation_token() -> tuple[str, str, datetime | None]:
     from devops_cli.exceptions.base import DevOpsCLIError
     from devops_cli.github.error_classifier import classify_http_error
 
-    app = configured_app()
+    app = app or configured_app()
     if not _is_rsa_private_key(app.private_key):
         return "", _token_failed(app, ERRORS.git.github_app_key_unreadable), None
     try:
@@ -142,9 +155,14 @@ def mint_installation_token() -> tuple[str, str, datetime | None]:
     return token, "", expires_at
 
 
+def installation_token_path(installation_id: int) -> str:
+    """Where an App exchanges its JWT for an installation token of installation `installation_id`."""
+    return f"/app/installations/{installation_id}/access_tokens"
+
+
 def _token_path(app: GitHubApp) -> str:
     """Where the App exchanges its JWT for an installation token."""
-    return f"/app/installations/{app.installation_id}/access_tokens"
+    return installation_token_path(app.installation_id)
 
 
 def _not_granted(app: GitHubApp, reason: str) -> str:
@@ -167,8 +185,10 @@ def _token_permissions(app: GitHubApp) -> dict[str, str]:
     only. A token that names no repository, the Service's, also asks for the permissions of the
     metrics row, which reads the hooks and the traffic (#5017, #4757). No step of a runner Job
     reads them, so a step cannot read a hook URL, a delivery or the settings of the repository
-    (#5058).
+    (#5058). An App that names its own permissions, such as the Renovate App, asks for those.
     """
+    if app.permissions is not None:
+        return dict(app.permissions)
     if app.token_repository:
         return dict(CONST_GITHUB_APP_TOKEN_PERMISSIONS)
     return {**CONST_GITHUB_APP_TOKEN_PERMISSIONS, **CONST_GITHUB_APP_METRICS_TOKEN_PERMISSIONS}
@@ -196,7 +216,7 @@ def _is_rsa_private_key(pem: str) -> bool:
 def _token_failed(app: GitHubApp, reason: str) -> str:
     """Why the App has no installation token."""
     return ERRORS.git.github_app_token_failed.format(
-        login=app.bot_login, reason=reason, key_env=CONST_GITHUB_APP_PRIVATE_KEY_ENV
+        login=app.bot_login, reason=reason, key_env=app.key_source
     )
 
 

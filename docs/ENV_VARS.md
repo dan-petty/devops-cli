@@ -183,6 +183,9 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_QDRANT_READ_ONLY_API_KEY` | `qdrant.read_only_api_key` | 🔒 Yes | Qdrant read-only API key, which `devops k8s push-secrets` writes to the runner and the roadmap Service (stored in OS keyring) |
 | `DEVOPS_CLI_QDRANT_TIMEOUT` | `qdrant.timeout` | No | Seconds each Qdrant request waits per attempt: RAG searches, and indexing's upserts and deletes, which share the client |
 | `DEVOPS_CLI_QDRANT_URL` | `qdrant.url` | No | Qdrant vector database server URL |
+| `DEVOPS_CLI_RENOVATE_GITHUB_APP_ID` | `renovate.github_app_id` | No | App ID or Client ID of the GitHub App that self-hosted Renovate acts as. GitHub takes either one as the issuer of the App's JWT |
+| `DEVOPS_CLI_RENOVATE_GITHUB_APP_INSTALLATION_ID` | `renovate.github_app_installation_id` | No | ID of the installation of the Renovate App on the Service repositories |
+| `DEVOPS_CLI_RENOVATE_GITHUB_APP_PRIVATE_KEY` | `renovate.github_app_private_key` | 🔒 Yes | PEM private key of the GitHub App that self-hosted Renovate acts as. `devops gh app-token --app renovate` signs the App's JWT with it (stored in OS keyring) |
 | `DEVOPS_CLI_REPOS_BASE_DIR` | `repos.base_dir` | No | Base directory for cloned repositories |
 | `DEVOPS_CLI_ROADMAP_ALTERNATIVES_BACKLOG_INTERVAL_MINUTES` | `roadmap.alternatives.backlog_interval_minutes` | No | The minutes from the start of a round of this row to the start of its next round, while the queue that its last round counted holds `backlog_threshold` or more items. Empty by default, which turns the backlog rule off. It must not be above `interval_minutes` |
 | `DEVOPS_CLI_ROADMAP_ALTERNATIVES_BACKLOG_THRESHOLD` | `roadmap.alternatives.backlog_threshold` | No | The count of items in the queue of this row from which the row runs at `backlog_interval_minutes`. The row counts its queue from the listing that its round reads. Empty by default, which turns the backlog rule off |

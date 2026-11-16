@@ -344,6 +344,7 @@ and draft readiness. |
 | [**gh**](commands/gh.md) | `devops gh api [OPTIONS] <endpoint>` | Execute a GitHub API request with quota-derived spacing, rate-limit backoff, and optional caching. |
 |  | `devops gh rate-limit [OPTIONS]` | Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |
 |  | `devops gh status [OPTIONS]` | Display GitHub published operational status, key components, and active incidents. |
+|  | `devops gh app-token [OPTIONS]` | Write an installation token of a GitHub App to a file with mode 0600, and print where and when GitHub ends it, never the token. GitHub ends the token after 1 hour, so run the command again before each run that uses it. --app renovate reads renovate.github_app_id (the App ID or the Client ID), renovate.github_app_installation_id and renovate.github_app_private_key. |
 |  | `devops gh metrics [OPTIONS]` | Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, milestones, and roadmap Items. |
 |  | `devops gh label COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |
 |  | `devops gh milestones COMMAND [ARGS]...` | GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation. |

@@ -166,6 +166,13 @@ CONST_SETTINGS_SECTION_METADATA: Final[dict[str, tuple[str, str]]] = {
         "Web Search Configuration (`search`)",
         "The providers that web search asks, in order, and the language of the search.",
     ),
+    "renovate": (
+        "Renovate Configuration (`renovate`)",
+        "The GitHub App that self-hosted Renovate acts as. `devops gh app-token --app renovate` "
+        "reads these settings and the App's private key, the credential "
+        "`renovate.github_app_private_key` (variable `DEVOPS_CLI_RENOVATE_GITHUB_APP_PRIVATE_KEY`, "
+        "keyring entry `renovate_github_app_private_key`).",
+    ),
     "infra": (
         "Infra Repos (`infra`)",
         "The infra repos that `devops infra` manages, each with its agent access level, and the "
@@ -1364,6 +1371,8 @@ CONST_K8S_RBAC_BROAD_SUBJECTS: Final[frozenset[str]] = frozenset(
 # ── File Permissions ──────────────────────────────────────────────────────────
 CONST_PERM_DIR = 0o700
 CONST_PERM_PRIVATE_KEY = 0o600
+# A file that holds a token: only its owner can read and write it (#4897).
+CONST_PERM_TOKEN_FILE = 0o600
 CONST_PERM_PUBLIC_KEY = 0o644
 CONST_PERM_EXEC = 0o755
 # A file the repository commits, such as a generated table under src/.
@@ -1631,6 +1640,22 @@ CONST_GITHUB_APP_METRICS_TOKEN_PERMISSIONS: Final[dict[str, str]] = {
     "repository_hooks": "read",
     # The traffic endpoints of each repository (#4757).
     "administration": "read",
+}
+# The GitHub App that self-hosted Renovate acts as (#4893). The owner named it on 2026-11-16, so
+# its bot is `dan-petty-renovate[bot]`, which the Fail-to-Pass Check skips.
+CONST_RENOVATE_GITHUB_APP_SLUG: Final[str] = "dan-petty-renovate"
+# What an installation token of the Renovate App asks for: the repository permissions that the
+# Renovate documentation names for a GitHub App, and no other one (#4897).
+CONST_RENOVATE_GITHUB_APP_TOKEN_PERMISSIONS: Final[dict[str, str]] = {
+    "administration": "read",
+    "checks": "write",
+    "statuses": "write",
+    "contents": "write",
+    "vulnerability_alerts": "read",
+    "issues": "write",
+    "metadata": "read",
+    "pull_requests": "write",
+    "workflows": "write",
 }
 # GitHub's commit email of an account, `<id>+<login>@users.noreply.github.com`, for a bot too.
 CONST_GITHUB_NOREPLY_EMAIL: Final[str] = "{account_id}+{login}@users.noreply.github.com"

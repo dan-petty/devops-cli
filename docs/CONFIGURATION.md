@@ -84,6 +84,15 @@ Argo CD server endpoint, authentication, TLS, and service addressing settings.
 | `github_app_installation_id` | `Union` | - | `DEVOPS_CLI_ARGOCD_GITHUB_APP_INSTALLATION_ID` | ID of the installation of Argo CD's notifier App on the managed repositories |
 | `root_applications` | `list` | `['bootstrap', 'cluster']` | `DEVOPS_CLI_ARGOCD_ROOT_APPLICATIONS` | The Argo CD Applications that sync the other Applications (app of apps), the outer one first. A volume move pauses them before the Applications of the claim, and the last one is the Application that 'devops argo gitops watch' and 'sync' sync when no --app-name is given |
 
+## Renovate Configuration (`renovate`)
+
+The GitHub App that self-hosted Renovate acts as. `devops gh app-token --app renovate` reads these settings and the App's private key, the credential `renovate.github_app_private_key` (variable `DEVOPS_CLI_RENOVATE_GITHUB_APP_PRIVATE_KEY`, keyring entry `renovate_github_app_private_key`).
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `github_app_id` | `Union` | - | `DEVOPS_CLI_RENOVATE_GITHUB_APP_ID` | App ID or Client ID of the GitHub App that self-hosted Renovate acts as. GitHub takes either one as the issuer of the App's JWT |
+| `github_app_installation_id` | `Union` | - | `DEVOPS_CLI_RENOVATE_GITHUB_APP_INSTALLATION_ID` | ID of the installation of the Renovate App on the Service repositories |
+
 ## Gitea Configuration (`gitea`)
 
 gitea configuration settings.

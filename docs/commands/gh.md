@@ -68,6 +68,24 @@ devops gh status [OPTIONS]
 
 ---
 
+## `devops gh app-token`
+
+**Write an installation token of a GitHub App to a file with mode 0600, and print where and when GitHub ends it, never the token. GitHub ends the token after 1 hour, so run the command again before each run that uses it. --app renovate reads renovate.github_app_id (the App ID or the Client ID), renovate.github_app_installation_id and renovate.github_app_private_key.**
+
+```bash
+devops gh app-token [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--app` | `choice (renovate)` | - | The GitHub App whose settings give the token. |
+| `--write` | `path` | - | The file that gets the token. The command replaces it, and the new file has mode 0600. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
 ## `devops gh metrics`
 
 **Display comprehensive project metrics including release frequency, PRs, commits, CI pass rates, milestones, and roadmap Items.**

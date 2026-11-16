@@ -1212,8 +1212,9 @@ _BODY_EDIT = (
 )
 
 
-# A pull request of the Renovate App: a dependency bump has no test that fails on its base (#4896).
-_NOT_RENOVATE = "github.event.pull_request.user.login != 'devops-cli-renovate[bot]'"
+# A pull request of the Renovate App, `dan-petty-renovate` (#4897): a dependency bump has no test
+# that fails on its base (#4896).
+_NOT_RENOVATE = "github.event.pull_request.user.login != 'dan-petty-renovate[bot]'"
 
 
 def _title_prefixes(condition: str) -> list[str]:

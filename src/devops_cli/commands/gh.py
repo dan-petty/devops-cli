@@ -35,6 +35,7 @@ from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.exceptions.validation import ValidationError
+from devops_cli.github.app_token import TokenApp
 from devops_cli.github.branch_protection import (
     audit_branch_protection,
     load_branch_protection_policies,
@@ -1962,6 +1963,41 @@ def sync_branch_protection_cmd(
         print_warning(msg)
         raise typer.Exit(1)
     print_success(msg)
+
+
+# =============================================================================
+# GitHub App Token
+# =============================================================================
+
+
+@app.command("app-token", help=HELP.gh.app_token)
+@dry_run_class("request-plan")
+def app_token_cmd(
+    app_name: Annotated[TokenApp, typer.Option("--app", help=HELP.gh.app_token_app)],
+    write: Annotated[Path, typer.Option("--write", help=HELP.gh.app_token_write, dir_okay=False)],
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Write an installation token of a GitHub App to a file with mode 0600 (#4897)."""
+    from devops_cli.config.constants import CONST_PERM_TOKEN_FILE
+    from devops_cli.github.app_token import app_token_plan, write_app_token
+
+    if dry_run or is_dry_run():
+        title, planned, notes = app_token_plan(app_name, write)
+        render_request_plan(title, planned, notes)
+        return
+    written = write_app_token(app_name, write)
+    print_success(
+        MESSAGES.gh_app_token.written.format(
+            login=written.login,
+            path=written.path,
+            mode=CONST_PERM_TOKEN_FILE,
+            expires_at=written.expires_at.isoformat(),
+        ),
+        safe=True,
+    )
 
 
 # =============================================================================
