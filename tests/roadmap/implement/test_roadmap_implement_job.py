@@ -929,6 +929,7 @@ def test_a_conflict_on_the_rebase_stops_the_item_before_any_step(job_world: JobW
         [],
     )
     assert "conflict" in job_world.issue_comments()[0].lower()
+    assert "1 fix round" in job_world.issue_comments()[0]
     assert "The job discarded" not in job_world.issue_comments()[0]
     assert job_world.repo.git("worktree", "list").count("\n") == 0
     assert job_world.origin_log() == ["fix(roadmap): plan"]

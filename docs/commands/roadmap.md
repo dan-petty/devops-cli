@@ -694,6 +694,24 @@ devops roadmap review run [OPTIONS]
 devops roadmap step COMMAND [ARGS]...
 ```
 
+### `devops roadmap step fix-conflict`
+
+**Settle merge conflicts on a pull request with the default branch (#5019). Runs deterministic tier 1 resolutions (archive, generated docs, lockfile) and tier 2 model resolution. Without --confirm, tier 2 logs the plan.**
+
+```bash
+devops roadmap step fix-conflict [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--pull`, `-p` | `integer` | - | The pull request number to settle merge conflicts for. |
+| `--head` | `string` | - | Expected head SHA of the pull request. Refuses to run if remote head moved. |
+| `--confirm` | `boolean` | - | Allow tier 2 model resolution and push changes. |
+| `--dry-run` | `boolean` | - | Make no external requests: display planned actions. |
+
 ### `devops roadmap step fix-plan`
 
 **Repair one open plan pull request that holds the label plan/needs-fix: the stage planner revises the plan with the open findings of a model review, and a better revision is pushed. Without --confirm, print the plan pull request that it selects. Details: docs/roadmap/stage.md.**

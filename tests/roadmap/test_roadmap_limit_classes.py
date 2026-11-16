@@ -736,6 +736,15 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "ends in about 6 minutes",
     ),
     "DEFAULT_ROADMAP_RELEASE_COMMENTS_INTERVAL_MINUTES": ("other", "a schedule"),
+    "DEFAULT_ROADMAP_FIX_CONFLICT_INTERVAL_MINUTES": ("other", "a schedule"),
+    "DEFAULT_ROADMAP_FIX_CONFLICT_SOFT_CAP": (
+        "setting",
+        "new (#5019); the soft cap of conflicting files for automated conflict resolution",
+    ),
+    "DEFAULT_ROADMAP_FIX_CONFLICT_HARD_CAP": (
+        "setting",
+        "new (#5019); the hard cap of conflicting files for automated conflict resolution",
+    ),
     "DEFAULT_ROADMAP_FIX_PLAN_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_FIX_PLAN_TIME_BUDGET_SECONDS": (
         "setting",

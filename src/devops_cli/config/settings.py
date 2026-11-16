@@ -117,6 +117,11 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
     DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
     DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS,
+    DEFAULT_ROADMAP_FIX_CONFLICT_HARD_CAP,
+    DEFAULT_ROADMAP_FIX_CONFLICT_INTERVAL_MINUTES,
+    DEFAULT_ROADMAP_FIX_CONFLICT_SOFT_CAP,
+    DEFAULT_ROADMAP_FIX_CONFLICT_TIER1_MODE,
+    DEFAULT_ROADMAP_FIX_CONFLICT_TIER2_MODE,
     DEFAULT_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS,
     DEFAULT_ROADMAP_FIX_PLAN_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_FIX_PLAN_MODE,
@@ -1839,6 +1844,34 @@ class RoadmapFixPlanConfig(RowCadenceConfig):
     )
 
 
+class RoadmapFixConflictConfig(RowCadenceConfig):
+    """The cadence and modes of the fix_conflict step (#5019)."""
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    interval_minutes: Annotated[int, Variable()] = _interval_minutes(
+        DEFAULT_ROADMAP_FIX_CONFLICT_INTERVAL_MINUTES
+    )
+    tier1_mode: Annotated[RowMode, Variable()] = Field(
+        default=DEFAULT_ROADMAP_FIX_CONFLICT_TIER1_MODE,
+        description="Mode for tier 1 (deterministic, no model call) conflict fixes: 'off', 'plan', or 'on'.",
+    )
+    tier2_mode: Annotated[RowMode, Variable()] = Field(
+        default=DEFAULT_ROADMAP_FIX_CONFLICT_TIER2_MODE,
+        description="Mode for tier 2 (model) conflict fixes: 'off', 'plan', or 'on'.",
+    )
+    soft_cap_rounds: Annotated[int, Variable()] = Field(
+        default=DEFAULT_ROADMAP_FIX_CONFLICT_SOFT_CAP,
+        description="Soft cap of fix rounds for each pull request.",
+        ge=1,
+    )
+    hard_cap_rounds: Annotated[int, Variable()] = Field(
+        default=DEFAULT_ROADMAP_FIX_CONFLICT_HARD_CAP,
+        description="Hard cap of fix rounds for each pull request.",
+        ge=1,
+    )
+
+
 class RoadmapRefineConfig(RowCadenceConfig):
     """The cadence of the refine row of the Service (#5470)."""
 
@@ -1882,6 +1915,7 @@ class RoadmapConfig(BaseModel):
     inbox: RoadmapInboxConfig = Field(default_factory=RoadmapInboxConfig)
     intake: RoadmapIntakeConfig = Field(default_factory=RoadmapIntakeConfig)
     fix_plan: RoadmapFixPlanConfig = Field(default_factory=RoadmapFixPlanConfig)
+    fix_conflict: RoadmapFixConflictConfig = Field(default_factory=RoadmapFixConflictConfig)
     refine: RoadmapRefineConfig = Field(default_factory=RoadmapRefineConfig)
     mcp: RoadmapMcpConfig = Field(default_factory=RoadmapMcpConfig)
     stall: RoadmapStallConfig = Field(default_factory=RoadmapStallConfig)

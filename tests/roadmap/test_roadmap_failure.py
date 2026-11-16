@@ -529,7 +529,7 @@ def test_the_default_actions_are_the_ones_of_the_design() -> None:
         "oom": "raise_limit",
         "timeout": "retry",
         "refused_tool": "wait",
-        "conflict": "wait",
+        "conflict": "repair",
         "ci_infra": "retry",
         "no_change_in_fix": "wait",
         "tests_lost": "wait",
@@ -559,7 +559,9 @@ def test_the_action_left_is_the_default_unless_the_job_took_it_already() -> None
     assert left_action(FailureClass.OOM, None) is FailureAction.RAISE_LIMIT
     assert left_action(FailureClass.TYPES, None) is FailureAction.REPAIR
     assert left_action(FailureClass.TYPES, FailureAction.REPAIR) is FailureAction.WAIT
-    assert left_action(FailureClass.CONFLICT, None) is FailureAction.WAIT
+    assert left_action(FailureClass.REFUSED_TOOL, None) is FailureAction.WAIT
+    assert left_action(FailureClass.CONFLICT, None) is FailureAction.REPAIR
+    assert left_action(FailureClass.CONFLICT, FailureAction.REPAIR) is FailureAction.WAIT
 
 
 def test_the_lines_of_a_stop_name_the_class_the_action_taken_and_the_action_left() -> None:
