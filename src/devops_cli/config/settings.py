@@ -1217,7 +1217,28 @@ def _interval_minutes(default: int) -> Any:
     return Field(description=_INTERVAL_MINUTES_TEXT, default=default, ge=1)
 
 
-class RowCadenceConfig(BaseModel):
+_ROW_INTERVAL_TEXT = "The minutes from the start of a round of this row of the Service to the start of its next round. Each round reads it again, so a change needs no restart"
+
+
+class RowIntervalConfig(BaseModel):
+    """How often the Service runs one row that counts no queue (#6012): its interval only, so the
+    section holds no backlog setting that would do nothing. `RowCadenceConfig` adds the backlog
+    rule for a row that counts its queue."""
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    interval_minutes: Annotated[int, Variable()] = Field(description=_ROW_INTERVAL_TEXT, ge=1)
+
+    def minutes_for(self, queue: int | None) -> int:
+        """The minutes between two rounds of the row: its interval, for any `queue`."""
+        return self.interval_minutes
+
+    def in_backlog(self, queue: int | None) -> bool:
+        """Whether the backlog rule applies to a queue of `queue` items: never, with no rule."""
+        return False
+
+
+class RowCadenceConfig(RowIntervalConfig):
     """How often the Service runs one row (#5470): its interval, and the shorter interval while the
     queue that its last round counted holds `backlog_threshold` or more items. The rule applies
     only when both backlog settings have a value. Each section that holds the cadence of a row
@@ -1886,14 +1907,14 @@ class RoadmapInboxConfig(BaseModel):
     )
 
 
-class RoadmapMetricsConfig(RowCadenceConfig):
-    """The cadence of the metrics row of the Service (#6012). The row reads the metrics of the
-    whole repository and gives no queue, so the backlog rule never applies to it."""
+class RoadmapMetricsConfig(RowIntervalConfig):
+    """The interval of the metrics row of the Service (#6012). The row reads the metrics of the
+    whole repository and counts no queue, so the section has no backlog rule."""
 
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
-    interval_minutes: Annotated[int, Variable()] = _interval_minutes(
-        DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES
+    interval_minutes: Annotated[int, Variable()] = Field(
+        description=_ROW_INTERVAL_TEXT, default=DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES, ge=1
     )
 
 

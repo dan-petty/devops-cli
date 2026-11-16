@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from devops_cli.config import settings
 from devops_cli.config.settings import RoadmapConfig, RowCadenceConfig
 
-SECTIONS = ("metrics", "intake", "stage", "fix_plan", "refine", "alternatives")
+SECTIONS = ("intake", "stage", "fix_plan", "refine", "alternatives")
 
 
 def _cadence(name: str) -> RowCadenceConfig:
@@ -33,7 +33,6 @@ def test_the_defaults_are_the_old_intervals_and_no_backlog_rule() -> None:
     }
 
     assert found == {
-        "metrics": (13, None, None),
         "intake": (29, None, None),
         "stage": (37, None, None),
         "fix_plan": (53, None, None),
@@ -57,6 +56,25 @@ def test_a_variable_sets_each_field_of_each_row(name: str, monkeypatch: pytest.M
         31,
         11,
         40,
+    )
+
+
+def test_the_metrics_section_holds_only_its_interval(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The metrics row counts no queue, so its section holds no backlog setting that would do
+    nothing. Its interval keeps the old 13 minutes, and a variable sets it (#6012)."""
+    default = RoadmapConfig().metrics
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_METRICS_INTERVAL_MINUTES", "26")
+
+    loaded = settings.load_settings().roadmap.metrics
+
+    assert (
+        sorted(type(default).model_fields),
+        default.interval_minutes,
+        loaded.interval_minutes,
+    ) == (
+        ["interval_minutes"],
+        13,
+        26,
     )
 
 

@@ -8,7 +8,6 @@ from __future__ import annotations
 import json
 from datetime import timedelta
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -289,31 +288,6 @@ def test_the_metrics_row_reads_no_status_page_and_raises_when_its_collection_fai
     assert {CONST_URL_GITHUB_STATUS_SUMMARY, CONST_URL_CLOUDFLARE_STATUS_SUMMARY}.isdisjoint(
         web.requested
     )
-
-
-def test_the_metrics_row_reads_the_deliveries_of_its_own_interval(
-    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """With `roadmap.metrics.interval_minutes` at 26, the row counts the failed deliveries of the
-    last 28 minutes, so a delivery between two rounds of the slower row is still read (#6012)."""
-    from devops_cli.github import hook_deliveries, metrics
-    from devops_cli.roadmap import run
-
-    windows: list[int] = []
-    report = SimpleNamespace(repo=REPO)
-    monkeypatch.setattr(metrics, "collect_project_metrics_report", lambda **_: report)
-    monkeypatch.setattr(metrics, "emit_project_metrics_telemetry", lambda _report: None)
-    monkeypatch.setattr(
-        hook_deliveries,
-        "report_delivery_failures",
-        lambda _repo, _at, window: windows.append(window),
-    )
-    monkeypatch.setattr(run, "_emit_inbox_gauges", lambda *_: None)
-    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_METRICS_INTERVAL_MINUTES", "26")
-
-    run_metrics_adapter(store=seeded_store, repo=REPO, clone_path=tmp_path)
-
-    assert windows == [28]
 
 
 def _services(otlp: FakeCollector) -> list[str]:

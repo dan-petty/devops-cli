@@ -106,7 +106,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_STATUS_PAGE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_WATCH_INTERVAL_MINUTES,
 )
-from devops_cli.config.settings import load_settings
+from devops_cli.config.settings import RowCadenceConfig, load_settings
 from devops_cli.core import clock
 from devops_cli.core.paths import (
     is_forbidden_system_path,
@@ -194,7 +194,7 @@ from devops_cli.telemetry.instruments import (
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 
 if TYPE_CHECKING:
-    from devops_cli.config.settings import RoadmapConfig, RowCadenceConfig
+    from devops_cli.config.settings import RoadmapConfig, RowIntervalConfig
     from devops_cli.roadmap.intake.intake_model import IntakeModel
 
 logger = logging.getLogger(__name__)
@@ -256,7 +256,7 @@ class JobRow:
 
     name: str
     interval: timedelta | None = None
-    cadence: Callable[[RoadmapConfig], RowCadenceConfig] | None = None
+    cadence: Callable[[RoadmapConfig], RowIntervalConfig] | None = None
     batch_keys: tuple[tuple[str, str, str], ...] = ()
     runner: Callable[..., JobOutcome] = field(default_factory=lambda: lambda **_: JobOutcome())
     needs_clone: bool = False
@@ -357,13 +357,13 @@ class _Cadences:
     the queue that the last round of each row recorded in `record`."""
 
     record: Path
-    sections: Mapping[str, RowCadenceConfig] = field(default_factory=dict)
+    sections: Mapping[str, RowIntervalConfig] = field(default_factory=dict)
     queues: Mapping[str, int] = field(default_factory=dict)
 
     @classmethod
     def read(cls, rows: Sequence[JobRow], repo_dir: Path) -> _Cadences:
-        """The cadences of `rows`. A table with no row that has a cadence, such as the status
-        lane's, reads no settings and no record."""
+        """The cadences of `rows`. A table with no row that has a cadence, such as the lane of
+        `watch`, reads no settings and no record."""
         record = repo_dir / CONST_ROADMAP_ROW_QUEUES_FILENAME
         cadenced = [(row.name, row.cadence) for row in rows if row.cadence is not None]
         if not cadenced:
@@ -398,7 +398,7 @@ class _Cadences:
                 threshold=section.backlog_threshold,
                 minutes=minutes,
             )
-            if section.in_backlog(queue)
+            if isinstance(section, RowCadenceConfig) and section.in_backlog(queue)
             else texts.run_row_queue.format(row=row, repo=repo, queue=queue, minutes=minutes)
         )
         logger.info(line, extra={"repo": repo})
@@ -984,12 +984,11 @@ def _run_metrics_adapter(
     """Collect the project metrics, walking the version tags of the job's clone of `repo` and
     counting the Items of `store`, into OTLP (#1358). The Items also give the age of the oldest
     Item of each state, which only this row asks for (#2919). Then read the deliveries of the
-    hooks of the repository that got no 2xx answer before `now`, into the Service's gauge
-    (#5017), in a window that grows with `roadmap.metrics.interval_minutes` (#6012). A failed
-    collection, a failed read of the hooks and a missing clone fail the row (#4052); the status
-    pages have rows of their own. The inbox of the repository gives one gauge for each counted
-    kind, and a failed read of it sends none this round (#2968)."""
-    from devops_cli.github.hook_deliveries import delivery_window_minutes, report_delivery_failures
+    hooks of the repository that got no 2xx answer since its last read, into the Service's gauge
+    (#5017, #6012). A failed collection, a failed read of the hooks and a missing clone fail the
+    row (#4052); the status pages have rows of their own. The inbox of the repository gives one
+    gauge for each counted kind, and a failed read of it sends none this round (#2968)."""
+    from devops_cli.github.hook_deliveries import report_delivery_failures
     from devops_cli.github.metrics import (
         collect_project_metrics_report,
         emit_project_metrics_telemetry,
@@ -1001,8 +1000,7 @@ def _run_metrics_adapter(
         root=clone, repo=repo or None, store=store, item_ages=True
     )
     emit_project_metrics_telemetry(report)
-    interval = load_settings().roadmap.metrics.interval_minutes
-    report_delivery_failures(report.repo, at, delivery_window_minutes(interval))
+    report_delivery_failures(report.repo, at)
     _emit_inbox_gauges(store, report.repo, at)
     return JobOutcome()
 

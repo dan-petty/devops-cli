@@ -22,7 +22,7 @@ from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlencode, urlsplit
 
 from devops_cli.config.constants import CONST_GH_CLI
 from tests.support.fakes.github import API
@@ -71,6 +71,12 @@ class GitHubFake:
         self.traffic_answer = traffic_answer
         self.hooks_answer: tuple[int, str] | None = None
         self.hooks: dict[int, tuple[bool, list[dict[str, Any]]]] = {}
+        # The answers that the first reads of the deliveries of a hook get, in turn, before the
+        # seeded deliveries, and the next page that the last read of deliveries links (#6012).
+        self.deliveries_answers: list[tuple[int, str]] = []
+        # The next page that an answer of `deliveries_answers` links, such as one on another host.
+        self.deliveries_answer_link: str | None = None
+        self._next_link: str | None = None
         self.milestones = list(milestones)
         self.files = dict(files or {})
         self.events = list(events)
@@ -296,6 +302,9 @@ class GitHubFake:
             reply = self._answer(args, kwargs.get("input"))
         returncode, output = reply if isinstance(reply, tuple) else (0, reply)
         text = output if isinstance(output, str) else json.dumps(output)
+        if "--include" in args and returncode == 0:
+            link = "" if self._next_link is None else f'Link: <{self._next_link}>; rel="next"\r\n'
+            text = f"HTTP/2.0 200 OK\r\nContent-Type: application/json\r\n{link}\r\n{text}"
         return subprocess.CompletedProcess(args, returncode, text, "" if returncode == 0 else text)
 
     def process(
@@ -491,7 +500,10 @@ class GitHubFake:
         return [] if parts[1] == "popular" else {"count": 0, "uniques": 0}
 
     def _hooks_route(self, parts: list[str], query: dict[str, str]) -> Any:
-        """The hooks of the repository, or the newest `per_page` deliveries of one hook."""
+        """The hooks of the repository, or one page of the deliveries of one hook: `per_page`
+        of them from the offset that `cursor` names, only the failed ones for `status=failure`,
+        with the next page as the link of the answer while more are left (#6012)."""
+        self._next_link = None
         if parts == ["hooks"]:
             if self.hooks_answer is not None:
                 return self.hooks_answer
@@ -499,7 +511,22 @@ class GitHubFake:
         hook = self.hooks.get(int(parts[1]))
         if hook is None or parts[2:] != ["deliveries"]:
             return (1, "gh: Not Found (HTTP 404)")
-        return hook[1][: int(query.get("per_page", "30"))]
+        if self.deliveries_answers:
+            self._next_link = self.deliveries_answer_link
+            return self.deliveries_answers.pop(0)
+        listed = [
+            delivery
+            for delivery in hook[1]
+            if query.get("status") != "failure" or not 200 <= delivery["status_code"] < 300
+        ]
+        size = int(query.get("per_page", "30"))
+        start = int(query.get("cursor", "v1_0").removeprefix("v1_"))
+        if start + size < len(listed):
+            self._next_link = (
+                f"{API}/repos/{self.repo}/hooks/{parts[1]}/deliveries"
+                f"?{urlencode({**query, 'cursor': f'v1_{start + size}'})}"
+            )
+        return listed[start : start + size]
 
     def _blockers_page(self, number: int, page: int) -> list[dict[str, Any]]:
         """A page of 100 issues that block issue `number`, as GitHub lists them at

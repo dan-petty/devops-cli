@@ -3,11 +3,14 @@
 
 A refusal at the Cloudflare edge never gets to the webhook route, so only GitHub's record of each
 delivery shows it. GitHub is faked at the `gh` process edge, and the gauge is read from the
-Service's metrics.
+Service's metrics. A read counts from the last good read of the repository and follows the pages
+back to it, so no failed delivery between two reads of the metrics row is lost (#6012).
 """
 
 from __future__ import annotations
 
+import json
+import logging
 from datetime import timedelta
 from typing import Any
 
@@ -15,12 +18,11 @@ import pytest
 
 from devops_cli.config.constants import CONST_SERVICE_METRIC_WEBHOOK_DELIVERY_FAILURES
 from devops_cli.config.defaults import (
-    DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES,
+    DEFAULT_SERVICE_HOOK_DELIVERY_MAX_PAGES,
     DEFAULT_SERVICE_HOOK_DELIVERY_PAGE_SIZE,
-    DEFAULT_SERVICE_HOOK_DELIVERY_WINDOW_MINUTES,
 )
 from devops_cli.exceptions import GitHubOperationError
-from devops_cli.github.hook_deliveries import delivery_window_minutes, report_delivery_failures
+from devops_cli.github.hook_deliveries import report_delivery_failures
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from tests.support.fakes.github_repository import GitHubFake
 from tests.support.fakes.process import ProcessFake
@@ -31,6 +33,7 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 HOOK = 692250036
 OTHER_HOOK = 692250037
 REFUSED = "gh: Resource not accessible by integration (HTTP 403)"
+NO_DELIVERY = (0, "[]")
 
 
 @pytest.fixture(autouse=True)
@@ -70,16 +73,20 @@ def _failures(code: str) -> float:
     )
 
 
-def _deliveries_path(hook: int) -> str:
-    return (
-        f"repos/{REPO}/hooks/{hook}/deliveries?per_page={DEFAULT_SERVICE_HOOK_DELIVERY_PAGE_SIZE}"
+def _deliveries_path(hook: int, offset: int = 0) -> str:
+    """The path of the page of the failed deliveries of `hook` from `offset` on, newest first."""
+    path = (
+        f"repos/{REPO}/hooks/{hook}/deliveries"
+        f"?per_page={DEFAULT_SERVICE_HOOK_DELIVERY_PAGE_SIZE}&status=failure"
     )
+    return path if offset == 0 else f"{path}&cursor=v1_{offset}"
 
 
 def test_two_403_answers_in_the_window_set_the_gauge_to_2(github: GitHubFake) -> None:
-    """A page with two 403 answers of the last 15 minutes sets the gauge of code 403 to 2. A 202
-    answer and a 403 answer from before the window do not count. The read sends one request for
-    the hooks and one for the newest page of deliveries of the hook."""
+    """The first read of a process counts the last 15 minutes. A page with two 403 answers of
+    that time sets the gauge of code 403 to 2. A 202 answer and a 403 answer from before the
+    window do not count. The read sends one request for the hooks and one for the page of the
+    failed deliveries of the hook."""
     github.seed_hook(
         HOOK,
         [_delivery(1, 403), _delivery(2, 202), _delivery(5, 403), _delivery(20, 403)],
@@ -123,11 +130,92 @@ def test_a_code_that_the_next_read_does_not_find_is_set_to_0(github: GitHubFake)
     github.seed_hook(HOOK, [_delivery(1, 403), _delivery(2, 403)])
     report_delivery_failures(REPO, NOW)
     before = _failures("403")
-    github.seed_hook(HOOK, [_delivery(1, 202)])
+    github.seed_hook(HOOK, [_delivery(-12, 202), _delivery(3, 202)])
 
     failed = report_delivery_failures(REPO, NOW + timedelta(minutes=13))
 
     assert (before, dict(failed), _failures("403")) == (2.0, {}, 0.0)
+
+
+def test_a_read_counts_each_failed_delivery_since_the_last_read_over_two_pages(
+    github: GitHubFake,
+) -> None:
+    """The metrics row runs when a trigger comes after its interval, so 30 minutes can pass
+    between two reads: longer than the window of 15 minutes. A burst of 100 failed deliveries in
+    the last 10 minutes fills one page. The read counts each failed delivery since the last good
+    read: it follows the link to the next page until a delivery is older than that read, and
+    asks for no page after it. A delivery from before the last read is not counted again
+    (#6012)."""
+    burst = [_delivery(minute / 10, 403) for minute in range(100)]
+    older = [_delivery(22, 502), _delivery(29, 403), _delivery(31, 403), _delivery(40, 403)]
+    github.seed_hook(HOOK, [*burst, _delivery(21, 202), *older])
+    github.deliveries_answers = [NO_DELIVERY]
+    report_delivery_failures(REPO, NOW - timedelta(minutes=30))
+
+    failed = report_delivery_failures(REPO, NOW)
+
+    assert (dict(failed), _failures("403"), _failures("502"), github.hook_calls()[2:]) == (
+        {"403": 101, "502": 1},
+        101.0,
+        1.0,
+        [f"repos/{REPO}/hooks", _deliveries_path(HOOK), _deliveries_path(HOOK, 100)],
+    )
+
+
+def test_a_read_that_fails_keeps_the_start_of_the_next_read(github: GitHubFake) -> None:
+    """A read that fails is no good read: the next read still counts from the last good one, so
+    the failed deliveries of the time of the failed read are counted then (#6012)."""
+    github.seed_hook(HOOK, [_delivery(1, 202), _delivery(25, 403), _delivery(45, 403)])
+    github.deliveries_answers = [NO_DELIVERY, (1, REFUSED)]
+    report_delivery_failures(REPO, NOW - timedelta(minutes=40))
+    with pytest.raises(GitHubOperationError, match="not accessible by integration"):
+        report_delivery_failures(REPO, NOW - timedelta(minutes=20))
+
+    failed = report_delivery_failures(REPO, NOW)
+
+    assert dict(failed) == {"403": 1}
+
+
+def test_a_long_gap_reads_at_most_the_page_limit_and_says_so(
+    github: GitHubFake, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A row that did not run for hours reads at most `DEFAULT_SERVICE_HOOK_DELIVERY_MAX_PAGES`
+    pages of a hook, so the read costs a bounded number of requests, and a warning names the
+    hook whose older failed deliveries the read leaves out (#6012)."""
+    pages = DEFAULT_SERVICE_HOOK_DELIVERY_MAX_PAGES
+    size = DEFAULT_SERVICE_HOOK_DELIVERY_PAGE_SIZE
+    github.seed_hook(HOOK, [_delivery(1 + item / 10, 403) for item in range(size * (pages + 1))])
+    github.deliveries_answers = [NO_DELIVERY]
+    report_delivery_failures(REPO, NOW - timedelta(days=1))
+
+    with caplog.at_level(logging.WARNING):
+        failed = report_delivery_failures(REPO, NOW)
+
+    assert (
+        dict(failed),
+        len(github.hook_calls()[2:]),
+        [record.getMessage() for record in caplog.records if str(HOOK) in record.getMessage()],
+    ) == (
+        {"403": size * pages},
+        1 + pages,
+        [
+            f"The read of the failed deliveries of hook {HOOK} of {REPO} stopped after {pages} "
+            "pages: older failed deliveries are not counted."
+        ],
+    )
+
+
+def test_a_next_page_on_another_host_raises_and_is_not_read(github: GitHubFake) -> None:
+    """The read sends the token to GitHub's API only: a page that links its next page on another
+    host fails the read, and gh gets no request for that page (#6012)."""
+    github.seed_hook(HOOK)
+    github.deliveries_answers = [(0, json.dumps([_delivery(1, 403)]))]
+    github.deliveries_answer_link = "https://example.com/repos/next?cursor=v1_1"
+
+    with pytest.raises(GitHubOperationError, match="another origin"):
+        report_delivery_failures(REPO, NOW)
+
+    assert github.hook_calls() == [f"repos/{REPO}/hooks", _deliveries_path(HOOK)]
 
 
 def test_a_refused_read_of_the_hooks_raises_and_keeps_the_gauge(github: GitHubFake) -> None:
@@ -141,29 +229,3 @@ def test_a_refused_read_of_the_hooks_raises_and_keeps_the_gauge(github: GitHubFa
         report_delivery_failures(REPO, NOW + timedelta(minutes=13))
 
     assert _failures("403") == 2.0
-
-
-@pytest.mark.parametrize("interval", [1, DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES, 26, 600])
-def test_the_window_holds_each_delivery_between_two_metrics_rounds(interval: int) -> None:
-    """The metrics row runs each `roadmap.metrics.interval_minutes`, so a window that is longer
-    reads each delivery at least once, also when a setting slows the row (#6012). The default
-    interval keeps the default window."""
-    window = delivery_window_minutes(interval)
-
-    assert (
-        window > interval,
-        delivery_window_minutes(DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES),
-    ) == (
-        True,
-        DEFAULT_SERVICE_HOOK_DELIVERY_WINDOW_MINUTES,
-    )
-
-
-def test_a_longer_window_counts_an_older_failed_delivery(github: GitHubFake) -> None:
-    """With the metrics row at 26 minutes, the window of 28 minutes counts a 403 answer of 20
-    minutes ago, which the default window of 15 minutes leaves out (#6012)."""
-    github.seed_hook(HOOK, [_delivery(1, 202), _delivery(20, 403), _delivery(30, 403)])
-
-    failed = report_delivery_failures(REPO, NOW, delivery_window_minutes(26))
-
-    assert (delivery_window_minutes(26), dict(failed)) == (28, {"403": 1})

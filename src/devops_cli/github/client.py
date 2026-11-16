@@ -962,11 +962,14 @@ class GhCliClient:
             cmd.extend(["--repo", target_repo])
         self._run_label_command(cmd)
 
-    def api(self, endpoint: str, paginate: bool = False) -> str:
-        """Execute a GitHub API request via rate-managed run_gh."""
+    def api(self, endpoint: str, paginate: bool = False, include: bool = False) -> str:
+        """Execute a GitHub API request via rate-managed run_gh. With `include`, gh prints the
+        status line and the headers of the answer before its body, such as its `Link`."""
         cmd = [CONST_GH_CLI, "api"]
         if paginate:
             cmd.append("--paginate")
+        if include:
+            cmd.append("--include")
         cmd.append(endpoint)
         timeout = (
             DEFAULT_GH_API_PAGINATE_TIMEOUT_SECONDS
