@@ -116,7 +116,7 @@ Each refusal of a `new-plan` folder prints with the name of its gate, in square 
 | `citation` | A citation of a file that the staged commit does not hold as cited: a `path:line:text` line with other text when no other line or more than one other line holds the text, or a `path:def name` symbol that the file lacks. A line citation whose text is on exactly one other line has a stale line number: the gate accepts it as that line and counts it in the log line `The citation gate re-anchored <n> of <m> line citations.` (#4479). |
 | `form` | A task text of one word, a `verify` command outside the project form, and a new test module outside the mirror directories. |
 | `eval-replay` | A plan that changes the stage prompt or a module of the stage checks and holds no task that runs the replay and states the score before and after. |
-| `paths` | A path that the tree lacks and that no group up to the one that names it creates. |
+| `paths` | A path that the tree lacks and that no group up to the one that names it creates, and a decision, a rejected alternative or a feasibility line that names an internal class in a code span gives another code span that holds text of that class at the staged commit, and a class that declares no base is read too. |
 | `what-changes` | A path in a `What Changes` item that no group lists in `changes` or `creates`. |
 | `move-prefix` | A move of a prefix that leaves a module of it out of `changes`. |
 | `move-verify` | A move group whose `! git grep` literal names one module of the prefix. |

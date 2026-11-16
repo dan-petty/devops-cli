@@ -38,9 +38,9 @@ Kind: other. Reads: `tests/roadmap/stage/test_roadmap_stage_eval_gates.py`. Chan
 
 Kind: other. Reads: `docs/roadmap/plan-recheck.md`, `docs/ROADMAP_WORKFLOW.md`, `src/devops_cli/roadmap/stage/stage_change.py`. Changes: `docs/roadmap/plan-recheck.md`, `docs/ROADMAP_WORKFLOW.md`.
 
-- [ ] 5.1 State the class-claim rule in the `paths` row of the gate table of `docs/roadmap/plan-recheck.md` and in the list of the rules of the `paths` gate of `docs/ROADMAP_WORKFLOW.md`: a decision, a rejected alternative or a feasibility line that names an internal class in a code span gives another code span that holds text of that class at the staged commit, and a class that declares no base is read too
+- [x] 5.1 State the class-claim rule in the `paths` row of the gate table of `docs/roadmap/plan-recheck.md` and in the list of the rules of the `paths` gate of `docs/ROADMAP_WORKFLOW.md`: a decision, a rejected alternative or a feasibility line that names an internal class in a code span gives another code span that holds text of that class at the staged commit, and a class that declares no base is read too
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 5.2 Edit `docs/roadmap/plan-recheck.md` and `docs/ROADMAP_WORKFLOW.md` with the class-claim rule of the `paths` gate
+- [x] 5.2 Edit `docs/roadmap/plan-recheck.md` and `docs/ROADMAP_WORKFLOW.md` with the class-claim rule of the `paths` gate
   - Verification: `$ uv run devops ci docs` passes
 
 ## Workflow follow-up
