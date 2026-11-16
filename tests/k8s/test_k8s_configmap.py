@@ -238,8 +238,9 @@ def test_every_chat_model_slot_of_the_rendered_template_names_one_hosted_group()
     """The Service uses one hosted chat model (#3874). The planner returned to it on 2026-11-10
     (#4369) after the Sonnet trial of 2026-11-09 (#4204). Every task of `ai.tasks` and the default
     `ai.model` resolve to the one model, except intake and retitle, which the owner moved to the
-    local model on 2026-11-15. The embedding slot is the embedding model, because a chat model
-    cannot embed. Each job reads its own window (#5903)."""
+    local model on 2026-11-15, and refine and the alternatives check, which run on it in the owner
+    trial of 2026-11-16. The embedding slot is the embedding model, because a chat model cannot
+    embed. Each job reads its own window (#5903)."""
     rendered = render_active_devops_configmap(PRODUCT, settings=_settings(["owner/repo"], APP))
     inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
     ai = Settings.model_validate(inner).ai
@@ -258,7 +259,7 @@ def test_every_chat_model_slot_of_the_rendered_template_names_one_hosted_group()
         (ai.for_task("refine").context_window, ai.for_task("stage").context_window),
     ) == (
         "openrouter/deepseek/deepseek-v4.1-flash-1017",
-        {"intake": "local/qwen3.8:27b", "retitle": "local/qwen3.8:27b"},
+        {task: "local/qwen3.8:27b" for task in ("intake", "retitle", "refine", "alternatives")},
         "local/qwen3-embedding:0.6b",
         (256000, 256000),
     )

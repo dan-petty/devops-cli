@@ -287,14 +287,14 @@ JOB_WINDOWS = {
     "intake": None,
     "retitle": None,
 }
-LOCAL_JOBS = {"intake", "retitle"}
+LOCAL_JOBS = {"intake", "retitle", "refine", "alternatives"}
 
 
 def test_each_job_has_its_own_entry_in_the_template_and_no_job_reads_an_old_slot() -> None:
     """Each roadmap job names its own model, so a trial moves one job (#5903). A job starts on
     DeepSeek (#3874, #4369); intake and retitle run on the local model by the owner decision of
-    2026-11-15. The template sets no old shared slot, and the embedding slot stays the embedding
-    model."""
+    2026-11-15, and refine and the alternatives check in the owner trial of 2026-11-16. The
+    template sets no old shared slot, and the embedding slot stays the embedding model."""
     template = yaml.safe_load(_doc("configmap.example.yaml")["data"]["devops-cli.yaml"])
     ai = Settings.model_validate(template).ai
     slots = {name: ai.for_task(name).model for name in AITasksConfig.model_fields}
