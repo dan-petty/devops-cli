@@ -40,7 +40,7 @@ jobs:
     # requests (#4896). The fix pull requests of the Service App keep the check.
     if: >-
       ${{ !(github.event.action == 'edited' && !github.event.changes.title && !github.event.changes.base)
-      && github.event.pull_request.user.login != 'devops-cli-renovate[bot]'
+      && github.event.pull_request.user.login != 'dan-petty-renovate[bot]'
       && (startsWith(github.event.pull_request.title, 'fix(') || startsWith(github.event.pull_request.title, 'fix:') || startsWith(github.event.pull_request.title, 'fix!')) }}
     runs-on: ubuntu-26.04
     timeout-minutes: 20

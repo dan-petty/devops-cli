@@ -338,6 +338,9 @@ _VARIABLES_OF_LATER_SETTINGS = frozenset(
         "DEVOPS_CLI_CLOUDFLARE_ACCESS_ALLOW_POLICY_NAME",  # #5131
         "DEVOPS_CLI_CLOUDFLARE_ACCESS_BYPASS_POLICY_NAME",  # #5131
         "OTEL_METRIC_EXPORT_INTERVAL",  # #5916, OpenTelemetry's own variable, listed with no option
+        "DEVOPS_CLI_RENOVATE_GITHUB_APP_ID",  # #4897
+        "DEVOPS_CLI_RENOVATE_GITHUB_APP_INSTALLATION_ID",  # #4897
+        "DEVOPS_CLI_RENOVATE_GITHUB_APP_PRIVATE_KEY",  # #4897
     }
 )
 
@@ -375,6 +378,7 @@ _KEYRING_OF_LATER_CREDENTIALS = {
     "openrouter.api_key": "openrouter_api_key",  # #3144
     "crawl4ai.api_token": "crawl4ai_api_token",  # #3882
     "roadmap_service.llm_key": "roadmap_service_llm_key",  # #3685
+    "renovate.github_app_private_key": "renovate_github_app_private_key",  # #4897
 }
 
 

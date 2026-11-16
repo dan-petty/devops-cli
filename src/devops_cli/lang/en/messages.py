@@ -6677,6 +6677,19 @@ class GhMetricsMessages:
 
 
 @dataclass(frozen=True)
+class GhAppTokenMessages:
+    """Messages of `devops gh app-token` (#4897)."""
+
+    written: str = (
+        "Wrote the installation token of GitHub App {login} to {path} with mode {mode:04o}. "
+        "GitHub ends the token at {expires_at}."
+    )
+    plan_title: str = "Plan for the installation token of GitHub App {login}"
+    plan_signed: str = "The request carries a JWT of App {app_id}, which {key} signs."
+    plan_written: str = "A run writes <installation-token> to {path} with mode {mode:04o}."
+
+
+@dataclass(frozen=True)
 class ProjectMessages:
     """`devops gh project sync` and `devops gh project reconcile` (#892)."""
 
@@ -6936,6 +6949,7 @@ class LanguageCatalog:
     project: ProjectMessages = field(default_factory=ProjectMessages)
     issues: IssueMessages = field(default_factory=IssueMessages)
     gh_metrics: GhMetricsMessages = field(default_factory=GhMetricsMessages)
+    gh_app_token: GhAppTokenMessages = field(default_factory=GhAppTokenMessages)
 
 
 MESSAGES = LanguageCatalog()

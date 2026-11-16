@@ -380,6 +380,31 @@ class ArgoCDConfig(BaseModel):
     )
 
 
+class RenovateConfig(BaseModel):
+    """The GitHub App that self-hosted Renovate acts as (#4893, #4897).
+
+    The App's private key is the managed credential `renovate.github_app_private_key`.
+    `devops gh app-token --app renovate` reads the three, and the init container of the Renovate
+    CronJob gets them as variables from Secret `devops/renovate`.
+    """
+
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
+    # GitHub takes the App ID or the App's Client ID as the issuer of the App's JWT, so the setting
+    # keeps the value as given: a number, or a Client ID such as `Iv23li...`.
+    github_app_id: Annotated[
+        Annotated[int, Field(gt=0)] | Annotated[str, Field(min_length=1)] | None, Variable()
+    ] = Field(
+        default=None,
+        description="App ID or Client ID of the GitHub App that self-hosted Renovate acts as. "
+        "GitHub takes either one as the issuer of the App's JWT",
+    )
+    github_app_installation_id: Annotated[int | None, Variable()] = Field(
+        default=None,
+        gt=0,
+        description="ID of the installation of the Renovate App on the Service repositories",
+    )
+
+
 class GiteaConfig(BaseModel):
     """The Gitea stack of the cluster (#5131)."""
 
@@ -2252,6 +2277,7 @@ class Settings(BaseSettings):
     grafana: GrafanaConfig = GrafanaConfig()
     prometheus: PrometheusConfig = PrometheusConfig()
     argocd: ArgoCDConfig = ArgoCDConfig()
+    renovate: RenovateConfig = RenovateConfig()
     gitea: GiteaConfig = GiteaConfig()
     mattermost: MattermostConfig = MattermostConfig()
     qdrant: QdrantConfig = QdrantConfig()
@@ -2882,6 +2908,11 @@ def get_argocd_token(settings: Settings) -> str | None:
 def get_argocd_password(settings: Settings) -> str | None:
     """Resolve the ArgoCD account password."""
     return _resolve("argocd.password", settings)
+
+
+def get_renovate_github_app_private_key(settings: Settings) -> str | None:
+    """Resolve the private key of the GitHub App that self-hosted Renovate acts as."""
+    return _resolve("renovate.github_app_private_key", settings)
 
 
 def get_ai_api_key(settings: Settings) -> str | None:

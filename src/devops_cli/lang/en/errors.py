@@ -59,6 +59,10 @@ class GitErrorMessages:
         "The environment holds {key_env}, so this process acts as a GitHub App, but these "
         "settings are not set: {settings}. Set them with 'devops config set'."
     )
+    github_app_token_settings_missing: str = (
+        "GitHub App {login} has no installation token, because these settings are not set: "
+        "{settings}. Set each with 'devops config set <key>', or set its variable: {variables}."
+    )
     github_app_token_failed: str = (
         "GitHub App {login} has no installation token: {reason}. Check the App ID, the "
         "installation ID and the private key in {key_env}."
