@@ -1166,6 +1166,10 @@ DEFAULT_ROADMAP_FIX_CHECKS_TOKEN_BUDGET: int = 16_000_000
 # The mode of the fix-checks unit that the watch row starts (#5027). It starts in `plan`, as each
 # new row does (ADR 0021, section 8, rule 5).
 DEFAULT_ROADMAP_FIX_CHECKS_MODE: RowMode = "plan"
+# The longest time that a fix-checks Job waits suspended for a model place before the watch row
+# deletes it (#6018): 6 hours, above the cap of 4 hours on the deadline of a running model Job, so
+# a working watch row resumes each fix Job before the limit.
+DEFAULT_ROADMAP_FIX_CHECKS_MAX_WAIT_MINUTES: int = 360
 # The model Jobs that run at once in the cluster, for every repository together: implement, stage
 # and fix-checks Jobs (#5027). ADR 0021, section 5, gives the semaphore `agent` 2 pods.
 DEFAULT_ROADMAP_MODEL_JOBS: int = 2

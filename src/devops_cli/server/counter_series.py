@@ -60,10 +60,21 @@ _KEPT_WORK_OUTCOMES = ("continued", "finished", "blocked")
 """The values of the label `outcome` of an item with kept work (#3650): `continued` when the next
 Job starts from it, `finished` when it reaches the ready mark, and `blocked` when it stops again."""
 
-_FIX_CHECKS_JOB_ACTIONS = ("created", "queued", "existed", "resumed", "none", "error")
+_FIX_CHECKS_JOB_ACTIONS = (
+    "created",
+    "queued",
+    "existed",
+    "resumed",
+    "expired",
+    "none",
+    "error",
+    "deadline",
+    "round_error",
+)
 """The values of the label `result` of the fix-checks Jobs that the watch row counts (#5027), with
-the results of the step: what the row did with a Job, and `none` (a kill) or `error` (exit 1) for
-an ended Job with no result line."""
+the results of the step: what the row did with a Job (`expired` deletes a Job that waited too
+long, #6018), `none` (a kill), `error` (exit 1) or `deadline` for an ended Job with no result
+line, and `round_error` for a round that a Kubernetes or a configuration error stopped."""
 _SERVICE_TRIGGER_SOURCES = (CONST_SERVICE_SOURCE_WEBHOOK, CONST_SERVICE_SOURCE_POLL)
 """The values of the label `source` of a trigger, as the Service enqueues it."""
 

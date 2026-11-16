@@ -295,9 +295,11 @@ spec:
         kubernetes.io/metadata.name: devops
 ---
 # The Service deletes a stage Job (#5483): a Job past the deadline of its check-out, and a failed
-# Job before it runs the item again. RBAC cannot limit `delete` on `jobs` to some names, so this
-# policy admits the delete of a stage Job by the Service and refuses the delete of any other Job,
-# such as a runner Job. It matches no other user.
+# Job before it runs the item again. The watch row deletes a fix-checks Job that waited suspended
+# longer than roadmap.fix_checks.max_wait_minutes (#6018). RBAC cannot limit `delete` on `jobs` to
+# some names, so this policy admits the delete of a stage Job, and of a fix-checks Job that is
+# suspended, by the Service, and refuses the delete of any other Job, such as a runner Job that
+# runs. It matches no other user.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -318,11 +320,16 @@ spec:
       expression: request.userInfo.username == "system:serviceaccount:devops:roadmap-service"
   validations:
     - expression: >-
-        has(oldObject.metadata.name) && oldObject.metadata.name.startsWith("devops-cli-stage-") &&
-        has(oldObject.metadata.labels) &&
+        has(oldObject.metadata.name) && has(oldObject.metadata.labels) &&
         "app.kubernetes.io/component" in oldObject.metadata.labels &&
-        oldObject.metadata.labels["app.kubernetes.io/component"] == "roadmap-stage"
-      message: The roadmap Service may delete a stage Job and no other Job.
+        (
+          (oldObject.metadata.name.startsWith("devops-cli-stage-") &&
+            oldObject.metadata.labels["app.kubernetes.io/component"] == "roadmap-stage") ||
+          (oldObject.metadata.name.startsWith("devops-cli-fix-checks-") &&
+            oldObject.metadata.labels["app.kubernetes.io/component"] == "roadmap-fix-checks" &&
+            has(oldObject.spec.suspend) && oldObject.spec.suspend == true)
+        )
+      message: The roadmap Service may delete a stage Job and a waiting fix-checks Job, and no other Job.
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1

@@ -933,6 +933,7 @@ def test_cli_dashboard_service_row_charts_the_state_of_the_service() -> None:
     for the stage and fix-checks Jobs (#4559, #5027)."""
     selector = '{job=~"$job"}'
     selector_repo = '{job=~"$job",repo=~"$repo"}'
+    fix_repo = 'job=~"$job",repo=~"$repo"'
 
     assert {
         p["title"]: [t["expr"] for t in p["targets"]] for p in _cli_dashboard_row("Roadmap Service")
@@ -997,9 +998,31 @@ def test_cli_dashboard_service_row_charts_the_state_of_the_service() -> None:
             f"sum by (result) (increase(devops_cli_service_stage_jobs_total{selector_repo}[1h]))"
         ],
         "Service Fix-Checks Jobs by Result": [
-            f"sum by (result) (increase(devops_cli_service_fix_checks_jobs_total{selector_repo}[1h]))"
+            f"sum(increase(devops_cli_service_fix_checks_jobs_total{{{fix_repo},result{match}}}[1h]))"
+            for match in FIX_CHECKS_RESULT_CLASSES.values()
         ],
     }
+
+
+# The classes of the fix-checks panel (#6018): 3 series and Other (docs/DESIGN.md, C7).
+FIX_CHECKS_RESULT_CLASSES = {
+    "Started": '=~"created|resumed"',
+    "Repaired": '=~"repaired|ready"',
+    "No result line": '=~"none|error|deadline"',
+    "Other": '!~"created|resumed|repaired|ready|none|error|deadline"',
+}
+
+
+def test_the_fix_checks_panel_draws_3_series_and_other() -> None:
+    """Each target of the fix-checks panel names one series, so the panel draws at most 3
+    series and Other, whatever results the counter holds (#6018)."""
+    (panel,) = [
+        p
+        for p in _cli_dashboard_row("Roadmap Service")
+        if p["title"] == "Service Fix-Checks Jobs by Result"
+    ]
+
+    assert [t["legendFormat"] for t in panel["targets"]] == list(FIX_CHECKS_RESULT_CLASSES)
 
 
 def test_cli_dashboard_service_row_reads_each_series_of_the_service() -> None:
