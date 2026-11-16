@@ -244,6 +244,10 @@ data:
         mode: plan
         rounds: 3
         token_budget: 16000000
+      # The most model Jobs that run at once in the cluster, for all repositories together: the
+      # implement, stage and fix-checks Jobs, with the fix-checks Jobs first (#6017). The owner
+      # chose 6 on 2026-11-16. The code default is 2. An image from before #5027 ignores the key.
+      model_jobs: 6
       # The mode of each decision point (ADR 0020): `off`, `shadow` or `on`. The verify screen
       # (`stage.verify_screen`) asks the decision model before the model review of a plan. In
       # `shadow` the review always runs and the log records the band and the result of the review.
