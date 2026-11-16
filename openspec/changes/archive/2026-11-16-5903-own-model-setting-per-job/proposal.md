@@ -9,7 +9,7 @@ The roadmap jobs read shared task slots of `ai.tasks` (#5903). The slot `analysi
 - The tasks `analysis`, `verification` and `triage` stay for the commands that are not roadmap jobs, such as `devops review`, so an existing config file stays valid. No roadmap job reads them.
 - Each new task has the variables `DEVOPS_CLI_AI_TASK_<TASK>_PROVIDER`, `_MODEL`, `_REASONING_EFFORT`, `_OLLAMA_URLS`, `_CONTEXT_WINDOW` and `_MAX_TOKENS`, as `stage` has.
 - The error of a run whose window ends its tools too soon names the setting of the task of that run.
-- `k8s/devops/configmap.example.yaml` names a model for each job task: `local/qwen3.8:27b` for `intake` and `retitle` (owner decision of 2026-11-15), `local/qwen3.8:27b` with `context_window` 256000 for `refine` and `alternatives` (owner trial of 2026-11-16), and DeepSeek with `context_window` 256000 for each other job task. The deploy renders the live ConfigMap from this template, so the template holds the live models. It sets no `analysis`, `verification` or `triage` entry, because no job of the Service reads them.
+- `k8s/devops/configmap.example.yaml` names a model for each job task: `local/qwen3.8:27b` for `intake` and `retitle` (owner decision of 2026-11-15), `local/qwen3.8:27b` with `context_window` 256000 for `alternatives` (owner trial of 2026-11-16; refine returned to DeepSeek), and DeepSeek with `context_window` 256000 for each other job task. The deploy renders the live ConfigMap from this template, so the template holds the live models. It sets no `analysis`, `verification` or `triage` entry, because no job of the Service reads them.
 - The settings, the messages and the ConfigMap template are observable, so the change carries spec deltas.
 
 ## Capabilities
