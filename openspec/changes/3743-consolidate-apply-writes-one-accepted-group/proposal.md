@@ -73,6 +73,6 @@ GitHub's REST API covers every write that the command needs: the body edit throu
 
 ## Dependencies
 
-- #5939: shares `docs/commands/roadmap.md` and `src/devops_cli/lang/en/help.py`, so its help text and the regenerated command page can conflict with the two new option rows.
-- #5940: shares `docs/commands/roadmap.md` and `src/devops_cli/lang/en/help.py`, so its help text and the regenerated command page can conflict with the two new option rows.
-- #5946: shares `docs/commands/roadmap.md` and `src/devops_cli/lang/en/help.py`, so its help text and the regenerated command page can conflict with the two new option rows.
+- Pull request #5939 shares `docs/commands/roadmap.md` and `src/devops_cli/lang/en/help.py`, so its help text and the regenerated command page can conflict with the two new option rows.
+- Pull request #5940 shares `docs/commands/roadmap.md` and `src/devops_cli/lang/en/help.py`, so its help text and the regenerated command page can conflict with the two new option rows.
+- Pull request #5946 shares `docs/commands/roadmap.md` and `src/devops_cli/lang/en/help.py`, so its help text and the regenerated command page can conflict with the two new option rows.
