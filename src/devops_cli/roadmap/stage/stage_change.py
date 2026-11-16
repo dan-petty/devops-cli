@@ -74,6 +74,7 @@ from devops_cli.roadmap.stage.stage_criteria import (
 )
 from devops_cli.roadmap.stage.stage_form import form_problems, search_problems
 from devops_cli.roadmap.stage.stage_move import (
+    is_prefix_move_group,
     move_prefix_problems,
     move_verify_problems,
 )
@@ -132,6 +133,8 @@ REQUIREMENT_MAX_CHARS: Final[int] = 500
 # The tokens of one estimated line of a file that a task group creates. The stage adds them to the
 # measure of the group, so a large new file counts before the implement Job reads it (#3265).
 CREATED_LINE_TOKENS: Final[int] = 32
+# The most files that one task group changes (#3995), unless the group is an exempt prefix move.
+MAX_GROUP_CHANGES: Final[int] = 5
 # The fewest characters of a text of the plan that stands for a sentence: `why`, `existing_tool`, a
 # line of `feasibility`, a decision and a task. `No alternative.` has 15, and `x` or `todo` has
 # fewer (#3200).
@@ -2427,6 +2430,7 @@ class ProposalGate(StrEnum):
     REGISTRY = "registry"
     CONSTANTS = "constants"
     TRACE = "trace"
+    GROUP_FILES = "group-files"
 
 
 def _proposal_all_texts(proposal: StageProposal) -> list[str]:
@@ -2481,6 +2485,31 @@ def model_problems(
             if problem and problem not in seen:
                 seen.add(problem)
                 problems.append(problem)
+    return problems
+
+
+def group_files_problems(groups: Sequence[StageGroup], tree: StagedTree) -> list[str]:
+    """What task groups change more files than the limit (#3995).
+
+    A task group allows at most `MAX_GROUP_CHANGES` paths in `changes`, unless the group is an
+    exempt prefix move.
+    """
+    texts = MESSAGES.roadmap
+    problems: list[str] = []
+    for number, group in enumerate(groups, start=1):
+        count = len(group.changes)
+        if count <= MAX_GROUP_CHANGES:
+            continue
+        if is_prefix_move_group(group, tree):
+            continue
+        problems.append(
+            texts.stage_problem_group_files.format(
+                group=number,
+                title=group.title,
+                count=count,
+                limit=MAX_GROUP_CHANGES,
+            )
+        )
     return problems
 
 
@@ -2548,6 +2577,7 @@ def check_gates(
         ),
         ProposalGate.CONSTANTS: constant_problems(plan_texts(proposal), constants or {}),
         ProposalGate.TRACE: _trace_problems(proposal, trace, probes, judged),
+        ProposalGate.GROUP_FILES: group_files_problems(proposal.groups, tree),
     }
 
 

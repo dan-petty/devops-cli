@@ -103,6 +103,19 @@ def _moves(groups: Sequence[StageGroup], tree: StagedTree) -> Iterator[_PrefixMo
             )
 
 
+def is_prefix_move_group(group: StageGroup, tree: StagedTree) -> bool:
+    """Whether `group` is an exempt prefix move (#3995): its changes hold only the old modules
+    of one prefix move and the modules that the group creates."""
+    moves = list(_moves([group], tree))
+    if len(moves) != 1:
+        return False
+    move = moves[0]
+    subpackage = move.folder / move.prefix
+    return set(group.changes).issubset(set(move.modules) | set(group.creates)) and all(
+        PurePosixPath(new).is_relative_to(subpackage) for new in group.creates
+    )
+
+
 def move_prefix_problems(groups: Sequence[StageGroup], tree: StagedTree) -> list[str]:
     """One sentence for each module of a moved prefix that no group names in `changes`."""
     texts = MESSAGES.roadmap

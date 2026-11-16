@@ -55,6 +55,7 @@ REGISTRY_TOKEN = "CONST_PANEL_"
 REGISTRY_PATH = "tests/widgets/test_panel_limits.py"
 REGISTRY_DECLARATION = f'REGISTRY_COUNTS = (("prefix", "{REGISTRY_TOKEN}", "{REGISTRY_PATH}"),)\n'
 SOURCE_TEXT = "VALUE = 1\n"
+EXTRA_SOURCES = tuple(f"src/devops_cli/extra_{i}.py" for i in range(6))
 
 
 @dataclass(frozen=True)
@@ -132,6 +133,22 @@ def _registry(group: StageGroup) -> list[StageGroup]:
     return [_light(group), counted]
 
 
+def _group_files(group: StageGroup) -> list[StageGroup]:
+    """A split with a group that changes 6 files (#3995)."""
+    return [
+        _light(group),
+        _light(
+            group,
+            title="Wire the check",
+            changes=list(EXTRA_SOURCES),
+            creates=[],
+            creates_lines={},
+            test="Write `test_wire_the_check` in `tests/test_sample.py`",
+            implementation="Wire the check across all extra files",
+        ),
+    ]
+
+
 CASES = {
     "eval_replay": SplitCase(
         {FORM_GATE: SOURCE_TEXT},
@@ -157,6 +174,12 @@ CASES = {
         ProposalGate.REGISTRY,
         REGISTRY_PATH,
         split=_registry,
+    ),
+    "group_files": SplitCase(
+        {path: SOURCE_TEXT for path in EXTRA_SOURCES},
+        ProposalGate.GROUP_FILES,
+        "Wire the check",
+        split=_group_files,
     ),
 }
 
