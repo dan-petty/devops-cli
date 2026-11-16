@@ -341,6 +341,34 @@ def test_items_are_the_issues_with_a_priority_label_and_candidates_the_open_issu
     ) == ([placed, done], [(candidate, ("type/bug", "status/new"))], None, None, None)
 
 
+def test_an_issue_that_a_tool_bot_opened_is_no_item_and_no_candidate(world: World) -> None:
+    """Renovate opens its Dependency Dashboard as the bot of its App and writes the body again
+    each run, so the issue is no work item (#6038). No listing of Items or Candidates holds an
+    issue whose author is in `roadmap.skip_authors`, also when a job labelled it, and the same
+    issue of a person is listed."""
+
+    def dashboard(labels: tuple[str, ...], login: str | None = None) -> int:
+        association = "COLLABORATOR" if login is None else "NONE"
+        return world.seed(
+            "Dependency Dashboard",
+            labels=labels,
+            author_association=association,
+            author_login=login,
+        )
+
+    placed = dashboard(("priority/p2-medium",), "dan-petty-renovate[bot]")
+    dashboard(("type/chore", "scope/deps"), "dan-petty-renovate[bot]")
+    person = dashboard(("priority/p2-medium",))
+    candidate = dashboard(("type/chore", "scope/deps"))
+    assert (
+        [item.number for item in world.store.items()],
+        [item.number for item in world.store.open_items()],
+        [item.number for item in world.store.backlog()],
+        [c.number for c in world.store.candidates()],
+        world.store.item(placed),
+    ) == ([person], [person], [person], [candidate], None)
+
+
 def test_one_issue_is_read_with_its_labels_whether_or_not_it_is_an_item(world: World) -> None:
     """The Status writer reads the label back from the issue, also on a candidate that holds no
     Priority yet (#5018). A pull request and a missing number are no issue."""
