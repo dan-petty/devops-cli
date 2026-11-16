@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tomllib
+from pathlib import Path
 
 from tests.support.paths import REPO_ROOT
 
@@ -245,3 +246,184 @@ def test_the_user_vscode_can_ping_in_the_workspace_and_in_a_scaffolded_devcontai
 
     assert PING_GROUP_RANGE in workspace["runArgs"]
     assert scaffolded["runArgs"] == workspace["runArgs"]
+
+
+# The image build pulls each feature of a config from its registry, and an option that says
+# `latest` makes the build look up a release and its checksum at build time. One attempt of
+# 2026-11-16 could not reach the keyserver of the Helm install of the kubectl-helm-minikube
+# feature, and another read an empty docker-compose.sha256sum of the docker-in-docker feature
+# (#3612).
+LATEST = "latest"
+
+# The docker-in-docker feature spells its Compose option `dockerDashComposeVersion`, and the
+# option takes `none`, `v1` or `v2`, so a config names the Compose major and never a release. A
+# config with no option of this suffix leaves the value to the feature, whose default resolves a
+# release at build time (#3612).
+COMPOSE_OPTION_SUFFIX = "ComposeVersion"
+DOCKER_IN_DOCKER = "docker-in-docker"
+
+
+def _config_label(path: Path) -> str:
+    """Return the path of a config as the repository holds it."""
+    try:
+        return str(path.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def _config_of(path: Path) -> dict[str, object]:
+    """Return the config that a `devcontainer.json` holds."""
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _feature_options(config: dict[str, object]) -> dict[str, dict[str, object]]:
+    """Return the options of each feature of a config, keyed by the feature id."""
+    features = config.get("features")
+    if not isinstance(features, dict):
+        return {}
+    return {
+        feature: options if isinstance(options, dict) else {}
+        for feature, options in features.items()
+    }
+
+
+def _feature_name(feature: str) -> str:
+    """Return the name of a feature id, without its registry path and tag."""
+    return feature.rpartition("/")[2].partition(":")[0]
+
+
+def _latest_option_violations(path: Path, config: dict[str, object]) -> list[str]:
+    """Return one message for each feature option of the config whose value is `latest`."""
+    return [
+        f"{_config_label(path)}: {feature} sets {option} to '{LATEST}'"
+        for feature, options in _feature_options(config).items()
+        for option, value in options.items()
+        if value == LATEST
+    ]
+
+
+def _compose_option_violations(path: Path, config: dict[str, object]) -> list[str]:
+    """Return one message for each docker-in-docker feature that names no Compose option, or names
+    `latest`."""
+    violations = []
+    for feature, options in _feature_options(config).items():
+        if _feature_name(feature) != DOCKER_IN_DOCKER:
+            continue
+        compose = {
+            option: value
+            for option, value in options.items()
+            if option.endswith(COMPOSE_OPTION_SUFFIX)
+        }
+        if not compose:
+            violations.append(
+                f"{_config_label(path)}: {feature} names no {COMPOSE_OPTION_SUFFIX} option"
+            )
+        violations.extend(
+            f"{_config_label(path)}: {feature} sets {option} to '{LATEST}'"
+            for option, value in compose.items()
+            if value == LATEST
+        )
+    return violations
+
+
+def _unresolved_feature_violations(path: Path, config: dict[str, object]) -> list[str]:
+    """Return one message for each feature that the lockfile beside the config does not resolve."""
+    lock_path = path.with_name("devcontainer-lock.json")
+    lock = _config_of(lock_path) if lock_path.is_file() else {}
+    resolved = lock.get("features")
+    return [
+        f"{_config_label(path)}: {feature} has no resolved digest in {lock_path.name}"
+        for feature in _feature_options(config)
+        if not (
+            isinstance(resolved, dict)
+            and isinstance(resolved.get(feature), dict)
+            and resolved[feature].get("resolved")
+        )
+    ]
+
+
+def _devcontainer_configs() -> list[Path]:
+    """Return the config of the workspace, of the image and of any other config of the tree."""
+    return sorted(DEVCONTAINER.rglob("devcontainer.json"))
+
+
+def test_each_devcontainer_feature_option_names_a_release_instead_of_latest() -> None:
+    """A pinned option makes the image build download the release that the config names, where
+    `latest` makes it look up a release and its checksum at build time (#3612)."""
+    violations = [
+        message
+        for path in _devcontainer_configs()
+        for message in _latest_option_violations(path, _config_of(path))
+    ]
+
+    assert violations == []
+
+
+def test_the_docker_in_docker_feature_names_a_compose_release() -> None:
+    """The default of the Compose option resolves a release at build time, and one attempt read an
+    empty docker-compose.sha256sum, so the config names the Compose major (#3612)."""
+    violations = [
+        message
+        for path in _devcontainer_configs()
+        for message in _compose_option_violations(path, _config_of(path))
+    ]
+
+    assert violations == []
+
+
+def test_the_lockfile_beside_each_devcontainer_config_resolves_its_features() -> None:
+    """The image build runs with `--frozen-lockfile`, so a feature that the lockfile beside the
+    config does not resolve is a feature that the build cannot install (#3612)."""
+    violations = [
+        message
+        for path in _devcontainer_configs()
+        for message in _unresolved_feature_violations(path, _config_of(path))
+    ]
+
+    assert violations == []
+
+
+def test_one_config_with_two_latest_options_names_both_features_and_options() -> None:
+    """The failure names the config path, the feature id and the option name of each violation, so
+    a reader knows the line to change (#3612)."""
+    docker = "ghcr.io/devcontainers/features/docker-in-docker:2"
+    kubectl = "ghcr.io/devcontainers/features/kubectl-helm-minikube:1"
+    config = {"features": {docker: {"version": LATEST}, kubectl: {"helm": LATEST}}}
+
+    report = "\n".join(_latest_option_violations(Path("devcontainer.json"), config))
+
+    assert report.splitlines() == [
+        f"devcontainer.json: {docker} sets version to '{LATEST}'",
+        f"devcontainer.json: {kubectl} sets helm to '{LATEST}'",
+    ]
+
+
+def test_a_docker_in_docker_feature_without_a_compose_option_is_a_violation() -> None:
+    """The reader names the feature that holds no Compose option, and the option that says
+    `latest` (#3612)."""
+    feature = "ghcr.io/devcontainers/features/docker-in-docker:2"
+    path = Path("devcontainer.json")
+
+    assert _compose_option_violations(path, {"features": {feature: {}}}) == [
+        f"devcontainer.json: {feature} names no {COMPOSE_OPTION_SUFFIX} option"
+    ]
+    assert _compose_option_violations(
+        path, {"features": {feature: {"dockerDashComposeVersion": LATEST}}}
+    ) == [f"devcontainer.json: {feature} sets dockerDashComposeVersion to '{LATEST}'"]
+
+
+def test_a_feature_without_a_resolved_digest_is_a_violation(tmp_path: Path) -> None:
+    """The reader names each feature that the lockfile beside the config does not resolve
+    (#3612)."""
+    feature = "ghcr.io/devcontainers/features/docker-in-docker:2"
+    path = tmp_path / "devcontainer.json"
+    config = {"features": {feature: {}}}
+
+    assert _unresolved_feature_violations(path, config) == [
+        f"{path}: {feature} has no resolved digest in devcontainer-lock.json"
+    ]
+    (tmp_path / "devcontainer-lock.json").write_text(
+        json.dumps({"features": {feature: {"resolved": "ghcr.io/example@sha256:0"}}}),
+        encoding="utf-8",
+    )
+    assert _unresolved_feature_violations(path, config) == []

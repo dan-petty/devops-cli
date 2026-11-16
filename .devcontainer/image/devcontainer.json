@@ -14,14 +14,15 @@
       "upgradePackages": "true"
     },
     "ghcr.io/devcontainers/features/docker-in-docker:2": {
-      "version": "latest",
+      "version": "29.9.3",
+      "dockerDashComposeVersion": "v2",
       "moby": false,
       "enableNonRootDocker": true
     },
     "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
-      "version": "latest",
-      "helm": "latest",
-      "minikube": "latest"
+      "version": "1.37.2",
+      "helm": "4.3.2",
+      "minikube": "1.39.0"
     },
     "ghcr.io/devcontainers/features/copilot-cli:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {},
