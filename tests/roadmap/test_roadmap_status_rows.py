@@ -59,12 +59,14 @@ STATUS_ROW_NAMES = (
     "plan_drift",
     "watch",
     "stage",
+    "open",
     "release_comments",
     "github_status",
     "cloudflare_status",
 )
-"""The status lane, in its order: the stage row submits the stage Jobs (#4559), and the two status
-reads come last, so a slow status page never delays `implement` (#5024)."""
+"""The status lane, in its order: the stage row submits the stage Jobs (#4559), the open row
+follows it (#5974), and the two status reads come last, so a slow status page never delays
+`implement` (#5024)."""
 
 STATUS_READS = ("github_status", "cloudflare_status")
 
@@ -149,6 +151,7 @@ def test_source_failed_github_status_read_counts_an_error_for_its_row_only(
             "plan_drift": (1, 0),
             "watch": (1, 0),
             "stage": (1, 0),
+            "open": (1, 0),
             "release_comments": (1, 0),
             "github_status": (0, 1),
             "cloudflare_status": (1, 0),

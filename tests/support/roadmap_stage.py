@@ -23,6 +23,7 @@ from devops_cli.roadmap.stage.stage_change import StageGroup
 from devops_cli.roadmap.stage.stage_verify import Finding, Verification
 from devops_cli.roadmap.stores.store import ItemField
 from tests.support.builders import make_stage_proposal
+from tests.support.fakes.github import API
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 if TYPE_CHECKING:
@@ -31,6 +32,13 @@ if TYPE_CHECKING:
 STAGE_REPO = "example/roadmap"
 STAGE_NAME = "devops-roadmap[bot]"
 STAGE_EMAIL = "1+devops-roadmap[bot]@users.noreply.github.com"
+# The reads of the open step before it writes a plan pull request of the stage job, which gives it
+# no store (#5974): the labels file and the release-please config of the default branch. The fake
+# answers 404 for each, so the step checks no scope and finds no hidden type.
+OPEN_STEP_READS = (
+    f"GET {API}/repos/{STAGE_REPO}/contents/.github/labels.yml?ref=main",
+    f"GET {API}/repos/{STAGE_REPO}/contents/release-please-config.json?ref=main",
+)
 # What `openspec validate <change> --strict --json` prints for a valid change.
 VALID_REPORT = json.dumps({"items": [{"id": "x", "valid": True, "issues": []}]})
 SAMPLE_SOURCE = "def keep(comments):\n    return comments[:-1]\n"

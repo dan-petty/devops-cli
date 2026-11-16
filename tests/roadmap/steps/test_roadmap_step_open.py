@@ -44,6 +44,19 @@ LABELS_YML = (
 )
 
 
+def _delivery_body(issue: int) -> str:
+    """A delivery body that closes `issue` in the form of `pull_form` (#5974)."""
+    return f"Consolidate pull request opening.\n\nCloses #{issue}"
+
+
+def _plan_body(issue: int) -> str:
+    """A plan body for `issue` in the form of `plan_body_problems` (#5974)."""
+    return (
+        f"Plan the open step for every pull request.\n\nPlans #{issue}\n\n"
+        f"Change: `openspec/changes/{issue}-open-step/`"
+    )
+
+
 @pytest.fixture
 def store() -> InMemoryRoadmapStore:
     s = InMemoryRoadmapStore(repo=REPO)
@@ -317,7 +330,7 @@ def test_sweep_recovery_opens_pr_in_at_most_three_requests(
         head=BRANCH,
         base=BASE,
         title=TITLE,
-        body=BODY,
+        body=_delivery_body(item_num),
         item=item_num,
         kind="delivery",
         store=store,
@@ -355,7 +368,7 @@ def test_status_set_for_delivery(store: InMemoryRoadmapStore, github_api: GitHub
         head=BRANCH,
         base=BASE,
         title=TITLE,
-        body=BODY,
+        body=_delivery_body(item_num),
         item=item_num,
         kind="delivery",
         store=store,
@@ -389,8 +402,8 @@ def test_records_kind_pr_mark(store: InMemoryRoadmapStore, github_api: GitHubApi
         repo=REPO,
         head="plan-branch",
         base=BASE,
-        title="docs(openspec): plan",
-        body="Plan body",
+        title="docs(roadmap): plan the open step",
+        body=_plan_body(item_plan),
         item=item_plan,
         kind="plan",
         store=store,
@@ -416,8 +429,8 @@ def test_records_kind_pr_mark(store: InMemoryRoadmapStore, github_api: GitHubApi
         repo=REPO,
         head="deliv-branch",
         base=BASE,
-        title="fix(roadmap): delivery",
-        body="Delivery body",
+        title="fix(roadmap): deliver the open step",
+        body=_delivery_body(item_deliv),
         item=item_deliv,
         kind="delivery",
         store=store,
@@ -465,3 +478,215 @@ def test_upserts_marked_comment(store: InMemoryRoadmapStore, github_api: GitHubA
     assert result.number == pr_num
     patches = [req for req in github_api.requested if "issues/comments/999" in req]
     assert len(patches) == 1
+
+
+# ── The attribute rules of CI, held before the write (#5974) ─────────────────
+
+# The labels of an item of the type `test`, with the scopes that the tests of this section use.
+_ATTRIBUTE_LABELS_YML = LABELS_YML + (
+    '- name: "type/test"\n  color: "ededed"\n- name: "scope/k8s"\n  color: "ededed"\n'
+)
+_RUNTIME_PATH = "src/devops_cli/lang/en/help.py"
+
+
+def _release_config() -> str:
+    """The release-please config of this repository, so the test reads the hidden types that CI
+    reads."""
+    from pathlib import Path
+
+    from devops_cli.github.release_title import RELEASE_CONFIG_PATH
+
+    return Path(RELEASE_CONFIG_PATH).read_text(encoding="utf-8")
+
+
+@pytest.fixture
+def rules_store() -> InMemoryRoadmapStore:
+    s = InMemoryRoadmapStore(repo=REPO)
+    s.seed_file(".github/labels.yml", _ATTRIBUTE_LABELS_YML, ref=BASE)
+    s.seed_file("release-please-config.json", _release_config(), ref=BASE)
+    return s
+
+
+def _route_diff(github_api: GitHubApiFake, head: str, files: list[tuple[str, str]]) -> None:
+    github_api.route(
+        "GET",
+        f"/repos/{REPO}/compare/{BASE}...{head}?per_page=1",
+        github_json(
+            {
+                "merge_base_commit": {"sha": "basesha123"},
+                "files": [{"filename": path, "status": status} for path, status in files],
+            }
+        ),
+    )
+
+
+def _route_create(github_api: GitHubApiFake, number: int) -> None:
+    github_api.route(
+        "POST",
+        f"/repos/{REPO}/pulls",
+        github_json(
+            {"number": number, "html_url": f"https://github.com/{REPO}/pull/{number}"}, status=201
+        ),
+    )
+
+
+def _posted_title(github_api: GitHubApiFake) -> str:
+    sent = next(r for r in github_api.sent if r.method == "POST" and r.url.path.endswith("/pulls"))
+    return str(json.loads(sent.content)["title"])
+
+
+def _open_test_item(
+    store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    files: list[tuple[str, str]],
+    *,
+    title: str = "test(roadmap): Keep the Planned limit in the stage job",
+) -> Any:
+    from devops_cli.roadmap.steps.open import OpenRequest, open_or_update
+
+    item = store.seed_issue(
+        "test(roadmap): the Planned limit stays out of refine",
+        fields={ItemField.PRIORITY: "P2-Medium"},
+    )
+    head = f"test/{item}-the-planned-limit"
+    _route_diff(github_api, head, files)
+    _route_create(github_api, 901)
+    return open_or_update(
+        OpenRequest(
+            repo=REPO,
+            head=head,
+            base=BASE,
+            title=title,
+            body=_delivery_body(item),
+            kind="delivery",
+            item=item,
+            store=store,
+            lookup_existing=False,
+        )
+    )
+
+
+def test_a_runtime_diff_of_a_test_item_gets_a_title_that_ships_a_release_and_passes_ci(
+    rules_store: InMemoryRoadmapStore, github_api: GitHubApiFake
+) -> None:
+    """#5940: the item has the type `test`, which release-please hides, and the diff changes
+    runtime code. The step writes a type that ships a release, and the title passes the rules
+    that the `Semantic PR title` check runs."""
+    from devops_cli.github.release_title import hidden_type_problem
+    from devops_cli.roadmap.pull_form import title_problems
+    from devops_cli.roadmap.title_labels import declared_label_names
+
+    files = [(_RUNTIME_PATH, "modified"), ("tests/roadmap/test_roadmap_inbox.py", "modified")]
+    result = _open_test_item(rules_store, github_api, files)
+
+    posted = _posted_title(github_api)
+    config = json.loads(_release_config())
+    declared = declared_label_names(_ATTRIBUTE_LABELS_YML)
+    assert (
+        posted,
+        result.title,
+        hidden_type_problem(posted, [path for path, _ in files], config),
+        title_problems(posted, declared),
+        "type/bug" in result.labels,
+        "type/test" in result.labels,
+    ) == (
+        "fix(roadmap): Keep the Planned limit in the stage job",
+        posted,
+        None,
+        [],
+        True,
+        False,
+    )
+
+
+def test_a_diff_that_adds_a_runtime_module_gets_the_type_feat(
+    rules_store: InMemoryRoadmapStore, github_api: GitHubApiFake
+) -> None:
+    """#5920 added a module under a `test` type, and a person retitled it to `feat`."""
+    files = [("src/devops_cli/k8s/volume_move_measure.py", "added"), (_RUNTIME_PATH, "modified")]
+
+    _open_test_item(
+        rules_store, github_api, files, title="test(k8s): Add the volume move copy harness"
+    )
+
+    assert _posted_title(github_api) == "feat(k8s): Add the volume move copy harness"
+
+
+def test_a_hidden_type_with_documents_only_keeps_its_type(
+    rules_store: InMemoryRoadmapStore, github_api: GitHubApiFake
+) -> None:
+    files = [("docs/roadmap/stage.md", "modified"), ("tests/roadmap/test_x.py", "added")]
+
+    _open_test_item(rules_store, github_api, files)
+
+    assert _posted_title(github_api) == "test(roadmap): Keep the Planned limit in the stage job"
+
+
+def test_a_shown_type_reads_no_diff(
+    rules_store: InMemoryRoadmapStore, github_api: GitHubApiFake
+) -> None:
+    _open_test_item(rules_store, github_api, [], title="fix(roadmap): Keep the Planned limit")
+
+    assert [r for r in github_api.requested if "/compare/" in r] == []
+
+
+def test_a_scope_that_the_labels_file_lacks_is_dropped(
+    rules_store: InMemoryRoadmapStore, github_api: GitHubApiFake
+) -> None:
+    _open_test_item(rules_store, github_api, [], title="fix(nowhere): Keep the Planned limit")
+
+    assert _posted_title(github_api) == "fix: Keep the Planned limit"
+
+
+def test_a_long_summary_is_refused_and_nothing_is_written(
+    rules_store: InMemoryRoadmapStore, github_api: GitHubApiFake
+) -> None:
+    from devops_cli.exceptions.roadmap import RoadmapOpenRefusedError
+
+    long_title = "fix(roadmap): " + "Keep the limit " * 5
+
+    with pytest.raises(RoadmapOpenRefusedError, match="60"):
+        _open_test_item(rules_store, github_api, [], title=long_title)
+
+    assert [r for r in github_api.requested if r.startswith("POST")] == []
+
+
+@pytest.mark.parametrize(
+    ("kind", "body", "problem"),
+    [
+        ("plan", "Plan the open step for every pull request.\n\nCloses #{item}", "closes no"),
+        ("delivery", "Deliver the open step for every pull request.\n\nCloses #1", "another"),
+        ("delivery", "Deliver the open step for every pull request.", "Closes #<issue>"),
+    ],
+)
+def test_a_body_that_breaks_the_keyword_rule_is_refused(
+    rules_store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    kind: str,
+    body: str,
+    problem: str,
+) -> None:
+    """A plan closes no issue, and a delivery closes only the issue that it delivers."""
+    from devops_cli.exceptions.roadmap import RoadmapOpenRefusedError
+    from devops_cli.roadmap.steps.open import OpenRequest, open_or_update
+
+    rules_store.seed_issue("unrelated", fields={ItemField.PRIORITY: "P2-Medium"})
+    item = rules_store.seed_issue(
+        "fix(roadmap): the open step", fields={ItemField.PRIORITY: "P2-Medium"}
+    )
+    request = OpenRequest(
+        repo=REPO,
+        head=f"fix/{item}-open-step",
+        base=BASE,
+        title="fix(roadmap): Check the open step",
+        body=body.format(item=item),
+        kind=kind,
+        item=item,
+        store=rules_store,
+        lookup_existing=False,
+    )
+
+    with pytest.raises(RoadmapOpenRefusedError, match=problem):
+        open_or_update(request)
+
+    assert [r for r in github_api.requested if r.startswith("POST")] == []

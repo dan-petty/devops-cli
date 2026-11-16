@@ -1,6 +1,6 @@
 """Roadmap job evaluation, scheduling, checkout management, and execution.
 
-The due table runs the rows that call no model, metrics, implement, plan_drift, watch, stage,
+The due table runs the rows that call no model, metrics, implement, plan_drift, watch, stage, open,
 release_comments, github_status and cloudflare_status, before the rows that call it,
 intake, retitle, fix_plan, refine and alternatives, so a burst of candidates never holds back the
 metrics (#1360), and a slow model never holds back the implement, watch or stage row
@@ -10,6 +10,8 @@ stage submits one stage Job for each Ready item (`stage_submit.py`): the Job pla
 release_comments comments the version, and the time it runs, on the issues of a release (#2917).
 The row fix_plan runs the step fix-plan in the mode of `roadmap.fix_plan.mode`: it repairs at most
 one stage plan pull request with the label `verdict/fix-plan` in a round (#5061).
+The row open runs the open step in the mode of `roadmap.open.mode` for each pushed delivery branch
+that has no pull request (`open_row.py`, #5974).
 `devops roadmap run` runs the whole table in one round. The Service runs each row in a lane of its
 own (`service_lanes`, #5553): a lane is one worker with its trigger queue for each repository, its
 own clone `lanes/<lane>` and its own listing snapshot, so a round of one lane never waits for a
@@ -132,6 +134,7 @@ from devops_cli.roadmap.alternatives import (
     raise_for_failed_checks,
     record_coverage,
 )
+from devops_cli.roadmap.clone_git import default_branch
 from devops_cli.roadmap.failure import FailureClass, failure_class_of, retry_after
 from devops_cli.roadmap.implement.implement_submit import run_implement_round
 from devops_cli.roadmap.inbox import emit_inbox_counts, read_inbox
@@ -144,6 +147,7 @@ from devops_cli.roadmap.intake.intake import (
     raise_for_failed_placements,
     start_candidate_counts,
 )
+from devops_cli.roadmap.open_row import run_open_round
 
 # `refine` imports pydantic_ai. The Python 3.14 import lock deadlocks when two worker threads
 # import it for the first time together, so import it at module level, in the Service's main
@@ -813,6 +817,26 @@ def _run_fix_plan_adapter(
     return JobOutcome(queue=len(store.labelled_pulls(FIX_PLAN_LABEL)))
 
 
+def _run_open_adapter(
+    store: RoadmapStore,
+    repo: str = "",
+    clone_path: Path | None = None,
+    dry_run: bool = False,
+    **_: Any,
+) -> JobOutcome:
+    """Run the open step for each pushed delivery branch that has no pull request, in the mode of
+    `roadmap.open.mode` (#5974): `off` and a dry run send no request, `plan` logs each branch and
+    writes nothing, and `on` opens the pull request of each. The row calls no model. Its queue is
+    the count of the branches that the round found."""
+    mode = load_settings().roadmap.open.mode
+    if mode == "off" or dry_run:
+        return JobOutcome()
+    source = _job_clone("open", clone_path)
+    base = default_branch(source, operation="roadmap.open")
+    result = run_open_round(store, repo=repo, source=source, mode=mode, base=base)
+    return JobOutcome(queue=len(result.candidates))
+
+
 def _run_implement_adapter(
     store: RoadmapStore,
     repo: str = "",
@@ -1067,6 +1091,13 @@ STATUS_LANE_ROWS: tuple[JobRow, ...] = (
         first_run_due=True,
     ),
     JobRow(
+        name="open",
+        cadence=attrgetter("open"),
+        runner=_run_open_adapter,
+        needs_clone=True,
+        first_run_due=True,
+    ),
+    JobRow(
         name="release_comments",
         interval=timedelta(minutes=DEFAULT_ROADMAP_RELEASE_COMMENTS_INTERVAL_MINUTES),
         runner=_run_release_comments_adapter,
@@ -1089,10 +1120,11 @@ STATUS_LANE_ROWS: tuple[JobRow, ...] = (
 implement Job, which only talks to the Kubernetes API and GitHub, the one that checks plan drift,
 the one that watches open roadmap pull requests with single-query GraphQL batching and routes lifecycle steps (#5024),
 the one that submits the stage Jobs, which talks to the Kubernetes API and GitHub and reads the clone (#4559),
+the one that opens the pull request of a pushed delivery branch that has none (#5974),
 the one that comments a release on its issues, which talks to GitHub, the registry and the Kubernetes API,
 and the two that read the GitHub and the Cloudflare status page, one row each, so a failed read fails its own row (#4052).
 The model runs in the Job, so a model-lane round that is still running never delays the rows (#2757, #2865).
-`watch` follows `implement`, and `stage` follows `watch`. `release_comments` and the two status reads come last."""
+`watch` follows `implement`, `stage` follows `watch`, and `open` follows `stage`. `release_comments` and the two status reads come last."""
 
 TRIAGE_LANE_ROWS: tuple[JobRow, ...] = (
     JobRow(
@@ -1290,7 +1322,7 @@ def build_stub_table(
     include_retitle: bool | None = None,
 ) -> tuple[JobRow, ...]:
     """The due table's rows, in its order, each running `runners`' stub for its job: metrics,
-    implement, plan_drift, watch, stage, release_comments, github_status, cloudflare_status,
+    implement, plan_drift, watch, stage, open, release_comments, github_status, cloudflare_status,
     intake, retitle, fix_plan, refine and alternatives.
     Intake is always in; the others are added when asked for or given a stub."""
     r = runners or {}
@@ -1321,6 +1353,7 @@ def build_stub_table(
         "github_status": "github_status" in r,
         "cloudflare_status": "cloudflare_status" in r,
         "fix_plan": "fix_plan" in r,
+        "open": "open" in r,
         "alternatives": add_alternatives,
     }
     return tuple(

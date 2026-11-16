@@ -4,6 +4,9 @@ release-please reads the title type of each merged pull request. A type that its
 hidden takes no changelog line and opens no release pull request, so the Service image never gets
 the change. This check refuses a hidden type when the pull request changes runtime code under
 `src/devops_cli/`.
+
+The open step of the roadmap (#5974) calls the same functions before it writes a title, and puts
+the type of `release_type` in place of a hidden type, so the check and the step cannot disagree.
 """
 
 from __future__ import annotations
@@ -18,7 +21,14 @@ from typing import Any, Final
 
 _TITLE: Final[re.Pattern[str]] = re.compile(r"^(?P<type>[a-z]+)(?:\([^)]*\))?!?:")
 _CODE_ROOT: Final[str] = "src/devops_cli/"
-_CONFIG: Final[str] = "release-please-config.json"
+RELEASE_CONFIG_PATH: Final[str] = "release-please-config.json"
+# The status that GitHub gives a file that a diff adds, and the types that ship a diff of runtime
+# code under a hidden type (#5974): a new runtime file adds behavior, and a change of runtime code
+# with no new file changes behavior. A person retitled #5920, which added a module, to `feat`, and
+# #5940, which changed messages only, to `fix`.
+ADDED_STATUS: Final[str] = "added"
+_ADDS_TYPE: Final[str] = "feat"
+_CHANGES_TYPE: Final[str] = "fix"
 
 
 def hidden_types(config: Mapping[str, Any]) -> set[str]:
@@ -61,9 +71,31 @@ def hidden_type_problem(title: str, paths: Sequence[str], config: Mapping[str, A
     shown = ", ".join(f"`{name}`" for name in releasable_types(config))
     listed = ", ".join(f"`{path}`" for path in code)
     return (
-        f"The title type `{found.group('type')}` is hidden in {_CONFIG}, so it ships no release, "
+        f"The title type `{found.group('type')}` is hidden in {RELEASE_CONFIG_PATH}, so it ships no release, "
         f"but this pull request changes runtime code: {listed}. Use one of {shown}."
     )
+
+
+def release_type(added: Sequence[str], config: Mapping[str, Any]) -> str:
+    """The shown type that ships a diff of runtime code (#5974): `feat` when `added`, the paths that
+    the diff adds, hold runtime code, else `fix`. When `config` hides that type too, its first shown
+    type stands in."""
+    wanted = _ADDS_TYPE if runtime_code(added) else _CHANGES_TYPE
+    shown = releasable_types(config)
+    return wanted if wanted in shown or not shown else shown[0]
+
+
+def shipping_title(
+    title: str, paths: Sequence[str], added: Sequence[str], config: Mapping[str, Any]
+) -> str:
+    """`title` with the type of `release_type` in place of its type when `hidden_type_problem`
+    refuses it, and `title` with no space at its ends otherwise (#5974). The scope and the summary
+    stay."""
+    kept = title.strip()
+    found = _TITLE.match(kept)
+    if found is None or hidden_type_problem(kept, paths, config) is None:
+        return kept
+    return f"{release_type(added, config)}{kept[found.end('type') :]}"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -73,7 +105,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     from devops_cli.core.repo import find_repo_root
 
-    config = json.loads((find_repo_root() / _CONFIG).read_text(encoding="utf-8"))
+    config = json.loads((find_repo_root() / RELEASE_CONFIG_PATH).read_text(encoding="utf-8"))
     paths = [
         line.strip() for line in args.files.read_text(encoding="utf-8").splitlines() if line.strip()
     ]

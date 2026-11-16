@@ -519,6 +519,7 @@ DEFAULT_JOB_NAMES = (
     "plan_drift",
     "watch",
     "stage",
+    "open",
     "release_comments",
     "github_status",
     "cloudflare_status",

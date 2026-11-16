@@ -764,6 +764,7 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "2026-11-16",
     ),
     "DEFAULT_ROADMAP_FIX_PLAN_INTERVAL_MINUTES": ("other", "a schedule"),
+    "DEFAULT_ROADMAP_OPEN_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_FIX_PLAN_TIME_BUDGET_SECONDS": (
         "setting",
         "new (#5363); under the deadline of the Job with a margin for one more model run",

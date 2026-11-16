@@ -18,6 +18,7 @@ from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import API, github_json
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_stage import (
+    OPEN_STEP_READS,
     STAGE_NAME,
     STAGE_REPO,
     VALID_REPORT,
@@ -133,4 +134,4 @@ def test_a_stage_round_killed_after_checkpoint_push_resumes_with_zero_planner_ca
     assert staged == (1,)
     assert removed == (1,)
     assert _pushed(stage_repo) == [BRANCH, "main"]
-    assert github_api.requested == [f"POST {API}{PULLS}"]
+    assert github_api.requested == [*OPEN_STEP_READS, f"POST {API}{PULLS}"]

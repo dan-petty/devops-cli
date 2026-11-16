@@ -1143,6 +1143,11 @@ DEFAULT_ROADMAP_INTAKE_JEV: JevMode = "off"
 # log and nothing to GitHub, and `on` acts. Each new row starts in `plan` (rule 5).
 RowMode = Literal["off", "plan", "on"]
 DEFAULT_ROADMAP_FIX_PLAN_MODE: RowMode = "plan"
+# The cadence and mode of the row open, which opens the pull request of a pushed bot branch that
+# has none (#5974). A round reads the heads of `origin` with git and sends no GitHub request while
+# no branch waits, so it runs often. It starts in `plan`, as each new row does.
+DEFAULT_ROADMAP_OPEN_INTERVAL_MINUTES: int = 7
+DEFAULT_ROADMAP_OPEN_MODE: RowMode = "plan"
 # The cadence, modes and caps of the step fix-conflict (#5019).
 DEFAULT_ROADMAP_FIX_CONFLICT_INTERVAL_MINUTES: int = 37
 DEFAULT_ROADMAP_FIX_CONFLICT_TIER1_MODE: RowMode = "on"

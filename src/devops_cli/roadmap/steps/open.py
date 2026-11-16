@@ -1,6 +1,10 @@
 """The roadmap step `open`: open, update or recover the pull request (#5020).
 
 Consolidates draft pull request creation across stage, implement, and recovery sweeps:
+- Checks every attribute with the rules that CI runs before it writes the pull request (#5974): a
+  diff of runtime code gets a type that ships a release (`release_title`), a scope that
+  `.github/labels.yml` declares, a summary that the check `Semantic PR title` accepts, and a body
+  that closes only the delivered issue, or `Plans #N` for a plan (`pull_form`).
 - Looks up open pull request for the head and base branches first.
 - If it exists, updates only the fields that differ (title, body, labels).
 - If none exists, creates a draft pull request.
@@ -14,18 +18,41 @@ Consolidates draft pull request creation across stage, implement, and recovery s
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from devops_cli.exceptions.git import GitHubOperationError, GitHubUnauthenticatedError
+import yaml
+from pydantic import ValidationError
+
+from devops_cli.config.constants import CONST_ROADMAP_LABELS_PATH
+from devops_cli.exceptions.git import (
+    GitHubFileNotFoundError,
+    GitHubOperationError,
+    GitHubUnauthenticatedError,
+)
 from devops_cli.exceptions.roadmap import RoadmapOpenRefusedError
 from devops_cli.git.branch_form import issue_of_branch
+from devops_cli.github.release_title import (
+    ADDED_STATUS,
+    RELEASE_CONFIG_PATH,
+    hidden_types,
+    shipping_title,
+)
 from devops_cli.github.session import get_github_session
+from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.commit_title import commit_type
+from devops_cli.roadmap.pull_form import (
+    open_body_problems,
+    title_problems,
+    title_with_declared_scope,
+)
 from devops_cli.roadmap.pull_labels import (
     add_pull_labels,
+    declared_labels,
     read_title_labels,
     remove_pull_labels,
     stale_labels,
@@ -36,9 +63,10 @@ from devops_cli.roadmap.stores.store import (
     RoadmapStore,
     StageRecordKey,
 )
+from devops_cli.roadmap.title_labels import declared_label_names, title_labels
 
 if TYPE_CHECKING:
-    from devops_cli.github.client import OpenPullRequest
+    from devops_cli.github.client import OpenPullRequest, PullRequestFile
     from devops_cli.roadmap.stores.store import Item
 
 logger = logging.getLogger(__name__)
@@ -60,6 +88,7 @@ class OpenResult:
     status: OpenStatus
     html_url: str = ""
     labels: tuple[str, ...] = ()
+    title: str = ""
 
     def __iter__(self) -> Iterator[int | OpenStatus]:
         yield self.number
@@ -76,6 +105,8 @@ class OpenResult:
         }
         if self.html_url:
             data["html_url"] = self.html_url
+        if self.title:
+            data["title"] = self.title
         if self.labels:
             data["labels"] = list(self.labels)
         return json.dumps(data)
@@ -100,6 +131,8 @@ class OpenRequest:
     head_commit_message: str | None = None
     lookup_existing: bool = True
     retry_refused: bool = True
+    # The files of the diff of the head, when the caller read them: the step then reads no diff.
+    changed: Sequence[PullRequestFile] | None = None
 
 
 def is_recovery_due(
@@ -154,6 +187,91 @@ def _form_checked_text(title: str, body: str) -> tuple[str, str]:
     return clean_title, clean_body
 
 
+def _declared(request: OpenRequest) -> tuple[str, ...] | None:
+    """The label names that `.github/labels.yml` declares on the base branch, or None when the
+    repository has no such file: then no scope is checked against it. Another failed read raises."""
+    try:
+        if request.store is not None:
+            return declared_labels(request.store, ref=request.base)
+        text = get_github_session().client.get_file_at(
+            request.repo, CONST_ROADMAP_LABELS_PATH, request.base
+        )
+    except GitHubFileNotFoundError:
+        return None
+    if text is None:
+        return None
+    try:
+        return declared_label_names(text)
+    except (yaml.YAMLError, ValidationError) as exc:
+        raise RoadmapOpenRefusedError(
+            MESSAGES.roadmap.open_file_unreadable.format(
+                path=CONST_ROADMAP_LABELS_PATH, error=str(exc)[:200]
+            )
+        ) from exc
+
+
+def _release_config(request: OpenRequest) -> dict[str, Any]:
+    """The release-please config on the base branch, or an empty config when the repository has
+    none: a repository with no release-please hides no type. Another failed read raises."""
+    try:
+        if request.store is not None:
+            text: str | None = request.store.repository_file(RELEASE_CONFIG_PATH, ref=request.base)
+        else:
+            text = get_github_session().client.get_file_at(
+                request.repo, RELEASE_CONFIG_PATH, request.base
+            )
+    except GitHubFileNotFoundError:
+        return {}
+    if text is None:
+        return {}
+    try:
+        config = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise RoadmapOpenRefusedError(
+            MESSAGES.roadmap.open_file_unreadable.format(path=RELEASE_CONFIG_PATH, error=exc.msg)
+        ) from exc
+    return config if isinstance(config, dict) else {}
+
+
+def _shipping_title(request: OpenRequest, title: str, config: dict[str, Any]) -> str:
+    """`title` with a type that ships a release when the diff of the head changes runtime code
+    under a hidden type (#5974). The diff is read only for a hidden type, and only when the
+    request holds no files of it."""
+    if commit_type(title) not in hidden_types(config):
+        return title
+    files = request.changed
+    if files is None:
+        client = get_github_session().client
+        files = client.get_compare_files(request.repo, request.base, request.head).files
+    paths = [changed.filename for changed in files]
+    added = [changed.filename for changed in files if changed.status == ADDED_STATUS]
+    shipped = shipping_title(title, paths, added, config)
+    if shipped != title:
+        logger.info(MESSAGES.roadmap.open_title_retyped, request.head, title, shipped)
+    return shipped
+
+
+def checked_request(request: OpenRequest, declared: tuple[str, ...] | None) -> OpenRequest:
+    """`request` with the title and the body that the rules of CI accept (#5974). The step fixes
+    what a rule can decide: a title on one line, a type that ships a release for a diff of runtime
+    code, and no scope that `declared` lacks. Any other problem of the title or the body raises
+    `RoadmapOpenRefusedError` that names every problem, and the step writes nothing."""
+    title = title_with_declared_scope(request.title, declared)
+    title = _shipping_title(request, title, _release_config(request))
+    issue = request.item or issue_of_branch(request.head)
+    problems = [
+        *title_problems(title, declared),
+        *open_body_problems(request.body, issue=issue, plan=request.kind == "plan"),
+    ]
+    if problems:
+        raise RoadmapOpenRefusedError(
+            MESSAGES.roadmap.open_attributes_refused.format(
+                title=title, problems=" ".join(problems)
+            )
+        )
+    return replace(request, title=title)
+
+
 def _upsert_marked_comment(repo: str, pull_number: int, comment_body: str) -> bool:
     """Upsert one marked comment on pull request `pull_number` (#5020)."""
     client = get_github_session().client
@@ -201,15 +319,12 @@ def _sync_status(store: RoadmapStore | None, item_num: int | None, kind: str) ->
     write_status(store, item, StatusFacts(pull_open=True))
 
 
-def _resolve_desired_labels(request: OpenRequest) -> set[str]:
-    """Resolve desired labels including title labels from the store."""
+def _resolve_desired_labels(request: OpenRequest, declared: tuple[str, ...] | None) -> set[str]:
+    """The labels of the request and the labels that its checked title gives (#5974): the type
+    label follows the type that the step wrote. A store-less request gets the labels it names."""
     desired_labels: set[str] = set(request.labels)
-    if request.store:
-        try:
-            read_labels = read_title_labels(request.store, request.title, ref=request.base)
-            desired_labels.update(read_labels.labels)
-        except (GitHubOperationError, GitHubUnauthenticatedError, KeyError, ValueError) as exc:
-            logger.debug("Could not read title labels for %s: %s", request.title, exc)
+    if request.store and declared is not None:
+        desired_labels.update(title_labels(request.title, declared).labels)
     return desired_labels
 
 
@@ -282,6 +397,7 @@ def _handle_existing_pull(
         status=status,
         html_url=existing.html_url,
         labels=tuple(desired_labels | set(existing.labels)),
+        title=request.title,
     )
 
 
@@ -328,6 +444,7 @@ def _handle_new_pull(
         status=OpenStatus.CREATED,
         html_url=created.html_url,
         labels=tuple(desired_labels),
+        title=request.title,
     )
 
 
@@ -341,6 +458,8 @@ def open_or_update(request: OpenRequest) -> OpenResult:
     if request.dry_run:
         return OpenResult(number=0, status=OpenStatus.CREATED)
 
+    declared = _declared(request)
+    request = checked_request(request, declared)
     client = get_github_session().client
     existing = (
         client.find_open_pull(request.repo, head=request.head, base=request.base)
@@ -348,7 +467,7 @@ def open_or_update(request: OpenRequest) -> OpenResult:
         else None
     )
     target_issue = request.item or issue_of_branch(request.head)
-    desired_labels = _resolve_desired_labels(request)
+    desired_labels = _resolve_desired_labels(request, declared)
 
     if existing is not None:
         return _handle_existing_pull(request, existing, desired_labels, target_issue)

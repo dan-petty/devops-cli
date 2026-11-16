@@ -79,6 +79,7 @@ def test_service_wiring(
             "plan_drift",
             "watch",
             "stage",
+            "open",
             "release_comments",
             "github_status",
             "cloudflare_status",

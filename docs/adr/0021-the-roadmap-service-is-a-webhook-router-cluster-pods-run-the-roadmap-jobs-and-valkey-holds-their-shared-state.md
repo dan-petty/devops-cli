@@ -328,3 +328,5 @@ The naming record of #4533 owns the object names, the labels, the Valkey key for
 
 2026-11-13: Fact out of date: section 8, row `fix-plan`, Bounds. The attempts on a head and the revisions are settings with these defaults (#5440).
 2026-11-16: Fact out of date: section 8, Spend. The model fix of a `fix-checks` unit stops at `roadmap.fix_checks.token_budget`, 16,000,000 new tokens by default (#5971).
+
+2026-11-16: Amended by the owner decision in #5974, section 8.
