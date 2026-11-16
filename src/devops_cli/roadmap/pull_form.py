@@ -228,6 +228,41 @@ def title_problems(title: str, declared: Collection[str] | None = None) -> list[
     return [*problems, *_summary_problems(found["summary"])]
 
 
+def title_with_declared_scope(title: str, declared: Collection[str] | None) -> str:
+    """`title` on one line, with no scope when `declared`, the label names of `.github/labels.yml`,
+    holds no label for its scope (#2800, #5974): the check `Semantic PR title` refuses that scope,
+    and the title keeps its type and its summary. With `declared` None, the scope stays."""
+    kept = " ".join(title.split())
+    found = _TITLE.fullmatch(kept)
+    scope = found["scope"] if found else None
+    if found is None or scope is None or declared is None or scope in _declared_scopes(declared):
+        return kept
+    return f"{found['type']}{found['bang']}: {found['summary']}"
+
+
+def open_body_problems(body: str, *, issue: int | None, plan: bool) -> list[str]:
+    """What breaks the body rules that the open step holds before it writes a body (#5974), one
+    text for each problem, and none when the body is right.
+
+    A plan body has the whole form of `plan_body_problems`. A delivery body closes the delivered
+    `issue` in one line `Closes #<issue>` and no other issue, and the text up to its trailers has
+    at most `BODY_MAX_CHARS` characters: the whole body when it has no `Change:` line. A draft that
+    the implement job writes before its final body has no `Change:` line yet, so a delivery body
+    needs none here: `body_problems` holds the whole form at ready."""
+    texts = MESSAGES.pr
+    if plan:
+        return plan_body_problems(body, issue) if issue is not None else []
+    lines = body.strip().splitlines()
+    problems, closes, _ = _closing_problems(body, lines)
+    if closes is not None and issue is not None and closes != issue:
+        problems.append(texts.form_closes_other.format(closes=closes, issue=issue))
+    _, _, change_at = _change_problems(lines)
+    measured = "\n".join(lines if change_at is None else lines[: change_at + 1])
+    if len(measured) > BODY_MAX_CHARS:
+        problems.append(texts.form_body_long.format(length=len(measured), limit=BODY_MAX_CHARS))
+    return problems
+
+
 def _closing_problems(body: str, lines: Sequence[str]) -> tuple[list[str], int | None, int | None]:
     """The problems of the `Closes` line, the issue it names and the index of its line."""
     texts = MESSAGES.pr

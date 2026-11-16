@@ -32,6 +32,7 @@ from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_stage import (
     GONE,
     HOLDS,
+    OPEN_STEP_READS,
     STAGE_REPO,
     VALID_REPORT,
     StageRepo,
@@ -356,7 +357,7 @@ def test_an_open_task_order_finding_keeps_the_draft_with_the_label(
     assert (model_fake.call_count, verifier.call_count) == (3, 3)
     assert change.open_findings == (finding,)
     assert store._roadmap.issues[5].labels == (FIX_PLAN_LABEL,)
-    assert json.loads(github_api.sent[0].content)["draft"] is True
+    assert json.loads(github_api.sent[-1].content)["draft"] is True
 
 
 def test_a_quote_of_a_file_that_the_verifier_read_past_the_cap_returns_the_plan(
@@ -517,8 +518,8 @@ def test_a_minor_contrived_test_finding_is_in_the_comment_and_the_draft_opens_an
     assert applied.staged == (1,)
     assert "contrived_test" in comment
     assert "Problem of contrived_test." in comment
-    assert github_api.requested == [f"POST {API}{PULLS}"]
-    assert json.loads(github_api.sent[0].content)["draft"] is True
+    assert github_api.requested == [*OPEN_STEP_READS, f"POST {API}{PULLS}"]
+    assert json.loads(github_api.sent[-1].content)["draft"] is True
 
 
 def test_a_comment_without_findings_has_no_findings_section(
@@ -582,7 +583,7 @@ def test_a_placeholder_finding_keeps_the_draft_and_applies_the_label(
     assert applied.staged == (1,)
     assert change.open_findings == (placeholder,)
     assert store._roadmap.issues[5].labels == (FIX_PLAN_LABEL,)
-    assert json.loads(github_api.sent[0].content)["draft"] is True
+    assert json.loads(github_api.sent[-1].content)["draft"] is True
     assert "placeholder" in comment
     assert (
         _notes(change).strip().startswith("A model review of the plan found these open findings.")

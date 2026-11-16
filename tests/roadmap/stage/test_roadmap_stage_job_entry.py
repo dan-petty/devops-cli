@@ -53,6 +53,7 @@ from tests.support.fakes.github import github_json
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_job_result import result_lines
 from tests.support.roadmap_stage import (
+    OPEN_STEP_READS,
     STAGE_NAME,
     STAGE_REPO,
     VALID_REPORT,
@@ -879,14 +880,16 @@ def test_the_entry_installs_a_request_budget_of_the_setting(
     stageable: int,
     config: Callable[..., Path],
 ) -> None:
-    """Every GitHub request of the Job takes a place in the budget of the pod. The pull request of
-    the draft is one such request, and at the limit the next request waits."""
-    config(roadmap={"stage": {"job": JOB, "github_requests_per_hour": 1}})
+    """Every GitHub request of the Job takes a place in the budget of the pod. The reads of the open
+    step (#5974) and the pull request of the draft are such requests, and at the limit the next
+    request waits."""
+    limit = len(OPEN_STEP_READS) + 1
+    config(roadmap={"stage": {"job": JOB, "github_requests_per_hour": limit}})
     model_fake.answer(make_stage_proposal())
 
     run = run_stage_job(store, repo=STAGE_REPO, item=stageable, source=stage_repo.clone, now=NOW)
 
-    assert (run.budget.limit, run.budget.spent(), run.budget.holds()) == (1, 1, True)
+    assert (run.budget.limit, run.budget.spent(), run.budget.holds()) == (limit, limit, True)
 
 
 # ── The command ───────────────────────────────────────────────────────────────

@@ -89,7 +89,7 @@ def _round(
 
 
 def test_each_row_with_a_cadence_reads_the_section_of_its_name() -> None:
-    """The rows intake, stage, fix_plan, refine and alternatives of the lanes have a cadence, and
+    """The rows intake, stage, fix_plan, open, refine and alternatives of the lanes have a cadence, and
     no other row has one. Each row reads the section of `roadmap` that has its name. A change that
     builds a row again, such as the stage row of #4559, must keep its cadence."""
     roadmap = RoadmapConfig()
@@ -100,7 +100,9 @@ def test_each_row_with_a_cadence_reads_the_section_of_its_name() -> None:
         if row.cadence is not None
     }
 
-    assert found == dict.fromkeys(("intake", "stage", "fix_plan", "refine", "alternatives"), True)
+    assert found == dict.fromkeys(
+        ("intake", "stage", "open", "fix_plan", "refine", "alternatives"), True
+    )
 
 
 def test_a_variable_changes_the_interval_of_the_next_round(

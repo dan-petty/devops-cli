@@ -245,6 +245,7 @@ def test_the_row_is_a_status_lane_submit_on_the_status_clone_and_no_model_lane_r
             "plan_drift",
             "watch",
             "stage",
+            "open",
             "release_comments",
             "github_status",
             "cloudflare_status",

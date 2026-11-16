@@ -214,6 +214,12 @@ data:
         time_budget_seconds: 7200
         head_attempts: 4
         revisions: 6
+      # The row open opens the pull request of a pushed delivery branch that the job record of an
+      # open item names and that has no pull request (#5974). `off` sends no request, `plan` logs
+      # each branch and writes nothing, and `on` runs the open step, which checks the title, the
+      # body and the labels with the rules of CI. It starts in `plan`, and a person sets `on`.
+      open:
+        mode: plan
       # The mode of each decision point (ADR 0020): `off`, `shadow` or `on`. The verify screen
       # (`stage.verify_screen`) asks the decision model before the model review of a plan. In
       # `shadow` the review always runs and the log records the band and the result of the review.

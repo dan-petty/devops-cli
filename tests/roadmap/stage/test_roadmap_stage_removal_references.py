@@ -18,9 +18,9 @@ from devops_cli.roadmap.stage.stage_removal_references import (
     scan_removal_references,
 )
 from tests.support.builders import make_stage_proposal
-from tests.support.fakes.github import github_json
+from tests.support.fakes.github import API, github_json
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
-from tests.support.roadmap_stage import STAGE_REPO, StageRepo, seed_stageable
+from tests.support.roadmap_stage import OPEN_STEP_READS, STAGE_REPO, StageRepo, seed_stageable
 
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
@@ -186,7 +186,10 @@ def test_stage_fails_on_unhandled_test_reference(
     change = StagedChange(
         target=target,
         title="docs(openspec): plan #1 Stop the job dropping a comment",
-        body="Plans #1",
+        body=(
+            "The change removes `valkey_set` from the exposure table.\n\nPlans #1\n\n"
+            f"Change: `openspec/changes/{target.change}/`"
+        ),
         files={
             f"openspec/changes/{target.change}/proposal.md": "The change removes `valkey_set` from `CONST_MCP_EXPOSURE_TABLE`.\n",
             f"openspec/changes/{target.change}/design.md": "Decisions:\n- none\n",
@@ -219,7 +222,10 @@ def test_stage_succeeds_and_comments_warning_on_unhandled_source_reference(
     change = StagedChange(
         target=target,
         title="docs(openspec): plan #1 Stop the job dropping a comment",
-        body="Plans #1",
+        body=(
+            "The change removes `valkey_set` from the exposure table.\n\nPlans #1\n\n"
+            f"Change: `openspec/changes/{target.change}/`"
+        ),
         files={
             f"openspec/changes/{target.change}/proposal.md": "The change removes `valkey_set` from `CONST_MCP_EXPOSURE_TABLE`.\n",
             f"openspec/changes/{target.change}/design.md": "Decisions:\n- none\n",
@@ -233,8 +239,8 @@ def test_stage_succeeds_and_comments_warning_on_unhandled_source_reference(
 
     _stage_one(store, STAGE_REPO, stage_repo.clone, sha, change, (), NOW)
 
-    # Pull request was opened
-    assert len(opened.requested) == 1
+    # Pull request was opened, after the reads of the open step (#5974)
+    assert opened.requested == [*OPEN_STEP_READS, f"POST {API}{PULLS}"]
     # Issue comment names src/example.py as a warning
     comments = [c.body for c in store.comments_on(1)]
     assert any("src/example.py" in c and "warning" in c.lower() for c in comments)

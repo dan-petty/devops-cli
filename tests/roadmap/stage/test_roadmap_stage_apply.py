@@ -36,6 +36,7 @@ from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import API, github_json
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_stage import (
+    OPEN_STEP_READS,
     STAGE_EMAIL,
     STAGE_REPO,
     VALID_REPORT,
@@ -140,8 +141,8 @@ def test_a_ready_bug_is_staged_with_one_commit_by_the_app(
         "openspec/config.yaml",
         "openspec/specs/roadmap-refine/spec.md",
     ]
-    assert opened.requested == [f"POST {API}{PULLS}"]
-    request = json.loads(opened.sent[0].content)
+    assert opened.requested == [*OPEN_STEP_READS, f"POST {API}{PULLS}"]
+    request = json.loads(opened.sent[-1].content)
     assert request["draft"] is True
     assert request["title"] == "docs(openspec): plan #1 Stop the job dropping a comment"
     assert (request["head"], request["base"]) == (BRANCH, "main")
@@ -506,7 +507,8 @@ def test_a_refused_push_stops_its_item_and_the_others_are_staged(
     assert (failure.number, failure.error) == (1, "GitOperationError")
     assert "refused by the hook" in failure.reason
     assert _pushed(stage_repo) == ["fix/2-the-job-drops-a-label", "main"]
-    assert [json.loads(r.content)["head"] for r in opened.sent] == ["fix/2-the-job-drops-a-label"]
+    posted = [r for r in opened.sent if r.method == "POST"]
+    assert [json.loads(r.content)["head"] for r in posted] == ["fix/2-the-job-drops-a-label"]
     item = store.item(1)
     assert item is not None
     assert StageRecordKey.BRANCH not in item.job_record

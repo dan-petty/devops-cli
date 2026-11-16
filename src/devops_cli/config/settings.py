@@ -159,6 +159,8 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_INTAKE_JEV,
     DEFAULT_ROADMAP_MCP_TIMEOUT_SECONDS,
+    DEFAULT_ROADMAP_OPEN_INTERVAL_MINUTES,
+    DEFAULT_ROADMAP_OPEN_MODE,
     DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_STAGE_FILTER,
     DEFAULT_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS,
@@ -1875,6 +1877,21 @@ class RoadmapFixPlanConfig(RowCadenceConfig):
     )
 
 
+class RoadmapOpenConfig(RowCadenceConfig):
+    """What the row open of the Service does (#5974), and the cadence of that row."""
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    interval_minutes: Annotated[int, Variable()] = _interval_minutes(
+        DEFAULT_ROADMAP_OPEN_INTERVAL_MINUTES
+    )
+
+    mode: Annotated[RowMode, Variable()] = Field(
+        description="What the row open of the Service does with a pushed branch that the job record of an open item names and that has no pull request (#5974). `off` sends no request. `plan` logs each branch that the row would open, and writes nothing. `on` runs the open step for each branch: the step checks the title, the body and the labels with the rules of CI, and opens the draft pull request. The command `devops roadmap step open` acts in every mode",
+        default=DEFAULT_ROADMAP_OPEN_MODE,
+    )
+
+
 class RoadmapFixConflictConfig(RowCadenceConfig):
     """The cadence and modes of the fix_conflict step (#5019)."""
 
@@ -1960,6 +1977,7 @@ class RoadmapConfig(BaseModel):
     fix_plan: RoadmapFixPlanConfig = Field(default_factory=RoadmapFixPlanConfig)
     fix_conflict: RoadmapFixConflictConfig = Field(default_factory=RoadmapFixConflictConfig)
     fix_checks: RoadmapFixChecksConfig = Field(default_factory=RoadmapFixChecksConfig)
+    open: RoadmapOpenConfig = Field(default_factory=RoadmapOpenConfig)
     refine: RoadmapRefineConfig = Field(default_factory=RoadmapRefineConfig)
     mcp: RoadmapMcpConfig = Field(default_factory=RoadmapMcpConfig)
     stall: RoadmapStallConfig = Field(default_factory=RoadmapStallConfig)

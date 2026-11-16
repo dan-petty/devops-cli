@@ -1649,6 +1649,10 @@ class PRMessages:
         "The line `Plans` names issue {issue}, and the line `Change:` names issue {change}."
     )
     form_plan_order: str = "The line `Plans` comes before the line `Change:`."
+    form_closes_other: str = (
+        "The line `Closes #{closes}` closes another issue. A pull request closes only the issue "
+        "that it delivers, #{issue}."
+    )
     form_closes_many: str = (
         "The body closes {count} issues. A pull request closes one issue, in one line "
         "`Closes #<issue>`."
@@ -4022,6 +4026,26 @@ class RoadmapMessages:
     implement_scoped_failed: str = "failed"
     implement_pull_body_draft: str = (
         "Closes #{number}\n\nThe job is not finished. It replaces this body when it finishes."
+    )
+    # The open step checks each attribute of a pull request before it writes it (#5974).
+    open_attributes_refused: str = (
+        "The open step writes no pull request with the title `{title}`: {problems}"
+    )
+    open_file_unreadable: str = "The open step cannot read `{path}`: {error}"
+    open_title_retyped: str = (
+        "The diff of %s changes runtime code under a hidden type, so the open step changed the "
+        "title %r to %r."
+    )
+    # The row open of the Service (#5974): log lines, and the error of a round.
+    open_row_would_open: str = (
+        "The row open of %s would open the pull request of #%d from the branch %s at %s "
+        "(mode plan, no write)."
+    )
+    open_row_opened: str = "The row open of %s opened pull request #%d for #%d: %s"
+    open_row_failed: str = "The row open of %s did not open #%d from the branch %s: %s"
+    open_row_round_failed: str = (
+        "The row open of {repo} did not open the pull request of {items}. The log names each "
+        "reason."
     )
     implement_stop_draft_failed: str = (
         "GitHub did not open the draft pull request of `{branch}`: {output}. The job removed the "
