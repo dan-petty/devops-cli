@@ -8,7 +8,8 @@ failed delivery again. GitHub records the status code of each delivery. The metr
 Service reads the active hooks of its repository and the newest page of deliveries of each one,
 and sets the gauge `devops_cli_service_webhook_delivery_failures` by `repo` and `code` to the
 deliveries of the last `DEFAULT_SERVICE_HOOK_DELIVERY_WINDOW_MINUTES` minutes whose code is not
-2xx.
+2xx. When `roadmap.metrics.interval_minutes` makes the row slower, the window grows with it
+(`delivery_window_minutes`, #6012).
 
 The reads go through `gh api`, so the request budget of the Service counts each one: one for the
 hooks and one for each active hook. The installation token reads them with the permission
@@ -29,6 +30,7 @@ from pydantic import BaseModel, TypeAdapter
 from devops_cli.config.constants import CONST_SERVICE_METRIC_WEBHOOK_DELIVERY_FAILURES
 from devops_cli.config.defaults import (
     DEFAULT_SERVICE_HOOK_DELIVERY_PAGE_SIZE,
+    DEFAULT_SERVICE_HOOK_DELIVERY_WINDOW_MARGIN_MINUTES,
     DEFAULT_SERVICE_HOOK_DELIVERY_WINDOW_MINUTES,
 )
 from devops_cli.github.client import GhCliClient
@@ -91,12 +93,24 @@ def read_delivery_failures(repo: RepoRef, since: datetime) -> Counter[str]:
     return failed
 
 
-def report_delivery_failures(repo: str, now: datetime) -> Counter[str]:
-    """Read the failed deliveries of the hooks of `repo` in the window before `now`, set the gauge
-    of each code, set the codes of the last read that this read does not find to 0, and return
-    the counts by code."""
+def delivery_window_minutes(metrics_interval_minutes: int) -> int:
+    """The minutes of deliveries that a round of the metrics row counts when the row runs every
+    `metrics_interval_minutes`: the default window, or the interval and its margin when a setting
+    makes the row slower. So each delivery is in at least one read (#5017, #6012)."""
+    return max(
+        DEFAULT_SERVICE_HOOK_DELIVERY_WINDOW_MINUTES,
+        metrics_interval_minutes + DEFAULT_SERVICE_HOOK_DELIVERY_WINDOW_MARGIN_MINUTES,
+    )
+
+
+def report_delivery_failures(
+    repo: str, now: datetime, window_minutes: int = DEFAULT_SERVICE_HOOK_DELIVERY_WINDOW_MINUTES
+) -> Counter[str]:
+    """Read the failed deliveries of the hooks of `repo` in the `window_minutes` before `now`, set
+    the gauge of each code, set the codes of the last read that this read does not find to 0, and
+    return the counts by code."""
     ref = RepoRef(repo)
-    since = now - timedelta(minutes=DEFAULT_SERVICE_HOOK_DELIVERY_WINDOW_MINUTES)
+    since = now - timedelta(minutes=window_minutes)
     failed = read_delivery_failures(ref, since)
     gone = _set_codes.get(ref.key, set()) - failed.keys()
     for code in sorted(gone):
@@ -118,6 +132,7 @@ def _set_gauge(repo: RepoRef, code: str, value: float) -> None:
 __all__ = [
     "Hook",
     "HookDelivery",
+    "delivery_window_minutes",
     "failed_deliveries",
     "read_delivery_failures",
     "report_delivery_failures",

@@ -163,6 +163,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_INTAKE_JEV,
     DEFAULT_ROADMAP_MCP_TIMEOUT_SECONDS,
+    DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_MODEL_JOBS,
     DEFAULT_ROADMAP_OPEN_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_OPEN_MODE,
@@ -1885,6 +1886,17 @@ class RoadmapInboxConfig(BaseModel):
     )
 
 
+class RoadmapMetricsConfig(RowCadenceConfig):
+    """The cadence of the metrics row of the Service (#6012). The row reads the metrics of the
+    whole repository and gives no queue, so the backlog rule never applies to it."""
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    interval_minutes: Annotated[int, Variable()] = _interval_minutes(
+        DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES
+    )
+
+
 class RoadmapIntakeConfig(RowCadenceConfig):
     """What `devops roadmap intake` asks of its models (#4298), and the cadence of the intake row
     of the Service (#5470)."""
@@ -2070,6 +2082,7 @@ class RoadmapConfig(BaseModel):
     implement: RoadmapImplementConfig = Field(default_factory=RoadmapImplementConfig)
     inbox: RoadmapInboxConfig = Field(default_factory=RoadmapInboxConfig)
     intake: RoadmapIntakeConfig = Field(default_factory=RoadmapIntakeConfig)
+    metrics: RoadmapMetricsConfig = Field(default_factory=RoadmapMetricsConfig)
     fix_plan: RoadmapFixPlanConfig = Field(default_factory=RoadmapFixPlanConfig)
     fix_conflict: RoadmapFixConflictConfig = Field(default_factory=RoadmapFixConflictConfig)
     fix_checks: RoadmapFixChecksConfig = Field(default_factory=RoadmapFixChecksConfig)

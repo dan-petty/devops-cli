@@ -1051,6 +1051,9 @@ CONST_GITHUB_DIFF_MEDIA_TYPE: Final[str] = "application/vnd.github.diff"
 CONST_GITHUB_COMPARE_FILES_LIMIT: Final[int] = 300
 # The `repo` and `row` of a GitHub request that no Service worker and no job row sent (#2475).
 CONST_GITHUB_REQUEST_SCOPE_OTHER: Final[str] = "other"
+# The `row` of the read of the open work of a repository after a Service round, which sets the
+# poll interval of the repository (#3672, #6012).
+CONST_GITHUB_REQUEST_ROW_IDLE_CHECK: Final[str] = "idle_check"
 # The characters that open and close an expression in a URI template (RFC 6570, section 2.2).
 # gidgethub expands every path as a template, so the session sends them percent-encoded.
 CONST_URI_TEMPLATE_EXPRESSION_DELIMITERS: Final[str] = "{}"

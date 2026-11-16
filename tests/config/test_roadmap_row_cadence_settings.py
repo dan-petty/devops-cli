@@ -1,5 +1,6 @@
-"""The cadence settings of the rows intake, stage, fix_plan, refine and alternatives: the interval of
-each row, and the backlog rule that makes a row with a large queue due sooner (#5470)."""
+"""The cadence settings of the rows metrics, intake, stage, fix_plan, refine and alternatives: the
+interval of each row, and the backlog rule that makes a row with a large queue due sooner (#5470,
+#6012)."""
 
 from __future__ import annotations
 
@@ -9,7 +10,7 @@ from pydantic import ValidationError
 from devops_cli.config import settings
 from devops_cli.config.settings import RoadmapConfig, RowCadenceConfig
 
-SECTIONS = ("intake", "stage", "fix_plan", "refine", "alternatives")
+SECTIONS = ("metrics", "intake", "stage", "fix_plan", "refine", "alternatives")
 
 
 def _cadence(name: str) -> RowCadenceConfig:
@@ -32,6 +33,7 @@ def test_the_defaults_are_the_old_intervals_and_no_backlog_rule() -> None:
     }
 
     assert found == {
+        "metrics": (13, None, None),
         "intake": (29, None, None),
         "stage": (37, None, None),
         "fix_plan": (53, None, None),

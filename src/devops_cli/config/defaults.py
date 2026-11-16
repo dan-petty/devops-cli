@@ -886,9 +886,15 @@ DEFAULT_ROADMAP_VERDICT_PARTIAL_SCORE: float = 0.5
 # How often refine is due on its own, besides its cross-job trigger (#1515).
 DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES: int = 7
 DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES: int = 13
+# How often the rows `github_status` and `cloudflare_status` read their public status page
+# (#4052). They send no GitHub request, so the setting of the metrics row does not slow them.
+DEFAULT_ROADMAP_STATUS_PAGE_INTERVAL_MINUTES: int = 13
 # The minutes of hook deliveries that the metrics row counts in the gauge of failed deliveries
 # (#5017). It is longer than the metrics interval, so each delivery is in at least one read.
 DEFAULT_SERVICE_HOOK_DELIVERY_WINDOW_MINUTES: int = 15
+# The minutes that the window of failed deliveries is longer than a slower metrics interval that
+# `roadmap.metrics.interval_minutes` sets (#6012).
+DEFAULT_SERVICE_HOOK_DELIVERY_WINDOW_MARGIN_MINUTES: int = 2
 # The newest deliveries of one hook that the metrics row reads: one page, the most GitHub gives.
 DEFAULT_SERVICE_HOOK_DELIVERY_PAGE_SIZE: int = 100
 # The most items one refine round takes. It is the only cap of a round (#2004).

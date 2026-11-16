@@ -1,0 +1,23 @@
+id: github-request-scope-row
+language: python
+severity: error
+files:
+  - "src/**"
+message: A request scope names no row, so the GitHub requests of its block count under the row `other` of `devops_cli_github_requests_total`. Give `row=` the job row or the loop that sends them.
+note: |
+  The Service sends the GitHub requests of each repository and each loop from one process, and the
+  `row` label names the loop that spent the hourly budget (#2475, #6012). A scope that names only
+  the repository keeps the row of the enclosing scope, which is `other` outside a row, so the
+  requests of a new loop hide in `other`. Each call of `request_scope` names its row: the job row,
+  such as `refine`, or the loop, such as `poll`, `webhook` or `idle_check`.
+rule:
+  all:
+    - pattern: request_scope($$$ARGS)
+    - not:
+        has:
+          field: arguments
+          has:
+            kind: keyword_argument
+            has:
+              field: name
+              regex: '^row$'

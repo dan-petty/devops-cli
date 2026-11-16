@@ -20,7 +20,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SERVICE_HOOK_DELIVERY_WINDOW_MINUTES,
 )
 from devops_cli.exceptions import GitHubOperationError
-from devops_cli.github.hook_deliveries import report_delivery_failures
+from devops_cli.github.hook_deliveries import delivery_window_minutes, report_delivery_failures
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from tests.support.fakes.github_repository import GitHubFake
 from tests.support.fakes.process import ProcessFake
@@ -143,7 +143,27 @@ def test_a_refused_read_of_the_hooks_raises_and_keeps_the_gauge(github: GitHubFa
     assert _failures("403") == 2.0
 
 
-def test_the_window_holds_each_delivery_between_two_metrics_rounds() -> None:
-    """The metrics row runs each `DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES`, so a window that is
-    longer reads each delivery at least once."""
-    assert DEFAULT_SERVICE_HOOK_DELIVERY_WINDOW_MINUTES > DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES
+@pytest.mark.parametrize("interval", [1, DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES, 26, 600])
+def test_the_window_holds_each_delivery_between_two_metrics_rounds(interval: int) -> None:
+    """The metrics row runs each `roadmap.metrics.interval_minutes`, so a window that is longer
+    reads each delivery at least once, also when a setting slows the row (#6012). The default
+    interval keeps the default window."""
+    window = delivery_window_minutes(interval)
+
+    assert (
+        window > interval,
+        delivery_window_minutes(DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES),
+    ) == (
+        True,
+        DEFAULT_SERVICE_HOOK_DELIVERY_WINDOW_MINUTES,
+    )
+
+
+def test_a_longer_window_counts_an_older_failed_delivery(github: GitHubFake) -> None:
+    """With the metrics row at 26 minutes, the window of 28 minutes counts a 403 answer of 20
+    minutes ago, which the default window of 15 minutes leaves out (#6012)."""
+    github.seed_hook(HOOK, [_delivery(1, 202), _delivery(20, 403), _delivery(30, 403)])
+
+    failed = report_delivery_failures(REPO, NOW, delivery_window_minutes(26))
+
+    assert (delivery_window_minutes(26), dict(failed)) == (28, {"403": 1})

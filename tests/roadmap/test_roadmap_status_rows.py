@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 from datetime import timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -19,7 +20,7 @@ from devops_cli.config.constants import (
     CONST_URL_CLOUDFLARE_STATUS_SUMMARY,
     CONST_URL_GITHUB_STATUS_SUMMARY,
 )
-from devops_cli.config.defaults import DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES
+from devops_cli.config.defaults import DEFAULT_ROADMAP_STATUS_PAGE_INTERVAL_MINUTES
 from devops_cli.exceptions import RoadmapRunError
 from devops_cli.roadmap.run import (
     DEFAULT_DUE_TABLE,
@@ -105,15 +106,16 @@ def test_row_names_of_the_status_lane_end_with_the_two_status_reads() -> None:
     ) == (STATUS_ROW_NAMES, STATUS_ROW_NAMES)
 
 
-def test_row_names_of_the_status_reads_need_no_clone_and_use_the_metrics_interval() -> None:
-    """A status read fetches a public page, so its row needs no clone. It uses the interval of the
-    metrics row and is due on a first run. `metrics` keeps its clone (#4052)."""
+def test_row_names_of_the_status_reads_need_no_clone_and_use_the_status_page_interval() -> None:
+    """A status read fetches a public page, so its row needs no clone. It is due every 13 minutes,
+    the old interval of the metrics row, and on a first run; the setting of the metrics row does
+    not slow it, as it sends no GitHub request (#6012). `metrics` keeps its clone (#4052)."""
     reads = [_row(name) for name in STATUS_READS]
     assert (
         [(row.needs_clone, row.first_run_due, row.interval) for row in reads],
         _row("metrics").needs_clone,
     ) == (
-        [(False, True, timedelta(minutes=DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES))] * 2,
+        [(False, True, timedelta(minutes=DEFAULT_ROADMAP_STATUS_PAGE_INTERVAL_MINUTES))] * 2,
         True,
     )
 
@@ -287,6 +289,31 @@ def test_the_metrics_row_reads_no_status_page_and_raises_when_its_collection_fai
     assert {CONST_URL_GITHUB_STATUS_SUMMARY, CONST_URL_CLOUDFLARE_STATUS_SUMMARY}.isdisjoint(
         web.requested
     )
+
+
+def test_the_metrics_row_reads_the_deliveries_of_its_own_interval(
+    seeded_store: InMemoryRoadmapStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With `roadmap.metrics.interval_minutes` at 26, the row counts the failed deliveries of the
+    last 28 minutes, so a delivery between two rounds of the slower row is still read (#6012)."""
+    from devops_cli.github import hook_deliveries, metrics
+    from devops_cli.roadmap import run
+
+    windows: list[int] = []
+    report = SimpleNamespace(repo=REPO)
+    monkeypatch.setattr(metrics, "collect_project_metrics_report", lambda **_: report)
+    monkeypatch.setattr(metrics, "emit_project_metrics_telemetry", lambda _report: None)
+    monkeypatch.setattr(
+        hook_deliveries,
+        "report_delivery_failures",
+        lambda _repo, _at, window: windows.append(window),
+    )
+    monkeypatch.setattr(run, "_emit_inbox_gauges", lambda *_: None)
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_METRICS_INTERVAL_MINUTES", "26")
+
+    run_metrics_adapter(store=seeded_store, repo=REPO, clone_path=tmp_path)
+
+    assert windows == [28]
 
 
 def _services(otlp: FakeCollector) -> list[str]:
