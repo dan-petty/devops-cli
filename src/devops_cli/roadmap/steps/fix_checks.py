@@ -104,7 +104,7 @@ def dry_run_fix_checks(repo: str, pull: int) -> tuple[tuple[Any, ...], tuple[Any
     return (), ()
 
 
-def _is_bot_author(author: str) -> bool:
+def is_bot_author(author: str) -> bool:
     """Check if the pull request author is a bot."""
     if not author:
         return False
@@ -125,7 +125,7 @@ def _has_owner_label(labels: Sequence[Any]) -> bool:
     return False
 
 
-def _check_scope(worktree: Path, item_num: int, log: str, is_stage_plan: bool) -> bool:
+def check_scope(worktree: Path, item_num: int, log: str, is_stage_plan: bool) -> bool:
     """Check whether the failed log names paths in the item repair scope."""
     try:
         if is_stage_plan:
@@ -168,7 +168,7 @@ def _check_preconditions(
             head=status.head_sha,
             reason="Head has moved",
         )
-    if not _is_bot_author(status.author):
+    if not is_bot_author(status.author):
         return FixChecksReport(
             repo=repo,
             pull=pull,
@@ -279,7 +279,7 @@ def _attempt_tier2(
     scope_ok = (
         scope_checker(log, item_num)
         if scope_checker is not None
-        else _check_scope(worktree, item_num, log, is_plan)
+        else check_scope(worktree, item_num, log, is_plan)
     )
     if not scope_ok:
         _record_outcome(

@@ -452,27 +452,27 @@ def test_count_errors_patterns() -> None:
 
 def test_is_bot_author_patterns() -> None:
     from devops_cli.config.constants import CONST_ROADMAP_OWNER_SERVICE
-    from devops_cli.roadmap.steps.fix_checks import _is_bot_author
+    from devops_cli.roadmap.steps.fix_checks import is_bot_author
 
-    assert _is_bot_author("") is False
-    assert _is_bot_author("custom-bot") is True
-    assert _is_bot_author("github-actions[bot]") is True
-    assert _is_bot_author(CONST_ROADMAP_OWNER_SERVICE) is True
+    assert is_bot_author("") is False
+    assert is_bot_author("custom-bot") is True
+    assert is_bot_author("github-actions[bot]") is True
+    assert is_bot_author(CONST_ROADMAP_OWNER_SERVICE) is True
 
 
 def test_check_scope_helper(tmp_path: Path) -> None:
-    from devops_cli.roadmap.steps.fix_checks import _check_scope
+    from devops_cli.roadmap.steps.fix_checks import check_scope
 
     # Stage plan
     plan_dir = tmp_path / "openspec" / "changes" / "98-test-plan"
     plan_dir.mkdir(parents=True)
     assert (
-        _check_scope(
+        check_scope(
             tmp_path, 98, "error at openspec/changes/98-test-plan/tasks.md", is_stage_plan=True
         )
         is True
     )
-    assert _check_scope(tmp_path, 98, "error at src/other.py", is_stage_plan=True) is False
+    assert check_scope(tmp_path, 98, "error at src/other.py", is_stage_plan=True) is False
 
     # Archived change with tasks.md
     archive_dir = tmp_path / "openspec" / "changes" / "archive" / "2026-11-16-99-test-plan"
@@ -481,10 +481,10 @@ def test_check_scope_helper(tmp_path: Path) -> None:
         "# Tasks\n\n## 1. Group\nReads: `src/read.py`.\nChanges: `src/mod.py`.\n- [ ] 1.1 Do it\n",
         encoding="utf-8",
     )
-    assert _check_scope(tmp_path, 99, "FAILED src/mod.py::test", is_stage_plan=False) is True
-    assert _check_scope(tmp_path, 99, "FAILED src/other.py", is_stage_plan=False) is False
+    assert check_scope(tmp_path, 99, "FAILED src/mod.py::test", is_stage_plan=False) is True
+    assert check_scope(tmp_path, 99, "FAILED src/other.py", is_stage_plan=False) is False
     # Missing tasks.md or non-existent change
-    assert _check_scope(tmp_path, 888, "FAILED src/mod.py", is_stage_plan=False) is False
+    assert check_scope(tmp_path, 888, "FAILED src/mod.py", is_stage_plan=False) is False
 
 
 def test_report_to_json() -> None:
