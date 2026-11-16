@@ -12,9 +12,9 @@
 # - `binarySource: install`: containerbase installs the uv, Python and Node versions that a
 #   repository asks for. `containerbaseDir` keeps the downloads on the claim, under `cacheDir`.
 #   Renovate keeps the OSV database in `cacheDir` too.
-# - `allowedCommands`: anchored regexes for the `postUpgradeTasks` commands of
-#   `.github/renovate.json`, and no shell. A test fails when a command has no regex, so #4902 adds
-#   its own regex with its command.
+# - `allowedCommands`: empty, so no `postUpgradeTasks` command runs (#6022). A task runs in the
+#   container that can read the installation token, so #6020 keeps the token away from the tasks
+#   first; then each command gets an anchored regex again, with no shell.
 # - `executionTimeout` (minutes) ends a child process before the Job deadline, which ends before
 #   GitHub ends the token.
 # - No `gitAuthor`: `platformCommit` (the shared preset) makes GitHub write and sign each commit
@@ -55,11 +55,7 @@ data:
       "repositoryCache": "enabled",
       "reportType": "file",
       "reportPath": "/report/renovate-report.json",
-      "allowedCommands": [
-        "^uv run --frozen devops install-tools --tool (openspec|devcontainers-cli)$",
-        "^uv run --frozen devops openspec regenerate$",
-        "^devcontainer upgrade --workspace-folder \\. --config \\.devcontainer/image/devcontainer\\.json$"
-      ],
+      "allowedCommands": [],
       "allowShellExecutorForPostUpgradeCommands": false,
       "executionTimeout": 15,
       "persistRepoData": false
