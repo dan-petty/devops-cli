@@ -336,6 +336,14 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
     )
 
 
+def service_consumers(service_manager: ServiceManager) -> tuple[WebhookConsumer, ...]:
+    """The consumers of the Service. Each event that a GitHub consumer takes must be an event
+    that the repository hook sends: `devops roadmap onboard` requires the events of
+    `CONST_ROADMAP_WEBHOOK_EVENTS` of the hook, and a test holds these consumers to them
+    (#5035)."""
+    return (roadmap_consumer(service_manager),)
+
+
 class DeliveryLRUCache:
     """Thread-safe LRU cache for tracking recent delivery IDs to eliminate duplicate replays."""
 
@@ -665,8 +673,8 @@ def create_webhook_router(
     service_manager: ServiceManager, consumers: Sequence[WebhookConsumer] | None = None
 ) -> APIRouter:
     """Construct the APIRouter with a POST route for each declared provider, delivering to
-    `consumers`, or to the roadmap consumer when none are given."""
-    active = (roadmap_consumer(service_manager),) if consumers is None else tuple(consumers)
+    `consumers`, or to the consumers of the Service when none are given."""
+    active = service_consumers(service_manager) if consumers is None else tuple(consumers)
     router = APIRouter(tags=["webhooks"])
     for provider in WEBHOOK_PROVIDERS.values():
         GLOBAL_METRICS.prime_counter(

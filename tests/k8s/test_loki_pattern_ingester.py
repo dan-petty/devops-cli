@@ -11,12 +11,12 @@ from tests.support.paths import REPO_ROOT
 VALUES = REPO_ROOT / "k8s/logging/loki-values.yaml"
 CHART = "loki"
 CHART_REPO = "https://grafana-community.github.io/helm-charts"
-CHART_VERSION = "21.2.1"
+CHART_VERSION = "21.2.3"
 
 
 @pytest.mark.live("helm")
 def test_the_loki_config_enables_the_pattern_ingester() -> None:
-    """Chart 21.2.1 writes `pattern_ingester.enabled` into the Loki configuration (#5260)."""
+    """Chart 21.2.3 writes `pattern_ingester.enabled` into the Loki configuration (#5260)."""
     result = helm(
         "template",
         "loki",

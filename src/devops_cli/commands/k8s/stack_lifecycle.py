@@ -182,7 +182,7 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "chart": "grafana/k8s-monitoring",
             "namespace": "monitoring",
             "values": ["monitoring/k8s-monitoring-values.yaml"],
-            "version": "4.6.0",
+            "version": "4.6.1",
         },
         {
             "name": "prometheus",
@@ -250,7 +250,7 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "chart": "qdrant/qdrant",
             "namespace": "llm",
             "values": ["llm/values-qdrant.yaml"],
-            "version": "1.20.0",
+            "version": "1.20.2",
         },
     ],
     "logging": [
@@ -259,7 +259,7 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "chart": "grafana-community/loki",
             "namespace": "logging",
             "values": ["logging/loki-values.yaml"],
-            "version": "21.2.1",
+            "version": "21.2.3",
         },
     ],
     # The internal forge and container registry (#1081). Its pod waits for Secret gitea-admin,

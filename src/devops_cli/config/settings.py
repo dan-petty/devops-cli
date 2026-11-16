@@ -172,6 +172,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_REVIEW_MODE,
     DEFAULT_ROADMAP_REVIEW_ROUNDS,
     DEFAULT_ROADMAP_REVIEW_TOKEN_BUDGET,
+    DEFAULT_ROADMAP_SKIP_AUTHORS,
     DEFAULT_ROADMAP_STAGE_FILTER,
     DEFAULT_ROADMAP_STAGE_GATE_RETURN_EXTENSIONS,
     DEFAULT_ROADMAP_STAGE_GATE_RETURNS,
@@ -2116,6 +2117,10 @@ class RoadmapConfig(BaseModel):
         ge=1,
     )
     mcp: RoadmapMcpConfig = Field(default_factory=RoadmapMcpConfig)
+    skip_authors: Annotated[list[str], Variable()] = Field(
+        description="The logins of the bots whose issues no roadmap row takes, such as `dan-petty-renovate[bot]`, the bot of the Renovate App: its Dependency Dashboard is a tracking issue that Renovate writes again each run, no work item (#6038). Such an issue is no Item and no Candidate. A login matches only when it is equal, and an empty list skips no author",
+        default_factory=lambda: list(DEFAULT_ROADMAP_SKIP_AUTHORS),
+    )
     stall: RoadmapStallConfig = Field(default_factory=RoadmapStallConfig)
     verdict_partial_score: Annotated[float, Variable()] = Field(
         default=DEFAULT_ROADMAP_VERDICT_PARTIAL_SCORE,

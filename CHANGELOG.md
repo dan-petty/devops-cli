@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.169.1](https://github.com/dan-petty/devops-cli/compare/v0.169.0...v0.169.1) (2026-11-16)
+
+
+### Bug Fixes
+
+* **deps:** update certifi to v2026.10.23 ([#6028](https://github.com/dan-petty/devops-cli/issues/6028)) ([d4d4785](https://github.com/dan-petty/devops-cli/commit/d4d4785634ff4a73a594feb8272a9167949084dd))
+* **roadmap:** Count a refine result of alternatives as a success ([#6044](https://github.com/dan-petty/devops-cli/issues/6044)) ([fefa043](https://github.com/dan-petty/devops-cli/commit/fefa04348b591e9688c4dd1899fdfeeee6514aff)), closes [#6037](https://github.com/dan-petty/devops-cli/issues/6037)
+* **roadmap:** Keep the Renovate dashboard out of the roadmap rows ([#6049](https://github.com/dan-petty/devops-cli/issues/6049)) ([49f76e4](https://github.com/dan-petty/devops-cli/commit/49f76e4d434cd19a009f1fd0f842c870683ba135))
+* **service:** Name the row of each GitHub request and cut the waste ([#6033](https://github.com/dan-petty/devops-cli/issues/6033)) ([9632a4f](https://github.com/dan-petty/devops-cli/commit/9632a4fd0a30fd5248d93240a544a656db9a3708)), closes [#6012](https://github.com/dan-petty/devops-cli/issues/6012)
+
 ## [0.169.0](https://github.com/dan-petty/devops-cli/compare/v0.168.0...v0.169.0) (2026-11-16)
 
 

@@ -1,6 +1,6 @@
 ---
 # Copied from charts/feature-cluster-metrics/default-allow-lists/kube-state-metrics.yaml in grafana/k8s-monitoring (#1136).
-# chart: grafana/k8s-monitoring 4.6.0
+# chart: grafana/k8s-monitoring 4.6.1
 # The minimal set of metrics from kube-state-metrics required for Kubernetes Monitoring
 metrics:
   - kube_configmap_info

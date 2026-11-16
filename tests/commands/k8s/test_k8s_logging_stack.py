@@ -66,7 +66,7 @@ def test_deploy_stack_installs_loki_from_the_grafana_community_chart(
     cli: Callable[..., Any],
 ) -> None:
     """The logging stack of deploy-stack installs the chart that the Argo CD Application pins,
-    `grafana-community/loki` 21.2.1, which runs Loki 3.7.9 and so is out of reach of
+    `grafana-community/loki` 21.2.3, which runs Loki 3.7.10 and so is out of reach of
     CVE-2026-21729 (#1632). It adds only the grafana-community repository, and gives the chart
     only the values file. The invariant test of the Application and the values is in
     tests/invariants/test_k8s_manifests.py."""
@@ -93,7 +93,7 @@ def test_deploy_stack_installs_loki_from_the_grafana_community_chart(
         repo_url,
     ) == (
         "grafana-community/loki",
-        "21.2.1",
+        "21.2.3",
         "logging",
         "k8s/logging/loki-values.yaml",
         "https://grafana-community.github.io/helm-charts",
@@ -128,7 +128,7 @@ def test_deploy_stack_dry_run_lists_the_helm_commands_of_the_logging_stack(
         "loki",
         "grafana-community/loki",
         "--version",
-        "21.2.1",
+        "21.2.3",
         "--namespace",
         "logging",
         "--values",
