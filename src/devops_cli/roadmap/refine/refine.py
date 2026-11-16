@@ -6,7 +6,8 @@ P1 items; the backlog's other New items; each place by priority. The number of R
 not stop a round: the board shows that number to the person who plans, and `--limit` is the only
 cap (#2004). Each open milestone and the backlog's P0/P1 items also give their Ready items no
 refine round has recorded, which refine confirms Ready or sets back to New. It leaves out items
-that are Blocked or started, items that an account that the jobs do not trust opened (GitHub's
+that are trackers (they have sub-issues or the label `type/epic`, #3703), items that are Blocked or
+started, items that an account that the jobs do not trust opened (GitHub's
 `author_association` is not OWNER, MEMBER or COLLABORATOR, and the author login is neither
 `service.github_app.bot_login` nor `github-actions[bot]`), which wait on a person (#2478, #3502),
 items whose title type `CONST_BRANCH_TYPES` does not list, which wait for `devops roadmap
@@ -20,7 +21,7 @@ call (#1539). The cap reads the comments of each item that the selection would t
 the selection. Apply records, logs and counts once each comment that the cap stops: the comment
 that would answer the item's newest comment. `--item` refines the item it names whenever it is
 open, New or Ready, whoever opened it and however many comments refine wrote on it, since a
-person asked for it. It does not refine an item whose title type is not listed.
+person asked for it. It does not refine a tracker or an item whose title type is not listed.
 
 A Ready proposal for an item that one of the two bots opened goes through a review before the item
 is Ready (`refine_judge`, #3502): an approval is recorded as `RefineRecordKey.JUDGE`. A refusal
@@ -2081,6 +2082,8 @@ def _select_single_candidate(
     if item.status in CONST_ROADMAP_REFINE_HELD_STATUSES:
         held = texts.refine_held_status.format(status=item.status)
         return [], [WaitingItem(item, NextStep.NONE, (held,))]
+    if item.is_tracker:
+        return [], [WaitingItem(item, NextStep.NONE, (texts.refine_left_tracker,))]
     title_wait = _title_type_wait(item)
     return ([], [title_wait]) if title_wait is not None else ([item], [])
 
@@ -2609,10 +2612,15 @@ class _Selection:
         return _Questions(store=self.store, frames=self.frames, actor=self.actor)
 
     def consider(self, item: Item) -> None:
-        """Take `item` unless an account that the jobs do not trust opened it (#2478), its title
-        type is not listed (#4508), its model call failed less than the wait of the failure class
-        ago (#4061), its wait is not over, a person edited its section (#1515), or refine wrote
-        its cap of comments on it in the last 24 hours (#2475)."""
+        """Take `item` unless it is a tracker (#3703), an account that the jobs do not trust opened
+        it (#2478), its title type is not listed (#4508), its model call failed less than the wait
+        of the failure class ago (#4061), its wait is not over, a person edited its section
+        (#1515), or refine wrote its cap of comments on it in the last 24 hours (#2475)."""
+        if item.is_tracker:
+            self.waiting.append(
+                WaitingItem(item, NextStep.NONE, (MESSAGES.roadmap.refine_left_tracker,))
+            )
+            return
         outside = _outside_author(item)
         if outside is not None:
             told = any(

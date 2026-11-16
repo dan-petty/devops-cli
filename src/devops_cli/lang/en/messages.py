@@ -2901,6 +2901,10 @@ class RoadmapMessages:
         "{until} UTC."
     )
     refine_held_closed: str = "The issue is closed: refine changes only open items."
+    refine_left_tracker: str = (
+        "The item is a tracker: it has sub-issues or the label type/epic. Its sub-issues deliver "
+        "it, so refine leaves it alone."
+    )
     # Why a refine round leaves an item that an account that the jobs do not trust opened
     # (#2478, #3502), and the comment that tells its author once.
     refine_outside_author: str = (
