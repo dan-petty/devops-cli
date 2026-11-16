@@ -317,7 +317,8 @@ def test_each_job_has_its_own_entry_in_the_template_and_no_job_reads_an_old_slot
 def test_the_template_holds_the_doubled_attempt_limits() -> None:
     """The owner chose twice the default limits of the stage, implement and fix-plan attempts
     (2026-11-13, again 2026-11-16). A deploy renders the template, so a limit that only the live
-    ConfigMap holds is lost (#5583). The item time stops at the ceiling of the Job deadline."""
+    ConfigMap holds is lost (#5583). The item time stops at the ceiling of the Job deadline, and
+    the two implement token budgets are four times the defaults by the owner rule of 2026-11-16 (#5970)."""
     template = _doc("configmap.example.yaml")["data"]["devops-cli.yaml"]
     roadmap = Settings.model_validate(yaml.safe_load(template)).roadmap
     stage, implement, fix_plan = roadmap.stage, roadmap.implement, roadmap.fix_plan
@@ -334,8 +335,6 @@ def test_the_template_holds_the_doubled_attempt_limits() -> None:
         ),
         "implement": (
             implement.repair_rounds,
-            implement.step_token_budget,
-            implement.item_token_budget,
             implement.command_timeout_seconds,
             implement.request_timeout_seconds,
             implement.monitor_timeout_seconds,
@@ -352,6 +351,7 @@ def test_the_template_holds_the_doubled_attempt_limits() -> None:
             implement.max_consecutive_refusals,
             implement.model_resends,
         ),
+        "tokens": (implement.step_token_budget, implement.item_token_budget),
         "item": (implement.item_time_limit_seconds, implement.deadline_ceiling_seconds),
         "fix_plan": (fix_plan.time_budget_seconds, fix_plan.head_attempts, fix_plan.revisions),
     } == {
@@ -371,8 +371,6 @@ def test_the_template_holds_the_doubled_attempt_limits() -> None:
             2 * value
             for value in (
                 defaults.DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS,
-                defaults.DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_BUDGET,
-                defaults.DEFAULT_ROADMAP_IMPLEMENT_ITEM_TOKEN_BUDGET,
                 defaults.DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
                 defaults.DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
                 defaults.DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
@@ -389,6 +387,10 @@ def test_the_template_holds_the_doubled_attempt_limits() -> None:
                 defaults.DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS,
                 defaults.DEFAULT_ROADMAP_IMPLEMENT_MODEL_RESENDS,
             )
+        ),
+        "tokens": (
+            4 * defaults.DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_BUDGET,
+            4 * defaults.DEFAULT_ROADMAP_IMPLEMENT_ITEM_TOKEN_BUDGET,
         ),
         "item": (defaults.DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_CEILING_SECONDS,) * 2,
         "fix_plan": tuple(
