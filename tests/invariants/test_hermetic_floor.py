@@ -1062,3 +1062,44 @@ def test_the_floor_drops_the_shell_config_variable() -> None:
     text = REPO_ROOT / "tests/conftest.py"
 
     assert 'os.environ.pop("DEVOPS_CLI_CONFIG", None)' in text.read_text(encoding="utf-8")
+
+
+def test_a_default_run_deselects_only_tests_marked_k8s(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A default run deselects only tests that carry the k8s mark (#4007, #5910). Offline tests
+    in a k8s directory carry no mark, so the default run does not deselect them."""
+    real_home = pytester.path / "real-home"
+    real_home.mkdir(exist_ok=True)
+    monkeypatch.setenv("HOME", str(real_home))
+    k8s_dir = pytester.path / "tests" / "k8s"
+    k8s_dir.mkdir(parents=True, exist_ok=True)
+    (k8s_dir / "test_k8s_offline.py").write_text(
+        """
+import pytest
+
+def test_unmarked():
+    pass
+
+@pytest.mark.k8s
+def test_marked():
+    pass
+""",
+        encoding="utf-8",
+    )
+    result = pytester.runpytest(
+        "-p",
+        "tests.conftest",
+        "-p",
+        "no:randomly",
+        "-p",
+        "no:logfire",
+        "-p",
+        "no:pytest_logfire",
+        "-o",
+        f"pythonpath={REPO_ROOT}",
+        "-o",
+        "asyncio_default_fixture_loop_scope=function",
+        "tests/k8s/test_k8s_offline.py",
+    )
+    result.assert_outcomes(passed=1, deselected=1)
