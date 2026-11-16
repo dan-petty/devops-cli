@@ -11,7 +11,7 @@ Kind: other. Reads: `.devcontainer/image/devcontainer.json`, `.devcontainer/imag
 
 Kind: other. Reads: `.devcontainer/image/devcontainer.json`, `docs/DEVCONTAINER_USAGE.md`. Changes: `docs/DEVCONTAINER_USAGE.md`.
 
-- [ ] 2.1 Add a sentence to the pre-installed tooling section of `docs/DEVCONTAINER_USAGE.md` that names the pinned releases of the `docker-in-docker` and `kubectl-helm-minikube` features, says that kubectl and Helm follow the pins of the tools lock, and says that a bump changes the image config in the same pull request as the lockfile
+- [x] 2.1 Add a sentence to the pre-installed tooling section of `docs/DEVCONTAINER_USAGE.md` that names the pinned releases of the `docker-in-docker` and `kubectl-helm-minikube` features, says that kubectl and Helm follow the pins of the tools lock, and says that a bump changes the image config in the same pull request as the lockfile
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 2.2 Edit `docs/DEVCONTAINER_USAGE.md` to name the pinned feature releases and the step that bumps them
+- [x] 2.2 Edit `docs/DEVCONTAINER_USAGE.md` to name the pinned feature releases and the step that bumps them
   - Verification: `$ uv run devops ci docs` passes
