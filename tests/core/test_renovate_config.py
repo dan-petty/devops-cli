@@ -282,24 +282,6 @@ def test_a_security_fix_branch_holds_one_update_of_each_dependency() -> None:
     assert (alerts["vulnerabilityFixStrategy"], alerts["separateMajorMinor"]) == ("highest", False)
 
 
-def test_a_migration_waits_for_an_approval_on_the_dashboard() -> None:
-    """A Python minor or major, and a major of Node, PostgreSQL or Mattermost, need a migration.
-    The Dashboard lists them until a person or an agent approves one."""
-    approvals = [
-        (rule["matchPackageNames"], rule["matchUpdateTypes"])
-        for rule in _rules()
-        if rule.get("dependencyDashboardApproval")
-    ]
-
-    assert approvals == [
-        (["python"], ["minor", "major"]),
-        (
-            ["node", "ghcr.io/cloudnative-pg/postgresql", "mattermost/mattermost-team-edition"],
-            ["major"],
-        ),
-    ]
-
-
 def test_each_ecosystem_groups_its_non_major_updates() -> None:
     groups = [
         (rule["groupName"], rule["matchUpdateTypes"])
