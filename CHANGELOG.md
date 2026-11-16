@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.166.0](https://github.com/dan-petty/devops-cli/compare/v0.165.2...v0.166.0) (2026-11-16)
+
+
+### Features
+
+* **ai:** Route DeepSeek calls around a stalled provider ([#5995](https://github.com/dan-petty/devops-cli/issues/5995)) ([183a75a](https://github.com/dan-petty/devops-cli/commit/183a75aa64d05fd4067de06c41c3bddf2545df3c))
+* **github:** write a Renovate App installation token to a file ([#5994](https://github.com/dan-petty/devops-cli/issues/5994)) ([b2c6264](https://github.com/dan-petty/devops-cli/commit/b2c62641c2fe9faaaad9f496d189ef522db66cf5)), closes [#4897](https://github.com/dan-petty/devops-cli/issues/4897)
+* **roadmap:** Check each PR attribute in the open step ([#5981](https://github.com/dan-petty/devops-cli/issues/5981)) ([69bf1aa](https://github.com/dan-petty/devops-cli/commit/69bf1aae1e8fc12c555676c22566572ea54d006c))
+* **roadmap:** Retry a refused pull request body once ([#5929](https://github.com/dan-petty/devops-cli/issues/5929)) ([8ebf3ce](https://github.com/dan-petty/devops-cli/commit/8ebf3ce1b63be27cdde70e13a3ff5c7d83bc9f2b))
+* **roadmap:** show a stopped item's class and next action ([#5946](https://github.com/dan-petty/devops-cli/issues/5946)) ([4bd6128](https://github.com/dan-petty/devops-cli/commit/4bd6128ae8295729e30bccaba02863b389b12692))
+
+
+### Bug Fixes
+
+* **ci:** Pin the devcontainer feature releases ([#5936](https://github.com/dan-petty/devops-cli/issues/5936)) ([efbfc05](https://github.com/dan-petty/devops-cli/commit/efbfc05b213b0bc2fe616c664bfcd861aa813523))
+* **roadmap:** Keep the Planned limit in the stage job ([#5940](https://github.com/dan-petty/devops-cli/issues/5940)) ([4758ddd](https://github.com/dan-petty/devops-cli/commit/4758ddd6c613c621e02b3b5ccd6e2306e3e33378))
+
 ## [0.165.2](https://github.com/dan-petty/devops-cli/compare/v0.165.1...v0.165.2) (2026-11-16)
 
 
