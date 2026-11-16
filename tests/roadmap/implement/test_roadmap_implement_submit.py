@@ -239,10 +239,23 @@ def test_a_round_creates_one_job_for_a_planned_item_whose_branch_is_gone(
 
 
 def _plan_of(pages: int) -> str:
-    """The `tasks.md` of the tests, with `pages` more new files in the changes of group 1. It names
-    3 files without a page and 3 + `pages` with them."""
-    extra = "".join(f", `docs/page{n}.md` (new)" for n in range(1, pages + 1))
-    return TASKS.replace("`tests/test_shout.py` (new).", f"`tests/test_shout.py` (new){extra}.", 1)
+    """The `tasks.md` of the tests, with `pages` more new files in extra groups so each group
+    stays under `MAX_GROUP_CHANGES` (5). It names 3 files without a page and 3 + `pages` with them."""
+    if not pages:
+        return TASKS
+    groups = []
+    chunk_size = 5
+    page_numbers = list(range(1, pages + 1))
+    for i, start in enumerate(range(0, len(page_numbers), chunk_size), start=3):
+        chunk = page_numbers[start : start + chunk_size]
+        changes = ", ".join(f"`docs/page{n}.md` (new)" for n in chunk)
+        groups.append(
+            f"\n## {i}. Extra group {i}\n\n"
+            f"Reads: `CONTEXT.md`. Changes: {changes}.\n\n"
+            f"- [ ] {i}.1 Add documentation files for part {i}\n"
+            f"  - Verification: `$ uv run devops ci test tests/test_shout.py`\n"
+        )
+    return TASKS + "".join(groups)
 
 
 def _sized(job: dict[str, Any]) -> tuple[Any, ...]:

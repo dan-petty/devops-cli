@@ -924,3 +924,16 @@ def test_the_prompts_name_the_test_module_of_a_changed_function() -> None:
 
     assert "references" in extended_prompt
     assert "test module that the answer lists" in extended_prompt
+
+
+def test_the_prompts_and_documents_state_the_group_files_limit() -> None:
+    """The prompts and documents state the 5-file limit, prefix-move exemption, and split instruction (#3995)."""
+    change_prompt = load_task_prompt("roadmap_stage_change.md")
+    split_prompt = load_task_prompt("roadmap_stage_split.md")
+    workflow_doc = (REPO_ROOT / "docs" / "ROADMAP_WORKFLOW.md").read_text("utf-8")
+    stage_doc = (REPO_ROOT / "docs" / "roadmap" / "stage.md").read_text("utf-8")
+
+    for text in (change_prompt, split_prompt, workflow_doc, stage_doc):
+        assert "5 files" in text or "5 paths" in text
+        assert "prefix move" in text
+        assert "split" in text.lower()

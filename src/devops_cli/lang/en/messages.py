@@ -5039,6 +5039,11 @@ class RoadmapMessages:
         "and its literal `{literal}` names one module of the moved prefix. Search the dotted "
         "prefix, such as `{expected}`, so the check covers every module."
     )
+    stage_problem_group_files: str = (
+        "Group {group} ({title}) lists {count} paths in `changes`. A task group allows at most "
+        "{limit} paths in `changes`, unless the group is a prefix move. Split the group into "
+        "smaller task groups."
+    )
     plan_drift_round: str = (
         "The plan drift row of {repo} checked {checked} plan pull request(s) and labelled "
         "{failing}."

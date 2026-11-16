@@ -36,7 +36,7 @@ At the limit, the job leaves out each item with another priority, with the reaso
 
 ## The budget of a task group
 
-A task group over the step budget goes back to the model once. A group that is still over the budget stops the item. `--step-tokens` replaces the setting `roadmap.stage.step_tokens` for one run.
+A task group over the step budget goes back to the model once. A group that is still over the budget stops the item. `--step-tokens` replaces the setting `roadmap.stage.step_tokens` for one run. A task group allows at most 5 files in `changes`, unless the group is a prefix move whose `changes` holds only the old modules of one prefix move and the modules that the group creates (#3995). Split a group that changes more than 5 files into smaller task groups.
 
 ## The tools of the planner
 

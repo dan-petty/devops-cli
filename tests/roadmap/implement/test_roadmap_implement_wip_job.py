@@ -19,16 +19,12 @@ from tests.support.roadmap_implement import BRANCH, TASKS_PATH, JobWorld
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 FILES = 5
-FILES_AND_TESTS = ", ".join(
-    f"`{path}` (new)"
-    for i in range(1, FILES + 1)
-    for path in (f"src/devops_cli/f{i}.py", f"tests/test_f{i}.py")
-)
+FILES_AND_TESTS = ", ".join(f"`src/devops_cli/f{i}.py` (new)" for i in range(1, FILES + 1))
 TASKS_OF_FIVE = (
     "# Tasks\n\n## 1. The five files\n\n"
     f"Reads: `CONTEXT.md`. Changes: {FILES_AND_TESTS}.\n\n"
     + "".join(
-        f"- [ ] 1.{i} Add `src/devops_cli/f{i}.py`\n  - Verification: `$ uv run devops ci test tests/test_f{i}.py`\n"
+        f"- [ ] 1.{i} Add `src/devops_cli/f{i}.py`\n  - Verification: `$ uv run devops ci test src/devops_cli/sample.py`\n"
         for i in range(1, FILES + 1)
     )
     + "\n## Criteria\n\n- Group 1: The job keeps every comment.\n"
