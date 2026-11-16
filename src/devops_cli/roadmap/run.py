@@ -1,13 +1,13 @@
 """Roadmap job evaluation, scheduling, checkout management, and execution.
 
-The due table runs the rows that call no model, metrics, implement, stage_ready, stage,
-release_comments, github_status, cloudflare_status and pr_conflicts, before the rows that call it,
+The due table runs the rows that call no model, metrics, implement, plan_drift, watch, stage,
+release_comments, github_status and cloudflare_status, before the rows that call it,
 intake, retitle, fix_plan, refine and alternatives, so a burst of candidates never holds back the
-metrics (#1360), and a slow model never holds back the implement, stage_ready or stage row
-(#2757, #2865, #4559). The row stage_ready marks a green stage draft pull request ready. The row
+metrics (#1360), and a slow model never holds back the implement, watch or stage row
+(#2757, #2865, #4559, #5024). The row watch monitors open plan and delivery pull requests,
+batches status queries via GraphQL, and routes lifecycle steps. The row
 stage submits one stage Job for each Ready item (`stage_submit.py`): the Job plans the item. The row
 release_comments comments the version, and the time it runs, on the issues of a release (#2917).
-The row pr_conflicts comments once on a ready delivery pull request with merge conflicts (#4027).
 The row fix_plan runs the step fix-plan in the mode of `roadmap.fix_plan.mode`: it repairs at most
 one stage plan pull request with the label `plan/needs-fix` in a round (#5061).
 `devops roadmap run` runs the whole table in one round. The Service runs each row in a lane of its
@@ -98,11 +98,10 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_INTAKE_LIMIT,
     DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_PLAN_DRIFT_INTERVAL_MINUTES,
-    DEFAULT_ROADMAP_PR_CONFLICTS_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_RELEASE_COMMENTS_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_RETITLE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_RETITLE_LIMIT,
-    DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES,
+    DEFAULT_ROADMAP_WATCH_INTERVAL_MINUTES,
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.core import clock
@@ -149,7 +148,6 @@ from devops_cli.roadmap.intake.intake import (
 # `refine` imports pydantic_ai. The Python 3.14 import lock deadlocks when two worker threads
 # import it for the first time together, so import it at module level, in the Service's main
 # thread, before any worker starts (#2535).
-from devops_cli.roadmap.pr_conflicts import watch_conflicts
 from devops_cli.roadmap.refine.refine import RefineWriter, plan_refine
 from devops_cli.roadmap.release_comments import comment_releases
 from devops_cli.roadmap.release_feed import GitHubReleaseFeed
@@ -161,7 +159,6 @@ from devops_cli.roadmap.stage.plan_drift import run_plan_drift
 # `stage` imports the model client, which imports pydantic_ai too: import it here for the same
 # reason (#2659).
 from devops_cli.roadmap.stage.stage import raise_for_failed
-from devops_cli.roadmap.stage.stage_ready import mark_stage_ready
 from devops_cli.roadmap.stage.stage_submit import run_stage_round
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.stage.stage_verify import PLAN_NEEDS_FIX_LABEL
@@ -174,6 +171,7 @@ from devops_cli.roadmap.stores.listing_snapshot import (
 )
 from devops_cli.roadmap.stores.store import Change, ChangeKind, RoadmapStore
 from devops_cli.roadmap.trust import is_person_comment
+from devops_cli.roadmap.watch_row import watch_round
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.server.service import (
     LaneJob,
@@ -866,11 +864,35 @@ def _run_plan_drift_adapter(
     return JobOutcome()
 
 
-def _run_stage_ready_adapter(store: RoadmapStore, repo: str = "", **_: Any) -> JobOutcome:
-    """Mark each green draft pull request that the stage job recorded ready for review, and fail,
-    once the others are done, when a pull request failed (#2865). A round with no recorded draft
-    sends no request of its own."""
-    mark_stage_ready(store, repo=repo)
+def _run_watch_adapter(
+    store: RoadmapStore,
+    *,
+    repo: str,
+    repo_dir: Path | None = None,
+    now: datetime | None = None,
+    dry_run: bool = False,
+    data_dir: Path | None = None,
+    **_: Any,
+) -> JobOutcome:
+    """Watch open plan and delivery pull requests with single-query GraphQL batching, back off
+    failed heads for 30 minutes, and route lifecycle steps (ADR 0021, section 8; #5024)."""
+    from devops_cli.config.constants import CONST_ROADMAP_WATCH_LEDGER_FILENAME
+
+    target_dir = repo_dir or (
+        data_dir / repo.replace("/", "-")
+        if data_dir
+        else _resolve_data_dir() / "roadmap" / repo.replace("/", "-")
+    )
+    target_dir.mkdir(parents=True, exist_ok=True)
+    current_time = now or datetime.now(UTC)
+    watch_round(
+        store,
+        repo=repo,
+        ledger_path=target_dir / CONST_ROADMAP_WATCH_LEDGER_FILENAME,
+        repo_dir=target_dir,
+        now=current_time,
+        dry_run=dry_run,
+    )
     return JobOutcome()
 
 
@@ -1007,21 +1029,6 @@ def _run_cloudflare_status_adapter(**_: Any) -> JobOutcome:
     return JobOutcome()
 
 
-def _run_pr_conflicts_adapter(
-    store: RoadmapStore, *, repo: str, repo_dir: Path, **_: Any
-) -> JobOutcome:
-    """Comment once on each ready delivery pull request that has merge conflicts with the default
-    branch, and send the gauge of those pull requests (#4027). The row calls no model and needs no
-    clone; its ledger `pr_conflicts.json` lies beside `schedule.json`. A clean pull request that
-    is behind the default branch gets no action. A failed read of GitHub fails this row only."""
-    from devops_cli.config.constants import CONST_ROADMAP_PR_CONFLICTS_LEDGER_FILENAME
-
-    watch_conflicts(
-        store, repo=repo, ledger_path=repo_dir / CONST_ROADMAP_PR_CONFLICTS_LEDGER_FILENAME
-    )
-    return JobOutcome()
-
-
 STATUS_LANE_ROWS: tuple[JobRow, ...] = (
     JobRow(
         name="metrics",
@@ -1046,9 +1053,9 @@ STATUS_LANE_ROWS: tuple[JobRow, ...] = (
         first_run_due=True,
     ),
     JobRow(
-        name="stage_ready",
-        interval=timedelta(minutes=DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES),
-        runner=_run_stage_ready_adapter,
+        name="watch",
+        interval=timedelta(minutes=DEFAULT_ROADMAP_WATCH_INTERVAL_MINUTES),
+        runner=_run_watch_adapter,
         first_run_due=True,
     ),
     JobRow(
@@ -1077,26 +1084,15 @@ STATUS_LANE_ROWS: tuple[JobRow, ...] = (
         runner=_run_cloudflare_status_adapter,
         first_run_due=True,
     ),
-    JobRow(
-        name="pr_conflicts",
-        interval=timedelta(minutes=DEFAULT_ROADMAP_PR_CONFLICTS_INTERVAL_MINUTES),
-        runner=_run_pr_conflicts_adapter,
-        first_run_due=True,
-    ),
 )
 """The rows that call no model: the one that refreshes the metrics, the one that submits the
-implement Job, which only talks to the Kubernetes API and GitHub, the one that marks a green
-stage pull request ready, which only talks to GitHub, the one that submits the stage Jobs, which
-talks to the Kubernetes API and GitHub and reads the clone (#4559), and the one that comments a release on its
-issues, which talks to GitHub, the registry and the Kubernetes API, the two that read the GitHub
-and the Cloudflare status page, one row each, so a failed read fails its own row (#4052), and the
-one that comments on a ready delivery pull request with merge conflicts, which only talks to GitHub
-(#4027). The model runs in the Job, so a model-lane
-round that is still running never delays the rows (#2757, #2865). `stage_ready` follows
-`implement`, so a Staged item with a green draft gets its Job first, and the row leaves a pull
-request that a Job works on alone. `stage` follows `stage_ready`. `release_comments`, the two
-status reads and `pr_conflicts` come last: they wait for no other row, and a slow read delays no
-other row."""
+implement Job, which only talks to the Kubernetes API and GitHub, the one that checks plan drift,
+the one that watches open roadmap pull requests with single-query GraphQL batching and routes lifecycle steps (#5024),
+the one that submits the stage Jobs, which talks to the Kubernetes API and GitHub and reads the clone (#4559),
+the one that comments a release on its issues, which talks to GitHub, the registry and the Kubernetes API,
+and the two that read the GitHub and the Cloudflare status page, one row each, so a failed read fails its own row (#4052).
+The model runs in the Job, so a model-lane round that is still running never delays the rows (#2757, #2865).
+`watch` follows `implement`, and `stage` follows `watch`. `release_comments` and the two status reads come last."""
 
 TRIAGE_LANE_ROWS: tuple[JobRow, ...] = (
     JobRow(
@@ -1289,13 +1285,13 @@ def build_stub_table(
     include_stage: bool | None = None,
     include_implement: bool | None = None,
     include_plan_drift: bool | None = None,
-    include_stage_ready: bool | None = None,
+    include_watch: bool | None = None,
     include_release_comments: bool | None = None,
     include_retitle: bool | None = None,
 ) -> tuple[JobRow, ...]:
     """The due table's rows, in its order, each running `runners`' stub for its job: metrics,
-    implement, stage_ready, release_comments, github_status, cloudflare_status, pr_conflicts,
-    intake, retitle, stage, fix_plan, refine and alternatives.
+    implement, plan_drift, watch, stage, release_comments, github_status, cloudflare_status,
+    intake, retitle, fix_plan, refine and alternatives.
     Intake is always in; the others are added when asked for or given a stub."""
     r = runners or {}
     add_retitle = include_retitle if include_retitle is not None else ("retitle" in r)
@@ -1304,9 +1300,7 @@ def build_stub_table(
     add_stage = include_stage if include_stage is not None else ("stage" in r)
     add_implement = include_implement if include_implement is not None else ("implement" in r)
     add_plan_drift = include_plan_drift if include_plan_drift is not None else ("plan_drift" in r)
-    add_stage_ready = (
-        include_stage_ready if include_stage_ready is not None else ("stage_ready" in r)
-    )
+    add_watch = include_watch if include_watch is not None else ("watch" in r)
     add_release_comments = (
         include_release_comments
         if include_release_comments is not None
@@ -1322,11 +1316,10 @@ def build_stub_table(
         "stage": add_stage,
         "implement": add_implement,
         "plan_drift": add_plan_drift,
-        "stage_ready": add_stage_ready,
+        "watch": add_watch,
         "release_comments": add_release_comments,
         "github_status": "github_status" in r,
         "cloudflare_status": "cloudflare_status" in r,
-        "pr_conflicts": "pr_conflicts" in r,
         "fix_plan": "fix_plan" in r,
         "alternatives": add_alternatives,
     }

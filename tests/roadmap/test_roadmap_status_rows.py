@@ -57,15 +57,14 @@ STATUS_ROW_NAMES = (
     "metrics",
     "implement",
     "plan_drift",
-    "stage_ready",
+    "watch",
     "stage",
     "release_comments",
     "github_status",
     "cloudflare_status",
-    "pr_conflicts",
 )
 """The status lane, in its order: the stage row submits the stage Jobs (#4559), and the two status
-reads and the conflict row (#4027) come last, so a slow status page never delays `implement`."""
+reads come last, so a slow status page never delays `implement` (#5024)."""
 
 STATUS_READS = ("github_status", "cloudflare_status")
 
@@ -95,9 +94,9 @@ def _jobs(row: str, result: str) -> float:
 
 
 def test_row_names_of_the_status_lane_end_with_the_two_status_reads() -> None:
-    """The status lane holds the five rows it held, the two status reads after them and the
-    conflict row last, in this order, and the default table runs them before the other lanes
-    (#4052, #4027)."""
+    """The status lane holds the four rows it held, the stage and release comments rows, and the
+    two status reads last, in this order, and the default table runs them before the other lanes
+    (#4052, #5024)."""
     assert (
         tuple(row.name for row in STATUS_LANE_ROWS),
         tuple(row.name for row in DEFAULT_DUE_TABLE[: len(STATUS_ROW_NAMES)]),
@@ -148,12 +147,11 @@ def test_source_failed_github_status_read_counts_an_error_for_its_row_only(
             "metrics": (1, 0),
             "implement": (1, 0),
             "plan_drift": (1, 0),
-            "stage_ready": (1, 0),
+            "watch": (1, 0),
             "stage": (1, 0),
             "release_comments": (1, 0),
             "github_status": (0, 1),
             "cloudflare_status": (1, 0),
-            "pr_conflicts": (1, 0),
         },
         sorted(name for name in STATUS_ROW_NAMES if name != "github_status"),
     )

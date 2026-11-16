@@ -86,6 +86,9 @@ REMOVED: Final[tuple[str, ...]] = (
     "CONST_ROADMAP_IMPLEMENT_EXTENSION_MAX_REFUSED",
     "CONST_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS",
     "CONST_ROADMAP_FIX_PLAN_REVISIONS",
+    # Replaced by DEFAULT_ROADMAP_WATCH_INTERVAL_MINUTES (#5024)
+    "DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES",
+    "DEFAULT_ROADMAP_PR_CONFLICTS_INTERVAL_MINUTES",
 )
 
 LIMITS: Final[dict[str, tuple[str, str]]] = {
@@ -717,7 +720,7 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     "DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_STAGE_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_PLAN_DRIFT_INTERVAL_MINUTES": ("other", "a schedule"),
-    "DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES": ("other", "a schedule"),
+    "DEFAULT_ROADMAP_WATCH_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_STALL_HOURS": (
         "setting",
         "the hours an item may remain in one phase before the alert counts it; a setting since #5495",
@@ -733,7 +736,6 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "ends in about 6 minutes",
     ),
     "DEFAULT_ROADMAP_RELEASE_COMMENTS_INTERVAL_MINUTES": ("other", "a schedule"),
-    "DEFAULT_ROADMAP_PR_CONFLICTS_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_FIX_PLAN_INTERVAL_MINUTES": ("other", "a schedule"),
     "DEFAULT_ROADMAP_FIX_PLAN_TIME_BUDGET_SECONDS": (
         "setting",

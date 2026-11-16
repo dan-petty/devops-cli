@@ -1105,16 +1105,11 @@ DEFAULT_ROADMAP_EVAL_HARBOR_TIMEOUT_SECONDS: Final[int] = 600
 # the head of each open plan pull request and runs the plan gates on it, so it is heavier than a
 # stage_ready round.
 DEFAULT_ROADMAP_PLAN_DRIFT_INTERVAL_MINUTES: int = 37
-# How often the stage_ready row is due on its own, besides its first run (#2865). A round with no
-# recorded draft sends no request; a draft that waits for its checks costs two requests a round.
-DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES: int = 3
+# How often the watch row is due on its own, besides its first run (ADR 0021, section 8; #5024).
+DEFAULT_ROADMAP_WATCH_INTERVAL_MINUTES: int = 3
 # How often the release_comments row is due on its own, besides its first run (#2917). Image
 # Updater checks the registry every two minutes, so a roll is seen within this time plus the sync.
 DEFAULT_ROADMAP_RELEASE_COMMENTS_INTERVAL_MINUTES: int = 11
-# How often the pr_conflicts row is due on its own, besides its first run (#4027). GitHub computes
-# the mergeable state of a pull request after a read asks for it, so a new conflict shows within
-# two rounds. A round costs one read of each open pull request that is not a draft.
-DEFAULT_ROADMAP_PR_CONFLICTS_INTERVAL_MINUTES: int = 19
 # The tokens that the inputs of one implementation step may hold: the step's instructions, the
 # `AGENTS.md` of the repository and the sections of the documents it routes the group to, the
 # item, the change folder and the packed files of one task group. It is half of the default window

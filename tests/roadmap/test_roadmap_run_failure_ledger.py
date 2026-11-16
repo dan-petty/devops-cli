@@ -148,17 +148,16 @@ def test_a_suspended_implement_row_runs_again_on_a_later_poll_round_when_the_fau
     later = round_of(NOW + timedelta(hours=1, minutes=10))
 
     assert (same_hour, later, len(calls)) == (
-        ("stage_ready",),
+        ("watch",),
         (
             "metrics",
             "implement",
             "plan_drift",
-            "stage_ready",
+            "watch",
             "stage",
             "release_comments",
             "github_status",
             "cloudflare_status",
-            "pr_conflicts",
         ),
         failures.limit + 1,
     )

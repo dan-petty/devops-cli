@@ -30,7 +30,7 @@ from tests.support.roadmap_stage import STAGE_REPO, StageRepo
 pytestmark = pytest.mark.usefixtures("keyring_store", "app_slug")
 
 IMPLEMENT_ROW = next(row for row in STATUS_LANE_ROWS if row.name == "implement")
-STAGE_READY_ROW = next(row for row in STATUS_LANE_ROWS if row.name == "stage_ready")
+WATCH_ROW = next(row for row in STATUS_LANE_ROWS if row.name == "watch")
 HEAD = "a" * 40
 DELIVERY_PULL = 7
 CRONJOBS = ("batch", "v1", "cronjobs")
@@ -93,7 +93,7 @@ def test_the_label_follows_the_item_from_staging_to_the_close(
 
     # Staged: the plan pull request is a green draft, and the Service marks it ready.
     _draft_with_green_checks(api)
-    STAGE_READY_ROW.runner(store=store, repo=STAGE_REPO)
+    WATCH_ROW.runner(store=store, repo=STAGE_REPO)
     seen["staged"] = _labels(store, number)
 
     # The plan merges: its change folder is on the default branch. The item has high effort, so
@@ -158,7 +158,7 @@ def test_a_person_who_moves_the_label_keeps_it_through_every_round(
     assert _labels(store, number) == ["status/ready"]
 
 
-def test_the_row_stage_ready_sets_planned_for_a_plan_pull_request_that_merged(
+def test_the_row_watch_sets_planned_for_a_plan_pull_request_that_merged(
     store: InMemoryRoadmapStore,
     github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
 ) -> None:
@@ -173,6 +173,6 @@ def test_the_row_stage_ready_sets_planned_for_a_plan_pull_request_that_merged(
     }
     api.route("GET", f"/repos/{STAGE_REPO}/pulls/{PULL}", github_json(payload))
 
-    STAGE_READY_ROW.runner(store=store, repo=STAGE_REPO)
+    WATCH_ROW.runner(store=store, repo=STAGE_REPO)
 
     assert _labels(store, number) == ["status/planned"]
