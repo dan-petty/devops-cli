@@ -10,7 +10,9 @@ file (`promtool test rules`), with these keys added:
   by its refId. `expr` is the query of that target as the dashboard holds it, with its Grafana
   variables.
 - `variables` of a case gives the value of each variable of `expr`: `__range` and `__interval`
-  as durations, and each dashboard variable as the text that Grafana puts in its place.
+  as durations, and each dashboard variable as the text that Grafana puts in its place. A
+  constant variable of the dashboard takes its query, as Grafana puts it, so a case gives no
+  copy of it.
 - `bars` of a case of a bar panel gives the range that the bars cover, such as `24h`, and
   `total` gives what the series of the case add in that range. The test adds up the bars of
   each `__interval` in the range, as Grafana draws them, and each expected sum is within 1 % of
@@ -69,6 +71,9 @@ BARS_TOLERANCE = 0.01
 # The variable syntax of Grafana: `$name`, `[[name:format]]` and `${name.path:format}`
 # (`variableRegex`, public/app/features/variables/utils.ts).
 VARIABLE = re.compile(r"\$(\w+)|\[\[(\w+?)(?::(\w+))?\]\]|\$\{(\w+)(?:\.([^:^}]+))?(?::([^}]+))?\}")
+# The replacement of `label_replace` names a capture group of its regex as `$1`. Grafana knows
+# no variable of that name, so it puts the text in unchanged.
+CAPTURE_REFERENCE = re.compile(r"\$\d+")
 
 # The variables that Grafana calculates from the range, the interval and the scrape interval.
 # A case gives `__range` and `__interval`, and the test calculates the others.
@@ -212,21 +217,45 @@ def _scrape_s(target: dict[str, Any]) -> int:
     return _seconds(target.get("interval") or _scrape_intervals()[target["datasource"]["uid"]])
 
 
+def dashboard_constants(dashboard: dict[str, Any]) -> dict[str, str]:
+    """The text that Grafana puts in place of each constant variable of a dashboard: its query."""
+    variables: list[dict[str, Any]] = dashboard.get("templating", {}).get("list", [])
+    return {
+        variable["name"]: variable["query"]
+        for variable in variables
+        if variable.get("type") == "constant"
+    }
+
+
+def unfilled_variables(query: str) -> list[str]:
+    """The Grafana variables that a query still holds, without the capture references of
+    `label_replace`."""
+    return sorted(
+        {
+            match[0]
+            for match in VARIABLE.finditer(query)
+            if not CAPTURE_REFERENCE.fullmatch(match[0])
+        }
+    )
+
+
 def promtool_file(name: str, case_file: dict[str, Any]) -> dict[str, Any]:
     """The promtool unit test file of the cases of one dashboard: each `expr` with its variables
     in place, and the keys that promtool does not know removed."""
-    targets = _targets(_dashboard_of(name, case_file))
+    dashboard = _dashboard_of(name, case_file)
+    targets = _targets(dashboard)
+    constants = dashboard_constants(dashboard)
     tests = []
     for group in case_file["tests"]:
         test = {key: value for key, value in group.items() if key not in GROUP_KEYS}
         test["promql_expr_test"] = []
         for case in group.get("promql_expr_test", []):
             (target,) = targets[(case["panel"], case["ref_id"])]
-            values = grafana_values(case.get("variables", {}), target)
+            values = grafana_values(constants | case.get("variables", {}), target)
             query = interpolate(case["expr"], values)
             if "bars" in case:
                 query = summed_bars(query, case["bars"], values)
-            left = sorted({match[0] for match in VARIABLE.finditer(query)})
+            left = unfilled_variables(query)
             assert not left, f"{_where(name, case)}: the case gives no value for {left}"
             test["promql_expr_test"].append(
                 {key: value for key, value in case.items() if key not in CASE_KEYS}
@@ -262,6 +291,31 @@ def test_each_variable_syntax_takes_the_text_grafana_gives() -> None:
         'x{job=~"roadmap-service"}[86400s] 86400 86400000 roadmap-service roadmap-service '
         "3600000 [3660s] $repo ${job:regex}"
     )
+
+
+def test_a_dashboard_constant_takes_its_query_as_grafana_puts_it() -> None:
+    """A case of a query that reads a constant variable, such as the reference prices of
+    `ai-spend.json`, takes the query of the constant from the dashboard, as Grafana does, so the
+    case evaluates the prices that the dashboard holds (#5914)."""
+    dashboard = _dashboard("ai-spend")
+    (prices,) = [
+        variable
+        for variable in dashboard["templating"]["list"]
+        if variable["name"] == "reference_price_usd_per_token"
+    ]
+    values = grafana_values(dashboard_constants(dashboard), {})
+
+    assert interpolate(
+        "x * on (operation, type) (${reference_price_usd_per_token:raw})", values
+    ) == (f"x * on (operation, type) ({prices['query']})")
+
+
+def test_a_capture_reference_of_label_replace_is_no_variable() -> None:
+    """`$1` in a `label_replace` is a capture group of its regex, which Grafana leaves as it is,
+    and a variable with no value is still named (#5914)."""
+    query = 'label_replace(x{job="$job"}, "backend", "$1", "api_base", "https?://([^.:/]+).*")'
+
+    assert unfilled_variables(query) == ["$job"]
 
 
 def test_the_rate_interval_of_a_target_uses_its_min_step_over_the_data_source() -> None:

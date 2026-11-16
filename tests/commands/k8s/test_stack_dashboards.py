@@ -431,13 +431,23 @@ def test_the_dashboard_queries_only_what_its_exporters_serve(
 # and the gateway's request and token series (#1668), which the LiteLLM capture backs.
 GATEWAY_SERIES = re.compile(r"\blitellm_[a-z0-9_]+")
 _COUNTER_READS = ("rate(", "increase(")
+# The last four arguments of `label_replace(v, "dst", "replacement", "src", "regex")`: the query
+# sets the label `dst`, so a grouping on it needs no gateway series that carries it.
+_QUOTED = re.compile(r'"(?:[^"\\]|\\.)*"')
+_LABEL_SET = re.compile(r'"(\w+)", "(?:[^"\\]|\\.)*", "\w*", "(?:[^"\\]|\\.)*"\)')
 
 
 def _gateway_violations(expression: str, known: dict[str, frozenset[str]]) -> list[str]:
     """Each gateway series, matcher and grouping label in a query that the capture does not back,
-    and each gateway counter that the query reads outside `rate(` or `increase(`."""
+    and each gateway counter that the query reads outside `rate(` or `increase(`. A label that
+    the query sets with `label_replace` is backed by the query."""
     gateway = [s for s in selectors(expression) if GATEWAY_SERIES.fullmatch(s.metric or "")]
-    carried = frozenset().union(*(known.get(s.metric or "", frozenset()) for s in gateway))
+    # A string, such as the label `litellm_model_name` of a `label_replace`, reads no series.
+    unquoted = _QUOTED.sub('""', expression)
+    carried = frozenset().union(
+        *(known.get(s.metric or "", frozenset()) for s in gateway),
+        _LABEL_SET.findall(expression),
+    )
     return [
         *(f"{expression}: {s.metric} is in no capture" for s in gateway if s.metric not in known),
         *(
@@ -451,8 +461,8 @@ def _gateway_violations(expression: str, known: dict[str, frozenset[str]]) -> li
         ),
         *(
             f"{expression}: reads {match.group(0)} outside rate( or increase("
-            for match in GATEWAY_SERIES.finditer(expression)
-            if not expression[: match.start()].endswith(_COUNTER_READS)
+            for match in GATEWAY_SERIES.finditer(unquoted)
+            if not unquoted[: match.start()].endswith(_COUNTER_READS)
         ),
     ]
 
@@ -477,6 +487,30 @@ def test_the_ai_spend_dashboard_reads_only_gateway_series_the_gateway_serves() -
         ],
         litellm.scraped(_yaml(litellm.values)),
     ) == (True, [], True)
+
+
+def test_a_grouping_on_a_label_that_the_query_sets_needs_no_gateway_series_that_carries_it() -> (
+    None
+):
+    """Verify a grouping on a label that `label_replace` sets passes, and a grouping on a label
+    that neither the query nor a gateway series gives is named. A gateway label in a string, such
+    as `litellm_model_name`, is no read of a series (#5914)."""
+    tokens = "sum by (api_provider) (increase(litellm_input_tokens_metric_total[1h]))"
+    named = f'sum by (backend) (label_replace({tokens}, "backend", "$1", "api_provider", "(.+)"))'
+    unnamed = f"sum by (backend) ({tokens})"
+    known = known_series(("litellm",))
+
+    from_label = f'label_replace({tokens}, "backend", "$1", "litellm_model_name", "(.+)")'
+
+    assert (
+        _gateway_violations(named, known),
+        _gateway_violations(unnamed, known),
+        _gateway_violations(from_label, known),
+    ) == (
+        [],
+        [f"{unnamed}: groups by backend, which no gateway series it selects carries"],
+        [],
+    )
 
 
 def test_a_gateway_counter_read_without_rate_or_increase_fails() -> None:

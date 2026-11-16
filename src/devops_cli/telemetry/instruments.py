@@ -105,9 +105,7 @@ AI_TOKENS_TOTAL = Instrument(
     InstrumentKind.COUNTER,
     "1",
     "LLM and embedding tokens, by operation (chat or embeddings), type (prompt or completion), "
-    "provider, model, server, backend, row and local: true when a local model ran them. The AI "
-    "spend dashboard prices local tokens as savings at the reference price that its constant "
-    "reference_price_usd_per_token holds for their operation and type",
+    "provider, model, server, backend, row and local: true when a local model ran them",
 )
 AI_SPEND_USD_TOTAL = Instrument(
     "devops_cli_ai_spend_usd_total",

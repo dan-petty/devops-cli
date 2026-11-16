@@ -107,7 +107,7 @@ writes by name.
 | `devops_cli_review_duration_seconds` | Histogram | `s` | Review wall time, by target type. |
 | `devops_cli_findings_total` | Counter | `1` | Review findings, by producer, severity and status. |
 | `devops_cli_ai_requests_total` | Counter | `1` | LLM calls and embedding requests, by operation (chat or embeddings), provider, model, server, serving backend, whether the cache answered and row: the job row that sent the request. |
-| `devops_cli_ai_tokens_total` | Counter | `1` | LLM and embedding tokens, by operation (chat or embeddings), type (prompt or completion), provider, model, server, backend, row and local: true when a local model ran them. The AI spend dashboard prices local tokens as savings at the reference price that its constant reference_price_usd_per_token holds for their operation and type. |
+| `devops_cli_ai_tokens_total` | Counter | `1` | LLM and embedding tokens, by operation (chat or embeddings), type (prompt or completion), provider, model, server, backend, row and local: true when a local model ran them. |
 | `devops_cli_ai_spend_usd_total` | Counter | `USD` | Approximate LLM and embedding spend, by operation, provider, model, server, backend and row. Each request that a model answers adds to it, and a local request adds 0. A hosted gateway call is priced at the deployment model that the gateway names, and its model label is the model that the client asked for, such as the route name. A prompt token that the provider read from its cache costs the cached input rate of the model. |
 | `devops_cli_ai_model_answers_total` | Counter | `1` | Model replies of an agent run, one for each model request, by the model that the client asked for (asked), the model that the reply names (answered), whether they differ (fallback: true when a gateway fallback answered) and the job row that sent the request (row). A slot that reads one model while another answers shows as fallback true. |
 | `devops_cli_ai_json_repairs_total` | Counter | `1` | LLM JSON replies repaired after strict parsing failed, by entry point source. |
@@ -203,14 +203,14 @@ writes by name.
 | `devops_cli_infra_runs_total` | Counter | `1` | Runs of devops infra that can change the hosts of an infra repo, by repo, command (apply) and result: ok, refused or stopped. |
 
 No process sends local savings in USD. `devops_cli_ai_tokens_total{local="true"}`
-counts the tokens that a local model ran, and the AI spend dashboard multiplies them
-by its hidden constant `reference_price_usd_per_token`. The constant holds
-genai-prices' price of the default reference model for each operation and token
-type, so every process and every time range is priced at one reference. A series
-from before the `local` label that the gateway served counts as local, and a series
-from before the `operation` label counts as chat. `ai.reference_model` and
-`ai.reference_embedding_model` price the local ledger that `devops ai cost` reports.
-Their defaults are the references of the dashboard.
+counts the tokens that a local model ran for devops-cli. The AI spend dashboard takes
+its local savings from the gateway's own token counters of the in-cluster Ollama
+deployments, and multiplies them by its hidden constant
+`reference_price_usd_per_token`, so a label that a client sets does not change them
+(#5914). The constant holds the price of `ai.reference_model` and
+`ai.reference_embedding_model` of the Service ConfigMap template, from its
+`ai.price_overrides`, for each operation and token type. The same settings price the
+local ledger that `devops ai cost` reports.
 
 `devops_cli_ai_requests_total`, `devops_cli_ai_tokens_total`,
 `devops_cli_ai_spend_usd_total` and `devops_cli_ai_model_answers_total` carry `row`:

@@ -1,6 +1,7 @@
-# Cases of the spend panels of k8s/devops/dashboards/ai-spend.json, which
-# tests/prometheus/test_dashboard_queries.py evaluates with promtool (#4724). The test module tells
-# the format, and docs/TESTING.md tells how to add a case.
+# Cases of the spend and local-savings panels of k8s/devops/dashboards/ai-spend.json, which
+# tests/prometheus/test_dashboard_queries.py evaluates with promtool (#4724, #5914). The test
+# module tells the format, and docs/TESTING.md tells how to add a case. A query that reads the
+# constant reference_price_usd_per_token takes it from the dashboard.
 #
 # A call through the gateway adds to the gateway's spend counter `litellm_spend_metric_total`.
 # devops-cli also counts its own gateway calls, in `devops_cli_ai_spend_usd_total` with
@@ -82,10 +83,10 @@ tests:
             value: 30
       # The gateway bars of the hosted model add up to $24. The local model spent $0, so it has
       # no bar and no legend entry.
-      - panel: 'Spend by model: USD per hour'
+      - panel: 'Spend by provider and model: USD per hour'
         ref_id: A
         variables: {__interval: 1h}
-        expr: 'sum by (model, api_provider) (increase(litellm_spend_metric_total[$__interval])) > 0'
+        expr: 'sum by (api_provider, model) (increase(litellm_spend_metric_total[$__interval])) > 0'
         bars: 24h
         total: 24
         eval_time: 192h
@@ -93,10 +94,10 @@ tests:
           - labels: '{api_provider="openrouter", model="deepseek/deepseek-v4.1-flash-1017:floor"}'
             value: 24
       # The bars of the direct calls add up to $6, and devops-cli's gateway calls have no bar.
-      - panel: 'Spend by model: USD per hour'
+      - panel: 'Spend by provider and model: USD per hour'
         ref_id: B
         variables: {__interval: 1h}
-        expr: 'sum by (model, provider) (increase(devops_cli_ai_spend_usd_total{provider!="gateway"}[$__interval])) > 0'
+        expr: 'sum by (provider, model) (increase(devops_cli_ai_spend_usd_total{provider!="gateway"}[$__interval])) > 0'
         bars: 24h
         total: 6
         eval_time: 192h
@@ -112,3 +113,126 @@ tests:
         exp_samples:
           - labels: '{}'
             value: 0.75
+  # The gateway counts the tokens of each deployment, which `model_id` names, and
+  # litellm_deployment_total_requests_total names the `api_base` of each deployment. Each 15 min
+  # for 8 days, the local deployments run tokens that are worth, at the reference prices of the
+  # dashboard (0.035 USD prompt and 1.50 USD completion per million chat tokens, 0.01 USD per
+  # million embedding tokens), $1 an hour on ollama-48gib-fast, $0.50 and $0.25 an hour for two
+  # groups on ollama-64gib-standard, and $0.25 an hour of embeddings: $2 an hour. The embedding
+  # deployment has no `api_base`, as LiteLLM gives none. The gateway container restarts at 175 h,
+  # and its counter of ollama-48gib-fast starts again from the tokens of its first call. A hosted
+  # DeepSeek deployment and a client series that gives hosted tokens `local="true"`, as before
+  # #5874, add nothing.
+  - name: the gateway counts the tokens of each local deployment and restarts once
+    shape: counter_reset
+    interval: 15m
+    input_series:
+      - series: 'litellm_input_tokens_metric_total{job="llm-gateway", end_user="roadmap-service", api_provider="ollama_chat", model="qwen3.8:27b", model_id="fast", requested_model="qwen3.8:27b"}'
+        values: '0+5000000x700 5000000+5000000x67'
+      - series: 'litellm_output_tokens_metric_total{job="llm-gateway", end_user="roadmap-service", api_provider="ollama_chat", model="qwen3.8:27b", model_id="fast", requested_model="qwen3.8:27b"}'
+        values: '0+50000x700 50000+50000x67'
+      - series: 'litellm_input_tokens_metric_total{job="llm-gateway", end_user="roadmap-service", api_provider="ollama_chat", model="qwen3.8:27b", model_id="standard", requested_model="local/qwen3.8:27b"}'
+        values: '0+2500000x768'
+      - series: 'litellm_output_tokens_metric_total{job="llm-gateway", end_user="roadmap-service", api_provider="ollama_chat", model="qwen3.8:27b", model_id="standard", requested_model="local/qwen3.8:27b"}'
+        values: '0+25000x768'
+      - series: 'litellm_input_tokens_metric_total{job="llm-gateway", end_user="roadmap-service", api_provider="ollama_chat", model="qwen3.8:27b", model_id="background", requested_model="devops-background"}'
+        values: '0+1250000x768'
+      - series: 'litellm_output_tokens_metric_total{job="llm-gateway", end_user="roadmap-service", api_provider="ollama_chat", model="qwen3.8:27b", model_id="background", requested_model="devops-background"}'
+        values: '0+12500x768'
+      - series: 'litellm_input_tokens_metric_total{job="llm-gateway", end_user="roadmap-service", api_provider="ollama", model="qwen3-embedding:0.6b", model_id="embed", requested_model="qwen3-embedding:0.6b"}'
+        values: '0+6250000x768'
+      - series: 'litellm_output_tokens_metric_total{job="llm-gateway", end_user="roadmap-service", api_provider="ollama", model="qwen3-embedding:0.6b", model_id="embed", requested_model="qwen3-embedding:0.6b"}'
+        values: '0+0x768'
+      - series: 'litellm_input_tokens_metric_total{job="llm-gateway", end_user="roadmap-service", api_provider="openrouter", model="deepseek/deepseek-v4.1-flash-1017:floor", model_id="deepseek", requested_model="deepseek-v4.1-flash-1017"}'
+        values: '0+1000000x768'
+      - series: 'litellm_output_tokens_metric_total{job="llm-gateway", end_user="roadmap-service", api_provider="openrouter", model="deepseek/deepseek-v4.1-flash-1017:floor", model_id="deepseek", requested_model="deepseek-v4.1-flash-1017"}'
+        values: '0+100000x768'
+      - series: 'litellm_deployment_total_requests_total{job="llm-gateway", api_base="http://ollama-48gib-fast.llm.svc.cluster.local:11434/api/chat", api_provider="ollama_chat", litellm_model_name="qwen3.8:27b", model_id="fast"}'
+        values: '0+1x768'
+      - series: 'litellm_deployment_total_requests_total{job="llm-gateway", api_base="http://ollama-64gib-standard.llm.svc.cluster.local:11434/api/chat", api_provider="ollama_chat", litellm_model_name="qwen3.8:27b", model_id="standard"}'
+        values: '0+1x768'
+      - series: 'litellm_deployment_total_requests_total{job="llm-gateway", api_base="http://ollama-64gib-standard.llm.svc.cluster.local:11434/api/chat", api_provider="ollama_chat", litellm_model_name="qwen3.8:27b", model_id="background"}'
+        values: '0+1x768'
+      - series: 'litellm_deployment_total_requests_total{job="llm-gateway", api_provider="ollama", litellm_model_name="qwen3-embedding:0.6b", model_id="embed"}'
+        values: '0+1x768'
+      - series: 'litellm_deployment_total_requests_total{job="llm-gateway", api_base="https://openrouter.ai/api/v1/chat/completions", api_provider="openrouter", litellm_model_name="deepseek/deepseek-v4.1-flash-1017:floor", model_id="deepseek"}'
+        values: '0+1x768'
+      # Live, a failed request of a deployment also has a series with no `api_base`, and some
+      # series have no `model_id`. A join on `model_id` with one of them as a second match fails.
+      - series: 'litellm_deployment_total_requests_total{job="llm-gateway", api_provider="ollama_chat", litellm_model_name="qwen3.8:27b", model_id="fast"}'
+        values: '0+1x768'
+      - series: 'litellm_deployment_total_requests_total{job="llm-gateway", api_base="http://ollama-48gib-fast.llm.svc.cluster.local:11434/api/chat", api_provider="ollama_chat", litellm_model_name="qwen3.8:27b"}'
+        values: '0+1x768'
+      - series: 'litellm_deployment_total_requests_total{job="llm-gateway", api_base="http://ollama-64gib-standard.llm.svc.cluster.local:11434/api/chat", api_provider="ollama_chat", litellm_model_name="qwen3.8:27b"}'
+        values: '0+1x768'
+      - series: 'devops_cli_ai_tokens_total{job="roadmap-service", local="true", operation="chat", type="prompt", provider="gateway", server="llm-gateway", model="deepseek-v4.1-flash-1017"}'
+        values: '0+1000000x768'
+    promql_expr_test:
+      # 24 h at $2 an hour, across the restart.
+      - panel: 'Local Cloud Savings in Range'
+        ref_id: A
+        variables: {__range: 24h}
+        expr: 'sum(label_replace(label_replace(label_replace(sum by (api_provider) (increase(litellm_input_tokens_metric_total{api_provider=~"ollama_chat|ollama"}[$__range])), "type", "prompt", "", "") or label_replace(sum by (api_provider) (increase(litellm_output_tokens_metric_total{api_provider=~"ollama_chat|ollama"}[$__range])), "type", "completion", "", ""), "operation", "chat", "api_provider", "ollama_chat"), "operation", "embeddings", "api_provider", "ollama") * on (operation, type) group_left () (${reference_price_usd_per_token:raw})) or vector(0)'
+        eval_time: 192h
+        exp_samples:
+          - labels: '{}'
+            value: 48
+      # The last 7 days hold $2 an hour, so 30 days hold $1,440, for a range of 6 h and of
+      # 7 d. The values are as promtool gives them, with the float error of the rate.
+      - panel: 'Projected 30-Day Run Rate'
+        ref_id: B
+        variables: {__range: 6h}
+        expr: 'sum(label_replace(label_replace(label_replace(sum by (api_provider) (rate(litellm_input_tokens_metric_total{api_provider=~"ollama_chat|ollama"}[7d])), "type", "prompt", "", "") or label_replace(sum by (api_provider) (rate(litellm_output_tokens_metric_total{api_provider=~"ollama_chat|ollama"}[7d])), "type", "completion", "", ""), "operation", "chat", "api_provider", "ollama_chat"), "operation", "embeddings", "api_provider", "ollama") * on (operation, type) group_left () (${reference_price_usd_per_token:raw})) * 86400 * 30 or vector(0)'
+        eval_time: 192h
+        exp_samples:
+          - labels: '{}'
+            value: 1440.0000000000002
+      - panel: 'Projected 30-Day Run Rate'
+        ref_id: B
+        variables: {__range: 7d}
+        expr: 'sum(label_replace(label_replace(label_replace(sum by (api_provider) (rate(litellm_input_tokens_metric_total{api_provider=~"ollama_chat|ollama"}[7d])), "type", "prompt", "", "") or label_replace(sum by (api_provider) (rate(litellm_output_tokens_metric_total{api_provider=~"ollama_chat|ollama"}[7d])), "type", "completion", "", ""), "operation", "chat", "api_provider", "ollama_chat"), "operation", "embeddings", "api_provider", "ollama") * on (operation, type) group_left () (${reference_price_usd_per_token:raw})) * 86400 * 30 or vector(0)'
+        eval_time: 192h
+        exp_samples:
+          - labels: '{}'
+            value: 1440.0000000000002
+      - panel: 'Projected 90-Day Run Rate'
+        ref_id: B
+        variables: {__range: 24h}
+        expr: 'sum(label_replace(label_replace(label_replace(sum by (api_provider) (rate(litellm_input_tokens_metric_total{api_provider=~"ollama_chat|ollama"}[7d])), "type", "prompt", "", "") or label_replace(sum by (api_provider) (rate(litellm_output_tokens_metric_total{api_provider=~"ollama_chat|ollama"}[7d])), "type", "completion", "", ""), "operation", "chat", "api_provider", "ollama_chat"), "operation", "embeddings", "api_provider", "ollama") * on (operation, type) group_left () (${reference_price_usd_per_token:raw})) * 86400 * 90 or vector(0)'
+        eval_time: 192h
+        exp_samples:
+          - labels: '{}'
+            value: 4320.000000000001
+      - panel: 'Projected 1-Year Run Rate'
+        ref_id: B
+        variables: {__range: 24h}
+        expr: 'sum(label_replace(label_replace(label_replace(sum by (api_provider) (rate(litellm_input_tokens_metric_total{api_provider=~"ollama_chat|ollama"}[7d])), "type", "prompt", "", "") or label_replace(sum by (api_provider) (rate(litellm_output_tokens_metric_total{api_provider=~"ollama_chat|ollama"}[7d])), "type", "completion", "", ""), "operation", "chat", "api_provider", "ollama_chat"), "operation", "embeddings", "api_provider", "ollama") * on (operation, type) group_left () (${reference_price_usd_per_token:raw})) * 86400 * 365 or vector(0)'
+        eval_time: 192h
+        exp_samples:
+          - labels: '{}'
+            value: 17520.000000000004
+      # 24 hourly bars of $2 add up to the savings of the range.
+      - panel: 'Local savings: USD per hour'
+        ref_id: A
+        variables: {__interval: 1h}
+        expr: 'sum(label_replace(label_replace(label_replace(sum by (api_provider) (increase(litellm_input_tokens_metric_total{api_provider=~"ollama_chat|ollama"}[$__interval])), "type", "prompt", "", "") or label_replace(sum by (api_provider) (increase(litellm_output_tokens_metric_total{api_provider=~"ollama_chat|ollama"}[$__interval])), "type", "completion", "", ""), "operation", "chat", "api_provider", "ollama_chat"), "operation", "embeddings", "api_provider", "ollama") * on (operation, type) group_left () (${reference_price_usd_per_token:raw}))'
+        bars: 24h
+        total: 48
+        eval_time: 192h
+        exp_samples:
+          - labels: '{}'
+            value: 48
+      # The bar of each Kubernetes service in one hour: the two groups on ollama-64gib-standard
+      # add up to one bar, and the embedding deployment takes the name of its model.
+      - panel: 'Local savings by backend server: USD per hour'
+        ref_id: A
+        variables: {__interval: 1h}
+        expr: 'sum by (backend) (label_replace(label_replace(label_replace(sum by (api_provider, model_id) (increase(litellm_input_tokens_metric_total{api_provider=~"ollama_chat|ollama"}[$__interval])), "type", "prompt", "", "") or label_replace(sum by (api_provider, model_id) (increase(litellm_output_tokens_metric_total{api_provider=~"ollama_chat|ollama"}[$__interval])), "type", "completion", "", ""), "operation", "chat", "api_provider", "ollama_chat"), "operation", "embeddings", "api_provider", "ollama") * on (operation, type) group_left () (${reference_price_usd_per_token:raw}) * on (model_id) group_left (backend) (group by (model_id, backend) (label_replace(increase(litellm_deployment_total_requests_total{api_provider=~"ollama_chat|ollama", model_id!="", api_base!=""}[$__interval]), "backend", "$1", "api_base", "https?://([^.:/]+).*")) or on (model_id) group by (model_id, backend) (label_replace(increase(litellm_deployment_total_requests_total{api_provider=~"ollama_chat|ollama", model_id!=""}[$__interval]), "backend", "$1", "litellm_model_name", "(.+)")))) > 0'
+        eval_time: 192h
+        exp_samples:
+          - labels: '{backend="ollama-48gib-fast"}'
+            value: 1
+          - labels: '{backend="ollama-64gib-standard"}'
+            value: 0.75
+          - labels: '{backend="qwen3-embedding:0.6b"}'
+            value: 0.25
