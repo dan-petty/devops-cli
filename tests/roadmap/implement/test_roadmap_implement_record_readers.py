@@ -35,6 +35,7 @@ READERS: Final[dict[str, tuple[str, ...]]] = {
     "implement.stopped": ("code", f"{ROADMAP}/status_sync.py"),
     "implement.result": ("code", f"{ROADMAP}/implement/implement_submit.py"),
     "implement.failure": ("code", f"{ROADMAP}/stop_clear.py"),
+    "implement.left_action": ("text", DOCUMENT, "The action left with the stop"),
     "implement.check": ("text", DOCUMENT, "The check that failed in the stop"),
     "implement.check_log": ("code", f"{ROADMAP}/implement/implement_run.py"),
     "implement.conflict": ("code", f"{ROADMAP}/implement/implement_run.py"),
