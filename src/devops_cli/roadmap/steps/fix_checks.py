@@ -12,7 +12,9 @@ Enforces safety bounds:
   the ready path first, so the head that the third repair pushes can be marked ready (#5983).
 
 The round repairs the check that `check` names, which the watch row gives the fix-checks Job, or
-else the first failed check (#5027). A named check that does not fail on the head is skipped.
+else the first failed check (#5027). A named check that does not fail on the head is skipped. With
+`ready_only`, the watch row runs only the ready path in the Service pod: a head with a failed check
+is skipped with no repair and no comment, and the next round of the row judges it (#6018).
 
 Two tiers of repair:
 - Tier 1 (deterministic, 0 model calls): ruff check --fix and format for a lint failure, devops docs
@@ -509,6 +511,25 @@ def _ready_after_repair(
     return facts.report(FixChecksResult.READY, "Marked the repaired draft ready for review")
 
 
+def _ready_path(
+    store: RoadmapStore,
+    client: Any,
+    facts: _Round,
+    checks: CheckVerdictSummary,
+    *,
+    confirm: bool,
+) -> FixChecksReport:
+    """The ready path of a round: `_ready_after_repair` on a head with no failed check. A head with
+    a failed check gives `skipped` with no repair and no comment: the watch row asked for the ready
+    path only, and its next round judges the head (#6018)."""
+    if any(item.bucket == CheckBucket.FAIL for item in checks.items) and not checks.is_passing:
+        return facts.report(
+            FixChecksResult.SKIPPED,
+            "A check failed on the head after the read of the watch row; the next round judges it",
+        )
+    return _ready_after_repair(store, client, facts, checks, confirm=confirm)
+
+
 def _selected(failed: Sequence[PRCheckItem], check: str | None) -> PRCheckItem | None:
     """The failed check of the round: the one that `check` names, or the first. None when `check`
     names no failed check of the head (#5027)."""
@@ -526,10 +547,12 @@ def run_fix_checks(
     check: str | None = None,
     confirm: bool = False,
     repair: Repair | None = None,
+    ready_only: bool = False,
 ) -> FixChecksReport:
     """Run one repair round for failed checks on pull request `pull` (#5023). Without `confirm`
     the round plans and writes nothing; with it, a repair needs `repair` (#5971). The round takes
-    the failed check that `check` names, or the first failed check (#5027)."""
+    the failed check that `check` names, or the first failed check (#5027). With `ready_only` the
+    round runs only the ready path, and a failed check gives `skipped` (#6018)."""
     client = get_github_session().client
     status: PullStatus = client.get_pull_status(repo, pull)
 
@@ -549,8 +572,8 @@ def run_fix_checks(
     owner, name = repo.split("/", 1)
     checks_summary = read_check_runs(owner, name, status.head_sha)
     failed_checks = [c for c in checks_summary.items if c.bucket == CheckBucket.FAIL]
-    if checks_summary.is_passing or not failed_checks:
-        return _ready_after_repair(store, client, facts, checks_summary, confirm=confirm)
+    if checks_summary.is_passing or not failed_checks or ready_only:
+        return _ready_path(store, client, facts, checks_summary, confirm=confirm)
     failed_check = _selected(failed_checks, check)
     if failed_check is None:
         return facts.report(FixChecksResult.SKIPPED, f"Check `{check}` does not fail on this head")

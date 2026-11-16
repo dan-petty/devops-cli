@@ -825,7 +825,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "The fix-checks Jobs of the watch row in the last hour, by result (#5027): created, queued (created suspended, as no model place was free), existed (a create that got 409) and resumed, and the outcome of an ended Job: the result of its result line, none for a Job that a kill ended with no result line, or error for a Job whose command exited 1.",
+      "description": "The fix-checks Jobs of the watch row in the last hour, in 3 classes and Other (#5027, #6018). Started: created or resumed. Repaired: the result line repaired or ready. No result line: none (a kill), error (the command exited 1) or deadline (the deadline ended the Job); the alert RoadmapFixChecksJobWithoutResult reads these. Other: queued (created suspended, as no model place was free), existed (a create that got 409), expired (deleted after it waited longer than roadmap.fix_checks.max_wait_minutes), round_error (a Kubernetes or a configuration error stopped the round), and the other results of the step.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -859,9 +859,36 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (result) (increase(devops_cli_service_fix_checks_jobs_total{job=~\"$job\",repo=~\"$repo\"}[1h]))",
-          "legendFormat": "{{result}}",
+          "expr": "sum(increase(devops_cli_service_fix_checks_jobs_total{job=~\"$job\",repo=~\"$repo\",result=~\"created|resumed\"}[1h]))",
+          "legendFormat": "Started",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(devops_cli_service_fix_checks_jobs_total{job=~\"$job\",repo=~\"$repo\",result=~\"repaired|ready\"}[1h]))",
+          "legendFormat": "Repaired",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(devops_cli_service_fix_checks_jobs_total{job=~\"$job\",repo=~\"$repo\",result=~\"none|error|deadline\"}[1h]))",
+          "legendFormat": "No result line",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(devops_cli_service_fix_checks_jobs_total{job=~\"$job\",repo=~\"$repo\",result!~\"created|resumed|repaired|ready|none|error|deadline\"}[1h]))",
+          "legendFormat": "Other",
+          "refId": "D"
         }
       ]
     },

@@ -6,9 +6,11 @@ A live unit holds a pull request: a runner Job that no round reported (`job_hold
 check-out of a stage Job. The record keeps the name of a runner Job that ended, so that name alone
 holds nothing. After the ledger is written, the row runs the fix-checks units of the repository:
 it starts a fix Job for each bot pull request that `due_steps` routes to `fix_checks`, and reports
-the fix Jobs that ended (`fix_checks_row.py`, #5027). A delivery draft that a fix Job repaired and
-whose checks pass gets the ready path of the step `fix-checks` once for each head; the row leaves
-every other delivery draft to its implement Job.
+the fix Jobs that ended (`fix_checks_row.py`, #5027). A Kubernetes or a configuration error stops
+only that round: the row logs and counts it and gives its result (#6018). A delivery draft that a
+fix Job repaired and whose checks pass gets the ready path of the step `fix-checks` once for each
+head, and only the ready path: a check that fails between the two reads gives `skipped`. The row
+leaves every other delivery draft to its implement Job.
 """
 
 from __future__ import annotations
@@ -29,11 +31,13 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.exceptions import (
+    ConfigurationError,
     GitHubNotFoundError,
     GitHubOperationError,
     GitHubRateLimitError,
     RoadmapRunError,
 )
+from devops_cli.exceptions.k8s import KubernetesError
 from devops_cli.github.check_verdict import (
     CheckVerdictSummary,
     PRCheckItem,
@@ -45,7 +49,12 @@ from devops_cli.github.client import PullStatus
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.fix_checks_row import FixChecksRound, FixDue, run_fix_checks_round
+from devops_cli.roadmap.fix_checks_row import (
+    FixChecksRound,
+    FixDue,
+    round_failed,
+    run_fix_checks_round,
+)
 from devops_cli.roadmap.jev_completeness import (
     CompletenessOutcome,
     check_completeness,
@@ -351,7 +360,8 @@ def _evaluate_pull(
     v = verdict(state)
     steps = due_steps(state)
     if DueStep.FIX_CHECKS in steps and (check := fix_checks_check(state)) is not None:
-        ctx.fix_due.append(FixDue(pr_number, head_sha, check, item.number))
+        units = item.job_record.get(FixChecksRecordKey.UNITS)
+        ctx.fix_due.append(FixDue(pr_number, head_sha, check, item.number, units))
 
     if v is not None:
         if v.verdict is PRVerdict.FAILED:
@@ -385,8 +395,10 @@ def _evaluate_pull(
 def _ready_after_fix(ctx: _WatchContext, item: Item, pull: int, head: str) -> bool:
     """Run the ready path of the step `fix-checks` on a delivery draft that a fix Job repaired and
     whose checks pass, once for each head (#5027). The step marks the draft ready only when
-    `draft_readiness` answers ready, and only in mode `on`; in mode `plan` it logs the plan. A
-    delivery draft that no fix Job repaired is the implement Job's: the row leaves it."""
+    `draft_readiness` answers ready, and only in mode `on`; in mode `plan` it logs the plan. The
+    step runs only the ready path: a check that fails after the read of the row gives `skipped`,
+    with no repair and no comment (#6018). A delivery draft that no fix Job repaired is the
+    implement Job's: the row leaves it."""
     entry = ctx.recorded_pulls.get(pull)
     mode = load_settings().roadmap.fix_checks.mode
     repaired = item.job_record.get(FixChecksRecordKey.RESULT) == FixChecksResult.REPAIRED
@@ -394,7 +406,9 @@ def _ready_after_fix(ctx: _WatchContext, item: Item, pull: int, head: str) -> bo
         return False
     if entry is not None:
         entry.ready_head = head
-    report = run_fix_checks(ctx.store, ctx.repo, pull, head=head, confirm=mode == "on")
+    report = run_fix_checks(
+        ctx.store, ctx.repo, pull, head=head, confirm=mode == "on", ready_only=True
+    )
     logger.info("The ready path of fix-checks on %s#%d: %s", ctx.repo, pull, report.to_json())
     return report.result is FixChecksResult.READY
 
@@ -656,7 +670,10 @@ def watch_round(
         WatchLedger(pulls=ctx.recorded_pulls).write(ledger_path)
 
     emit(ROADMAP_CONFLICTED_PULLS, ctx.total_conflicted, {"repo": repo})
-    fixes = run_fix_checks_round(repo, ctx.fix_due, now=current_time)
+    try:
+        fixes = run_fix_checks_round(repo, ctx.fix_due, now=current_time, store=store)
+    except (KubernetesError, ConfigurationError) as error:
+        fixes = round_failed(repo, error)
 
     return WatchRoundResult(
         watched=ctx.watched_count,

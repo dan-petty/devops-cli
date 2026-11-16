@@ -348,13 +348,16 @@ class FixChecksRecordKey(StrEnum):
     """What the step `fix-checks` records in an Item's job record (#5023): `fix_checks.key` is
     the head commit and the check name `<head>:<check>`, `fix_checks.rounds` counts the rounds on that
     pull request, `fix_checks.errors` counts the errors, `fix_checks.result` holds the result, and
-    `fix_checks.heads` records the distinct heads seen."""
+    `fix_checks.heads` records the distinct heads seen. The watch row writes `fix_checks.units` in
+    mode `on`: a JSON object of the attempt, the outcome and the next allowed time of each fix
+    unit `<pr>:<head>:<check>`, so the TTL of a Job does not reset them (#6018)."""
 
     KEY = "fix_checks.key"
     ROUNDS = "fix_checks.rounds"
     ERRORS = "fix_checks.errors"
     RESULT = "fix_checks.result"
     HEADS = "fix_checks.heads"
+    UNITS = "fix_checks.units"
 
 
 class ReviewRecordKey(StrEnum):

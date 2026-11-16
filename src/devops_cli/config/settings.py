@@ -120,6 +120,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
     DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
     DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS,
+    DEFAULT_ROADMAP_FIX_CHECKS_MAX_WAIT_MINUTES,
     DEFAULT_ROADMAP_FIX_CHECKS_MODE,
     DEFAULT_ROADMAP_FIX_CHECKS_TOKEN_BUDGET,
     DEFAULT_ROADMAP_FIX_CONFLICT_HARD_CAP,
@@ -1989,6 +1990,12 @@ class RoadmapFixChecksConfig(BaseModel):
     token_budget: Annotated[int, Variable()] = Field(
         description="The most new tokens that the model fix of one run of `devops roadmap step fix-checks` may use: the input tokens that the provider did not read from its cache, and the output tokens, summed over all its requests. Before each request the fix compares its count with this cap, and at the cap it stops with the class `limit_reached` and names this setting. The cap gets no extension",
         default=DEFAULT_ROADMAP_FIX_CHECKS_TOKEN_BUDGET,
+        ge=1,
+    )
+
+    max_wait_minutes: Annotated[int, Variable()] = Field(
+        description="The longest time that a fix-checks Job waits suspended for a place of `roadmap.model_jobs` (#6018). The watch row of each repository deletes a waiting fix Job that is older, also the Job of a repository that left `service.repos`, and writes a log line. Such a Job holds no place. Keep it above 240, the cap of the deadline of a running model Job, so that a working watch row resumes each fix Job first",
+        default=DEFAULT_ROADMAP_FIX_CHECKS_MAX_WAIT_MINUTES,
         ge=1,
     )
 

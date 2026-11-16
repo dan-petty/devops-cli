@@ -1791,8 +1791,10 @@ CONST_SERVICE_METRIC_KEPT_WORK: Final[str] = "devops_cli_service_kept_work_total
 # recovered, `evicted`, `deadline`, `failed` or `succeeded`, with the failure class or `none`.
 CONST_SERVICE_METRIC_STAGE_JOBS: Final[str] = "devops_cli_service_stage_jobs_total"
 # Counts the fix-checks Jobs of the watch row, by `repo` and `result` (#5027): `created`, `queued`
-# (created suspended), `existed` (a create that got 409) and `resumed`, and the outcome of an
-# ended Job, the result of its result line or `none` for a Job that left none.
+# (created suspended), `existed` (a create that got 409), `resumed` and `expired` (deleted after
+# its wait limit, #6018), the outcome of an ended Job, the result of its result line or `none`,
+# `error` or `deadline` for a Job that left none, and `round_error` for a round that a Kubernetes
+# or a configuration error stopped.
 CONST_SERVICE_METRIC_FIX_CHECKS_JOBS: Final[str] = "devops_cli_service_fix_checks_jobs_total"
 # Counts the repair rounds of reported steps in implement, by `repo` and `item_class` (#3069).
 CONST_SERVICE_METRIC_IMPLEMENT_REPAIR_ROUNDS: Final[str] = (

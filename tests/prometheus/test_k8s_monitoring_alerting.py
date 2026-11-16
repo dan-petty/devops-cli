@@ -1089,7 +1089,7 @@ ROADMAP_SERVICE_RULES = [
     (
         "RoadmapFixChecksJobWithoutResult",
         "sum by (repo) (increase(devops_cli_service_fix_checks_jobs_total"
-        '{job="roadmap-service", result=~"none|error"}[1h])) > 0',
+        '{job="roadmap-service", result=~"none|error|deadline"}[1h])) > 0',
         "0m",
         "warning",
     ),
