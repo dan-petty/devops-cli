@@ -1241,7 +1241,11 @@ def _missing_live_binary(item: pytest.Item) -> str | None:
 
 
 def _deselect_by_marker(config: pytest.Config, items: list[pytest.Item], marker: str) -> None:
-    """Drop the tests that carry `marker` from `items`, unless `-m` names it (#4007, #5910)."""
+    """Drop the tests that carry `marker` from `items`, unless `-m` names it (#4007, #5910).
+
+    A test carries a marker as a mark, never as a keyword: the keyword of a package name, such as
+    `k8s` for `tests/k8s`, would drop every test below it.
+    """
     if marker in config.getoption("-m", ""):
         return
     selected: list[pytest.Item] = []
