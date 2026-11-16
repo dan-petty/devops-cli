@@ -498,7 +498,7 @@ devops roadmap eval implement [OPTIONS]
 
 ### `devops roadmap eval intake`
 
-**Run the intake duplicate evaluation set against the configured analysis model and print the score of each case. For each case intake plans the candidate in a roadmap that holds the case's item and nothing else, and writes nothing. The run makes one analysis call for each case, one at a time, and no embedding or GitHub request; it reads the type labels from .github/labels.yml of this checkout. It prints whether intake agrees with the person's verdict for each case, and the precision and the recall of the duplicate verdict. It exits 0 when every case ran, and 1 when a case could not run.**
+**Run the intake duplicate evaluation set against the model of the task intake and print the score of each case. For each case intake plans the candidate in a roadmap that holds the case's item and nothing else, and writes nothing. The run makes one intake call for each case, one at a time, and no embedding or GitHub request; it reads the type labels from .github/labels.yml of this checkout. It prints whether intake agrees with the person's verdict for each case, and the precision and the recall of the duplicate verdict. It exits 0 when every case ran, and 1 when a case could not run.**
 
 ```bash
 devops roadmap eval intake [OPTIONS]
@@ -508,7 +508,7 @@ devops roadmap eval intake [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--dry-run` | `boolean` | - | Make no request: list the cases and the analysis call that a run makes for each. |
+| `--dry-run` | `boolean` | - | Make no request: list the cases and the intake call that a run makes for each. |
 
 ### `devops roadmap eval jev`
 
@@ -541,7 +541,7 @@ devops roadmap eval verify [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--case` | `string` | - | Run only this case, by folder name or issue number. Repeat the option for more cases. |
-| `--model` | `string` | - | Model for the verification task. Without it, the configured model. |
+| `--model` | `string` | - | Model for the task stage_review. Without it, the configured model of that task. |
 | `--limit` | `integer` | - | Run at most this many cases, the first ones of the set. |
 | `--json` | `boolean` | - | Print the report as JSON in place of the table. |
 | `--dry-run` | `boolean` | - | Make no request: list the cases and the model calls that a run makes. |

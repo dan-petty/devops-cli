@@ -442,10 +442,13 @@ def test_a_plan_run_whose_tools_the_window_ends_too_soon_fails_and_names_the_win
         RunLimit.WINDOW,
         True,
     )
-    assert all(
-        text in str(raised.value)
-        for text in ("12000", "ai.tasks.stage.context_window", "ai.tasks.analysis.context_window")
-    )
+    message = str(raised.value)
+    # The task `stage` has no parent task, so the error names its own setting alone (#5903).
+    assert (
+        "12000" in message,
+        "ai.tasks.stage.context_window" in message,
+        "ai.tasks.analysis" in message,
+    ) == (True, True, False)
 
 
 def test_a_plan_run_whose_window_ends_the_tools_after_the_minimum_calls_gives_its_plan(
@@ -485,8 +488,31 @@ def test_a_review_run_whose_tools_the_window_ends_too_soon_fails_and_names_the_r
         client.chat_structured("System.", "{}", Verification, max_retries=1)
 
     message = str(raised.value)
-    assert ("12000" in message, "ai.tasks.verification.context_window" in message) == (True, True)
+    assert ("12000" in message, "ai.tasks.stage_review.context_window" in message) == (True, True)
     assert "ai.tasks.stage.context_window" not in message
+
+
+def test_a_run_of_another_job_names_the_window_setting_of_its_own_task(
+    checkout: tuple[Path, str],
+) -> None:
+    """The review of `fix-plan` reads the window of its own task, so its error names that task and
+    not the task of the stage review (#5903)."""
+    source, sha = _big_file_checkout(checkout)
+    script = Script(
+        _read("src/big.py"), without_tools=Verification(findings=[]), reports_input=True
+    )
+    client = ToolboxClient(
+        script.model(), _Inner(), source, sha, window=12000, task="fix_plan_review"
+    )
+
+    with pytest.raises(RoadmapStageError) as raised:
+        client.chat_structured("System.", "{}", Verification, max_retries=1)
+
+    message = str(raised.value)
+    assert (
+        "ai.tasks.fix_plan_review.context_window" in message,
+        "ai.tasks.stage_review" in message,
+    ) == (True, False)
 
 
 def test_a_review_run_whose_window_ends_the_tools_after_the_minimum_calls_gives_its_findings(

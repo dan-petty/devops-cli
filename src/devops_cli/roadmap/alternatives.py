@@ -136,9 +136,9 @@ from devops_cli.roadmap.refine.refine import (
 )
 from devops_cli.roadmap.refine.refine_investigation import (
     InvestigationStopped,
-    analysis_window,
     cited_web_search,
     investigate,
+    task_window,
 )
 from devops_cli.roadmap.stores.store import (
     AlternativesRecordKey,
@@ -1160,7 +1160,7 @@ def _check_one(
             tools,
             AlternativesReply,
             output_check=_check_output,
-            window=analysis_window(),
+            window=task_window("alternatives"),
         )
     except AICredentialsError:
         raise
@@ -1213,7 +1213,7 @@ def plan_alternatives(
     kill of the worker loses at most the check in progress (#4034). `limit` replaces both
     `roadmap.alternatives.limit` and `roadmap.alternatives.first_pass_limit`.
     `investigator` is the pydantic-ai model of the runs,
-    the `analysis` task's by default. `source` is a clone of the repository at HEAD, whose
+    the `alternatives` task's by default. `source` is a clone of the repository at HEAD, whose
     deployed paths name the tools in use (#4661); with none, the run reads the SBOM only."""
     moment = now or datetime.now(UTC)
     web = web_search_of(store)
@@ -1236,7 +1236,7 @@ def plan_alternatives(
     )
     if not selection.selected:
         return AlternativesPlan(repo=repo, current=selection.current, coverage=selection.coverage)
-    model = investigator or get_task_model("analysis")
+    model = investigator or get_task_model("alternatives")
     # A skip-class item makes no model call and names no tool, so it needs no inventory.
     inventory = (
         read_inventory(store, source, config.inventory_paths)

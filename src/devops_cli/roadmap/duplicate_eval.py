@@ -330,7 +330,7 @@ def render_duplicate_score(score: DuplicateScore, *, model: str, gateway: str, s
 
 
 def render_duplicate_dry_run(cases: Sequence[DuplicateCase], *, gateway: str) -> str:
-    """The requests a run makes, making none: one `analysis` call for each case."""
+    """The requests a run makes, making none: one `intake` call for each case."""
     texts = MESSAGES.roadmap
     lines = [texts.intake_eval_dry_run.format(gateway=gateway), ""]
     lines += [f"- {case.name}" for case in cases]

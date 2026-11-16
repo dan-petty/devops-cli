@@ -56,7 +56,7 @@ if TYPE_CHECKING:
 
 _DATASET_NAME: Final[str] = "stage_verification"
 _OPERATION: Final[str] = "roadmap.eval.stage-verify"
-_TASK: Final[str] = "verification"
+_TASK: Final[str] = "stage_review"
 # The severities from the most serious, and the ones that the serious recall counts.
 _BY_SEVERITY: Final[tuple[Severity, ...]] = (
     Severity.BLOCKER,

@@ -139,7 +139,7 @@ class RetitleModel(Protocol):
 
 
 class GatewayRetitleModel:
-    """The call through the `triage` task's client, and so through the gateway when one is
+    """The call through the `retitle` task's client, and so through the gateway when one is
     configured. The client is built on first use, so a run with no item that needs the model
     opens no connection. A test passes its own `client`."""
 
@@ -169,7 +169,7 @@ class GatewayRetitleModel:
             from devops_cli.ai.client import get_llm_client
 
             self._client = get_llm_client(
-                task="triage", config=self._ai.for_task("triage"), api_key=self._api_key
+                task="retitle", config=self._ai.for_task("retitle"), api_key=self._api_key
             )
         return self._client
 

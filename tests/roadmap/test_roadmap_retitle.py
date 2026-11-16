@@ -23,6 +23,7 @@ from devops_cli.roadmap.inbox import InboxKind, read_inbox
 from devops_cli.roadmap.intake.intake import NewCandidate
 from devops_cli.roadmap.pull_form import SUMMARY_MAX_CHARS, summary_length, title_problems
 from devops_cli.roadmap.retitle import (
+    GatewayRetitleModel,
     RetitleReply,
     apply_retitle,
     plan_retitle,
@@ -37,6 +38,7 @@ from devops_cli.roadmap.run import (
     run_due_jobs,
 )
 from devops_cli.roadmap.stores.store import ItemField, StageRecordKey
+from tests.support.fakes.model import ModelFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_job_result import result_lines
 
@@ -470,3 +472,22 @@ def test_plan_retitle_logs_job_result_line(
     assert "result=retitled" in lines[0]
     assert "success=true" in lines[0]
     assert "first_pass=true" in lines[0]
+
+
+def test_the_retitle_model_reads_its_own_task_and_not_the_task_of_intake(
+    model_fake: ModelFake,
+) -> None:
+    """The row has a task of its own, so a trial of a model for intake leaves it (#5903)."""
+    from devops_cli.config.settings import AIConfig
+
+    model_fake.answer(RetitleReply(summary="add the job tasks"))
+    ai = AIConfig(
+        model="base-model",
+        tasks={"intake": {"model": "intake-model"}, "retitle": {"model": "retitle-model"}},
+    )
+
+    GatewayRetitleModel(ai).summarize("{}")
+
+    assert [(call["task"], call["config"].model) for call in model_fake.factory_calls] == [
+        ("retitle", "retitle-model")
+    ]

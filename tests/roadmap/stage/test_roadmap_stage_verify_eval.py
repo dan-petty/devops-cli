@@ -761,7 +761,7 @@ def test_read_spec_of_the_run_answers_from_the_spec(
     assert (score.failed, answer) == (0, "sample")
 
 
-def test_the_run_takes_its_window_from_the_task_verification(
+def test_the_run_takes_its_window_from_the_task_stage_review(
     cases: list[StageCase], stage_repo: StageRepo, config: Callable[..., Path]
 ) -> None:
     window = 12_000
@@ -769,7 +769,7 @@ def test_the_run_takes_its_window_from_the_task_verification(
         ai={
             "tasks": {
                 "stage": {"context_window": 262_144},
-                "verification": {"context_window": window},
+                "stage_review": {"context_window": window},
             }
         }
     )
@@ -789,7 +789,7 @@ def test_the_run_takes_its_window_from_the_task_verification(
     )
 
 
-def test_the_model_option_keeps_the_rest_of_the_verification_task(
+def test_the_model_option_keeps_the_rest_of_the_stage_review_task(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     resolved: list[AIConfig] = []
@@ -800,7 +800,7 @@ def test_the_model_option_keeps_the_rest_of_the_verification_task(
     )
     base = settings.load_settings()
     task = settings.AITaskOverride(provider="gateway", model="configured", temperature=0.25)
-    tasks = base.ai.tasks.model_copy(update={"verification": task})
+    tasks = base.ai.tasks.model_copy(update={"stage_review": task})
     chosen = base.model_copy(
         update={"ai": base.ai.model_copy(update={"provider": "ollama", "tasks": tasks})}
     )

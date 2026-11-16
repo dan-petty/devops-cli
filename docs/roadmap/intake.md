@@ -29,7 +29,7 @@ A label that a person set stays. Intake sets no milestone, because a person plan
 
 ### Priority criteria
 
-The triage model and Jev choose one of four priority values: `P0-Critical`, `P1-High`, `P2-Medium` and `P3-Low`.
+The triage model and Jev choose one of four priority values: `P0-Critical`, `P1-High`, `P2-Medium` and `P3-Low`. The triage model is the model of the task `ai.tasks.intake` (variable `DEVOPS_CLI_AI_TASK_INTAKE_MODEL`), a task of intake alone (#5903). The old task `ai.tasks.triage` does not move it.
 
 A candidate receives `P0-Critical` when it meets at least one of these criteria:
 

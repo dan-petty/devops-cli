@@ -4211,8 +4211,7 @@ class RoadmapMessages:
     stage_window_starved: str = (
         "The context window of {window} tokens ended the tools of the plan run after {calls} "
         "tool call(s). The run needs at least {minimum} calls. Raise the setting "
-        "ai.tasks.stage.context_window, or ai.tasks.analysis.context_window, which the task "
-        "stage uses when it sets none."
+        "ai.tasks.{task}.context_window."
     )
     # The window ended the tools of the review run before it made the least number of tool calls
     # (#3911). The review has read almost none of the code, so its findings cannot be trusted and
@@ -4220,7 +4219,7 @@ class RoadmapMessages:
     stage_verify_window_starved: str = (
         "The context window of {window} tokens ended the tools of the verification run after "
         "{calls} tool call(s). The run needs at least {minimum} calls. Raise the setting "
-        "ai.tasks.verification.context_window."
+        "ai.tasks.{task}.context_window."
     )
     # The review run of a plan that passed the gates stopped with no findings (#3039).
     stage_verify_stopped: str = (
@@ -5831,7 +5830,7 @@ class RoadmapMessages:
         "writes nothing. --dry-run makes no request."
     )
     intake_eval_title: str = (
-        "# Intake duplicate evaluation: {cases} case(s), the analysis model {model} at {gateway}"
+        "# Intake duplicate evaluation: {cases} case(s), the intake model {model} at {gateway}"
     )
     intake_eval_agree: str = "- agree: {name}: a person says {person}, intake says {intake}."
     intake_eval_disagree: str = (
@@ -5849,12 +5848,12 @@ class RoadmapMessages:
         "{failed} case(s) could not run. The score counts only the cases that ran."
     )
     intake_eval_dry_run: str = (
-        "Dry run: no request was made. A run makes one analysis call to {gateway} for each "
+        "Dry run: no request was made. A run makes one intake call to {gateway} for each "
         "case, one case at a time, and no embedding or GitHub request:"
     )
-    intake_eval_dry_run_calls: str = "{calls} analysis call(s)."
+    intake_eval_dry_run_calls: str = "{calls} intake call(s)."
     intake_eval_spent: str = (
-        "Spent: {calls} analysis call(s) and {github} GitHub request(s). The run makes no "
+        "Spent: {calls} intake call(s) and {github} GitHub request(s). The run makes no "
         "embedding request."
     )
     intake_eval_labels_missing: str = (

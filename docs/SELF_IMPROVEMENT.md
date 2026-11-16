@@ -532,7 +532,7 @@ Every remediation of merged code has a GitHub issue, and roadmap intake files it
   (`<!-- devops-review-finding: fingerprint_v2=... -->`). The command leaves out a finding that an
   open issue carries, or one closed as not planned or as a duplicate, so a later review files it
   no second time. A finding whose issue was closed as completed is filed again.
-- A `--plan` or `--confirm` run calls the `analysis` model one time and embeds one time for each
+- A `--plan` or `--confirm` run calls the `intake` model one time and embeds one time for each
   finding that no issue carries. `--dry-run` makes no request.
 - A finding about the diff of a branch or a pull request is fixed in that pull request, and gets
   no issue.

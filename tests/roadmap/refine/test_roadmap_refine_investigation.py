@@ -157,10 +157,11 @@ def store() -> InMemoryRoadmapStore:
 
 @pytest.fixture
 def window(monkeypatch: pytest.MonkeyPatch) -> Callable[[int], None]:
-    """Set the context window of the `analysis` task that a refine investigation reads."""
+    """Set the context window of the `refine` task that a refine investigation reads. The run
+    reads the window of no other task (#5903)."""
 
     def set_window(tokens: int) -> None:
-        monkeypatch.setattr(refine, "analysis_window", lambda: tokens)
+        monkeypatch.setattr(refine, "task_window", {"refine": tokens}.__getitem__)
 
     return set_window
 
@@ -261,10 +262,10 @@ def test_the_function_tools_go_when_the_budget_is_nearly_spent(
     ) == (NextStep.READY, [3] * (CONST_ROADMAP_REFINE_INVESTIGATION_MAX_REQUESTS - 1) + [0])
 
 
-def test_the_window_of_the_analysis_task_ends_the_tools_before_the_counts_do(
+def test_the_window_of_the_refine_task_ends_the_tools_before_the_counts_do(
     git_repo: Path, store: InMemoryRoadmapStore, window: Callable[[int], None]
 ) -> None:
-    """A refine investigation reads the context window of the `analysis` task, so a run on a
+    """A refine investigation reads the context window of the `refine` task, so a run on a
     small window ends its tools after a few turns and not after the 30 requests that the counts
     allow (#3206)."""
     window(6000)

@@ -1462,17 +1462,17 @@ class RoadmapCommandHelp:
         "placeholders for values a read gives."
     )
     eval_intake: str = (
-        "Run the intake duplicate evaluation set against the configured analysis model and "
+        "Run the intake duplicate evaluation set against the model of the task intake and "
         "print the score of each case. For each case intake plans the candidate in a roadmap "
         "that holds the case's item and nothing else, and writes nothing. The run makes one "
-        "analysis call for each case, one at a time, and no embedding or GitHub request; it "
+        "intake call for each case, one at a time, and no embedding or GitHub request; it "
         "reads the type labels from .github/labels.yml of this checkout. It prints whether "
         "intake agrees with the person's verdict for each case, and the precision and the "
         "recall of the duplicate verdict. It exits 0 when every case ran, and 1 when a case "
         "could not run."
     )
     eval_intake_dry_run: str = (
-        "Make no request: list the cases and the analysis call that a run makes for each."
+        "Make no request: list the cases and the intake call that a run makes for each."
     )
     eval_jev: str = (
         "Compare Jev (typesafe/jev-1.14) with the triage model on the proposal fields of "
@@ -1646,7 +1646,9 @@ class RoadmapCommandHelp:
         "a case that holds no commit and names it in the report. A change of the model or of "
         "the prompt states this score."
     )
-    eval_verify_model: str = "Model for the verification task. Without it, the configured model."
+    eval_verify_model: str = (
+        "Model for the task stage_review. Without it, the configured model of that task."
+    )
     eval_verify_resume: str = (
         "A report of this command. Run only the cases that the report lacks or that failed in it, "
         "and update the report in place. The model of the run must be the model of the report."

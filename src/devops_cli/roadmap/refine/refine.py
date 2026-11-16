@@ -72,7 +72,7 @@ person, until a person replies after the job's comment and the proposal answers 
 records the covering tool it asked about (`RefineRecordKey.ALTERNATIVES_ASKED`); an open New or
 Ready item with another covering tool is refined again, though its body is unchanged.
 Inputs are minimized from `--source` at HEAD SHA (docs, cited files/lines, identifiers, repo map).
-The proposal is one `chat_structured` call with `ai.for_task("analysis")`: its prompts are
+The proposal is one `chat_structured` call with `ai.for_task("refine")`: its prompts are
 `roadmap_refine_proposal.md` and `roadmap_refine_reply.md`, the issue and the body's unanswered key
 questions, numbered, reach the model as a JSON document, and `chat_structured` adds the schema each
 reply must match. Deterministic validation checks sources, key questions and owner decisions. When
@@ -240,8 +240,8 @@ from devops_cli.roadmap.pull_form import PLACEHOLDER_ERROR_TYPE, ReplyText
 from devops_cli.roadmap.refine.refine_investigation import (
     InvestigationStopped,
     InvestigationTools,
-    analysis_window,
     investigate,
+    task_window,
 )
 from devops_cli.roadmap.service_stop import raise_if_service_stops
 from devops_cli.roadmap.status_sync import StatusFacts, owns_status, write_status
@@ -3322,12 +3322,12 @@ def _investigate(
         "page_fetch": tools.pages is not None,
     }
     revised = investigate(
-        investigator or get_task_model("analysis"),
+        investigator or get_task_model("refine"),
         _prompt("roadmap_refine_investigation.md"),
         json.dumps(document, ensure_ascii=False, indent=1),
         tools,
         RefinementProposal,
-        window=analysis_window(),
+        window=task_window("refine"),
     )
     if isinstance(revised, InvestigationStopped):
         logger.warning(
@@ -3399,10 +3399,10 @@ def plan_refine(
     (#3631).
 
     `model` is the proposal step's client and `investigator` the investigation's pydantic-ai
-    model; each defaults to the `analysis` task's (#2398). `intake_model` plans the new issues
+    model; each defaults to the `refine` task's (#2398, #5903). `intake_model` plans the new issues
     of deferred parts, and is built only when a part exists (#2423). `verifier` is the client
     that reviews the proposal for an item that a bot opened; it defaults to the client of the
-    `verification` task, and is built only when such a review runs (#3502). `actor` is the account
+    `refine_review` task, and is built only when such a review runs (#3502). `actor` is the account
     that the run acts as, whose own comments answer no owner question (#3077)."""
     source_path = Path(source)
     sha = inspect_checkout(source_path, repo)
@@ -3421,12 +3421,12 @@ def plan_refine(
 
     settings = load_settings()
     ai_config = settings.ai
-    client = model or get_llm_client(task="analysis", settings=settings)
-    window = ai_config.for_task("analysis").context_window or 8192
+    client = model or get_llm_client(task="refine", settings=settings)
+    window = ai_config.for_task("refine").context_window or 8192
     max_tokens = min(CONST_ROADMAP_REFINE_CONTEXT_MAX_TOKENS, window // _WINDOW_SHARE_CONTEXT)
     web = web_search_of(store)
     verifier_of: Callable[[], StageClient] = (
-        cache(partial(get_llm_client, task="verification", settings=settings))
+        cache(partial(get_llm_client, task="refine_review", settings=settings))
         if verifier is None
         else lambda: verifier
     )

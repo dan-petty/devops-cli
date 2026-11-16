@@ -78,7 +78,7 @@ def jev_cmd(
             labels=jev_eval.evaluate_labels(labelled, model, labels),
         )
         for name, model in (
-            (settings.ai.for_task("triage").model, triage),
+            (settings.ai.for_task("intake").model, triage),
             (CONST_AI_JEV_MODEL, jev),
         )
     ]

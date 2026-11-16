@@ -2370,7 +2370,7 @@ def test_a_failed_model_call_skips_its_item_and_names_the_error_class(
     ) == ([kept], [(failing, "the model call failed (AIClientError)", "AIClientError")])
 
 
-def test_the_run_of_an_item_reads_the_window_of_the_analysis_task(
+def test_the_run_of_an_item_reads_the_window_of_the_alternatives_task(
     store: InMemoryRoadmapStore, web_key: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The run passes the context window to the investigation, so the window ends its tools
@@ -2383,7 +2383,8 @@ def test_the_run_of_an_item_reads_the_window_of_the_analysis_task(
         return real(*args, **kwargs)
 
     monkeypatch.setattr(alternatives, "investigate", spy)
-    monkeypatch.setattr(alternatives, "analysis_window", lambda: 65536)
+    # The check reads the window of its own task and of no other (#5903).
+    monkeypatch.setattr(alternatives, "task_window", {"alternatives": 65536}.__getitem__)
     _item(store)
 
     _plan(store, Script(call("search_web", query="q")))
@@ -2397,7 +2398,7 @@ def test_a_run_that_spends_its_budget_skips_its_item(
     web: WebFake,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(alternatives, "analysis_window", lambda: 10**9)
+    monkeypatch.setattr(alternatives, "task_window", {"alternatives": 10**9}.__getitem__)
     _firecrawl(web, SEARCH_URL)
     number = _item(store)
     plan = _plan(store, Script(call("search_web", query="q")))

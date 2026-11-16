@@ -88,7 +88,7 @@ TIMED_OUT_ANSWER = "The command ran out of time. Try a smaller path or a less co
 # `git grep` stops at this many matches in one file, one more than a tool answer keeps, so `cut`
 # still says that lines are left out. A file of millions of matching lines costs no more than this.
 GREP_MATCHES_PER_FILE = CONST_ROADMAP_REFINE_TOOL_MAX_LINES + 1
-# The window of the `analysis` task when no setting names one.
+# The window of a task when no setting names one.
 _DEFAULT_WINDOW = 8192
 
 
@@ -97,11 +97,6 @@ def task_window(task: str) -> int:
     run of the model passes it to `investigate`, so the window ends its tools before the counts of
     calls and requests do (#3206)."""
     return load_settings().ai.for_task(task).context_window or _DEFAULT_WINDOW
-
-
-def analysis_window() -> int:
-    """The context window of the `analysis` task in tokens (see `task_window`)."""
-    return task_window("analysis")
 
 
 CUT_NOTICE = "(more lines are left out)"
@@ -659,7 +654,6 @@ __all__ = [
     "InvestigationTools",
     "SearchAnswer",
     "ToolSet",
-    "analysis_window",
     "cited_web_search",
     "cut",
     "cut_with_cap",

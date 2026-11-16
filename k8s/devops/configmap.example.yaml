@@ -16,13 +16,12 @@ data:
       provider: gateway
       gateway_url: http://llm-gateway.llm.svc.cluster.local:4000/v1
       allow_private_network: true
-      # One hosted chat model for the Service, by the owner decision of 2026-11-07 (#3874):
-      # ai.model and the tasks stage, implement, verification and chat name the same group. A
-      # failure then shows one model and not a mix. A job moves to the local model only when it
-      # works most of the time: triage (intake, retitle) since 2026-11-15, and analysis (refine,
-      # alternatives) as a trial since 2026-11-16 (#5583). The embedding slot stays the embedding
-      # model, because a chat model cannot embed. Each prompt of a hosted slot leaves the cluster
-      # to OpenRouter (SECURITY.md rule 13).
+      # Each roadmap job has a task of its own in ai.tasks, so a model trial moves one job
+      # (#5903). A job starts on DeepSeek, the model of ai.model (owner decisions of 2026-11-07,
+      # #3874, and 2026-11-16), and a job moves to local/qwen3.8:27b only after its grade reaches
+      # 80%. A task that sets no model uses ai.model. The embedding slot stays the embedding
+      # model, because a chat model cannot embed.
+      # Each prompt of a DeepSeek slot leaves the cluster to OpenRouter (SECURITY.md rule 13).
       model: openrouter/deepseek/deepseek-v4.1-flash-1017
       # `model` and `tasks.*.model` name generative models: they write the plans, comments, code
       # and findings, and they use tools. A decision model is a different kind: it answers one
@@ -63,51 +62,68 @@ data:
           prompt_usd_per_million: 0.042
           completion_usd_per_million: 0.0
       tasks:
-        # The model lane (stage, refine, alternatives) plans with DeepSeek through the gateway
-        # group deepseek-v4.1-flash-1017 (#3155). The verification slot is the model that
-        # reviews a plan; no code reads it before #3153 is built.
-        # The stage task needs this window. A plan run needs about 38,000 tokens for its first
-        # request and 1.5 million input tokens in 23 requests, and the run ends its tools at
-        # three quarters of the window. At 65,536 tokens the tools ended after 2 or 3 requests,
-        # and the model answered with a placeholder (#3880). 256,000 tokens is the smallest window
-        # that an fp8 provider of the gateway group offers; the group allows 1,048,576.
-        # By the owner decision of 2026-11-10 the slot names DeepSeek again (#4369), and the
-        # one-model rule of #3874 holds for every hosted chat slot. Sonnet was the slot's model from
-        # 2026-11-09 (#4204) and cost about 67 USD a week there. A later trial may name Sonnet
-        # again with context_window 200000; the Sonnet group allows 1,000,000 input tokens.
-        # By the owner decision of 2026-11-16 refine and alternatives run a trial on the local
-        # model (#5583). Both local backends of the group serve a window of 262,144 tokens.
-        analysis:
-          model: local/qwen3.8:27b
-          context_window: 256000
-        # The stage job has its own entry, as the cluster ConfigMap has. Without it the task
-        # takes the model and the window of analysis, so a trial of another model in analysis
-        # leaves the stage job on DeepSeek.
+        # The roadmap jobs plan with DeepSeek through the gateway group
+        # deepseek-v4.1-flash-1017 (#3155). By the owner decision of 2026-11-10 the planner names
+        # DeepSeek again (#4369), and the one-model rule of #3874 holds for each job that has no
+        # trial. Sonnet was the planner's model from 2026-11-09 (#4204) and cost about
+        # 67 USD a week there. A later trial may name Sonnet again with context_window 200000;
+        # the Sonnet group allows 1,000,000 input tokens.
+        # A plan run needs about 38,000 tokens for its first request and 1.5 million input tokens
+        # in 23 requests, and the run ends its tools at three quarters of the window. At 65,536
+        # tokens the tools ended after 2 or 3 requests, and the model answered with a placeholder
+        # (#3880). 256,000 tokens is the smallest window that an fp8 provider of the gateway group
+        # offers; the group allows 1,048,576.
         stage:
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
+          context_window: 256000
+        # The review run of a plan has the read tools of the planner, so it takes the default
+        # window of 32,768 tokens when it sets none. The run ends its tools at three quarters of
+        # the window, which is 24,576 tokens: too soon for the first request and 8 tool calls
+        # (#3911). A run that the window ends too soon fails the item.
+        stage_review:
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
+          context_window: 256000
+        # The step fix-plan repairs a plan with the stage planner and its review, on tasks of its
+        # own, so a trial of the stage job does not move it.
+        fix_plan:
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
+          context_window: 256000
+        fix_plan_review:
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
+          context_window: 256000
+        refine:
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
+          context_window: 256000
+        refine_review:
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
+          context_window: 256000
+        alternatives:
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
+          context_window: 256000
+        consolidate:
           model: openrouter/deepseek/deepseek-v4.1-flash-1017
           context_window: 256000
         # The implement job runs every step on the same group (#3573). Its prompts, which hold
         # the code of the repository, leave the cluster to OpenRouter (SECURITY.md rule 13). The
         # window is the smallest that an fp8 provider of the group offers (256,000 tokens); the
-        # gateway group allows 1,048,576.
+        # gateway group allows 1,048,576. The task implement_split is the call that splits a task
+        # group of the job.
         implement:
           model: openrouter/deepseek/deepseek-v4.1-flash-1017
           context_window: 256000
-        # The review run of a plan has the read tools of the planner and no parent task, so it
-        # takes the default window of 32,768 tokens when it sets none. The run ends its tools at
-        # three quarters of the window, which is 24,576 tokens: too soon for the first request and
-        # 8 tool calls (#3911). The window is 256,000 tokens, as it is for analysis, and a run
-        # that the window ends too soon fails the item.
-        verification:
+        implement_split:
           model: openrouter/deepseek/deepseek-v4.1-flash-1017
           context_window: 256000
+        # Intake and retitle run on the local model in the cluster, by the owner decision of
+        # 2026-11-15, so their prompts stay in the cluster.
+        intake:
+          model: local/qwen3.8:27b
+        retitle:
+          model: local/qwen3.8:27b
         chat:
           model: openrouter/deepseek/deepseek-v4.1-flash-1017
         embedding:
           model: local/qwen3-embedding:0.6b
-        # Intake and retitle run on the local model by the owner decision of 2026-11-15 (#5583).
-        triage:
-          model: local/qwen3.8:27b
     # devops-cli's cache Valkey in namespace llm (llm/valkey-devops.yaml): the embedding cache
     # and the threat-intelligence cache. Its password reaches the pod from Secret devops-cli as
     # DEVOPS_CLI_VALKEY_PASSWORD, never from this ConfigMap.
@@ -180,8 +196,8 @@ data:
         jev: "off"
       # The row fix_plan repairs one plan pull request with the label plan/needs-fix in a round
       # (#5061, ADR 0021 section 8). `off` sends no request, `plan` logs the pull request that it
-      # would take and writes nothing, and `on` revises the plan with the stage models and pushes a
-      # better revision. Each new row starts in `plan`, and a person sets `on`.
+      # would take and writes nothing, and `on` revises the plan with the models of the tasks
+      # fix_plan and fix_plan_review and pushes a better revision. Each new row starts in `plan`, and a person sets `on`.
       fix_plan:
         mode: plan
         # The limits of an attempt, twice the code defaults (#5583).

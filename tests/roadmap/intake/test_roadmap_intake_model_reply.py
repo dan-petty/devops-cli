@@ -1,4 +1,4 @@
-"""The reply of the model to intake: its schema, an invalid answer, and the model that the triage
+"""The reply of the model to intake: its schema, an invalid answer, and the model that the intake
 task uses (#1335).
 """
 
@@ -143,27 +143,31 @@ def test_an_off_list_proposal_skips_its_candidate_after_one_model_call(roadmap: 
     ) == (Outcome.SKIP, 1, True, True, None)
 
 
-def test_intake_proposal_uses_triage_task_model_or_falls_back_to_ai_model(
+def test_intake_proposal_uses_the_intake_task_model_or_falls_back_to_ai_model(
     model_fake: ModelFake,
 ) -> None:
-    """Intake uses ai.tasks.triage model when set; when unset, it falls back to ai.model."""
+    """Intake uses ai.tasks.intake model when set; when unset, it falls back to ai.model, and
+    the old task `triage` moves it no more (#5903)."""
     from devops_cli.config.settings import AIConfig, AITaskOverride, AITasksConfig
     from devops_cli.roadmap.intake.intake_model import GatewayIntakeModel
 
     request = ProposalRequest(title="t", body="b", shortlist=(), types=("type/feature",))
     model_fake.answer(json.dumps(DEFAULT_PROPOSAL))
 
-    # 1. Unset triage task: falls back to ai.model
-    ai_unset = AIConfig(model="base-chat-model")
-    GatewayIntakeModel(ai_unset, embedder=Embedder()).propose(request)
-    # 2. Set triage task: uses triage.model
-    ai_set = AIConfig(
+    # 1. Only the old triage task: falls back to ai.model
+    ai_unset = AIConfig(
         model="base-chat-model",
         tasks=AITasksConfig(triage=AITaskOverride(model="devops-triage")),
+    )
+    GatewayIntakeModel(ai_unset, embedder=Embedder()).propose(request)
+    # 2. Set intake task: uses intake.model
+    ai_set = AIConfig(
+        model="base-chat-model",
+        tasks=AITasksConfig(intake=AITaskOverride(model="intake-model")),
     )
     GatewayIntakeModel(ai_set, embedder=Embedder()).propose(request)
 
     assert [(call["task"], call["config"].model) for call in model_fake.factory_calls] == [
-        ("triage", "base-chat-model"),
-        ("triage", "devops-triage"),
+        ("intake", "base-chat-model"),
+        ("intake", "intake-model"),
     ]

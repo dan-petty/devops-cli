@@ -163,7 +163,8 @@ ai:
     top_k: 5
     score_threshold: 0.35
 
-  # Per-task model & server overrides (chat, metadata, analysis, compose, embedding, implement)
+  # Per-task model & server overrides (chat, metadata, analysis, compose, embedding, implement,
+  # and one task for each model role of a roadmap job, such as refine and stage_review)
   # All embedding configuration (model, server URLs, timeout) is configured under tasks.embedding
   # tasks:
   #   embedding:

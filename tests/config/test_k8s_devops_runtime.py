@@ -271,30 +271,46 @@ def test_the_implement_step_runs_on_a_hosted_gateway_group_that_fits_its_window(
 DEEPSEEK = "openrouter/deepseek/deepseek-v4.1-flash-1017"
 
 
-LOCAL = "local/qwen3.8:27b"
+# The task of each model role of a roadmap job, with the window it had through its old slot
+# (#5903). Intake and retitle had no window.
+JOB_WINDOWS = {
+    "stage": 256000,
+    "stage_review": 256000,
+    "fix_plan": 256000,
+    "fix_plan_review": 256000,
+    "refine": 256000,
+    "refine_review": 256000,
+    "alternatives": 256000,
+    "consolidate": 256000,
+    "implement": 256000,
+    "implement_split": 256000,
+    "intake": None,
+    "retitle": None,
+}
+LOCAL_JOBS = {"intake", "retitle"}
 
 
-def test_each_chat_slot_is_deepseek_but_the_local_trials_and_the_stage_slot_is_set() -> None:
-    """Every chat slot stays on DeepSeek (#3874), but the owner put `triage` (intake and retitle,
-    2026-11-15) and `analysis` (refine and alternatives, 2026-11-16) on the local model (#5583).
-    The task `stage` has its own entry, so the trial in `analysis` leaves the stage job on
-    DeepSeek. The embedding slot stays the embedding model."""
-    template = _doc("configmap.example.yaml")["data"]["devops-cli.yaml"]
-    ai = Settings.model_validate(yaml.safe_load(template)).ai
+def test_each_job_has_its_own_entry_in_the_template_and_no_job_reads_an_old_slot() -> None:
+    """Each roadmap job names its own model, so a trial moves one job (#5903). A job starts on
+    DeepSeek (#3874, #4369); intake and retitle run on the local model by the owner decision of
+    2026-11-15. The template sets no old shared slot, and the embedding slot stays the embedding
+    model."""
+    template = yaml.safe_load(_doc("configmap.example.yaml")["data"]["devops-cli.yaml"])
+    ai = Settings.model_validate(template).ai
     slots = {name: ai.for_task(name).model for name in AITasksConfig.model_fields}
+    entries = template["ai"]["tasks"]
 
     assert (
         ai.model,
         {name: model for name, model in slots.items() if model != DEEPSEEK},
-        ai.for_task("analysis").context_window,
-        ai.for_task("stage").context_window,
-        "stage" in yaml.safe_load(template)["ai"]["tasks"],
+        {name: entries[name].get("context_window") for name in JOB_WINDOWS},
+        sorted({"analysis", "verification", "triage"} & entries.keys()),
     ) == (
         DEEPSEEK,
-        {"embedding": "local/qwen3-embedding:0.6b", "analysis": LOCAL, "triage": LOCAL},
-        256000,
-        256000,
-        True,
+        {name: "local/qwen3.8:27b" for name in LOCAL_JOBS}
+        | {"embedding": "local/qwen3-embedding:0.6b"},
+        JOB_WINDOWS,
+        [],
     )
 
 
@@ -386,11 +402,11 @@ def test_the_template_holds_the_doubled_attempt_limits() -> None:
     }
 
 
-def test_the_comment_above_the_analysis_slot_names_the_decision_the_cost_and_the_trial() -> None:
-    """The slot left Sonnet on 2026-11-10. The comment says who decided, why and what Sonnet
+def test_the_comment_above_the_job_tasks_names_the_decision_the_cost_and_the_trial() -> None:
+    """The planner left Sonnet on 2026-11-10. The comment says who decided, why and what Sonnet
     cost, so a person who reads the template does not put the trial back by mistake."""
     text = (DEVOPS_DIR / "configmap.example.yaml").read_text(encoding="utf-8")
-    comment = text.split("        analysis:\n")[0].rsplit("      tasks:\n", 1)[1]
+    comment = text.split("        stage:\n")[0].rsplit("      tasks:\n", 1)[1]
 
     assert [
         needle

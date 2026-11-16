@@ -301,7 +301,7 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     ),
     "CONST_ROADMAP_STAGE_VERIFY_BODY_MAX_TOKENS": (
         "kept",
-        "the verification slot sets no window: its default of 32,768 tokens is already under the 51,000 tokens that the three caps give",
+        "a review task that sets no window has the default of 32,768 tokens, which is already under the 51,000 tokens that the three caps give",
     ),
     "CONST_ROADMAP_STAGE_VERIFY_FILE_MAX_TOKENS": ("kept", "same reason as the body cap"),
     "CONST_ROADMAP_STAGE_VERIFY_MAX_FILES": ("kept", "same reason as the body cap"),
@@ -768,12 +768,15 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     ),
 }
 
-# The window of the planner in the example ConfigMap of the stack, which no raised cap passes.
-PLANNER_WINDOW = yaml.safe_load(
+# The tasks of the example ConfigMap of the stack. No raised cap passes the window of a job.
+_EXAMPLE_TASKS = yaml.safe_load(
     yaml.safe_load((REPO_ROOT / "k8s/devops/configmap.example.yaml").read_text(encoding="utf-8"))[
         "data"
     ]["devops-cli.yaml"]
-)["ai"]["tasks"]["analysis"]["context_window"]
+)["ai"]["tasks"]
+# Each job reads the window of its own task (#5903).
+PLANNER_WINDOW = _EXAMPLE_TASKS["stage"]["context_window"]
+ALTERNATIVES_WINDOW = _EXAMPLE_TASKS["alternatives"]["context_window"]
 
 
 def _limits_in_code() -> set[str]:
@@ -860,18 +863,16 @@ def test_a_reply_at_the_output_cap_ends_before_the_deadline_of_the_call() -> Non
     assert seconds < DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS
 
 
-def test_the_body_of_an_item_in_the_alternatives_check_is_a_share_of_the_planner_window() -> None:
-    assert constants.CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS <= PLANNER_WINDOW // 4
+def test_the_body_of_an_item_in_the_alternatives_check_is_a_share_of_its_window() -> None:
+    assert constants.CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS <= ALTERNATIVES_WINDOW // 4
 
 
-def test_the_body_and_the_adrs_of_an_item_in_the_alternatives_check_fit_half_the_planner_window() -> (
-    None
-):
-    assert constants.CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS <= PLANNER_WINDOW // 8
+def test_the_body_and_the_adrs_of_an_item_in_the_alternatives_check_fit_half_its_window() -> None:
+    assert constants.CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS <= ALTERNATIVES_WINDOW // 8
     assert (
         constants.CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS
         + constants.CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS
-        <= PLANNER_WINDOW // 2
+        <= ALTERNATIVES_WINDOW // 2
     )
 
 

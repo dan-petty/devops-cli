@@ -47,7 +47,7 @@ from devops_cli.roadmap.stage.stage_verify_eval import matched_defects, stored_c
 
 SPLIT_FILE: Final[str] = "split.json"
 _OPERATION: Final[str] = "roadmap.eval.screen"
-_TASK: Final[str] = "verification"
+_TASK: Final[str] = "stage_review"
 _SERIOUS: Final[frozenset[Severity]] = frozenset({Severity.BLOCKER, Severity.MAJOR})
 
 if TYPE_CHECKING:
