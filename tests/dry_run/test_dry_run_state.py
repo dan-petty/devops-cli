@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -15,6 +18,26 @@ from devops_cli.dry_run import (
     render_dry_run_result,
     set_dry_run,
 )
+from tests.support.paths import REPO_ROOT
+
+# A start imports `devops_cli.dry_run.state`, which runs the package `__init__`. The names of the
+# package load on first access, so the probe reads the loaded modules before it resolves them
+# (#3550).
+_DRY_RUN_START_PROBE = """\
+import sys
+
+import devops_cli.dry_run
+import devops_cli.dry_run.state
+
+loaded = sorted(
+    name for name in ("pydantic", "devops_cli.dry_run.models") if name in sys.modules
+)
+unresolved = sorted(
+    name for name in devops_cli.dry_run.__all__ if getattr(devops_cli.dry_run, name, None) is None
+)
+print(f"loaded={loaded} unresolved={unresolved}")
+"""
+_CHILD_TIMEOUT_SECONDS = 180
 
 
 @pytest.mark.parametrize(
@@ -78,3 +101,20 @@ def test_a_dry_run_result_is_printed_as_json(
     )
 
     assert capsys.readouterr().out == snapshot
+
+
+@pytest.mark.live("python")
+def test_a_start_that_imports_the_dry_run_state_loads_no_pydantic() -> None:
+    """A start loads the dry-run state alone: the pydantic models load on first access (#3550)."""
+    child = subprocess.run(
+        [sys.executable, "-P", "-c", _DRY_RUN_START_PROBE],
+        cwd=REPO_ROOT,
+        env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "src")},
+        capture_output=True,
+        text=True,
+        timeout=_CHILD_TIMEOUT_SECONDS,
+        check=False,
+    )
+
+    assert child.returncode == 0, child.stderr
+    assert child.stdout.strip() == "loaded=[] unresolved=[]"
