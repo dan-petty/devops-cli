@@ -2,14 +2,19 @@
 
 Enforces safety bounds:
 - Bot pull requests only.
+- Skip an item that a live implement Job holds: its repair loop owns the check (#5983).
 - Stop on an owner/* label.
 - Skip when the head commit moved.
+- Skip a head and check whose last round ended failed, stopped or wait (#5983).
 - Soft cap of 3 rounds (extendable when error count decreases).
 - Hard cap of 5 rounds.
-- At most 3 distinct heads per pull request.
+- At most 3 distinct heads per pull request with a failed check. A head whose checks pass goes to
+  the ready path first, so the head that the third repair pushes can be marked ready (#5983).
 
 Two tiers of repair:
-- Tier 1 (deterministic, 0 model calls): ruff check --fix and format, devops docs generate, uv lock.
+- Tier 1 (deterministic, 0 model calls): ruff check --fix and format for a lint failure, devops docs
+  generate for a lint or a docs failure, uv lock for a lockfile failure. A docs or a lockfile
+  failure starts tier 1 in a check of any class (#5983).
 - Tier 2 (model): run_fix_step within the plan scope.
 
 The step writes only with `confirm` (#5971). Without it, the step returns `planned` with the action
@@ -54,13 +59,28 @@ from devops_cli.roadmap.implement.implement_pull import (
     read_draft,
 )
 from devops_cli.roadmap.implement.implement_step import find_change
+from devops_cli.roadmap.status_sync import job_holds
 from devops_cli.roadmap.step_files import parse_task_groups
 from devops_cli.roadmap.steps.ready import draft_readiness, mark_ready
-from devops_cli.roadmap.stores.store import FixChecksRecordKey, Item, RoadmapStore
+from devops_cli.roadmap.stores.store import (
+    FixChecksRecordKey,
+    ImplementRecordKey,
+    Item,
+    RoadmapStore,
+)
 
 logger = logging.getLogger(__name__)
 
 _BOT_SUFFIX: Final[str] = "[bot]"
+# The distinct heads with a failed check that the step repairs on one pull request.
+_MAX_HEADS: Final[int] = 3
+# The failures that tier 1 fixes in a check of any class (#5983): the report of `devops docs
+# check`, and the refusal of `uv lock --check` or `uv sync --locked` (uv 0.13). `\S*` takes the
+# backtick, and the color codes of a log with color, after the file name.
+_DOCS_FAILURE: Final = re.compile(
+    r"devops docs generate|Documentation is out of date|Missing documentation file"
+)
+_LOCK_FAILURE: Final = re.compile(r"uv\.lock\S*\s+needs to be updated")
 
 
 class FixChecksResult(StrEnum):
@@ -119,6 +139,29 @@ def count_errors(log: str) -> int:
         1 for line in log.splitlines() if re.search(r"\b(ERROR|FAILED|FAIL|error:)\b", line)
     )
     return lines_with_errors if lines_with_errors > 0 else 1
+
+
+@dataclass(frozen=True)
+class Tier1Causes:
+    """The failures in a failed check that tier 1 has a fixer for (#5983)."""
+
+    lint: bool = False
+    docs: bool = False
+    lock: bool = False
+
+    @property
+    def found(self) -> bool:
+        return self.lint or self.docs or self.lock
+
+
+def tier1_causes(check: str, log: str) -> Tier1Causes:
+    """The failures of check `check` that tier 1 has a fixer for: the class lint, and a docs or a
+    lockfile failure in the log `log`, whatever the class of the check (#5983)."""
+    return Tier1Causes(
+        lint=classify_failure(FailureEvidence(check=check, log=log)) is FailureClass.LINT,
+        docs=bool(_DOCS_FAILURE.search(log)),
+        lock=bool(_LOCK_FAILURE.search(log)),
+    )
 
 
 def dry_run_fix_checks(repo: str, pull: int) -> tuple[tuple[Any, ...], tuple[Any, ...]]:
@@ -239,7 +282,6 @@ def _check_preconditions(
     item: Item | None,
     repo: str,
     pull: int,
-    heads: Sequence[str],
 ) -> FixChecksReport | None:
     """Validate prerequisites before attempting any check repair."""
     if status.state != "open":
@@ -266,6 +308,16 @@ def _check_preconditions(
             head=status.head_sha,
             reason="Author is not a bot",
         )
+    if item is not None and job_holds(item):
+        # The repair loop of the implement Job owns the failed check while the Job lives, as for
+        # `fix-plan` (#5983). The record keeps the name of a Job that ended, with its state.
+        return FixChecksReport(
+            repo=repo,
+            pull=pull,
+            result=FixChecksResult.SKIPPED,
+            head=status.head_sha,
+            reason=f"A runner Job works on it: `{item.job_record.get(ImplementRecordKey.JOB)}`",
+        )
     if _has_owner_label(status.labels) or (item is not None and _has_owner_label(item.labels)):
         return FixChecksReport(
             repo=repo,
@@ -274,13 +326,30 @@ def _check_preconditions(
             head=status.head_sha,
             reason="Item holds an owner label",
         )
-    if len(heads) > 3:
-        return FixChecksReport(
-            repo=repo,
-            pull=pull,
-            result=FixChecksResult.STOPPED,
-            head=status.head_sha,
-            reason="Exceeded maximum of 3 heads per pull request",
+    return None
+
+
+# The results of a round that ended with no repair. The same head and check get no new round.
+_ENDED: Final[frozenset[str]] = frozenset(
+    {FixChecksResult.FAILED, FixChecksResult.STOPPED, FixChecksResult.WAIT}
+)
+
+
+def _check_failed_head(facts: _Round, check: str) -> FixChecksReport | None:
+    """The stop of the cap of heads, or the skip of a head and check whose last round ended with
+    no repair, before the log of the check is read (#5983). A new head or another failed check
+    starts a round."""
+    if len(facts.heads) > _MAX_HEADS:
+        return facts.report(
+            FixChecksResult.STOPPED, f"Exceeded maximum of {_MAX_HEADS} heads per pull request"
+        )
+    record = facts.item.job_record if facts.item else {}
+    ended = record.get(FixChecksRecordKey.RESULT)
+    if record.get(FixChecksRecordKey.KEY) == f"{facts.status.head_sha}:{check}" and ended in _ENDED:
+        return facts.report(
+            FixChecksResult.SKIPPED,
+            f"The last round on this head and check `{check}` ended {ended}; a new head or "
+            "another failed check starts a round",
         )
     return None
 
@@ -446,7 +515,7 @@ def run_fix_checks(
     if status.head_sha not in heads:
         heads.append(status.head_sha)
 
-    if stopped := _check_preconditions(status, head, item, repo, pull, heads):
+    if stopped := _check_preconditions(status, head, item, repo, pull):
         return stopped
 
     facts = _Round(repo, pull, status, item_num, item, heads)
@@ -457,6 +526,8 @@ def run_fix_checks(
         return _ready_after_repair(store, client, facts, checks_summary, confirm=confirm)
 
     failed_check: PRCheckItem = failed_checks[0]
+    if ended := _check_failed_head(facts, failed_check.name):
+        return ended
     log = failed_log(repo, failed_check)
     errors = count_errors(log)
     current_rounds = int((item.job_record.get(FixChecksRecordKey.ROUNDS) or 0) if item else 0)
@@ -467,8 +538,12 @@ def run_fix_checks(
     facts = _Round(
         repo, pull, status, item_num, item, heads, failed_check.name, log, current_rounds, errors
     )
+    # A docs or a lockfile failure has a fixer of tier 1, also in a check whose name the class
+    # reads as infrastructure: a stale `uv.lock` fails every job (#5983).
     infra = (
-        classify_failure(FailureEvidence(check=failed_check.name, log=log)) == FailureClass.CI_INFRA
+        not tier1_causes(failed_check.name, log).found
+        and classify_failure(FailureEvidence(check=failed_check.name, log=log))
+        == FailureClass.CI_INFRA
     )
     if not confirm:
         action = (

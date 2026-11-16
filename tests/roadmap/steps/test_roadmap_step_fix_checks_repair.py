@@ -10,12 +10,16 @@ a ruff fix rewrites the file it names.
 from __future__ import annotations
 
 import subprocess
+from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
 from devops_cli.ai.client import factory
-from devops_cli.roadmap.steps.fix_checks import FixChecksResult, run_fix_checks
-from devops_cli.roadmap.steps.fix_checks_repair import job_repair, tier1_fix
+from devops_cli.exceptions import GitOperationError, RoadmapImplementError
+from devops_cli.github.client import PullStatus
+from devops_cli.roadmap.steps.fix_checks import FixChecksResult, Fixed, run_fix_checks
+from devops_cli.roadmap.steps.fix_checks_repair import job_repair, pull_checkout, tier1_fix
 from devops_cli.roadmap.stores.store import FixChecksRecordKey, ImplementRecordKey
 from tests.support.fakes.github import GitHubApiFake, github_json
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
@@ -41,6 +45,18 @@ SAMPLE = "src/devops_cli/sample.py"
 LINT_LOG = f"{SAMPLE}:1:8: F401 [*] `os` imported but unused\nFound 1 error.\n"
 TYPE_LOG = f'{SAMPLE}:2: error: Incompatible types in assignment (got "str")  [assignment]\n'
 STATIC = "Static Analysis"
+# What `uv sync --locked` (uv 0.13) says when `uv.lock` does not match `pyproject.toml`.
+LOCK_LOG = (
+    "error: The lockfile at `uv.lock` needs to be updated, but `--locked` was provided.\n\n"
+    "hint: To update the lockfile, run `uv lock`.\n"
+)
+DOCS = "docs/commands/roadmap.md"
+# A `devops ci --check` log: mypy passes, and `devops docs check` finds a document out of date.
+DOCS_LOG = (
+    "✓ mypy type check\n"
+    f"✗ Documentation is out of date: {DOCS} has uncommitted changes or differs.\n"
+    "Documentation check failed. Run 'devops docs generate' to refresh documentation.\n"
+)
 
 
 @pytest.fixture
@@ -110,6 +126,58 @@ def test_a_tier1_commit_whose_check_still_fails_stays_for_the_model_fix(
     assert fixed.done is False
     assert "ruff check" in fixed.reason
     assert branch.git("log", "-1", "--format=%s").startswith("style: apply the fixers of tier 1")
+
+
+def _commit(repo: StageRepo, name: str, text: str) -> None:
+    (repo.clone / name).parent.mkdir(parents=True, exist_ok=True)
+    (repo.clone / name).write_text(text, encoding="utf-8")
+    repo.git("add", name)
+    repo.git("commit", "-q", "-m", f"add {name}")
+
+
+def _writes(name: str, text: str) -> ProcessAnswer:
+    """The answer of a fixer that writes `text` to the tracked file `name` of its checkout."""
+
+    def write(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        assert call.cwd is not None
+        (call.cwd / name).write_text(text, encoding="utf-8")
+        return subprocess.CompletedProcess(call.argv, 0, stdout="")
+
+    return ProcessAnswer(side_effect=write)
+
+
+def test_tier1_updates_the_lockfile_for_a_lockfile_failure_in_a_test_check(
+    branch: StageRepo, process_fake: ProcessFake
+) -> None:
+    """The case of #5983: `uv sync --locked` fails in the check `Tests`, whose class is test. The
+    lockfile failure has its own fixer, and the round needs no model."""
+    _commit(branch, "uv.lock", "version = 1\n")
+    process_fake.answer(
+        lambda call: command_text(call) == "uv lock", _writes("uv.lock", "version = 2\n")
+    )
+
+    fixed = tier1_fix(branch.clone, 1, "Tests & Coverage (shard 1 of 4)", LOCK_LOG)
+
+    assert fixed.done is True
+    assert _uv_commands(process_fake) == ["uv lock", "uv lock --check"]
+    assert branch.git("show", "--name-only", "--format=", "HEAD") == "uv.lock"
+
+
+def test_tier1_generates_the_documents_for_a_docs_failure_in_any_check(
+    branch: StageRepo, process_fake: ProcessFake
+) -> None:
+    """The log of `Static Analysis` names mypy, so its class is types; the docs failure in it still
+    gets `devops docs generate` and not ruff (#5983)."""
+    _commit(branch, DOCS, "old\n")
+    process_fake.answer(
+        lambda call: command_text(call) == "uv run devops docs generate", _writes(DOCS, "new\n")
+    )
+
+    fixed = tier1_fix(branch.clone, 1, STATIC, DOCS_LOG)
+
+    assert fixed.done is True
+    assert _uv_commands(process_fake) == ["uv run devops docs generate", "uv run devops ci docs"]
+    assert branch.git("show", "--name-only", "--format=", "HEAD") == DOCS
 
 
 def test_tier1_runs_no_fixer_for_a_failure_that_is_not_lint(
@@ -237,3 +305,73 @@ def test_a_round_whose_model_fix_stops_pushes_nothing(
     assert report.reason.startswith("Model repair failed")
     assert repo.origin_git("rev-parse", BRANCH) == head
     assert repo.git("worktree", "list").count("\n") == 0
+
+
+def test_a_push_whose_lease_breaks_is_refused_and_keeps_the_other_writer(
+    failed_draft: tuple[StageRepo, InMemoryRoadmapStore, str],
+) -> None:
+    """Another writer moves the head branch on `origin` after the judgment and before the push.
+    The lease on the judged head refuses the push: the commit of the other writer stays, the round
+    records no repair, and the worktree goes (#5983)."""
+    repo, store, head = failed_draft
+    factory.set_llm_client_override(ModelScript(*a_fix()).model())
+    real = job_repair(store, STAGE_REPO, source=repo.clone)
+    moved: list[str] = []
+
+    def model_then_another_writer(path: Path, item: int, check: str, log: str) -> Fixed:
+        fixed = real.model(path, item, check, log)
+        tree = repo.git("rev-parse", f"{head}^{{tree}}")
+        moved.append(repo.git("commit-tree", tree, "-p", head, "-m", "work of another writer"))
+        repo.git("push", "-q", "origin", f"{moved[0]}:refs/heads/{BRANCH}")
+        return fixed
+
+    with pytest.raises(GitOperationError, match="push"):
+        run_fix_checks(
+            store,
+            STAGE_REPO,
+            PULL,
+            confirm=True,
+            repair=replace(real, model=model_then_another_writer),
+        )
+
+    assert repo.origin_git("rev-parse", BRANCH) == moved[0]
+    held = store.item(1)
+    assert held is not None
+    assert held.job_record.get(FixChecksRecordKey.RESULT) is None
+    assert repo.git("worktree", "list").count("\n") == 0
+
+
+@pytest.fixture
+def staged(
+    stage_repo: StageRepo, app_slug: None, process_fake: ProcessFake
+) -> tuple[StageRepo, str]:
+    """The branch of item 1 on `origin`, with one commit of the App, and its head."""
+    push_staged_branch(stage_repo)
+    process_fake.answer("git", ProcessAnswer(side_effect=git_for_real))
+    return stage_repo, stage_repo.origin_git("rev-parse", BRANCH)
+
+
+@pytest.mark.parametrize(
+    ("ref", "sha", "error"),
+    [
+        ("fix/1-another-branch", "", "not the head branch"),
+        (BRANCH, "0" * 40, "not at the judged head"),
+    ],
+    ids=["branch", "sha"],
+)
+def test_the_checkout_refuses_another_branch_or_head_and_removes_its_worktree(
+    staged: tuple[StageRepo, str], ref: str, sha: str, error: str
+) -> None:
+    """The checkout opens only on the head branch of the pull request at the judged head, and its
+    worktree and local branch go when it refuses (#5983)."""
+    repo, head = staged
+    status = PullStatus(state="open", head_ref=ref, head_sha=sha or head)
+
+    with (
+        pytest.raises(RoadmapImplementError, match=error),
+        pull_checkout(STAGE_REPO, status, 1, source=repo.clone),
+    ):
+        pytest.fail("The checkout opened.")
+
+    assert repo.git("worktree", "list").count("\n") == 0
+    assert repo.git("branch", "--list", BRANCH) == ""
