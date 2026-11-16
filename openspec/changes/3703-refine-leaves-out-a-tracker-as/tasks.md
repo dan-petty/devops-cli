@@ -24,7 +24,7 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/refine/refine.py`, `src/devops_cl
 
 Kind: other. Reads: `tests/roadmap/test_roadmap_explain.py`, `src/devops_cli/roadmap/explain.py`, `src/devops_cli/lang/en/messages.py`. Changes: `tests/roadmap/test_roadmap_explain.py`.
 
-- [ ] 3.1 In `tests/roadmap/test_roadmap_explain.py`, add the keyword `sub_issues: int = 0` to `_seed` and pass it to `world.store.seed_issue`, then add `test_a_new_tracker_gets_the_refine_tracker_text`: seed an open New item with two sub-issues, call `_explain`, and assert that `explained.refine` is `JobVerdict(False, TEXTS.refine_left_tracker)` and that the store wrote no body, comment or field for the item
+- [x] 3.1 In `tests/roadmap/test_roadmap_explain.py`, add the keyword `sub_issues: int = 0` to `_seed` and pass it to `world.store.seed_issue`, then add `test_a_new_tracker_gets_the_refine_tracker_text`: seed an open New item with two sub-issues, call `_explain`, and assert that `explained.refine` is `JobVerdict(False, TEXTS.refine_left_tracker)` and that the store wrote no body, comment or field for the item
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_explain.py` passes
 
 ## Criteria

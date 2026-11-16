@@ -62,6 +62,7 @@ def _seed(
     priority: str = "P1-High",
     state: GitHubState = GitHubState.OPEN,
     title: str = "fix(roadmap): another job drops a label",
+    sub_issues: int = 0,
 ) -> int:
     return world.store.seed_issue(
         title,
@@ -70,6 +71,7 @@ def _seed(
         fields={ItemField.STATUS: status, ItemField.PRIORITY: priority},
         author_association="OWNER",
         state=state,
+        sub_issues=sub_issues,
     )
 
 
@@ -752,3 +754,19 @@ def test_explain_item_prints_phase_and_phase_age(job_world: JobWorld) -> None:
 
     rendered = render_explanation(explained)
     assert "Phase: ready. Phase age: " in rendered
+
+
+def test_a_new_tracker_gets_the_refine_tracker_text(job_world: JobWorld) -> None:
+    number = _seed(job_world, status="New", sub_issues=2)
+    before_writes = job_world.store.job_writes
+    before_comments = list(job_world.store.comments_on(number))
+    before_body = job_world.store.read_issue_body(number)
+    before_item = job_world.store.item(number)
+
+    explained = _explain(job_world, number)
+
+    assert explained.refine == JobVerdict(False, TEXTS.refine_left_tracker)
+    assert job_world.store.job_writes == before_writes
+    assert job_world.store.comments_on(number) == before_comments
+    assert job_world.store.read_issue_body(number) == before_body
+    assert job_world.store.item(number) == before_item
