@@ -154,15 +154,19 @@ The ConfigMap template `k8s/devops/configmap.example.yaml` SHALL set each attemp
 - **THEN** `verify_repair_rounds`, `verify_repair_rounds_ceiling`, `gate_returns`, `gate_return_extensions`, `plan_defect_limit`, `max_requests` and `max_tool_calls` of `roadmap.stage` are each two times their `DEFAULT_` constant
 
 ### Requirement: The ConfigMap template holds the doubled implement limits
-The ConfigMap template `k8s/devops/configmap.example.yaml` SHALL set each attempt limit of `roadmap.implement` to two times its code default, and the item time to the ceiling of the Job deadline.
+The ConfigMap template `k8s/devops/configmap.example.yaml` SHALL set each attempt limit of `roadmap.implement` to two times its code default, the two token budgets to four times, and the item time to the ceiling of the Job deadline.
 
 #### Scenario: The implement limits are read
 - **WHEN** the template is validated as settings
-- **THEN** `repair_rounds`, `step_token_budget`, `item_token_budget`, `command_timeout_seconds`, `request_timeout_seconds`, `monitor_timeout_seconds`, `step_time_limit_seconds`, `deadline_stall_seconds`, `deadline_extension_seconds`, `digest_clears_per_class`, `digest_clears_per_item`, `continuations_per_item`, `max_requests`, `max_tool_calls`, `tool_retries`, `max_refusals`, `max_consecutive_refusals` and `model_resends` of `roadmap.implement` are each two times their `DEFAULT_` constant
+- **THEN** `repair_rounds`, `command_timeout_seconds`, `request_timeout_seconds`, `monitor_timeout_seconds`, `step_time_limit_seconds`, `deadline_stall_seconds`, `deadline_extension_seconds`, `digest_clears_per_class`, `digest_clears_per_item`, `continuations_per_item`, `max_requests`, `max_tool_calls`, `tool_retries`, `max_refusals`, `max_consecutive_refusals` and `model_resends` of `roadmap.implement` are each two times their `DEFAULT_` constant
 
 #### Scenario: The item time of implement is read
 - **WHEN** the template is validated as settings
 - **THEN** `roadmap.implement.item_time_limit_seconds` equals `DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_CEILING_SECONDS`
+
+#### Scenario: The token budgets of implement are read
+- **WHEN** the template is validated as settings
+- **THEN** `step_token_budget` and `item_token_budget` of `roadmap.implement` are each four times their `DEFAULT_` constant
 
 ### Requirement: The ConfigMap template holds the doubled fix-plan limits
 The ConfigMap template `k8s/devops/configmap.example.yaml` SHALL set `time_budget_seconds`, `head_attempts` and `revisions` of `roadmap.fix_plan` to two times their code defaults.

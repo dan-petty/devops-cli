@@ -248,8 +248,10 @@ data:
         # time is not twice its default of 12600 s: it stops at the 14400 s ceiling of the
         # deadline of the Job.
         repair_rounds: 6
-        step_token_budget: 16000000
-        item_token_budget: 40000000
+        # The two token budgets are four times the code defaults: the owner rule of 2026-11-16
+        # gives every job generous token limits while the jobs are not yet reliable (#5970).
+        step_token_budget: 32000000
+        item_token_budget: 80000000
         command_timeout_seconds: 3600
         request_timeout_seconds: 2400
         monitor_timeout_seconds: 7200
