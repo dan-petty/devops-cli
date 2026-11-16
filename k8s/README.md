@@ -572,7 +572,7 @@ Kubernetes mounts a token of the pod's ServiceAccount into each pod. A process i
 
 A pod that keeps a token with no binding is in `_TOKEN_EXCEPTIONS` of the test, with its reason:
 
-- Qdrant: chart 1.20.0 has no value for the field. qdrant/qdrant-helm#506 asks for the value. When a chart release adds it, set the value and remove the exception in one pull request.
+- Qdrant: chart 1.20.2 has no value for the field. qdrant/qdrant-helm#506 asks for the value. When a chart release adds it, set the value and remove the exception in one pull request.
 
 `kubectl get pods -A -o json` shows a `kube-api-access-*` volume only on the pods that keep a token.
 

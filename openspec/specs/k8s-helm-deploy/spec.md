@@ -97,7 +97,7 @@ The dry run of `devops k8s deploy-stack` SHALL list, in `details.helm_commands` 
 
 #### Scenario: The logging stack dry run lists the loki upgrade with chart and version
 - **WHEN** `devops k8s deploy-stack --stack logging --context ctx-example --dry-run` runs
-- **THEN** the last entry of `details.helm_commands` is `["helm", "upgrade", "--install", "--take-ownership", "loki", "grafana-community/loki", "--version", "21.2.1", "--namespace", "logging", "--values", "k8s/logging/loki-values.yaml", "--kube-context", "ctx-example", "--wait", "--timeout", "10m"]`
+- **THEN** the last entry of `details.helm_commands` is `["helm", "upgrade", "--install", "--take-ownership", "loki", "grafana-community/loki", "--version", "21.2.3", "--namespace", "logging", "--values", "k8s/logging/loki-values.yaml", "--kube-context", "ctx-example", "--wait", "--timeout", "10m"]`
 
 #### Scenario: A dry run with no wait lists no wait flag
 - **WHEN** `devops k8s deploy-stack --stack logging --context ctx-example --no-wait --dry-run` runs
