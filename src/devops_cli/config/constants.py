@@ -1790,6 +1790,10 @@ CONST_SERVICE_METRIC_KEPT_WORK: Final[str] = "devops_cli_service_kept_work_total
 # `existed` (a create that got 409) with the class `none`, and the end of a Job that the row
 # recovered, `evicted`, `deadline`, `failed` or `succeeded`, with the failure class or `none`.
 CONST_SERVICE_METRIC_STAGE_JOBS: Final[str] = "devops_cli_service_stage_jobs_total"
+# Counts the fix-checks Jobs of the watch row, by `repo` and `result` (#5027): `created`, `queued`
+# (created suspended), `existed` (a create that got 409) and `resumed`, and the outcome of an
+# ended Job, the result of its result line or `none` for a Job that left none.
+CONST_SERVICE_METRIC_FIX_CHECKS_JOBS: Final[str] = "devops_cli_service_fix_checks_jobs_total"
 # Counts the repair rounds of reported steps in implement, by `repo` and `item_class` (#3069).
 CONST_SERVICE_METRIC_IMPLEMENT_REPAIR_ROUNDS: Final[str] = (
     "devops_cli_service_implement_repair_rounds_total"
@@ -3694,6 +3698,15 @@ CONST_ROADMAP_IMPLEMENT_JOB_STEP: Final[str] = "job"
 # (epoch seconds) of the last progress that the Service saw, and the seconds of silence when it
 # ended a stall. A Job without the second annotation is not a Job of the Service.
 CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS: Final[int] = 14400
+# The deadline of a fix-checks Job is the time limit of its model step plus this margin (#5027):
+# the start of its pod (up to 108 s), the clone, tier 1, the push and the request that runs at the
+# limit of the step. ADR 0021, section 8, asks at least 300 s.
+CONST_ROADMAP_FIX_CHECKS_JOB_MARGIN_SECONDS: Final[int] = 1800
+CONST_ROADMAP_FIX_CHECKS_JOB_MIN_MARGIN_SECONDS: Final[int] = 300
+# The wait before the next attempt of a fix unit whose Job left no result line doubles from the
+# first value at each attempt, up to the second (#5027).
+CONST_ROADMAP_FIX_CHECKS_RETRY_SECONDS: Final[int] = 1800
+CONST_ROADMAP_FIX_CHECKS_RETRY_CAP_SECONDS: Final[int] = 7200
 CONST_ROADMAP_IMPLEMENT_DEADLINE_LOG_LINES: Final[int] = 20
 CONST_ROADMAP_IMPLEMENT_ANNOTATION_PROGRESS: Final[str] = "roadmap.devops-cli/progress"
 CONST_ROADMAP_IMPLEMENT_ANNOTATION_PROGRESS_AT: Final[str] = "roadmap.devops-cli/progress-at"

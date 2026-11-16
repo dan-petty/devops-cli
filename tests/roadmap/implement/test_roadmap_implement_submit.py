@@ -379,6 +379,44 @@ def test_a_running_job_of_another_repository_does_not_block_this_one(
     assert len(_creates(kube)) == 1
 
 
+def _fix_job(*, suspend: bool) -> dict[str, Any]:
+    """A fix-checks Job of the watch row in the cluster, waiting suspended or running (#5027)."""
+    return {
+        "metadata": {
+            "name": "devops-cli-fix-checks-project-9-0123456789",
+            "namespace": "devops",
+            "labels": {
+                "app.kubernetes.io/managed-by": "devops-cli",
+                "app.kubernetes.io/component": "roadmap-fix-checks",
+            },
+        },
+        "spec": {"suspend": suspend},
+    }
+
+
+def test_a_waiting_fix_job_goes_before_a_new_implement_job(
+    store: InMemoryRoadmapStore,
+    staged_repo: StageRepo,
+    api: GitHubApiFake,
+    kube: FakeCluster,
+    config: Callable[..., Path],
+) -> None:
+    """With one place for a model Job, a fix-checks Job that waits suspended holds it: the round
+    creates no implement Job and waits. Once the fix Job runs and a place is free, it holds no
+    implement lock: it has its own component and no label `implement-repo` (#5027)."""
+    config(roadmap={"model_jobs": 1})
+    kube.custom_objects.objects[JOBS] = [_fix_job(suspend=True)]
+    seed_staged(store)
+
+    waited = run_implement_round(store, repo=STAGE_REPO, source=staged_repo.clone)
+    held = (_creates(kube), waited.waiting, _record(store).get("implement.job"))
+    config(roadmap={"model_jobs": 2})
+    kube.custom_objects.objects[JOBS] = [_fix_job(suspend=False)]
+    _round(store, staged_repo)
+
+    assert (held, len(_creates(kube))) == (([], True, None), 1)
+
+
 def test_a_running_job_of_this_repository_that_no_item_records_blocks_a_new_one(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
 ) -> None:

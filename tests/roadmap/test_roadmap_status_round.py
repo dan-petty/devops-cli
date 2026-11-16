@@ -27,7 +27,7 @@ from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_implement import PASS, PULL, merge_plan, seed_staged
 from tests.support.roadmap_stage import STAGE_REPO, StageRepo
 
-pytestmark = pytest.mark.usefixtures("keyring_store", "app_slug")
+pytestmark = pytest.mark.usefixtures("keyring_store", "app_slug", "cluster")
 
 IMPLEMENT_ROW = next(row for row in STATUS_LANE_ROWS if row.name == "implement")
 WATCH_ROW = next(row for row in STATUS_LANE_ROWS if row.name == "watch")

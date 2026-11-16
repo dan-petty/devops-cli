@@ -719,3 +719,34 @@ tests:
             exp_annotations:
               summary: "The row intake of example/app stays suspended after a ci_infra failure"
               description: "The roadmap Service did not run the row intake of example/app for 3 hours, because it failed its limit of rounds in a row (setting service.max_failed_rounds) with the failure class ci_infra. The row runs one probe round when its retry time comes, or at once when its input changes. The gauge devops_cli_service_job_retry_after_seconds shows the seconds before the next probe round (docs/CLUSTER.md, Roadmap service)."
+
+  - name: A fix-checks Job with no result line fires; a Job with a result and a workstation do not
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_service_fix_checks_jobs_total{job="roadmap-service", repo="example/app", result="none"}'
+        values: '0x10 1x50'
+      - series: 'devops_cli_service_fix_checks_jobs_total{job="roadmap-service", repo="example/err", result="error"}'
+        values: '0x10 1x50'
+      - series: 'devops_cli_service_fix_checks_jobs_total{job="roadmap-service", repo="example/app", result="repaired"}'
+        values: '0x10 1x50'
+      - series: 'devops_cli_service_fix_checks_jobs_total{job="devops-cli", repo="example/other", result="none"}'
+        values: '0x10 1x50'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: RoadmapFixChecksJobWithoutResult
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: RoadmapFixChecksJobWithoutResult
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              repo: example/app
+            exp_annotations:
+              summary: "A fix-checks Job of example/app ended with no result line in the last hour"
+              description: "The pod of the Job wrote no result line. After an eviction, a drain, its deadline or a kill (result none) the watch row starts the next attempt within roadmap.implement.continuations_per_item; after an exit 1 (result error) it starts none. Read the Job with kubectl get jobs -n devops -l app.kubernetes.io/component=roadmap-fix-checks (docs/CLUSTER.md, Roadmap service)."
+          - exp_labels:
+              severity: warning
+              repo: example/err
+            exp_annotations:
+              summary: "A fix-checks Job of example/err ended with no result line in the last hour"
+              description: "The pod of the Job wrote no result line. After an eviction, a drain, its deadline or a kill (result none) the watch row starts the next attempt within roadmap.implement.continuations_per_item; after an exit 1 (result error) it starts none. Read the Job with kubectl get jobs -n devops -l app.kubernetes.io/component=roadmap-fix-checks (docs/CLUSTER.md, Roadmap service)."

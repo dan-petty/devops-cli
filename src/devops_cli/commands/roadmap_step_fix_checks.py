@@ -1,4 +1,10 @@
-"""`devops roadmap step fix-checks`: repair a failed check on a pull request (#5023)."""
+"""`devops roadmap step fix-checks`: repair a failed check on a pull request (#5023).
+
+The fix-checks Job of the watch row runs this command with `--head` and `--check` (#5027). While
+the step runs, the first SIGTERM, from an eviction, a drain or the deadline of the Job, ends the
+command with exit 75 (`EX_TEMPFAIL`) and no result line, so the Service starts the next attempt
+within its cap (`sigterm_raises`).
+"""
 
 from __future__ import annotations
 
@@ -10,7 +16,7 @@ import typer
 from devops_cli.core.repo import find_repo_root, get_repo_origin_name
 from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.exceptions import DevOpsCLIError
-from devops_cli.lang import HELP
+from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, write_stdout
 
 
@@ -32,6 +38,9 @@ def fix_checks_cmd(
     head: Annotated[
         str | None, typer.Option("--head", help=HELP.roadmap.step_fix_checks_head)
     ] = None,
+    check: Annotated[
+        str | None, typer.Option("--check", help=HELP.roadmap.step_fix_checks_check)
+    ] = None,
     source: Annotated[
         Path | None, typer.Option("--source", help=HELP.roadmap.step_fix_checks_source)
     ] = None,
@@ -50,22 +59,29 @@ def fix_checks_cmd(
     if dry_run or is_dry_run():
         return
 
+    from devops_cli.roadmap.attempt_kill import AttemptKill, AttemptKilled, sigterm_raises
     from devops_cli.roadmap.steps.fix_checks import Repair, run_fix_checks
     from devops_cli.roadmap.stores.store import get_roadmap_store
 
     target = _repository(repo)
     store = get_roadmap_store(target)
     try:
-        repair: Repair | None = None
-        if confirm:
-            from devops_cli.roadmap.implement.implement_run import require_runner
-            from devops_cli.roadmap.steps.fix_checks_repair import job_repair
+        with sigterm_raises():
+            repair: Repair | None = None
+            if confirm:
+                from devops_cli.roadmap.implement.implement_run import require_runner
+                from devops_cli.roadmap.steps.fix_checks_repair import job_repair
 
-            require_runner(target)
-            repair = job_repair(store, target, source=source)
-        report = run_fix_checks(store, target, pull, head=head, confirm=confirm, repair=repair)
+                require_runner(target)
+                repair = job_repair(store, target, source=source)
+            report = run_fix_checks(
+                store, target, pull, head=head, check=check, confirm=confirm, repair=repair
+            )
     except DevOpsCLIError as exc:
         print_error(f"Could not fix checks on PR #{pull}: {exc}", safe=True)
         raise typer.Exit(1) from exc
+    except AttemptKilled:
+        print_error(MESSAGES.roadmap.fix_checks_sigterm)
+        raise typer.Exit(AttemptKilled(AttemptKill.EVICTED).exit_status) from None
 
     write_stdout(report.to_json() + "\n")

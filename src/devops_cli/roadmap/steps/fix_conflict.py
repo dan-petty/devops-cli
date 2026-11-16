@@ -34,7 +34,6 @@ from devops_cli.config.constants import (
     CONST_GIT_CLI,
     CONST_GIT_MAIN_BRANCH,
     CONST_GIT_REMOTE_ORIGIN,
-    CONST_ROADMAP_OWNER_SERVICE,
 )
 from devops_cli.config.settings import RoadmapFixConflictConfig, load_settings
 from devops_cli.core.process import run_subprocess
@@ -43,7 +42,7 @@ from devops_cli.exceptions import GitOperationError
 from devops_cli.git.branch_form import parse_branch
 from devops_cli.github.client import PullStatus
 from devops_cli.github.session import get_github_session
-from devops_cli.roadmap.claim import claimed_by
+from devops_cli.roadmap.claim import claim_labels, claimed_by
 from devops_cli.roadmap.implement.implement_step import find_change
 from devops_cli.roadmap.stores.store import (
     FixConflictRecordKey,
@@ -220,15 +219,13 @@ def _check_admission_bounds(
     if not _is_bot_author(status.author):
         return f"PR author {status.author} is not a bot"
 
-    # Stop on owner/* label
-    for label in status.labels:
-        if label.startswith("owner/") and label != f"owner/{CONST_ROADMAP_OWNER_SERVICE}":
-            return f"PR holds owner label: {label}"
+    # Stop on an owner/* label but the Service's own claim (#5027)
+    for label in claim_labels(status.labels):
+        return f"PR holds owner label: {label}"
 
     if item is not None:
-        for label in item.labels:
-            if label.startswith("owner/") and label != f"owner/{CONST_ROADMAP_OWNER_SERVICE}":
-                return f"Item #{item.number} holds owner label: {label}"
+        for label in claim_labels(item.labels):
+            return f"Item #{item.number} holds owner label: {label}"
         owner = claimed_by(item)
         if owner is not None:
             return f"Item #{item.number} is claimed by {owner}"

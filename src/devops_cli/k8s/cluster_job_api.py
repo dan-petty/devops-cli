@@ -54,7 +54,8 @@ class ClusterJob:
     none), its annotations, the time it got the condition Complete or Failed (None until it
     ends, #4845), its labels, and the reason and the message of its condition Failed, such as
     `DeadlineExceeded`, `BackoffLimitExceeded` or `PodFailurePolicy` (empty until it fails,
-    #4559)."""
+    #4559). `suspended` is true while `spec.suspend` holds the Job: the controller starts no pod
+    (#5027)."""
 
     name: str
     state: JobState
@@ -65,6 +66,7 @@ class ClusterJob:
     labels: Mapping[str, str] = field(default_factory=dict[str, str])
     reason: str = ""
     message: str = ""
+    suspended: bool = False
 
 
 @dataclass(frozen=True)
@@ -118,6 +120,7 @@ def _listed(job: Mapping[str, Any]) -> ClusterJob:
         labels=dict(job["metadata"].get("labels") or {}),
         reason=str(failed.get("reason") or ""),
         message=str(failed.get("message") or ""),
+        suspended=bool((job.get("spec") or {}).get("suspend")),
     )
 
 
@@ -151,10 +154,12 @@ class ClusterJobs:
         repo: RepoRef | str | None = None,
         item: int | None = None,
         row: ServiceRow | str | None = None,
+        suspend: bool = False,
     ) -> str:
         """Create a Job from the template's CronJob and return its name: `name`, else a new one.
         `deadline` replaces the `activeDeadlineSeconds` of the template, `annotations` go on
         the Job, and `resources` replaces the named request and limit values of its container.
+        `suspend` creates it suspended (`build_job`).
         A caller that records the Job before it creates it chooses the name with `job_name`. A
         caller that records the digest of the image passes the `cronjob` that it read with
         `cronjob()`, so the record and the Job come from one read.
@@ -177,6 +182,7 @@ class ClusterJobs:
             repo=repo,
             item=item,
             row=row,
+            suspend=suspend,
         )
         try:
             self._service.custom_objects_api().create_namespaced_custom_object(
@@ -238,18 +244,25 @@ class ClusterJobs:
         *,
         deadline: int | None = None,
         annotations: Mapping[str, str] | None = None,
+        suspend: bool | None = None,
     ) -> None:
-        """Set `activeDeadlineSeconds` of Job `name` to `deadline` when given, and merge
-        `annotations` into its annotations. The API server accepts a new deadline on a running
-        Job, and the Job controller applies it at once.
+        """Set `activeDeadlineSeconds` of Job `name` to `deadline` when given, merge
+        `annotations` into its annotations, and set `spec.suspend` when `suspend` is given. The
+        API server accepts a new deadline on a running Job, and the Job controller applies it at
+        once. A Job that a patch resumes starts its pod, and its deadline counts from then.
 
         Raises ClusterJobError when the API refuses the patch.
         """
         body: dict[str, Any] = {}
         if annotations:
             body["metadata"] = {"annotations": dict(annotations)}
+        spec: dict[str, Any] = {}
         if deadline is not None:
-            body["spec"] = {"activeDeadlineSeconds": deadline}
+            spec["activeDeadlineSeconds"] = deadline
+        if suspend is not None:
+            spec["suspend"] = suspend
+        if spec:
+            body["spec"] = spec
         try:
             self._service.custom_objects_api().patch_namespaced_custom_object(
                 *_BATCH, JOB_NAMESPACE, "jobs", name, body

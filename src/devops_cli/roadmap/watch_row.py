@@ -1,13 +1,21 @@
 """The status-lane row `watch`: one row watches open plan and delivery pull requests,
 batches status queries via GraphQL with REST fallback during quota holds, maintains a
 ledger with 30-minute failed-head backoff, and routes lifecycle steps (ADR 0021, section 8; #5024).
+
+A live unit holds a pull request: a runner Job that no round reported (`job_holds`), or the
+check-out of a stage Job. The record keeps the name of a runner Job that ended, so that name alone
+holds nothing. After the ledger is written, the row runs the fix-checks units of the repository:
+it starts a fix Job for each bot pull request that `due_steps` routes to `fix_checks`, and reports
+the fix Jobs that ended (`fix_checks_row.py`, #5027). A delivery draft that a fix Job repaired and
+whose checks pass gets the ready path of the step `fix-checks` once for each head; the row leaves
+every other delivery draft to its implement Job.
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Final
@@ -37,6 +45,7 @@ from devops_cli.github.client import PullStatus
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.fix_checks_row import FixChecksRound, FixDue, run_fix_checks_round
 from devops_cli.roadmap.jev_completeness import (
     CompletenessOutcome,
     check_completeness,
@@ -44,19 +53,21 @@ from devops_cli.roadmap.jev_completeness import (
 )
 from devops_cli.roadmap.release_feed import closing_numbers
 from devops_cli.roadmap.stage.stage_criteria import acceptance_criteria
-from devops_cli.roadmap.status_sync import facts_of, sync_status
+from devops_cli.roadmap.status_sync import facts_of, job_holds, sync_status
 from devops_cli.roadmap.steps.comment import Target, post
+from devops_cli.roadmap.steps.fix_checks import FixChecksResult, run_fix_checks
 from devops_cli.roadmap.steps.ready import mark_ready
 from devops_cli.roadmap.steps.watch import (
     DueStep,
     PRVerdict,
     WatchState,
     due_steps,
+    fix_checks_check,
     verdict,
 )
 from devops_cli.roadmap.stores.store import (
+    FixChecksRecordKey,
     GitHubState,
-    ImplementRecordKey,
     Item,
     RoadmapStore,
     StageRecordKey,
@@ -126,6 +137,7 @@ class WatchLedgerEntry(BaseModel):
     next_read_at: str | None = None
     base: str = "main"
     commented_head: str | None = None
+    ready_head: str | None = None
 
 
 class WatchLedger(BaseModel):
@@ -163,6 +175,7 @@ class WatchRoundResult:
     commented_conflicts: tuple[int, ...] = ()
     failed_heads: tuple[int, ...] = ()
     requests_sent: int = 0
+    fix_checks: FixChecksRound = field(default_factory=FixChecksRound)
 
 
 def _parse_contexts(contexts_nodes: Sequence[Mapping[str, Any]]) -> list[PRCheckItem]:
@@ -282,6 +295,7 @@ class _WatchContext:
     marked_ready: list[int]
     commented_conflicts: list[int]
     failed_heads: list[int]
+    fix_due: list[FixDue] = field(default_factory=list[FixDue])
     total_conflicted: int = 0
     watched_count: int = 0
 
@@ -303,9 +317,7 @@ def _evaluate_pull(
 ) -> None:
     """Evaluate one roadmap pull request and apply lifecycle steps."""
     ctx.watched_count += 1
-    has_live_unit = bool(
-        item.job_record.get(ImplementRecordKey.JOB) or item.job_record.get(StageRecordKey.JOB)
-    )
+    has_live_unit = job_holds(item) or bool(item.job_record.get(StageRecordKey.JOB))
 
     entry = ctx.recorded_pulls.get(pr_number)
     if entry is not None and entry.verdict == PRVerdict.FAILED.value:
@@ -338,6 +350,8 @@ def _evaluate_pull(
 
     v = verdict(state)
     steps = due_steps(state)
+    if DueStep.FIX_CHECKS in steps and (check := fix_checks_check(state)) is not None:
+        ctx.fix_due.append(FixDue(pr_number, head_sha, check, item.number))
 
     if v is not None:
         if v.verdict is PRVerdict.FAILED:
@@ -352,6 +366,7 @@ def _evaluate_pull(
             next_read_at=next_read_iso,
             base=base_ref,
             commented_head=entry.commented_head if entry else None,
+            ready_head=entry.ready_head if entry else None,
         )
 
     _apply_due_steps(
@@ -359,11 +374,29 @@ def _evaluate_pull(
         pr_number=pr_number,
         item=item,
         is_plan=is_plan,
+        is_draft=is_draft,
         head_sha=head_sha,
         base_ref=base_ref,
         steps=steps,
         entry=entry,
     )
+
+
+def _ready_after_fix(ctx: _WatchContext, item: Item, pull: int, head: str) -> bool:
+    """Run the ready path of the step `fix-checks` on a delivery draft that a fix Job repaired and
+    whose checks pass, once for each head (#5027). The step marks the draft ready only when
+    `draft_readiness` answers ready, and only in mode `on`; in mode `plan` it logs the plan. A
+    delivery draft that no fix Job repaired is the implement Job's: the row leaves it."""
+    entry = ctx.recorded_pulls.get(pull)
+    mode = load_settings().roadmap.fix_checks.mode
+    repaired = item.job_record.get(FixChecksRecordKey.RESULT) == FixChecksResult.REPAIRED
+    if mode == "off" or not repaired or (entry is not None and entry.ready_head == head):
+        return False
+    if entry is not None:
+        entry.ready_head = head
+    report = run_fix_checks(ctx.store, ctx.repo, pull, head=head, confirm=mode == "on")
+    logger.info("The ready path of fix-checks on %s#%d: %s", ctx.repo, pull, report.to_json())
+    return report.result is FixChecksResult.READY
 
 
 def _apply_due_steps(
@@ -372,6 +405,7 @@ def _apply_due_steps(
     pr_number: int,
     item: Item,
     is_plan: bool,
+    is_draft: bool,
     head_sha: str,
     base_ref: str,
     steps: Sequence[DueStep],
@@ -390,8 +424,7 @@ def _apply_due_steps(
                 mark_ready(ctx.repo, pr_number, expected_head=head_sha)
                 ctx.store.set_marks(item, {StageRecordKey.READY: str(pr_number)})
                 ctx.marked_ready.append(pr_number)
-        else:
-            mark_ready(ctx.repo, pr_number, expected_head=head_sha)
+        elif is_draft and _ready_after_fix(ctx, item, pr_number, head_sha):
             ctx.marked_ready.append(pr_number)
 
     if DueStep.COMMENT_CONFLICT in steps:
@@ -623,10 +656,12 @@ def watch_round(
         WatchLedger(pulls=ctx.recorded_pulls).write(ledger_path)
 
     emit(ROADMAP_CONFLICTED_PULLS, ctx.total_conflicted, {"repo": repo})
+    fixes = run_fix_checks_round(repo, ctx.fix_due, now=current_time)
 
     return WatchRoundResult(
         watched=ctx.watched_count,
         marked_ready=tuple(ctx.marked_ready),
         commented_conflicts=tuple(ctx.commented_conflicts),
         failed_heads=tuple(ctx.failed_heads),
+        fix_checks=fixes,
     )

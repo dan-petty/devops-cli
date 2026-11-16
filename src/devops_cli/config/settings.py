@@ -118,6 +118,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
     DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
     DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS,
+    DEFAULT_ROADMAP_FIX_CHECKS_MODE,
     DEFAULT_ROADMAP_FIX_CHECKS_TOKEN_BUDGET,
     DEFAULT_ROADMAP_FIX_CONFLICT_HARD_CAP,
     DEFAULT_ROADMAP_FIX_CONFLICT_INTERVAL_MINUTES,
@@ -159,6 +160,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_INTAKE_JEV,
     DEFAULT_ROADMAP_MCP_TIMEOUT_SECONDS,
+    DEFAULT_ROADMAP_MODEL_JOBS,
     DEFAULT_ROADMAP_OPEN_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_OPEN_MODE,
     DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES,
@@ -1946,9 +1948,15 @@ class RoadmapFixConflictConfig(RowCadenceConfig):
 
 
 class RoadmapFixChecksConfig(BaseModel):
-    """What one run of the step `fix-checks` may spend (#5971)."""
+    """What one run of the step `fix-checks` may spend (#5971), and what the watch row does with a
+    bot pull request that fails a check (#5027)."""
 
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    mode: Annotated[RowMode, Variable()] = Field(
+        description="What the watch row of the Service does with a bot pull request whose required check fails with the class test, lint, types or plan check (#5027, ADR 0021 section 8). `off` starts no Job. `plan` starts one fix-checks Job from CronJob devops-cli-runner that runs `devops roadmap step fix-checks` without `--confirm`: the Job logs the action that it would take and writes nothing. `on` starts the Job with `--confirm`, so it repairs the check and pushes. A fix Job counts against `roadmap.model_jobs` and goes before a new implement or stage Job",
+        default=DEFAULT_ROADMAP_FIX_CHECKS_MODE,
+    )
 
     token_budget: Annotated[int, Variable()] = Field(
         description="The most new tokens that the model fix of one run of `devops roadmap step fix-checks` may use: the input tokens that the provider did not read from its cache, and the output tokens, summed over all its requests. Before each request the fix compares its count with this cap, and at the cap it stops with the class `limit_reached` and names this setting. The cap gets no extension",
@@ -2004,6 +2012,11 @@ class RoadmapConfig(BaseModel):
     fix_checks: RoadmapFixChecksConfig = Field(default_factory=RoadmapFixChecksConfig)
     open: RoadmapOpenConfig = Field(default_factory=RoadmapOpenConfig)
     refine: RoadmapRefineConfig = Field(default_factory=RoadmapRefineConfig)
+    model_jobs: Annotated[int, Variable()] = Field(
+        description="The most model Jobs that run at once in the cluster, for every repository together: the implement, stage and fix-checks Jobs (#5027, ADR 0021 section 5). A fix-checks Job that finds no free place is created suspended, and the implement and stage rows leave its place free, so a fix Job goes before a new implement or stage Job. `roadmap.stage.jobs` and the one implement Job of each repository still hold inside this limit",
+        default=DEFAULT_ROADMAP_MODEL_JOBS,
+        ge=1,
+    )
     mcp: RoadmapMcpConfig = Field(default_factory=RoadmapMcpConfig)
     stall: RoadmapStallConfig = Field(default_factory=RoadmapStallConfig)
     verdict_partial_score: Annotated[float, Variable()] = Field(

@@ -38,7 +38,9 @@ orphan gets its Job in the same round.
 
 **Submit.** The selection is the normal one (`read_stage_round`), with each item that a running
 stage Job works on left out, up to `roadmap.stage.jobs` less the stage Jobs that run in the
-cluster, for every repository: each one holds a model call slot of the one model tier. For each item that
+cluster, for every repository: each one holds a model call slot of the one model tier. The count
+also stays inside the places that the model Jobs of the cluster leave free, less one for each
+fix-checks Job that waits suspended, so a fix goes first (`job_launcher.model_slots`, #5027). For each item that
 it takes, the round writes the check-out with the claim `owner/service` first, then creates the Job
 from CronJob `roadmap-stage`, named `RepoRef.unit_name` of the item and the hash of its body. A
 create that gets 409 finds the Job of the same item and body: the check-out names it. A Job of
@@ -86,6 +88,7 @@ from devops_cli.k8s.cluster_job_api import ClusterJob, ClusterJobs, JobState
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.claim import service_claim, service_release
 from devops_cli.roadmap.failure import FailureClass, FailureEvidence, classify_failure
+from devops_cli.roadmap.job_launcher import model_slots
 from devops_cli.roadmap.job_result import LINE_PREFIX
 from devops_cli.roadmap.round_log import log_failed_item
 from devops_cli.roadmap.stage.stage import (
@@ -358,7 +361,8 @@ def run_stage_round(
         job for job in held.values() if job.state is JobState.RUNNING and job.name not in deleted
     ]
     elsewhere = sum(1 for job in listed if job.state is JobState.RUNNING and job.name not in held)
-    slots = max(load_settings().roadmap.stage.jobs - len(running) - elsewhere, 0)
+    stage_slots = max(load_settings().roadmap.stage.jobs - len(running) - elsewhere, 0)
+    slots = min(stage_slots, model_slots(api).for_new) if stage_slots else 0
     freed: Collection[int] = {found.number for found in recovered}
     read = read_stage_round(
         store,

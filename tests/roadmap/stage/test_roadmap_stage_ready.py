@@ -422,6 +422,7 @@ def test_the_row_follows_implement_on_the_status_lane_needs_no_clone_and_is_due_
     )
 
 
+@pytest.mark.usefixtures("cluster")
 def test_a_round_of_the_row_marks_the_green_draft_ready(
     store: InMemoryRoadmapStore, api: GitHubApiFake, ready: _Ready
 ) -> None:

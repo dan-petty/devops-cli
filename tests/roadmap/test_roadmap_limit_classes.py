@@ -341,6 +341,22 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "kept",
         "the time past the recorded deadline before the stage row deletes a stage Job that still runs; the Job controller and the check-in of the pod come first (#4559)",
     ),
+    "CONST_ROADMAP_FIX_CHECKS_JOB_MARGIN_SECONDS": (
+        "kept",
+        "the time between the step limit of a fix-checks Job and its deadline: the pod start, the clone, tier 1, the push and the request at the limit (#5027)",
+    ),
+    "CONST_ROADMAP_FIX_CHECKS_JOB_MIN_MARGIN_SECONDS": (
+        "guard",
+        "the least time between the step limit of a fix-checks Job and its deadline, by ADR 0021 section 8: the start of a pod takes up to 108 s (#5027)",
+    ),
+    "CONST_ROADMAP_FIX_CHECKS_RETRY_SECONDS": (
+        "other",
+        "a schedule: the first wait before the next attempt of a fix unit whose Job left no result line (#5027)",
+    ),
+    "CONST_ROADMAP_FIX_CHECKS_RETRY_CAP_SECONDS": (
+        "other",
+        "a schedule: the longest wait before the next attempt of a fix unit (#5027)",
+    ),
     "CONST_ROADMAP_STAGE_FREE_EVICTIONS": (
         "kept",
         "the evicted stage Jobs on one body that cost no failure wait; a later eviction counts toward the split of the item (#4559)",
@@ -776,6 +792,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     "DEFAULT_ROADMAP_STAGE_GITHUB_REQUESTS_PER_HOUR": (
         "setting",
         "new (#5483); the request budget of one stage Job, until the measure of the first live Job",
+    ),
+    "DEFAULT_ROADMAP_MODEL_JOBS": (
+        "setting",
+        "new (#5027); the model Jobs of every row together, the semaphore agent of ADR 0021 section 5",
     ),
     "DEFAULT_ROADMAP_STAGE_JOBS": (
         "setting",

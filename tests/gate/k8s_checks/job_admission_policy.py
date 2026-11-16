@@ -27,7 +27,9 @@ from devops_cli.k8s.cluster_job import (
     stage_job_labels,
     stage_job_name,
 )
+from devops_cli.roadmap.fix_checks_row import FixDue, fix_unit
 from devops_cli.roadmap.implement.implement_size import RUNNER_SIZES, WORKERS_VARIABLE, RunnerSize
+from devops_cli.roadmap.job_launcher import runner_job
 from tests.gate.k8s_render import applied_documents
 from tests.support.paths import REPO_ROOT
 
@@ -733,6 +735,57 @@ def check_the_delete_policy_covers_the_delete_of_jobs_in_namespace_devops_and_fa
         ["Deny", "Audit"],
         {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "devops"}}},
     )
+
+
+# ── The fix-checks Job (#5027) ────────────────────────────────────────────────
+
+FIX_DUE = FixDue(pull=7, head="a" * 40, check="Static Analysis", item=5)
+
+
+def _fix_job(*, confirm: bool = True, suspend: bool = False, attempt: int = 1) -> dict[str, Any]:
+    """The Job that the launcher seam makes from CronJob devops-cli-runner for a fix unit."""
+    unit = fix_unit(
+        STAGE_REPO.display,
+        FIX_DUE,
+        attempt=attempt,
+        confirm=confirm,
+        suspend=suspend,
+        now=STAGE_DEADLINE,
+    )
+    return runner_job(_object("CronJob", "devops-cli-runner"), unit, "16Gi")
+
+
+def check_the_fix_checks_job_of_the_launcher_passes_in_each_mode_and_suspended() -> None:
+    jobs = [
+        _fix_job(confirm=confirm, suspend=suspend, attempt=attempt)
+        for confirm in (True, False)
+        for suspend in (True, False)
+        for attempt in (1, 2)
+    ]
+
+    assert [_refusals(job) for job in jobs] == [[]] * len(jobs)
+
+
+def check_the_fix_checks_job_carries_its_component_and_no_implement_label() -> None:
+    job = _fix_job()
+    labels = job["metadata"]["labels"]
+
+    assert (
+        labels["app.kubernetes.io/component"],
+        job["spec"]["template"]["metadata"]["labels"]["app.kubernetes.io/component"],
+        "implement-repo" in labels,
+        _container(job).get("command"),
+    ) == ("roadmap-fix-checks", "roadmap-fix-checks", False, None)
+
+
+def check_a_fix_checks_job_over_the_deadline_cap_is_refused() -> None:
+    job = _fix_job()
+    job["spec"]["activeDeadlineSeconds"] = CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS + 1
+
+    refused = _refusals(job)
+
+    assert len(refused) == 1
+    assert "deadline" in refused[0]
 
 
 PLANNER_TEMPLATE = JobTemplate(cronjob="devops-cli-planner-run", container="runner")

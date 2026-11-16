@@ -211,9 +211,7 @@ from devops_cli.roadmap.status_sync import StatusFacts, write_status
 from devops_cli.roadmap.step_files import TaskGroup, parse_task_groups, section_text
 from devops_cli.roadmap.step_metrics import observe_implement
 from devops_cli.roadmap.steps.comment import Target, post
-from devops_cli.roadmap.steps.fix_checks import count_errors
 from devops_cli.roadmap.stores.store import (
-    FixChecksRecordKey,
     ImplementRecordKey,
     ImplementResult,
     Item,
@@ -1866,21 +1864,12 @@ class _ItemRun:
         """One repair round for the failed check `check` of the pull request, after `rounds` rounds:
         a fix step, the push (with the scoped checks), and a comment that shows the round. A check
         whose log names no path of the repair scope gets no fix step: the item stops with no model
-        request (#4028)."""
+        request (#4028). The rounds of this loop count in `implement.repair_rounds` only: the
+        fix-checks unit that the watch row starts after the Job keeps its own counts in
+        `fix_checks.*` (#5027)."""
         log = failed_log(self.repo, check)
-        head = self._head()
-        errors = count_errors(log)
         scope = self._repair_scope()
         if not scope.names(log):
-            self.store.set_marks(
-                self._fresh(),
-                {
-                    FixChecksRecordKey.KEY: f"{head}:{check.name}",
-                    FixChecksRecordKey.ROUNDS: str(rounds + 1),
-                    FixChecksRecordKey.ERRORS: str(errors),
-                    FixChecksRecordKey.RESULT: "stopped",
-                },
-            )
             reason = MESSAGES.roadmap.implement_stop_check_outside_scope.format(
                 check=check.name, scope=scope.listing()
             )
@@ -1895,15 +1884,6 @@ class _ItemRun:
         self._fix(check.name, log)
         self._push()
         self._comment(pull)
-        self.store.set_marks(
-            self._fresh(),
-            {
-                FixChecksRecordKey.KEY: f"{head}:{check.name}",
-                FixChecksRecordKey.ROUNDS: str(rounds + 1),
-                FixChecksRecordKey.ERRORS: str(errors),
-                FixChecksRecordKey.RESULT: "repaired",
-            },
-        )
         self.step = MESSAGES.roadmap.implement_step_names["checks"]
 
     def _repair_scope(self) -> RepairScope:

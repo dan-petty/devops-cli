@@ -397,6 +397,27 @@ def test_admission_expected_head_mismatch_and_labels() -> None:
     assert "owner" in err3
 
 
+def test_the_service_claim_label_does_not_stop_the_admission() -> None:
+    """The label of the Service's own claim is `owner/service`, in lower case like each label of
+    the family, and it claims nothing against the step (#5027)."""
+    store = InMemoryRoadmapStore(repo=REPO)
+    number = store.seed_issue(
+        title="feat: test", labels=("status/in-progress", "priority/p2-medium", "owner/service")
+    )
+    status = PullStatus.model_validate(
+        {
+            "state": "open",
+            "draft": False,
+            "head": {"ref": BRANCH, "sha": "111111"},
+            "base": {"ref": CONST_GIT_MAIN_BRANCH},
+            "user": {"login": BOT_USER},
+            "labels": ["owner/service"],
+        }
+    )
+
+    assert fix_conflict._check_admission_bounds(status, store.item(number)) is None
+
+
 def test_conflict_caps_helper() -> None:
     from devops_cli.config.settings import load_settings
 

@@ -238,6 +238,19 @@ def test_checked_sha_a_fix_after_a_failed_check_checks_the_new_head(job_world: J
     assert _item(job_world)[1].get(CHECKED) is None
 
 
+def test_a_repair_round_of_the_job_writes_no_count_of_the_fix_checks_unit(
+    job_world: JobWorld,
+) -> None:
+    """The repair loop of the implement Job counts its rounds in `implement.repair_rounds` only,
+    so the fix-checks unit that the watch row starts after the Job has its own caps (#5027)."""
+    job_world.pull.runs = [[FAIL], [PASS]]
+
+    applied = job_world.run(two_groups(*a_fix()))
+
+    assert applied.ready == (1,)
+    assert [key for key in _item(job_world)[1] if key.startswith("fix_checks.")] == []
+
+
 # ── published_sha ─────────────────────────────────────────────────────────────────────────
 
 

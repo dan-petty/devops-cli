@@ -4,9 +4,11 @@ A suspended CronJob in namespace `devops` keeps the pod spec in git: its securit
 keys of the `devops-cli` Secret, the config and the volumes. A Job made from it changes only the
 container's args, its name, its labels and some environment values, so it passes the namespace's
 `restricted` Pod Security and cannot drift from git. Three CronJobs are templates: `devops-cli`
-for any command, `devops-cli-runner` for the implement job (#2667), and `roadmap-stage` for the
-stage job of one item (#5483). The stage Job carries the labels of ADR 0022: the component
-`roadmap-stage`, the owner, the repository and the item.
+for any command, `devops-cli-runner` for the implement job (#2667) and the fix-checks unit
+(#5027), and `roadmap-stage` for the stage job of one item (#5483). The stage Job carries the
+labels of ADR 0022: the component `roadmap-stage`, the owner, the repository and the item. Only
+the implement Job of the runner template carries the label `implement-repo`, which the implement
+lock lists.
 """
 
 from __future__ import annotations
@@ -44,6 +46,11 @@ OWNER_LABEL = "roadmap.devops-cli/owner"
 REPO_LABEL = "roadmap.devops-cli/repo"
 ITEM_LABEL = "roadmap.devops-cli/item"
 REPOSITORY_ANNOTATION = "roadmap.devops-cli/repository"
+# The input key of a fix unit (`<pr>:<head>:<check>`), its attempt, and the outcome that the
+# Service read from the result line of an ended unit (#5027).
+UNIT_KEY_ANNOTATION = "roadmap.devops-cli/unit-key"
+ATTEMPT_ANNOTATION = "roadmap.devops-cli/attempt"
+OUTCOME_ANNOTATION = "roadmap.devops-cli/outcome"
 
 
 @dataclass(frozen=True)
@@ -65,6 +72,9 @@ PLANNER_NAME_LABEL_VALUE = "devops-cli-planner-run"
 # The component of the runner and stage Jobs and of their pods: `roadmap-<row>` (ADR 0022).
 RUNNER_COMPONENT = f"roadmap-{ServiceRow.IMPLEMENT}"
 STAGE_COMPONENT = f"roadmap-{ServiceRow.STAGE}"
+FIX_CHECKS_COMPONENT = f"roadmap-{ServiceRow.FIX_CHECKS}"
+# The components of the Jobs that run a model: they share the limit `roadmap.model_jobs` (#5027).
+MODEL_COMPONENTS = frozenset({RUNNER_COMPONENT, STAGE_COMPONENT, FIX_CHECKS_COMPONENT})
 
 
 class TemplateName(StrEnum):
@@ -229,15 +239,18 @@ def build_job(
     repo: RepoRef | str | None = None,
     item: int | None = None,
     row: ServiceRow | str | None = None,
+    suspend: bool = False,
 ) -> dict[str, Any]:
     """The Job the CronJob's template makes, with only args, name, labels, `env`, the deadline,
-    the annotations and the `resources` changed.
+    the annotations, the `resources` and the suspension changed.
 
     The labels go on the Job and on its pods, so `-l app.kubernetes.io/name=devops-cli-job`
     finds both. With `repo`, the owner, repo and repository annotations are set on the Job and its
-    pod, as are the component and stack labels. `deadline` replaces the `activeDeadlineSeconds` of
-    the template. `resources` maps `requests` and `limits` to the values that replace those of the
-    container, such as `{"requests": {"memory": "2Gi"}}`.
+    pod, as are the component and stack labels. The implement Job of the runner template also
+    gets the label `implement-repo`, and a Job of another row does not. `deadline` replaces the
+    `activeDeadlineSeconds` of the template. `resources` maps `requests` and `limits` to the
+    values that replace those of the container, such as `{"requests": {"memory": "2Gi"}}`.
+    `suspend` creates the Job suspended: the Job controller starts no pod until a patch resumes it.
     """
     job_template = cronjob["spec"]["jobTemplate"]
     spec = copy.deepcopy(job_template["spec"])
@@ -246,21 +259,21 @@ def build_job(
     extra_labels: dict[str, str] = {}
     extra_annotations: dict[str, str] = {}
 
+    determined_row = row or (
+        ServiceRow.IMPLEMENT.value
+        if template == RUNNER_TEMPLATE
+        else (ServiceRow.STAGE.value if template == STAGE_TEMPLATE else None)
+    )
     if repo is not None:
         repo_ref = repo if isinstance(repo, RepoRef) else RepoRef(repo)
         extra_labels[OWNER_LABEL] = repo_ref.owner_label
         extra_labels[REPO_LABEL] = repo_ref.repo_label
         if item is not None:
             extra_labels[ITEM_LABEL] = str(item)
-        if template == RUNNER_TEMPLATE:
+        if template == RUNNER_TEMPLATE and determined_row == ServiceRow.IMPLEMENT.value:
             extra_labels[CONST_ROADMAP_IMPLEMENT_JOB_LABEL] = repo_ref.id
         extra_annotations[REPOSITORY_ANNOTATION] = repo_ref.key
 
-    determined_row = row or (
-        ServiceRow.IMPLEMENT.value
-        if template == RUNNER_TEMPLATE
-        else (ServiceRow.STAGE.value if template == STAGE_TEMPLATE else None)
-    )
     if determined_row:
         extra_labels[COMPONENT_LABEL] = f"roadmap-{determined_row}"
         extra_labels[PART_OF_LABEL] = PART_OF_LABEL_VALUE
@@ -290,4 +303,6 @@ def build_job(
 
     if deadline is not None:
         spec["activeDeadlineSeconds"] = deadline
+    if suspend:
+        spec["suspend"] = True
     return {"apiVersion": "batch/v1", "kind": "Job", "metadata": metadata, "spec": spec}

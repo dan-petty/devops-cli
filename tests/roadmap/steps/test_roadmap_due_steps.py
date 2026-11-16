@@ -14,6 +14,7 @@ from devops_cli.roadmap.steps.watch import (
     WatchState,
     WatchVerdict,
     due_steps,
+    fix_checks_check,
     verdict,
 )
 
@@ -86,8 +87,10 @@ def test_due_steps_conflict(is_bot: bool, expected_steps: tuple[DueStep, ...]) -
 @pytest.mark.parametrize(
     ("is_bot", "check_name", "expected_steps"),
     [
-        (True, "Tests & Coverage", ()),
+        (True, "Tests & Coverage", (DueStep.FIX_CHECKS,)),
+        (True, "Static Analysis", (DueStep.FIX_CHECKS,)),
         (True, "ci-infra-check", (DueStep.COMMENT_CI_INFRA,)),
+        (True, "Semantic PR title", (DueStep.COMMENT_CI_INFRA,)),
         (False, "Tests & Coverage", ()),
         (False, "ci-infra-check", ()),
     ],
@@ -95,7 +98,9 @@ def test_due_steps_conflict(is_bot: bool, expected_steps: tuple[DueStep, ...]) -
 def test_due_steps_failed(
     is_bot: bool, check_name: str, expected_steps: tuple[DueStep, ...]
 ) -> None:
-    """FAILED verdict gives comment_ci_infra for bot PR with CI_INFRA failure, else no marks."""
+    """FAILED verdict gives comment_ci_infra for a bot PR with a CI_INFRA failure, fix_checks for
+    a bot PR whose check failed with the class test, lint, types or plan check (#5027), and
+    nothing for a person's PR."""
     state = WatchState(
         pull=103,
         head_sha="c" * 40,
@@ -214,3 +219,30 @@ def test_due_steps_skips_live_unit() -> None:
         has_live_unit=True,
     )
     assert due_steps(state) == ()
+
+
+def test_the_fix_unit_takes_the_failed_shard_and_no_cancelled_check() -> None:
+    """The check of the unit is the failed check whose log holds the cause: a shard of
+    `Tests & Coverage` before the join check, and never a cancelled check (#5027)."""
+    shard = "Tests & Coverage (shard 2)"
+    failed = WatchState(
+        pull=104,
+        head_sha="d" * 40,
+        checks=[
+            PRCheckItem(name="Tests & Coverage", bucket=CheckBucket.FAIL, state="failure"),
+            PRCheckItem(name=shard, bucket=CheckBucket.FAIL, state="failure"),
+        ],
+        is_bot=True,
+    )
+    cancelled = WatchState(
+        pull=105,
+        head_sha="e" * 40,
+        checks=[PRCheckItem(name="Tests & Coverage", bucket=CheckBucket.CANCEL, state="cancelled")],
+        is_bot=True,
+    )
+
+    assert (fix_checks_check(failed), fix_checks_check(cancelled), due_steps(cancelled)) == (
+        shard,
+        None,
+        (),
+    )

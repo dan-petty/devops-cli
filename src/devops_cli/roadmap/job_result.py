@@ -61,7 +61,8 @@ _NONE: Final = "none"
 class RoadmapJob(StrEnum):
     """A roadmap job that logs one result line for each attempt. `REFINE_JUDGE` is the review of
     the proposal of refine for an item that a bot opened (`refine_judge`). `FIX_PLAN` is the step
-    that repairs a plan pull request with open findings (#5061)."""
+    that repairs a plan pull request with open findings (#5061). `FIX_CHECKS` is the fix-checks Job
+    that the watch row starts, which the Service reports when it ends (#5027)."""
 
     STAGE = "stage"
     IMPLEMENT = "implement"
@@ -70,6 +71,7 @@ class RoadmapJob(StrEnum):
     ALTERNATIVES = "alternatives"
     INTAKE = "intake"
     FIX_PLAN = "fix_plan"
+    FIX_CHECKS = "fix_checks"
     RETITLE = "retitle"
 
 
@@ -79,7 +81,8 @@ class RoadmapJob(StrEnum):
 # candidate, and retitle shortens or keeps the title. A fix-plan attempt pushes a repair that its
 # review finds better than the review of the head in the same attempt (#5213): `regated`, `dismissed`,
 # `unchanged`, `stopped`, `failed` and `timeout` (#5363) repair no finding of that review, and
-# `unreadable` writes no line. Each value is a member of the result enum of its job.
+# `unreadable` writes no line. A fix-checks Job pushes a repair or marks its repaired draft ready
+# (#5027). Each value is a member of the result enum of its job.
 SUCCESS_RESULTS: Final[Mapping[RoadmapJob, frozenset[str]]] = MappingProxyType(
     {
         RoadmapJob.STAGE: frozenset({"staged"}),
@@ -91,6 +94,7 @@ SUCCESS_RESULTS: Final[Mapping[RoadmapJob, frozenset[str]]] = MappingProxyType(
         ),
         RoadmapJob.INTAKE: frozenset({"placed", "duplicate"}),
         RoadmapJob.FIX_PLAN: frozenset({"revised", "cleared"}),
+        RoadmapJob.FIX_CHECKS: frozenset({"repaired", "ready"}),
         RoadmapJob.RETITLE: frozenset({"retitled", "kept"}),
     }
 )
@@ -130,6 +134,7 @@ FIRST_PASS: Final[Mapping[RoadmapJob, tuple[CountLimit, ...]]] = MappingProxyTyp
         RoadmapJob.ALTERNATIVES: (CountLimit("returns", 0),),
         RoadmapJob.INTAKE: (CountLimit("fallbacks", 0),),
         RoadmapJob.RETITLE: (CountLimit("model_calls", 1),),
+        RoadmapJob.FIX_CHECKS: (CountLimit("attempt", 1),),
     }
 )
 
