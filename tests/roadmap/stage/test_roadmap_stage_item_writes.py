@@ -27,7 +27,7 @@ from devops_cli.exceptions import RoadmapStageError, ServiceStoppingError, ended
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.body_hash import body_hashes
 from devops_cli.roadmap.service_stop import begin_service_stop
-from devops_cli.roadmap.stores.store import CloseReason, ItemField, StageRecordKey
+from devops_cli.roadmap.stores.store import CloseReason, ItemField, RefineRecordKey, StageRecordKey
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import github_json
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -485,3 +485,43 @@ def test_plan_only_the_command_makes_no_write_for_a_removal_a_rejection_or_a_rea
         [item.status for item in map(roadmap_store.item, (2, 3)) if item],
     ) == ([], [], ["main"], ["Ready", "Ready"])
     assert "# Stage plan for example/roadmap" in result.output
+
+
+def test_a_false_premise_returns_the_item_to_new_with_no_branch_and_no_pr(
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+    openspec_fake: OpenSpecFake,
+) -> None:
+    """An item whose premise contradicts the staging commit returns to New through apply_return,
+    pushes no branch, opens no pull request, and sets refine.next_step to edit (#4131)."""
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    store.seed_file(
+        ".github/labels.yml",
+        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/openspec"\n  color: "0e8a16"\n',
+    )
+    stage_repo.track({"src/devops_cli/status.py": "class PullStatus:\n    labels: list[str]\n"})
+    number = store.seed_issue(
+        _title(1),
+        body="The issue says `PullStatus.labels` is absent.",
+        labels=("type/bug",),
+        fields={ItemField.STATUS: "Ready", ItemField.PRIORITY: "P1-High"},
+    )
+    openspec_fake.script_sequence(validate_args(_branch(1).removeprefix("fix/")), (0, VALID_REPORT))
+    no_findings(model_fake)
+    model_fake.answer(make_stage_proposal())
+
+    applied = _round(store, stage_repo)
+
+    returned = store.item(number)
+    assert returned is not None
+    assert (
+        applied.returned,
+        returned.status,
+        returned.job_record.get(RefineRecordKey.NEXT_STEP),
+        _pushed(stage_repo),
+        [r.method for r in github_api.sent if r.method == "POST"],
+    ) == ((number,), "New", "edit", ["main"], [])
+    comments = store.comments_on(number)
+    assert len(comments) == 1
+    assert "PullStatus" in comments[0].body

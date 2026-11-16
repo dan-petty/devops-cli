@@ -320,6 +320,7 @@ def apply_stage(
         *(b.target.item.number for b in plan.blocked),
         *(c.target.item.number for c in plan.ready),
         *(o.target.item.number for o in plan.over_budget),
+        *(p.target.item.number for p in plan.premise),
     }
     writer.begin(plan, selected)
     for blocked in plan.blocked:
@@ -328,6 +329,8 @@ def apply_stage(
         writer.settle(change.target, change)
     for stopped in plan.over_budget:
         writer.settle(stopped.target, stopped)
+    for premise in plan.premise:
+        writer.settle(premise.target, premise)
     return writer.applied()
 
 
