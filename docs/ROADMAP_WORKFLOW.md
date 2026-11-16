@@ -83,11 +83,11 @@ Claims are a second family of labels. An Item has at most one `owner/*` label.
 | No owner | A person claims the Item | `owner/human` | Person |
 | `owner/service` | A person claims the Item | `owner/human` | Person |
 | `owner/service` | The Job ends and a round reports it | No owner | Service job |
-| `owner/agent` or `owner/human` | A person or an agent runs `devops roadmap release` | No owner | Person or agentic coder |
+| `owner/agent` or `owner/human` | A person or an agent runs `devops roadmap release` | No owner. A release of `owner/agent` writes the Status that the Item's facts give, and a release of `owner/human` changes no Status | Person or agentic coder |
 | `owner/agent` or `owner/human` | Another actor claims the Item | Refused. The Service takes no claimed Item | Service job, agentic coder |
 | Any owner | The issue closes | No owner | Workflow `clear-status.yml` |
 
-A claim of an agent or a person ends a running Job at its next task group. The Job pushes nothing more and opens no pull request. The groups that its checkpoints pushed stay on the branch for the new owner (#3677). No job releases the claim of an agent or a person.
+A claim of an agent or a person ends a running Job at its next task group. The Job pushes nothing more and opens no pull request. The groups that its checkpoints pushed stay on the branch for the new owner (#3677). No job releases the claim of an agent or a person. The facts give Planned when the plan is merged, In Progress while a Job or an open pull request holds the Item, Ready otherwise, and no Status write for a Blocked Item, a closed issue or a Status that a person set.
 
 ## Labels and record keys
 
@@ -138,6 +138,7 @@ These are all the keys of the job record, by the job that writes them:
 | Alternatives | `alternatives.checked_at`, `alternatives.body_hash`, `alternatives.verdict`, `alternatives.tool`, `alternatives.tool_id`, `alternatives.adr_hash`, `alternatives.failed_at`, `alternatives.failed_error`, `alternatives.failed_reason` | When the check ran, the text it read, its verdict, the tool it found and the canonical id of the tool, and the hash of the ADRs that the model read; when the last check failed, the class of its error, and its reason code, until a check is written |
 | Retitle | `retitle.skipped` | A hash of the title, the body and the `stage.pr` mark that the retitle job read when it left an Item with a long title or an unlisted title type (a person's edit, no plan title, no usable reply of the model, or a type with no correction). The job writes it once, with one log line that names the reason, and does not select the Item again while the hash holds. A change to the title, the body or `stage.pr` selects the Item again; a comment does not |
 | Consolidate | `consolidate.declined` | The ids of the groups that a person declined for the Item as the anchor, joined by commas, written by `devops roadmap consolidate --decline <group-id> --confirm`. A group id follows its members, so a group whose members changed is a new group |
+| Claim | `claim.replaced_status` | The Status that the Item held before an agent claimed it, restored when the claim is released |
 | Scaffold | `scaffold.branch` | The branch that the scaffold step made, resumed or adopted for the Item (#5499). The step applies four resume rules: `resumed` when an App-only branch exists on origin; `held` when the branch holds a commit of a person or an agent; `adopted` when an App-only branch exists and the record does not name it; `created` when no branch exists (created with the git refs API and no commit) |
 | Stage | `stage.branch`, `stage.pr`, `stage.sha` | The staged branch, its draft pull request and its last commit |
 | Stage | `stage.groups`, `stage.needs_split`, `stage.file_cap` | The task groups with their size, the group over the budget, and the cap of that measure |

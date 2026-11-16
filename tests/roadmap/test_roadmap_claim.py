@@ -46,6 +46,10 @@ class World(Protocol):
 
     def seed(self, *labels: str) -> int: ...
 
+    def seed_pull(self, number: int, slug: str = "work") -> int: ...
+
+    def seed_closed(self, *labels: str) -> int: ...
+
     def person_adds(self, number: int, label: str) -> None: ...
 
     def labels(self, number: int) -> list[str]: ...
@@ -60,6 +64,12 @@ class MemoryWorld:
 
     def seed(self, *labels: str) -> int:
         return self._roadmap.seed_issue("work", labels=labels)
+
+    def seed_pull(self, number: int, slug: str = "work") -> int:
+        return self._roadmap.seed_pull("pr", head_ref=f"feat/{number}-{slug}")
+
+    def seed_closed(self, *labels: str) -> int:
+        return self._roadmap.seed_issue("done", state=GitHubState.CLOSED, labels=labels)
 
     def person_adds(self, number: int, label: str) -> None:
         self._roadmap.as_actor("alice").add_label(number, label)
@@ -81,6 +91,16 @@ class GitHubWorld:
     def seed(self, *labels: str) -> int:
         number = len(self.github.issues) + 1
         self.github.seed_issue(number, "work", labels=labels)
+        return number
+
+    def seed_pull(self, number: int, slug: str = "work") -> int:
+        pr_number = len(self.github.issues) + 1
+        self.github.seed_pull(pr_number, "pr", head_ref=f"feat/{number}-{slug}")
+        return pr_number
+
+    def seed_closed(self, *labels: str) -> int:
+        number = len(self.github.issues) + 1
+        self.github.seed_issue(number, "done", state="closed", labels=labels)
         return number
 
     def person_adds(self, number: int, label: str) -> None:
@@ -273,3 +293,106 @@ def test_an_agents_claim_keeps_a_stop_of_the_implement_job_blocked(world: World)
         ["status/blocked"],
         before,
     )
+
+
+def test_an_agent_claim_records_the_replaced_status(world: World) -> None:
+    from devops_cli.roadmap.stores.store import ClaimRecordKey
+
+    planned = world.seed(*ITEM, "status/planned")
+    none = world.seed(*ITEM)
+    assert set_claimed_status(world.store, planned) is True
+    assert set_claimed_status(world.store, none) is True
+    assert (
+        read(world, planned).job_record.get(ClaimRecordKey.REPLACED_STATUS),
+        status_labels(world, planned),
+    ) == ("Planned", ["status/in-progress"])
+    assert (
+        read(world, none).job_record.get(ClaimRecordKey.REPLACED_STATUS),
+        status_labels(world, none),
+    ) == (None, ["status/in-progress"])
+
+
+def test_a_release_restores_the_status_of_an_agent_claim(world: World) -> None:
+    from devops_cli.roadmap.implement.implement_outside import require_startable
+
+    # Case 1: Planned Item
+    planned = world.seed(*ITEM, "status/planned")
+    assert claim(world, planned, Claimant.AGENT) is True
+    assert set_claimed_status(world.store, planned) is True
+    assert (read(world, planned).owner, status_labels(world, planned)) == (
+        "Agent",
+        ["status/in-progress"],
+    )
+    assert claim(world, planned, None) is True
+    assert (read(world, planned).owner, status_labels(world, planned)) == (
+        None,
+        ["status/planned"],
+    )
+    require_startable(world.store, planned)
+
+    # Case 2: Ready Item
+    ready = world.seed(*ITEM, "status/ready")
+    assert claim(world, ready, Claimant.AGENT) is True
+    assert set_claimed_status(world.store, ready) is True
+    assert claim(world, ready, None) is True
+    assert (read(world, ready).owner, status_labels(world, ready)) == (
+        None,
+        ["status/ready"],
+    )
+
+    # Case 3: Open pull request
+    with_pull = world.seed(*ITEM, "status/planned")
+    world.seed_pull(with_pull)
+    assert claim(world, with_pull, Claimant.AGENT) is True
+    assert set_claimed_status(world.store, with_pull) is True
+    assert claim(world, with_pull, None) is True
+    assert (read(world, with_pull).owner, status_labels(world, with_pull)) == (
+        None,
+        ["status/in-progress"],
+    )
+
+    # Case 4: Running Job
+    with_job = world.seed(*ITEM, "status/planned")
+    assert claim(world, with_job, Claimant.AGENT) is True
+    assert set_claimed_status(world.store, with_job) is True
+    world.store.set_marks(read(world, with_job), {ImplementRecordKey.JOB: "runner-1"})
+    assert claim(world, with_job, None) is True
+    assert (read(world, with_job).owner, status_labels(world, with_job)) == (
+        None,
+        ["status/in-progress"],
+    )
+
+    # Case 5: Blocked Item
+    blocked = world.seed(*ITEM)
+    world.store.set_field(
+        read(world, blocked),
+        ItemField.STATUS,
+        "Blocked",
+        marks={ImplementRecordKey.STOPPED: "group 1"},
+    )
+    assert claim(world, blocked, Claimant.AGENT) is True
+    assert claim(world, blocked, None) is True
+    assert (read(world, blocked).owner, status_labels(world, blocked)) == (
+        None,
+        ["status/blocked"],
+    )
+
+    # Case 6: Status that a person set
+    person = world.seed(*ITEM)
+    world.person_adds(person, "status/in-progress")
+    assert claim(world, person, Claimant.AGENT) is True
+    assert claim(world, person, None) is True
+    assert (read(world, person).owner, status_labels(world, person)) == (
+        None,
+        ["status/in-progress"],
+    )
+
+    # Case 7: Closed issue
+    closed = world.seed_closed(*ITEM, "owner/agent", "status/planned")
+    before_writes = world.writes()
+    assert claim(world, closed, None) is True
+    assert (read(world, closed).owner, status_labels(world, closed)) == (
+        None,
+        ["status/planned"],
+    )
+    assert world.writes() == before_writes + 1

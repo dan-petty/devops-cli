@@ -481,6 +481,13 @@ class FixConflictRecordKey(StrEnum):
     RESULT = "fix_conflict.result"
 
 
+class ClaimRecordKey(StrEnum):
+    """What the claim of an Item records in its job record (#5118): the Status that the claim
+    replaced, restored when an agent claim is released."""
+
+    REPLACED_STATUS = "claim.replaced_status"
+
+
 JobRecord = dict[
     ItemField
     | RefineRecordKey
@@ -494,7 +501,8 @@ JobRecord = dict[
     | ConsolidateRecordKey
     | OwnerQuestionRecordKey
     | ScaffoldRecordKey
-    | FixConflictRecordKey,
+    | FixConflictRecordKey
+    | ClaimRecordKey,
     str | None,
 ]
 
@@ -799,6 +807,7 @@ _JOB_RECORD_KEYS = frozenset(
         *OwnerQuestionRecordKey,
         *ScaffoldRecordKey,
         *FixConflictRecordKey,
+        *ClaimRecordKey,
     )
 )
 
@@ -1320,6 +1329,7 @@ __all__ = [
     "Candidate",
     "Change",
     "ChangeKind",
+    "ClaimRecordKey",
     "CloseReason",
     "Closure",
     "ConsolidateRecordKey",

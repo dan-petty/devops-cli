@@ -84,5 +84,10 @@ def set_claimed_status(store: roadmap_store.RoadmapStore, number: int) -> bool:
     item = store.item(number)
     if item is None or item.status not in _REPLACES[CONST_ROADMAP_STATUS_IN_PROGRESS]:
         return False
-    write_status(store, item, StatusFacts(agent_claimed=True))
+    marks = (
+        {roadmap_store.ClaimRecordKey.REPLACED_STATUS: item.status}
+        if item.status is not None
+        else None
+    )
+    write_status(store, item, StatusFacts(agent_claimed=True), marks=marks)
     return True
