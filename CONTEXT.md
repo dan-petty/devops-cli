@@ -83,7 +83,7 @@ _Avoid_: cut PR, release branch
 ## Roadmap jobs
 
 **Candidate**:
-Something that surfaced (from a person, a review of merged code, an agent or discovery) and may become an item. An open issue with no `priority/*` label is a candidate: intake has not yet placed it on the roadmap, or a person took its priority off.
+Something that surfaced (from a person, a review of merged code, an agent or discovery) and may become an item. An open issue with no `priority/*` label is a candidate: intake has not yet placed it on the roadmap, or a person took its priority off. An issue that a bot of `roadmap.skip_authors` opened, such as the Dependency Dashboard of Renovate, is no candidate and no item.
 _Avoid_: proposal, suggestion
 
 **Intake**:

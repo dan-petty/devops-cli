@@ -9,6 +9,8 @@ A candidate is one of two things:
 - An open issue that has no `priority/*` label. Intake takes every such issue, or only the issues named with `--issue`.
 - A new issue that does not exist yet. A caller files it with `--title` and `--body-file`. Intake labels the new issue `source/agent` when an agent files it, which is the default of `--filed-by`. A person who passes `--filed-by person` gets no such label.
 
+Intake takes no issue that a bot of `roadmap.skip_authors` opened, and does not compare a candidate with such an issue. The default is `dan-petty-renovate[bot]`, the bot of the Renovate App: its Dependency Dashboard is a tracking issue that Renovate writes again each run. No other roadmap job takes such an issue (#6038).
+
 A text that looks like it holds a secret is refused.
 
 A new candidate whose title has a Conventional Commit type and a summary of more than 60 characters is refused with `--title`. An emoji counts as two. The message names the length and the limit, and intake files no issue. The stage job and the implement job leave out an item with such a title, so the filer writes a shorter summary. `devops roadmap retitle` shortens the title of an open item that already has a long summary (see [the retitle job](#the-retitle-job)).
