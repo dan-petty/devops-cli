@@ -123,6 +123,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_BODY_MAX_TOKENS,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
     CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS,
+    CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS,
     CONST_ROADMAP_STAGE_REFUSED_PROBLEM_MAX_CHARS,
     CONST_ROADMAP_STATUS_READY,
 )
@@ -293,7 +294,12 @@ from devops_cli.roadmap.stage.stage_plan_record import (
     write_plan_record,
     write_refused_record,
 )
-from devops_cli.roadmap.stage.stage_probe import blocked_by, probe_premise
+from devops_cli.roadmap.stage.stage_probe import (
+    blocked_by,
+    check_claims,
+    claimed_missing_checks,
+    probe_premise,
+)
 from devops_cli.roadmap.stage.stage_references import reference_files
 from devops_cli.roadmap.stage.stage_registry import matches, registry_table
 from devops_cli.roadmap.stage.stage_rejected import (
@@ -995,14 +1001,21 @@ class Blocked:
     paths: tuple[str, ...]
 
 
+class PremiseKind(StrEnum):
+    ABSENT_FIELD = "absent_field"
+    MISSING_CHECK = "missing_check"
+
+
 @dataclass(frozen=True)
 class FalsePremise:
     """An item whose body says that a class field is absent while the staging commit defines it
-    (#3406). The job returns it to New with the probe `evidence` as its comment, records a body
-    edit as the next step, and plans no change for it."""
+    (#3406), or whose plan says a call site runs no check that the staging commit defines (#3416).
+    The job returns it to New with the probe `evidence` as its comment, records the next step, and
+    plans no change for it."""
 
     target: StageTarget
     evidence: tuple[str, ...]
+    kind: PremiseKind = PremiseKind.ABSENT_FIELD
 
 
 @dataclass(frozen=True)
@@ -1200,6 +1213,13 @@ def _stage_error(message: str, target: StageTarget) -> RoadmapStageError:
     return RoadmapStageError(message, failed_items=[target.item.number])
 
 
+def _check_secrets(target: StageTarget, files: Mapping[str, str]) -> None:
+    """Raise when a file holds redacted text (#3416)."""
+    for path, text in files.items():
+        if redact_text(text) != text:
+            raise _stage_error(MESSAGES.roadmap.stage_secret.format(path=path), target)
+
+
 def _check_removal_references(
     source: Path, target: StageTarget, files: Mapping[str, str]
 ) -> tuple[str, ...]:
@@ -1276,6 +1296,19 @@ class PlanFiles:
             toolset=self.toolset,
             prompt_version=prompt_version(self.toolset),
         )
+
+
+def _proposal_texts(proposal: StageProposal) -> list[str]:
+    """All texts of `proposal`: the plan texts and the text fields of each group."""
+    return [
+        *plan_texts(proposal),
+        *(
+            t
+            for g in proposal.groups
+            for t in (g.title, g.test, g.implementation, g.documentation, g.verify)
+            if t
+        ),
+    ]
 
 
 class _Planner:
@@ -1366,6 +1399,8 @@ class _Planner:
         # The false premise that the probe of the item in hand found, which the run returns
         # without a model call (#3406).
         self._premise: FalsePremise | None = None
+        # The commands that the probe of the item in hand has left (#3416).
+        self._left: int = CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS
         # The number of GraphQL requests that read the open pull requests of the item in hand.
         self._pull_requests = 0
         # The trace facts of the kept plan in hand, for the trace gate (#4281).
@@ -1477,6 +1512,7 @@ class _Planner:
         reply and no count."""
         self._split_asked = False
         self._premise = None
+        self._left = CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS
         self._findings = {}
         self._traces.clear()
         self._refused = []
@@ -1525,7 +1561,7 @@ class _Planner:
         if stop is not None:
             return PlanRevision(stop)
         head = self._gated(target, request, first=proposal)
-        if isinstance(head, OverBudget):
+        if isinstance(head, (OverBudget, FalsePremise)):
             return PlanRevision(head)
         self.gated = None if same_plan(head.proposal, proposal) else head
         self.step = StepName.REVIEW
@@ -1548,7 +1584,7 @@ class _Planner:
         self.step = StepName.PLAN
         problems = list(dict.fromkeys((*before, *findings)))
         revised = self._repaired(target, request, head, problems, None)
-        if isinstance(revised, OverBudget):
+        if isinstance(revised, (OverBudget, FalsePremise)):
             return PlanRevision(revised, before, gated=gated, reviewed=True)
         final = self._verified(
             target, request, revised, verifier, None, earlier=before, previous=head.proposal
@@ -1673,7 +1709,7 @@ class _Planner:
         *,
         first: StageProposal | None = None,
         key: str | None = None,
-    ) -> StagedChange | OverBudget:
+    ) -> StagedChange | OverBudget | FalsePremise:
         """The change that passes the checks, with the returns of a refused reply. `first` is a kept
         plan, gated again on the current commit. A kept plan that the checks refuse uses no return:
         no model request made it, and its citations can point at lines that moved. So the planner
@@ -1703,7 +1739,7 @@ class _Planner:
         floor: int,
         proposal: StageProposal,
         invalid: str,
-    ) -> StagedChange | OverBudget:
+    ) -> StagedChange | OverBudget | FalsePremise:
         """The change of `proposal`, a reply for the first ask or for a repair round. A reply that
         the checks refuse goes back to the model with the problem, up to
         `roadmap.stage.gate_returns` times, and once more when `_extension` grants an extra return
@@ -1774,10 +1810,10 @@ class _Planner:
         proposal: StageProposal,
         request: StageRequest,
         outcome: _Refused,
-    ) -> tuple[StageProposal, StagedChange | OverBudget | _Refused]:
+    ) -> tuple[StageProposal, StagedChange | OverBudget | FalsePremise | _Refused]:
         """Apply at most two rewrite passes for mechanical gate findings (#4853)."""
         current_proposal = proposal
-        current_outcome: StagedChange | OverBudget | _Refused = outcome
+        current_outcome: StagedChange | OverBudget | FalsePremise | _Refused = outcome
         for _ in range(2):
             if not isinstance(current_outcome, _Refused):
                 break
@@ -1907,7 +1943,10 @@ class _Planner:
         return self._findings.get(self._refused[-1][1], ()) if self._refused else ()
 
     def _note_gates(
-        self, target: StageTarget, returns: int, outcome: StagedChange | OverBudget | _Refused
+        self,
+        target: StageTarget,
+        returns: int,
+        outcome: StagedChange | OverBudget | FalsePremise | _Refused,
     ) -> None:
         """Observe the count of findings of one reply that the checks judged, under its number in
         the plan: 0 for the first reply, and 1 more for each return. A reply after a return also
@@ -1972,7 +2011,7 @@ class _Planner:
         *,
         earlier: Sequence[Finding] = (),
         previous: StageProposal | None = None,
-    ) -> StagedChange | OverBudget:
+    ) -> StagedChange | OverBudget | FalsePremise:
         """The change after the model review. An open finding sends the plan back to the planner
         with each open finding of the round (#5059). The revised plan passes the checks and the
         review again, for each round that `repair_round_due` allows (#3039, #5066), and a revision
@@ -2011,7 +2050,7 @@ class _Planner:
                     added=len(judged.added),
                 )
             revised = self._repaired(target, request, change, judged.open, key)
-            if isinstance(revised, OverBudget):
+            if isinstance(revised, (OverBudget, FalsePremise)):
                 return revised
             before, change = change, revised
             judged = self._review(
@@ -2035,7 +2074,7 @@ class _Planner:
         change: StagedChange,
         open_: Sequence[Finding],
         key: str | None,
-    ) -> StagedChange | OverBudget:
+    ) -> StagedChange | OverBudget | FalsePremise:
         """The plan of one repair round: the planner gets the plan and each open finding of the
         review. Its revision goes back with the problem when the checks refuse it, as a first reply
         does, and a revision that stays refused is kept and stops the item (#4348). The earlier plan
@@ -2178,6 +2217,7 @@ class _Planner:
             context = f"{context}\n\n{facts_context}"
         pulls, senders = self._read_overlaps(item.body)
         probe = probe_premise(self._source, self._sha, item.body)
+        self._left = probe.left
         self._premise = _false_premise(target, probe.false_premises)
         self._dependency = self._dependency_of(target, probe.missing)
         return StageRequest(
@@ -2287,6 +2327,22 @@ class _Planner:
             if redact_text(text) != text:
                 raise _stage_error(MESSAGES.roadmap.stage_secret.format(path=path), target)
 
+    def _claim_premise(self, target: StageTarget, texts: Iterable[str]) -> FalsePremise | None:
+        """The false premise of `target` for a check that `texts` claim is missing, or None when the
+        staging commit holds no such check or no command is left (#3416)."""
+        claims = claimed_missing_checks(texts)
+        if not claims:
+            return None
+        probe = check_claims(self._source, self._sha, claims, self._left)
+        self._left = probe.left
+        if not probe.false_premises:
+            return None
+        return FalsePremise(
+            target,
+            probe.false_premises,
+            kind=PremiseKind.MISSING_CHECK,
+        )
+
     def _settle(
         self,
         target: StageTarget,
@@ -2294,19 +2350,13 @@ class _Planner:
         request: StageRequest,
         *,
         trace: TraceFacts | None = None,
-    ) -> StagedChange | OverBudget | _Refused:
+    ) -> StagedChange | OverBudget | FalsePremise | _Refused:
         """The outcome for one reply: a change, a stop on the budget, or the problem that sends
         the reply back."""
         proposal, scoped_warnings = apply_scoped_tests(self._source, proposal)
-        texts = [
-            *plan_texts(proposal),
-            *(
-                t
-                for g in proposal.groups
-                for t in (g.title, g.test, g.implementation, g.documentation, g.verify)
-                if t
-            ),
-        ]
+        texts = _proposal_texts(proposal)
+        if claim := self._claim_premise(target, texts):
+            return claim
         referenced = referenced_classes(texts)
         models = model_fields(self._source, self._sha, referenced)
         # The source of each class that a design claim names, at the staged commit (#3407).
@@ -4009,15 +4059,18 @@ def _false_premise(target: StageTarget, evidence: tuple[str, ...]) -> FalsePremi
 
 
 def _return_premise(store: RoadmapStore, premise: FalsePremise, *, repo: str = "") -> None:
-    """Return the item to New with the probe evidence in a comment, and record a body edit as the
-    next step (#3406). The body says that a class field is absent, and the staging commit defines
-    it, so the body must change before refine plans the item again."""
+    """Return the item to New with the probe evidence in a comment, and record the next step (#3406,
+    #3416). The body says that a class field is absent, or the plan claims a check that the staging
+    commit defines."""
     texts = MESSAGES.roadmap
     item = premise.target.item
-    comment = (
-        f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\n\n"
-        f"{texts.stage_returned_premise.format(evidence=' '.join(premise.evidence))}"
-    )
+    if premise.kind == PremiseKind.MISSING_CHECK:
+        comment_text = texts.stage_returned_claim.format(evidence=" ".join(premise.evidence))
+        next_step = NextStep.RETRY.value
+    else:
+        comment_text = texts.stage_returned_premise.format(evidence=" ".join(premise.evidence))
+        next_step = NextStep.EDIT.value
+    comment = f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\n\n{comment_text}"
     target_repo = repo or getattr(store, "repo", getattr(store, "_repo", ""))
     apply_return(
         store,
@@ -4026,7 +4079,7 @@ def _return_premise(store: RoadmapStore, premise: FalsePremise, *, repo: str = "
             item.number,
             comment,
             target_repo,
-            marks={RefineRecordKey.NEXT_STEP: NextStep.EDIT.value},
+            marks={RefineRecordKey.NEXT_STEP: next_step},
         ),
     )
 
@@ -4500,9 +4553,11 @@ def render_stage_plan(plan: StagePlan) -> str:
         for b in plan.blocked
     ]
     returned += [
-        texts.stage_returned_premise_line.format(
-            number=p.target.item.number, title=p.target.item.title
-        )
+        (
+            texts.stage_returned_claim_line
+            if p.kind == PremiseKind.MISSING_CHECK
+            else texts.stage_returned_premise_line
+        ).format(number=p.target.item.number, title=p.target.item.title)
         for p in plan.premise
     ]
     lines += _section(texts.stage_heading_returned, returned)
@@ -4540,6 +4595,7 @@ __all__ = [
     "OverBudget",
     "PlanRevision",
     "PlannedQueue",
+    "PremiseKind",
     "Rejection",
     "Removal",
     "StageApplied",
