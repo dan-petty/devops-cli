@@ -59,6 +59,7 @@ from devops_cli.roadmap.planned import planned_count, planned_limit_priorities
 from devops_cli.roadmap.pull_labels import declared_specs
 from devops_cli.roadmap.refine.refine import NextStep
 from devops_cli.roadmap.status_sync import job_holds
+from devops_cli.roadmap.stop_state import StopState, stop_state_of
 from devops_cli.roadmap.stores.store import (
     GitHubState,
     ImplementRecordKey,
@@ -194,21 +195,17 @@ def _pull_lines(
 
 
 def _blocked_line(item: Item, repo: str, now: datetime) -> InboxLine:
-    """The line of a blocked item with its cause: the step that stopped it, else the items that
-    refine says it waits for, else the words that no cause is recorded."""
+    """The line of a blocked item with its cause: the state of the stop that stopped it, else the
+    items that refine says it waits for, else the words that no cause is recorded."""
     texts = MESSAGES.roadmap
-    subjects, clears = texts.inbox_subjects, texts.inbox_clears
-    stopped = item.job_record.get(ImplementRecordKey.STOPPED)
+    state = stop_state_of(item)
     blockers = item.job_record.get(RefineRecordKey.BLOCKED_BY)
-    if stopped:
-        subject = subjects["stopped"].format(title=item.title, step=stopped)
-        clear = clears["stopped"].format(
-            retry=CONST_ROADMAP_IMPLEMENT_RETRY_COMMENT, number=item.number
-        )
+    if state is not None:
+        subject, clear = _stop_texts(item, state)
     else:
         key = "blocked_by" if blockers else "no_cause"
-        subject = subjects[key].format(title=item.title, blockers=blockers)
-        clear = clears["blocked"].format(number=item.number, repo=repo)
+        subject = texts.inbox_subjects[key].format(title=item.title, blockers=blockers)
+        clear = texts.inbox_clears["blocked"].format(number=item.number, repo=repo)
     return InboxLine(
         InboxKind.BLOCKED,
         item.number,
@@ -217,6 +214,32 @@ def _blocked_line(item: Item, repo: str, now: datetime) -> InboxLine:
         clear,
         item=item.number,
     )
+
+
+def _stop_texts(item: Item, state: StopState) -> tuple[str, str]:
+    """The subject and the clear text of the line of a stopped item (#3648): the step, the class
+    of the failure, the attempts of that step when there is more than one, and the action left
+    beside the retry comment. A class or an action that the record does not hold says so."""
+    texts = MESSAGES.roadmap
+    if state.failure_class:
+        subject = texts.inbox_subjects["stopped"].format(
+            title=item.title, step=state.step, failure_class=state.failure_class
+        )
+        if state.attempts > 1:
+            subject += texts.inbox_stopped_attempts.format(attempts=state.attempts)
+    else:
+        subject = texts.inbox_subjects["stopped_no_class"].format(title=item.title, step=state.step)
+    if state.action_left:
+        clear = texts.inbox_clears["stopped"].format(
+            retry=CONST_ROADMAP_IMPLEMENT_RETRY_COMMENT,
+            number=item.number,
+            action=state.action_left,
+        )
+    else:
+        clear = texts.inbox_clears["stopped_no_action"].format(
+            retry=CONST_ROADMAP_IMPLEMENT_RETRY_COMMENT, number=item.number
+        )
+    return subject, clear
 
 
 def _blocked_lines(items: Iterable[Item], repo: str, now: datetime) -> list[InboxLine]:

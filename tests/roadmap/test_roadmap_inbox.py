@@ -13,6 +13,7 @@ import pytest
 from devops_cli.config.constants import CONST_ROADMAP_LABELS_PATH
 from devops_cli.exceptions.git import GitHubFileNotFoundError
 from devops_cli.roadmap.failure import FailureClass
+from devops_cli.roadmap.implement.implement_trace import ImplementTrace
 from devops_cli.roadmap.inbox import Inbox, InboxKind, InboxLine, read_inbox, render_inbox
 from devops_cli.roadmap.stores.store import (
     GitHubState,
@@ -225,6 +226,58 @@ def _url(number: int) -> str:
     return f"https://github.com/{REPO}/pull/{number}"
 
 
+def _attempts_trace(count: int, step: str = "group 2") -> str:
+    """The trace of a run that stopped in `step`, with `count` attempt events of that step."""
+    trace = ImplementTrace(step=step)
+    for number in range(1, count + 1):
+        failed = number < count
+        trace.attempt(
+            number,
+            "standard",
+            "check_failed" if failed else "",
+            "ruff check . exited 1" if failed else "",
+            repair=failed,
+        )
+    return trace.encode()
+
+
+def test_a_stopped_item_shows_its_class_its_attempts_and_the_action_left(
+    store: InMemoryRoadmapStore,
+) -> None:
+    number = _item(
+        store,
+        fields={ItemField.STATUS: "Blocked"},
+        marks={
+            ImplementRecordKey.STOPPED: "group 2",
+            ImplementRecordKey.FAILURE: "check_failed",
+            ImplementRecordKey.LEFT_ACTION: "wait",
+            ImplementRecordKey.TRACE: _attempts_trace(2),
+        },
+    )
+    (line,) = _lines(_read(store), InboxKind.BLOCKED)
+    assert (line.number, line.subject, line.clear) == (
+        number,
+        "work: stopped at group 2, with the class check_failed, after 2 attempts",
+        f"Fix the cause, then comment `implement: retry` on #{number}. The action left is `wait`.",
+    )
+
+
+def test_a_stopped_item_with_one_attempt_states_no_count(
+    store: InMemoryRoadmapStore,
+) -> None:
+    _item(
+        store,
+        fields={ItemField.STATUS: "Blocked"},
+        marks={
+            ImplementRecordKey.STOPPED: "group 2",
+            ImplementRecordKey.FAILURE: "check_failed",
+            ImplementRecordKey.TRACE: _attempts_trace(1),
+        },
+    )
+    (line,) = _lines(_read(store), InboxKind.BLOCKED)
+    assert line.subject == "work: stopped at group 2, with the class check_failed"
+
+
 def test_a_stopped_item_shows_its_step_and_is_cleared_by_the_retry_comment(
     store: InMemoryRoadmapStore,
 ) -> None:
@@ -232,10 +285,11 @@ def test_a_stopped_item_shows_its_step_and_is_cleared_by_the_retry_comment(
         store, fields={ItemField.STATUS: "Blocked"}, marks={ImplementRecordKey.STOPPED: "group 2"}
     )
     (line,) = _lines(_read(store), InboxKind.BLOCKED)
-    assert (line.number, "group 2" in line.subject, line.clear) == (
+    assert (line.number, line.subject, line.clear) == (
         number,
-        True,
-        f"Fix the cause, then comment `implement: retry` on #{number}.",
+        "work: stopped at group 2; the record holds no class",
+        f"Fix the cause, then comment `implement: retry` on #{number}. "
+        "The record holds no action left.",
     )
 
 

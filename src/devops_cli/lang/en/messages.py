@@ -5542,13 +5542,15 @@ class RoadmapMessages:
     inbox_counts: str = "Counts by class: {counts}."
     inbox_count: str = "{kind} {count}"
     inbox_old: str = "(over {days} days)"
+    inbox_stopped_attempts: str = ", after {attempts} attempts"
     inbox_no_number: str = "-"
     inbox_no_age: str = "-"
     inbox_subjects: dict[str, str] = field(
         default_factory=lambda: {
             "pull": "{title}",
             "draft": "{title} (draft)",
-            "stopped": "{title}: stopped at {step}",
+            "stopped": "{title}: stopped at {step}, with the class {failure_class}",
+            "stopped_no_class": "{title}: stopped at {step}; the record holds no class",
             "blocked_by": "{title}: waits for {blockers}",
             "no_cause": "{title}: no cause is recorded",
             "refine": "{title}: refine waits on a person",
@@ -5593,7 +5595,13 @@ class RoadmapMessages:
             "alternatives": (
                 "Answer in a comment on #{number}. Refine reads the answer in its next round."
             ),
-            "stopped": "Fix the cause, then comment `{retry}` on #{number}.",
+            "stopped": (
+                "Fix the cause, then comment `{retry}` on #{number}. The action left is `{action}`."
+            ),
+            "stopped_no_action": (
+                "Fix the cause, then comment `{retry}` on #{number}. "
+                "The record holds no action left."
+            ),
             "blocked": (
                 "Fix the cause, then set the status by hand: `devops gh issue edit {number} "
                 "--repo {repo} --add-label status/ready --remove-label status/blocked`."
