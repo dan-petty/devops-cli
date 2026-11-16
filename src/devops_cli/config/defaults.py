@@ -1149,6 +1149,9 @@ DEFAULT_ROADMAP_FIX_CONFLICT_TIER1_MODE: RowMode = "on"
 DEFAULT_ROADMAP_FIX_CONFLICT_TIER2_MODE: RowMode = "plan"
 DEFAULT_ROADMAP_FIX_CONFLICT_SOFT_CAP: int = 2
 DEFAULT_ROADMAP_FIX_CONFLICT_HARD_CAP: int = 4
+# The most new tokens of the model fix of one run of the step fix-checks (#5971), by the owner
+# direction of 2026-11-16 that gives each job a generous token limit.
+DEFAULT_ROADMAP_FIX_CHECKS_TOKEN_BUDGET: int = 16_000_000
 # The mode of a decision point in `roadmap.decisions` (ADR 0020).
 DecisionMode = Literal["off", "shadow", "on"]
 DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS: float = 1.0

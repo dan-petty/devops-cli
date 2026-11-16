@@ -22,6 +22,7 @@ JOB_TASKS = (
     "fix_plan",
     "fix_plan_review",
     "implement_split",
+    "fix_checks",
 )
 BASE_MODEL = "base-model"
 BASE_WINDOW = 32768
@@ -55,6 +56,20 @@ def test_the_model_of_one_job_task_reaches_that_task_alone(task: str) -> None:
     assert _models(ai) == {
         name: "trial-model" if name == task else BASE_MODEL for name in JOB_TASKS
     }
+
+
+def test_the_fix_checks_task_takes_the_model_of_ai_and_the_window_of_a_step() -> None:
+    """The model fix of `devops roadmap step fix-checks` runs a step of the implement job, so its
+    task has the window of the implement task until a source sets one (#5971)."""
+    ai = AIConfig(model=BASE_MODEL, context_window=BASE_WINDOW)
+
+    task = ai.for_task("fix_checks")
+
+    assert (task.model, task.context_window, task.task_name) == (
+        BASE_MODEL,
+        128000,
+        "fix_checks",
+    )
 
 
 def test_the_stage_task_takes_nothing_from_the_analysis_task() -> None:

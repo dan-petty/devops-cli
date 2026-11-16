@@ -118,6 +118,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
     DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
     DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS,
+    DEFAULT_ROADMAP_FIX_CHECKS_TOKEN_BUDGET,
     DEFAULT_ROADMAP_FIX_CONFLICT_HARD_CAP,
     DEFAULT_ROADMAP_FIX_CONFLICT_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_FIX_CONFLICT_SOFT_CAP,
@@ -733,6 +734,18 @@ class AIImplementTaskOverride(AITaskOverride):
     )
 
 
+class AIFixChecksTaskOverride(AITaskOverride):
+    """The task of the model fix of `devops roadmap step fix-checks` (#5971). The fix runs a step of
+    the implement job, so the task has the window of the implement task until a source sets
+    another. Its model is the model of `ai` until a source sets one."""
+
+    context_window: int | None = Field(
+        default=DEFAULT_AI_IMPLEMENT_CONTEXT_WINDOW,
+        gt=0,
+        description="Context window of this task in tokens, in place of `ai.context_window`",
+    )
+
+
 # The fields of a task that a variable sets, such as `DEVOPS_CLI_AI_TASK_CHAT_MODEL`.
 _TASK_VARIABLES: tuple[str, ...] = ("provider", "model", "reasoning_effort", "ollama_urls")
 
@@ -818,6 +831,12 @@ class AITasksConfig(BaseModel):
     implement_split: _JobTask = Field(
         default_factory=AITaskOverride,
         description="The task of the call that splits a task group of the implement job",
+    )
+    fix_checks: Annotated[
+        AIFixChecksTaskOverride, Variable(fields=(*_TASK_VARIABLES, *_TASK_WINDOW_VARIABLES))
+    ] = Field(
+        default_factory=AIFixChecksTaskOverride,
+        description="The task of the model fix of `devops roadmap step fix-checks`",
     )
 
 
@@ -1884,6 +1903,18 @@ class RoadmapFixConflictConfig(RowCadenceConfig):
     )
 
 
+class RoadmapFixChecksConfig(BaseModel):
+    """What one run of the step `fix-checks` may spend (#5971)."""
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    token_budget: Annotated[int, Variable()] = Field(
+        description="The most new tokens that the model fix of one run of `devops roadmap step fix-checks` may use: the input tokens that the provider did not read from its cache, and the output tokens, summed over all its requests. Before each request the fix compares its count with this cap, and at the cap it stops with the class `limit_reached` and names this setting. The cap gets no extension",
+        default=DEFAULT_ROADMAP_FIX_CHECKS_TOKEN_BUDGET,
+        ge=1,
+    )
+
+
 class RoadmapRefineConfig(RowCadenceConfig):
     """The cadence of the refine row of the Service (#5470)."""
 
@@ -1928,6 +1959,7 @@ class RoadmapConfig(BaseModel):
     intake: RoadmapIntakeConfig = Field(default_factory=RoadmapIntakeConfig)
     fix_plan: RoadmapFixPlanConfig = Field(default_factory=RoadmapFixPlanConfig)
     fix_conflict: RoadmapFixConflictConfig = Field(default_factory=RoadmapFixConflictConfig)
+    fix_checks: RoadmapFixChecksConfig = Field(default_factory=RoadmapFixChecksConfig)
     refine: RoadmapRefineConfig = Field(default_factory=RoadmapRefineConfig)
     mcp: RoadmapMcpConfig = Field(default_factory=RoadmapMcpConfig)
     stall: RoadmapStallConfig = Field(default_factory=RoadmapStallConfig)

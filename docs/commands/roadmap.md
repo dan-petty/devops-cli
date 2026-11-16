@@ -709,7 +709,8 @@ devops roadmap step fix-checks [OPTIONS]
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
 | `--pull`, `-p` | `integer` | - | Number of the pull request to repair. |
 | `--head` | `string` | - | Expected commit SHA of the pull request head. |
-| `--confirm` | `boolean` | - | Confirm and apply check repairs. |
+| `--source` | `path` | - | Clone of the repository that the repair works in (default: the clone model-clone of the data folder). |
+| `--confirm` | `boolean` | - | Repair and push in a runner Job. Without it, the step prints its plan and writes nothing. |
 | `--dry-run` | `boolean` | - | Make no network request and change nothing. |
 
 ### `devops roadmap step fix-conflict`

@@ -11,6 +11,13 @@ Enforces safety bounds:
 Two tiers of repair:
 - Tier 1 (deterministic, 0 model calls): ruff check --fix and format, devops docs generate, uv lock.
 - Tier 2 (model): run_fix_step within the plan scope.
+
+The step writes only with `confirm` (#5971). Without it, the step returns `planned` with the action
+that it would take, and writes nothing to GitHub, to the store or to the branch. With it, the
+caller gives a `Repair`: the checkout of the head of the pull request and the two fixers. The step
+opens the checkout only after the bounds, the checks and the caps, runs the fixers in it, and pushes
+once. The step does not wait for the checks after its push: a later call that finds the draft that
+it repaired with every check passing marks the draft ready when `draft_readiness` allows it.
 """
 
 from __future__ import annotations
@@ -19,23 +26,36 @@ import json
 import logging
 import re
 from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, NamedTuple, Protocol
 
 from devops_cli.config.constants import CONST_ROADMAP_OWNER_SERVICE
 from devops_cli.config.settings import load_settings
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.git.branch_form import parse_branch
-from devops_cli.github.check_verdict import CheckBucket, PRCheckItem, read_check_runs
+from devops_cli.github.check_verdict import (
+    CheckBucket,
+    CheckVerdictSummary,
+    PRCheckItem,
+    read_check_runs,
+)
 from devops_cli.github.client import PullStatus
 from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.failure import FailureClass, FailureEvidence, classify_failure
 from devops_cli.roadmap.implement.implement_fix_scope import repair_scope
-from devops_cli.roadmap.implement.implement_pull import DraftKind, failed_log, kind_of
+from devops_cli.roadmap.implement.implement_pull import (
+    Answer,
+    DraftKind,
+    failed_log,
+    kind_of,
+    read_draft,
+)
 from devops_cli.roadmap.implement.implement_step import find_change
 from devops_cli.roadmap.step_files import parse_task_groups
+from devops_cli.roadmap.steps.ready import draft_readiness, mark_ready
 from devops_cli.roadmap.stores.store import FixChecksRecordKey, Item, RoadmapStore
 
 logger = logging.getLogger(__name__)
@@ -51,6 +71,8 @@ class FixChecksResult(StrEnum):
     SKIPPED = "skipped"
     WAIT = "wait"
     FAILED = "failed"
+    PLANNED = "planned"
+    READY = "ready"
 
 
 @dataclass(frozen=True)
@@ -141,6 +163,74 @@ def check_scope(worktree: Path, item_num: int, log: str, is_stage_plan: bool) ->
         return scope.names(log)
     except RoadmapImplementError, OSError, ValueError:
         return False
+
+
+class Fixed(NamedTuple):
+    """What a fixer did in the checkout (#5971): `done` when it made a commit and its check passes
+    again, else why not. A tier 1 commit whose check still fails stays in the checkout, and the
+    push of a model fix sends it too."""
+
+    done: bool
+    reason: str = ""
+
+
+class PullCheckout(Protocol):
+    """A worktree on the head branch of a pull request, at the judged head (#5971)."""
+
+    @property
+    def path(self) -> Path: ...
+
+    def push(self) -> str | None:
+        """Push the commits of the fixers to the head branch with a lease on the judged head. The
+        new head, or None when no fixer made a commit."""
+        ...
+
+
+# A fixer gets the worktree, the item, the name of the failed check and its log.
+Fixer = Callable[[Path, int, str, str], Fixed]
+
+
+@dataclass(frozen=True)
+class Repair:
+    """What a confirmed round of the step uses (#5971): the checkout of the head of the pull
+    request, made from its status and its item; the deterministic fixers of tier 1; the model fix
+    of tier 2; and the check that the log names a path of the plan. A fixer commits in the checkout
+    and does not push: the step pushes once, after the fixer that is done."""
+
+    checkout: Callable[[PullStatus, int], AbstractContextManager[PullCheckout]]
+    tier1: Fixer
+    model: Fixer
+    scope: Callable[[Path, int, str, bool], bool] = check_scope
+
+
+@dataclass(frozen=True)
+class _Round:
+    """The facts of one round: the pull request, its item, the failed check and its log, and the
+    counts that the record holds."""
+
+    repo: str
+    pull: int
+    status: PullStatus
+    item_num: int
+    item: Item | None
+    heads: Sequence[str]
+    check: str = ""
+    log: str = ""
+    rounds: int = 0
+    errors: int = 0
+
+    def report(
+        self, result: FixChecksResult, reason: str, *, head: str = "", rounds: int | None = None
+    ) -> FixChecksReport:
+        return FixChecksReport(
+            repo=self.repo,
+            pull=self.pull,
+            result=result,
+            head=head or self.status.head_sha,
+            rounds=self.rounds if rounds is None else rounds,
+            errors=self.errors,
+            reason=reason,
+        )
 
 
 def _check_preconditions(
@@ -257,76 +347,80 @@ def _record_outcome(
     store.set_marks(item, marks)
 
 
-def _attempt_tier2(
+def _end(store: RoadmapStore, facts: _Round, result: FixChecksResult) -> None:
+    """Record a round that ended with no repair."""
+    _record_outcome(store, facts.item, facts.status.head_sha, facts.check, result, facts.heads)
+
+
+def _repair(store: RoadmapStore, facts: _Round, repair: Repair) -> FixChecksReport:
+    """Run tier 1, then the scope check and tier 2, in the checkout of the head, and push the
+    commit of the fixer that made one (#5971)."""
+    is_plan = kind_of(facts.item, facts.pull) == DraftKind.STAGE_PLAN
+    with repair.checkout(facts.status, facts.item_num) as checkout:
+        tier1 = repair.tier1(checkout.path, facts.item_num, facts.check, facts.log)
+        if tier1.done:
+            done = "Tier 1 resolved check with 0 model requests"
+        elif not repair.scope(checkout.path, facts.item_num, facts.log, is_plan):
+            _end(store, facts, FixChecksResult.STOPPED)
+            return facts.report(FixChecksResult.STOPPED, "Failed check log is outside plan scope")
+        else:
+            model = repair.model(checkout.path, facts.item_num, facts.check, facts.log)
+            if not model.done:
+                _end(store, facts, FixChecksResult.FAILED)
+                reason = "Model repair failed" + (f": {model.reason}" if model.reason else "")
+                return facts.report(FixChecksResult.FAILED, reason)
+            done = "Tier 2 model repaired check"
+        new_head = checkout.push()
+    if new_head is None:
+        _end(store, facts, FixChecksResult.FAILED)
+        return facts.report(FixChecksResult.FAILED, "The repair made no commit to push")
+    rounds = facts.rounds + 1
+    _record_outcome(
+        store,
+        facts.item,
+        facts.status.head_sha,
+        facts.check,
+        FixChecksResult.REPAIRED,
+        facts.heads,
+        rounds=rounds,
+        errors=facts.errors,
+    )
+    return facts.report(FixChecksResult.REPAIRED, done, head=new_head, rounds=rounds)
+
+
+def _ready_after_repair(
     store: RoadmapStore,
-    repo: str,
-    pull: int,
-    status: PullStatus,
-    failed_check: PRCheckItem,
-    log: str,
-    item_num: int,
-    item: Item | None,
-    current_rounds: int,
-    errors: int,
-    heads: Sequence[str],
-    source: Path | None,
-    scope_checker: Callable[[str, int], bool] | None,
-    model_fixer: Callable[..., Any] | None,
+    client: Any,
+    facts: _Round,
+    checks: CheckVerdictSummary,
+    *,
+    confirm: bool,
 ) -> FixChecksReport:
-    """Run scope checking and tier 2 model repair."""
-    is_plan = kind_of(item, pull) == DraftKind.STAGE_PLAN
-    worktree = source or Path.cwd()
-    scope_ok = (
-        scope_checker(log, item_num)
-        if scope_checker is not None
-        else check_scope(worktree, item_num, log, is_plan)
+    """A head with no failed check. A draft that this step repaired, whose checks all pass, is
+    marked ready when `draft_readiness` answers ready (#5971). Only an implement draft gets the
+    mark here: a plan draft keeps the holds of its own ready path. Any other pull request is left
+    to the watch row."""
+    item = facts.item
+    skipped = facts.report(FixChecksResult.SKIPPED, "No failed check on head")
+    if not (
+        facts.status.draft
+        and checks.is_passing
+        and item is not None
+        and item.job_record.get(FixChecksRecordKey.RESULT) == FixChecksResult.REPAIRED
+        and kind_of(item, facts.pull) is DraftKind.IMPLEMENT
+    ):
+        return skipped
+    draft = read_draft(
+        facts.repo, facts.pull, pull=facts.status, checks=checks, store=store, client=client
     )
-    if not scope_ok:
-        _record_outcome(
-            store, item, status.head_sha, failed_check.name, FixChecksResult.STOPPED, heads
-        )
-        return FixChecksReport(
-            repo=repo,
-            pull=pull,
-            result=FixChecksResult.STOPPED,
-            head=status.head_sha,
-            rounds=current_rounds,
-            errors=errors,
-            reason="Failed check log is outside plan scope",
-        )
-
-    if model_fixer is not None and model_fixer(store, repo, pull, failed_check.name, log, item_num):
-        new_rounds = current_rounds + 1
-        _record_outcome(
-            store,
-            item,
-            status.head_sha,
-            failed_check.name,
-            FixChecksResult.REPAIRED,
-            heads,
-            rounds=new_rounds,
-            errors=errors,
-        )
-        return FixChecksReport(
-            repo=repo,
-            pull=pull,
-            result=FixChecksResult.REPAIRED,
-            head=status.head_sha,
-            rounds=new_rounds,
-            errors=errors,
-            reason="Tier 2 model repaired check",
-        )
-
-    _record_outcome(store, item, status.head_sha, failed_check.name, FixChecksResult.FAILED, heads)
-    return FixChecksReport(
-        repo=repo,
-        pull=pull,
-        result=FixChecksResult.FAILED,
-        head=status.head_sha,
-        rounds=current_rounds,
-        errors=errors,
-        reason="Model repair failed",
-    )
+    readiness = draft_readiness(draft)
+    if readiness.answer is not Answer.READY:
+        return facts.report(FixChecksResult.SKIPPED, f"Draft is not ready: {readiness.reason}")
+    if not confirm:
+        return facts.report(FixChecksResult.PLANNED, "Plan: mark the repaired draft ready")
+    mark_ready(facts.repo, facts.pull, expected_head=facts.status.head_sha)
+    _end(store, facts, FixChecksResult.READY)
+    return facts.report(FixChecksResult.READY, "Marked the repaired draft ready for review")
 
 
 def run_fix_checks(
@@ -336,15 +430,11 @@ def run_fix_checks(
     *,
     head: str | None = None,
     confirm: bool = False,
-    session: Any = None,
-    tier1_fixer: Callable[..., bool] | None = None,
-    model_fixer: Callable[..., Any] | None = None,
-    scope_checker: Callable[[str, int], bool] | None = None,
-    source: Path | None = None,
+    repair: Repair | None = None,
 ) -> FixChecksReport:
-    """Run one repair round for failed checks on pull request `pull` (#5023)."""
-    gh_session = session or get_github_session()
-    client = gh_session.client
+    """Run one repair round for failed checks on pull request `pull` (#5023). Without `confirm`
+    the round plans and writes nothing; with it, a repair needs `repair` (#5971)."""
+    client = get_github_session().client
     status: PullStatus = client.get_pull_status(repo, pull)
 
     parsed = parse_branch(status.head_ref)
@@ -359,82 +449,47 @@ def run_fix_checks(
     if stopped := _check_preconditions(status, head, item, repo, pull, heads):
         return stopped
 
+    facts = _Round(repo, pull, status, item_num, item, heads)
     owner, name = repo.split("/", 1)
-    checks_summary = getattr(client, "checks", None) or read_check_runs(
-        owner, name, status.head_sha
-    )
+    checks_summary = read_check_runs(owner, name, status.head_sha)
     failed_checks = [c for c in checks_summary.items if c.bucket == CheckBucket.FAIL]
     if checks_summary.is_passing or not failed_checks:
-        return FixChecksReport(
-            repo=repo,
-            pull=pull,
-            result=FixChecksResult.SKIPPED,
-            head=status.head_sha,
-            reason="No failed check on head",
-        )
+        return _ready_after_repair(store, client, facts, checks_summary, confirm=confirm)
 
     failed_check: PRCheckItem = failed_checks[0]
-    log = getattr(client, "log", "") or failed_log(repo, failed_check)
+    log = failed_log(repo, failed_check)
     errors = count_errors(log)
     current_rounds = int((item.job_record.get(FixChecksRecordKey.ROUNDS) or 0) if item else 0)
 
     if cap_stopped := _check_caps(item, current_rounds, errors, status.head_sha, repo, pull):
         return cap_stopped
 
-    if classify_failure(FailureEvidence(check=failed_check.name, log=log)) == FailureClass.CI_INFRA:
+    facts = _Round(
+        repo, pull, status, item_num, item, heads, failed_check.name, log, current_rounds, errors
+    )
+    infra = (
+        classify_failure(FailureEvidence(check=failed_check.name, log=log)) == FailureClass.CI_INFRA
+    )
+    if not confirm:
+        action = (
+            f"comment that check `{failed_check.name}` failed on CI infrastructure, and wait"
+            if infra
+            else f"repair check `{failed_check.name}` with tier 1, then the model in the plan scope"
+        )
+        return facts.report(FixChecksResult.PLANNED, f"Plan: {action}")
+
+    if infra:
         comment = (
             f"CI infrastructure failure detected on check `{failed_check.name}`. "
             "Waiting for infrastructure resolution."
         )
         client.comment_on_pull(repo, pull, comment)
-        _record_outcome(
-            store, item, status.head_sha, failed_check.name, FixChecksResult.WAIT, heads
-        )
-        return FixChecksReport(
-            repo=repo,
-            pull=pull,
-            result=FixChecksResult.WAIT,
-            head=status.head_sha,
-            rounds=current_rounds,
-            errors=errors,
-            reason="CI infrastructure failure; waiting",
-        )
+        _end(store, facts, FixChecksResult.WAIT)
+        return facts.report(FixChecksResult.WAIT, "CI infrastructure failure; waiting")
 
-    if tier1_fixer is not None and tier1_fixer(repo, pull, failed_check.name, log):
-        new_rounds = current_rounds + 1
-        _record_outcome(
-            store,
-            item,
-            status.head_sha,
-            failed_check.name,
-            FixChecksResult.REPAIRED,
-            heads,
-            rounds=new_rounds,
-            errors=errors,
+    if repair is None:
+        raise RoadmapImplementError(
+            "The step fix-checks needs a repair to act: the checkout of the pull request and its "
+            "fixers."
         )
-        return FixChecksReport(
-            repo=repo,
-            pull=pull,
-            result=FixChecksResult.REPAIRED,
-            head=status.head_sha,
-            rounds=new_rounds,
-            errors=errors,
-            reason="Tier 1 resolved check with 0 model requests",
-        )
-
-    return _attempt_tier2(
-        store,
-        repo,
-        pull,
-        status,
-        failed_check,
-        log,
-        item_num,
-        item,
-        current_rounds,
-        errors,
-        heads,
-        source,
-        scope_checker,
-        model_fixer,
-    )
+    return _repair(store, facts, repair)

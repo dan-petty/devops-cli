@@ -61,6 +61,7 @@ __all__ = [
     "ItemSpend",
     "ProgressDigest",
     "StepBudget",
+    "TokenCap",
     "TokenCounts",
     "extends",
     "limit_hooks",
@@ -143,6 +144,16 @@ def _count(decision: _Decision) -> None:
 
 
 @dataclass(frozen=True)
+class TokenCap:
+    """A fixed cap of the new tokens of a step, for a caller with a budget of its own, such as the
+    model fix of the step `fix-checks` (#5971): `value`, and the `setting` that holds it, which the
+    stop names. It replaces `step_token_budget` and its extension."""
+
+    setting: str
+    value: int
+
+
+@dataclass(frozen=True)
 class ItemSpend:
     """What a run of an item spent before a step: the new tokens of its earlier steps, and the
     time at which the run began (`None`: when the first step began). `clock` gives the seconds; a
@@ -156,13 +167,15 @@ class ItemSpend:
 class StepBudget:
     """The count of one step against the limits of the step and of the item. `progress` gives the
     digest of the last tool calls of the step, which the rule of the extension reads when the step
-    reaches its token budget. `extension` holds the one extension that the step got, or None."""
+    reaches its token budget. `extension` holds the one extension that the step got, or None. A
+    `cap` replaces the token budget of the step and its extension."""
 
     def __init__(
         self,
         item: ItemSpend | None = None,
         *,
         progress: Callable[[], ProgressDigest | None],
+        cap: TokenCap | None = None,
     ) -> None:
         limits = load_settings().roadmap.implement
         spend = item or ItemSpend()
@@ -172,6 +185,7 @@ class StepBudget:
         self.used = 0
         self.extension: BudgetExtension | None = None
         self._progress = progress
+        self._cap = cap
         self._budget = limits.step_token_budget
         self._ceiling = limits.token_ceiling
         self._window = limits.extension_calls
@@ -216,6 +230,12 @@ class StepBudget:
             ),
             None,
         )
+        if self._cap is not None:
+            if other is not None or self.used < self._cap.value:
+                return other
+            return MESSAGES.roadmap.implement_stop_limit.format(
+                setting=self._cap.setting, value=self._cap.value
+            )
         if self.used < self._step_limit or (other is None and self._extended()):
             return other
         if self._stop is None and self.extension is not None:
