@@ -572,3 +572,23 @@ class RunnerSession:
                 f"GitHub's answer to GET {path} is no JSON", details={"path": path}
             ) from exc
         yield from listed_items(answer, path=path, page=1, iterable_key=iterable_key)
+
+    def rest(self, method: str, path: str, *, accept: str | None = None, body: Any = None) -> Any:
+        from devops_cli.exceptions.git import GitHubUnreadError
+        from devops_cli.github.error_classifier import classify_gh_failure
+
+        clean_path = path if path.startswith("http") else f"{API}/{path.lstrip('/')}"
+        reply = self._runner([clean_path], check=False, quiet=True, use_cache=False)
+        if reply.returncode != 0:
+            said = (reply.stderr or reply.stdout or "").strip()[:256]
+            raise classify_gh_failure(
+                reply.stderr or "", exit_code=reply.returncode
+            ) or GitHubUnreadError(
+                f"GitHub gave no readable answer to {method} {path}: {said}", details={"path": path}
+            )
+        try:
+            return json.loads(reply.stdout or "null")
+        except json.JSONDecodeError as exc:
+            raise GitHubUnreadError(
+                f"GitHub's answer to {method} {path} is no JSON", details={"path": path}
+            ) from exc

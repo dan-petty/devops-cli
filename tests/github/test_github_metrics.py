@@ -46,7 +46,13 @@ from devops_cli.github.metrics import (
     reset_refused_paths,
 )
 from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
-from devops_cli.roadmap.stores.store import Change, ItemField, RoadmapStore, StageRecordKey
+from devops_cli.roadmap.stores.store import (
+    Change,
+    GitHubState,
+    ItemField,
+    RoadmapStore,
+    StageRecordKey,
+)
 from devops_cli.telemetry.instruments import (
     INSTRUMENTS,
     PROJECT_FORKS,
@@ -64,7 +70,7 @@ from devops_cli.telemetry.instruments import (
     ROADMAP_OLDEST_ITEM,
 )
 from tests.support.fakes.git import GitFake
-from tests.support.fakes.github import RunnerSession
+from tests.support.fakes.github import GitHubApiFake, RunnerSession, github_json
 from tests.support.fakes.github_repository import GitHubFake
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
@@ -240,8 +246,8 @@ def test_calculate_pass_rate_and_conclusion() -> None:
     )
 
 
-def test_get_ci_workflow_metrics(process_fake: ProcessFake) -> None:
-    """Verify CI workflow aggregation and pass rate calculation."""
+def test_get_ci_workflow_metrics(github_api: GitHubApiFake) -> None:
+    """Verify CI workflow aggregation and pass rate calculation through the session (#3941)."""
     fake_runs = {
         "workflow_runs": [
             {"name": "CI Quality Gate", "conclusion": "success"},
@@ -249,13 +255,10 @@ def test_get_ci_workflow_metrics(process_fake: ProcessFake) -> None:
             {"name": "Deploy", "conclusion": "success"},
         ]
     }
-    process_fake.answer(
-        ["gh", "api", "rate_limit"],
-        ProcessAnswer(stdout=_fresh_quota_payload()),
-    )
-    process_fake.answer(
-        ["gh", "api", "repos/example/repo/actions/runs?per_page=10"],
-        ProcessAnswer(stdout=json.dumps(fake_runs)),
+    github_api.route(
+        "GET",
+        "/repos/example/repo/actions/runs?per_page=10",
+        github_json(fake_runs),
     )
 
     results = get_ci_workflow_metrics("example/repo", limit=10)
@@ -282,23 +285,14 @@ def test_get_ci_workflow_metrics(process_fake: ProcessFake) -> None:
     )
 
 
-def test_get_ci_workflow_metrics_error(process_fake: ProcessFake) -> None:
-    """Verify get_ci_workflow_metrics returns empty list on API error."""
-    process_fake.answer(
-        ["gh", "api", "rate_limit"],
-        ProcessAnswer(stdout=_fresh_quota_payload()),
-    )
-    process_fake.answer(
-        ["gh", "api", "repos/example/repo/actions/runs?per_page=50"],
-        ProcessAnswer(returncode=1, stderr="network error"),
-    )
-
-    results = get_ci_workflow_metrics("example/repo")
+def test_get_ci_workflow_metrics_error(github_api: GitHubApiFake) -> None:
+    """Verify get_ci_workflow_metrics returns empty list on API error (#3941)."""
+    results = get_ci_workflow_metrics("example/unrouted-repo")
     assert results == []
 
 
-def test_build_milestone_metric_and_filter(process_fake: ProcessFake) -> None:
-    """Verify milestone metric extraction, completion percentage, and filtering."""
+def test_build_milestone_metric_and_filter(github_api: GitHubApiFake) -> None:
+    """Verify milestone metric extraction, completion percentage, and filtering (#3941)."""
     raw_open = {"title": "2026-10-01", "state": "open", "open_issues": 3, "closed_issues": 7}
     raw_closed = {"title": "2026-09-24", "state": "closed", "open_issues": 0, "closed_issues": 10}
     raw_empty = {"title": "2026-10-08", "state": "open", "open_issues": 0, "closed_issues": 0}
@@ -313,13 +307,10 @@ def test_build_milestone_metric_and_filter(process_fake: ProcessFake) -> None:
         0.0,
     )
 
-    process_fake.answer(
-        ["gh", "api", "rate_limit"],
-        ProcessAnswer(stdout=_fresh_quota_payload()),
-    )
-    process_fake.answer(
-        ["gh", "api", "repos/example/repo/milestones?state=all&per_page=100"],
-        ProcessAnswer(stdout=json.dumps([raw_open, raw_closed])),
+    github_api.route(
+        "GET",
+        "/repos/example/repo/milestones?state=all&per_page=100",
+        github_json([raw_open, raw_closed]),
     )
 
     filtered = get_milestone_metrics("example/repo", milestone_filter="2026-10-01")
@@ -331,23 +322,32 @@ def test_build_milestone_metric_and_filter(process_fake: ProcessFake) -> None:
     )
 
 
-def test_get_label_taxonomy_metrics(process_fake: ProcessFake) -> None:
-    """Verify label taxonomy extraction and aggregation."""
-    issues = [
-        {"labels": [{"name": "team/core"}, {"name": "scope/cli"}]},
-        {"labels": [{"name": "team/core"}, {"name": "team/infra"}]},
-        {"labels": ["scope/cli", "unscoped-label"]},
-    ]
-    process_fake.answer(
-        ["gh", "api", "rate_limit"],
-        ProcessAnswer(stdout=_fresh_quota_payload()),
+def test_get_label_taxonomy_metrics() -> None:
+    """Verify label taxonomy extraction and aggregation from open items in store (#3941)."""
+    store = InMemoryRoadmapStore(repo="example/repo")
+    store.seed_issue(
+        "Issue 1",
+        labels=["team/core", "scope/cli"],
+        fields={ItemField.PRIORITY: "P2-Medium"},
     )
-    process_fake.answer(
-        ["gh", "api", "--paginate", "repos/example/repo/issues?state=open&per_page=100"],
-        ProcessAnswer(stdout=json.dumps(issues)),
+    store.seed_issue(
+        "Issue 2",
+        labels=["team/core", "team/infra"],
+        fields={ItemField.PRIORITY: "P2-Medium"},
+    )
+    store.seed_issue(
+        "Issue 3",
+        labels=["scope/cli", "unscoped-label"],
+        fields={ItemField.PRIORITY: "P2-Medium"},
+    )
+    store.seed_issue(
+        "Issue 4",
+        state=GitHubState.CLOSED,
+        labels=["team/core"],
+        fields={ItemField.PRIORITY: "P2-Medium"},
     )
 
-    metrics = get_label_taxonomy_metrics("example/repo")
+    metrics = get_label_taxonomy_metrics(store)
     team_core = next((m for m in metrics if m.label == "team/core"), None)
     cli_scope = next((m for m in metrics if m.label == "scope/cli"), None)
 
@@ -355,19 +355,60 @@ def test_get_label_taxonomy_metrics(process_fake: ProcessFake) -> None:
     assert (team_core.count, cli_scope.count) == (2, 2)
 
 
-def test_label_taxonomy_metrics_counts_all_pages_and_skips_pull_requests(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The taxonomy metrics count every open issue across all pages and no pull requests (#1541)."""
-    github = GitHubFake("example/test-repo")
+def test_label_taxonomy_metrics_counts_all_pages_and_skips_pull_requests() -> None:
+    """The taxonomy metrics count every open item and no pull requests or closed issues (#1541, #3941)."""
+    store = InMemoryRoadmapStore(repo="example/test-repo")
     for i in range(1, 251):
-        github.seed_issue(i, f"Issue {i}", labels=["type/bug"])
-    github.seed_issue(251, "PR 251", labels=["type/bug"], pull_request=True)
-    github.seed_issue(252, "PR 252", labels=["scope/cli"], pull_request=True)
+        store.seed_issue(
+            f"Issue {i}",
+            labels=["type/bug"],
+            fields={ItemField.PRIORITY: "P2-Medium"},
+        )
+    store.seed_issue(
+        "PR 251",
+        labels=["type/bug"],
+        fields={ItemField.PRIORITY: "P2-Medium"},
+        pull_request=True,
+    )
+    store.seed_issue(
+        "Closed 252",
+        labels=["scope/cli"],
+        state=GitHubState.CLOSED,
+        fields={ItemField.PRIORITY: "P2-Medium"},
+    )
+
+    metrics = get_label_taxonomy_metrics(store)
+    assert [(m.label, m.count) for m in metrics] == [
+        ("priority/p2-medium", 250),
+        ("type/bug", 250),
+    ]
+
+
+def test_metrics_round_sends_no_second_open_issues_listing_and_uses_session(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    git_fake: GitFake,
+) -> None:
+    """The metrics collection reads workflow runs and milestones through the session,
+    and sends no request to repos/<repo>/issues?state=open (#3941)."""
+    root = tmp_path / "repo"
+    root.mkdir(parents=True, exist_ok=True)
+    git_fake.answer(["git", "tag"], ProcessAnswer(stdout="v0.1.0|2026-10-01T00:00:00+00:00\n"))
+    git_fake.answer(["git", "log"], ProcessAnswer(stdout="v0.1.0\n\nCloses #1\n"))
+    git_fake.answer(["git", "rev-list"], ProcessAnswer(stdout="1\n"))
+
+    milestone = {"title": "2026-10-01", "state": "open", "open_issues": 1, "closed_issues": 0}
+    github = GitHubFake(REPO, milestones=[milestone])
+    github.seed_issue(1, "fix: one", labels=("type/bug", "priority/p1-high"))
     github.answer_children(monkeypatch)
 
-    metrics = get_label_taxonomy_metrics("example/test-repo")
-    assert [(m.label, m.count) for m in metrics] == [("type/bug", 250)]
+    report = collect_project_metrics_report(root=root, repo=REPO, store=_roadmap_store(github))
+
+    called_paths = [str(c[0]) for c in github.calls]
+    assert any("actions/runs" in path for path in called_paths)
+    assert any("milestones" in path for path in called_paths)
+    assert not any("issues?state=open" in path for path in called_paths)
+    assert any(m.label == "type/bug" for m in report.taxonomy_labels)
 
 
 def test_collect_project_metrics_report(
@@ -766,8 +807,23 @@ def test_a_label_set_that_leaves_a_repository_is_sent_as_zero_for_it_once(
     )
 
 
-def _answer_metrics_reads(process_fake: ProcessFake) -> None:
+def _answer_metrics_reads(
+    process_fake: ProcessFake, github_api: GitHubApiFake | None = None
+) -> None:
     """Answer each read of `devops gh metrics --repo example/repo`."""
+    if github_api is not None:
+        github_api.route(
+            "GET",
+            "/repos/example/repo/actions/runs?per_page=50",
+            github_json({"workflow_runs": [{"name": "CI Quality Gate", "conclusion": "success"}]}),
+        )
+        github_api.route(
+            "GET",
+            "/repos/example/repo/milestones?state=all&per_page=100",
+            github_json(
+                [{"title": "2026-10-01", "state": "open", "open_issues": 2, "closed_issues": 8}]
+            ),
+        )
     process_fake.answer(
         ["gh", "api", "rate_limit"],
         ProcessAnswer(stdout=_fresh_quota_payload()),
@@ -853,14 +909,15 @@ def test_the_command_refuses_a_filtered_snapshot_for_telemetry(
 @pytest.mark.parametrize("limit", [(), ("--limit", "10")], ids=["no limit", "default limit"])
 def test_the_command_sends_the_snapshot_with_the_default_limit(
     cli: CliRunnerFixture,
-    process_fake: ProcessFake,
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
     roadmap_store: InMemoryRoadmapStore,
     otlp: FakeCollector,
     limit: tuple[str, ...],
 ) -> None:
     """A `--limit` equal to its default asks for the same series, so the command sends it,
     with the repository of the report as `repo` (#4690)."""
-    _answer_metrics_reads(process_fake)
+    github_api, process_fake = github_api_and_gh
+    _answer_metrics_reads(process_fake, github_api)
 
     result = cli("gh", "metrics", "--repo", "example/repo", "--emit-telemetry", *limit)
 
@@ -869,10 +926,13 @@ def test_the_command_sends_the_snapshot_with_the_default_limit(
 
 
 def test_cli_gh_metrics_formats_tables_and_json(
-    cli: CliRunnerFixture, process_fake: ProcessFake, roadmap_store: InMemoryRoadmapStore
+    cli: CliRunnerFixture,
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+    roadmap_store: InMemoryRoadmapStore,
 ) -> None:
     """Verify devops gh metrics execution with interactive and JSON outputs."""
-    _answer_metrics_reads(process_fake)
+    github_api, process_fake = github_api_and_gh
+    _answer_metrics_reads(process_fake, github_api)
 
     # 1. Plain text / tables
     result_tables = cli("gh", "metrics", "--repo", "example/repo", "--emit-telemetry")
@@ -1206,10 +1266,21 @@ def test_a_new_process_asks_a_refused_path_again(monkeypatch: pytest.MonkeyPatch
 
 def test_the_command_prints_that_the_traffic_was_not_collected(
     cli: CliRunnerFixture,
-    process_fake: ProcessFake,
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
     roadmap_store: InMemoryRoadmapStore,
 ) -> None:
     """A report whose traffic GitHub refused prints "not collected" and no count of views."""
+    github_api, process_fake = github_api_and_gh
+    github_api.route(
+        "GET",
+        "/repos/example/repo/actions/runs?per_page=50",
+        github_json({"workflow_runs": []}),
+    )
+    github_api.route(
+        "GET",
+        "/repos/example/repo/milestones?state=all&per_page=100",
+        github_json([]),
+    )
     process_fake.answer(
         ["gh", "api", "rate_limit"],
         ProcessAnswer(stdout=_fresh_quota_payload()),
@@ -1310,7 +1381,12 @@ def _collect(
     git_fake.answer(["git", "tag"], ProcessAnswer(stdout=""))
     github.answer_children(monkeypatch)
     return collect_project_metrics_report(
-        root=root, repo=REPO, store=store, item_ages=item_ages, clock=clock
+        root=root,
+        repo=REPO,
+        store=store,
+        item_ages=item_ages,
+        clock=clock,
+        session=RunnerSession(github),
     )
 
 
