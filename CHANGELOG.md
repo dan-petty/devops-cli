@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.173.1](https://github.com/dan-petty/devops-cli/compare/v0.173.0...v0.173.1) (2026-11-17)
+
+
+### Bug Fixes
+
+* **deps:** update Helm release cloudnative-pg to v0.29.2 ([#6170](https://github.com/dan-petty/devops-cli/issues/6170)) ([15cc3f4](https://github.com/dan-petty/devops-cli/commit/15cc3f483adda99da79c9d72a6eee23082e8685d))
+* **pr:** Read the head workflow triggers for the merge verdict ([#6173](https://github.com/dan-petty/devops-cli/issues/6173)) ([a42ee46](https://github.com/dan-petty/devops-cli/commit/a42ee4692f952d235a701e50daa108d7b2e2910a))
+* **roadmap:** Make the alternatives comment brief ([#6174](https://github.com/dan-petty/devops-cli/issues/6174)) ([3f422ad](https://github.com/dan-petty/devops-cli/commit/3f422adcb78aaa817cf762fa69ef46a9d0c8fc17))
+* **roadmap:** Show every source in the alternatives comment ([#6178](https://github.com/dan-petty/devops-cli/issues/6178)) ([c8ee558](https://github.com/dan-petty/devops-cli/commit/c8ee55803d6e35485ba50f789cc71beebb21d7f8))
+
 ## [0.173.0](https://github.com/dan-petty/devops-cli/compare/v0.172.0...v0.173.0) (2026-11-17)
 
 
