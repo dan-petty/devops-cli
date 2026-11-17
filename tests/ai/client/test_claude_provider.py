@@ -249,6 +249,95 @@ def test_claude_sampling_gate_wins_over_per_call_sampling(
     assert [sorted({"temperature", "top_p", "seed"} & body.keys()) for body in bodies] == [[]]
 
 
+def test_claude_sdk_2_omits_the_sampling_parameters_that_the_api_refuses(
+    web: WebFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Anthropic SDK 2 sends API version 2026-10-21, which refuses temperature, top_p and top_k
+    with HTTP 400 (#5096). The HTTP seam fails the test if the client sends one of them."""
+    from devops_cli.ai.client import claude as claude_module
+
+    monkeypatch.setattr(claude_module, "_installed_sdk_major", lambda: 2)
+    model_name = "claude-haiku-4"
+    bodies: list[dict[str, Any]] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path.endswith(f"/v1/models/{model_name}"):
+            return httpx2.Response(
+                200,
+                json=_make_model_info_payload(model_name, adaptive_thinking=False, sampling=True),
+            )
+        body = json.loads(request.content)
+        bodies.append(body)
+        refused = {"temperature", "top_p", "top_k"} & body.keys()
+        if refused:
+            return httpx2.Response(400, json={"error": f"refused: {sorted(refused)}"})
+        return httpx2.Response(200, json=_make_messages_reply_payload(model_name))
+
+    cfg = AIConfig(
+        provider="claude",
+        model=model_name,
+        temperature=0.7,
+        top_p=0.9,
+        allow_private_network=True,
+    )
+    client = LLMClient(cfg, api_key="sk-ant-test", cache_enabled=False)
+    serve_llm(web, handler)
+
+    res = client.chat("System", "User", enable_thinking=False)
+
+    assert res.text == "Test response"
+    assert bodies
+    assert not ({"temperature", "top_p", "top_k"} & bodies[0].keys())
+
+
+def test_claude_sdk_1_keeps_the_sampling_parameters(
+    web: WebFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from devops_cli.ai.client import claude as claude_module
+
+    monkeypatch.setattr(claude_module, "_installed_sdk_major", lambda: 1)
+    client, bodies = _claude_sampling_client(web, top_p=0.9)
+    client.chat("sys", "user", enable_thinking=False)
+    assert (bodies[0].get("temperature"), bodies[0].get("top_p")) == (0.7, 0.9)
+
+
+def test_the_installed_anthropic_major_comes_from_the_package() -> None:
+    from devops_cli.ai.client import claude as claude_module
+
+    claude_module._installed_sdk_major.cache_clear()
+    try:
+        assert claude_module._installed_sdk_major() >= 1
+    finally:
+        claude_module._installed_sdk_major.cache_clear()
+
+
+def test_an_unreadable_sdk_version_keeps_the_sdk_1_behavior(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from devops_cli.ai.client import claude as claude_module
+
+    monkeypatch.setattr(claude_module, "version", lambda name: "dev")
+    claude_module._installed_sdk_major.cache_clear()
+    assert claude_module._installed_sdk_major() == 0
+    claude_module._installed_sdk_major.cache_clear()
+
+
+def test_a_missing_sdk_package_keeps_the_sdk_1_behavior(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from importlib.metadata import PackageNotFoundError
+
+    from devops_cli.ai.client import claude as claude_module
+
+    def missing(name: str) -> str:
+        raise PackageNotFoundError(name)
+
+    monkeypatch.setattr(claude_module, "version", missing)
+    claude_module._installed_sdk_major.cache_clear()
+    assert claude_module._installed_sdk_major() == 0
+    claude_module._installed_sdk_major.cache_clear()
+
+
 def test_claude_sdk_client_http_client_is_factory_built() -> None:
     """The SDK client's HTTP client is the factory-built one (an identity check)."""
     cfg = AIConfig(provider="claude", model="claude-sonnet-4", allow_private_network=True)
