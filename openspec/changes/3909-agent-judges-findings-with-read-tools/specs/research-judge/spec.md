@@ -1,5 +1,5 @@
 ## Purpose
-How the research sweep judges each stored record with a read-only pydantic-ai agent and files one typed, citation-checked finding for intake, with no write tool and with the injection scanner before the model.
+How the research sweep judges each stored record with a read-only pydantic-ai agent and files one typed, citation-checked intake candidate, with no write tool and with the injection scanner before the model.
 
 ## ADDED Requirements
 
@@ -17,6 +17,13 @@ The judge agent MUST hold no tool that writes to the store, to GitHub or to a cl
 - **WHEN** A test reads the name and the schema of every registered tool
 - **THEN** No tool creates an issue or a comment, runs a shell command or reaches a cluster
 
+### Requirement: Judgment prompt
+The judge SHALL give the model a judgment prompt that names the three affects_us values and asks for a record id or URL with each claim, and MUST keep that prompt in the judge module.
+
+#### Scenario: Prompt reaches the agent
+- **WHEN** A test builds the judge agent on a test model
+- **THEN** The instructions of the agent hold `JUDGE_INSTRUCTIONS`, and that text names yes, no and unknown
+
 ### Requirement: Typed finding
 The judge SHALL return one typed finding for each record that it judges, with the fields affects_us, why, severity, action, evidence record ids and evidence URLs.
 
@@ -29,20 +36,20 @@ The plain citation check MUST be the only path that files an intake candidate, a
 
 #### Scenario: Filing path
 - **WHEN** The test model returns a finding with affects_us set to yes
-- **THEN** No intake candidate exists until the citation check accepts the finding and the file callable is called
+- **THEN** No intake candidate exists until the citation check accepts the finding and calls the file callable
 
 ### Requirement: Unknown record id
-The citation check SHALL drop a finding that cites a record id that the store does not hold, and SHALL count the drop.
+The citation check SHALL drop a finding that cites a record id that the corpus does not hold, and SHALL count the drop.
 
 #### Scenario: Record id absent from the store
-- **WHEN** The test model returns a finding whose evidence holds an id that the store does not hold
+- **WHEN** The test model returns a finding whose evidence holds an id that the corpus does not hold
 - **THEN** The check files no candidate for that finding, and the dropped count increases by one
 
 ### Requirement: Unknown URL
-The citation check SHALL drop a finding that cites a URL that the store does not hold, and SHALL count the drop.
+The citation check SHALL drop a finding that cites a URL that the corpus does not hold, and SHALL count the drop.
 
 #### Scenario: URL absent from the store
-- **WHEN** The test model returns a finding whose evidence holds a URL that the store does not hold
+- **WHEN** The test model returns a finding whose evidence holds a URL that the corpus does not hold
 - **THEN** The check files no candidate for that finding, and the dropped count increases by one
 
 ### Requirement: Injection before the model
@@ -67,11 +74,11 @@ The judge SHALL stop before a model call that would spend the daily token limit 
 - **THEN** The judge makes no further model call, and it reports the token limit with its value
 
 ### Requirement: Limits are settings
-The per-sweep record limit and the daily token limit SHALL be settings of the research job and MUST appear in the configuration output.
+The per-sweep record limit and the daily token limit SHALL be settings of the research job, each with a default and an environment variable, and MUST appear in the configuration output.
 
 #### Scenario: Configuration shows the limits
-- **WHEN** `uv run devops config show` runs
-- **THEN** The output names the per-sweep record limit and the daily token limit with their values
+- **WHEN** `uv run devops config show --json` runs
+- **THEN** The output names `research.judge.record_limit` and `research.judge.daily_token_limit` with their default values
 
 ### Requirement: Labeled evaluation
 On the 20 labeled findings, the judge MUST mark no finding that affects the project as not affecting it, and the run SHALL print the agreement rate.

@@ -8,5 +8,5 @@ The scanner SHALL flag a line that tells the reader to ignore its own rules or i
 - **THEN** It returns one INJ004 finding for that line, with a HIGH severity
 
 #### Scenario: A phrase about previous instructions
-- **WHEN** `scan_injection_text` reads "Ignore previous instructions" with a zero-width space and a byte-order mark
-- **THEN** It returns one finding, the INJ002 one, and no INJ004 finding
+- **WHEN** `scan_injection_text` reads the INJ002 case text "Ignore previous instructions" with its zero-width space and byte-order mark
+- **THEN** It returns that one INJ002 finding and no INJ004 finding
