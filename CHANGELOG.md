@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.171.0](https://github.com/dan-petty/devops-cli/compare/v0.170.0...v0.171.0) (2026-11-17)
+
+
+### Features
+
+* **roadmap:** Run review scanners in the runner pod ([#6114](https://github.com/dan-petty/devops-cli/issues/6114)) ([ddde85a](https://github.com/dan-petty/devops-cli/commit/ddde85a9961ab3d507f4ae015aa225a21391421e))
+* **service:** Roll the Service with a surge release ([#6146](https://github.com/dan-petty/devops-cli/issues/6146)) ([a459b65](https://github.com/dan-petty/devops-cli/commit/a459b65d0cc5fb98e5efcfb90e978f361dac0ea5))
+
+
+### Bug Fixes
+
+* **k8s:** Run kube-linter on the Argo CD builds in CI ([#6112](https://github.com/dan-petty/devops-cli/issues/6112)) ([dba90f1](https://github.com/dan-petty/devops-cli/commit/dba90f16383b47b786526ba0126682a8b728cb74)), closes [#6068](https://github.com/dan-petty/devops-cli/issues/6068)
+* **k8s:** Take the k8s area of the config-read list to zero ([#6124](https://github.com/dan-petty/devops-cli/issues/6124)) ([0857ee5](https://github.com/dan-petty/devops-cli/commit/0857ee5fb06f320d05b42d91701d0feb71d47187)), closes [#6119](https://github.com/dan-petty/devops-cli/issues/6119)
+* **roadmap:** judge a pyproject tool setting by its diff ([#6089](https://github.com/dan-petty/devops-cli/issues/6089)) ([0a787eb](https://github.com/dan-petty/devops-cli/commit/0a787eb8afe99c4f076b1c4dbfbfe14f7a12092d)), closes [#3491](https://github.com/dan-petty/devops-cli/issues/3491)
+* **roadmap:** Name both command registration forms ([#6148](https://github.com/dan-petty/devops-cli/issues/6148)) ([0d3b1e1](https://github.com/dan-petty/devops-cli/commit/0d3b1e11ed3f4f1cfbc8d9c249e2317fb29f7a90))
+* **roadmap:** Read the files of a named pull request ([#6144](https://github.com/dan-petty/devops-cli/issues/6144)) ([5a29fed](https://github.com/dan-petty/devops-cli/commit/5a29fed231f0de3958cb4f812e98ad59b7a210ea))
+* **roadmap:** refuse a placeholder group title in a plan ([#6092](https://github.com/dan-petty/devops-cli/issues/6092)) ([cfd820b](https://github.com/dan-petty/devops-cli/commit/cfd820bace320cc3772174de841d40bcfd4a3145))
+* **service:** the metrics row sends too many counted requests ([#6095](https://github.com/dan-petty/devops-cli/issues/6095)) ([b3fc5dc](https://github.com/dan-petty/devops-cli/commit/b3fc5dc3b7442bd9bde3c4ca53931077df592089))
+
 ## [0.170.0](https://github.com/dan-petty/devops-cli/compare/v0.169.4...v0.170.0) (2026-11-17)
 
 
