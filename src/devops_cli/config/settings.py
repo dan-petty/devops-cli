@@ -1393,6 +1393,10 @@ class RoadmapStageConfig(RowCadenceConfig):
         description="Whether the stage_ready row asks TypeSafe Jev if a green plan draft delivers each acceptance criterion of its issue, before it marks the draft ready. A criterion in doubt, a weak test score or an error of Jev keeps the draft a draft and posts one note; the check never marks a draft ready, merges or closes",
         default=False,
     )
+    jev_shadow: Annotated[bool, Variable()] = Field(
+        description="Whether the stage job makes one shadow Jev routing call for each item before the first plan call of that item, and logs one line and counts the tier choice of the call in `devops_cli_roadmap_stage_jev_total`. The call changes no plan and no model: it is a record for a later comparison. A Jev error is logged, counts `choice=error` and never stops the item. The setting is off by default, so the shadow call costs nothing until a person turns it on",
+        default=False,
+    )
     jobs: Annotated[int, Variable()] = Field(
         description="The most stage Jobs that run at once in the cluster, for every repository together: each Job holds a model call slot of the one model tier and a GitHub request budget of its own. The stage row of the Service lists the stage Jobs by their component label, and creates a Job for each Ready item that the selection takes, up to this count less the Jobs that run. Every stage pod sends the one telemetry instance `roadmap-stage`, which holds while one pod runs at a time",
         default=DEFAULT_ROADMAP_STAGE_JOBS,
