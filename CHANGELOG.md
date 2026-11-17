@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.169.3](https://github.com/dan-petty/devops-cli/compare/v0.169.2...v0.169.3) (2026-11-17)
+
+
+### Bug Fixes
+
+* **k8s:** drop the pin checks of SearXNG and the chart tables ([#6069](https://github.com/dan-petty/devops-cli/issues/6069)) ([be2b4c1](https://github.com/dan-petty/devops-cli/commit/be2b4c11c6d1c247119c31d2367778f2c3918e26)), closes [#6063](https://github.com/dan-petty/devops-cli/issues/6063)
+* **k8s:** Drop the tests that assert values of manifests and config ([#6075](https://github.com/dan-petty/devops-cli/issues/6075)) ([d4968f6](https://github.com/dan-petty/devops-cli/commit/d4968f6b1570ce2cf9c8108bab81214e5594f506))
+* **k8s:** Keep the default perimeter off the planner run pod ([#6087](https://github.com/dan-petty/devops-cli/issues/6087)) ([19bfec3](https://github.com/dan-petty/devops-cli/commit/19bfec3093baa02f96f62f287ac235b77800d45b))
+* **roadmap:** Fit the first stage request in its window again ([#6104](https://github.com/dan-petty/devops-cli/issues/6104)) ([dd4681c](https://github.com/dan-petty/devops-cli/commit/dd4681cf92f13c9d84c46848df09454b7ddb2074)), closes [#6103](https://github.com/dan-petty/devops-cli/issues/6103)
+* **roadmap:** Keep refine decisions in stage plan ([#6078](https://github.com/dan-petty/devops-cli/issues/6078)) ([88aa191](https://github.com/dan-petty/devops-cli/commit/88aa191b0a77b3a631bb2a058e0c8ed41c385984))
+* **roadmap:** Stop plan rules that ask for config value tests ([#6091](https://github.com/dan-petty/devops-cli/issues/6091)) ([2b4ae1f](https://github.com/dan-petty/devops-cli/commit/2b4ae1f67be7597f75cf9ed6979efd70a3d68c8b))
+
 ## [0.169.2](https://github.com/dan-petty/devops-cli/compare/v0.169.1...v0.169.2) (2026-11-17)
 
 
