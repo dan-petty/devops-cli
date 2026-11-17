@@ -6,7 +6,6 @@ import logging
 import time
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
-from functools import lru_cache
 from importlib.metadata import PackageNotFoundError, version
 from typing import TYPE_CHECKING, Any
 
@@ -83,7 +82,6 @@ def _capabilities_support_adaptive_thinking(capabilities: Any) -> bool:
     return False
 
 
-@lru_cache(maxsize=1)
 def _installed_sdk_major() -> int:
     """The major version of the installed Anthropic SDK, or 0 when it cannot be read.
 

@@ -304,11 +304,7 @@ def test_claude_sdk_1_keeps_the_sampling_parameters(
 def test_the_installed_anthropic_major_comes_from_the_package() -> None:
     from devops_cli.ai.client import claude as claude_module
 
-    claude_module._installed_sdk_major.cache_clear()
-    try:
-        assert claude_module._installed_sdk_major() >= 1
-    finally:
-        claude_module._installed_sdk_major.cache_clear()
+    assert claude_module._installed_sdk_major() >= 1
 
 
 def test_an_unreadable_sdk_version_keeps_the_sdk_1_behavior(
@@ -317,9 +313,7 @@ def test_an_unreadable_sdk_version_keeps_the_sdk_1_behavior(
     from devops_cli.ai.client import claude as claude_module
 
     monkeypatch.setattr(claude_module, "version", lambda name: "dev")
-    claude_module._installed_sdk_major.cache_clear()
     assert claude_module._installed_sdk_major() == 0
-    claude_module._installed_sdk_major.cache_clear()
 
 
 def test_a_missing_sdk_package_keeps_the_sdk_1_behavior(
@@ -333,9 +327,7 @@ def test_a_missing_sdk_package_keeps_the_sdk_1_behavior(
         raise PackageNotFoundError(name)
 
     monkeypatch.setattr(claude_module, "version", missing)
-    claude_module._installed_sdk_major.cache_clear()
     assert claude_module._installed_sdk_major() == 0
-    claude_module._installed_sdk_major.cache_clear()
 
 
 def test_claude_sdk_client_http_client_is_factory_built() -> None:
