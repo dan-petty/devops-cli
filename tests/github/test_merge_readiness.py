@@ -65,6 +65,22 @@ jobs:
     steps:
       - run: "true"
 """
+_STRING_PULL_REQUEST_WORKFLOW = """name: CI
+on: pull_request
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: "true"
+"""
+_NO_TRIGGER_WORKFLOW = """name: None
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: "true"
+"""
+_INVALID_WORKFLOW = "name: [unclosed\n"
 _THREADS = "GetReviewThreads"
 _CLOSING = "closingIssuesReferences"
 _ARCHIVE_704 = {
@@ -574,6 +590,62 @@ def test_an_unread_workflow_keeps_the_pending_check(github: _GitHub, tmp_path: P
     github.api.route("GET", _WORKFLOWS_DIR, github_json({"message": "Forbidden"}, status=403))
     verdict = _assess(tmp_path)
     assert (BlockerKind.CHECKS_PENDING in verdict.kinds, verdict.no_ci) == (True, False)
+
+
+def test_a_string_pull_request_trigger_keeps_the_pending_check(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    github.checks()
+    github.workflows(("ci.yml", _STRING_PULL_REQUEST_WORKFLOW))
+    verdict = _assess(tmp_path)
+    assert (BlockerKind.CHECKS_PENDING in verdict.kinds, verdict.no_ci) == (True, False)
+
+
+def test_a_workflow_file_that_is_no_mapping_has_no_ci(github: _GitHub, tmp_path: Path) -> None:
+    github.checks()
+    github.workflows(("list.yml", "- one\n- two\n"))
+    verdict = _assess(tmp_path)
+    assert (verdict.kinds, verdict.no_ci) == (frozenset(), True)
+
+
+def test_a_workflow_with_no_trigger_has_no_ci(github: _GitHub, tmp_path: Path) -> None:
+    github.checks()
+    github.workflows(("none.yml", _NO_TRIGGER_WORKFLOW))
+    verdict = _assess(tmp_path)
+    assert (verdict.kinds, verdict.no_ci) == (frozenset(), True)
+
+
+def test_a_workflow_file_that_is_not_valid_yaml_keeps_the_pending_check(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    github.checks()
+    github.workflows(("broken.yml", _INVALID_WORKFLOW))
+    verdict = _assess(tmp_path)
+    assert (BlockerKind.CHECKS_PENDING in verdict.kinds, verdict.no_ci) == (True, False)
+
+
+def test_a_workflow_folder_entry_that_is_no_file_is_skipped(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    github.checks()
+    entries = [
+        {"type": "dir", "name": "nested", "path": ".github/workflows/nested"},
+        {"type": "file", "name": "README.md", "path": ".github/workflows/README.md"},
+        {"type": "file", "name": "ci.yml", "path": ".github/workflows/ci.yml"},
+    ]
+    github.api.route("GET", _WORKFLOWS_DIR, github_json(entries))
+    route_file(github.api, _REPO, ".github/workflows/ci.yml", _HEAD, _PULL_REQUEST_WORKFLOW)
+    verdict = _assess(tmp_path)
+    assert BlockerKind.CHECKS_PENDING in verdict.kinds
+
+
+def test_a_workflow_folder_answer_that_is_no_list_has_no_ci(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    github.checks()
+    github.api.route("GET", _WORKFLOWS_DIR, github_json({"type": "file"}))
+    verdict = _assess(tmp_path)
+    assert (verdict.kinds, verdict.no_ci) == (frozenset(), True)
 
 
 def test_a_failed_combined_commit_status_beyond_the_listed_ones_blocks(
