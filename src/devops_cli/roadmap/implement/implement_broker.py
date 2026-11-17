@@ -28,6 +28,12 @@ from urllib.parse import urlsplit
 
 import httpx2
 
+# `Request` is a runtime import, not a type-checking one: FastAPI resolves the annotations of an
+# endpoint against the globals of its module when it registers the route, so a name that only the
+# type checker sees leaves the handler with no request at runtime.
+from fastapi import Request
+from fastapi.concurrency import run_in_threadpool
+
 from devops_cli.config.constants import CONST_AI_GATEWAY_PROVIDER
 from devops_cli.config.settings import get_ai_api_key, load_settings
 from devops_cli.exceptions.roadmap import RoadmapImplementError
@@ -190,10 +196,11 @@ def broker_app(broker: StepBroker) -> FastAPI:
     prefix of the gateway URL, behind the token of the step.
 
     A request to another path, a method other than POST, or a request with another token gets a
-    refusal and reaches no gateway. Each route is a sync function, so FastAPI runs the blocking
-    upstream call in its threadpool, off the event loop, and reads the JSON body of the step.
+    refusal and reaches no gateway. A handler takes the `Request` itself, so it forwards the body of
+    the step byte for byte, and it hands the blocking upstream call to the threadpool, off the event
+    loop.
     """
-    from fastapi import Body, FastAPI, Header, HTTPException
+    from fastapi import FastAPI, HTTPException
 
     app = FastAPI(title="devops-cli step broker", docs_url=None, redoc_url=None, openapi_url=None)
     prefix = _gateway_prefix(broker.gateway_url)
@@ -201,13 +208,12 @@ def broker_app(broker: StepBroker) -> FastAPI:
     def route(suffix: str) -> Callable[..., Any]:
         """The handler of the allowed pair with `suffix`."""
 
-        def forward(
-            payload: Any = Body(...),  # noqa: B008 - FastAPI's marker, not a mutable default
-            authorization: str | None = Header(default=None),
-        ) -> Any:
+        async def forward(request: Request) -> Any:
+            authorization = request.headers.get("authorization")
             if not _carries_token(broker, authorization):
                 raise HTTPException(status_code=_REFUSED, detail=_REFUSED_TOKEN)
-            return _forward(broker, suffix, _body(payload))
+            body = await request.body()
+            return await run_in_threadpool(_forward, broker, suffix, body)
 
         return forward
 
@@ -247,13 +253,6 @@ def _forward(broker: StepBroker, suffix: str, body: bytes) -> Response:
         status_code=answer.status_code,
         headers={"content-type": content_type} if content_type else None,
     )
-
-
-def _body(payload: Any) -> bytes:
-    """The bytes of a request body: the raw bytes when FastAPI gives them, else their JSON."""
-    if isinstance(payload, bytes):
-        return payload
-    return json.dumps(payload).encode()
 
 
 def _int(value: Any) -> int:
