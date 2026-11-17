@@ -77,11 +77,23 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
-NO_CLOSING_ISSUES = json.dumps(
+CLOSING_ISSUE = json.dumps(
     {
         "data": {
             "repository": {
-                "pullRequest": {"closingIssuesReferences": {"totalCount": 0, "nodes": []}}
+                "pullRequest": {
+                    "closingIssuesReferences": {
+                        "totalCount": 1,
+                        "nodes": [
+                            {
+                                "number": 2748,
+                                "state": "OPEN",
+                                "repository": {"nameWithOwner": REPO},
+                                "labels": {"nodes": []},
+                            }
+                        ],
+                    }
+                }
             }
         }
     }
@@ -95,7 +107,7 @@ def status(gh_edge: ProcessFake) -> ProcessFake:
     tests/commands/test_pr_status.py. The fixture returns the fake, for the cases that count the
     reads."""
     gh_edge.answer(["gh", "pr", "create"], ProcessAnswer(stdout=PULL))
-    gh_edge.answer(mentions("closingIssuesReferences"), ProcessAnswer(stdout=NO_CLOSING_ISSUES))
+    gh_edge.answer(mentions("closingIssuesReferences"), ProcessAnswer(stdout=CLOSING_ISSUE))
     return gh_edge
 
 

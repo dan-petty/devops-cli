@@ -39,11 +39,23 @@ BODY = (
     "A draft pull request keeps the work out of review until the checks pass.\n\n"
     "Closes #3198\n\nChange: `openspec/changes/archive/2026-11-02-3198-pull-request-form/`"
 )
-NO_CLOSING_ISSUES = json.dumps(
+CLOSING_ISSUE = json.dumps(
     {
         "data": {
             "repository": {
-                "pullRequest": {"closingIssuesReferences": {"totalCount": 0, "nodes": []}}
+                "pullRequest": {
+                    "closingIssuesReferences": {
+                        "totalCount": 1,
+                        "nodes": [
+                            {
+                                "number": 3198,
+                                "state": "OPEN",
+                                "repository": {"nameWithOwner": "example/roadmap"},
+                                "labels": {"nodes": []},
+                            }
+                        ],
+                    }
+                }
             }
         }
     }
@@ -561,7 +573,7 @@ class TestPrCommands:
             mentions("repos/example/roadmap/pulls", "title="),
             ProcessAnswer(stdout=json.dumps(created)),
         )
-        gh_edge.answer(mentions("closingIssuesReferences"), ProcessAnswer(stdout=NO_CLOSING_ISSUES))
+        gh_edge.answer(mentions("closingIssuesReferences"), ProcessAnswer(stdout=CLOSING_ISSUE))
         # A wait happens before the command that follows it: note how many commands had started.
         started_before_long_waits: list[int] = []
 
@@ -673,7 +685,7 @@ class TestPrCommands:
         new pull request gets its Status."""
         gh_edge.answer(["git", "branch", "--show-current"], ProcessAnswer(stdout="feat/x\n"))
         answer_gh(gh_edge, "pr", "create", returncode=1, stderr="GraphQL error")
-        gh_edge.answer(mentions("closingIssuesReferences"), ProcessAnswer(stdout=NO_CLOSING_ISSUES))
+        gh_edge.answer(mentions("closingIssuesReferences"), ProcessAnswer(stdout=CLOSING_ISSUE))
         gh_edge.answer(mentions("pulls?head="), ProcessAnswer(stdout="[]"))
         gh_edge.answer(
             ["gh", "api", "repos/example/roadmap"],

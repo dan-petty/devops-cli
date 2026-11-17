@@ -1614,6 +1614,10 @@ class PRMessages:
     status_not_set: str = (
         "Pull request #{number} is {state}, but the Status of its item was not set: {error}"
     )
+    status_no_closing_issue: str = (
+        "Pull request #{number} is open, but GitHub linked no closing issue, so the Status of its "
+        "item was not set."
+    )
     labels_not_set: str = (
         "Pull request #{number} is open, but the labels of its title were not added: {error} "
         "To add a label by hand, run: devops gh api -X POST repos/{repo}/issues/{number}/labels "
