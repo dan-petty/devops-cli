@@ -256,6 +256,16 @@ def _plan(store: RoadmapStore, script: Script | None, **options: Any) -> Any:
     )
 
 
+def _fold_of(comment: str) -> tuple[str, str]:
+    """The text of `comment` that GitHub shows open, and its one folded block, or "" when it has
+    none."""
+    start = comment.find("<details>")
+    if start < 0:
+        return comment, ""
+    end = comment.index("</details>", start) + len("</details>")
+    return comment[:start] + comment[end:], comment[start:end]
+
+
 def _prompt_of(messages: list[ModelMessage]) -> dict[str, Any]:
     """The request document of a model request."""
     text = next(
@@ -1173,7 +1183,7 @@ def test_a_tool_that_an_adr_rejected_gives_the_verdict_rejected_and_no_question(
     assert (
         (check.verdict, check.adr, check.tool.url if check.tool else None),
         "## Alternatives check: rejected" in comment,
-        f"Tool: temporalio/temporal ({TEMPORAL_URL})" in comment,
+        any(line.startswith(f"Tool: temporalio/temporal ({TEMPORAL_URL}), ") for line in comment),
         REJECTION in comment,
         REJECTION in block,
         _recorded(store, number, AlternativesRecordKey.VERDICT),
@@ -1533,16 +1543,16 @@ def test_a_covering_tool_makes_one_comment_one_block_and_the_record(
                     "",
                     f"Reason: {REASON}",
                     "",
-                    f"Tool: example/scanner ({TOOL_URL})",
-                    "- License: MIT",
-                    f"- Last activity: {_days_ago(5).date()}",
-                    "- Maintained: yes",
+                    f"Tool: example/scanner ({TOOL_URL}), MIT, last activity "
+                    f"{_days_ago(5).date()}, maintained.",
                     "",
                     "Covers:",
                     "- Scans a directory.",
                     "",
                     "Lacks:",
                     "- No SARIF output.",
+                    "",
+                    "<details><summary>Searches (1)</summary>",
                     "",
                     "Tools considered:",
                     f"- example/scanner ({TOOL_URL}), license MIT, last activity {_days_ago(5).date()}",
@@ -1554,8 +1564,9 @@ def test_a_covering_tool_makes_one_comment_one_block_and_the_record(
                     f"- {TOOL_URL}",
                     f"- {SEARCH_URL}",
                     "",
-                    f"Checked on {NOW.date()}. A person decides what this means for the item. "
-                    "The check changes no label and closes no issue.",
+                    "</details>",
+                    "",
+                    f"A person decides what this check of {NOW.date()} means for the item.",
                 ]
             )
         ],
@@ -1655,10 +1666,58 @@ def test_the_comment_lists_each_query_with_its_result_count_and_the_reason(
     apply_alternatives(store, _plan(store, script))
 
     (comment,) = [c.body for c in store.comments_on(number)]
+    shown, folded = _fold_of(comment)
     assert (
-        f"Reason: {REASON}" in comment,
-        "Searches run:\n- first query, results: 2\n- second query, results: 2" in comment,
-    ) == (True, True)
+        f"Reason: {REASON}" in shown,
+        "first query" in shown,
+        folded.startswith("<details><summary>Searches (2)</summary>\n"),
+        "Searches run:\n- first query, results: 2\n- second query, results: 2" in folded,
+    ) == (True, False, True, True)
+
+
+def test_ten_searches_stay_folded_and_the_comment_shows_only_the_verdict_and_its_evidence(
+    store: InMemoryRoadmapStore, web_key: None, web: WebFake
+) -> None:
+    _firecrawl(web, SEARCH_URL, TOOL_URL)
+    number = _item(store)
+    queries = [f"query number {n}" for n in range(10)]
+    script = Script(
+        *(call("search_web", query=query) for query in queries),
+        call("github_repository", name="example/scanner"),
+        _covers(
+            covers=["Scans a directory.", "Reads each file once.", "Runs offline."],
+            lacks=["No SARIF output.", "No Python API.", "No watch mode."],
+        ),
+    )
+
+    apply_alternatives(store, _plan(store, script))
+
+    (comment,) = [c.body for c in store.comments_on(number)]
+    shown, folded = _fold_of(comment)
+    assert (
+        [line for line in shown.splitlines() if line],
+        folded.startswith("<details><summary>Searches (10)</summary>\n"),
+        [query for query in queries if f"- {query}, results: 2" in folded],
+    ) == (
+        [
+            CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
+            "## Alternatives check: covers",
+            f"Reason: {REASON}",
+            f"Tool: example/scanner ({TOOL_URL}), MIT, last activity "
+            f"{_days_ago(5).date()}, maintained.",
+            "Covers:",
+            "- Scans a directory.",
+            "- Reads each file once.",
+            "- Runs offline.",
+            "Lacks:",
+            "- No SARIF output.",
+            "- No Python API.",
+            "- No watch mode.",
+            f"A person decides what this check of {NOW.date()} means for the item.",
+        ],
+        True,
+        queries,
+    )
 
 
 def test_the_comment_lists_every_tool_the_run_read_with_its_license_and_last_activity(
@@ -1686,12 +1745,17 @@ def test_the_comment_lists_every_tool_the_run_read_with_its_license_and_last_act
     apply_alternatives(store, _plan(store, script))
 
     (comment,) = [c.body for c in store.comments_on(number)]
+    shown, folded = _fold_of(comment)
     assert (
-        "Tools considered:\n"
-        f"- example/scanner ({TOOL_URL}), license MIT, last activity {_days_ago(5).date()}\n"
-        f"- example/other (https://github.com/example/other), license not stated, "
-        f"last activity {_days_ago(400).date()}"
-    ) in comment
+        "example/other" in shown,
+        (
+            "Tools considered:\n"
+            f"- example/scanner ({TOOL_URL}), license MIT, last activity {_days_ago(5).date()}\n"
+            f"- example/other (https://github.com/example/other), license not stated, "
+            f"last activity {_days_ago(400).date()}"
+        )
+        in folded,
+    ) == (False, True)
 
 
 def test_a_reply_with_no_reason_is_refused_by_its_schema() -> None:
@@ -1699,7 +1763,7 @@ def test_a_reply_with_no_reason_is_refused_by_its_schema() -> None:
         AlternativesReply.model_validate({"verdict": "none"})
 
 
-def test_the_comment_shows_at_most_the_bound_of_sources_and_says_how_many_it_left_out(
+def test_the_comment_folds_at_most_the_bound_of_sources_and_says_how_many_it_left_out(
     store: InMemoryRoadmapStore,
 ) -> None:
     urls = [
@@ -1716,11 +1780,31 @@ def test_the_comment_shows_at_most_the_bound_of_sources_and_says_how_many_it_lef
     check = alternatives.validate_reply(item, reply, tools, NOW, ())
 
     assert not isinstance(check, alternatives.CheckFailure)
-    shown = [line for line in check.comment.splitlines() if line.startswith("- https://")]
-    assert (shown, "- 3 more sources are left out" in check.comment) == (
+    _, folded = _fold_of(check.comment)
+    shown = [line for line in folded.splitlines() if line.startswith("- https://")]
+    assert (shown, "- 3 more sources are left out" in folded) == (
         [f"- {url}" for url in urls[:CONST_ROADMAP_ALTERNATIVES_MAX_COMMENT_SOURCES]],
         True,
     )
+
+
+def test_a_reply_longer_than_the_prompt_asks_is_written_whole(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    number = _item(store)
+    reason = " ".join(["The search found a scanner that reads a directory."] * 6)
+    lacks = [f"Lack number {n}: " + " ".join(["a long phrase"] * 10) for n in range(5)]
+    script = _searching(AlternativesReply(reason=reason, verdict=Verdict.NONE, lacks=lacks))
+
+    plan = _plan(store, script)
+    apply_alternatives(store, plan)
+
+    (comment,) = store.comments_on(number)
+    assert (
+        len(script.seen),
+        f"Reason: {reason}" in comment.body,
+        [lack for lack in lacks if f"- {lack}" in comment.body],
+    ) == (2, True, lacks)
 
 
 def test_a_later_check_adds_a_comment_and_leaves_the_comment_of_the_first_unchanged(
@@ -2080,7 +2164,7 @@ def test_skip_class_an_item_of_the_type_is_not_applicable_with_no_model_call(
         script.seen,
         len(web.sent) == searches_before,
         written,
-        f"Class: {kind}. The check makes no search" in comment.body,
+        comment.body,
         f"Class: {kind}, no search." in store.read_issue_body(number),
         _recorded(store, number, AlternativesRecordKey.VERDICT),
         otlp.points(ROADMAP_ALTERNATIVES_TOTAL.name),
@@ -2089,7 +2173,8 @@ def test_skip_class_an_item_of_the_type_is_not_applicable_with_no_model_call(
         [],
         True,
         1,
-        True,
+        f"{CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER}\n"
+        f"Alternatives check: not-applicable ({kind} item; no search).",
         True,
         "not-applicable",
         [({"verdict": "not-applicable"}, 1.0)],
@@ -2110,8 +2195,12 @@ def test_skip_class_a_fix_with_a_stack_trace_is_not_applicable_with_no_model_cal
     assert (
         [(c.verdict, c.skip_class) for c in plan.checks],
         script.seen,
-        "Class: fix-with-stack-trace." in comment.body,
-    ) == ([(Verdict.NOT_APPLICABLE, "fix-with-stack-trace")], [], True)
+        comment.body.splitlines()[1:],
+    ) == (
+        [(Verdict.NOT_APPLICABLE, "fix-with-stack-trace")],
+        [],
+        ["Alternatives check: not-applicable (fix-with-stack-trace item; no search)."],
+    )
 
 
 @pytest.mark.parametrize(
