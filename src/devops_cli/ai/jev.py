@@ -13,7 +13,7 @@ import atexit
 import threading
 from collections.abc import Mapping
 from contextlib import ExitStack
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Final, Literal, cast
 
 from anyio.from_thread import BlockingPortal, start_blocking_portal
@@ -84,7 +84,9 @@ _COMPLEXITY_RUBRIC: Final[list[JsonValue]] = [
 
 @dataclass(frozen=True)
 class JevRouteDecision:
-    """Calibrated routing decision from `route_with_jev`."""
+    """Calibrated routing decision from `route_with_jev`. `extra_probabilities` holds the Noul
+    probability of each question that the caller gave in `extra_questions`, by name, and is empty
+    for a call with none (#4284)."""
 
     selected_model: str
     picked_model: str
@@ -95,6 +97,7 @@ class JevRouteDecision:
     high_risk_probability: float
     reasoning_effort: Literal["low", "medium", "high"]
     escalated: bool
+    extra_probabilities: dict[str, float] = field(default_factory=dict)
 
 
 def create_jev_model(
@@ -224,6 +227,7 @@ def route_with_jev(
     settings: Settings | None = None,
     route_threshold: float = CONST_AI_JEV_DEFAULT_ROUTE_THRESHOLD,
     high_risk_threshold: float = CONST_AI_JEV_HIGH_RISK_THRESHOLD,
+    extra_questions: Mapping[str, DecisionQuestion] | None = None,
 ) -> JevRouteDecision:
     """Route a task state across model tiers using Jev's probability and rubric primitives.
 
@@ -232,6 +236,9 @@ def route_with_jev(
       (`NoulQuestion`) in one parallel request.
     - Escalates to the highest capability tier when `high_risk` meets `high_risk_threshold` or
       when the picked tier's probability falls below `route_threshold`.
+
+    `extra_questions` adds one Noul question for each entry to the same request, and the answer of
+    each goes to `extra_probabilities`, by name (#4284).
     """
     candidate_tiers = dict(tiers or DEFAULT_ROUTING_TIERS)
     if len(candidate_tiers) < 2:
@@ -253,12 +260,16 @@ def route_with_jev(
             ),
         ),
     }
+    questions.update(extra_questions or {})
     response = decide_with_jev(
         DecisionRequest(state=state, questions=questions), model=decision_model
     )
     tier_ans = cast(ChoiceAnswer, response.answers["tier"])
     comp_ans = cast(ScoreAnswer, response.answers["complexity"])
     risk_ans = cast(NoulAnswer, response.answers["high_risk"])
+    extra = {
+        name: cast(NoulAnswer, response.answers[name]).noul for name in (extra_questions or {})
+    }
 
     picked = tier_ans.choice
     picked_prob = tier_ans.probabilities.get(picked, 0.0)
@@ -279,6 +290,7 @@ def route_with_jev(
         high_risk_probability=risk_ans.noul,
         reasoning_effort=_effort_for_score(comp_ans.score, escalated=escalated),
         escalated=escalated,
+        extra_probabilities=extra,
     )
 
 

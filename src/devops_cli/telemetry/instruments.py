@@ -394,6 +394,15 @@ ROADMAP_STAGE_PLAN_RECORD_TOTAL = Instrument(
     "written for a plan that the job wrote to the file. A miss that plans adds one to miss and one "
     "to written. The hit rate is hit divided by the sum of hit and miss",
 )
+ROADMAP_STAGE_JEV_TOTAL = Instrument(
+    "devops_cli_roadmap_stage_jev_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "The Jev tier choice of the stage job for each item, by choice: `deepseek` or `sonnet` for the "
+    "tier that Jev picked in the shadow call of `roadmap.stage.jev_shadow`, and `error` for a call "
+    "that failed. The call changes no plan; the counter is a record for a later comparison. 3 "
+    "series",
+)
 DECISION_POINT_TOTAL = Instrument(
     "devops_cli_decision_point_total",
     InstrumentKind.COUNTER,
@@ -917,6 +926,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_CONFLICTED_PULLS,
     ROADMAP_PAGE_FETCHES_TOTAL,
     ROADMAP_STAGE_PLAN_RECORD_TOTAL,
+    ROADMAP_STAGE_JEV_TOTAL,
     DECISION_POINT_TOTAL,
     DECISION_POINT_DURATION,
     DECISION_POINT_FAILED_TOTAL,
@@ -1110,6 +1120,7 @@ __all__ = [
     "ROADMAP_STAGE_GATE_EXTENSION_TOTAL",
     "ROADMAP_STAGE_GATE_PROBLEMS",
     "ROADMAP_STAGE_GATE_REFUSALS_TOTAL",
+    "ROADMAP_STAGE_JEV_TOTAL",
     "ROADMAP_STAGE_PLAN_RECORD_TOTAL",
     "ROADMAP_STAGE_TOTAL",
     "ROADMAP_STALLED_ITEMS",

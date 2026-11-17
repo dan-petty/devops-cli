@@ -4288,6 +4288,11 @@ class RoadmapMessages:
         "The plan file {path} can't be read ({reason}). Remove it: the next run then asks the "
         "planner for a new plan."
     )
+    stage_jev_shadow: str = (
+        "Jev shadow of #{number}: choice {choice}, complexity {complexity}, high_risk {high_risk}, "
+        "concrete files {concrete}."
+    )
+    stage_jev_shadow_error: str = "Jev shadow of #{number} failed: {error}"
     stage_closing: str = (
         "The title or the body of the pull request has the closing keyword {keyword} before an "
         "issue reference. A pull request that plans an item closes no issue."

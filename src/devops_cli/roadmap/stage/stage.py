@@ -102,6 +102,7 @@ from pathlib import Path
 from typing import Any, Final, NamedTuple, NoReturn, Protocol
 
 from pydantic import BaseModel
+from pydantic_ai.models.decision import NoulQuestion
 
 from devops_cli.ai.client import LLMClient, get_llm_client
 from devops_cli.ai.client.models import (
@@ -110,6 +111,7 @@ from devops_cli.ai.client.models import (
     StructuredOutputValidationError,
 )
 from devops_cli.ai.context_budget import truncate_to_token_limit
+from devops_cli.ai.jev import JevRouteDecision, route_with_jev
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.commands import BIN_OPENSPEC
 from devops_cli.config.constants import (
@@ -370,12 +372,27 @@ from devops_cli.telemetry.instruments import (
     ROADMAP_STAGE_GATE_EXTENSION_TOTAL,
     ROADMAP_STAGE_GATE_PROBLEMS,
     ROADMAP_STAGE_GATE_REFUSALS_TOTAL,
+    ROADMAP_STAGE_JEV_TOTAL,
     ROADMAP_STAGE_PLAN_RECORD_TOTAL,
     ROADMAP_STAGE_TOTAL,
     emit,
 )
 
 logger = logging.getLogger(__name__)
+
+# The shadow route of `roadmap.stage.jev_shadow` (#4284): the two tiers that Jev picks between, and
+# the extra question about concrete files and criteria. The tier keys are the label values of
+# `devops_cli_roadmap_stage_jev_total`, so the picked tier names its series.
+_SHADOW_TIERS: Final[dict[str, str]] = {
+    "deepseek": "The hosted DeepSeek tier for routine and standard work.",
+    "sonnet": "The frontier Sonnet tier for complex or high-risk work.",
+}
+_SHADOW_CONCRETE_FILES: Final[str] = "concrete_files"
+_SHADOW_QUESTIONS: Final[dict[str, Any]] = {
+    _SHADOW_CONCRETE_FILES: NoulQuestion(
+        instructions="Does the item name concrete files and acceptance criteria?",
+    ),
+}
 
 # The row of the step seconds that this job sends (#4066).
 _ROW = "stage"
@@ -1343,6 +1360,7 @@ class _Planner:
         gate_returns: int | None = None,
         time_budget: TimeBudget | None = None,
         dependency_title: Callable[[int], str | None] | None = None,
+        jev_route: Callable[..., JevRouteDecision] | None = None,
     ) -> None:
         self._client = client
         # The title of a declared dependency of an item (#4008): the store of the round when the
@@ -1356,6 +1374,10 @@ class _Planner:
         stage = load_settings().roadmap.stage
         # The returns of a refused reply: `roadmap.stage.gate_returns` when none is given (#4802).
         self._gate_returns = stage.gate_returns if gate_returns is None else gate_returns
+        # The shadow route of `roadmap.stage.jev_shadow` (#4284): the Jev tier choice of each item
+        # before its first plan call, when the switch is on, and the call that gives it.
+        self._jev_shadow = stage.jev_shadow
+        self._jev_route = jev_route or route_with_jev
         # The extra returns of an item past them (#4851, #5440).
         self._extension_limit = stage.gate_return_extensions
         # The repair rounds of the model review and their ceiling (#5066, #5440).
@@ -1491,6 +1513,7 @@ class _Planner:
             else None
         )
         if kept is None:
+            self._shadow_choice(target)
             request = self._request(target)
             if self._premise is not None:
                 return self._premise
@@ -1512,6 +1535,40 @@ class _Planner:
         if isinstance(outcome, StagedChange) and self._traces:
             return replace(outcome, trace=RunTrace.combined(self._traces))
         return outcome
+
+    def _shadow_choice(self, target: StageTarget) -> None:
+        """Log and count the shadow Jev tier choice of `target`, before its first plan call (#4284).
+
+        The call is a record only: it changes no plan, no model and no item list. With
+        `roadmap.stage.jev_shadow` off, the job makes no call and logs no line. A call that fails
+        logs the error, counts `choice=error` and returns, so a Jev error never stops the item."""
+        if not self._jev_shadow:
+            return
+        item = target.item
+        try:
+            decision = self._jev_route(
+                {"number": item.number, "title": item.title, "body": item.body},
+                tiers=_SHADOW_TIERS,
+                extra_questions=_SHADOW_QUESTIONS,
+            )
+        except Exception as exc:  # a Jev error is a record and never stops the item
+            logger.warning(
+                MESSAGES.roadmap.stage_jev_shadow_error.format(
+                    number=item.number, error=f"{type(exc).__name__}: {exc}"[:300]
+                )
+            )
+            emit(ROADMAP_STAGE_JEV_TOTAL, 1, {"choice": "error"})
+            return
+        logger.info(
+            MESSAGES.roadmap.stage_jev_shadow.format(
+                number=item.number,
+                choice=decision.picked_model,
+                complexity=f"{decision.complexity_score:.2f}",
+                high_risk=f"{decision.high_risk_probability:.2f}",
+                concrete=f"{decision.extra_probabilities.get(_SHADOW_CONCRETE_FILES, 0.0):.2f}",
+            )
+        )
+        emit(ROADMAP_STAGE_JEV_TOTAL, 1, {"choice": decision.picked_model})
 
     def _start_item(self) -> None:
         """Clear the state of the item before, so the next item starts with no trace, no refused
