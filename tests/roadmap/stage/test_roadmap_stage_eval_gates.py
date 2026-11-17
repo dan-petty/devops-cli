@@ -57,8 +57,9 @@ _MODULE_FIXTURE = '@pytest.fixture(scope="module")'
 # verify of case 2576 runs a test module that no list of group 1 names (#3463). The case of #3390
 # adds one defect that the `paths` gate judges: a plan that states a wrong constant. The case of #3407
 # adds one defect that the `paths` gate judges: the decision that `StagedTree` holds file text
-# quotes no text of the class.
-JUDGED_BASELINE: Final[tuple[int, int]] = (85, 322)
+# quotes no text of the class. The case of #3491 adds one defect that the `paths` gate judges: a
+# coverage setting in pyproject.toml with a spec delta.
+JUDGED_BASELINE: Final[tuple[int, int]] = (86, 322)
 
 
 @pytest.fixture(scope="module")
@@ -322,7 +323,7 @@ def test_the_counts_of_each_type_are_the_baseline_that_a_change_of_a_gate_beats(
     counts = {t.type: (t.caught, t.missed, t.unjudged) for t in report.by_type()}
 
     assert counts[DefectType.MISSING_PATH] == (37, 0, 0)
-    assert counts[DefectType.SPEC_DELTA_WRONG] == (7, 0, 19)
+    assert counts[DefectType.SPEC_DELTA_WRONG] == (8, 0, 18)
     assert counts[DefectType.VERIFY_FORM] == (7, 0, 12)
     assert counts[DefectType.TASK_ORDER] == (1, 0, 8)
     assert counts[DefectType.IGNORES_EXISTING_CODE] == (0, 0, 23)
@@ -512,6 +513,145 @@ def test_the_replay_of_the_plan_of_2526_is_refused_for_the_spec_delta_of_a_root_
         "These paths need no spec delta" in problem for problem in replay.problems[GateName.PATHS]
     )
     assert replay.failures == []
+
+
+def test_the_replay_of_the_plan_of_2163_is_refused_for_the_spec_delta_of_a_tool_setting_change(
+    cases: list[StageCase],
+) -> None:
+    case = next(c for c in cases if c.issue == 2163)
+    delta = next(d for d in case.defects if d.type is DefectType.SPEC_DELTA_WRONG)
+
+    replay = replay_case(case)
+
+    assert delta.gate is GateName.PATHS
+    assert next(o.status for o in replay.outcomes if o.defect is delta) is DefectStatus.CAUGHT
+    assert any(
+        "These paths need no spec delta" in problem for problem in replay.problems[GateName.PATHS]
+    )
+    assert replay.failures == []
+
+
+TOOL_SETTING_DIFF: Final[str] = """--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -265,3 +265,4 @@
+ [tool.coverage.report]
+ fail_under = 85
+ show_missing = true
++skip_covered = true
+"""
+
+DEPENDENCY_DIFF: Final[str] = """--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -50,3 +50,4 @@
+ dependencies = [
+     "pydantic",
++    "unidiff",
+ ]
+"""
+
+ENTRY_POINT_DIFF: Final[str] = """--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -99,3 +99,3 @@
+ [project.scripts]
+-devops = "devops_cli.cli:main"
++devops = "devops_cli.main:main"
+"""
+
+
+def test_a_tool_setting_diff_refuses_a_spec_delta_and_a_dependency_diff_accepts_it(
+    cases: list[StageCase],
+) -> None:
+    case = next(c for c in cases if c.issue == 2163)
+    tool_plan = PlanUnderTest.of_case(
+        case.model_copy(
+            update={"facts": case.facts.model_copy(update={"pyproject_diff": TOOL_SETTING_DIFF})}
+        )
+    )
+    dep_plan = PlanUnderTest.of_case(
+        case.model_copy(
+            update={"facts": case.facts.model_copy(update={"pyproject_diff": DEPENDENCY_DIFF})}
+        )
+    )
+    entry_plan = PlanUnderTest.of_case(
+        case.model_copy(
+            update={"facts": case.facts.model_copy(update={"pyproject_diff": ENTRY_POINT_DIFF})}
+        )
+    )
+
+    tool_problems = run_gates(tool_plan)[GateName.PATHS]
+    dep_problems = run_gates(dep_plan)[GateName.PATHS]
+    entry_problems = run_gates(entry_plan)[GateName.PATHS]
+
+    assert any("These paths need no spec delta" in problem for problem in tool_problems)
+    assert not any("These paths need no spec delta" in problem for problem in dep_problems)
+    assert not any("These paths need no spec delta" in problem for problem in entry_problems)
+
+
+_PYPROJECT_HEADER: Final[str] = "--- a/pyproject.toml\n+++ b/pyproject.toml\n"
+# A pyproject.toml whose hunk below starts after the header of its table: line 1 is the header.
+_BASE_UNDER = "[{table}]\na = 1\nb = 2\nc = 3\nd = 4\ne = 5\n"
+_HUNK_UNDER_TABLE = "@@ -5,2 +5,3 @@\n d = 4\n e = 5\n+f = 6\n"
+
+
+@pytest.mark.parametrize(
+    ("diff", "base", "tool_setting"),
+    [
+        pytest.param("", "", False, id="no-diff"),
+        pytest.param(
+            "--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-old\n+new\n"
+            f"{_PYPROJECT_HEADER}@@ -1,1 +1,2 @@\n [tool.ruff]\n+line-length = 99\n",
+            "",
+            True,
+            id="another-file-beside-a-tool-key",
+        ),
+        pytest.param(
+            f"{_PYPROJECT_HEADER}{_HUNK_UNDER_TABLE}",
+            _BASE_UNDER.format(table="tool.ruff"),
+            True,
+            id="tool-header-before-the-hunk",
+        ),
+        pytest.param(
+            f"{_PYPROJECT_HEADER}{_HUNK_UNDER_TABLE}",
+            _BASE_UNDER.format(table="project"),
+            False,
+            id="project-header-before-the-hunk",
+        ),
+        pytest.param(
+            f"{_PYPROJECT_HEADER}@@ -1,1 +1,3 @@\n [tool.ruff]\n+[tool.mypy]\n+strict = true\n",
+            "",
+            True,
+            id="added-tool-table",
+        ),
+        pytest.param(
+            f"{_PYPROJECT_HEADER}@@ -1,1 +1,3 @@\n [tool.ruff]\n+[project.scripts]\n"
+            '+devops = "devops_cli.cli:main"\n',
+            "",
+            False,
+            id="added-project-table",
+        ),
+        pytest.param(
+            f"{_PYPROJECT_HEADER}@@ -1,1 +1,4 @@\n [tool.ruff]\n+# Why the line is long.\n+\n"
+            "+line-length = 99\n",
+            "",
+            True,
+            id="comment-and-blank-line-beside-a-tool-key",
+        ),
+        pytest.param(
+            f"{_PYPROJECT_HEADER}@@ -1,2 +1,2 @@\n [tool.ruff]\n-line-length = 88\n"
+            "\\ No newline at end of file\n+line-length = 99\n\\ No newline at end of file\n",
+            "[tool.ruff]\nline-length = 88",
+            True,
+            id="removed-key-and-no-newline-marker",
+        ),
+    ],
+)
+def test_a_pyproject_diff_is_a_tool_setting_only_when_every_changed_key_is_under_a_tool_table(
+    diff: str, base: str, tool_setting: bool
+) -> None:
+    """The paths gate reads the diff of pyproject.toml, so a change of a tool setting needs no
+    spec delta and a change of another table does (#3491). A table header outside the context of
+    a hunk comes from the base file."""
+    assert stage_change.is_tool_setting_diff(diff, base) is tool_setting
 
 
 ACCEPTANCE_BODY = "Text.\n\n### Acceptance criteria\n\n- [ ] First.\n- [ ] Second.\n"

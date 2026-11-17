@@ -73,8 +73,8 @@
    "where": "specs/ci-coverage-reports/spec.md",
    "problem": "openspec/config.yaml says a change that alters only CI workflows or tests has no spec delta and sets skip_specs: true. This change adds a delta and its .openspec.yaml has no skip_specs. The requirement text says 'at most 14 days' but the design and task say 7. The scenario checks only that a `retention-days` input exists, so the 14-day bound has no test. Proposal Feasibility also says the key sits 'at line 229' in the same sentence that cites the issue's old lines 197-202, which mixes two commits.",
    "evidence": "openspec/config.yaml: 'A change that alters no behavior a consumer observes (tests, CI workflows, documentation, ...) has no spec delta and sets skip_specs: true'. .openspec.yaml holds only 'schema: spec-driven' and 'created: 2026-11-01'. Spec: 'a retention period of at most 14 days'. `openspec validate` on origin/main says the change is valid, and openspec/specs/ci-coverage-reports exists, so ADDED is legal.",
-   "gate": "none",
-   "reason": "The group changes pyproject.toml. The rule for a delta that is not needed lists only tests/, .github/workflows/, docs/ and openspec/."
+   "gate": "paths",
+   "message": "These paths need no spec delta"
   },
   {
    "type": "false_premise",

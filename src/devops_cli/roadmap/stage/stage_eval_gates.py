@@ -102,6 +102,7 @@ class PlanUnderTest:
     classes: Mapping[str, str] = field(default_factory=dict)
     change: str = ""
     trace: TraceFacts | None = None
+    pyproject_diff: str = ""
 
     @classmethod
     def of_case(
@@ -153,6 +154,7 @@ class PlanUnderTest:
             classes=dict(case.facts.classes),
             change=case.change,
             trace=trace,
+            pyproject_diff=case.facts.pyproject_diff,
         )
 
     @classmethod
@@ -233,6 +235,7 @@ def _path_gate(plan: PlanUnderTest) -> list[str]:
         manifest_references=plan.manifest_references or None,
         references=plan.references,
         trace=plan.trace,
+        pyproject_diff=plan.pyproject_diff,
     )
     return joined_problems(
         {gate: problems for gate, problems in found.items() if gate is not ProposalGate.CRITERIA}

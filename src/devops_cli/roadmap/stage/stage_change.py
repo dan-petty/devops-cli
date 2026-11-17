@@ -759,6 +759,93 @@ def _spec_problems(spec: StageSpec, known: Collection[str]) -> list[str]:
     return problems
 
 
+_TABLE_HEADER_PATTERN: Final[re.Pattern[str]] = re.compile(r"^\s*\[+([A-Za-z0-9_\.\-]+)\]+\s*$")
+
+
+def _is_tool_table(table: str | None) -> bool:
+    return table is not None and (table == "tool" or table.startswith("tool."))
+
+
+def _find_table_header_in_base(base_lines: Sequence[str], target_line: int) -> str | None:
+    for idx in range(min(target_line, len(base_lines) - 1), -1, -1):
+        if match := _TABLE_HEADER_PATTERN.match(base_lines[idx]):
+            return match.group(1)
+    return None
+
+
+def _process_hunk_line(
+    line: Any,
+    last_base_line: int,
+    current_added_table: str | None,
+    base_lines: Sequence[str],
+) -> tuple[int, str | None, bool, bool]:
+    """Returns (new_last_base_line, new_current_added_table, is_changed, is_valid_tool_setting)."""
+    if line.is_context:
+        new_last = (line.source_line_no or 1) - 1
+        if match := _TABLE_HEADER_PATTERN.match(line.value):
+            return new_last, match.group(1), False, True
+        return new_last, current_added_table, False, True
+
+    if not (line.is_added or line.is_removed):
+        return last_base_line, current_added_table, False, True
+
+    val = line.value.strip()
+    if not val or val.startswith("#"):
+        return last_base_line, current_added_table, False, True
+
+    if match := _TABLE_HEADER_PATTERN.match(val):
+        table = match.group(1)
+        new_added = table if line.is_added else current_added_table
+        return last_base_line, new_added, True, _is_tool_table(table)
+
+    if current_added_table is not None and line.is_added:
+        table = current_added_table
+    else:
+        target = (line.source_line_no - 1) if line.is_removed else last_base_line
+        table = _find_table_header_in_base(base_lines, target)
+
+    return last_base_line, current_added_table, True, _is_tool_table(table)
+
+
+def _scan_patched_file(patched_file: Any, base_lines: Sequence[str]) -> tuple[bool, int]:
+    changed_keys = 0
+    current_added_table: str | None = None
+    for hunk in patched_file:
+        last_base_line = hunk.source_start - 1
+        for line in hunk:
+            last_base_line, current_added_table, is_changed, ok = _process_hunk_line(
+                line, last_base_line, current_added_table, base_lines
+            )
+            if not ok:
+                return False, 0
+            if is_changed:
+                changed_keys += 1
+    return True, changed_keys
+
+
+def is_tool_setting_diff(diff_text: str, base_text: str = "") -> bool:
+    """Whether every changed TOML key in `diff_text` for `pyproject.toml` is under a `[tool.*]` table (#3491)."""
+    if not diff_text.strip():
+        return False
+    from unidiff.errors import UnidiffParseError
+    from unidiff.patch import PatchSet
+
+    try:
+        patch = PatchSet(diff_text)
+    except UnidiffParseError:
+        return False
+    base_lines = base_text.splitlines() if base_text else []
+    changed_keys = 0
+    for patched_file in patch:
+        if patched_file.path != "pyproject.toml":
+            continue
+        valid, count = _scan_patched_file(patched_file, base_lines)
+        if not valid:
+            return False
+        changed_keys += count
+    return changed_keys > 0
+
+
 def _is_no_spec_path(path: str) -> bool:
     """Whether `path` needs no spec delta: a prefix in `_NO_SPEC_PREFIXES` or a document at the
     root outside `src/` (#3013, #3212)."""
@@ -767,10 +854,24 @@ def _is_no_spec_path(path: str) -> bool:
     )
 
 
-def _needs_no_spec(proposal: StageProposal) -> bool:
+def _needs_no_spec(
+    proposal: StageProposal,
+    pyproject_diff: str = "",
+    base_pyproject: str = "",
+) -> bool:
     """Whether every path of `changes`, in every group, is a test, a workflow, a document or a
-    plan: a change that no consumer observes (#3013, #3212)."""
-    return all(_is_no_spec_path(path) for group in proposal.groups for path in group.changes)
+    plan: a change that no consumer observes (#3013, #3212, #3491)."""
+    has_pyproject = any(
+        path == "pyproject.toml" for group in proposal.groups for path in group.changes
+    )
+    if has_pyproject:
+        if not pyproject_diff or not is_tool_setting_diff(pyproject_diff, base_pyproject):
+            return False
+    return all(
+        path == "pyproject.toml" or _is_no_spec_path(path)
+        for group in proposal.groups
+        for path in group.changes
+    )
 
 
 def _duplicate_problems(spec: StageSpec, requirements: Mapping[str, Collection[str]]) -> list[str]:
@@ -983,6 +1084,9 @@ def _delta_problems(
     known: Collection[str],
     requirements: Mapping[str, Collection[str]],
     requirement_texts: Mapping[str, Mapping[str, str]] | None = None,
+    *,
+    pyproject_diff: str = "",
+    base_pyproject: str = "",
 ) -> list[str]:
     """What is wrong with the spec delta of `proposal` as a whole and in each capability.
     `requirement_texts` maps the name of each base requirement to its statement, by capability: a
@@ -994,7 +1098,11 @@ def _delta_problems(
         problems.append(texts.stage_problem_skip_with_specs)
     if not proposal.skip_specs and not proposal.specs:
         problems.append(texts.stage_problem_no_specs)
-    if not proposal.skip_specs and proposal.specs and _needs_no_spec(proposal):
+    if (
+        not proposal.skip_specs
+        and proposal.specs
+        and _needs_no_spec(proposal, pyproject_diff, base_pyproject)
+    ):
         problems.append(
             texts.stage_problem_specs_not_needed.format(prefixes=_NO_SPEC_PREFIXES_TEXT)
         )
@@ -2717,13 +2825,24 @@ def check_gates(
     module_tests: Mapping[str, Sequence[str]] | None = None,
     trace: TraceFacts | None = None,
     judged: Collection[str] = (),
+    pyproject_diff: str = "",
+    base_pyproject: str = "",
 ) -> dict[ProposalGate, list[str]]:
     """What each gate of `check_proposal` finds wrong in `proposal`, one sentence each, under the
     name of the gate. Every gate has a key, and a gate that finds nothing has an empty list. The
     keys follow the order of `ProposalGate`. The arguments are those of `check_proposal`."""
+    if not base_pyproject and read_text is not None:
+        base_pyproject = read_text("pyproject.toml") or ""
     return {
         ProposalGate.SPEC_DELTA: [
-            *_delta_problems(proposal, known, requirements or {}, requirement_texts),
+            *_delta_problems(
+                proposal,
+                known,
+                requirements or {},
+                requirement_texts,
+                pyproject_diff=pyproject_diff,
+                base_pyproject=base_pyproject,
+            ),
             *_scenario_problems(proposal.specs, proposal.groups, tree, base_scenarios),
         ],
         ProposalGate.CONTENT: content_problems(proposal, probes),
@@ -2788,6 +2907,8 @@ def check_proposal(
     module_tests: Mapping[str, Sequence[str]] | None = None,
     trace: TraceFacts | None = None,
     judged: Collection[str] = (),
+    pyproject_diff: str = "",
+    base_pyproject: str = "",
 ) -> list[str]:
     """What the rules of `openspec/config.yaml` and the files of the commit find wrong in
     `proposal`, one sentence each. `known` holds the names of the capabilities under
@@ -2843,6 +2964,8 @@ def check_proposal(
         module_tests=module_tests,
         trace=trace,
         judged=judged,
+        pyproject_diff=pyproject_diff,
+        base_pyproject=base_pyproject,
     )
     return joined_problems(found)
 
