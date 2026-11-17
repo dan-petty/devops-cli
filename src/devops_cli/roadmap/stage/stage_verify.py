@@ -42,7 +42,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from difflib import SequenceMatcher
 from enum import StrEnum
 from pathlib import Path
@@ -64,6 +64,7 @@ from devops_cli.roadmap.pull_form import is_placeholder
 from devops_cli.roadmap.refine.refine_investigation import tokens_of, tool_stop
 from devops_cli.roadmap.stage.stage_change import capability_name, safe_text
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity
+from devops_cli.roadmap.stage.stage_pull_files import PullRequestFiles
 from devops_cli.roadmap.stage.stage_tools import with_call_budget
 from devops_cli.security.sanitizer import mask_secrets
 
@@ -420,14 +421,17 @@ def cited_files(source: Path, plan: Mapping[str, Any]) -> dict[str, str]:
 @dataclass(frozen=True)
 class VerificationInput:
     """What the model reads: the issue, the plan and the cited files, and after an agent run,
-    `reads`, the answers of its tools. A later review also reads `earlier`, the open findings of
-    the review before it, and `answer`, the text of the plan that the revision changed (#5409)."""
+    `reads`, the answers of its tools. `pull_requests` holds the changed files of each pull request
+    that the issue or the plan names, read at its merge commit, so a quote from one is evidence
+    (#3447). A later review also reads `earlier`, the open findings of the review before it, and
+    `answer`, the text of the plan that the revision changed (#5409)."""
 
     number: int
     title: str
     body: str
     plan: Mapping[str, Any]
     files: Mapping[str, str]
+    pull_requests: Mapping[int, PullRequestFiles] = field(default_factory=dict)
     reads: tuple[str, ...] = ()
     earlier: tuple[Finding, ...] = ()
     answer: tuple[str, ...] = ()
@@ -444,23 +448,30 @@ class VerificationInput:
         window: int | None = None,
         earlier: Sequence[Finding] = (),
         previous: Mapping[str, Any] | None = None,
+        pull_requests: Mapping[int, PullRequestFiles] | None = None,
     ) -> VerificationInput:
-        """The input for `plan` of issue `number`, with the cited files read from `source`. With
-        `window`, the context window of the model that serves the run in tokens, the request keeps
-        the first cited files, in plan order, that leave the tools room to read (#3039): with its
-        instructions, the request stays `CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS` below the point
-        where the run offers no more tools (`tool_stop`). With `earlier`, the open findings of the
-        review of `previous`, the plan before the repair, the input is that of a later review, and
-        `answer` holds the text of `plan` that `previous` does not hold (#5409)."""
+        """The input for `plan` of issue `number`, with the cited files read from `source` and the
+        named pull request files `pull_requests` (#3447). With `window`, the context window of the
+        model that serves the run in tokens, the request keeps the first cited files, in plan order,
+        that leave the tools room to read (#3039): with its instructions, the request stays
+        `CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS` below the point where the run offers no more tools
+        (`tool_stop`). With `earlier`, the open findings of the review of `previous`, the plan before
+        the repair, the input is that of a later review, and `answer` holds the text of `plan` that
+        `previous` does not hold (#5409)."""
         text = truncate_to_token_limit(body, CONST_ROADMAP_STAGE_VERIFY_BODY_MAX_TOKENS)
         found = tuple(earlier)
+        pulls = dict(pull_requests or {})
         answer = changed_texts(previous or {}, plan) if found else ()
         files = cited_files(source, plan)
         if window is not None:
-            base = cls(number, title, text, plan, {}, earlier=found, answer=answer)
+            base = cls(
+                number, title, text, plan, {}, pull_requests=pulls, earlier=found, answer=answer
+            )
             limit = tool_stop(window) - CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS
             files = _fitting(files, base, limit)
-        return cls(number, title, text, plan, files, earlier=found, answer=answer)
+        return cls(
+            number, title, text, plan, files, pull_requests=pulls, earlier=found, answer=answer
+        )
 
     def with_reads(self, answers: Iterable[str]) -> VerificationInput:
         """This input with the tool `answers` of the run, which a quote may also come from."""
@@ -472,7 +483,9 @@ class VerificationInput:
 
     def payload(self) -> dict[str, Any]:
         """The request as the JSON document that the prompt describes. Only a later review has
-        the keys `earlier`, each earlier open finding with its number, and `answer`."""
+        the keys `earlier`, each earlier open finding with its number, and `answer`. Only a request
+        that names a pull request has `pull_requests`, the changed files of each at its merge
+        commit (#3447)."""
         payload: dict[str, Any] = {
             "number": self.number,
             "title": self.title,
@@ -480,6 +493,11 @@ class VerificationInput:
             "plan": dict(self.plan),
             "files": dict(self.files),
         }
+        if self.pull_requests:
+            payload["pull_requests"] = {
+                str(number): {"commit": entry.commit, "files": dict(entry.files)}
+                for number, entry in self.pull_requests.items()
+            }
         if self.earlier:
             payload["earlier"] = [
                 {"number": number, **finding.model_dump(mode="json")}
@@ -500,10 +518,12 @@ class VerificationInput:
         return bool(wanted) and any(wanted in _folded(text) for text in self.answer)
 
     def request_texts(self) -> Iterable[str]:
-        """The texts of the request."""
+        """The texts of the request, the files of a named pull request included (#3447)."""
         yield from (self.title, self.body)
         yield from _strings(self.plan)
         yield from self.files.values()
+        for entry in self.pull_requests.values():
+            yield from entry.files.values()
 
     def texts(self) -> Iterable[str]:
         """The texts that a quote may come from: the request and each tool answer, as the tool

@@ -67,12 +67,16 @@ class CommitRef(BaseModel):
 
 
 class PullRequest(BaseModel):
-    """The fields of a pull request that devops-cli reads."""
+    """The fields of a pull request that devops-cli reads. `merged` says whether it merged, and
+    `merge_commit_sha` is the commit it merged on, which GitHub also gives for an unmerged pull
+    request as its test merge commit (#3447)."""
 
     title: str
     head: CommitRef
     base: CommitRef
     labels: tuple[str, ...] = ()
+    merged: bool = False
+    merge_commit_sha: str | None = None
 
     @field_validator("labels", mode="before")
     @classmethod

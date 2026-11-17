@@ -46,7 +46,7 @@ from devops_cli.roadmap.stage.stage_verify import (
     verify,
 )
 from devops_cli.roadmap.stage.stage_verify import Verification as VerificationReply
-from tests.support.paths import FIXTURES
+from tests.support.paths import FIXTURES, REPO_ROOT
 from tests.support.roadmap_fix_plan import head_files, place
 from tests.support.scripted_model import Script, call
 
@@ -1277,3 +1277,108 @@ def test_the_largest_golden_plan_keeps_its_files_in_plan_order_within_the_window
         0 < len(kept) < len(names),
         kept,
     ) == (True, True, names[: len(kept)])
+
+
+# The claim of #3410 about pull request #3378, its merge commit, the literal that its file holds,
+# and the file of the #3378 pull request that holds it (#3447).
+STAGE_3410_CLAIM = "The plan of #3372 in pull request #3378 chose"
+STAGE_3410_LITERAL = "! git grep -n -F devops_cli.roadmap.stage src/ tests/"
+STAGE_3378_COMMIT = "6c15a64a614941629669a181e3220ae8bc7e27d0"
+STAGE_3378_FILE = "tests/roadmap/stage/test_roadmap_stage_move_prefix.py"
+STAGE_3372_ARCHIVE = (
+    REPO_ROOT / "openspec" / "changes" / "archive" / "2026-11-04-3372-the-stage-plan-of-a-module"
+)
+
+
+def test_only_the_phrase_pull_request_names_a_pull_request() -> None:
+    from devops_cli.roadmap.stage.stage_pull_files import named_pull_requests
+
+    texts = [
+        "The plan of #3372 in pull request #3378 chose a literal.",
+        "See PR #3410 and #3435 and issue #1.",
+        "pr #9 names the same pull request.",
+        "pull request #3378 again",
+    ]
+
+    assert named_pull_requests(texts) == [3378, 3410, 9]
+
+
+def test_the_payload_holds_the_named_pull_request_files() -> None:
+    from devops_cli.roadmap.stage.stage_pull_files import PullRequestFiles
+
+    files = PullRequestFiles(
+        3378, "6c15a64a", {"src/devops_cli/roadmap/stage_move.py": "move_prefix_problems = 1\n"}
+    )
+
+    given = VerificationInput.of(
+        number=3410,
+        title="fix(roadmap): the stage gate proves a negative search",
+        body="The plan of #3372 in pull request #3378 chose a literal.",
+        plan=PLAN,
+        source=Path("/nonexistent"),
+        pull_requests={3378: files},
+    )
+
+    assert given.payload()["pull_requests"] == {
+        "3378": {
+            "commit": "6c15a64a",
+            "files": {"src/devops_cli/roadmap/stage_move.py": "move_prefix_problems = 1\n"},
+        }
+    }
+    assert given.contains("move_prefix_problems = 1")
+
+
+def _recorded_3378_plan() -> dict[str, str]:
+    """The recorded #3378 plan at its merge commit: the change folder of the archived plan."""
+    return {
+        path.name: path.read_text(encoding="utf-8")
+        for path in (STAGE_3372_ARCHIVE / "proposal.md", STAGE_3372_ARCHIVE / "tasks.md")
+    }
+
+
+def test_a_quote_from_a_named_pull_request_file_is_evidence_for_the_3410_claim() -> None:
+    """The claim of #3410 about pull request #3378 (#3447): the recorded plan holds no move group,
+    and a `false_premise` finding that quotes the literal of a #3378 file is open."""
+    from devops_cli.roadmap.stage.stage_pull_files import PullRequestFiles
+
+    body = (
+        FIXTURES
+        / "roadmap_eval"
+        / "stage"
+        / "3410-a-plan-that-states-a-wrong-constant"
+        / "issue.txt"
+    ).read_text(encoding="utf-8")
+    plan = _recorded_3378_plan()
+    given = VerificationInput.of(
+        number=3410,
+        title="fix(roadmap): the stage gate proves a negative search",
+        body=body,
+        plan=plan,
+        source=Path("/nonexistent"),
+        pull_requests={
+            3378: PullRequestFiles(
+                3378,
+                STAGE_3378_COMMIT,
+                {STAGE_3378_FILE: f'    problems = _check([_move("{STAGE_3410_LITERAL}")])\n'},
+            )
+        },
+    )
+    finding = Finding(
+        type=DefectType.FALSE_PREMISE,
+        severity=Severity.MAJOR,
+        where=place("issue", STAGE_3410_CLAIM),
+        problem="The named pull request holds no move group of the stage modules.",
+        quote=STAGE_3410_LITERAL,
+    )
+
+    assert STAGE_3410_LITERAL in given.pull_requests[3378].files[STAGE_3378_FILE]
+    assert "src/devops_cli/roadmap/stage/" not in plan["tasks.md"]
+    assert open_findings([finding], given) == [finding]
+
+
+def test_the_prompt_names_the_pull_request_files() -> None:
+    prompt = load_task_prompt("roadmap_stage_verify.md")
+
+    assert "`pull_requests`" in prompt
+    assert "`commit`" in prompt
+    assert "a file in a `pull_requests` entry" in prompt
