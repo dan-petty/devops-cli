@@ -14,8 +14,8 @@ devops ci [OPTIONS] COMMAND [ARGS]...
 | `--check` | `boolean` | - | Run in check-only mode without automatically applying formatting or lint fixes. |
 | `--cache` / `--no-cache` | `boolean` | `True` | Reuse a cached verdict when the codebase is unchanged. Results are recorded either way. |
 | `--force`, `-f` | `boolean` | - | Bypass CI execution cache and force re-execution of all quality gates. |
-| `--only` | `string` | - | Run only the specified check names (test, lint, format, typecheck, audit, security, actionlint, zizmor, docs, uv-check, lockfile, build, outdated, deps, constructs, devcontainer, openspec, git, test-settings, bwrap, k8s, test-tree, startup-imports, swallowed-failures, domain, roadmap-stage-eval-commits). Comma-separated or repeated. |
-| `--skip` | `string` | - | Skip the specified check names (test, lint, format, typecheck, audit, security, actionlint, zizmor, docs, uv-check, lockfile, build, outdated, deps, constructs, devcontainer, openspec, git, test-settings, bwrap, k8s, test-tree, startup-imports, swallowed-failures, domain, roadmap-stage-eval-commits). Comma-separated or repeated. |
+| `--only` | `string` | - | Run only the specified check names (test, lint, format, typecheck, audit, security, actionlint, zizmor, docs, uv-check, lockfile, build, outdated, deps, constructs, devcontainer, openspec, git, test-settings, bwrap, kube-linter, k8s, test-tree, startup-imports, swallowed-failures, domain, roadmap-stage-eval-commits). Comma-separated or repeated. |
+| `--skip` | `string` | - | Skip the specified check names (test, lint, format, typecheck, audit, security, actionlint, zizmor, docs, uv-check, lockfile, build, outdated, deps, constructs, devcontainer, openspec, git, test-settings, bwrap, kube-linter, k8s, test-tree, startup-imports, swallowed-failures, domain, roadmap-stage-eval-commits). Comma-separated or repeated. |
 | `--shard` | `integer` | `1` | Number of the part of the test suite this run covers, from 1 to --shards. CI runs each part on its own runner. |
 | `--shards` | `integer` | `1` | Number of parts the test suite splits into. Above 1, the run covers one part, checks no coverage floor and leaves no cached verdict. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
@@ -480,6 +480,22 @@ devops ci git [OPTIONS]
 
 ```bash
 devops ci bwrap [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops ci kube-linter`
+
+**Run the kube-linter check.**
+
+```bash
+devops ci kube-linter [OPTIONS]
 ```
 
 **Options:**

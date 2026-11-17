@@ -57,6 +57,7 @@ def test_command_builders() -> None:
     )
     assert (
         build_kubelinter_cmd("k8s"),
+        build_kubelinter_cmd("renders", config=Path("/srv/tree/.kube-linter.yaml")),
         build_pluto_cmd("k8s"),
         build_pluto_cmd("k8s/deployment.yaml"),
         build_pluto_cmd(Path("/srv/tree/k8s/deployment.yaml"), cwd=Path("/srv/tree/k8s")),
@@ -64,6 +65,15 @@ def test_command_builders() -> None:
         build_uv_audit_cmd(),
     ) == (
         [BIN_KUBELINTER, "lint", "k8s", "--format", "json"],
+        [
+            BIN_KUBELINTER,
+            "lint",
+            "renders",
+            "--format",
+            "json",
+            "--config",
+            "/srv/tree/.kube-linter.yaml",
+        ],
         [BIN_PLUTO, "detect-files", "-d", "k8s", "-o", "json"],
         [BIN_PLUTO, "detect", "k8s/deployment.yaml", "-o", "json"],
         [BIN_PLUTO, "detect", "deployment.yaml", "-o", "json"],

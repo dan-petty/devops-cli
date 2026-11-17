@@ -214,7 +214,11 @@ NOT_IN_RUNNER: dict[str, str] = {
     "k9s": _NO_CLUSTER,
     "minikube": _NO_CLUSTER,
     "docker": _NO_CLUSTER,
-    "kube-linter": _SCANNER,
+    "kube-linter": (
+        "Only the `kube-linter` row runs it, on the builds of the Argo CD Applications (#6068). The "
+        "Static Analysis job of `ci.yml` installs it. A Job runs no `kube-linter` row, so the pull "
+        "request checks it."
+    ),
     "popeye": _SCANNER,
     "pluto": _SCANNER,
     "kubeconform": _SCANNER,

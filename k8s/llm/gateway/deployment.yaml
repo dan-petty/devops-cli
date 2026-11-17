@@ -10,6 +10,13 @@ metadata:
     app.kubernetes.io/part-of: devops-cli-stack
 spec:
   replicas: 1
+  # The new pod gets ready before the old pod stops (RL1, docs/SERVICE_PATTERNS.md). For 3
+  # replicas or fewer, these are the default values of Kubernetes.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: llm-gateway

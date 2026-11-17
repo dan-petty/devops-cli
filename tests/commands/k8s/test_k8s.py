@@ -769,6 +769,63 @@ def test_k8s_lint_exit_codes(tmp_path: Path, scanner_fake: ScannerFake) -> None:
     assert "Kube-linter audit passed" not in res.output
 
 
+_LINTED_APPLICATION = """apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: web
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/example/repo
+    path: k8s/web
+  destination:
+    namespace: web
+"""
+
+
+@pytest.mark.parametrize("has_config", [True, False], ids=["config", "no-config"])
+def test_k8s_lint_of_the_tree_lints_the_build_of_each_application(
+    tmp_path: Path, scanner_fake: ScannerFake, process_fake: ProcessFake, has_config: bool
+) -> None:
+    """With no target, `k8s lint` builds each path source of the Applications of the tree into one
+    folder, and kube-linter reads that folder with the config file of the repository, when the
+    repository holds one. A finding fails the command."""
+    root = tmp_path / "repo"
+    (root / "k8s" / "argocd" / "apps").mkdir(parents=True)
+    (root / "k8s" / "argocd" / "apps" / "web.yaml").write_text(_LINTED_APPLICATION, "utf-8")
+    (root / "k8s" / "web").mkdir()
+    (root / "k8s" / "web" / "kustomization.yaml").write_text("resources: []\n", "utf-8")
+    if has_config:
+        (root / ".kube-linter.yaml").write_text("checks: {}\n", "utf-8")
+    process_fake.answer(("kubectl", "kustomize"), ProcessAnswer(stdout="kind: Deployment\n"))
+    process_fake.answer(
+        lambda call: "remote.origin.url" in call.argv,
+        ProcessAnswer(stdout="https://github.com/example/repo.git\n"),
+    )
+    linted: list[tuple[list[str], tuple[str, ...]]] = []
+
+    def kube_linter(request: Any) -> ToolAnswer:
+        folder = Path(request.arguments[1])
+        linted.append(
+            (
+                [f"{p.name}: {p.read_text('utf-8')}" for p in sorted(folder.iterdir())],
+                request.arguments[2:],
+            )
+        )
+        return ToolAnswer(exit_code=1, stdout=_KUBE_LINTER_FINDING)
+
+    scanner_fake.answer_with("kube-linter", kube_linter)
+
+    res = runner.invoke(app, ["lint", "--k8s-dir", str(root / "k8s")])
+
+    config = ("--config", str(root / ".kube-linter.yaml")) if has_config else ()
+    assert (res.exit_code, linted) == (
+        1,
+        [(["web-0.yaml: kind: Deployment\n"], ("--format", "json", *config))],
+    )
+
+
 def test_k8s_apply_logs_and_urls(
     tmp_path: Path, cluster: FakeCluster, process_fake: ProcessFake, tcp_probe: TcpProbe
 ) -> None:

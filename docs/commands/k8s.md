@@ -472,7 +472,11 @@ devops k8s rbac-audit [OPTIONS]
 
 ## `devops k8s lint`
 
-**Validate K8s manifests and Helm charts using Red Hat Kube-linter.**
+**Lint Kubernetes manifests with kube-linter. With no TARGET, build each path source of the
+Argo CD Applications of the environment tree as Argo CD builds it, and lint the builds in one
+run with the .kube-linter.yaml of the repository that holds the tree. A git source of another
+public repository is fetched at its revision. Exits 1 on a finding, and when kube-linter did not
+run. The k8s row of devops ci runs it.**
 
 ```bash
 devops k8s lint [OPTIONS] <target>
@@ -482,12 +486,13 @@ devops k8s lint [OPTIONS] <target>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<target>` | `path` | No | Target K8s manifest file or directory to lint (default: the environment tree). |
+| `<target>` | `path` | No | A K8s manifest file or directory to lint as it is (default: the build of each path source of the Argo CD Applications of the environment tree). |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--k8s-dir` | `path` | - | The environment tree: the Kubernetes folder of the infra repo. Default: kubernetes.dir of the project profile of the current repository, else of the one infra repo that gives it. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

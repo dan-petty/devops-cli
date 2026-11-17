@@ -791,6 +791,10 @@ class K8sMessages:
     removing_llm_namespace: str = "[bold]Removing llm namespace...[/bold]"
     kube_linter_passed: str = "Kube-linter audit passed: no security warnings."
     kube_linter_not_run: str = "Kube-linter audit {status}: {reason}. The manifest was not audited, so the check did not pass."
+    kube_linter_tree: str = (
+        "[dim]Executing Kube-linter on the builds of {count} path sources of the Argo CD "
+        "Applications of '{root}'...[/dim]"
+    )
     kubeconform_not_run: str = "Kubeconform validation {status}: {reason}. kubeconform validated no manifest, so the check did not pass."
     popeye_executing: str = "[dim]Executing Popeye K8s cluster health sanitizer...[/dim]"
     popeye_passed: str = "Popeye cluster audit passed: no health warnings."
@@ -2216,6 +2220,7 @@ class CIMessages:
     devcontainer_validation: str = "devcontainer validation"
     openspec_validation: str = "openspec validation"
     git_transcripts: str = "git transcripts (recorded again with the real git)"
+    kube_linter: str = "kube-linter (the checks of .kube-linter.yaml on the Argo CD Applications)"
     k8s_manifests: str = "k8s manifests (kustomize renders of the committed applications)"
     test_tree: str = "test tree (invariants over the Python files of src and tests)"
     startup_imports: str = "startup imports (modules that each command imports at start)"

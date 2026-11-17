@@ -84,6 +84,11 @@ jobs:
       - name: Install Trivy
         run: uv run devops install-tools --tool trivy --only-missing
 
+      # The pinned kube-linter runs the `kube-linter` row of the gate: the checks of
+      # `.kube-linter.yaml` on the build of each path source of the Argo CD Applications (#6068).
+      - name: Install kube-linter
+        run: uv run devops install-tools --tool kube-linter --only-missing
+
       # The pinned actionlint validates the workflows. It is the same digest-pinned image that the
       # devcontainer Dockerfile copies, so the gate does not run actionlint twice (#1119).
       - name: Run actionlint
@@ -94,10 +99,12 @@ jobs:
         run: uv run devops ci --check --no-cache --skip test,outdated,actionlint
 
       # The scan skips Trivy's filesystem scan, `trivy`, which took 194 s over this tree. The audit
-      # row of the quality gate checks the dependencies.
+      # row of the quality gate checks the dependencies. It skips kube-linter, which reads only the
+      # root kustomization of a tree that it is given: the `kube-linter` row of the gate lints the
+      # build of each Application (#6068).
       - name: Security Scan
         if: always()
-        run: uv run devops scan report --sarif .data/scan.sarif --skip bandit,trivy
+        run: uv run devops scan report --sarif .data/scan.sarif --skip bandit,trivy,kubelinter
 
       - name: Upload Security Scan SARIF
         if: always()

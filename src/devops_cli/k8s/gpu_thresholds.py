@@ -34,6 +34,11 @@ _BEGIN_MARKER: Final[str] = "# BEGIN rendered by devops ai gateway render from g
 _END_MARKER: Final[str] = "# END rendered by devops ai gateway render from gpu-thresholds.yaml"
 _GPU_COUNT_ANNOTATION: Final[str] = "llm.devops.io/gpu-count"
 _EMBEDDING_MODEL_ANNOTATION: Final[str] = "llm.devops.io/embedding-model"
+# The annotations of a template that control the render. The render drops them, and a tier keeps
+# each other annotation of its template, such as the reason of a kube-linter exception (#6068).
+_RENDER_ANNOTATIONS: Final[frozenset[str]] = frozenset(
+    {_GPU_COUNT_ANNOTATION, _EMBEDDING_MODEL_ANNOTATION}
+)
 _GPU_INSTANCE_LABEL: Final[str] = "llm.devops.io/gpu-instance"
 _NAME_LABEL: Final[str] = "app.kubernetes.io/name"
 _PROVIDER_LABEL: Final[str] = "llm.devops.io/provider"
@@ -147,7 +152,13 @@ def _set_env(env: list[dict[str, str]], name: str, value: str) -> None:
 def _named_tier(template: dict[str, Any], thresholds: GpuThresholds) -> dict[str, Any]:
     """A copy of the template with the name and labels of what the thresholds make of it."""
     tier: dict[str, Any] = yaml.safe_load(yaml.safe_dump(template))
-    tier["metadata"].pop("annotations", None)
+    kept = {
+        key: value
+        for key, value in (tier["metadata"].pop("annotations", None) or {}).items()
+        if key not in _RENDER_ANNOTATIONS
+    }
+    if kept:
+        tier["metadata"]["annotations"] = kept
     embedding_only = _at_or_below(template, thresholds.embedding_only)
     per_gpu = _at_or_below(template, thresholds.per_gpu)
     if not embedding_only and not per_gpu:

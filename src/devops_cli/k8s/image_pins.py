@@ -47,13 +47,13 @@ from devops_cli.docker.registry import image_reference, tag_digest
 from devops_cli.exceptions.docker import RegistryReadError
 from devops_cli.exceptions.k8s import ImagePinError
 from devops_cli.exceptions.security import SSRFBlockedError
+from devops_cli.k8s.app_render import render_path_source
 from devops_cli.k8s.app_sources import (
     SourceTrees,
     application_sources,
     normalize_git_url,
     ref_sources,
     repository_origin,
-    source_revision,
 )
 from devops_cli.k8s.argocd_gate import discover_argocd_applications
 from devops_cli.k8s.environment import EnvironmentTree
@@ -256,9 +256,9 @@ def _application_renders(
             command = _chart_command(trees, name, source, namespace, refs)
             yield _render_chart(command, workdir / f"{name}-{index}"), command
         elif "path" in source:
-            tree = trees.tree(str(source.get("repoURL") or trees.origin), source_revision(source))
-            if not tree.planned:
-                yield build_manifest_path((tree.root / str(source["path"])).resolve()), None
+            rendered = render_path_source(trees, source)
+            if rendered is not None:
+                yield rendered, None
 
 
 @dataclass(frozen=True)

@@ -1394,7 +1394,7 @@
             }
           ],
           "default": null,
-          "description": "Run only the specified check names (test, lint, format, typecheck, audit, security, actionlint, zizmor, docs, uv-check, lockfile, build, outdated, deps, constructs, devcontainer, openspec, git, test-settings, bwrap, k8s, test-tree, startup-imports, swallowed-failures, domain, roadmap-stage-eval-commits). Comma-separated or repeated."
+          "description": "Run only the specified check names (test, lint, format, typecheck, audit, security, actionlint, zizmor, docs, uv-check, lockfile, build, outdated, deps, constructs, devcontainer, openspec, git, test-settings, bwrap, kube-linter, k8s, test-tree, startup-imports, swallowed-failures, domain, roadmap-stage-eval-commits). Comma-separated or repeated."
         },
         "shard": {
           "default": 1,
@@ -1421,7 +1421,7 @@
             }
           ],
           "default": null,
-          "description": "Skip the specified check names (test, lint, format, typecheck, audit, security, actionlint, zizmor, docs, uv-check, lockfile, build, outdated, deps, constructs, devcontainer, openspec, git, test-settings, bwrap, k8s, test-tree, startup-imports, swallowed-failures, domain, roadmap-stage-eval-commits). Comma-separated or repeated."
+          "description": "Skip the specified check names (test, lint, format, typecheck, audit, security, actionlint, zizmor, docs, uv-check, lockfile, build, outdated, deps, constructs, devcontainer, openspec, git, test-settings, bwrap, kube-linter, k8s, test-tree, startup-imports, swallowed-failures, domain, roadmap-stage-eval-commits). Comma-separated or repeated."
         }
       },
       "type": "object"
@@ -3197,7 +3197,7 @@
     }
   },
   "k8s_lint": {
-    "description": "Validate K8s manifests and Helm charts using Red Hat Kube-linter.",
+    "description": "Lint Kubernetes manifests with kube-linter. With no TARGET, build each path source of the\nArgo CD Applications of the environment tree as Argo CD builds it, and lint the builds in one\nrun with the .kube-linter.yaml of the repository that holds the tree. A git source of another\npublic repository is fetched at its revision. Exits 1 on a finding, and when kube-linter did not\nrun. The k8s row of devops ci runs it.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -3205,6 +3205,18 @@
           "default": false,
           "description": "Preview execution plan without mutating external state.",
           "type": "boolean"
+        },
+        "k8s_dir": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The environment tree: the Kubernetes folder of the infra repo. Default: kubernetes.dir of the project profile of the current repository, else of the one infra repo that gives it."
         },
         "target": {
           "anyOf": [
@@ -3216,7 +3228,7 @@
             }
           ],
           "default": null,
-          "description": "Target K8s manifest file or directory to lint (default: the environment tree)."
+          "description": "A K8s manifest file or directory to lint as it is (default: the build of each path source of the Argo CD Applications of the environment tree)."
         }
       },
       "type": "object"

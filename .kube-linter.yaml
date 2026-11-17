@@ -1,0 +1,40 @@
+# The kube-linter checks of the manifests of this repository (#6068). `devops k8s lint` builds each
+# path source of the Argo CD Applications of k8s/ as Argo CD builds it, and lints the builds in one
+# run with this file. The `kube-linter` row of `devops ci` runs it, and the Static Analysis job of
+# CI runs that row. A finding fails the row.
+#
+# The checks are the default checks of kube-linter, and the checks below that
+# docs/SERVICE_PATTERNS.md names. The default checks include run-as-non-root,
+# no-read-only-root-fs, privilege-escalation-container, privileged-container,
+# drop-net-raw-capability, latest-tag, unset-cpu-requirements, unset-memory-requirements, the
+# PodDisruptionBudget checks and the probe port checks (`kube-linter checks list`).
+#
+# kube-linter takes no exception for one object in this file: `checks.exclude` turns a check off
+# for all objects. An accepted exception is the annotation
+# `ignore-check.kube-linter.io/<check>` on the object, with the reason (and the issue that removes
+# the exception, if there is one) as its value. Do not exclude a check here to pass a finding.
+checks:
+  include:
+    # SC2: a pod with the default ServiceAccount sets automountServiceAccountToken: false.
+    - default-service-account
+    # RL2: each container that serves traffic has a readiness probe and a liveness probe.
+    - no-liveness-probe
+    - no-readiness-probe
+    # RL1: a Deployment, a StatefulSet and a DaemonSet roll, with an explicit strategy.
+    - no-rolling-update-strategy
+    # SC3: a NetworkPolicy selects each pod.
+    - non-isolated-pod
+customChecks:
+  # Argo CD never prunes or deletes a PersistentVolumeClaim, and the data on its volume, when the
+  # manifest leaves git or the Application is deleted.
+  - name: pvc-prune-protection
+    description: Indicates when Argo CD can prune or delete a PersistentVolumeClaim.
+    remediation: >-
+      Set the annotation argocd.argoproj.io/sync-options of the PersistentVolumeClaim to
+      Prune=false,Delete=false.
+    template: required-annotation
+    scope:
+      objectKinds: [PersistentVolumeClaim]
+    params:
+      key: ^argocd\.argoproj\.io/sync-options$
+      value: ^(.*,)?(Prune=false,(.*,)?Delete=false|Delete=false,(.*,)?Prune=false)(,.*)?$

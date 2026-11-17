@@ -113,7 +113,11 @@ The command groups of `devops` and their commands. The page of each group in `co
 |  | `devops k8s port-forward-stop [OPTIONS]` | Terminate active background Kubernetes port-forward daemons. |
 |  | `devops k8s teardown-stack [OPTIONS]` | Uninstall the k8s infrastructure / LLM stack and delete namespaces. |
 |  | `devops k8s rbac-audit [OPTIONS]` | Audit RBAC RoleBindings and ServiceAccounts for overprivileged access. |
-|  | `devops k8s lint [OPTIONS] <target>` | Validate K8s manifests and Helm charts using Red Hat Kube-linter. |
+|  | `devops k8s lint [OPTIONS] <target>` | Lint Kubernetes manifests with kube-linter. With no TARGET, build each path source of the
+Argo CD Applications of the environment tree as Argo CD builds it, and lint the builds in one
+run with the .kube-linter.yaml of the repository that holds the tree. A git source of another
+public repository is fetched at its revision. Exits 1 on a finding, and when kube-linter did not
+run. The k8s row of devops ci runs it. |
 |  | `devops k8s audit [OPTIONS]` | Sanitize active K8s/Minikube cluster resource health using Derailed Popeye. |
 |  | `devops k8s check-deprecated [OPTIONS] <target>` | Scan manifests for deprecated/removed K8s API versions using Fairwinds Pluto. |
 |  | `devops k8s image-pins [OPTIONS] <target>` | Render each Argo CD Application of the environment tree, or the kustomization folder
@@ -220,6 +224,7 @@ Exits 1 when a row fails or a pod opens a connection. |
 |  | `devops ci openspec [OPTIONS]` | Run the openspec check. |
 |  | `devops ci git [OPTIONS]` | Run the git check. |
 |  | `devops ci bwrap [OPTIONS]` | Run the bwrap check. |
+|  | `devops ci kube-linter [OPTIONS]` | Run the kube-linter check. |
 |  | `devops ci k8s [OPTIONS]` | Run the k8s check. |
 |  | `devops ci test-tree [OPTIONS]` | Run the test-tree check. |
 |  | `devops ci startup-imports [OPTIONS]` | Run the startup-imports check. |

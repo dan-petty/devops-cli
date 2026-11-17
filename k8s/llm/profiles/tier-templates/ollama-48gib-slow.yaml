@@ -20,6 +20,9 @@ metadata:
     llm.devops.io/total-vram-gib: "48"
     llm.devops.io/speed-tier: slow
   annotations:
+    ignore-check.kube-linter.io/run-as-non-root: >-
+      The initContainer own-model-directory runs as root with CAP_CHOWN alone, to give the
+      hostPath model directory to UID 10001 (#1060, #5012).
     llm.devops.io/gpu-count: "2"
     llm.devops.io/embedding-model: qwen3-embedding:0.6b
 spec:

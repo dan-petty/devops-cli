@@ -202,7 +202,7 @@ Executed weekly, or when dependencies are updated.
 - **Methodology**: Uses Kube-linter, Pluto (deprecated API versions), Popeye (cluster sanitization), and Trivy (misconfigurations and vulnerabilities).
 - **Commands**:
   ```bash
-  devops k8s lint k8s/
+  devops k8s lint
   devops k8s check-deprecated k8s/
   devops scan trivy k8s/ --type config
   ```

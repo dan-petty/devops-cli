@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Annotated
 
@@ -11,7 +12,7 @@ from pydantic import BaseModel, ValidationError
 
 import devops_cli.commands.k8s.cluster_runtime as runtime
 from devops_cli.config.commands import BIN_KUBECTL
-from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
+from devops_cli.config.constants import CONST_KUBE_LINTER_CONFIG_FILE, CONST_OUTPUT_FORMAT_TABLE
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
     DEFAULT_KUBECONFORM_VERSION,
@@ -108,27 +109,54 @@ def k8s_lint(
         Path | None,
         typer.Argument(help=HELP.k8s.lint_target, show_default=False),
     ] = None,
+    k8s_dir: Annotated[Path | None, typer.Option("--k8s-dir", help=HELP.k8s.k8s_dir)] = None,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Validate K8s manifests and Helm charts using Red Hat Kube-linter."""
+    """Lint Kubernetes manifests with kube-linter. With no TARGET, build each path source of the
+    Argo CD Applications of the environment tree as Argo CD builds it, and lint the builds in one
+    run with the .kube-linter.yaml of the repository that holds the tree. A git source of another
+    public repository is fetched at its revision. Exits 1 on a finding, and when kube-linter did not
+    run. The k8s row of devops ci runs it."""
     from devops_cli.dry_run.state import set_dry_run
     from devops_cli.k8s.environment import resolve_environment
-    from devops_cli.security.kubelinter import run_kubelinter_scan
 
     set_dry_run(dry_run)
-    if target is None:
-        target = resolve_environment().root
-    target_abs = target.resolve() if target.exists() else target
-    if not is_dry_run():
+    if target is not None:
+        target_abs = target.resolve() if target.exists() else target
+        if not is_dry_run():
+            print_info(
+                f"[dim]Executing Kube-linter manifest audit on '{target_abs}'...[/dim]",
+                prefix=False,
+            )
+        _kube_lint(target_abs, target_abs.name or str(target_abs))
+        return
+
+    env = resolve_environment(k8s_dir)
+    if is_dry_run():
+        return
+    from devops_cli.k8s.app_render import write_path_renders
+
+    config = env.repo / CONST_KUBE_LINTER_CONFIG_FILE
+    with tempfile.TemporaryDirectory(prefix="devops-k8s-lint-") as workdir:
+        renders = write_path_renders(env, Path(workdir))
         print_info(
-            f"[dim]Executing Kube-linter manifest audit on '{target_abs}'...[/dim]",
+            MESSAGES.k8s.kube_linter_tree.format(
+                count=sum(1 for _ in renders.iterdir()), root=env.root
+            ),
             prefix=False,
         )
+        _kube_lint(renders, str(env.root), config=config if config.is_file() else None)
 
-    findings = run_kubelinter_scan(target=target_abs)
+
+def _kube_lint(target: Path, name: str, *, config: Path | None = None) -> None:
+    """Lint `target` with kube-linter and report as `name`: exit 1 on a finding, and when
+    kube-linter did not run. `config` names the config file that kube-linter reads."""
+    from devops_cli.security.kubelinter import run_kubelinter_scan
+
+    findings = run_kubelinter_scan(target=target, config=config)
 
     if is_dry_run():
         return
@@ -144,7 +172,7 @@ def k8s_lint(
         print_success(MESSAGES.k8s.kube_linter_passed)
         return
 
-    print(format_k8s_lint_table(findings, target_abs.name or str(target_abs)))
+    print(format_k8s_lint_table(findings, name))
     raise typer.Exit(1)
 
 
