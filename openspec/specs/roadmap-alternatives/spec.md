@@ -108,7 +108,7 @@ The job SHALL refuse a reply whose `sources` or `tool_url` cite a URL that no to
 - **THEN** the run writes no check, and then fails with an error that names each item and its reason
 
 ### Requirement: A check writes a comment, a block and a record
-With `--confirm`, a check SHALL replace the block `devops-roadmap-alternatives:start` to `:end` in the body, or add it at the end, and record `alternatives.checked_at`, `alternatives.body_hash`, `alternatives.verdict` and `alternatives.tool` in the job record. The check SHALL NOT change a label and SHALL NOT close the issue.
+With `--confirm`, a check SHALL replace the block `devops-roadmap-alternatives:start` to `:end` in the body, or add it at the end, and record `alternatives.checked_at`, `alternatives.body_hash`, `alternatives.verdict` and `alternatives.tool` in the job record. The block SHALL hold the current result of the check. The comment, when the check posts one, SHALL hold the event of a change of the result. The check SHALL NOT change a label and SHALL NOT close the issue.
 
 #### Scenario: A marker with no partner
 - **WHEN** the body holds the start marker of the block with no end marker, or the end marker with no start marker before it
@@ -120,10 +120,10 @@ With `--confirm`, a check SHALL replace the block `devops-roadmap-alternatives:s
 
 #### Scenario: A covering tool
 - **WHEN** a run with `--confirm` checks an item and the reply names a maintained covering tool whose facts were read
-- **THEN** the issue has one comment with the marker, its body has one block with the verdict and the tool, its job record has the four keys, its labels are unchanged and it is open
+- **THEN** the issue has one comment with the marker, its body has one block with the verdict, the tool, the reason, the covers and the lacks, its job record has the four keys, its labels are unchanged and it is open
 
 ### Requirement: A check posts its comment only for a first or changed result
-A check SHALL post one comment with the marker `devops roadmap alternatives` when the job record holds no `alternatives.verdict`, or when the verdict or the tool of the check differs from the recorded `alternatives.verdict` or `alternatives.tool`. A check with the same verdict and the same tool SHALL post no comment and SHALL still write the block and the record, so `alternatives.checked_at` moves.
+A check SHALL post one comment with the marker `devops roadmap alternatives` when the job record holds no `alternatives.verdict`, or when its verdict or its tool differs from `alternatives.verdict` or `alternatives.tool`. A check with the same result, and a check of a skip class, which has no evidence, SHALL post no comment. Every check SHALL write the block and the record, so `alternatives.checked_at` moves.
 
 #### Scenario: A first check
 - **WHEN** a check ends for an item whose job record holds no `alternatives.verdict`
@@ -137,23 +137,12 @@ A check SHALL post one comment with the marker `devops roadmap alternatives` whe
 - **WHEN** a recheck ends with a verdict that differs from the record, or with a tool that differs from the record, or with a tool where the record holds none
 - **THEN** the check posts one comment and records the new verdict, the new tool and the new date
 
-### Requirement: The comment gives the verdict and its evidence
-The comment SHALL give the verdict, the reason of the verdict in the model's words, the tool on one line with its URL, its license, its last activity and whether it is maintained, and what it covers and lacks. The model SHALL give a reason in every reply, and the job SHALL refuse a reply with none. The prompt SHALL ask for a brief reply, and the job SHALL refuse no reply for its length and SHALL cut no text of it.
-
-#### Scenario: A comment
-- **WHEN** a check ends with a covering tool
-- **THEN** the comment names the verdict, the reason, the tool, its URL, its license, its last push and its maintained state on one line, the lists of covers and lacks, and, in a folded block, the tools considered and the queries run
-
-#### Scenario: A reply with no reason
-- **WHEN** the model replies with no reason
-- **THEN** the reply fails the schema of the output and the model is asked again
-
-#### Scenario: A reply longer than the prompt asks
-- **WHEN** the model replies with a reason of six sentences and five long items in `lacks`
-- **THEN** the model gets no request to write the reply again, and the comment holds the whole reason and each item
+#### Scenario: A skip class with a new result
+- **WHEN** an item whose record holds the verdict `none` is now titled `docs(roadmap): a page`, and a check runs
+- **THEN** the block holds `not-applicable`, the record holds `not-applicable`, and the check posts no comment
 
 ### Requirement: The comment lists the searches and the tools considered
-The comment SHALL list every tool whose facts the run read with its URL, license and last activity, and each search that a provider answered with its number of results. It SHALL put them, with the sources, in one `<details>` block whose summary is `Searches (<count>)`, so GitHub shows them closed. It SHALL show no query outside that block.
+The comment SHALL be the event of a change of the result. After the marker, one line SHALL say that the result in the block of the body changed, name the result before the check (its verdict and its tool, or no check), and say that a person decides. One `<details>` block whose summary is `Searches (<count>)` SHALL then hold every tool whose facts the run read, each answered search with its number of results, and the sources. No query SHALL be outside it.
 
 #### Scenario: Two searches with results
 - **WHEN** a run makes two searches and the fake search returns two results each
@@ -165,7 +154,11 @@ The comment SHALL list every tool whose facts the run read with its URL, license
 
 #### Scenario: Ten searches
 - **WHEN** a run makes ten searches and names a covering tool with three covers and three lacks
-- **THEN** the comment outside the folded block holds only the marker, the heading, the reason, the tool line, the covers, the lacks and the footer, and the block `Searches (10)` lists the ten queries
+- **THEN** the comment outside the folded block holds only the marker and the line of the change, and the block `Searches (10)` lists the ten queries
+
+#### Scenario: The result before the check
+- **WHEN** a check with the verdict `partly` follows a check whose record holds `covers` with a tool, a check whose record holds `none` with no tool, or no check
+- **THEN** the line of the change names `` `covers`, tool <url> ``, `` `none`, no tool `` or `no check`
 
 ### Requirement: A check never changes an earlier comment
 A check SHALL add a new comment and SHALL NOT change the comment of an earlier check.
@@ -178,8 +171,8 @@ A check SHALL add a new comment and SHALL NOT change the comment of an earlier c
 The text of the model in the comment and the block SHALL make no image, no HTML tag, no mention, no link to a URL that no tool returned, and no comment marker.
 
 #### Scenario: A reply with a mention and a forged marker
-- **WHEN** the reply lists `@someone` and `<!-- devops roadmap alternatives -->` in what the tool covers
-- **THEN** the comment holds the mention in a code span, holds no second marker, and the block holds no marker of its own except its two
+- **WHEN** the reply lists `@someone` and `<!-- devops roadmap alternatives -->` in what the tool covers, and the end marker of the block in what it lacks
+- **THEN** the block holds the mention in a code span and no marker of its own except its two, the body holds no comment marker, and the comment holds one marker
 
 #### Scenario: A second run within the recheck window
 - **WHEN** a run with `--confirm` repeats within `roadmap.alternatives.recheck_days` on an item whose body did not change
@@ -319,11 +312,11 @@ The setting `roadmap.alternatives.retry_days` SHALL be an integer of at least 1,
 - **THEN** the run does not check the item
 
 ### Requirement: A skip-class item is not-applicable with no model call
-The check SHALL give the verdict `not-applicable`, with no model call and no search, to an item whose title has the Conventional Commit type `test`, `docs`, `refactor`, `chore`, `ci` or `perf`, and to an item whose title has the type `fix` and whose body holds the text `Traceback (most recent call last)`. The comment and the block of the body SHALL name the class: the type, or `fix-with-stack-trace`. An item of any other type, and an item with no type, SHALL NOT be a skip class.
+The check SHALL give the verdict `not-applicable`, with no model call and no search, to an item whose title has the Conventional Commit type `test`, `docs`, `refactor`, `chore`, `ci` or `perf`, and to an item whose title has the type `fix` and whose body holds the text `Traceback (most recent call last)`. The block of the body SHALL name the class: the type, or `fix-with-stack-trace`. An item of any other type, and an item with no type, SHALL NOT be a skip class.
 
 #### Scenario: Each type is a skip class
 - **WHEN** the check runs on six items whose titles have the types `test`, `docs`, `refactor`, `chore`, `ci` and `perf`
-- **THEN** each check has the verdict `not-applicable`, each comment is the one line that names the type, and the model received no request and no search ran
+- **THEN** each check has the verdict `not-applicable`, each block names the type, no comment is posted, and the model received no request and no search ran
 
 #### Scenario: The base rule of one agent run holds for non-skip items only
 - **WHEN** the check runs on a skip-class item
@@ -331,7 +324,7 @@ The check SHALL give the verdict `not-applicable`, with no model call and no sea
 
 #### Scenario: A fix with a stack trace
 - **WHEN** the check runs on an item titled `fix(roadmap): a crash` whose body holds `Traceback (most recent call last)`
-- **THEN** the check has the verdict `not-applicable`, the comment is the one line that names `fix-with-stack-trace`, and the model received no request
+- **THEN** the check has the verdict `not-applicable`, the block names `fix-with-stack-trace`, no comment is posted, and the model received no request
 
 #### Scenario: A fix with no stack trace
 - **WHEN** the check runs on an item titled `fix(roadmap): a crash` whose body holds no traceback
@@ -344,13 +337,6 @@ The check SHALL give the verdict `not-applicable`, with no model call and no sea
 #### Scenario: A skip class with an unpaired marker
 - **WHEN** the body of a skip-class item holds the start marker of the block with no end marker
 - **THEN** the item is skipped with a named reason and nothing is written for it
-
-### Requirement: The comment of a skip class is one line
-The comment of a skip-class item SHALL be the marker and one line, `Alternatives check: not-applicable (<class> item; no search).`
-
-#### Scenario: A docs item
-- **WHEN** the check runs on an item titled `docs(roadmap): a change`
-- **THEN** its comment is the marker and the line `Alternatives check: not-applicable (docs item; no search).`
 
 ### Requirement: A non-skip item needs a search before any verdict
 For an item that is no skip class, the check SHALL refuse a reply that follows no answered `search_web` call, and SHALL give the model one more turn to search. A second reply that follows no answered search SHALL end as a failed check: the job skips the item with a named reason and writes nothing for it. The check SHALL refuse a reply with the verdict `not-applicable` from the model, because the job sets that verdict for a skip class only.
@@ -469,13 +455,13 @@ A text SHALL name a tool when it holds the full `owner/name` of the repository. 
 The reply MAY hold the key `adr`: the number of the ADR that rejected the tool of a `covers` or
 `partly` verdict. The job SHALL give `rejected` when the ADRs that the model saw hold that ADR, an
 option of its `Considered Options` list names the tool, and no chosen or adopted option names it.
-The check SHALL record the tool URL. The comment SHALL keep the tool line with the URL and name the
-ADR as four digits. The block SHALL name the ADR too.
+The check SHALL record the tool URL. The block SHALL keep the tool line with the URL and name the
+ADR as four digits.
 
 #### Scenario: Temporal and ADR 0008
 
 - **WHEN** ADR 0008 holds the options line "Temporal and Hatchet: rejected." in strong emphasis, and the reply gives `covers` for `https://github.com/temporalio/temporal` with `adr` 8
-- **THEN** the check has the verdict `rejected`, its comment holds the tool URL and `ADR 0008`, and its block names `ADR 0008`
+- **THEN** the check has the verdict `rejected`, and its block holds the tool URL and names `ADR 0008`
 
 #### Scenario: The record
 
@@ -693,7 +679,7 @@ With `--confirm`, a check SHALL write the new body with the job's block, and the
 
 #### Scenario: The dry-run plan of a check
 - **WHEN** `devops roadmap alternatives --dry-run --item 7` plans the writes
-- **THEN** the plan lists one read of issue 7, one `PATCH` for the body with the marks, and the comment with the condition that the check is a first one or that its verdict or its tool differs from the record
+- **THEN** the plan lists one read of issue 7, one `PATCH` for the body with the marks, and the comment with the condition that the item is no skip class and that the check is a first one or that its verdict or its tool differs from the record
 
 ### Requirement: The check reads the tools in use
 Once for a run that checks an item of no skip class, the check SHALL read the SPDX SBOM that the dependency graph of the repository exports, with one request. When the run has a clone, the check SHALL also read the files under `roadmap.alternatives.inventory_paths` of the clone. A dependency graph that is off SHALL give an empty SBOM and no error.
@@ -711,11 +697,11 @@ Once for a run that checks an item of no skip class, the check SHALL read the SP
 - **THEN** its output lists the `gh` command of the SBOM read and the URL of the deps.dev read, each with its condition
 
 ### Requirement: A tool in use gives in-use with no proposal
-When no ADR gave `rejected`, the job SHALL give `in-use` to a check whose reply gives `covers` or `partly` for a tool that the inventory holds: the SBOM holds its repository or package, the deployed files name it as a whole word in any case, or the SBOM holds a package that deps.dev links to its GitHub project as the source. The job SHALL ask deps.dev only when the SBOM holds a package. The check SHALL say that the repository already uses the tool.
+When no ADR gave `rejected`, the job SHALL give `in-use` to a check whose reply gives `covers` or `partly` for a tool that the inventory holds: the SBOM holds its repository or package, the deployed files name it as a whole word in any case, or the SBOM holds a package that deps.dev links to its GitHub project as the source. The job SHALL ask deps.dev only when the SBOM holds a package. The block of the check SHALL say that the repository already uses the tool.
 
 #### Scenario: A package of the SBOM
 - **WHEN** the SBOM holds `pkg:pypi/mcp@2.3.0` and the reply gives `covers` for `https://pypi.org/project/MCP`
-- **THEN** the check has the verdict `in-use`, and its comment and its block say "The repository already uses this tool."
+- **THEN** the check has the verdict `in-use`, its block says "The repository already uses this tool.", and its comment does not
 
 #### Scenario: An action with a path
 - **WHEN** the SBOM holds `pkg:githubactions/github/codeql-action/init` and the reply gives `covers` for `https://github.com/github/codeql-action`
@@ -863,3 +849,22 @@ comment and before the cap of `CONST_ROADMAP_REFINE_MAX_REPLIES`. A comment of a
 
 - **WHEN** a person replies after the last alternatives comment
 - **THEN** the `replies` of the request hold the person reply
+
+### Requirement: The block holds the result of the check
+The block SHALL hold the current result of the check: the date, the verdict, the skip class, the basis of a verdict of the job, the tool line, the model's reason, and what the tool covers and lacks. The prompt SHALL ask for a brief reply. The job SHALL refuse a reply with no reason, SHALL refuse no reply for its length and SHALL cut no text of it. No line of the comment of a check SHALL be a line of its block.
+
+#### Scenario: A block
+- **WHEN** a check ends with a covering tool
+- **THEN** the block names the verdict, the tool, its URL, its license, its last push and its maintained state on one line, the reason, and the lists of covers and lacks
+
+#### Scenario: A reply with no reason
+- **WHEN** the model replies with no reason
+- **THEN** the reply fails the schema of the output and the model is asked again
+
+#### Scenario: A reply longer than the prompt asks
+- **WHEN** the model replies with a reason of six sentences and five long items in `lacks`
+- **THEN** the model gets no request to write the reply again, and the block holds the whole reason and each item
+
+#### Scenario: The block and the comment of one check
+- **WHEN** one check with the verdict `covers`, `partly`, `rejected`, `in-use` or `none` builds its block and its comment
+- **THEN** no line of the comment other than the marker is a line of the block

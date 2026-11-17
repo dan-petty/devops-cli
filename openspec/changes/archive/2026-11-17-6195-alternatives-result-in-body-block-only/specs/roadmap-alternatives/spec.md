@@ -16,7 +16,7 @@ With `--confirm`, a check SHALL replace the block `devops-roadmap-alternatives:s
 - **THEN** the issue has one comment with the marker, its body has one block with the verdict, the tool, the reason, the covers and the lacks, its job record has the four keys, its labels are unchanged and it is open
 
 ### Requirement: A check posts its comment only for a first or changed result
-A check of an item that is no skip class SHALL post one comment with the marker `devops roadmap alternatives` when the job record holds no `alternatives.verdict`, or when the verdict or the tool of the check differs from the recorded `alternatives.verdict` or `alternatives.tool`. A check with the same verdict and the same tool SHALL post no comment and SHALL still write the block and the record, so `alternatives.checked_at` moves. A check of a skip class SHALL post no comment, because it has no evidence, and SHALL still write the block and the record.
+A check SHALL post one comment with the marker `devops roadmap alternatives` when the job record holds no `alternatives.verdict`, or when its verdict or its tool differs from `alternatives.verdict` or `alternatives.tool`. A check with the same result, and a check of a skip class, which has no evidence, SHALL post no comment. Every check SHALL write the block and the record, so `alternatives.checked_at` moves.
 
 #### Scenario: A first check
 - **WHEN** a check ends for an item whose job record holds no `alternatives.verdict`
@@ -35,7 +35,7 @@ A check of an item that is no skip class SHALL post one comment with the marker 
 - **THEN** the block holds `not-applicable`, the record holds `not-applicable`, and the check posts no comment
 
 ### Requirement: The comment lists the searches and the tools considered
-The comment SHALL be the event of a change of the result. After the marker, it SHALL hold one line that says the result in the alternatives block of the issue body changed, the result that the record held before the check (its verdict and its tool, or no check), and that a person decides what the new result means for the item. Then it SHALL list every tool whose facts the run read with its URL, license and last activity, and each search that a provider answered with its number of results. It SHALL put them, with the sources, in one `<details>` block whose summary is `Searches (<count>)`, so GitHub shows them closed. It SHALL show no query outside that block. The comment SHALL hold no line of the block.
+The comment SHALL be the event of a change of the result. After the marker, one line SHALL say that the result in the block of the body changed, name the result before the check (its verdict and its tool, or no check), and say that a person decides. One `<details>` block whose summary is `Searches (<count>)` SHALL then hold every tool whose facts the run read, each answered search with its number of results, and the sources. No query SHALL be outside it.
 
 #### Scenario: Two searches with results
 - **WHEN** a run makes two searches and the fake search returns two results each
