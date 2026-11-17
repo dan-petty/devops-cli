@@ -235,6 +235,11 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "window",
         "body of the item in the first plan request; fixed, as the context cap is",
     ),
+    "CONST_ROADMAP_STAGE_COMMENTS_MAX_TOKENS": (
+        "window",
+        "comments of the item in the first plan request, out of the room of the body and the "
+        "context; the older ones go to an index and `read_comment` reads them, so none is lost",
+    ),
     "CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS": (
         "window",
         "room that the first plan request leaves below the limit of the tools for their answers",
@@ -470,6 +475,19 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "the output cap of a reply is the window divided by this",
     ),
     "CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS": ("raised", "was 3000; a sixteenth of the window"),
+    "CONST_ROADMAP_IMPLEMENT_COMMENTS_MAX_TOKENS": (
+        "window",
+        "comments of the item in the inputs of a step, as much as one packed file and never more "
+        "than the room under the window; `read_comment` reads the others",
+    ),
+    "CONST_ROADMAP_COMMENT_INDEX_CHARS": (
+        "kept",
+        "the label of a line of the index of the comments; `read_comment` reads the comment whole",
+    ),
+    "CONST_ROADMAP_COMMENT_LINE_CHARS": (
+        "kept",
+        "a line of a `read_comment` page; a longer line comes as more lines, so no text is lost",
+    ),
     "CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES": (
         "kept",
         "lines of command output in a stop report",

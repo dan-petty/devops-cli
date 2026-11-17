@@ -20,9 +20,11 @@ of an implement step, which says which comments came after the plan merged.
 from __future__ import annotations
 
 import json
+import textwrap
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from itertools import accumulate
 from typing import Any, Final, Protocol
 
 from pydantic_ai.messages import ToolReturn
@@ -88,9 +90,11 @@ class HeldComment:
 
     @property
     def about(self) -> str:
-        """The label of the comment in an index: its first line that holds text, cut."""
-        first = next((line.strip() for line in self.text.splitlines() if line.strip()), "")
-        return first[:CONST_ROADMAP_COMMENT_INDEX_CHARS]
+        """The label of the comment in an index: its first line that holds text, cut. A comment of
+        a job starts with the marker of the job, so the label is the marker and the next line."""
+        lines = [line.strip() for line in self.text.splitlines() if line.strip()]
+        shown = lines[:2] if lines and lines[0].startswith("<!--") else lines[:1]
+        return " ".join(shown)[:CONST_ROADMAP_COMMENT_INDEX_CHARS]
 
     def head(self) -> str:
         return f"{self.number}. {self.author}, {_time(self.at)}"
@@ -155,22 +159,30 @@ class CommentForm(Protocol):
 
 def fit_comments(held: Sequence[HeldComment], budget: int, form: CommentForm) -> FittedComments:
     """The comments of one input of at most `budget` tokens in `form`: whole comments from the
-    newest back while they fit, then an index line for each older comment while it fits. The
-    comments of no line are counted as `unlisted`. A budget that holds not even the frame gives
+    newest back while they fit and leave room for the index of the older ones (at most half of
+    the budget), then an index line for each older comment while it fits. The comments of no line
+    are counted as `unlisted`. A budget that holds not even the frame gives
     no text: its `tokens` are 0, and the input holds no comment."""
     if not held:
         return FittedComments()
     left = budget - count_tokens(form.frame())
     if left < 0:
         return FittedComments(unlisted=len(held))
+    # The index lines of the comments before each position, so a whole comment leaves room for
+    # the index of the older ones: at most half of the budget.
+    listed = list(accumulate((count_tokens(form.listed(c)) for c in held), initial=0))
+    reserve = left // 2
     position = len(held)
     whole: list[HeldComment] = []
-    while position and (cost := count_tokens(form.whole(held[position - 1]))) <= left:
+    while position:
+        cost = count_tokens(form.whole(held[position - 1]))
+        if cost + min(listed[position - 1], reserve) > left:
+            break
         position -= 1
         whole.insert(0, held[position])
         left -= cost
     index: list[HeldComment] = []
-    while position and (cost := count_tokens(form.listed(held[position - 1]))) <= left:
+    while position and (cost := listed[position] - listed[position - 1]) <= left:
         position -= 1
         index.insert(0, held[position])
         left -= cost
@@ -203,6 +215,12 @@ def _json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, indent=1)
 
 
+def _nested(entry: dict[str, Any]) -> str:
+    """`entry` as the request writes it in the list of the key `comments`: two levels deeper, so
+    its measure counts the indent of each of its lines."""
+    return textwrap.indent(_json(entry), "  ")
+
+
 @dataclass(frozen=True)
 class RequestForm:
     """The comments as the key `comments` of the stage request: a note, the count of the comments
@@ -213,10 +231,10 @@ class RequestForm:
         return _json({"note": _REQUEST_NOTE, "unlisted": 0, "comments": []})
 
     def whole(self, comment: HeldComment) -> str:
-        return _json(self._whole(comment))
+        return _nested(self._whole(comment))
 
     def listed(self, comment: HeldComment) -> str:
-        return _json(self._listed(comment))
+        return _nested(self._listed(comment))
 
     def text(self, fitted: FittedComments) -> str:
         return _json(self.value(fitted))
@@ -263,7 +281,7 @@ class SectionForm:
     plan_at: datetime | None = None
 
     def frame(self) -> str:
-        return self._frame(unlisted=True)
+        return f"{self._frame(unlisted=True)}\n\n{_SECTION_INDEX}"
 
     def whole(self, comment: HeldComment) -> str:
         when = ""

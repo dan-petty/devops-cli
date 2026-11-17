@@ -162,3 +162,18 @@ def test_read_comment_refuses_a_number_that_the_item_does_not_hold() -> None:
     answer = CommentReader(_held("A decision."), max_chars=8000).read(4)
 
     assert "no comment 4" in str(answer.return_value)
+
+
+def test_whole_comments_leave_room_for_the_index_of_the_older_ones() -> None:
+    held = _held(*(f"Note {n}: {_words(60, 'note')}" for n in range(1, 7)))
+    whole_cost = count_tokens(_REQUEST.whole(held[-1]))
+    budget = count_tokens(_REQUEST.frame()) + 5 * whole_cost
+
+    fitted = fit_comments(held, budget, _REQUEST)
+
+    assert (
+        fitted.unlisted,
+        len(fitted.whole) + len(fitted.index),
+        len(fitted.whole) >= 4,
+        fitted.tokens <= budget,
+    ) == (0, 6, True, True)
