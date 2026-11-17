@@ -1,0 +1,20 @@
+## MODIFIED Requirements
+
+### Requirement: The environment tree declares RuntimeClass gvisor for the runsc nodes
+The root kustomization of the environment tree SHALL list `runtimeclass-gvisor.yaml`. That file SHALL declare RuntimeClass `gvisor` of API `node.k8s.io/v1` with handler `runsc` and `scheduling.nodeSelector` `node-restriction.kubernetes.io/gvisor: "true"`. The class MUST NOT carry tolerations, so a pod of the class runs only on a node with the label.
+
+#### Scenario: The root kustomization holds the class
+- **WHEN** Argo CD syncs the root kustomization, and a person runs `kubectl get runtimeclass gvisor`
+- **THEN** the cluster holds RuntimeClass `gvisor` with handler `runsc`
+
+#### Scenario: The class selects only labelled nodes
+- **WHEN** a pod with `runtimeClassName: gvisor` starts with `kubectl run --overrides`, and a person runs `kubectl get pod <pod> -o wide`
+- **THEN** the pod runs on a node with the label `node-restriction.kubernetes.io/gvisor=true`
+- **AND** when no node has the label, the pod stays `Pending`
+
+### Requirement: RuntimeClass gvisor declares the measured pod overhead
+RuntimeClass `gvisor` in `k8s/runtimeclass-gvisor.yaml` SHALL declare `overhead.podFixed` with a `memory` value from a measurement of `runc` against `runsc` on a labelled node. The value SHALL be the measured memory, rounded up to a whole MiB. The measurement of #5434 gave 15.1 MiB, so the value SHALL be `16Mi`. The class MUST NOT declare a `cpu` overhead, because the measurement found no CPU overhead.
+
+#### Scenario: The class declares only the measured memory overhead
+- **WHEN** the API server admits a pod with `runtimeClassName: gvisor`, and a person runs `kubectl get pod <pod> -o jsonpath='{.spec.overhead}'`
+- **THEN** the RuntimeClass admission gives the pod the overhead `{"memory":"16Mi"}`, with no `cpu` key

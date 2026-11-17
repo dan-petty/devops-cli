@@ -44,8 +44,8 @@ The container SHALL request and limit 1 CPU and 2Gi of memory, and the Job SHALL
 Role `roadmap-service-jobs` SHALL allow `get` on CronJob `devops-cli-planner-run`.
 
 #### Scenario: The rules of the Role
-- **WHEN** a test reads the Role
-- **THEN** its `cronjobs` rule names `devops-cli-planner-run`
+- **WHEN** a person runs `kubectl auth can-i get cronjob/devops-cli-planner-run -n devops --as=system:serviceaccount:devops:roadmap-service`
+- **THEN** the API server answers `yes`
 
 ### Requirement: The admission policy admits the planner shape
 The ValidatingAdmissionPolicy `roadmap-service-jobs` SHALL admit the Job that `PLANNER_TEMPLATE` renders, and SHALL refuse a Job that breaks a control.
@@ -58,5 +58,5 @@ The ValidatingAdmissionPolicy `roadmap-service-jobs` SHALL admit the Job that `P
 The kustomization of the roadmap Service and `deploy-stack` SHALL list the CronJob and the NetworkPolicy.
 
 #### Scenario: A read of the kustomization
-- **WHEN** a test reads `k8s/devops/roadmap-service/kustomization.yaml`
-- **THEN** the resources hold `cronjob-planner-run.yaml` and `networkpolicy-planner-run.yaml`
+- **WHEN** `uv run devops ci --check --only k8s` renders `k8s/devops`
+- **THEN** the render holds CronJob `devops-cli-planner-run` and its NetworkPolicy, and the row passes only when `deploy-stack` or an owned exemption applies every NetworkPolicy under `k8s/`

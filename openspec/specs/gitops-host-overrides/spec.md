@@ -5,31 +5,6 @@ Which hosts and container environment values the deploy-time overrides set on th
 
 ## Requirements
 
-### Requirement: The app-of-apps applies the homelab Applications server-side
-The Applications `devops`, `ingress` and `mattermost` in `k8s/argocd/apps/` SHALL have `ServerSideApply=true` in their `argocd.argoproj.io/sync-options` annotation, and no other Application SHALL have it. The Application `cluster` SHALL have the annotation `argocd.argoproj.io/client-side-apply-migration-manager` with the value `argocd-controller`.
-
-#### Scenario: A test reads the Application manifests
-- **WHEN** a test reads `k8s/argocd/bootstrap/bootstrap.yaml`, `k8s/argocd/bootstrap/cluster.yaml` and each Application in `k8s/argocd/apps/`
-- **THEN** the Applications with `ServerSideApply=true` in their sync-options annotation are `devops`, `ingress` and `mattermost` and no other
-- **AND** `cluster` names `argocd-controller` as its client-side apply migration manager
-
-### Requirement: An Ingress that routes a placeholder host alerts
-The alert rule `IngressServesPlaceholderHost` in the group `homelab-services` of `k8s/monitoring/prometheus-values.yaml` SHALL fire at severity `critical` after 5 minutes for each Ingress that has a `kube_ingress_path` series with a host under the placeholder domain `example.com`. The kube-state-metrics `includeMetrics` in `k8s/monitoring/k8s-monitoring-values.yaml` SHALL keep `kube_ingress_path`.
-
-#### Scenario: A test reads the rule
-- **WHEN** a test reads the group `homelab-services`
-- **THEN** `IngressServesPlaceholderHost` has the expression `count by (namespace, ingress) (kube_ingress_path{host=~"(.+\\.)?example\\.com"}) > 0`, `for: 5m` and severity `critical`
-
-#### Scenario: The host pattern matches the hosts of git
-- **WHEN** a test reads each Ingress in a YAML file under `k8s/`
-- **THEN** the host pattern of the rule matches the host of each of their rules
-- **AND** it does not match `argocd.example.org`, `example.com.example.net` or `notexample.com`
-
-#### Scenario: The series reaches Prometheus
-- **WHEN** the kube-state-metrics of the cluster serve `kube_ingress_path`
-- **THEN** `kube_ingress_path` is in `clusterMetrics.kube-state-metrics.metricsTuning.includeMetrics` of `k8s/monitoring/k8s-monitoring-values.yaml`
-- **AND** the series has the labels `host`, `ingress` and `namespace`
-
 ### Requirement: deploy-stack sets the configured domain in container environment values
 For each Deployment in the render of a homelab Application, `host_patches` SHALL test and then replace each `env[].value` of a container or init container that holds the placeholder domain. It SHALL change no other value, and the Argo CD gate SHALL allow the placeholder in such a value only.
 
@@ -85,3 +60,26 @@ Open WebUI SHALL read `CORS_ALLOW_ORIGIN` from ConfigMap `llm/open-webui-origins
 #### Scenario: deploy-stack applies the origins without Argo CD
 - **WHEN** `deploy-stack --stack llm --domain example.org` runs on a cluster without Argo CD
 - **THEN** it applies ConfigMap `llm/open-webui-origins` with `https://chat.example.org;https://homelab.example.org` before it installs the release `open-webui`
+
+### Requirement: Argo CD applies three homelab Applications server-side
+The Applications `devops`, `ingress` and `mattermost` in `k8s/argocd/apps/` SHALL have `ServerSideApply=true` in their `argocd.argoproj.io/sync-options` annotation, and no other Application SHALL have it. The Application `cluster` SHALL have the annotation `argocd.argoproj.io/client-side-apply-migration-manager` with the value `argocd-controller`.
+
+#### Scenario: The field managers of the Applications
+- **WHEN** Argo CD syncs Application `cluster`, and a person runs `kubectl -n argocd get applications --show-managed-fields -o yaml`
+- **THEN** the field manager `argocd-controller` holds an `Apply` entry on `devops`, `ingress` and `mattermost`, and on no other Application
+- **AND** the sync of `cluster` reports no field conflict
+
+### Requirement: An Ingress with a placeholder host fires an alert
+The alert rule `IngressServesPlaceholderHost` in the group `homelab-services` of `k8s/monitoring/prometheus-values.yaml` SHALL fire at severity `critical` after 5 minutes for each Ingress that has a `kube_ingress_path` series with a host under the placeholder domain `example.com`. The kube-state-metrics `includeMetrics` in `k8s/monitoring/k8s-monitoring-values.yaml` SHALL keep `kube_ingress_path`.
+
+#### Scenario: Prometheus loads the rule
+- **WHEN** a person runs `uv run devops prometheus rules`
+- **THEN** the group `homelab-services` holds the alerting rule `IngressServesPlaceholderHost` with the health `ok`
+
+#### Scenario: A deploy that sets every host keeps the alert quiet
+- **WHEN** a deploy sets the host of each Ingress to the configured domain, and a person runs `uv run devops prometheus query 'ALERTS{alertname="IngressServesPlaceholderHost"}'`
+- **THEN** the query returns no series
+
+#### Scenario: The series reaches Prometheus
+- **WHEN** a person runs `uv run devops prometheus query 'kube_ingress_path'`
+- **THEN** the query returns a series for each Ingress of the cluster, and each series has the labels `host`, `ingress` and `namespace`

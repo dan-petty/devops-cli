@@ -6,11 +6,11 @@ The alert rules that tell an operator when the roadmap Service cannot read page 
 ## Requirements
 
 ### Requirement: The Crawl4AI alerts have their own rule group
-The rule group `crawl4ai` in `k8s/devops/monitoring/prometheus-rules-values.yaml` SHALL hold the warning alerts `Crawl4AIFetchesFailing` and `Crawl4AIUnavailable`. promtool SHALL accept them. Each description SHALL point to the section "Crawl4AI" of `docs/CLUSTER.md`, and that section SHALL list each alert.
+The rule group `crawl4ai` in `k8s/devops/monitoring/prometheus-rules-values.yaml` SHALL hold the warning alerts `Crawl4AIFetchesFailing` and `Crawl4AIUnavailable`. Prometheus SHALL load them with the health `ok`. Each description SHALL point to the section "Crawl4AI" of `docs/CLUSTER.md`.
 
 #### Scenario: The group and the README
-- **WHEN** a test reads the group and the section "Crawl4AI" of `docs/CLUSTER.md`
-- **THEN** both alerts have severity `warning`, name the section in the description, and appear in the section
+- **WHEN** a person runs `uv run devops prometheus rules`
+- **THEN** the group `crawl4ai` holds the alerting rules `Crawl4AIFetchesFailing` and `Crawl4AIUnavailable`, each with the health `ok`
 
 ### Requirement: Failed fetches warn
 `Crawl4AIFetchesFailing` SHALL fire when, in the last hour, at least 5 fetches of `devops_cli_crawl4ai_fetches_total{job="roadmap-service"}` had a `result` other than `ok` and those failed fetches were more than half of all its fetches. It SHALL count a series that started in the hour from its first value, and SHALL select the job of the Service only.
@@ -34,13 +34,6 @@ The rule group `crawl4ai` in `k8s/devops/monitoring/prometheus-rules-values.yaml
 #### Scenario: A workstation and no series
 - **WHEN** `promtool test rules` evaluates failed fetches with the job `devops-cli` and no series with the job `roadmap-service`
 - **THEN** `Crawl4AIFetchesFailing` stays quiet
-
-### Requirement: The text of the fetch alert names the label and the logs
-The description of `Crawl4AIFetchesFailing` SHALL name the label `result` and the commands `kubectl -n devops logs deployment/roadmap-service` and `kubectl -n devops logs deployment/crawl4ai`.
-
-#### Scenario: A person reads the alert
-- **WHEN** a test reads the summary and the description of the alert
-- **THEN** they name the label and both commands
 
 ### Requirement: A Deployment with no available replica warns
 `Crawl4AIUnavailable` SHALL fire after 15 minutes in which `kube_deployment_status_replicas_available` of Deployment `devops/crawl4ai` is below 1 while `kube_deployment_spec_replicas` of the same Deployment is above 0. It SHALL select the namespace `devops` and the Deployment `crawl4ai` only.

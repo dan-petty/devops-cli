@@ -25,10 +25,3 @@ The token SHALL NOT appear in a command argument, a log line or the output of `d
 #### Scenario: A push shows no token
 - **WHEN** `devops k8s push-secrets --stack devops` runs with and without `--dry-run`
 - **THEN** the value, and its base64 form, are in no argument, log record or output
-
-### Requirement: The README lists both rows
-The secret table of `k8s/README.md` SHALL list both keys.
-
-#### Scenario: A test reads the README
-- **WHEN** a test reads the secret table of `k8s/README.md`
-- **THEN** the table holds one row for each key of the secret table
