@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.169.2](https://github.com/dan-petty/devops-cli/compare/v0.169.1...v0.169.2) (2026-11-17)
+
+
+### Bug Fixes
+
+* **cloudflare:** Key the webhook rate limit on each client ([#6050](https://github.com/dan-petty/devops-cli/issues/6050)) ([9cc974b](https://github.com/dan-petty/devops-cli/commit/9cc974bcae2ab717879eec4b3384e7bf6bb4eb14))
+* **deps:** give a Helm chart update the fix prefix ([#6057](https://github.com/dan-petty/devops-cli/issues/6057)) ([9b69d07](https://github.com/dan-petty/devops-cli/commit/9b69d071d418fdb71c0f7aa7fe1cedb3d71aefa8)), closes [#6054](https://github.com/dan-petty/devops-cli/issues/6054)
+* **deps:** give SearXNG its own Renovate branch behind approval ([#6052](https://github.com/dan-petty/devops-cli/issues/6052)) ([515a968](https://github.com/dan-petty/devops-cli/commit/515a968b8f196a55e77f8fe84b43d24d7aa4d107))
+* **deps:** update helm charts (patch) ([#6046](https://github.com/dan-petty/devops-cli/issues/6046)) ([ebc1e68](https://github.com/dan-petty/devops-cli/commit/ebc1e68b9b4a547646ce9e6b915bc5ce3944a809))
+* **k8s:** Roll the MCP server with no gap ([#6070](https://github.com/dan-petty/devops-cli/issues/6070)) ([00c730b](https://github.com/dan-petty/devops-cli/commit/00c730bdca10f3abd83f10624fd8edec679a2603))
+* **k8s:** State the NVMe rule and cover CNPG claims ([#6062](https://github.com/dan-petty/devops-cli/issues/6062)) ([e04435a](https://github.com/dan-petty/devops-cli/commit/e04435a3d1e2d1bce914fe861b2342a7af9839eb))
+* **security:** renew the kubectl Trivy ignores of the MCP image ([#6088](https://github.com/dan-petty/devops-cli/issues/6088)) ([73ca153](https://github.com/dan-petty/devops-cli/commit/73ca153b77ee102d655514d7825af8c83bdf646e))
+
 ## [0.169.1](https://github.com/dan-petty/devops-cli/compare/v0.169.0...v0.169.1) (2026-11-16)
 
 
