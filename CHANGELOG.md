@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.172.0](https://github.com/dan-petty/devops-cli/compare/v0.171.0...v0.172.0) (2026-11-17)
+
+
+### Features
+
+* **github:** Count the claims of each repository ([#6156](https://github.com/dan-petty/devops-cli/issues/6156)) ([3299e5f](https://github.com/dan-petty/devops-cli/commit/3299e5fecc72c52ae6bf33c4eb8a6aa9c1a22ddd))
+* **roadmap:** Shadow the Jev tier choice of each stage item ([#6152](https://github.com/dan-petty/devops-cli/issues/6152)) ([4d085f1](https://github.com/dan-petty/devops-cli/commit/4d085f1befea0ae4d9618ac6151acf72e6110846))
+* **service:** Count the closed roadmap items by reason ([#6159](https://github.com/dan-petty/devops-cli/issues/6159)) ([a03213a](https://github.com/dan-petty/devops-cli/commit/a03213aef0ea6e429403f7b34e0b56e2de4b596c))
+
+
+### Bug Fixes
+
+* **deps:** update uv to v0.13.9 ([#6155](https://github.com/dan-petty/devops-cli/issues/6155)) ([c750583](https://github.com/dan-petty/devops-cli/commit/c7505839edaddc559eb9790333692847551141e3))
+
 ## [0.171.0](https://github.com/dan-petty/devops-cli/compare/v0.170.0...v0.171.0) (2026-11-17)
 
 
