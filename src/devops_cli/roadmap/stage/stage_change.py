@@ -42,6 +42,7 @@ from pydantic import (
 from pydantic.json_schema import SkipJsonSchema
 
 from devops_cli.ai.context_budget import count_tokens
+from devops_cli.ci.fail_to_pass import is_source_code
 from devops_cli.config.constants import (
     CONST_DOCS_CLASS_RECORD,
     CONST_DOCS_CLASS_TOOL_OWNED,
@@ -586,9 +587,11 @@ class StageGroup(_Reply):
 
 
 def changes_source(changes: Sequence[str]) -> bool:
-    """Whether a path of `changes` is under `src/`: a `behavior` group changes such a path (#3035),
-    and the plan reader tells a `behavior` group from a `manifest` group by it (#5205)."""
-    return any(path.startswith(_SOURCE_DIRECTORY) for path in changes)
+    """Whether a path of `changes` is source code (`is_source_code`: a `.py` file under `src/`
+    outside the knowledge base): a `behavior` group changes such a path (#3035, #6207), and the
+    plan reader tells a `behavior` group from a `manifest` group by it (#5205). A prompt, a pin or
+    other data under `src/` is no code, so its test would read a value."""
+    return any(is_source_code(PurePosixPath(path)) for path in changes)
 
 
 def _behavior_problems(group: StageGroup) -> list[str]:

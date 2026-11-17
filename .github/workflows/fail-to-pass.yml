@@ -2,9 +2,11 @@ name: Fail-to-Pass Test Replay
 
 # Only a fix must show a proof that fails on its base (docs/TESTING.md). A change to the code
 # under src/ can make a test fail on base, and a changed check module of tests/gate/*_checks/ can
-# make a gate case fail on base and pass on head (#4554). So the workflow runs for a pull request
-# that changes src/ outside the knowledge base or a gate check, and its job runs only for a fix
-# title. A pull request that the filter skips gets no check run; a job that its condition skips
+# make a gate case fail on base and pass on head (#4554). Code is a .py file under src/ outside the
+# knowledge base; a prompt, a pin, a lockfile or other data under src/ is no code, and a test of
+# it would read a value (#6207). So the workflow runs for a pull request that changes source code
+# or a gate check, and its job runs only for a fix title. `devops ci fail-to-pass` reads the same
+# rule (`is_source_code`), so a local run agrees. A pull request that the filter skips gets no check run; a job that its condition skips
 # reports Success. Neither is a required check of main (ADR 0004), so neither blocks a merge
 # (#1879).
 on:
@@ -12,7 +14,7 @@ on:
     types: [opened, synchronize, reopened, edited]
     branches: [main]
     paths:
-      - "src/**"
+      - "src/**/*.py"
       - "!src/devops_cli/ai/knowledge_base/**"
       - "tests/gate/*_checks/**"
 

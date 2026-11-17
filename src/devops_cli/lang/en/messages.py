@@ -2363,6 +2363,11 @@ class CIMessages:
         "{failed} failed on base ({failed} failed and {passed} passed in {files}; "
         "{errored} errored)."
     )
+    fail_to_pass_no_source: str = (
+        "The fix changes no source code (a .py file under src/ outside the knowledge base) and no "
+        "module of tests/gate/*_checks/, so it needs no test that fails on its base. A validator "
+        "or a check command proves a change of a prompt, a pin, a manifest or other data."
+    )
     fail_to_pass_no_tests: str = (
         "The fix changes no tests/**/test_*.py file and no module of tests/gate/*_checks/. A fix "
         "adds or changes a test or a gate check that fails on its base."
@@ -5424,9 +5429,11 @@ class RoadmapMessages:
         "Its test is its check, so set process to null."
     )
     stage_kind_no_source: str = (
-        "The group '{title}' has the kind behavior, and it changes no path under src/. "
-        "Use the kind manifest for a group that changes only a rule, a dashboard or a case file, "
-        "and the kind other for a group with no test. Or add the path of the code that it changes."
+        "The group '{title}' has the kind behavior, and it changes no path under src/ that is "
+        "code: a .py file outside the knowledge base. A prompt, a pin, a template or other data "
+        "under src/ is no code. Use the kind manifest for a group that changes only a rule, a "
+        "dashboard or a case file, and the kind other for a group with no test. Or add the path of "
+        "the code that it changes."
     )
     stage_kind_other_test: str = (
         "The group '{title}' has the kind other, and it has a test. "

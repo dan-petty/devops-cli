@@ -81,6 +81,14 @@ def test_an_other_group_with_a_process_and_no_command_is_valid() -> None:
             {"changes": ["docs/TESTING.md"], "creates": [], "creates_lines": {}},
             "changes no path under src/",
         ),
+        (
+            {
+                "changes": ["src/devops_cli/ai/tasks/roadmap_stage_change.md"],
+                "creates": [],
+                "creates_lines": {},
+            },
+            "changes no path under src/",
+        ),
         ({"kind": "mixed"}, "Input should be 'behavior', 'manifest' or 'other'"),
     ],
 )

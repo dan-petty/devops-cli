@@ -5,8 +5,11 @@ modified `tests/**/test_*.py` files and check modules of `tests/gate/<row>_check
 the base tree as a detached git worktree in a temporary directory (#2197) with the head's `tests/`
 overlaid, and runs those test files with the current pytest (`-o addopts=`, `-p no:cacheprovider`,
 `--continue-on-collection-errors`, `--junitxml`), so a test file that cannot be collected on base
-is reported as errored and the others still run. The workflow runs it only for a fix pull request
-that changes `src/` or a gate check (#1879), so the command reads no title, label or body. A
+is reported as errored and the others still run. A test that fails on base proves a change of
+code, so only a fix that changes source code (`is_source_code`: a `.py` file under `src/` outside
+the knowledge base) or a gate check needs one; a fix that changes neither passes with no replay
+(#6207). The workflow runs it only for a fix pull request (#1879), so the command reads no title,
+label or body. A
 replay whose pytest was interrupted, stopped with an internal or usage error, or wrote no complete
 JUnit report could not run on base, and fails (#1669). A replay with a failure that the host path
 guard of the test harness raised, or with a failed test that the fix does not change, proves
@@ -50,9 +53,11 @@ from devops_cli.config.constants import (
     CONST_GATE_CHECKS_PACKAGE_SUFFIX,
     CONST_GATE_DIR,
     CONST_GIT_NAME_STATUS_CHANGE_TYPES,
+    CONST_KNOWLEDGE_BASE_DIR,
     CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_PYTHON_FILE_SUFFIX,
     CONST_PYTHON_PACKAGE_INIT_FILE,
+    CONST_SOURCE_ROOT_DIR,
     CONST_TEST_FILE_PREFIX,
     CONST_TESTS_ROOT_DIR,
 )
@@ -196,6 +201,9 @@ class FailToPassReport(BaseModel):
     gate_rows: tuple[GateRowReplay, ...] = ()
     repaired: tuple[TestCaseOutcome, ...] = ()
     head_could_not_run: int | None = None
+    # False when the fix changes no source code and no gate check, so no test needs to fail on base
+    # (#6207).
+    needs_proof: bool = True
 
     @property
     def failed_count(self) -> int:
@@ -248,7 +256,10 @@ class FailToPassReport(BaseModel):
     def satisfied(self) -> bool:
         """Whether the fail-to-pass gate is satisfied: no replay refuses the fix, and at least one
         changed test fails on base or a gate case of a changed check module fails on base and
-        passes on head (#4554)."""
+        passes on head (#4554). A fix that changes no source code and no gate check needs neither
+        (#6207)."""
+        if not self.needs_proof:
+            return True
         if self.tests_refused or any(row.refused for row in self.gate_rows):
             return False
         return self.changed_failed_count > 0 or any(row.proved for row in self.gate_rows)
@@ -310,6 +321,18 @@ def is_test_file(path: PurePosixPath) -> bool:
     )
 
 
+def is_source_code(path: PurePosixPath) -> bool:
+    """Whether `path` is source code: a `.py` file under `src/` outside the knowledge base, whose
+    change a test that fails on base can prove (#6207). A prompt, a tool pin or lockfile, a
+    template or other data under `src/` is no code: a validator or a check command proves it,
+    never a test of its values."""
+    return (
+        path.is_relative_to(CONST_SOURCE_ROOT_DIR)
+        and path.suffix == CONST_PYTHON_FILE_SUFFIX
+        and not path.is_relative_to(CONST_KNOWLEDGE_BASE_DIR)
+    )
+
+
 def is_gate_check(path: PurePosixPath) -> bool:
     """Whether `path` is a check module directly under `tests/gate/<row>_checks/` (#4554)."""
     package = path.parent
@@ -336,6 +359,7 @@ class ChangedTests(BaseModel):
     merge_base: str
     test_files: tuple[str, ...]
     gate_checks: tuple[str, ...] = ()
+    source_files: tuple[str, ...] = ()
 
 
 def verify_commit_argv(revision: str) -> list[str]:
@@ -387,7 +411,7 @@ def _untracked_files(root: Path) -> list[str]:
 
 def changed_tests(root: Path, base: str, head: str = "HEAD") -> ChangedTests:
     """Resolve the merge base of `base` and `head`, and list the added or modified
-    `tests/**/test_*.py` files and check modules of `tests/gate/<row>_checks/`."""
+    `tests/**/test_*.py` files, check modules of `tests/gate/<row>_checks/` and source files."""
     if (merge_base := resolve_merge_base(root, base, head)) is None:
         raise GitOperationError(MESSAGES.ci.mutate_base_refused.format(base=base))
     _verify_commit(root, base)
@@ -404,6 +428,7 @@ def changed_tests(root: Path, base: str, head: str = "HEAD") -> ChangedTests:
         merge_base=merge_base,
         test_files=tuple(path for path in paths if is_test_file(PurePosixPath(path))),
         gate_checks=tuple(path for path in paths if is_gate_check(PurePosixPath(path))),
+        source_files=tuple(path for path in paths if is_source_code(PurePosixPath(path))),
     )
 
 
@@ -496,7 +521,7 @@ CHANGED_TESTS_PLACEHOLDER = "<changed test files>"
 BLOB_PLACEHOLDER = "<blob of the changed test file>"
 GATE_ROW_PLACEHOLDER = "<gate row>"
 UNCHANGED_CHECK = "a test that failed on base is in a changed test file"
-TEST_REPLAY = "a changed test file exists"
+TEST_REPLAY = "a changed test file exists and the fix changes source code or a gate check"
 GATE_REPLAY = "a changed gate check exists"
 EACH_GATE_ROW = "for each row of a changed gate check"
 UNCHANGED_REPLAY = "a test that failed on base is unchanged"
@@ -512,7 +537,9 @@ def plan_fail_to_pass(base: str, head: str = "HEAD") -> list[PlannedRequest]:
     diff_head = None if head == "HEAD" else head
     tmp = PurePosixPath(TEMP_DIR_PLACEHOLDER)
     tree = tmp / "tree"
-    replay = "a changed test file or gate check exists"
+    replay = (
+        "the fix changes source code and a changed test file exists, or a changed gate check exists"
+    )
 
     def git(argv: list[str], condition: str = "") -> PlannedRequest:
         return PlannedRequest(method="git", target=argv[1], argv=tuple(argv), condition=condition)
@@ -804,6 +831,14 @@ def run_fail_to_pass(root: Path, *, base: str, head: str = "HEAD") -> FailToPass
     """Replay the changed `tests/**/test_*.py` files against the merge-base tree, and run the
     gate row of each changed gate check on the base and head trees (#4554)."""
     changed = changed_tests(root, base, head)
+    if not changed.source_files and not changed.gate_checks:
+        return FailToPassReport(
+            merge_base=changed.merge_base,
+            head=head,
+            changed_test_files=changed.test_files,
+            outcomes=(),
+            needs_proof=False,
+        )
     if not changed.test_files and not changed.gate_checks:
         return FailToPassReport(
             merge_base=changed.merge_base, head=head, changed_test_files=(), outcomes=()
@@ -966,6 +1001,8 @@ def _unsatisfied_reasons(report: FailToPassReport, files_label: str) -> list[str
 def format_fail_to_pass_report(report: FailToPassReport) -> str:
     """Format a human-readable per-test, per-gate-row and summary report for
     `devops ci fail-to-pass`."""
+    if not report.needs_proof:
+        return MESSAGES.ci.fail_to_pass_no_source
     lines = [
         MESSAGES.ci.fail_to_pass_test_line.format(
             status=outcome.status,
