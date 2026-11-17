@@ -24,9 +24,10 @@ from typing import Any
 
 import tomlkit
 
-from devops_cli.ci.mutate import MutationTarget, select_targets, tally
+from devops_cli.ci.mutate import MutationTarget, is_mutated_source, select_targets, tally
 from devops_cli.config.commands import BIN_UV
 from devops_cli.config.constants import (
+    CONST_MUTMUT_TREE_DIR,
     CONST_PYTHON_FILE_SUFFIX,
     CONST_ROADMAP_IMPLEMENT_SCOPED_TEST_MODULES,
     CONST_TESTS_ROOT_DIR,
@@ -45,8 +46,6 @@ _MUTMUT_SELECTION = "pytest_add_cli_args_test_selection"
 # The key of the files that mutmut 3.8.1 mutates. Each other file of `source_paths` is copied as
 # it is, so the tree has no mutated copy of a file that holds no target (#5960).
 _MUTMUT_ONLY = "only_mutate"
-# The directory in which mutmut 3.8.1 writes its copy of the checkout and its results.
-_MUTMUT_TREE = "mutants"
 
 
 @dataclass(frozen=True)
@@ -235,7 +234,7 @@ def run_mutation(
                 timed_out = True
             done = run_subprocess(results_cmd, cwd=source, quiet=True)
     finally:
-        tree = source / _MUTMUT_TREE
+        tree = source / CONST_MUTMUT_TREE_DIR
         if tree.is_dir():
             shutil.rmtree(tree)
     report = tally(done.stdout or "", targets)
@@ -279,7 +278,11 @@ def coverage_delta(source: Path, default_branch: str, tests: Sequence[str]) -> C
         log = proc_pytest.stdout or proc_pytest.stderr or ""
         return CoverageDelta(passed=False, log=log)
 
-    xml_cmd = [BIN_UV, "run", "coverage", "xml", "-q"]
+    # `coverage xml` applies the `fail_under` of `[tool.coverage.report]`, the floor of the whole
+    # suite, and a scoped run covers a small part of `src`: 17% for one test module, so the command
+    # exited 2 for every item and failed the strength check (#6076). diff-cover bounds the changed
+    # lines below, so the report takes no floor.
+    xml_cmd = [BIN_UV, "run", "coverage", "xml", "-q", "--fail-under=0"]
     proc_xml = run_subprocess(xml_cmd, cwd=source, quiet=True)
     if proc_xml.returncode != 0:
         log = proc_xml.stdout or proc_xml.stderr or ""
@@ -381,10 +384,21 @@ def strength_report(
     default_branch: str,
     tests: Sequence[str],
 ) -> StrengthReport:
-    """Run the assertion scan, the mutation run, and the coverage run in order."""
+    """Run the assertion scan, the mutation run, and the coverage run in order.
+
+    A change with no Python file under `src/` gives the mutation run no target and the coverage
+    of `src` no changed line, so only the assertion scan runs, and the report says why (#6076).
+    """
     active_files, skipped_groups = strength_scope(tasks_md, changed_files)
     test_files = new_test_files(active_files)
     findings = assertion_failures(source, test_files)
+    if not any(is_mutated_source(PurePosixPath(name)) for name in active_files):
+        return StrengthReport(
+            passed=not findings,
+            assertion_findings=findings,
+            skipped_groups=skipped_groups,
+            note=MESSAGES.roadmap.implement_strength_no_source,
+        )
 
     targets, skipped_sources = mutation_targets(source, active_files, default_branch)
     mutation = run_mutation(source, targets, tests, skipped_files=skipped_sources)

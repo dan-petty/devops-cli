@@ -258,8 +258,8 @@ def test_a_file_that_git_ignores_is_not_a_stray_file(
 
     outcome = _step(store, checkout, script)
 
+    # The end of the step empties the scratch folder (#6076), but no stray rule names the file.
     assert (outcome.status, outcome.removed) == (StepStatus.DONE, ())
-    assert (scratch / "probe.py").exists()
     assert ".data/agent/scratch/probe.py" not in _committed(checkout)
 
 

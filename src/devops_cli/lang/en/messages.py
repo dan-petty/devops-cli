@@ -3380,6 +3380,10 @@ class RoadmapMessages:
     implement_tool_line: str = "Tool call: {tool}, {outcome}."
     implement_tool_line_program: str = "Tool call: {tool}, program {program}, {outcome}."
     implement_tool_started: str = "Tool call: {tool}, started: {command}"
+    implement_disk_use: str = (
+        "Disk use of the home volume at the end of step {step}: {total}. Largest folders: "
+        "{folders}."
+    )
     implement_tool_cut: str = " ..."
     implement_tool_reason: str = "{outcome} ({reason})"
     implement_tool_reason_path: str = "Path: {path}"
@@ -4031,6 +4035,10 @@ class RoadmapMessages:
     )
     roadmap_toml_invalid: str = "{file} on the default branch is not valid: {reason}"
     implement_scoped_tests_uncovered: str = "not run, because no test covers the changed files"
+    implement_strength_no_source: str = (
+        "mutation run and coverage delta: not run, because the change has no Python file under "
+        "`src/`"
+    )
     implement_scoped_tests_narrowed: str = (
         "the changed files select more than {limit} test modules, so only the changed test "
         "modules ran. The required checks of CI run the others"

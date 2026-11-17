@@ -2534,6 +2534,9 @@ CONST_MUTMUT_COUNTED_STATUSES: Final[tuple[str, ...]] = (
     "no tests",
 )
 CONST_MUTMUT_SURVIVING_STATUSES: Final[tuple[str, ...]] = ("survived", "no tests")
+# The directory in the working directory of `mutmut run` that holds its copy of the checkout
+# and its results. The strength check and the end of an implement step remove it (#5960, #6076).
+CONST_MUTMUT_TREE_DIR: Final[str] = "mutants"
 
 # ── Fail-to-Pass Test Replay (`devops ci fail-to-pass`, #844) ────────────────
 # A changed test file that imports a module the fix adds cannot be collected on base; without
@@ -3651,6 +3654,9 @@ CONST_ROADMAP_IMPLEMENT_SCOPED_ROWS: Final[tuple[str, ...]] = ("constructs", "do
 # modules take about 3.5 minutes, far inside the time limit of a command. Above the limit the check
 # runs only the test modules that the item changed, and the required checks of CI run the rest.
 CONST_ROADMAP_IMPLEMENT_SCOPED_TEST_MODULES: Final[int] = 30
+# The folder of the scratch files of the agent of an implement step, which git ignores (AGENTS.md
+# rule 12). The job makes it before the first step and empties it when a step ends (#6076).
+CONST_ROADMAP_IMPLEMENT_SCRATCH_DIR: Final[str] = ".data/agent/scratch"
 # The most characters of the message of a pydantic-ai error that a roadmap job keeps for the reason
 # of a stopped run or a warning, and the most that the masking reads (#2758, #2562). The read is a
 # multiple of the limit: the masking of secrets is slower than linear, and the message of an error
