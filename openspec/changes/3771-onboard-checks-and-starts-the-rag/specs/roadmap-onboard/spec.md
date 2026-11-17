@@ -1,11 +1,11 @@
 ## ADDED Requirements
 
-### Requirement: The indexed row reads the points of the repository
-`devops roadmap onboard` SHALL print `present` in the `indexed` row when both collections hold at least one point of the project, `missing` when they hold none, and `partial` with the count of each collection when only one of them holds points.
+### Requirement: The indexed row reads the points of the project
+`devops roadmap onboard` SHALL print `present` in the `indexed` row when both collections hold at least one point of the project, `missing` when neither holds a point, and `partial` with the count of each collection when only one of them holds points.
 
 #### Scenario: Both collections hold points
 - **WHEN** Both collections hold at least one point for the project owner/name
-- **THEN** The indexed row reads present and the command exits 0.
+- **THEN** The indexed row reads present.
 
 #### Scenario: One collection holds points
 - **WHEN** The code collection holds at least one point for the project owner/name and the docs collection holds none
@@ -23,7 +23,7 @@
 - **THEN** The indexed row reads not readable with the reason, and every other row still prints.
 
 ### Requirement: The visibility row compares the points with the repository read
-`devops roadmap onboard` SHALL print private or public in the `rag visibility` row when the visibility of the points of the project equals the value of the repository read, and SHALL print mismatch with both values when they differ or when the points hold no visibility value.
+`devops roadmap onboard` SHALL print private or public in the `rag visibility` row when the visibility of the points of the project equals the value of the repository read, and SHALL print `mismatch` with both values when they differ or when the points hold no visibility value.
 
 #### Scenario: The points agree with the repository read
 - **WHEN** The points of the project record private and the repository read returns private
@@ -39,10 +39,10 @@
 
 #### Scenario: The project holds no point
 - **WHEN** Neither collection holds a point for the project owner/name
-- **THEN** The rag visibility row reads not indexed and the command sends no repository read for that row.
+- **THEN** The rag visibility row reads not indexed.
 
 ### Requirement: The schedule row reads the repository list
-`devops roadmap onboard` SHALL print `present` in the `rag schedule` row when `service.repos` includes the repository, and SHALL print `missing` with the line to add when it does not.
+`devops roadmap onboard` SHALL print `present` in the `rag schedule` row when `service.repos` includes the repository, and `missing` with the line to add when it does not, and MUST NOT write `config.yaml`.
 
 #### Scenario: The repository is in the schedule
 - **WHEN** service.repos includes the repository
@@ -52,8 +52,12 @@
 - **WHEN** service.repos leaves out the repository
 - **THEN** The rag schedule row reads missing and the command prints the line to add.
 
+#### Scenario: The configuration file stays unchanged
+- **WHEN** The user runs the command with any mode flag
+- **THEN** The configuration file is byte for byte the same after the command as before it.
+
 ### Requirement: The confirmed start runs the pass for one repository
-`devops roadmap onboard --confirm` SHALL run the ingestion pass with `--repo owner/name` when `service.repos` includes the repository, and SHALL print the number of points of each collection after the pass.
+`devops roadmap onboard --confirm` SHALL start the ingestion pass for the named repository only when `service.repos` includes it, SHALL print the number of points of the code collection and of the docs collection after the pass, and MUST start no ingestion when the list leaves the repository out.
 
 #### Scenario: The pass runs for one repository
 - **WHEN** service.repos includes the repository and the user passes --confirm
@@ -68,28 +72,24 @@ A second `devops roadmap onboard --confirm` run SHALL write no point when the re
 
 #### Scenario: The repository is current
 - **WHEN** The repository is current and the user passes --confirm again
-- **THEN** The pass writes no point and the drift check of the project reports no drift.
+- **THEN** The pass reports that it skipped the repository and the drift check of the project reads clean.
+
+### Requirement: The page describes the RAG rows
+`docs/roadmap/onboard.md` SHALL describe the `indexed`, `rag visibility` and `rag schedule` rows, the value of each, the `--confirm` start of the ingestion pass and the exit-code rule.
+
+#### Scenario: The RAG rows are described
+- **WHEN** A reader opens the onboard page
+- **THEN** The page describes each RAG row, its values, the confirmed start of the pass and the exit-code rule.
 
 ## MODIFIED Requirements
 
 ### Requirement: The exit code follows the missing rows
-The command SHALL exit 1 when one of the seven prerequisite rows is `missing`, and 0 when every one of them is `present` or `not readable`; a RAG row SHALL NOT change the exit code.
+The command SHALL exit 1 when one of the seven prerequisite rows is `missing`, and 0 when every one of them is `present` or `not readable`; a row of the index, of the visibility or of the schedule SHALL NOT change the exit code.
 
 #### Scenario: One missing row
-- **WHEN** Exactly one prerequisite row is missing
-- **THEN** The command exits 1; with no missing prerequisite row it exits 0 even when a row is not readable.
+- **WHEN** exactly one row is `missing`
+- **THEN** the command exits 1; with no `missing` row it exits 0 even when a row is `not readable`
 
 #### Scenario: A repository that is not yet indexed
 - **WHEN** Every prerequisite row is present or not readable and the indexed row reads missing
 - **THEN** The command exits 0.
-
-### Requirement: The command is documented
-`docs/roadmap/onboard.md` SHALL document the command, the `indexed`, `rag visibility` and `rag schedule` rows, the `--confirm` start of the ingestion pass and the exit-code rule, and the README command list SHALL link it.
-
-#### Scenario: The documentation invariant
-- **WHEN** The documentation invariant tests run
-- **THEN** They pass, docs/roadmap/onboard.md exists, and the README lists devops roadmap onboard.
-
-#### Scenario: The RAG rows are described
-- **WHEN** A reader opens docs/roadmap/onboard.md
-- **THEN** The page describes each RAG row, its values, the confirmed start of the pass and the exit-code rule.
