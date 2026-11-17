@@ -3475,9 +3475,12 @@ CONST_ROADMAP_STAGE_VIOLATION_TEXT_MAX_CHARS: Final[int] = 200
 # (`_WINDOW_SHARE_CONTEXT` and `_WINDOW_SHARE_BODY` in the stage module). For the planner window of
 # 65,536 tokens, the hook that ends the tools (`CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE`)
 # stops them at 49,152 tokens. That window is too small for a run (`CONST_ROADMAP_STAGE_MIN_TOOL_CALLS`). The request with the prompts and the names of the capabilities
-# counts about 34,000 tokens at the caps. The reserve is the room that the first request leaves
-# below that limit for the answers of the tools. `read_spec` gives the capabilities on demand.
-CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS: Final[int] = 20_480
+# counts about 41,000 tokens at the caps with code, whose quotes and newlines grow in JSON. The
+# reserve is the room that the first request leaves below that limit for the answers of the tools.
+# `read_spec` gives the capabilities on demand. The context cap leaves about 1,000 tokens for a
+# change of the stage prompt: at 20,480 the prompt change of #6091 took the request 41 tokens over
+# the limit (#6103).
+CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS: Final[int] = 19_456
 CONST_ROADMAP_STAGE_BODY_MAX_TOKENS: Final[int] = 8_192
 CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS: Final[int] = 8_192
 # The least tool calls that a plan run makes before the window ends its tools (#3880). A run that
