@@ -102,6 +102,7 @@ from pathlib import Path
 from typing import Any, Final, NamedTuple, NoReturn, Protocol
 
 from pydantic import BaseModel
+from pydantic_ai.exceptions import ModelAPIError, UnexpectedModelBehavior, UserError
 from pydantic_ai.models.decision import NoulQuestion
 
 from devops_cli.ai.client import LLMClient, get_llm_client
@@ -393,6 +394,16 @@ _SHADOW_QUESTIONS: Final[dict[str, Any]] = {
         instructions="Does the item name concrete files and acceptance criteria?",
     ),
 }
+# The errors of a Jev call that the shadow route contains (#4284): the library raises
+# `ModelAPIError` for HTTP and connection errors, `UnexpectedModelBehavior` for a body it can't
+# read, `UserError` for a request it can't send, and the gateway settings raise `DevOpsCLIError`s.
+_JEV_FAILED: Final[tuple[type[Exception], ...]] = (
+    ModelAPIError,
+    UnexpectedModelBehavior,
+    UserError,
+    DevOpsCLIError,
+    OSError,
+)
 
 # The row of the step seconds that this job sends (#4066).
 _ROW = "stage"
@@ -1551,7 +1562,7 @@ class _Planner:
                 tiers=_SHADOW_TIERS,
                 extra_questions=_SHADOW_QUESTIONS,
             )
-        except Exception as exc:  # a Jev error is a record and never stops the item
+        except _JEV_FAILED as exc:
             logger.warning(
                 MESSAGES.roadmap.stage_jev_shadow_error.format(
                     number=item.number, error=f"{type(exc).__name__}: {exc}"[:300]

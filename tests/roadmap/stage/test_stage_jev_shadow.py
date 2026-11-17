@@ -224,7 +224,7 @@ def test_a_jev_error_counts_and_never_stops_the_item(
     _clear_kept()
 
     _enable_shadow(monkeypatch)
-    jev = _Jev(error=RuntimeError("the Jev call broke"))
+    jev = _Jev(error=OSError("the Jev call broke"))
     planner = _planner(_ScriptedToolbox([_plan()]), stage_repo.clone, jev)
 
     with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.stage.stage"):
