@@ -8,8 +8,10 @@ in three moves.
 that no round reported. The round reports the Job of each such open item, and of each such closed
 item whose Job the cluster still holds, because the pull request of a Job can merge and close its
 item before the round (#4703). A closed item is no stop. When the Job has ended, the round
-comments the state and the tail of the log of its pod on the item, and records `implement.job_state` as `succeeded` or `failed`. A Job
-that no longer exists is recorded as `gone`. A runner writes `implement.result` as the last mark
+records `implement.job_state` as `succeeded` or `failed`. It comments the state and the tail of
+the log of its pod on the item only when the runner left no result: the finished or stop comment
+of a runner is the report of its run, once (#6194). A Job that no longer exists is recorded as
+`gone`, with a comment. A runner writes `implement.result` as the last mark
 of its end (#4071); a Job with the result `ready`, `yielded` or `returned` ended on purpose and
 causes no stop. A Job with no result that leaves its item In Progress, or Ready and
 not stopped, is a stop that the runner could not write, such as a pod killed for its memory: the
@@ -342,11 +344,14 @@ def _report(
     name: str,
     ended: ClusterJob | None,
 ) -> None:
-    """Comment on the item what became of its Job, record the state, and stop the item when the
-    Job left it eligible. The comment comes first, so a write that fails is reported again. The
-    item is read again after the log, which is a request to the cluster: the runner can write its
-    stop in that time, and a stop that it wrote keeps its class (#3476). This narrows the race and
-    does not close it: a stop that the runner writes after this read can still be overwritten."""
+    """Record the state of the Job of the item, comment on the item what became of a Job that
+    left no result, and stop the item when the Job left it eligible. A Job whose runner wrote its
+    result, a stop included, gets no comment: the comment of the runner is the report, and the
+    record holds the state and the digest (#6194). A Job that is gone gets the comment. The
+    comment comes first, so a write that fails is reported again. The item is read again after
+    the log, which is a request to the cluster: the runner can write its stop in that time, and a
+    stop that it wrote keeps its class (#3476). This narrows the race and does not close it: a stop
+    that the runner writes after this read can still be overwritten."""
     state = ended.state.value if ended else _GONE
     log = _log_of(jobs, name) if ended else ""
     pod = _pod_end_of(jobs, name) if ended else PodEnd()
@@ -355,19 +360,20 @@ def _report(
     stall = ended.annotations.get(CONST_ROADMAP_IMPLEMENT_ANNOTATION_STALLED) if ended else None
     failure = _failure_of(item, log, pod=pod, stops=stops, stalled=stall is not None)
     digest = _record(item, ImplementRecordKey.JOB_DIGEST)
-    store.comment(
-        item.number,
-        _comment(
-            name,
-            state,
-            log,
-            failure=failure,
-            stopped=stops,
-            digest=digest,
-            stall=stall,
-            evicted=pod.message if pod.reason == CONST_K8S_REASON_EVICTED else "",
-        ),
-    )
+    if stops or ended is None:
+        store.comment(
+            item.number,
+            _comment(
+                name,
+                state,
+                log,
+                failure=failure,
+                stopped=stops,
+                digest=digest,
+                stall=stall,
+                evicted=pod.message if pod.reason == CONST_K8S_REASON_EVICTED else "",
+            ),
+        )
     spend = _spend_tokens(item)
     counted = _counted_tokens(item)
     # The spend is the sum of all Jobs, so only the part after the count is new. A spend below the

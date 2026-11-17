@@ -34,9 +34,9 @@ from devops_cli.config.env import setting_variables
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.github.repo_ref import RepoRef
-from devops_cli.k8s.cluster_job import OWNER_LABEL, REPO_LABEL
+from devops_cli.k8s.cluster_job import OWNER_LABEL, REPO_LABEL, RUNNER_TEMPLATE
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.failure import FailureClass
+from devops_cli.roadmap.failure import FailureClass, failure_lines
 from devops_cli.roadmap.implement.implement import parse_implement_filters, plan_implement
 from devops_cli.roadmap.implement.implement_submit import run_implement_round
 from devops_cli.roadmap.job_launcher import CREATED_AT_ANNOTATION
@@ -58,6 +58,7 @@ from tests.support.fakes.kubernetes import (
     terminated,
 )
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.job_templates import cronjob_template
 from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_implement import (
     NEEDS_FIX_DRAFT,
@@ -105,13 +106,21 @@ def kube(cluster: FakeCluster, template: dict[str, Any]) -> FakeCluster:
     return cluster
 
 
+@pytest.fixture
+def built(cluster: FakeCluster) -> FakeCluster:
+    """The cluster with the runner CronJob that the test builds (#6082), so a test reads no
+    committed manifest."""
+    cluster.custom_objects.objects[CRONJOBS] = [cronjob_template(RUNNER_TEMPLATE)]
+    return cluster
+
+
 DIGEST_A = "sha256:" + "a" * 64
 DIGEST_B = "sha256:" + "b" * 64
 
 
-def _roll(kube: FakeCluster, digest: str | None) -> None:
+def _roll(cluster: FakeCluster, digest: str | None) -> None:
     """Image Updater puts `digest` into the image of the template, or takes it out."""
-    cronjob = kube.custom_objects.objects[CRONJOBS][0]
+    cronjob = cluster.custom_objects.objects[CRONJOBS][0]
     (container,) = cronjob["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][:1]
     container["image"] = "ghcr.io/example/runner:latest" + (f"@{digest}" if digest else "")
 
@@ -121,14 +130,14 @@ def _round(store: InMemoryRoadmapStore, repo: StageRepo) -> JobOutcome:
     return IMPLEMENT_ROW.runner(store=store, repo=STAGE_REPO, clone_path=repo.clone)
 
 
-def _jobs(kube: FakeCluster) -> list[dict[str, Any]]:
-    return kube.custom_objects.objects.get(JOBS, [])
+def _jobs(cluster: FakeCluster) -> list[dict[str, Any]]:
+    return cluster.custom_objects.objects.get(JOBS, [])
 
 
-def _creates(kube: FakeCluster) -> list[dict[str, Any]]:
+def _creates(cluster: FakeCluster) -> list[dict[str, Any]]:
     return [
         call[1]["body"]
-        for call in kube.custom_objects.calls
+        for call in cluster.custom_objects.calls
         if call[0] == "create_namespaced_custom_object"
     ]
 
@@ -145,9 +154,9 @@ def _record(store: InMemoryRoadmapStore, number: int = 1) -> dict[str, str | Non
     return {str(key): value for key, value in item.job_record.items()}
 
 
-def _end(kube: FakeCluster, condition: str, index: int = 0) -> None:
+def _end(cluster: FakeCluster, condition: str, index: int = 0) -> None:
     """The Job controller marks Job `index` Complete or Failed."""
-    _jobs(kube)[index]["status"] = {
+    _jobs(cluster)[index]["status"] = {
         "conditions": [{"type": condition, "status": "True"}],
     }
 
@@ -480,33 +489,38 @@ def test_a_job_that_a_person_starts_after_the_plan_gets_no_second_job_from_the_r
     )
 
 
-def test_a_job_that_succeeded_is_reported_on_its_item_with_the_tail_of_its_log(
+def test_a_job_that_finished_its_item_is_recorded_with_no_second_report(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
 ) -> None:
+    """The finished comment of the runner is the report of the run: the round records the state
+    of the Job and posts no comment that repeats the end of its log (#6194). The round still reads
+    the log first, so a stop that the runner writes in that time keeps its class (#3476)."""
     number = seed_staged(store)
     _round(store, staged_repo)
     name = _jobs(kube)[0]["metadata"]["name"]
     item = store.item(number)
     assert item is not None
-    store.set_field(item, ItemField.STATUS, "In Review")
+    store.set_field(
+        item,
+        ItemField.STATUS,
+        "In Review",
+        marks={ImplementRecordKey.RESULT: ImplementResult.READY.value},
+    )
     _end(kube, "Complete")
     kube.core.answers["list_namespaced_pod"] = [pod(f"{name}-x1", namespace="devops")]
     kube.core.answers["read_namespaced_pod_log"] = f"Took 1 item(s).\nauthorization: {A_TOKEN}\n"
 
     _round(store, staged_repo)
 
-    (comment,) = [c for c in _comments(store, number) if c.startswith(MARKER)]
     held = store.item(number)
     assert held is not None
     assert (
         held.status,
         _record(store, number)["implement.job_state"],
         _record(store, number).get("implement.stopped"),
-        f"The runner Job {name} ended: succeeded." in comment,
-        "```\nTook 1 item(s).\n" in comment,
-        A_TOKEN in comment,
+        [c for c in _comments(store, number) if c.startswith(MARKER)],
         len(_creates(kube)),
-    ) == ("In Review", "succeeded", None, True, True, False, 1)
+    ) == ("In Review", "succeeded", None, [], 1)
     log_call = next(c for c in kube.core.calls if c[0] == "read_namespaced_pod_log")
     pod_call = next(c for c in kube.core.calls if c[0] == "list_namespaced_pod")
     assert (log_call[1]["name"], log_call[1]["tail_lines"], pod_call[1]["label_selector"]) == (
@@ -514,6 +528,92 @@ def test_a_job_that_succeeded_is_reported_on_its_item_with_the_tail_of_its_log(
         40,
         f"batch.kubernetes.io/job-name={name}",
     )
+
+
+def test_a_job_whose_runner_wrote_its_stop_is_recorded_with_no_second_report(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, built: FakeCluster
+) -> None:
+    """The stop comment of the runner is the one copy of the stop report: the round records the
+    state of the Job and posts no comment that repeats the end lines of its log (#6194)."""
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    name = _jobs(built)[0]["metadata"]["name"]
+    store.set_field(
+        _held(store, number),
+        ItemField.STATUS,
+        "Blocked",
+        marks={
+            ImplementRecordKey.STOPPED: "group 2",
+            ImplementRecordKey.FAILURE: FailureClass.PROVIDER.value,
+            ImplementRecordKey.RESULT: ImplementResult.STOPPED.value,
+        },
+    )
+    _end(built, "Failed")
+    built.core.answers["list_namespaced_pod"] = [pod(f"{name}-x1", namespace="devops")]
+    built.core.answers["read_namespaced_pod_log"] = "Failure class provider. Action left: retry.\n"
+
+    _round(store, staged_repo)
+
+    assert (
+        [c for c in _comments(store, number) if c.startswith(MARKER)],
+        _record(store, number)["implement.job_state"],
+        _record(store, number)["implement.stopped"],
+    ) == ([], "failed", "group 2")
+
+
+@pytest.mark.usefixtures("no_continuation")
+def test_a_retry_after_a_stop_of_the_runner_clears_one_stop_and_never_loops(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, built: FakeCluster
+) -> None:
+    """The round posts no Job report after a stop that the runner wrote (#6194), so the comment of
+    the clear ends the retry of a person: `implement: retry` clears one stop, and the next stop
+    waits for a new retry, with no new Job."""
+    number = seed_staged(store)
+    _round(store, staged_repo)
+
+    def runner_stops(job: int) -> None:
+        """The runner of Job `job` writes its stop and its stop comment, and its Job fails."""
+        store.set_field(
+            _held(store, number),
+            ItemField.STATUS,
+            "Blocked",
+            marks={
+                ImplementRecordKey.STOPPED: "group 2",
+                ImplementRecordKey.FAILURE: FailureClass.PROVIDER.value,
+                ImplementRecordKey.RESULT: ImplementResult.STOPPED.value,
+            },
+        )
+        store.comment(
+            number,
+            MESSAGES.roadmap.implement_comment_stopped.format(
+                marker=MARKER,
+                step="group 2",
+                check="",
+                failure=failure_lines(FailureClass.PROVIDER),
+                table="",
+                extensions="",
+                reason="    The provider broke.",
+                last="none.",
+                diff="",
+                note="",
+            ),
+        )
+        _end(built, "Failed", job)
+
+    runner_stops(0)
+    _round(store, staged_repo)
+    store.as_actor("owner").comment(number, "implement: retry")
+    _round(store, staged_repo)
+    runner_stops(1)
+    _round(store, staged_repo)
+    _round(store, staged_repo)
+
+    assert (
+        len([c for c in _comments(store, number) if "rule `retry`" in c]),
+        len(_creates(built)),
+        _held(store, number).status,
+        _record(store, number)["implement.stopped"],
+    ) == (1, 2, "Blocked", "group 2")
 
 
 def test_a_record_naming_another_items_job_is_skipped_and_reads_no_log(

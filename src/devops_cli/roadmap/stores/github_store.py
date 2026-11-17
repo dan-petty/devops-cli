@@ -35,6 +35,7 @@ import logging
 import subprocess
 import threading
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from http import HTTPStatus
 from itertools import islice
@@ -81,6 +82,7 @@ from devops_cli.roadmap.stores.store import (
     ItemField,
     Milestone,
     OpenPull,
+    PostedComment,
     RepositoryFacts,
     RepositoryLabel,
     RoadmapStore,
@@ -358,6 +360,24 @@ class _CommentPayload(BaseModel):
         )
 
 
+class _PostedCommentPayload(BaseModel):
+    """The answer of GitHub to the post of a comment: the comment, of which the store reads only
+    its page."""
+
+    html_url: str = ""
+
+
+@dataclass(frozen=True)
+class _Posted:
+    """What the store says of a comment that it was asked to post (`PostedComment`)."""
+
+    url: str | None
+    posted: bool
+
+    def __bool__(self) -> bool:
+        return self.posted
+
+
 class _TimelineNodePayload(BaseModel):
     """A `ClosedEvent` or `ReopenedEvent` as `_CLOSURES_QUERY` selects it."""
 
@@ -447,6 +467,7 @@ _SBOM = TypeAdapter(_SbomPayload)
 # The SPDX reference type of a package URL.
 _PURL_REFERENCE = "purl"
 _COMMENT = TypeAdapter(_CommentPayload)
+_POSTED_COMMENT = TypeAdapter(_PostedCommentPayload)
 _TIMELINE = TypeAdapter(_TimelinePayload)
 _WORKFLOW_RUN = TypeAdapter(_WorkflowRunPayload)
 _COMMITS = TypeAdapter(list[_CommitPayload])
@@ -1066,14 +1087,17 @@ class GitHubRoadmapStore(RoadmapStore):
             self._path_changes[path] = commits[0].committed_at if commits else None
         return self._path_changes[path]
 
-    def comment(self, number: int, body: str) -> bool:
-        """Comment `body` on issue `number`, unless it repeats a recent comment of the same
-        roadmap job there: then it reads the comments of the issue, writes nothing and returns
-        False (#4793)."""
-        if refused_repeat(number, body, lambda: self.comments_on(number), now=self._clock()):
-            return False
-        self._write(comment_args(self._repo, number, body), f"comment on #{number}")
-        return True
+    def comment(self, number: int, body: str) -> PostedComment:
+        """Comment `body` on issue `number`, and give the page of the comment that GitHub
+        answers (#6194). A repeat of a recent comment of the same roadmap job there writes
+        nothing: the store reads the comments of the issue and gives the page of that comment
+        (#4793)."""
+        earlier = refused_repeat(number, body, lambda: self.comments_on(number), now=self._clock())
+        if earlier is not None:
+            return _Posted(earlier.url, posted=False)
+        action = f"comment on #{number}"
+        written = self._write(comment_args(self._repo, number, body), action)
+        return _Posted(self._validate(written, _POSTED_COMMENT, action).html_url or None, True)
 
     def edit_comment(self, number: int, comment_id: int, body: str) -> None:
         """Write `body` as the text of the comment `comment_id` on issue `number`, in one `PATCH`
