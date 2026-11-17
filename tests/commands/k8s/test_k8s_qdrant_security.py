@@ -1,27 +1,21 @@
-"""Unit and integration tests for Qdrant API key secret protection and ClusterIP defaults.
+"""Unit and integration tests for the Qdrant API key.
 
 Validates:
-1. k8s/llm/values-qdrant.yaml (ClusterIP service, the API key in `env` from Secret
-   qdrant-api-key, no key the pinned chart does not declare).
-2. Configuration & OS Keyring secret mappings for Qdrant API key.
-3. deploy-stack pushing the cluster Secrets from the keyring before anything reads them, in
+1. Configuration & OS Keyring secret mappings for Qdrant API key.
+2. deploy-stack pushing the cluster Secrets from the keyring before anything reads them, in
    place of the client-side Qdrant Secret apply that leaked the key into an annotation.
 
-`tests/fixtures/charts/qdrant/` holds the `values.yaml` and `LICENSE` (Apache-2.0) of the chart
-qdrant/qdrant from https://qdrant.github.io/qdrant-helm, unchanged, at the version in `VERSION`.
-Helm drops a values key that the chart does not read without an error, so the key in
-`extraEnv` never reached the pod (#1670).
+The form of `k8s/llm/values-qdrant.yaml` is the work of the `k8s` row of `devops ci`, and no test
+asserts a value of it (#6060).
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
-from pathlib import Path
 from typing import Any
 
 import pytest
 import typer
-import yaml
 from click.testing import CliRunner
 
 from devops_cli.commands.k8s.stack_lifecycle import deploy_stack
@@ -37,107 +31,10 @@ from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS, KeyringSource, Secre
 from tests.support.cluster_secret_fakes import APP_KEY, APP_KEY_ENTRY, FakeCluster
 from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
-from tests.support.paths import FIXTURES, REPO_ROOT
 
 _deploy_app = typer.Typer()
 _deploy_app.command()(deploy_stack)
 DEPLOY_COMMAND = typer.main.get_command(_deploy_app)
-
-LLM_DIR = REPO_ROOT / "k8s" / "llm"
-QDRANT_CHART = FIXTURES / "charts" / "qdrant"
-QDRANT_KEY_REF = {"secretKeyRef": {"name": "qdrant-api-key", "key": "api-key"}}
-
-
-def _yaml(path: Path) -> Any:
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
-
-
-def test_qdrant_reads_its_api_key_from_the_pushed_secret() -> None:
-    """The chart renders `env` on the qdrant container; it has no `extraEnv` (#1670)."""
-    values = _yaml(LLM_DIR / "values-qdrant.yaml")
-
-    assert values["env"] == [
-        {"name": "QDRANT__SERVICE__API_KEY", "valueFrom": QDRANT_KEY_REF},
-        {
-            "name": "QDRANT__SERVICE__READ_ONLY_API_KEY",
-            "valueFrom": {"secretKeyRef": {"name": "qdrant-api-key", "key": "read-only-api-key"}},
-        },
-    ]
-
-
-def test_every_top_level_qdrant_value_is_a_key_of_the_pinned_chart() -> None:
-    """Helm drops a key the chart does not read, with no error (#1670)."""
-    values = _yaml(LLM_DIR / "values-qdrant.yaml")
-    chart_values = _yaml(QDRANT_CHART / "values.yaml")
-
-    assert sorted(set(values) - set(chart_values)) == []
-
-
-def test_the_qdrant_chart_makes_no_api_key_secret_of_its_own() -> None:
-    """The chart makes Secret qdrant-apikey only when apiKey or readOnlyApiKey is set.
-
-    Its `apiKey: {valueFrom: ...}` form is no way to the pushed Secret either: the chart reads
-    that Secret with `lookup`, which is empty under `helm template` and Argo CD.
-    """
-    merged = {**_yaml(QDRANT_CHART / "values.yaml"), **_yaml(LLM_DIR / "values-qdrant.yaml")}
-
-    assert (bool(merged.get("apiKey")), bool(merged.get("readOnlyApiKey"))) == (False, False)
-
-
-def test_qdrant_helm_values_security() -> None:
-    """Validate k8s/llm/values-qdrant.yaml zero-trust perimeter and secret protection."""
-    values_path = REPO_ROOT / "k8s" / "llm" / "values-qdrant.yaml"
-    assert values_path.is_file(), f"Missing {values_path}"
-
-    content = values_path.read_text(encoding="utf-8")
-    data = yaml.safe_load(content)
-    assert isinstance(data, dict), "values-qdrant.yaml must parse as dictionary"
-
-    # 1. Zero-trust internal perimeter: service.type must be ClusterIP
-    service = data.get("service", {})
-    assert service.get("type") == "ClusterIP", (
-        f"Expected service.type 'ClusterIP', got {service.get('type')}"
-    )
-
-    # 2. Pod and container security contexts. The qdrant chart renders the container's from
-    # `containerSecurityContext` and never reads `securityContext`, so a hardening block there
-    # never reached the pod (#953).
-    container_sec_ctx = data["containerSecurityContext"]
-    pod_sec_ctx = data["podSecurityContext"]
-    monitor = data.get("metrics", {}).get("serviceMonitor", {})
-    assert (
-        "securityContext" in data,
-        container_sec_ctx.get("runAsNonRoot"),
-        container_sec_ctx.get("runAsUser"),
-        container_sec_ctx.get("privileged"),
-        container_sec_ctx.get("readOnlyRootFilesystem"),
-        container_sec_ctx.get("allowPrivilegeEscalation"),
-        container_sec_ctx.get("capabilities", {}).get("drop"),
-        container_sec_ctx.get("seccompProfile", {}).get("type"),
-        container_sec_ctx.get("runAsGroup"),
-        pod_sec_ctx.get("runAsNonRoot"),
-        monitor.get("enabled"),
-        monitor.get("authorization"),
-    ) == (
-        False,
-        True,
-        pod_sec_ctx["runAsUser"],
-        False,
-        True,
-        False,
-        ["ALL"],
-        "RuntimeDefault",
-        pod_sec_ctx["runAsGroup"],
-        True,
-        True,
-        {
-            "type": "Bearer",
-            "credentials": {
-                "name": "qdrant-api-key",
-                "key": "api-key",
-            },
-        },
-    )
 
 
 def test_qdrant_settings_variables_and_its_api_key_credential() -> None:

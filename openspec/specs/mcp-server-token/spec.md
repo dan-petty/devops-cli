@@ -23,7 +23,7 @@ When the keyring and the live Secret hold no value, the push SHALL generate the 
 Deployment `mcp-server` SHALL set the variable `DEVOPS_CLI_MCP_TOKEN` with a `secretKeyRef` to the key `DEVOPS_CLI_MCP_TOKEN` of Secret `mcp-server`. A `secretKeyRef` of a manifest under `k8s/` to a Secret of the table SHALL name a key of that row.
 
 #### Scenario: A test reads the manifest
-- **WHEN** a test reads Deployment `mcp-server`
+- **WHEN** a person runs `kubectl -n devops get deployment mcp-server -o yaml` on the cluster
 - **THEN** its container env holds the variable with that `secretKeyRef`
 
 ### Requirement: The README lists the rows

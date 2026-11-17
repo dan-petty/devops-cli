@@ -8,6 +8,7 @@ from typing import Any
 
 import yaml
 
+from devops_cli.config.setting_keys import unknown_setting_keys
 from devops_cli.config.settings import GitHubAppConfig, Settings, load_settings
 from devops_cli.config.yaml_errors import parse_config_yaml
 from devops_cli.exceptions.k8s import KubernetesContextError
@@ -68,7 +69,9 @@ def render_devops_configmap_content(
     PyYAML. The config in it is a config file of devops-cli, which the Service reads as YAML 1.2,
     so the render reads it as YAML 1.2 too (#4481). PyYAML writes it again and quotes each word
     that YAML 1.1 reads as a bool or a number, such as `'off'`. The render validates the YAML 1.2
-    read of the text that it writes, which is the config that the Service loads.
+    read of the text that it writes, which is the config that the Service loads. The settings
+    models ignore a key that they do not declare, so the render refuses such a key by its dotted
+    path, such as a key that a change removed from the settings and left in the template.
     """
     manifest = yaml.safe_load(template_content)
     data = manifest.get("data") if isinstance(manifest, dict) else None
@@ -83,7 +86,15 @@ def render_devops_configmap_content(
         repos, github_app, poll_interval_seconds, github_requests_per_hour
     )
     data[_CONFIG_KEY] = yaml.dump(config, Dumper=_BlockDumper, sort_keys=False)
-    Settings.model_validate(parse_config_yaml(data[_CONFIG_KEY]))
+    written = parse_config_yaml(data[_CONFIG_KEY])
+    Settings.model_validate(written)
+    unknown = unknown_setting_keys(written)
+    if unknown:
+        raise KubernetesContextError(
+            "The devops ConfigMap template holds keys that no setting declares: "
+            + ", ".join(unknown)
+            + ". Remove them from the template."
+        )
     return yaml.dump(manifest, Dumper=_BlockDumper, sort_keys=False)
 
 

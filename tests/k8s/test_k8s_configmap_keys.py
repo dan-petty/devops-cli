@@ -1,41 +1,33 @@
-"""The example ConfigMap names only settings that `Settings` declares (#4093).
+"""The walk that finds the keys of a settings mapping that no settings model declares (#4093).
 
-Most models of `Settings` set `extra="ignore"`, so a key that a change removes from a model and
-that stays in `k8s/devops/configmap.example.yaml` loads with no error. These tests walk each key of
-the rendered example against the fields of the models. A test cannot read the live ConfigMap:
-`devops k8s deploy-stack` validates its rendering before it applies it, and covers the cluster.
+Most models of `Settings` set `extra="ignore"`, so a key that a change removes from a model loads
+with no error. `unknown_setting_keys` names such a key by its dotted path, and the ConfigMap render
+refuses a template that holds one (`tests/k8s/test_k8s_configmap.py`). These tests give the walk a
+mapping that they build, not the committed template.
 """
 
 from __future__ import annotations
 
-import copy
 from typing import Any
 
 import pytest
-import yaml
 from pydantic import ValidationError
 
 from devops_cli.config.setting_keys import unknown_setting_keys
-from devops_cli.config.settings import GitHubAppConfig, ServiceConfig, Settings
-from devops_cli.k8s.configmap import render_active_devops_configmap
-from tests.support.paths import REPO_ROOT
-
-APP = GitHubAppConfig(app_id=1001, installation_id=42, slug="devops-roadmap")
+from devops_cli.config.settings import Settings
 
 
-def _example_config() -> dict[str, Any]:
-    """The settings that the example ConfigMap holds, as a deploy renders them."""
-    rendered = render_active_devops_configmap(
-        REPO_ROOT / "k8s" / "devops",
-        settings=Settings(service=ServiceConfig(repos=["example-org/repo"], github_app=APP)),
-    )
-    config: dict[str, Any] = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
-    return config
+def _config() -> dict[str, Any]:
+    """A settings mapping that holds only keys that the models declare."""
+    return {
+        "ai": {"model": "devops-background", "tasks": {"chat": {"model": "devops-background"}}},
+        "roadmap": {"implement": {"repair_rounds": 2}},
+        "service": {"repos": ["example-org/repo"]},
+    }
 
 
-def test_every_key_of_the_example_is_a_setting() -> None:
-    """No key of the example is unknown, and the whole example loads into `Settings`."""
-    config = _example_config()
+def test_a_mapping_of_declared_keys_has_no_unknown_key() -> None:
+    config = _config()
 
     Settings.model_validate(config)
 
@@ -49,11 +41,9 @@ def test_every_key_of_the_example_is_a_setting() -> None:
         (("not_a_section",), "not_a_section"),
     ],
 )
-def test_an_unknown_key_in_a_copy_of_the_example_is_reported(
-    path: tuple[str, ...], reported: str
-) -> None:
+def test_an_unknown_key_is_reported_by_its_full_path(path: tuple[str, ...], reported: str) -> None:
     """A key that no model declares is reported with its full path, though the load accepts it."""
-    config = copy.deepcopy(_example_config())
+    config = _config()
     section = config
     for part in path[:-1]:
         section = section[part]
@@ -64,10 +54,10 @@ def test_an_unknown_key_in_a_copy_of_the_example_is_reported(
     assert unknown_setting_keys(config) == [reported]
 
 
-def test_a_key_of_a_price_in_a_copy_of_the_example_is_checked_and_a_model_name_is_not() -> None:
+def test_a_key_of_a_price_is_checked_and_a_model_name_is_not() -> None:
     """The name of a model under `ai.price_overrides` is a key of the user. The fields of its
     price are keys of a model, so a misspelled field is reported (#4242)."""
-    config = copy.deepcopy(_example_config())
+    config = _config()
     config["ai"]["price_overrides"] = {"example-model": {"prompt_usd_per_milion": 1.0}}
 
     assert unknown_setting_keys(config) == [
@@ -75,10 +65,10 @@ def test_a_key_of_a_price_in_a_copy_of_the_example_is_checked_and_a_model_name_i
     ]
 
 
-def test_an_unknown_ladder_step_class_in_a_copy_of_the_example_fails_to_load() -> None:
+def test_an_unknown_ladder_step_class_fails_to_load() -> None:
     """The ladder refuses a step class that no step has: the load catches this one already."""
-    config = copy.deepcopy(_example_config())
-    config["roadmap"]["implement"]["ladder"]["plan"] = ["devops-coder"]
+    config = _config()
+    config["roadmap"]["implement"]["ladder"] = {"plan": ["devops-coder"]}
 
     with pytest.raises(ValidationError, match="the ladder names no step class"):
         Settings.model_validate(config)

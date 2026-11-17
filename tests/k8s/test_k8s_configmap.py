@@ -107,6 +107,25 @@ def test_render_devops_configmap_invalid_template_raises() -> None:
         )
 
 
+def test_a_template_with_a_key_that_no_setting_declares_is_refused_naming_the_key() -> None:
+    """The settings models ignore an unknown key, so the render refuses a template key that no
+    model declares, such as a key that a change removed from the settings (#4093, #6082)."""
+    template = SAMPLE_TEMPLATE.replace(
+        "    telemetry:\n", "    telemetry:\n      not_a_setting: 1\n"
+    ).replace("    ai:\n", "    not_a_section: {}\n    ai:\n")
+
+    with pytest.raises(KubernetesContextError) as raised:
+        render_devops_configmap_content(template, repos=["example/repo"], github_app=APP)
+
+    assert (
+        "not_a_section" in str(raised.value),
+        "telemetry.not_a_setting" in str(raised.value),
+    ) == (
+        True,
+        True,
+    )
+
+
 def test_render_devops_configmap_with_poll() -> None:
     """Verify render_devops_configmap_content formats poll_interval_seconds."""
     rendered = render_devops_configmap_content(
