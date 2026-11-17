@@ -6,6 +6,7 @@ import logging
 import time
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
+from importlib.metadata import PackageNotFoundError, version
 from typing import TYPE_CHECKING, Any
 
 import httpx2
@@ -81,6 +82,23 @@ def _capabilities_support_adaptive_thinking(capabilities: Any) -> bool:
     return False
 
 
+def _installed_sdk_major() -> int:
+    """The major version of the installed Anthropic SDK, or 0 when it cannot be read.
+
+    Anthropic SDK 2 sends API version `2026-10-21`, which refuses `temperature`, `top_p` and
+    `top_k` with HTTP 400 (#5096). An unread version keeps the SDK 1 behavior.
+    """
+    try:
+        return int(version("anthropic").split(".", 1)[0])
+    except PackageNotFoundError, ValueError:
+        return 0
+
+
+def _sdk_accepts_sampling_parameters() -> bool:
+    """Whether the installed SDK's API version accepts sampling parameters (#5096)."""
+    return _installed_sdk_major() < 2
+
+
 def _capabilities_support_sampling(capabilities: Any) -> bool:
     """Return True if model capabilities declare sampling support."""
     if capabilities is None:
@@ -141,7 +159,8 @@ def _build_anthropic_kwargs(
         kwargs["output_config"] = output_config
 
     send_sampling = (
-        _capabilities_support_sampling(caps)
+        _sdk_accepts_sampling_parameters()
+        and _capabilities_support_sampling(caps)
         and not use_adaptive
         and not getattr(config, "use_model_sampling", False)
     )
