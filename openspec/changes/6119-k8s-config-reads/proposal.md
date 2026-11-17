@@ -19,7 +19,7 @@ The owner rule of #6060: no test asserts a value of a manifest or a config file,
 - `crawl4ai-service`, `gitea-forge`, `cluster-image-registry`, `k8s-network-policies`, `otlp-export`, `roadmap-implement-runner`, `grafana-image-renderer`, `ai-gateway-routing`, `ai-chat-reply-stream`, `roadmap-stage/fix-plan`, `ollama-release-pin`, `ollama-image-pin`, `traefik-release-pin`, `k8s-helm-deploy`, `gitops-host-overrides`, `argocd-github-deployments`, `mattermost-operator-security-context`, `mattermost-app-security-context`, `llm-gateway-database`, `trivy-config-alerts`, `mcp-server-network-policies`, `mcp-server-token`, `llm-valkey`, `qdrant-read-only-key`, `renovate-service`: modified (the scenarios name a validator command or a live check).
 
 ## Impact
-- `config_reads.toml` falls from 556 tests in 89 modules to 413 tests in 65 modules.
+- `config_reads.toml` falls from 554 tests in 89 modules to 411 tests in 65 modules.
 - Code: `src/devops_cli/k8s/configmap.py` (the render calls `unknown_setting_keys`).
 - Tests: 11 modules and one test data file go; 15 modules change; 1 test module and 1 support module are new.
 - Documents: `k8s/README.md`, `docs/CLUSTER.md`, `docs/TESTING.md`, `SECURITY.md` and ADR 0027.

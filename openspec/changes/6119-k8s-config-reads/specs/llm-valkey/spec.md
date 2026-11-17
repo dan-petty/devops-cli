@@ -4,18 +4,18 @@
 The valkey container of the Deployments `valkey` and `valkey-runs` in `k8s/llm/` SHALL start valkey-server with `--maxmemory` at most three quarters of the container's memory limit, and with `--maxmemory-policy noeviction`, so that Valkey refuses writes at the bound and evicts no key.
 
 #### Scenario: The cache Valkey keeps at most 1536 MiB of data
-- **WHEN** a person runs `kubectl -n llm exec deploy/valkey -c valkey -- valkey-cli config get maxmemory*` with the password on the cluster
+- **WHEN** a person runs `kubectl -n llm get deployment valkey -o jsonpath='{.spec.template.spec.containers[*].command}{.spec.template.spec.containers[*].resources.limits.memory}'` on the cluster
 - **THEN** its valkey container starts valkey-server with `--maxmemory 1536mb` and `--maxmemory-policy noeviction`, and 1536 MiB is at most three quarters of the container's 2048Mi memory limit
 
 #### Scenario: The run index keeps at most 512 MiB of data
-- **WHEN** a person runs `kubectl -n llm exec deploy/valkey-runs -c valkey -- valkey-cli config get maxmemory*` with the password on the cluster
+- **WHEN** a person runs `kubectl -n llm get deployment valkey-runs -o jsonpath='{.spec.template.spec.containers[*].command}{.spec.template.spec.containers[*].resources.limits.memory}'` on the cluster
 - **THEN** its valkey container starts valkey-server with `--maxmemory 512mb` and `--maxmemory-policy noeviction`, and 512 MiB is at most three quarters of the container's 768Mi memory limit
 
 ### Requirement: devops-cli's cache Valkey evicts the least recently used key at a bound below its container limit
 The valkey container of the Deployment `valkey-devops` in `k8s/llm/valkey-devops.yaml` SHALL start valkey-server with `--maxmemory` at most three quarters of the container's memory limit, `--maxmemory-policy allkeys-lru`, `--save ""` and `--appendonly no`.
 
 #### Scenario: The devops cache Valkey evicts at its bound
-- **WHEN** a person runs `kubectl -n llm exec deploy/valkey-devops -c valkey -- valkey-cli config get maxmemory*` with the password on the cluster
+- **WHEN** a person runs `kubectl -n llm get deployment valkey-devops -o jsonpath='{.spec.template.spec.containers[*].command}{.spec.template.spec.containers[*].resources.limits.memory}'` on the cluster
 - **THEN** its valkey container starts valkey-server with `--maxmemory-policy allkeys-lru`, `--save ""` and `--appendonly no`, and its `--maxmemory` is at most three quarters of the container's memory limit
 
 ### Requirement: devops-cli's cache Valkey requires its password and admits only namespace devops
