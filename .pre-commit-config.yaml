@@ -84,13 +84,14 @@ repos:
       # The OpenSpec gate (ADR 0010) over the plans and the committed skills: it needs Node and the
       # pinned openspec (`uv run devops install-tools --tool openspec --only-missing`), so it runs
       # only when a commit touches the files it checks. Every `devops ci` and the `Static Analysis`
-      # check of CI run it with no path filter.
+      # check of CI run it with no path filter. When a committed skill differs from what the pinned
+      # openspec writes, its regeneration gets the skills of the release from github.com with Git.
       - id: openspec-gate
         name: openspec gate (change folders and generated skills)
         entry: uv run devops ci --only openspec
         language: system
         stages: [pre-commit]
-        files: ^(openspec/|\.claude/skills/|\.agents/skills/|\.kilocode/skills/)
+        files: ^(openspec/|\.claude/skills/|\.agents/skills/)
         pass_filenames: false
         require_serial: true
 

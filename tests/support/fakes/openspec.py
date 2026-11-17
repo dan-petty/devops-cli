@@ -18,7 +18,10 @@ tool that dies with no JSON, or that runs past its timeout. And it writes what `
 --force` writes, in each agent's tree that already holds a skill: the skills the repository
 commits, which are the real tool's output at the pin, and it removes every other skill of
 OpenSpec's, as the real tool removes a workflow the profile does not hold (tried: 1.14.3 removed a
-hand-made `openspec-archive-change`). It moves the folder of a change that a recorded `archive`
+hand-made `openspec-archive-change`). Since 2.0 the real tool keeps one copy in `.agents/skills`,
+links each `.claude/skills/openspec-*` to its folder there, and removes the copies in
+`.kilocode/skills`; the fake writes each file as a regular file, which the gate reads as it reads
+a file through a link. It moves the folder of a change that a recorded `archive`
 run archives, to the folder that run names, as the real tool does (#4270); a scripted `archive`
 moves nothing unless the test gives it an `effect`. It answers `list --specs --json` from the tree,
 as the real tool does, unless a test scripts it (#4622): the stage job lists the base specs of
@@ -48,7 +51,7 @@ from tests.support.openspec_scenarios import build_scenario
 
 _PROGRAM = "openspec"
 # The variables a run sets for the tool, which a call keeps of the environment it was given.
-_TOOL_ENV_PREFIXES = ("OPENSPEC_", "OPEN_SPEC_", "XDG_CONFIG_HOME", "DO_NOT_TRACK")
+_TOOL_ENV_PREFIXES = ("OPENSPEC_", "OPEN_SPEC_", "XDG_CONFIG_HOME", "DO_NOT_TRACK", "HOME")
 # What a successful `openspec archive` prints, with the name of the folder it moved the change to.
 _ARCHIVED_AS = re.compile(r"archived as '(?P<folder>[^']+)'")
 # The listing of the capabilities, which the fake answers from the tree.
@@ -164,7 +167,8 @@ class OpenSpecFake:
         agent's tree that already holds a skill of OpenSpec's (or the `.agents` marker), the
         committed skills and no other skill of OpenSpec's. It finds an agent by its skills, so a
         tree that was deleted whole stays deleted (tried: 1.14.3 printed "No configured tools
-        found" and wrote nothing)."""
+        found" and wrote nothing; 2.1.0 finds Claude Code only by a skill or a link in
+        `.claude/skills`)."""
         from devops_cli.openspec.skills import generated_files
 
         configured = tuple(

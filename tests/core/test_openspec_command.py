@@ -86,7 +86,6 @@ def test_regenerate_writes_the_skills_under_the_isolated_profile_and_never_a_bar
         0,
         [
             (("config", "set", "telemetry.enabled", "false"), openspec_fake.calls[0].cwd),
-            (("config", "set", "delivery", "skills"), openspec_fake.calls[0].cwd),
             (("config", "set", "profile", "custom"), openspec_fake.calls[0].cwd),
             (
                 ("config", "set", "workflows", '["propose", "explore", "apply", "update"]'),
@@ -148,12 +147,16 @@ def test_archive_runs_under_the_opt_outs_and_a_configuration_directory_of_its_ow
     }
     assert (
         [
-            {key: value for key, value in call.env.items() if key != "XDG_CONFIG_HOME"}
+            {
+                key: value
+                for key, value in call.env.items()
+                if key not in ("XDG_CONFIG_HOME", "HOME")
+            }
             for call in openspec_fake.calls
         ],
         config_home == developer_config,
         config_home.exists(),
-    ) == ([opt_outs] * 6, False, False)
+    ) == ([opt_outs] * 5, False, False)
 
 
 def test_a_refused_archive_skips_the_validation_and_exits_1(

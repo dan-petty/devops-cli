@@ -300,11 +300,12 @@
       "commitMessagePrefix": "fix(deps):"
     },
     {
-      "description": "The OpenSpec package, its lockfile and the tools lock. The skills that OpenSpec generates hold its version, so the branch writes them again.",
+      "description": "The OpenSpec package, its lockfile and the tools lock. Each release comes on the day it is published, not on the schedule of the preset, so the project uses the newest skills and planning standard (#5078). The skills that OpenSpec generates change with its version, so the branch writes them again.",
       "matchPackageNames": ["@fission-ai/openspec"],
       "groupName": "openspec",
+      "schedule": ["at any time"],
       "prBodyNotes": [
-        "Before the merge, run `uv run --frozen devops install-tools --tool openspec` and `uv run --frozen devops openspec regenerate` on this branch and push the generated skills; Renovate runs no upgrade task until #6020.",
+        "Before the merge, run `uv run --frozen devops install-tools --tool openspec` and `uv run --frozen devops openspec regenerate` on this branch and push the generated skills; Renovate runs no upgrade task until #6020. The regeneration needs Git and access to github.com, because OpenSpec installs its skills from the release tag of its repository.",
         "Before the merge, record OpenSpec again for the tests that replay it (`tests/support/openspec_recording.py` says how), and run `uv run devops openspec check`."
       ]
     },

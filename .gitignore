@@ -74,12 +74,14 @@ secrets/
 !.data/.gitkeep
 
 # Claude: the shared project settings, the skills OpenSpec generates (ADR 0010) and the project
-# skills are committed; local settings, scratch, worktrees and every other skill are not
+# skills are committed; local settings, scratch, worktrees and every other skill are not. Each
+# OpenSpec skill is a link to its folder in `.agents/skills`, and a pattern that ends in `/`
+# matches no link, so its pattern has no `/` at the end.
 .claude/*
 !.claude/settings.json
 !.claude/skills/
 .claude/skills/*
-!.claude/skills/openspec-*/
+!.claude/skills/openspec-*
 !.claude/skills/new-scaffold/
 !.claude/skills/devops-openspec-new/
 !.claude/skills/devops-pr-ci/

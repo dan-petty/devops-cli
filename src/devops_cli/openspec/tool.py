@@ -3,7 +3,9 @@
 OpenSpec reports usage and asks the registry for a newer version unless told not to, and it has no
 project-level profile: a developer's own `~/.config/openspec` decides which skills `update` writes.
 So every run here sets the opt-outs and points `XDG_CONFIG_HOME` at a scratch directory holding the
-configuration the project commits skills for: skills only, the `custom` profile, four workflows.
+configuration the project commits skills for: the `custom` profile, four workflows. The directory is
+also the home of the run, because OpenSpec 2.1 refreshes the skills it finds under the home with the
+profile of the run.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from typing import Any
 from devops_cli.config.commands import BIN_OPENSPEC, build_openspec_cmd
 from devops_cli.config.constants import (
     CONST_OPENSPEC_CONFIG_HOME_ENV,
+    CONST_OPENSPEC_HOME_ENV,
     CONST_OPENSPEC_ISOLATED_SETTINGS,
     CONST_OPENSPEC_OPT_OUT_ENV,
 )
@@ -34,9 +37,13 @@ LIST_ARGS: tuple[str, ...] = ("list", "--json")
 
 
 def isolated_environment(config_home: str) -> dict[str, str]:
-    """The variables of a run under the configuration directory `config_home`: the opt-outs and
-    the directory."""
-    return {**CONST_OPENSPEC_OPT_OUT_ENV, CONST_OPENSPEC_CONFIG_HOME_ENV: config_home}
+    """The variables of a run under the configuration directory `config_home`: the opt-outs, and
+    the directory as the configuration directory and as the home."""
+    return {
+        **CONST_OPENSPEC_OPT_OUT_ENV,
+        CONST_OPENSPEC_CONFIG_HOME_ENV: config_home,
+        CONST_OPENSPEC_HOME_ENV: config_home,
+    }
 
 
 def settings_args() -> list[tuple[str, ...]]:
