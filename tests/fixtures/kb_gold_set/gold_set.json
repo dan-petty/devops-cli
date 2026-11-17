@@ -1,0 +1,98 @@
+[
+  {
+    "id": "stale-bandit-version",
+    "question": "Which Bandit version does the bundled manual pin for this project?",
+    "expected_source": "src/devops_cli/ai/knowledge_base/it_domains/tools/bandit.md",
+    "expected_answer": "Bandit is pinned to 1.7.5.",
+    "fact_type": "tool",
+    "reference": "https://example.com/bandit"
+  },
+  {
+    "id": "kustomize-devops-subcommand",
+    "question": "What does the devops kustomize command provide?",
+    "expected_source": "src/devops_cli/ai/knowledge_base/it_domains/tools/kustomize.md",
+    "expected_answer": "`devops kustomize` provides build validation and manifest compilation commands.",
+    "fact_type": "tool",
+    "reference": "https://example.com/kustomize"
+  },
+  {
+    "id": "trivy-config-scanner",
+    "question": "How does the scanner registry name the Trivy configuration scan?",
+    "expected_source": "src/devops_cli/ai/knowledge_base/it_domains/tools/trivy.md",
+    "expected_answer": "The scanner registry holds it as `trivy-config` beside `trivy`",
+    "fact_type": "tool",
+    "reference": "https://example.com/trivy"
+  },
+  {
+    "id": "kubectl-bounded-timeouts",
+    "question": "How do the programmatic kubectl executions bound their run time?",
+    "expected_source": "src/devops_cli/ai/knowledge_base/it_domains/tools/kubectl.md",
+    "expected_answer": "All programmatic `kubectl` executions enforce explicit timeouts to prevent CLI hangs on unresponsive API endpoints.",
+    "fact_type": "tool",
+    "reference": "https://example.com/kubernetes/kubectl"
+  },
+  {
+    "id": "pydantic-mutable-defaults",
+    "question": "How does the project give a Pydantic collection field its default?",
+    "expected_source": "src/devops_cli/ai/knowledge_base/devops_cli/libraries/pydantic.md",
+    "expected_answer": "All collection fields enforce `Field(default_factory=list)` or `Field(default_factory=dict)`",
+    "fact_type": "library",
+    "reference": "https://example.com/pydantic"
+  },
+  {
+    "id": "httpx2-connection-reuse",
+    "question": "Why does the project keep one HTTP/2 connection for its AI clients?",
+    "expected_source": "src/devops_cli/ai/knowledge_base/devops_cli/libraries/httpx2.md",
+    "expected_answer": "Allows multiple concurrent AI review queries to reuse a single persistent TCP connection",
+    "fact_type": "library",
+    "reference": "https://example.com/httpx2"
+  },
+  {
+    "id": "typer-help-catalog",
+    "question": "Where do the help strings of the CLI options and arguments come from?",
+    "expected_source": "src/devops_cli/ai/knowledge_base/devops_cli/libraries/typer.md",
+    "expected_answer": "All option and argument help strings are referenced directly from `devops_cli.lang.HELP`",
+    "fact_type": "library",
+    "reference": "https://example.com/typer"
+  },
+  {
+    "id": "qdrant-no-embedded-mode",
+    "question": "Does the project run its Qdrant server in embedded mode?",
+    "expected_source": "src/devops_cli/ai/knowledge_base/devops_cli/libraries/qdrant_client.md",
+    "expected_answer": "no embedded mode is used",
+    "fact_type": "library",
+    "reference": "https://example.com/qdrant"
+  },
+  {
+    "id": "review-findings-source",
+    "question": "Where does the code review get its findings from?",
+    "expected_source": "ARCHITECTURE.md",
+    "expected_answer": "The code review gets its findings from tools, not from models",
+    "fact_type": "project",
+    "reference": "https://example.com/adr/0005"
+  },
+  {
+    "id": "http-client-entry-point",
+    "question": "Which module builds every HTTP client of the project?",
+    "expected_source": "README.md",
+    "expected_answer": "Every HTTP client is built by `devops_cli.http.entry`",
+    "fact_type": "project",
+    "reference": "https://example.com/http/entry"
+  },
+  {
+    "id": "release-please-versions",
+    "question": "How does the project derive a release version and the changelog?",
+    "expected_source": "ARCHITECTURE.md",
+    "expected_answer": "release-please derives each version and the changelog from the Conventional Commit titles",
+    "fact_type": "project",
+    "reference": "https://example.com/releases"
+  },
+  {
+    "id": "secret-storage-keyring",
+    "question": "Where does the project store its sensitive tokens?",
+    "expected_source": "README.md",
+    "expected_answer": "are stored exclusively in the OS Keyring",
+    "fact_type": "project",
+    "reference": "https://example.com/security"
+  }
+]
