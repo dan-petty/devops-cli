@@ -3955,6 +3955,13 @@ CONST_ROADMAP_OWNER_VALUES: Final[tuple[str, ...]] = (
 CONST_ROADMAP_INTAKE_REASON_MARKER: Final[str] = "<!-- devops roadmap intake: reason -->"
 # The stage job's comment marker (#2654).
 CONST_ROADMAP_STAGE_COMMENT_MARKER: Final[str] = "<!-- devops roadmap stage -->"
+# The hidden key line of the plan-state comment of a plan pull request (#6197): one comment on the
+# issue of the item for each plan pull request, which the stage job and the step fix-plan edit in
+# place. `{pull}` is the number of the pull request.
+CONST_ROADMAP_PLAN_STATE_KEY: Final[str] = "<!-- devops roadmap plan state #{pull} -->"
+# The hidden line of the comment of one stage run or one fix-plan attempt (#6197): the facts of that
+# run only. A reader of the plan comments of a release before #6197 skips such a comment.
+CONST_ROADMAP_PLAN_EVENT_KEY: Final[str] = "<!-- devops roadmap plan event #{pull} -->"
 # The second marker of the stage job's comment that carries the reason of a rejected plan (#3503):
 # a plan pull request that a person closed with no merge. The comment also holds the stage marker.
 CONST_ROADMAP_STAGE_REJECTED_MARKER: Final[str] = "<!-- devops roadmap stage: rejected plan -->"

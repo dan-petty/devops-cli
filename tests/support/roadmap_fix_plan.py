@@ -123,6 +123,21 @@ def stage_comment(pull: int, open_: Sequence[Finding], other: Sequence[Finding] 
     )
 
 
+def state_comment(
+    pull: int, open_: Sequence[Finding], other: Sequence[Finding] = (), *, groups: str = ""
+) -> str:
+    """The plan-state comment of the plan pull request `pull` (#6197) that lists the open findings
+    `open_`, the points `other` and the groups part `groups`, in the form that the stage job and
+    the step write."""
+    # Imported here: this module loads as a pytest plugin, and the fail-to-pass replay loads it
+    # against a base tree that has no plan-state comment yet.
+    from devops_cli.roadmap.stage.plan_state import state_text
+
+    return state_text(
+        PLAN_BRANCH, pull, groups=groups, open_findings=open_, advisory=findings_section(other)
+    )
+
+
 def push_plan(repo: StageRepo, files: Mapping[str, str] | None = None) -> str:
     """Push the change folder `files`, by default that of `make_stage_proposal()`, as one commit by
     the clone identity to `PLAN_BRANCH` of `origin`, from `main`, and return the head commit."""

@@ -177,3 +177,37 @@ def test_whole_comments_leave_room_for_the_index_of_the_older_ones() -> None:
         len(fitted.whole) >= 4,
         fitted.tokens <= budget,
     ) == (0, 6, True, True)
+
+
+# ── The plan-state comment (#6197) ────────────────────────────────────────────
+
+_STATE = (
+    "<!-- devops roadmap stage -->\n<!-- devops roadmap plan state #5 -->\n"
+    "Plan state: branch `fix/1-x`, draft pull request #5."
+)
+
+
+def test_the_index_label_skips_every_hidden_line_and_shows_the_text() -> None:
+    """A job comment can start with its marker and a hidden key line: the label of the index
+    shows the first line of text, so the key line does not hide what the comment says."""
+    (held,) = _held(_STATE)
+
+    assert held.about == "Plan state: branch `fix/1-x`, draft pull request #5."
+
+
+def test_a_plan_state_comment_reads_as_made_at_its_last_edit() -> None:
+    """The stage job and the step fix-plan edit the plan-state comment in place, so the jobs read
+    it as a recent comment: it comes after a comment made before its last edit, at that time.
+    Another edited comment keeps its place and its time."""
+    edited = _START + timedelta(hours=5)
+    state = _comment(1, _STATE).model_copy(update={"updated_at": edited})
+    note = _comment(2, "An edited note.").model_copy(update={"updated_at": edited})
+    person = _comment(3, "Take the next free ADR number.")
+
+    held = held_comments([state, note, person])
+
+    assert [(c.text, c.at) for c in held] == [
+        ("An edited note.", _START + timedelta(hours=2)),
+        ("Take the next free ADR number.", _START + timedelta(hours=3)),
+        (_STATE, edited),
+    ]

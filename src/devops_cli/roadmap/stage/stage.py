@@ -215,6 +215,12 @@ from devops_cli.roadmap.round_log import (
     log_review_round,
 )
 from devops_cli.roadmap.service_stop import raise_if_service_stops
+from devops_cli.roadmap.stage.plan_state import (
+    event_key,
+    groups_section,
+    state_text,
+    write_state,
+)
 from devops_cli.roadmap.stage.stage_change import (
     CHANGE_TASK,
     MeasuredGroup,
@@ -351,7 +357,6 @@ from devops_cli.roadmap.stage.stage_verify import (
     findings_section,
     judge_later,
     open_findings,
-    open_findings_section,
     repair_round_due,
     return_problem,
 )
@@ -3795,20 +3800,6 @@ def _published_pull(repo: str, source: Path, change: StagedChange) -> CreatedPul
     return _update_pull(repo, replaced, change)
 
 
-def _groups_listed(groups: Sequence[MeasuredGroup]) -> str:
-    return "\n".join(
-        MESSAGES.roadmap.stage_comment_group.format(
-            index=index, title=safe_text(measured.group.title), tokens=measured.tokens
-        )
-        for index, measured in enumerate(groups, start=1)
-    )
-
-
-def _groups_recorded(groups: Sequence[MeasuredGroup]) -> str:
-    """The groups as `stage.groups` holds them: a JSON list of [title, tokens]."""
-    return json.dumps([[m.group.title, m.tokens] for m in groups], ensure_ascii=False)
-
-
 def _run_report(trace: RunTrace) -> str:
     """The report of the plan runs of an item: the counts, each tool call in order, and one line
     of the calls and the empty answers of each tool (#3240). It is empty for an item that was
@@ -3888,10 +3879,10 @@ def _warnings_section(warnings: Sequence[str]) -> str:
 
 
 def _notes(change: StagedChange, moved: Sequence[MovedPath] = ()) -> str:
-    """The notes that end the comment of a staged item: the named paths that moved first, then the
-    open findings, the other findings, the report of the plan runs, the read of the open pull
-    requests, the comments of the item that the request held whole, and a validation that did not
-    run (#3309, #3264, #3252, #6167)."""
+    """The notes of the comment of a stage run: the facts of the run only (#6197). The named paths
+    that moved first, then the report of the plan runs, the read of the open pull requests, the
+    comments of the item that the request held whole, a validation that did not run, and the
+    warnings (#3309, #3252, #6167). The plan-state comment holds the groups and the findings."""
     unvalidated = "" if change.validated else MESSAGES.roadmap.stage_comment_not_validated
     read = (
         MESSAGES.roadmap.stage_comment_overlaps.format(requests=change.pulls_requests)
@@ -3902,16 +3893,21 @@ def _notes(change: StagedChange, moved: Sequence[MovedPath] = ()) -> str:
         read += MESSAGES.roadmap.stage_comment_item_comments.format(
             names=", ".join(change.comments)
         )
-    advisory = tuple(finding for finding in change.findings if finding not in change.open_findings)
     warnings = _warnings_section(change.warnings)
-    return (
-        _moved_section(moved)
-        + open_findings_section(change.open_findings)
-        + findings_section(advisory)
-        + _run_report(change.trace)
-        + read
-        + unvalidated
-        + warnings
+    return _moved_section(moved) + _run_report(change.trace) + read + unvalidated + warnings
+
+
+def _plan_state(change: StagedChange, pull: int) -> str:
+    """The plan-state comment of `change` on its draft pull request `pull` (#6197): the branch,
+    the groups with their tokens, the open findings of the last review, and every other finding of
+    each review round as advice (#3264, #3153)."""
+    advisory = tuple(finding for finding in change.findings if finding not in change.open_findings)
+    return state_text(
+        change.target.branch,
+        pull,
+        groups=groups_section(change.budget, change.groups),
+        open_findings=change.open_findings,
+        advisory=findings_section(advisory),
     )
 
 
@@ -3962,13 +3958,14 @@ def _stage_one(
     moved: Sequence[MovedPath],
     now: datetime,
 ) -> None:
-    """Make the branch, the commit, the push and the draft of one item, then record them and
-    post the one comment. The branch starts at the staged commit `base` (#3301). A target that
-    names a draft pull request replaces the plan of that draft on its branch, and the comment names
-    the draft (#3387). The Status of the item stays as it is. `moved` is the named paths that the
-    default branch changed after `base` (#3309). The intent mark `stage.pending` goes first, before
-    the push, so that a later round finds the branch if the record write fails or the worker dies
-    (#4051); the record clears it."""
+    """Make the branch, the commit, the push and the draft of one item, then record them, write
+    the plan-state comment of the draft and post the comment of the run (#6197). The branch starts
+    at the staged commit `base` (#3301). A target that names a draft pull request replaces the plan
+    of that draft on its branch: the job edits the state comment of that draft, and the comment of
+    the run names the draft (#3387). The Status of the item stays as it is. `moved` is the named
+    paths that the default branch changed after `base` (#3309). The intent mark `stage.pending`
+    goes first, before the push, so that a later round finds the branch if the record write fails
+    or the worker dies (#4051); the record clears it."""
     target = change.target
     source_warnings = _check_removal_references(source, target, change.files)
     if source_warnings:
@@ -3987,7 +3984,6 @@ def _stage_one(
             StageRecordKey.BRANCH: target.branch,
             StageRecordKey.PR: str(pull.number),
             StageRecordKey.SHA: sha,
-            StageRecordKey.GROUPS: _groups_recorded(change.groups),
             StageRecordKey.TEXT_HASH: body_hashes(target.item.body)[0],
             StageRecordKey.RESTAGE: (
                 restage_record(target.item, pull.number)
@@ -4008,15 +4004,14 @@ def _stage_one(
     )
     label_note = _label_pull(store, pull.number, change.title)
     label_note += _label_needs_fix(store, pull, change)
-    texts = MESSAGES.roadmap
+    number = target.item.number
+    write_state(store, repo, number, pull.number, _plan_state(change, pull.number))
     store.comment(
-        target.item.number,
-        texts.stage_comment_staged.format(
+        number,
+        MESSAGES.roadmap.stage_comment_event.format(
             marker=CONST_ROADMAP_STAGE_COMMENT_MARKER,
-            branch=target.branch,
+            key=event_key(pull.number),
             pull=pull.number,
-            budget=change.budget,
-            groups=_groups_listed(change.groups),
             notes=f"{_notes(change, moved)}{_restage_note(change)}{label_note}",
         ),
     )
@@ -4062,7 +4057,6 @@ def _stop_on_budget(store: RoadmapStore, stopped: OverBudget) -> None:
                 title=worst.group.title, tokens=worst.tokens
             ),
             StageRecordKey.FILE_CAP: str(CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS),
-            StageRecordKey.GROUPS: _groups_recorded(stopped.groups),
             StageRecordKey.FAILED_AT: None,
             StageRecordKey.FAILED_ERROR: None,
             StageRecordKey.FAILED_STEP: None,

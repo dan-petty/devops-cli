@@ -13,7 +13,7 @@ import logging
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
-from devops_cli.exceptions.git import GitHubNotFoundError
+from devops_cli.exceptions.git import GitHubNotFoundError, GitHubOperationError
 from devops_cli.github.client import IssueComment as ClientIssueComment
 from devops_cli.github.session import get_github_session
 
@@ -76,29 +76,16 @@ class Target:
         return comment_id
 
     def _update_store_comment(self, comment_id: int | None, body: str) -> None:
+        """Edit the comment `comment_id` through the store (`RoadmapStore.edit_comment`, #6197). A
+        comment with no id cannot be edited, so it raises and no write is lost in silence."""
         if self.store is None:
             return
-        if hasattr(self.store, "_roadmap"):
-            for i, c in enumerate(self.store._roadmap.comments.get(self.number, [])):
-                if getattr(c, "id", None) == comment_id or i == comment_id:
-                    self.store._roadmap.comments[self.number][i] = c.model_copy(
-                        update={"body": body}
-                    )
-                    break
-        else:
-            store_write = getattr(self.store, "_write", None)
-            if callable(store_write):
-                store_write(
-                    [
-                        "api",
-                        "-X",
-                        "PATCH",
-                        f"repos/{self.repo}/issues/comments/{comment_id}",
-                        "-f",
-                        f"body={body}",
-                    ],
-                    f"comment update on #{self.number}",
-                )
+        if comment_id is None:
+            raise GitHubOperationError(
+                f"A marked comment on #{self.number} holds no id, so it cannot be edited.",
+                operation="roadmap.issue.edit_comment",
+            )
+        self.store.edit_comment(self.number, comment_id, body)
         if self._cached_comments is not None:
             self._cached_comments = list(self.store.comments_on(self.number))
 

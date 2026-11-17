@@ -141,7 +141,7 @@ These are all the keys of the job record, by the job that writes them:
 | Claim | `claim.replaced_status` | The Status that the Item held before an agent claimed it, restored when the claim is released |
 | Scaffold | `scaffold.branch` | The branch that the scaffold step made, resumed or adopted for the Item (#5499). The step applies four resume rules: `resumed` when an App-only branch exists on origin; `held` when the branch holds a commit of a person or an agent; `adopted` when an App-only branch exists and the record does not name it; `created` when no branch exists (created with the git refs API and no commit) |
 | Stage | `stage.branch`, `stage.pr`, `stage.sha` | The staged branch, its draft pull request and its last commit |
-| Stage | `stage.groups`, `stage.needs_split`, `stage.file_cap` | The task groups with their size, the group over the budget, and the cap of that measure |
+| Stage | `stage.needs_split`, `stage.file_cap` | The group over the budget, and the cap of that measure. The task groups with their size are in the plan-state comment of the plan pull request, and in no key (#6197) |
 | Stage | `stage.ready` | The plan pull request that the Service has seen leave the draft state |
 | Stage | `stage.needs_fix` | The plan pull request that the Service told about the label `verdict/fix-plan` |
 | Stage | `stage.jev` | The head commit that the Jev completeness check held a draft on, as `<sha>:held` or `<sha>:error`. A held head is not asked again; an error is asked again in the next round and its note is posted once. A new head commit is checked again. The check runs only when the setting `roadmap.stage.jev_completeness` is true |

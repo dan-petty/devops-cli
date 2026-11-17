@@ -188,8 +188,6 @@ def test_target_with_client_coverage() -> None:
 
 def test_target_with_store_coverage() -> None:
     """Test Target methods when using store."""
-    from unittest.mock import MagicMock
-
     store = InMemoryRoadmapStore(repo="owner/repo")
     num = store.seed_issue("test issue")
     target = Target("owner/repo", num, store=store)
@@ -198,17 +196,30 @@ def test_target_with_store_coverage() -> None:
     assert target.create_comment("first comment") is True
     assert len(target.list_comments()) == 1
 
-    # Update comment in store
-    target.update_comment(None, "updated comment")
-    assert target.list_comments()[0].body == "updated comment"
 
-    # Store with _write
-    write_store = MagicMock(spec=["_write", "comments_on"])
-    write_store._write = MagicMock()
-    write_store.comments_on.return_value = []
-    target_write = Target("owner/repo", num, store=write_store)
-    target_write.update_comment(123, "body")
-    write_store._write.assert_called_once()
+def test_an_upsert_through_the_store_edits_the_marked_comment_by_its_id() -> None:
+    """The store path edits the one comment that holds the marker and the key, by its id, with
+    `RoadmapStore.edit_comment`, and the edit moves the time of its last edit (#6197). The comment
+    of a person before it stays as it is."""
+    times = iter(datetime(2026, 11, 17, hour, tzinfo=UTC) for hour in range(9, 24))
+    store = InMemoryRoadmapStore(repo="owner/repo", clock=lambda: next(times))
+    num = store.seed_issue("test issue")
+    marker = CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER
+    store.seed_comment(num, "A note of a person.", author_login="alice")
+    store.comment(num, f"{marker}\nrun-1\n\nOld state")
+
+    posted = post(
+        Target("owner/repo", num, store=store), marker, "run-1", f"{marker}\nrun-1\n\nNew state"
+    )
+
+    note, state = store.comments_on(num)
+    assert (
+        posted,
+        note.body,
+        state.body,
+        state.updated_at is not None and state.updated_at > state.created_at,
+        store.writes[-1],
+    ) == (True, "A note of a person.", f"{marker}\nrun-1\n\nNew state", True, "edit_comment")
 
 
 def test_with_body_plain_object() -> None:

@@ -47,7 +47,6 @@ def _staged_item(
             StageRecordKey.BRANCH: branch,
             StageRecordKey.PR: "7",
             StageRecordKey.SHA: "abc",
-            StageRecordKey.GROUPS: json.dumps([["Group", 100]]),
         },
     )
     return store

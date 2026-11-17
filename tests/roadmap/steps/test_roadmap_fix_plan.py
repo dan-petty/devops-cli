@@ -28,6 +28,7 @@ from devops_cli.roadmap.stage.stage_verify import FIX_PLAN_LABEL, Verification
 from devops_cli.roadmap.steps.fix_plan import (
     FixPlanResult,
     FixPlanRun,
+    comment_open_findings,
     render_fix_plan,
     run_fix_plan,
 )
@@ -184,9 +185,10 @@ def test_a_revision_with_no_open_finding_is_pushed_on_the_latest_main_and_clears
         FixPlanRecordKey.RESULT: "cleared",
         FixPlanRecordKey.VERSION: __version__,
     }
-    (comment,) = _comments(store)
+    (state, comment) = _comments(store)
     assert CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER in comment
     assert f"#{plan.pull}" in comment
+    assert comment_open_findings(state) == ()
 
 
 def test_the_planner_gets_the_head_plan_as_previous_and_each_open_finding_as_problem(
@@ -270,7 +272,7 @@ def test_a_revision_with_fewer_open_findings_is_pushed_and_keeps_the_label(
     assert FIX_PLAN_LABEL in store._roadmap.issues[plan.pull].labels
     assert _record(store)[FixPlanRecordKey.KEY] == f"{plan.pull}:{head}"
     assert _record(store)[FixPlanRecordKey.RESULT] == "revised"
-    assert len(_comments(store)) == 1
+    assert len(_comments(store)) == 2
 
 
 def test_a_revision_that_fixes_the_head_finding_is_kept(
@@ -367,7 +369,7 @@ def test_a_clean_head_with_no_open_findings_is_dismissed(
     (line,) = result_fields(caplog)
     assert (line["result"], line["success"], line["before"]) == ("dismissed", "false", "0")
     assert "after" not in line
-    (_, comment) = _comments(store)
+    (_, _, comment) = _comments(store)
     assert "reviewed the plan" in comment
     assert "found no open finding" in comment
 
@@ -425,9 +427,10 @@ def test_a_head_with_only_a_minor_finding_is_dismissed_and_lists_it_as_advice(
     assert model_fake.call_count == 0
     assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) == plan.head
     assert FIX_PLAN_LABEL not in store._roadmap.issues[plan.pull].labels
-    (_, comment) = _comments(store)
+    (_, state, comment) = _comments(store)
     assert "They stop no draft" in comment
     assert f"- minor `spec_delta_wrong` at issue ({ISSUE_QUOTE})" in comment
+    assert f"- minor `spec_delta_wrong` at issue ({ISSUE_QUOTE})" in state
 
 
 @pytest.mark.parametrize(
@@ -1150,7 +1153,7 @@ def test_a_stop_before_the_review_is_stopped_with_its_name(
     item = store.item(plan.number)
     assert item is not None
     assert item.status == "Ready"
-    (comment,) = _comments(store)
+    (_, comment) = _comments(store)
     assert CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER in comment
     assert evidence in comment
 
@@ -1193,8 +1196,10 @@ def test_a_gated_plan_is_pushed_when_the_repair_fails(
         "1",
     )
     assert _record(store)[FixPlanRecordKey.KEY] == f"{plan.pull}:{head}"
-    (comment,) = _comments(store)
-    assert "Problem of criterion_dropped." in comment
+    (state, comment) = _comments(store)
+    assert "Problem of criterion_dropped." in state
+    assert "Problem of criterion_dropped." not in comment
+    assert "lists the open findings that keep the label" in comment
 
 
 def test_a_gated_plan_that_differs_is_pushed_after_a_clean_review(
@@ -1227,7 +1232,7 @@ def test_a_gated_plan_that_differs_is_pushed_after_a_clean_review(
     assert FIX_PLAN_LABEL not in store._roadmap.issues[plan.pull].labels
     assert _record(store)[FixPlanRecordKey.RESULT] == "regated"
     assert _record(store)[FixPlanRecordKey.REVISIONS] == "1"
-    (comment,) = _comments(store)
+    (_, comment) = _comments(store)
     assert "The checks refused the plan of the old head" in comment
     assert "loses the label" in comment
 

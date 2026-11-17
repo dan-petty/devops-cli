@@ -340,6 +340,7 @@ class _CommentPayload(BaseModel):
     id: int | None = None
     body: str = ""
     created_at: datetime
+    updated_at: datetime | None = None
     author_association: str | None = None
     author_login: str | None = Field(default=None, validation_alias=AliasPath("user", "login"))
     html_url: str = ""
@@ -353,6 +354,7 @@ class _CommentPayload(BaseModel):
             author_login=self.author_login,
             on_pull_request=_is_pull_request_url(self.html_url),
             url=self.html_url or None,
+            updated_at=self.updated_at,
         )
 
 
@@ -639,6 +641,18 @@ def add_sub_issue_args(repo: str, parent: Number, child_id: Number) -> list[str]
 
 def comment_args(repo: str, number: Number, body: str) -> list[str]:
     return ["api", "-X", "POST", comments_endpoint(repo, number), "-f", f"body={body}"]
+
+
+def comment_edit_args(repo: str, comment_id: Number, body: str) -> list[str]:
+    """The `PATCH` that writes `body` as the text of one issue comment (#6197)."""
+    return [
+        "api",
+        "-X",
+        "PATCH",
+        f"repos/{repo}/issues/comments/{comment_id}",
+        "-f",
+        f"body={body}",
+    ]
 
 
 def label_args(repo: str, number: Number, label: str) -> list[str]:
@@ -1061,6 +1075,14 @@ class GitHubRoadmapStore(RoadmapStore):
         self._write(comment_args(self._repo, number, body), f"comment on #{number}")
         return True
 
+    def edit_comment(self, number: int, comment_id: int, body: str) -> None:
+        """Write `body` as the text of the comment `comment_id` on issue `number`, in one `PATCH`
+        of the comment (#6197)."""
+        self._write(
+            comment_edit_args(self._repo, comment_id, body),
+            f"edit comment {comment_id} on #{number}",
+        )
+
     def close(self, number: int, reason: CloseReason, *, comment: str | None = None) -> None:
         """Read issue `number`, post `comment` on it when given, then close it for `reason` in
         one `PATCH` (#1658). A pull request, a missing issue and a closed issue are refused
@@ -1461,6 +1483,7 @@ __all__ = [
     "advisory_args",
     "closures_args",
     "comment_args",
+    "comment_edit_args",
     "comments_endpoint",
     "commit_args",
     "create_issue_args",
