@@ -457,14 +457,14 @@ def test_perimeter_admits_no_ingress_and_exactly_five_egress_rules() -> None:
         spec["egress"],
     ) == (
         "devops-default-perimeter",
-        # Every pod but the Crawl4AI, SearXNG and Renovate pods, which have their own policies
-        # (#3884, #3924, #4905)
+        # Every pod but the Crawl4AI, SearXNG, Renovate and planner run pods, which have their own
+        # policies (#3884, #3924, #4905, #6065)
         {
             "matchExpressions": [
                 {
                     "key": "app.kubernetes.io/name",
                     "operator": "NotIn",
-                    "values": ["crawl4ai", "searxng", "renovate"],
+                    "values": ["crawl4ai", "searxng", "renovate", "devops-cli-planner-run"],
                 }
             ]
         },

@@ -809,19 +809,37 @@ def check_the_planner_job_from_the_template_passes() -> None:
     assert _refusals(_planner_job()) == []
 
 
+def _selects(selector: dict[str, Any], labels: dict[str, str]) -> bool:
+    """True when the label selector `selector` selects a pod with `labels`."""
+    expressions = {
+        "In": lambda key, values: labels.get(key) in values,
+        "NotIn": lambda key, values: labels.get(key) not in values,
+        "Exists": lambda key, _values: key in labels,
+        "DoesNotExist": lambda key, _values: key not in labels,
+    }
+    return all(labels.get(k) == v for k, v in selector.get("matchLabels", {}).items()) and all(
+        expressions[e["operator"]](e["key"], e.get("values", []))
+        for e in selector.get("matchExpressions", [])
+    )
+
+
 def check_the_planner_template_has_the_controls_of_adr_0018() -> None:
     cronjob = _object("CronJob", "devops-cli-planner-run")
     spec = cronjob["spec"]
     pod = spec["jobTemplate"]["spec"]["template"]["spec"]
     (container,) = pod["containers"]
+    pod_labels = spec["jobTemplate"]["spec"]["template"]["metadata"]["labels"]
+    # NetworkPolicies add their rules, so the pod reaches no network only when the planner policy
+    # is the one policy of the namespace that selects it (#6065).
     (policy,) = (
         document
         for document in applied_documents(DEVOPS_DIR)
         if document["kind"] == "NetworkPolicy"
-        and document["metadata"]["name"] == "devops-cli-planner-run"
+        and _selects(document["spec"]["podSelector"], pod_labels)
     )
 
     assert (
+        policy["metadata"]["name"],
         spec["suspend"],
         spec["jobTemplate"]["spec"]["backoffLimit"],
         spec["jobTemplate"]["spec"]["activeDeadlineSeconds"],
@@ -833,6 +851,7 @@ def check_the_planner_template_has_the_controls_of_adr_0018() -> None:
         policy["spec"]["policyTypes"],
         policy["spec"].get("egress", []),
     ) == (
+        "devops-cli-planner-run",
         True,
         0,
         120,

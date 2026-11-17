@@ -1394,7 +1394,7 @@ k8s/
 │   ├── cronjob.yaml          # Suspended CronJob devops-cli, the template of every cluster job
 │   ├── cronjob-runner.yaml   # Suspended CronJob devops-cli-runner, the template of the implement job's runner Job
 │   ├── cronworkflow-rag-ingest.yaml # CronWorkflow rag-ingest: runs WorkflowTemplate rag-ingest every 3 minutes
-│   ├── networkpolicy.yaml    # Default-deny perimeter: DNS, the gateway and public HTTPS out; skips the crawl4ai, searxng and renovate pods
+│   ├── networkpolicy.yaml    # Default-deny perimeter: DNS, the gateway and public HTTPS out; skips the crawl4ai, searxng, renovate and planner run pods
 │   ├── networkpolicy-rag-ingest.yaml # Lets the rag-ingest pods reach Qdrant on TCP 6333
 │   ├── workflowtemplate-rag-ingest.yaml # WorkflowTemplate rag-ingest: keeps the RAG index current
 │   ├── dashboards/           # The product dashboards; Application monitoring applies them, so the kustomization above does not list this folder
