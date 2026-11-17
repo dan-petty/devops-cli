@@ -301,12 +301,15 @@ def _listening_socket(host: str, port: int) -> socket.socket:
 
 
 def _await_started(server: uvicorn.Server, thread: threading.Thread) -> None:
-    """Wait until uvicorn serves the app, or raise `RoadmapImplementError` when it does not."""
+    """Wait until uvicorn serves the app, or raise `RoadmapImplementError` when it does not.
+
+    The wait joins the thread for a poll interval rather than sleeping on the clock seam, so a
+    test that fakes the clock does not spin here and does not move its wall clock (#3820)."""
     deadline = time.monotonic() + _START_TIMEOUT_SECONDS
     while not server.started:
         if not thread.is_alive() or time.monotonic() >= deadline:
             raise RoadmapImplementError(_NOT_STARTED.format(seconds=_START_TIMEOUT_SECONDS))
-        time.sleep(_START_POLL_SECONDS)
+        thread.join(_START_POLL_SECONDS)
 
 
 def _serve(broker: StepBroker, sock: socket.socket) -> None:

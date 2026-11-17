@@ -126,7 +126,12 @@ from devops_cli.roadmap.implement.implement_base_replay import (
     VerifiedCommand,
     replay_group_tests,
 )
-from devops_cli.roadmap.implement.implement_broker import live_broker
+from devops_cli.roadmap.implement.implement_broker import (
+    StepBroker,
+    live_broker,
+    start_step_broker,
+    stop_step_broker,
+)
 from devops_cli.roadmap.implement.implement_comments import StepComments
 from devops_cli.roadmap.implement.implement_disk import end_step
 from devops_cli.roadmap.implement.implement_hooks import commit_stage
@@ -2501,10 +2506,12 @@ def run_step(
     the job, `roadmap.implement.max_requests` and `max_tool_calls`, when the caller gives none
     (#4688, #5440). The step reads its limits of `roadmap.implement` once, when it starts.
 
-    When the step ends, done, stopped or with an error, it writes the disk use of the home volume
+    When the step ends, done, stopped or with an error, it stops the loopback broker of its shell
+    first, so the token of the step dies with it (#3820), then writes the disk use of the home volume
     to the Job log in a runner Job, and then removes the files that git ignores and that its agent
     left: the tree `mutants/` of a mutation run and the files of the scratch folder (`end_step`,
-    #6076).
+    #6076). `start_step_broker` reads the settings and runs no broker for a provider that is not the
+    gateway or for an absent AI key.
 
     `comments` are the comments of the item that the run read: the inputs hold them, the agent
     reads them with `read_comment`, and the outcome names each one that the inputs held whole
@@ -2531,8 +2538,11 @@ def run_step(
     _require_clean(source)
     log = ToolCallLog(source, trace=trace)
     keeper = _keeper(source, inputs, item, log, on_wip, keep=keep)
+    budget = StepBudget(spend, progress=log.progress, cap=token_cap)
     done = False
+    broker: StepBroker | None = None
     try:
+        broker = start_step_broker(budget)
         outcome = _attempt(
             source,
             model,
@@ -2544,7 +2554,7 @@ def run_step(
             tiers=_ladder_tiers(step_class, ladder),
             model_for_tier=model_for_tier,
             tier_health=tier_health or _gateway_tier_health,
-            limits=StepBudget(spend, progress=log.progress, cap=token_cap),
+            limits=budget,
             usage_limits=usage_limits or step_usage_limits(log.limits),
             trace=trace,
             mcp_toolset=mcp_toolset,
@@ -2553,6 +2563,7 @@ def run_step(
         done = outcome.status is StepStatus.DONE
         return outcome
     finally:
+        stop_step_broker(broker)
         if not done:
             keeper.discard()
         end_step(source, inputs.group.title)
