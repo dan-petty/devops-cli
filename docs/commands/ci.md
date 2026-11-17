@@ -367,7 +367,7 @@ devops ci job-time [OPTIONS]
 | `--branch`, `-b` | `string` | `main` | Branch whose push runs are read. |
 | `--runs` | `integer` | `20` | How many of the last runs the mean covers. |
 | `--limit` | `float` | `360.0` | Most seconds the mean of the runs may be. Default: the 300 s of AGENTS.md rule 5 and the 60 s of tolerance that the owner allows for the variation of the runners. |
-| `--file-issue` | `boolean` | - | When the mean is over the limit, comment on the open issue of the check, or file one with the priority P0 when none is open. The search for the open issue reads the line that the command writes in the body of the issue, so a changed title or label files no second issue. |
+| `--file-issue` | `boolean` | - | When the mean is over the limit, write the report into the body of the open issue of the check, or file one with the priority P0 when none is open. The report replaces the report of the last run, the text of a person stays, and no comment is posted. The search for the open issue reads the line that the command writes in the body of the issue, so a changed title or label files no second issue. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

@@ -1010,10 +1010,11 @@ class CICommandHelp:
         "the 60 s of tolerance that the owner allows for the variation of the runners."
     )
     job_time_file_issue: str = (
-        "When the mean is over the limit, comment on the open issue of the check, or file one "
-        "with the priority P0 when none is open. The search for the open issue reads the line "
-        "that the command writes in the body of the issue, so a changed title or label files no "
-        "second issue."
+        "When the mean is over the limit, write the report into the body of the open issue of "
+        "the check, or file one with the priority P0 when none is open. The report replaces the "
+        "report of the last run, the text of a person stays, and no comment is posted. The "
+        "search for the open issue reads the line that the command writes in the body of the "
+        "issue, so a changed title or label files no second issue."
     )
     durations: str = (
         "Write the mean seconds of each test module to tests/module_durations.json, from the JUnit "
@@ -2354,7 +2355,10 @@ class ReviewCommandHelp:
     target_path: str = "File(s) or directory(ies) to review."
     target_branch: str = "Branch to review (default: current branch)."
     pr_number: str = "Pull request number."
-    post_pr: str = "Post the review as a comment on the GitHub PR."
+    post_pr: str = (
+        "Post the review as one comment on the GitHub PR for its head commit. A rerun on the "
+        "same head edits that comment, and a new head gets a new comment."
+    )
     summary: str = "Has no effect: every review runs the staged pipeline, which does not read it."
     session: str = "Session ID or substring (default: latest)."
     status_filter: str = "Filter by status: VERIFIED | UNVERIFIED | INVALIDATED | MITIGATED."
