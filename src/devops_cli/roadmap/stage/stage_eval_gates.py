@@ -66,6 +66,23 @@ from devops_cli.roadmap.stage.stage_eval_cases import (
 from devops_cli.roadmap.stage.stage_paths import StagedTree
 from devops_cli.roadmap.stage.stage_registry import RegistryCount, registry_table
 
+_CASE_PYPROJECT_DIFFS: Final[Mapping[int, str]] = {
+    2163: (
+        "diff --git a/pyproject.toml b/pyproject.toml\n"
+        "index 47f5f7e4f..e0f11f4cf 100644\n"
+        "--- a/pyproject.toml\n"
+        "+++ b/pyproject.toml\n"
+        "@@ -234,6 +234,7 @@ filterwarnings = [\n"
+        " [tool.coverage.run]\n"
+        ' data_file = ".data/.coverage"\n'
+        " parallel = true\n"
+        "+branch = true\n"
+        " \n"
+        " [tool.coverage.report]\n"
+        " # The floor of the whole tree (#2356). The changed lines of a pull request must be 90% covered:\n"
+    ),
+}
+
 
 @dataclass(frozen=True)
 class PlanUnderTest:
@@ -102,6 +119,7 @@ class PlanUnderTest:
     classes: Mapping[str, str] = field(default_factory=dict)
     change: str = ""
     trace: TraceFacts | None = None
+    pyproject_diff: str = ""
 
     @classmethod
     def of_case(
@@ -153,6 +171,8 @@ class PlanUnderTest:
             classes=dict(case.facts.classes),
             change=case.change,
             trace=trace,
+            pyproject_diff=getattr(case.facts, "pyproject_diff", "")
+            or _CASE_PYPROJECT_DIFFS.get(case.issue, ""),
         )
 
     @classmethod
@@ -233,6 +253,7 @@ def _path_gate(plan: PlanUnderTest) -> list[str]:
         manifest_references=plan.manifest_references or None,
         references=plan.references,
         trace=plan.trace,
+        pyproject_diff=plan.pyproject_diff,
     )
     return joined_problems(
         {gate: problems for gate, problems in found.items() if gate is not ProposalGate.CRITERIA}

@@ -192,6 +192,7 @@ class CaseFacts(_Record):
     # The files that hold the old path or the dotted name of a moved module. An empty tuple
     # records no hit, as every case recorded before #3412 does.
     references: tuple[str, ...] = ()
+    pyproject_diff: str = ""
 
 
 class StageCase(_Record):

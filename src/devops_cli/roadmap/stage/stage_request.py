@@ -84,6 +84,8 @@ def gate_arguments(
     module_tests: Mapping[str, Sequence[str]] | None = None,
     trace: TraceFacts | None = None,
     judged: Collection[str] = (),
+    pyproject_diff: str = "",
+    base_pyproject: str = "",
 ) -> dict[str, Any]:
     """The keyword arguments of `check_proposal` and `check_gates` after the proposal. The request
     gives the inputs that the item fixes; the other inputs depend on the commit and on the
@@ -109,4 +111,6 @@ def gate_arguments(
         "module_tests": module_tests,
         "trace": trace,
         "judged": judged,
+        "pyproject_diff": pyproject_diff,
+        "base_pyproject": base_pyproject,
     }

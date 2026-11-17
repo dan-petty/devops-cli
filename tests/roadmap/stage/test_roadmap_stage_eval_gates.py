@@ -57,8 +57,9 @@ _MODULE_FIXTURE = '@pytest.fixture(scope="module")'
 # verify of case 2576 runs a test module that no list of group 1 names (#3463). The case of #3390
 # adds one defect that the `paths` gate judges: a plan that states a wrong constant. The case of #3407
 # adds one defect that the `paths` gate judges: the decision that `StagedTree` holds file text
-# quotes no text of the class.
-JUDGED_BASELINE: Final[tuple[int, int]] = (85, 322)
+# quotes no text of the class. The case of #3491 adds one defect that the `paths` gate judges: a
+# coverage setting in pyproject.toml with a spec delta.
+JUDGED_BASELINE: Final[tuple[int, int]] = (86, 322)
 
 
 @pytest.fixture(scope="module")
@@ -322,7 +323,7 @@ def test_the_counts_of_each_type_are_the_baseline_that_a_change_of_a_gate_beats(
     counts = {t.type: (t.caught, t.missed, t.unjudged) for t in report.by_type()}
 
     assert counts[DefectType.MISSING_PATH] == (37, 0, 0)
-    assert counts[DefectType.SPEC_DELTA_WRONG] == (7, 0, 19)
+    assert counts[DefectType.SPEC_DELTA_WRONG] == (8, 0, 18)
     assert counts[DefectType.VERIFY_FORM] == (7, 0, 12)
     assert counts[DefectType.TASK_ORDER] == (1, 0, 8)
     assert counts[DefectType.IGNORES_EXISTING_CODE] == (0, 0, 23)
@@ -512,6 +513,78 @@ def test_the_replay_of_the_plan_of_2526_is_refused_for_the_spec_delta_of_a_root_
         "These paths need no spec delta" in problem for problem in replay.problems[GateName.PATHS]
     )
     assert replay.failures == []
+
+
+def test_the_replay_of_the_plan_of_2163_is_refused_for_the_spec_delta_of_a_tool_setting_change(
+    cases: list[StageCase],
+) -> None:
+    case = next(c for c in cases if c.issue == 2163)
+    delta = next(d for d in case.defects if d.type is DefectType.SPEC_DELTA_WRONG)
+
+    replay = replay_case(case)
+
+    assert delta.gate is GateName.PATHS
+    assert next(o.status for o in replay.outcomes if o.defect is delta) is DefectStatus.CAUGHT
+    assert any(
+        "These paths need no spec delta" in problem for problem in replay.problems[GateName.PATHS]
+    )
+    assert replay.failures == []
+
+
+TOOL_SETTING_DIFF: Final[str] = """--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -265,3 +265,4 @@
+ [tool.coverage.report]
+ fail_under = 85
+ show_missing = true
++skip_covered = true
+"""
+
+DEPENDENCY_DIFF: Final[str] = """--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -50,3 +50,4 @@
+ dependencies = [
+     "pydantic",
++    "unidiff",
+ ]
+"""
+
+ENTRY_POINT_DIFF: Final[str] = """--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -99,3 +99,3 @@
+ [project.scripts]
+-devops = "devops_cli.cli:main"
++devops = "devops_cli.main:main"
+"""
+
+
+def test_a_tool_setting_diff_refuses_a_spec_delta_and_a_dependency_diff_accepts_it(
+    cases: list[StageCase],
+) -> None:
+    case = next(c for c in cases if c.issue == 2163)
+    tool_plan = PlanUnderTest.of_case(
+        case.model_copy(
+            update={"facts": case.facts.model_copy(update={"pyproject_diff": TOOL_SETTING_DIFF})}
+        )
+    )
+    dep_plan = PlanUnderTest.of_case(
+        case.model_copy(
+            update={"facts": case.facts.model_copy(update={"pyproject_diff": DEPENDENCY_DIFF})}
+        )
+    )
+    entry_plan = PlanUnderTest.of_case(
+        case.model_copy(
+            update={"facts": case.facts.model_copy(update={"pyproject_diff": ENTRY_POINT_DIFF})}
+        )
+    )
+
+    tool_problems = run_gates(tool_plan)[GateName.PATHS]
+    dep_problems = run_gates(dep_plan)[GateName.PATHS]
+    entry_problems = run_gates(entry_plan)[GateName.PATHS]
+
+    assert any("These paths need no spec delta" in problem for problem in tool_problems)
+    assert not any("These paths need no spec delta" in problem for problem in dep_problems)
+    assert not any("These paths need no spec delta" in problem for problem in entry_problems)
 
 
 ACCEPTANCE_BODY = "Text.\n\n### Acceptance criteria\n\n- [ ] First.\n- [ ] Second.\n"
