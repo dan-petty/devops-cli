@@ -52,6 +52,10 @@ _CODE_SPAN: Final[re.Pattern[str]] = re.compile(r"`([^`\n]+)`")
 # does. A version such as `v1.2` is no path.
 _PATH_SUFFIX: Final[re.Pattern[str]] = re.compile(r"\.[A-Za-z]+$")
 _REQUIREMENT_ID: Final[str] = "REQ-{number:03d}"
+_REFINE_CHOSEN: Final[re.Pattern[str]] = re.compile(r"^\s*[-*]?\s*Chosen:\s*(.+)$", re.IGNORECASE)
+_REFINE_REJECTED: Final[re.Pattern[str]] = re.compile(
+    r"^\s*[-*]?\s*Rejected:\s*(.+)$", re.IGNORECASE
+)
 # U+FEFF is white space for the JavaScript `\\s` that `openspec` reads, and it is none for
 # Python. Every other character of that class is white space for Python too.
 JS_SPACE: Final[dict[int, str]] = {0xFEFF: " "}
@@ -117,6 +121,16 @@ def _without_refine_block(body: str) -> str:
     end = body.find(CONST_ROADMAP_REFINE_END_MARKER, start)
     after = "" if end < 0 else body[end + len(CONST_ROADMAP_REFINE_END_MARKER) :]
     return f"{body[:start]}\n{after}"
+
+
+def _refine_block(body: str) -> str:
+    start = body.find(CONST_ROADMAP_REFINE_START_MARKER)
+    if start < 0:
+        return ""
+    end = body.find(CONST_ROADMAP_REFINE_END_MARKER, start)
+    if end < 0:
+        return body[start + len(CONST_ROADMAP_REFINE_START_MARKER) :]
+    return body[start + len(CONST_ROADMAP_REFINE_START_MARKER) : end]
 
 
 def _is_repository_path(word: str) -> bool:
@@ -242,6 +256,21 @@ def acceptance_criteria(body: str) -> list[str]:
             if text and text not in found:
                 found.append(text)
     return found
+
+
+def refine_decisions(body: str) -> tuple[list[str], list[str]]:
+    """The Chosen decisions and Rejected alternatives of the refine block in `body`, if any (#3384)."""
+    block = _refine_block(body)
+    if not block:
+        return [], []
+    chosen: list[str] = []
+    rejected: list[str] = []
+    for line in block.splitlines():
+        if match := _REFINE_CHOSEN.match(line):
+            chosen.append(one_line(match.group(1)))
+        elif match := _REFINE_REJECTED.match(line):
+            rejected.append(one_line(match.group(1)))
+    return chosen, rejected
 
 
 def _resolved(criteria: Sequence[StageCriterion], accepted: Sequence[str]) -> list[StageCriterion]:

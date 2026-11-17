@@ -945,3 +945,12 @@ def test_the_prompts_and_documents_state_the_group_files_limit() -> None:
         assert "5 files" in text or "5 paths" in text
         assert "prefix move" in text
         assert "split" in text.lower()
+
+
+def test_the_stage_prompt_tells_the_planner_to_reuse_the_refine_block() -> None:
+    """A test asserts that the stage change prompt tells the planner to reuse the refine block (#3384)."""
+    assert (
+        "The block between `<!-- devops-roadmap-refine:start -->` and `<!-- devops-roadmap-refine:end -->` "
+        "holds a proposed design: carry its `Chosen` decisions and `Rejected` alternatives into `decisions` and `rejected`."
+        in _PROMPT
+    )

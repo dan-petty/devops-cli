@@ -5065,6 +5065,12 @@ class RoadmapMessages:
         'The entry of `criteria` for "{criterion}" names group {group}, and the plan has '
         "{count} groups."
     )
+    stage_problem_refine_decisions: str = (
+        "The refine block holds Chosen decisions, but `decisions` is empty."
+    )
+    stage_problem_refine_rejected: str = (
+        "The refine block holds Rejected alternatives, but `rejected` is empty."
+    )
     stage_criterion_bad_group: str = "A criterion group is a number from 1, not {group}."
     stage_criterion_no_reason: str = (
         'The criterion "{criterion}" is pending-person and has no reason.'

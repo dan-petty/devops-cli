@@ -73,6 +73,7 @@ from devops_cli.roadmap.stage.stage_criteria import (
     StageCriterion,
     criterion_problems,
     one_line,
+    refine_decisions,
 )
 from devops_cli.roadmap.stage.stage_form import form_problems, search_problems
 from devops_cli.roadmap.stage.stage_move import (
@@ -2581,6 +2582,21 @@ def class_claim_problems(
     return problems
 
 
+def _refine_decision_problems(proposal: StageProposal, issue_body: str) -> list[str]:
+    """What is wrong with a plan that drops decisions or rejected alternatives of a refine block
+    in the issue body (#3384)."""
+    chosen, rejected = refine_decisions(issue_body)
+    if not chosen and not rejected:
+        return []
+    texts = MESSAGES.roadmap
+    problems: list[str] = []
+    if chosen and not proposal.decisions:
+        problems.append(texts.stage_problem_refine_decisions)
+    if rejected and not proposal.rejected:
+        problems.append(texts.stage_problem_refine_rejected)
+    return problems
+
+
 def check_gates(
     proposal: StageProposal,
     known: Collection[str],
@@ -2636,9 +2652,10 @@ def check_gates(
         ProposalGate.MOVE_PREFIX: move_prefix_problems(proposal.groups, tree),
         ProposalGate.MOVE_VERIFY: move_verify_problems(proposal.groups, tree),
         ProposalGate.SEARCH: search_problems(proposal.groups, search_evidence),
-        ProposalGate.CRITERIA: criterion_problems(
-            proposal.criteria, issue_body, len(proposal.groups)
-        ),
+        ProposalGate.CRITERIA: [
+            *criterion_problems(proposal.criteria, issue_body, len(proposal.groups)),
+            *_refine_decision_problems(proposal, issue_body),
+        ],
         ProposalGate.DEPENDENCIES: _overlap_problems(proposal.dependencies, overlaps),
         ProposalGate.CREATES: creates_problems(proposal.groups, plan_creates or {}),
         ProposalGate.REGISTRY: registry_problems(
