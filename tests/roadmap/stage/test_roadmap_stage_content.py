@@ -1168,3 +1168,50 @@ def test_the_plan_of_this_change_has_no_content_problem() -> None:
     )
 
     assert content_problems(plan) == []
+
+
+def test_a_plan_with_no_decision_and_no_rejected_alternative_is_refused_for_refine_block() -> None:
+    """A test holds an issue body with a refine block that has two Chosen decisions and one
+    Rejected alternative, and asserts that check_proposal refuses a plan with no decision and no
+    rejected alternative (#3384)."""
+    body = (
+        "## Problem\n\nSome problem.\n\n"
+        "<!-- devops-roadmap-refine:start -->\n"
+        "### Key questions\n"
+        "- **Which parser?**: Use the library.\n"
+        "  - Chosen: Use the library. It is maintained.\n"
+        "  - Rejected: Write a parser. It adds code to keep.\n"
+        "- **Which cache?**: Valkey.\n"
+        "  - Chosen: Use Valkey. It is fast.\n"
+        "<!-- devops-roadmap-refine:end -->\n"
+    )
+    plan = make_stage_proposal(decisions=[], rejected=[])
+    problems = _check(plan, issue_body=body)
+
+    assert any("Chosen decisions" in p and "decisions" in p for p in problems)
+    assert any("Rejected alternatives" in p and "rejected" in p for p in problems)
+
+
+def test_a_plan_with_one_decision_and_one_rejected_alternative_passes_refine_block() -> None:
+    """A test asserts that the same plan passes when it holds one decision and one rejected
+    alternative (#3384)."""
+    body = (
+        "## Problem\n\nSome problem.\n\n"
+        "<!-- devops-roadmap-refine:start -->\n"
+        "### Key questions\n"
+        "- **Which parser?**: Use the library.\n"
+        "  - Chosen: Use the library. It is maintained.\n"
+        "  - Rejected: Write a parser. It adds code to keep.\n"
+        "- **Which cache?**: Valkey.\n"
+        "  - Chosen: Use Valkey. It is fast.\n"
+        "<!-- devops-roadmap-refine:end -->\n"
+    )
+    plan = make_stage_proposal(
+        decisions=[{"decision": "Use the library", "reason": "It is maintained."}],
+        rejected=[{"alternative": "Write a parser", "evidence": "It adds code to keep."}],
+    )
+    problems = _check(plan, issue_body=body)
+
+    assert not any("Chosen decisions" in p for p in problems)
+    assert not any("Rejected alternatives" in p for p in problems)
+    assert problems == []
