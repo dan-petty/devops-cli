@@ -12,7 +12,7 @@ The path is the plan branch of the watch row: `_apply_due_steps` in `src/devops_
 - The behavior of the Service and of two commands changes, so the change carries spec deltas.
 
 ## Capabilities
-- `pr-monitor`: the requirement "One mark-ready wrapper" adds the decision.
+- `pr-monitor`: the requirement "One mark-ready wrapper" adds the decision, and a new requirement says what the wrapper does when the decision refuses.
 - `roadmap-watch-row`: a new requirement for the ready mark of a plan draft.
 
 ## Impact
