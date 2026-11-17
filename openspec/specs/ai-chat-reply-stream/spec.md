@@ -9,8 +9,8 @@ How an OpenAI-compatible chat call reads its reply: as a stream that the gateway
 The gateway config SHALL set `litellm_settings.sse_keepalive_ping_interval_seconds` to a number of seconds that is more than 0 and less than 125, the Proxy Read Timeout of the Cloudflare edge.
 
 #### Scenario: The gateway config
-- **WHEN** the gateway config `k8s/llm/gateway/config.yaml` is read
-- **THEN** `litellm_settings.sse_keepalive_ping_interval_seconds` is more than 0 and less than 125
+- **WHEN** a person streams a chat reply through the Cloudflare tunnel that waits more than 125 s for its first token
+- **THEN** the reply is not cut at the edge, because the gateway writes a keepalive comment before 125 s pass
 
 ### Requirement: An OpenAI-compatible chat call reads its reply as a stream
 A chat call that returns one reply from the `gateway`, `openai` or `copilot` provider SHALL send `stream: true` with `stream_options.include_usage`, and SHALL return the content, the reasoning, the token usage, the finish reason, the model and the serving backend of the streamed chunks. It SHALL ignore SSE comment lines.

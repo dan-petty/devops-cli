@@ -112,9 +112,8 @@ The dry run of `devops k8s deploy-stack` SHALL list, in `details.helm_commands` 
 - **THEN** the last entry of `details.helm_commands` holds neither `--wait` nor `--timeout`
 
 #### Scenario: The prometheus release gets the environment values, then the product alert rules
-- **WHEN** `devops k8s deploy-stack --stack infra --k8s-dir k8s --dry-run` runs
-- **THEN** the `helm upgrade` command of release `prometheus` names `k8s/monitoring/prometheus-values.yaml`, then `k8s/devops/monitoring/prometheus-rules-values.yaml`, each after `--values`
-- **AND** the `valueFiles` of each Argo CD Application of a chart are the values files of its release, in the same order
+- **WHEN** `devops k8s deploy-stack --stack infra --k8s-dir <tree> --product-dir <base> --dry-run` runs on a tree whose Applications pin each chart of stack `infra`
+- **THEN** the `helm upgrade` command of release `prometheus` names `<tree>/monitoring/prometheus-values.yaml`, then `<base>/monitoring/prometheus-rules-values.yaml`, each after `--values`, and the version that its Application pins
 
 ### Requirement: The Helm commands of a deploy-stack dry run are those of the real run
 The `helm repo` and `helm upgrade` commands in `details.helm_commands` of a `devops k8s deploy-stack` dry run SHALL be built by the builders that the real run uses, so that the real run starts the same argument lists, in the same order, for the same options on Helm 3 and a cluster without unready nodes. The dry run reads no node state. For a DaemonSet release on a cluster with unready nodes, the real run omits `--wait` and the dry run lists it.

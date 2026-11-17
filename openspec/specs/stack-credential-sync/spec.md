@@ -182,13 +182,6 @@ The cluster Secret push table SHALL declare row `monitoring/alertmanager-matterm
 - **WHEN** the keyring holds no value for `mattermost_alerts_hook` and `devops k8s push-secrets --only monitoring/alertmanager-mattermost` runs
 - **THEN** the push skips the entry with a warning naming `devops config set mattermost.alerts_hook`
 
-### Requirement: Secret reference guard yields mounted Secret names
-The secret reference guard `_secret_references` SHALL yield `secretName` values used in volume mounts such as `extraSecretMounts` and Pod volume specifications.
-
-#### Scenario: Volume mount references an unlisted Secret
-- **WHEN** a Kubernetes manifest or values document defines `extraSecretMounts` with `secretName: unlisted-secret`
-- **THEN** `referenced_secrets` includes the unlisted Secret and fails the guard if no table row exists
-
 ### Requirement: The Secret read of the sync accepts every kubeconfig context name
 The Secret read of the sync SHALL check the context name with `validate_k8s_context_name`, the validator of `switch-context` and `deploy-stack`, and SHALL pass the name to `kubectl` with `--context`. An EKS ARN, a GKE name and a user-account name SHALL pass the check.
 

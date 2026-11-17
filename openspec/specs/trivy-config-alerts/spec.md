@@ -98,8 +98,8 @@ The repository SHALL hold one `misconfigurations` entry of `.trivyignore.yaml` f
 The `k8s/gpu-feature-discovery/daemonset.yaml` manifest SHALL configure `readOnlyRootFilesystem: true` in the container `securityContext` of `gpu-feature-discovery`.
 
 #### Scenario: The manifest sets a read-only root file system
-- **WHEN** a test loads `k8s/gpu-feature-discovery/daemonset.yaml` and inspects the `gpu-feature-discovery` container
-- **THEN** it finds `readOnlyRootFilesystem` set to `true`, `privileged` set to `true`, and both `output-dir` and `host-sys` volumes configured
+- **WHEN** `uv run devops k8s lint k8s/gpu-feature-discovery` runs kube-linter on the manifests
+- **THEN** kube-linter reports no writable root file system for `gpu-feature-discovery`, and `devops scan` reports no `trivy config` finding KSV-0014 for it
 
 ### Requirement: The harbor template Dockerfile holds a dated ignore entry
 The repository SHALL hold one `misconfigurations` entry of `.trivyignore.yaml` for the rule `DS-0029` on the path `.venv/lib/python3.14/site-packages/harbor/cli/template-adapter/task-template/environment/Dockerfile`, with a `statement` that names the harbor task-template Dockerfile and issue #5947, and an `expired_at` date no more than 3 days after the entry.

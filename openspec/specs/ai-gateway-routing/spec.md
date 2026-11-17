@@ -458,8 +458,8 @@ The smoke section SHALL give the steps that run the five calls after the gateway
 The router `timeout` of `k8s/llm/gateway/config.yaml` and the `timeout` of each deployment SHALL be less than the defaults of `ai.request_timeout_seconds` and `roadmap.implement.request_timeout_seconds`, so the gateway ends a stuck attempt and can retry it or fall back before the client ends the call. The default of `ai.request_timeout_seconds` SHALL be less than `CONST_ROADMAP_STAGE_JOB_MARGIN_SECONDS` and the `activeDeadlineSeconds` of `k8s/devops/cronjob-runner.yaml`.
 
 #### Scenario: The timeouts nest
-- **WHEN** a test reads the gateway config, the settings defaults and the runner CronJob
-- **THEN** the router timeout and each deployment timeout are less than each default call deadline, and the default of `ai.request_timeout_seconds` is less than the stage margin and the runner Job deadline
+- **WHEN** a person runs `kubectl -n llm get configmap -l app.kubernetes.io/name=llm-gateway -o yaml` and `kubectl -n devops get cronjob devops-cli-runner -o yaml` on the cluster
+- **THEN** the router timeout and each deployment timeout of the gateway config are less than each default call deadline, and the default of `ai.request_timeout_seconds` is less than the stage margin and the `activeDeadlineSeconds` of the runner CronJob
 
 ### Requirement: A direct gateway call is sent again only after a failed connect
 `LLMClient` with provider `gateway` SHALL send a call again only when its connect failed or it got no connection from the pool, at most `ai.max_retries` + 1 times. It SHALL not send a call again after a status of the gateway. A client of another provider SHALL keep the retries of its transport.
