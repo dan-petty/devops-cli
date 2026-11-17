@@ -109,7 +109,7 @@ dev = [
     "ty==0.0.104",
     "types-PyYAML==6.0.12.20261113",
     "pytest-cov==7.1.0",
-    "diff-cover==11.0.2",
+    "diff-cover==11.0.3",
     "pytest-xdist==3.8.0",
     "pytest-randomly==5.1.0",
     "pytest-timeout==2.4.0",
