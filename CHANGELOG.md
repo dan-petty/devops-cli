@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.173.3](https://github.com/dan-petty/devops-cli/compare/v0.173.2...v0.173.3) (2026-11-17)
+
+
+### Bug Fixes
+
+* **ci:** Let npm audit ignore a no-fix finding until a date ([#6205](https://github.com/dan-petty/devops-cli/issues/6205)) ([b1a0266](https://github.com/dan-petty/devops-cli/commit/b1a026687f24083c2365d98f008b4522a6eee017))
+* **ci:** Show the row name in every gate row line ([#6188](https://github.com/dan-petty/devops-cli/issues/6188)) ([319cdb8](https://github.com/dan-petty/devops-cli/commit/319cdb8c9261eb6d9b4f75b9baf72f300eacb6f9))
+* **git:** Give the branch-current fetch a 24 second limit ([#6190](https://github.com/dan-petty/devops-cli/issues/6190)) ([a116fa2](https://github.com/dan-petty/devops-cli/commit/a116fa27824bf6ca095c0a250ba3be41860f1902))
+* **github:** Retry a timed-out gh auth token lookup ([#6201](https://github.com/dan-petty/devops-cli/issues/6201)) ([ffa602f](https://github.com/dan-petty/devops-cli/commit/ffa602fe095141a068a3b361b7e39de74dc5b2b5))
+* **roadmap:** Keep the alternatives result in the body block only ([#6208](https://github.com/dan-petty/devops-cli/issues/6208)) ([6cb6e23](https://github.com/dan-petty/devops-cli/commit/6cb6e23c2d0ad2d6f2a791d50fe54886a3242f84))
+* **roadmap:** Leave other job comments out of the alternatives request ([#6192](https://github.com/dan-petty/devops-cli/issues/6192)) ([e6f5718](https://github.com/dan-petty/devops-cli/commit/e6f571827889d332fcafcb31f11266a4bcc1251c))
+* **roadmap:** One plan-state comment for each plan PR ([#6209](https://github.com/dan-petty/devops-cli/issues/6209)) ([32a0df2](https://github.com/dan-petty/devops-cli/commit/32a0df2962d7abd519f0fce92e4963e5be2a7d04)), closes [#6197](https://github.com/dan-petty/devops-cli/issues/6197)
+
 ## [0.173.2](https://github.com/dan-petty/devops-cli/compare/v0.173.1...v0.173.2) (2026-11-17)
 
 
