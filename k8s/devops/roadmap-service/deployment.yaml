@@ -11,16 +11,12 @@ spec:
   # in service.repos. Argo CD self-heals this value, so a scale by hand does not stay. To stop
   # the Service, do the stop switch in docs/CLUSTER.md, "Roadmap service".
   replicas: 1
-  # A surge release (#6058): the new pod starts beside the old pod, on the node of the
-  # ReadWriteOnce volume, and gets the webhooks when /readyz passes. Only then does the old pod
-  # get SIGTERM. The pod that holds the Lease roadmap-service-rows runs the rows, so the two pods
-  # never run a row at the same time. One replica and no PodDisruptionBudget: a drain of the node
-  # still stops the webhooks for a time (docs/CLUSTER.md, "Roadmap service"; #4575).
+  # Recreate until the release that carries the Lease code runs (#6058). Only the pod that holds
+  # the Lease roadmap-service-rows runs the rows, but the pod before that release has no Lease
+  # code, so this release must stop it before the new pod starts. #6107 then switches to
+  # RollingUpdate with maxSurge 1 and maxUnavailable 0 (docs/CLUSTER.md, "Roadmap service").
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: roadmap-service
@@ -130,8 +126,8 @@ spec:
             - name: OTEL_SERVICE_NAME
               value: roadmap-service
             # The pod name: the holder identity of the Lease roadmap-service-rows, and the
-            # service.instance.id (`instance`) of the metrics. During a surge release two pods
-            # send at the same time, so each pod sends its own metric stream (#6058).
+            # service.instance.id (`instance`) of the metrics. During the surge release of #6107
+            # two pods send at the same time, so each pod sends its own metric stream (#6058).
             - name: POD_NAME
               valueFrom:
                 fieldRef:
