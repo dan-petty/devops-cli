@@ -71,7 +71,7 @@ spec:
               type: RuntimeDefault
           initContainers:
             - name: seed
-              image: ghcr.io/renovatebot/renovate:44.239.1@sha256:7dba1a3b916a2cf302ba0df458ddcc8fcbac3c92d0fe9882ac13ba0363de656b
+              image: ghcr.io/renovatebot/renovate:44.239.2@sha256:f09d7b204992d3973ff8e5923c3ceca8bd9ecb07a5014a7dccef5aa087e6f789
               imagePullPolicy: IfNotPresent
               command:
                 - cp
@@ -135,7 +135,7 @@ spec:
                   memory: 512Mi
           containers:
             - name: renovate
-              image: ghcr.io/renovatebot/renovate:44.239.1@sha256:7dba1a3b916a2cf302ba0df458ddcc8fcbac3c92d0fe9882ac13ba0363de656b
+              image: ghcr.io/renovatebot/renovate:44.239.2@sha256:f09d7b204992d3973ff8e5923c3ceca8bd9ecb07a5014a7dccef5aa087e6f789
               imagePullPolicy: IfNotPresent
               command: ["/usr/local/sbin/renovate-entrypoint.sh"]
               args: ["renovate"]
