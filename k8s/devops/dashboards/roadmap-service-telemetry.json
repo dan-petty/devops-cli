@@ -555,6 +555,51 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "description": "The roadmap items that closed in the last hour, by repository and reason. The reason is GitHub's state_reason when it is completed, not_planned or duplicate, and unknown otherwise. A lost delivery is not counted.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line"
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 41
+      },
+      "id": 900,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Roadmap Items Closed by Reason",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (repo, reason) (increase(devops_cli_service_roadmap_items_closed_total{job=~\"$job\"}[1h]))",
+          "legendFormat": "{{repo}} {{reason}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "The stops of the implement job in the last hour, by failure class.",
       "fieldConfig": {
         "defaults": {
