@@ -12,8 +12,8 @@ required node affinity.
 
 The checks read files only and render no chart. `CHART_CLAIMS` names, for each chart that an
 Argo CD Application installs, which values turn on a claim and where the values set the affinity
-of the pod that mounts it. A chart, or a chart version, that an Application pins and `CHART_CLAIMS`
-does not name fails the test, so a new chart states its claims and a chart bump reads them again.
+of the pod that mounts it. A chart that an Application pins and `CHART_CLAIMS` does not name fails
+the test, so a new chart states its claims.
 A CloudNativePG Cluster whose storage class is absent or is `local-path` or `fast-nvme` is a pod on
 a claim, and the check reads its affinity from `spec.affinity`; a Cluster of another class fails the
 check. A pod that must stay on the control-plane node is in `_CONTROL_PLANE_CLAIM_EXEMPTIONS`, with
@@ -133,29 +133,28 @@ def _alloy_collectors(values: dict[str, Any]) -> tuple[ClaimSite, ...]:
 
 
 # The claims of each chart an Application installs, read from the chart's own values.yaml. The key
-# is the chart and the version that the entry was read from: a chart release can move the value that
-# sets a claim, so a chart bump fails until a person reads the entry again. A callable entry reads
-# the sites from the values.
+# is the chart name; a chart update does not change the table (owner, 2026-11-16, #6063). A
+# callable entry reads the sites from the values.
 CHART_CLAIMS: dict[
-    tuple[str, str],
+    str,
     tuple[ClaimSite, ...] | Callable[[dict[str, Any]], tuple[ClaimSite, ...]],
 ] = {
-    ("argo-cd", "10.18.0"): (),
-    ("argo-workflows", "2.0.18"): (),
-    ("argocd-image-updater", "1.4.2"): (),
-    ("cert-manager", "v1.21.3"): (),
-    ("cloudnative-pg", "0.29.1"): (),
-    ("dcgm-exporter", "4.8.4"): (),
+    "argo-cd": (),
+    "argo-workflows": (),
+    "argocd-image-updater": (),
+    "cert-manager": (),
+    "cloudnative-pg": (),
+    "dcgm-exporter": (),
     # Chart 12.7.0 turns persistence on by default; 13.x turns it off.
-    ("gitea", "12.7.0"): (ClaimSite("gitea", _on(("persistence.enabled", True)), "affinity"),),
-    ("opentelemetry-collector", "0.178.3"): (),
-    ("plugin-barman-cloud", "0.9.0"): (),
-    ("prometheus-operator-crds", "33.0.2"): (),
-    ("grafana", "14.4.1"): (ClaimSite("grafana", _on(("persistence.enabled", False)), "affinity"),),
-    ("k8s-monitoring", "4.6.1"): _alloy_collectors,
-    ("loki", "21.2.3"): (ClaimSite("singleBinary", _loki_mode, "singleBinary.affinity"),),
-    ("mattermost-operator", "1.0.5"): (),
-    ("open-webui", "18.3.0"): (
+    "gitea": (ClaimSite("gitea", _on(("persistence.enabled", True)), "affinity"),),
+    "opentelemetry-collector": (),
+    "plugin-barman-cloud": (),
+    "prometheus-operator-crds": (),
+    "grafana": (ClaimSite("grafana", _on(("persistence.enabled", False)), "affinity"),),
+    "k8s-monitoring": _alloy_collectors,
+    "loki": (ClaimSite("singleBinary", _loki_mode, "singleBinary.affinity"),),
+    "mattermost-operator": (),
+    "open-webui": (
         ClaimSite("open-webui", _on(("persistence.enabled", True)), "affinity"),
         ClaimSite(
             "pipelines",
@@ -168,7 +167,7 @@ CHART_CLAIMS: dict[
             "ollama.affinity",
         ),
     ),
-    ("prometheus", "29.47.2"): (
+    "prometheus": (
         ClaimSite("server", _on(("server.persistentVolume.enabled", True)), "server.affinity"),
         ClaimSite(
             "alertmanager",
@@ -176,13 +175,13 @@ CHART_CLAIMS: dict[
             "alertmanager.affinity",
         ),
     ),
-    ("pyroscope", "2.4.3"): (
+    "pyroscope": (
         ClaimSite("pyroscope", _on(("pyroscope.persistence.enabled", False)), "pyroscope.affinity"),
     ),
     # The chart's StatefulSet always has the claim template `qdrant-storage`.
-    ("qdrant", "1.20.2"): (ClaimSite("qdrant", lambda values: True, "affinity"),),
-    ("tempo", "3.2.1"): (ClaimSite("tempo", _on(("persistence.enabled", False)), "affinity"),),
-    ("traefik", "42.3.2"): (ClaimSite("traefik", _on(("persistence.enabled", False)), "affinity"),),
+    "qdrant": (ClaimSite("qdrant", lambda values: True, "affinity"),),
+    "tempo": (ClaimSite("tempo", _on(("persistence.enabled", False)), "affinity"),),
+    "traefik": (ClaimSite("traefik", _on(("persistence.enabled", False)), "affinity"),),
 }
 
 # Pods that the tree must hold, so that a wrong path in the table cannot pass by finding nothing.
@@ -226,7 +225,7 @@ def keeps_off_the_control_plane(affinity: Any) -> bool:
 
 def _chart_sites(chart: str, values: dict[str, Any]) -> tuple[ClaimSite, ...]:
     """The claim sites of a chart for these values."""
-    (sites,) = (sites for (name, _), sites in CHART_CLAIMS.items() if name == chart)
+    sites = CHART_CLAIMS[chart]
     return sites(values) if callable(sites) else sites
 
 
@@ -417,11 +416,9 @@ def test_a_cluster_without_storage_is_no_pod_on_a_claim() -> None:
     assert _cluster_pod("k8s/llm/database.yaml", document) is None
 
 
-def test_the_claim_table_names_each_chart_at_the_version_that_an_application_pins() -> None:
-    """A chart release can move the value that sets a claim, as Loki 20.0.2 did (#1632). An entry
-    names the version that it was read from, so a bump fails until a person reads it again. A chart
-    with no entry could mount a claim that no check sees."""
-    assert sorted(pinned_charts() ^ CHART_CLAIMS.keys(), key=str) == []
+def test_the_claim_table_names_each_chart_that_an_application_pins() -> None:
+    """A chart with no entry could mount a claim that no check sees."""
+    assert sorted({chart for chart, _ in pinned_charts()} ^ CHART_CLAIMS.keys()) == []
 
 
 def test_every_chart_pod_on_a_claim_keeps_off_the_control_plane_node() -> None:

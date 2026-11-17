@@ -2487,3 +2487,26 @@ def test_every_model_of_the_service_config_is_a_group_the_gateway_serves() -> No
     aliases = set(cfg.get("router_settings", {}).get("model_group_alias", {}).keys())
 
     assert sorted(named - (served | aliases)) == []
+
+
+def test_a_second_gateway_replica_comes_only_with_shared_cooldowns_and_a_disruption_budget() -> (
+    None
+):
+    """Each LiteLLM process keeps its own cooldowns of the provider routing (#5990) unless the
+    router shares them through `router_settings.redis_host`. One replica keeps one view of the
+    cooldowns, and the README gives that reason. A second replica needs the shared state and a
+    PodDisruptionBudget, which a single replica cannot have, because it would block a drain (#6066)."""
+    replicas = _load_deployment(GATEWAY_DIR / "deployment.yaml", "llm-gateway")["spec"]["replicas"]
+    shared = "redis_host" in _full_gateway_config()["router_settings"]
+    budgets = [
+        doc
+        for path in sorted(GATEWAY_DIR.glob("*.yaml"))
+        for doc in yaml.safe_load_all(path.read_text(encoding="utf-8"))
+        if doc and doc.get("kind") == "PodDisruptionBudget"
+    ]
+    reason = "one replica, because each LiteLLM process keeps its own cooldowns"
+
+    assert (replicas > 1, shared, bool(budgets), reason in K8S_README.read_text("utf-8")) in {
+        (False, False, False, True),
+        (True, True, True, False),
+    }

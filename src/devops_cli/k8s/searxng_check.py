@@ -44,11 +44,6 @@ from devops_cli.k8s.service_probe import (
     service_cluster_ip,
 )
 
-# The image the check was written for. The gate row `k8s` compares it with the image of
-# Deployment `searxng`, so a bump of the digest fails until a person runs `devops k8s
-# searxng-check` against the new image and sets this value.
-SEARXNG_IMAGE = "docker.io/searxng/searxng:2026.10.23-629368e40@sha256:aecad882e86eeb022b76351c8dce4eb48d0cbb16a5f1691f77ea32c96d317502"
-
 NAMESPACE = "devops"
 SERVICE = "searxng"
 SERVICE_PORT = 8080
@@ -323,7 +318,6 @@ __all__ = [
     "NAMESPACE",
     "OFF_ENGINES",
     "REPLY_KEYS",
-    "SEARXNG_IMAGE",
     "SERVICE",
     "SERVICE_PORT",
     "PodProbeRow",
