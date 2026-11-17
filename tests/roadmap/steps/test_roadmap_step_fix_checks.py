@@ -39,6 +39,7 @@ from devops_cli.roadmap.steps.fix_checks import (
     dry_run_fix_checks,
     run_fix_checks,
 )
+from devops_cli.roadmap.steps.fix_checks_cause import FileCause, ScopeVerdict
 from devops_cli.roadmap.stores.store import FixChecksRecordKey, ImplementRecordKey
 from tests.support.fakes.github import (
     GitHubApiFake,
@@ -58,6 +59,8 @@ NEW_HEAD = "2222222222222222222222222222222222222222"
 STATIC = "Static Analysis"
 PLAN_LOG = "src/devops_cli/sample.py:10: error: undefined name 'foo'"
 LINK = f"https://github.com/{REPO}/actions/runs/1/job/2"
+OTHER = "tests/unrelated/test_other.py"
+NOT_CAUSED = "the change of the branch does not cause its failure"
 NO_LINT = Fixed(done=False, reason="not a lint failure")
 DONE = Fixed(done=True)
 TICKED = "# Tasks\n\n## 1. Group\n\nChanges: `src/devops_cli/sample.py`.\n\n- [x] 1.1 Do it\n"
@@ -167,9 +170,11 @@ class FakeRepair:
     tier1: Fixed = NO_LINT
     model: Fixed = DONE
     in_scope: bool = True
+    caused: tuple[FileCause, ...] = ()
     pushed_head: str | None = NEW_HEAD
     calls: list[str] = field(default_factory=list)
     checkout: FakeCheckout | None = None
+    extra: list[tuple[str, ...]] = field(default_factory=list)
 
     def build(self) -> Repair:
         @contextmanager
@@ -182,13 +187,15 @@ class FakeRepair:
             self.calls.append("tier1")
             return self.tier1
 
-        def model(path: Path, item: int, check: str, log: str) -> Fixed:
+        def model(path: Path, item: int, check: str, log: str, extra: tuple[str, ...]) -> Fixed:
             self.calls.append("model")
+            self.extra.append(extra)
             return self.model
 
-        def scope(path: Path, item: int, log: str, is_stage_plan: bool) -> bool:
+        def scope(path: Path, item: int, log: str, is_stage_plan: bool) -> ScopeVerdict:
             self.calls.append("scope")
-            return self.in_scope
+            outside = () if self.in_scope else (FileCause(OTHER, NOT_CAUSED),)
+            return ScopeVerdict(in_scope=self.in_scope, caused=self.caused, outside=outside)
 
         return Repair(checkout=checkout, tier1=tier1, model=model, scope=scope)
 
@@ -523,7 +530,50 @@ def test_outside_plan_scope_stops_with_zero_model_requests(
     assert repair.checkout is not None
     assert repair.checkout.pushes == 0
     assert report.result == FixChecksResult.STOPPED
-    assert "outside" in report.reason.lower()
+    assert report.reason == (f"Failed check log is outside plan scope: `{OTHER}`: {NOT_CAUSED}")
+    assert world.comments() == []
+
+
+def test_a_repair_of_a_file_that_the_change_causes_gives_it_to_the_model_and_names_it(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """The case of #6114: the failed test is in a file that the plan does not list, and it calls a
+    function that the plan changes. The model may change that file, and the comment of the step
+    names it with the reason (#6116)."""
+    pull = world.item()
+    regression = "tests/git/test_review_worktree_regression.py"
+    cause = "it uses the changed name `_run_pr_review_workflow`"
+    world.pull(pull, runs=[_run("Tests & Coverage (shard 4 of 4)")], log=f"FAILED {regression}")
+    repair = FakeRepair(tmp_path, caused=(FileCause(regression, cause),))
+
+    report = world.run(pull, confirm=True, repair=repair.build())
+
+    assert (report.result, report.head) == (FixChecksResult.REPAIRED, NEW_HEAD)
+    assert repair.extra == [(regression,)]
+    [comment] = world.comments()
+    assert f"`{regression}`: {cause}" in comment
+    assert "Tests & Coverage (shard 4 of 4)" in comment
+
+
+def test_a_tier1_repair_names_the_files_that_it_wrote_again_in_a_comment(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """The case of #6041: tier 1 writes the snapshot and the documents again with no model
+    request, and the comment names each file (#6116)."""
+    pull = world.item()
+    written = (
+        "docs/MCP_TOOLS.md",
+        "tests/ai/mcp/__snapshots__/test_mcp_tool_listing/listing.json",
+    )
+    world.pull(pull, runs=[_run("Tests & Coverage (shard 3 of 4)")])
+    repair = FakeRepair(tmp_path, tier1=Fixed(done=True, files=written))
+
+    report = world.run(pull, confirm=True, repair=repair.build())
+
+    assert report.result == FixChecksResult.REPAIRED
+    assert "model" not in repair.calls
+    [comment] = world.comments()
+    assert all(f"`{name}`" in comment for name in written)
 
 
 def test_a_failed_check_whose_log_names_a_file_of_the_plan_ends_repaired(
@@ -737,13 +787,10 @@ def test_check_scope_helper(tmp_path: Path) -> None:
     # Stage plan
     plan_dir = tmp_path / "openspec" / "changes" / "98-test-plan"
     plan_dir.mkdir(parents=True)
-    assert (
-        check_scope(
-            tmp_path, 98, "error at openspec/changes/98-test-plan/tasks.md", is_stage_plan=True
-        )
-        is True
-    )
-    assert check_scope(tmp_path, 98, "error at src/other.py", is_stage_plan=True) is False
+    assert check_scope(
+        tmp_path, 98, "error at openspec/changes/98-test-plan/tasks.md", is_stage_plan=True
+    ).in_scope
+    assert check_scope(tmp_path, 98, "error at src/other.py", is_stage_plan=True).in_scope is False
 
     # Archived change with tasks.md
     archive_dir = tmp_path / "openspec" / "changes" / "archive" / "2026-11-16-99-test-plan"
@@ -752,10 +799,12 @@ def test_check_scope_helper(tmp_path: Path) -> None:
         "# Tasks\n\n## 1. Group\nReads: `src/read.py`.\nChanges: `src/mod.py`.\n- [ ] 1.1 Do it\n",
         encoding="utf-8",
     )
-    assert check_scope(tmp_path, 99, "FAILED src/mod.py::test", is_stage_plan=False) is True
-    assert check_scope(tmp_path, 99, "FAILED src/other.py", is_stage_plan=False) is False
+    assert (
+        check_scope(tmp_path, 99, "FAILED src/mod.py::test", is_stage_plan=False).in_scope is True
+    )
+    assert check_scope(tmp_path, 99, "FAILED src/other.py", is_stage_plan=False).in_scope is False
     # Missing tasks.md or non-existent change
-    assert check_scope(tmp_path, 888, "FAILED src/mod.py", is_stage_plan=False) is False
+    assert check_scope(tmp_path, 888, "FAILED src/mod.py", is_stage_plan=False).in_scope is False
 
 
 def test_report_to_json() -> None:

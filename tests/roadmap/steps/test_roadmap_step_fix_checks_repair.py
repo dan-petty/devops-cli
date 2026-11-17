@@ -9,6 +9,7 @@ a ruff fix rewrites the file it names.
 
 from __future__ import annotations
 
+import json
 import subprocess
 from dataclasses import replace
 from pathlib import Path
@@ -25,7 +26,7 @@ from tests.support.fakes.github import GitHubApiFake, github_json
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import command_text, git_for_real
-from tests.support.model_script import ModelScript, say
+from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_implement import (
     BRANCH,
     CHECK_LINK,
@@ -33,6 +34,7 @@ from tests.support.roadmap_implement import (
     PULL,
     STEPS_DECLARATION,
     STEPS_FILE,
+    TASKS,
     a_fix,
     push_staged_branch,
     seed_staged,
@@ -180,6 +182,44 @@ def test_tier1_generates_the_documents_for_a_docs_failure_in_any_check(
     assert branch.git("show", "--name-only", "--format=", "HEAD") == DOCS
 
 
+SNAPSHOT_TEST = "tests/ai/mcp/test_mcp_tool_listing.py"
+SNAPSHOT = "tests/ai/mcp/__snapshots__/test_mcp_tool_listing/listing.json"
+MCP_DOCS = "docs/MCP_TOOLS.md"
+# The log of shard 3 of the tests of #6041: the snapshot of the tool listing differs.
+SNAPSHOT_LOG = (
+    "1 snapshot failed. 7 snapshots passed.\n"
+    f"FAILED {SNAPSHOT_TEST}::test_the_tool_listing_matches_the_snapshot - "
+    "assert [+ received] == [- snapshot]\n"
+)
+
+
+def test_tier1_writes_the_snapshot_and_the_documents_again_for_a_snapshot_failure(
+    branch: StageRepo, process_fake: ProcessFake
+) -> None:
+    """The case of #6041: a changed tool changes the snapshot of the tool listing and its
+    document. Tier 1 writes both again with the project commands, and runs the test and the docs
+    check again, with no model request (#6116)."""
+    _commit(branch, SNAPSHOT, "{}\n")
+    _commit(branch, MCP_DOCS, "old\n")
+    update = f"uv run pytest -n 0 --snapshot-update {SNAPSHOT_TEST}"
+    process_fake.answer(
+        lambda call: command_text(call) == update, _writes(SNAPSHOT, '{"repo": {}}\n')
+    )
+    process_fake.answer(
+        lambda call: command_text(call) == "uv run devops docs generate", _writes(MCP_DOCS, "new\n")
+    )
+
+    fixed = tier1_fix(branch.clone, 1, "Tests & Coverage (shard 3 of 4)", SNAPSHOT_LOG)
+
+    assert fixed == Fixed(done=True, files=(MCP_DOCS, SNAPSHOT))
+    assert _uv_commands(process_fake) == [
+        update,
+        "uv run devops docs generate",
+        f"uv run devops ci test {SNAPSHOT_TEST}",
+        "uv run devops ci docs",
+    ]
+
+
 def test_tier1_runs_no_fixer_for_a_failure_that_is_not_lint(
     branch: StageRepo, process_fake: ProcessFake
 ) -> None:
@@ -318,8 +358,10 @@ def test_a_push_whose_lease_breaks_is_refused_and_keeps_the_other_writer(
     real = job_repair(store, STAGE_REPO, source=repo.clone)
     moved: list[str] = []
 
-    def model_then_another_writer(path: Path, item: int, check: str, log: str) -> Fixed:
-        fixed = real.model(path, item, check, log)
+    def model_then_another_writer(
+        path: Path, item: int, check: str, log: str, extra: tuple[str, ...]
+    ) -> Fixed:
+        fixed = real.model(path, item, check, log, extra)
         tree = repo.git("rev-parse", f"{head}^{{tree}}")
         moved.append(repo.git("commit-tree", tree, "-p", head, "-m", "work of another writer"))
         repo.git("push", "-q", "origin", f"{moved[0]}:refs/heads/{BRANCH}")
@@ -339,6 +381,135 @@ def test_a_push_whose_lease_breaks_is_refused_and_keeps_the_other_writer(
     assert held is not None
     assert held.job_record.get(FixChecksRecordKey.RESULT) is None
     assert repo.git("worktree", "list").count("\n") == 0
+
+
+# The case of #6114 in a test world: the plan changes the signature of `run_flow`, and a test that
+# the plan does not list calls it without the new argument.
+FLOW = "src/devops_cli/flow.py"
+FLOW_TEST = "tests/test_flow.py"
+FLOW_BASE = "def run_flow(pages: list[str], *, checkout: str) -> list[str]:\n    return pages\n"
+FLOW_HEAD = (
+    "def run_flow(pages: list[str], *, checkout: str, in_runner: bool) -> list[str]:\n"
+    "    return pages if in_runner else []\n"
+)
+FLOW_CALLER = (
+    "from devops_cli.flow import run_flow\n\n\n"
+    "def test_flow() -> None:\n"
+    '    assert run_flow(["p"], checkout=".") == ["p"]\n'
+)
+FLOW_TASKS = TASKS.replace(
+    "`src/devops_cli/shout.py` (new), `tests/test_shout.py` (new)", f"`{FLOW}`"
+).replace("Add `src/devops_cli/shout.py`", f"Add a keyword argument to `{FLOW}`")
+FLOW_CHECK = "Tests & Coverage (shard 4 of 4)"
+FLOW_LOG = (
+    f"FAILED {FLOW_TEST}::test_flow - "
+    "TypeError: run_flow() missing 1 required keyword-only argument: 'in_runner'\n"
+)
+
+
+@pytest.fixture
+def caller_draft(
+    stage_repo: StageRepo,
+    app_slug: None,
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+) -> tuple[StageRepo, InMemoryRoadmapStore, GitHubApiFake, str]:
+    """Pull request 5 of item 1: a bot draft whose plan changes `run_flow`, and whose test shard
+    failed in a caller that the plan does not list."""
+    stage_repo.track({FLOW: FLOW_BASE, FLOW_TEST: FLOW_CALLER})
+    push_staged_branch(stage_repo, tasks=FLOW_TASKS, files={FLOW: FLOW_HEAD})
+    head = stage_repo.origin_git("rev-parse", BRANCH)
+    api, programs = github_api_and_gh
+    programs.answer("git", ProcessAnswer(side_effect=git_for_real))
+    programs.answer(lambda call: command_text(call).startswith("uv "), ProcessAnswer())
+    programs.answer(lambda call: call.argv[1:3] == ("run", "view"), ProcessAnswer(stdout=FLOW_LOG))
+    status = {
+        "state": "open",
+        "draft": True,
+        "head": {"ref": BRANCH, "sha": head},
+        "base": {"ref": "main"},
+        "user": {"login": STAGE_NAME},
+        "labels": [],
+    }
+    api.route("GET", f"/repos/{STAGE_REPO}/pulls/{PULL}", github_json(status))
+    failed = {**FAIL, "name": FLOW_CHECK, "html_url": CHECK_LINK}
+    api.route(
+        "GET",
+        f"/repos/{STAGE_REPO}/commits/{head}/check-runs?per_page=100",
+        github_json({"total_count": 1, "check_runs": [failed]}),
+    )
+    api.route(
+        "POST", f"/repos/{STAGE_REPO}/issues/{PULL}/comments", github_json({"id": 1}, status=201)
+    )
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    number = seed_staged(store)
+    held = store.item(number)
+    assert held is not None
+    store.set_marks(held, {ImplementRecordKey.PR: str(PULL)})
+    return stage_repo, store, api, head
+
+
+def _comments(api: GitHubApiFake) -> list[str]:
+    return [
+        json.loads(request.content)["body"]
+        for request in api.sent
+        if request.method == "POST" and request.url.path.endswith("/comments")
+    ]
+
+
+def test_a_failure_in_a_caller_that_the_plan_does_not_list_is_repaired_and_named(
+    caller_draft: tuple[StageRepo, InMemoryRoadmapStore, GitHubApiFake, str],
+) -> None:
+    """The case of #6114: the scope check finds that the failed test calls `run_flow`, whose
+    signature the plan changes. The model is told that it may change the test, the step keeps the
+    change and pushes it, and the comment names the file (#6116)."""
+    repo, store, api, head = caller_draft
+    fixed = FLOW_CALLER.replace('checkout=".")', 'checkout=".", in_runner=True)')
+    script = ModelScript(
+        tool_calls(("write_file", {"path": FLOW_TEST, "content": fixed})), say("Fixed the call.")
+    )
+    factory.set_llm_client_override(script.model())
+
+    report = run_fix_checks(
+        store,
+        STAGE_REPO,
+        PULL,
+        confirm=True,
+        repair=job_repair(store, STAGE_REPO, source=repo.clone),
+    )
+
+    new_head = repo.origin_git("rev-parse", BRANCH)
+    assert (report.result, report.head) == (FixChecksResult.REPAIRED, new_head)
+    assert repo.origin_git("diff", "--name-only", head, new_head) == FLOW_TEST
+    asked = [str(getattr(part, "content", "")) for part in script.seen[0][-1].parts]
+    assert any(f"`{FLOW_TEST}`" in text for text in asked)
+    [comment] = _comments(api)
+    assert f"`{FLOW_TEST}`: it uses the changed name `run_flow`" in comment
+
+
+def test_a_failure_in_a_file_that_main_changed_after_the_branch_point_stops_as_main_skew(
+    caller_draft: tuple[StageRepo, InMemoryRoadmapStore, GitHubApiFake, str],
+) -> None:
+    """Main changed the failed test after the branch point: the change of the branch does not
+    cause the failure, so the round stops with no model request and says why (#6116)."""
+    repo, store, api, head = caller_draft
+    repo.track({FLOW_TEST: FLOW_CALLER + "\n\ndef test_more() -> None:\n    assert True\n"})
+    script = ModelScript(say("No fix."))
+    factory.set_llm_client_override(script.model())
+
+    report = run_fix_checks(
+        store,
+        STAGE_REPO,
+        PULL,
+        confirm=True,
+        repair=job_repair(store, STAGE_REPO, source=repo.clone),
+    )
+
+    assert report.result == FixChecksResult.STOPPED
+    assert report.reason.startswith("Failed check log is outside plan scope: ")
+    assert f"`{FLOW_TEST}`" in report.reason
+    assert "main skew" in report.reason
+    assert (script.seen, _comments(api)) == ([], [])
+    assert repo.origin_git("rev-parse", BRANCH) == head
 
 
 @pytest.fixture

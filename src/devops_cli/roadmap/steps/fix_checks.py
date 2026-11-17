@@ -18,9 +18,13 @@ is skipped with no repair and no comment, and the next round of the row judges i
 
 Two tiers of repair:
 - Tier 1 (deterministic, 0 model calls): ruff check --fix and format for a lint failure, devops docs
-  generate for a lint or a docs failure, uv lock for a lockfile failure. A docs or a lockfile
-  failure starts tier 1 in a check of any class (#5983).
-- Tier 2 (model): run_fix_step within the plan scope.
+  generate for a lint, a docs or a snapshot failure, uv lock for a lockfile failure, and the snapshot
+  update of each test whose snapshot differs (#6116). A docs, a lockfile or a snapshot failure
+  starts tier 1 in a check of any class (#5983).
+- Tier 2 (model): run_fix_step within the plan scope and the files outside the plan whose failure
+  the change of the branch causes (`fix_checks_cause`, #6116). A failure that the change does not
+  cause, such as main skew, stops the round with a reason that names each file. A comment names the
+  files of each pushed repair.
 
 The step writes only with `confirm` (#5971). Without it, the step returns `planned` with the action
 that it would take, and writes nothing to GitHub, to the store or to the branch. With it, the
@@ -69,6 +73,14 @@ from devops_cli.roadmap.implement.implement_step import find_change
 from devops_cli.roadmap.status_sync import job_holds
 from devops_cli.roadmap.step_files import parse_task_groups
 from devops_cli.roadmap.steps.comment import Target, post
+from devops_cli.roadmap.steps.fix_checks_cause import (
+    FileCause,
+    ScopeVerdict,
+    checkout_reader,
+    judge_scope,
+    read_branch_change,
+    snapshot_tests,
+)
 from devops_cli.roadmap.steps.ready import draft_readiness, mark_ready
 from devops_cli.roadmap.stores.store import (
     FixChecksRecordKey,
@@ -80,6 +92,8 @@ from devops_cli.roadmap.stores.store import (
 logger = logging.getLogger(__name__)
 
 _BOT_SUFFIX: Final[str] = "[bot]"
+# The marker of the comment of the step on a pull request (ADR 0021 section 8).
+_MARKER: Final[str] = "<!-- devops roadmap fix-checks -->"
 # The distinct heads with a failed check that the step repairs on one pull request.
 _MAX_HEADS: Final[int] = 3
 # The failures that tier 1 fixes in a check of any class (#5983): the report of `devops docs
@@ -156,19 +170,22 @@ class Tier1Causes:
     lint: bool = False
     docs: bool = False
     lock: bool = False
+    snapshots: tuple[str, ...] = ()
 
     @property
     def found(self) -> bool:
-        return self.lint or self.docs or self.lock
+        return self.lint or self.docs or self.lock or bool(self.snapshots)
 
 
 def tier1_causes(check: str, log: str) -> Tier1Causes:
-    """The failures of check `check` that tier 1 has a fixer for: the class lint, and a docs or a
-    lockfile failure in the log `log`, whatever the class of the check (#5983)."""
+    """The failures of check `check` that tier 1 has a fixer for: the class lint, and a docs, a
+    lockfile or a snapshot failure in the log `log`, whatever the class of the check (#5983). The
+    snapshots are the test files whose snapshot differs (#6116)."""
     return Tier1Causes(
         lint=classify_failure(FailureEvidence(check=check, log=log)) is FailureClass.LINT,
         docs=bool(_DOCS_FAILURE.search(log)),
         lock=bool(_LOCK_FAILURE.search(log)),
+        snapshots=snapshot_tests(log),
     )
 
 
@@ -195,31 +212,34 @@ def _has_owner_label(labels: Sequence[str]) -> bool:
     return bool(claim_labels(labels))
 
 
-def check_scope(worktree: Path, item_num: int, log: str, is_stage_plan: bool) -> bool:
-    """Check whether the failed log names paths in the item repair scope."""
+def check_scope(worktree: Path, item_num: int, log: str, is_stage_plan: bool) -> ScopeVerdict:
+    """The scope verdict of the failed log for the item. A plan draft is in scope when the log
+    names its change folder. An implement draft is in scope when the log names a path of the plan,
+    or a file whose failure the change of the branch causes (`judge_scope`, #6116)."""
     try:
         if is_stage_plan:
             change = find_change(worktree, item_num, archived=False)
             folder = change.relative_to(worktree).as_posix()
-            return bool(re.search(rf"(?<![\w.-]){re.escape(folder)}/", log))
+            return ScopeVerdict(bool(re.search(rf"(?<![\w.-]){re.escape(folder)}/", log)))
         change = find_change(worktree, item_num, archived=True)
         tasks_file = change / "tasks.md"
         if not tasks_file.is_file():
-            return False
+            return ScopeVerdict(in_scope=False)
         groups = parse_task_groups(tasks_file.read_text(encoding="utf-8"))
-        scope = repair_scope(groups, change.relative_to(worktree).as_posix())
-        return scope.names(log)
     except RoadmapImplementError, OSError, ValueError:
-        return False
+        return ScopeVerdict(in_scope=False)
+    scope = repair_scope(groups, change.relative_to(worktree).as_posix())
+    return judge_scope(log, scope, lambda: read_branch_change(worktree), checkout_reader(worktree))
 
 
 class Fixed(NamedTuple):
     """What a fixer did in the checkout (#5971): `done` when it made a commit and its check passes
     again, else why not. A tier 1 commit whose check still fails stays in the checkout, and the
-    push of a model fix sends it too."""
+    push of a model fix sends it too. `files` names the files of the commit of tier 1 (#6116)."""
 
     done: bool
     reason: str = ""
+    files: tuple[str, ...] = ()
 
 
 class PullCheckout(Protocol):
@@ -236,19 +256,21 @@ class PullCheckout(Protocol):
 
 # A fixer gets the worktree, the item, the name of the failed check and its log.
 Fixer = Callable[[Path, int, str, str], Fixed]
+# The model fix also gets the files outside the plan whose failure the change causes (#6116).
+ModelFixer = Callable[[Path, int, str, str, tuple[str, ...]], Fixed]
 
 
 @dataclass(frozen=True)
 class Repair:
     """What a confirmed round of the step uses (#5971): the checkout of the head of the pull
     request, made from its status and its item; the deterministic fixers of tier 1; the model fix
-    of tier 2; and the check that the log names a path of the plan. A fixer commits in the checkout
-    and does not push: the step pushes once, after the fixer that is done."""
+    of tier 2; and the scope check of the log. A fixer commits in the checkout and does not push:
+    the step pushes once, after the fixer that is done."""
 
     checkout: Callable[[PullStatus, int], AbstractContextManager[PullCheckout]]
     tier1: Fixer
-    model: Fixer
-    scope: Callable[[Path, int, str, bool], bool] = check_scope
+    model: ModelFixer
+    scope: Callable[[Path, int, str, bool], ScopeVerdict] = check_scope
 
 
 @dataclass(frozen=True)
@@ -432,20 +454,48 @@ def _head_moved(client: Any, facts: _Round) -> bool:
     return bool(client.get_pull_status(facts.repo, facts.pull).head_sha != facts.status.head_sha)
 
 
+def _named_files(check: str, tier1: Fixed, caused: Sequence[FileCause]) -> str:
+    """The comment that names the files of a pushed repair (#6116): the files that tier 1 wrote
+    again, or the files outside the plan that the model fix could change, each with the reason.
+    Empty when the repair names no file."""
+    if tier1.done and tier1.files:
+        lines = [f"- `{name}`" for name in tier1.files]
+        lead = (
+            f"Tier 1 repaired check `{check}` with the project commands and no model request. "
+            "It wrote these files again:"
+        )
+    elif caused:
+        lines = [f"- `{cause.path}`: {cause.reason}" for cause in caused]
+        lead = (
+            f"The model repaired check `{check}`. The plan does not list these files, but the "
+            "change of the branch causes their failure, so the repair could change them:"
+        )
+    else:
+        return ""
+    return "\n".join([_MARKER, check, "", lead, "", *lines])
+
+
 def _repair(store: RoadmapStore, client: Any, facts: _Round, repair: Repair) -> FixChecksReport:
     """Run tier 1, then the scope check and tier 2, in the checkout of the head, and push the
-    commit of the fixer that made one (#5971). A push that the lease refuses because the head
-    moved is a skip with no record: a new head is a new unit (#5027)."""
+    commit of the fixer that made one (#5971). The model fix may also change the files outside
+    the plan whose failure the change causes, and a comment names the files of the repair (#6116).
+    A push that the lease refuses because the head moved is a skip with no record: a new head is a
+    new unit (#5027)."""
     is_plan = kind_of(facts.item, facts.pull) == DraftKind.STAGE_PLAN
+    caused: tuple[FileCause, ...] = ()
     with repair.checkout(facts.status, facts.item_num) as checkout:
         tier1 = repair.tier1(checkout.path, facts.item_num, facts.check, facts.log)
         if tier1.done:
             done = "Tier 1 resolved check with 0 model requests"
-        elif not repair.scope(checkout.path, facts.item_num, facts.log, is_plan):
-            _end(store, facts, FixChecksResult.STOPPED)
-            return facts.report(FixChecksResult.STOPPED, "Failed check log is outside plan scope")
         else:
-            model = repair.model(checkout.path, facts.item_num, facts.check, facts.log)
+            verdict = repair.scope(checkout.path, facts.item_num, facts.log, is_plan)
+            if not verdict.in_scope:
+                _end(store, facts, FixChecksResult.STOPPED)
+                return facts.report(FixChecksResult.STOPPED, verdict.stop_reason())
+            caused = verdict.caused
+            model = repair.model(
+                checkout.path, facts.item_num, facts.check, facts.log, verdict.extra_paths
+            )
             if not model.done:
                 _end(store, facts, FixChecksResult.FAILED)
                 reason = "Model repair failed" + (f": {model.reason}" if model.reason else "")
@@ -473,6 +523,8 @@ def _repair(store: RoadmapStore, client: Any, facts: _Round, repair: Repair) -> 
         rounds=rounds,
         errors=facts.errors,
     )
+    if body := _named_files(facts.check, tier1, caused):
+        post(Target(facts.repo, facts.pull, client=client), _MARKER, facts.check, body)
     return facts.report(FixChecksResult.REPAIRED, done, head=new_head, rounds=rounds)
 
 
@@ -609,12 +661,11 @@ def run_fix_checks(
             f"CI infrastructure failure detected on check `{failed_check.name}`. "
             "Waiting for infrastructure resolution."
         )
-        marker = "<!-- devops roadmap fix-checks -->"
         post(
             Target(repo, pull, client=client),
-            marker,
+            _MARKER,
             failed_check.name,
-            f"{marker}\n{failed_check.name}\n\n{comment}",
+            f"{_MARKER}\n{failed_check.name}\n\n{comment}",
         )
         _end(store, facts, FixChecksResult.WAIT)
         return facts.report(FixChecksResult.WAIT, "CI infrastructure failure; waiting")

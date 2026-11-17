@@ -3256,6 +3256,10 @@ class RoadmapMessages:
     )
     implement_fix_title: str = "Make check {check} pass"
     implement_fix_task: str = "[ ] Make check `{check}` pass"
+    implement_fix_extra_paths: str = (
+        "The plan does not name {paths}, but the change of the plan causes their failure. You "
+        "can change them too."
+    )
     implement_wip_commit: str = (
         "{prefix} {done} of {total} tasks of group {group}, {title} (#{item})"
     )
