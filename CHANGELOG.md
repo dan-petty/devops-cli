@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.174.1](https://github.com/dan-petty/devops-cli/compare/v0.174.0...v0.174.1) (2026-11-17)
+
+
+### Bug Fixes
+
+* **ci:** Job-time alarm, conflict and review comments post once ([#6219](https://github.com/dan-petty/devops-cli/issues/6219)) ([4644ad5](https://github.com/dan-petty/devops-cli/commit/4644ad556d48723f07c450171d4239c29e013ffb))
+
 ## [0.174.0](https://github.com/dan-petty/devops-cli/compare/v0.173.3...v0.174.0) (2026-11-17)
 
 
