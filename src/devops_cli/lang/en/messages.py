@@ -3460,6 +3460,10 @@ class RoadmapMessages:
         "made no model request. The repair scope is: {scope}. A person decides how to fix the "
         "check."
     )
+    implement_stop_test_outside_changes: str = (
+        "The test `{test}` failed on `{path}`, which is outside the `Changes:` list of the group. "
+        "The plan does not permit this change."
+    )
     implement_stop_no_test_file: str = "A behavior group changed no test file. Write the failing test first, in a file under tests/."
     implement_stop_base_passes: str = (
         "No test of the group fails on the base commit. The tests of {files} pass there, "

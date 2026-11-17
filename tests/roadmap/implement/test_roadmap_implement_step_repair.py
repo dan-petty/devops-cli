@@ -569,3 +569,35 @@ def test_foreign_change_accepts_a_file_whose_content_is_the_base_content(tmp_pat
     ask = _Ask("message", frozenset({"tests/test_sample.py"}), "changed: {paths}")
 
     assert _foreign_change(root, SimpleNamespace(change=change), tree, ask, base) is None
+
+
+def test_a_failing_invariant_test_outside_changes_stops_the_step_with_no_extra_turn(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+) -> None:
+    programs.answer(
+        lambda call: command_text(call).startswith("uv run devops ci test"),
+        ProcessAnswer(
+            returncode=1,
+            stdout=(
+                "FAILED tests/k8s/test_perimeter.py::test_network_policy - AssertionError: assert False\n"
+                "1 failed in 0.12s\n"
+            ),
+        ),
+    )
+    script = ModelScript(tool_calls(*the_whole_group()), say("Done."))
+
+    outcome = _step(store, checkout, script)
+
+    assert (
+        outcome.status,
+        outcome.failure_class,
+        len(script.seen),
+    ) == (
+        StepStatus.STOPPED,
+        FailureClass.PREMISE_FALSE,
+        2,
+    )
+    assert "tests/k8s/test_perimeter.py::test_network_policy" in outcome.reason
+    assert "tests/k8s/test_perimeter.py" in outcome.reason

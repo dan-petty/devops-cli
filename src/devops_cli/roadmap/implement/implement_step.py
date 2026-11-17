@@ -160,6 +160,7 @@ from devops_cli.roadmap.implement.implement_tool_log import ToolCallLog
 from devops_cli.roadmap.implement.implement_trace import ImplementTrace
 from devops_cli.roadmap.implement.implement_wip import WipCommit, WipKeeper, restore_sources
 from devops_cli.roadmap.mcp import ROLE_IMPLEMENTATION, build_roadmap_mcp_toolset
+from devops_cli.roadmap.plan_read import PlanReadError, group_files
 from devops_cli.roadmap.step_commit import step_commit_title
 from devops_cli.roadmap.step_files import (
     CHECKBOXES,
@@ -1169,6 +1170,7 @@ class _CommandStop:
     argv: Sequence[str]
     status: int
     negative: bool
+    output: str = ""
 
 
 def _command_failure(
@@ -1202,7 +1204,10 @@ def _command_failure(
     if done.returncode == (1 if negative else 0):
         return None
     if stops is not None:
-        stops.append(_CommandStop(argv=argv, status=done.returncode, negative=negative))
+        output = f"{done.stdout or ''}\n{done.stderr or ''}"
+        stops.append(
+            _CommandStop(argv=argv, status=done.returncode, negative=negative, output=output)
+        )
     if negative and done.returncode == 0:
         return MESSAGES.roadmap.implement_stop_search_found.format(
             command=named, output=_tail(done)
@@ -1652,6 +1657,26 @@ def _plan_failure(
     return None
 
 
+def _out_of_scope_test(output: str, inputs: StepInputs, source: Path) -> tuple[str, str] | None:
+    """The first failing test and its path if that path is outside the group's `Changes:` list (#3983)."""
+    if inputs.fix is not None:
+        return None
+    tasks_path = (inputs.change / "tasks.md").relative_to(source).as_posix()
+    try:
+        changes = set(group_files(inputs.group.text).changes)
+    except PlanReadError:
+        changes = set(inputs.group.named_paths)
+    allowed = {*changes, tasks_path, "tasks.md"}
+    for line in output.splitlines():
+        if not line.startswith("FAILED "):
+            continue
+        token = line[len("FAILED ") :].strip().split()[0]
+        test_path = token.partition("::")[0]
+        if test_path and test_path not in allowed:
+            return token, test_path
+    return None
+
+
 def _early_failure(
     source: Path, inputs: StepInputs, changed: list[str], log: ToolCallLog
 ) -> _Failure | None:
@@ -1668,6 +1693,13 @@ def _early_failure(
     if not early:
         return None
     if stops and stops[0].status == 1 and not stops[0].negative:
+        out_of_scope = _out_of_scope_test(stops[0].output, inputs, source)
+        if out_of_scope is not None:
+            test, path = out_of_scope
+            reason = MESSAGES.roadmap.implement_stop_test_outside_changes.format(
+                test=test, path=path
+            )
+            return _Failure(reason, klass=FailureClass.PREMISE_FALSE)
         return _Failure(
             early,
             frozenset(changed),
