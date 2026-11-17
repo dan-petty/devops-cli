@@ -29,7 +29,12 @@ from devops_cli.roadmap.watch_row import (
     watch_round,
 )
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
-from tests.support.fakes.github import GitHubApiFake, github_json
+from tests.support.fakes.github import (
+    GitHubApiFake,
+    github_json,
+    route_compare_files,
+    route_file,
+)
 from tests.support.fakes.kubernetes import FakeCluster
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -41,6 +46,13 @@ pytestmark = pytest.mark.usefixtures("keyring_store", "cluster")
 HEAD_FAIL = "1" * 40
 HEAD_NEW = "2" * 40
 HEAD_PASS = "3" * 40
+PLAN_BODY = "The plan of the item: the change folder and its tasks."
+TASKS_GROUP_5_UNTICKED = (
+    "# Tasks\n\n"
+    "## 1. Add the RAG rows\n\nChanges: `src/devops_cli/sample.py`.\n\n- [x] 1.1 Add the rows\n\n"
+    "## 5. Document the RAG rows\n\nChanges: `docs/SAMPLE.md`.\n\n"
+    "- [ ] 5.1 Document the rows\n- [ ] 5.2 Document the start\n"
+)
 
 
 @pytest.fixture
@@ -125,6 +137,32 @@ def _route_graphql(api: GitHubApiFake, nodes: list[dict[str, Any]]) -> None:
             }
         ),
     )
+
+
+def _route_draft(
+    api: GitHubApiFake, pull: int, branch: str, *, tasks: tuple[str, str] | None = None
+) -> None:
+    """Answer the reads of `draft_readiness` for draft `pull` on `branch` at `HEAD_PASS`: the pull
+    request, its compare with `main`, and the `tasks.md` of `tasks` (path, text) when given."""
+    api.route(
+        "GET",
+        f"/repos/{REPO}/pulls/{pull}",
+        github_json(
+            {
+                "state": "open",
+                "draft": True,
+                "title": "feat(roadmap): Add the sample",
+                "body": PLAN_BODY,
+                "head": {"sha": HEAD_PASS, "ref": branch},
+                "base": {"ref": "main", "repo": {"default_branch": "main"}},
+            }
+        ),
+    )
+    changed = [{"filename": "src/devops_cli/sample.py", "status": "modified"}]
+    if tasks is not None:
+        changed.append({"filename": tasks[0], "status": "added"})
+        route_file(api, REPO, tasks[0], HEAD_PASS, tasks[1])
+    route_compare_files(api, REPO, "main", HEAD_PASS, *changed, merge_base="c" * 40)
 
 
 def test_watch_row_sends_one_graphql_request_and_backs_off_failed_head(
@@ -351,7 +389,7 @@ def test_watch_row_marks_ready_bot_plan_draft(
 ) -> None:
     """A green draft plan pull request of the bot is marked ready."""
     issue_num = store.seed_issue("Plan Issue", fields={ItemField.PRIORITY: "P2-Medium"})
-    pr_num = store.seed_pull("plan: my plan", head_ref="plan/1-test", draft=True)
+    pr_num = store.seed_pull("plan: my plan", head_ref=f"feat/{issue_num}-test", draft=True)
     item = store.item(issue_num)
     assert item is not None
     store.set_marks(item, {StageRecordKey.PR: str(pr_num)})
@@ -365,19 +403,7 @@ def test_watch_row_marks_ready_bot_plan_draft(
         check_conclusion="SUCCESS",
     )
     _route_graphql(github_api, [node])
-    github_api.route(
-        "GET",
-        f"/repos/{REPO}/pulls/{pr_num}",
-        github_json(
-            {
-                "state": "open",
-                "draft": True,
-                "body": "",
-                "head": {"sha": HEAD_PASS, "ref": "plan/1-test"},
-                "base": {"ref": "main", "repo": {"default_branch": "main"}},
-            }
-        ),
-    )
+    _route_draft(github_api, pr_num, f"feat/{issue_num}-test")
 
     # Route ready mark (gh pr ready runs via run_gh or client)
     ledger_path = tmp_path / CONST_ROADMAP_WATCH_LEDGER_FILENAME
@@ -390,13 +416,53 @@ def test_watch_row_marks_ready_bot_plan_draft(
     assert updated_item.job_record.get(StageRecordKey.READY) == str(pr_num)
 
 
+def test_watch_row_leaves_an_implement_draft_with_an_unticked_task_group_a_draft(
+    store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+    tmp_path: Path,
+) -> None:
+    """#6041: the plan branch of the item is also its implement branch, so the record holds the
+    pull request as `stage.pr` and as `implement.pr`. Its checks pass and task group 5 is not
+    ticked. `draft_readiness` refuses it, so the watch row sends no `gh pr ready` and records no
+    `stage.ready`, also in a second round (#6123)."""
+    issue = store.seed_issue("Onboard checks", fields={ItemField.PRIORITY: "P2-Medium"})
+    branch = f"feat/{issue}-onboard-checks"
+    pull = store.seed_pull("feat(roadmap): Add the sample", head_ref=branch, draft=True)
+    item = store.item(issue)
+    assert item is not None
+    store.set_marks(item, {StageRecordKey.PR: str(pull), ImplementRecordKey.PR: str(pull)})
+    node = _graphql_pr_node(
+        number=pull,
+        head=HEAD_PASS,
+        is_draft=True,
+        author="devops-cli-service[bot]",
+        check_state="SUCCESS",
+        check_conclusion="SUCCESS",
+    )
+    _route_graphql(github_api, [node])
+    tasks = f"openspec/changes/archive/2026-11-17-{issue}-onboard-checks/tasks.md"
+    _route_draft(github_api, pull, branch, tasks=(tasks, TASKS_GROUP_5_UNTICKED))
+    ledger_path = tmp_path / CONST_ROADMAP_WATCH_LEDGER_FILENAME
+
+    first = watch_round(store, repo=REPO, ledger_path=ledger_path, now=NOW)
+    second = watch_round(store, repo=REPO, ledger_path=ledger_path, now=NOW)
+
+    _, gh = github_api_and_gh
+    assert (first.marked_ready, second.marked_ready) == ((), ())
+    assert [call.argv for call in gh.calls if call.argv[1:3] == ("pr", "ready")] == []
+    updated = store.item(issue)
+    assert updated is not None
+    assert updated.job_record.get(StageRecordKey.READY) is None
+
+
 def test_watch_row_holds_the_ready_mark_of_a_plan_that_a_verdict_sent_back(
     store: InMemoryRoadmapStore, github_api: GitHubApiFake, tmp_path: Path
 ) -> None:
     """A green plan draft with a verdict label other than `verdict/mergeable` stays a draft, so
     the review step and the watch row do not undo each other (#6024)."""
     issue_num = store.seed_issue("Plan Issue", fields={ItemField.PRIORITY: "P2-Medium"})
-    pr_num = store.seed_pull("plan: my plan", head_ref="plan/1-test", draft=True)
+    pr_num = store.seed_pull("plan: my plan", head_ref=f"feat/{issue_num}-test", draft=True)
     item = store.item(issue_num)
     assert item is not None
     store.set_marks(item, {StageRecordKey.PR: str(pr_num)})
@@ -543,7 +609,7 @@ def test_watch_row_graphql_pagination_and_non_roadmap_pr(
 ) -> None:
     """GraphQL pagination reads multiple pages and skips non-roadmap PRs."""
     issue_num = store.seed_issue("Plan Issue", fields={ItemField.PRIORITY: "P2-Medium"})
-    pr_num = store.seed_pull("plan: plan pr", head_ref="plan/1-test", draft=True)
+    pr_num = store.seed_pull("plan: plan pr", head_ref=f"feat/{issue_num}-test", draft=True)
     item = store.item(issue_num)
     assert item is not None
     store.set_marks(item, {StageRecordKey.PR: str(pr_num)})
@@ -584,19 +650,7 @@ def test_watch_row_graphql_pagination_and_non_roadmap_pr(
     }
 
     github_api.route("POST", "/graphql", github_json(page1), github_json(page2))
-    github_api.route(
-        "GET",
-        f"/repos/{REPO}/pulls/{pr_num}",
-        github_json(
-            {
-                "state": "open",
-                "draft": True,
-                "body": "",
-                "head": {"sha": HEAD_PASS, "ref": "plan/1-test"},
-                "base": {"ref": "main", "repo": {"default_branch": "main"}},
-            }
-        ),
-    )
+    _route_draft(github_api, pr_num, f"feat/{issue_num}-test")
 
     ledger_path = tmp_path / CONST_ROADMAP_WATCH_LEDGER_FILENAME
     res = watch_round(store, repo=REPO, ledger_path=ledger_path, now=NOW)
@@ -618,7 +672,7 @@ def test_watch_row_jev_completeness_and_needs_fix(
         body="## Acceptance Criteria\n- criterion 1",
         fields={ItemField.PRIORITY: "P2-Medium"},
     )
-    pr_num = store.seed_pull("plan: plan pr", head_ref="plan/1-test", draft=True)
+    pr_num = store.seed_pull("plan: plan pr", head_ref=f"feat/{issue_num}-test", draft=True)
     item = store.item(issue_num)
     assert item is not None
     store.set_marks(item, {StageRecordKey.PR: str(pr_num)})
@@ -632,6 +686,7 @@ def test_watch_row_jev_completeness_and_needs_fix(
         check_conclusion="SUCCESS",
     )
     _route_graphql(github_api, [node])
+    _route_draft(github_api, pr_num, f"feat/{issue_num}-test")
 
     # Case 1: needs-fix mark on item
     store.set_marks(item, {StageRecordKey.NEEDS_FIX: str(pr_num)})
@@ -650,19 +705,6 @@ def test_watch_row_jev_completeness_and_needs_fix(
     # Case 3: jev_completeness is False (default) and mark cleared, marks ready
     config(roadmap={"stage": {"jev_completeness": False}})
     store.set_marks(item, {StageRecordKey.JEV: None})
-    github_api.route(
-        "GET",
-        f"/repos/{REPO}/pulls/{pr_num}",
-        github_json(
-            {
-                "state": "open",
-                "draft": True,
-                "body": "",
-                "head": {"sha": HEAD_PASS, "ref": "plan/1-test"},
-                "base": {"ref": "main", "repo": {"default_branch": "main"}},
-            }
-        ),
-    )
     res3 = watch_round(store, repo=REPO, ledger_path=ledger_path, now=NOW)
     assert pr_num in res3.marked_ready
 

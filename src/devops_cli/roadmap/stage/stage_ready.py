@@ -54,8 +54,8 @@ from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement.implement_pull import (
     Answer,
     Draft,
-    DraftKind,
     draft_readiness,
+    kind_of,
 )
 from devops_cli.roadmap.jev_completeness import (
     CompletenessOutcome,
@@ -147,7 +147,8 @@ def _settle(store: RoadmapStore, repo: str, item: Item, number: int) -> _Outcome
         return _Outcome.SETTLED
     owner, name = repo.split("/", 1)
     checks = read_check_runs(owner, name, status.head_sha)
-    readiness = draft_readiness(Draft(DraftKind.STAGE_PLAN, status, item, checks))
+    draft = Draft(kind_of(item, number), status, item, checks)
+    readiness = draft_readiness(draft)
     if readiness.answer is not Answer.READY:
         return _Outcome.WAITING
     if FIX_PLAN_LABEL in status.labels:
@@ -167,7 +168,7 @@ def _settle(store: RoadmapStore, repo: str, item: Item, number: int) -> _Outcome
     again = client.get_pull_status(repo, number)
     if not again.is_open_draft or again.head_sha != status.head_sha:
         return _Outcome.WAITING
-    mark_ready(repo, number, expected_head=status.head_sha)
+    mark_ready(repo, number, expected_head=status.head_sha, draft=draft)
     store.set_marks(item, {StageRecordKey.READY: str(number)})
     return _Outcome.MARKED
 

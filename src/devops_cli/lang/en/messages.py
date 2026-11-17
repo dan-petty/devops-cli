@@ -3786,6 +3786,7 @@ class RoadmapMessages:
     draft_author_not_declared: str = "The author has not declared that the pull request is ready."
     draft_check_runs: str = "A check runs: {name}."
     draft_check_runs_unnamed: str = "A check runs."
+    draft_not_ready: str = "PR #{pull} stays a draft: draft readiness answers {answer}.\n{reason}"
     implement_stop_rebase: str = "The rebase onto origin/{branch} stopped.\n{output}"
     implement_stop_rebase_not_started: str = (
         "The rebase onto origin/{branch} did not start.\n{output}"

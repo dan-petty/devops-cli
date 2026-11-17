@@ -506,7 +506,7 @@ def _ready_after_repair(
         return facts.report(FixChecksResult.SKIPPED, f"Draft is not ready: {readiness.reason}")
     if not confirm:
         return facts.report(FixChecksResult.PLANNED, "Plan: mark the repaired draft ready")
-    mark_ready(facts.repo, facts.pull, expected_head=facts.status.head_sha)
+    mark_ready(facts.repo, facts.pull, expected_head=facts.status.head_sha, draft=draft)
     _end(store, facts, FixChecksResult.READY)
     return facts.report(FixChecksResult.READY, "Marked the repaired draft ready for review")
 

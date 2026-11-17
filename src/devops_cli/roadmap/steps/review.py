@@ -94,7 +94,7 @@ from devops_cli.roadmap.stage.stage_verify import FIX_PLAN_LABEL
 from devops_cli.roadmap.status_sync import job_holds
 from devops_cli.roadmap.steps.comment import Target, post
 from devops_cli.roadmap.steps.fix_checks import is_bot_author
-from devops_cli.roadmap.steps.ready import mark_draft, mark_ready
+from devops_cli.roadmap.steps.ready import mark_draft, mark_ready, read_ready_draft
 from devops_cli.roadmap.steps.review_facts import (
     EVIDENCE_LINES,
     ReplyVerdict,
@@ -745,7 +745,8 @@ def write_verdict(
         _discard(call, withdraw)
     else:
         if judgement.verdict is Verdict.MERGEABLE and call.status.draft:
-            mark_ready(call.repo, call.pull, expected_head=call.status.head_sha)
+            draft = read_ready_draft(call.repo, call.pull, store=call.store, status=now)
+            mark_ready(call.repo, call.pull, expected_head=call.status.head_sha, draft=draft)
         elif judgement.verdict in _BACK_TO_DRAFT and not call.status.draft and _may_draft(call):
             mark_draft(call.repo, call.pull, expected_head=call.status.head_sha)
         _record(call, judgement)

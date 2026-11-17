@@ -1,18 +1,30 @@
 """The roadmap step `ready`: draft readiness and the single wrapper to mark a pull request ready
-(ADR 0021, section 8; #5021)."""
+(ADR 0021, section 8; #5021).
+
+`mark_ready` asks `draft_readiness` before it sends `gh pr ready`, and sends nothing when the answer
+is not ready, so no path marks a draft ready that the one decision refuses (#6123). A caller that
+holds the draft that it judged gives it; else `mark_ready` reads the draft with `read_ready_draft`.
+Only the `--force` of a person skips the decision.
+"""
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from devops_cli.config.constants import CONST_GH_CLI
 from devops_cli.exceptions import RoadmapImplementError
+from devops_cli.github.check_verdict import CheckVerdictSummary, read_check_runs
+from devops_cli.github.client import PullStatus
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.security.sanitizer import mask_secrets
+
+if TYPE_CHECKING:
+    from devops_cli.roadmap.implement.implement_pull import Draft
+    from devops_cli.roadmap.stores.store import RoadmapStore
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +34,28 @@ def draft_readiness(draft: Any, extra_checks: Sequence[Callable[[Any], Any]] = (
     from devops_cli.roadmap.implement.implement_pull import draft_readiness as _draft_readiness
 
     return _draft_readiness(draft, extra_checks)
+
+
+def read_ready_draft(
+    repo: str,
+    pull: int,
+    *,
+    store: RoadmapStore | None = None,
+    status: PullStatus | None = None,
+    checks: CheckVerdictSummary | None = None,
+) -> Draft:
+    """The draft of pull request `pull` of `repo` that `draft_readiness` judges: `read_draft` with
+    the check runs of its head. It reads the pull request when `status` is None, and the check runs
+    when `checks` is None."""
+    from devops_cli.roadmap.implement.implement_pull import read_draft
+
+    client = get_github_session().client
+    if status is None:
+        status = client.get_pull_status(repo, pull)
+    if checks is None:
+        owner, name = repo.split("/", 1)
+        checks = read_check_runs(owner, name, status.head_sha)
+    return read_draft(repo, pull, pull=status, checks=checks, store=store, client=client)
 
 
 def _check_head(repo: str, pull: int, expected_head: str | None) -> None:
@@ -40,12 +74,29 @@ def mark_ready(
     repo: str,
     pull: int,
     expected_head: str | None = None,
+    *,
+    draft: Draft | None = None,
+    force: bool = False,
 ) -> None:
     """Mark the draft pull request `pull` of `repo` ready for review with `gh pr ready`.
 
-    Checks that the remote head equals `expected_head` before marking ready.
-    Raises `RoadmapImplementError` when head moved or `gh` fails.
+    `draft_readiness` judges `draft` first, or the draft that `read_ready_draft` reads when `draft`
+    is None. An answer other than ready raises `RoadmapImplementError` with its reason, and sends
+    no `gh pr ready` (#6123). Only the `--force` of a person sets `force`, which skips the decision.
+    Then the remote head must equal `expected_head`. Raises `RoadmapImplementError` when the head
+    moved or `gh` fails.
     """
+    if not force:
+        from devops_cli.roadmap.implement.implement_pull import Answer
+
+        judged = draft if draft is not None else read_ready_draft(repo, pull)
+        readiness = draft_readiness(judged)
+        if readiness.answer is not Answer.READY:
+            raise RoadmapImplementError(
+                MESSAGES.roadmap.draft_not_ready.format(
+                    pull=pull, answer=readiness.answer.value, reason=readiness.reason
+                )
+            )
     _run_ready(repo, pull, expected_head)
 
 

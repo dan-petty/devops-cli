@@ -49,7 +49,7 @@ def ready_cmd(
 
     target = _repository(repo)
     try:
-        mark_ready(target, pull, expected_head=head)
+        mark_ready(target, pull, expected_head=head, force=force)
     except DevOpsCLIError as exc:
         print_error(f"Could not mark PR #{pull} ready: {exc}", safe=True)
         raise typer.Exit(1) from exc

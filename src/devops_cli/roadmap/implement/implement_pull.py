@@ -472,9 +472,12 @@ def failed_log(repo: str, check: PRCheckItem) -> str:
     return viewed.stdout if viewed.returncode == 0 else viewed.stderr
 
 
-def mark_ready(repo: str, pull: int, expected_head: str | None = None) -> None:
-    """Mark the draft pull request `pull` ready for review with `gh pr ready`. Raises
-    `RoadmapImplementError` when `gh` fails."""
+def mark_ready(
+    repo: str, pull: int, expected_head: str | None = None, *, draft: Draft | None = None
+) -> None:
+    """Mark the draft pull request `pull` ready for review with `gh pr ready`, after
+    `draft_readiness` answers ready for `draft` (#6123). Raises `RoadmapImplementError` when the
+    answer is not ready or `gh` fails."""
     from devops_cli.roadmap.steps.ready import mark_ready as _step_mark_ready
 
-    _step_mark_ready(repo, pull, expected_head=expected_head)
+    _step_mark_ready(repo, pull, expected_head=expected_head, draft=draft)

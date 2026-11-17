@@ -28,10 +28,10 @@ from devops_cli.roadmap.stores.store import (
     Item,
     StageRecordKey,
 )
-from tests.support.fakes.github import GitHubApiFake, github_json
+from tests.support.fakes.github import GitHubApiFake, github_json, route_compare_files
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
-from tests.support.roadmap_implement import FAIL, PASS, PULL, RUNNING, seed_staged
+from tests.support.roadmap_implement import BRANCH, FAIL, PASS, PULL, RUNNING, seed_staged
 from tests.support.roadmap_stage import STAGE_REPO
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -55,7 +55,8 @@ def _pull(
         "state": state,
         "draft": draft,
         "merged": merged,
-        "head": {"sha": head},
+        "head": {"sha": head, "ref": BRANCH},
+        "base": {"ref": "main"},
         "labels": [{"name": name} for name in labels],
     }
     api.route("GET", f"/repos/{STAGE_REPO}/pulls/{number}", github_json(payload))
@@ -429,6 +430,11 @@ def test_a_round_of_the_row_marks_the_green_draft_ready(
     seed_staged(store)
     _pull(api)
     _checks(api, PASS)
+    changed = {
+        "filename": "openspec/changes/1-the-job-drops-a-comment/proposal.md",
+        "status": "added",
+    }
+    route_compare_files(api, STAGE_REPO, "main", HEAD, changed, merge_base="b" * 40)
 
     outcome = WATCH_ROW.runner(store=store, repo=STAGE_REPO)
 
