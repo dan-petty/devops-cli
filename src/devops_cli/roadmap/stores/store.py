@@ -767,6 +767,22 @@ class Evidence(BaseModel):
     value: str = Field(min_length=1, max_length=128)
 
 
+class PostedComment(Protocol):
+    """What a store says of a comment that it was asked to post (#6194): the page of the comment
+    that holds the text, and whether this call posted it. A repeat that the store refuses (#4793)
+    gives the page of the earlier comment, which holds the same text, so a job can link it. The
+    page is None when the store does not know it. The truth value is `posted`, so a caller that
+    asks only whether the comment posted tests the value itself. Each store gives its own value."""
+
+    @property
+    def url(self) -> str | None: ...
+
+    @property
+    def posted(self) -> bool: ...
+
+    def __bool__(self) -> bool: ...
+
+
 # ── Label families ────────────────────────────────────────────────────────────
 
 
@@ -1275,9 +1291,10 @@ class RoadmapStore(Protocol):
     def repository_is_private(self) -> bool:
         """Whether the repository is private."""
 
-    def comment(self, number: int, body: str) -> bool:
-        """Comment `body` on issue `number`, and return whether it posted: False when it refused
-        `body` as a repeat of a recent comment of the same roadmap job there (#4793)."""
+    def comment(self, number: int, body: str) -> PostedComment:
+        """Comment `body` on issue `number`, and give the page of the comment and whether it
+        posted: it does not post `body` that repeats a recent comment of the same roadmap job
+        there (#4793), and gives the page of that comment (#6194)."""
 
     def edit_comment(self, number: int, comment_id: int, body: str) -> None:
         """Write `body` as the text of the comment `comment_id` on issue `number`: the upsert of
@@ -1412,6 +1429,7 @@ __all__ = [
     "JobRecord",
     "Milestone",
     "OwnerQuestionRecordKey",
+    "PostedComment",
     "RefineRecordKey",
     "RepositoryFacts",
     "RetitleRecordKey",

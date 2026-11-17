@@ -1166,8 +1166,18 @@ def implement_requests(
         other("process", "run_log", "gh", "run", "view", "--log-failed", when=cond["run_log"]),
         other("model", "model_fix", "model", when=cond["model_fix"]),
         other("process", "ready", "gh", "pr", "ready", _p("pull"), when=cond["ready"]),
-        *within(store.write_status(target), repeat=each_item),
-        *within(store.comment(target), repeat=each_item),
+        *within(store.write_status(target), cond["ready"], repeat=each_item),
+        *within(store.comment(target), cond["ready"], repeat=each_item),
+        # A stop comments on the item first, so the comment of the run can link it (#6194).
+        *within(store.comment(target), cond["stop"], repeat=each_item),
+        other(
+            "REST write",
+            "pull_comment_stopped",
+            "POST",
+            f"{issues}/{_p('pull')}/comments",
+            when=cond["stop"],
+        ),
+        *within(store.write_status(target), cond["stop"], repeat=each_item),
         git("remove_worktree", clone, "worktree", "remove", "--force", tree),
     ]
     return tuple(reads), tuple(writes)

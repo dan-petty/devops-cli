@@ -25,6 +25,7 @@ from devops_cli.config import constants
 from devops_cli.exceptions import RoadmapImplementError
 from devops_cli.git.worktree_add import worktree_directory
 from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement.implement import (
     ImplementPlan,
@@ -721,7 +722,8 @@ def test_a_step_that_stops_blocks_the_item_with_a_comment_and_a_record(
 
 def test_a_stop_writes_one_status_comment_to_the_pull_request(job_world: JobWorld) -> None:
     """A stop after a push leaves the commits on the pull request, so the reviewer reads the
-    stopped step and the failure class there too (#3997)."""
+    stopped step there too (#3997). The comment of the run links the stop comment on the issue,
+    which is the one copy of the stop report (#6194)."""
     script = ModelScript(
         tool_calls(*group_one_calls()),
         say("Group 1 is done."),
@@ -731,9 +733,12 @@ def test_a_stop_writes_one_status_comment_to_the_pull_request(job_world: JobWorl
     job_world.run(script)
 
     (comment,) = job_world.sent("POST", f"issues/{PULL}/comments")
-    assert "Stopped at group 2." in comment["body"]
-    assert "Failure class:" in comment["body"]
-    assert "Stopped at group 2." in _stop_comment(job_world)
+    (stop,) = [c for c in job_world.store.comments_on(1) if "Failure class" in c.body]
+    link = MESSAGES.roadmap.implement_pull_comment_stopped.format(
+        step="group 2", issue=1, url=stop.url
+    )
+    assert (link in comment["body"], "Failure class:" in comment["body"]) == (True, False)
+    assert "Stopped at group 2." in stop.body
     assert len(job_world.issue_comments()) == 2
 
 

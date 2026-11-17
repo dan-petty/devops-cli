@@ -68,7 +68,7 @@ class Target:
             created = self.store.comment(self.number, body)
             if created and self._cached_comments is not None:
                 self._cached_comments = list(self.store.comments_on(self.number))
-            return created if created else None
+            return True if created else None
         comment_id = self._get_client().comment_on_pull(self.repo, self.number, body)
         if self._cached_comments is not None and comment_id is not None:
             cid = comment_id if isinstance(comment_id, int) else 0

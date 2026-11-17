@@ -104,10 +104,24 @@ class GitHubFake:
 
     # ── Seeding ──
 
-    def seed_comment(self, number: int, body: str) -> None:
-        """A comment on issue `number`, which GitHub counts in the `comments` of its listing."""
+    def seed_comment(self, number: int, body: str) -> dict[str, Any]:
+        """A comment on issue `number`, which GitHub counts in the `comments` of its listing. It
+        gives the comment as GitHub gives it."""
         self.comments.setdefault(number, []).append(body)
         self.issues[number]["comments"] = len(self.comments[number])
+        return self._comment_payload(number, len(self.comments[number]) - 1)
+
+    def _comment_payload(self, number: int, index: int) -> dict[str, Any]:
+        """Comment `index` of issue `number` as GitHub gives it: its id, body, time and page.
+        A comment on a pull request has its page under `pull/`."""
+        made_id = number * 1000 + index + 1
+        kind = "pull" if self.issues[number].get("pull_request") else "issues"
+        return {
+            "id": made_id,
+            "body": self.comments[number][index],
+            "created_at": "2026-10-01T00:00:00Z",
+            "html_url": f"https://github.com/{self.repo}/{kind}/{number}#issuecomment-{made_id}",
+        }
 
     def seed_issue(
         self,
@@ -629,8 +643,7 @@ class GitHubFake:
                 issue["labels"].append({"name": fields["labels[]"]})
             return issue["labels"]
         if rest == ["comments"] and method == "POST":
-            self.seed_comment(number, fields["body"])
-            return {}
+            return self.seed_comment(number, fields["body"])
         if rest == ["sub_issues"] and method == "POST":
             sub_id = int(fields["sub_issue_id"])
             child = next(
@@ -643,8 +656,8 @@ class GitHubFake:
             child["parent_issue_url"] = f"https://api.github.com/repos/{self.repo}/issues/{number}"
             return child
         if rest == ["comments"]:
-            bodies = self.comments.get(number, []) if page == 1 else []
-            return [{"body": body, "created_at": "2026-10-01T00:00:00Z"} for body in bodies]
+            held = range(len(self.comments.get(number, []))) if page == 1 else range(0)
+            return [self._comment_payload(number, index) for index in held]
         if method == "PATCH":
             self._edit(issue, json.loads(stdin) if stdin else fields)
         return issue

@@ -633,6 +633,37 @@ def test_the_implement_plan_names_the_comment_endpoint_and_the_lease_that_the_jo
     )
 
 
+def test_the_implement_plan_comments_a_stop_on_the_item_before_it_links_it_on_the_pull() -> None:
+    """A stop posts its comment on the item first, so the comment of the run on the pull request
+    can link it, and then sets the Status. A finished run sets the Status, then comments (#6194)."""
+    from devops_cli.roadmap.request_plan import implement_requests
+
+    _, writes = implement_requests(REPO)
+
+    cond = MESSAGES.roadmap.implement_request_conditions
+
+    def order(condition: str) -> list[str]:
+        """The writes of the end that hold `condition`: the item comment, the pull comment and
+        the Status, in the order of the plan."""
+        names = []
+        for request in writes:
+            text = " ".join(request.argv)
+            if condition not in request.condition:
+                continue
+            if "-X POST" in text and "issues/<item>/comments" in text:
+                names.append("item comment")
+            elif "issues/<pull request>/comments" in text:
+                names.append("pull comment")
+            elif "-X PATCH" in text and "issues/<item>" in text:
+                names.append("status")
+        return names
+
+    assert (order(cond["stop"]), order(cond["ready"])) == (
+        ["item comment", "pull comment", "status"],
+        ["status", "item comment"],
+    )
+
+
 def test_the_implement_plan_with_no_rebase_omits_the_rebase_request() -> None:
     from devops_cli.roadmap.request_plan import implement_requests
 

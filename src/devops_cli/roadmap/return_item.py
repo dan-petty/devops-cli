@@ -17,7 +17,7 @@ from devops_cli.roadmap.request_plan import StoreRequests
 from devops_cli.roadmap.status_sync import StatusFacts, derive_status, write_status
 
 if TYPE_CHECKING:
-    from devops_cli.roadmap.stores.store import RoadmapStore
+    from devops_cli.roadmap.stores.store import PostedComment, RoadmapStore
 
 
 # A returned item waits for refine.
@@ -64,13 +64,15 @@ def plan_return(
     )
 
 
-def apply_return(store: RoadmapStore, plan: ReturnPlan) -> None:
-    """Comment on the issue, then set its Status to New through the one Status writer."""
+def apply_return(store: RoadmapStore, plan: ReturnPlan) -> PostedComment:
+    """Comment on the issue, then set its Status to New through the one Status writer. It gives
+    what the store says of the comment, so a job can link it (#6194)."""
     item = store.item(plan.item_number)
     if item is None:
         raise DevOpsCLIError(f"#{plan.item_number} is not an item of the roadmap.")
-    store.comment(plan.item_number, plan.comment)
+    posted = store.comment(plan.item_number, plan.comment)
     write_status(store, item, _RETURNED, marks=plan.marks)
+    return posted
 
 
 def dry_run_return(

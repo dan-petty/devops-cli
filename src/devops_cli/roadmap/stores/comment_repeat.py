@@ -80,15 +80,15 @@ def fingerprint(body: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def repeats_recent(
+def recent_repeat(
     comments: Sequence[IssueComment], body: str, marker: str, *, now: datetime
-) -> bool:
-    """Whether a comment in the trailing run of `comments` (oldest first) that hold `marker`,
-    made at or after `now` less the window, has the fingerprint of `body`."""
+) -> IssueComment | None:
+    """The newest comment in the trailing run of `comments` (oldest first) that hold `marker`,
+    made at or after `now` less the window, that has the fingerprint of `body`, or None."""
     run = takewhile(lambda comment: marker in comment.body, reversed(comments))
     wanted = fingerprint(body)
     since = now - _WINDOW
-    return any(c.created_at > since and fingerprint(c.body) == wanted for c in run)
+    return next((c for c in run if c.created_at > since and fingerprint(c.body) == wanted), None)
 
 
 def refused_repeat(
@@ -97,20 +97,22 @@ def refused_repeat(
     comments: Callable[[], Sequence[IssueComment]],
     *,
     now: datetime,
-) -> bool:
-    """Whether a store refuses to post `body` on issue `number`, as a repeat of a recent comment
-    of the same job. `comments` reads the comments of the issue, oldest first; it is called only
+) -> IssueComment | None:
+    """The recent comment of the same job that `body` repeats on issue `number`, when a store
+    refuses to post `body`, else None. The store gives the page of that comment, which holds the
+    same text (#6194). `comments` reads the comments of the issue, oldest first; it is called only
     for a comment that holds a job marker. A refusal is logged and counted under the row of its job."""
     found = comment_job(body)
     if found is None:
-        return False
+        return None
     marker, job = found
-    if not repeats_recent(comments(), body, marker, now=now):
-        return False
+    earlier = recent_repeat(comments(), body, marker, now=now)
+    if earlier is None:
+        return None
     logger.info(
         "Refused a comment of the %s job on #%d: the job's last comment there has the same text.",
         job,
         number,
     )
     emit(ROADMAP_COMMENT_REPEATS_REFUSED_TOTAL, 1, {"row": job})
-    return True
+    return earlier

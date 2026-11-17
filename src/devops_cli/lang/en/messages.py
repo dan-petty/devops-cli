@@ -3992,6 +3992,11 @@ class RoadmapMessages:
     implement_pull_labels_failed: str = "Labels not updated: {error}"
     implement_pull_comment: str = "{marker}\n{run}\nThe steps of the job:\n\n{lines}"
     implement_pull_comment_run: str = "<!-- devops roadmap implement run: {run} -->"
+    # The line of the comment of a stopped run on the pull request: the stop comment on the issue
+    # holds the stop report, once (#6194).
+    implement_pull_comment_stopped: str = (
+        "Stopped at {step}. The stop report is on #{issue}: {url}."
+    )
     implement_watch_progress: str = (
         "The checks of pull request #{pull} still run after {seconds} s."
     )
@@ -4961,6 +4966,8 @@ class RoadmapMessages:
             "create_pull": "open the draft pull request of the new branch",
             "body": "set the title and the body of the pull request to close the issue",
             "pull_comment": "comment the outcome of each step on the pull request",
+            "pull_comment_stopped": "link the stop comment on the item from the comment of the "
+            "run on the pull request",
             "run_log": "read the log of the failed check",
             "model_fix": "the implement model fixes the failed check, once",
             "watch": "read the pull request and its checks until they settle",

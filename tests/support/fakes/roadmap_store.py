@@ -164,6 +164,19 @@ class JobWrite:
     value: str | None = None
 
 
+@dataclass(frozen=True)
+class _Posted:
+    """What the store says of a comment that it was asked to post (`PostedComment`). The fake
+    keeps its own value, so it imports no name that the base tree of a fail-to-pass replay
+    lacks."""
+
+    url: str | None
+    posted: bool
+
+    def __bool__(self) -> bool:
+        return self.posted
+
+
 @dataclass
 class _Roadmap:
     """The state every view of one in-memory roadmap shares. Each issue's body is held as
@@ -604,14 +617,14 @@ class InMemoryRoadmapStore(RoadmapStore):
         """Whether the evidence was seeded as one GitHub confirms."""
         return evidence in self._roadmap.evidence
 
-    def comment(self, number: int, body: str) -> bool:
-        """Comment `body` on issue `number`, unless it repeats a recent comment of the same
-        roadmap job there, as the GitHub adapter does (#4793): a refused repeat is no write, and
-        returns False."""
+    def comment(self, number: int, body: str) -> _Posted:
+        """Comment `body` on issue `number`, and give the page of the comment, as the GitHub
+        adapter does (#6194). A repeat of a recent comment of the same roadmap job there is no
+        write, and gives the page of that comment (#4793)."""
         if self._refused_repeat(number, body):
-            return False
+            return _Posted(self._repeated_page(number, body), posted=False)
         self._attempt("comment", number, lambda: self._comment(number, body))
-        return True
+        return _Posted(self._roadmap.comments[number][-1].url, posted=True)
 
     def _refused_repeat(self, number: int, body: str) -> bool:
         if not any(marker in body for marker in CONST_ROADMAP_JOB_COMMENT_MARKERS):
@@ -620,19 +633,34 @@ class InMemoryRoadmapStore(RoadmapStore):
         # this module, and posts a person's comment, against a base tree that has no guard yet.
         from devops_cli.roadmap.stores.comment_repeat import refused_repeat
 
-        return refused_repeat(
-            number, body, lambda: self.comments_on(number), now=self._roadmap.clock()
+        return bool(
+            refused_repeat(
+                number, body, lambda: self.comments_on(number), now=self._roadmap.clock()
+            )
         )
+
+    def _repeated_page(self, number: int, body: str) -> str | None:
+        """The page of the newest comment on issue `number` whose text is the text of `body`, as
+        the guard compares texts: the comment that a refused repeat repeats (#6194). The fake
+        finds it in its own comments, so it reads no name that the base tree of a fail-to-pass
+        replay lacks."""
+        from devops_cli.roadmap.stores.comment_repeat import fingerprint
+
+        wanted = fingerprint(body)
+        held = reversed(self.comments_on(number))
+        return next((c.url for c in held if fingerprint(c.body) == wanted), None)
 
     def _comment(self, number: int, body: str) -> None:
         issue = self._require_issue(number, "roadmap.issue.comment")
         self._update_issue(issue)
+        made_id = self._next_comment_id()
         made = IssueComment(
             body=body,
             created_at=as_utc(self._roadmap.clock()),
-            id=self._next_comment_id(),
+            id=made_id,
             author_association=DEFAULT_ROADMAP_MEMORY_AUTHOR_ASSOCIATION,
             author_login=self._actor,
+            url=f"{issue.url}#issuecomment-{made_id}",
         )
         self._roadmap.comments.setdefault(number, []).append(made)
         self._log("comment", number, value=body)
