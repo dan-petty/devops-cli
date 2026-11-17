@@ -48,6 +48,7 @@ from devops_cli.config.constants import (
     CONST_GITHUB_HOST,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_GH_AUTH_TOKEN_ATTEMPTS,
     DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS,
     DEFAULT_GH_AUTH_TOKEN_TIMEOUT_SECONDS,
     DEFAULT_GITHUB_APP_TOKEN_RENEW_SECONDS,
@@ -330,32 +331,39 @@ def github_identity() -> GitHubIdentity:
 def _lookup_github_token() -> tuple[str, str]:
     """Run `gh auth token`; it applies GH_TOKEN, then GITHUB_TOKEN, then gh's stored login.
 
-    The child is a `gh auth` call, so it gets the ambient tokens and never a pinned one. Returns
-    the token, or "" and the unauthenticated error's message when there is none.
+    The child is a `gh auth` call, so it gets the ambient tokens and never a pinned one. A timeout
+    tries again, because a loaded host can start gh slower than the limit (#4940). Returns the
+    token, or "" and the unauthenticated error's message when there is none.
     """
     from devops_cli.lang import ERRORS
 
     timeout = DEFAULT_GH_AUTH_TOKEN_TIMEOUT_SECONDS
-    try:
-        proc = run_subprocess(
-            [CONST_GH_CLI, CONST_GH_AUTH_SUBCOMMAND, "token"],
-            check=False,
-            quiet=True,
-            timeout=timeout,
-            extra_allowed_env=CONST_GH_LOGIN_ENV_VARS,
-        )
-    except subprocess.TimeoutExpired:
-        reason = ERRORS.git.github_token_lookup_timed_out.format(seconds=timeout)
-        return "", ERRORS.git.github_token_lookup_failed.format(reason=reason)
-    except OSError as err:
-        return "", ERRORS.git.github_token_lookup_failed.format(reason=type(err).__name__)
-    token = proc.stdout.strip() if proc.returncode == 0 else ""
-    if token:
-        return token, ""
-    if proc.returncode == CONST_EXIT_COMMAND_NOT_FOUND:
-        reason = ERRORS.git.github_token_lookup_not_found
-        return "", ERRORS.git.github_token_lookup_failed.format(reason=reason)
-    return "", ERRORS.git.github_unauthenticated.format(status=proc.returncode)
+    attempts = max(1, DEFAULT_GH_AUTH_TOKEN_ATTEMPTS)
+    for attempt in range(attempts):
+        try:
+            proc = run_subprocess(
+                [CONST_GH_CLI, CONST_GH_AUTH_SUBCOMMAND, "token"],
+                check=False,
+                quiet=True,
+                timeout=timeout,
+                extra_allowed_env=CONST_GH_LOGIN_ENV_VARS,
+            )
+        except subprocess.TimeoutExpired:
+            if attempt + 1 < attempts:
+                continue
+            reason = ERRORS.git.github_token_lookup_timed_out.format(seconds=timeout)
+            return "", ERRORS.git.github_token_lookup_failed.format(reason=reason)
+        except OSError as err:
+            return "", ERRORS.git.github_token_lookup_failed.format(reason=type(err).__name__)
+        token = proc.stdout.strip() if proc.returncode == 0 else ""
+        if token:
+            return token, ""
+        if proc.returncode == CONST_EXIT_COMMAND_NOT_FOUND:
+            reason = ERRORS.git.github_token_lookup_not_found
+            return "", ERRORS.git.github_token_lookup_failed.format(reason=reason)
+        return "", ERRORS.git.github_unauthenticated.format(status=proc.returncode)
+    reason = ERRORS.git.github_token_lookup_timed_out.format(seconds=timeout)
+    return "", ERRORS.git.github_token_lookup_failed.format(reason=reason)
 
 
 def _lookup_session_token() -> tuple[str, str, datetime | None]:

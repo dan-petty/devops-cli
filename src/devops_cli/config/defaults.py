@@ -816,6 +816,9 @@ DEFAULT_GH_MAX_RETRIES: int = 2
 DEFAULT_GH_RESOURCE: str = "core"
 # `gh auth token` answers locally; a hung keyring must not stall the first gh or git call (#767).
 DEFAULT_GH_AUTH_TOKEN_TIMEOUT_SECONDS: float = 5.0
+# A loaded host can start gh slower than the timeout above. One more attempt keeps a valid login
+# from reading as an authentication error (#4940).
+DEFAULT_GH_AUTH_TOKEN_ATTEMPTS: int = 2
 # After `gh auth token` printed no token, git runs without one and looks again only this much later;
 # gh calls look again every time, since they cannot run without one.
 DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS: float = 60.0
