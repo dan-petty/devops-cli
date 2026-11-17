@@ -172,5 +172,6 @@ The links to the OpenSpec change, the spec, the settings and the issue.
 | [0025](0025-generated-documents-stay-in-git-and-the-project-brain-cites-them.md) | Generated documents stay in git, and the project brain cites them | accepted | 2026-11-11 | amends 0012, 0023 |
 | [0026](0026-github-settings-are-opentofu-code-the-owner-applies.md) | GitHub settings are OpenTofu code the owner applies | accepted | 2026-11-15 |  |
 | [0027](0027-dependency-updates-come-from-self-hosted-renovate.md) | Dependency updates come from self-hosted Renovate | proposed | 2026-11-16 |  |
+| [0028](0028-a-research-agent-composes-open-tools-and-a-research-index.md) | A research agent composes open tools and a research index | accepted | 2026-11-17 |  |
 
 <!-- ADR_INDEX_END -->
