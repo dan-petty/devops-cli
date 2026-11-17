@@ -33,6 +33,7 @@ from tests.support.fakes.github import (
     github_json,
     next_page,
     route_compare_files,
+    route_file,
 )
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
@@ -46,6 +47,40 @@ _CHECK_RUNS_PAGE_2 = f"/repositories/1/commits/{_HEAD}/check-runs?per_page=100&p
 _COMPARE = f"/repos/{_REPO}/compare/main...{_HEAD}?per_page=1"
 _STATUS = f"repos/{_REPO}/commits/{_HEAD}/status"
 _CHANGES_DIR = f"repos/{_REPO}/contents/openspec/changes?ref={_BASE}"
+_WORKFLOWS_DIR = f"/repos/{_REPO}/contents/.github/workflows?ref={_HEAD}"
+_PULL_REQUEST_WORKFLOW = """name: CI
+on:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: "true"
+"""
+_PUSH_ONLY_WORKFLOW = """name: Release
+on: [push, workflow_dispatch]
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - run: "true"
+"""
+_STRING_PULL_REQUEST_WORKFLOW = """name: CI
+on: pull_request
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: "true"
+"""
+_NO_TRIGGER_WORKFLOW = """name: None
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: "true"
+"""
+_INVALID_WORKFLOW = "name: [unclosed\n"
 _THREADS = "GetReviewThreads"
 _CLOSING = "closingIssuesReferences"
 _ARCHIVE_704 = {
@@ -155,6 +190,15 @@ class _GitHub:
         references = {"totalCount": len(issues) if total is None else total, "nodes": list(issues)}
         payload = {"data": {"repository": {"pullRequest": {"closingIssuesReferences": references}}}}
         self.answer(_CLOSING, ProcessAnswer(stdout=json.dumps(payload)))
+
+    def workflows(self, *files: tuple[str, str]) -> None:
+        """Answer the head's workflow folder with `files`, each named and holding its text."""
+        entries = [
+            {"type": "file", "name": name, "path": f".github/workflows/{name}"} for name, _ in files
+        ]
+        self.api.route("GET", _WORKFLOWS_DIR, github_json(entries))
+        for name, text in files:
+            route_file(self.api, _REPO, f".github/workflows/{name}", _HEAD, text)
 
     def gh_sent(self) -> list[str]:
         """Each gh command run, as one string."""
@@ -504,12 +548,104 @@ def test_the_verdict_keeps_the_checks_it_read(github: _GitHub, tmp_path: Path) -
     ]
 
 
-def test_a_commit_with_no_check_and_no_status_is_still_running(
+def test_a_commit_with_no_check_waits_while_a_pull_request_workflow_can_start_one(
     github: _GitHub, tmp_path: Path
 ) -> None:
     github.checks()
+    github.workflows(("ci.yml", _PULL_REQUEST_WORKFLOW))
     verdict = _assess(tmp_path)
     assert verdict.blockers == ("PR #335 has 1 check(s) still running: no checks reported.",)
+    assert verdict.no_ci is False
+
+
+def test_a_repository_with_no_pull_request_workflow_has_no_ci(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    """The head commit reports no check and no workflow at it runs on a pull request, so no check
+    can start: the missing check blocks nothing and an INFO advisory says why (#5144)."""
+    github.checks()
+    verdict = _assess(tmp_path)
+    assert (verdict.kinds, verdict.pending_checks, verdict.no_ci) == (frozenset(), (), True)
+    assert [(advisory.level, advisory.text) for advisory in verdict.advisories] == [
+        (
+            AdvisoryLevel.INFO,
+            "dan-petty/devops-cli has no workflow that runs on a pull request, and PR #335 has "
+            "no checks. No check will start, so there is nothing to wait for.",
+        )
+    ]
+
+
+def test_a_workflow_with_only_push_and_dispatch_triggers_has_no_ci(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    github.checks()
+    github.workflows(("release.yml", _PUSH_ONLY_WORKFLOW))
+    verdict = _assess(tmp_path)
+    assert (verdict.kinds, verdict.no_ci) == (frozenset(), True)
+
+
+def test_an_unread_workflow_keeps_the_pending_check(github: _GitHub, tmp_path: Path) -> None:
+    """A workflow read that fails is no proof of no CI, so the pending check stays and blocks."""
+    github.checks()
+    github.api.route("GET", _WORKFLOWS_DIR, github_json({"message": "Forbidden"}, status=403))
+    verdict = _assess(tmp_path)
+    assert (BlockerKind.CHECKS_PENDING in verdict.kinds, verdict.no_ci) == (True, False)
+
+
+def test_a_string_pull_request_trigger_keeps_the_pending_check(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    github.checks()
+    github.workflows(("ci.yml", _STRING_PULL_REQUEST_WORKFLOW))
+    verdict = _assess(tmp_path)
+    assert (BlockerKind.CHECKS_PENDING in verdict.kinds, verdict.no_ci) == (True, False)
+
+
+def test_a_workflow_file_that_is_no_mapping_has_no_ci(github: _GitHub, tmp_path: Path) -> None:
+    github.checks()
+    github.workflows(("list.yml", "- one\n- two\n"))
+    verdict = _assess(tmp_path)
+    assert (verdict.kinds, verdict.no_ci) == (frozenset(), True)
+
+
+def test_a_workflow_with_no_trigger_has_no_ci(github: _GitHub, tmp_path: Path) -> None:
+    github.checks()
+    github.workflows(("none.yml", _NO_TRIGGER_WORKFLOW))
+    verdict = _assess(tmp_path)
+    assert (verdict.kinds, verdict.no_ci) == (frozenset(), True)
+
+
+def test_a_workflow_file_that_is_not_valid_yaml_keeps_the_pending_check(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    github.checks()
+    github.workflows(("broken.yml", _INVALID_WORKFLOW))
+    verdict = _assess(tmp_path)
+    assert (BlockerKind.CHECKS_PENDING in verdict.kinds, verdict.no_ci) == (True, False)
+
+
+def test_a_workflow_folder_entry_that_is_no_file_is_skipped(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    github.checks()
+    entries = [
+        {"type": "dir", "name": "nested", "path": ".github/workflows/nested"},
+        {"type": "file", "name": "README.md", "path": ".github/workflows/README.md"},
+        {"type": "file", "name": "ci.yml", "path": ".github/workflows/ci.yml"},
+    ]
+    github.api.route("GET", _WORKFLOWS_DIR, github_json(entries))
+    route_file(github.api, _REPO, ".github/workflows/ci.yml", _HEAD, _PULL_REQUEST_WORKFLOW)
+    verdict = _assess(tmp_path)
+    assert BlockerKind.CHECKS_PENDING in verdict.kinds
+
+
+def test_a_workflow_folder_answer_that_is_no_list_has_no_ci(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    github.checks()
+    github.api.route("GET", _WORKFLOWS_DIR, github_json({"type": "file"}))
+    verdict = _assess(tmp_path)
+    assert (verdict.kinds, verdict.no_ci) == (frozenset(), True)
 
 
 def test_a_failed_combined_commit_status_beyond_the_listed_ones_blocks(

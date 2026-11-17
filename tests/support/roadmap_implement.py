@@ -28,7 +28,13 @@ from devops_cli.roadmap.implement.implement_run import ImplementApplied, apply_i
 from devops_cli.roadmap.implement.implement_trace import ImplementTrace
 from devops_cli.roadmap.stores.store import ItemField, StageRecordKey
 from tests.support.fakes.clock import ClockFake
-from tests.support.fakes.github import API, GitHubApiFake, github_json, route_compare_files
+from tests.support.fakes.github import (
+    API,
+    GitHubApiFake,
+    github_json,
+    route_compare_files,
+    route_file,
+)
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import WINDOW, command_text, git_for_real
@@ -352,6 +358,17 @@ FAIL: dict[str, Any] = {**PASS, "conclusion": "failure"}
 RUNNING: dict[str, Any] = {**PASS, "status": "in_progress", "conclusion": None}
 _PULL_API = f"api repos/{STAGE_REPO}/pulls/{PULL}"
 _THREADS_QUERY = "GetReviewThreads"
+
+# The repository's pull-request workflow, so a head commit with no check waits for one (#5144).
+_WORKFLOW = """name: CI
+on:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: "true"
+"""
 _ARCHIVED_FILE = {
     "filename": f"openspec/changes/archive/2026-10-29-{CHANGE}/proposal.md",
     "status": "added",
@@ -453,6 +470,16 @@ class PullFake:
         path = f"/repos/{STAGE_REPO}/commits/{sha}/check-runs?per_page=100"
         self.api.route("GET", path, github_json({"total_count": len(runs), "check_runs": runs}))
 
+    def _route_workflow(self, sha: str) -> None:
+        """Answer the head's workflow folder with the repository's pull-request workflow."""
+        entry = {"type": "file", "name": "ci.yml", "path": ".github/workflows/ci.yml"}
+        self.api.route(
+            "GET",
+            f"/repos/{STAGE_REPO}/contents/.github/workflows?ref={sha}",
+            github_json([entry]),
+        )
+        route_file(self.api, STAGE_REPO, ".github/workflows/ci.yml", sha, _WORKFLOW)
+
     def _pull(self, _call: ProcessCall) -> subprocess.CompletedProcess[str]:
         if self.stale > 0:
             self.stale -= 1
@@ -463,6 +490,7 @@ class PullFake:
                 self.heads.append(sha)
             runs = self.runs[min(self.heads.index(sha), len(self.runs) - 1)]
         self._route_checks(sha, runs)
+        self._route_workflow(sha)
         route_compare_files(self.api, STAGE_REPO, "main", sha, _ARCHIVED_FILE, merge_base="c" * 40)
         repo = {"full_name": STAGE_REPO, "default_branch": "main"}
         dirty = self.conflict

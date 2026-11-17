@@ -41,7 +41,6 @@ from devops_cli.github.branch_update import (
     parse_update_error,
     plan_update_single_pr,
 )
-from devops_cli.github.check_verdict import CheckVerdictSummary
 from devops_cli.github.client import PullStatus
 from devops_cli.github.defect_classifier import (
     PRHardeningAudit,
@@ -1410,15 +1409,11 @@ def _handle_pr_ready_failure(stderr_text: str, number: int) -> None:
     print_error(f"Failed to mark PR #{number} ready: {clean_err or 'Unknown error'}", safe=True)
 
 
-def _no_ci(repo: str, checks: CheckVerdictSummary | None) -> bool:
-    """Whether no check will come for the pull request (#3767): its head commit reports no check
-    run and no commit status, and `repo` has no GitHub Actions workflow to start one. A read that
-    fails raises the error of the session."""
-    if checks is None or not checks.reports_nothing:
-        return False
-    from devops_cli.github.session import get_github_session
-
-    return get_github_session().client.count_workflows(repo) == 0
+def _no_ci(verdict: MergeReadiness) -> bool:
+    """Whether no check will come for the pull request (#3767, #5144): the merge-readiness verdict
+    reads the workflows at its head and finds none that runs on a pull request, so it excuses the
+    missing checks. A workflow read that fails keeps the pending check, so the verdict says no."""
+    return verdict.no_ci
 
 
 def _validate_pr_ready(number: int, owner: str, repo_name: str, pr_data: dict[str, Any]) -> Draft:
@@ -1436,7 +1431,7 @@ def _validate_pr_ready(number: int, owner: str, repo_name: str, pr_data: dict[st
     repo = f"{owner}/{repo_name}"
     pull = PullStatus.model_validate(pr_data)
     try:
-        no_ci = _no_ci(repo, verdict.checks)
+        no_ci = _no_ci(verdict)
         checks = None if no_ci else verdict.checks
         draft = read_draft(repo, number, pull=pull, checks=checks, declared=True)
     except (GitHubOperationError, GitHubUnreadError) as exc:

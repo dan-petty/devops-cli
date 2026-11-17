@@ -461,21 +461,51 @@ def _ready(cli: Callable[..., Any], *flags: str) -> tuple[int, str]:
     return result.exit_code, " ".join(result.output.split())
 
 
-_WORKFLOWS = f"/repos/{_REPO}/actions/workflows?per_page=1"
+_WORKFLOWS_DIR = f"/repos/{_REPO}/contents/.github/workflows?ref={_HEAD}"
+_PULL_REQUEST_WORKFLOW = """name: CI
+on:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: "true"
+"""
+_PUSH_ONLY_WORKFLOW = """name: Release
+on: [push, workflow_dispatch]
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - run: "true"
+"""
 
 
 def _no_checks(github: _GitHub, workflows: int | None) -> None:
-    """The head commit reports no check run and no commit status. The repository has `workflows`
-    GitHub Actions workflows, and None leaves their read unanswered."""
+    """The head commit reports no check run and no commit status. `workflows` says what the head
+    holds: 0 no workflow at all, 1 a push-only workflow, 2 a pull-request workflow, and None an
+    unread workflow folder."""
     github.checks()
     github.answer(
         "/status",
         ProcessAnswer(stdout=json.dumps({"state": "pending", "statuses": [], "total_count": 0})),
     )
-    if workflows is not None:
-        github.api.route(
-            "GET", _WORKFLOWS, github_json({"total_count": workflows, "workflows": []})
-        )
+    if workflows == 0:
+        return
+    if workflows is None:
+        github.api.route("GET", _WORKFLOWS_DIR, github_json({"message": "Forbidden"}, status=403))
+        return
+    name, text = (
+        ("ci.yml", _PULL_REQUEST_WORKFLOW)
+        if workflows == 2
+        else ("release.yml", _PUSH_ONLY_WORKFLOW)
+    )
+    github.api.route(
+        "GET",
+        _WORKFLOWS_DIR,
+        github_json([{"type": "file", "name": name, "path": f".github/workflows/{name}"}]),
+    )
+    route_file(github.api, _REPO, f".github/workflows/{name}", _HEAD, text)
 
 
 _SCENARIOS = {
@@ -500,7 +530,7 @@ _SCENARIOS = {
         ("unresolved-thread", 0, True),
         ("no-ci", 0, True),
         ("checks-not-started", 8, False),
-        ("workflows-unread", 1, False),
+        ("workflows-unread", 8, False),
     ],
 )
 def test_pr_ready_exits_on_the_checks_of_the_verdict(
@@ -551,7 +581,31 @@ def test_pr_ready_says_that_a_repository_with_no_ci_has_nothing_to_wait_for(
     exit_code, output = _ready(cli)
     assert (
         exit_code,
-        f"{_REPO} has no GitHub Actions workflow" in output,
+        f"{_REPO} has no workflow that runs on a pull request" in output,
+        "no checks reported" in output,
+    ) == (0, True, False), output
+
+
+def test_pr_ready_marks_a_pull_request_ready_when_only_push_workflows_exist(
+    cli: Callable[..., Any], draft: _GitHub
+) -> None:
+    """A workflow that only runs on push cannot start a check on the pull request, so `pr ready`
+    reads the head's workflows rather than the repository's workflow count (#5144)."""
+    _no_checks(draft, 1)
+    exit_code, output = _ready(cli)
+    assert (exit_code, _readied(draft), "has no checks" in output) == (0, True, True), output
+
+
+def test_check_readiness_reports_a_repository_with_no_ci(
+    cli: Callable[..., Any], github: _GitHub
+) -> None:
+    """The pending stand-in for a head commit with no check does not block where no workflow can
+    start one, and the verdict says why (#5144)."""
+    _no_checks(github, 0)
+    exit_code, output = _readiness(cli)
+    assert (
+        exit_code,
+        "has no workflow that runs on a pull request" in output,
         "no checks reported" in output,
     ) == (0, True, False), output
 
@@ -815,6 +869,31 @@ def test_the_monitor_waits_for_the_checks_and_names_every_blocker(
         "PR #335 has 1 failing check(s): CodeQL." in output,
         "PR #335 has 1 unresolved review discussion thread(s)." in output,
     ) == (1, 2, True, True), output
+
+
+def test_the_monitor_reports_a_conflict_before_it_waits_for_a_check(
+    cli: Callable[..., Any], monitored: _GitHub, clock: ClockFake
+) -> None:
+    """A dirty pull request in a repository with no CI names the conflict and settles at once
+    instead of waiting for the pending stand-in (#5144)."""
+    monitored.pull(_pr(mergeable=False, mergeable_state="dirty"))
+    _no_checks(monitored, 0)
+    exit_code, output = _monitor(cli, "--timeout", "600")
+    assert (
+        exit_code,
+        clock.waits,
+        "PR #335 has merge conflicts with base branch 'main'." in output,
+    ) == (2, [], True), output
+
+
+def test_the_monitor_does_not_wait_for_a_repository_with_no_ci(
+    cli: Callable[..., Any], monitored: _GitHub, clock: ClockFake
+) -> None:
+    """No check can start without a pull-request workflow, so the monitor settles on the first
+    poll and sleeps for nothing instead of waiting out the timeout (#5144)."""
+    _no_checks(monitored, 0)
+    exit_code, output = _monitor(cli, "--timeout", "600")
+    assert (exit_code, clock.waits, "READY FOR MERGING" in output) == (0, [], True), output
 
 
 def test_a_missing_priority_label_warns_and_pr_ready_still_marks_it(
