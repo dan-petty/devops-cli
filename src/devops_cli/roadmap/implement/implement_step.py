@@ -126,6 +126,7 @@ from devops_cli.roadmap.implement.implement_base_replay import (
     VerifiedCommand,
     replay_group_tests,
 )
+from devops_cli.roadmap.implement.implement_broker import live_broker
 from devops_cli.roadmap.implement.implement_comments import StepComments
 from devops_cli.roadmap.implement.implement_disk import end_step
 from devops_cli.roadmap.implement.implement_hooks import commit_stage
@@ -645,7 +646,9 @@ def shell_environment(home: Path) -> dict[str, str]:
     download and `uv run` finds no interpreter without it. `PYTEST_XDIST_AUTO_NUM_WORKERS`: the
     pod of the runner sets it to its CPU limit, as `pytest-xdist` counts the CPUs of the node and
     a test run started one worker for each of them (#2806). `AI_AGENT` names the agent tool, so a
-    usage error of a devops command that the agent runs records the caller agent (#4839)."""
+    usage error of a devops command that the agent runs records the caller agent (#4839). A live
+    broker of the step adds its address and the token of the step, which are no variables of the
+    job and hold no AI key (#3820)."""
     env = {
         "HOME": str(home),
         "XDG_CONFIG_HOME": str(home / ".config"),
@@ -655,6 +658,10 @@ def shell_environment(home: Path) -> dict[str, str]:
         "AI_AGENT": "devops-implement",
     }
     env.update({name: os.environ[name] for name in _PASSED_VARIABLES if os.environ.get(name)})
+    broker = live_broker()
+    if broker is not None:
+        env["DEVOPS_CLI_BROKER_URL"] = broker.url
+        env["DEVOPS_CLI_BROKER_TOKEN"] = broker.token
     return env
 
 
