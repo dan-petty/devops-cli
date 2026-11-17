@@ -106,10 +106,10 @@ repos:
         args:
           - |
             case "$PRE_COMMIT_REMOTE_BRANCH" in refs/heads/*) ;; *) exit 0 ;; esac
-            timeout 45 git fetch --quiet --no-tags origin main
+            timeout 24 git fetch --quiet --no-tags origin main
             status=$?
             if [ "$status" -eq 124 ]; then
-              echo "The hook stopped its fetch of main from origin after 45 seconds, so it cannot check the branch. Try the push again when the host is less busy."
+              echo "The hook stopped its fetch of main from origin after 24 seconds, so it cannot check the branch. Try the push again when the host is less busy."
               exit 1
             fi
             if [ "$status" -ne 0 ]; then

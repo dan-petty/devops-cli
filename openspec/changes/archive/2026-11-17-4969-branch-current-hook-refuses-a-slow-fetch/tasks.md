@@ -2,7 +2,7 @@
 
 ## 1. Behavior
 
-- [x] 1.1 Write the failing tests for the 45 second limit, the timeout message, the failure
+- [x] 1.1 Write the failing tests for the 24 second limit, the timeout message, the failure
       message and the pre-push budget.
   - Verification: `$ uv run devops ci test tests/git/test_branch_current_hook.py`
 - [x] 1.2 Raise the fetch limit and tell a timeout from a fetch failure.

@@ -2,7 +2,7 @@
 
 ### Requirement: The pre-push hook refuses a branch that does not hold origin/main
 
-On a `git push` of a branch, the hook `branch-current` SHALL fetch `main` of `origin` with a 45
+On a `git push` of a branch, the hook `branch-current` SHALL fetch `main` of `origin` with a 24
 second limit and SHALL refuse the push when the pushed commit does not hold the fetched commit,
 with a message that names `git fetch origin && git rebase origin/main`. A fetch that fails SHALL
 refuse the push with its own message. A push of a tag and a run of the stage that is no `git push`
@@ -27,7 +27,7 @@ SHALL pass.
 
 ### Requirement: A fetch timeout names its limit
 
-When the fetch exits with status 124, the hook SHALL say that it stopped the fetch after 45 seconds
+When the fetch exits with status 124, the hook SHALL say that it stopped the fetch after 24 seconds
 and SHALL NOT say that origin is unavailable. When the fetch exits with another status, the hook
 SHALL say that origin is unavailable. The sum of the time limits of the pre-push hooks SHALL stay
 below the 120 second limit of the agent shell.
@@ -35,7 +35,7 @@ below the 120 second limit of the agent shell.
 #### Scenario: The fetch runs out of time
 
 - **WHEN** the fetch exits with status 124
-- **THEN** the hook prints a message that names 45 seconds and exits 1, and the message does not
+- **THEN** the hook prints a message that names 24 seconds and exits 1, and the message does not
   say that origin is unavailable
 
 #### Scenario: The fetch fails

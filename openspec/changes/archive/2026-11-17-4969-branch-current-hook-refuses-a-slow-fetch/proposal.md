@@ -8,9 +8,9 @@ unavailable. Closes #4969.
 
 ## What Changes
 
-- The fetch limit is 45 seconds, inside the 120 second agent shell budget with the other pre-push
+- The fetch limit is 24 seconds, inside the 120 second agent shell budget with the other pre-push
   hooks (40 and 30 seconds).
-- A fetch that exits with status 124 prints a message that names 45 seconds and no unavailable
+- A fetch that exits with status 124 prints a message that names 24 seconds and no unavailable
   origin.
 - A fetch that exits with another status keeps the unavailable-origin message.
 - Pytest tests run the hook with a stub `git` for the timeout and failure, and check the budget.
@@ -23,7 +23,7 @@ unavailable. Closes #4969.
 
 ## Impact
 
-A push of a current branch passes on a busy host whose fetch takes between 20 and 45 seconds. A
+A push of a current branch passes on a busy host whose fetch takes between 20 and 24 seconds. A
 timeout message names the limit, and an unavailable origin keeps its own message.
 
 ## Feasibility
