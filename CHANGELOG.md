@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.174.0](https://github.com/dan-petty/devops-cli/compare/v0.173.3...v0.174.0) (2026-11-17)
+
+
+### Features
+
+* **openspec:** move OpenSpec to 2.1.0 and its skill layout ([#6216](https://github.com/dan-petty/devops-cli/issues/6216)) ([ba041d8](https://github.com/dan-petty/devops-cli/commit/ba041d87b47ae71474e32bbb6d89543ed6450f65)), closes [#5078](https://github.com/dan-petty/devops-cli/issues/5078)
+
+
+### Bug Fixes
+
+* **roadmap:** Implement writes its stop report once, on the issue ([#6213](https://github.com/dan-petty/devops-cli/issues/6213)) ([aa1a869](https://github.com/dan-petty/devops-cli/commit/aa1a8691889282e6d2d16e3ac2803d82ea5db2c0))
+
 ## [0.173.3](https://github.com/dan-petty/devops-cli/compare/v0.173.2...v0.173.3) (2026-11-17)
 
 
