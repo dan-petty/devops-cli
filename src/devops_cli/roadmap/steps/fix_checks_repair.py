@@ -8,13 +8,15 @@ The command `devops roadmap step fix-checks --confirm` gives the step `job_repai
   the new commits to the head branch with a lease on the judged head, so it never overwrites a push
   of another writer. The worktree and its local branch go when the round ends.
 - Tier 1, with no model: for a lint failure, `ruff check --fix` and `ruff format` on the Python
-  files that the pull request changes (a toolchain with the ruff gates); for a lint or a docs
-  failure, `devops docs generate` (a toolchain with the docs step); and for a lockfile failure,
-  `uv lock`. A docs or a lockfile failure starts tier 1 in a check of any class (#5983). It commits
-  the tracked files that the fixers changed.
+  files that the pull request changes (a toolchain with the ruff gates); for a snapshot failure,
+  the snapshot update of the toolchain on the tests whose snapshot differs (#6116); for a lint, a
+  docs or a snapshot failure, `devops docs generate` (a toolchain with the docs step); and for a
+  lockfile failure, `uv lock`. A docs, a lockfile or a snapshot failure starts tier 1 in a check of
+  any class (#5983). It commits the tracked files that the fixers changed, and names them.
 - Tier 2: the fix step of the implement job (`run_fix_step`) on the model of the task
   `ai.tasks.fix_checks`, with no ladder, the hooks and the recorded tests of the default branch,
-  and the cap `roadmap.fix_checks.token_budget` of new tokens.
+  and the cap `roadmap.fix_checks.token_budget` of new tokens. The step may also change the files
+  outside the plan whose failure the change of the branch causes (#6116).
 """
 
 from __future__ import annotations
@@ -51,7 +53,7 @@ from devops_cli.roadmap.project_profile import resolve_profile
 from devops_cli.roadmap.run import model_clone
 from devops_cli.roadmap.steps.fix_checks import (
     Fixed,
-    Fixer,
+    ModelFixer,
     PullCheckout,
     Repair,
     Tier1Causes,
@@ -156,13 +158,20 @@ class Tier1Commands:
     checks: tuple[tuple[str, ...], ...]
 
 
+def _with_tests(argv: Sequence[str], tests: Sequence[str]) -> tuple[str, ...]:
+    """The command `argv` with the word `{tests}` replaced by the test files `tests`."""
+    return tuple(word for part in argv for word in (tests if part == "{tests}" else (part,)))
+
+
 def tier1_commands(
     path: Path, preset: ToolchainPreset, files: Sequence[str], causes: Tier1Causes
 ) -> Tier1Commands:
     """The fixers of tier 1 for `causes` in the checkout `path`, and their checks: for a lint
-    failure, ruff on the changed Python files for a toolchain with the ruff gates; for a lint or a
-    docs failure, the documents for a toolchain with the docs step; and for a lockfile failure, the
-    lock file."""
+    failure, ruff on the changed Python files for a toolchain with the ruff gates; for a snapshot
+    failure, the snapshot update of the tests whose snapshot differs, then the tests again; for a
+    lint, a docs or a snapshot failure, the documents for a toolchain with the docs step, since a
+    changed command or tool changes its snapshot and its documents (#6116); and for a lockfile
+    failure, the lock file."""
     fixes: list[tuple[str, ...]] = []
     checks: list[tuple[str, ...]] = []
     if causes.lint and preset.step_gates == _RUFF_GATES and files:
@@ -174,7 +183,11 @@ def tier1_commands(
             (BIN_UV, "run", BIN_RUFF, "check", "--", *files),
             (BIN_UV, "run", BIN_RUFF, "format", "--check", "--", *files),
         ]
-    if (causes.lint or causes.docs) and preset.docs_step:
+    if causes.snapshots and preset.snapshot_update is not None:
+        fixes.append(_with_tests(preset.snapshot_update, causes.snapshots))
+        if preset.test_command is not None:
+            checks.append(_with_tests(preset.test_command, causes.snapshots))
+    if (causes.lint or causes.docs or causes.snapshots) and preset.docs_step:
         fixes.append((BIN_UV, "run", BIN_DEVOPS, "docs", "generate"))
         if preset.docs_verification:
             checks.append(preset.docs_verification)
@@ -201,7 +214,9 @@ def tier1_fix(path: Path, item: int, check: str, log: str) -> Fixed:
     exists and every check passes; a commit whose check still fails stays for the model fix."""
     causes = tier1_causes(check, log)
     if not causes.found:
-        return Fixed(done=False, reason="Tier 1 fixes only a lint, a docs or a lockfile failure")
+        return Fixed(
+            done=False, reason="Tier 1 fixes only a lint, a docs, a lockfile or a snapshot failure"
+        )
     base = _base(path)
     preset = resolve_profile(path, base).preset
     commands = tier1_commands(path, preset, _changed_python_files(path, base), causes)
@@ -211,23 +226,28 @@ def tier1_fix(path: Path, item: int, check: str, log: str) -> Fixed:
         if status != 0:
             logger.info("fix-checks tier 1: %s exited %s", shlex.join(argv[:5]), status)
     git(path, "add", "-u", operation=_OPERATION)
-    if not git(path, "diff", "--cached", "--name-only", operation=_OPERATION):
+    staged = git(path, "diff", "--cached", "--name-only", "-z", operation=_OPERATION)
+    written = tuple(name for name in staged.split("\0") if name)
+    if not written:
         return Fixed(done=False, reason="The fixers of tier 1 changed no file")
     message = f"style: apply the fixers of tier 1 for check {check} (#{item})"
     git(path, "commit", "-q", "-m", message, operation=_OPERATION)
     for argv in commands.checks:
         if _exit_status(path, argv, limit) != 0:
-            return Fixed(done=False, reason=f"`{shlex.join(argv[:5])}` fails after tier 1")
-    return Fixed(done=True)
+            return Fixed(
+                done=False, reason=f"`{shlex.join(argv[:5])}` fails after tier 1", files=written
+            )
+    return Fixed(done=True, files=written)
 
 
-def model_fix(store: ItemReader) -> Fixer:
+def model_fix(store: ItemReader) -> ModelFixer:
     """Tier 2: the fix step of the implement job on the model of the task `fix_checks`, with no
     ladder, so a model trial moves this job alone (#5903). The step gets the hooks and the
     recorded tests of the default branch, as the implement job reads them, and the cap
-    `roadmap.fix_checks.token_budget`."""
+    `roadmap.fix_checks.token_budget`. It may also change the files `extra` outside the plan,
+    whose failure the change of the branch causes (#6116)."""
 
-    def fix(path: Path, item: int, check: str, log: str) -> Fixed:
+    def fix(path: Path, item: int, check: str, log: str, extra: tuple[str, ...]) -> Fixed:
         base = _base(path)
         hooks = trusted_config(path, base)
         if hooks is not None and (failure := install_hook_environments(path, hooks)) is not None:
@@ -243,7 +263,7 @@ def model_fix(store: ItemReader) -> Fixer:
             outcome = run_fix_step(
                 store,
                 item=item,
-                fix=FixRequest(check=check, log=log),
+                fix=FixRequest(check=check, log=log, extra_paths=extra),
                 source=path,
                 window=settings.ai.for_task(_TASK).context_window,
                 model=get_task_model(_TASK),

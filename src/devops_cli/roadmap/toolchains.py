@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
-from devops_cli.config.commands import BIN_DEVOPS, BIN_OPENSPEC, BIN_UV
+from devops_cli.config.commands import BIN_DEVOPS, BIN_OPENSPEC, BIN_PYTEST, BIN_UV
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_SCOPED_ROWS
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement.implement_shell_policy import (
@@ -36,6 +36,8 @@ class ToolchainPreset:
     verify_prefixes: tuple[str, ...]
     docs_step: bool
     docs_verification: tuple[str, ...] | None
+    # The command that writes the snapshots of the test files `{tests}` again (#6116).
+    snapshot_update: tuple[str, ...] | None
     archive_argv: tuple[str, ...] | None
     step_gates: str | None
     review_bullet: str | None
@@ -61,6 +63,8 @@ DEVOPS_CLI_PRESET: Final[ToolchainPreset] = ToolchainPreset(
     verify_prefixes=VERIFICATION_FIRST_WORDS,
     docs_step=True,
     docs_verification=(BIN_UV, "run", BIN_DEVOPS, "ci", "docs"),
+    # Serial, so syrupy writes a shared snapshot file from one process (syrupy issue 1237).
+    snapshot_update=(BIN_UV, "run", BIN_PYTEST, "-n", "0", "--snapshot-update", "{tests}"),
     archive_argv=(BIN_UV, "run", BIN_DEVOPS, "openspec", "archive", "<change>"),
     step_gates="ruff-mypy",
     review_bullet=MESSAGES.roadmap.stage_pending_review,
@@ -78,6 +82,7 @@ NEUTRAL_PRESET: Final[ToolchainPreset] = ToolchainPreset(
     verify_prefixes=(),
     docs_step=False,
     docs_verification=None,
+    snapshot_update=None,
     archive_argv=(BIN_OPENSPEC, "archive", "<change>", "--yes"),
     step_gates=None,
     review_bullet=None,

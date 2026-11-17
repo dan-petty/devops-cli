@@ -281,10 +281,12 @@ def find_change(source: Path, item: int, *, archived: bool = False) -> Path:
 @dataclass(frozen=True)
 class FixRequest:
     """A failed check for a fix step (#2665): its name, and its log. The step reads the last
-    `CONST_ROADMAP_IMPLEMENT_LOG_CHARS` characters of the log."""
+    `CONST_ROADMAP_IMPLEMENT_LOG_CHARS` characters of the log. `extra_paths` are files that the
+    plan does not name and whose failure the change causes: the fix may change them too (#6116)."""
 
     check: str
     log: str
+    extra_paths: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -313,9 +315,13 @@ class EarlierStop:
 
 def fix_group(fix: FixRequest, groups: Sequence[TaskGroup]) -> TaskGroup:
     """The group of a fix step: one task that names the check, with the verification commands of
-    every group of the change, and the number `CONST_ROADMAP_IMPLEMENT_FIX_GROUP`."""
+    every group of the change, and the number `CONST_ROADMAP_IMPLEMENT_FIX_GROUP`. The task also
+    names the extra paths of the fix, which the step lets it change (#6116)."""
     title = MESSAGES.roadmap.implement_fix_title.format(check=fix.check)
     task = MESSAGES.roadmap.implement_fix_task.format(check=fix.check)
+    if fix.extra_paths:
+        paths = ", ".join(f"`{path}`" for path in fix.extra_paths)
+        task += " " + MESSAGES.roadmap.implement_fix_extra_paths.format(paths=paths)
     commands = tuple(dict.fromkeys(c for group in groups for c in group.verification_commands))
     return TaskGroup(
         number=CONST_ROADMAP_IMPLEMENT_FIX_GROUP,
@@ -1627,13 +1633,15 @@ def _outside_plan_failure(source: Path, inputs: StepInputs, base: str) -> _Failu
     """Why a fix step stops when it changed, added or deleted a path that the plan does not name,
     else None (#3824). The fix of a failed check whose cause lies in another path is a decision for
     a person: the step writes no compensating code. The failure has no repair paths, so no extra
-    turn follows. A group step is not checked."""
+    turn follows. A group step is not checked. The extra paths of the fix are allowed: the change
+    of the plan causes their failure (#6116)."""
     if inputs.fix is None:
         return None
     names = _git_output(source, "diff", "--cached", "--name-only", "--no-renames", "-z", base)
     groups = parse_task_groups(inputs.tasks_md)
     change = inputs.change.relative_to(source).as_posix()
-    outside = unplanned_paths([name for name in names.split("\0") if name], groups, change)
+    changed = [name for name in names.split("\0") if name and name not in inputs.fix.extra_paths]
+    outside = unplanned_paths(changed, groups, change)
     if not outside:
         return None
     paths = _paths_text([f"`{name}`" for name in outside])
