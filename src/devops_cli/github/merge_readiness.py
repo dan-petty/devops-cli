@@ -34,7 +34,7 @@ from devops_cli.config.constants import (
     CONST_PR_CLOSING_ISSUES_PAGE,
 )
 from devops_cli.core.repo import find_repo_root
-from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.exceptions.git import GitHubOperationError, GitHubUnreadError
 from devops_cli.github.check_verdict import (
     CheckBucket,
     CheckVerdictSummary,
@@ -126,7 +126,8 @@ class MergeReadiness:
     `pending_checks` names the checks still running, a blocker unless `allow_pending_checks`
     excused them. `checks` is the read of the head commit's checks, None when the payload names
     no head commit. `threads_to_show` are the review threads that block it, for a caller to list.
-    `grounding` is what the item rules judged, None where they do not apply.
+    `grounding` is what the item rules judged, None where they do not apply. `no_ci` is true when
+    no workflow can start a check on the pull request, so the missing checks block nothing.
     """
 
     blocking: tuple[Blocker, ...] = ()
@@ -135,6 +136,7 @@ class MergeReadiness:
     checks: CheckVerdictSummary | None = None
     threads_to_show: tuple[ReviewThread, ...] = ()
     grounding: Grounding | None = None
+    no_ci: bool = False
 
     @property
     def blockers(self) -> tuple[str, ...]:
@@ -162,6 +164,7 @@ class _Verdict:
     checks: CheckVerdictSummary | None = None
     threads: list[ReviewThread] = field(default_factory=list)
     grounding: Grounding | None = None
+    no_ci: bool = False
 
     def block(self, kind: BlockerKind, text: str) -> None:
         self.blocking.append(Blocker(kind, text))
@@ -180,6 +183,7 @@ class _Verdict:
             checks=self.checks,
             threads_to_show=tuple(self.threads),
             grounding=self.grounding,
+            no_ci=self.no_ci,
         )
 
 
@@ -256,6 +260,19 @@ def _judge_draft(verdict: _Verdict, pr_data: dict[str, Any], pr_num: int, allow:
         )
 
 
+def _can_run_on_pull_request(owner: str, repo_name: str, head_sha: str, reads: _Reads) -> bool:
+    """Whether a workflow at `head_sha` can start a check on the pull request.
+
+    A repository with no such workflow has no CI for the pull request (#5144). A read that fails
+    returns True, so the pending check stays: an unread workflow is no proof of no CI.
+    """
+    try:
+        session = reads.session or get_github_session()
+        return session.client.pull_request_workflow_at(f"{owner}/{repo_name}", head_sha)
+    except GitHubOperationError, GitHubUnreadError:
+        return True
+
+
 def _judge_checks(
     verdict: _Verdict,
     head_sha: str,
@@ -267,7 +284,8 @@ def _judge_checks(
     """Failing or unread checks block; running ones block unless excused.
 
     With `commit_statuses` off, the checks are the check runs only: a token without the `statuses`
-    permission reads them, and no request goes to the commit status endpoint (#2877)."""
+    permission reads them, and no request goes to the commit status endpoint (#2877). A head
+    commit that reports no check is no blocker where no workflow can start one (#5144)."""
     if not head_sha:
         return
     if reads.commit_statuses:
@@ -295,6 +313,12 @@ def _judge_checks(
             BlockerKind.CHECKS_FAILING,
             f"PR #{pr_num} has {len(failing)} failing check(s): {', '.join(failing)}.",
         )
+    if checks.reports_nothing and not _can_run_on_pull_request(owner, repo_name, head_sha, reads):
+        verdict.no_ci = True
+        verdict.inform(
+            MESSAGES.pr.readiness_no_ci.format(repo=f"{owner}/{repo_name}", number=pr_num)
+        )
+        return
     verdict.pending.extend(pending)
     if not pending:
         return
