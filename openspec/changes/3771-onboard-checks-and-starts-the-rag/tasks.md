@@ -24,9 +24,9 @@ Adds: `start_rag_pass`
 
 Kind: behavior. Reads: `src/devops_cli/ai/rag/drift.py`, `src/devops_cli/commands/rag.py`, `tests/ai/rag/test_index_drift.py`, `tests/ai/rag/test_knowledge_base_sync.py`, `tests/commands/test_rag.py`. Changes: `src/devops_cli/ai/rag/drift.py`, `tests/ai/rag/test_index_drift.py`.
 
-- [ ] 3.1 `test_drift_reads_the_project_name_of_the_repo_option` in `tests/ai/rag/test_index_drift.py`
+- [x] 3.1 `test_drift_reads_the_project_name_of_the_repo_option` in `tests/ai/rag/test_index_drift.py`
   - Verification: `$ uv run devops ci test tests/ai/rag/test_index_drift.py` fails on the base
-- [ ] 3.2 Write the failing test first in `tests/ai/rag/test_index_drift.py`, beside the helper at `tests/ai/rag/test_index_drift.py:27:` `def _detector(root: Path, indexer: WorkspaceIndexer) -> RAGDriftDetector:`. Give the detector at `src/devops_cli/ai/rag/drift.py:305:` `class RAGDriftDetector:` a `project` keyword, and set `self.project` to it when the caller gives one and to `detect_project_name(self.root_dir, self.root_dir)` otherwise. The test builds the detector over a directory named `w-3566` with `project="example/roadmap"` and asserts that the detector and its report name `example/roadmap` and never the directory name
+- [x] 3.2 Write the failing test first in `tests/ai/rag/test_index_drift.py`, beside the helper at `tests/ai/rag/test_index_drift.py:27:` `def _detector(root: Path, indexer: WorkspaceIndexer) -> RAGDriftDetector:`. Give the detector at `src/devops_cli/ai/rag/drift.py:305:` `class RAGDriftDetector:` a `project` keyword, and set `self.project` to it when the caller gives one and to `detect_project_name(self.root_dir, self.root_dir)` otherwise. The test builds the detector over a directory named `w-3566` with `project="example/roadmap"` and asserts that the detector and its report name `example/roadmap` and never the directory name
   - Verification: `$ uv run devops ci test tests/ai/rag/test_index_drift.py` passes
 
 ## 4. Add the repo option to the drift command
