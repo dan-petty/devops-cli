@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import re
 import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -61,6 +62,7 @@ from devops_cli.config.constants import (
     CONST_TEST_FILE_PREFIX,
     CONST_TESTS_ROOT_DIR,
 )
+from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.requests import PlannedRequest, both
 from devops_cli.exceptions import GitOperationError
@@ -102,12 +104,16 @@ class TestCaseOutcome(BaseModel):
 
 
 class ReplayCouldNotRun(BaseModel):
-    """A replay whose pytest stopped before it reported the changed tests on base (#1669)."""
+    """A replay whose pytest stopped before it reported the changed tests on base (#1669).
+
+    `timeout_seconds` names the process-runner limit when pytest ran out of time, so the report
+    says so instead of printing a pytest exit status that pytest did not return (#4938)."""
 
     model_config = ConfigDict(frozen=True)
 
     exit_status: int
     output_tail: str = ""
+    timeout_seconds: float | None = None
 
 
 class BaseReplayRun(BaseModel):
@@ -200,7 +206,7 @@ class FailToPassReport(BaseModel):
     changed_gate_checks: tuple[str, ...] = ()
     gate_rows: tuple[GateRowReplay, ...] = ()
     repaired: tuple[TestCaseOutcome, ...] = ()
-    head_could_not_run: int | None = None
+    head_could_not_run: ReplayCouldNotRun | None = None
     # False when the fix changes no source code and no gate check, so no test needs to fail on base
     # (#6207).
     needs_proof: bool = True
@@ -639,10 +645,21 @@ def _run_pytest_replay(
     """Run pytest on `test_files` inside `tree_dir` and parse its JUnit XML report.
 
     A run pytest interrupted, stopped with an internal or usage error, or that wrote no complete
-    report could not run, and keeps pytest's exit status and the tail of its output (#1669).
+    report could not run, and keeps pytest's exit status and the tail of its output (#1669). A run
+    that passes the process-runner limit could not run either, and names that limit (#4938).
     """
     argv = pytest_replay_argv(junit_path, test_files)
-    result = run_subprocess(argv, cwd=tree_dir, capture_output=True)
+    try:
+        result = run_subprocess(argv, cwd=tree_dir, capture_output=True)
+    except subprocess.TimeoutExpired:
+        return BaseReplayRun(
+            outcomes=(),
+            exit_status=1,
+            could_not_run=ReplayCouldNotRun(
+                exit_status=1,
+                timeout_seconds=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+            ),
+        )
     outcomes = _read_junit_report(junit_path)
     if (
         outcomes is not None
@@ -783,7 +800,10 @@ def parse_gate_row_output(status: int, stdout: str, stderr: str) -> GateRowRun |
 
 def _run_gate_row(tree: Path, row: str) -> GateRowRun | ReplayCouldNotRun:
     """Run the gate row `row` in `tree`, and read the cases that it printed (#4554)."""
-    result = run_subprocess(gate_row_argv(row), cwd=tree, capture_output=True)
+    try:
+        result = run_subprocess(gate_row_argv(row), cwd=tree, capture_output=True)
+    except subprocess.TimeoutExpired:
+        return ReplayCouldNotRun(exit_status=1, timeout_seconds=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
     stdout, stderr = result.stdout or "", result.stderr or ""
     if (run := parse_gate_row_output(result.returncode, stdout, stderr)) is not None:
         return run
@@ -827,6 +847,47 @@ def _replay_tests(
     return run, _unchanged_failures(root, merge_base, tree_dir, test_files, run.outcomes)
 
 
+def _replay_plain_and_head(
+    root: Path,
+    merge_base: str,
+    head: str,
+    tmp_path: Path,
+    changed_test_files: Sequence[str],
+    unchanged_failed: tuple[str, ...],
+    run: BaseReplayRun,
+    rows: Sequence[str],
+) -> tuple[
+    tuple[TestCaseOutcome, ...],
+    ReplayCouldNotRun | None,
+    ReplayCouldNotRun | None,
+    tuple[str, ...],
+    dict[str, GateRowRun | ReplayCouldNotRun],
+]:
+    """Replay the files that hold an unchanged failure on the plain base and the head, and run the
+    gate rows. A timeout on the plain base or the head keeps the could-not-run result (#4938)."""
+    repaired: tuple[TestCaseOutcome, ...] = ()
+    head_could_not_run: ReplayCouldNotRun | None = None
+    base_could_not_run = run.could_not_run
+    replay_files = _files_holding(unchanged_failed, run.outcomes, changed_test_files)
+    with _plain_base_tree(root, merge_base, tmp_path / "plain_base") as plain_dir:
+        plain_run = _run_pytest_replay(plain_dir, tmp_path / "plain_junit.xml", replay_files)
+    if plain_run.could_not_run is not None:
+        with _head_tree(root, head, tmp_path / "head") as head_dir:
+            head_runs = {row: _run_gate_row(head_dir, row) for row in rows}
+        return repaired, head_could_not_run, plain_run.could_not_run, unchanged_failed, head_runs
+    with _head_tree(root, head, tmp_path / "head") as head_dir:
+        head_run = _run_pytest_replay(head_dir, tmp_path / "head_junit.xml", replay_files)
+        if head_run.could_not_run is not None:
+            head_could_not_run = head_run.could_not_run
+            refused = unchanged_failed
+        else:
+            repaired, refused = _repaired_and_refused(
+                unchanged_failed, plain_run.outcomes, head_run.outcomes
+            )
+        head_runs = {row: _run_gate_row(head_dir, row) for row in rows}
+    return repaired, head_could_not_run, base_could_not_run, refused, head_runs
+
+
 def run_fail_to_pass(root: Path, *, base: str, head: str = "HEAD") -> FailToPassReport:
     """Replay the changed `tests/**/test_*.py` files against the merge-base tree, and run the
     gate row of each changed gate check on the base and head trees (#4554)."""
@@ -857,29 +918,30 @@ def run_fail_to_pass(root: Path, *, base: str, head: str = "HEAD") -> FailToPass
             remove_materialised_base(root, tree_dir)
 
         repaired: tuple[TestCaseOutcome, ...] = ()
-        head_could_not_run: int | None = None
+        head_could_not_run: ReplayCouldNotRun | None = None
+        base_could_not_run = run.could_not_run if run is not None else None
         has_guard_failure = run is not None and any(
             outcome.status in ("failed", "errored")
             and CONST_FAIL_TO_PASS_HOST_PATH_GUARD_MESSAGE in outcome.message
             for outcome in run.outcomes
         )
         if run is not None and unchanged_failed and not has_guard_failure:
-            replay_files = _files_holding(unchanged_failed, run.outcomes, changed.test_files)
-            with _plain_base_tree(root, changed.merge_base, tmp_path / "plain_base") as plain_dir:
-                plain_run = _run_pytest_replay(
-                    plain_dir, tmp_path / "plain_junit.xml", replay_files
-                )
-            with _head_tree(root, head, tmp_path / "head") as head_dir:
-                head_run = _run_pytest_replay(head_dir, tmp_path / "head_junit.xml", replay_files)
-                if head_run.could_not_run is not None:
-                    head_could_not_run = head_run.could_not_run.exit_status
-                    refused = unchanged_failed
-                else:
-                    repaired, refused = _repaired_and_refused(
-                        unchanged_failed, plain_run.outcomes, head_run.outcomes
-                    )
-                unchanged_failed = refused
-                head_runs = {row: _run_gate_row(head_dir, row) for row in rows}
+            (
+                repaired,
+                head_could_not_run,
+                base_could_not_run,
+                unchanged_failed,
+                head_runs,
+            ) = _replay_plain_and_head(
+                root,
+                changed.merge_base,
+                head,
+                tmp_path,
+                changed.test_files,
+                unchanged_failed,
+                run,
+                list(rows),
+            )
         elif rows:
             with _head_tree(root, head, tmp_path / "head") as head_dir:
                 head_runs = {row: _run_gate_row(head_dir, row) for row in rows}
@@ -891,7 +953,7 @@ def run_fail_to_pass(root: Path, *, base: str, head: str = "HEAD") -> FailToPass
         head=head,
         changed_test_files=changed.test_files,
         outcomes=run.outcomes if run else (),
-        could_not_run=run.could_not_run if run else None,
+        could_not_run=base_could_not_run,
         unchanged_failed=unchanged_failed,
         changed_gate_checks=changed.gate_checks,
         gate_rows=tuple(
@@ -904,10 +966,15 @@ def run_fail_to_pass(root: Path, *, base: str, head: str = "HEAD") -> FailToPass
 
 
 def _could_not_run_lines(could_not_run: ReplayCouldNotRun, files: str) -> list[str]:
-    """The report's lines for a replay of `files` that could not run on base (#1669)."""
-    reason = MESSAGES.ci.fail_to_pass_could_not_run.format(
-        status=could_not_run.exit_status, files=files
-    )
+    """The report's lines for a replay of `files` that could not run on base (#1669, #4938)."""
+    if could_not_run.timeout_seconds is not None:
+        reason = MESSAGES.ci.fail_to_pass_replay_timeout.format(
+            seconds=could_not_run.timeout_seconds, files=files
+        )
+    else:
+        reason = MESSAGES.ci.fail_to_pass_could_not_run.format(
+            status=could_not_run.exit_status, files=files
+        )
     if not could_not_run.output_tail:
         return [reason]
     return [reason, MESSAGES.ci.fail_to_pass_replay_output.format(output=could_not_run.output_tail)]
@@ -920,6 +987,13 @@ def _gate_row_lines(row: GateRowReplay) -> list[str]:
         lines: list[str] = []
         for tree, run in (("base", row.base), ("head", row.head)):
             if not isinstance(run, ReplayCouldNotRun):
+                continue
+            if run.timeout_seconds is not None:
+                lines.append(
+                    MESSAGES.ci.fail_to_pass_gate_timeout.format(
+                        row=row.row, tree=tree, seconds=run.timeout_seconds
+                    )
+                )
                 continue
             lines.append(
                 MESSAGES.ci.fail_to_pass_gate_could_not_run.format(
@@ -974,8 +1048,16 @@ def _unsatisfied_reasons(report: FailToPassReport, files_label: str) -> list[str
         guarded = dict.fromkeys(outcome.test_id for outcome in report.host_path_guard_failures)
         return [MESSAGES.ci.fail_to_pass_guard_failed.format(tests=", ".join(guarded))]
     if report.head_could_not_run is not None:
+        if report.head_could_not_run.timeout_seconds is not None:
+            return [
+                MESSAGES.ci.fail_to_pass_head_timeout.format(
+                    seconds=report.head_could_not_run.timeout_seconds, files=files_label
+                )
+            ]
         return [
-            MESSAGES.ci.fail_to_pass_head_could_not_run.format(status=report.head_could_not_run)
+            MESSAGES.ci.fail_to_pass_head_could_not_run.format(
+                status=report.head_could_not_run.exit_status
+            )
         ]
     if report.unchanged_failed:
         return [

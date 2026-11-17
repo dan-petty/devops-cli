@@ -2394,6 +2394,18 @@ class CIMessages:
     fail_to_pass_head_could_not_run: str = (
         "The fail-to-pass replay could not run on the head: pytest exited with status {status}."
     )
+    fail_to_pass_head_timeout: str = (
+        "The fail-to-pass replay could not run on the head: pytest stopped after {seconds} "
+        "seconds replaying {files}."
+    )
+    fail_to_pass_replay_timeout: str = (
+        "The fail-to-pass replay could not run on base: pytest stopped after {seconds} seconds "
+        "replaying {files}. The process runner limit is {seconds} seconds; rerun on a host that "
+        "is less busy."
+    )
+    fail_to_pass_gate_timeout: str = (
+        "The gate row {row} could not run on {tree}: pytest stopped after {seconds} seconds."
+    )
     fail_to_pass_could_not_run: str = (
         "The fail-to-pass replay could not run on base: pytest exited with status {status} "
         "replaying {files}. Merge the change to the test harness or to the dependencies first, in "
