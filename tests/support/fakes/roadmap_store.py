@@ -122,6 +122,12 @@ class Fault:
     error: Exception | None = None
 
 
+def _changed_at(comment: IssueComment) -> datetime:
+    """When `comment` last changed: its last edit, else its creation. Read by name, so that the
+    fail-to-pass replay loads this module against a base tree whose comment has no edit time."""
+    return getattr(comment, "updated_at", None) or comment.created_at
+
+
 def _number(args: tuple[object, ...]) -> int | None:
     """The issue a write touches: its Item's number, or the number it is given."""
     first = args[0] if args else None
@@ -690,7 +696,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         it can come with an older creation time."""
         cutoff = None if since is None else as_utc(since)
         made = (comment for comments in self._roadmap.comments.values() for comment in comments)
-        wanted = (c for c in made if cutoff is None or (c.updated_at or c.created_at) >= cutoff)
+        wanted = (c for c in made if cutoff is None or _changed_at(c) >= cutoff)
         return reversed(sorted(wanted, key=lambda comment: comment.created_at))
 
     def close(self, number: int, reason: CloseReason, *, comment: str | None = None) -> None:
