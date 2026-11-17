@@ -763,7 +763,7 @@ def test_a_content_gate_that_stops_refusing_a_plan_fails_the_replay(
 ) -> None:
     case = _placeholder_case(cases)
     real = "The job plans a real change here."
-    group = {**case.groups[0], "implementation": real}
+    group = {**case.groups[0], "title": real, "implementation": real}
     written = case.model_copy(
         update={
             "plan": {
