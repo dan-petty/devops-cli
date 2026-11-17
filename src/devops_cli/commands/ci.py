@@ -2807,7 +2807,7 @@ def job_time(
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Fail when the last runs of a CI job averaged more than the limit (#2699), and with
-    `--file-issue` comment on or file its P0 issue (#5247)."""
+    `--file-issue` write the report into its P0 issue or file one (#5247, #6199)."""
     from devops_cli.core.repo import find_repo_root, get_repo_origin_name
 
     target = repo or get_repo_origin_name(find_repo_root(Path.cwd()))
@@ -2842,7 +2842,7 @@ def job_time(
 
 def _print_alarm(alarm: Alarm, *, repo: str) -> None:
     """Say which issue now holds the breach, and whether this run filed it."""
-    said = MESSAGES.ci.job_time_issue_filed if alarm.filed else MESSAGES.ci.job_time_issue_commented
+    said = MESSAGES.ci.job_time_issue_filed if alarm.filed else MESSAGES.ci.job_time_issue_updated
     print_info(said.format(repo=repo, number=alarm.number), safe=True)
 
 
@@ -2870,9 +2870,15 @@ def _render_job_time_plan(
                 condition=over,
             ),
             PlannedRequest(
-                method="POST",
-                target=f"/repos/{repo}/issues/<number>/comments",
+                method="GET",
+                target=f"/repos/{repo}/issues/<number>",
                 condition=f"{over} and an open issue holds the alarm of {job}",
+            ),
+            PlannedRequest(
+                method="PATCH",
+                target=f"/repos/{repo}/issues/<number>",
+                stdin='{"body": "<the body with the report of this run>"}',
+                condition="the body of that issue does not hold the report of this run",
             ),
             PlannedRequest(
                 method="POST",

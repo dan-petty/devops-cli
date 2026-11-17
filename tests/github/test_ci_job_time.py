@@ -573,33 +573,108 @@ def test_a_mean_over_the_limit_files_one_p0_issue_when_none_is_open(
     )
 
 
-def test_a_mean_over_the_limit_comments_on_the_open_issue_and_files_no_second_one(
+def _patched(api: GitHubApiFake) -> list[tuple[str, dict[str, Any]]]:
+    """The path and the JSON body of each PATCH that the API received."""
+    return [
+        (request.url.path, json.loads(request.content))
+        for request in api.sent
+        if request.method == "PATCH"
+    ]
+
+
+def _route_held_issue(api: GitHubApiFake, number: int, body: str) -> None:
+    """Answer the read of the open alarm issue `number` with `body`, and accept a change of it."""
+    api.route(
+        "GET",
+        f"/repos/{_REPO}/issues/{number}",
+        github_json({**_issue(number, "open", body), "title": "Renamed by a person"}),
+    )
+    api.route("PATCH", f"/repos/{_REPO}/issues/{number}", github_json({"number": number}))
+
+
+def _filed_body(api: GitHubApiFake, cli: Callable[..., Any], seconds: float) -> str:
+    """The body of the alarm issue that a run over the limit files when no issue is open."""
+    _route_runs(api, [seconds] * 20)
+    _route_alarm_search(api)
+    api.route("POST", f"/repos/{_REPO}/issues", github_json({"number": 42}, status=201))
+    cli("ci", "job-time", "--repo", _REPO, "--file-issue")
+    [(_, issue)] = _posted(api)
+    api.sent.clear()
+    return str(issue["body"])
+
+
+def test_a_mean_over_the_limit_writes_the_report_into_the_open_issue_and_posts_no_comment(
     github_api: GitHubApiFake, cli: Callable[..., Any]
 ) -> None:
-    """Issue 12 holds the alarm of the check and is open, so the run comments on it. Issue 9
-    holds the alarm of another check, and issue 13 holds the word in other text: neither
-    counts."""
+    """Issue 12 holds the alarm of the check and is open, so the run writes its report into the
+    body of the issue, as GitHub gives it now, and posts no comment and files no second issue. The
+    text above the alarm line stays, also a line that the issue search does not hold yet. Issue 9
+    holds the alarm of another check, and issue 13 holds the word in other text: neither counts
+    (#6199)."""
     _route_runs(github_api, [400.0] * 20)
     other = "<!-- devops-ci-job-time: Service Image Tests of service-image-test.yml on main -->"
+    held = f"Renamed by a person.\n{_ALARM_LINE}"
     _route_alarm_search(
         github_api,
         _issue(9, "open", other),
         _issue(13, "open", "The devops-ci-job-time alarm is noisy."),
-        _issue(12, "open", f"Renamed by a person.\n{_ALARM_LINE}"),
+        _issue(12, "open", held),
     )
-    github_api.route(
-        "POST", f"/repos/{_REPO}/issues/12/comments", github_json({"id": 1}, status=201)
-    )
+    _route_held_issue(github_api, 12, f"{held}\nA note of a person from today.")
 
     result = cli("ci", "job-time", "--repo", _REPO, "--file-issue")
 
-    [(path, comment)] = _posted(github_api)
+    [(path, change)] = _patched(github_api)
     assert (
         result.exit_code,
+        _posted(github_api),
         path,
-        "took 400 s on average" in comment["body"],
+        change["body"].startswith(f"{held}\nA note of a person from today.\n"),
+        "took 400 s on average" in change["body"],
         f"https://github.com/{_REPO}/issues/12" in _said(result),
-    ) == (1, f"/repos/{_REPO}/issues/12/comments", True, True)
+    ) == (1, [], f"/repos/{_REPO}/issues/12", True, True, True)
+
+
+def test_a_later_run_replaces_the_report_in_the_body_and_keeps_the_text_of_a_person(
+    github_api: GitHubApiFake, cli: Callable[..., Any]
+) -> None:
+    """The first run filed the issue. A person then wrote above and below the report. The next run
+    over the limit replaces the report with its own mean and runs, and changes nothing else: the
+    alarm line and the text of the person stay, and the body holds one report (#6199)."""
+    filed = _filed_body(github_api, cli, 400.0)
+    edited = f"A person's line above.\n\n{filed}A person's line below.\n"
+    _route_runs(github_api, [500.0] * 20)
+    _route_alarm_search(github_api, _issue(42, "open", edited))
+    _route_held_issue(github_api, 42, edited)
+
+    cli("ci", "job-time", "--repo", _REPO, "--file-issue")
+
+    [(_, change)] = _patched(github_api)
+    body = change["body"]
+    assert (
+        _posted(github_api),
+        body.startswith("A person's line above.\n\n"),
+        body.endswith("A person's line below.\n"),
+        body.count(_ALARM_LINE),
+        body.count("| Run | Seconds | Queue seconds |"),
+        "took 500 s on average" in body,
+        "took 400 s on average" in body,
+    ) == ([], True, True, 1, 1, True, False)
+
+
+def test_a_later_run_with_the_same_report_writes_nothing(
+    github_api: GitHubApiFake, cli: Callable[..., Any]
+) -> None:
+    """The body already holds the report that the run makes, so the run sends no change and posts
+    no comment (#6199)."""
+    filed = _filed_body(github_api, cli, 400.0)
+    _route_runs(github_api, [400.0] * 20)
+    _route_alarm_search(github_api, _issue(42, "open", filed))
+    _route_held_issue(github_api, 42, filed)
+
+    result = cli("ci", "job-time", "--repo", _REPO, "--file-issue")
+
+    assert (result.exit_code, _posted(github_api), _patched(github_api)) == (1, [], [])
 
 
 @pytest.mark.parametrize(
@@ -627,7 +702,8 @@ def test_no_issue_is_searched_or_filed_without_a_full_read_over_the_limit(
 def test_a_dry_run_with_the_issue_lists_the_search_and_both_writes_and_makes_none(
     github_api: GitHubApiFake, cli: Callable[..., Any]
 ) -> None:
-    """The plan lists the issue search, the comment and the new issue, each with its condition."""
+    """The plan lists the issue search, the read and the change of the body of the open issue,
+    and the new issue, each with its condition. It lists no comment (#6199)."""
     result = cli("ci", "job-time", "--repo", _REPO, "--file-issue", "--dry-run")
 
     said = _said(result)
@@ -635,9 +711,11 @@ def test_a_dry_run_with_the_issue_lists_the_search_and_both_writes_and_makes_non
         result.exit_code,
         github_api.requested,
         "/search/issues" in said,
-        f"POST /repos/{_REPO}/issues/<number>/comments" in said,
+        f"GET /repos/{_REPO}/issues/<number>" in said,
+        f"PATCH /repos/{_REPO}/issues/<number>" in said,
+        "/comments" in said,
         f"POST /repos/{_REPO}/issues " in said,
-    ) == (0, [], True, True, True)
+    ) == (0, [], True, True, True, False, True)
 
 
 def test_the_command_exits_1_and_asks_for_a_repository_when_the_checkout_has_no_origin(

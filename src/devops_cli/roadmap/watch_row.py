@@ -494,13 +494,10 @@ def _apply_due_steps(
             note = MESSAGES.roadmap.pr_conflicts_comment.format(
                 number=pr_number, base=base_ref, head=head_sha[:_HEAD_CHARS]
             )
+            # The marker alone is the key: the pull request holds one conflict comment, and a new
+            # head edits it in place with that head (#6199).
             marker = "<!-- devops roadmap pr_conflicts -->"
-            post(
-                Target(ctx.repo, pr_number, client=client),
-                marker,
-                head_sha[:_HEAD_CHARS],
-                note,
-            )
+            post(Target(ctx.repo, pr_number, client=client), marker, None, note)
             if pr_number in ctx.recorded_pulls:
                 ctx.recorded_pulls[pr_number].commented_head = head_sha
             ctx.commented_conflicts.append(pr_number)

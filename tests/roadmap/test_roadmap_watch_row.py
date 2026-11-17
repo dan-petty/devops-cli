@@ -490,7 +490,7 @@ def test_watch_row_holds_the_ready_mark_of_a_plan_that_a_verdict_sent_back(
 def test_watch_row_comments_on_person_conflict(
     store: InMemoryRoadmapStore, github_api: GitHubApiFake, tmp_path: Path
 ) -> None:
-    """A conflicting delivery PR from a person gets one comment per head."""
+    """A conflicting delivery PR from a person gets one conflict comment that names its head."""
     issue_num = store.seed_issue("Conflict Issue", fields={ItemField.PRIORITY: "P2-Medium"})
     pr_num = store.seed_pull("feat: delivery PR", head_ref="feat/conflict")
 
@@ -524,6 +524,51 @@ def test_watch_row_comments_on_person_conflict(
             number=pr_num, base="main", head=HEAD_FAIL[:12]
         )
         in comments[0]
+    )
+
+
+def test_watch_row_edits_the_conflict_comment_of_an_older_head_in_place(
+    store: InMemoryRoadmapStore, github_api: GitHubApiFake, tmp_path: Path
+) -> None:
+    """The pull request holds the conflict comment of an older head. A conflict at a new head
+    edits that comment with the new head and posts no second comment, so the pull request holds
+    one conflict comment (#6199)."""
+    issue_num = store.seed_issue("Conflict Issue", fields={ItemField.PRIORITY: "P2-Medium"})
+    pr_num = store.seed_pull("feat: delivery PR", head_ref="feat/conflict")
+    old_note = MESSAGES.roadmap.pr_conflicts_comment.format(
+        number=pr_num, base="main", head=HEAD_FAIL[:12]
+    )
+    node = _graphql_pr_node(
+        number=pr_num,
+        head=HEAD_NEW,
+        mergeable="CONFLICTING",
+        body=f"Closes #{issue_num}",
+        check_state="SUCCESS",
+        check_conclusion="SUCCESS",
+    )
+    _route_graphql(github_api, [node])
+    github_api.route(
+        "GET",
+        f"/repos/{REPO}/issues/{pr_num}/comments?per_page=100",
+        github_json([{"id": 7, "body": "A review of a person."}, {"id": 8, "body": old_note}]),
+    )
+    github_api.route("PATCH", f"/repos/{REPO}/issues/comments/8", github_json({"id": 8}))
+
+    res = watch_round(
+        store, repo=REPO, ledger_path=tmp_path / CONST_ROADMAP_WATCH_LEDGER_FILENAME, now=NOW
+    )
+
+    writes = [
+        (sent.method, sent.url.path, json.loads(sent.content)["body"])
+        for sent in github_api.sent
+        if sent.method in {"POST", "PATCH"} and "/graphql" not in sent.url.path
+    ]
+    new_note = MESSAGES.roadmap.pr_conflicts_comment.format(
+        number=pr_num, base="main", head=HEAD_NEW[:12]
+    )
+    assert (pr_num in res.commented_conflicts, writes) == (
+        True,
+        [("PATCH", f"/repos/{REPO}/issues/comments/8", new_note)],
     )
 
 

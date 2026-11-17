@@ -4769,7 +4769,7 @@
         },
         "post_comment": {
           "default": false,
-          "description": "Post the review as a comment on the GitHub PR.",
+          "description": "Post the review as one comment on the GitHub PR for its head commit. A rerun on the same head edits that comment, and a new head gets a new comment.",
           "type": "boolean"
         },
         "pre_analysis_only": {

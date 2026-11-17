@@ -114,7 +114,7 @@ devops review pr [OPTIONS] <number>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-r` | `string` | - | Target repository in OWNER/REPO format. |
-| `--post` | `boolean` | - | Post the review as a comment on the GitHub PR. |
+| `--post` | `boolean` | - | Post the review as one comment on the GitHub PR for its head commit. A rerun on the same head edits that comment, and a new head gets a new comment. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--summary`, `-s` | `boolean` | - | Has no effect: every review runs the staged pipeline, which does not read it. |
 | `--full` | `boolean` | - | Print the whole report to the terminal: every finding with its details, every dependency and every network reference. By default the terminal lists CRITICAL to MEDIUM findings, with details for CRITICAL and HIGH, and gives LOW and INFO findings, dependencies and network references one line each that points at review.md. |

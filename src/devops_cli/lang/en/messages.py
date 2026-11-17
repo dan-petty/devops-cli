@@ -126,6 +126,10 @@ class ReviewMessages:
     )
     total_findings_count: str = "[bold]Total Findings:[/bold]  {count}\n"
     review_posted_pr: str = "Review posted as comment on PR #{number}"
+    review_updated_pr: str = "Updated the review comment of head {head} on PR #{number}"
+    review_unchanged_pr: str = (
+        "The review comment of head {head} on PR #{number} already holds this review"
+    )
     no_findings_session: str = "No findings.json in session {name}"
     session_not_found: str = "Session not found matching: {session}"
     no_findings_to_export: str = (
@@ -2302,8 +2306,8 @@ class CIMessages:
         "Would read the time of {job} in the last runs of {workflow} on {branch}"
     )
     job_time_issue_filed: str = "Filed the P0 issue https://github.com/{repo}/issues/{number}."
-    job_time_issue_commented: str = (
-        "Commented on the open P0 issue https://github.com/{repo}/issues/{number}."
+    job_time_issue_updated: str = (
+        "Wrote the report into the open P0 issue https://github.com/{repo}/issues/{number}."
     )
     durations_written: str = (
         "Wrote the mean seconds of {modules} test modules from {runs} runs to {path}."
