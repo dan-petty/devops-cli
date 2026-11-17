@@ -127,7 +127,7 @@
      "scenarios": [
       {
        "name": "The queries of the three panels",
-       "when": "the panels of the row in `k8s/monitoring/dashboards/devops-cli.json` are read",
+       "when": "`uv run devops ci --check --only k8s` renders `k8s/monitoring/dashboards/devops-cli.json`",
        "then": "the queries are `sum by (repo) (last_over_time(devops_cli_roadmap_alternatives_unchecked_items{job=~\"$job\"}[1d]))`, `max by (repo) (last_over_time(devops_cli_roadmap_alternatives_oldest_check_age_seconds{job=~\"$job\"}[1d]))`, and `histogram_avg(sum by (verdict) (increase(devops_cli_roadmap_alternatives_searches{job=~\"$job\"}[1d])))` with the count of the same selector"
       }
      ]

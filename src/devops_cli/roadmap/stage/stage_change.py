@@ -1035,6 +1035,52 @@ def _is_scenario_command(span: str) -> bool:
     return len(words) > 1 and words[0] in _SCENARIO_COMMAND_WORDS
 
 
+# The `devops ci` commands that run the test suite. A command that runs tests proves no manifest,
+# workflow or config file, because a test that reads the file asserts a value of it (#6080).
+_CI_TEST_COMMANDS: Final[frozenset[str]] = frozenset({"test", "coverage", "fail-to-pass", "mutate"})
+# The paths of the code of the project. A path outside them that is no Markdown document is a
+# manifest, a workflow or a config file.
+_CODE_TOPS: Final[tuple[str, ...]] = ("src/", "tests/")
+
+
+def _runs_tests(span: str) -> bool:
+    """Whether the command `span` runs tests: `pytest`, or a `devops ci` command of the suite."""
+    words = span.split()
+    return "pytest" in words or any(
+        first == "ci" and second in _CI_TEST_COMMANDS for first, second in pairwise(words)
+    )
+
+
+def _changed_config_paths(
+    scenario: StageScenario, tree: StagedTree, changed: Collection[str]
+) -> list[str]:
+    """The manifests, workflows and config files that the code spans of `scenario` name and that a
+    group of the plan changes or creates (#6080). A path that no group changes is input data of a
+    test and keeps the rules of code."""
+    spans = (*code_spans(scenario.when), *code_spans(scenario.then))
+    return [
+        path
+        for span in spans
+        if (path := tree.as_path(span) or span) in changed
+        and not path.startswith(_CODE_TOPS)
+        and not path.endswith(_DOCUMENT_SUFFIX)
+    ]
+
+
+def _config_scenario_problem(
+    scenario: StageScenario, config_paths: Sequence[str], exempt: bool
+) -> str | None:
+    """The problem of a scenario of a changed manifest, workflow or config file, or None. A
+    validator command or a live check proves the file; a test that reads it is no proof (#6080)."""
+    spans = (*code_spans(scenario.when), *code_spans(scenario.then))
+    proved = any(_is_scenario_command(span) and not _runs_tests(span) for span in spans)
+    if exempt or proved:
+        return None
+    return MESSAGES.roadmap.stage_scenario_config_proof.format(
+        scenario=scenario.name, path=config_paths[0]
+    )
+
+
 def _is_code_identifier(span: str) -> bool:
     if span.startswith("devops_cli_") or span.endswith("_") or span.isupper():
         return False
@@ -1129,16 +1175,30 @@ def _scenario_problems(
     behavior group whose `test` names the scenario or its requirement, or whose `verify` runs a
     test module that the group changes or creates (#3423). A scenario that the base spec of the
     capability already holds is exempt. A caller that gives no base scenario names skips the
-    second rule."""
+    second rule. A scenario that names a manifest, a workflow or a config file that the plan
+    changes needs a validator command or a live check, and no test (#6080)."""
     behavior_groups = [g for g in groups if g.kind == GroupKind.BEHAVIOR]
     touched = {p for g in behavior_groups for p in (*g.reads, *g.changes, *g.creates)}
+    changed = {p for g in groups for p in (*g.changes, *g.creates)}
     problems: list[str] = []
 
     for spec in specs:
+        base = (base_scenarios or {}).get(spec.capability, ())
         for req in (*spec.added, *spec.modified):
             for scenario in req.scenarios:
-                problem = _scenario_problem(
-                    spec.capability, req, scenario, behavior_groups, tree, touched, base_scenarios
+                config_paths = _changed_config_paths(scenario, tree, changed)
+                problem = (
+                    _config_scenario_problem(scenario, config_paths, scenario.name in base)
+                    if config_paths
+                    else _scenario_problem(
+                        spec.capability,
+                        req,
+                        scenario,
+                        behavior_groups,
+                        tree,
+                        touched,
+                        base_scenarios,
+                    )
                 )
                 if problem is not None:
                     problems.append(problem)
