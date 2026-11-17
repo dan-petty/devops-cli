@@ -26,7 +26,9 @@ The readers of `tests.support.k8s_tree` (`manifests`, `chart_values` and the oth
 `unknown_setting_keys` had no caller but the test of the committed template. The render of the ConfigMap now calls it after the validation of the settings, so a deploy stops on a template key that a change removed from the settings. The committed template renders with no unknown key.
 
 ### Specs
-A scenario whose proof was a deleted test now names a validator command or a live check, as `openspec/config.yaml` asks. A MODIFIED block cannot drop a scenario, so a requirement whose scenarios described the test itself (the token gate, the claim placement, the Loki mode helper) goes, and a requirement with a new title holds its rule.
+A scenario whose proof was a deleted test now names a validator command or a live check, as `openspec/config.yaml` asks. A MODIFIED block cannot drop a scenario, so a requirement whose scenarios described the test itself (the Loki mode helper) goes, and a requirement with a new title holds its rule. Two requirements described a check of the deleted test (the token check, the secret reference guard) and go.
+
+#6120 (#6118) changed the same capabilities first: it gave most scenarios a command proof, removed the requirements that only restate a file, and gave new titles to the token gate and the claim placement requirements. This change keeps each requirement that #6120 changed or removed. Its deltas change only the requirements that #6120 left as they were and whose scenario names a deleted test. No scenario names `kubectl exec`.
 
 ## Rejected alternatives
 - Move the deleted rules to rows of the `k8s` gate: the owner rule asks for no check of a manifest value, and the tools of CI (kube-linter #6068, kubeconform, `trivy config`) and the live checks are the place of these controls.
