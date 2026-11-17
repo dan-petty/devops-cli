@@ -108,6 +108,8 @@ def test_a_pull_request_is_read_with_its_title_and_both_commits(
             title="Update and rename README to README.md. Also Added Bolding",
             head=CommitRef(sha=_HEAD_SHA, ref="master", repository=None),
             base=CommitRef(sha=_BASE_SHA, ref="master", repository="octocat/Hello-World"),
+            merged=False,
+            merge_commit_sha="2dbdae14e38b9d2c362bd6e61dc3ce15f5661783",
         ),
         [f"GET https://api.github.com{_PULL}"],
         {f"token {pin_github_session}"},

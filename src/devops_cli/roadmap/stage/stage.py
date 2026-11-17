@@ -299,6 +299,11 @@ from devops_cli.roadmap.stage.stage_probe import (
     claimed_missing_checks,
     probe_premise,
 )
+from devops_cli.roadmap.stage.stage_pull_files import (
+    PullRequestFiles,
+    named_pull_requests,
+    pull_request_files,
+)
 from devops_cli.roadmap.stage.stage_references import reference_files
 from devops_cli.roadmap.stage.stage_registry import matches, registry_table
 from devops_cli.roadmap.stage.stage_rejected import (
@@ -1401,6 +1406,9 @@ class _Planner:
         self._left: int = CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS
         # The number of GraphQL requests that read the open pull requests of the item in hand.
         self._pull_requests = 0
+        # The changed files of each named pull request that the pass read, by number, so a review
+        # after a repair reads each pull request once (#3447).
+        self._pull_files: dict[int, PullRequestFiles] = {}
         # The trace facts of the kept plan in hand, for the trace gate (#4281).
         self._kept_facts: TraceFacts | None = None
         # The Feasibility sentences of the plan of an open pull request that `revise` repairs. The
@@ -2094,7 +2102,8 @@ class _Planner:
         previous: StageProposal | None = None,
     ) -> VerificationInput:
         """The input that the pass reads for `change`: with `earlier`, the input of a later review
-        of the open findings `earlier` of the plan `previous` (#5409)."""
+        of the open findings `earlier` of the plan `previous` (#5409). The input holds the changed
+        files of each pull request that the issue or the plan names (#3447)."""
         item = target.item
         return VerificationInput.of(
             number=item.number,
@@ -2105,7 +2114,31 @@ class _Planner:
             window=self._verify_window,
             earlier=earlier,
             previous=None if previous is None else previous.model_dump(mode="json"),
+            pull_requests=self._named_pull_files(item, change.proposal),
         )
+
+    def _named_pull_files(self, item: Item, proposal: StageProposal) -> dict[int, PullRequestFiles]:
+        """The changed files of each pull request that the body of `item` or a text of `proposal`
+        names, read at its merge commit (#3447). Each read is one REST request and one git fetch, so
+        a pull request that the run read once is not read again. A pull request that is not merged,
+        or that cannot be read, gives no entry and never stops the plan."""
+        if self._pull_reads is None or not self._pull_repo:
+            return {}
+        numbers = named_pull_requests([item.body, *plan_texts(proposal)])
+        missing = [number for number in numbers if number not in self._pull_files]
+        if missing:
+            self._pull_files.update(
+                pull_request_files(
+                    self._source,
+                    self._pull_repo,
+                    missing,
+                    self._pull_reads,
+                    operation=_GIT_OPERATION,
+                )
+            )
+        return {
+            number: self._pull_files[number] for number in numbers if number in self._pull_files
+        }
 
     def _check_budget(self, work: str) -> None:
         """Raise `RoadmapTimeBudgetError` when the time budget is spent, so `work` does not

@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Final, Protocol
 
 from devops_cli.exceptions.git import GitOperationError
+from devops_cli.github.client import PullRequest
 from devops_cli.roadmap.clone_git import git
 from devops_cli.roadmap.commit_title import commit_scope, commit_type
 from devops_cli.security.sanitizer import mask_secrets
@@ -54,10 +55,16 @@ query OpenPullRequests($owner: String!, $name: String!, $cursor: String) {{
 
 
 class PullReads(Protocol):
-    """The one GraphQL read of the open pull requests that the context makes."""
+    """The reads of the process's GitHub session that the stage job makes: the one GraphQL read of
+    the open pull requests, and the REST read of one pull request that a named pull request needs
+    (#3447)."""
 
     def graphql(self, query: str, variables: Mapping[str, Any] | None = None) -> Any:
         """The answer to one GraphQL request."""
+        ...
+
+    def get_pull(self, repo: str, number: int) -> PullRequest:
+        """The pull request `number` of `repo` (`owner/name`)."""
         ...
 
 
