@@ -11,5 +11,5 @@
 
 - [x] 2.1 Narrow the workflow path filter to `src/**/*.py`
   - Verification: `$ uv run devops ci --check --only actionlint,zizmor`
-- [x] 2.2 State the rule in docs/TESTING.md and the stage prompts
+- [x] 2.2 State the rule in docs/TESTING.md and the validator message
   - Verification: `$ uv run devops ci docs`

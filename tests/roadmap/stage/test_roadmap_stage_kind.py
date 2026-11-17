@@ -309,7 +309,7 @@ def test_a_stage_prompt_names_each_kind_and_each_field_of_a_group(task: str) -> 
 def test_the_stage_prompt_states_the_rules_that_the_validator_checks() -> None:
     prompt = load_task_prompt("roadmap_stage_change.md")
 
-    assert "Python file under `src/`" in prompt
+    assert "path under `src/`" in prompt
     assert "no `test`" in prompt
     assert "`! git grep -n <name> src/ tests/`" in prompt
 
