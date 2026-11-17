@@ -523,3 +523,33 @@ def test_a_change_without_the_prompt_file_needs_no_score() -> None:
     )
 
     assert draft_readiness(draft).answer is Answer.READY
+
+
+def test_a_stage_plan_draft_with_a_placeholder_group_title_is_refused() -> None:
+    draft = Draft(
+        kind=DraftKind.STAGE_PLAN,
+        pull=_PULL,
+        checks=_PASSING,
+        change=ChangeFacts(
+            archived=False, tasks_text="## 1. x\n- [ ] 1.1 Task\n", archive_required=False
+        ),
+    )
+    readiness = draft_readiness(draft)
+
+    assert readiness.answer is Answer.REFUSE
+    assert "group 1" in readiness.reason
+    assert "x" in readiness.reason
+
+
+def test_a_stage_plan_draft_with_a_valid_group_title_is_ready() -> None:
+    draft = Draft(
+        kind=DraftKind.STAGE_PLAN,
+        pull=_PULL,
+        checks=_PASSING,
+        change=ChangeFacts(
+            archived=False, tasks_text="## 1. Archive\n- [ ] 1.1 Task\n", archive_required=False
+        ),
+    )
+    readiness = draft_readiness(draft)
+
+    assert readiness.answer is Answer.READY

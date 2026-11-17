@@ -199,6 +199,12 @@ def _judge_completeness(draft: Draft) -> Readiness | None:
                         Answer.REFUSE,
                         texts.stage_problem_text_placeholder.format(field=field, text=text.strip()),
                     )
+            tasks_text = draft.change.tasks_text if draft.change is not None else ""
+            if tasks_text:
+                from devops_cli.roadmap.stage.stage_change import group_title_problems
+
+                if problems := group_title_problems(tasks_text):
+                    return Readiness(Answer.REFUSE, problems[0])
             return None
         case DraftKind.IMPLEMENT:
             return _judge_implement_change(draft)
@@ -322,7 +328,7 @@ def read_draft(
     store = store or roadmap_store.get_roadmap_store(repo)
     item = store.item(issue)
     kind = kind_of(item, number)
-    if kind is not DraftKind.IMPLEMENT:
+    if kind not in (DraftKind.IMPLEMENT, DraftKind.STAGE_PLAN):
         return Draft(
             kind=kind,
             pull=pull,

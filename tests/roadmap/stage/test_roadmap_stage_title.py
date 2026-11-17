@@ -19,11 +19,12 @@ from devops_cli.roadmap.stage.stage_change import (
     StageProposal,
     content_problems,
     delivery_title,
+    group_title_problems,
     plan_summary,
     staging_title,
 )
 from devops_cli.roadmap.stores.store import ItemField
-from tests.support.builders import make_stage_proposal, stage_summary_limit
+from tests.support.builders import _STAGE_PROPOSAL, make_stage_proposal, stage_summary_limit
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_stage import STAGE_REPO, StageRepo
 
@@ -156,6 +157,62 @@ def test_the_placeholder_summary_message_names_the_field_and_the_text() -> None:
 def test_a_plan_that_refuses_a_placeholder_summary_accepts_its_own_summary() -> None:
     """The rule that this change adds judges the plan that adds it (#3404)."""
     plan = make_stage_proposal(summary="Refuse a placeholder plan summary")
+
+    assert content_problems(plan) == []
+
+
+def test_a_plan_with_a_placeholder_group_title_is_refused_naming_the_group_and_title() -> None:
+    group = {**_STAGE_PROPOSAL["groups"][0], "title": "x"}
+    plan = make_stage_proposal(groups=[group])
+
+    problems = content_problems(plan)
+
+    expected = MESSAGES.roadmap.stage_problem_text_placeholder.format(
+        field="title of group 1", text="x"
+    )
+    assert expected in problems
+
+
+def test_a_plan_with_a_short_real_group_title_like_archive_has_no_length_problem() -> None:
+    group = {**_STAGE_PROPOSAL["groups"][0], "title": "Archive"}
+    plan = make_stage_proposal(groups=[group])
+
+    assert content_problems(plan) == []
+
+
+def test_group_title_problems_direct_call_with_tasks_markdown() -> None:
+    tasks_md = "## 1. x\n\nKind: other. Reads: none. Changes: `src/foo.py`.\n"
+    problems = group_title_problems(tasks_md)
+
+    expected = MESSAGES.roadmap.stage_problem_text_placeholder.format(
+        field="title of group 1", text="x"
+    )
+    assert problems == [expected]
+
+
+def test_a_plan_that_refuses_a_placeholder_group_title_accepts_its_own_plan() -> None:
+    """The rule that this change adds judges the plan that adds it (#3404).
+
+    Builds a StageProposal and asserts that content_problems returns no problem.
+    """
+    plan = make_stage_proposal(
+        summary="Refuse a placeholder group title in a plan",
+        feasibility=["A plan with a group title `x` reaches ready."],
+        groups=[
+            {
+                **_STAGE_PROPOSAL["groups"][0],
+                "title": "Refuse a placeholder group title",
+                "test": (
+                    "test_a_plan_with_a_placeholder_group_title_is_refused: proves that `x` "
+                    "fails on the base; builds a StageProposal and asserts that "
+                    "content_problems returns no problem."
+                ),
+                "changes": ["src/devops_cli/roadmap/stage/stage_change.py"],
+                "creates": [],
+                "creates_lines": {},
+            }
+        ],
+    )
 
     assert content_problems(plan) == []
 

@@ -1359,6 +1359,41 @@ def _text_problems(field: str, text: str) -> list[str]:
     return problems
 
 
+_GROUP_HEADING: Final[re.Pattern[str]] = re.compile(
+    r"^##\s+(?P<number>\d+)\.\s+(?P<title>\S.*)$", re.MULTILINE
+)
+
+
+def group_title_problems(
+    source: str | Sequence[StageGroup] | StageProposal,
+) -> list[str]:
+    """What is wrong with the title of each task group: a placeholder word (#3584).
+
+    Calls `is_placeholder` on the title only and never applies `PLAN_FIELD_MIN_CHARS`,
+    so a short real title such as `Archive` is accepted.
+    """
+    texts = MESSAGES.roadmap
+    if isinstance(source, StageProposal):
+        groups = [(i, g.title) for i, g in enumerate(source.groups, start=1)]
+    elif isinstance(source, str):
+        groups = [
+            (int(m.group("number")), m.group("title").strip())
+            for m in _GROUP_HEADING.finditer(source)
+        ]
+    else:
+        groups = [(i, g.title) for i, g in enumerate(source, start=1)]
+
+    problems: list[str] = []
+    for number, title in groups:
+        if is_placeholder(title):
+            problems.append(
+                texts.stage_problem_text_placeholder.format(
+                    field=f"title of group {number}", text=title.strip()
+                )
+            )
+    return problems
+
+
 def _scenario_texts(scenario: Any) -> list[str]:
     if isinstance(scenario, dict):
         return [
@@ -2047,6 +2082,7 @@ def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> lis
     set judges both."""
     texts = MESSAGES.roadmap
     problems = [p for field, text in _plan_texts(proposal) for p in _text_problems(field, text)]
+    problems.extend(group_title_problems(proposal.groups))
     problems.extend(_message_file_problems(proposal))
     problems.extend(_duplicate_task_problems(proposal))
     problems.extend(_self_acceptance_problems(proposal))

@@ -48,11 +48,12 @@ from devops_cli.config.constants import CONST_ROADMAP_STAGE_COMMENT_MARKER
 from devops_cli.config.settings import load_settings
 from devops_cli.exceptions import GitHubRateLimitError
 from devops_cli.github.check_verdict import read_check_runs
-from devops_cli.github.client import PullStatus
+from devops_cli.github.client import GitHubClient, PullStatus
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement.implement_pull import (
     Answer,
+    ChangeFacts,
     Draft,
     draft_readiness,
     kind_of,
@@ -136,6 +137,21 @@ def _jev_holds(store: RoadmapStore, repo: str, item: Item, number: int, status: 
     return True
 
 
+def _read_plan_change(
+    client: GitHubClient, repo: str, status: PullStatus, item: Item
+) -> ChangeFacts | None:
+    """The change folder of the plan at the head commit: its tasks.md, which a plan adds and
+    never archives, or None when there is none (#3584)."""
+    branch = item.job_record.get(StageRecordKey.BRANCH) or status.head_ref
+    change = branch.partition("/")[2] if branch else ""
+    if not change:
+        return None
+    tasks_text = client.get_file_at(repo, f"openspec/changes/{change}/tasks.md", status.head_sha)
+    if tasks_text is None:
+        return None
+    return ChangeFacts(archived=False, tasks_text=tasks_text, archive_required=False)
+
+
 def _settle(store: RoadmapStore, repo: str, item: Item, number: int) -> _Outcome:
     """Read pull request `number` of `item` and mark it ready when it is a green draft."""
     client = get_github_session().client
@@ -147,7 +163,8 @@ def _settle(store: RoadmapStore, repo: str, item: Item, number: int) -> _Outcome
         return _Outcome.SETTLED
     owner, name = repo.split("/", 1)
     checks = read_check_runs(owner, name, status.head_sha)
-    draft = Draft(kind_of(item, number), status, item, checks)
+    change = _read_plan_change(client, repo, status, item)
+    draft = Draft(kind_of(item, number), status, item, checks, change=change)
     readiness = draft_readiness(draft)
     if readiness.answer is not Answer.READY:
         return _Outcome.WAITING
