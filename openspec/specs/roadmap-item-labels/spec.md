@@ -100,7 +100,7 @@ item of its repository SHALL change nothing.
 GitHub links the closing issue after the pull request opens, so `devops pr create` SHALL read the
 closing issues again for a bounded time until one is linked. When the bounded time ends with no
 linked issue, the command SHALL warn and SHALL exit 0. The function that writes the Status SHALL
-return the number of the issue whose Status it sets, and None when it sets none.
+return the number of the open issue the pull request closes, and None when it closes none.
 
 #### Scenario: The link appears after the first read
 
@@ -115,6 +115,11 @@ return the number of the issue whose Status it sets, and None when it sets none.
 #### Scenario: The writer returns the issue it moves
 
 - **WHEN** the Status writer moves item 7 to In Progress
+- **THEN** it returns 7
+
+#### Scenario: The writer returns a linked issue whose Status stays
+
+- **WHEN** the Status writer finds linked item 7, whose Status stays Blocked
 - **THEN** it returns 7
 
 ### Requirement: A Status moves forward only

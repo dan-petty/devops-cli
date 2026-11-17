@@ -152,8 +152,10 @@ def test_a_blocked_item_with_no_stop_on_record_stays(
     roadmap_store: InMemoryRoadmapStore, gh_edge: ProcessFake
 ) -> None:
     number = _recorded_blocked(roadmap_store, stopped=False)
-    assert _set(roadmap_store, gh_edge, "In Progress", ClosingRead((_closing(number),), 1)) is None
-    assert _status(roadmap_store, number) == "Blocked"
+    assert (
+        _set(roadmap_store, gh_edge, "In Progress", ClosingRead((_closing(number),), 1)),
+        _status(roadmap_store, number),
+    ) == (number, "Blocked")
 
 
 def test_a_pull_request_that_closes_no_issue_changes_nothing(
@@ -186,7 +188,10 @@ def test_an_issue_that_is_no_item_changes_nothing(
     roadmap_store: InMemoryRoadmapStore, gh_edge: ProcessFake
 ) -> None:
     number = roadmap_store.seed_issue("A candidate", state=GitHubState.OPEN)
-    assert _set(roadmap_store, gh_edge, "In Progress", ClosingRead((_closing(number),), 1)) is None
+    assert (
+        _set(roadmap_store, gh_edge, "In Progress", ClosingRead((_closing(number),), 1)),
+        _status(roadmap_store, number),
+    ) == (number, None)
 
 
 def test_a_read_that_fails_stops_with_the_reason(

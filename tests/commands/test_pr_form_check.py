@@ -39,11 +39,23 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
-NO_CLOSING_ISSUES = json.dumps(
+CLOSING_ISSUE = json.dumps(
     {
         "data": {
             "repository": {
-                "pullRequest": {"closingIssuesReferences": {"totalCount": 0, "nodes": []}}
+                "pullRequest": {
+                    "closingIssuesReferences": {
+                        "totalCount": 1,
+                        "nodes": [
+                            {
+                                "number": 3198,
+                                "state": "OPEN",
+                                "repository": {"nameWithOwner": REPO},
+                                "labels": {"nodes": []},
+                            }
+                        ],
+                    }
+                }
             }
         }
     }
@@ -66,7 +78,7 @@ def gh(gh_edge: ProcessFake) -> ProcessFake:
     """gh, which opens the pull request and finds that it closes no issue. The Status and the
     labels of an opened pull request are held by their own tests."""
     gh_edge.answer(["gh", "pr", "create"], ProcessAnswer(stdout=PULL))
-    gh_edge.answer(mentions("closingIssuesReferences"), ProcessAnswer(stdout=NO_CLOSING_ISSUES))
+    gh_edge.answer(mentions("closingIssuesReferences"), ProcessAnswer(stdout=CLOSING_ISSUE))
     return gh_edge
 
 
