@@ -33,7 +33,7 @@ This document provides an overview of the main command groups implemented in `de
 | | `devops k8s pods` | Real-time pod listing and status | `--namespace`, `--all-namespaces` |
 | | `devops k8s apply` | Apply Kubernetes manifest via kubectl | `path`, `--namespace`, `--dry-run` |
 | | `devops k8s logs` | Stream pod container logs | `pod`, `--container`, `--namespace`, `--follow` |
-| | `devops k8s lint` | Manifest security audit with KubeLinter | `target`, `--dry-run` |
+| | `devops k8s lint` | Manifest security audit with KubeLinter | `target`, `--k8s-dir`, `--dry-run` |
 | | `devops k8s audit` | Cluster health sanitization with Popeye | `--dry-run` |
 | | `devops k8s check-deprecated` | Scan for deprecated APIs with Pluto | `target`, `--dry-run` |
 | | `devops k8s enable-tls` | Deploy TLS certificates to namespace | `--context`, `--secret-name`, `--stack` |

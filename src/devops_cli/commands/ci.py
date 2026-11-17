@@ -138,6 +138,7 @@ CHECK_ROW_NAMES: Final[tuple[str, ...]] = (
     "git",
     "test-settings",
     "bwrap",
+    "kube-linter",
     "k8s",
     "test-tree",
     "startup-imports",
@@ -1025,6 +1026,15 @@ def get_check_specs() -> list[CheckSpec]:
             span_name="ci.step.bwrap",
             metric_step="bwrap",
             host_refusal=_sandbox_host_refusal,
+        ),
+        # kube-linter lints the build of each path source of the Argo CD Applications with the
+        # checks of `.kube-linter.yaml` (#6068).
+        CheckSpec(
+            name="kube-linter",
+            display_title=MESSAGES.ci.kube_linter,
+            cmd=["uv", "run", "devops", "k8s", "lint"],
+            span_name="ci.step.kube_linter",
+            metric_step="kube_linter",
         ),
         CheckSpec(
             name="k8s",

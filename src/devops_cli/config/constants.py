@@ -675,6 +675,9 @@ CONST_LIBRARIES_DIR_NAME = "libraries"
 # defaults, Gitleaks' default rules, and Bandit's defaults with no `[bandit]` option. The ignore
 # files they are handed are empty. kube-linter's config is in `devops_cli.security.kubelinter`.
 CONST_REVIEW_SCAN_TRIVY_CONFIG = "{}\n"
+# The kube-linter config of a repository, at its root: the checks that `devops k8s lint` runs on
+# the builds of the Applications of the environment tree (#6068).
+CONST_KUBE_LINTER_CONFIG_FILE: Final[str] = ".kube-linter.yaml"
 CONST_REVIEW_SCAN_GITLEAKS_CONFIG = "[extend]\nuseDefault = true\n"
 CONST_REVIEW_SCAN_BANDIT_INI = "[bandit]\n"
 # The `group` that Popeye 0.22 writes for an issue of the resource itself, not of one of its

@@ -24,6 +24,16 @@ metadata:
   labels:
     app.kubernetes.io/name: renovate
     app.kubernetes.io/part-of: devops-cli-stack
+  annotations:
+    ignore-check.kube-linter.io/job-ttl-seconds-after-finished: >-
+      A Job made with kubectl create job --from=cronjob/renovate keeps the TTL that
+      docs/guidelines/kubernetes.md (Bounded) asks for each Job (#6068).
+    ignore-check.kube-linter.io/latest-tag: >-
+      Argo CD Image Updater sets the digest of the image in Application devops
+      (k8s/argocd/image-updater-values.yaml, #6068).
+    ignore-check.kube-linter.io/no-liveness-probe: >-
+      A Job runs to its end, and activeDeadlineSeconds stops a Job that hangs (#6068).
+    ignore-check.kube-linter.io/no-readiness-probe: A Job serves no traffic (#6068).
 spec:
   schedule: "17 */2 * * *"
   timeZone: Etc/UTC

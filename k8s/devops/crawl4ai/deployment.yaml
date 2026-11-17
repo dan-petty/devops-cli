@@ -12,6 +12,12 @@ metadata:
   labels:
     app.kubernetes.io/name: crawl4ai
     app.kubernetes.io/part-of: devops-cli-stack
+  annotations:
+    ignore-check.kube-linter.io/no-liveness-probe: >-
+      The startup and readiness probes call /health. A liveness probe waits on a measured
+      /health latency under load (#6108).
+    ignore-check.kube-linter.io/no-rolling-update-strategy: >-
+      Recreate: a second pod during a rollout would double the memory of Chromium (#6068).
 spec:
   # One pod, and Recreate: a second pod during a rollout would double the memory of Chromium.
   replicas: 1

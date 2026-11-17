@@ -171,9 +171,13 @@ def build_popeye_cmd(context: str | None = None, namespace: str | None = None) -
     return cmd
 
 
-def build_kubelinter_cmd(target_path: Path | str) -> list[str]:
-    """Build a kube-linter manifest scanner command."""
-    return [BIN_KUBELINTER, "lint", str(target_path), "--format", "json"]
+def build_kubelinter_cmd(target_path: Path | str, config: Path | None = None) -> list[str]:
+    """Build a kube-linter manifest scanner command. With `config`, kube-linter reads that config
+    file in place of a `.kube-linter.yaml` in its working directory."""
+    cmd = [BIN_KUBELINTER, "lint", str(target_path), "--format", "json"]
+    if config is not None:
+        cmd.extend(["--config", str(config)])
+    return cmd
 
 
 def build_pluto_cmd(

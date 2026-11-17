@@ -34,6 +34,10 @@ metadata:
   labels:
     app.kubernetes.io/name: valkey-runs
     app.kubernetes.io/part-of: devops-cli-stack
+  annotations:
+    ignore-check.kube-linter.io/no-rolling-update-strategy: >-
+      Recreate: the volume is ReadWriteOnce, so the old pod releases it before the new one
+      starts (#6068).
 spec:
   replicas: 1
   # The volume is ReadWriteOnce: the old pod releases it before the new one starts.

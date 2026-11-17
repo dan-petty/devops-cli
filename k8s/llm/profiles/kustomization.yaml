@@ -4,3 +4,22 @@ kind: Kustomization
 resources:
   - services.yaml
   - ollama-profiles.yaml
+
+# The exception of each Ollama tier to the kube-linter check run-as-non-root (#6068): the
+# initContainer own-model-directory runs as root (ollama-profiles.yaml says why). The patch
+# also reaches the tiers that `devops ai gateway render` writes. It changes only the metadata of
+# the DaemonSet, so no pod starts again.
+patches:
+  - target:
+      kind: DaemonSet
+      labelSelector: llm.devops.io/backend=ollama
+    patch: |-
+      apiVersion: apps/v1
+      kind: DaemonSet
+      metadata:
+        name: ollama-tier
+        annotations:
+          ignore-check.kube-linter.io/run-as-non-root: >-
+            The initContainer own-model-directory runs as root with CAP_CHOWN alone, to give the
+            hostPath model directory to UID 10001. The container ollama runs as UID 10001 (#1060,
+            #5012).

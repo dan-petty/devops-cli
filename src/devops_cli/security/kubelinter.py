@@ -118,9 +118,10 @@ class KubelinterScanner(BaseSecurityScanner):
     )
 
     def build_command(self, target_path: Path, **kwargs: Any) -> list[str]:
-        """Build argument command list for invoking Kube-linter."""
+        """Build argument command list for invoking Kube-linter. The scan's `config` names the
+        config file that kube-linter reads, when the caller gives one."""
         target_abs = target_path.resolve() if target_path.exists() else target_path
-        return build_kubelinter_cmd(target_abs)
+        return build_kubelinter_cmd(target_abs, config=kwargs.get("config"))
 
     def parse_output(self, data: Any, target_path: Path) -> list[Finding]:
         """Parse raw Kube-linter JSON payload into Finding models."""
@@ -147,10 +148,16 @@ def run_kubelinter_scan(
     *,
     isolated: bool = False,
     tool_executor: ToolExecutor | None = None,
+    config: Path | None = None,
 ) -> ScanOutcome:
-    """Execute Kube-linter scanner and return scan outcome; `isolated` for a review (#972)."""
+    """Execute Kube-linter scanner and return scan outcome; `isolated` for a review (#972).
+
+    `config` names the config file of a scan that is not isolated, such as the `.kube-linter.yaml`
+    of the repository for a scan of a folder outside it (#6068). Without it, kube-linter reads the
+    `.kube-linter.yaml` of its working directory, if there is one.
+    """
     scanner = KubelinterScanner(tool_executor)
-    return scanner.scan(target, isolated=isolated)
+    return scanner.scan(target, isolated=isolated, config=config)
 
 
 __all__ = [

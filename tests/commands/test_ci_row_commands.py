@@ -84,6 +84,19 @@ def test_the_row_tuple_matches_the_registry() -> None:
     assert CHECK_ROW_NAMES == expected
 
 
+def test_the_kube_linter_row_lints_the_applications_of_the_tree() -> None:
+    """The row runs `devops k8s lint` with no target and no other command, before the rows of
+    `tests/gate` (#6068)."""
+    spec = get_check_spec("kube-linter")
+    names = [row.name for row in get_check_specs()]
+
+    assert (spec.cmd, spec.also_cmds, names.index("kube-linter") < names.index("k8s")) == (
+        ["uv", "run", "devops", "k8s", "lint"],
+        [],
+        True,
+    )
+
+
 def test_a_row_with_a_hand_written_command_runs_dry_run(recorder: list[list[str]]) -> None:
     """A row with a hand-written command plans its command under dry-run."""
     res = runner.invoke(app, ["lint", "--dry-run"])
