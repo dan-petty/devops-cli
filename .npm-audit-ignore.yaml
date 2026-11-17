@@ -1,0 +1,11 @@
+# `npm audit` reads no ignore file of its own; `devops ci audit` reads this one (#6204). It holds one
+# entry for each advisory that no released version fixes yet, in the form of .trivyignore.yaml. An
+# entry applies before its `expired_at` day. SECURITY.md "A Finding with No Fix" sets the rules.
+vulnerabilities:
+  - id: GHSA-fc5q-39xc-vjpf
+    paths:
+      - src/devops_cli/tools_lock/openspec/package-lock.json
+    statement: >-
+      picomatch ReDoS through repeated extglobs, through tinyglobby. No released picomatch fixes it
+      (newest 4.0.7), and OpenSpec 2.1.0 still needs picomatch ^4.0.4 (#6202).
+    expired_at: 2026-11-20

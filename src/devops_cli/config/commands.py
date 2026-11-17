@@ -252,6 +252,14 @@ def build_npm_audit_cmd(project_dir: Path | str) -> list[str]:
     ]
 
 
+def npm_audit_lockfile(cmd: Sequence[str]) -> str | None:
+    """The lockfile, relative to the project root, that an `npm audit` command of
+    `build_npm_audit_cmd` reads; None for any other command."""
+    if not cmd or cmd[0] != BIN_NPM or "--prefix" not in cmd:
+        return None
+    return f"{cmd[cmd.index('--prefix') + 1]}/package-lock.json"
+
+
 def build_openspec_cmd(*args: str) -> list[str]:
     """Build an `openspec` command: the pinned OpenSpec's program, then its arguments."""
     return [BIN_OPENSPEC, *args]

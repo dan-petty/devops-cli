@@ -136,7 +136,7 @@ dev = [
 ]
 # The docs site builder (#5152). Zensical is a beta from 0.1.0, so the pin is exact.
 docs = [
-    "zensical==0.1.1",
+    "zensical==0.1.2",
 ]
 
 [tool.hatch.build.targets.wheel]

@@ -302,6 +302,6 @@ Executed on workspace initialization (DevContainer startup) or on-demand.
 | `devops ci` fails at `docs` | CLI commands or flags changed without updating docs | Run `uv run devops docs generate` and verify with `devops docs check`. |
 | `pytest` intermittent test failures | Non-deterministic test ordering in multi-threaded code | Ensure assertions use order-independent checks (`any(...)` or sets) rather than fixed array indices. |
 | `uv audit` reports vulnerability | A dependency has a known security advisory | Run `uv lock --upgrade-package <name>` and verify compatibility. |
-| `npm audit` reports vulnerability | A package in a Node tool's `package-lock.json` has a known security advisory | Bump the tool with the runbook in the header of `src/devops_cli/tools_lock/tools.lock`. |
+| `npm audit` reports vulnerability | A package in a Node tool's `package-lock.json` has a known security advisory | Bump the tool with the runbook in the header of `src/devops_cli/tools_lock/tools.lock`. When no release holds the fix, add an entry to `.npm-audit-ignore.yaml` ([A Finding with No Fix](../SECURITY.md#a-finding-with-no-fix)). |
 | `devops ci audit` says an audit could not run | The registry is unreachable or serves no advisories endpoint; npm exits 1 for this as for a finding, uv exits 2 | Read the output above the verdict, restore the network or registry configuration and re-run. |
 | Agent PR targeting error | Topic PR opened against a base other than `main` | Update PR base branch via `devops pr edit <id> --base main`. |
