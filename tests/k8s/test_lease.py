@@ -29,27 +29,47 @@ TIMING = LeaseTiming()
 
 
 class _LeaseClock:
-    """The monotonic clock of the holders: each sleep of a holder moves it on by its seconds."""
+    """The monotonic clock of the holders, which moves only when each running holder sleeps. Then
+    it moves on by the retry period, so the holders try in turn, and a slow thread of one holder
+    does not let the time of the other one pass."""
 
-    def __init__(self) -> None:
+    def __init__(self, parties: int = 1) -> None:
         self.now = 0.0
+        self._parties = parties
+        self._asleep: list[asyncio.Future[None]] = []
         self._marks: list[tuple[float, asyncio.Event]] = []
 
     def monotonic(self) -> float:
         return self.now
 
     async def sleep(self, seconds: float) -> None:
-        self.now += seconds
-        for mark, reached in self._marks:
-            if self.now >= mark:
-                reached.set()
-        await asyncio.sleep(0)
+        woken: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        self._asleep.append(woken)
+        self._wake(seconds)
+        await woken
+
+    def leave(self) -> None:
+        """One holder stops, so the other one sleeps alone from now on."""
+        self._parties -= 1
+        self._asleep = [woken for woken in self._asleep if not woken.done()]
+        self._wake(TIMING.retry)
 
     def reach(self, mark: float) -> asyncio.Event:
-        """An event that a sleep sets when the clock reaches `mark`."""
+        """An event that the clock sets when it reaches `mark`."""
         reached = asyncio.Event()
         self._marks.append((mark, reached))
         return reached
+
+    def _wake(self, seconds: float) -> None:
+        if not self._asleep or len(self._asleep) < self._parties:
+            return
+        self.now += seconds
+        for woken in self._asleep:
+            woken.set_result(None)
+        self._asleep.clear()
+        for mark, reached in self._marks:
+            if self.now >= mark:
+                reached.set()
 
 
 def _holder(identity: str, lease_clock: _LeaseClock) -> LeaseHolder:
@@ -71,7 +91,7 @@ def test_a_pod_that_waits_takes_the_lease_only_after_the_holder_gives_it_back(
     """The old pod creates the Lease and renews it through four Lease durations, and the new pod
     does not take it. After the old pod's drain, it gives the Lease back, and the new pod takes it
     at its next try: the holder changes one time."""
-    lease_clock = _LeaseClock()
+    lease_clock = _LeaseClock(parties=2)
     old, new = _holder("pod-old", lease_clock), _holder("pod-new", lease_clock)
 
     async def handover() -> tuple[Any, ...]:
@@ -82,6 +102,7 @@ def test_a_pod_that_waits_takes_the_lease_only_after_the_holder_gives_it_back(
         during = (new.held, _stored(cluster)["holderIdentity"])
         keeping.cancel()
         await asyncio.gather(keeping, return_exceptions=True)
+        lease_clock.leave()
         given_back = await old.release()
         await waiting
         spec = _stored(cluster)
