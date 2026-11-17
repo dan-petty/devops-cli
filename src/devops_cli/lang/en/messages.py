@@ -5489,6 +5489,9 @@ class RoadmapMessages:
     plan_rewrite_note_verification: str = (
         "Group {group}: add the line `Verification:` with `{command}` under its first task."
     )
+    plan_rewrite_note_mark_verification: str = (
+        "Group {group}: mark the verification command `{command}` with `$ `."
+    )
     plan_rewrite_note_path: str = (
         "Group {group}: change the sample path `{path}` to the bare name `{name}`."
     )

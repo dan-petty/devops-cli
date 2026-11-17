@@ -1,12 +1,13 @@
 """The mechanical rewrite of a merged plan (#3556).
 
-A plan that the stage job wrote before a gate existed can fail that gate today. Three edits fix
+A plan that the stage job wrote before a gate existed can fail that gate today. Four edits fix
 most of these plans, and each one is mechanical:
 
 - A group with no marked `Verification:` command (a code span that starts with `$ `) gets a
   line under its first task. The command comes from the plan: `uv run devops ci test` with the test files of the `Changes:` line, or `uv run devops ci
   docs` when the group changes only documents. A command that the step refuses is not written, and
   a group that names neither gets no line.
+- An existing `Verification:` line that lacks `$ ` gets `$ ` prepended to its command code span (#3967).
 - A path in a task text that the tree lacks, and that no group lists or creates, is a sample path
   that a test writes at run time. It becomes a bare name, as the stage prompt asks.
 - A folder with no `design.md` gets a stub.
@@ -36,6 +37,7 @@ _DESIGN: Final[str] = "design.md"
 _TASKS: Final[str] = "tasks.md"
 _TEST_COMMAND: Final[str] = "uv run devops ci test"
 _DOCS_COMMAND: Final[str] = "uv run devops ci docs"
+_COMMAND_MARK: Final[str] = "$ "
 # The test files that one command line can name without a quote.
 _PLAIN_PATH: Final[re.Pattern[str]] = re.compile(r"[\w./-]+")
 _VERIFICATION_LINE: Final[re.Pattern[str]] = re.compile(r"^\s*[-*+]\s+Verification:")
@@ -135,10 +137,46 @@ def _command(group: TaskGroup) -> str | None:
     return command if verification_problem(command) is None else None
 
 
+def _has_verification(group: TaskGroup, lines: Sequence[str]) -> bool:
+    """Whether any line of the group is a `Verification:` line."""
+    end = group.line + len(group.text.split("\n"))
+    return any(
+        _VERIFICATION_LINE.match(lines[number])
+        for number in range(max(0, group.line), min(len(lines), end))
+    )
+
+
+def _mark_verification(group: TaskGroup, lines: list[str]) -> list[str]:
+    """Prepend `$ ` to the first code span of each unmarked `Verification:` line of `group`."""
+    texts = MESSAGES.roadmap
+    notes: list[str] = []
+    end = group.line + len(group.text.split("\n"))
+    for number in range(max(0, group.line), min(len(lines), end)):
+        line = lines[number]
+        if not _VERIFICATION_LINE.match(line):
+            continue
+        m = re.search(r"`([^`]*)`", line)
+        if m is None:
+            continue
+        command = m.group(1)
+        if command.startswith(_COMMAND_MARK):
+            continue
+        lines[number] = line[: m.start(1)] + _COMMAND_MARK + line[m.start(1) :]
+        notes.append(
+            texts.plan_rewrite_note_mark_verification.format(group=group.number, command=command)
+        )
+    return notes
+
+
 def _verification(group: TaskGroup, lines: Sequence[str]) -> tuple[int, str, str] | None:
     """The line to add to `group`, as the number of the line to add it after, the text of the line
     and the note. None when the group has a `Verification:` line or the plan gives no command."""
-    if group.verification_commands or not group.tasks or group.tasks[0].line < 0:
+    if (
+        group.verification_commands
+        or _has_verification(group, lines)
+        or not group.tasks
+        or group.tasks[0].line < 0
+    ):
         return None
     command = _command(group)
     if command is None:
@@ -169,6 +207,7 @@ def _rewrite_tasks(tasks_md: str, tree: StagedTree) -> tuple[str, list[str]]:
     notes: list[str] = []
     for group in groups:
         notes.extend(_bare_names(group, lines, tree, known))
+        notes.extend(_mark_verification(group, lines))
     added = [found for group in groups if (found := _verification(group, lines)) is not None]
     for after, text, _ in sorted(added, reverse=True):
         _insert(lines, after, text)
