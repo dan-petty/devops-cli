@@ -3238,7 +3238,6 @@ class RoadmapMessages:
     alternatives_comment_queries: str = "Searches run:"
     alternatives_comment_search: str = "{query}, results: {results}"
     alternatives_comment_sources: str = "Sources:"
-    alternatives_comment_sources_left_out: str = "{count} more sources are left out"
     alternatives_comment_item: str = "- {text}"
     # The block that GitHub shows closed: the tools considered, the searches and the sources.
     alternatives_comment_fold_open: str = "<details><summary>Searches ({count})</summary>"

@@ -68,10 +68,10 @@ The comment gives:
 - the verdict and the reason of the model for it;
 - the tool on one line, with its URL, license, last activity and maintained state, as in the block;
 - what the tool covers and lacks;
-- one block that GitHub shows closed, `Searches (<count>)`. It holds the tools considered: every tool whose facts the run read, each with its URL, license and last activity. It also holds the answered searches with their number of results. Last, it holds at most five sources, and a line that says how many more the comment leaves out. GitHub shows each URL as a link;
+- one block that GitHub shows closed, `Searches (<count>)`. It holds the tools considered: every tool whose facts the run read, each with its URL, license and last activity. It also holds the answered searches with their number of results. Last, it holds every source of the reply. GitHub shows each URL as a link;
 - one sentence that says a person decides what the check means for the item.
 
-The prompt asks the model for a brief reply: a reason of one sentence, and a few short items in `covers`, `lacks` and `sources`. The check refuses no reply for its length and cuts no text of the model. The comment of a skip class is one line, for example `Alternatives check: not-applicable (docs item; no search).`
+The prompt asks the model for a brief reply: a reason of one sentence, and a few short items in `covers`, `lacks` and `sources`. The check refuses no reply for its length and cuts no text or list of the model. The comment of a skip class is one line, for example `Alternatives check: not-applicable (docs item; no search).`
 
 A check that posts a comment adds a new one. It never changes the comment of an earlier check.
 

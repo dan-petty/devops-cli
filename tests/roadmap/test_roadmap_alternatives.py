@@ -27,7 +27,6 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
     CONST_ROADMAP_ALTERNATIVES_END_MARKER,
     CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS,
-    CONST_ROADMAP_ALTERNATIVES_MAX_COMMENT_SOURCES,
     CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS,
     CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
     CONST_ROADMAP_ALTERNATIVES_START_MARKER,
@@ -1763,13 +1762,10 @@ def test_a_reply_with_no_reason_is_refused_by_its_schema() -> None:
         AlternativesReply.model_validate({"verdict": "none"})
 
 
-def test_the_comment_folds_at_most_the_bound_of_sources_and_says_how_many_it_left_out(
+def test_the_comment_folds_every_source_of_the_reply_and_leaves_none_out(
     store: InMemoryRoadmapStore,
 ) -> None:
-    urls = [
-        f"https://example.com/source-{n}"
-        for n in range(CONST_ROADMAP_ALTERNATIVES_MAX_COMMENT_SOURCES + 3)
-    ]
+    urls = [f"https://example.com/source-{n}" for n in range(8)]
     tools = AlternativesTools(store=store, allowed_urls=set(urls))
     tools.searches.append(alternatives.Search("scanner", len(urls)))
     number = _item(store)
@@ -1780,12 +1776,12 @@ def test_the_comment_folds_at_most_the_bound_of_sources_and_says_how_many_it_lef
     check = alternatives.validate_reply(item, reply, tools, NOW, ())
 
     assert not isinstance(check, alternatives.CheckFailure)
-    _, folded = _fold_of(check.comment)
-    shown = [line for line in folded.splitlines() if line.startswith("- https://")]
-    assert (shown, "- 3 more sources are left out" in folded) == (
-        [f"- {url}" for url in urls[:CONST_ROADMAP_ALTERNATIVES_MAX_COMMENT_SOURCES]],
-        True,
-    )
+    shown, folded = _fold_of(check.comment)
+    assert (
+        [line for line in folded.splitlines() if line.startswith("- https://")],
+        "https://" in shown,
+        "left out" in check.comment,
+    ) == ([f"- {url}" for url in urls], False, False)
 
 
 def test_a_reply_longer_than_the_prompt_asks_is_written_whole(
