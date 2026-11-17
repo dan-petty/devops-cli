@@ -171,6 +171,16 @@
       "groupName": "tools"
     },
     {
+      "description": "A file under src/devops_cli/ is runtime code, so the update is a fix: the Semantic PR title check refuses a hidden type there, and release-please releases it (#6061). Such files are the tools lock with its npm and pip-compile files, the runner tools table and DEFAULT_PYTHON_VERSION. A group takes the prefix of its first update, so each group with such a member sets the prefix itself: uv, node, python runtime and bandit.",
+      "matchFileNames": ["src/devops_cli/**"],
+      "commitMessagePrefix": "fix(deps):"
+    },
+    {
+      "description": "Lock file maintenance writes the npm lockfiles of the tools lock again, and the pip-compile refresh its requirements files, so it is a fix (#6061).",
+      "matchUpdateTypes": ["lockFileMaintenance"],
+      "commitMessagePrefix": "fix(deps):"
+    },
+    {
       "description": "A custom manager of a file under k8s/ updates the cluster.",
       "matchManagers": ["custom.regex"],
       "matchFileNames": ["k8s/**"],
@@ -207,17 +217,22 @@
       "allowedVersions": "<2.0.0"
     },
     {
-      "description": "SearXNG publishes many tags a day, and the tests hold the engine names of the pinned image. A tag has no minimum release age (CONTRIBUTING.md, Dependency Versions), so a person refreshes the engine names at each bump. Each tag ends in a commit hash, which the versioning ignores.",
+      "description": "SearXNG publishes many tags a day. A tag has no minimum release age (CONTRIBUTING.md, Dependency Versions). Each tag ends in a commit hash, which the versioning ignores.",
       "matchPackageNames": ["searxng/searxng", "docker.io/searxng/searxng"],
       "versioning": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-[0-9a-f]+$",
       "prBodyNotes": [
-        "Before the merge, follow the bump steps in `docs/CLUSTER.md`, section SearXNG: refresh `tests/fixtures/searxng/default_engine_names.txt` from the new image and read its notes on the engines that the settings keep."
+        "Before the merge, read the notes of the release on the engines that the settings keep, and run `devops k8s searxng-check` against the new image on the cluster (`docs/CLUSTER.md`, section SearXNG)."
       ]
     },
     {
-      "description": "A base image update of the service image is a fix, so release-please releases it. Other updates stay chore and release nothing alone.",
+      "description": "A base image update of the service image is a fix, so release-please releases it. Other updates stay chore and release nothing alone, except a chart update.",
       "matchManagers": ["dockerfile"],
       "matchFileNames": ["Dockerfile"],
+      "commitMessagePrefix": "fix(deps):"
+    },
+    {
+      "description": "A chart update changes the chart that deploy-stack and Argo CD install: deploy-stack reads the version from the Application of the chart (#6060). So the update is a fix, and release-please releases it (#6054).",
+      "matchDatasources": ["helm"],
       "commitMessagePrefix": "fix(deps):"
     },
     {
@@ -238,7 +253,8 @@
     {
       "description": "The two Dockerfiles, the setup-uv version inputs and the runner tools table.",
       "matchPackageNames": ["astral-sh/uv", "ghcr.io/astral-sh/uv"],
-      "groupName": "uv"
+      "groupName": "uv",
+      "commitMessagePrefix": "fix(deps):"
     },
     {
       "description": "The gh download of the Dockerfile and the runner tools table.",
@@ -248,12 +264,14 @@
     {
       "description": ".node-version, the node images, the devcontainer node feature and the runner tools table.",
       "matchPackageNames": ["node"],
-      "groupName": "node"
+      "groupName": "node",
+      "commitMessagePrefix": "fix(deps):"
     },
     {
       "description": "Every Python 3.<minor> place. A new minor gets its own branch, so its Dashboard approval does not stop the digest and patch updates.",
       "matchPackageNames": ["python"],
       "groupName": "python runtime",
+      "commitMessagePrefix": "fix(deps):",
       "separateMultipleMinor": true,
       "prBodyNotes": [
         "A new Python minor is a migration: change the other `python3.<minor>` paths (`git grep -n 'python3\\.'`) and the `python:3.<minor>-slim` defaults under `src/` in this pull request, then run the full gate."
@@ -267,7 +285,8 @@
     {
       "description": "The bandit dev dependency, the tools lock and bandit.in and bandit.txt.",
       "matchPackageNames": ["bandit"],
-      "groupName": "bandit"
+      "groupName": "bandit",
+      "commitMessagePrefix": "fix(deps):"
     },
     {
       "description": "The actionlint image of the devcontainer image and of the ci.yml step.",
@@ -275,9 +294,10 @@
       "groupName": "actionlint"
     },
     {
-      "description": "The DCGM exporter chart and image: the exporter version of the image tag is the version of the chart.",
+      "description": "The DCGM exporter chart and image: the exporter version of the image tag is the version of the chart. A group takes the prefix of its first update, so the group sets the fix prefix of a chart update.",
       "matchPackageNames": ["dcgm-exporter", "nvcr.io/nvidia/k8s/dcgm-exporter"],
-      "groupName": "dcgm-exporter"
+      "groupName": "dcgm-exporter",
+      "commitMessagePrefix": "fix(deps):"
     },
     {
       "description": "The OpenSpec package, its lockfile and the tools lock. The skills that OpenSpec generates hold its version, so the branch writes them again.",
@@ -300,7 +320,7 @@
       "description": "The gh-dash schema fixture holds the schema of the pinned version.",
       "matchPackageNames": ["dlvhdr/gh-dash"],
       "prBodyNotes": [
-        "Before the merge, replace `tests/fixtures/gh_dash_schema/` with the schema of the new version. `tests/core/test_gh_dash_config.py` checks it against the version of the tools lock."
+        "Before the merge, replace `tests/fixtures/gh_dash_schema/` with the schema of the new version."
       ]
     },
     {
@@ -339,6 +359,12 @@
       "matchPackageNames": ["opentelemetry-api"],
       "matchCurrentVersion": "<1.45.2",
       "enabled": false
+    },
+    {
+      "description": "A person runs devops k8s searxng-check against each new SearXNG image on the cluster, so a SearXNG update waits for an approval on the Dependency Dashboard. It gets its own branch, so that the other container images do not wait for it (#6029, #6051).",
+      "matchPackageNames": ["searxng/searxng", "docker.io/searxng/searxng"],
+      "groupName": "searxng",
+      "dependencyDashboardApproval": true
     }
   ]
 }

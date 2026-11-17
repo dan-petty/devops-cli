@@ -2,8 +2,7 @@
 
 Prometheus scraped no gateway or GPU metric, so #545's imbalance was found by exec-ing
 `nvidia-smi` in each pod, and `llm-stack.json` queried `http_requests_total`, which nothing in
-the stack exposes. That dashboard's queries are checked against captures of the exporters in
-`tests/test_stack_dashboards.py`.
+the stack exposes.
 """
 
 from __future__ import annotations
@@ -24,73 +23,6 @@ from devops_cli.http.egress import EgressLevel
 from tests.support.fakes.http import WebFake
 
 K8S = Path("k8s")
-
-
-def _yaml_docs(path: Path) -> list[dict[str, Any]]:
-    return [d for d in yaml.safe_load_all(path.read_text(encoding="utf-8")) if d]
-
-
-def test_monitoring_scrapes_the_gateway() -> None:
-    """Verify k8s-monitoring has prometheusOperatorObjects enabled and k8s/llm/gateway/servicemonitor.yaml selects the gateway."""
-    values = yaml.safe_load((K8S / "monitoring/k8s-monitoring-values.yaml").read_text("utf-8"))
-    poo = values["prometheusOperatorObjects"]
-    monitors = {
-        m["metadata"]["name"]: m["spec"]
-        for m in _yaml_docs(K8S / "llm/gateway/servicemonitor.yaml")
-        if m.get("kind") == "ServiceMonitor"
-    }
-    all_services = list(_yaml_docs(K8S / "llm/gateway/service.yaml"))
-
-    def scraped(monitor: dict[str, Any]) -> list[tuple[str, str]]:
-        selector = monitor["selector"]
-        match_labels = selector.get("matchLabels", {})
-        matched_services = [
-            svc
-            for svc in all_services
-            if all(svc["metadata"].get("labels", {}).get(k) == v for k, v in match_labels.items())
-        ]
-        endpoint = monitor["endpoints"][0]
-        return [
-            (svc["metadata"]["name"], endpoint["path"])
-            for svc in matched_services
-            if endpoint["port"] in {p["name"] for p in svc["spec"]["ports"]}
-        ]
-
-    gateway_scraped = scraped(monitors["llm-gateway"])
-
-    assert (
-        poo["enabled"],
-        "extraObjects" in values,
-        gateway_scraped,
-    ) == (
-        True,
-        False,
-        [("llm-gateway", "/metrics/")],
-    )
-
-
-def test_network_policies_let_prometheus_reach_the_metrics_ports() -> None:
-    """Verify Prometheus may leave for the gateway metrics port."""
-    (monitoring,) = _yaml_docs(K8S / "monitoring/networkpolicy.yaml")
-    to_llm = {
-        port["port"]
-        for rule in monitoring["spec"]["egress"]
-        for dest in rule.get("to", [])
-        if dest.get("namespaceSelector", {})
-        .get("matchLabels", {})
-        .get("kubernetes.io/metadata.name")
-        == "llm"
-        for port in rule.get("ports", [])
-    }
-
-    assert 4000 in to_llm
-
-
-def test_the_gateway_serves_its_prometheus_metrics() -> None:
-    """Verify LiteLLM's Prometheus callback is on."""
-    config = yaml.safe_load((K8S / "llm/gateway/config.yaml").read_text(encoding="utf-8"))
-
-    assert "prometheus" in config["litellm_settings"]["callbacks"]
 
 
 def test_the_dcgm_exporter_runs_on_every_gpu_node_without_extra_privileges() -> None:

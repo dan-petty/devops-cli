@@ -4,11 +4,9 @@ hold (#4905, ADR 0027)."""
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-import pytest
 import yaml
 
 from devops_cli.commands.k8s.stack_lifecycle import PRODUCT_MANIFESTS_BY_STACK
@@ -25,20 +23,11 @@ from tests.support.paths import REPO_ROOT
 
 RENOVATE_DIR = K8S / "devops" / "renovate"
 SERVICE_IMAGE = "ghcr.io/dan-petty/devops-cli/service"
-IMAGE_PATTERN = re.compile(
-    r"^ghcr\.io/renovatebot/renovate:(?P<tag>\d+\.\d+\.\d+)@sha256:[0-9a-f]{64}$"
-)
 # GitHub ends an installation token one hour after it mints it.
 TOKEN_LIFE_SECONDS = 3600
 # The Renovate user of the image (`ubuntu`, 12021). A name cannot be checked against runAsNonRoot.
 RENOVATE_USER = 12021
 TOKEN_PATH = PurePosixPath("/token/github-token")
-# The image paths that Renovate writes at run time, each on a volume, so that the root file
-# system stays read-only (Trivy KSV-0014). `/var/lib/containerbase` is not one of them: root owns
-# it with mode 0755, and it holds the tool markers that the image build wrote.
-# The temp folder of the pod, not a path of this host.
-POD_TMP = str(PurePosixPath("/") / "tmp")
-WRITABLE_PATHS = {POD_TMP, "/opt/containerbase", "/home/ubuntu", "/cache", "/report"}
 SETTINGS = (
     "renovate.github_app_id",
     "renovate.github_app_installation_id",
@@ -68,10 +57,6 @@ def _containers() -> dict[str, dict[str, Any]]:
     return {c["name"]: c for c in [*pod["initContainers"], *pod["containers"]]}
 
 
-def _env(container: dict[str, Any]) -> dict[str, str]:
-    return {item["name"]: item["value"] for item in container.get("env", []) if "value" in item}
-
-
 def _config_files() -> dict[str, str]:
     return _object("ConfigMap", "renovate-config")["data"]
 
@@ -87,38 +72,6 @@ def _mounts(container: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 def _volumes() -> dict[str, dict[str, Any]]:
     return {volume["name"]: volume for volume in _pod()["volumes"]}
-
-
-def test_renovate_runs_the_pinned_release_with_its_own_entrypoint() -> None:
-    """The image names a release tag and the digest of its index. The command is the entrypoint of
-    the image, which runs the containerbase start before Renovate."""
-    renovate = _containers()["renovate"]
-
-    assert (
-        bool(IMAGE_PATTERN.match(renovate["image"])),
-        renovate["imagePullPolicy"],
-        renovate["command"],
-        renovate["args"],
-    ) == (True, "IfNotPresent", ["/usr/local/sbin/renovate-entrypoint.sh"], ["renovate"])
-
-
-def test_the_cronjob_runs_every_two_hours_in_utc_and_one_run_at_a_time() -> None:
-    """`Forbid` keeps one pod on the ReadWriteOnce cache claim. A run that changed GitHub never
-    runs again on its own."""
-    cronjob = _object("CronJob", "renovate")["spec"]
-    job = cronjob["jobTemplate"]["spec"]
-
-    assert (
-        cronjob["schedule"],
-        cronjob["timeZone"],
-        cronjob["concurrencyPolicy"],
-        cronjob["startingDeadlineSeconds"],
-        cronjob.get("suspend", False),
-        job["backoffLimit"],
-        job["ttlSecondsAfterFinished"],
-        job["activeDeadlineSeconds"],
-        _pod()["restartPolicy"],
-    ) == ("17 */2 * * *", "Etc/UTC", "Forbid", 600, False, 0, 86400, 3000, "Never")
 
 
 def test_the_timeouts_nest_inside_the_life_of_the_token() -> None:
@@ -177,20 +130,6 @@ def test_the_token_init_container_writes_the_file_that_the_config_reads() -> Non
     )
 
 
-def test_the_token_init_container_has_a_writable_home_and_data_folder() -> None:
-    """The Service image runs here as the Renovate user, so the token file is the Renovate
-    user's. That user cannot write the home of the image, so the home is an emptyDir."""
-    token = _containers()["token"]
-    writable = {path for path, mount in _mounts(token).items() if not mount.get("readOnly")}
-    env = _env(token)
-
-    assert (
-        writable,
-        env["DEVOPS_CLI_DATA_DIR"].startswith("/home/devops/"),
-        token.get("securityContext", {}).get("runAsUser", _pod()["securityContext"]["runAsUser"]),
-    ) == ({"/home/devops", POD_TMP, str(TOKEN_PATH.parent)}, True, RENOVATE_USER)
-
-
 def test_the_pod_meets_pod_security_restricted() -> None:
     """Namespace devops enforces `restricted`. The pod runs as the Renovate user of the image,
     mounts no host path and no token, and each container has a read-only root."""
@@ -229,41 +168,6 @@ def test_the_pod_meets_pod_security_restricted() -> None:
     )
 
 
-def test_the_seed_init_container_copies_the_image_folders_that_renovate_writes() -> None:
-    """`/opt/containerbase` and `/home/ubuntu` hold what the image build wrote, and Renovate
-    installs tools there at run time. A plain emptyDir would hide the build files, so the seed
-    copies both folders into the volume that Renovate then mounts on the same paths."""
-    containers = _containers()
-    seed = containers["seed"]
-    renovate_mounts = _mounts(containers["renovate"])
-    (seed_mount,) = seed["volumeMounts"]
-    seeded = {
-        path: mount["subPath"]
-        for path, mount in renovate_mounts.items()
-        if mount["name"] == seed_mount["name"]
-    }
-
-    assert (
-        seed["image"] == containers["renovate"]["image"],
-        seed["command"],
-        seeded,
-        {path for path, mount in renovate_mounts.items() if not mount.get("readOnly")},
-    ) == (
-        True,
-        [
-            "cp",
-            "-a",
-            "--no-preserve=ownership",
-            "--parents",
-            "/opt/containerbase",
-            "/home/ubuntu",
-            seed_mount["mountPath"],
-        ],
-        {"/opt/containerbase": "opt/containerbase", "/home/ubuntu": "home/ubuntu"},
-        WRITABLE_PATHS,
-    )
-
-
 def test_each_container_has_requests_and_limits_and_each_empty_dir_a_size() -> None:
     containers = _containers().values()
     sizes = {
@@ -281,59 +185,6 @@ def test_each_container_has_requests_and_limits_and_each_empty_dir_a_size() -> N
         ],
         [name for name, size in sizes.items() if not size],
     ) == ([], [])
-
-
-def test_the_config_runs_every_repository_of_the_installation_and_onboards_none_yet() -> None:
-    """The App installation is the scope, so no repository list is copied here. Only devops-cli
-    holds a config today. The others get no onboarding pull request until #4913 turns
-    `onboarding` on, and then the onboarding config extends the shared preset."""
-    config = _config()
-
-    assert (
-        config["platform"],
-        config["autodiscover"],
-        config["onboarding"],
-        config["requireConfig"],
-        config["onboardingConfig"]["extends"],
-        "token" in config,
-        "gitAuthor" in config,
-    ) == (
-        "github",
-        True,
-        False,
-        "required",
-        ["github>dan-petty/devops-cli//.github/renovate/base"],
-        False,
-        False,
-    )
-
-
-def test_the_caches_are_on_the_claim_and_the_report_on_a_volume() -> None:
-    config = _config()
-    renovate_mounts = _mounts(_containers()["renovate"])
-    cache = renovate_mounts[config["cacheDir"]]
-    report = renovate_mounts[str(PurePosixPath(config["reportPath"]).parent)]
-
-    assert (
-        config["binarySource"],
-        PurePosixPath(config["containerbaseDir"]).is_relative_to(config["cacheDir"]),
-        config["repositoryCache"],
-        config["reportType"],
-        config["persistRepoData"],
-        _volumes()[cache["name"]]["persistentVolumeClaim"]["claimName"],
-        set(_volumes()[report["name"]]) - {"name"},
-    ) == ("install", True, "enabled", "file", False, "renovate-cache", {"emptyDir"})
-
-
-def test_the_cache_claim_survives_a_prune_and_a_delete() -> None:
-    pvc = _object("PersistentVolumeClaim", "renovate-cache")
-
-    assert (
-        pvc["metadata"]["annotations"]["argocd.argoproj.io/sync-options"],
-        pvc["spec"]["accessModes"],
-        pvc["spec"]["storageClassName"],
-        pvc["spec"]["resources"]["requests"]["storage"],
-    ) == ("Prune=false,Delete=false", ["ReadWriteOnce"], "local-path", "5Gi")
 
 
 def _post_upgrade_commands() -> list[str]:
@@ -365,25 +216,6 @@ def test_no_upgrade_task_runs_until_the_token_is_out_of_its_reach() -> None:
         config["allowedCommands"],
         _post_upgrade_commands(),
     ) == (False, [], [])
-
-
-def test_the_environment_opens_update_pull_requests_and_uses_no_metadata_service() -> None:
-    """The first measured run (#4909) worked, so Renovate runs with no dry run (#6022)."""
-    env = _env(_containers()["renovate"])
-    config_mount = _mounts(_containers()["renovate"])[
-        str(PurePosixPath(env["RENOVATE_CONFIG_FILE"]).parent)
-    ]
-
-    assert (
-        "RENOVATE_DRY_RUN" in env,
-        env["RENOVATE_USE_CLOUD_METADATA_SERVICES"],
-        env["RENOVATE_X_SQLITE_PACKAGE_CACHE"],
-        env["OSV_OFFLINE_DATABASE_FORMAT"],
-        env["OSV_OFFLINE_MAX_AGE"],
-        PurePosixPath(env["RENOVATE_CONFIG_FILE"]).name,
-        _volumes()[config_mount["name"]]["configMap"]["name"],
-        config_mount["readOnly"],
-    ) == (False, "false", "true", "split", "6h", "config.js", "renovate-config", True)
 
 
 def test_the_config_uses_no_hosted_mend_service() -> None:
@@ -423,17 +255,6 @@ def test_the_secret_row_holds_the_two_ids_and_the_key_under_their_variables() ->
     )
 
 
-def test_argo_cd_ignores_the_pushed_secret_as_an_orphan() -> None:
-    documents = yaml.safe_load_all(
-        (K8S / "argocd" / "apps" / "projects.yaml").read_text(encoding="utf-8")
-    )
-    (homelab,) = (d for d in documents if d and d["metadata"]["name"] == "homelab")
-
-    assert {"group": "", "kind": "Secret", "name": "renovate"} in homelab["spec"][
-        "orphanedResources"
-    ]["ignore"]
-
-
 def test_every_file_is_in_both_kustomizations_and_the_deploy_stack() -> None:
     """Argo CD syncs the files that the kustomizations list, and `devops k8s deploy-stack` applies
     the files of `PRODUCT_MANIFESTS_BY_STACK`."""
@@ -451,25 +272,6 @@ def test_every_file_is_in_both_kustomizations_and_the_deploy_stack() -> None:
         True,
         files,
     )
-
-
-@pytest.mark.parametrize(
-    ("kind", "name"),
-    [
-        ("ConfigMap", "renovate-config"),
-        ("CronJob", "renovate"),
-        ("PersistentVolumeClaim", "renovate-cache"),
-        ("NetworkPolicy", "renovate-perimeter"),
-    ],
-)
-def test_each_object_is_in_namespace_devops_and_part_of_the_stack(kind: str, name: str) -> None:
-    metadata = _object(kind, name)["metadata"]
-
-    assert (
-        metadata["namespace"],
-        metadata["labels"]["app.kubernetes.io/name"],
-        metadata["labels"]["app.kubernetes.io/part-of"],
-    ) == ("devops", "renovate", "devops-cli-stack")
 
 
 def test_the_perimeter_admits_no_ingress_and_only_dns_otel_and_public_https() -> None:

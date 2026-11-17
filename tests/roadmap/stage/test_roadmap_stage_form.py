@@ -182,15 +182,42 @@ def test_a_flat_new_test_path_is_refused_with_the_mirror_directory() -> None:
     (problem,) = _problems(plan)
     assert problem == (
         f"Group 1 creates `{FLAT}`, and the directory `tests` does not mirror the code that the "
-        "plan changes. A new test goes in `tests/roadmap` or `tests/invariants`. Move it there."
+        "plan changes. A new test goes in `tests/roadmap`. Move it there."
     )
 
 
-def test_a_new_test_in_the_mirror_directory_or_in_invariants_is_accepted() -> None:
-    invariant = "tests/invariants/test_source_tree.py"
-    plan = _plan(CODE, MIRRORED, invariant, creates=(MIRRORED, invariant))
+def test_a_new_test_in_the_mirror_directory_is_accepted() -> None:
+    plan = _plan(CODE, MIRRORED, creates=(MIRRORED,))
 
     assert _problems(plan) == []
+
+
+INVARIANT = "tests/invariants/test_k8s_runner.py"
+
+
+def test_a_new_test_in_invariants_is_refused_with_the_mirror_directory() -> None:
+    """A new test checks the source code in the mirror of its package. `tests/invariants/` holds
+    most of the tests that read a manifest or a config file, so a plan adds none there (#6080)."""
+    plan = _plan(CODE, INVARIANT, creates=(INVARIANT,))
+
+    (problem,) = _problems(plan)
+    assert f"`{INVARIANT}`" in problem
+    assert "A new test goes in `tests/roadmap`." in problem
+
+
+def test_a_plan_with_no_source_path_refuses_a_new_test_in_invariants() -> None:
+    """A plan that changes no source file has no source code for a new invariant test to check:
+    a test that it adds there reads a manifest or a config file (#6080)."""
+    plan = _plan(
+        ".github/renovate.json",
+        INVARIANT,
+        creates=(INVARIANT,),
+        verify=f"uv run devops ci test {INVARIANT}",
+    )
+
+    (problem,) = _problems(plan)
+    assert f"`{INVARIANT}`" in problem
+    assert "mirrors the package of the source code that it tests" in problem
 
 
 def test_a_new_test_is_checked_against_the_code_of_every_group() -> None:
@@ -408,11 +435,9 @@ def _example_paths(text: str) -> list[str]:
 
 
 def _mirrored(path: str) -> bool:
-    """Whether the folder of `path` sits under `tests/` and mirrors a package of `src/devops_cli`,
-    or is the acceptance folder of the invariants (#4083)."""
+    """Whether the folder of `path` sits under `tests/` and mirrors a package of `src/devops_cli`.
+    A plan adds no test module to `tests/invariants/` (#6080)."""
     folder = Path(path).parent
-    if folder == Path("tests/invariants"):
-        return True
     package = REPO_ROOT / "src" / "devops_cli" / folder.relative_to("tests")
     return folder != Path("tests") and package.is_dir()
 

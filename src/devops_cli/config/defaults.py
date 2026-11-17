@@ -95,8 +95,7 @@ DEFAULT_AI_FALLBACK_PROVIDER = "ollama"
 DEFAULT_AI_FALLBACK_MODEL = "qwen3.8:27b"
 # The hosted model that local chat tokens are priced against when `ai.reference_model` is not
 # set (#2194). The Service ConfigMap template sets `qwen3.8:27b` and its price (#4241), and the AI
-# spend dashboard holds that price: tests/prometheus/test_k8s_monitoring_dashboards.py fails when
-# the template and the dashboard differ (#5914).
+# spend dashboard holds that price (#5914). Change both together.
 DEFAULT_AI_REFERENCE_MODEL: str = "gpt-4o"
 # The hosted model that local embedding tokens are priced against, and the genai-prices provider
 # that prices both reference models: genai-prices finds no provider for an embedding model by its

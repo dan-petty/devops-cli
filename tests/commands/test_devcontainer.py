@@ -15,7 +15,6 @@ from devops_cli.commands.devcontainer import app
 from tests.support.fakes.docker_engine import DockerEngineFake
 from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
-from tests.support.paths import REPO_ROOT
 
 if TYPE_CHECKING:
     from tests.support.fakes.clock import ClockFake
@@ -1381,14 +1380,6 @@ def test_scaffolding_writes_the_claude_config(tmp_path: Path) -> None:
     assert (tmp_path / ".mcp.json").is_file()
 
 
-def test_this_repository_ships_a_claude_mcp_config() -> None:
-    """The devcontainer installs the Claude extension, which needs this file to find the server."""
-    import json
-
-    config = json.loads(Path(".mcp.json").read_text(encoding="utf-8"))
-    assert "devops-cli" in config["mcpServers"]
-
-
 def test_the_kilo_config_launches_the_same_stdio_server() -> None:
     """Kilo Code reads `kilo.jsonc`: a `local` server with the command as one array."""
     from devops_cli.core.templating import render_json_template
@@ -1413,25 +1404,6 @@ def test_init_scaffolds_the_kilo_config_at_the_repository_root(
 
     kilo = json.loads((tmp_path / "kilo.jsonc").read_text(encoding="utf-8"))
     assert (result.exit_code, list(kilo["mcp"])) == (0, ["test-project"])
-
-
-def test_this_repository_ships_a_kilo_config() -> None:
-    """The devcontainer installs the Kilo Code extension, which needs this file to find the server."""
-    config = json.loads((REPO_ROOT / "kilo.jsonc").read_text(encoding="utf-8"))
-
-    assert list(config["mcp"]) == ["devops-cli"]
-
-
-def test_init_scaffolds_claude_settings_matching_the_repository_settings(
-    runner: CliRunner, tmp_path: Path
-) -> None:
-    """`devops devcontainer init` writes `.claude/settings.json` with the same permissions and
-    environment opt-outs as the repository's committed file."""
-    result = runner.invoke(app, ["init", str(tmp_path), "--name", "test-project"])
-
-    scaffolded = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
-    committed = json.loads((REPO_ROOT / ".claude" / "settings.json").read_text(encoding="utf-8"))
-    assert (result.exit_code, scaffolded) == (0, committed)
 
 
 def test_init_scaffolds_claude_settings_that_allow_the_standard_project_commands(
@@ -2520,126 +2492,6 @@ def test_bootstrap_k8s_prints_deploy_stack_command(
     expected_cmd = f"devops k8s deploy-stack --stack llm --context {CONST_K8S_MINIKUBE_CONTEXT}"
     assert expected_cmd in result.output
     assert resolve_devops_argv(expected_cmd.split()[1:]) is None
-
-
-def test_devcontainer_ollama_endpoint_matches_gateway_service_and_port() -> None:
-    """Verify .devcontainer/devcontainer.json ollama.endpoint addresses a valid profiles Service
-    and port that the LLM gateway routes ollama.model to (#820)."""
-    from urllib.parse import urlsplit
-
-    import yaml
-
-    dc_path = REPO_ROOT / ".devcontainer" / "devcontainer.json"
-    dc_data = json.loads(dc_path.read_text(encoding="utf-8"))
-    vscode_settings = dc_data["customizations"]["vscode"]["settings"]
-
-    endpoint = vscode_settings["ollama.endpoint"]
-    model = vscode_settings["ollama.model"]
-
-    parsed = urlsplit(endpoint)
-    svc_name = (parsed.hostname or "").split(".")[0]
-    svc_port = parsed.port
-
-    services_path = REPO_ROOT / "k8s" / "llm" / "profiles" / "services.yaml"
-    services_docs = list(yaml.safe_load_all(services_path.read_text(encoding="utf-8")))
-    services = {
-        doc["metadata"]["name"]: [p["port"] for p in doc["spec"]["ports"]]
-        for doc in services_docs
-        if doc and doc.get("kind") == "Service"
-    }
-
-    gateway_config_path = REPO_ROOT / "k8s" / "llm" / "gateway" / "config.yaml"
-    gateway_cfg = yaml.safe_load(gateway_config_path.read_text(encoding="utf-8"))
-
-    target_routes = [
-        item
-        for item in gateway_cfg.get("model_list", [])
-        if item.get("model_name") == model
-        or item.get("litellm_params", {}).get("model", "").endswith(model)
-    ]
-    routed_api_base = target_routes[0]["litellm_params"]["api_base"]
-    routed_svc = (urlsplit(routed_api_base).hostname or "").split(".")[0]
-
-    assert (
-        endpoint,
-        model,
-        svc_name,
-        svc_port,
-        svc_name in services,
-        svc_port in services.get(svc_name, []),
-        routed_svc in services,
-        routed_svc.startswith(svc_name),
-    ) == (
-        "http://ollama-48gib.llm.svc.cluster.local:11434",
-        "qwen3.8:27b",
-        "ollama-48gib",
-        11434,
-        True,
-        True,
-        True,
-        True,
-    )
-
-
-def test_the_node_version_file_and_the_devcontainer_feature_pin_the_same_node() -> None:
-    """The tool OpenSpec needs Node 20.19 or later and the feature floated to whatever the current
-    LTS was: `.node-version`, the image configuration, the template and the feature's entry in the
-    image lock name one Node. This repository's devcontainer uses the published image (#4248)."""
-    from devops_cli.core.templating import render_json_template
-
-    pinned = (REPO_ROOT / ".node-version").read_text(encoding="utf-8").strip()
-    image_config = json.loads(
-        (REPO_ROOT / ".devcontainer" / "image" / "devcontainer.json").read_text("utf-8")
-    )
-    scaffolded = json.loads(
-        render_json_template(
-            "devcontainer.json.j2",
-            project_name="demo",
-            python_version="3.14",
-            image=None,
-            published=False,
-            home_volume=None,
-            minikube=False,
-        )
-    )
-    image_lock = json.loads(
-        (REPO_ROOT / ".devcontainer" / "image" / "devcontainer-lock.json").read_text("utf-8")
-    )
-
-    feature = "ghcr.io/devcontainers/features/node"
-    versions = {
-        name: next(
-            options["version"] for ref, options in features.items() if ref.startswith(feature)
-        )
-        for name, features in (
-            ("image", image_config["features"]),
-            ("template", scaffolded["features"]),
-        )
-    }
-    assert (
-        pinned,
-        versions,
-        any(ref.startswith(feature) for ref in image_lock["features"]),
-    ) == ("24", {"image": "24", "template": "24"}, True)
-
-
-def test_devcontainer_image_configuration_omits_workspace_settings() -> None:
-    """The image configuration in .devcontainer/image/devcontainer.json builds the published
-    image without workspace mounts, lifecycle commands, or editor customizations (#1898)."""
-    image_config_path = REPO_ROOT / ".devcontainer" / "image" / "devcontainer.json"
-    assert image_config_path.is_file(), f"Missing {image_config_path}"
-
-    image_config = json.loads(image_config_path.read_text(encoding="utf-8"))
-    assert image_config.get("name") == "devops-cli"
-    assert image_config.get("build") == {
-        "dockerfile": "../Dockerfile",
-        "context": "../..",
-    }
-    assert image_config.get("remoteUser") == "vscode"
-    assert "mounts" not in image_config
-    assert "postCreateCommand" not in image_config
-    assert "postStartCommand" not in image_config
-    assert "customizations" not in image_config
 
 
 def test_post_create_installs_no_locked_tool(runner: CliRunner, tmp_path: Path) -> None:

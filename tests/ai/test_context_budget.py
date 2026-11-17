@@ -23,7 +23,6 @@ from devops_cli.ai.context_budget import (
 )
 from devops_cli.commands.ai import app as ai_app
 from devops_cli.exceptions.ai import TokenCountError
-from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
 
@@ -187,19 +186,3 @@ def test_a_missing_encoding_cache_stops_the_count_with_an_error_naming_the_cache
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1
     assert str(missing_cache) in warnings[0]
-
-
-def test_service_and_devcontainer_dockerfiles_populate_tiktoken_cache() -> None:
-    """Service and DevContainer Dockerfiles populate TIKTOKEN_CACHE_DIR at image build (#1421)."""
-    service_dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
-    devcontainer_dockerfile = (REPO_ROOT / ".devcontainer" / "Dockerfile").read_text(
-        encoding="utf-8"
-    )
-
-    assert (
-        "TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken" in service_dockerfile,
-        "COPY --from=deps /app/.cache/tiktoken /app/.cache/tiktoken" in service_dockerfile,
-        "cl100k_base" in service_dockerfile and "o200k_base" in service_dockerfile,
-        "TIKTOKEN_CACHE_DIR=" in devcontainer_dockerfile,
-        "cl100k_base" in devcontainer_dockerfile and "o200k_base" in devcontainer_dockerfile,
-    ) == (True, True, True, True, True)

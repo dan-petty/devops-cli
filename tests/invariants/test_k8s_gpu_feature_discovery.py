@@ -27,14 +27,3 @@ def _container() -> dict[str, Any]:
 def test_the_gpu_feature_discovery_container_sets_a_read_only_root_filesystem() -> None:
     container = _container()
     assert container["securityContext"]["readOnlyRootFilesystem"] is True
-
-
-def test_the_gpu_feature_discovery_container_keeps_privileged_gpu_access() -> None:
-    daemonset = _object("DaemonSet", "gpu-feature-discovery")
-    spec = pod_spec(daemonset)
-    assert spec is not None
-    container = _container()
-    assert container["securityContext"]["privileged"] is True
-    volume_names = {v["name"] for v in spec["volumes"]}
-    assert "output-dir" in volume_names
-    assert "host-sys" in volume_names

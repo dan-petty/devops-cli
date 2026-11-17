@@ -209,7 +209,7 @@ def _round(store: InMemoryRoadmapStore, tmp_path: Path) -> None:
 
 def _store(*candidates: str) -> InMemoryRoadmapStore:
     store = InMemoryRoadmapStore(clock=Clock())
-    store.seed_file(".github/labels.yml", (REPO_ROOT / ".github" / "labels.yml").read_text("utf-8"))
+    store.seed_file(".github/labels.yml", '- name: "type/feature"\n  color: "a2eeef"\n')
     store.seed_milestone(PLANNED)
     for title in candidates:
         store.seed_issue(title)

@@ -33,31 +33,6 @@ def _step(job: dict[str, Any], name: str) -> dict[str, Any]:
     return next(step for step in job["steps"] if step.get("name") == name)
 
 
-def test_the_mcp_server_stage_inherits_runner() -> None:
-    """The Dockerfile SHALL add an mcp-server target that inherits the runner stage."""
-    all_stages = _stages()
-    assert "mcp-server" in all_stages
-    mcp_stage = all_stages["mcp-server"]
-    from_line = next(words for words in mcp_stage if words[0].upper() == "FROM")
-    assert from_line[1] == "runner"
-
-
-def test_the_mcp_server_stage_installs_kubectl_and_helm_at_pinned_versions() -> None:
-    """The mcp-server target SHALL install kubectl and helm at the versions that tools.lock pins."""
-    mcp_stage = _stages()["mcp-server"]
-    runs = [" ".join(words[1:]) for words in mcp_stage if words[0].upper() == "RUN"]
-    joined = " ".join(runs)
-
-    assert "install-tools" in joined
-    assert "--tool kubectl" in joined
-    assert "--tool helm" in joined
-    assert "--check" in joined
-
-    lock = load_tools_lock().tools()
-    assert "kubectl" in lock
-    assert "helm" in lock
-
-
 def test_the_mcp_server_stage_runs_as_user_1000_and_keeps_directories_under_home() -> None:
     """The mcp-server target SHALL run as user 1000:1000 and keep data and uv cache under HOME."""
     mcp_stage = _stages()["mcp-server"]
@@ -67,13 +42,6 @@ def test_the_mcp_server_stage_runs_as_user_1000_and_keeps_directories_under_home
     assert users[-1] == "1000:1000"
     assert env["DEVOPS_CLI_DATA_DIR"].startswith(env["HOME"])
     assert env["UV_CACHE_DIR"].startswith(env["HOME"])
-
-
-def test_the_service_stage_is_last_and_mcp_server_comes_before_it() -> None:
-    """The service stage SHALL stay the last stage of the Dockerfile."""
-    names = list(_stages())
-    assert names[-1] == "service"
-    assert names.index("mcp-server") < names.index("service")
 
 
 def test_the_pull_request_check_builds_and_scans_mcp_server_image() -> None:
@@ -102,54 +70,9 @@ def test_the_pull_request_check_builds_and_scans_mcp_server_image() -> None:
     assert int(bound) <= 3000000000
 
 
-MCP_SERVER_STEPS = (
-    "Build and Load MCP Server Image",
-    "Run MCP Server Image Smoke Test",
-    "Scan MCP Server Image for Vulnerabilities",
-    "Build and Push MCP Server Image",
-    "Attest Build Provenance",
-    "Tag the Attested MCP Server Image",
-)
-
-
 def _release_job() -> dict[str, Any]:
     job: dict[str, Any] = _workflow("release.yml")["jobs"]["mcp-server-image"]
     return job
-
-
-def test_the_release_publishes_the_mcp_server_image_next_to_the_service_image() -> None:
-    """The release SHALL build, smoke-test, scan, push by digest, attest and tag the mcp-server image,
-    in that order, and only in the run that creates a release (#4324)."""
-    job = _release_job()
-    names = [step.get("name", "") for step in job["steps"]]
-    indices = [names.index(name) for name in MCP_SERVER_STEPS]
-    meta = next(step for step in job["steps"] if step.get("id") == "meta")
-    push = _step(job, "Build and Push MCP Server Image")["with"]
-    attest = _step(job, "Attest Build Provenance")["with"]
-
-    assert (
-        job["if"],
-        job["needs"],
-        job["env"]["MCP_SERVER_IMAGE"],
-        indices == sorted(indices),
-        _step(job, "Build and Load MCP Server Image")["with"]["target"],
-        push["target"],
-        "push-by-digest=true" in push["outputs"],
-        push["no-cache-filters"],
-        attest["subject-name"],
-        [line.strip() for line in meta["with"]["tags"].splitlines() if line.strip()],
-    ) == (
-        "needs.release-please.outputs.release_created == 'true'",
-        "release-please",
-        "ghcr.io/${{ github.repository }}/mcp-server",
-        True,
-        "mcp-server",
-        "mcp-server",
-        True,
-        "mcp-server",
-        "ghcr.io/${{ github.repository }}/mcp-server",
-        ["type=raw,value=${{ needs.release-please.outputs.tag_name }}", "type=raw,value=latest"],
-    )
 
 
 def test_the_release_scans_the_mcp_server_image_like_the_pull_request_check() -> None:
@@ -160,14 +83,6 @@ def test_the_release_scans_the_mcp_server_image_like_the_pull_request_check() ->
     )["with"]
 
     assert release == ci
-
-
-def test_the_smoke_test_of_the_mcp_server_image_is_the_same_in_ci_and_in_the_release() -> None:
-    """Both workflows SHALL run one smoke test, so the image that is pushed passed what CI checked."""
-    ci = _step(_workflow("ci.yml")["jobs"]["mcp-server-image"], MCP_SERVER_STEPS[1])["run"]
-    release = _step(_release_job(), MCP_SERVER_STEPS[1])["run"]
-
-    assert ci.strip() == release.strip()
 
 
 def test_every_mcp_server_trivyignore_entry_has_a_reason_and_an_exp_date_that_is_not_past() -> None:
@@ -229,35 +144,3 @@ def test_the_change_records_the_findings_and_the_date() -> None:
         "2026-11-14",
     ):
         assert expected in text
-
-
-def test_the_mcp_ignore_file_holds_the_kubectl_xnet_entry() -> None:
-    """The MCP server image ignore file holds a dedicated entry for kubectl's x/net finding (#5582)."""
-    text = (REPO_ROOT / ".trivyignore-mcp-server").read_text(encoding="utf-8")
-    lines = text.splitlines()
-    entry_indices = [
-        i for i, line in enumerate(lines) if line.strip().startswith("CVE-2026-78661 exp:")
-    ]
-    assert len(entry_indices) == 1
-    idx = entry_indices[0]
-    comment_lines = []
-    for prev_idx in range(idx - 1, -1, -1):
-        if not lines[prev_idx].strip().startswith("#"):
-            break
-        comment_lines.append(lines[prev_idx])
-    comment = " ".join(reversed(comment_lines))
-    assert "kubectl" in comment
-    assert "0.62.0" in comment
-    assert "#5582" in comment
-
-
-def test_the_mcp_scan_does_not_depend_on_the_gh_entry() -> None:
-    """Removing CVE-2026-78661 from .trivyignore leaves .trivyignore-mcp-server with its own entry (#5582)."""
-    gh_ignored = (REPO_ROOT / ".trivyignore").read_text(encoding="utf-8")
-    filtered_gh = "\n".join(
-        line for line in gh_ignored.splitlines() if "CVE-2026-78661" not in line
-    )
-    assert "CVE-2026-78661" not in filtered_gh
-
-    mcp_ignored = (REPO_ROOT / ".trivyignore-mcp-server").read_text(encoding="utf-8")
-    assert any(line.strip().startswith("CVE-2026-78661 exp:") for line in mcp_ignored.splitlines())

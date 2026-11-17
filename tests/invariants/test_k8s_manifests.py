@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fnmatch
 import functools
 import json
 import re
@@ -55,11 +54,6 @@ CLOUDFLARE_PROXY_READ_TIMEOUT_SECONDS = 125
 # push, the comment and the result line after it.
 FIX_PLAN_STOP_MARGIN_SECONDS = 1200
 
-# The router-level `allowed_fails` that LiteLLM 1.103.11 takes as unset (`DEFAULT_ALLOWED_FAILS`
-# in litellm/constants.py). At this value the router counts no failures: it cools a deployment
-# only by the failure rate of the minute, and never a group with one deployment (#5990).
-LITELLM_DEFAULT_ALLOWED_FAILS = 3
-
 # The first Ollama release that runs a multimodal embedding model, such as embeddinggemma-2,
 # through llama-server, its runner on Linux. 0.40.0 ran that model on Apple MLX only (#2395).
 OLLAMA_FIRST_LLAMA_SERVER_EMBEDDING_RELEASE = Version("0.40.4")
@@ -91,19 +85,6 @@ def test_a_gateway_attempt_ends_before_the_deadline_of_the_call() -> None:
         < min(CONST_ROADMAP_STAGE_JOB_MARGIN_SECONDS, runner_deadline),
         config["general_settings"]["cancel_on_disconnect"],
     ) == (True, True, True)
-
-
-def test_the_gateway_router_counts_failures_below_the_litellm_default() -> None:
-    """At the LiteLLM default of 3 the router counts no failures, so a group with one deployment
-    never cooled: against a mock provider that stalls, 6 of 6 calls of such a group failed with
-    no cooldown and no fallback before the call (#5990). Below the default the router cools a deployment after
-    `allowed_fails` + 1 failures within `cooldown_time`, and the next call goes to the next order
-    or the fallback. Above 0, so one failure does not cool an Ollama tier."""
-    config = yaml.safe_load((REPO_ROOT / "k8s/llm/gateway/config.yaml").read_text(encoding="utf-8"))
-
-    allowed_fails = config["router_settings"]["allowed_fails"]
-
-    assert 0 < allowed_fails < LITELLM_DEFAULT_ALLOWED_FAILS
 
 
 def test_a_cooled_deepseek_deployment_is_checked_again_before_its_cooldown_ends() -> None:
@@ -199,46 +180,6 @@ def test_traefik_runs_a_chart_that_ships_traefik_v3_7_16() -> None:
         Version(str(chart_source["targetRevision"])) >= TRAEFIK_FIRST_CHART_WITH_V3_7_16,
         values.get("image", {}).get("tag"),
     ) == ("https://traefik.github.io/charts", "traefik", True, None)
-
-
-def test_loki_runs_the_grafana_community_chart_whose_loki_fixes_cve_2026_21729() -> None:
-    """`grafana/loki` in grafana.github.io/helm-charts became the Grafana Enterprise Logs chart,
-    and its newest version still runs Loki 3.6. CVE-2026-21729 affects Loki before 3.7.0: one
-    `detected_fields` request with a very large limit makes Loki allocate memory until it stops.
-    The open-source chart moved to grafana-community/helm-charts, and its 21.2.3 runs Loki 3.7.10
-    (#1632). The Argo CD Application installs that chart from a repository that its project
-    admits. The chart takes the Loki image from its appVersion, so the Application gives the
-    chart the values file and no other value, and the values set no Loki image: `loki.image` and
-    `singleBinary.image` can set an older tag or digest. The values keep no
-    `monitoring.selfMonitoring`, which that chart removed in 9.0.0."""
-    apps = REPO_ROOT / "k8s/argocd/apps"
-    application = yaml.safe_load((apps / "loki.yaml").read_text(encoding="utf-8"))
-    projects = {
-        doc["metadata"]["name"]: doc["spec"]
-        for doc in yaml.safe_load_all((apps / "projects.yaml").read_text(encoding="utf-8"))
-        if doc
-    }
-    values = yaml.safe_load(
-        (REPO_ROOT / "k8s/logging/loki-values.yaml").read_text(encoding="utf-8")
-    )
-    chart_source = next(source for source in application["spec"]["sources"] if "chart" in source)
-
-    assert {
-        "chart": (chart_source["repoURL"], chart_source["chart"], chart_source["targetRevision"]),
-        "project admits the repository": chart_source["repoURL"]
-        in projects[application["spec"]["project"]]["sourceRepos"],
-        "helm": chart_source.get("helm"),
-        "loki.image": values.get("loki", {}).get("image"),
-        "singleBinary.image": values.get("singleBinary", {}).get("image"),
-        "monitoring.selfMonitoring": values.get("monitoring", {}).get("selfMonitoring"),
-    } == {
-        "chart": ("https://grafana-community.github.io/helm-charts", "loki", "21.2.3"),
-        "project admits the repository": True,
-        "helm": {"valueFiles": ["$values/k8s/logging/loki-values.yaml"]},
-        "loki.image": None,
-        "singleBinary.image": None,
-        "monitoring.selfMonitoring": None,
-    }
 
 
 def test_no_ingress_routes_to_loki_in_the_logging_namespace() -> None:
@@ -382,13 +323,13 @@ def _alloy_collectors(values: dict[str, Any]) -> tuple[TokenSite, ...]:
 
 
 # The pods of each chart that an Application installs, with the values that make them and that
-# turn their token off. A key is the chart and the version that the entry was read from, which is
-# the version that the Application pins. A callable entry reads the pods from the values. Argo CD
-# runs the hook Jobs and never the test pods of a chart.
+# turn their token off. A key is the chart name; a chart update does not change the table (owner,
+# 2026-11-16, #6063). A callable entry reads the pods from the values. Argo CD runs the hook Jobs
+# and never the test pods of a chart.
 _CHART_TOKENS: dict[
-    tuple[str, str], tuple[TokenSite, ...] | Callable[[dict[str, Any]], tuple[TokenSite, ...]]
+    str, tuple[TokenSite, ...] | Callable[[dict[str, Any]], tuple[TokenSite, ...]]
 ] = {
-    ("argo-cd", "10.18.0"): (
+    "argo-cd": (
         TokenSite(
             "application-controller",
             _token("controller.automountServiceAccountToken", True),
@@ -433,16 +374,14 @@ _CHART_TOKENS: dict[
             "ClusterRole argocd-server",
         ),
     ),
-    ("argo-workflows", "2.0.18"): (
+    "argo-workflows": (
         TokenSite("server", _when(("server.enabled", True)), "ClusterRole argo-workflows-server"),
         TokenSite("workflow-controller", _when(), "Role argo-workflows-workflow-controller"),
     ),
-    ("argocd-image-updater", "1.4.2"): (
-        TokenSite("controller", _when(), "ClusterRole argocd-image-updater"),
-    ),
+    "argocd-image-updater": (TokenSite("controller", _when(), "ClusterRole argocd-image-updater"),),
     # Each pod takes the token value of its ServiceAccount: the values leave the pod field unset.
     # The start-up check Job is a post-install hook, which Argo CD runs.
-    ("cert-manager", "v1.21.3"): (
+    "cert-manager": (
         TokenSite(
             "controller",
             _token("serviceAccount.automountServiceAccountToken", True),
@@ -472,16 +411,14 @@ _CHART_TOKENS: dict[
             "Role cert-manager-startupapicheck:create-cert",
         ),
     ),
-    ("cloudnative-pg", "0.29.1"): (
-        TokenSite("cloudnative-pg", _when(), "ClusterRole cnpg-cloudnative-pg"),
-    ),
+    "cloudnative-pg": (TokenSite("cloudnative-pg", _when(), "ClusterRole cnpg-cloudnative-pg"),),
     # Chart 4.8.4 mounts the token only for pod labels, pod UIDs or DRA, which the values leave off.
-    ("dcgm-exporter", "4.8.4"): (
+    "dcgm-exporter": (
         TokenSite("dcgm-exporter", _token("serviceAccount.automountServiceAccountToken", False)),
     ),
-    ("gitea", "12.7.0"): (TokenSite("gitea", _gitea),),
+    "gitea": (TokenSite("gitea", _gitea),),
     # The dashboards sidecar lists the dashboard ConfigMaps.
-    ("grafana", "14.4.1"): (
+    "grafana": (
         TokenSite("grafana", _token("automountServiceAccountToken", True), "Role grafana"),
         # The image renderer runs as ServiceAccount `default` and calls no API.
         TokenSite(
@@ -493,7 +430,7 @@ _CHART_TOKENS: dict[
             ),
         ),
     ),
-    ("k8s-monitoring", "4.6.1"): lambda values: (
+    "k8s-monitoring": lambda values: (
         TokenSite("alloy-operator", _when(), "ClusterRole k8s-monitoring-alloy-operator"),
         TokenSite(
             "kube-state-metrics",
@@ -516,7 +453,7 @@ _CHART_TOKENS: dict[
     ),
     # The chart binds the ClusterRole loki-clusterrole, which has no rules while the rules sidecar
     # is off. The canary and the gateway have token values of their own.
-    ("loki", "21.2.3"): (
+    "loki": (
         TokenSite("loki", _loki),
         TokenSite(
             "canary",
@@ -527,22 +464,22 @@ _CHART_TOKENS: dict[
             _token("gateway.automountServiceAccountToken", False, ("gateway.enabled", True)),
         ),
     ),
-    ("mattermost-operator", "1.0.5"): (
+    "mattermost-operator": (
         TokenSite("mattermost-operator", _when(), "ClusterRole mattermost-operator"),
     ),
-    ("open-webui", "18.3.0"): (
+    "open-webui": (
         TokenSite("open-webui", _token("serviceAccount.automountServiceAccountToken", False)),
     ),
-    ("opentelemetry-collector", "0.178.3"): (
+    "opentelemetry-collector": (
         TokenSite("collector", _token("serviceAccount.automountServiceAccountToken", True)),
     ),
     # Chart 0.9.0 has no token value. The plugin watches ObjectStores and writes the Role of each
     # database through the API.
-    ("plugin-barman-cloud", "0.9.0"): (
+    "plugin-barman-cloud": (
         TokenSite("plugin-barman-cloud", _when(), "ClusterRole plugin-barman-cloud"),
     ),
-    ("prometheus-operator-crds", "33.0.2"): (),
-    ("prometheus", "29.47.2"): (
+    "prometheus-operator-crds": (),
+    "prometheus": (
         TokenSite(
             "alertmanager",
             _token(
@@ -555,13 +492,11 @@ _CHART_TOKENS: dict[
         TokenSite("server", _when(), "ClusterRole prometheus-server"),
     ),
     # Storage v2 finds the members of the cluster through the API.
-    ("pyroscope", "2.4.3"): (TokenSite("pyroscope", _when(), "Role pyroscope-discovery"),),
+    "pyroscope": (TokenSite("pyroscope", _when(), "Role pyroscope-discovery"),),
     # Chart 1.20.0 has no token value.
-    ("qdrant", "1.20.2"): (TokenSite("qdrant", _when()),),
-    ("tempo", "3.2.1"): (
-        TokenSite("tempo", _token("serviceAccount.automountServiceAccountToken", True)),
-    ),
-    ("traefik", "42.3.2"): (TokenSite("traefik", _when(), "ClusterRole traefik-kube-system"),),
+    "qdrant": (TokenSite("qdrant", _when()),),
+    "tempo": (TokenSite("tempo", _token("serviceAccount.automountServiceAccountToken", True)),),
+    "traefik": (TokenSite("traefik", _when(), "ClusterRole traefik-kube-system"),),
 }
 
 # The pods that mount a ServiceAccount token that no role in the tree or in their chart binds,
@@ -634,8 +569,8 @@ def mounts_token(
 
 
 def _chart_sites(chart: str, values: dict[str, Any]) -> tuple[TokenSite, ...]:
-    """The pods of a chart for these values. The table names each chart at one version."""
-    (sites,) = (sites for (name, _), sites in _CHART_TOKENS.items() if name == chart)
+    """The pods of a chart for these values."""
+    sites = _CHART_TOKENS[chart]
     return sites(values) if callable(sites) else sites
 
 
@@ -743,13 +678,10 @@ def test_a_token_volume_mounts_a_token_when_the_field_is_off(
     assert mounts_token(pod, None, frozenset({"robot-token"})) is mounts
 
 
-def test_the_chart_table_names_each_chart_at_the_version_that_an_application_pins() -> None:
-    """A chart with no entry in _CHART_TOKENS could mount a token that no check sees. A chart
-    release can move the value that sets the pod field, as Loki 20.0.2 did (#1632), so an entry
-    names the version that it was read from. A chart bump fails here until the entry is read
-    again from the new version, and an entry for a chart that no Application installs fails too.
-    """
-    assert sorted(pinned_charts() ^ _CHART_TOKENS.keys(), key=str) == []
+def test_the_chart_table_names_each_chart_that_an_application_pins() -> None:
+    """A chart with no entry in _CHART_TOKENS could mount a token that no check sees, and an entry
+    for a chart that no Application installs fails too."""
+    assert sorted({chart for chart, _ in pinned_charts()} ^ _CHART_TOKENS.keys()) == []
 
 
 def test_the_pods_that_do_not_call_the_api_mount_no_token() -> None:
@@ -1230,98 +1162,3 @@ def test_readme_lists_the_table() -> None:
     readme = (K8S_DIR / "README.md").read_text(encoding="utf-8")
     rows = [_readme_row(s, e) for s in CLUSTER_SECRETS for e in s.entries]
     assert [row for row in rows if row not in readme] == []
-
-
-def _document_hosts(documents: Iterator[dict[str, Any] | None]) -> list[str]:
-    hosts = []
-    for doc in documents:
-        if not isinstance(doc, dict):
-            continue
-        if doc.get("kind") == "Ingress":
-            hosts += [rule["host"] for rule in doc["spec"]["rules"] if "host" in rule]
-        if doc.get("kind") == "IngressRoute":
-            hosts += [route["match"] for route in doc["spec"]["routes"]]
-        if doc.get("kind") == "Mattermost":
-            ingress = doc.get("spec", {}).get("ingress", {})
-            if host := ingress.get("host"):
-                hosts.append(host)
-    return hosts
-
-
-def test_the_tunnel_section_of_the_k8s_readme_names_only_hosts_that_a_manifest_serves() -> None:
-    readme = (K8S_DIR / "README.md").read_text(encoding="utf-8")
-    start = "## Cloudflare Wildcard Tunnel & Ingress Routing"
-    end = "### 4. The Kubernetes API at `k8s.<domain>`"
-    assert start in readme, f"Heading {start!r} is missing from k8s/README.md"
-    assert end in readme, f"Heading {end!r} is missing from k8s/README.md"
-
-    section = readme.split(start, 1)[1].split(end, 1)[0]
-    names = set(re.findall(r"[\w*.-]+\.<domain>", section))
-    for match in re.finditer(r"\*\*Subdomain\*\*:\s*`([^`]+)`", section):
-        names.add(f"{match.group(1)}.<domain>")
-
-    served = {
-        host.replace("example.com", "<domain>")
-        for host in _document_hosts(document for _, document in yaml_documents(K8S_DIR))
-    }
-    assert names, "No host names found in tunnel section"
-    assert served, "No served hosts found in Kubernetes manifests"
-
-    unmatched = sorted(
-        name for name in names if not any(fnmatch.fnmatchcase(host, name) for host in served)
-    )
-    assert unmatched == []
-
-
-OWN_IMAGE_PREFIX = "ghcr.io/dan-petty/devops-cli/"
-OWN_IMAGE_KEYS = frozenset({"image", "imageName"})
-RELEASE_IMAGE_PREFIX = "ghcr.io/${{ github.repository }}/"
-
-
-def _own_image_names(node: Any) -> Iterator[str]:
-    """The names of the images of this repository that a YAML node references, at any depth.
-
-    A name is the part after the prefix, without the tag or the digest.
-    """
-    if isinstance(node, dict):
-        for key, value in node.items():
-            if (
-                key in OWN_IMAGE_KEYS
-                and isinstance(value, str)
-                and value.startswith(OWN_IMAGE_PREFIX)
-            ):
-                yield re.split(r"[:@]", value.removeprefix(OWN_IMAGE_PREFIX))[0]
-            else:
-                yield from _own_image_names(value)
-    elif isinstance(node, list):
-        for item in node:
-            yield from _own_image_names(item)
-
-
-def _released_image_names() -> frozenset[str]:
-    """The images that a job of release.yml attests, which a job does after it pushes the image."""
-    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/release.yml").read_text("utf-8"))
-    return frozenset(
-        step["with"]["subject-name"].removeprefix(RELEASE_IMAGE_PREFIX)
-        for job in workflow["jobs"].values()
-        for step in job.get("steps", [])
-        if str(step.get("uses", "")).startswith("actions/attest-build-provenance")
-    )
-
-
-def test_every_image_of_this_repository_that_k8s_names_is_published_by_the_release() -> None:
-    """A manifest or an ImageUpdater under k8s/ that names ghcr.io/dan-petty/devops-cli/<name> needs a
-    job in release.yml that pushes and attests <name>, or the pod waits in ImagePullBackOff (#4324)."""
-    named = {
-        name: path.relative_to(REPO_ROOT).as_posix()
-        for path, document in yaml_documents(K8S_DIR)
-        for name in _own_image_names(document)
-    }
-
-    assert named, "No image of this repository found under k8s/"
-    unpublished = {
-        f"{OWN_IMAGE_PREFIX}{name}": path
-        for name, path in named.items()
-        if name not in _released_image_names()
-    }
-    assert unpublished == {}

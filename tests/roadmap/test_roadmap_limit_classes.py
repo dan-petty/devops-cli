@@ -23,7 +23,6 @@ import inspect
 from typing import Final
 
 import pytest
-import yaml
 from pydantic_ai.usage import UsageLimits
 
 from devops_cli.config import constants, defaults
@@ -39,7 +38,6 @@ from devops_cli.roadmap.implement.implement_step import (
     step_usage_limits,
 )
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient, run_limits
-from tests.support.paths import REPO_ROOT
 
 CLASSES: Final = frozenset({"raised", "guard", "window", "setting", "kept", "other"})
 
@@ -835,16 +833,6 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     ),
 }
 
-# The tasks of the example ConfigMap of the stack. No raised cap passes the window of a job.
-_EXAMPLE_TASKS = yaml.safe_load(
-    yaml.safe_load((REPO_ROOT / "k8s/devops/configmap.example.yaml").read_text(encoding="utf-8"))[
-        "data"
-    ]["devops-cli.yaml"]
-)["ai"]["tasks"]
-# Each job reads the window of its own task (#5903).
-PLANNER_WINDOW = _EXAMPLE_TASKS["stage"]["context_window"]
-ALTERNATIVES_WINDOW = _EXAMPLE_TASKS["alternatives"]["context_window"]
-
 
 def _limits_in_code() -> set[str]:
     """The names of the numeric `CONST_ROADMAP_*` and `DEFAULT_ROADMAP_*` values."""
@@ -928,35 +916,6 @@ def test_a_reply_at_the_output_cap_ends_before_the_deadline_of_the_call() -> Non
     seconds = 90 + output_cap(DEFAULT_AI_IMPLEMENT_CONTEXT_WINDOW) / 38
 
     assert seconds < DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS
-
-
-def test_the_body_of_an_item_in_the_alternatives_check_is_a_share_of_its_window() -> None:
-    assert constants.CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS <= ALTERNATIVES_WINDOW // 4
-
-
-def test_the_body_and_the_adrs_of_an_item_in_the_alternatives_check_fit_half_its_window() -> None:
-    assert constants.CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS <= ALTERNATIVES_WINDOW // 8
-    assert (
-        constants.CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS
-        + constants.CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS
-        <= ALTERNATIVES_WINDOW // 2
-    )
-
-
-def test_the_first_plan_request_and_its_reserve_fit_below_the_limit_of_the_tools() -> None:
-    """Context, body and reserve, with 8,000 tokens for the prompts, the names of the capabilities
-    and the other keys (the request counts about 34,000 tokens with the prompts, #3477)."""
-    limit = (
-        PLANNER_WINDOW - PLANNER_WINDOW // constants.CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE
-    )
-
-    assert (
-        constants.CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS
-        + constants.CONST_ROADMAP_STAGE_BODY_MAX_TOKENS
-        + 8000
-        + constants.CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS
-        <= limit
-    )
 
 
 def test_the_lines_of_the_repo_map_fit_one_tool_answer() -> None:

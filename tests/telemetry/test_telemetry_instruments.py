@@ -109,15 +109,6 @@ SERVICE_SERIES: dict[str, InstrumentKind] = {
     CONST_SERVICE_METRIC_WEBHOOK_DELIVERY_FAILURES: InstrumentKind.GAUGE,
 }
 SENT_SERIES = {instrument.name for instrument in INSTRUMENTS} | set(SERVICE_SERIES)
-# `by (labels) (rate(selector[window]))` or `increase(...)`: the labels one series is summed by.
-GROUPED_SERIES = re.compile(r"\bby\s*\(([^)]*)\)\s*\(\s*(?:rate|increase)\(\s*([^\s\[]+)\s*\[")
-# The matcher that each query of devops-cli.json starts its selector with (#2479).
-JOB_MATCHER = re.compile(r'\{job=~"\$job"\}|job=~"\$job",')
-QUANTILE_OF = re.compile(
-    r"histogram_quantile\(\s*([0-9.]+)\s*,\s*sum\s*(?:by\s*\([^)]*\)\s*)?\(\s*"
-    r"(?:(?:rate|increase|last_over_time)\(\s*)?([a-z0-9_]+)"
-)
-INNERMOST_PARENTHESES = re.compile(r"\([^()]*\)")
 
 
 def _queries(dashboard: Path) -> list[str]:
@@ -162,39 +153,13 @@ def _devops_cli_dashboards() -> list[Path]:
     ]
 
 
-def _panels(dashboard: Path) -> list[dict[str, Any]]:
-    """A dashboard's visualisation panels, without its rows."""
-    panels = json.loads(dashboard.read_text(encoding="utf-8"))["panels"]
-    return [panel for panel in panels if panel.get("type") != "row"]
-
-
-def _panel_queries(panel: dict[str, Any]) -> str:
-    return " ".join(target.get("expr", "") for target in panel.get("targets", []))
-
-
 def _all_queries() -> list[str]:
     """Every query in the devops-cli dashboards."""
     return [query for dashboard in _devops_cli_dashboards() for query in _queries(dashboard)]
 
 
-def _outermost(query: str) -> str:
-    """A query with each parenthesised part collapsed, leaving its outermost operators."""
-    collapsed = INNERMOST_PARENTHESES.sub("<>", query)
-    return query if collapsed == query else _outermost(collapsed)
-
-
-def test_the_devops_cli_dashboards_are_found_by_their_queries() -> None:
-    """Verify the glob the query checks run over finds the devops-cli dashboards, and that the
-    product folder holds only them (#5292)."""
-    names = {dashboard.name for dashboard in _devops_cli_dashboards()}
-    assert (names, {path.name for path in DASHBOARDS.glob("*.json")}) == (
-        _PURE_DEVOPS_CLI_DASHBOARDS,
-        _PURE_DEVOPS_CLI_DASHBOARDS,
-    )
-
-
 # The AI spend dashboard also reads the gateway's request and token series, which count every
-# caller's calls (#1668). tests/test_stack_dashboards.py checks them against the LiteLLM capture.
+# caller's calls (#1668).
 _GATEWAY_SERIES_DASHBOARDS: frozenset[str] = frozenset({"ai-spend.json"})
 GATEWAY_SERIES_NAME = re.compile(r"\blitellm_[a-z0-9_]+")
 # A reference line, such as a limit, is a constant query (docs/DESIGN.md C14).
@@ -577,24 +542,6 @@ def test_each_project_instrument_names_the_repo_label() -> None:
     assert (len(project), unnamed, items_labels) == (14, [], [])
 
 
-def test_the_release_panel_shows_an_item_in_no_release_as_unreleased() -> None:
-    """An item that no release closed has an empty `release`, which a legend shows as a blank
-    (#2702)."""
-    queries = {
-        panel["title"]: _panel_queries(panel)
-        for panel in _panels(DASHBOARDS / "project-metrics.json")
-    }
-
-    assert queries["Items by Release"] == (
-        "label_replace(sum by (release, state) "
-        '(last_over_time(devops_cli_project_items[$__range])), "release", "unreleased", '
-        '"release", "^$")'
-    )
-    assert queries["Active Items by State"] == (
-        "sum by (state) (last_over_time(devops_cli_project_items[$__range]))"
-    )
-
-
 ROADMAP_AGE_GAUGE_NAMES = (
     "devops_cli_roadmap_item_age_seconds",
     "devops_cli_roadmap_oldest_item_number",
@@ -750,306 +697,6 @@ def test_the_decision_point_duration_and_failed_instruments_are_declared() -> No
         for instrument in (duration, failed)
     ]
     assert [row for row in rows if row not in document] == []
-
-
-def test_the_dashboards_chart_latency_errors_reviews_and_findings_devops_cli_sends() -> None:
-    """Verify each series sent but never charted is summed by the label asked for.
-
-    The grouping must apply to that series, not to another in the same query, and the latency
-    panels chart command p50, p95 and p99, review p50 and p95, and RAG p50 and p95 of whole
-    queries and of each stage (#975, #4707). Qdrant retries are charted by operation and error type.
-    AI requests and tokens are charted by operation, so chat and embeddings are told apart (#1623).
-    The Ollama slot wait is charted at p95 by priority (#815).
-    """
-    wanted = {
-        ('devops_cli_command_duration_seconds{command=~"$command"}', "command"),
-        (
-            'devops_cli_subcommand_duration_seconds{command=~"$command",sub_command=~"$sub_command"}',
-            "sub_command",
-        ),
-        ('devops_cli_command_total{command=~"$command",status="error"}', "command"),
-        ("devops_cli_review_duration_seconds", "target_type"),
-        ("devops_cli_findings_total", "severity"),
-        ('devops_cli_rag_query_duration_ms{stage=~"total|embedding|search|ranking"}', "stage"),
-        ("devops_cli_qdrant_retries_total", "operation"),
-        ("devops_cli_qdrant_retries_total", "error_type"),
-        ("devops_cli_ai_requests_total", "operation"),
-        ("devops_cli_ai_tokens_total", "operation"),
-        ("devops_cli_ai_ollama_slot_wait_seconds", "priority"),
-    }
-    queries = _all_queries()
-    grouped = {
-        (JOB_MATCHER.sub("", series), label.strip())
-        for query in queries
-        for labels, series in GROUPED_SERIES.findall(query)
-        for label in labels.split(",")
-    }
-    found = [match for query in queries for match in QUANTILE_OF.findall(query)]
-    quantiles = {series: {float(q) for q, other in found if other == series} for _, series in found}
-
-    assert (sorted(wanted - grouped), quantiles) == (
-        [],
-        {
-            "devops_cli_command_duration_seconds": {0.5, 0.95, 0.99},
-            "devops_cli_subcommand_duration_seconds": {0.5, 0.95, 0.99},
-            "devops_cli_review_duration_seconds": {0.5, 0.95},
-            "devops_cli_rag_query_duration_ms": {0.5, 0.95},
-            "devops_cli_project_release_interval_days": {0.5, 0.95},
-            "devops_cli_ai_ollama_slot_wait_seconds": {0.95},
-        },
-    )
-
-
-def _row_panels(dashboard: Path, row_title: str) -> list[dict[str, Any]]:
-    """The panels between the row `row_title` and the next row, in the order the file holds."""
-    panels = json.loads(dashboard.read_text(encoding="utf-8"))["panels"]
-    titles = [panel.get("title") if panel.get("type") == "row" else None for panel in panels]
-    start = titles.index(row_title) + 1
-    end = next((i for i in range(start, len(panels)) if titles[i] is not None), len(panels))
-    return panels[start:end]
-
-
-def test_the_github_api_row_charts_requests_throttles_and_graphql_points() -> None:
-    """The GitHub API row shows the core requests that cost quota in each hour by job, beside the
-    free answers 304 and the Service budget, the requests of the other resources, the throttles
-    and the seconds spent waiting before a retry in the range, and the GraphQL points in each
-    hour beside the limit of a token (#814, #4707)."""
-    panels = _row_panels(DASHBOARDS / "devops-cli.json", "GitHub API")
-    requests = 'increase(devops_cli_github_requests_total{job=~"$job",resource'
-    throttles = 'increase(devops_cli_github_throttle_wait_seconds{job=~"$job"}[$__range])'
-
-    assert {panel["title"]: [t["expr"] for t in panel["targets"]] for panel in panels} == {
-        "GitHub quota: core requests per hour": [
-            f'round(sum by (job) ({requests}="core",status!="304"}}[$__interval])))',
-            f'round(sum({requests}="core",status="304"}}[$__interval])))',
-            "max(last_over_time("
-            'devops_cli_service_budget_limit_requests{job=~"$job"}[$__interval]))',
-        ],
-        "GitHub quota: requests of the other resources per hour": [
-            f'round(sum by (resource) ({requests}=~"graphql|search",status!="304"}}[$__interval])))',
-            f'round(sum({requests}!~"core|graphql|search",status!="304"}}[$__interval])))',
-        ],
-        "Throttles: count in the range": [f"round(sum(histogram_count({throttles}))) or vector(0)"],
-        "Throttles: count and wait by resource in the range": [
-            f"round(histogram_count(sum by (resource) ({throttles})))",
-            f"histogram_sum(sum by (resource) ({throttles}))",
-        ],
-        "GitHub quota: GraphQL points per hour": [
-            "round(sum by (job) "
-            '(increase(devops_cli_github_graphql_points_total{job=~"$job"}[$__interval])))',
-            "vector(5000)",
-        ],
-    }
-
-
-def test_a_command_group_without_errors_charts_a_zero_error_share() -> None:
-    """Verify a command group with runs and no error series shows 0, not a missing cell.
-
-    Dividing two grouped sums keeps only the groups present on both sides, so a group that
-    sent no error series dropped out; the numerator falls back to its runs times zero.
-    """
-    (query,) = [
-        target["expr"]
-        for panel in _panels(DASHBOARDS / "devops-cli.json")
-        if panel["title"] == "Commands: calls, errors and latency in the range"
-        for target in panel["targets"]
-        if target["refId"] == "C"
-    ]
-    numerator, _, runs = query.rpartition(" / ")
-
-    assert (
-        numerator.startswith("("),
-        numerator.endswith(f" or {runs} * 0)"),
-        'status="error"' in numerator,
-    ) == (True, True, True)
-
-
-def test_the_hit_share_panel_divides_cached_requests_by_all_requests_over_an_hour() -> None:
-    """Verify the response-cache hit share is cached requests over every chat request, each
-    counted over the last hour, and shows 0 for an hour with requests and no hits (#816).
-
-    The response cache answers no embedding request, so embedding requests stay out of the
-    share; a series sent before requests carried an operation still counts as chat (#1623).
-    Active backends still count only uncached requests: the cache is no backend.
-    """
-    panels = {panel["title"]: panel for panel in _panels(DASHBOARDS / "ai-spend.json")}
-    numerator, _, requests = _panel_queries(panels["Response Cache Hit Share"]).rpartition(" / ")
-
-    assert (
-        numerator,
-        requests,
-        'cached="false"' in _panel_queries(panels["Active AI Backends"]),
-    ) == (
-        f'(sum(increase(devops_cli_ai_requests_total{{cached="true"}}[1h])) or {requests} * 0)',
-        'sum(increase(devops_cli_ai_requests_total{operation!="embeddings"}[1h]))',
-        True,
-    )
-
-
-def test_the_embedding_hit_share_panel_divides_hits_by_lookups_over_the_rate_interval() -> None:
-    """Verify the embedding cache hit share is the hits of each window over its lookups, and
-    shows 0 for a window with lookups and no hits (#817). The window is `$__rate_interval` with
-    a Min step of 15 min, so it holds the samples of at least an hour (#4707)."""
-    panels = {panel["title"]: panel for panel in _panels(DASHBOARDS / "devops-ai-rag.json")}
-    (target,) = panels["Cache: share of embedding lookups that hit"]["targets"]
-
-    assert (target["expr"], target["interval"]) == (
-        "(sum(increase(devops_cli_embedding_cache_lookups_total"
-        '{job=~"$job",result="hit"}[$__rate_interval])) '
-        'or sum(increase(devops_cli_embedding_cache_lookups_total{job=~"$job"}[$__rate_interval]))'
-        " * 0) "
-        '/ sum(increase(devops_cli_embedding_cache_lookups_total{job=~"$job"}[$__rate_interval]))',
-        "15m",
-    )
-
-
-def test_the_alternatives_check_row_charts_the_coverage_and_the_searches_of_a_check() -> None:
-    """The row Alternatives Check shows the items with no check, the age of the oldest check, and
-    the searches of a check by verdict (#2950). The gauges are read over a day, because the row
-    sends them about six times a day."""
-    panels = _row_panels(DASHBOARDS / "roadmap-service-telemetry.json", "Alternatives Check")
-
-    assert {panel["title"]: _panel_queries(panel) for panel in panels} == {
-        "Alternatives Unchecked Items": (
-            "sum by (repo) "
-            '(last_over_time(devops_cli_roadmap_alternatives_unchecked_items{job=~"$job"}[1d]))'
-        ),
-        "Alternatives Oldest Check Age": (
-            "max by (repo) (last_over_time("
-            'devops_cli_roadmap_alternatives_oldest_check_age_seconds{job=~"$job"}[1d]))'
-        ),
-        "Alternatives Searches per Check": (
-            "histogram_avg(sum by (verdict) "
-            '(increase(devops_cli_roadmap_alternatives_searches{job=~"$job"}[1d]))) '
-            "histogram_count(sum by (verdict) "
-            '(increase(devops_cli_roadmap_alternatives_searches{job=~"$job"}[1d])))'
-        ),
-    }
-    assert {panel["title"]: panel["fieldConfig"]["defaults"]["unit"] for panel in panels[1:2]} == {
-        "Alternatives Oldest Check Age": "s"
-    }
-
-
-def test_a_grouped_query_adds_no_unlabelled_zero_series() -> None:
-    """Verify `or vector(0)` follows only an ungrouped result.
-
-    `vector(0)` has no labels, so it matches no labelled series and `or` always adds it: a
-    grouped panel drew a constant zero with an empty legend beside its real series.
-    """
-    assert [
-        query
-        for query in _all_queries()
-        if "or vector(0)" in query and re.search(r"\bby\b", _outermost(query))
-    ] == []
-
-
-def _zero_fallback(query: str) -> str:
-    """A spend query as it reads with its fallback to 0.
-
-    An ungrouped result falls back to `vector(0)`. A grouped one falls back to the requests a
-    model answered, grouped the same and times 0, so each backend that served requests shows
-    $0 with its labels.
-    """
-    spend, _, _ = query.partition(" or ")
-    if not re.search(r"\bby\b", _outermost(spend)):
-        return f"{spend} or vector(0)"
-    requests = re.sub(r"\s*\*\s*\d+$", "", spend)
-    requests = re.sub(
-        r"devops_cli_ai_spend_usd_total(?:\{([^}]*)\})?",
-        lambda found: (
-            "devops_cli_ai_requests_total{"
-            + (f"{found.group(1)}," if found.group(1) else "")
-            + 'cached="false"}'
-        ),
-        requests,
-    )
-    return f"{spend} or {requests} * 0"
-
-
-def test_every_spend_query_shows_zero_when_no_spend_series_matches() -> None:
-    """Verify each query of the spend counter falls back to 0, so a dashboard shows $0, not
-    "No data", which a broken pipeline also shows (#1631). The AI spend dashboard takes the spend
-    of a gateway call from the gateway's counter, and
-    tests/prometheus/test_k8s_monitoring_dashboards.py checks its fallbacks (#4724)."""
-    spend_queries = [
-        query
-        for dashboard in _devops_cli_dashboards()
-        if dashboard.name not in _GATEWAY_SERIES_DASHBOARDS
-        for query in _queries(dashboard)
-        if "devops_cli_ai_spend_usd_total" in query
-    ]
-
-    assert (
-        len(spend_queries) > 0,
-        [q for q in spend_queries if q != _zero_fallback(q)],
-    ) == (True, [])
-
-
-def _skew(queries: str) -> str:
-    """How the samples `increase()` drops skew a panel's values.
-
-    A count only loses them, while a share or a quantile can move either way.
-    """
-    either_way = "histogram_quantile(" in queries or " / " in queries
-    return "come out high or low" if either_way else "come out low"
-
-
-def _missing_limits(panel: dict[str, Any]) -> list[str]:
-    """The limits a panel's description should state and does not.
-
-    The limits are those of devops-cli's delta series. A panel that reads only the series of the
-    gateway (#1668) or of the Service (#2479) reads counters that Prometheus scrapes whole, so it
-    has none of them.
-    """
-    queries = _panel_queries(panel)
-    counts_deltas = "increase(" in queries and bool(
-        set(SERIES_NAME.findall(queries)) - set(SERVICE_SERIES)
-    )
-    required = ["approximate", "two samples", "#792", _skew(queries)] if counts_deltas else []
-    if "devops_cli_findings_total" in queries:
-        required.append("#791")
-    description = panel.get("description", "").lower()
-    return [phrase for phrase in required if phrase.lower() not in description]
-
-
-@pytest.mark.parametrize("dashboard", _devops_cli_dashboards(), ids=lambda path: path.name)
-def test_every_panel_counting_with_increase_states_its_limits(dashboard: Path) -> None:
-    """Verify each panel built on `increase()` says how far its values can be off.
-
-    `increase()` needs two samples of a series inside its window and deltas can arrive out of
-    order (#792), so a count comes out low and a share or quantile high or low; and finding panels
-    miss `--no-reporting` runs (#791). Exponential histograms have no fixed top-bucket cap.
-    """
-    panels = _panels(dashboard)
-    capped = [
-        panel["title"]
-        for panel in panels
-        if "past the top bucket" in panel.get("description", "").lower()
-    ]
-    assert ({panel["title"]: _missing_limits(panel) for panel in panels}, capped) == (
-        {panel["title"]: [] for panel in panels},
-        [],
-    )
-
-
-def test_each_table_of_quantiles_states_the_count_of_its_calls() -> None:
-    """Verify each table of quantiles in devops-cli.json states the count of the calls beside
-    them (docs/DESIGN.md C9), and each time series of quantiles holds no count, because a count
-    and a duration do not share a y axis (#4707)."""
-    duration_panels = [
-        panel
-        for path in (DASHBOARDS / "devops-cli.json", DASHBOARDS / "devops-ai-rag.json")
-        for panel in _panels(path)
-        if "histogram_quantile(" in _panel_queries(panel)
-    ]
-    tables = [panel["title"] for panel in duration_panels if panel["type"] == "table"]
-    misplaced = [
-        panel["title"]
-        for panel in duration_panels
-        if (panel["type"] == "table")
-        != ("histogram_count(" in _panel_queries(panel) or "_total" in _panel_queries(panel))
-    ]
-    assert (len(tables), len(duration_panels), misplaced) == (4, 5, [])
 
 
 def test_counters_are_monotonic_deltas_from_the_workload_not_the_process(
@@ -1512,20 +1159,6 @@ def test_a_review_sends_its_duration_and_findings_by_severity_and_status(
     )
 
 
-def test_the_collector_adds_up_deltas_before_prometheus() -> None:
-    """Verify the metrics pipeline turns deltas into running totals before it exports them."""
-    values = yaml.safe_load(
-        (REPO_ROOT / "k8s" / "otel" / "values.yaml").read_text(encoding="utf-8")
-    )
-    config = values["config"]
-    processors = config["service"]["pipelines"]["metrics"]["processors"]
-
-    assert (
-        "deltatocumulative" in config["processors"],
-        processors.index("deltatocumulative") < processors.index("batch"),
-    ) == (True, True)
-
-
 def test_the_collector_deletes_the_host_name_of_devops_cli_metrics_before_it_adds_them_up(
     otlp: FakeCollector,
 ) -> None:
@@ -1569,26 +1202,6 @@ def test_the_collector_deletes_the_host_name_of_devops_cli_metrics_before_it_add
     )
 
 
-def test_a_stream_with_no_delta_for_an_hour_starts_again_from_zero() -> None:
-    """The collector drops a stream after the hour that the roadmap-service rules read (#2505, #4684).
-
-    Those rules read a series with no sample in the hour before as a new stream, and count all of
-    its last value. With a longer max_stale, the series keeps its old total, and a rule counts all
-    of that total again.
-    """
-    values = yaml.safe_load(
-        (REPO_ROOT / "k8s" / "otel" / "values.yaml").read_text(encoding="utf-8")
-    )
-    rules = (
-        REPO_ROOT / "k8s" / "devops" / "monitoring" / "prometheus-rules-values.yaml"
-    ).read_text(encoding="utf-8")
-
-    assert (
-        values["config"]["processors"]["deltatocumulative"]["max_stale"],
-        "[1h] offset 1h" in rules,
-    ) == ("1h", True)
-
-
 @pytest.mark.parametrize(
     ("served_by", "name"),
     [
@@ -1625,36 +1238,6 @@ def test_gauges_are_recorded_as_instantaneous_values(otlp: FakeCollector) -> Non
     )
 
 
-def test_prometheus_writes_a_zero_sample_at_the_start_time_of_each_otlp_point() -> None:
-    """The Prometheus OTLP receiver gets the start time of each point and writes a zero sample there (#2039, #4684).
-
-    The server keeps the metric names of devops-cli, which already end in `_total` or a unit.
-    """
-    otel_values = yaml.safe_load(
-        (REPO_ROOT / "k8s" / "otel" / "values.yaml").read_text(encoding="utf-8")
-    )
-    (exporter_id,) = otel_values["config"]["service"]["pipelines"]["metrics"]["exporters"]
-    exporter = otel_values["config"]["exporters"][exporter_id]
-
-    server = yaml.safe_load(
-        (REPO_ROOT / "k8s" / "monitoring" / "prometheus-values.yaml").read_text(encoding="utf-8")
-    )["server"]
-
-    assert (
-        exporter_id.split("/")[0],
-        exporter["metrics_endpoint"].endswith("/api/v1/otlp/v1/metrics"),
-        "web.enable-otlp-receiver" in server["extraArgs"],
-        server["extraArgs"].get("enable-feature"),
-        server.get("otlp"),
-    ) == (
-        "otlp_http",
-        True,
-        True,
-        "created-timestamp-zero-ingestion",
-        {"translation_strategy": "UnderscoreEscapingWithoutSuffixes"},
-    )
-
-
 def test_two_job_runs_add_up_in_the_increase_query_the_dashboards_use() -> None:
     """Two cluster Job runs that each export once add up in PromQL increase() when start times are ingested (#2039)."""
 
@@ -1680,76 +1263,3 @@ def test_two_job_runs_add_up_in_the_increase_query_the_dashboards_use() -> None:
         "job-2": [(job_2_start, 0.0), (job_2_end, job_2_requests)],
     }
     assert evaluate_promql_increase(series_with_created) == job_1_requests + job_2_requests
-
-
-def _overlapping_panels(panels: list[dict[str, Any]]) -> list[tuple[Any, Any]]:
-    """Each pair of panels whose grid positions share a cell."""
-    boxes = [(panel.get("title", panel.get("id")), panel["gridPos"]) for panel in panels]
-
-    def shares_a_cell(first: dict[str, int], second: dict[str, int]) -> bool:
-        return (
-            first["x"] < second["x"] + second["w"]
-            and second["x"] < first["x"] + first["w"]
-            and first["y"] < second["y"] + second["h"]
-            and second["y"] < first["y"] + first["h"]
-        )
-
-    return [
-        (name, other_name)
-        for index, (name, box) in enumerate(boxes)
-        for other_name, other_box in boxes[index + 1 :]
-        if shares_a_cell(box, other_box)
-    ]
-
-
-def test_the_oldest_item_age_panel_charts_each_state_and_the_claim_in_the_items_row() -> None:
-    """The panel "Oldest Item Age by Phase" (#2919, #5495) charts the age of the oldest item of each phase
-    and the age of the oldest claim, in seconds, at `x` 0 and `y` 34, beside the items panels. No
-    panel of the dashboard overlaps another."""
-    dashboard = DASHBOARDS / "project-metrics.json"
-    matches = [
-        panel for panel in _panels(dashboard) if panel.get("title") == "Oldest Item Age by Phase"
-    ]
-    assert len(matches) == 1
-    (panel,) = matches
-    assert (
-        [target["expr"] for target in panel["targets"]],
-        panel["fieldConfig"]["defaults"]["unit"],
-        panel["gridPos"],
-        _overlapping_panels(json.loads(dashboard.read_text(encoding="utf-8"))["panels"]),
-    ) == (
-        [
-            "max by (phase) (last_over_time(devops_cli_roadmap_item_age_seconds[$__range]))",
-            "max(last_over_time(devops_cli_roadmap_claim_age_seconds[$__range]))",
-        ],
-        "s",
-        {"x": 0, "y": 34, "w": 12, "h": 8},
-        [],
-    )
-
-
-def test_the_planner_tool_panel_charts_the_calls_and_the_answer_size_of_the_stage_row() -> None:
-    """The panel "Planner Tool Calls and Answer Size" (#3240) charts the calls of each tool of the
-    stage row by outcome, and the mean size of its answers on a second axis. It is in the row
-    "Planner Tools" of the `devops-cli Telemetry` dashboard, which holds the other counters of
-    the Service, below the rows of #4707. No panel of the dashboard overlaps another."""
-    dashboard = DASHBOARDS / "devops-ai-rag.json"
-    (panel,) = [
-        panel
-        for panel in _panels(dashboard)
-        if panel.get("title") == "Planner Tool Calls and Answer Size"
-    ]
-    selector = '{job=~"$job",row="stage"}'
-    assert (
-        [target["expr"] for target in panel["targets"]],
-        panel["gridPos"],
-        _overlapping_panels(json.loads(dashboard.read_text(encoding="utf-8"))["panels"]),
-    ) == (
-        [
-            f"sum by (tool, outcome) (increase(devops_cli_roadmap_tool_calls_total{selector}[1h]))",
-            "histogram_avg(sum by (tool) "
-            f"(increase(devops_cli_roadmap_tool_answer_chars{selector}[1h])))",
-        ],
-        {"h": 8, "w": 24, "x": 0, "y": 42},
-        [],
-    )

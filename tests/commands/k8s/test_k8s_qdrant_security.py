@@ -2,8 +2,7 @@
 
 Validates:
 1. k8s/llm/values-qdrant.yaml (ClusterIP service, the API key in `env` from Secret
-   qdrant-api-key, no key the pinned chart does not declare) and the Open WebUI values that send
-   the key.
+   qdrant-api-key, no key the pinned chart does not declare).
 2. Configuration & OS Keyring secret mappings for Qdrant API key.
 3. deploy-stack pushing the cluster Secrets from the keyring before anything reads them, in
    place of the client-side Qdrant Secret apply that leaked the key into an annotation.
@@ -46,24 +45,11 @@ DEPLOY_COMMAND = typer.main.get_command(_deploy_app)
 
 LLM_DIR = REPO_ROOT / "k8s" / "llm"
 QDRANT_CHART = FIXTURES / "charts" / "qdrant"
-QDRANT_SERVICE_HOST = "qdrant.llm.svc.cluster.local"
 QDRANT_KEY_REF = {"secretKeyRef": {"name": "qdrant-api-key", "key": "api-key"}}
 
 
 def _yaml(path: Path) -> Any:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
-
-
-def _strings(node: Any) -> Iterator[str]:
-    """Every string value of a parsed YAML document, at any depth."""
-    if isinstance(node, dict):
-        for value in node.values():
-            yield from _strings(value)
-    elif isinstance(node, list):
-        for item in node:
-            yield from _strings(item)
-    elif isinstance(node, str):
-        yield node
 
 
 def test_qdrant_reads_its_api_key_from_the_pushed_secret() -> None:
@@ -87,18 +73,6 @@ def test_every_top_level_qdrant_value_is_a_key_of_the_pinned_chart() -> None:
     assert sorted(set(values) - set(chart_values)) == []
 
 
-def test_the_vendored_qdrant_chart_is_the_pinned_one() -> None:
-    """A bump of the chart in its Argo CD Application also replaces the vendored values."""
-    application = _yaml(REPO_ROOT / "k8s" / "argocd" / "apps" / "qdrant.yaml")
-    pinned = next(
-        source["targetRevision"]
-        for source in application["spec"]["sources"]
-        if source.get("chart") == "qdrant"
-    )
-
-    assert (QDRANT_CHART / "VERSION").read_text(encoding="utf-8").strip() == pinned
-
-
 def test_the_qdrant_chart_makes_no_api_key_secret_of_its_own() -> None:
     """The chart makes Secret qdrant-apikey only when apiKey or readOnlyApiKey is set.
 
@@ -108,44 +82,6 @@ def test_the_qdrant_chart_makes_no_api_key_secret_of_its_own() -> None:
     merged = {**_yaml(QDRANT_CHART / "values.yaml"), **_yaml(LLM_DIR / "values-qdrant.yaml")}
 
     assert (bool(merged.get("apiKey")), bool(merged.get("readOnlyApiKey"))) == (False, False)
-
-
-def test_open_webui_sends_the_qdrant_api_key_from_the_secret() -> None:
-    """Open WebUI sends QDRANT_API_KEY to the Qdrant at QDRANT_URI (#1670)."""
-    variables = {
-        variable["name"]: variable.get("value", variable.get("valueFrom"))
-        for variable in _yaml(LLM_DIR / "values-open-webui.yaml")["extraEnvVars"]
-    }
-
-    assert (variables["VECTOR_DB"], variables["QDRANT_URI"], variables["QDRANT_API_KEY"]) == (
-        "qdrant",
-        f"http://{QDRANT_SERVICE_HOST}:6333",
-        QDRANT_KEY_REF,
-    )
-
-
-def test_open_webui_is_the_only_workload_that_names_qdrant() -> None:
-    """No other workload under k8s/ is set up to reach Qdrant, so none lacks its key.
-
-    The Jobs under k8s/devops/ reach Qdrant only through the devops ConfigMap, Alloy scrapes
-    /metrics with the key as a bearer token (`metrics.serviceMonitor`), and devops-cli sends
-    keyring `qdrant_read_only_api_key`, which push-secrets writes to the Secret's read-only key.
-    """
-    k8s_dir = REPO_ROOT / "k8s"
-    files = sorted(
-        {
-            path.relative_to(k8s_dir).as_posix()
-            for path in k8s_dir.rglob("*.yaml")
-            for document in yaml.load_all(path.read_text(encoding="utf-8"), Loader=yaml.CSafeLoader)
-            if any(QDRANT_SERVICE_HOST in value for value in _strings(document))
-        }
-    )
-
-    assert files == [
-        "devops/configmap.example.yaml",
-        "devops/workflowtemplate-rag-ingest.yaml",
-        "llm/values-open-webui.yaml",
-    ]
 
 
 def test_qdrant_helm_values_security() -> None:

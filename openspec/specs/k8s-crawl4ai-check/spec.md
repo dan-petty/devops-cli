@@ -73,13 +73,6 @@ The throwaway pod SHALL meet Pod Security `restricted` and SHALL use an image pi
 - **WHEN** `kubectl run` fails
 - **THEN** the probe raises `ServiceProbeError` with the error of `kubectl`, and the pod is deleted.
 
-### Requirement: Pinned image
-An offline check of the `k8s` row of `devops ci` MUST compare the image of Deployment `crawl4ai` with the image that the command names.
-
-#### Scenario: Image bump
-- **WHEN** the Deployment pins an image that differs from `CRAWL4AI_IMAGE`
-- **THEN** the check fails, names both images and the command that a person runs again.
-
 ### Requirement: Roles in the output
 The command module and its output MUST name each target by a role and MUST NOT hold a private host name or a private address.
 

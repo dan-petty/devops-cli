@@ -42,27 +42,6 @@ def test_every_key_of_the_example_is_a_setting() -> None:
     assert unknown_setting_keys(config) == []
 
 
-def test_the_example_holds_the_runner_memory_limit() -> None:
-    """The template sets the runner memory limit of this cluster (#5484). A deploy renders the
-    template, so the limit must be in git: the code default 8Gi is the limit at which the kernel
-    killed two runner Jobs."""
-    config = _example_config()
-
-    assert config["roadmap"]["implement"]["max_memory_limit"] == "16Gi"
-
-    template = (REPO_ROOT / "k8s" / "devops" / "configmap.example.yaml").read_text(encoding="utf-8")
-    lines = template.splitlines()
-    key = next(i for i, line in enumerate(lines) if line.strip().startswith("max_memory_limit:"))
-    comment_lines: list[str] = []
-    for line in reversed(lines[:key]):
-        if not line.strip().startswith("#"):
-            break
-        comment_lines.append(line)
-    comment = "\n".join(comment_lines)
-
-    assert all(word in comment for word in ("2026-11-12", "2026-11-13", "#5484", "#3727"))
-
-
 @pytest.mark.parametrize(
     ("path", "reported"),
     [
@@ -89,9 +68,11 @@ def test_a_key_of_a_price_in_a_copy_of_the_example_is_checked_and_a_model_name_i
     """The name of a model under `ai.price_overrides` is a key of the user. The fields of its
     price are keys of a model, so a misspelled field is reported (#4242)."""
     config = copy.deepcopy(_example_config())
-    config["ai"]["price_overrides"]["qwen3.8:27b"]["prompt_usd_per_milion"] = 1.0
+    config["ai"]["price_overrides"] = {"example-model": {"prompt_usd_per_milion": 1.0}}
 
-    assert unknown_setting_keys(config) == ["ai.price_overrides.qwen3.8:27b.prompt_usd_per_milion"]
+    assert unknown_setting_keys(config) == [
+        "ai.price_overrides.example-model.prompt_usd_per_milion"
+    ]
 
 
 def test_an_unknown_ladder_step_class_in_a_copy_of_the_example_fails_to_load() -> None:

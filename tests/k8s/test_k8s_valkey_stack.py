@@ -76,18 +76,6 @@ def _cache_secret() -> tuple[str, str]:
     return secret.name, entry.key
 
 
-def _strings(node: Any) -> Iterator[str]:
-    """Yield every string value in a parsed YAML document, at any depth."""
-    if isinstance(node, str):
-        yield node
-    elif isinstance(node, dict):
-        for value in node.values():
-            yield from _strings(value)
-    elif isinstance(node, list):
-        for item in node:
-            yield from _strings(item)
-
-
 def _extract_images_from_yaml(data: Any) -> list[str]:
     """Recursively extract all image field values from parsed YAML structures."""
     if isinstance(data, list):
@@ -105,67 +93,6 @@ def _extract_images_from_yaml(data: Any) -> list[str]:
             tag = v.get("tag", "")
             extracted.append(f"{repo}:{tag}" if tag else str(repo))
     return extracted
-
-
-def test_argocd_values_specifies_valkey_image() -> None:
-    """Verify ArgoCD Helm values.yaml configures Valkey instead of proprietary Redis."""
-    values_path = K8S_DIR / "argocd" / "values.yaml"
-    assert values_path.is_file(), f"Missing {values_path}"
-
-    with open(values_path, encoding="utf-8") as f:
-        data = yaml.safe_load(f)
-
-    assert "redis" in data, "ArgoCD values.yaml must contain redis configuration block"
-    redis_cfg = data["redis"]
-    assert redis_cfg.get("enabled") is True, "Redis component must be enabled"
-    assert "image" in redis_cfg, "Redis component must explicitly override container image"
-    assert redis_cfg["image"]["repository"] == "valkey/valkey"
-    assert redis_cfg["image"]["tag"] == "9.1.3-alpine"
-
-
-def test_llm_valkey_manifest_specification() -> None:
-    """Verify LLM stack valkey.yaml defines Valkey deployment and service."""
-    valkey_path = K8S_DIR / "llm" / "valkey.yaml"
-    assert valkey_path.is_file(), f"Missing {valkey_path}"
-
-    docs = list(yaml.safe_load_all(valkey_path.read_text(encoding="utf-8")))
-    assert len(docs) >= 2, f"Expected at least 2 YAML documents in {valkey_path}"
-
-    deployment = next(
-        (d for d in docs if isinstance(d, dict) and d.get("kind") == "Deployment"), None
-    )
-    assert deployment is not None, f"Expected Deployment document in {valkey_path}"
-
-    containers = (
-        deployment.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
-    )
-    assert containers, f"Expected container definitions in Deployment in {valkey_path}"
-    container = containers[0]
-    assert container.get("name") == "valkey"
-    assert container.get("image") == "valkey/valkey:9.1.3-alpine"
-    assert "exec valkey-server " in container["command"][-1]
-
-    service = next((d for d in docs if isinstance(d, dict) and d.get("kind") == "Service"), None)
-    assert service is not None, f"Expected Service document in {valkey_path}"
-    assert service.get("metadata", {}).get("name") == "valkey"
-    ports = service.get("spec", {}).get("ports", [])
-    assert ports
-    assert ports[0].get("port") == 6379
-
-
-def test_open_webui_values_connects_to_valkey() -> None:
-    """Verify Open-WebUI Helm values connects websocket manager to Valkey service."""
-    webui_values_path = K8S_DIR / "llm" / "values-open-webui.yaml"
-    assert webui_values_path.is_file(), f"Missing {webui_values_path}"
-
-    with open(webui_values_path, encoding="utf-8") as f:
-        data = yaml.safe_load(f)
-
-    assert "websocket" in data, "values-open-webui.yaml must configure websocket"
-    ws = data["websocket"]
-    assert ws.get("enabled") is True
-    assert "valkey.llm.svc.cluster.local:6379" in ws.get("url", "")
-    assert ws.get("redis", {}).get("enabled") is False, "Embedded Redis subchart must be disabled"
 
 
 def test_no_proprietary_redis_images_in_stack() -> None:
@@ -290,25 +217,6 @@ def test_only_open_webui_and_the_metrics_scrapers_reach_the_cache_valkey() -> No
         ],
         "egress": [],
     }
-
-
-def test_open_webui_is_the_only_workload_that_names_the_cache_valkey() -> None:
-    """Only Open WebUI is set up to reach the cache Valkey, so its perimeter admits no other pod (#1654).
-
-    Portkey 1.15.0 reads its cache only from REDIS_CONNECTION_STRING, so its CACHE_STORE and
-    REDIS_URL had no effect. LiteLLM reads no LITELLM_REDIS_* variable, and the gateway config
-    turns on no cache. Neither connected to Valkey.
-    """
-    files = sorted(
-        {
-            path.relative_to(K8S_DIR).as_posix()
-            for path in K8S_DIR.rglob("*.yaml")
-            for document in yaml.load_all(path.read_text(encoding="utf-8"), Loader=yaml.CSafeLoader)
-            if any(CACHE_SERVICE_HOST in value for value in _strings(document))
-        }
-    )
-
-    assert files == ["llm/values-open-webui.yaml"]
 
 
 # devops-cli's cache in the cluster: the Valkey that the Service and the cluster jobs use for their

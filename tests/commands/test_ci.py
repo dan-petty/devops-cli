@@ -13,14 +13,12 @@ import subprocess
 import sys
 import threading
 import time
-import tomllib
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
 import typer
-from packaging.requirements import Requirement
 from typer.testing import CliRunner
 
 from devops_cli.ci.cache import (
@@ -39,7 +37,6 @@ from devops_cli.commands.ci import (
 )
 from devops_cli.config.constants import (
     CONST_BANDIT_INI_NAME,
-    CONST_CI_SHARD_SUMMARY_CHARS,
     CONST_CI_TEST_BUDGET_SECONDS,
     CONST_EXIT_CANCELLED,
 )
@@ -371,20 +368,6 @@ def test_ci_uv_check_command(process_fake: ProcessFake) -> None:
     result = runner.invoke(app, ["uv-check"])
     called = _started(process_fake)
     assert (result.exit_code, any("uv" in c and "check" in c for c in called)) == (0, True)
-
-
-def test_ci_uv_check_type_checks_with_the_ty_the_lockfile_pins() -> None:
-    """`uv check` runs the exact `ty` that `uv.lock` resolves when `ty` is in the dev group, so a
-    new `ty` release cannot fail `main` with no change in the repository (#2281)."""
-    dev = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
-        "dependency-groups"
-    ]["dev"]
-    lock = tomllib.loads((REPO_ROOT / "uv.lock").read_text(encoding="utf-8"))["package"]
-    pinned = [str(req.specifier) for req in map(Requirement, dev) if req.name == "ty"]
-    locked = [package["version"] for package in lock if package["name"] == "ty"]
-
-    assert pinned == [f"=={version}" for version in locked]
-    assert len(locked) == 1
 
 
 def test_ci_lockfile_command(process_fake: ProcessFake) -> None:
@@ -731,195 +714,6 @@ def test_github_workflows_caching_configuration() -> None:
                 _validate_setup_uv_step(step, context_tag)
 
 
-def _installs_uv(uses: str) -> bool:
-    """A step installs uv through setup-uv, directly or through a local composite action."""
-    import yaml
-
-    if "astral-sh/setup-uv" in uses:
-        return True
-    if not uses.startswith("./"):
-        return False
-    action = yaml.safe_load((Path(uses) / "action.yml").read_text(encoding="utf-8")) or {}
-    return any(
-        "astral-sh/setup-uv" in str(step.get("uses", "")) for step in action["runs"]["steps"]
-    )
-
-
-def test_github_workflows_name_their_runner_and_use_managed_python() -> None:
-    """Every job names its runner image, and uv in CI runs only its own CPython builds.
-
-    A `-latest` label moves to a new image without review, as ubuntu-latest moves to Ubuntu
-    26.04 from 2026-10-19. setup-uv exports `UV_PYTHON=3.14`, so on an image whose own Python
-    is a 3.14 uv would take that interpreter over the managed build `.python-version` pins
-    unless `UV_MANAGED_PYTHON` restricts it (#1494).
-    """
-    import yaml
-
-    latest_runners: list[str] = []
-    uv_workflows: dict[str, bool] = {}
-    for wf_file in sorted(Path(".github/workflows").glob("*.yml")):
-        workflow = yaml.safe_load(wf_file.read_text(encoding="utf-8")) or {}
-        jobs = {name: job for name, job in workflow["jobs"].items() if isinstance(job, dict)}
-        latest_runners += [
-            f"{wf_file.name}:{name}"
-            for name, job in jobs.items()
-            if "-latest" in str(job.get("runs-on", ""))
-        ]
-        if any(
-            _installs_uv(str(step.get("uses", "")))
-            for job in jobs.values()
-            for step in job.get("steps", [])
-            if isinstance(step, dict)
-        ):
-            uv_workflows[wf_file.name] = workflow.get("env", {}).get("UV_MANAGED_PYTHON") == "1"
-
-    assert latest_runners == [], f"jobs on a -latest runner: {latest_runners}"
-    # ci.yml reaches setup-uv only through the setup-toolchain composite action.
-    assert {"ci.yml", "release.yml"} <= uv_workflows.keys()
-    assert [name for name, managed in uv_workflows.items() if not managed] == [], (
-        "workflows that run uv must set UV_MANAGED_PYTHON: '1' in their workflow-level env"
-    )
-
-
-def test_the_toolchain_compiles_bytecode_when_it_syncs() -> None:
-    """The shared toolchain action's `uv sync` compiles the environment's bytecode once, in
-    parallel, so each xdist worker of a fresh runner imports compiled modules instead of
-    compiling the same ones itself (#1735)."""
-    import yaml
-
-    action = yaml.safe_load(
-        Path(".github/actions/setup-toolchain/action.yml").read_text(encoding="utf-8")
-    )
-    syncs = [
-        str(step.get("run", ""))
-        for step in action["runs"]["steps"]
-        if isinstance(step, dict) and "uv sync" in str(step.get("run", ""))
-    ]
-
-    assert len(syncs) == 1
-    assert "uv sync --locked --all-groups --all-extras --compile-bytecode" in syncs[0]
-    assert action["inputs"]["compile-bytecode"]["default"] == "true"
-
-
-def test_ci_workflow_has_tooling_cache_step() -> None:
-    """Validate the shared toolchain action caches incremental tool state with a stable key.
-
-    Caching moved out of a single monolithic job into the composite setup action once the
-    quality gate was split into parallel jobs, so every job restores the same tool state.
-    """
-    import yaml
-
-    action_file = Path(".github/actions/setup-toolchain/action.yml")
-    assert action_file.is_file()
-    action = yaml.safe_load(action_file.read_text(encoding="utf-8")) or {}
-
-    cache_steps = [
-        s
-        for s in action["runs"]["steps"]
-        if isinstance(s, dict) and "actions/cache" in str(s.get("uses", ""))
-    ]
-    assert len(cache_steps) >= 1
-
-    cache_with = cache_steps[0].get("with", {})
-    cache_key = str(cache_with.get("key", ""))
-    assert isinstance(cache_with, dict)
-    assert "tooling-" in cache_key
-    assert "hashFiles" in cache_key
-    # A commit-scoped key would miss on every run, defeating the cache entirely.
-    assert "github.sha" not in cache_key
-    # actions/cache requires a path, so a job that runs no tool of the runner passes empty paths
-    # and the action skips the cache step (#4642).
-    assert cache_steps[0].get("if") == "inputs.tooling-cache-paths != ''"
-
-    # Default paths cover the incremental type and lint caches; the test job overrides
-    # them to cache pytest state instead.
-    default_paths = str(action["inputs"]["tooling-cache-paths"]["default"])
-    assert ".mypy_cache" in default_paths
-    assert ".ruff_cache" in default_paths
-
-    ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
-    test_steps = ci["jobs"]["test-shard"]["steps"]
-    setup = next(s for s in test_steps if "setup-toolchain" in str(s.get("uses", "")))
-    assert ".pytest_cache" in str(setup.get("with", {}).get("tooling-cache-paths", ""))
-
-
-def _job_runs_on_event(workflow: dict[str, Any], job: dict[str, Any], event: str) -> bool:
-    """Return True when a workflow triggers on `event` and `job` is not gated off `event`."""
-    triggers = workflow.get("on") or workflow.get(True) or {}
-    if event not in triggers:
-        return False
-    job_if = str(job.get("if", ""))
-    if "github.event_name == 'schedule'" in job_if:
-        return False
-    if event == "pull_request" and "github.event_name == 'push'" in job_if:
-        return False
-    if event == "push" and "github.event_name == 'pull_request'" in job_if:
-        return False
-    return True
-
-
-def _step_saves_uv_cache(step: dict[str, Any], default_composite_save: bool) -> bool:
-    """Return True when a step invokes setup-uv or setup-toolchain and saves the uv cache."""
-    uses = str(step.get("uses", ""))
-    with_args = step.get("with") or {}
-    if "astral-sh/setup-uv" in uses:
-        if not with_args.get("enable-cache"):
-            return False
-        raw = with_args.get("save-cache", True)
-        return str(raw).lower() != "false"
-    if uses == "./.github/actions/setup-toolchain":
-        raw = with_args.get("save-uv-cache", default_composite_save)
-        return str(raw).lower() != "false"
-    return False
-
-
-def test_toolchain_cache_runs_on_node24_and_one_job_per_event_saves_uv_cache() -> None:
-    """setup-toolchain pins Node 24 actions/cache v6.1.0, and at most one job per push/PR saves setup-uv cache (#1495)."""
-    import yaml
-
-    action = (
-        yaml.safe_load(
-            Path(".github/actions/setup-toolchain/action.yml").read_text(encoding="utf-8")
-        )
-        or {}
-    )
-    steps = action["runs"]["steps"]
-    uv_step = next(s for s in steps if "astral-sh/setup-uv" in str(s.get("uses", "")))
-    cache_step = next(s for s in steps if "actions/cache" in str(s.get("uses", "")))
-
-    save_input = action.get("inputs", {}).get("save-uv-cache", {})
-    default_save = str(save_input.get("default", "true")).lower() != "false"
-
-    writers_by_event: dict[str, list[str]] = {"pull_request": [], "push": []}
-    for wf_name in ("ci.yml", "release.yml"):
-        wf = yaml.safe_load((Path(".github/workflows") / wf_name).read_text(encoding="utf-8")) or {}
-        for job_id, job in wf.get("jobs", {}).items():
-            if not isinstance(job, dict):
-                continue
-            saves = any(
-                _step_saves_uv_cache(step, default_save)
-                for step in job.get("steps", [])
-                if isinstance(step, dict)
-            )
-            if not saves:
-                continue
-            for event in writers_by_event:
-                if _job_runs_on_event(wf, job, event):
-                    writers_by_event[event].append(f"{wf_name}:{job_id}")
-
-    assert (
-        cache_step.get("uses"),
-        save_input.get("default"),
-        uv_step.get("with", {}).get("save-cache"),
-        writers_by_event,
-    ) == (
-        "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
-        "true",
-        "${{ inputs.save-uv-cache }}",
-        {"pull_request": ["ci.yml:static"], "push": ["ci.yml:static"]},
-    )
-
-
 def test_changed_line_coverage_step_fails_a_pull_request_below_ninety_percent() -> None:
     """Pull requests fail when under 90% of their changed lines are covered (#850, #2356).
 
@@ -969,39 +763,6 @@ def test_changed_line_coverage_step_fails_a_pull_request_below_ninety_percent() 
     )
 
 
-def test_ci_workflow_parallelizes_quality_gates() -> None:
-    """Static analysis, tests, and the image build run as independent parallel jobs.
-
-    The image build is roughly half the wall clock but is not a quality gate, so keeping
-    it off the critical path is what lets merge feedback arrive quickly.
-    """
-    import yaml
-
-    ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
-    jobs = ci["jobs"]
-
-    assert {
-        "static",
-        "test-shard",
-        "test",
-        "service-image",
-        "runner-image",
-    }.issubset(jobs.keys())
-    # No `needs:` between them, so they start concurrently rather than in sequence. The one wait is
-    # the join of the test shards: the job `Tests & Coverage` needs them (#3050) and the job that
-    # reads the tests of main for the release pull request (#4639), and nothing else.
-    assert all(
-        not jobs[name].get("needs")
-        for name in (
-            "static",
-            "test-shard",
-            "service-image",
-            "runner-image",
-        )
-    )
-    assert jobs["test"].get("needs") == ["test-shard", "main-tests"]
-
-
 def test_service_image_ci_job_invariants() -> None:
     """The CI service-image job runs for every pull request or a dispatch, pushes nothing, and
     avoids ${{ in scripts. The release pull request skips the job: release.yml builds, starts and
@@ -1029,117 +790,6 @@ def test_service_image_ci_job_invariants() -> None:
     assert not interpolated_runs, (
         f"run: blocks in service-image job must not contain ${{}}: {interpolated_runs}"
     )
-
-
-def test_service_image_test_ci_job_invariants() -> None:
-    """The service-image-test shards run the test suite inside `devops-cli-service:local` without
-    pushing it or interpolating ${{ in scripts (#1643).
-
-    It is in a workflow of its own, so the native `paths` filter stops a pull request that changes
-    only src/ before a job starts, and no push to a pull request of ci.yml starts it (#4644).
-
-    One job builds the service stage and passes it to the shards as an artifact, as the Docker
-    guide "Share built image between jobs" does. Each shard loads it, restores no tooling cache,
-    and prints its 10 slowest tests and the reason for each skip (#4642)."""
-    import yaml
-
-    ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
-    workflow = (
-        yaml.safe_load(Path(".github/workflows/service-image-test.yml").read_text(encoding="utf-8"))
-        or {}
-    )
-    build_job = workflow["jobs"]["service-image-build"]
-    job = workflow["jobs"]["service-image-test"]
-    release_skip = (
-        "${{ !(startsWith(github.head_ref, 'release-please--')"
-        " && github.event.pull_request.head.repo.full_name == github.repository) }}"
-    )
-
-    assert (
-        "service-image-test" in ci["jobs"],
-        workflow[True]["pull_request"]["types"],
-        workflow[True]["pull_request"]["branches"],
-        workflow.get("concurrency"),
-        build_job.get("if"),
-        build_job.get("permissions"),
-        job.get("if"),
-        job.get("needs"),
-        job.get("permissions"),
-        job.get("strategy"),
-    ) == (
-        False,
-        ["opened", "synchronize", "reopened"],
-        ["main"],
-        {
-            "group": "${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}",
-            "cancel-in-progress": True,
-        },
-        release_skip,
-        {"contents": "read"},
-        release_skip,
-        "service-image-build",
-        {"contents": "read"},
-        {"fail-fast": False, "matrix": {"shard": [1, 2, 3, 4, 5, 6]}},
-    )
-
-    def step(steps: list[dict[str, Any]], name: str) -> dict[str, Any]:
-        return next(s for s in steps if s.get("name") == name)
-
-    build_step = step(build_job["steps"], "Build Service Image")
-    build_with = build_step.get("with", {})
-    upload_with = step(build_job["steps"], "Upload Service Image").get("with", {})
-    download_with = step(job["steps"], "Download Service Image").get("with", {})
-    archive = "${{ runner.temp }}/service-image.tar"
-    assert (
-        build_with.get("file"),
-        build_with.get("target"),
-        build_with.get("push") in (False, "false"),
-        "load" in build_with,
-        build_with.get("outputs"),
-        build_with.get("no-cache-filters"),
-        build_step.get("env", {}).get("DOCKER_BUILD_RECORD_UPLOAD"),
-        upload_with.get("name"),
-        upload_with.get("path"),
-        upload_with.get("retention-days"),
-        upload_with.get("compression-level"),
-        download_with.get("name"),
-        download_with.get("path"),
-        step(job["steps"], "Load Service Image").get("run"),
-        [s["name"] for s in job["steps"] if "docker/build-push-action" in str(s.get("uses"))],
-    ) == (
-        "./Dockerfile",
-        "service",
-        True,
-        False,
-        f"type=docker,dest={archive}",
-        "service",
-        "false",
-        "service-image",
-        archive,
-        1,
-        0,
-        "service-image",
-        "${{ runner.temp }}",
-        'docker load --input "$RUNNER_TEMP/service-image.tar"',
-        [],
-    )
-
-    toolchain = next(s for s in job["steps"] if "setup-toolchain" in str(s.get("uses", "")))
-    install_run = str(step(job["steps"], "Install Service Image Test Dependencies").get("run", ""))
-    test_run = str(step(job["steps"], "Run Test Suite in Service Image").get("run", ""))
-    assert (
-        toolchain.get("with", {}).get("tooling-cache-paths"),
-        "HOME=/tmp" in install_run,
-        "UV_NO_CONFIG=1" in install_run,
-        "/workspace/project" in test_run,
-        f'"-r{CONST_CI_SHARD_SUMMARY_CHARS}"' in test_run,
-        '"--durations=10"' in test_run,
-    ) == ("", True, True, True, True, True)
-
-    interpolated_runs = [
-        s.get("name", "") for s in (*build_job["steps"], *job["steps"]) if "${{" in s.get("run", "")
-    ]
-    assert interpolated_runs == []
 
 
 def test_service_image_release_job_invariants() -> None:
@@ -1379,120 +1029,6 @@ def test_the_release_attests_and_tags_only_the_devcontainer_digest_its_smoke_tes
         "org.opencontainers.image.source",
         "org.opencontainers.image.version",
     }
-
-
-def test_the_pull_request_builds_and_starts_the_devcontainer_image_the_way_the_release_does() -> (
-    None
-):
-    """The pull request job runs the two actions the release runs, so its check builds and starts
-    what the release publishes (#1895). It pushes to a registry on the runner and only reads the
-    cache the release writes, so it holds no write scope. It is in a workflow of its own, whose
-    native `paths` filter stops a pull request that changes no image input before a job starts,
-    so no step filters the paths again and `ci.yml` holds no copy of the job (#4658). The release
-    pull request skips the job (#4637). The registry image is pinned by a digest, and the test
-    checks the form of the digest, not its value, so a digest update changes no test (#5065)."""
-    job = _workflow("devcontainer-image.yml")["jobs"]["devcontainer"]
-    release_build = _step_using(
-        _workflow("release.yml")["jobs"]["devcontainer-image"], _BUILD_ACTION
-    )
-
-    assert (
-        "devcontainer" in _workflow("ci.yml")["jobs"],
-        job["name"],
-        job.get("if"),
-        [s.get("name") for s in job["steps"] if "if" in s],
-        job["permissions"],
-        {
-            name: {
-                **service,
-                "image": re.sub(r"@sha256:[0-9a-f]{64}$", "@sha256:<digest>", service["image"]),
-            }
-            for name, service in job["services"].items()
-        },
-        [s.get("name") for s in job["steps"]],
-        _step_using(job, _BUILD_ACTION)["with"],
-        _step_using(job, _SMOKE_ACTION)["with"],
-    ) == (
-        False,
-        "DevContainer Image",
-        "${{ !(startsWith(github.head_ref, 'release-please--')"
-        " && github.event.pull_request.head.repo.full_name == github.repository) }}",
-        [],
-        {"contents": "read", "packages": "read"},
-        {
-            "registry": {
-                "image": "registry:3@sha256:<digest>",
-                "ports": ["5000:5000"],
-            }
-        },
-        [
-            "Check out repository",
-            "Set up uv toolchain",
-            "Log in to GitHub Container Registry (GHCR)",
-            "Extract Metadata for DevContainer Image",
-            "Build and Push DevContainer Image by Digest",
-            "Start the DevContainer Image as Its Remote User",
-        ],
-        {
-            "image": "localhost:5000/devcontainer",
-            "labels": "${{ steps.meta.outputs.labels }}",
-            "cache-from": release_build["with"]["cache-from"],
-        },
-        {"image-ref": "localhost:5000/devcontainer@${{ steps.image.outputs.digest }}"},
-    )
-
-
-def _automation_steps(document: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
-    """Each step of a workflow, with its job id, or of a composite action, with `runs`."""
-    if "runs" in document:
-        return [("runs", step) for step in document["runs"].get("steps", [])]
-    return [
-        (job_id, step)
-        for job_id, job in document.get("jobs", {}).items()
-        for step in job.get("steps", [])
-    ]
-
-
-def test_only_the_shared_actions_build_and_start_the_devcontainer_image() -> None:
-    """A build of .devcontainer/Dockerfile that bypasses the Dev Containers CLI publishes an image
-    without the Dev Container Features and the user vscode, as v0.2.35 to v0.2.38 did (#1895). So
-    no step uses devcontainers/ci or names .devcontainer/Dockerfile in its `file` or its script,
-    and only the image jobs run the two actions."""
-    import yaml
-
-    github = REPO_ROOT / ".github"
-    automation = sorted(
-        [*(github / "workflows").glob("*.y*ml"), *(github / "actions").glob("*/action.y*ml")]
-    )
-    steps = [
-        (path.relative_to(REPO_ROOT).as_posix(), job_id, step)
-        for path in automation
-        for job_id, step in _automation_steps(
-            yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        )
-    ]
-    other_builders = [
-        f"{path}:{job_id}:{step.get('name', 'unnamed')}"
-        for path, job_id, step in steps
-        if str(step.get("uses", "")).startswith("devcontainers/ci@")
-        or ".devcontainer/Dockerfile" in str(step.get("with", {}).get("file", ""))
-        or ".devcontainer/Dockerfile" in str(step.get("run", ""))
-    ]
-    callers = [
-        (path, job_id, step["uses"])
-        for path, job_id, step in steps
-        if step.get("uses") in (_BUILD_ACTION, _SMOKE_ACTION)
-    ]
-
-    assert (other_builders, callers) == (
-        [],
-        [
-            (".github/workflows/devcontainer-image.yml", "devcontainer", _BUILD_ACTION),
-            (".github/workflows/devcontainer-image.yml", "devcontainer", _SMOKE_ACTION),
-            (".github/workflows/release.yml", "devcontainer-image", _BUILD_ACTION),
-            (".github/workflows/release.yml", "devcontainer-smoke", _SMOKE_ACTION),
-        ],
-    )
 
 
 def test_service_image_smoke_test_parity() -> None:

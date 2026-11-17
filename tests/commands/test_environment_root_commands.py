@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from devops_cli.dry_run import set_dry_run
 from tests.support.k8s_tree import K8S, TREE
@@ -65,6 +66,52 @@ def test_deploy_stack_reads_a_copy_of_the_tree_as_it_reads_the_tree(
         copy["product_dir"],
         _relative(copy, copy_of_k8s, TREE.root),
     ) == (0, 0, str(TREE.path("devops")), _relative(tree, TREE.root))
+
+
+def _loki_upgrade(details: dict[str, Any]) -> list[str]:
+    """The `helm upgrade --install` command of release `loki` in the details of a dry run."""
+    return next(
+        cmd
+        for cmd in details["helm_commands"]
+        if cmd[:3] == ["helm", "upgrade", "--install"] and cmd[4] == "loki"
+    )
+
+
+def test_deploy_stack_installs_a_chart_at_the_version_that_its_application_in_the_tree_pins(
+    cli: Callable[..., Any], copy_of_k8s: Path
+) -> None:
+    """deploy-stack reads the version of each chart from the Argo CD Application of the tree, so
+    an update of the pin moves both paths, and the code holds no version of its own (#6060)."""
+    application = copy_of_k8s / "argocd" / "apps" / "loki.yaml"
+    document = yaml.safe_load(application.read_text(encoding="utf-8"))
+    (chart_source,) = [s for s in document["spec"]["sources"] if "chart" in s]
+    chart_source["targetRevision"] = "9.8.7"
+    application.write_text(yaml.safe_dump(document), encoding="utf-8")
+
+    result = cli(
+        "k8s", "deploy-stack", "--stack", "logging", "--k8s-dir", str(copy_of_k8s), "--dry-run"
+    )
+
+    upgrade = _loki_upgrade(_details(result.output))
+    assert (result.exit_code, upgrade[upgrade.index("--version") + 1]) == (0, "9.8.7")
+
+
+def test_deploy_stack_refuses_a_chart_that_no_application_of_the_tree_pins(
+    cli: Callable[..., Any], copy_of_k8s: Path
+) -> None:
+    """With no Application for a release, deploy-stack stops before it touches the cluster and
+    names the release, so it never installs the newest chart by accident (#6060)."""
+    (copy_of_k8s / "argocd" / "apps" / "loki.yaml").unlink()
+
+    result = cli(
+        "k8s", "deploy-stack", "--stack", "logging", "--k8s-dir", str(copy_of_k8s), "--dry-run"
+    )
+
+    assert (result.exit_code, "loki" in result.output, "argocd/apps" in result.output) == (
+        1,
+        True,
+        True,
+    )
 
 
 def test_dashboards_lint_reads_a_copy_of_the_tree_as_it_reads_the_tree(

@@ -20,7 +20,6 @@ from devops_cli.exceptions.k8s import ServiceProbeError
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client
 from devops_cli.k8s.crawl4ai_check import (
-    CRAWL4AI_IMAGE,
     HEALTH_PATH,
     NAMESPACE,
     SERVICE,
@@ -163,6 +162,5 @@ def k8s_crawl4ai_check(
             internal=len(internal),
             open=len(without_token),
             destinations=len(pod),
-            image=CRAWL4AI_IMAGE,
         )
     )

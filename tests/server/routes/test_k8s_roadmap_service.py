@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import functools
 import itertools
-import re
 from typing import Any
 
 import pytest
 import yaml
-from kubernetes.utils.quantity import parse_quantity
 
 from devops_cli.config.constants import (
     CONST_SERVICE_STOP_CUT_SECONDS,
@@ -17,27 +15,14 @@ from devops_cli.config.constants import (
     CONST_SERVICE_STOP_GRACE_SECONDS,
     WebhookExposure,
 )
-from devops_cli.config.settings import Settings
 from devops_cli.server.routes.webhooks import WEBHOOK_PROVIDERS
 from devops_cli.telemetry.exporter import OtlpSignal
 from tests.support.fakes.otlp import FakeCollector
-from tests.support.paths import FIXTURES, REPO_ROOT
+from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
-K8S_README = K8S_DIR / "README.md"
-CLUSTER_DOC = REPO_ROOT / "docs" / "CLUSTER.md"
 DEVOPS_DIR = K8S_DIR / "devops"
 ROADMAP_SERVICE_DIR = DEVOPS_DIR / "roadmap-service"
-# The metric families that the deployed Traefik serves, with their label names (#1136).
-TRAEFIK_FAMILIES = FIXTURES / "metrics" / "traefik.yaml"
-MIB = 1024**2
-# The working set of container `service` on 2026-11-08 (container_memory_working_set_bytes):
-# it starts near 460 MiB and grows 100 to 150 MiB each hour, until the kernel kills the container.
-# The leak itself is #4116 and its 6-hour flat check is #4125. The limit is a stopgap that gives the
-# alert RoadmapServiceMemoryNearLimit time to fire before a kill.
-WORKING_SET_START_BYTES = 460 * MIB
-WORKING_SET_GROWTH_BYTES_PER_HOUR = 150 * MIB
-HOURS_TO_RUN_BEFORE_A_KILL = 10
 
 
 @functools.cache
@@ -102,25 +87,6 @@ def test_the_grace_period_covers_both_waits_of_the_stop_and_no_hook_uses_it_firs
     ) == (True, False)
 
 
-def test_deployment_memory_is_sized_for_the_observed_growth() -> None:
-    resources = _container()["resources"]
-    limit = parse_quantity(resources["limits"]["memory"])
-    needed = (
-        WORKING_SET_START_BYTES + HOURS_TO_RUN_BEFORE_A_KILL * WORKING_SET_GROWTH_BYTES_PER_HOUR
-    )
-
-    assert (
-        resources["requests"]["memory"],
-        resources["limits"]["memory"],
-        resources["requests"]["cpu"],
-        resources["limits"]["cpu"],
-    ) == ("768Mi", "3Gi", "100m", "2")
-    assert limit >= needed, (
-        f"The memory limit {limit // MIB} MiB is below {needed // MIB} MiB, the working set after "
-        f"{HOURS_TO_RUN_BEFORE_A_KILL} hours of growth. Fix the leak (#4116) before you cut the limit."
-    )
-
-
 def test_security_context_is_restricted() -> None:
     pod_sc = _pod_spec()["securityContext"]
     container_sc = _container()["securityContext"]
@@ -135,42 +101,6 @@ def test_security_context_is_restricted() -> None:
         container_sc["readOnlyRootFilesystem"],
         container_sc["capabilities"]["drop"],
     ) == (True, 1000, 1000, 1000, "RuntimeDefault", False, True, ["ALL"])
-
-
-def test_pvc_mounted_at_home_data_dir_under_home_and_sync_options() -> None:
-    pvc = _doc("pvc.yaml")
-    pod = _pod_spec()
-    container = _container()
-
-    pvc_volumes = {
-        v["name"]
-        for v in pod["volumes"]
-        if v.get("persistentVolumeClaim", {}).get("claimName") == "roadmap-service-home"
-    }
-    home_mount = next(m for m in container["volumeMounts"] if m["name"] in pvc_volumes)
-    env = {e["name"]: e.get("value") for e in container["env"]}
-
-    sync_options = pvc["metadata"]["annotations"]["argocd.argoproj.io/sync-options"].split(",")
-
-    assert (
-        home_mount["mountPath"],
-        env["DEVOPS_CLI_DATA_DIR"].startswith("/home/devops"),
-        env["DEVOPS_CLI_CONFIG"],
-        env["OTEL_SERVICE_NAME"],
-        "Prune=false" in sync_options,
-        "Delete=false" in sync_options,
-        pvc["spec"]["storageClassName"],
-        pvc["spec"]["resources"]["requests"]["storage"],
-    ) == (
-        "/home/devops",
-        True,
-        "/config/devops-cli.yaml",
-        "roadmap-service",
-        True,
-        True,
-        "local-path",
-        "1Gi",
-    )
 
 
 def test_every_pod_of_the_deployment_exports_its_metrics_under_one_series_identity(
@@ -200,19 +130,7 @@ def test_every_pod_of_the_deployment_exports_its_metrics_under_one_series_identi
         )
 
     assert resources[0] == resources[1]
-    assert (
-        resources[0]["service.name"],
-        resources[0]["service.instance.id"],
-        "host.name" in resources[0],
-    ) == ("roadmap-service", "roadmap-service", False)
-
-
-def test_pod_annotations_name_port_8000() -> None:
-    annotations = _doc("deployment.yaml")["spec"]["template"]["metadata"]["annotations"]
-    assert (annotations.get("prometheus.io/scrape"), annotations.get("prometheus.io/port")) == (
-        "true",
-        "8000",
-    )
+    assert "host.name" not in resources[0]
 
 
 def test_ingress_has_class_traefik_one_host_and_a_prefix_path_for_each_tunnel_provider() -> None:
@@ -308,85 +226,3 @@ def test_monitoring_networkpolicy_has_egress_rule_to_devops_on_8000() -> None:
         len(devops_egress),
         devops_egress[0]["ports"],
     ) == (1, [{"protocol": "TCP", "port": 8000}])
-
-
-def test_configmap_validates_as_settings_with_repos_and_the_github_app() -> None:
-    target = DEVOPS_DIR / "configmap.example.yaml"
-    cm = yaml.load(target.read_text(encoding="utf-8"), Loader=yaml.CSafeLoader)
-    raw = yaml.safe_load(cm["data"]["devops-cli.yaml"])
-    settings = Settings.model_validate(raw)
-
-    assert (
-        bool(settings.service.repos),
-        bool(settings.service.github_app.bot_login),
-        settings.telemetry.enabled,
-    ) == (True, True, True)
-
-
-def test_kustomizations_list_manifests_and_directory() -> None:
-    devops_kust = yaml.load(
-        (DEVOPS_DIR / "kustomization.yaml").read_text(encoding="utf-8"),
-        Loader=yaml.CSafeLoader,
-    )
-    rs_kust = _doc("kustomization.yaml")
-    expected_manifests = sorted(
-        p.name for p in ROADMAP_SERVICE_DIR.glob("*.yaml") if p.name != "kustomization.yaml"
-    )
-
-    assert (
-        "roadmap-service" in devops_kust["resources"],
-        sorted(rs_kust["resources"]),
-        len(expected_manifests),
-        all((ROADMAP_SERVICE_DIR / m).is_file() for m in rs_kust["resources"]),
-    ) == (True, expected_manifests, 12, True)
-
-
-def test_the_folder_tree_of_the_readme_lists_each_file_of_the_roadmap_service() -> None:
-    """The folder tree of `k8s/README.md` lists each file of `k8s/devops/roadmap-service/`, the
-    Middleware of the rate limit included (#2476)."""
-    lines = K8S_README.read_text(encoding="utf-8").splitlines()
-    (start,) = [i for i, line in enumerate(lines) if line.startswith("│   └── roadmap-service/")]
-    children = itertools.takewhile(lambda line: line.startswith("│       "), lines[start + 1 :])
-    assert sorted(line.split()[-1] for line in children) == sorted(
-        path.name for path in ROADMAP_SERVICE_DIR.iterdir()
-    )
-
-
-def _cluster_subsection(heading: str) -> str:
-    """The text of one `###` subsection of docs/CLUSTER.md, up to the next heading."""
-    text = CLUSTER_DOC.read_text(encoding="utf-8")
-    start = text.index(f"\n### {heading}\n") + 1
-    ends = [
-        found for found in (text.find("\n## ", start), text.find("\n### ", start)) if found != -1
-    ]
-    return text[start : min(ends, default=len(text))]
-
-
-def test_the_webhook_route_section_counts_the_429_answers_of_the_rate_limit() -> None:
-    """The query of the Traefik answers in the subsection Webhook route counts the HTTP 429 that
-    the rate limit gives (#2476).
-
-    The rate limit is a middleware of the router. Traefik counts `traefik_router_requests_total`
-    before the middlewares of the router, so it counts each answer of the route, the 429 included.
-    Traefik counts `traefik_service_requests_total` only around its proxy to the pods, so a
-    request that the rate limit refuses does not count there. The series of the router names the
-    service of the Ingress backend as `<namespace>-<name>-<port>@kubernetes`, and the deployed
-    Traefik serves it with the labels `code` and `service`.
-    """
-    ingress = _doc("ingress.yaml")
-    (rule,) = ingress["spec"]["rules"]
-    (path,) = rule["http"]["paths"]
-    backend = path["backend"]["service"]
-    service = (
-        f"{ingress['metadata']['namespace']}-{backend['name']}-{backend['port']['number']}"
-        "@kubernetes"
-    )
-    families = yaml.safe_load(TRAEFIK_FAMILIES.read_text(encoding="utf-8"))["families"]
-    # Each query is a code span with a selector; a code span can also name a metric alone.
-    assert (
-        re.findall(r"`([^`]*traefik_[^`]*\{[^`]*)`", _cluster_subsection("Webhook route")),
-        {"code", "service"} <= set(families["traefik_router_requests_total"]["labels"]),
-    ) == (
-        [f'sum by (code) (increase(traefik_router_requests_total{{service="{service}"}}[15m]))'],
-        True,
-    )

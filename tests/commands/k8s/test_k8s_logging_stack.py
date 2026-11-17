@@ -26,12 +26,7 @@ runner = CliRunner()
 
 
 def test_logging_stack_definitions_and_single_shipper(cli: Callable[..., Any]) -> None:
-    """Verify logging stack registers Loki alone and Alloy ships pod logs to Loki (#548)."""
-    mon_values = yaml.safe_load(
-        (REPO_ROOT / "k8s" / "monitoring" / "k8s-monitoring-values.yaml").read_text(
-            encoding="utf-8"
-        )
-    )
+    """Verify logging stack registers Loki alone (#548)."""
     res = cli("k8s", "deploy-stack", "--stack", "logging", "--k8s-dir", "k8s", "--dry-run")
     assert res.exit_code == 0
     details = _dry_run_details(res.output)
@@ -40,20 +35,8 @@ def test_logging_stack_definitions_and_single_shipper(cli: Callable[..., Any]) -
     repo_names = tuple(
         cmd[3] for cmd in details["helm_commands"] if cmd[:3] == ["helm", "repo", "add"]
     )
-    pod_logs_enabled = mon_values["podLogsViaLoki"]["enabled"]
-    local_loki_url = mon_values["destinations"]["localLoki"]["url"]
 
-    assert (
-        release_names,
-        repo_names,
-        pod_logs_enabled,
-        local_loki_url,
-    ) == (
-        ("loki",),
-        ("grafana-community",),
-        True,
-        "http://loki.logging.svc.cluster.local:3100/loki/api/v1/push",
-    )
+    assert (release_names, repo_names) == (("loki",), ("grafana-community",))
 
     manifest_paths = [str(p) for p in details["manifests"]]
     assert ("logging" in VALID_STACKS, any("networkpolicy.yaml" in p for p in manifest_paths)) == (
@@ -65,11 +48,9 @@ def test_logging_stack_definitions_and_single_shipper(cli: Callable[..., Any]) -
 def test_deploy_stack_installs_loki_from_the_grafana_community_chart(
     cli: Callable[..., Any],
 ) -> None:
-    """The logging stack of deploy-stack installs the chart that the Argo CD Application pins,
-    `grafana-community/loki` 21.2.3, which runs Loki 3.7.10 and so is out of reach of
-    CVE-2026-21729 (#1632). It adds only the grafana-community repository, and gives the chart
-    only the values file. The invariant test of the Application and the values is in
-    tests/invariants/test_k8s_manifests.py."""
+    """The logging stack of deploy-stack installs the chart `grafana-community/loki` (#1632). It
+    adds only the grafana-community repository, and gives the chart only the values file. The
+    version comes from the Argo CD Application of the tree (#6060)."""
     res = cli("k8s", "deploy-stack", "--stack", "logging", "--k8s-dir", "k8s", "--dry-run")
     assert res.exit_code == 0
     details = _dry_run_details(res.output)
@@ -80,24 +61,30 @@ def test_deploy_stack_installs_loki_from_the_grafana_community_chart(
     )
 
     chart = upgrade_cmd[5]
-    version = upgrade_cmd[upgrade_cmd.index("--version") + 1]
     namespace = upgrade_cmd[upgrade_cmd.index("--namespace") + 1]
     values = upgrade_cmd[upgrade_cmd.index("--values") + 1]
     repo_url = repo_cmd[4]
 
     assert (
         chart,
-        version,
         namespace,
         values,
         repo_url,
     ) == (
         "grafana-community/loki",
-        "21.2.3",
         "logging",
         "k8s/logging/loki-values.yaml",
         "https://grafana-community.github.io/helm-charts",
     )
+
+
+def _without_version(commands: list[list[str]]) -> list[list[str]]:
+    """`commands` with the `--version` option and its value left out: the version comes from the
+    Argo CD Application of the tree (#6060)."""
+    return [
+        [arg for i, arg in enumerate(cmd) if "--version" not in (arg, cmd[i - 1] if i else "")]
+        for cmd in commands
+    ]
 
 
 def _dry_run_details(output: str) -> dict[str, Any]:
@@ -127,8 +114,6 @@ def test_deploy_stack_dry_run_lists_the_helm_commands_of_the_logging_stack(
         "--take-ownership",
         "loki",
         "grafana-community/loki",
-        "--version",
-        "21.2.3",
         "--namespace",
         "logging",
         "--values",
@@ -149,7 +134,7 @@ def test_deploy_stack_dry_run_lists_the_helm_commands_of_the_logging_stack(
         "--dry-run",
     )
     assert res_wait.exit_code == 0
-    assert _dry_run_details(res_wait.output)["helm_commands"] == [
+    assert _without_version(_dry_run_details(res_wait.output)["helm_commands"]) == [
         *expected_repo_cmds,
         [*base_upgrade_cmd, "--wait", "--timeout", "10m"],
     ]
@@ -167,7 +152,7 @@ def test_deploy_stack_dry_run_lists_the_helm_commands_of_the_logging_stack(
         "--no-wait",
     )
     assert res_no_wait.exit_code == 0
-    assert _dry_run_details(res_no_wait.output)["helm_commands"] == [
+    assert _without_version(_dry_run_details(res_no_wait.output)["helm_commands"]) == [
         *expected_repo_cmds,
         base_upgrade_cmd,
     ]

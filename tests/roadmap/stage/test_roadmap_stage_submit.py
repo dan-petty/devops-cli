@@ -293,12 +293,10 @@ def test_a_round_with_no_repository_is_refused_before_any_request(
     assert kube.custom_objects.calls == []
 
 
-def test_the_jobs_setting_defaults_to_1_refuses_0_and_is_in_the_example_configmap() -> None:
-    example = yaml.safe_load((REPO_ROOT / "k8s/devops/configmap.example.yaml").read_text("utf-8"))
-    configured = yaml.safe_load(example["data"]["devops-cli.yaml"])
+def test_the_jobs_setting_defaults_to_1_and_refuses_0() -> None:
     with pytest.raises(ValueError, match="jobs"):
         RoadmapConfig.model_validate({"stage": {"jobs": 0}})
-    assert (RoadmapConfig().stage.jobs, configured["roadmap"]["stage"]["jobs"]) == (1, 1)
+    assert RoadmapConfig().stage.jobs == 1
 
 
 # ── The submit ────────────────────────────────────────────────────────────────

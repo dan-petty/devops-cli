@@ -10,9 +10,11 @@ that a name is gone, which `docs/TESTING.md` names for a deletion and no `devops
 The step must run the command (#3263), so the gate asks `verification_problem` of the shell
 policy, the table that the step reads, and a command that the step refuses gets the reason of the
 step. A new test module (`tests/**/test_*.py` in `creates`) sits in the directory that mirrors the
-package of a source file that the plan changes, or in `tests/invariants/`. A plan that changes no
-source file has no package to mirror, so it only refuses a test module directly under `tests/`. A
-file under `tests/` that is no test module (a fixture, a helper, a `conftest.py`) is not judged.
+package of a source file that the plan changes. A plan that changes no source file has no package
+to mirror, so it only refuses a test module directly under `tests/` or in `tests/invariants/`. That
+folder holds most of the tests that read a manifest or a config file, so a plan adds no test module
+there (#6080): a test checks the source code (#6060). A file under `tests/` that is no test module
+(a fixture, a helper, a `conftest.py`) is not judged.
 
 A task text holds more than one word, with a code span as one word. A path or a word alone says
 nothing to the step: `tests/roadmap/test_stage.py` is no task, and `Add a test in
@@ -190,9 +192,21 @@ def _is_test_module(path: PurePosixPath) -> bool:
 
 
 def _expected(mirrors: Sequence[PurePosixPath]) -> str:
-    """The directories a new test may go in, as code spans, for the text of a problem."""
-    allowed = [*(m for m in mirrors if m != _TESTS), _INVARIANTS]
+    """The directories a new test may go in, as code spans, for the text of a problem. A plan that
+    changes no source file gets the rule of the mirror instead."""
+    allowed = [m for m in mirrors if m != _TESTS] or list(mirrors)
+    if not allowed:
+        return MESSAGES.roadmap.stage_test_path_mirror
     return " or ".join(f"`{directory}`" for directory in allowed)
+
+
+def _test_folder_allowed(folder: PurePosixPath, mirrors: Sequence[PurePosixPath]) -> bool:
+    """Whether a new test module may sit in `folder`: a mirror directory of the changed source,
+    or, for a plan that changes no source file, any folder below `tests/` but `tests/invariants/`
+    (#6080)."""
+    if mirrors:
+        return folder in mirrors
+    return folder not in (_TESTS, _INVARIANTS)
 
 
 def negative_search_parts(command: str) -> NegativeSearch | None:
@@ -283,8 +297,7 @@ def search_problems(
 
 def form_problems(groups: Sequence[StageGroup]) -> list[str]:
     """One sentence for each task text of one word, for each `verify` command that is not in the
-    project form, and for each new test module outside the mirror directories and
-    `tests/invariants/`."""
+    project form, and for each new test module outside the mirror directories."""
     texts = MESSAGES.roadmap
     mirrors = _mirror_directories(groups)
     problems: list[str] = []
@@ -304,8 +317,7 @@ def form_problems(groups: Sequence[StageGroup]) -> list[str]:
         for created in group.creates:
             path = PurePosixPath(created)
             folder = path.parent
-            allowed = folder == _INVARIANTS or (folder in mirrors if mirrors else folder != _TESTS)
-            if _is_test_module(path) and not allowed:
+            if _is_test_module(path) and not _test_folder_allowed(folder, mirrors):
                 problems.append(
                     texts.stage_problem_test_path.format(
                         group=number, path=created, directory=folder, expected=_expected(mirrors)

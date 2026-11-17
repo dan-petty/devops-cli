@@ -107,6 +107,17 @@ def test_a_path_that_is_no_job_endpoint_gives_404_even_with_the_token(
     assert _post(client, path, _rpc("tools/list")).status_code == 404
 
 
+def test_the_health_route_answers_without_the_token_and_names_no_tool(client: TestClient) -> None:
+    """The readiness probe of the pod calls the route, and the kubelet holds no token (#6066)."""
+    response = client.get("/healthz")
+
+    assert (response.status_code, response.json()) == (200, {"status": "ok"})
+
+
+def test_the_health_route_runs_no_tool_call(client: TestClient) -> None:
+    assert _post(client, "/healthz", _rpc("tools/list")).status_code == 405
+
+
 def test_the_app_serves_no_documentation_page(client: TestClient) -> None:
     assert [client.get(path).status_code for path in ("/docs", "/redoc", "/openapi.json")] == [
         404,

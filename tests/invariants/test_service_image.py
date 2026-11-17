@@ -194,43 +194,6 @@ def _service_stage() -> list[list[str]]:
     return _stages((REPO_ROOT / "Dockerfile").read_text(encoding="utf-8"))["service"]
 
 
-def _install_tools_target(stage: list[list[str]]) -> str:
-    """The `--target-dir` of the one `devops install-tools --tool openspec` command in `stage`."""
-    commands = [
-        words
-        for words in stage
-        if words[0].upper() == "RUN" and "install-tools" in words and "openspec" in words
-    ]
-    assert len(commands) == 1, f"expected one install of OpenSpec, found {commands}"
-    words = commands[0]
-    assert words[words.index("--tool") + 1] == "openspec"
-    return words[words.index("--target-dir") + 1]
-
-
-def test_the_service_stage_installs_openspec_from_the_lockfile_and_puts_it_on_path() -> None:
-    """Verify that the service image gets the OpenSpec that `devops install-tools` installs.
-
-    The installer runs `npm ci` on the lockfile of `src/devops_cli/tools_lock/openspec` in the
-    builder stage. The `service-deps` stage under the service stage copies the tool directory to
-    the same path, and the PATH of the service stage holds the directory with the `openspec` link
-    (#2659).
-    """
-    stages = _stages((REPO_ROOT / "Dockerfile").read_text(encoding="utf-8"))
-    target = _install_tools_target(stages["builder"])
-    tools_root = str(Path(target).parent)
-
-    service = stages["service"]
-    copies = [
-        words
-        for words in stages["service-deps"]
-        if words[0].upper() == "COPY" and "--from=builder" in words
-    ]
-    assert service[0][1] == "service-deps"
-    assert [tools_root, tools_root] in [words[-2:] for words in copies]
-    assert target in _env_of(service)["PATH"].split(":")
-    assert (REPO_ROOT / "src/devops_cli/tools_lock/openspec/package-lock.json").is_file()
-
-
 def test_the_service_stage_runs_openspec_with_telemetry_off() -> None:
     """Verify that the image turns off the telemetry and the update check of OpenSpec (#2659)."""
     env = _env_of(_service_stage())
@@ -239,28 +202,3 @@ def test_the_service_stage_runs_openspec_with_telemetry_off() -> None:
         "OPENSPEC_NO_UPDATE_CHECK": "1",
     }
     assert env.get("DO_NOT_TRACK") == "1"
-
-
-def test_the_images_take_node_from_the_major_of_node_version() -> None:
-    """Verify that the Node binary is the one of a digest-pinned `node` image, and that the
-    image's major version is the one of `.node-version`, which CI and the devcontainer use.
-
-    The tool runs `#!/usr/bin/env node`, so the builder, which installs it, and the images, which
-    run it, need the binary on PATH (#2659).
-    """
-    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
-    stages = _stages(dockerfile)
-    node_from = next(words for words in stages["node"] if words[0].upper() == "FROM")
-    image, _, digest = node_from[1].partition("@")
-    major = (REPO_ROOT / ".node-version").read_text(encoding="utf-8").strip().partition(".")[0]
-    assert (
-        image.split(":")[0],
-        image.split(":")[1].split("-")[0],
-        digest.startswith("sha256:"),
-    ) == (
-        "node",
-        major,
-        True,
-    )
-    for name in ("builder", "runner-deps", "service-deps"):
-        assert ["COPY", "--from=node", "/usr/local/bin/node", "/usr/local/bin/node"] in stages[name]

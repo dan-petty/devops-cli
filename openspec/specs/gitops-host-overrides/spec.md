@@ -26,9 +26,9 @@ The alert rule `IngressServesPlaceholderHost` in the group `homelab-services` of
 - **AND** it does not match `argocd.example.org`, `example.com.example.net` or `notexample.com`
 
 #### Scenario: The series reaches Prometheus
-- **WHEN** a test reads `k8s/monitoring/k8s-monitoring-values.yaml` and the kube-state-metrics capture `tests/fixtures/metrics/kube-state-metrics.yaml`
-- **THEN** `kube_ingress_path` is in `clusterMetrics.kube-state-metrics.metricsTuning.includeMetrics`
-- **AND** the capture gives `kube_ingress_path` the labels `host`, `ingress` and `namespace`
+- **WHEN** the kube-state-metrics of the cluster serve `kube_ingress_path`
+- **THEN** `kube_ingress_path` is in `clusterMetrics.kube-state-metrics.metricsTuning.includeMetrics` of `k8s/monitoring/k8s-monitoring-values.yaml`
+- **AND** the series has the labels `host`, `ingress` and `namespace`
 
 ### Requirement: deploy-stack sets the configured domain in container environment values
 For each Deployment in the render of a homelab Application, `host_patches` SHALL test and then replace each `env[].value` of a container or init container that holds the placeholder domain. It SHALL change no other value, and the Argo CD gate SHALL allow the placeholder in such a value only.

@@ -4,7 +4,6 @@ Tests assert offline that:
 1. azurerm_kubernetes_cluster.aks sets api_server_access_profile.authorized_ip_ranges from var.
 2. api_server_authorized_ip_ranges variable has no default.
 3. No IP address literals are hardcoded in the committed Terraform files.
-4. network_profile block remains unchanged.
 """
 
 from __future__ import annotations
@@ -42,12 +41,3 @@ def test_committed_tf_azure_holds_no_literal_authorized_ip_address() -> None:
                 assert "10." not in line
                 assert "192." not in line
                 assert "172." not in line
-
-
-def test_network_profile_block_is_preserved() -> None:
-    """The network_profile block in tf/azure/main.tf retains its four original parameters."""
-    content = MAIN_TF.read_text(encoding="utf-8")
-    assert 'network_plugin    = "azure"' in content
-    assert 'load_balancer_sku = "standard"' in content
-    assert 'service_cidr      = "10.0.0.0/16"' in content
-    assert 'dns_service_ip    = "10.0.0.10"' in content

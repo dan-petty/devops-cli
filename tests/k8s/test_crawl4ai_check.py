@@ -7,11 +7,9 @@ refusals. A refusal holds no page content: its body is a JSON object with the on
 
 from __future__ import annotations
 
-import re
-
 import pytest
 
-from devops_cli.k8s.crawl4ai_check import CRAWL4AI_IMAGE, is_refusal
+from devops_cli.k8s.crawl4ai_check import is_refusal
 
 _BLOCKED = b'{"detail":"URL blocked (SSRF protection): URL blocked"}'
 
@@ -35,9 +33,3 @@ def test_only_a_400_or_403_with_a_detail_text_is_a_refusal(
     status: int, body: bytes, refusal: bool
 ) -> None:
     assert is_refusal(status, body) is refusal
-
-
-def test_the_checked_image_names_a_release_tag_and_its_digest() -> None:
-    """The gate compares this value with the image of the Deployment, so a bump of the digest
-    fails until a person runs the command against the new image."""
-    assert re.fullmatch(r"unclecode/crawl4ai:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}", CRAWL4AI_IMAGE)

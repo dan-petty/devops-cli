@@ -21,6 +21,7 @@ from tests.support.k8s_commands import (
     minikube_stopped,
     name_contexts,
     stock_push_keyring,
+    write_chart_applications,
 )
 from tests.support.tcp_probe import TcpProbe
 
@@ -71,6 +72,7 @@ def test_k8s_bootstrap_success(
 ) -> None:
     manifest_dir = tmp_path / "k8s"
     manifest_dir.mkdir()
+    write_chart_applications(manifest_dir, "infra")
     install_kubectl_world(process_fake)
     stock_push_keyring(keyring_store)
     minikube_running(process_fake)
@@ -382,6 +384,7 @@ def test_deploy_and_teardown_stack_use_effective_context(
     answer_helm_version(process_fake)
     manifest_dir = tmp_path / "k8s"
     manifest_dir.mkdir()
+    write_chart_applications(manifest_dir, "infra")
 
     # The `infra` stack syncs the Argo CD and Grafana credentials, so the deploy also reads their
     # Secrets with the ARN context (#4091).

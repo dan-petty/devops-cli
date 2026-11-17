@@ -14,7 +14,6 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
 from devops_cli.dry_run import set_dry_run
-from devops_cli.prometheus.promql import selectors, validate_promql
 from devops_cli.tools_lock import load_tools_lock
 from tests.support.config_writes import written_keys
 from tests.support.fakes.clock import ClockFake
@@ -33,8 +32,8 @@ from tests.support.k8s_commands import (
     name_contexts,
     stock_push_keyring,
 )
-from tests.support.k8s_tree import TREE, pinned_charts, release_values
-from tests.support.paths import FIXTURES, REPO_ROOT
+from tests.support.k8s_tree import TREE, release_values
+from tests.support.paths import REPO_ROOT
 from tests.support.tcp_probe import TcpProbe
 
 runner = CliRunner()
@@ -416,21 +415,6 @@ def test_deploy_stack_gives_the_prometheus_chart_the_environment_values_then_the
             str(TREE.path("devops") / "monitoring" / "prometheus-rules-values.yaml"),
         ],
     )
-
-
-def test_deploy_stack_installs_each_chart_at_the_version_that_its_application_pins() -> None:
-    """`deploy-stack` installs on a cluster without Argo CD the charts that the Applications
-    install with Argo CD. Renovate's `argocd` manager moves only the Application pins (#1659), so
-    a chart update moves the version here too, or the two paths run different releases."""
-    from devops_cli.commands.k8s.stack_lifecycle import HELM_RELEASES_BY_STACK
-
-    installed = {
-        (release["chart"].rsplit("/", 1)[-1], release["version"])
-        for releases in HELM_RELEASES_BY_STACK.values()
-        for release in releases
-    }
-
-    assert (bool(installed), sorted(installed - pinned_charts())) == (True, [])
 
 
 def test_recover_stuck_helm_release_rolls_back_pending_upgrade(
@@ -1122,180 +1106,6 @@ def test_k8s_deploy_stack_no_wait(
         assert "--take-ownership" in cmd
 
 
-def test_k8s_workload_resource_limits_and_probes() -> None:
-    """Verify workload resource limits, relaxed memory constraints, and resilient probes."""
-
-    # 1. Ollama DaemonSet: requests 8Gi and 3000m, robust startup, readiness and liveness probes.
-    # test_ollama_16gib_tier_limits_its_memory_to_its_request checks its memory limit (#5115).
-    ollama_path = REPO_ROOT / "k8s" / "llm" / "profiles" / "ollama-profiles.yaml"
-    ollama_docs = list(yaml.safe_load_all(ollama_path.read_text(encoding="utf-8")))
-    dep = next(d for d in ollama_docs if d and d.get("kind") in ("Deployment", "DaemonSet"))
-    container = dep["spec"]["template"]["spec"]["containers"][0]
-    resources = container.get("resources", {})
-    startup = container["startupProbe"]
-    readiness = container["readinessProbe"]
-    liveness = container["livenessProbe"]
-    volumes = dep["spec"]["template"]["spec"]["volumes"]
-    ollama_vol = next(v for v in volumes if v["name"] == "ollama-data")
-
-    assert (
-        ollama_path.is_file(),
-        resources["requests"]["memory"],
-        resources["requests"]["cpu"],
-        startup["initialDelaySeconds"],
-        startup["periodSeconds"],
-        startup["timeoutSeconds"],
-        startup["failureThreshold"],
-        ollama_vol["hostPath"]["path"],
-        ollama_vol["hostPath"]["type"],
-        readiness["initialDelaySeconds"],
-        readiness["periodSeconds"],
-        readiness["timeoutSeconds"],
-        readiness["failureThreshold"],
-        liveness["initialDelaySeconds"],
-        liveness["periodSeconds"],
-        liveness["timeoutSeconds"],
-        liveness["failureThreshold"],
-    ) == (
-        True,
-        "8Gi",
-        "3000m",
-        10,
-        5,
-        5,
-        60,
-        "/var/lib/ollama",
-        "DirectoryOrCreate",
-        5,
-        10,
-        5,
-        3,
-        15,
-        15,
-        10,
-        6,
-    )
-
-    # 2. Valkey: memory limit >= 2048Mi
-    valkey_docs = list(
-        yaml.safe_load_all((REPO_ROOT / "k8s" / "llm" / "valkey.yaml").read_text(encoding="utf-8"))
-    )
-    valkey_dep = next(d for d in valkey_docs if d and d.get("kind") == "Deployment")
-    valkey_res = valkey_dep["spec"]["template"]["spec"]["containers"][0]["resources"]
-    assert valkey_res["limits"]["memory"] == "2048Mi"
-
-    # The redis_exporter sidecars use 21m or less, but CFS throttled them in 52 to 69% of
-    # the periods of 7 d at a 100m limit, and a throttled scrape is slow (#4991).
-    devops_valkey_docs = list(
-        yaml.safe_load_all(
-            (REPO_ROOT / "k8s" / "llm" / "valkey-devops.yaml").read_text(encoding="utf-8")
-        )
-    )
-    devops_valkey_dep = next(d for d in devops_valkey_docs if d and d.get("kind") == "Deployment")
-    exporter_cpu_limits = [
-        container["resources"]["limits"]["cpu"]
-        for dep in (valkey_dep, devops_valkey_dep)
-        for container in dep["spec"]["template"]["spec"]["containers"]
-        if container["name"] == "redis-exporter"
-    ]
-    assert exporter_cpu_limits == ["500m", "500m"]
-
-    # 3. Tempo: memory limit >= 2048Mi
-    tempo_values = yaml.safe_load(
-        (REPO_ROOT / "k8s" / "otel" / "tempo-values.yaml").read_text(encoding="utf-8")
-    )
-    assert tempo_values["tempo"]["resources"]["limits"]["memory"] == "2048Mi"
-
-    # 5. ArgoCD values: elevated memory limits
-    argo_values = yaml.safe_load(
-        (REPO_ROOT / "k8s" / "argocd" / "values.yaml").read_text(encoding="utf-8")
-    )
-    assert argo_values["controller"]["resources"]["limits"]["memory"] == "2048Mi"
-    assert argo_values["repoServer"]["resources"]["limits"]["memory"] == "4096Mi"
-    assert argo_values["server"]["resources"]["limits"]["memory"] == "1024Mi"
-    assert argo_values["redis"]["resources"]["limits"]["memory"] == "1024Mi"
-    assert argo_values["redis"]["exporter"]["resources"]["limits"]["cpu"] == "500m"
-
-    # 6. Open WebUI values: elevated CPU and memory limits
-    webui_values = yaml.safe_load(
-        (REPO_ROOT / "k8s" / "llm" / "values-open-webui.yaml").read_text(encoding="utf-8")
-    )
-    assert webui_values["resources"]["limits"]["cpu"] == "4000m"
-    assert webui_values["resources"]["limits"]["memory"] == "4Gi"
-
-    # 7. OTel values: elevated CPU and memory limits
-    otel_values = yaml.safe_load(
-        (REPO_ROOT / "k8s" / "otel" / "values.yaml").read_text(encoding="utf-8")
-    )
-    assert otel_values["resources"]["limits"]["cpu"] == "1000m"
-    assert otel_values["resources"]["limits"]["memory"] == "1024Mi"
-
-    # 8. Loki values: elevated singleBinary limits
-    loki_values = yaml.safe_load(
-        (REPO_ROOT / "k8s" / "logging" / "loki-values.yaml").read_text(encoding="utf-8")
-    )
-    assert loki_values["singleBinary"]["resources"]["limits"]["cpu"] == "1000m"
-    assert loki_values["singleBinary"]["resources"]["limits"]["memory"] == "2048Mi"
-
-    # 10. K8s monitoring stack values: elevated requests and limits to eliminate OOM kills, and a
-    #     node-exporter CPU limit that does not throttle the scrape. The Alloy limits are 2 times
-    #     the 7 d peak or more (#4991).
-    k8s_mon_values = yaml.safe_load(
-        (REPO_ROOT / "k8s" / "monitoring" / "k8s-monitoring-values.yaml").read_text(
-            encoding="utf-8"
-        )
-    )
-    ksm_res = k8s_mon_values["telemetryServices"]["kube-state-metrics"]["resources"]
-    node_res = k8s_mon_values["telemetryServices"]["node-exporter"]["resources"]
-    alloy_metrics_res = k8s_mon_values["collectors"]["alloy-metrics"]["alloy"]["resources"]
-    alloy_logs_res = k8s_mon_values["collectors"]["alloy-logs"]["alloy"]["resources"]
-    assert (
-        ksm_res["requests"]["memory"],
-        ksm_res["limits"]["memory"],
-        node_res["requests"]["memory"],
-        node_res["limits"]["memory"],
-        node_res["limits"]["cpu"],
-        alloy_metrics_res["requests"]["memory"],
-        alloy_metrics_res["limits"]["memory"],
-        alloy_logs_res["limits"]["memory"],
-    ) == (
-        "64Mi",
-        "256Mi",
-        "64Mi",
-        "256Mi",
-        "500m",
-        "256Mi",
-        "1536Mi",
-        "768Mi",
-    )
-
-    # Grafana: its 7 d peak was 1014 MiB of a 1024Mi limit (#4991).
-    grafana_values = yaml.safe_load(
-        (REPO_ROOT / "k8s" / "monitoring" / "grafana-values.yaml").read_text(encoding="utf-8")
-    )
-    assert grafana_values["resources"] == {
-        "requests": {"cpu": "100m", "memory": "512Mi"},
-        "limits": {"cpu": "500m", "memory": "2Gi"},
-    }
-
-    # 11. GPU Feature Discovery DaemonSet: Burstable QoS requests and limits
-    gfd_docs = list(
-        yaml.safe_load_all(
-            (REPO_ROOT / "k8s" / "gpu-feature-discovery" / "daemonset.yaml").read_text(
-                encoding="utf-8"
-            )
-        )
-    )
-    gfd_ds = next(d for d in gfd_docs if d and d.get("kind") == "DaemonSet")
-    gfd_container = gfd_ds["spec"]["template"]["spec"]["containers"][0]
-    assert gfd_container["image"] == "nvcr.io/nvidia/k8s-device-plugin:v0.16.2"
-    gfd_res = gfd_container["resources"]
-    assert gfd_res["requests"]["cpu"] == "50m"
-    assert gfd_res["requests"]["memory"] == "64Mi"
-    assert gfd_res["limits"]["cpu"] == "200m"
-    assert gfd_res["limits"]["memory"] == "256Mi"
-
-
 # =============================================================================
 # No In-Cluster Image Registry (#1630)
 # =============================================================================
@@ -1309,17 +1119,6 @@ def test_k8s_workload_resource_limits_and_probes() -> None:
 def _repo_yaml(*parts: str) -> dict[str, Any]:
     loaded: dict[str, Any] = yaml.safe_load(REPO_ROOT.joinpath(*parts).read_text(encoding="utf-8"))
     return loaded
-
-
-def _volume_alerts() -> dict[str, dict[str, Any]]:
-    """The `log-and-metric-retention` group's rules, by alert name.
-
-    The server's other groups (#549) are pinned in `tests/test_k8s_monitoring_alerting.py`.
-    """
-    values = _repo_yaml("k8s", "monitoring", "prometheus-values.yaml")
-    groups = values["serverFiles"]["alerting_rules.yml"]["groups"]
-    (group,) = [group for group in groups if group["name"] == "log-and-metric-retention"]
-    return {rule["alert"]: rule for rule in group["rules"]}
 
 
 def test_loki_deletes_logs_once_they_are_thirty_days_old() -> None:
@@ -1337,59 +1136,6 @@ def test_loki_deletes_logs_once_they_are_thirty_days_old() -> None:
         limits["retention_period"],
         limits["deletion_mode"],
     ) == (True, "filesystem", "720h", "disabled")
-
-
-def test_loki_discovers_log_levels_for_the_warnings_and_errors_panel() -> None:
-    """The panel "Logs: warnings and errors" of the service dashboards depends on
-    discover_log_levels."""
-    loki = _repo_yaml("k8s", "logging", "loki-values.yaml")["loki"]
-    assert loki["limits_config"]["discover_log_levels"] is True
-    raw = REPO_ROOT.joinpath("k8s", "logging", "loki-values.yaml").read_text(encoding="utf-8")
-    assert '"Logs: warnings and errors"' in raw
-
-
-def test_both_volumes_hold_thirty_days_and_no_size_cap_cuts_them_short() -> None:
-    """Loki's volume holds 30 days of logs; Prometheus keeps 30 days under a looser size cap."""
-    loki = _repo_yaml("k8s", "logging", "loki-values.yaml")["singleBinary"]["persistence"]
-    server = _repo_yaml("k8s", "monitoring", "prometheus-values.yaml")["server"]
-    assert (
-        loki["enabled"],
-        loki["size"],
-        server["retention"],
-        server["retentionSize"],
-        server["persistentVolume"]["size"],
-    ) == (True, "20Gi", "30d", "16GB", "20Gi")
-
-
-def test_an_alert_fires_before_the_log_or_metric_volume_fills() -> None:
-    """Each alert is well-formed, waits out blips, and reads series that exist.
-
-    The disk alert follows Loki's and Prometheus's claims to the node holding them, since
-    local-path does not hold a volume to its claimed size. The size-cap alert reads only
-    series the Prometheus server serves about itself (`tests/fixtures/metrics/`).
-    """
-    alerts = _volume_alerts()
-    disk, cap = alerts["LogOrMetricVolumeDiskLow"], alerts["PrometheusNearRetentionSizeCap"]
-    server = FIXTURES / "metrics" / "prometheus-server.yaml"
-    served = yaml.safe_load(server.read_text(encoding="utf-8"))["families"]
-    cap_series = {selector.metric for selector in selectors(cap["expr"])}
-    assert (
-        sorted(alerts),
-        all(validate_promql(rule["expr"]).valid for rule in alerts.values()),
-        all(rule["labels"]["severity"] == "warning" for rule in alerts.values()),
-        (disk["for"], cap["for"]),
-        'persistentvolumeclaim=~"storage-loki-0|prometheus-server"' in disk["expr"],
-        cap_series <= served.keys(),
-        "prometheus_tsdb_retention_limit_bytes" in cap_series,
-    ) == (
-        ["LogOrMetricVolumeDiskLow", "PrometheusNearRetentionSizeCap"],
-        True,
-        True,
-        ("30m", "1h"),
-        True,
-        True,
-        True,
-    )
 
 
 def test_k8s_stack_deploy_ssa_and_manifest_contracts() -> None:
@@ -1520,35 +1266,14 @@ def test_pyroscope_helm_release_and_grafana_datasource() -> None:
     )
     assert pyro_release is not None
 
-    values_path = release_values(pyro_release)[0]
-    assert values_path.is_file()
-    pyro_values = yaml.safe_load(values_path.read_text(encoding="utf-8"))
-
-    grafana_values = yaml.safe_load(
-        Path("k8s/monitoring/grafana-values.yaml").read_text(encoding="utf-8")
-    )
-    k8s_mon_values = yaml.safe_load(
-        Path("k8s/monitoring/k8s-monitoring-values.yaml").read_text(encoding="utf-8")
-    )
-    grafana_datasources = grafana_values["datasources"]["datasources.yaml"]["datasources"]
-    pyro_ds = next((ds for ds in grafana_datasources if ds.get("uid") == "pyroscope"), None)
-
     assert (
         (pyro_release["chart"], pyro_release["namespace"]),
         pyro_release["chart"].split("/")[0] in _HELM_REPOS_BY_STACK["infra"],
-        pyro_values["pyroscope"]["service"]["port"],
-        pyro_values["architecture"]["microservices"]["enabled"],
-        k8s_mon_values["collectors"]["alloy-profiles"]["alloy"]["enableReporting"],
-        pyro_ds is not None,
-        (pyro_ds["type"], pyro_ds["url"]) if pyro_ds else None,
+        release_values(pyro_release)[0].is_file(),
     ) == (
         ("grafana/pyroscope", "monitoring"),
         True,
-        4040,
-        False,
-        False,
         True,
-        ("grafana-pyroscope-datasource", "http://pyroscope.monitoring.svc.cluster.local:4040"),
     )
 
 
@@ -1959,13 +1684,13 @@ def test_native_deploy_stack_llm_applies_the_open_webui_origins_before_its_chart
         for cmd, given in cluster.calls
         if "open-webui-origins" in (given or "") or cmd[:3] == ["helm", "upgrade", "--install"]
     ]
-    assert (res.exit_code, steps[:2]) == (
-        0,
-        [
-            ("origins", f"https://chat.{_DOMAIN};https://homelab.{_DOMAIN}"),
-            ("release", "open-webui"),
-        ],
-    )
+    assert (
+        res.exit_code,
+        [step for step, _ in steps[:2]],
+        steps[1][1],
+        "example.com" in steps[0][1],
+        _DOMAIN in steps[0][1],
+    ) == (0, ["origins", "release"], "open-webui", False, True)
 
 
 def test_native_deploy_stack_llm_applies_the_gateway_kustomization_after_the_secret_push(

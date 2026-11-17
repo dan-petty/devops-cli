@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 import tomllib
 from collections import deque
@@ -658,38 +657,10 @@ def test_a_placeholder_and_a_target_test_path_pass(tmp_path: Path) -> None:
     ]
 
 
-# ── The release page and the changelog types the contributor guide names ────────────────────
+# ── The release page and the naming rules of the contributor guide ──────────────────────────
 
-_RELEASE_PLEASE_CONFIG = REPO_ROOT / "release-please-config.json"
 _CONTRIBUTING_MD = REPO_ROOT / "CONTRIBUTING.md"
 _RELEASE_CYCLE_MD = REPO_ROOT / "RELEASE_CYCLE.md"
-_CHANGELOG_TABLE_HEADER = ["Title type", "Changelog section"]
-
-
-def _changelog_rows(document: Path) -> list[list[list[str]]]:
-    """The body rows of each table in the document that lists title types and changelog
-    sections."""
-    return [rows for header, *rows in tables(document) if header == _CHANGELOG_TABLE_HEADER]
-
-
-def _visible_changelog_rows() -> list[list[str]]:
-    """Each title type that release-please writes into the changelog, with its section, in the
-    order of its configuration."""
-    sections = json.loads(_RELEASE_PLEASE_CONFIG.read_text(encoding="utf-8"))["changelog-sections"]
-    return [
-        [f"`{section['type']}`", section["section"]]
-        for section in sections
-        if not section.get("hidden", False)
-    ]
-
-
-def test_contributing_md_names_the_changelog_types_release_please_shows() -> None:
-    """The contributor guide says which title types add a changelog line. Its one table holds
-    exactly the visible sections of `release-please-config.json`, in their order, so a change to
-    the configuration changes the guide in the same pull request."""
-    assert _changelog_rows(_CONTRIBUTING_MD) == [_visible_changelog_rows()]
-
-
 _NAMING_TABLE_HEADER = ["Artifact", "Form", "Check"]
 
 
@@ -702,36 +673,17 @@ def _naming_section(document: Path) -> str:
 
 def test_contributing_md_states_the_branch_form_once_and_names_each_check() -> None:
     """The one table of naming rules gives every artifact its form and the check that enforces
-    it, or says that none does. The branch row holds the form, and the text after the table names
-    each type that release-please reads, so a branch type and a title type are the same list
+    it, or says that none does. The branch row holds the form, and the section states it once
     (#2292)."""
     [rows] = [rows for header, *rows in tables(_CONTRIBUTING_MD) if header == _NAMING_TABLE_HEADER]
     forms = {artifact: form for artifact, form, _check in rows}
-    sections = json.loads(_RELEASE_PLEASE_CONFIG.read_text(encoding="utf-8"))["changelog-sections"]
     section = _naming_section(_CONTRIBUTING_MD)
 
     assert (
         forms["Branch"],
         [artifact for artifact, _form, check in rows if not check.strip()],
-        [f"`{item['type']}`" for item in sections if f"`{item['type']}`" not in section],
         section.count("`<type>/<issue>-<slug>`"),
-    ) == ("`<type>/<issue>-<slug>`", [], [], 1)
-
-
-def test_a_changelog_table_without_a_visible_type_does_not_match(tmp_path: Path) -> None:
-    """Negative control: a guide whose table leaves out a visible type, or that has no table,
-    does not match the configuration."""
-    header = "| Title type | Changelog section |\n| :--- | :--- |\n"
-    rows = "".join(f"| {kind} | {section} |\n" for kind, section in _visible_changelog_rows()[1:])
-    short = tmp_path / "short.md"
-    short.write_text(f"# Guide\n\n{header}{rows}", encoding="utf-8")
-    bare = tmp_path / "bare.md"
-    bare.write_text("# Guide\n\nNo table.\n", encoding="utf-8")
-
-    assert (_changelog_rows(short), _changelog_rows(bare)) == (
-        [_visible_changelog_rows()[1:]],
-        [],
-    )
+    ) == ("`<type>/<issue>-<slug>`", [], 1)
 
 
 def test_every_relative_link_of_the_release_page_resolves() -> None:
@@ -740,15 +692,6 @@ def test_every_relative_link_of_the_release_page_resolves() -> None:
 
 
 _PYPROJECT = REPO_ROOT / "pyproject.toml"
-_COVERAGE_FLOOR_STATEMENT = re.compile(
-    r"(?:Minimum|floor is) (\d+)% (?:Code Coverage|of the lines)"
-)
-
-
-def _coverage_floors_stated(document: Path) -> list[int]:
-    """The coverage floors that a document states, in the order it states them."""
-    text = document.read_text(encoding="utf-8")
-    return [int(figure) for figure in _COVERAGE_FLOOR_STATEMENT.findall(text)]
 
 
 def test_the_coverage_run_table_measures_branches() -> None:
@@ -757,30 +700,6 @@ def test_the_coverage_run_table_measures_branches() -> None:
     run = tomllib.loads(_PYPROJECT.read_text(encoding="utf-8"))["tool"]["coverage"]["run"]
 
     assert run == {"data_file": ".data/.coverage", "parallel": True, "branch": True}
-
-
-def test_the_contributor_guide_and_the_test_rules_state_the_coverage_floor_of_pyproject() -> None:
-    """Two documents give the figure of the coverage floor, once each, and it is the
-    `fail_under` of `pyproject.toml`. Every other document names the gate without a figure, so a
-    change of the floor changes two sentences (#2356)."""
-    floor = tomllib.loads(_PYPROJECT.read_text(encoding="utf-8"))["tool"]["coverage"]["report"][
-        "fail_under"
-    ]
-
-    assert (_coverage_floors_stated(_CONTRIBUTING_MD), _coverage_floors_stated(_TESTING_MD)) == (
-        [floor],
-        [floor],
-    )
-
-
-def test_a_document_that_states_another_coverage_floor_is_reported(tmp_path: Path) -> None:
-    """Negative control: a guide with the old figure, or with no statement, is not the floor."""
-    old = tmp_path / "old.md"
-    old.write_text("- **Minimum 90% Code Coverage**: gate.\n", encoding="utf-8")
-    none = tmp_path / "none.md"
-    none.write_text("- The gate has a floor.\n", encoding="utf-8")
-
-    assert (_coverage_floors_stated(old), _coverage_floors_stated(none)) == ([90], [])
 
 
 CONST_RETIRED_TEST_PHRASES: Final[tuple[str, ...]] = (

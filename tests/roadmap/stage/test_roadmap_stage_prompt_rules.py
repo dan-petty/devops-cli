@@ -515,7 +515,7 @@ def test_the_prompt_holds_each_verify_form_that_the_config_gives() -> None:
     config_forms = {_command(s) for s in _spans(kinds) if s.startswith(("uv run devops", "! git"))}
     prompt_forms = {_command(form) for form in _verify_forms()}
 
-    assert len(config_forms) == 4
+    assert len(config_forms) == 5
     assert config_forms <= prompt_forms
 
 
@@ -577,6 +577,8 @@ _SHARED = [
     ("openspec/config.yaml", "RFC 5737"),
     ("openspec/config.yaml", "<storage-node>"),
     ("openspec/config.yaml", "double only process edges"),
+    ("openspec/config.yaml", "names a validator command or a live check as its proof"),
+    ("docs/TESTING.md", "names a validator command or a live check as its proof"),
     (
         "openspec/config.yaml",
         "`! git grep -n <name> src/ tests/` (a command that exits 0 when it finds nothing)",
@@ -945,3 +947,12 @@ def test_the_prompts_and_documents_state_the_group_files_limit() -> None:
         assert "5 files" in text or "5 paths" in text
         assert "prefix move" in text
         assert "split" in text.lower()
+
+
+def test_the_stage_prompt_tells_the_planner_to_reuse_the_refine_block() -> None:
+    """A test asserts that the stage change prompt tells the planner to reuse the refine block (#3384)."""
+    assert (
+        "The block between `<!-- devops-roadmap-refine:start -->` and `<!-- devops-roadmap-refine:end -->` "
+        "holds a proposed design: carry its `Chosen` decisions and `Rejected` alternatives into `decisions` and `rejected`."
+        in _PROMPT
+    )

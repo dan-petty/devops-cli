@@ -21,12 +21,10 @@ from referencing import Registry
 from referencing.jsonschema import DRAFT202012
 
 from devops_cli.core.command_resolver import ArgvPlaceholder, resolve_devops_argv
-from devops_cli.tools_lock import load_tools_lock
 from tests.support.paths import FIXTURES, REPO_ROOT
 
 _SCHEMA_DIR = FIXTURES / "gh_dash_schema"
 _BASE_URI = "https://example.com/gh-dash/"
-_BOARD_TEMPLATE = REPO_ROOT / ".github" / "project-template.json"
 _SHIPPED_CONFIG = REPO_ROOT / ".gh-dash.yml"
 
 # Keys of internal/config/parser.go (v4.26.2) that the published schema leaves out. This covers
@@ -49,12 +47,6 @@ _SCHEMA_GAPS: dict[str, Any] = {
         "includeReadNotifications": {"type": "boolean"},
     },
     "schema/defaults.json": {"notificationsLimit": {"type": "integer", "minimum": 1}},
-}
-# The cells that gh-dash v4.26.2 draws as a Nerd Font glyph (internal/tui/constants/constants.go)
-# and that its schema lets a config hide, for each view.
-_GLYPH_CELLS = {
-    "prs": ("authorIcon", "state", "reviewStatus", "ci"),
-    "issues": ("creatorIcon", "state"),
 }
 # The only template values a key binding may use: the number of a PR or an issue and the name of
 # the repository. A branch name, an author or a title can hold shell syntax, and gh-dash puts a
@@ -162,33 +154,6 @@ def test_the_strict_schema_refuses_a_misspelt_or_missing_key(
     assert [error for error in errors if reported in error] != []
 
 
-def test_the_vendored_schema_is_the_schema_of_the_pinned_gh_dash() -> None:
-    """A bump of the pin in tools.lock also replaces the vendored schema."""
-    vendored = (_SCHEMA_DIR / "VERSION").read_text(encoding="utf-8").strip()
-
-    assert vendored == load_tools_lock().binary["gh-dash"].version
-
-
-def test_every_pr_section_lists_the_oldest_pull_request_first() -> None:
-    """GitHub uses the first `sort:` of a query, so one in the filter wins over gh-dash's own."""
-    sorts = [section["filters"] for section in _shipped_config()["prSections"]]
-
-    assert [filters for filters in sorts if "sort:created-asc" not in filters] == []
-
-
-def test_the_triage_section_filters_like_the_triage_view_of_the_board() -> None:
-    """The terminal and the web board show the same issues for triage."""
-    views = json.loads(_BOARD_TEMPLATE.read_text(encoding="utf-8"))["views"]
-    board_filter = next(
-        view["filter"] for view in views if view["name"] == "Triage & Quality Table"
-    )
-    sections = {
-        section["title"]: section["filters"] for section in _shipped_config()["issuesSections"]
-    }
-
-    assert sections["Triage and quality"] == board_filter
-
-
 def test_a_key_binding_names_no_template_value_that_can_hold_shell_syntax() -> None:
     """gh-dash puts a template value into the shell string without quotes (#1882)."""
     used = {
@@ -206,40 +171,3 @@ def test_every_key_binding_runs_a_devops_command_that_exists() -> None:
 
     assert commands != []
     assert [c for c in commands if resolve_devops_argv(_first_devops_argv(c)) is not None] == []
-
-
-def test_the_shipped_config_refreshes_hourly_and_starts_with_the_preview_closed() -> None:
-    """The two values keep gh-dash at about 7 GraphQL points at start and 5 points an hour (#1918).
-
-    The GitHub budget is 5,000 GraphQL points an hour for the token, and AI agents share it. A
-    refresh fetches every section of the view on screen: 5 points for the four PR sections. An
-    open preview adds 2 points for the selected row at start, at each refresh and at each row a
-    person selects. A refresh every 15 minutes with the preview open costs about 28 points an hour.
-    """
-    defaults = _shipped_config()["defaults"]
-
-    assert (defaults["refetchIntervalMinutes"], defaults["preview"]["open"]) == (60, False)
-
-
-def test_the_shipped_config_holds_only_ascii() -> None:
-    """The file holds only ASCII and sets no glyph.
-
-    gh-dash still draws other icons with Nerd Font glyphs: the preview pane, the notification rows
-    and the headers of some columns. A person checks how the terminal shows them.
-    """
-    assert [line for line in _shipped_config_text().splitlines() if not line.isascii()] == []
-
-
-def test_the_shipped_config_hides_every_glyph_cell_the_schema_lets_it_hide() -> None:
-    """The cells that gh-dash draws as a Nerd Font glyph stay hidden, the author icons included."""
-    config = _shipped_config()
-    layout = config["defaults"]["layout"]
-    shown = [
-        f"{view}.{cell}"
-        for view, cells in _GLYPH_CELLS.items()
-        for cell in cells
-        if layout[view].get(cell) != {"hidden": True}
-    ]
-
-    assert config["showAuthorIcons"] is False
-    assert shown == []

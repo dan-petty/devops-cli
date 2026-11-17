@@ -3,21 +3,16 @@
 from __future__ import annotations
 
 import shlex
-import tomllib
 from collections.abc import Callable
 from pathlib import Path
 
-import pathspec
 import pytest
-import yaml
 from typer.testing import CliRunner
 
 from devops_cli.ci.mutate import MutationTarget, select_targets, tally
 from devops_cli.commands.ci import app, get_check_specs
-from devops_cli.config.constants import CONST_GITIGNORE_PATTERN_STYLE
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
-from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
 MODULE_PATH = "src/devops_cli/pkg/mod.py"
@@ -312,17 +307,15 @@ def test_paths_select_every_function_and_narrow_changed_ones(mutation_repo: Path
 def test_mutate_runs_mutmut_serially_on_the_changed_function_globs(
     mutmut_calls: Callable[..., list[list[str]]],
 ) -> None:
-    """The run argv names each changed function's globs, and the suite runs without xdist."""
+    """The run argv names each changed function's globs, and the results run follows it."""
     calls = mutmut_calls()
     result = runner.invoke(app, ["mutate", "--changed"])
     globs = [glob for path, name, cls in _changed() for glob in _mutmut_globs(path, name, cls)]
-    pytest_args = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     assert (result.exit_code, calls[0], calls[1]) == (
         0,
         [*UV_RUN, "mutmut", "run", *globs],
         [*UV_RUN, "mutmut", "results", "--all", "true"],
     )
-    assert pytest_args["tool"]["mutmut"]["pytest_add_cli_args"] == ["-n", "0"]
 
 
 def test_mutate_reports_each_survivor_and_the_counts_without_a_score(
@@ -427,22 +420,8 @@ def test_tally_counts_only_the_selected_functions_mutants() -> None:
 
 
 def test_mutate_is_no_gate_step() -> None:
-    """Neither the `devops ci` stage list nor ci.yml runs mutation testing."""
-    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/ci.yml").read_text("utf-8"))
-    runs = [
-        str(step.get("run", ""))
-        for job in workflow["jobs"].values()
-        for step in job.get("steps", [])
-    ]
-    mutating = [run for run in runs if "mutmut" in run or "ci mutate" in run]
-    assert ("mutate" in {spec.name for spec in get_check_specs()}, mutating) == (False, [])
-
-
-def test_gitignore_keeps_mutants_out_of_the_tree() -> None:
-    """mutmut's copy of the tree is ignored, so neither git nor the CI cache sees it."""
-    lines = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
-    ignored = pathspec.PathSpec.from_lines(CONST_GITIGNORE_PATTERN_STYLE, lines)
-    assert ignored.match_file("mutants/x")
+    """The `devops ci` stage list runs no mutation testing."""
+    assert "mutate" not in {spec.name for spec in get_check_specs()}
 
 
 def _changed() -> list[tuple[str, str, str | None]]:

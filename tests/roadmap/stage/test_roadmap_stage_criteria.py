@@ -9,6 +9,7 @@ from devops_cli.roadmap.stage.stage_criteria import (
     StageCriterion,
     acceptance_criteria,
     criterion_problems,
+    refine_decisions,
 )
 
 HUMAN_LIST = """### What happened
@@ -164,3 +165,29 @@ def test_an_inline_strikethrough_in_an_active_item_keeps_the_item() -> None:
     body = "## Acceptance criteria\n\n- [ ] Keep ~~this~~ text\n"
 
     assert acceptance_criteria(body) == ["Keep ~~this~~ text"]
+
+
+def test_refine_decisions_extracts_chosen_and_rejected_lines() -> None:
+    body = (
+        "## Problem\n\nSome text.\n\n"
+        "<!-- devops-roadmap-refine:start -->\n"
+        "### Key questions\n"
+        "- **Which parser?**: Use the library.\n"
+        "  - Chosen: Use the library. It is maintained.\n"
+        "  - Rejected: Write a parser. It adds code to keep.\n"
+        "- **Which cache?**: Valkey.\n"
+        "  - Chosen: Use Valkey. It is fast.\n"
+        "<!-- devops-roadmap-refine:end -->\n"
+    )
+    chosen, rejected = refine_decisions(body)
+
+    assert chosen == ["Use the library. It is maintained.", "Use Valkey. It is fast."]
+    assert rejected == ["Write a parser. It adds code to keep."]
+
+
+def test_refine_decisions_returns_empty_when_no_refine_block() -> None:
+    body = "## Problem\n\nSome text with no refine block.\n"
+    chosen, rejected = refine_decisions(body)
+
+    assert chosen == []
+    assert rejected == []

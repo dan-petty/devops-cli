@@ -136,14 +136,6 @@ def test_the_gateway_forwards_the_path_of_the_client_to_openrouter_with_its_own_
     )
 
 
-def test_the_gateway_lists_no_chat_route_for_the_decision_model() -> None:
-    """OpenRouter refuses a decision model on chat completions (HTTP 400), so a `model_list`
-    entry for it would only look healthy."""
-    names = [entry["model_name"] for entry in _gateway_config()["model_list"]]
-
-    assert CONST_AI_JEV_MODEL not in names
-
-
 def test_the_bridge_sends_every_jev_name_to_the_route_of_the_gateway(
     web: WebFake, monkeypatch: pytest.MonkeyPatch
 ) -> None:

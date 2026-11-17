@@ -60,7 +60,7 @@ The pod runs under Pod Security `restricted` with a read-only root. Its NetworkP
 
 ### Confirmation
 
-`tests/invariants/test_k8s_renovate.py` checks the image pin, the Secret mounts, the timeouts, the perimeter, the anchored commands, and that this record, `CONTRIBUTING.md` and `docs/CLUSTER.md` name the same exception. The `k8s` row of `devops ci` checks the rendered image digests and the network policies.
+`tests/invariants/test_k8s_renovate.py` checks the Secret mounts, the timeouts, the perimeter, the anchored commands, and that this record, `CONTRIBUTING.md` and `docs/CLUSTER.md` name the same exception. The `k8s` row of `devops ci` checks the rendered image digests and the network policies.
 
 ## More Information
 

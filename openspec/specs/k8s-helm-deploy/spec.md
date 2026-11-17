@@ -65,11 +65,19 @@ The system SHALL check whether the cluster serves the kind of each post-Helm man
 - **THEN** the system does not execute `kubectl apply` for that manifest, prints a warning naming the manifest and unserved kind, and continues stack deployment
 
 ### Requirement: deploy-stack installs each chart at the version that its Application pins
-Each Helm release that `devops k8s deploy-stack` installs SHALL name a chart and a version that an Argo CD Application under `k8s/argocd/apps/` pins, so a cluster without Argo CD runs the same chart releases as the homelab.
+Each Helm release that `devops k8s deploy-stack` installs SHALL take its chart version from the `targetRevision` of the chart source of the Argo CD Application of the same name in the environment tree, so a cluster without Argo CD runs the same chart releases as the homelab. The code SHALL hold no chart version. A release that no Application pins SHALL stop the deploy before it touches the cluster.
 
 #### Scenario: A chart update moves only the Application pin
-- **WHEN** a test reads each release of `deploy-stack` and the chart sources of the Applications under `k8s/argocd/apps/`
-- **THEN** each release's chart name and version are the `chart` and `targetRevision` of an Application source
+- **WHEN** Renovate moves the `targetRevision` of the Application of a chart, and `deploy-stack` runs on that tree
+- **THEN** the `helm upgrade --install` command of the release names the new version after `--version`, with no change of code
+
+#### Scenario: A copy of the tree pins another version
+- **WHEN** the Application `loki` of a copy of the tree pins `9.8.7`, and `devops k8s deploy-stack --stack logging --k8s-dir <copy> --dry-run` runs
+- **THEN** the `helm upgrade --install` command of release `loki` holds `--version 9.8.7`
+
+#### Scenario: No Application pins a release
+- **WHEN** the tree holds no Application `loki`, and `devops k8s deploy-stack --stack logging --k8s-dir <copy> --dry-run` runs
+- **THEN** the command exits 1, and the error names release `loki` and the Application folders
 
 ### Requirement: deploy-stack deploys the chat stack
 The stack `chat` SHALL install Helm release `mattermost-operator`, and apply post-Helm kustomization `k8s/mattermost` after the Helm releases complete. The CloudNativePG operator that the `Cluster` of that kustomization needs SHALL be a release of stack `infra`.
@@ -97,7 +105,7 @@ The dry run of `devops k8s deploy-stack` SHALL list, in `details.helm_commands` 
 
 #### Scenario: The logging stack dry run lists the loki upgrade with chart and version
 - **WHEN** `devops k8s deploy-stack --stack logging --context ctx-example --dry-run` runs
-- **THEN** the last entry of `details.helm_commands` is `["helm", "upgrade", "--install", "--take-ownership", "loki", "grafana-community/loki", "--version", "21.2.3", "--namespace", "logging", "--values", "k8s/logging/loki-values.yaml", "--kube-context", "ctx-example", "--wait", "--timeout", "10m"]`
+- **THEN** the last entry of `details.helm_commands` is `["helm", "upgrade", "--install", "--take-ownership", "loki", "grafana-community/loki", "--version", <the targetRevision of Application loki>, "--namespace", "logging", "--values", "k8s/logging/loki-values.yaml", "--kube-context", "ctx-example", "--wait", "--timeout", "10m"]`
 
 #### Scenario: A dry run with no wait lists no wait flag
 - **WHEN** `devops k8s deploy-stack --stack logging --context ctx-example --no-wait --dry-run` runs

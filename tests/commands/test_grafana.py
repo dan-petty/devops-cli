@@ -22,21 +22,6 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 DASHBOARD_DIRS = (Path("k8s/monitoring/dashboards"), Path("k8s/devops/dashboards"))
 
 
-def test_dashboard_json_templates_valid() -> None:
-    """Verify built-in Grafana dashboard templates are valid JSON."""
-    assert [d for d in DASHBOARD_DIRS if not d.is_dir()] == []
-
-    json_files = [f for d in DASHBOARD_DIRS for f in d.glob("*.json")]
-    assert len(json_files) >= 3
-
-    for f in json_files:
-        data = json.loads(f.read_text(encoding="utf-8"))
-        assert "title" in data
-        assert "panels" in data
-        assert "uid" in data
-        assert isinstance(data["panels"], list)
-
-
 GRAFANA_ENV = {
     "DEVOPS_CLI_GRAFANA_URL": "http://example.com:3000",
     "DEVOPS_CLI_GRAFANA_TOKEN": "glsa-test",

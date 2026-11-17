@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import json
 import shutil
-import tomllib
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
 import pytest
-from packaging.requirements import Requirement
 from pydantic import ValidationError
 
 from devops_cli.tools_lock import (
@@ -22,42 +20,6 @@ from devops_cli.tools_lock import (
     tool_install_dir,
     tools_lock_digest,
 )
-from tests.support.paths import REPO_ROOT
-
-_PYPROJECT = REPO_ROOT / "pyproject.toml"
-
-# The tools the issue names; the lock may hold more as review tools arrive.
-_REQUIRED_TOOLS = {
-    "kubectl",
-    "kustomize",
-    "helm",
-    "argo",
-    "argocd",
-    "cloudflared",
-    "kubectl-argo-rollouts",
-    "trivy",
-    "kube-linter",
-    "popeye",
-    "pluto",
-    "k9s",
-    "gitleaks",
-    "osv-scanner",
-    "semgrep",
-    "bandit",
-    "ansible-core",
-    "openspec",
-    "devcontainers-cli",
-    "gh-dash",
-    "tuicr",
-    "golangci-lint",
-}
-
-
-def test_the_packaged_lock_holds_every_tool_install_tools_installs() -> None:
-    """The lock loads from the package and names every tool the issue lists."""
-    lock = load_tools_lock()
-
-    assert (_REQUIRED_TOOLS - set(lock.tools()), lock.python_version) == (set(), "3.14")
 
 
 def test_every_binary_build_is_an_https_url_with_a_sha256() -> None:
@@ -78,26 +40,6 @@ def test_every_binary_build_is_an_https_url_with_a_sha256() -> None:
     ] == []
 
 
-def test_the_lock_pins_tflint_as_four_zip_builds() -> None:
-    """tflint publishes zip archives of one file, `tflint`, for each platform, from the release
-    of the locked version (#2427)."""
-    tflint = load_tools_lock().binary["tflint"]
-    release = f"https://github.com/terraform-linters/tflint/releases/download/v{tflint.version}/"
-
-    assert (
-        tflint.format,
-        sorted(tflint.platforms),
-        [
-            (artifact.url.startswith(release), artifact.member)
-            for artifact in tflint.platforms.values()
-        ],
-    ) == (
-        "zip",
-        ["darwin-amd64", "darwin-arm64", "linux-amd64", "linux-arm64"],
-        [(True, "tflint")] * 4,
-    )
-
-
 def test_every_python_tool_pins_itself_in_its_hashed_requirements() -> None:
     """Each Python tool's requirements file exists and pins the tool at its locked version."""
     tools = load_tools_lock().python
@@ -108,29 +50,6 @@ def test_every_python_tool_pins_itself_in_its_hashed_requirements() -> None:
         if f"{name}=={tool.version}" not in (LOCK_DIR / tool.requirements).read_text().split()
         or "--hash=sha256:" not in (LOCK_DIR / tool.requirements).read_text()
     ] == []
-
-
-def test_ansible_core_shares_its_environment_with_ansible_runner() -> None:
-    """One environment holds ansible-core and ansible-runner, the engine of `devops infra`. Only
-    `ansible-runner` goes on PATH: the Ansible commands that a person has there stay (#5121)."""
-    ansible = load_tools_lock().python["ansible-core"]
-    pins = (LOCK_DIR / ansible.requirements).read_text(encoding="utf-8").split()
-
-    assert ("ansible-runner==2.4.3" in pins, ansible.commands) == (True, ("ansible-runner",))
-
-
-def test_semgrep_links_the_pysemgrep_it_runs() -> None:
-    """`semgrep` runs the `pysemgrep` it finds on PATH, so the locked Semgrep links both and
-    replaces a `pysemgrep` an older Semgrep left there."""
-    assert {"semgrep", "pysemgrep"} <= set(load_tools_lock().python["semgrep"].commands)
-
-
-def test_the_locked_bandit_is_the_projects_own_dev_bandit() -> None:
-    """The review runs the Bandit the project's own CI runs."""
-    dev = tomllib.loads(_PYPROJECT.read_text(encoding="utf-8"))["dependency-groups"]["dev"]
-    bandit = next(Requirement(spec) for spec in dev if Requirement(spec).name == "bandit")
-
-    assert str(bandit.specifier) == f"=={load_tools_lock().python['bandit'].version}"
 
 
 def test_the_digest_covers_the_lock_and_its_requirements_files(tmp_path: Path) -> None:
@@ -161,27 +80,6 @@ def _npm_project_file(name: str, filename: str) -> dict[str, Any]:
     return parsed
 
 
-def test_the_lock_holds_openspec_as_a_node_tool() -> None:
-    """OpenSpec is a Node tool, and its command is the link npm makes in `.bin`. The test of
-    the exact pin of each Node tool checks its version."""
-    openspec = load_tools_lock().npm["openspec"]
-
-    assert (openspec.bin, openspec.commands) == ("openspec", ("openspec",))
-
-
-def test_the_lock_holds_the_dev_containers_cli_as_a_node_tool() -> None:
-    """The Dev Containers CLI that builds the published devcontainer image is a Node tool, so
-    the image build and a developer run the same CLI, and `devops ci` audits its lockfile
-    (#1895). The test of the exact pin of each Node tool checks its version."""
-    cli = load_tools_lock().npm["devcontainers-cli"]
-
-    assert (cli.bin, cli.commands, cli.source) == (
-        "devcontainer",
-        ("devcontainer",),
-        "https://github.com/devcontainers/cli",
-    )
-
-
 def test_a_node_tool_rejects_a_key_the_lock_does_not_define() -> None:
     """A typo in the lock fails the load rather than being ignored."""
     with pytest.raises(ValidationError, match="extra"):
@@ -194,28 +92,6 @@ def test_a_node_tool_rejects_a_key_the_lock_does_not_define() -> None:
                 "requirements": "mytool.txt",
             }
         )
-
-
-def test_every_node_tool_depends_on_nothing_but_its_exact_pin() -> None:
-    """`package.json` names one dependency at the version `tools.lock` pins, with no range, and
-    the lockfile resolved that dependency to the same version."""
-    tools = load_tools_lock().npm
-    manifests = {name: _npm_project_file(name, "package.json")["dependencies"] for name in tools}
-    resolved = {
-        name: _npm_project_file(name, "package-lock.json")["packages"][f"node_modules/{package}"][
-            "version"
-        ]
-        for name, dependencies in manifests.items()
-        for package in dependencies
-    }
-
-    assert (
-        {name: list(dependencies.values()) for name, dependencies in manifests.items()},
-        resolved,
-    ) == (
-        {name: [tool.version] for name, tool in tools.items()},
-        {name: tool.version for name, tool in tools.items()},
-    )
 
 
 def test_every_node_lockfile_is_version_3_with_a_sha512_for_each_registry_package() -> None:
@@ -274,41 +150,6 @@ def test_the_digest_covers_each_node_tools_package_files(tmp_path: Path, filenam
     changed.write_text(changed.read_text(encoding="utf-8") + " ", encoding="utf-8")
 
     assert (before == tools_lock_digest(), tools_lock_digest(copy) != before) == (True, True)
-
-
-def _renovate() -> dict[str, Any]:
-    return json.loads((REPO_ROOT / ".github" / "renovate.json").read_text(encoding="utf-8"))
-
-
-def test_renovate_updates_each_node_tool_with_its_tools_lock_version() -> None:
-    """The npm manager updates the `package.json` and `package-lock.json` of a Node tool, and a
-    custom manager updates its `version` in `tools.lock` to the same npm package, so one pull
-    request moves both (#4896)."""
-    lock_managers = {
-        manager["depNameTemplate"]: manager["datasourceTemplate"]
-        for manager in _renovate()["customManagers"]
-        if manager["managerFilePatterns"] == ["/^src/devops_cli/tools_lock/tools\\.lock$/"]
-        and "depNameTemplate" in manager
-    }
-    packages = {
-        name: next(iter(json.loads((LOCK_DIR / name / "package.json").read_text())["dependencies"]))
-        for name in load_tools_lock().npm
-    }
-
-    assert {
-        name: lock_managers.get(package) for name, package in packages.items()
-    } == dict.fromkeys(packages, "npm")
-
-
-def test_renovate_updates_the_style_dictionary_lock() -> None:
-    """The Style Dictionary lock is no entry of `tools.lock` (owner decision 9 of #4735), so the
-    npm manager alone updates it. No rule turns the npm manager off. The CI job "Design Tokens"
-    fails when the new version changes an output (docs/DESIGN.md)."""
-    npm_rules = [
-        rule for rule in _renovate()["packageRules"] if "npm" in rule.get("matchManagers", [])
-    ]
-
-    assert (npm_rules, "style-dictionary" in load_tools_lock().npm) == ([], False)
 
 
 def test_golangci_lint_binary_constant_is_exported() -> None:

@@ -202,13 +202,6 @@ def color_problems(dashboard: dict[str, Any]) -> list[str]:
     return problems
 
 
-def _committed() -> list[dict[str, Any]]:
-    return [
-        json.loads((DASHBOARDS / f"{spec.uid}.json").read_text(encoding="utf-8"))
-        for spec in load_specs(DASHBOARDS / SPEC_FILE_NAME)
-    ]
-
-
 def test_the_layout_puts_the_slo_row_the_golden_signals_and_the_collapsed_rows_in_order() -> None:
     """Row 1 holds the 4 SLO tiles (`w6 h4`), row 2 the burn rate and the budget (`w12 h8`),
     then the golden signals in the order latency, traffic, errors and saturation (`w12 h8`, two
@@ -485,18 +478,12 @@ def test_a_spec_whose_requests_end_with_no_matchers_is_refused() -> None:
 
 
 def test_each_color_is_a_passing_token_hex_or_a_grafana_color_name() -> None:
-    """The committed service dashboards and a fixture build hold only the token hex of series 1
-    and 2, which pass 3:1 on the four Grafana backgrounds, and the Grafana names `text`,
-    `semi-dark-orange` and `red` (docs/DESIGN.md, "Grafana")."""
-    dashboards = [
-        *_committed(),
-        service_dashboard(_spec(variables=True, profiles=(CPU_PROFILE, MEMORY_PROFILE))),
-    ]
+    """A fixture build holds only the token hex of series 1 and 2, which pass 3:1 on the four
+    Grafana backgrounds, and the Grafana names `text`, `semi-dark-orange` and `red`
+    (docs/DESIGN.md, "Grafana")."""
+    dashboard = service_dashboard(_spec(variables=True, profiles=(CPU_PROFILE, MEMORY_PROFILE)))
 
-    assert (len(dashboards), [line for board in dashboards for line in color_problems(board)]) == (
-        3,
-        [],
-    )
+    assert color_problems(dashboard) == []
 
 
 def test_a_color_that_is_no_passing_token_or_grafana_name_is_reported() -> None:
@@ -572,18 +559,4 @@ def test_the_build_writes_the_dashboard_of_each_spec_next_to_the_spec_file(tmp_p
     ) == (
         ["services.toml", "shop-cart.json"],
         dashboard_text(_spec(slo_target="0.995", profiles=())),
-    )
-
-
-def test_the_readme_lists_the_service_dashboards_and_their_build() -> None:
-    """k8s/README.md lists both service dashboards in their ConfigMap and names `make dashboards`."""
-    readme = (REPO_ROOT / "k8s" / "README.md").read_text(encoding="utf-8")
-    section = readme.split("## Grafana Dashboards\n", 1)[1].split("\n## ", 1)[0]
-    (row,) = [
-        line for line in section.splitlines() if line.startswith("| `grafana-service-dashboards`")
-    ]
-
-    assert (row, "`make dashboards`" in section) == (
-        "| `grafana-service-dashboards` | `devops-roadmap-service.json`, `devops-sre-service.json` |",
-        True,
     )

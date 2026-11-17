@@ -1,0 +1,97 @@
+# The tests of each module that still read a committed manifest or config file (#6060), which
+# the `test-tree` row of `devops ci` holds to these counts (tests/gate/tree_checks/config_values.py).
+# They are the cases that the owner decides in the pull request of #6060 (a value that guards a
+# safety property, or code that must agree with a manifest at run time), and the tests of code that
+# take a committed file as input and assert no value of it. A count only falls: when such a test
+# goes, lower the count of its module, and remove the line at 0. No line is added.
+
+[modules]
+"tests/ai/benchmark/test_k8s_llm_gateway.py" = 27
+"tests/ai/client/test_example_config_loopback_endpoints.py" = 1
+"tests/ai/mcp/test_ai_gateway.py" = 1
+"tests/ai/rag/test_example_config_loopback_rag.py" = 3
+"tests/ai/spend/test_hosted_group_prices.py" = 4
+"tests/ai/test_ai_gateway_portkey.py" = 1
+"tests/ai/test_jev_gateway_route.py" = 1
+"tests/ci/test_release_download_retries.py" = 1
+"tests/commands/k8s/test_k8s.py" = 4
+"tests/commands/k8s/test_k8s_agents_manifests.py" = 5
+"tests/commands/k8s/test_k8s_devops_stack.py" = 1
+"tests/commands/k8s/test_k8s_gitea.py" = 5
+"tests/commands/k8s/test_k8s_gpu_placement.py" = 1
+"tests/commands/k8s/test_k8s_logging_stack.py" = 2
+"tests/commands/k8s/test_k8s_mattermost.py" = 5
+"tests/commands/k8s/test_k8s_monitoring_integration.py" = 2
+"tests/commands/k8s/test_k8s_network_policies.py" = 19
+"tests/commands/k8s/test_k8s_qdrant_security.py" = 4
+"tests/commands/k8s/test_k8s_tempo.py" = 1
+"tests/commands/test_ci.py" = 10
+"tests/commands/test_ci_bwrap_row.py" = 1
+"tests/commands/test_environment_root_commands.py" = 8
+"tests/commands/test_gh_cmd.py" = 3
+"tests/commands/test_grafana.py" = 1
+"tests/commands/test_survey_cmd.py" = 1
+"tests/commands/test_zero_plaintext_invariants.py" = 1
+"tests/config/test_config_save_round_trip.py" = 1
+"tests/config/test_k8s_devops_runtime.py" = 7
+"tests/config/test_tuicr_config.py" = 2
+"tests/core/test_gh_dash_config.py" = 4
+"tests/core/test_third_party_telemetry.py" = 12
+"tests/docs/test_docs.py" = 1
+"tests/git/test_branch_current_hook.py" = 2
+"tests/git/test_branch_form.py" = 2
+"tests/github/test_github_projects.py" = 2
+"tests/grafana/test_grafana_dashboards.py" = 6
+"tests/grafana/test_service_dashboard.py" = 1
+"tests/invariants/test_agents_md.py" = 2
+"tests/invariants/test_architectural_invariants.py" = 5
+"tests/invariants/test_devcontainer_config.py" = 2
+"tests/invariants/test_image_layers.py" = 1
+"tests/invariants/test_k8s_argocd_apps.py" = 13
+"tests/invariants/test_k8s_crawl4ai.py" = 2
+"tests/invariants/test_k8s_manifests.py" = 11
+"tests/invariants/test_k8s_renovate.py" = 2
+"tests/invariants/test_k8s_searxng.py" = 2
+"tests/invariants/test_mcp_server_image.py" = 5
+"tests/invariants/test_pull_request_template.py" = 2
+"tests/invariants/test_runner_image.py" = 5
+"tests/invariants/test_service_image.py" = 5
+"tests/invariants/test_workflow_contracts.py" = 21
+"tests/k8s/test_k8s_cluster_job.py" = 5
+"tests/k8s/test_k8s_cluster_job_api.py" = 32
+"tests/k8s/test_k8s_configmap_keys.py" = 4
+"tests/k8s/test_k8s_valkey_stack.py" = 10
+"tests/k8s/test_llm_gateway_config.py" = 1
+"tests/k8s/test_roadmap_service_key.py" = 3
+"tests/prometheus/test_dashboard_queries.py" = 7
+"tests/prometheus/test_implement_failure_labels.py" = 1
+"tests/prometheus/test_k8s_monitoring_alerting.py" = 6
+"tests/prometheus/test_k8s_monitoring_dashboards.py" = 4
+"tests/release/test_release_merge_pick.py" = 1
+"tests/research/test_sweep.py" = 7
+"tests/review/test_review_intake_handoff.py" = 1
+"tests/roadmap/implement/test_roadmap_implement_deadline.py" = 24
+"tests/roadmap/implement/test_roadmap_implement_deadline_settings.py" = 1
+"tests/roadmap/implement/test_roadmap_implement_job_result.py" = 3
+"tests/roadmap/implement/test_roadmap_implement_submit.py" = 80
+"tests/roadmap/implement/test_roadmap_implement_typed_result.py" = 4
+"tests/roadmap/intake/test_roadmap_intake_item_changed.py" = 4
+"tests/roadmap/refine/test_roadmap_refine_deferred.py" = 10
+"tests/roadmap/stage/test_roadmap_stage_job.py" = 5
+"tests/roadmap/stage/test_roadmap_stage_submit.py" = 27
+"tests/roadmap/test_roadmap_fix_checks_row.py" = 24
+"tests/roadmap/test_roadmap_release_roll.py" = 10
+"tests/roadmap/test_roadmap_run_intake_row.py" = 4
+"tests/roadmap/test_roadmap_run_job.py" = 4
+"tests/roadmap/test_roadmap_run_job_rows.py" = 2
+"tests/roadmap/test_roadmap_runner_tools.py" = 10
+"tests/roadmap/test_roadmap_status_round.py" = 2
+"tests/roadmap/test_roadmap_watch_row.py" = 2
+"tests/security/test_scanner_contract.py" = 1
+"tests/security/test_tf_azure_aks_security.py" = 3
+"tests/server/routes/test_k8s_roadmap_service.py" = 7
+"tests/server/test_service_log_trace_ids.py" = 1
+"tests/survey/test_survey_capabilities.py" = 1
+"tests/telemetry/test_telemetry_instruments.py" = 5
+"tests/tools_lock/test_k8s_argo_workflows.py" = 8
+"tests/tools_lock/test_k8s_cloudflared.py" = 1

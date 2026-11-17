@@ -820,7 +820,7 @@ class K8sMessages:
     crawl4ai_check_passed: str = (
         "Crawl4AI refused all {internal} requests for internal targets and all {open} requests "
         "without the token, and a pod with its label opens no connection to the {destinations} "
-        "destinations. The check was written for the image {image}."
+        "destinations."
     )
     crawl4ai_check_failed: str = (
         "{count} check(s) of the Crawl4AI service failed: {detail}. The service serves a target "
@@ -835,7 +835,7 @@ class K8sMessages:
     )
     searxng_check_passed: str = (
         "All {rows} search rows of SearXNG passed, and the pods open no connection to the "
-        "{destinations} destinations. The check was written for the image {image}."
+        "{destinations} destinations."
     )
     searxng_check_failed: str = (
         "{count} check(s) of the SearXNG service failed: {detail}. Do not fix this in code: "
@@ -4907,6 +4907,12 @@ class RoadmapMessages:
     stage_scenario_no_behavior_task: str = (
         "Scenario '{scenario}' of requirement '{requirement}' has no behavior task."
     )
+    stage_scenario_config_proof: str = (
+        "Scenario '{scenario}' names `{path}`, a manifest, a workflow or a config file that the "
+        "plan changes. Name in its `when` or its `then` the validator command or the live check "
+        "that proves it, such as `uv run devops ci --check --only k8s`. A test that reads the "
+        "file asserts a value of it, and it is no proof."
+    )
     stage_reference_uncovered_file: str = (
         "The quoted search lists `{path}`. Add a task group or a design decision for it."
     )
@@ -5065,6 +5071,12 @@ class RoadmapMessages:
         'The entry of `criteria` for "{criterion}" names group {group}, and the plan has '
         "{count} groups."
     )
+    stage_problem_refine_decisions: str = (
+        "The refine block holds Chosen decisions, but `decisions` is empty."
+    )
+    stage_problem_refine_rejected: str = (
+        "The refine block holds Rejected alternatives, but `rejected` is empty."
+    )
     stage_criterion_bad_group: str = "A criterion group is a number from 1, not {group}."
     stage_criterion_no_reason: str = (
         'The criterion "{criterion}" is pending-person and has no reason.'
@@ -5126,6 +5138,10 @@ class RoadmapMessages:
     stage_problem_test_path: str = (
         "Group {group} creates `{path}`, and the directory `{directory}` does not mirror the code "
         "that the plan changes. A new test goes in {expected}. Move it there."
+    )
+    stage_test_path_mirror: str = (
+        "the folder under `tests/` that mirrors the package of the source code that it tests, "
+        "and never in `tests/invariants/`"
     )
     stage_problem_move_prefix: str = (
         "Group {group} moves the prefix `{prefix}` in `{folder}`, and the staged tree also holds "
@@ -5234,11 +5250,6 @@ class RoadmapMessages:
         "Group {group} changes `{path}` and names no existing test of that module. Add `{test}` "
         "to `reads`, to the `Changes:` line or to a task of the group: the implement job cannot "
         "edit a test that the plan leaves out."
-    )
-    stage_problem_workflow_contract: str = (
-        "Group {group} changes the workflow `{path}` and its `changes` holds no `{test}`. Add "
-        "the contract test to `changes`, and write its case in this group: actionlint and "
-        "zizmor pass without a test of the change."
     )
     stage_problem_constant_mismatch: str = (
         "{constant} is {staged} in the staged tree, but the plan says {plan}."

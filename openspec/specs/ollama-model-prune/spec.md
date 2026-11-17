@@ -34,13 +34,6 @@ A dry run MUST make no request to the cluster and MUST print each `kubectl exec`
 - **WHEN** A person runs `devops k8s ollama prune --dry-run`
 - **THEN** The output holds the `kubectl exec` command of each gateway target tier, and no request leaves the workstation.
 
-### Requirement: The written keep set matches the gateway config
-The GPU Placement section of `k8s/README.md` MUST name each model that each serving tier keeps, and a test MUST fail when a name differs from the gateway config.
-
-#### Scenario: A model added to the gateway config
-- **WHEN** The gateway config names a model that the table of `k8s/README.md` does not
-- **THEN** `tests/k8s/test_k8s_ollama_models.py` fails and names the model and the tier.
-
 ### Requirement: An unreadable model list stops the node
 The prune MUST remove no model on a node whose `ollama list` fails, and MUST name that node.
 

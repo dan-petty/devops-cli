@@ -9,8 +9,6 @@ from pathlib import Path
 
 import yaml
 
-from devops_cli.k8s.crawl4ai_check import CRAWL4AI_IMAGE
-from devops_cli.k8s.searxng_check import SEARXNG_IMAGE
 from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
@@ -65,27 +63,15 @@ def check_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when
         for container in [*pod.get("initContainers", []), *pod["containers"]]
     }
     # The runner has no entry here: Image Updater writes its own entry (#2667).
-    # Deployment `crawl4ai` pins a third-party image by tag and digest (#3884). `devops k8s
-    # crawl4ai-check` names the image it was written for (#3894), so a bump fails here until a
-    # person runs the command against the new image and sets the constant.
+    # Deployment `crawl4ai` pins a third-party image by tag and digest (#3884), and Renovate
+    # updates the pin (#6060).
     crawl4ai = next(c for c in containers if c[1] == "crawl4ai")
     assert crawl4ai[0] == "Deployment"
-    assert crawl4ai[2] == CRAWL4AI_IMAGE, (
-        f"k8s/devops/crawl4ai/deployment.yaml pins {crawl4ai[2]}, but `devops k8s crawl4ai-check` "
-        f"was written for {CRAWL4AI_IMAGE}. Run `uv run devops k8s crawl4ai-check` against the new "
-        "image, then set CRAWL4AI_IMAGE in src/devops_cli/k8s/crawl4ai_check.py."
-    )
     containers.discard(crawl4ai)
-    # Deployment `searxng` pins a third-party image by tag and digest (#3924). `devops k8s
-    # searxng-check` names the image it was written for (#3929), so a bump fails here until a
-    # person runs the command against the new image and sets the constant.
+    # Deployment `searxng` pins a third-party image by tag and digest (#3924). A bump updates like
+    # any other image (owner, 2026-11-16, #6063).
     searxng = next(c for c in containers if c[1] == "searxng")
     assert searxng[0] == "Deployment"
-    assert searxng[2] == SEARXNG_IMAGE, (
-        f"k8s/devops/searxng/deployment.yaml pins {searxng[2]}, but `devops k8s searxng-check` "
-        f"was written for {SEARXNG_IMAGE}. Run `uv run devops k8s searxng-check` against the new "
-        "image, then set SEARXNG_IMAGE in src/devops_cli/k8s/searxng_check.py."
-    )
     containers.discard(searxng)
     # CronJob `renovate` pins the Renovate release by tag and digest, and its init container
     # `seed` runs the same image (#4905). Its init container `token` runs the Service image, so

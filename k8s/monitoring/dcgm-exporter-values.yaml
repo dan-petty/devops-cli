@@ -36,15 +36,14 @@ securityContext:
 # The pod template carries the SHA-256 of customMetrics. The chart mounts the list with subPath,
 # so a running exporter never sees a new list, and its file watcher does not follow a ConfigMap
 # update. A changed checksum rolls the pods onto the new list (Helm's checksum/config pattern).
-# tests/test_stack_dashboards.py fails when the checksum does not match the list.
+# When the list changes, set the checksum to the SHA-256 of the text of customMetrics.
 podAnnotations:
   checksum/counters: "f636a5dfff8c116f098785682de1789ee698a46ab69bbde4c79fed13963665a6"
 
 # The fields the exporter collects. The chart writes this list to its ConfigMap and mounts it at
 # /etc/dcgm-exporter/default-counters.csv, the file the exporter reads when no -f is given. It is
 # the image's dcp-metrics-included.csv (4.8.4) with two more fields: the enforced power limit and
-# the exporter's count of clock events by reason (#821). tests/test_stack_dashboards.py fails when
-# it stops asking for a family in tests/fixtures/metrics/dcgm-exporter.yaml.
+# the exporter's count of clock events by reason (#821).
 #
 # The *_VIOLATION throttle-time counters stay out. A Tesla PG500-216 returns a negative value for
 # some of them, and the exporter then serves no metric at all for that node.

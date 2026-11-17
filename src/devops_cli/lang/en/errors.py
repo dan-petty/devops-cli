@@ -214,6 +214,11 @@ class K8sErrorMessages:
         "Two or more infra repos give an environment tree: {roots}. Give {option} with the one "
         "to read."
     )
+    chart_version_not_pinned: str = (
+        "No Argo CD Application under {folders} pins the chart of release {release}. Add the "
+        "Application of the chart with its targetRevision, or give --k8s-dir with the tree that "
+        "holds it."
+    )
     product_root_not_found: str = (
         "The product base of devops-cli is not at {path}. Run the command in a checkout of "
         "devops-cli, or give {option} with its k8s/devops folder."

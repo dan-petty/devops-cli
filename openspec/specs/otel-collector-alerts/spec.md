@@ -30,8 +30,8 @@ The Prometheus server SHALL fire `OtelCollectorExportQueueFull` with the severit
 - **AND** at 20 minutes `OtelCollectorExportQueueFull` fires only for `otlp_grpc/tempo`, with the summary "The otlp_grpc/tempo queue of the OpenTelemetry collector is 95% full"
 
 ### Requirement: The collector rules read only the series the collector serves
-Each series that an `otel-collector` rule selects SHALL be a family of the collector capture in `tests/fixtures/metrics/otel-collector.yaml`: a family that the collector printed, or one in `from_source` that it prints from its first event.
+Each series that an `otel-collector` rule selects SHALL be a family that the collector serves about itself: a family that the collector prints, or one that it prints from its first event. The served-series check of `tests/prometheus/test_k8s_monitoring_alerting.py` reads the series that a scrape or the collector in `k8s/` serves.
 
 #### Scenario: The rules and the capture
 - **WHEN** the selectors of the `otel-collector` rules are read
-- **THEN** they name five series, and each one is a family of the capture
+- **THEN** they name five series, and each one is a family that the collector serves

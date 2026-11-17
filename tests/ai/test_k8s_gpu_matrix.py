@@ -3,18 +3,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 import yaml
 from typer.testing import CliRunner
 
-from devops_cli.ai.gateway_render import (
-    diff_gateway_config,
-    load_service_context_lengths,
-    load_tier_context_lengths,
-    render_gateway_config,
-)
 from devops_cli.commands.k8s import app as k8s_app
 from devops_cli.k8s.gpu_matrix import (
     VALID_BACKENDS,
@@ -26,9 +19,6 @@ from devops_cli.k8s.gpu_matrix import (
 )
 
 runner = CliRunner()
-
-PROFILES_DIR = Path("k8s/llm/profiles")
-GATEWAY_DIR = Path("k8s/llm/gateway")
 
 
 def test_gpu_matrix_entries_completeness() -> None:
@@ -125,103 +115,6 @@ def test_service_aliases_definition_and_ports() -> None:
         True,
         11434,
         11434,
-    )
-
-
-def test_rendered_gateway_config_matches_ollama_profiles() -> None:
-    """Verify the rendered gateway config matches Ollama profiles with zero diff, correct token limits, and no weights."""
-    config_path = GATEWAY_DIR / "config.yaml"
-    profiles_path = PROFILES_DIR / "ollama-profiles.yaml"
-    services_path = PROFILES_DIR / "services.yaml"
-
-    tier_lengths = load_tier_context_lengths(profiles_path)
-    service_lengths = load_service_context_lengths(services_path, tier_lengths)
-    config_text = config_path.read_text(encoding="utf-8")
-    rendered = render_gateway_config(config_text, service_lengths)
-    diff = diff_gateway_config(config_text, rendered)
-
-    cm_model_list = yaml.safe_load(config_text)["model_list"]
-
-    weights = [
-        m["litellm_params"].get("weight") for m in cm_model_list if "weight" in m["litellm_params"]
-    ]
-
-    windowed_tokens = [
-        (
-            m["litellm_params"]["api_base"].split("//")[1].split(".")[0],
-            m["model_info"]["max_input_tokens"],
-        )
-        for m in cm_model_list
-        if "api_base" in m["litellm_params"] and "max_input_tokens" in m.get("model_info", {})
-    ]
-    tokens_match_services = all(
-        tokens == service_lengths.get(svc) for svc, tokens in windowed_tokens
-    )
-
-    assert (
-        diff,
-        len(cm_model_list),
-        weights,
-        tokens_match_services,
-    ) == (
-        "",
-        18,
-        [],
-        True,
-    )
-
-
-def test_k8s_manifests_service_aliases_consistency() -> None:
-    """Verify profiles/services.yaml defines all 8 Ollama Service aliases with expected labels."""
-    services_path = PROFILES_DIR / "services.yaml"
-    docs = list(yaml.safe_load_all(services_path.read_text(encoding="utf-8")))
-    services = [d for d in docs if d and d.get("kind") == "Service"]
-    names = [s["metadata"]["name"] for s in services]
-    ollama_16 = next(s for s in services if s["metadata"]["name"] == "ollama-16gib")
-
-    assert (
-        len(services),
-        "ollama-16gib" in names,
-        "ollama-fast" in names,
-        "ollama-standard" in names,
-        "ollama-slow" in names,
-        "ollama-16gib-fast" in names,
-        "ollama-24gib-slow" in names,
-        "ollama-48gib-fast" in names,
-        "ollama-24gib-embed-gpu0" in names,
-        "ollama-24gib-embed-gpu1" in names,
-        "ollama-64gib-standard" in names,
-        ollama_16["spec"]["selector"],
-    ) == (
-        17,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        {"llm.devops.io/provider": "ollama", "llm.devops.io/vram-gib": "16gib"},
-    )
-
-
-def test_k8s_manifests_profiles_files_exist() -> None:
-    """Verify profile manifest files and kustomization exist and are valid."""
-    ollama_path = PROFILES_DIR / "ollama-profiles.yaml"
-    kust_path = PROFILES_DIR / "kustomization.yaml"
-
-    ollama_docs = list(yaml.safe_load_all(ollama_path.read_text(encoding="utf-8")))
-    kust = yaml.safe_load(kust_path.read_text(encoding="utf-8"))
-
-    assert (
-        len(ollama_docs) == 10,
-        "services.yaml" in kust.get("resources", []),
-    ) == (
-        True,
-        True,
     )
 
 
