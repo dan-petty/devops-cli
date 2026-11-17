@@ -1,0 +1,44 @@
+# Cases of the panels of k8s/monitoring/dashboards/llm-stack.json, which
+# tests/prometheus/test_dashboard_queries.py evaluates with promtool (#4680). The test module tells
+# the format, and docs/TESTING.md tells how to add a case.
+#
+# Each test group models one series shape that the telemetry writes (#4675). Its series have one
+# sample each `interval`.
+tests:
+  # The DCGM exporter serves one gauge sample of each profiling field for each GPU of a node, and
+  # a card without DCGM profiling support serves no sample of them at all (#2407). In the cluster
+  # the Tesla PG500-216 and the GeForce RTX 5070 Ti report the two fields, so the series below are
+  # theirs, and the Quadro P6000 and the GeForce RTX 3090 have no series and no line.
+  - name: the DCGM exporter writes a profiling ratio for each GPU that supports profiling
+    shape: snapshot_gauge
+    interval: 15m
+    input_series:
+      - series: 'DCGM_FI_PROF_SM_ACTIVE{hostname="gpu-tesla", gpu="0", modelName="Tesla PG500-216"}'
+        values: '0.20 0.35 0.42 0.38 0.31x4'
+      - series: 'DCGM_FI_PROF_SM_ACTIVE{hostname="gpu-rtx", gpu="0", modelName="GeForce RTX 5070 Ti"}'
+        values: '0.55 0.62 0.70 0.66 0.60x4'
+      - series: 'DCGM_FI_PROF_SM_OCCUPANCY{hostname="gpu-tesla", gpu="0", modelName="Tesla PG500-216"}'
+        values: '0.35 0.48 0.52 0.47 0.44x4'
+      - series: 'DCGM_FI_PROF_SM_OCCUPANCY{hostname="gpu-rtx", gpu="0", modelName="GeForce RTX 5070 Ti"}'
+        values: '0.68 0.74 0.81 0.77 0.72x4'
+    promql_expr_test:
+      # The sample at 1h of each card, as `avg by (hostname, gpu, modelName)` gives it: one series
+      # of one sample keeps its value, and the two cards draw two lines.
+      - panel: GPU SM Activity and Occupancy
+        ref_id: A
+        expr: 'avg by (hostname, gpu, modelName) (DCGM_FI_PROF_SM_ACTIVE)'
+        eval_time: 1h
+        exp_samples:
+          - labels: '{gpu="0", hostname="gpu-rtx", modelName="GeForce RTX 5070 Ti"}'
+            value: 0.60
+          - labels: '{gpu="0", hostname="gpu-tesla", modelName="Tesla PG500-216"}'
+            value: 0.31
+      - panel: GPU SM Activity and Occupancy
+        ref_id: B
+        expr: 'avg by (hostname, gpu, modelName) (DCGM_FI_PROF_SM_OCCUPANCY)'
+        eval_time: 1h
+        exp_samples:
+          - labels: '{gpu="0", hostname="gpu-rtx", modelName="GeForce RTX 5070 Ti"}'
+            value: 0.72
+          - labels: '{gpu="0", hostname="gpu-tesla", modelName="Tesla PG500-216"}'
+            value: 0.44
