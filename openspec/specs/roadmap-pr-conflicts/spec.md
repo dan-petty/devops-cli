@@ -36,7 +36,7 @@ The row SHALL read no draft. It SHALL judge only an open pull request that is no
 - **THEN** the row posts no comment
 
 ### Requirement: A conflict gets one comment
-When GitHub reports a merge conflict for a delivery pull request, the row SHALL post one comment on it that names the default branch and the head commit. It SHALL post no second comment while the ledger `pr_conflicts.json` records the same head commit.
+When GitHub reports a merge conflict for a delivery pull request, the pull request SHALL hold one conflict comment that names the default branch and the head commit. A conflict at a new head commit SHALL edit that comment in place with the new head, and SHALL post no second comment.
 
 #### Scenario: A dirty mergeable state
 - **WHEN** the read returns `mergeable` false with `mergeable_state` `dirty`
@@ -48,14 +48,7 @@ When GitHub reports a merge conflict for a delivery pull request, the row SHALL 
 
 #### Scenario: A new head commit
 - **WHEN** the second read reports the conflict at a new head commit
-- **THEN** the row posts a second comment that names the new head commit
-
-### Requirement: A conflict that returns gets the comment again
-The row SHALL drop the ledger entry of a delivery pull request that GitHub reports with no conflict, so a conflict that returns at the same head commit gets the comment once more.
-
-#### Scenario: The conflict returns
-- **WHEN** three rounds read a conflict, then a clean state, then the conflict again at the same head commit
-- **THEN** the pull request holds two conflict comments
+- **THEN** the row edits the conflict comment so that it names the new head commit, and the pull request holds one conflict comment
 
 ### Requirement: An unknown state changes nothing
 When GitHub has not computed the mergeable state, the row SHALL post no comment and SHALL keep the ledger entry of the pull request, and the next round SHALL read the pull request again.
