@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.173.2](https://github.com/dan-petty/devops-cli/compare/v0.173.1...v0.173.2) (2026-11-17)
+
+
+### Bug Fixes
+
+* **ai:** Omit sampling parameters that Anthropic SDK 2 refuses ([#6184](https://github.com/dan-petty/devops-cli/issues/6184)) ([1774ebf](https://github.com/dan-petty/devops-cli/commit/1774ebf598ae92380d86653120e0419c63e3a09a))
+* **pr:** Wait for the closing issue before setting its status ([#6179](https://github.com/dan-petty/devops-cli/issues/6179)) ([383a20b](https://github.com/dan-petty/devops-cli/commit/383a20b967a1e022cf73388e7463318db756bf3a))
+* **roadmap:** Confirm a rejection unless a chosen option names the tool ([#6186](https://github.com/dan-petty/devops-cli/issues/6186)) ([95b60e7](https://github.com/dan-petty/devops-cli/commit/95b60e7540a36e1477b816f4225f47625b746c4d))
+* **roadmap:** give stage and implement the item comments ([#6182](https://github.com/dan-petty/devops-cli/issues/6182)) ([b5bd396](https://github.com/dan-petty/devops-cli/commit/b5bd396eca149cf7ff4ab5c12bccbaa528080944))
+
 ## [0.173.1](https://github.com/dan-petty/devops-cli/compare/v0.173.0...v0.173.1) (2026-11-17)
 
 
