@@ -60,6 +60,5 @@
  ],
  "capabilities": [
   "ci-coverage-reports"
- ],
- "pyproject_diff": "diff --git a/pyproject.toml b/pyproject.toml\nindex 47f5f7e4f..e0f11f4cf 100644\n--- a/pyproject.toml\n+++ b/pyproject.toml\n@@ -234,6 +234,7 @@ filterwarnings = [\n [tool.coverage.run]\n data_file = \".data/.coverage\"\n parallel = true\n+branch = true\n \n [tool.coverage.report]\n # The floor of the whole tree (#2356). The changed lines of a pull request must be 90% covered:\n"
+ ]
 }

@@ -22,6 +22,8 @@ gates need, and the defects a reviewer found in it. The files of a case director
   hold the old path or the dotted name of a moved module (#3412), and the constants that the plan
   cites as name and integer value pairs, with an empty tuple when the entry is absent or empty
   (#3390). A replay cannot assume a deep clone, so it reads no git.
+- `pyproject.diff`, when the case has one: the diff of `pyproject.toml` that the change of the
+  case makes, so the `paths` gate tells a tool setting from a dependency (#3491).
 
 A case with the verdict `good` has no defect: every gate must accept it.
 
@@ -82,6 +84,7 @@ _CASE_FILE: Final[str] = "case.json"
 _ISSUE_FILE: Final[str] = "issue.txt"
 _PLAN_FILE: Final[str] = "plan.json"
 _FACTS_FILE: Final[str] = "facts.json"
+_PYPROJECT_DIFF_FILE: Final[str] = "pyproject.diff"
 # The files of the change folder that the job writes, beside the spec of each capability.
 _CHANGE_FILES: Final[tuple[str, ...]] = (".openspec.yaml", "proposal.md", "design.md", "tasks.md")
 
@@ -192,8 +195,8 @@ class CaseFacts(_Record):
     # The files that hold the old path or the dotted name of a moved module. An empty tuple
     # records no hit, as every case recorded before #3412 does.
     references: tuple[str, ...] = ()
-    # The diff of pyproject.toml that the change of the case makes, so the paths gate tells a tool
-    # setting from a dependency (#3491). An empty string records no diff.
+    # The diff of pyproject.toml that the change of the case makes, read from `pyproject.diff`, so
+    # the paths gate tells a tool setting from a dependency (#3491). An empty string records no diff.
     pyproject_diff: str = ""
 
 
@@ -261,6 +264,9 @@ def _read_case(folder: Path) -> StageCase:
         trace_file = folder / "trace.json"
         if trace_file.is_file() and "trace" not in facts:
             facts["trace"] = json.loads(trace_file.read_text(encoding="utf-8"))
+        diff_file = folder / _PYPROJECT_DIFF_FILE
+        if diff_file.is_file():
+            facts["pyproject_diff"] = diff_file.read_text(encoding="utf-8")
         return StageCase.model_validate(
             {
                 **meta,
