@@ -44,6 +44,7 @@ from devops_cli.config.defaults import (
 from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
 from devops_cli.exceptions.roadmap import RoadmapAlternativesError
 from devops_cli.roadmap import alternatives
+from devops_cli.roadmap.adr import read_adrs
 from devops_cli.roadmap.alternatives import (
     AlternativesReply,
     AlternativesTools,
@@ -56,6 +57,7 @@ from devops_cli.roadmap.alternatives import (
     render_alternatives_plan,
     select_items,
 )
+from devops_cli.roadmap.body_hash import extract_section_and_outside
 from devops_cli.roadmap.page_fetch import PageFetch
 from devops_cli.roadmap.refine.refine import covers_question, recorded_check
 from devops_cli.roadmap.run import MODEL_LANE_ROWS, run_due_jobs
@@ -63,6 +65,7 @@ from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.stores.store import (
     AlternativesRecordKey,
     CloseReason,
+    Item,
     ItemField,
     RepositoryFacts,
     RoadmapStore,
@@ -92,6 +95,11 @@ SEARCH_URL = "https://example.com/scanner"
 CRAWL4AI_SERVICE = "http://crawl4ai.devops.svc.cluster.local:11235"
 PLACED = {ItemField.PRIORITY: "P2-Medium"}
 REASON = "The tool reads a directory, and the item needs that."
+# The line of the comment of a first check: the result in the block changed, from no check (#6195).
+FIRST_CHANGE = (
+    "The result in the alternatives block of the issue body changed. Before this check: no check. "
+    "A person decides what the new result means for the item."
+)
 
 
 def _days_ago(days: int) -> datetime:
@@ -194,10 +202,14 @@ def _mark_failed(
     )
 
 
-def _recorded(store: RoadmapStore, number: int, key: AlternativesRecordKey) -> str | None:
+def _require(store: RoadmapStore, number: int) -> Item:
     item = store.item(number)
     assert item is not None
-    return item.job_record.get(key)
+    return item
+
+
+def _recorded(store: RoadmapStore, number: int, key: AlternativesRecordKey) -> str | None:
+    return _require(store, number).job_record.get(key)
 
 
 def _failure_record(store: RoadmapStore, number: int) -> tuple[str | None, str | None]:
@@ -265,6 +277,16 @@ def _fold_of(comment: str) -> tuple[str, str]:
         return comment, ""
     end = comment.index("</details>", start) + len("</details>")
     return comment[:start] + comment[end:], comment[start:end]
+
+
+def _block(store: RoadmapStore, number: int) -> str:
+    """The text of the job's block in the body of item `number`, or "" when it holds none."""
+    _, block = extract_section_and_outside(
+        store.read_issue_body(number),
+        CONST_ROADMAP_ALTERNATIVES_START_MARKER,
+        CONST_ROADMAP_ALTERNATIVES_END_MARKER,
+    )
+    return block or ""
 
 
 def _prompt_of(messages: list[ModelMessage]) -> dict[str, Any]:
@@ -1209,11 +1231,11 @@ def test_a_tool_that_an_adr_rejected_gives_the_verdict_rejected_and_no_question(
 
     (check,) = plan.checks
     comment = store.comments_on(number)[0].body.splitlines()
-    block = store.read_issue_body(number).splitlines()
+    block = _block(store, number).splitlines()
     assert (
         (check.verdict, check.adr, check.tool.url if check.tool else None),
-        "## Alternatives check: rejected" in comment,
-        any(line.startswith(f"Tool: temporalio/temporal ({TEMPORAL_URL}), ") for line in comment),
+        f"Alternatives check of {NOW.date()}: rejected." in block,
+        any(line.startswith(f"Tool: temporalio/temporal ({TEMPORAL_URL}), ") for line in block),
         REJECTION in comment,
         REJECTION in block,
         _recorded(store, number, AlternativesRecordKey.VERDICT),
@@ -1224,7 +1246,7 @@ def test_a_tool_that_an_adr_rejected_gives_the_verdict_rejected_and_no_question(
         (Verdict.REJECTED, 8, TEMPORAL_URL),
         True,
         True,
-        True,
+        False,
         True,
         "rejected",
         TEMPORAL_URL,
@@ -1271,11 +1293,11 @@ def test_a_tool_that_the_item_body_names_and_the_model_flags_gives_the_verdict_i
     apply_alternatives(store, plan)
 
     (check,) = plan.checks
-    comment = store.comments_on(number)[0].body.splitlines()
+    block = _block(store, number).splitlines()
     assert (
         (check.verdict, check.adr, check.tool.url if check.tool else None),
-        "## Alternatives check: in-use" in comment,
-        "The item already names this tool." in comment,
+        f"Alternatives check of {NOW.date()}: in-use." in block,
+        "The item already names this tool." in block,
         _recorded(store, number, AlternativesRecordKey.VERDICT),
         _recorded(store, number, AlternativesRecordKey.TOOL),
         _question(store, number),
@@ -1569,18 +1591,7 @@ def test_a_covering_tool_makes_one_comment_one_block_and_the_record(
             "\n".join(
                 [
                     CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
-                    "## Alternatives check: covers",
-                    "",
-                    f"Reason: {REASON}",
-                    "",
-                    f"Tool: example/scanner ({TOOL_URL}), MIT, last activity "
-                    f"{_days_ago(5).date()}, maintained.",
-                    "",
-                    "Covers:",
-                    "- Scans a directory.",
-                    "",
-                    "Lacks:",
-                    "- No SARIF output.",
+                    FIRST_CHANGE,
                     "",
                     "<details><summary>Searches (1)</summary>",
                     "",
@@ -1595,8 +1606,6 @@ def test_a_covering_tool_makes_one_comment_one_block_and_the_record(
                     f"- {SEARCH_URL}",
                     "",
                     "</details>",
-                    "",
-                    f"A person decides what this check of {NOW.date()} means for the item.",
                 ]
             )
         ],
@@ -1608,6 +1617,13 @@ def test_a_covering_tool_makes_one_comment_one_block_and_the_record(
                 f"Alternatives check of {NOW.date()}: covers.",
                 f"Tool: example/scanner ({TOOL_URL}), MIT, last activity "
                 f"{_days_ago(5).date()}, maintained.",
+                f"Reason: {REASON}",
+                "",
+                "Covers:",
+                "- Scans a directory.",
+                "",
+                "Lacks:",
+                "- No SARIF output.",
                 CONST_ROADMAP_ALTERNATIVES_END_MARKER,
             ]
         ),
@@ -1681,7 +1697,7 @@ def test_a_search_remembers_how_many_results_it_found_and_an_empty_answer_found_
     ]
 
 
-def test_the_comment_lists_each_query_with_its_result_count_and_the_reason(
+def test_the_comment_lists_each_query_with_its_result_count_and_the_block_holds_the_reason(
     store: InMemoryRoadmapStore, web_key: None, web: WebFake
 ) -> None:
     _firecrawl(web, SEARCH_URL, TOOL_URL)
@@ -1698,14 +1714,15 @@ def test_the_comment_lists_each_query_with_its_result_count_and_the_reason(
     (comment,) = [c.body for c in store.comments_on(number)]
     shown, folded = _fold_of(comment)
     assert (
-        f"Reason: {REASON}" in shown,
+        f"Reason: {REASON}" in comment,
+        f"Reason: {REASON}" in _block(store, number),
         "first query" in shown,
         folded.startswith("<details><summary>Searches (2)</summary>\n"),
         "Searches run:\n- first query, results: 2\n- second query, results: 2" in folded,
-    ) == (True, False, True, True)
+    ) == (False, True, False, True, True)
 
 
-def test_ten_searches_stay_folded_and_the_comment_shows_only_the_verdict_and_its_evidence(
+def test_ten_searches_stay_folded_and_the_comment_shows_only_the_change_of_the_result(
     store: InMemoryRoadmapStore, web_key: None, web: WebFake
 ) -> None:
     _firecrawl(web, SEARCH_URL, TOOL_URL)
@@ -1729,22 +1746,7 @@ def test_ten_searches_stay_folded_and_the_comment_shows_only_the_verdict_and_its
         folded.startswith("<details><summary>Searches (10)</summary>\n"),
         [query for query in queries if f"- {query}, results: 2" in folded],
     ) == (
-        [
-            CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
-            "## Alternatives check: covers",
-            f"Reason: {REASON}",
-            f"Tool: example/scanner ({TOOL_URL}), MIT, last activity "
-            f"{_days_ago(5).date()}, maintained.",
-            "Covers:",
-            "- Scans a directory.",
-            "- Reads each file once.",
-            "- Runs offline.",
-            "Lacks:",
-            "- No SARIF output.",
-            "- No Python API.",
-            "- No watch mode.",
-            f"A person decides what this check of {NOW.date()} means for the item.",
-        ],
+        [CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER, FIRST_CHANGE],
         True,
         queries,
     )
@@ -1815,6 +1817,59 @@ def test_the_comment_folds_every_source_of_the_reply_and_leaves_none_out(
     ) == ([f"- {url}" for url in urls], False, False)
 
 
+@pytest.mark.parametrize(
+    "verdict", [Verdict.COVERS, Verdict.PARTLY, Verdict.REJECTED, Verdict.IN_USE, Verdict.NONE]
+)
+def test_no_content_line_of_the_comment_is_in_the_block_of_the_same_check(
+    store: InMemoryRoadmapStore, verdict: Verdict
+) -> None:
+    """The block holds the result of a check and the comment holds the event: the change and the
+    evidence of the run. One check builds both, and no line of the comment other than the marker
+    is a line of the block (#6195)."""
+    _adr(store, 8, "Argo Workflows runs the jobs", "- **example/scanner**: rejected.")
+    number = _item(store, body="Run example/scanner on each file of the directory.")
+    store.set_marks(
+        _require(store, number),
+        {AlternativesRecordKey.VERDICT: "none", AlternativesRecordKey.TOOL: None},
+    )
+    tools = AlternativesTools(store=store, allowed_urls={TOOL_URL, SEARCH_URL})
+    tools.searches.append(alternatives.Search("scanner for a directory", 2))
+    tools.facts[TOOL_URL] = alternatives.ToolFacts(
+        name="example/scanner", url=TOOL_URL, license="MIT", last_activity=_days_ago(5)
+    )
+    tool_verdict = Verdict.COVERS if verdict in (Verdict.REJECTED, Verdict.IN_USE) else verdict
+    reply = _covers(
+        verdict=tool_verdict,
+        tool_url=None if verdict is Verdict.NONE else TOOL_URL,
+        adr=8 if verdict is Verdict.REJECTED else None,
+        in_use=verdict is Verdict.IN_USE,
+    )
+    adrs = read_adrs(store) if verdict is Verdict.REJECTED else ()
+
+    check = alternatives.validate_reply(_require(store, number), reply, tools, NOW, adrs)
+
+    assert isinstance(check, alternatives.Check)
+    _, block = extract_section_and_outside(
+        check.new_body,
+        CONST_ROADMAP_ALTERNATIVES_START_MARKER,
+        CONST_ROADMAP_ALTERNATIVES_END_MARKER,
+    )
+    assert block is not None
+    block_lines = {line.strip() for line in block.splitlines() if line.strip()}
+    comment_lines = [
+        line.strip()
+        for line in check.comment.splitlines()
+        if line.strip() and line.strip() != CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER
+    ]
+    assert (
+        check.verdict,
+        [line for line in comment_lines if line in block_lines],
+        f"Reason: {REASON}" in block_lines,
+        "- Scans a directory." in block_lines,
+        "- No SARIF output." in block_lines,
+    ) == (verdict, [], True, True, True)
+
+
 def test_a_reply_longer_than_the_prompt_asks_is_written_whole(
     store: InMemoryRoadmapStore, web_key: None
 ) -> None:
@@ -1826,11 +1881,11 @@ def test_a_reply_longer_than_the_prompt_asks_is_written_whole(
     plan = _plan(store, script)
     apply_alternatives(store, plan)
 
-    (comment,) = store.comments_on(number)
+    block = _block(store, number)
     assert (
         len(script.seen),
-        f"Reason: {reason}" in comment.body,
-        [lack for lack in lacks if f"- {lack}" in comment.body],
+        f"Reason: {reason}" in block,
+        [lack for lack in lacks if f"- {lack}" in block],
     ) == (2, True, lacks)
 
 
@@ -1853,9 +1908,16 @@ def test_a_later_check_adds_a_comment_and_leaves_the_comment_of_the_first_unchan
     )
 
     comments = store.comments_on(number)
-    assert (len(comments), comments[0].body, "Reason: Nothing fits." in comments[1].body) == (
+    assert (
+        len(comments),
+        comments[0].body,
+        comments[1].body.splitlines()[1],
+        "Reason: Nothing fits." in _block(store, number),
+    ) == (
         2,
         first.body,
+        "The result in the alternatives block of the issue body changed. Before this check: "
+        f"`covers`, tool {TOOL_URL}. A person decides what the new result means for the item.",
         True,
     )
 
@@ -1927,8 +1989,9 @@ def test_a_none_verdict_names_no_tool(store: InMemoryRoadmapStore, web_key: None
     assert (
         item.job_record.get(AlternativesRecordKey.VERDICT),
         item.job_record.get(AlternativesRecordKey.TOOL),
+        "Tool: none found." in _block(store, number).splitlines(),
         "Tool: none found" in comment.body,
-    ) == ("none", None, True)
+    ) == ("none", None, True, False)
 
 
 def test_a_not_applicable_verdict_after_a_search_or_a_fact_read_is_refused(
@@ -2185,14 +2248,13 @@ def test_skip_class_an_item_of_the_type_is_not_applicable_with_no_model_call(
     written = apply_alternatives(store, plan)
 
     (check,) = plan.checks
-    (comment,) = store.comments_on(number)
     assert (
         (check.verdict, check.skip_class, check.searches, check.tool),
         script.seen,
         len(web.sent) == searches_before,
         written,
-        comment.body,
-        f"Class: {kind}, no search." in store.read_issue_body(number),
+        store.comments_on(number),
+        _block(store, number).strip().splitlines(),
         _recorded(store, number, AlternativesRecordKey.VERDICT),
         otlp.points(ROADMAP_ALTERNATIVES_TOTAL.name),
     ) == (
@@ -2200,9 +2262,12 @@ def test_skip_class_an_item_of_the_type_is_not_applicable_with_no_model_call(
         [],
         True,
         1,
-        f"{CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER}\n"
-        f"Alternatives check: not-applicable ({kind} item; no search).",
-        True,
+        [],
+        [
+            f"Alternatives check of {NOW.date()}: not-applicable.",
+            f"Class: {kind}, no search.",
+            "Tool: none found.",
+        ],
         "not-applicable",
         [({"verdict": "not-applicable"}, 1.0)],
     )
@@ -2218,16 +2283,42 @@ def test_skip_class_a_fix_with_a_stack_trace_is_not_applicable_with_no_model_cal
     plan = _plan(store, script)
     apply_alternatives(store, plan)
 
-    (comment,) = store.comments_on(number)
     assert (
         [(c.verdict, c.skip_class) for c in plan.checks],
         script.seen,
-        comment.body.splitlines()[1:],
+        store.comments_on(number),
+        "Class: fix-with-stack-trace, no search." in _block(store, number).splitlines(),
     ) == (
         [(Verdict.NOT_APPLICABLE, "fix-with-stack-trace")],
         [],
-        ["Alternatives check: not-applicable (fix-with-stack-trace item; no search)."],
+        [],
+        True,
     )
+
+
+def test_skip_class_a_recheck_with_a_new_result_posts_no_comment(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    """An item that a model check found no tool for, and that is a skip class now, gets the new
+    result in its block and no comment: a skip class has no evidence (#6195)."""
+    number = _item(store, "docs(roadmap): a page")
+    store.set_marks(
+        _require(store, number),
+        {
+            AlternativesRecordKey.CHECKED_AT: _days_ago(40).isoformat(),
+            AlternativesRecordKey.VERDICT: "none",
+        },
+    )
+
+    plan = _plan(store, None, item_number=number)
+    written = apply_alternatives(store, plan)
+
+    assert (
+        written,
+        store.comments_on(number),
+        _recorded(store, number, AlternativesRecordKey.VERDICT),
+        f"Alternatives check of {NOW.date()}: not-applicable." in _block(store, number),
+    ) == (1, [], "not-applicable", True)
 
 
 @pytest.mark.parametrize(
@@ -2600,13 +2691,15 @@ def test_the_models_text_makes_no_live_link_mention_or_marker(
     body = store.read_issue_body(number)
     assert (
         comment.body.count(CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER),
-        "`@someone`" in comment.body,
-        "<b>" in comment.body,
-        "![" in comment.body,
-        "`https://example.com/evil`" in comment.body,
+        body.count(CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER),
+        "`@someone`" in body,
+        "@someone" in body.replace("`@someone`", ""),
+        "<b>" in body,
+        "![" in body,
+        "`https://example.com/evil`" in body,
+        body.count(CONST_ROADMAP_ALTERNATIVES_START_MARKER),
         body.count(CONST_ROADMAP_ALTERNATIVES_END_MARKER),
-        "@someone" in body,
-    ) == (1, True, False, False, True, 1, False)
+    ) == (1, 0, True, False, False, False, True, 1, 1)
 
 
 # ── Off ───────────────────────────────────────────────────────────────────────

@@ -12,6 +12,12 @@ from typing import Any
 import pytest
 from syrupy.assertion import SnapshotAssertion
 
+from devops_cli.config.constants import (
+    CONST_ROADMAP_ALTERNATIVES_END_MARKER,
+    CONST_ROADMAP_ALTERNATIVES_START_MARKER,
+    CONST_ROADMAP_REFINE_END_MARKER,
+    CONST_ROADMAP_REFINE_START_MARKER,
+)
 from devops_cli.config.settings import AIConfig
 from devops_cli.roadmap.duplicate_eval import DUPLICATE_CASES
 from devops_cli.roadmap.intake.intake import (
@@ -264,6 +270,33 @@ def test_a_new_candidate_and_a_possible_duplicate_are_each_filed(
         [opened.fields(number)[0] for number in (again, new)],
         labels_of(opened, new),
     ) == (True, True, True, 3, ["New", "New"], ("source/agent", "type/feature"))
+
+
+def test_the_comparison_reads_the_text_of_a_person_and_still_flags_a_duplicate(
+    roadmap: Roadmap,
+) -> None:
+    """The alternatives block and the refine section of an item are the text of jobs: the
+    embedding and the excerpt of the shortlist hold only the text that a person wrote, and a
+    duplicate verdict still names the item as the possible original (#6195)."""
+    person = "Keep the vectors of each item in a cache."
+    body = (
+        f"{person}\n\n{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\n"
+        "Alternatives check of 2026-11-17: none.\nTool: none found.\n"
+        f"{CONST_ROADMAP_ALTERNATIVES_END_MARKER}\n\n{CONST_ROADMAP_REFINE_START_MARKER}\n"
+        f"## Proposal\n\nThe text of refine.\n{CONST_ROADMAP_REFINE_END_MARKER}"
+    )
+    original = roadmap.finished("Cache embeddings", body=body)
+    copy = roadmap.issue("Keep embeddings cached")
+    model = FakeModel(duplicates={"Keep embeddings cached": "Cache embeddings"})
+
+    roadmap.run(model)
+
+    (comment,) = roadmap.comments(copy)
+    assert (
+        [text for text in model.embedded if text.startswith("Cache embeddings")],
+        [n.excerpt for r in model.requests for n in r.shortlist if n.number == original],
+        possible_duplicate_line(original, "Cache embeddings") in comment.splitlines(),
+    ) == ([f"Cache embeddings\n\n{person}"], [person], True)
 
 
 def test_a_duplicate_of_written_as_text_is_read_against_the_shortlist(roadmap: Roadmap) -> None:

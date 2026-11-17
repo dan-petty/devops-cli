@@ -231,3 +231,30 @@ def test_changed_result_makes_the_write_then_the_comment() -> None:
     AlternativesWriter(store, REPO).settle(_check(store, number, SECOND, Verdict.COVERS, TOOL_A))
 
     assert store.writes[before:] == ["set_marks", "comment"]
+
+
+@pytest.mark.parametrize(
+    ("first", "before"),
+    [
+        (None, "no check"),
+        ((Verdict.NONE, NO_TOOL), "`none`, no tool"),
+        ((Verdict.COVERS, TOOL_A), f"`covers`, tool {TOOL_A}"),
+    ],
+    ids=["first_check", "none_before", "tool_before"],
+)
+def test_the_comment_of_a_changed_result_names_the_result_before_it(
+    first: tuple[Verdict, str | None] | None, before: str
+) -> None:
+    """The comment is the event of a change: its line after the marker says that the result in the
+    block of the body changed, and what the record held before the check (#6195)."""
+    store = InMemoryRoadmapStore(repo=REPO)
+    number = _item_number(store)
+    if first is not None:
+        _first_check(store, number, *first)
+
+    AlternativesWriter(store, REPO).settle(_check(store, number, SECOND, Verdict.PARTLY, TOOL_B))
+
+    assert store.comments_on(number)[-1].body.splitlines()[1] == (
+        f"The result in the alternatives block of the issue body changed. Before this check: "
+        f"{before}. A person decides what the new result means for the item."
+    )

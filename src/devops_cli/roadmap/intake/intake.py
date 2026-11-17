@@ -149,6 +149,7 @@ from devops_cli.exceptions.roadmap import RoadmapIntakeError, RoadmapItemChanged
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.body_hash import text_of_a_person
 from devops_cli.roadmap.commit_title import commit_scope, commit_summary, commit_type
 from devops_cli.roadmap.failure import FailureClass, StepName, failure_class_of, retry_after
 from devops_cli.roadmap.intake.intake_model import (
@@ -815,9 +816,17 @@ def _compared(issue: IssueRecord, run: _Run, *, agent_candidates: bool) -> bool:
 
 def _comparison(run: _Run, *, agent_candidates: bool) -> list[_Entry]:
     """Every item, open or closed, and every issue closed as not planned; with
-    `agent_candidates`, for a new candidate, also the open agent candidates."""
+    `agent_candidates`, for a new candidate, also the open agent candidates. Each entry holds the
+    text that a person wrote, without the block of the alternatives job and the section of refine,
+    as the consolidation job compares it: the text of a job is no sign of a duplicate (#6195)."""
     return [
-        _Entry(issue.number, issue.title, issue.body, issue.state.value, done=_is_done(issue))
+        _Entry(
+            issue.number,
+            issue.title,
+            text_of_a_person(issue.body).strip(),
+            issue.state.value,
+            done=_is_done(issue),
+        )
         for issue in run.issues
         if _compared(issue, run, agent_candidates=agent_candidates)
     ]
