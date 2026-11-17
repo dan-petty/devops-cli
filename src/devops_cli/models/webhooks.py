@@ -21,12 +21,23 @@ class WebhookSender(BaseModel):
     login: str
 
 
+class WebhookLabel(BaseModel):
+    """A label of the issue an issue event is about."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    name: str
+
+
 class WebhookIssue(BaseModel):
-    """The issue an issue event is about."""
+    """The issue an issue event is about. `labels` and `state_reason` serve the count of closed
+    roadmap items (#4580)."""
 
     model_config = ConfigDict(extra="ignore", frozen=True)
 
     number: int | None = None
+    labels: tuple[WebhookLabel, ...] = ()
+    state_reason: str | None = None
 
 
 class GitHubWebhookPayload(BaseModel):

@@ -1743,6 +1743,20 @@ CONST_SERVICE_OUTCOME_SELF: Final[str] = "self"
 # event name can't grow the series (#1386).
 CONST_SERVICE_EVENT_OTHER: Final[str] = "other"
 CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES: Final[str] = "devops_cli_service_webhook_deliveries_total"
+# The counter of the roadmap items that close, by repository and reason (#4580). It is a
+# `/metrics` series of the Service, so the router primes it at zero and the dashboard charts it.
+CONST_SERVICE_METRIC_ROADMAP_ITEMS_CLOSED: Final[str] = (
+    "devops_cli_service_roadmap_items_closed_total"
+)
+# The reason of a close that GitHub gives no reason for, or a value other than the known ones. The
+# reason stays a bounded set, because a raw `state_reason` is text that GitHub chooses (#4580).
+CONST_SERVICE_ROADMAP_CLOSE_REASON_UNKNOWN: Final[str] = "unknown"
+CONST_SERVICE_ROADMAP_CLOSE_REASONS: Final[tuple[str, ...]] = (
+    "completed",
+    "not_planned",
+    "duplicate",
+    CONST_SERVICE_ROADMAP_CLOSE_REASON_UNKNOWN,
+)
 CONST_SERVICE_METRIC_TRIGGERS: Final[str] = "devops_cli_service_triggers_total"
 CONST_SERVICE_METRIC_JOBS: Final[str] = "devops_cli_service_jobs_total"
 CONST_SERVICE_METRIC_JOB_SECONDS: Final[str] = "devops_cli_service_job_seconds_total"

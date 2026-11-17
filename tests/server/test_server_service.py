@@ -2691,3 +2691,112 @@ def test_a_webhook_clears_the_idle_state_and_enqueues_at_once() -> None:
     manager.enqueue_trigger("example-org/repo1", "webhook", "issues", "opened")
 
     assert (idle.is_idle("example-org/repo1"), _pending(manager)) == (False, 1)
+
+
+_CLOSED_METRIC = "devops_cli_service_roadmap_items_closed_total"
+
+
+def _closed_series(client: TestClient) -> dict[tuple[str, str], float]:
+    """The closed-items counter as /metrics exports it: {(repo, reason): count}."""
+    return {
+        (sample.labels["repo"], sample.labels["reason"]): sample.value
+        for family in text_string_to_metric_families(client.get("/metrics").text)
+        for sample in family.samples
+        if sample.name == _CLOSED_METRIC
+    }
+
+
+def _closed_payload(
+    *,
+    action: str = "closed",
+    labels: tuple[str, ...] = ("priority/p1-high",),
+    state_reason: str | None = "completed",
+    sender: str = "human-user",
+) -> bytes:
+    return json.dumps(
+        {
+            "repository": {"full_name": "example-org/repo1"},
+            "action": action,
+            "sender": {"login": sender},
+            "issue": {
+                "number": 12,
+                "labels": [{"name": name} for name in labels],
+                "state_reason": state_reason,
+            },
+        }
+    ).encode("utf-8")
+
+
+def _post_issues(client: TestClient, payload: bytes, delivery: str) -> int:
+    headers = {
+        "Content-Type": "application/json",
+        CONST_GH_WEBHOOK_EVENT_HEADER: "issues",
+        CONST_GH_WEBHOOK_DELIVERY_HEADER: delivery,
+        CONST_GH_WEBHOOK_SIGNATURE_HEADER: _sign(payload, "secret-1"),
+    }
+    return client.post("/webhooks/github", content=payload, headers=headers).status_code
+
+
+def _closed_app() -> Any:
+    settings = _make_settings(repos=["example-org/repo1"])
+    return create_service_app(
+        jobs={LANE: lambda batch: None},
+        settings=settings,
+        secrets={"example-org/repo1": "secret-1"},
+    )
+
+
+def test_a_closed_roadmap_item_counts_by_repo_and_reason() -> None:
+    """#4580: an `issues` `closed` delivery of a `priority/*` issue adds 1 to its reason."""
+    with TestClient(_closed_app()) as client:
+        assert _post_issues(client, _closed_payload(state_reason="completed"), "closed-1") == 202
+
+        assert _closed_series(client)[("example-org/repo1", "completed")] == 1
+
+
+def test_a_closed_candidate_counts_nothing() -> None:
+    """#4580: a closed issue that holds no `priority/*` label counts nothing."""
+    with TestClient(_closed_app()) as client:
+        assert _post_issues(client, _closed_payload(labels=("type/bug",)), "candidate-1") == 202
+
+        assert _closed_series(client)[("example-org/repo1", "completed")] == 0
+
+
+def test_a_close_with_no_reason_counts_unknown() -> None:
+    """#4580: a close that GitHub gives no reason counts `unknown`."""
+    with TestClient(_closed_app()) as client:
+        assert _post_issues(client, _closed_payload(state_reason=None), "unknown-1") == 202
+
+        assert _closed_series(client)[("example-org/repo1", "unknown")] == 1
+
+
+def test_a_repeated_delivery_counts_once() -> None:
+    """#4580: the same delivery id counts once."""
+    with TestClient(_closed_app()) as client:
+        payload = _closed_payload()
+        assert _post_issues(client, payload, "repeat-1") == 202
+        assert _post_issues(client, payload, "repeat-1") == 200
+
+        assert _closed_series(client)[("example-org/repo1", "completed")] == 1
+
+
+def test_a_close_by_the_app_bot_counts() -> None:
+    """#4580: a close that the jobs make as the App bot counts."""
+    with TestClient(_closed_app()) as client:
+        payload = _closed_payload(sender="bot-account[bot]", state_reason="not_planned")
+        assert _post_issues(client, payload, "bot-close-1") == 200
+
+        assert _closed_series(client)[("example-org/repo1", "not_planned")] == 1
+
+
+def test_the_counter_starts_at_zero_for_each_repo_and_reason() -> None:
+    """#4580: the router primes the counter at 0 for each managed repository and reason."""
+    from devops_cli.config.constants import CONST_SERVICE_ROADMAP_CLOSE_REASONS
+
+    with TestClient(_closed_app()) as client:
+        series = _closed_series(client)
+
+    assert set(series) == {
+        ("example-org/repo1", reason) for reason in CONST_SERVICE_ROADMAP_CLOSE_REASONS
+    }
+    assert set(series.values()) == {0.0}

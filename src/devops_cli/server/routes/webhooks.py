@@ -26,7 +26,9 @@ from devops_cli.config.constants import (
     CONST_GH_WEBHOOK_EVENT_HEADER,
     CONST_GH_WEBHOOK_SIGNATURE_HEADER,
     CONST_GH_WEBHOOK_SIGNATURE_PREFIX,
+    CONST_ISSUE_STATE_CLOSED,
     CONST_MAX_ERROR_DETAIL_LENGTH,
+    CONST_ROADMAP_PRIORITY_LABEL_PREFIX,
     CONST_ROADMAP_WEBHOOK_EVENTS,
     CONST_SERVICE_CHAT_COMMAND_ROADMAP,
     CONST_SERVICE_CHAT_RESULT_ERROR,
@@ -37,6 +39,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_EVENT_OTHER,
     CONST_SERVICE_MAX_BODY_BYTES,
     CONST_SERVICE_METRIC_CHAT_COMMANDS,
+    CONST_SERVICE_METRIC_ROADMAP_ITEMS_CLOSED,
     CONST_SERVICE_METRIC_TRIGGERS,
     CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
     CONST_SERVICE_OUTCOME_ACCEPTED,
@@ -45,6 +48,8 @@ from devops_cli.config.constants import (
     CONST_SERVICE_OUTCOME_REJECTED,
     CONST_SERVICE_OUTCOME_SELF,
     CONST_SERVICE_PING_EVENT,
+    CONST_SERVICE_ROADMAP_CLOSE_REASON_UNKNOWN,
+    CONST_SERVICE_ROADMAP_CLOSE_REASONS,
     CONST_SERVICE_SOURCE_WEBHOOK,
     CONST_SERVICE_STATUS_OWN_WRITE,
     WebhookExposure,
@@ -557,6 +562,30 @@ def _hand_to_consumers(
     return _acknowledged(first, _REFUSAL_OUTCOMES.get(first, CONST_SERVICE_OUTCOME_IGNORED))
 
 
+def _count_closed_roadmap_item(payload: GitHubWebhookPayload) -> None:
+    """Count a closed roadmap item by repository and reason (#4580). An issue that holds no
+    `priority/` label is no roadmap item, so it counts nothing. The reason is GitHub's
+    `state_reason` when it is a known value, and `unknown` otherwise. The count sits after the
+    duplicate check, so a repeated delivery adds nothing, and it counts the closes that the
+    roadmap jobs make as the App bot."""
+    issue = payload.issue
+    if payload.action != CONST_ISSUE_STATE_CLOSED or issue is None:
+        return
+    if not any(
+        label.name.startswith(CONST_ROADMAP_PRIORITY_LABEL_PREFIX) for label in issue.labels
+    ):
+        return
+    reason = (
+        issue.state_reason
+        if issue.state_reason in CONST_SERVICE_ROADMAP_CLOSE_REASONS
+        else CONST_SERVICE_ROADMAP_CLOSE_REASON_UNKNOWN
+    )
+    GLOBAL_METRICS.increment_counter(
+        CONST_SERVICE_METRIC_ROADMAP_ITEMS_CLOSED,
+        labels={"repo": payload.repository.full_name, "reason": reason},
+    )
+
+
 def _route(
     delivery: _Delivery,
     provider: WebhookProvider,
@@ -573,6 +602,8 @@ def _route(
         return _acknowledged("no_subscriber", CONST_SERVICE_OUTCOME_NO_SUBSCRIBER)
     if service_manager.delivery_cache.check_and_add(delivery.delivery):
         return _acknowledged("duplicate", CONST_SERVICE_OUTCOME_IGNORED)
+    if delivery.event in CONST_ROADMAP_WEBHOOK_EVENTS:
+        _count_closed_roadmap_item(payload)
     return _hand_to_consumers(delivery, payload, subscribed)
 
 
@@ -669,6 +700,17 @@ def _receiver(
     return receive
 
 
+def _closed_label_sets(service_manager: ServiceManager) -> list[dict[str, str]]:
+    """Each label set that `CONST_SERVICE_METRIC_ROADMAP_ITEMS_CLOSED` counts: each managed
+    repository and each reason. The Service creates each of them at zero when its routes are built
+    (#4580)."""
+    return [
+        {"repo": repo, "reason": reason}
+        for repo in sorted(service_manager.managed_repos)
+        for reason in CONST_SERVICE_ROADMAP_CLOSE_REASONS
+    ]
+
+
 def create_webhook_router(
     service_manager: ServiceManager, consumers: Sequence[WebhookConsumer] | None = None
 ) -> APIRouter:
@@ -676,6 +718,9 @@ def create_webhook_router(
     `consumers`, or to the consumers of the Service when none are given."""
     active = service_consumers(service_manager) if consumers is None else tuple(consumers)
     router = APIRouter(tags=["webhooks"])
+    GLOBAL_METRICS.prime_counter(
+        CONST_SERVICE_METRIC_ROADMAP_ITEMS_CLOSED, _closed_label_sets(service_manager)
+    )
     for provider in WEBHOOK_PROVIDERS.values():
         GLOBAL_METRICS.prime_counter(
             CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES, _delivery_label_sets(provider, active)
