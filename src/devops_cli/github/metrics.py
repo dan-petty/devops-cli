@@ -20,6 +20,7 @@ from collections import Counter
 from collections.abc import Callable, Collection, Iterable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
+from urllib.parse import quote
 
 if TYPE_CHECKING:
     from devops_cli.dry_run.requests import PlannedRequest
@@ -37,9 +38,10 @@ from devops_cli.config.settings import load_settings, setting_default
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_worktree_root, get_repo_origin_name
 from devops_cli.exceptions.git import GitHubOperationError
-from devops_cli.github.client import GhCliClient, PullStatus, parse_paginated_json
+from devops_cli.github.client import GhCliClient, PullStatus
 from devops_cli.github.error_classifier import is_gh_refused_by_token
 from devops_cli.github.repo_ref import RepoRef
+from devops_cli.github.session import GitHubSession, get_github_session
 from devops_cli.roadmap.phase import (
     ACTIVE_PHASES,
     find_running_units,
@@ -85,9 +87,9 @@ from devops_cli.telemetry.instruments import (
     emit,
 )
 
-METRICS_ROW_GITHUB_REQUEST_BUDGET: Final[int] = 5
+METRICS_ROW_GITHUB_REQUEST_BUDGET: Final[int] = 4
 """The GitHub requests that one metrics-row round may send for one page of each listing, so a
-new read or an extra page fails the offline test (#3794)."""
+new read or an extra page fails the offline test (#3794, #3941)."""
 
 logger = logging.getLogger(__name__)
 
@@ -370,18 +372,19 @@ def classify_workflow_conclusion(
     return 0, 0, 1
 
 
-def get_ci_workflow_metrics(repo: str, limit: int = 50) -> list[WorkflowRunMetric]:
+def get_ci_workflow_metrics(
+    repo: str, limit: int = 50, session: GitHubSession | None = None
+) -> list[WorkflowRunMetric]:
     """Collect CI workflow runs and calculate pass/fail rates per workflow."""
-    client = GhCliClient()
-    endpoint = f"repos/{repo}/actions/runs?per_page={min(limit, 100)}"
+    active_session = session if session is not None else get_github_session()
+    endpoint = f"/repos/{quote(repo, safe='/')}/actions/runs?per_page={min(limit, 100)}"
     try:
-        raw_output = client.api(endpoint)
-        data = json.loads(raw_output)
+        data = active_session.rest("GET", endpoint)
     except Exception as err:
         logger.warning("Failed to query GitHub Actions runs for %s: %s", repo, err)
         return []
 
-    runs = data.get("workflow_runs", [])
+    runs = data.get("workflow_runs", []) if isinstance(data, dict) else []
     aggregates: dict[str, dict[str, int]] = {}
 
     for run in runs:
@@ -439,13 +442,14 @@ def build_milestone_metric(raw: dict[str, Any]) -> MilestoneMetric:
     )
 
 
-def get_milestone_metrics(repo: str, milestone_filter: str | None = None) -> list[MilestoneMetric]:
+def get_milestone_metrics(
+    repo: str, milestone_filter: str | None = None, session: GitHubSession | None = None
+) -> list[MilestoneMetric]:
     """Query milestones and calculate item counts and completion percentages."""
-    client = GhCliClient()
-    endpoint = f"repos/{repo}/milestones?state=all&per_page=100"
+    active_session = session if session is not None else get_github_session()
+    endpoint = f"/repos/{quote(repo, safe='/')}/milestones?state=all&per_page=100"
     try:
-        raw_output = client.api(endpoint)
-        payload = json.loads(raw_output)
+        payload = active_session.rest("GET", endpoint)
     except Exception as err:
         logger.warning("Failed to query milestones for %s: %s", repo, err)
         return []
@@ -674,27 +678,16 @@ def _read_item_ages(
         return [], None, []
 
 
-def get_label_taxonomy_metrics(repo: str) -> list[LabelTaxonomyMetric]:
-    """Count open issues categorized by taxonomy label prefixes."""
-    client = GhCliClient()
-    endpoint = f"repos/{repo}/issues?state=open&per_page=100"
-    try:
-        raw_output = client.api(endpoint, paginate=True)
-        issues = parse_paginated_json(raw_output)
-    except Exception as err:
-        logger.warning("Failed to query open issues for %s: %s", repo, err)
-        return []
-
+def get_label_taxonomy_metrics(store: RoadmapStore) -> list[LabelTaxonomyMetric]:
+    """Count open Items categorized by taxonomy label prefixes (#3941)."""
     counts: Counter[tuple[str, str]] = Counter()
-    for issue in issues:
-        if not isinstance(issue, dict) or "pull_request" in issue:
+    for item in store.items():
+        if item.state is not GitHubState.OPEN:
             continue
-        labels = issue.get("labels", [])
-        for lbl in labels:
-            name = lbl.get("name", "") if isinstance(lbl, dict) else str(lbl)
-            if "/" in name:
-                cat, _val = name.split("/", 1)
-                counts[(cat, name)] += 1
+        for label in item.labels:
+            if "/" in label:
+                cat, _val = label.split("/", 1)
+                counts[(cat, label)] += 1
 
     metrics = [
         LabelTaxonomyMetric(category=cat, label=label, count=cnt)
@@ -869,6 +862,7 @@ def collect_project_metrics_report(
     store: RoadmapStore | None = None,
     item_ages: bool = False,
     clock: Callable[[], datetime.datetime] = _utc_now,
+    session: GitHubSession | None = None,
 ) -> ProjectMetricsReport:
     """Aggregate complete project metrics across releases, CI checks, milestones, and the
     roadmap's Items.
@@ -890,13 +884,20 @@ def collect_project_metrics_report(
     now_str = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     roadmap = store if store is not None else roadmap_store.get_roadmap_store(target_repo)
+    active_session = (
+        session
+        if session is not None
+        else (getattr(roadmap, "_session", None) or get_github_session())
+    )
     items = get_item_metrics(
         roadmap, get_item_releases(project_root), milestone_filter=milestone_filter
     )
     releases = get_release_cadence_metrics(project_root, limit=release_limit)
-    workflow_runs = get_ci_workflow_metrics(target_repo, limit=ci_limit)
-    milestones = get_milestone_metrics(target_repo, milestone_filter=milestone_filter)
-    taxonomy_labels = get_label_taxonomy_metrics(target_repo)
+    workflow_runs = get_ci_workflow_metrics(target_repo, limit=ci_limit, session=active_session)
+    milestones = get_milestone_metrics(
+        target_repo, milestone_filter=milestone_filter, session=active_session
+    )
+    taxonomy_labels = get_label_taxonomy_metrics(roadmap)
     traffic = get_repository_traffic_metrics(target_repo)
     ages, claim_age, phases = (
         _read_item_ages(roadmap, target_repo, clock) if item_ages else ([], None, [])
@@ -928,26 +929,20 @@ def project_metrics_requests(
     ci_limit: int = 50,
 ) -> list[PlannedRequest]:
     """Planned requests for collecting project velocity metrics."""
-    from devops_cli.roadmap.request_plan import StoreRequests, planned_gh
+    from devops_cli.roadmap.request_plan import StoreRequests, planned_gh, planned_session_read
 
     requests: list[PlannedRequest] = []
     requests.extend(StoreRequests(repo).every_issue())
     requests.append(
-        planned_gh(
-            ["api", f"repos/{repo}/actions/runs?per_page={min(ci_limit, 100)}"],
+        planned_session_read(
+            f"/repos/{repo}/actions/runs?per_page={min(ci_limit, 100)}",
             f"repos/{repo}/actions/runs",
         )
     )
     requests.append(
-        planned_gh(
-            ["api", f"repos/{repo}/milestones?state=all&per_page=100"],
+        planned_session_read(
+            f"/repos/{repo}/milestones?state=all&per_page=100",
             f"repos/{repo}/milestones",
-        )
-    )
-    requests.append(
-        planned_gh(
-            ["api", f"repos/{repo}/issues?state=open&per_page=100", "--paginate"],
-            f"repos/{repo}/issues",
         )
     )
     requests.append(planned_gh(["api", f"repos/{repo}"], f"repos/{repo}"))

@@ -7,10 +7,12 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 from devops_cli.config.constants import (
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
@@ -61,6 +63,17 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 LABELS = "- name: scope/cli\n  color: DCDCD6\n  description: The CLI\n"
 
 
+@pytest.fixture(scope="module")
+def app_key() -> str:
+    """The App's private key in PEM form, made for this run, so the session can sign its JWT."""
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode()
+
+
 # ── The metrics job ───────────────────────────────────────────────────────────
 
 
@@ -85,6 +98,7 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
         git_in(remote, "tag", tag, "main")
     github = GitHubFake(REPO, milestones=[{"number": 26, "title": PLANNED, "state": "open"}])
     github.install(git_fake)
+    github.serve_session(web)
     web.page(
         f"{API}/user",
         json.dumps({"login": "test-bot"}),
@@ -241,6 +255,7 @@ def test_the_metrics_row_counts_the_failed_deliveries_of_the_hooks_of_its_reposi
     process_fake: ProcessFake,
     seeded_store: InMemoryRoadmapStore,
     tmp_path: Path,
+    web: WebFake,
     otlp: FakeCollector,
 ) -> None:
     """A refusal at the Cloudflare edge never gets to the webhook route, so the metrics row reads
@@ -258,6 +273,7 @@ def test_the_metrics_row_counts_the_failed_deliveries_of_the_hooks_of_its_reposi
         ],
     )
     github.install(process_fake)
+    github.serve_session(web)
     GLOBAL_METRICS.clear_metric(CONST_SERVICE_METRIC_WEBHOOK_DELIVERY_FAILURES)
     seeded_store.seed_file(CONST_ROADMAP_LABELS_PATH, LABELS)
 
@@ -290,6 +306,7 @@ def test_the_metrics_job_of_the_app_reads_the_traffic_of_the_repository(
     traffic_answer: tuple[int, str] | None,
     views: list[tuple[dict[str, str], float]],
     warnings: list[str],
+    app_key: str,
     config: Callable[..., Path],
     git_fake: GitFake,
     seeded_store: InMemoryRoadmapStore,
@@ -309,11 +326,19 @@ def test_the_metrics_job_of_the_app_reads_the_traffic_of_the_repository(
     (clone / ".git").mkdir()
     github = GitHubFake(REPO, traffic_answer=traffic_answer)
     github.install(git_fake)
+    github.serve_session(web)
+    expires_at = (datetime.now(UTC) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    web.respond(
+        "POST",
+        f"{API}/app/installations/42/access_tokens",
+        201,
+        {"token": "installation-token", "expires_at": expires_at},
+    )
     seeded_store.seed_file(CONST_ROADMAP_LABELS_PATH, LABELS)
     config(
         service={"github_app": {"app_id": 1001, "installation_id": 42, "slug": "devops-roadmap"}}
     )
-    monkeypatch.setenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, "app-key")
+    monkeypatch.setenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, app_key)
     reset_github_session()
     with caplog.at_level(logging.WARNING):
         run_metrics_adapter(store=seeded_store, repo=REPO, clone_path=clone)

@@ -1,9 +1,9 @@
 """The GitHub request budget of one metrics-row round (#3794).
 
-One round with one page of each listing may send at most five GitHub requests: the every-issue
-listing through the session, the CI runs, the milestones, the open issues and the repository
-metadata through gh. A test that runs the round over the fake GitHub edges pins the budget, so a
-new read or an extra page of the listing fails offline in CI.
+One round with one page of each listing may send at most four GitHub requests: the every-issue
+listing, the CI runs and the milestones through the session, and the repository metadata through
+gh (#3794, #3941). A test that runs the round over the fake GitHub edges pins the budget, so a new
+read or an extra page of the listing fails offline in CI.
 """
 
 from __future__ import annotations
@@ -33,6 +33,8 @@ REPO = "example/test-repo"
 NOW = datetime.datetime(2026, 11, 14, 12, 0, tzinfo=datetime.UTC)
 MILESTONE = {"number": 1, "title": "2026-11-01", "state": "open"}
 LISTING = f"/repos/{REPO}/issues?state=all&per_page=100"
+RUNS = f"/repos/{REPO}/actions/runs?per_page=50"
+MILESTONES = f"/repos/{REPO}/milestones?state=all&per_page=100"
 
 
 def _repository() -> GitHubFake:
@@ -82,6 +84,16 @@ def _counted_round(
 
 def _one_page(github_api: GitHubApiFake) -> None:
     github_api.route("GET", LISTING, github_json([issue_payload(1)]))
+    github_api.route(
+        "GET",
+        RUNS,
+        github_json({"total_count": 0, "workflow_runs": []}),
+    )
+    github_api.route(
+        "GET",
+        MILESTONES,
+        github_json([MILESTONE]),
+    )
 
 
 def test_one_round_of_one_page_stays_within_the_request_budget(
@@ -91,8 +103,8 @@ def test_one_round_of_one_page_stays_within_the_request_budget(
     github_api: GitHubApiFake,
     otlp: FakeCollector,
 ) -> None:
-    """One metrics-row round with one page of each listing sends the five reads of the baseline
-    and no more (#3794)."""
+    """One metrics-row round with one page of each listing sends the four reads of the baseline
+    and no more (#3794, #3941)."""
     github = _repository()
     github.answer_children(monkeypatch)
     _one_page(github_api)
@@ -111,10 +123,11 @@ def test_one_more_page_of_open_items_fails_the_budget(
     otlp: FakeCollector,
 ) -> None:
     """A second page of open items makes one request over the budget, so the test fails with the
-    recorded count and the budget constant (#3794)."""
+    recorded count and the budget constant (#3794, #3941)."""
     github = _repository()
     github.answer_children(monkeypatch)
     second = f"{LISTING}&page=2"
+    _one_page(github_api)
     github_api.route("GET", LISTING, github_json([issue_payload(1)], headers=next_page(second)))
     github_api.route("GET", second, github_json([issue_payload(2)]))
     count = _counted_round(tmp_path, git_fake, github, otlp)

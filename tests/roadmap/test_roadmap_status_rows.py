@@ -280,7 +280,9 @@ def test_the_metrics_row_reads_no_status_page_and_raises_when_its_collection_fai
     clone.mkdir()
     (clone / ".git").mkdir()
     milestone = {"number": 26, "title": PLANNED, "state": "open", "open_issues": None}
-    GitHubFake(REPO, milestones=[milestone]).install(git_fake)
+    github = GitHubFake(REPO, milestones=[milestone])
+    github.install(git_fake)
+    github.serve_session(web)
 
     with pytest.raises(TypeError, match="NoneType"):
         run_metrics_adapter(store=seeded_store, repo=REPO, clone_path=clone)
