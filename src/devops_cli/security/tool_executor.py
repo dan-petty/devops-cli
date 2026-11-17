@@ -7,13 +7,16 @@ installs `ToolExecutorFake` in its place (`tests/support/fakes/tool_executor.py`
 
 A review runs its tools in `SandboxToolExecutor` (#2096). The command layer makes one for each
 review and gives it to the orchestrator, which gives it to every analyzer, evidence tool and canary.
-A review has no way to run its tools outside the sandbox (decision 1 of #772).
+A review runs its tools outside the sandbox in one place only, the pod of a runner Job, whose
+`RuntimeDefault` seccomp profile refuses the user namespace that the sandbox needs: there the pod is
+the isolation boundary, and `review_tool_executor` answers the direct executor (#3827).
 `DirectToolExecutor` starts the tool as a child process of devops-cli, with no sandbox and no limit
 but the wall clock. It is the executor that a scanner gets when nobody gives it another, as the
-scans of `devops scan` and the agent tools do. Those are not reviews. Popeye is the exception: it
-reads the Kubernetes API, and it runs in the sandbox with the network profile `kube-api`
-(`KubeApiNetwork`, decision 2 of #772, #2132). Only Popeye can select that profile, and the direct
-executor refuses it. The record of each run names the network of the tool.
+scans of `devops scan` and the agent tools do, and the executor of a review in the pod of a runner
+Job. Popeye is the exception: it reads the Kubernetes API, and it runs in the sandbox with the
+network profile `kube-api` (`KubeApiNetwork`, decision 2 of #772, #2132). Only Popeye can select
+that profile, and the direct executor refuses it. The record of each run names the network of the
+tool.
 
 `SandboxToolExecutor` does not confine or limit a process itself. It builds one command from three
 programs that already do this work:
@@ -667,11 +670,11 @@ class DirectToolExecutor:
     """Starts each tool as a child process of devops-cli, through `run_subprocess`.
 
     There is no sandbox, and the only limit is the wall clock of the request. It is the executor
-    of a scanner that nobody gave another, except Popeye: the scans of `devops scan` and the agent
-    tools, which are not reviews. A review never runs its tools here. A scan must end as it
-    ended before the seam existed, so a checkout that git cannot read does not stop it: the
-    record of the run holds no commit. Otherwise the record is built as the sandbox executor
-    builds it.
+    of a scanner that nobody gave another, except Popeye: the scans of `devops scan`, the agent
+    tools, and the tools of a review in the pod of a runner Job (#3827). A review outside that pod
+    runs its tools in the sandbox. A scan must end as it ended before the seam existed, so a
+    checkout that git cannot read does not stop it: the record of the run holds no commit.
+    Otherwise the record is built as the sandbox executor builds it.
     """
 
     def run(self, request: ToolRequest) -> ToolResult:
@@ -946,6 +949,19 @@ class RecordingToolExecutor:
         self._runs[index] = result.settled(success=success)
 
 
+def review_tool_executor(*, in_runner: bool) -> ToolExecutor:
+    """The executor of a review's tools: the direct executor in the pod of a runner Job, else the
+    sandbox (#3827).
+
+    The pod's `RuntimeDefault` seccomp profile refuses the user namespace that bubblewrap needs, so
+    a review there starts its tools as children of the review, and the pod is the isolation
+    boundary. Everywhere else the review keeps the sandbox (#2096, decision 1 of #772).
+    """
+    if in_runner:
+        return DirectToolExecutor()
+    return SandboxToolExecutor()
+
+
 __all__ = [
     "DirectToolExecutor",
     "KubeApiNetwork",
@@ -957,4 +973,5 @@ __all__ = [
     "ToolResult",
     "ToolRun",
     "record_tool_run",
+    "review_tool_executor",
 ]

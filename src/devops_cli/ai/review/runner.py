@@ -1383,6 +1383,7 @@ def execute_review_workflow(
     routed_files: Sequence[str] = (),
     session_id: str | None = None,
     partial_context: bool = False,
+    in_runner: bool = False,
 ) -> list[ReviewResult | str]:
     """Common review execution workflow for path, branch, and PR reviews.
 
@@ -1395,8 +1396,11 @@ def execute_review_workflow(
     `routed_files`, and a branch or PR's are the changes in `base_revision` they match (#948).
     When no page is left, no model is called.
 
-    The review runs its tools in the sandbox, and in no other place. When the host cannot start
-    the sandbox, no tool runs, and the review says why when it ends (#2096, decision 1 of #772).
+    `in_runner` says that the review runs in the pod of a runner Job, whose seccomp profile
+    refuses the user namespace that the sandbox needs. There the tools start with the direct
+    executor, and the pod is the isolation boundary (#3827). Everywhere else the review runs its
+    tools in the sandbox, and when the host cannot start it, no tool runs and the review says why
+    when it ends (#2096, decision 1 of #772).
     """
     from devops_cli.lang import MESSAGES
 
@@ -1416,9 +1420,9 @@ def execute_review_workflow(
     check_and_warn_perimeter_changes(
         target_type, all_files, base_revision=base_revision, target_dir=target_dir
     )
-    from devops_cli.security.tool_executor import SandboxToolExecutor
+    from devops_cli.security.tool_executor import SandboxToolExecutor, review_tool_executor
 
-    executor = SandboxToolExecutor()
+    executor = review_tool_executor(in_runner=in_runner)
     try:
         return _run_review_with_executor(
             pages,
@@ -1438,7 +1442,8 @@ def execute_review_workflow(
             partial_context=partial_context,
         )
     finally:
-        _report_sandbox_refusal(executor)
+        if isinstance(executor, SandboxToolExecutor):
+            _report_sandbox_refusal(executor)
 
 
 def _run_review_with_executor(
