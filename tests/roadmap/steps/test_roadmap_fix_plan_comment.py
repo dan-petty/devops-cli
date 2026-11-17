@@ -22,6 +22,7 @@ from devops_cli.roadmap.stage.stage_verify import (
     FIX_PLAN_LABEL,
     PlanPart,
     Verification,
+    finding_line,
 )
 from devops_cli.roadmap.steps.fix_plan import (
     FixPlanResult,
@@ -393,3 +394,46 @@ def test_an_attempt_edits_the_state_comment_and_its_comment_lists_no_open_findin
         comment_open_findings(event) == (),
         "Problem of criterion_dropped." in event,
     ) == (True, True, False, True, True, True, True, False)
+
+
+def _text_lines(body: str) -> list[str]:
+    """The lines of `body` that a reader sees: no blank line and no hidden line."""
+    lines = (line.strip() for line in body.splitlines())
+    return [line for line in lines if line and not line.startswith("<!--")]
+
+
+@pytest.mark.parametrize("result", [FixPlanResult.REVISED, FixPlanResult.DISMISSED])
+def test_no_line_of_text_of_the_comment_of_an_attempt_is_in_the_state_comment(
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+    result: FixPlanResult,
+) -> None:
+    """No job posts the same content twice (#6193). One attempt writes the plan-state comment and
+    its own comment with the builders of the step, and no line of text of its own comment is in
+    the state comment: the advice of its reviews is only in the state comment, and its own
+    comment says so (#6197)."""
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    verifier = ModelFake()
+    plan = needs_fix_plan(store, stage_repo, github_api)
+    minor = finding(
+        DefectType.SPEC_DELTA_WRONG, where=place("issue", ISSUE_QUOTE), severity=Severity.MINOR
+    )
+    if result is FixPlanResult.REVISED:
+        dropped = finding(DefectType.CRITERION_DROPPED)
+        order = finding(DefectType.TASK_ORDER, SAMPLE_QUOTE)
+        verifier.answer(
+            Verification(findings=[dropped, order]), later_review(HOLDS, GONE, findings=[minor])
+        )
+        model_fake.answer(make_stage_proposal(why=REPAIRED_WHY))
+    else:
+        verifier.answer(Verification(findings=[minor]))
+
+    run = _run(store, stage_repo, verifier)
+
+    assert run.attempt is not None
+    assert run.attempt.result is result
+    state, comment = [each.body for each in store.comments_on(plan.number)]
+    assert finding_line(minor) in state
+    assert [line for line in _text_lines(comment) if line in state] == []
+    assert MESSAGES.roadmap.fix_plan_comment_advice.format(pull=plan.pull).strip() in comment

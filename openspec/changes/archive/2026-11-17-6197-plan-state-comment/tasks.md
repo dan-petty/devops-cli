@@ -22,7 +22,7 @@ Kind: behavior. Changes: `src/devops_cli/roadmap/stage/plan_state.py` (new), `sr
 
 Kind: behavior. Changes: `src/devops_cli/roadmap/steps/fix_plan.py`, `src/devops_cli/roadmap/request_plan.py`, `src/devops_cli/lang/en/messages.py`, `tests/support/roadmap_fix_plan.py`.
 
-- [x] 3.1 Add the failing tests: `plan_comment` reads the state comment by its key and skips a comment of a run in the legacy read, an attempt edits the state comment and its comment lists no open finding, and a timeout on a legacy pull request builds the state comment from the legacy comment
+- [x] 3.1 Add the failing tests: `plan_comment` reads the state comment by its key and skips a comment of a run in the legacy read, an attempt edits the state comment and its comment lists no open finding and no advice (a contract test: no line of text of the comment of the attempt is in the state comment), and a timeout on a legacy pull request builds the state comment from the legacy comment
   - Verification: `$ uv run devops ci test tests/roadmap/steps/test_roadmap_fix_plan_comment.py tests/roadmap/steps/test_roadmap_fix_plan_budget.py`
 - [x] 3.2 Read the state comment in `plan_comment`, write it in `_settle` before the comment of the attempt, take the open findings out of the comment of the attempt, and list the writes in the dry run
   - Verification: `$ uv run devops ci test tests/roadmap/steps tests/commands/test_roadmap_step_fix_plan.py tests/roadmap/stage/test_roadmap_stage_drift.py`

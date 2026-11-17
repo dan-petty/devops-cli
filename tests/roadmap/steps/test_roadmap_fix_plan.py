@@ -411,8 +411,8 @@ def test_a_head_with_only_a_minor_finding_is_dismissed_and_lists_it_as_advice(
     github_api: GitHubApiFake,
 ) -> None:
     """The decisions of the step count only blocker and major findings (#5411): a head whose
-    review finds a quoted minor defect gets no repair, loses the label, and the comment lists the
-    defect as advice."""
+    review finds a quoted minor defect gets no repair, loses the label, and the plan-state comment
+    lists the defect as advice (#6197)."""
     plan = needs_fix_plan(store, stage_repo, github_api)
     minor = finding(
         DefectType.SPEC_DELTA_WRONG, where=place("issue", ISSUE_QUOTE), severity=Severity.MINOR
@@ -428,9 +428,11 @@ def test_a_head_with_only_a_minor_finding_is_dismissed_and_lists_it_as_advice(
     assert stage_repo.origin_git("rev-parse", PLAN_BRANCH) == plan.head
     assert FIX_PLAN_LABEL not in store._roadmap.issues[plan.pull].labels
     (_, state, comment) = _comments(store)
-    assert "They stop no draft" in comment
-    assert f"- minor `spec_delta_wrong` at issue ({ISSUE_QUOTE})" in comment
+    # The advice is in the plan-state comment only, and the comment of the attempt says so (#6197).
+    assert "They stop no draft" in state
     assert f"- minor `spec_delta_wrong` at issue ({ISSUE_QUOTE})" in state
+    assert ("They stop no draft" in comment, "spec_delta_wrong" in comment) == (False, False)
+    assert "lists the advice" in comment
 
 
 @pytest.mark.parametrize(

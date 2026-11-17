@@ -4707,6 +4707,11 @@ class RoadmapMessages:
     fix_plan_comment_state: str = (
         " The plan state comment of #{pull} lists the open findings that keep the label."
     )
+    # The sentence of the comment of an attempt whose reviews gave advice (#6197): the plan-state
+    # comment lists the advice, and this comment lists none.
+    fix_plan_comment_advice: str = (
+        " The plan state comment of #{pull} lists the advice of the reviews of this attempt."
+    )
     fix_plan_comment_cleared: str = (
         "{marker}\nThe step fix-plan pushed a revision of the plan of #{pull} ({head}). The model "
         "review found {before} open finding(s) in the plan before the repair and none after it, "
@@ -4765,7 +4770,7 @@ class RoadmapMessages:
     fix_plan_requests: dict[str, str] = field(
         default_factory=lambda: {
             "pull_state": "the state, the labels and the head of the plan pull request of the item",
-            "comments": "the comments of the item, to read the open findings of the last plan comment",
+            "comments": "the comments of the item, to read the open findings, the advice and the groups of the plan state comment of the pull request, or of the last legacy plan comment of an older pull request",
             "fetch": "fetch the default branch and the branch of the plan",
             "tip": "the head of the branch of the plan on origin",
             "identity": "the identity of the clone, to find a commit of another author",
@@ -4801,7 +4806,7 @@ class RoadmapMessages:
             "update_pull": "the title or the body of the pushed plan differs",
             "unlabel": "cleared (no open finding remains), dismissed (the review of the head found none), or regated after a review of the new plan with no open finding and no failed step",
             "comment": "the result is revised, cleared, regated, dismissed, stopped or timeout",
-            "state_edit": "a comment of the item holds the plan state key of the pull request: the step edits its findings",
+            "state_edit": "a comment of the item holds the plan state key of the pull request: the step edits its open findings and its advice",
             "state_new": "no comment of the item holds that key: the step posts the plan state comment",
         }
     )

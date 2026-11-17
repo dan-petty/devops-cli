@@ -77,14 +77,14 @@ goes on with its class.
 `--force-with-lease` on the head that it read; the pull request gets the title and the body of the
 plan. For each attempt that ends `revised`, `cleared`, `regated`, `dismissed`, `stopped` or
 `timeout`, the step first writes the plan-state comment of the pull request (`plan_state`,
-#6197): the open findings that keep the label, so the next attempt reads them, the advice, and
-after a push the task groups of the pushed plan. A pull request that a release before #6197
-staged gets its state comment from the legacy comments. Then the step posts one comment with
-`CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER` and the event line of the pull request on the issue: the
-facts of the attempt and no list of open findings. The comment of a pushed revision, or of a plan
-that loses the label, also lists the other findings of its reviews as advice, such as a minor or a
-nit finding (#5411). The step writes only its own record keys (`FixPlanRecordKey`, ADR 0021
-section 8).
+#6197): the open findings that keep the label, so the next attempt reads them, and after a push
+the task groups of the pushed plan. A pushed revision, or a plan that loses the label, gives the
+other findings of its reviews as the advice of the state comment, such as a minor or a nit finding
+(#5411). A pull request that a release before #6197 staged gets its state comment from the legacy
+comments. Then the step posts one comment with `CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER` and the
+event line of the pull request on the issue: the facts of the attempt and no finding, with one
+sentence that says that the state comment lists the open findings or the advice. The step writes
+only its own record keys (`FixPlanRecordKey`, ADR 0021 section 8).
 
 **Budget.** The setting `roadmap.fix_plan.time_budget_seconds` starts with the call (#5363). The
 planner compares the time with it before each plan run and each review run, and starts no run once
@@ -935,16 +935,19 @@ def _comment(
     budget: int,
 ) -> str | None:
     """The comment of an attempt, or None for an attempt that posts none. It holds the facts of the
-    attempt and no list of open findings: the plan-state comment lists them (`_state`, #6197),
-    and a comment that keeps the label says so. A comment of a pushed revision, or of a plan that
-    loses the label, then lists the advice of its reviews (`_advice`, #5411). `budget` is the time
-    budget of the step in seconds, which a `timeout` comment names."""
+    attempt, and no finding: the plan-state comment lists the open findings and the advice of the
+    reviews (`_state`, `_advice`, #5411, #6197), and this comment says so in one sentence for
+    each. No job posts the same content twice (#6193). `budget` is the time budget of the step in
+    seconds, which a `timeout` comment names."""
     text = _result_comment(target, done, decision, revision, listed, budget)
     if text is None:
         return None
+    texts = MESSAGES.roadmap
     if _open_after(done, decision, revision, listed):
-        text += MESSAGES.roadmap.fix_plan_comment_state.format(pull=target.pull)
-    return text + findings_section(_advice(revision, decision))
+        text += texts.fix_plan_comment_state.format(pull=target.pull)
+    if _advice(revision, decision):
+        text += texts.fix_plan_comment_advice.format(pull=target.pull)
+    return text
 
 
 def _state(

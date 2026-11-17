@@ -897,8 +897,9 @@ def fix_plan_requests(
     until one qualifies. With `--confirm`, the attempt fetches the default branch and the branch of
     the plan, checks the head and its authors, and reads the change folder at the head before the
     attempt marks. A plan that the reader refuses gets only `fix_plan.at` and `fix_plan.result`.
-    Else the attempt moves the clone to the default branch, reads the open findings of the last
-    plan comment of the item, reads the open plans on the default branch when the premise cites a
+    Else the attempt moves the clone to the default branch, reads the open findings and the advice
+    of the plan-state comment of the pull request (of the last legacy plan comment for an older
+    pull request, #6197), reads the open plans on the default branch when the premise cites a
     missing path, and calls the review and the planner. The writes are the attempt marks, the
     marks of a kill of the attempt (#5413), the commit on the default branch, its push with a
     lease, the title and the body of the pull request, the label, the plan-state comment (an edit
