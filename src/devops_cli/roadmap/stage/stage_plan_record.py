@@ -183,16 +183,21 @@ def _digest(parts: list[Any]) -> str:
     return hashlib.sha256(json.dumps(parts, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
-def prompt_version(toolset: str) -> str:
-    """The version of the prompts of the planner: the sha256 of their texts, with the text of the
-    extended tools for the toolset `extended` and the research tools for `research`."""
+def prompt_version(toolset: str, *, context: Mapping[str, Any] | None = None) -> str:
+    """The version of the prompts of the planner: the sha256 of their raw texts and the values of
+    `context`, with the text of the extended tools for the toolset `extended` and the research
+    tools for `research` (#4633). The raw template is hashed and not the rendered text, so a call
+    with no context does not raise, and a change of a context value gives a new version."""
     if toolset == "research":
         names = (*_PROMPTS, EXTENDED_TOOLS_TASK, RESEARCH_TOOLS_TASK)
     elif toolset == "extended":
         names = (*_PROMPTS, EXTENDED_TOOLS_TASK)
     else:
         names = _PROMPTS
-    return _digest([load_task_prompt(name) for name in names])
+    parts: list[Any] = [load_task_prompt(name) for name in names]
+    if context:
+        parts.extend(f"{key}={context[key]}" for key in sorted(context))
+    return _digest(parts)
 
 
 def plan_key(

@@ -139,8 +139,10 @@ from devops_cli.roadmap.implement.implement_shell_policy import (
     HARNESS_DENIED_OPERATORS,
     IMPLEMENT_SHELL_PROGRAMS,
     IMPLEMENT_SHELL_TOOL,
-    fill_prompt,
+    local_commands_table,
+    programs_table,
     read_verification,
+    refusals_table,
     shown,
     verification_class,
 )
@@ -183,6 +185,19 @@ if TYPE_CHECKING:
 
 _CHANGE_DOCUMENTS = ("proposal.md", "design.md", "tasks.md")
 _PROMPT = "roadmap_implement_step.md"
+
+
+def step_instructions() -> str:
+    """The instructions of the implement step: the prompt with its three tables, which the caller
+    passes as the context of the prompt (#4633)."""
+    return load_task_prompt(
+        _PROMPT,
+        shell_programs=programs_table(),
+        local_commands=local_commands_table(),
+        shell_refusals=refusals_table(),
+    )
+
+
 # The start, in lower case, of the title of each section in which the refine job writes one
 # acceptance criterion (`### Requirement: <name>` and its scenarios).
 _REQUIREMENT_PREFIX = "requirement:"
@@ -438,7 +453,7 @@ def build_step_inputs(
         _files_section(source, chosen),
     ]
     message = "\n\n".join(section for section in sections if section)
-    instructions = fill_prompt(load_task_prompt(_PROMPT))
+    instructions = step_instructions()
     tokens = count_tokens(instructions) + count_tokens(message)
     limit = window - CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS
     if tokens > limit:

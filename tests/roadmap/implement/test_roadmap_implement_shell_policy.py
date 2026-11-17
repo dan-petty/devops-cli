@@ -24,16 +24,12 @@ from devops_cli.roadmap.implement.implement_shell_policy import (
     IMPLEMENT_SHELL_PROGRAMS,
     IMPLEMENT_SHELL_REPLACEMENTS,
     LOCAL_COMMANDS,
-    LOCAL_COMMANDS_PLACEHOLDER,
     NEGATIVE_SEARCH_OPTION_LETTERS,
-    PROGRAMS_PLACEHOLDER,
-    REFUSALS_PLACEHOLDER,
     SHELL_PROGRAMS,
     SHELL_REFUSALS,
     LocalCommand,
     NegativeSearch,
     ShellAccess,
-    fill_prompt,
     local_commands_table,
     pipe_refusal,
     programs_table,
@@ -42,7 +38,12 @@ from devops_cli.roadmap.implement.implement_shell_policy import (
     refused_argument,
     verification_problem,
 )
-from devops_cli.roadmap.implement.implement_step import StepOutcome, StepStatus, run_step
+from devops_cli.roadmap.implement.implement_step import (
+    StepOutcome,
+    StepStatus,
+    run_step,
+    step_instructions,
+)
 from tests.support.fakes.process import ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import WINDOW, git, is_clean_at
@@ -426,16 +427,16 @@ def test_the_verification_problem_is_none_exactly_when_the_step_runs_the_command
 
 
 def _prompt() -> str:
-    return fill_prompt(load_task_prompt("roadmap_implement_step.md"))
+    return step_instructions()
 
 
 def test_the_prompt_file_holds_the_three_placeholders_and_no_copy_of_the_table() -> None:
     raw = load_task_prompt("roadmap_implement_step.md")
 
     assert (
-        raw.count(PROGRAMS_PLACEHOLDER),
-        raw.count(LOCAL_COMMANDS_PLACEHOLDER),
-        raw.count(REFUSALS_PLACEHOLDER),
+        raw.count("{{shell_programs}}"),
+        raw.count("{{local_commands}}"),
+        raw.count("{{shell_refusals}}"),
         [line for line in raw.splitlines() if line.startswith("| `")],
     ) == (1, 1, 1, [])
 

@@ -233,9 +233,9 @@ def test_the_prompt_says_before_the_first_call_that_the_shell_refuses_a_heredoc(
 
 
 def test_the_rendered_prompt_names_create_directory_and_holds_no_python_mkdir() -> None:
-    from devops_cli.roadmap.implement.implement_step import fill_prompt
+    from devops_cli.roadmap.implement.implement_step import step_instructions
 
-    rendered = fill_prompt(load_task_prompt(PROMPT))
+    rendered = step_instructions()
 
     assert "create_directory" in rendered
     assert not any(
