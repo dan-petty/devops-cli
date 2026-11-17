@@ -17,3 +17,15 @@
 - A digest check (the `latest-tag` template with an allow list of `@sha256:`): 7 third-party images of the path sources name no digest today. #6067 pins them first.
 - Exclude `no-liveness-probe` and `no-readiness-probe` for the CronJobs in the config: kube-linter scopes a check only by object kind, and `DeploymentLike` holds the CronJobs. Each CronJob has the annotations.
 - A digest-pinned kube-linter image as a step of its own, as `actionlint` runs: the lint needs the build of the sources first, which `devops k8s lint` makes.
+
+## Coverage of the controls that #6075 deleted
+| Control | Checked by kube-linter now | Not checked by kube-linter, and the tool that checks it |
+| :--- | :--- | :--- |
+| Network perimeters | `non-isolated-pod`: a NetworkPolicy selects each pod. | The ports and peers of each rule, the metadata exclusion and the SSRF perimeters: a live probe of the policy paths (#4407). The GPU feature discovery pod: #6109. |
+| No ServiceAccount token | `default-service-account`: a pod on the default ServiceAccount sets `automountServiceAccountToken: false`. | A pod with its own ServiceAccount that calls no API and mounts a token: `devops k8s rbac-audit` and the kept test `test_the_pods_that_do_not_call_the_api_mount_no_token`. |
+| No credential in the config | `env-var-secret`: no secret value written in an environment variable. | A credential in the data of a ConfigMap: Gitleaks in the Security Scan step, and the kept test `test_config_validates_as_settings_and_holds_no_credential`. |
+| Security contexts | `run-as-non-root`, `no-read-only-root-fs`, `privilege-escalation-container`, `privileged-container`, `drop-net-raw-capability`, `host-network`, `host-pid`, `host-ipc`, `sensitive-host-mounts`. | `capabilities.drop: [ALL]` and `seccompProfile: RuntimeDefault`: `trivy config` in the Security Scan step, and Pod Security Admission of each `restricted` namespace. |
+| Digest pins | `latest-tag`: no image on `latest` or with no tag, unless Image Updater sets its digest (annotated). | A digest on each third-party image: #6067 pins the 7 images with no digest, then a check from the `latest-tag` template with an allow list of `@sha256:`. `devops k8s image-pins` resolves each pin. The actions: zizmor. |
+| Prune protection | `pvc-prune-protection`: each PersistentVolumeClaim keeps `Prune=false,Delete=false`. | A Namespace: the kept tests `test_namespace_is_restricted_and_never_pruned` and `test_mattermost_namespaces_in_namespaces_yaml`. The PVCs and CRDs of the charts: #6106 and the kept test `test_chart_pvc_and_crd_safety_values`. |
+
+The service patterns also get `no-readiness-probe`, `no-liveness-probe` (RL2), `no-rolling-update-strategy` and the PodDisruptionBudget checks (RL1), `unset-cpu-requirements` and `unset-memory-requirements` (BG4), and `job-ttl-seconds-after-finished` (JB4).
