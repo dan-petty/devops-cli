@@ -46,7 +46,7 @@ PATH_CONFINEMENTS: Final[Mapping[str, frozenset[str]]] = {
     "k8s_bootstrap": frozenset({"k8s_dir"}),
     "k8s_deploy_stack": frozenset({"k8s_dir", "product_dir"}),
     "k8s_diff_helm": frozenset({"chart_path", "values"}),
-    "k8s_lint": frozenset({"target"}),
+    "k8s_lint": frozenset({"target", "k8s_dir"}),
     "k8s_teardown_stack": frozenset({"k8s_dir", "product_dir"}),
     "k8s_validate": frozenset({"manifest_path"}),
     "repos_list": frozenset({"base_dir"}),

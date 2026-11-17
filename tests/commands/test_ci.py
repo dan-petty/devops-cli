@@ -1879,6 +1879,10 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
         ): "Installs the pinned Trivy that the Security Scan step runs, with the lock's installer",
         (
             "static",
+            "Install kube-linter",
+        ): "Installs the pinned kube-linter that the kube-linter row of the gate runs, with the lock's installer (#6068)",
+        (
+            "static",
             "Run actionlint",
         ): "Runs the pinned actionlint via the docker image, so the gate skips it (#1119)",
         (
@@ -2022,7 +2026,7 @@ def test_ci_workflow_publishes_scanner_sarif_to_code_scanning() -> None:
         upload_step.get("if"),
     ) == (
         "write",
-        "uv run devops scan report --sarif .data/scan.sarif --skip bandit,trivy",
+        "uv run devops scan report --sarif .data/scan.sarif --skip bandit,trivy,kubelinter",
         "always()",
         True,
         ".data/scan.sarif",
@@ -2048,7 +2052,7 @@ def test_ci_security_scan_installs_the_pinned_trivy_for_its_iac_scan() -> None:
 
     assert (install is not None and install < scan, runs[scan]) == (
         True,
-        "uv run devops scan report --sarif .data/scan.sarif --skip bandit,trivy",
+        "uv run devops scan report --sarif .data/scan.sarif --skip bandit,trivy,kubelinter",
     )
 
 

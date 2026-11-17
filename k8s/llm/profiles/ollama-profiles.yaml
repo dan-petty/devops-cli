@@ -50,8 +50,8 @@
 # mounted at /home/ollama/.ollama. fsGroup does not apply to a hostPath volume, so the
 # own-model-directory initContainer gives that directory to 10001 at every start. It runs as root
 # with CAP_CHOWN alone, no privilege escalation and a read-only root filesystem, and exits before
-# ollama starts. It is the one exception to kube-linter's run-as-non-root (#1060). The patch of
-# kustomization.yaml gives each tier the annotation that kube-linter reads for it (#6068).
+# ollama starts. It is the one exception to kube-linter's run-as-non-root (#1060). Each tier holds
+# the annotation ignore-check.kube-linter.io/run-as-non-root with this reason (#6068).
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -66,6 +66,10 @@ metadata:
     llm.devops.io/vram-gib: 16gib
     llm.devops.io/total-vram-gib: "16"
     llm.devops.io/speed-tier: fast
+  annotations:
+    ignore-check.kube-linter.io/run-as-non-root: >-
+      The initContainer own-model-directory runs as root with CAP_CHOWN alone, to give the
+      hostPath model directory to UID 10001 (#1060, #5012).
 spec:
   updateStrategy:
     type: RollingUpdate
@@ -211,6 +215,9 @@ metadata:
     llm.devops.io/total-vram-gib: "24"
     llm.devops.io/speed-tier: slow
   annotations:
+    ignore-check.kube-linter.io/run-as-non-root: >-
+      The initContainer own-model-directory runs as root with CAP_CHOWN alone, to give the
+      hostPath model directory to UID 10001 (#1060, #5012).
     ignore-check.kube-linter.io/unset-memory-requirements: >-
       The ollama container has no memory limit until a measured peak sizes it (#4992).
 spec:
@@ -358,6 +365,9 @@ metadata:
     llm.devops.io/vram-gib: 32gib
     llm.devops.io/total-vram-gib: "32"
   annotations:
+    ignore-check.kube-linter.io/run-as-non-root: >-
+      The initContainer own-model-directory runs as root with CAP_CHOWN alone, to give the
+      hostPath model directory to UID 10001 (#1060, #5012).
     ignore-check.kube-linter.io/unset-memory-requirements: >-
       The ollama container has no memory limit until a measured peak sizes it (#4992).
 spec:
@@ -504,6 +514,9 @@ metadata:
     llm.devops.io/total-vram-gib: "48"
     llm.devops.io/speed-tier: fast
   annotations:
+    ignore-check.kube-linter.io/run-as-non-root: >-
+      The initContainer own-model-directory runs as root with CAP_CHOWN alone, to give the
+      hostPath model directory to UID 10001 (#1060, #5012).
     ignore-check.kube-linter.io/unset-memory-requirements: >-
       The ollama container has no memory limit until a measured peak sizes it (#4992).
 spec:
@@ -646,6 +659,9 @@ spec:
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
+  annotations:
+    ignore-check.kube-linter.io/run-as-non-root: 'The initContainer own-model-directory runs as root with
+      CAP_CHOWN alone, to give the hostPath model directory to UID 10001 (#1060, #5012).'
   labels:
     app.kubernetes.io/name: ollama-24gib-embed-gpu0
     app.kubernetes.io/part-of: devops-cli-stack
@@ -808,6 +824,9 @@ spec:
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
+  annotations:
+    ignore-check.kube-linter.io/run-as-non-root: 'The initContainer own-model-directory runs as root with
+      CAP_CHOWN alone, to give the hostPath model directory to UID 10001 (#1060, #5012).'
   labels:
     app.kubernetes.io/name: ollama-24gib-embed-gpu1
     app.kubernetes.io/part-of: devops-cli-stack
@@ -991,6 +1010,10 @@ metadata:
     llm.devops.io/vram-gib: 64gib
     llm.devops.io/total-vram-gib: "64"
     llm.devops.io/speed-tier: standard
+  annotations:
+    ignore-check.kube-linter.io/run-as-non-root: >-
+      The initContainer own-model-directory runs as root with CAP_CHOWN alone, to give the
+      hostPath model directory to UID 10001 (#1060, #5012).
 spec:
   updateStrategy:
     type: RollingUpdate
@@ -1141,6 +1164,9 @@ metadata:
     llm.devops.io/vram-gib: 72gib
     llm.devops.io/total-vram-gib: "72"
   annotations:
+    ignore-check.kube-linter.io/run-as-non-root: >-
+      The initContainer own-model-directory runs as root with CAP_CHOWN alone, to give the
+      hostPath model directory to UID 10001 (#1060, #5012).
     ignore-check.kube-linter.io/unset-memory-requirements: >-
       The ollama container has no memory limit until a measured peak sizes it (#4992).
 spec:
@@ -1286,6 +1312,9 @@ metadata:
     llm.devops.io/vram-gib: 96gib
     llm.devops.io/total-vram-gib: "96"
   annotations:
+    ignore-check.kube-linter.io/run-as-non-root: >-
+      The initContainer own-model-directory runs as root with CAP_CHOWN alone, to give the
+      hostPath model directory to UID 10001 (#1060, #5012).
     ignore-check.kube-linter.io/unset-memory-requirements: >-
       The ollama container has no memory limit until a measured peak sizes it (#4992).
 spec:
@@ -1441,6 +1470,9 @@ metadata:
     llm.devops.io/vram-gib: 128gib
     llm.devops.io/total-vram-gib: "128"
   annotations:
+    ignore-check.kube-linter.io/run-as-non-root: >-
+      The initContainer own-model-directory runs as root with CAP_CHOWN alone, to give the
+      hostPath model directory to UID 10001 (#1060, #5012).
     ignore-check.kube-linter.io/unset-memory-requirements: >-
       The ollama container has no memory limit until a measured peak sizes it (#4992).
 spec:

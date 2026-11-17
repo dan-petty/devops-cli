@@ -9,16 +9,18 @@ No CI job runs kube-linter. The Security Scan step of `ci.yml` runs `devops scan
 - A new row of `devops ci`, `kube-linter`, runs `devops k8s lint`. The Static Analysis job installs the pinned kube-linter of `tools.lock` and runs the row. The Security Scan step skips kube-linter, which reads only the root kustomization of a tree.
 - Each finding on the manifests of 2026-11-17 is fixed or has the annotation `ignore-check.kube-linter.io/<check>` with its reason. Six Deployments and the GPU feature discovery DaemonSet set the rolling strategy that Kubernetes already gave them. Each exception names the issue that removes it, or #6068 when the object cannot meet the check.
 - `devops k8s image-pins` builds a path source with the same function.
+- `devops ai gateway render` keeps an annotation of a tier template that controls no render, such as a kube-linter exception, on each tier that it writes.
 - The service patterns, the routine tasks and the knowledge base name the new row.
 
 ## Capabilities
 - `k8s-lint`: a requirement for the lint of the environment tree is added.
 - `ci-gate-rows`: a requirement for the `kube-linter` row is added.
+- `ai-gateway-routing`: a requirement for the annotations of a rendered tier is added.
 
 ## Impact
-- Code: `src/devops_cli/commands/k8s/security_audit.py`, `src/devops_cli/k8s/app_render.py` (new), `src/devops_cli/k8s/image_pins.py`, `src/devops_cli/security/kubelinter.py`, `src/devops_cli/config/commands.py`, `src/devops_cli/commands/ci.py`, `src/devops_cli/roadmap/runner_tools.py`, the texts.
+- Code: `src/devops_cli/commands/k8s/security_audit.py`, `src/devops_cli/k8s/app_render.py` (new), `src/devops_cli/k8s/image_pins.py`, `src/devops_cli/security/kubelinter.py`, `src/devops_cli/config/commands.py`, `src/devops_cli/commands/ci.py`, `src/devops_cli/roadmap/runner_tools.py`, `src/devops_cli/k8s/gpu_thresholds.py`, the texts.
 - CI: the Static Analysis job installs kube-linter. The row takes about 10 s.
-- Manifests: annotations on 16 objects, a patch in `k8s/llm/profiles/kustomization.yaml` that annotates the 10 Ollama tiers, and an explicit rolling strategy on 7 workloads. No pod template changes, so no pod starts again.
+- Manifests: annotations on 20 objects and on the Ollama tier template, and an explicit rolling strategy on 7 workloads. No pod template changes, so no pod starts again.
 - The Helm chart sources are not linted: #6106.
 
 ## Feasibility

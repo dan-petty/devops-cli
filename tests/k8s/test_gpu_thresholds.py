@@ -234,6 +234,31 @@ def test_a_tier_newer_than_both_thresholds_runs_as_its_template_says() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("embedding_only", "per_gpu"), [("pascal", "pascal"), ("maxwell", "kepler")]
+)
+def test_a_template_annotation_that_controls_no_render_stays_on_each_tier(
+    embedding_only: str, per_gpu: str
+) -> None:
+    """The render reads the GPU count and the embedding model from the annotations of the
+    template and drops them. Another annotation, such as the reason of a kube-linter exception,
+    stays on each tier that the render writes (#6068)."""
+    template = yaml.safe_load(_TEMPLATE)
+    template["metadata"]["annotations"]["ignore-check.kube-linter.io/run-as-non-root"] = "why"
+
+    rendered = render_tier_manifests(
+        _inputs(), GpuThresholds(embedding_only=embedding_only, per_gpu=per_gpu), [template]
+    )
+
+    assert {
+        name: daemonset["metadata"]["annotations"]
+        for name, daemonset in _daemonsets(rendered).items()
+    } == {
+        name: {"ignore-check.kube-linter.io/run-as-non-root": "why"}
+        for name in _daemonsets(_render(embedding_only, per_gpu))
+    }
+
+
 def test_the_two_thresholds_act_alone() -> None:
     """The embedding threshold changes what a tier serves and its CPU threads, the per-GPU one how
     many instances. A chat tier keeps the default thread count, which it needs on the CPU."""
