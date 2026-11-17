@@ -254,7 +254,7 @@ Before the exit checks stage the checkout, and again after the extra turn, the s
 
 #### Scenario: An ignored file
 - **WHEN** the model writes a file under `.data/agent/scratch/`
-- **THEN** the step does not list it, deletes nothing, and the commit holds no such file
+- **THEN** the step does not list it as a stray file, and the commit holds no such file
 
 #### Scenario: The paths that a group allows
 - **WHEN** the group names a path in a code span, and the model writes files under its change folder, under `src/`, `tests/`, `docs/` or `openspec/`, and at the named path
@@ -479,3 +479,18 @@ An offline test SHALL cover a failing invariant test outside `Changes:`.
 #### Scenario: Offline test feeds a failing invariant test outside `Changes:`
 - **WHEN** the offline test supplies a step result with a failing invariant test whose file is outside `Changes:`
 - **THEN** the runner returns the stop with the test and path and makes no fix attempt
+
+### Requirement: The end of a step removes the by-products of its agent
+When a step ends, done, stopped or with an error, it SHALL remove the directory `mutants/` of the checkout and SHALL empty `.data/agent/scratch/`, after the reset of a step that is not done and after the disk use line of a runner Job. git ignores both, so neither the commit nor the reset of the step removes them.
+
+#### Scenario: A step that ends done
+- **WHEN** the model writes `.data/agent/scratch/probe_mutation.py` and `mutants/src/sample.py`, and every exit check passes
+- **THEN** the step ends done, the checkout has no `mutants/`, and `.data/agent/scratch/` is an empty directory
+
+#### Scenario: A step that stops
+- **WHEN** the model writes the same files, and the verification of its task fails
+- **THEN** the step stops, the checkout has no `mutants/`, and `.data/agent/scratch/` is an empty directory
+
+#### Scenario: The line names the by-products
+- **WHEN** a step ends in a runner Job with files in `mutants/` and `.data/agent/scratch/`
+- **THEN** du reads them before the step removes them, and the line names `worktree/mutants`

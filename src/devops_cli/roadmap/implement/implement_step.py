@@ -125,6 +125,7 @@ from devops_cli.roadmap.implement.implement_base_replay import (
     VerifiedCommand,
     replay_group_tests,
 )
+from devops_cli.roadmap.implement.implement_disk import end_step
 from devops_cli.roadmap.implement.implement_hooks import commit_stage
 from devops_cli.roadmap.implement.implement_limits import (
     BudgetExtension,
@@ -2396,6 +2397,11 @@ def run_step(
     `usage_limits` holds the requests and the tool calls of a run of the agent: the loop guard of
     the job, `roadmap.implement.max_requests` and `max_tool_calls`, when the caller gives none
     (#4688, #5440). The step reads its limits of `roadmap.implement` once, when it starts.
+
+    When the step ends, done, stopped or with an error, it writes the disk use of the home volume
+    to the Job log in a runner Job, and then removes the files that git ignores and that its agent
+    left: the tree `mutants/` of a mutation run and the files of the scratch folder (`end_step`,
+    #6076).
     """
     inputs = replace(
         build_step_inputs(
@@ -2440,6 +2446,7 @@ def run_step(
     finally:
         if not done:
             keeper.discard()
+        end_step(source, inputs.group.title)
 
 
 def run_fix_step(

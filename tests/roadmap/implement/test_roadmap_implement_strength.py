@@ -7,6 +7,7 @@ The process edge is `process_fake`: it records the commands and answers them.
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -634,3 +635,67 @@ def test_report_lines_formats_all_failure_and_outcome_types() -> None:
     )
     cov_log_lines = report_lines(report_cov_log)
     assert any("failed log" in line for line in cov_log_lines)
+
+
+# The real `coverage xml` (coverage 7.17.3) after a scoped run of this repository, on 2026-11-17:
+# the `fail_under = 85` of `[tool.coverage.report]` holds for the xml command too, so a run of one
+# test module covers 17% of `src` and exits 2, after it wrote the report. A `--fail-under` option
+# of the command wins over the file.
+SCOPED_TOTAL = 17.0
+FILE_FLOOR = 85.0
+
+
+def _coverage_xml(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+    """`coverage xml` as the tool answers it: exit 2 and the failure line when the total of the
+    run is under the floor, the floor of the command line or else the floor of the file."""
+    given = [word.partition("=")[2] for word in call.argv if word.startswith("--fail-under=")]
+    floor = float(given[-1]) if given else FILE_FLOOR
+    if SCOPED_TOTAL < floor:
+        failure = (
+            f"Coverage failure: total of {SCOPED_TOTAL:.0f} is less than fail-under={floor:.0f}\n"
+        )
+        return subprocess.CompletedProcess(call.argv, 2, failure, "")
+    return subprocess.CompletedProcess(call.argv, 0, "", "")
+
+
+def test_a_scoped_run_under_the_floor_of_the_whole_suite_passes_on_its_changed_lines(
+    implement_checkout: Path, implement_programs: ProcessFake
+) -> None:
+    """The floor of `[tool.coverage.report]` is the floor of the whole suite. A scoped run covers a
+    small part of `src`, so that floor failed the strength check of every item, and the fix step
+    then changed the strength check itself (#6076). diff-cover bounds the changed lines."""
+    from devops_cli.roadmap.implement.implement_strength import coverage_delta
+
+    implement_programs.answer(
+        lambda call: "coverage xml" in command_text(call), ProcessAnswer(side_effect=_coverage_xml)
+    )
+    implement_programs.answer(
+        lambda call: "diff-cover" in command_text(call),
+        ProcessAnswer(returncode=0, stdout="# Coverage: 100%\n"),
+    )
+
+    delta = coverage_delta(implement_checkout, "main", ["tests/test_sample.py"])
+
+    assert (delta.passed, delta.log) == (True, "")
+
+
+def test_a_change_with_no_source_file_runs_no_mutation_and_no_coverage(
+    implement_checkout: Path, implement_programs: ProcessFake
+) -> None:
+    """A change of tests, manifests or documents only gives the mutation run no target and the
+    coverage of `src` no changed line. The check runs neither and says so, so that no fix step
+    goes after a strength failure that the item cannot fix (#6076)."""
+    from devops_cli.lang import MESSAGES
+    from devops_cli.roadmap.implement.implement_strength import report_lines, strength_report
+    from tests.support.implement_step import git
+
+    git(implement_checkout, "update-ref", "refs/remotes/origin/main", "HEAD")
+    tasks_md = "# Tasks\n\n## 1. Placement\nKind: behavior. Changes: tests/test_sample.py.\n"
+    changed = ["tests/test_sample.py", "k8s/runner.yaml", "src/devops_cli/ai/tasks/step.md"]
+
+    report = strength_report(implement_checkout, tasks_md, changed, "main", [changed[0]])
+
+    started = [command_text(call) for call in implement_programs.calls]
+    assert report.passed is True
+    assert [cmd for cmd in started if any(t in cmd for t in ("pytest", "coverage", "mutmut"))] == []
+    assert f"- {MESSAGES.roadmap.implement_strength_no_source}" in report_lines(report)

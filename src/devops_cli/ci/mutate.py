@@ -183,7 +183,7 @@ def _named_sources(root: Path, wanted: Sequence[PurePosixPath]) -> dict[str, str
     }
 
 
-def _is_mutated_source(path: PurePosixPath) -> bool:
+def is_mutated_source(path: PurePosixPath) -> bool:
     """Whether mutmut mutates the file: a Python module under `src`."""
     return path.suffix == CONST_PYTHON_FILE_SUFFIX and path.is_relative_to(CONST_SOURCE_ROOT_DIR)
 
@@ -214,7 +214,7 @@ def select_targets(
     return [
         target
         for path, base_text in sources.items()
-        if _is_mutated_source(PurePosixPath(path))
+        if is_mutated_source(PurePosixPath(path))
         and (not paths or any(PurePosixPath(path).is_relative_to(each) for each in wanted))
         for target in _targets(root, path, base_text)
     ]

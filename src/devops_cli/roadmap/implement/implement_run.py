@@ -86,6 +86,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES,
     CONST_ROADMAP_IMPLEMENT_REASON_CHARS,
     CONST_ROADMAP_IMPLEMENT_REASON_PATHS,
+    CONST_ROADMAP_IMPLEMENT_SCRATCH_DIR,
     CONST_ROADMAP_IMPLEMENT_STEPS_FILE,
 )
 from devops_cli.config.settings import load_settings
@@ -131,6 +132,7 @@ from devops_cli.roadmap.implement.implement_amend import (
     parse_request,
 )
 from devops_cli.roadmap.implement.implement_base_replay import BaseStatus
+from devops_cli.roadmap.implement.implement_disk import log_disk_use
 from devops_cli.roadmap.implement.implement_fix_scope import RepairScope, repair_scope
 from devops_cli.roadmap.implement.implement_hooks import (
     commit_stage,
@@ -523,7 +525,7 @@ def _worktree(source: Path, target: ImplementTarget, url: str) -> Iterator[Path]
         origin=OriginGit(source, url),
     )
     path = Path(report.path)
-    (path / ".data" / "agent" / "scratch").mkdir(parents=True, exist_ok=True)
+    (path / CONST_ROADMAP_IMPLEMENT_SCRATCH_DIR).mkdir(parents=True, exist_ok=True)
     try:
         yield path
     finally:
@@ -2016,7 +2018,9 @@ class _ItemRun:
 
     def stop(self, stop: _StopError) -> None:
         """Push what passed, tell the item why, set it Blocked, and record the step. A git setting
-        that the job does not allow stops the push, and the class of the stop is `git_config`."""
+        that the job does not allow stops the push, and the class of the stop is `git_config`.
+        First it writes the disk use of the home volume at the step to the Job log (#6076)."""
+        log_disk_use(self.path, stop.step)
         texts = MESSAGES.roadmap
         try:
             note = self._push_passed(at_stop=True) if stop.push else ""
