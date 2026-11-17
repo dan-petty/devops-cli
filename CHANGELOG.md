@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.173.0](https://github.com/dan-petty/devops-cli/compare/v0.172.0...v0.173.0) (2026-11-17)
+
+
+### Features
+
+* **ai:** Render the task prompts through Jinja2 with a context ([#6162](https://github.com/dan-petty/devops-cli/issues/6162)) ([1812dd2](https://github.com/dan-petty/devops-cli/commit/1812dd2e7f114ac7190c5b0d8d723e73f35d321a))
+* **k8s:** Add SM activity and occupancy to the GPU row ([#6143](https://github.com/dan-petty/devops-cli/issues/6143)) ([7a05312](https://github.com/dan-petty/devops-cli/commit/7a0531210f49e28e78feb0f5b9187f44599382da))
+
 ## [0.172.0](https://github.com/dan-petty/devops-cli/compare/v0.171.0...v0.172.0) (2026-11-17)
 
 
