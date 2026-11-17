@@ -117,6 +117,40 @@ def test_the_service_that_serve_starts_reads_its_halt_and_budget_from_the_volume
     assert (res.exit_code, manager.pause.halted(), manager.budget.spent()) == (0, True, 60)
 
 
+@pytest.mark.usefixtures("service_settings")
+def test_in_a_pod_the_service_reads_its_volume_only_when_it_holds_the_lease_of_the_rows(
+    cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """In a pod, the downward API gives `POD_NAME` and `POD_NAMESPACE`. `devops serve --service`
+    then gives the Service the Lease roadmap-service-rows, with the pod name as the holder
+    identity. The start reads no halt and removes no clone of a lane, because the old pod of a
+    surge release can still use them (#6058)."""
+    monkeypatch.setenv("POD_NAME", "roadmap-service-7fcb98569d-2szh4")
+    monkeypatch.setenv("POD_NAMESPACE", "devops")
+    volume = service_state_dir()
+    retired = volume / REPO / "model-clone"
+    retired.mkdir(parents=True)
+    halt = {"identity": "devops-roadmap[bot]", "repo": REPO, "kind": "GitHubUnauthenticatedError"}
+    (volume / CONST_SERVICE_HALT_FILENAME).write_text(json.dumps(halt), encoding="utf-8")
+
+    with patch("uvicorn.run") as mock_uvicorn:
+        res = cli(["serve", "--service"])
+        manager = mock_uvicorn.call_args[0][0]().state.service_manager
+
+    lease = manager.rows_lease
+    assert (
+        res.exit_code,
+        (lease.name, lease.namespace, lease.identity, lease.held),
+        manager.pause.halted(),
+        retired.exists(),
+    ) == (
+        0,
+        ("roadmap-service-rows", "devops", "roadmap-service-7fcb98569d-2szh4", False),
+        False,
+        True,
+    )
+
+
 def test_mcp_mirror_roadmap_run(seeded_store: InMemoryRoadmapStore) -> None:
     """FastMCP roadmap_run returns due tuple, mutates nothing, and calls no stub."""
     seeded_store.seed_issue("An item", fields=PLACED)

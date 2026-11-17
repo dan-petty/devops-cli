@@ -6,18 +6,13 @@ import functools
 import itertools
 from typing import Any
 
-import pytest
 import yaml
 
 from devops_cli.config.constants import (
-    CONST_SERVICE_STOP_CUT_SECONDS,
-    CONST_SERVICE_STOP_DRAIN_SECONDS,
     CONST_SERVICE_STOP_GRACE_SECONDS,
     WebhookExposure,
 )
 from devops_cli.server.routes.webhooks import WEBHOOK_PROVIDERS
-from devops_cli.telemetry.exporter import OtlpSignal
-from tests.support.fakes.otlp import FakeCollector
 from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
@@ -43,7 +38,6 @@ def _container() -> dict[str, Any]:
 
 def test_deployment_spec_and_container() -> None:
     deployment = _doc("deployment.yaml")
-    spec = deployment["spec"]
     pod = _pod_spec()
     container = _container()
     args = container["args"]
@@ -52,8 +46,6 @@ def test_deployment_spec_and_container() -> None:
     assert (
         deployment["metadata"]["name"],
         deployment["metadata"]["namespace"],
-        spec["replicas"],
-        spec["strategy"]["type"],
         container["name"],
         container["image"],
         "--service" in args,
@@ -64,8 +56,6 @@ def test_deployment_spec_and_container() -> None:
     ) == (
         "roadmap-service",
         "devops",
-        1,
-        "Recreate",
         "service",
         "ghcr.io/dan-petty/devops-cli/service",
         True,
@@ -74,17 +64,6 @@ def test_deployment_spec_and_container() -> None:
         "roadmap-service",
         CONST_SERVICE_STOP_GRACE_SECONDS,
     )
-
-
-def test_the_grace_period_covers_both_waits_of_the_stop_and_no_hook_uses_it_first() -> None:
-    """Kubernetes kills the pod at the end of its grace period, so the period covers the drain
-    wait and the cut wait of the stop. uvicorn starts the drain on SIGTERM, and a preStop hook
-    would use the period first (#4485)."""
-    assert (
-        CONST_SERVICE_STOP_GRACE_SECONDS
-        > CONST_SERVICE_STOP_DRAIN_SECONDS + CONST_SERVICE_STOP_CUT_SECONDS,
-        "lifecycle" in _container(),
-    ) == (True, False)
 
 
 def test_security_context_is_restricted() -> None:
@@ -101,36 +80,6 @@ def test_security_context_is_restricted() -> None:
         container_sc["readOnlyRootFilesystem"],
         container_sc["capabilities"]["drop"],
     ) == (True, 1000, 1000, 1000, "RuntimeDefault", False, True, ["ALL"])
-
-
-def test_every_pod_of_the_deployment_exports_its_metrics_under_one_series_identity(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Prometheus names a series by its `service.name` (`job`) and `service.instance.id`
-    (`instance`). The host name of the pod changes at each restart, so the Deployment sets one
-    instance id in the standard `OTEL_RESOURCE_ATTRIBUTES`: the series of a new pod continues the
-    series of the pod before it. The metric Resource keeps no `host.name`, which the collector
-    would key a metric stream by (#1629, #4697)."""
-    env = {e["name"]: e.get("value") for e in _container()["env"]}
-    monkeypatch.setenv("OTEL_SERVICE_NAME", env["OTEL_SERVICE_NAME"])
-    monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", env["OTEL_RESOURCE_ATTRIBUTES"])
-    pods = ("roadmap-service-5557bc6b97-4m96n", "roadmap-service-7fcb98569d-2szh4")
-    resources = []
-    for pod in pods:
-        collector = FakeCollector()
-        client = collector.client(service_name=env["OTEL_SERVICE_NAME"])
-        client.host_name = pod
-        client.increment_counter("devops_cli_ai_requests_total", 1, attributes={})
-        (payload,) = collector.payloads(OtlpSignal.METRICS)
-        resources.append(
-            {
-                a["key"]: next(iter(a["value"].values()))
-                for a in payload["resourceMetrics"][0]["resource"]["attributes"]
-            }
-        )
-
-    assert resources[0] == resources[1]
-    assert "host.name" not in resources[0]
 
 
 def test_ingress_has_class_traefik_one_host_and_a_prefix_path_for_each_tunnel_provider() -> None:

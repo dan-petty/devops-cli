@@ -8,7 +8,9 @@ offline. Both sides must give the same expected result or the same error; where 
 fake is wrong.
 
 Covered: each call on the seam's Protocols (`devops_cli.k8s.api`), list and read results, a 404
-and a 403 as the SDK's `ApiException` with the same status, a watch stream through the informer,
+and a 403 as the SDK's `ApiException` with the same status, the 409 of a create of a name that
+exists and of a replace from an old `resourceVersion` (the Lease of #6058), a watch stream through
+the informer,
 a context the kubeconfig does not name, and an API server that does not listen, which the
 `refusing_port` double stands in for.
 """
@@ -42,6 +44,17 @@ from tests.support.waits import POLL_INTERVAL_SECONDS
 
 CONTEXT = "contract"
 ARGO = ("argoproj.io", "v1alpha1", "argocd", "applications")
+LEASES = ("coordination.k8s.io", "v1", "devops", "leases")
+
+
+def _lease(name: str, namespace: str, version: str, holder: str = "pod-a") -> dict[str, Any]:
+    """A Lease as the API server stores it, for the objects of the fake that no GET answers."""
+    return {
+        "apiVersion": "coordination.k8s.io/v1",
+        "kind": "Lease",
+        "metadata": {"name": name, "namespace": namespace, "resourceVersion": version},
+        "spec": {"holderIdentity": holder, "leaseDurationSeconds": 15},
+    }
 
 
 def _recording() -> list[dict[str, Any]]:
@@ -80,9 +93,16 @@ def _seeded_cluster(*, contexts: tuple[str, ...] = (CONTEXT,)) -> FakeCluster:
     )
     core.answers["list_event_for_all_namespaces"] = api_exception(403, "Forbidden")
     applications = body("/apis/argoproj.io/v1alpha1/namespaces/argocd/applications")["items"]
+    leases = [
+        body("/apis/coordination.k8s.io/v1/namespaces/devops/leases/rows"),
+        _lease("stale", "devops", "3001"),
+        _lease("rows", "taken", "4001"),
+    ]
     return FakeCluster(
         core=core,
-        custom_objects=FakeCustomObjects({ARGO[0:2] + ARGO[3:]: applications}),
+        custom_objects=FakeCustomObjects(
+            {ARGO[0:2] + ARGO[3:]: applications, LEASES[0:2] + LEASES[3:]: leases}
+        ),
         version=FakeVersion(git_version=body("/version/")["gitVersion"]),
         contexts=contexts,
         current=CONTEXT,
@@ -122,6 +142,9 @@ class _Replay(BaseHTTPRequestHandler):
         self._answer()
 
     def do_PATCH(self) -> None:
+        self._answer()
+
+    def do_PUT(self) -> None:
         self._answer()
 
     def do_DELETE(self) -> None:
@@ -402,6 +425,68 @@ def test_a_custom_object_is_created_in_its_namespace(service: KubernetesService)
         "api",
         "argocd",
     )
+
+
+def test_a_lease_is_read_and_a_missing_one_is_a_404(service: KubernetesService) -> None:
+    api = service.custom_objects_api()
+    group, version, namespace, plural = LEASES
+
+    read = api.get_namespaced_custom_object(group, version, namespace, plural, "rows")
+
+    assert (
+        (read["kind"], read["spec"]["holderIdentity"], read["metadata"]["resourceVersion"]),
+        _outcome(
+            lambda: api.get_namespaced_custom_object(group, version, namespace, plural, "missing")
+        ),
+    ) == (("Lease", "pod-a", "2001"), ("ApiException", 404, "Not Found"))
+
+
+def test_a_lease_is_created_and_a_create_of_a_name_that_exists_is_a_409(
+    service: KubernetesService,
+) -> None:
+    api = service.custom_objects_api()
+    group, version, namespace, plural = LEASES
+    fresh = _lease("fresh", namespace, "")
+    del fresh["metadata"]["resourceVersion"]
+    taken = _lease("rows", "taken", "")
+    del taken["metadata"]["resourceVersion"]
+
+    created = api.create_namespaced_custom_object(group, version, namespace, plural, fresh)
+
+    assert (
+        (
+            created["metadata"]["name"],
+            created["metadata"]["namespace"],
+            created["spec"]["holderIdentity"],
+            bool(created["metadata"]["resourceVersion"]),
+        ),
+        _outcome(
+            lambda: api.create_namespaced_custom_object(group, version, "taken", plural, taken)
+        ),
+    ) == (("fresh", "devops", "pod-a", True), ("ApiException", 409, "Conflict"))
+
+
+def test_a_lease_replace_needs_the_resource_version_it_read(service: KubernetesService) -> None:
+    """A replace that sends the `resourceVersion` of the last read writes the Lease and gives it a
+    new version. A replace from an older read is a 409, so of two pods that write at the same
+    time, one write fails (#6058)."""
+    api = service.custom_objects_api()
+    group, version, namespace, plural = LEASES
+    read = api.get_namespaced_custom_object(group, version, namespace, plural, "rows")
+    read["spec"]["holderIdentity"] = "pod-b"
+    old = _lease("stale", namespace, "3000", holder="pod-b")
+
+    replaced = api.replace_namespaced_custom_object(group, version, namespace, plural, "rows", read)
+
+    assert (
+        replaced["spec"]["holderIdentity"],
+        replaced["metadata"]["resourceVersion"] != read["metadata"]["resourceVersion"],
+        _outcome(
+            lambda: api.replace_namespaced_custom_object(
+                group, version, namespace, plural, "stale", old
+            )
+        ),
+    ) == ("pod-b", True, ("ApiException", 409, "Conflict"))
 
 
 def test_the_server_version_is_read_and_the_cluster_is_reachable(

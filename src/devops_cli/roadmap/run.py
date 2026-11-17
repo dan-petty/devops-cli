@@ -1561,20 +1561,29 @@ class FailureLedger:
         if limit is None:
             limit = load_settings().service.max_failed_rounds
         self._limit = limit
-        self._record = record
+        self._record: Path | None = None
         self._lock = threading.Lock()
-        kept = [] if record is None else read_state_record(record, _FailedRounds, [])
         self._failed: dict[tuple[str, str], tuple[int, str, datetime | None]] = {}
         self._causes: dict[tuple[str, str], deque[str]] = {}
-        for entry in kept:
-            repo, job, rounds, failed_on = entry[:4]
-            retry_at = entry[5] if len(entry) == 6 else None
-            self._failed[(repo, job)] = (rounds, failed_on, retry_at)
-            if len(entry) >= 5:
-                self._causes[(repo, job)] = deque(entry[4][-limit:], maxlen=limit)
         self._labels: dict[tuple[str, str], str] = {}
-        for repo, job in self._failed:
-            self._report_locked(repo, job)
+        if record is not None:
+            self.keep_in(record)
+
+    def keep_in(self, record: Path) -> None:
+        """Read the failed rounds that `record` kept, and keep each later change there. A Service
+        pod calls it when it takes the rows (#6058)."""
+        kept = read_state_record(record, _FailedRounds, [])
+        limit = self._limit
+        with self._lock:
+            self._record = record
+            for entry in kept:
+                repo, job, rounds, failed_on = entry[:4]
+                retry_at = entry[5] if len(entry) == 6 else None
+                self._failed[(repo, job)] = (rounds, failed_on, retry_at)
+                if len(entry) >= 5:
+                    self._causes[(repo, job)] = deque(entry[4][-limit:], maxlen=limit)
+            for repo, job in self._failed:
+                self._report_locked(repo, job)
 
     @property
     def limit(self) -> int:
@@ -2129,11 +2138,14 @@ def service_jobs(
     state_dir: Path,
     lanes: Mapping[str, Sequence[str]] | None = None,
     idle: Callable[[str, bool], None] | None = None,
+    failures: FailureLedger | None = None,
 ) -> Mapping[str, LaneJob]:
     """Each lane's job, which `devops serve --service` runs in one worker per lane of each
     repository (#1532): one lane for each row, unless `lanes`, else the setting `service.lanes`,
     puts rows into a shared lane (`service_lanes`, #5553). Every lane of every repository shares
-    one ledger of failed rounds, kept in `state_dir`, so a restart keeps it (#2474). The lane
+    one ledger of failed rounds, kept in `state_dir`, so a restart keeps it (#2474): `failures`,
+    else a ledger that reads its record now. A pod that waits for the Lease of the rows gives a
+    ledger that reads its record when the pod takes the rows (#6058). The lane
     that holds `intake` reads every issue through the listing snapshot in `state_dir`, as the
     scoped intake of a delivery does (#3670); its rounds and the scoped updates run one at a time
     on its worker, so one writer keeps the snapshot of each repository. Each other lane reads
@@ -2142,7 +2154,8 @@ def service_jobs(
     runs a round for each trigger, so one read gives the state that a read in each lane gave, at
     one request in place of one for each lane (#6012)."""
     groups = load_settings().service.lanes if lanes is None else lanes
-    failures = FailureLedger(record=state_dir / CONST_SERVICE_FAILURES_FILENAME)
+    if failures is None:
+        failures = FailureLedger(record=state_dir / CONST_SERVICE_FAILURES_FILENAME)
     cache = PollCache()
     jobs: dict[str, LaneJob] = {}
     for lane, rows in service_lanes(groups).items():

@@ -73,6 +73,17 @@ class CustomObjectsApi(Protocol):
         **kwargs: Any,
     ) -> Any: ...
 
+    def replace_namespaced_custom_object(
+        self,
+        group: str,
+        version: str,
+        namespace: str,
+        plural: str,
+        name: str,
+        body: Any,
+        **kwargs: Any,
+    ) -> Any: ...
+
     def patch_namespaced_custom_object_status(
         self,
         group: str,

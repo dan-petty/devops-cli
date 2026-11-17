@@ -1825,11 +1825,26 @@ CONST_SERVICE_BUDGET_WINDOW_SECONDS: Final[int] = 3600
 # the 403 stage plan steps ended within 600 s (mean 299 s, 98% within 900 s), and the time left
 # of the item that a stop falls in is longer than 600 s for about 7% of stops. Then the request
 # budget refuses each GitHub request, and a round still in flight ends at its next request
-# through the stop path within the cut wait. The grace period of the pod covers both waits and
-# the exit: `terminationGracePeriodSeconds` of k8s/devops/roadmap-service/deployment.yaml.
+# through the stop path within the cut wait. The grace period of the pod covers the preStop sleep
+# of k8s/devops/roadmap-service/deployment.yaml (10 s), both waits, the call that gives back the
+# Lease of the rows and the exit: its `terminationGracePeriodSeconds` (#6058).
 CONST_SERVICE_STOP_DRAIN_SECONDS: Final[int] = 600
 CONST_SERVICE_STOP_CUT_SECONDS: Final[int] = 30
 CONST_SERVICE_STOP_GRACE_SECONDS: Final[int] = 660
+# The Kubernetes Lease (`coordination.k8s.io/v1`) that a Service pod holds while it runs the rows,
+# so that the old and the new pod of a surge release never run a row at the same time (#6058).
+# The values are the defaults of the leader election of client-go. Each value is inside the one
+# after it: an API call ends before the renew deadline, and the holder stops the rows at the renew
+# deadline, before another pod can take the Lease at the end of its duration. A follower tries
+# again each retry period, so it takes a Lease that a holder gives back within one period.
+CONST_SERVICE_ROWS_LEASE_NAME: Final[str] = "roadmap-service-rows"
+CONST_SERVICE_ROWS_LEASE_CALL_TIMEOUT_SECONDS: Final[float] = 5.0
+CONST_SERVICE_ROWS_LEASE_RENEW_DEADLINE_SECONDS: Final[float] = 10.0
+CONST_SERVICE_ROWS_LEASE_DURATION_SECONDS: Final[int] = 15
+CONST_SERVICE_ROWS_LEASE_RETRY_SECONDS: Final[float] = 2.0
+# The downward API values that name the pod: the holder identity of the Lease and its namespace.
+CONST_POD_NAME_ENV: Final[str] = "POD_NAME"
+CONST_POD_NAMESPACE_ENV: Final[str] = "POD_NAMESPACE"
 # What the Service keeps on its volume so that a restart does not clear it (#2474), each a file in
 # the `roadmap` directory of the data directory, beside each repository's `schedule.json`: the
 # halt after GitHub refused the identity, the requests of the budget window, and the ledger of

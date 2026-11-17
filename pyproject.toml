@@ -376,6 +376,9 @@ DEP002 = [
 ]
 DEP003 = [
     "pydantic_evals",
+    # The kubernetes client raises the errors of its urllib3 for a connection that fails, and
+    # k8s/lease.py catches them (#6058).
+    "urllib3",
 ]
 # The template of the service dashboards (grafana/service_dashboard.py) runs only at build time,
 # in `make dashboards`, so its SDK is in the dev group (#5184).

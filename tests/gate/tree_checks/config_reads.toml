@@ -89,7 +89,7 @@
 "tests/roadmap/test_roadmap_watch_row.py" = 2
 "tests/security/test_scanner_contract.py" = 1
 "tests/security/test_tf_azure_aks_security.py" = 3
-"tests/server/routes/test_k8s_roadmap_service.py" = 7
+"tests/server/routes/test_k8s_roadmap_service.py" = 5
 "tests/server/test_service_log_trace_ids.py" = 1
 "tests/survey/test_survey_capabilities.py" = 1
 "tests/telemetry/test_telemetry_instruments.py" = 5

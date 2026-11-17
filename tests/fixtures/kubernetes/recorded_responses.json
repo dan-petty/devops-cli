@@ -1,5 +1,5 @@
 {
-  "_source": "Written on 2026-10-28 in the wire format of the Kubernetes API reference (v1.34) for #1315, with example.com names and RFC 5737 addresses. tests/k8s/test_kubernetes_contract.py replays each answer for its method, path and watch flag. A capture from a disposable local cluster replaces it; that step is for a person.",
+  "_source": "Written on 2026-10-28 in the wire format of the Kubernetes API reference (v1.34) for #1315, with example.com names and RFC 5737 addresses. tests/k8s/test_kubernetes_contract.py replays each answer for its method, path and watch flag. A capture from a disposable local cluster replaces it; that step is for a person. The answers of the Lease API (coordination.k8s.io/v1) were added on 2026-11-17 for #6058, in the same wire format.",
   "responses": [
     {
       "method": "GET",
@@ -994,6 +994,138 @@
             "status": "Healthy"
           }
         }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/apis/coordination.k8s.io/v1/namespaces/devops/leases/rows",
+      "watch": false,
+      "status": 200,
+      "body": {
+        "apiVersion": "coordination.k8s.io/v1",
+        "kind": "Lease",
+        "metadata": {
+          "name": "rows",
+          "namespace": "devops",
+          "resourceVersion": "2001",
+          "uid": "uid-devops-rows",
+          "creationTimestamp": "2026-10-01T12:00:00Z"
+        },
+        "spec": {
+          "holderIdentity": "pod-a",
+          "leaseDurationSeconds": 15,
+          "acquireTime": "2026-10-01T12:00:00.000000Z",
+          "renewTime": "2026-10-01T12:00:10.000000Z",
+          "leaseTransitions": 0
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/apis/coordination.k8s.io/v1/namespaces/devops/leases/missing",
+      "watch": false,
+      "status": 404,
+      "body": {
+        "kind": "Status",
+        "apiVersion": "v1",
+        "metadata": {},
+        "status": "Failure",
+        "message": "leases.coordination.k8s.io \"missing\" not found",
+        "reason": "NotFound",
+        "details": {
+          "name": "missing",
+          "group": "coordination.k8s.io",
+          "kind": "leases"
+        },
+        "code": 404
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/apis/coordination.k8s.io/v1/namespaces/devops/leases",
+      "watch": false,
+      "status": 201,
+      "body": {
+        "apiVersion": "coordination.k8s.io/v1",
+        "kind": "Lease",
+        "metadata": {
+          "name": "fresh",
+          "namespace": "devops",
+          "resourceVersion": "2101",
+          "uid": "uid-devops-fresh",
+          "creationTimestamp": "2026-10-01T12:00:00Z"
+        },
+        "spec": {
+          "holderIdentity": "pod-a",
+          "leaseDurationSeconds": 15,
+          "acquireTime": "2026-10-01T12:00:00.000000Z",
+          "renewTime": "2026-10-01T12:00:10.000000Z",
+          "leaseTransitions": 0
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/apis/coordination.k8s.io/v1/namespaces/taken/leases",
+      "watch": false,
+      "status": 409,
+      "body": {
+        "kind": "Status",
+        "apiVersion": "v1",
+        "metadata": {},
+        "status": "Failure",
+        "message": "leases.coordination.k8s.io \"rows\" already exists",
+        "reason": "AlreadyExists",
+        "details": {
+          "name": "rows",
+          "group": "coordination.k8s.io",
+          "kind": "leases"
+        },
+        "code": 409
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/apis/coordination.k8s.io/v1/namespaces/devops/leases/rows",
+      "watch": false,
+      "status": 200,
+      "body": {
+        "apiVersion": "coordination.k8s.io/v1",
+        "kind": "Lease",
+        "metadata": {
+          "name": "rows",
+          "namespace": "devops",
+          "resourceVersion": "2002",
+          "uid": "uid-devops-rows",
+          "creationTimestamp": "2026-10-01T12:00:00Z"
+        },
+        "spec": {
+          "holderIdentity": "pod-b",
+          "leaseDurationSeconds": 15,
+          "acquireTime": "2026-10-01T12:00:00.000000Z",
+          "renewTime": "2026-10-01T12:00:10.000000Z",
+          "leaseTransitions": 1
+        }
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/apis/coordination.k8s.io/v1/namespaces/devops/leases/stale",
+      "watch": false,
+      "status": 409,
+      "body": {
+        "kind": "Status",
+        "apiVersion": "v1",
+        "metadata": {},
+        "status": "Failure",
+        "message": "Operation cannot be fulfilled on leases.coordination.k8s.io \"stale\": the object has been modified; please apply your changes to the latest version and try again",
+        "reason": "Conflict",
+        "details": {
+          "name": "stale",
+          "group": "coordination.k8s.io",
+          "kind": "leases"
+        },
+        "code": 409
       }
     },
     {
