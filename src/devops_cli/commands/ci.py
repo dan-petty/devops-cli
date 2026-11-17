@@ -503,6 +503,15 @@ def _format_check_badge(passed: bool) -> str:
     return "[green]✓ pass[/green]" if passed else "[bold red]✗ fail[/bold red]"
 
 
+def _check_row_line(badge: str, name: str, text: str) -> str:
+    """A row line with its literal row name, which `--only` and `--skip` take (#5033).
+
+    `print_muted` reads the line as Rich markup, so the name is escaped with its brackets:
+    `[format]` would otherwise read as a style tag and disappear."""
+    label = escape_text(f"[{name}]")
+    return f"  {badge} {label} {text}"
+
+
 def _planned_requests(spec: CheckSpec) -> tuple[PlannedRequest, ...]:
     """The request each command of the check would make."""
     return tuple(_planned_request_for_cmd(cmd) for cmd in spec.commands)
@@ -603,7 +612,9 @@ async def _execute_check_async(
         refusal = await asyncio.to_thread(check_spec.host_refusal)
         if refusal is not None:
             print_muted(
-                f"  – [{check_spec.name}] {MESSAGES.ci.row_skipped.format(cause=refusal)}",
+                _check_row_line(
+                    "–", check_spec.name, MESSAGES.ci.row_skipped.format(cause=refusal)
+                ),
                 safe=True,
             )
             return CheckResult(
@@ -627,7 +638,11 @@ async def _execute_check_async(
 
             badge = _format_check_badge(passed)
             print_muted(
-                f"  {badge} [{check_spec.name}] {check_spec.display_title} ({format_duration(dur)})"
+                _check_row_line(
+                    badge,
+                    check_spec.name,
+                    f"{check_spec.display_title} ({format_duration(dur)})",
+                )
             )
             sys.stdout.flush()
             return CheckResult(
@@ -645,7 +660,11 @@ async def _execute_check_async(
             timeout_val = exc.timeout or timeout
             timeout_str = f"{timeout_val:g}s"
             print_muted(
-                f"  {badge} [{check_spec.name}] {check_spec.display_title} (timed out after {timeout_str})"
+                _check_row_line(
+                    badge,
+                    check_spec.name,
+                    f"{check_spec.display_title} (timed out after {timeout_str})",
+                )
             )
             sys.stdout.flush()
             return CheckResult(
@@ -665,7 +684,11 @@ async def _execute_check_async(
 
             stopped_after = format_duration(clock.monotonic() - start_time)
             print_muted(
-                f"  {_format_check_badge(False)} [{check_spec.name}] {check_spec.display_title} (stopped after {stopped_after})"
+                _check_row_line(
+                    _format_check_badge(False),
+                    check_spec.name,
+                    f"{check_spec.display_title} (stopped after {stopped_after})",
+                )
             )
             sys.stdout.flush()
             raise
@@ -1210,7 +1233,11 @@ def _run_python_version_step() -> tuple[bool, CheckResult]:
 
     py_badge = "[green]✓ pass[/green]" if py_ok else "[bold red]✗ fail[/bold red]"
     print_muted(
-        f"  {py_badge} [python_version] {py_result.display_title} ({format_duration(py_dur)})"
+        _check_row_line(
+            py_badge,
+            "python_version",
+            f"{py_result.display_title} ({format_duration(py_dur)})",
+        )
     )
     sys.stdout.flush()
     return py_ok, py_result

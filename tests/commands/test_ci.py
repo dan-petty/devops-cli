@@ -47,7 +47,7 @@ from devops_cli.config.defaults import (
 from devops_cli.core.process import prepare_tool_cmd, run_subprocess
 from devops_cli.core.repo import find_top_level_repo_root, find_worktree_root
 from devops_cli.lang import MESSAGES
-from devops_cli.output import format_duration
+from devops_cli.output import format_duration, print_muted
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.hung_children import (
@@ -635,6 +635,17 @@ def test_gate_test_step_argv_is_unchanged() -> None:
         False,
         False,
     )
+
+
+def test_a_gate_row_line_keeps_the_row_name_that_rich_would_consume(capsys: Any) -> None:
+    """Rich reads `[format]` as a style tag, so the row line escapes the name (#5033)."""
+    print_muted(ci_module._check_row_line("[green]✓ pass[/green]", "format", "ruff format (1s)"))
+    assert "[format] ruff format (1s)" in capsys.readouterr().out
+
+
+def test_a_gate_row_line_escapes_markup_in_the_name(capsys: Any) -> None:
+    print_muted(ci_module._check_row_line("–", "a[b]", "skipped"))
+    assert "[a[b]] skipped" in capsys.readouterr().out
 
 
 def test_the_gate_test_row_writes_the_term_report_and_no_xml_report() -> None:
@@ -2307,7 +2318,7 @@ def test_a_stop_signal_cancels_the_gate_and_the_running_row_names_itself(
         outcome = "KeyboardInterrupt"
 
     assert (outcome, [spawn.killed for spawn in spawns]) == (
-        (CONST_EXIT_CANCELLED, [f"✗ fail  {MESSAGES.ci.ruff_format}"]),
+        (CONST_EXIT_CANCELLED, [f"✗ fail [format] {MESSAGES.ci.ruff_format}"]),
         [True],
     )
 
