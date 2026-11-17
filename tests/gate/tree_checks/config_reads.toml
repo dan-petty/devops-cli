@@ -26,7 +26,6 @@
 "tests/core/test_gh_dash_config.py" = 4
 "tests/core/test_third_party_telemetry.py" = 12
 "tests/docs/test_docs.py" = 1
-"tests/git/test_branch_current_hook.py" = 2
 "tests/git/test_branch_form.py" = 2
 "tests/github/test_github_projects.py" = 2
 "tests/grafana/test_grafana_dashboards.py" = 6
