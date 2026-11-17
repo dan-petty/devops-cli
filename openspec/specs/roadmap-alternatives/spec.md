@@ -167,13 +167,6 @@ The comment SHALL list every tool whose facts the run read with its URL, license
 - **WHEN** a run makes ten searches and names a covering tool with three covers and three lacks
 - **THEN** the comment outside the folded block holds only the marker, the heading, the reason, the tool line, the covers, the lacks and the footer, and the block `Searches (10)` lists the ten queries
 
-### Requirement: The comment shows at most five sources
-The folded block of the comment SHALL show at most five sources, and SHALL say how many more it leaves out.
-
-#### Scenario: More sources than the bound
-- **WHEN** the reply cites eight sources that the tools returned
-- **THEN** the folded block shows five and the line `3 more sources are left out`
-
 ### Requirement: A check never changes an earlier comment
 A check SHALL add a new comment and SHALL NOT change the comment of an earlier check.
 
@@ -806,3 +799,10 @@ The `alternatives.reply_fixable` decision point SHALL run in mode `shadow` and r
 #### Scenario: Shadow records a band and keeps the 3-day wait
 - **WHEN** the mode of `alternatives.reply_fixable` is `shadow` and the reply is a fixable refusal
 - **THEN** the result line holds the band `review` and the job makes no second model call and sets the next try 3 days later
+
+### Requirement: The comment shows every source
+The folded block of the comment SHALL show every source of the reply, and SHALL leave none out.
+
+#### Scenario: More than five sources
+- **WHEN** the reply cites eight sources that the tools returned
+- **THEN** the folded block shows all eight, no source is outside the block, and the comment has no line that counts sources left out

@@ -52,12 +52,11 @@ skips the item. A check records the canonical id of its tool and the hash of the
 `CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER`. It changes no label and closes no issue. The comment
 gives the verdict, the model's reason for it, the tool on one line, and what it covers and lacks
 (#2944). One block that GitHub shows closed holds every tool whose facts the run read, each search
-with its number of results, and at most `CONST_ROADMAP_ALTERNATIVES_MAX_COMMENT_SOURCES` sources
-(#6168). A skip class gets one line. The prompt asks for a brief reply; the job refuses no reply
-for its length and cuts no text of it. A check adds a comment and never changes an earlier one. A
-comment after the job's last one reaches the next check as a reply. A skipped item gets only
-`alternatives.failed_at` and `alternatives.failed_error` in its job record; a written check
-clears both.
+with its number of results, and every source of the reply (#6168, #6177). A skip class gets one
+line. The prompt asks for a brief reply; the job refuses no reply for its length and cuts no text
+or list of it. A check adds a comment and never changes an earlier one. A comment after the job's
+last one reaches the next check as a reply. A skipped item gets only `alternatives.failed_at` and
+`alternatives.failed_error` in its job record; a written check clears both.
 
 The check is off when the repository is private, its visibility cannot be read, or no search
 provider is configured: a verdict `none` would then say that no tool exists when none was looked for.
@@ -92,7 +91,6 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_MAINTAINED_DAYS,
     CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS,
     CONST_ROADMAP_ALTERNATIVES_MAX_BODY_TOKENS,
-    CONST_ROADMAP_ALTERNATIVES_MAX_COMMENT_SOURCES,
     CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS,
     CONST_ROADMAP_ALTERNATIVES_MAX_LICENSE_CHARS,
     CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
@@ -890,7 +888,7 @@ def _folded_section(check: Check) -> list[str]:
     lists = [
         _considered_section(check.considered),
         _search_section(check.searches),
-        _source_section(check.sources),
+        _list_section(texts.alternatives_comment_sources, check.sources),
     ]
     shown = [section for section in lists if section]
     if not shown:
@@ -903,17 +901,6 @@ def _folded_section(check: Check) -> list[str]:
         "",
         texts.alternatives_comment_fold_close,
     ]
-
-
-def _source_section(sources: Sequence[str]) -> list[str]:
-    """At most `CONST_ROADMAP_ALTERNATIVES_MAX_COMMENT_SOURCES` sources, each a URL that GitHub
-    shows as a link, and a line that says how many the comment leaves out (#2944)."""
-    texts = MESSAGES.roadmap
-    shown = list(sources[:CONST_ROADMAP_ALTERNATIVES_MAX_COMMENT_SOURCES])
-    left_out = len(sources) - len(shown)
-    if left_out:
-        shown.append(texts.alternatives_comment_sources_left_out.format(count=left_out))
-    return _list_section(texts.alternatives_comment_sources, shown)
 
 
 def _list_section(title: str, lines: Sequence[str]) -> list[str]:
