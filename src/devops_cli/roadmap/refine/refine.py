@@ -2132,6 +2132,11 @@ def _comments_without(
     return [c for c in comments if not any(marker in c.body for marker in markers)]
 
 
+def comments_without_jobs(comments: Sequence[IssueComment]) -> list[IssueComment]:
+    """The comments that no roadmap job wrote, oldest first (#2650, #4960)."""
+    return _comments_without(comments, CONST_ROADMAP_JOB_COMMENT_MARKERS)
+
+
 def _without_other_jobs_comments(comments: Sequence[IssueComment]) -> list[IssueComment]:
     """The comments that no roadmap job but refine wrote: those of persons and of refine."""
     others = [
@@ -4096,6 +4101,7 @@ __all__ = [
     "check_person_edits",
     "check_ready",
     "collect_context",
+    "comments_without_jobs",
     "dry_run_refine",
     "form_checks",
     "inspect_checkout",
