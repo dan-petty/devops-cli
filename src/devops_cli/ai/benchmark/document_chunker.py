@@ -12,7 +12,6 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from devops_cli.ai.kb import get_knowledge_base_dir, list_knowledge_base_articles
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.defaults import DEFAULT_MAX_AST_FILE_SIZE_BYTES
 from devops_cli.core.draws import seeded_sample
@@ -55,56 +54,59 @@ class SectionRetrievalTask(BaseModel):
     category: str
 
 
-_DOMAIN_KB_TOPIC_MAP: dict[str, list[str]] = {
+# The docs pages that hold the vocabulary of each domain, relative to the repository root. The
+# benchmark labels its evaluation tasks from these pages, so a removal of the bundled knowledge
+# base folder changes no category (#3902).
+_DOMAIN_DOCS_TOPIC_MAP: dict[str, list[str]] = {
     "security": [
-        "it_domains/topics/zero_trust_security_and_compliance.md",
-        "devops_cli/tasks/security_audit_and_scanning.md",
-        "it_domains/tools/bandit.md",
-        "it_domains/tools/trivy.md",
-        "it_domains/tools/keyring.md",
+        "docs/commands/scan.md",
+        "docs/commands/vault.md",
+        "docs/commands/tls.md",
+        "docs/commands/ssh.md",
+        "docs/commands/cloudflare.md",
     ],
     "kubernetes": [
-        "it_domains/topics/cloud_native_kubernetes_and_gitops.md",
-        "devops_cli/tasks/k8s_stack_deployment.md",
-        "it_domains/tools/kubectl.md",
-        "it_domains/tools/helm.md",
-        "it_domains/tools/kustomize.md",
-        "it_domains/tools/minikube.md",
-        "it_domains/tools/argocd.md",
-        "it_domains/tools/kubelinter_popeye_pluto.md",
+        "docs/CLUSTER.md",
+        "docs/guidelines/kubernetes.md",
+        "docs/commands/k8s.md",
+        "docs/commands/kustomize.md",
+        "docs/commands/argo.md",
     ],
     "architecture": [
-        "devops_cli/architecture.md",
-        "it_domains/topics/modern_python_runtime_and_ecosystem.md",
-        "it_domains/topics/agentic_ai_and_code_reviews.md",
-        "it_domains/topics/rest_api_architecture_and_service_engineering.md",
-        "devops_cli/tasks/ai_code_review.md",
-        "devops_cli/tasks/agent_instructions_scaffolding.md",
-        "it_domains/tools/fastapi_uvicorn.md",
-        "it_domains/tools/ruff_mypy_pytest.md",
+        "docs/DESIGN.md",
+        "docs/SERVICE_PATTERNS.md",
+        "docs/MCP_TOOLS.md",
+        "docs/commands/new.md",
+        "docs/commands/serve.md",
+        "docs/cheatsheets/ai_and_rag.md",
     ],
     "ci_cd": [
-        "it_domains/topics/continuous_integration_and_progressive_verification.md",
-        "devops_cli/tasks/ci_quality_gate.md",
-        "it_domains/tools/github_cli.md",
-        "it_domains/tools/actionlint.md",
+        "docs/commands/ci.md",
+        "docs/commands/test.md",
+        "docs/commands/lint.md",
+        "docs/commands/pr.md",
+        "docs/TESTING.md",
     ],
     "infrastructure": [
-        "devops_cli/configuration_and_settings.md",
-        "it_domains/topics/infrastructure_as_code_and_cloud_automation.md",
-        "it_domains/topics/observability_and_distributed_tracing.md",
-        "it_domains/topics/developer_workstations_and_devcontainers.md",
-        "devops_cli/tasks/infrastructure_provisioning.md",
-        "devops_cli/tasks/telemetry_and_observability.md",
-        "devops_cli/tasks/devcontainer_lifecycle.md",
-        "it_domains/tools/opentofu_terraform.md",
-        "it_domains/tools/grafana.md",
-        "it_domains/tools/prometheus.md",
-        "it_domains/tools/opentelemetry_jaeger.md",
-        "it_domains/tools/docker.md",
-        "devops_cli/tasks/rag_context_indexing.md",
+        "docs/TELEMETRY.md",
+        "docs/CONFIGURATION.md",
+        "docs/ENV_VARS.md",
+        "docs/DEVCONTAINER_USAGE.md",
+        "docs/commands/infra.md",
+        "docs/commands/tf.md",
+        "docs/commands/grafana.md",
+        "docs/commands/prometheus.md",
+        "docs/commands/docker.md",
+        "docs/commands/telemetry.md",
+        "docs/commands/devcontainer.md",
     ],
 }
+
+# The top-level documents of the repository that the benchmark corpus reads beside the docs pages.
+_CORPUS_TOP_LEVEL_DOCUMENTS: tuple[str, ...] = ("AGENTS.md", "README.md")
+
+# The directory of the task prompts that the benchmark corpus reads.
+_CORPUS_PROMPTS_DIR = "src/devops_cli/ai/tasks"
 
 _STOPWORDS: frozenset[str] = frozenset(
     {
@@ -165,32 +167,15 @@ _STOPWORDS: frozenset[str] = frozenset(
 )
 
 
-def _read_architecture_extra_docs(repo_root: Path) -> list[str]:
-    """Read extra architecture reference files if present."""
-    extras: list[str] = []
+def _read_domain_docs(repo_root: Path, rel_paths: Sequence[str]) -> list[str]:
+    """Read the docs pages of one domain under the root, with path containment."""
     root_resolved = repo_root.resolve()
-    for extra in ("AGENTS.md", "docs/ARCHITECTURE.md"):
-        p_extra = repo_root / extra
-        try:
-            resolved = p_extra.resolve()
-            if not resolved.is_relative_to(root_resolved) or p_extra.is_symlink():
-                continue
-            if resolved.is_file() and resolved.stat().st_size <= DEFAULT_MAX_AST_FILE_SIZE_BYTES:
-                extras.append(resolved.read_text(encoding="utf-8", errors="replace"))
-        except OSError, RuntimeError:
-            continue
-    return extras
-
-
-def _read_kb_topic_docs(kb_dir: Path, rel_paths: Sequence[str]) -> list[str]:
-    """Read documentation files for a specific knowledge base topic with path containment."""
-    kb_resolved = kb_dir.resolve()
     doc_texts: list[str] = []
     for rel in rel_paths:
-        path = kb_dir / rel
+        path = repo_root / rel
         try:
             resolved = path.resolve()
-            if not resolved.is_relative_to(kb_resolved) or path.is_symlink():
+            if not resolved.is_relative_to(root_resolved) or path.is_symlink():
                 continue
             if resolved.is_file() and resolved.stat().st_size <= DEFAULT_MAX_AST_FILE_SIZE_BYTES:
                 doc_texts.append(resolved.read_text(encoding="utf-8", errors="replace"))
@@ -199,26 +184,39 @@ def _read_kb_topic_docs(kb_dir: Path, rel_paths: Sequence[str]) -> list[str]:
     return doc_texts
 
 
-@lru_cache(maxsize=1)
-def _get_domain_knowledge_base_index() -> dict[str, tuple[set[str], set[str]]]:
-    """Dynamically index domain vocabularies and distinctive terms from the Knowledge Base."""
-    kb_dir = get_knowledge_base_dir()
-    repo_root = kb_dir.parent.parent.parent.parent
+def document_corpus_paths(repo_root: Path) -> list[Path]:
+    """The Markdown pages of the benchmark corpus under the root: the docs directory, which holds
+    the generated knowledge base index, the top-level documents and the task prompts (#3902)."""
+    paths = [
+        path
+        for path in sorted((repo_root / "docs").rglob("*.md"))
+        if path.is_file() and not path.is_symlink()
+    ]
+    paths.extend(
+        repo_root / name for name in _CORPUS_TOP_LEVEL_DOCUMENTS if (repo_root / name).is_file()
+    )
+    paths.extend(
+        path
+        for path in sorted((repo_root / _CORPUS_PROMPTS_DIR).glob("*.md"))
+        if path.is_file() and not path.is_symlink()
+    )
+    return paths
+
+
+@lru_cache(maxsize=8)
+def document_domain_index(repo_root: Path) -> dict[str, tuple[set[str], set[str]]]:
+    """Index the phrases and the distinctive terms of each domain from its docs pages (#3902)."""
     domain_texts: dict[str, str] = {}
     domain_word_counts: dict[str, Counter[str]] = {}
 
-    for domain, rel_paths in _DOMAIN_KB_TOPIC_MAP.items():
-        doc_texts = _read_kb_topic_docs(kb_dir, rel_paths)
-        if domain == "architecture":
-            doc_texts.extend(_read_architecture_extra_docs(repo_root))
-
-        full_text = " ".join(doc_texts).lower()
+    for domain, rel_paths in _DOMAIN_DOCS_TOPIC_MAP.items():
+        full_text = " ".join(_read_domain_docs(repo_root, rel_paths)).lower()
         domain_texts[domain] = full_text
         words = re.findall(r"\b[a-z0-9_-]{2,}\b", full_text)
         filtered_words = [w for w in words if w not in _STOPWORDS]
         domain_word_counts[domain] = Counter(filtered_words)
 
-    num_domains = len(_DOMAIN_KB_TOPIC_MAP)
+    num_domains = len(_DOMAIN_DOCS_TOPIC_MAP)
     domain_index: dict[str, tuple[set[str], set[str]]] = {}
 
     for domain, counts in domain_word_counts.items():
@@ -244,8 +242,8 @@ def _get_domain_knowledge_base_index() -> dict[str, tuple[set[str], set[str]]]:
 
 
 def reset_document_chunker_cache() -> None:
-    """Clear the cached domain knowledge-base vocabulary index."""
-    _get_domain_knowledge_base_index.cache_clear()
+    """Clear the cached docs domain vocabulary index."""
+    document_domain_index.cache_clear()
 
 
 def _build_section_chunk(
@@ -317,6 +315,7 @@ class InMemoryDocumentTokenizer:
         chunks: list[DocumentSectionChunk],
         sample_count: int = 15,
         random_seed: int = 42,
+        repo_root: Path | None = None,
     ) -> list[SectionRetrievalTask]:
         """Sample random sections and synthesize high-signal semantic retrieval queries."""
         if not chunks:
@@ -325,7 +324,7 @@ class InMemoryDocumentTokenizer:
         # Stratified sampling across detected domain categories for balanced evaluation
         cat_to_indices: dict[str, list[int]] = {}
         for c_i, c in enumerate(chunks):
-            cat = self._infer_category(c.heading, c.text)
+            cat = self._infer_category(c.heading, c.text, repo_root)
             cat_to_indices.setdefault(cat, []).append(c_i)
 
         selected_indices: list[int] = []
@@ -352,7 +351,7 @@ class InMemoryDocumentTokenizer:
         for task_idx, chunk_idx in enumerate(selected_indices):
             chunk = chunks[chunk_idx]
             query = self._synthesize_section_query(chunk)
-            category = self._infer_category(chunk.heading, chunk.text)
+            category = self._infer_category(chunk.heading, chunk.text, repo_root)
 
             tasks.append(
                 SectionRetrievalTask(
@@ -384,7 +383,7 @@ class InMemoryDocumentTokenizer:
         return f"Retrieve section regarding {chunk.heading}"
 
     @classmethod
-    def _infer_category(cls, heading: str, text: str = "") -> str:
+    def _infer_category(cls, heading: str, text: str = "", repo_root: Path | None = None) -> str:
         """Categorize section heading and text content into standard DevOps domains."""
         norm_heading = heading.lower()
         norm_body = text.lower()
@@ -392,7 +391,7 @@ class InMemoryDocumentTokenizer:
         heading_words = set(re.findall(r"\b[a-z0-9_-]{2,}\b", norm_heading)) - _STOPWORDS
         body_words = set(re.findall(r"\b[a-z0-9_-]{2,}\b", norm_body)) - _STOPWORDS
 
-        domain_index = _get_domain_knowledge_base_index()
+        domain_index = document_domain_index(repo_root or Path.cwd())
         scores: dict[str, int] = {}
         for domain, (phrases, terms) in domain_index.items():
             phrase_score = sum(3 for p in phrases if p in norm_full)
@@ -438,7 +437,7 @@ def _collect_chunks_from_path(
     return chunks
 
 
-def load_test_document_corpus(  # noqa: C901
+def load_test_document_corpus(
     document_path: Path | None = None,
     repo_root: Path | None = None,
     chunk_size_words: int = 100,
@@ -465,54 +464,12 @@ def load_test_document_corpus(  # noqa: C901
     if document_path and document_path.exists():
         all_chunks.extend(_collect_chunks_from_path(document_path, safe_base, tokenizer))
     elif repo_root:
-        # Aggregate full documentation suite from knowledge base and repository
-        candidate_paths: list[Path] = []
-
-        # 1. Bundled Knowledge Base articles across topics, tools, and tasks
-        candidate_paths.extend(list_knowledge_base_articles())
-
-        # 2. Key architectural specifications and documentation
-        for top_file in ("AGENTS.md", "README.md", "docs/ARCHITECTURE.md"):
-            p = repo_root / top_file
-            if p.exists():
-                candidate_paths.append(p)
-
-        docs_dir = repo_root / "docs"
-        if docs_dir.exists():
-            candidate_paths.extend(sorted(docs_dir.glob("*.md")))
-            commands_dir = docs_dir / "commands"
-            if commands_dir.exists():
-                candidate_paths.extend(sorted(commands_dir.glob("*.md")))
-
-        tasks_dir = repo_root / "src" / "devops_cli" / "ai" / "tasks"
-        if tasks_dir.exists():
-            candidate_paths.extend(sorted(tasks_dir.glob("*.md")))
-
-        kb_dir = repo_root / "src" / "devops_cli" / "ai" / "knowledge_base"
-        if kb_dir.exists():
-            candidate_paths.extend(sorted(kb_dir.rglob("*.md")))
-
-        seen_paths: set[Path] = set()
-        for p in candidate_paths:
-            if p in seen_paths or not p.is_file() or p.is_symlink():
-                continue
-            seen_paths.add(p)
+        for p in document_corpus_paths(repo_root):
             try:
                 txt = p.read_text(encoding="utf-8", errors="replace")
                 if txt.strip():
-                    chunks = tokenizer.tokenize_and_chunk(txt, source_name=p.stem)
-                    all_chunks.extend(chunks)
-            except Exception:
-                continue
-
-    if not all_chunks:
-        for p in list_knowledge_base_articles():
-            try:
-                txt = p.read_text(encoding="utf-8", errors="replace")
-                if txt.strip():
-                    chunks = tokenizer.tokenize_and_chunk(txt, source_name=p.stem)
-                    all_chunks.extend(chunks)
-            except Exception:
+                    all_chunks.extend(tokenizer.tokenize_and_chunk(txt, source_name=p.stem))
+            except OSError:
                 continue
 
     if not all_chunks:
@@ -534,7 +491,10 @@ def load_test_document_corpus(  # noqa: C901
         )
 
     eval_tasks = tokenizer.sample_evaluation_tasks(
-        indexed_chunks, sample_count=sample_count, random_seed=random_seed
+        indexed_chunks,
+        sample_count=sample_count,
+        random_seed=random_seed,
+        repo_root=(repo_root or Path.cwd()),
     )
     corpus = [c.text for c in indexed_chunks]
 

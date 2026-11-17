@@ -200,21 +200,117 @@ def test_cli_benchmark_document_option(tmp_path: Path) -> None:
     assert "Embedding Model Benchmark Suite" in result.stdout
 
 
-def test_infer_category_exact_word_boundaries_and_domain_classification() -> None:
+# The docs pages of the checked-in domain map that the benchmark reads for its vocabulary, with
+# the terms each page holds, so a fixture root gives each domain its own words (#3902).
+_DOMAIN_DOCS_TERMS: dict[str, str] = {
+    "docs/commands/scan.md": "security scanning keyring ssrf egress authenticate secrets trivy",
+    "docs/commands/k8s.md": (
+        "kubernetes cluster kubectl helm kustomize ingress pod traefik ingressroute"
+    ),
+    "docs/DESIGN.md": (
+        "architecture design python ast solid pydantic mypy typing refactoring coupling "
+        "cohesion principles static engine"
+    ),
+    "docs/commands/ci.md": (
+        "ci pipeline github actions workflow actionlint pre-commit pull request branch checks"
+    ),
+    "docs/commands/tf.md": (
+        "infrastructure provisioning opentofu terraform state s3 backend dynamodb locking "
+        "jaeger tracing"
+    ),
+}
+
+_MARKER_WORD = "zzmarkerzz"
+
+
+def _docs_root(tmp_path: Path) -> Path:
+    """A fixture root whose docs pages hold the terms of each domain and whose knowledge base
+    folder holds an article with a marker word that the benchmark must not read (#3902)."""
+    root = tmp_path / "repo"
+    for rel, words in _DOMAIN_DOCS_TERMS.items():
+        page = root / rel
+        page.parent.mkdir(parents=True, exist_ok=True)
+        page.write_text(f"# {words.split()[0].title()}\n\n{words}\n", encoding="utf-8")
+    (root / "docs" / "KNOWLEDGE_BASE.md").write_text(
+        "# Knowledge Base Catalog\n\nThe index of the bundled manuals.\n", encoding="utf-8"
+    )
+    (root / "AGENTS.md").write_text("# Agents\n\nThe rules of the repository.\n", encoding="utf-8")
+    article = (
+        root / "src" / "devops_cli" / "ai" / "knowledge_base" / "it_domains" / "tools" / "probe.md"
+    )
+    article.parent.mkdir(parents=True, exist_ok=True)
+    article.write_text(f"# Probe\n\nThe {_MARKER_WORD} manual.\n", encoding="utf-8")
+    return root
+
+
+def test_document_corpus_ignores_the_knowledge_base_folder(tmp_path: Path) -> None:
+    """Verify the benchmark corpus and its domain vocabulary come from the docs directory of the
+    root that the caller passes, so a knowledge base article adds no chunk, no term and no
+    category, and a run with the folder equals a run after its removal (#3902)."""
+    from devops_cli.ai.benchmark.document_chunker import (
+        InMemoryDocumentTokenizer,
+        document_corpus_paths,
+        document_domain_index,
+        load_test_document_corpus,
+    )
+
+    root = _docs_root(tmp_path)
+    relative = sorted(path.relative_to(root).as_posix() for path in document_corpus_paths(root))
+    terms = document_domain_index(root)
+    with_folder = load_test_document_corpus(repo_root=root, sample_count=6)
+
+    (root / "src" / "devops_cli" / "ai" / "knowledge_base").rename(tmp_path / "removed")
+    without_folder = load_test_document_corpus(repo_root=root, sample_count=6)
+
+    assert (
+        "docs/KNOWLEDGE_BASE.md" in relative,
+        [name for name in relative if "knowledge_base" in name],
+        any(chunk.id.startswith("KNOWLEDGE_BASE") for chunk in with_folder[2]),
+        [chunk.id for chunk in with_folder[2] if _MARKER_WORD in chunk.text],
+        sorted({task.category for task in with_folder[0]}),
+        with_folder == without_folder,
+    ) == (
+        True,
+        [],
+        True,
+        [],
+        ["architecture", "ci_cd", "infrastructure", "kubernetes", "security"],
+        True,
+    )
+
+    assert (
+        "kubectl" in terms["kubernetes"][1],
+        "actionlint" in terms["ci_cd"][1],
+        [word for _, (_, top) in terms.items() for word in top if _MARKER_WORD in word],
+        InMemoryDocumentTokenizer._infer_category(
+            "Cluster Pods", "kubectl helm ingress", repo_root=root
+        ),
+    ) == (True, True, [], "kubernetes")
+
+
+def test_infer_category_exact_word_boundaries_and_domain_classification(
+    tmp_path: Path,
+) -> None:
     """Verify InMemoryDocumentTokenizer._infer_category uses word boundaries
-    and domain phrase weighting.
+    and domain phrase weighting, over the docs vocabulary of the root that it is given.
     """
     from devops_cli.ai.benchmark.document_chunker import InMemoryDocumentTokenizer
 
+    root = _docs_root(tmp_path)
+
     # 1. Security domain
     sec_cat = InMemoryDocumentTokenizer._infer_category(
-        "Zero-Trust Egress", "Authenticate using OS keyring and prevent SSRF attacks."
+        "Zero-Trust Egress",
+        "Authenticate using OS keyring and prevent SSRF attacks.",
+        repo_root=root,
     )
     assert sec_cat == "security"
 
     # 2. Kubernetes domain
     k8s_cat = InMemoryDocumentTokenizer._infer_category(
-        "Cluster Pods", "Deploy Traefik IngressRoute with Pod Security Standards."
+        "Cluster Pods",
+        "Deploy Traefik IngressRoute with Pod Security Standards.",
+        repo_root=root,
     )
     assert k8s_cat == "kubernetes"
 
@@ -222,6 +318,7 @@ def test_infer_category_exact_word_boundaries_and_domain_classification() -> Non
     arch_cat = InMemoryDocumentTokenizer._infer_category(
         "Python 3.14 AST Engine",
         "Ensure SOLID principles and static typing with Pydantic and mypy.",
+        repo_root=root,
     )
     assert arch_cat == "architecture"
 
@@ -229,12 +326,13 @@ def test_infer_category_exact_word_boundaries_and_domain_classification() -> Non
     cicd_cat = InMemoryDocumentTokenizer._infer_category(
         "GitHub Actions Workflows",
         "Run actionlint and pre-commit checks on pull request branch.",
+        repo_root=root,
     )
     assert cicd_cat == "ci_cd"
 
     # Word boundary test: "practice" and "prevent" do NOT falsely match PR/CI
     arch_boundary = InMemoryDocumentTokenizer._infer_category(
-        "Best Practice Refactoring", "Prevent coupling and increase cohesion."
+        "Best Practice Refactoring", "Prevent coupling and increase cohesion.", repo_root=root
     )
     assert arch_boundary == "architecture"
 
@@ -242,6 +340,7 @@ def test_infer_category_exact_word_boundaries_and_domain_classification() -> Non
     infra_cat = InMemoryDocumentTokenizer._infer_category(
         "OpenTofu State",
         "Provision S3 backend with DynamoDB locking and Jaeger tracing.",
+        repo_root=root,
     )
     assert infra_cat == "infrastructure"
 
