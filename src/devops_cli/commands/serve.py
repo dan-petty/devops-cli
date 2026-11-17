@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from functools import partial
 from typing import TYPE_CHECKING, Any
 
 import typer
@@ -127,15 +126,17 @@ def serve(
     import uvicorn
 
     if service:
+        from devops_cli.config.constants import CONST_SERVICE_FAILURES_FILENAME
         from devops_cli.config.settings import load_settings
         from devops_cli.roadmap.run import (
+            FailureLedger,
             identity_refused,
             retire_lane_state,
             service_jobs,
             service_state_dir,
         )
         from devops_cli.server.json_logs import service_log_config
-        from devops_cli.server.service import IdleRepos, create_service_app
+        from devops_cli.server.service import IdleRepos, create_service_app, rows_lease_of_pod
 
         settings = load_settings()
         from devops_cli.server.service import validate_service_mode
@@ -150,25 +151,36 @@ def serve(
         # The halt, the budget window and the ledger of failed rounds stay beside the schedules,
         # on the Service's volume, so a restart keeps them (#2474).
         state_dir = service_state_dir()
-        # Each row runs in a lane of its own, with its own clone and snapshot (#5553). The
-        # clones and the snapshots of the lanes that the Service does not run are caches, so the
-        # start removes them.
         idle = IdleRepos()
-        jobs = service_jobs(state_dir, settings.service.lanes, idle.update)
-        retire_lane_state(state_dir, settings.service.repos, settings.service.lanes)
+        failures = FailureLedger()
+        jobs = service_jobs(state_dir, settings.service.lanes, idle.update, failures=failures)
+
+        def read_row_state() -> None:
+            """Read the ledger of failed rounds, and remove the lane state of the lanes that the
+            Service does not run. Each row runs in a lane of its own, with its own clone and
+            snapshot (#5553), and the clones and the snapshots of other lanes are caches. In a
+            pod, the Service calls this only when it holds the Lease of the rows, so a new pod
+            does not read a ledger that the old pod still writes or remove a clone that the old
+            pod still uses (#6058)."""
+            failures.keep_in(state_dir / CONST_SERVICE_FAILURES_FILENAME)
+            retire_lane_state(state_dir, settings.service.repos, settings.service.lanes)
 
         # uvicorn calls this factory after it applies log_config, so the warnings building the app
         # logs (a managed repository with no webhook secret) are JSON too.
-        uvicorn.run(
-            partial(
-                create_service_app,
+        def service_app() -> Any:
+            return create_service_app(
                 jobs=jobs,
                 settings=settings,
                 secrets=parsed_secrets,
                 identity_refused=identity_refused,
                 state_dir=state_dir,
                 idle=idle,
-            ),
+                rows_lease=rows_lease_of_pod(),
+                read_row_state=read_row_state,
+            )
+
+        uvicorn.run(
+            service_app,
             factory=True,
             log_config=service_log_config(log_level),
             **options,

@@ -946,6 +946,16 @@ class K8sMessages:
     )
     job_created: str = "Created Job {name}. Follow it with: kubectl -n devops logs -f job/{name}"
     job_exists: str = "Job devops/{name} exists already. No second Job was created."
+    # The Kubernetes Lease that one process holds at a time (#6058).
+    lease_taken: str = "{identity} holds the Lease {namespace}/{name} now."
+    lease_held_by_other: str = (
+        "The Lease {namespace}/{name} has the holder {holder}, so {identity} waits for it."
+    )
+    lease_given_back: str = "{identity} gave back the Lease {namespace}/{name}."
+    lease_call_failed: str = (
+        "The {call} of the Lease {namespace}/{name} by {identity} failed, and the next try comes "
+        "in {seconds} s: {kind}: {error}"
+    )
     job_dry_run_heading: str = (
         "Dry run: no request was made. run-job would make these requests, in order:"
     )
@@ -2588,6 +2598,25 @@ class ServeMessages:
     drain_cut: str = (
         "The drain wait of {seconds} s is over and {active} round(s) are still in flight: the "
         "budget refuses each GitHub request now, so each round ends at its next request."
+    )
+    # Logged once, at the info level, when the Service runs its rows with no Lease (#6058).
+    rows_without_lease: str = (
+        "No {env} names this pod, so the Service runs its rows with no Lease, as the one process."
+    )
+    # Logged at the error level when the holder of the Lease of the rows cannot renew it (#6058).
+    rows_lease_lost: str = (
+        "No renewal of the Lease {lease} worked for {seconds} s, so another pod can take it. The "
+        "rows stop now, and /healthz reports unhealthy until the container starts again."
+    )
+    # Logged at the error level when the pod holds the Lease and cannot start its rows (#6058).
+    rows_start_failed: str = (
+        "The Service holds the Lease {lease} but could not start its rows, and /healthz reports "
+        "unhealthy: {kind}: {error}"
+    )
+    # Logged at the warning level when a round is still in flight after the cut wait (#6058).
+    rows_lease_kept: str = (
+        "A round is still in flight after the drain, so the Service does not give back the Lease "
+        "{lease}: it ends {seconds} s after its last renewal."
     )
     # Ephemeral chat replies for Mattermost /roadmap slash command (#1395). Each string is one line.
     chat_roadmap_status_round: str = "{repo} [{lane}]: {state}, {pending} pending triggers, last round: {start} to {end} UTC ({result})"

@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import math
+import os
 import threading
 import time
 from collections import deque
@@ -25,6 +26,8 @@ from pydantic import ValidationError as MalformedRecordError
 from devops_cli import __version__
 from devops_cli.ai.client import network
 from devops_cli.config.constants import (
+    CONST_POD_NAME_ENV,
+    CONST_POD_NAMESPACE_ENV,
     CONST_SERVICE_BUDGET_FILENAME,
     CONST_SERVICE_BUDGET_WINDOW_SECONDS,
     CONST_SERVICE_HALT_FILENAME,
@@ -39,6 +42,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_STATE_UNKEPT,
     CONST_SERVICE_METRIC_TRIGGERS,
     CONST_SERVICE_PROBE_PATHS,
+    CONST_SERVICE_ROWS_LEASE_NAME,
     CONST_SERVICE_SOURCE_POLL,
     CONST_SERVICE_SOURCE_WEBHOOK,
     CONST_SERVICE_STOP_CUT_SECONDS,
@@ -53,12 +57,14 @@ from devops_cli.config.settings import (
 )
 from devops_cli.exceptions import (
     ConfigurationError,
+    DevOpsCLIError,
     RoadmapRunError,
     ServiceStoppingError,
     ended_by_stop,
 )
 from devops_cli.github.rate_limiter import set_request_gate
 from devops_cli.github.request_scope import request_scope
+from devops_cli.k8s.lease import LeaseHolder
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.service_stop import begin_service_stop
 from devops_cli.server.counter_series import prime_service_counters
@@ -237,16 +243,27 @@ class RequestBudget:
         self._clock = clock
         self._limit = limit
         self._window = timedelta(seconds=window_seconds)
-        self._record = record
+        self._record: Path | None = None
         self._lock = threading.Lock()
         self._closed = threading.Event()
         self._cut = threading.Event()
         self._admitted = 0
         self._rounds = 0
-        kept = [] if record is None else read_state_record(record, _RequestsSent, [])
-        self._sent: deque[tuple[datetime, int]] = deque(kept)
+        self._sent: deque[tuple[datetime, int]] = deque()
         self._holding = False
         GLOBAL_METRICS.set_gauge(CONST_SERVICE_METRIC_BUDGET_LIMIT, float(limit))
+        if record is None:
+            _report_spent(self.spent())
+        else:
+            self.keep_in(record)
+
+    def keep_in(self, record: Path) -> None:
+        """Read the requests of the window that `record` kept, and keep each later request
+        there. A Service pod calls it when it takes the rows (#6058)."""
+        kept = read_state_record(record, _RequestsSent, [])
+        with self._lock:
+            self._record = record
+            self._sent = deque(sorted([*kept, *self._sent]))
         _report_spent(self.spent())
 
     @property
@@ -384,17 +401,29 @@ class RoundPause:
         self._refusal = refusal
         self._budget = budget
         self._identity = identity
-        self._halt_record = halt_record
+        self._halt_record: Path | None = None
         self._lock = threading.Lock()
         self._until: datetime | None = None
-        self._halted = halt_record is not None and halt_record.exists()
-        if self._halted:
+        self._halted = False
+        if halt_record is not None:
+            self.keep_in(halt_record)
+
+    def keep_in(self, halt_record: Path) -> None:
+        """Start halted when `halt_record` exists, and keep a later halt there. A Service pod calls
+        it when it takes the rows (#6058)."""
+        with self._lock:
+            self._halt_record = halt_record
+            kept = halt_record.exists() and not self._halted
+            self._halted = self._halted or kept
+        if kept:
             logger.error(
-                MESSAGES.serve.identity_refused_kept.format(identity=identity, record=halt_record),
-                extra={"identity": identity},
+                MESSAGES.serve.identity_refused_kept.format(
+                    identity=self._identity, record=halt_record
+                ),
+                extra={"identity": self._identity},
             )
             GLOBAL_METRICS.increment_counter(
-                CONST_SERVICE_METRIC_IDENTITY_REFUSED, labels={"identity": identity}
+                CONST_SERVICE_METRIC_IDENTITY_REFUSED, labels={"identity": self._identity}
             )
 
     def round_ended(self) -> None:
@@ -815,7 +844,16 @@ class ServiceManager:
     never waits for another lane's (#1532, #5553). With a `state_dir`, the halt and the budget window
     are kept there, and a restart reads them back (#2474). A stop waits up to `drain_seconds` for
     the rounds in flight, then up to `cut_seconds` once the budget refuses their requests
-    (#4485)."""
+    (#4485).
+
+    The rows are the state files, the workers and the poll. With a `rows_lease`, the manager runs
+    the rows only while it holds that Kubernetes Lease, so two pods of a surge release do not run
+    a row at the same time (#6058). It reports ready at once, and the queue of each lane keeps the
+    deliveries until it takes the Lease. Then it reads the state files, runs `read_row_state`
+    for the state that the jobs keep, and starts the workers and the poll. When it cannot renew
+    the Lease, it stops the rows and reports unhealthy. At the end of the stop, it gives the
+    Lease back. With no `rows_lease`, the manager is the one process, and it reads the state files
+    when it is made."""
 
     def __init__(
         self,
@@ -831,6 +869,8 @@ class ServiceManager:
         drain_seconds: float = CONST_SERVICE_STOP_DRAIN_SECONDS,
         cut_seconds: float = CONST_SERVICE_STOP_CUT_SECONDS,
         idle: IdleRepos | None = None,
+        rows_lease: LeaseHolder | None = None,
+        read_row_state: Callable[[], None] | None = None,
     ) -> None:
         self.config = config
         self.idle = idle or IdleRepos()
@@ -847,18 +887,13 @@ class ServiceManager:
         self.state_dir: Path | None = state_dir
         self.bot_login: str | None = config.github_app.bot_login
         self.delivery_cache = DeliveryLRUCache()
-        self.budget = RequestBudget(
-            clock,
-            config.github_requests_per_hour,
-            record=None if state_dir is None else state_dir / CONST_SERVICE_BUDGET_FILENAME,
-        )
+        self.budget = RequestBudget(clock, config.github_requests_per_hour)
         self.pause = RoundPause(
             clock,
             pause_until,
             identity_refused,
             self.budget,
             identity=config.github_app.bot_login or "unknown",
-            halt_record=None if state_dir is None else state_dir / CONST_SERVICE_HALT_FILENAME,
         )
         self.workers: dict[tuple[str, str], RepoWorker] = {
             (repo, lane): RepoWorker(repo, lane, job, clock, self.pause)
@@ -870,14 +905,75 @@ class ServiceManager:
         self._ready = False
         self._draining = False
         self._tick_task: asyncio.Task[None] | None = None
+        self.rows_lease = rows_lease
+        self._read_row_state = read_row_state
+        self._rows_task: asyncio.Task[None] | None = None
+        self._rows_started = False
+        if rows_lease is None:
+            self._read_state()
+
+    def _read_state(self) -> None:
+        """Read the halt and the budget window of `state_dir`, then the state of the jobs."""
+        if self.state_dir is not None:
+            self.budget.keep_in(self.state_dir / CONST_SERVICE_BUDGET_FILENAME)
+            self.pause.keep_in(self.state_dir / CONST_SERVICE_HALT_FILENAME)
+        if self._read_row_state is not None:
+            self._read_row_state()
 
     async def start(self) -> None:
-        """Start worker threads and background polling loop."""
+        """Report ready, and start the rows: at once with no Lease, else when this pod takes the
+        Lease. Readiness does not wait for the Lease, so the new pod of a release gets the
+        webhooks and the old pod can stop (#6058)."""
+        self._ready = True
+        if self.rows_lease is None:
+            self._start_rows()
+            return
+        self._rows_task = asyncio.create_task(
+            self._hold_rows(self.rows_lease), name="service-rows-lease"
+        )
+
+    def _start_rows(self) -> None:
+        """Start the worker threads and the polling loop."""
         set_request_gate(self.budget.admit, self.budget.refund)
         for worker in self.workers.values():
             worker.start()
         self._tick_task = asyncio.create_task(self._tick_loop(), name="service-poll-tick")
-        self._ready = True
+        self._rows_started = True
+
+    async def _hold_rows(self, lease: LeaseHolder) -> None:
+        """Wait for the Lease, start the rows, and renew the Lease until the stop or a loss. The
+        task ends when the rows cannot start or the Lease is lost, and /healthz then reports
+        unhealthy."""
+        await lease.acquire()
+        if self._stop_event.is_set():
+            return
+        try:
+            self._read_state()
+        except DevOpsCLIError as error:
+            logger.error(
+                MESSAGES.serve.rows_start_failed.format(
+                    lease=lease.name, kind=type(error).__name__, error=error
+                )
+            )
+            return
+        self._start_rows()
+        await lease.keep()
+        logger.error(
+            MESSAGES.serve.rows_lease_lost.format(
+                lease=lease.name, seconds=f"{lease.timing.renew_deadline:g}"
+            )
+        )
+        self._stop_rows()
+
+    def _stop_rows(self) -> None:
+        """Stop the rows at once, after a loss of the Lease: no round starts, and each round in
+        flight ends at its next GitHub request."""
+        self._stop_event.set()
+        self.budget.cut()
+        for worker in self.workers.values():
+            worker.stop()
+        if self._tick_task is not None:
+            self._tick_task.cancel()
 
     async def _tick_loop(self) -> None:
         """Polling tick loop advancing time and scheduling periodic repository syncs."""
@@ -983,9 +1079,15 @@ class ServiceManager:
         return self._draining
 
     def is_healthy(self) -> bool:
-        """Return True when all worker threads and the polling loop are operating normally."""
+        """Return True when all worker threads and the polling loop are operating normally, or
+        while the pod waits for the Lease of the rows. The task of the Lease ends only when the
+        rows cannot start or the Lease is lost."""
         if self._stop_event.is_set():
             return False
+        if self._rows_task is not None and self._rows_task.done():
+            return False
+        if not self._rows_started:
+            return True
         for worker in self.workers.values():
             if not worker.is_alive():
                 return False
@@ -1000,7 +1102,12 @@ class ServiceManager:
         waits for the budget window ends at once, and the rounds that a pause holds do not run.
         Then the budget refuses every GitHub request, so a round still in flight ends at its next
         request through the stop path (#2753) within `cut_seconds`: it writes what it did and
-        counts no failure."""
+        counts no failure.
+
+        The waits run in a thread, so the event loop keeps renewing the Lease of the rows while
+        the rounds end. When every worker stopped, the pod gives the Lease back, and the next pod
+        takes it within one retry period. When a round is still in flight, the pod keeps the
+        Lease, which ends after its duration (#6058)."""
         self._draining = True
         self._stop_event.set()
         begin_service_stop()
@@ -1014,18 +1121,35 @@ class ServiceManager:
 
         for worker in self.workers.values():
             worker.stop()
-        stopped = self._join_workers(self._drain_seconds)
+        stopped = await asyncio.to_thread(self._join_workers, self._drain_seconds)
         if not stopped:
             active = sum(worker.is_alive() for worker in self.workers.values())
             logger.info(
                 MESSAGES.serve.drain_cut.format(seconds=f"{self._drain_seconds:g}", active=active)
             )
             self.budget.cut()
-            stopped = self._join_workers(self._cut_seconds)
+            stopped = await asyncio.to_thread(self._join_workers, self._cut_seconds)
         # A round that still runs keeps the cut gate, so it sends no request until the exit.
         if stopped:
             set_request_gate(None)
+        await self._end_rows_lease(stopped)
         return stopped
+
+    async def _end_rows_lease(self, stopped: bool) -> None:
+        """Stop the wait for the Lease or its renewal, and give the Lease back when `stopped`."""
+        lease = self.rows_lease
+        if self._rows_task is None or lease is None:
+            return
+        self._rows_task.cancel()
+        await asyncio.gather(self._rows_task, return_exceptions=True)
+        if stopped:
+            await lease.release()
+        elif lease.held:
+            logger.warning(
+                MESSAGES.serve.rows_lease_kept.format(
+                    lease=lease.name, seconds=lease.timing.duration
+                )
+            )
 
     def _join_workers(self, seconds: float) -> bool:
         """Wait up to `seconds` in all for the worker threads to end; whether every one has."""
@@ -1113,6 +1237,22 @@ async def _service_trace_middleware(request: Request, call_next: Any) -> Any:
         return response
 
 
+def rows_lease_of_pod(environ: Mapping[str, str] | None = None) -> LeaseHolder | None:
+    """The Lease of the rows for this pod, or None outside a pod (#6058). The Deployment gives
+    the pod name and the namespace through the downward API, in `POD_NAME` and `POD_NAMESPACE`:
+    the pod name is the holder identity. With no pod name, the Service is the one process."""
+    env = os.environ if environ is None else environ
+    name, namespace = env.get(CONST_POD_NAME_ENV), env.get(CONST_POD_NAMESPACE_ENV)
+    if not name or not namespace:
+        logger.info(
+            MESSAGES.serve.rows_without_lease.format(
+                env=f"{CONST_POD_NAME_ENV} and {CONST_POD_NAMESPACE_ENV}"
+            )
+        )
+        return None
+    return LeaseHolder(CONST_SERVICE_ROWS_LEASE_NAME, namespace, name)
+
+
 def create_service_app(
     jobs: Mapping[str, LaneJob] | None = None,
     settings: Settings | None = None,
@@ -1125,6 +1265,8 @@ def create_service_app(
     state_dir: Path | None = None,
     command_token: str | None = None,
     idle: IdleRepos | None = None,
+    rows_lease: LeaseHolder | None = None,
+    read_row_state: Callable[[], None] | None = None,
 ) -> FastAPI:
     """Construct production FastAPI service application. `jobs` is each lane's job, run by one
     worker per lane of each repository, the default logging job in one lane when none is given;
@@ -1132,7 +1274,8 @@ def create_service_app(
     repository starts a round; `identity_refused` reads whether that error says GitHub refused
     the Service's identity, which stops every round for good; `consumers` take the webhook
     events, the roadmap consumer when none are given; `state_dir` keeps the halt and the budget
-    window across a restart, which then keeps the halt until a person removes its record."""
+    window across a restart, which then keeps the halt until a person removes its record.
+    `rows_lease` and `read_row_state` go to `ServiceManager` (#6058)."""
     active_settings = settings or load_settings()
     service_secrets = _resolve_service_secrets(active_settings, secrets)
     service_clock = clock or (lambda: datetime.now(UTC))
@@ -1159,6 +1302,8 @@ def create_service_app(
             else _resolve("mattermost.command_token", active_settings)
         ),
         idle=idle,
+        rows_lease=rows_lease,
+        read_row_state=read_row_state,
     )
 
     @asynccontextmanager

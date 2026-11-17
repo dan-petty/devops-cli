@@ -199,7 +199,7 @@ def check_the_jobs_run_as_an_account_with_no_token_and_no_role() -> None:
     )
 
 
-def check_the_role_of_the_service_holds_five_rules_and_one_binding() -> None:
+def check_the_role_of_the_service_holds_seven_rules_and_one_binding() -> None:
     role = _object("Role", "roadmap-service-jobs")
     binding = _object("RoleBinding", "roadmap-service-jobs")
 
@@ -230,23 +230,37 @@ def check_the_role_of_the_service_holds_five_rules_and_one_binding() -> None:
             },
             {"apiGroups": [""], "resources": ["pods"], "verbs": ["list"]},
             {"apiGroups": [""], "resources": ["pods/log"], "verbs": ["get"]},
+            # The Lease of the rows (#6058): RBAC cannot limit `create` to a name.
+            {
+                "apiGroups": ["coordination.k8s.io"],
+                "resources": ["leases"],
+                "resourceNames": ["roadmap-service-rows"],
+                "verbs": ["get", "update"],
+            },
+            {"apiGroups": ["coordination.k8s.io"], "resources": ["leases"], "verbs": ["create"]},
         ],
         {"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": "roadmap-service-jobs"},
         [{"kind": "ServiceAccount", "name": "roadmap-service", "namespace": "devops"}],
     )
 
 
-def check_no_role_in_the_namespace_reads_a_secret_or_creates_anything_but_jobs() -> None:
+def check_no_role_in_the_namespace_reads_a_secret_or_creates_anything_but_jobs_and_leases() -> None:
+    """A Role creates only Jobs, and the Lease of the rows of the Service (#6058)."""
     rules = [
         rule
         for document in _rendered()
         if document["kind"] in {"Role", "ClusterRole"}
         for rule in document["rules"]
     ]
-    creating = [rule["resources"] for rule in rules if "create" in rule["verbs"]]
+    creating = [
+        (rule.get("apiGroups"), rule["resources"]) for rule in rules if "create" in rule["verbs"]
+    ]
     reading_secrets = [rule for rule in rules if "secrets" in rule["resources"]]
 
-    assert (creating, reading_secrets) == ([["jobs"]], [])
+    assert (creating, reading_secrets) == (
+        [(["batch"], ["jobs"]), (["coordination.k8s.io"], ["leases"])],
+        [],
+    )
 
 
 def _egress_to_port(policy: dict[str, Any], port: int) -> list[dict[str, Any]]:

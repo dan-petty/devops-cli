@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import copy
 import datetime
+import itertools
 import json
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -571,11 +572,23 @@ def _merge(target: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
+def _without_nulls(value: Any) -> Any:
+    """`value` with no null field at any depth, as the API server stores an object it decodes."""
+    if isinstance(value, dict):
+        return {key: _without_nulls(item) for key, item in value.items() if item is not None}
+    if isinstance(value, list):
+        return [_without_nulls(item) for item in value]
+    return value
+
+
 class FakeCustomObjects(_FakeApi):
     """A CustomObjectsApi stand-in that holds custom objects as the API server's dicts.
 
-    `objects` maps `(group, version, plural)` to the objects of that resource. A read or patch
-    of an object the fake does not hold raises 404, and a create of one it holds raises 409.
+    `objects` maps `(group, version, plural)` to the objects of that resource. A read, patch or
+    replace of an object the fake does not hold raises 404, and a create of one it holds raises
+    409. A create and a replace give the object a new `metadata.resourceVersion`, and a replace
+    whose body names another `resourceVersion` than the stored one raises 409, as the API server
+    refuses a write from an old read.
     """
 
     def __init__(self, objects: dict[tuple[str, str, str], list[dict[str, Any]]] | None = None):
@@ -583,6 +596,10 @@ class FakeCustomObjects(_FakeApi):
         self.objects: dict[tuple[str, str, str], list[dict[str, Any]]] = {
             key: [copy.deepcopy(obj) for obj in items] for key, items in (objects or {}).items()
         }
+        self._versions = itertools.count(1000)
+
+    def _next_version(self) -> str:
+        return str(next(self._versions))
 
     def _find(
         self, group: str, version: str, namespace: str, plural: str, name: str
@@ -652,10 +669,48 @@ class FakeCustomObjects(_FakeApi):
         try:
             self._find(group, version, namespace, plural, str(name))
         except Exception:
-            created = _merge(copy.deepcopy(body), {"metadata": {"namespace": namespace}})
+            created = _merge(
+                copy.deepcopy(body),
+                {"metadata": {"namespace": namespace, "resourceVersion": self._next_version()}},
+            )
             self.objects.setdefault((group, version, plural), []).append(created)
             return copy.deepcopy(created)
         raise api_exception(409, "Conflict")
+
+    def replace_namespaced_custom_object(
+        self,
+        group: str,
+        version: str,
+        namespace: str,
+        plural: str,
+        name: str,
+        body: Any,
+        **kwargs: Any,
+    ) -> Any:
+        """:rtype: object"""
+        self._record(
+            "replace_namespaced_custom_object",
+            {
+                "group": group,
+                "version": version,
+                "namespace": namespace,
+                "plural": plural,
+                "name": name,
+                "body": body,
+                **kwargs,
+            },
+        )
+        current = self._find(group, version, namespace, plural, name)
+        sent = (body.get("metadata") or {}).get("resourceVersion")
+        if sent is not None and sent != (current.get("metadata") or {}).get("resourceVersion"):
+            raise api_exception(409, "Conflict")
+        replaced = _without_nulls(copy.deepcopy(body))
+        replaced.setdefault("metadata", {}).update(
+            {"name": name, "namespace": namespace, "resourceVersion": self._next_version()}
+        )
+        items = self.objects[(group, version, plural)]
+        items[items.index(current)] = replaced
+        return copy.deepcopy(replaced)
 
     def patch_namespaced_custom_object(
         self,

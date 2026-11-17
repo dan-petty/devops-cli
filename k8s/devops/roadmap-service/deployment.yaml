@@ -11,8 +11,16 @@ spec:
   # in service.repos. Argo CD self-heals this value, so a scale by hand does not stay. To stop
   # the Service, do the stop switch in docs/CLUSTER.md, "Roadmap service".
   replicas: 1
+  # A surge release (#6058): the new pod starts beside the old pod, on the node of the
+  # ReadWriteOnce volume, and gets the webhooks when /readyz passes. Only then does the old pod
+  # get SIGTERM. The pod that holds the Lease roadmap-service-rows runs the rows, so the two pods
+  # never run a row at the same time. One replica and no PodDisruptionBudget: a drain of the node
+  # still stops the webhooks for a time (docs/CLUSTER.md, "Roadmap service"; #4575).
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: roadmap-service
@@ -25,9 +33,9 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8000"
     spec:
-      # CONST_SERVICE_STOP_GRACE_SECONDS: the drain wait (600 s) and the cut wait (30 s) of the
-      # stop of the Service, and 30 s for the exit (#4485). uvicorn starts the drain on SIGTERM,
-      # so the pod has no preStop hook: one would use the same grace period first.
+      # CONST_SERVICE_STOP_GRACE_SECONDS: the preStop sleep (10 s), the drain wait (600 s) and the
+      # cut wait (30 s) of the stop of the Service (#4485), the call that gives back the Lease
+      # (5 s), and 15 s for the exit (#6058).
       terminationGracePeriodSeconds: 660
       # local-path binds the volume on the node where the pod first runs, and the root disk of the
       # control-plane node has the least free space (#1634; k8s/README.md, Local-Path Volume Placement).
@@ -121,11 +129,15 @@ spec:
               value: /home/devops/.data
             - name: OTEL_SERVICE_NAME
               value: roadmap-service
-            # Prometheus names the series by service.instance.id (`instance`). It defaults to
-            # the host name, which is the pod name and changes at each restart. One replica
-            # and the Recreate strategy mean one pod sends at a time, so all pods share one id.
+            # The pod name: the holder identity of the Lease roadmap-service-rows, and the
+            # service.instance.id (`instance`) of the metrics. During a surge release two pods
+            # send at the same time, so each pod sends its own metric stream (#6058).
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
             - name: OTEL_RESOURCE_ATTRIBUTES
-              value: service.instance.id=roadmap-service
+              value: service.instance.id=$(POD_NAME)
             # The spans and the log records name the cluster (`k8s.cluster.name`) and the
             # namespace (`k8s.namespace.name`) from these two values. The cluster name is the
             # name in k8s/monitoring/k8s-monitoring-values.yaml; without it, they name minikube.
@@ -154,6 +166,12 @@ spec:
             - name: kube-api-access
               mountPath: /var/run/secrets/kubernetes.io/serviceaccount
               readOnly: true
+          # uvicorn closes its socket on SIGTERM, before the drain. The sleep keeps the socket open
+          # while the endpoint of the pod leaves the Service, so no webhook meets a closed port.
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 10
           livenessProbe:
             httpGet:
               path: /healthz

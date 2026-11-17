@@ -5,13 +5,6 @@ How the roadmap Service and the cluster Jobs run in namespace `devops`: the repl
 
 ## Requirements
 
-### Requirement: The Service runs as one pod
-`deployment/roadmap-service` SHALL set `replicas: 1` and the `Recreate` strategy, so one pod of the Service runs at a time.
-
-#### Scenario: The manifest is read
-- **WHEN** `k8s/devops/roadmap-service/deployment.yaml` is read
-- **THEN** its `spec.replicas` is 1 and its `spec.strategy.type` is `Recreate`
-
 ### Requirement: A model call in the cluster is sent at most two times
 The ConfigMap template `k8s/devops/configmap.example.yaml` SHALL set `ai.max_retries` to 1, and the ConfigMap that a deploy renders from it SHALL keep that value.
 
@@ -192,3 +185,25 @@ Each job task of `k8s/devops/configmap.example.yaml` except `intake` and `retitl
 #### Scenario: The comment of the trial is read
 - **WHEN** the lines above the task `stage` in the template are read
 - **THEN** they name #4369, the date 2026-11-10, 67 USD a week, #3874 and Sonnet as a later trial
+
+### Requirement: The Service rolls with a surge release
+`deployment/roadmap-service` SHALL set `replicas: 1` and the `RollingUpdate` strategy with `maxSurge: 1` and `maxUnavailable: 0`. The readiness of a pod SHALL NOT wait for the Lease `roadmap-service-rows`, so the new pod of a release gets the webhooks before the old pod gets SIGTERM.
+
+#### Scenario: A release starts
+- **WHEN** the new pod of a release starts while the old pod holds the Lease
+- **THEN** `/readyz` of the new pod answers 200, and the new pod takes deliveries before the old pod stops
+
+### Requirement: One pod of the Service holds the rows
+Only the pod that holds the Lease `roadmap-service-rows` (`coordination.k8s.io/v1`) SHALL read the state files of the rows and run the workers and the poll. A pod that waits for the Lease SHALL keep each delivery in its lane queues until it takes the Lease. A pod SHALL give the Lease back after its drain, and a holder that is killed SHALL lose it after its `leaseDurationSeconds`.
+
+#### Scenario: The old pod drains during a release
+- **WHEN** the old pod holds the Lease and drains, and the new pod is ready
+- **THEN** the new pod takes deliveries and runs no round, and it takes the Lease only after the old pod gives it back
+
+#### Scenario: The holder is killed
+- **WHEN** the holder stops with no release
+- **THEN** the other pod takes the Lease at its first try after `leaseDurationSeconds` from its first read of the holder, and not before
+
+#### Scenario: The holder cannot renew the Lease
+- **WHEN** no renewal works for the renew deadline
+- **THEN** the pod stops its workers and its poll, cuts the budget, and `/healthz` fails

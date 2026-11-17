@@ -618,7 +618,7 @@ SLO 2 counts only the runner Jobs that end. kube-state-metrics shows a Job only 
 
 - Git does not hold the Secrets ([Cluster Secrets](#cluster-secrets)) or ConfigMap `devops-cli-config` ([Homelab Values at Deploy Time](#homelab-values-at-deploy-time)).
 - The sweep and its Valkey keep state on `local-path` volumes, which stop with their node ([ADR 0021](../docs/adr/0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md)). The off-node backup of owned state limits the loss.
-- The roadmap Service runs one pod with `Recreate` ([Roadmap service](../docs/CLUSTER.md#roadmap-service)).
+- The roadmap Service runs one replica with a surge release and no PodDisruptionBudget, so a drain of its node still stops the webhooks for a time ([Roadmap service](../docs/CLUSTER.md#roadmap-service), #4575).
 
 **Runbooks for the whole system:** the [stop switch](../docs/CLUSTER.md#stop-switch), the [planned maintenance](#planned-maintenance), the [recovery of Argo CD](#recovery) and the [failure recovery matrix](../docs/ROUTINE_TASKS.md#4-failure-recovery--troubleshooting-matrix).
 
