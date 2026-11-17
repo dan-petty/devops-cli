@@ -9,69 +9,70 @@ The LiteLLM gateway keeps its virtual keys in a Postgres database. This capabili
 The manifests SHALL define a CloudNativePG `Cluster` `llm-gateway-db` in namespace `llm` with one instance on `local-path` storage, annotated so that Argo CD neither prunes nor deletes it, with superuser access off. The `Cluster` SHALL name no `bootstrap.initdb.secret` and no manifest SHALL hold a Secret for it, so that git holds no password.
 
 #### Scenario: The Cluster keeps its data and names no secret
-- **WHEN** a test reads `k8s/llm/gateway-db.yaml`
-- **THEN** it holds one `Cluster` with `instances` 1, storage class `local-path`, sync option `Prune=false,Delete=false`, `enableSuperuserAccess` false and no `bootstrap.initdb.secret`, and it holds no Secret and no PersistentVolumeClaim
+- **WHEN** `uv run devops ci --check --only k8s` runs
+- **THEN** the row passes only when `k8s/llm/gateway-db.yaml` holds one `Cluster` with one instance on `local-path`, the sync option `Prune=false,Delete=false`, superuser access off and no `bootstrap.initdb.secret`, and holds no Secret and no PersistentVolumeClaim
 
 ### Requirement: The gateway reads its connection from the operator's Secret
 The gateway Deployment SHALL set `DATABASE_URL` from the `uri` key of Secret `llm-gateway-db-app` with `secretKeyRef`, and no literal value.
 
 #### Scenario: DATABASE_URL has no literal value
-- **WHEN** a test reads the gateway Deployment that Kustomize renders from `k8s/llm`
-- **THEN** its container sets `DATABASE_URL` from `secretKeyRef` name `llm-gateway-db-app` and key `uri`
+- **WHEN** `uv run devops ci --check --only k8s` renders `k8s/llm` with Kustomize
+- **THEN** the row passes only when the gateway container sets `DATABASE_URL` from `secretKeyRef` name `llm-gateway-db-app` and key `uri`
 
 ### Requirement: The gateway migrates on a read-only root file system
 The gateway container SHALL keep `readOnlyRootFilesystem: true` and SHALL set `LITELLM_MIGRATION_DIR` to a path that an `emptyDir` volume mounts read-write. It SHALL have a `startupProbe` that allows at least ten minutes before the liveness probe starts.
 
 #### Scenario: The migration directory is an emptyDir
-- **WHEN** a test reads the gateway Deployment
-- **THEN** the mount at the value of `LITELLM_MIGRATION_DIR` is not read-only and its volume is an `emptyDir`, and `readOnlyRootFilesystem` is true
+- **WHEN** `uv run devops ci --check --only k8s` runs
+- **THEN** the row passes only when the mount at the value of `LITELLM_MIGRATION_DIR` is not read-only, its volume is an `emptyDir`, and `readOnlyRootFilesystem` is true
 
 #### Scenario: A migrating pod is not killed
-- **WHEN** a test reads the `startupProbe` of the gateway container
-- **THEN** its path is `/health/liveliness` on port 4000, and its period times its failure threshold is at least 600 seconds
+- **WHEN** `uv run devops ci --check --only k8s` runs, and a release of the gateway rolls out with `kubectl -n llm rollout status deployment/llm-gateway`
+- **THEN** the row passes only when the `startupProbe` calls `/health/liveliness` on port 4000 for at least 600 seconds, and the rollout completes with no restart of the new pod
 
 ### Requirement: A failed migration ends the start-up
 The gateway container SHALL set `ENFORCE_PRISMA_MIGRATION_CHECK` to `"true"`, so that a failed `prisma migrate deploy` ends the process and the restart loop waits for the database, instead of a start on an empty schema.
 
 #### Scenario: The check is on
-- **WHEN** a test reads the gateway container
-- **THEN** it sets `ENFORCE_PRISMA_MIGRATION_CHECK` to `"true"`
+- **WHEN** `uv run devops ci --check --only k8s` runs
+- **THEN** the row passes only when the gateway container sets `ENFORCE_PRISMA_MIGRATION_CHECK` to `"true"`
 
 ### Requirement: The readiness of the gateway does not depend on the database
 The `readinessProbe` of the gateway container SHALL use `/health/liveliness` on port 4000. `/health/readiness` answers 503 while the database is down, and Kubernetes would then remove every gateway pod from the Service, also for the clients of the master key.
 
 #### Scenario: A database outage keeps the pods in the Service
-- **WHEN** a test reads the `readinessProbe` of the gateway container
-- **THEN** its path is `/health/liveliness` on port 4000
+- **WHEN** `uv run devops ci --check --only k8s` runs
+- **THEN** the row passes only when the `readinessProbe` of the gateway container calls `/health/liveliness` on port 4000
 
 ### Requirement: The gateway refuses a key it cannot check
 The gateway config SHALL NOT turn on `general_settings.allow_requests_on_db_unavailable`, and SHALL keep `store_model_in_db` off.
 
 #### Scenario: The defaults hold
-- **WHEN** a test reads `general_settings` of `k8s/llm/gateway/config.yaml`
-- **THEN** `allow_requests_on_db_unavailable` is absent or false, and `store_model_in_db` is false
+- **WHEN** `uv run devops ci --check --only k8s` runs
+- **THEN** the row passes only when `allow_requests_on_db_unavailable` and `store_model_in_db` of `general_settings` are absent or false
 
 ### Requirement: Only the gateway and the operator reach the database
 Policy `llm-gateway-db-perimeter` SHALL admit to the database pods on 5432 only the gateway's pods and the CloudNativePG operator (which also uses 8000). It SHALL admit namespace `monitoring` on the metrics port 9187 only, and its egress SHALL be DNS and the Kubernetes API only. The gateway's policy SHALL admit egress to the database pods on 5432 by pod selector. `llm-default-perimeter` SHALL leave the database pods out.
 
 #### Scenario: The database perimeter
-- **WHEN** a test reads `llm-gateway-db-perimeter`
-- **THEN** it selects the pods with `cnpg.io/cluster: llm-gateway-db`, its ingress peers are the pods of `llm-gateway` (5432), namespace `cnpg-system` (8000 and 5432) and namespace `monitoring` (9187), and its egress rules cover ports 53 and ports 443 and 6443
+- **WHEN** `uv run devops ci --check --only k8s` runs
+- **THEN** the row passes only when `llm-gateway-db-perimeter` selects the pods with `cnpg.io/cluster: llm-gateway-db`, admits the pods of `llm-gateway` on 5432, namespace `cnpg-system` on 8000 and 5432 and namespace `monitoring` on 9187, and allows egress only on ports 53, 443 and 6443
 
 #### Scenario: The gateway reaches the database by label
-- **WHEN** a test reads `llm-gateway-perimeter`
-- **THEN** exactly one egress rule names TCP 5432, and its peer is a pod selector on `cnpg.io/cluster: llm-gateway-db`
+- **WHEN** `uv run devops ci --check --only k8s` runs
+- **THEN** the row passes only when exactly one egress rule of `llm-gateway-perimeter` names TCP 5432, with a pod selector on `cnpg.io/cluster: llm-gateway-db` as its peer
 
 #### Scenario: The default perimeter leaves the database out
-- **WHEN** a test reads `llm-default-perimeter`
-- **THEN** its pod selector excludes pods with `cnpg.io/cluster: llm-gateway-db`
+- **WHEN** `uv run devops ci --check --only k8s` runs
+- **THEN** the row passes only when the pod selector of `llm-default-perimeter` excludes the pods with `cnpg.io/cluster: llm-gateway-db`
 
 ### Requirement: Alloy scrapes the metrics exporter of the gateway database
 `k8s/llm/gateway-db.yaml` SHALL hold PodMonitor `llm-gateway-db` in namespace `llm`, which selects the pods with `cnpg.io/cluster: llm-gateway-db` on their port `metrics`. k8s-monitoring SHALL read PodMonitors, and the egress of `monitoring-default-perimeter` to namespace `llm` SHALL admit TCP 9187.
 
 #### Scenario: The PodMonitor and the egress
-- **WHEN** a test reads `k8s/llm/gateway-db.yaml`, `k8s/monitoring/k8s-monitoring-values.yaml` and `k8s/monitoring/networkpolicy.yaml`
-- **THEN** the PodMonitor `llm-gateway-db` selects `cnpg.io/cluster: llm-gateway-db` with the one endpoint port `metrics`, `prometheusOperatorObjects.enabled` is true, and an egress rule to namespace `llm` names port 9187
+- **WHEN** a person runs `uv run devops prometheus query 'cnpg_collector_up{namespace="llm"}'`
+- **THEN** the query returns the value 1 for the pod `llm-gateway-db-1`
+- **AND** `uv run devops ci --check --only k8s` passes only when the PodMonitor selects `cnpg.io/cluster: llm-gateway-db` on the port `metrics`, k8s-monitoring reads PodMonitors, and the monitoring perimeter admits egress to namespace `llm` on TCP 9187
 
 ### Requirement: Rules warn on the gateway database
 Group `llm-gateway-db` of the alerting rules SHALL hold the warning rules `GatewayDatabaseDown`, `GatewayDatabaseConnectionsNearMax` and `GatewayDatabaseNearClaim` over the pods of the Cluster in namespace `llm`. Each rule SHALL have promtool cases, and a row in the Alerting table of `k8s/README.md`.
@@ -89,22 +90,22 @@ Group `llm-gateway-db` of the alerting rules SHALL hold the warning rules `Gatew
 - **THEN** `GatewayDatabaseNearClaim` fires, and the same series of the Mattermost database fire no rule
 
 #### Scenario: The rules select the gateway database only
-- **WHEN** a test reads the group
-- **THEN** each CloudNativePG selector names `namespace="llm"` and `pod=~"llm-gateway-db-[0-9]+"`, and the claim selector names `persistentvolumeclaim=~"llm-gateway-db-[0-9]+"`
+- **WHEN** a person runs `uv run devops prometheus rules` and `uv run devops prometheus query 'ALERTS{alertname=~"GatewayDatabase.*"}'`
+- **THEN** the group `llm-gateway-db` holds the three rules, each with the health `ok`, and each alert series names namespace `llm` and a pod of `llm-gateway-db`
 
 ### Requirement: Grafana provisions the CloudNativePG dashboard
 `k8s/monitoring/dashboards/cloudnative-pg.json` SHALL be the upstream CloudNativePG dashboard, in the generated ConfigMap `grafana-database-dashboards`, and SHALL pass `devops grafana dashboards lint` with no error. The operator chart SHALL NOT make its own dashboard ConfigMap.
 
 #### Scenario: The dashboard is provisioned once
-- **WHEN** a test reads the dashboards kustomization and `k8s/mattermost/cloudnative-pg-values.yaml`
-- **THEN** ConfigMap `grafana-database-dashboards` holds `cloudnative-pg.json` under the annotation limit, and `monitoring.grafanaDashboard.create` is false
+- **WHEN** a person runs `uv run devops grafana dashboards lint k8s/monitoring/dashboards/cloudnative-pg.json` and `uv run devops grafana search --query CloudNativePG`
+- **THEN** the lint reports no error, and Grafana holds one CloudNativePG dashboard
 
 ### Requirement: The gateway keeps its spend logs for 30 days
 `general_settings.maximum_spend_logs_retention_period` SHALL be `30d` in `k8s/llm/gateway/config.yaml`, with the default daily interval.
 
 #### Scenario: The retention holds
-- **WHEN** a test reads `general_settings` of `k8s/llm/gateway/config.yaml`
-- **THEN** `maximum_spend_logs_retention_period` is `30d`, and `maximum_spend_logs_retention_interval` is absent
+- **WHEN** `uv run devops ci --check --only k8s` runs
+- **THEN** the row passes only when `maximum_spend_logs_retention_period` of `general_settings` is `30d` and `maximum_spend_logs_retention_interval` is absent
 
 ### Requirement: A gateway rollout lets the old pod finish its open calls
 The gateway pod SHALL set `terminationGracePeriodSeconds` to 600, which is shorter than the router timeout of the gateway config. The gateway Deployment SHALL use a rolling update, so the new pod starts before the old pod stops.

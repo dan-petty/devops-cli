@@ -9,20 +9,20 @@ Where the cluster keeps its internal container images: Gitea's container registr
 No Kubernetes object that a YAML file under `k8s/` declares SHALL run the Distribution image (Docker Hub's `registry`), be the Namespace `registry`, or be in namespace `registry`. The root kustomization `k8s/` SHALL render none of these objects.
 
 #### Scenario: A manifest under k8s/ runs the Distribution image
-- **WHEN** a test reads the image of every container and init container that a Kubernetes object under `k8s/` declares, and resolves each with docker-py
-- **THEN** no image resolves to `docker.io/registry` or `docker.io/library/registry`
+- **WHEN** `uv run devops ci --check --only k8s` runs
+- **THEN** the row fails when the image of a container or an init container of an object under `k8s/` resolves to `docker.io/registry` or `docker.io/library/registry`
 
 #### Scenario: A manifest under k8s/ declares the registry namespace
-- **WHEN** a test reads every Kubernetes object that a YAML file under `k8s/` declares
-- **THEN** no object is the Namespace `registry`, and no object has `metadata.namespace` `registry`
+- **WHEN** `uv run devops ci --check --only k8s` runs
+- **THEN** the row fails when an object under `k8s/` is the Namespace `registry` or has `metadata.namespace` `registry`
 
 #### Scenario: The root kustomization renders the registry
-- **WHEN** a test renders `k8s/` with `kubectl kustomize`
-- **THEN** the render holds no Namespace `registry` and no object in namespace `registry`
+- **WHEN** `uv run devops ci --check --only k8s` renders `k8s/` with `kubectl kustomize`
+- **THEN** the row fails when the render holds the Namespace `registry` or an object in namespace `registry`
 
-### Requirement: Gitea's container registry is on
+### Requirement: Gitea serves the container registry of the cluster
 The Gitea values file `k8s/gitea/values.yaml` SHALL turn on Gitea's packages (`gitea.config.packages.ENABLED: true`), which hold the container registry of the cluster.
 
-#### Scenario: A test reads the Gitea values
-- **WHEN** a test reads `k8s/gitea/values.yaml`
-- **THEN** `gitea.config.packages` is `{"ENABLED": true}`
+#### Scenario: The registry API answers
+- **WHEN** a person runs `kubectl -n gitea port-forward svc/gitea-http 3000:3000` and sends `GET /v2/` to the local port with no credential
+- **THEN** Gitea answers 401 with a `WWW-Authenticate` header that names its token route, and not 404
