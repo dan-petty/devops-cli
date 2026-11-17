@@ -9,19 +9,29 @@ repair round.
 The model of each tier is a pydantic-ai `FunctionModel` from `ModelScript`. Git runs for real on a
 checkout in `tmp_path`. `ruff check` reads the files of the checkout through `process_fake`, so a
 file that holds `import os` fails the lint.
+
+A shell call of an attempt reaches the gateway through the loopback broker of the step, and counts
+as a model call of that tier (#3820). The shell is faked at the workspace edge, as in the job tests,
+and the gateway answer is the HTTP fake.
 """
 
 from __future__ import annotations
 
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
+import httpx2
 import pytest
-from pydantic_ai.exceptions import UnexpectedModelBehavior
+from pydantic_ai.exceptions import ModelAPIError, UnexpectedModelBehavior
+from pydantic_ai.workspaces import CommandResult
+from pydantic_ai.workspaces.local import LocalWorkspaceBackend
 
+from devops_cli.roadmap.implement.implement_limits import new_tokens
 from devops_cli.roadmap.implement.implement_step import StepOutcome, StepStatus, run_step
 from devops_cli.roadmap.implement.implement_trace import ImplementTrace, TraceEventKind
+from tests.support.fakes.http import WebFake
+from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import (
@@ -31,6 +41,7 @@ from tests.support.implement_step import (
     TICKED,
     WINDOW,
     command_text,
+    make_checkout,
     write_call,
 )
 from tests.support.model_script import ModelScript, say, tool_calls
@@ -188,3 +199,103 @@ def test_an_attempt_after_a_change_tier_failure_names_the_second_tier_and_the_ti
         (1, CODER, "failed", "planned"),
         (2, REASONING, "passed", "tier"),
     ]
+
+
+# ── A shell call through the broker of the step (#3820) ───────────────────────────────────
+
+BROKER_GATEWAY = "https://gateway.example.com/v1"
+BROKER_CHAT = f"{BROKER_GATEWAY}/chat/completions"
+BROKER_KEY = "gateway-secret-key-3820"
+# The answer of the gateway: the provider read 20 of the 120 input tokens from its cache, so the
+# budget of the step counts 130 new tokens for the shell call.
+BROKER_USAGE = {
+    "prompt_tokens": 120,
+    "completion_tokens": 30,
+    "prompt_tokens_details": {"cached_tokens": 20},
+}
+SHELL_INPUT, SHELL_CACHED, SHELL_OUTPUT = 120, 20, 30
+SHELL_CALL = 'uv run devops ai rag-query "the sample"'
+
+
+@pytest.fixture
+def gateway(config: Callable[..., Path], keyring_store: FakeKeyring) -> None:
+    """The gateway as the provider of the step, with its key in the credential store."""
+    config(ai={"provider": "gateway", "gateway_url": BROKER_GATEWAY})
+    keyring_store.set_password("devops-cli", "ai_api_key", BROKER_KEY)
+
+
+def _shell_reaches_the_broker(monkeypatch: pytest.MonkeyPatch, *, reach: bool) -> list[str]:
+    """The shell of a step: the workspace answers each command with `ran`, and `SHELL_CALL` sends
+    one request to the live broker of the step when `reach` is true. The control run reads the same
+    text from the shell, so its model sees the messages of the run that calls the broker."""
+    calls: list[str] = []
+
+    async def run(self: object, command: str, **options: object) -> CommandResult:
+        env = options.get("env")
+        if reach and SHELL_CALL in command and isinstance(env, Mapping):
+            calls.append(command)
+            headers = {"authorization": f"Bearer {env['DEVOPS_CLI_BROKER_TOKEN']}"}
+            with httpx2.Client() as shell:
+                shell.post(
+                    f"{env['DEVOPS_CLI_BROKER_URL']}/chat/completions",
+                    headers=headers,
+                    content=b'{"model": "devops-coder", "messages": []}',
+                )
+        return CommandResult(exit_code=0, stdout="ran", stderr="")
+
+    monkeypatch.setattr(LocalWorkspaceBackend, "run", run)
+    return calls
+
+
+def _broker_scripts() -> dict[str, ModelScript]:
+    """One shell call on the first tier, which then fails over to the second tier, and the group
+    done there."""
+    return {
+        CODER: ModelScript(
+            tool_calls(("run_command", {"command": SHELL_CALL})),
+            ModelAPIError("example-model", "The provider broke."),
+        ),
+        REASONING: ModelScript(tool_calls(*NOT_TICKED, TICK), say("Done.")),
+    }
+
+
+def test_a_shell_call_lands_on_the_tier_of_its_attempt(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    gateway: None,
+    web: WebFake,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A shell call through the broker counts as a model call of the attempt that ran it: its
+    request and its tokens join the record of that tier, its new tokens join the totals of the
+    step, and the tier that ran no shell call keeps its own counts (#3820). The control run makes
+    the same calls through the same scripts without a request, so the tokens of the model are the
+    same in both runs."""
+    web.respond("POST", BROKER_CHAT, 200, {"usage": BROKER_USAGE})
+    control_calls = _shell_reaches_the_broker(monkeypatch, reach=False)
+    control = _step(store, make_checkout(tmp_path / "control"), _broker_scripts())
+
+    calls = _shell_reaches_the_broker(monkeypatch, reach=True)
+    outcome = _step(store, checkout, _broker_scripts())
+
+    coder, reasoning = control.tier_spend[CODER], control.tier_spend[REASONING]
+    assert (outcome.status, outcome.tiers) == (StepStatus.DONE, (CODER, REASONING))
+    assert (control_calls, len(calls)) == ([], 1)
+    assert [record.url for record in web.recorded] == [BROKER_CHAT]
+    assert outcome.tier_spend[CODER] == coder.model_copy(
+        update={
+            "requests": coder.requests + 1,
+            "input_tokens": coder.input_tokens + SHELL_INPUT,
+            "cache_read_tokens": coder.cache_read_tokens + SHELL_CACHED,
+            "output_tokens": coder.output_tokens + SHELL_OUTPUT,
+        }
+    )
+    assert outcome.tier_spend[REASONING] == reasoning
+    assert (outcome.requests, outcome.input_tokens, outcome.cache_read_tokens) == (
+        control.requests + 1,
+        control.input_tokens + SHELL_INPUT,
+        control.cache_read_tokens + SHELL_CACHED,
+    )
+    assert new_tokens(outcome) - new_tokens(control) == SHELL_INPUT - SHELL_CACHED + SHELL_OUTPUT
