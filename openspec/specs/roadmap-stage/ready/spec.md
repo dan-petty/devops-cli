@@ -82,11 +82,11 @@ The row SHALL read the pull request again before it marks, and SHALL leave a dra
 - **THEN** the round marks no pull request
 
 ### Requirement: An open finding keeps the plan in draft
-When the last review of a plan returns a finding on a place that the plan or the issue holds, with a quote in its input or in a tool answer of the run and a type of `missing_path`, `false_premise`, `ignores_existing_code`, `task_order`, `verify_form`, `spec_delta_wrong` or `criterion_dropped`, or with a placeholder that its request holds, the stage SHALL keep the plan pull request in draft, apply the label `verdict/fix-plan` to it, and put those findings at the top of the stage comment.
+When the last review of a plan returns a finding on a place that the plan or the issue holds, with a quote in its input or in a tool answer of the run and a type of `missing_path`, `false_premise`, `ignores_existing_code`, `task_order`, `verify_form`, `spec_delta_wrong` or `criterion_dropped`, or with a placeholder that its request holds, the stage SHALL keep the plan pull request in draft, apply the label `verdict/fix-plan` to it, and list those findings in its plan-state comment.
 
 #### Scenario: A placeholder finding from a fake client
 - **WHEN** The fake verification client returns a placeholder finding whose quote is in the input.
-- **THEN** The plan pull request is a draft, it holds the label `verdict/fix-plan`, and its stage comment starts with the finding text.
+- **THEN** The plan pull request is a draft, it holds the label `verdict/fix-plan`, its state comment lists the finding as open, and the comment of the run does not hold it.
 
 #### Scenario: A clean review stages as today
 - **WHEN** The fake verification client returns no finding with a quote in the input and an open defect type.

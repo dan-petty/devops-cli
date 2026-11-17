@@ -1,15 +1,11 @@
 ## MODIFIED Requirements
 
 ### Requirement: The comment and the record of a staged item
-The job SHALL write one plan-state comment on the issue for each plan pull request, with the marker `<!-- devops roadmap stage -->` and a hidden key line that names the pull request. The state comment SHALL name the branch, the pull request, the groups with their tokens and the budget, and SHALL list the open findings and the advisory findings. A stage or a restage of a draft that has a state comment SHALL edit that comment in place and SHALL write no second state comment for it. Then the job SHALL post one comment of the run with a hidden event line that names the pull request: the facts of that run only, and no group and no finding. When the job replaced a draft pull request, the comment of the run SHALL name the number of that draft, and the record SHALL hold the re-stage in `stage.restage`. The job SHALL record `stage.branch`, `stage.pr`, `stage.sha` and `stage.text_hash` in the job record, and no copy of the groups. The job SHALL NOT change the Status of the item.
+The job SHALL write one plan-state comment on the issue for each plan pull request, with the marker `<!-- devops roadmap stage -->` and a hidden key line that names the pull request. It SHALL name the branch, the pull request, the groups with their tokens and the budget, and list the open and the advisory findings. A restage SHALL edit it in place. The record SHALL hold `stage.branch`, `stage.pr`, `stage.sha` and `stage.text_hash`, and the Status SHALL stay.
 
 #### Scenario: The comment and the record
 - **WHEN** The job stages a Ready bug
 - **THEN** The issue gets a state comment with the branch, the pull request and the groups, and a comment of the run with no group, the record holds the four keys and no `stage.groups`, and the Status is still Ready
-
-#### Scenario: The comment names the replaced draft
-- **WHEN** The job replaces draft pull request 7 of item 7
-- **THEN** The comment of the run of item 7 holds the number 7 and says that the job replaced that draft, and the record holds the re-stage of pull request 7
 
 #### Scenario: A restage edits the state comment
 - **WHEN** The item has a state comment for draft pull request 5, and the job replaces the plan of that draft
@@ -41,3 +37,12 @@ After the job records an item, it SHALL add to its draft pull request the `type/
 #### Scenario: A dry run
 - **WHEN** `devops roadmap stage --dry-run` runs
 - **THEN** the plan lists the read of `.github/labels.yml` and the request that adds a label to the draft, and the run makes no request
+
+## ADDED Requirements
+
+### Requirement: The comment of a stage run holds the facts of the run
+After the state comment, the job SHALL post one comment of the run with a hidden event line that names the pull request: the facts of that run only, and no group and no finding. When the job replaced a draft pull request, the comment of the run SHALL name the number of that draft, and the record SHALL hold the re-stage in `stage.restage`.
+
+#### Scenario: The comment names the replaced draft
+- **WHEN** The job replaces draft pull request 7 of item 7
+- **THEN** The comment of the run of item 7 holds the number 7 and says that the job replaced that draft, and the record holds the re-stage of pull request 7

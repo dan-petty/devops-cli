@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: An open finding keeps the plan in draft
-When the last review of a plan returns a finding on a place that the plan or the issue holds, with a quote in its input or in a tool answer of the run and a type of `missing_path`, `false_premise`, `ignores_existing_code`, `task_order`, `verify_form`, `spec_delta_wrong` or `criterion_dropped`, or with a placeholder that its request holds, the stage SHALL keep the plan pull request in draft, apply the label `verdict/fix-plan` to it, and list those findings as open findings in the plan-state comment of the pull request, after the task groups. The comment of the run SHALL list no finding.
+When the last review of a plan returns a finding on a place that the plan or the issue holds, with a quote in its input or in a tool answer of the run and a type of `missing_path`, `false_premise`, `ignores_existing_code`, `task_order`, `verify_form`, `spec_delta_wrong` or `criterion_dropped`, or with a placeholder that its request holds, the stage SHALL keep the plan pull request in draft, apply the label `verdict/fix-plan` to it, and list those findings in its plan-state comment.
 
 #### Scenario: A placeholder finding from a fake client
 - **WHEN** The fake verification client returns a placeholder finding whose quote is in the input.
