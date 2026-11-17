@@ -235,3 +235,76 @@ def test_a_plan_that_needs_no_change_comes_back_as_it_was() -> None:
     assert result.files == files
     assert result.changes == ()
     assert result.notes == ()
+
+
+def test_an_unmarked_verification_line_is_marked_and_not_duplicated() -> None:
+    tasks = NO_VERIFICATION.replace(
+        "- [ ] 1.1 Write the failing test in `tests/test_sample.py`",
+        "- [ ] 1.1 Write the failing test in `tests/test_sample.py`\n"
+        "  - Verification: `uv run devops ci test tests/test_sample.py` passes",
+    )
+
+    result = rewrite_plan(ROOT, _files(tasks), TREE)
+    rewritten = result.files[TASKS_PATH]
+
+    groups = parse_task_groups(rewritten)
+    assert groups[0].verification_commands == ("uv run devops ci test tests/test_sample.py",)
+    assert rewritten.count("Verification:") == 3
+    assert "  - Verification: `$ uv run devops ci test tests/test_sample.py` passes" in rewritten
+    assert any("mark the verification command" in note for note in result.notes)
+
+
+def test_all_unmarked_verification_lines_are_marked_across_groups() -> None:
+    tasks = (
+        "# Tasks\n\n"
+        "## 1. First group\n\n"
+        "Reads: none. Changes: `src/devops_cli/sample.py`.\n\n"
+        "- [ ] 1.1 First task\n"
+        "  - Verification: `uv run pytest tests/test_1.py` passes\n\n"
+        "## 2. Second group\n\n"
+        "Reads: none. Changes: `src/devops_cli/sample.py`.\n\n"
+        "- [ ] 2.1 Second task\n"
+        "  - Verification: `uv run pytest tests/test_2.py` passes\n"
+    )
+
+    result = rewrite_plan(ROOT, _files(tasks), TREE)
+    rewritten = result.files[TASKS_PATH]
+
+    groups = parse_task_groups(rewritten)
+    assert groups[0].verification_commands == ("uv run pytest tests/test_1.py",)
+    assert groups[1].verification_commands == ("uv run pytest tests/test_2.py",)
+    assert "  - Verification: `$ uv run pytest tests/test_1.py` passes" in rewritten
+    assert "  - Verification: `$ uv run pytest tests/test_2.py` passes" in rewritten
+    assert "`uv run pytest" not in rewritten.replace("`$ uv run pytest", "")
+
+
+def test_a_marked_verification_line_is_kept_unchanged() -> None:
+    tasks = (
+        "# Tasks\n\n"
+        "## 1. First group\n\n"
+        "Reads: none. Changes: `src/devops_cli/sample.py`.\n\n"
+        "- [ ] 1.1 First task\n"
+        "  - Verification: `$ uv run pytest tests/test_1.py` passes\n"
+    )
+
+    result = rewrite_plan(ROOT, _files(tasks), TREE)
+    assert not any("mark the verification command" in note for note in result.notes)
+    assert "  - Verification: `$ uv run pytest tests/test_1.py` passes" in result.files[TASKS_PATH]
+    assert "$ $ " not in result.files[TASKS_PATH]
+
+
+def test_only_first_code_span_on_verification_line_is_marked() -> None:
+    tasks = (
+        "# Tasks\n\n"
+        "## 1. First group\n\n"
+        "Reads: none. Changes: `src/devops_cli/sample.py`.\n\n"
+        "- [ ] 1.1 First task with `sample_arg`\n"
+        "  - Verification: `uv run pytest tests/test_1.py` passes with `arg`\n"
+    )
+
+    result = rewrite_plan(ROOT, _files(tasks), TREE)
+    rewritten = result.files[TASKS_PATH]
+
+    assert "  - Verification: `$ uv run pytest tests/test_1.py` passes with `arg`" in rewritten
+    assert "`sample_arg`" in rewritten
+    assert "`$ sample_arg`" not in rewritten
