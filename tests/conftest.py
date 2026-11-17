@@ -98,6 +98,7 @@ _PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
     "devops_cli.ai.response_cache": ("reset_llm_response_cache",),
     "devops_cli.ai.spend.ledger": ("reset_spend_ledger",),
     "devops_cli.ai.spend.pricing": ("reset_pricing_registry",),
+    "devops_cli.ai.task_loader": ("reset_prompt_environment_cache",),
     "devops_cli.security.vault_lease": ("reset_lease_registry",),
     "devops_cli.config.env": ("reset_declarations_cache",),
     "devops_cli.config.metadata": ("reset_project_metadata_cache",),

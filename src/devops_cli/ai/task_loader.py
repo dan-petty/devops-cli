@@ -41,6 +41,11 @@ def prompt_environment() -> SandboxedEnvironment:
     )
 
 
+def reset_prompt_environment_cache() -> None:
+    """Clear the cached Jinja2 environment of the task prompts."""
+    prompt_environment.cache_clear()
+
+
 def load_task_prompt(filename: str, /, **context: Any) -> str:
     """Load a markdown prompt file from the ai/tasks/ directory.
 
