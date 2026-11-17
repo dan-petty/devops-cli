@@ -1227,6 +1227,7 @@ def test_a_comment_is_kept_on_its_issue_with_the_time_it_was_made(
         IssueComment(
             body="Moved to the backlog.",
             created_at=clock.now,
+            id=1,
             author_association="OWNER",
             author_login="devops-cli",
         )

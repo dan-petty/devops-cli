@@ -230,9 +230,10 @@ class AlternativesRecordKey(StrEnum):
 
 class StageRecordKey(StrEnum):
     """What the stage job records in an Item's job record (#2654): the staged branch, the number
-    of its draft pull request, the commit it ends on, the task groups with their measures in
-    tokens, the task group over the budget that stopped the item, which a person decides, and the
-    file cap in tokens of the measure that made the stop: a stop under another cap is stale. The
+    of its draft pull request, the commit it ends on, the task group over the budget that stopped
+    the item, which a person decides, and the file cap in tokens of the measure that made the stop:
+    a stop under another cap is stale. The task groups with their measures in tokens are in the
+    plan-state comment of the pull request, and in no record key (#6197). The
     Service records `stage.ready`, the number of the draft pull request that it has seen leave the
     draft state (#2865), and `stage.needs_fix`, the number of the draft that it told about the
     label `verdict/fix-plan` (#3264), and `stage.jev`, the head commit that the Jev completeness
@@ -265,7 +266,6 @@ class StageRecordKey(StrEnum):
     BRANCH = "stage.branch"
     PR = "stage.pr"
     SHA = "stage.sha"
-    GROUPS = "stage.groups"
     NEEDS_SPLIT = "stage.needs_split"
     FILE_CAP = "stage.file_cap"
     READY = "stage.ready"
@@ -687,7 +687,9 @@ class IssueComment(BaseModel):
     when the store does not know it, and the commenter's login. `on_pull_request` says that the
     comment is on a pull request, which GitHub's comment listings mix with the issues (#2754).
     `id` and `url` are the id and the page of the comment on GitHub, None when the store does not
-    know them: a job names a comment that its model read by its page (#6167)."""
+    know them: a job names a comment that its model read by its page (#6167). `updated_at` is the
+    time of its last edit, None when the store does not know it: the jobs edit the plan-state
+    comment in place and read it as made at that time (#6197)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -698,6 +700,7 @@ class IssueComment(BaseModel):
     author_login: str | None = None
     on_pull_request: bool = False
     url: str | None = None
+    updated_at: datetime | None = None
 
 
 class Closure(BaseModel):
@@ -1275,6 +1278,10 @@ class RoadmapStore(Protocol):
     def comment(self, number: int, body: str) -> bool:
         """Comment `body` on issue `number`, and return whether it posted: False when it refused
         `body` as a repeat of a recent comment of the same roadmap job there (#4793)."""
+
+    def edit_comment(self, number: int, comment_id: int, body: str) -> None:
+        """Write `body` as the text of the comment `comment_id` on issue `number`: the upsert of
+        a marked comment edits it in place (`steps/comment.py`, #6197)."""
 
     def close(self, number: int, reason: CloseReason, *, comment: str | None = None) -> None:
         """Close the open issue `number` for `reason`, after `comment` is posted on it when

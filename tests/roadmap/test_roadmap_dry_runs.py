@@ -851,3 +851,37 @@ def test_the_stage_plan_lists_the_reads_and_the_writes_of_a_rejected_plan() -> N
     ]
     of_a_rejection = [w for w in writes if w.repeat == texts.plan_repeat["stage_rejected"]]
     assert len(of_a_rejection) == 5
+
+
+def _comment_methods(writes: tuple[PlannedRequest, ...]) -> list[tuple[str, str]]:
+    """The method and the condition of each comment write of `writes`, in order."""
+    return [
+        (w.argv[3], w.condition)
+        for w in writes
+        if w.argv[:3] == ("gh", "api", "-X") and "comments" in w.argv[4]
+    ]
+
+
+@pytest.mark.parametrize("job", ["stage", "fix_plan"])
+def test_the_plan_edits_the_plan_state_comment_then_posts_the_comment_of_the_run(job: str) -> None:
+    """The stage job and the step fix-plan edit the plan-state comment of the pull request when a
+    comment of the item holds its key, else post it, and then post the comment of the run
+    (#6197)."""
+    from devops_cli.roadmap.request_plan import fix_plan_requests, stage_requests
+
+    plan = stage_requests if job == "stage" else fix_plan_requests
+    _, writes = plan(REPO)
+
+    texts = MESSAGES.roadmap
+    conditions = (
+        texts.stage_request_conditions if job == "stage" else texts.fix_plan_request_conditions
+    )
+    edit, state, event = _comment_methods(writes)[-3:]
+    assert (
+        edit[0],
+        conditions["state_edit"] in edit[1],
+        state[0],
+        conditions["state_new"] in state[1],
+        event[0],
+        conditions["state_new"] in event[1],
+    ) == ("PATCH", True, "POST", True, "POST", False)

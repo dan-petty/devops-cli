@@ -12,13 +12,17 @@ from typing import TYPE_CHECKING
 import pytest
 
 from devops_cli import exceptions
-from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
+from devops_cli.config.constants import (
+    CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
+    CONST_ROADMAP_STAGE_COMMENT_MARKER,
+)
 from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_STEP_TOKENS
 from devops_cli.exceptions import GitHubOperationError, ended_by_stop
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import failure as failure_module
 from devops_cli.roadmap.failure import FailureClass
+from devops_cli.roadmap.stage.plan_state import event_key, state_key
 from devops_cli.roadmap.stage.stage import (
     StageApplied,
     StageFailure,
@@ -175,9 +179,9 @@ def test_a_refused_label_keeps_the_staged_item_and_notes_in_the_comment(
     item = store.item(1)
     assert item is not None
     assert all(
-        k in item.job_record for k in ("stage.branch", "stage.pr", "stage.sha", "stage.groups")
+        k in item.job_record for k in ("stage.branch", "stage.pr", "stage.sha", "stage.text_hash")
     )
-    comment = _comments(store, 1)[0]
+    comment = _comments(store, 1)[-1]
     assert "#5" in comment
     assert "type/docs" in comment
 
@@ -207,33 +211,40 @@ def test_the_clone_keeps_its_head_and_no_worktree_after_a_stage(
     assert len(stage_repo.git("worktree", "list").splitlines()) == 1
 
 
-def test_a_staged_item_gets_one_comment_and_a_record_and_keeps_its_status(
+def test_a_staged_item_gets_a_plan_state_comment_an_event_comment_and_a_record(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, opened: GitHubApiFake
 ) -> None:
+    """The plan-state comment of the pull request holds the branch, the pull request and the
+    groups with their tokens, and the comment of the run holds none of them (#6197). The record
+    holds no copy of the groups, and the Status stays."""
     model_fake.answer(make_stage_proposal())
 
     _stage(store, stage_repo)
 
-    (comment,) = _comments(store)
-    assert comment.startswith("<!-- devops roadmap stage -->\n")
-    assert f"branch `{BRANCH}`" in comment
-    assert "draft pull request #5" in comment
-    assert "1. Keep the last comment:" in comment
-    assert f"budget of {DEFAULT_ROADMAP_STAGE_STEP_TOKENS} tokens" in comment
-    assert "did not run" not in comment
+    state, event = _comments(store)
+    assert state.startswith(f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\n{state_key(5)}\n")
+    assert f"branch `{BRANCH}`" in state
+    assert "draft pull request #5" in state
+    assert "1. Keep the last comment:" in state
+    assert f"budget of {DEFAULT_ROADMAP_STAGE_STEP_TOKENS} tokens" in state
+    assert event.startswith(f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\n{event_key(5)}\n")
+    assert (BRANCH in event, "Keep the last comment" in event, "did not run" in event) == (
+        False,
+        False,
+        False,
+    )
     item = store.item(1)
     assert item is not None
     assert item.status == "Ready"
     sha = stage_repo.origin_git("rev-parse", BRANCH)
-    groups = json.loads(item.job_record[StageRecordKey.GROUPS] or "")
     assert (
         item.job_record[StageRecordKey.BRANCH],
         item.job_record[StageRecordKey.PR],
         item.job_record[StageRecordKey.SHA],
-        [g[0] for g in groups],
+        "stage.groups" in item.job_record,
         item.job_record.get(StageRecordKey.NEEDS_SPLIT),
         item.job_record.get(StageRecordKey.FILE_CAP),
-    ) == (BRANCH, "5", sha, ["Keep the last comment"], None, None)
+    ) == (BRANCH, "5", sha, False, None, None)
 
 
 def test_the_comment_states_the_graphql_requests_of_the_overlap_read(
@@ -272,7 +283,7 @@ def test_the_comment_states_the_graphql_requests_of_the_overlap_read(
 
     _stage(store, stage_repo)
 
-    (comment,) = _comments(store)
+    (_, comment) = _comments(store)
     assert "1 GraphQL request(s)" in comment
 
 
@@ -306,7 +317,7 @@ def test_the_comment_says_when_openspec_did_not_validate_the_change(
 
     _stage(store, stage_repo)
 
-    assert "`openspec validate` did not run" in _comments(store)[0]
+    assert "`openspec validate` did not run" in _comments(store)[-1]
 
 
 def test_the_comment_names_each_comment_of_the_item_that_the_plan_request_held_whole(
@@ -578,7 +589,7 @@ def test_the_comment_lists_the_tool_calls_and_the_counts_of_the_plan_run(
 
     applied = _stage(store, stage_repo, toolbox=script)
 
-    (comment,) = _comments(store)
+    (_, comment) = _comments(store)
     assert applied.staged == (1,)
     assert "The runs of the planner and the review made 2 model request(s)" in comment
     assert '1. `read_file({"path":"src/devops_cli/sample.py"})`' in comment
@@ -599,7 +610,7 @@ def test_the_comment_counts_the_calls_of_each_tool_in_one_line_in_alphabetical_o
 
     _stage(store, stage_repo, toolbox=script)
 
-    (comment,) = _comments(store)
+    (_, comment) = _comments(store)
     lines = [line for line in comment.splitlines() if line.startswith("Tool calls:")]
     assert lines == ["Tool calls: list_files=1 (empty=0), read_file=2 (empty=0)"]
 
@@ -617,7 +628,7 @@ def test_the_comment_counts_the_empty_answers_of_a_tool(
 
     _stage(store, stage_repo, toolbox=script)
 
-    (comment,) = _comments(store)
+    (_, comment) = _comments(store)
     assert "Tool calls: read_file=1 (empty=0), search_code=2 (empty=2)" in comment
 
 
@@ -643,7 +654,7 @@ def test_the_comment_of_an_item_with_two_plan_runs_sums_the_calls_of_each_tool(
 
     _stage(store, stage_repo, toolbox=script)
 
-    (comment,) = _comments(store)
+    (_, comment) = _comments(store)
     assert "Tool calls: read_file=2 (empty=0)" in comment
 
 
@@ -653,7 +664,7 @@ def test_the_comment_of_an_item_that_made_no_tool_call_has_no_line_of_tool_count
 ) -> None:
     _stage(store, stage_repo, toolbox=Script(make_stage_proposal()))
 
-    (comment,) = _comments(store)
+    (_, comment) = _comments(store)
     assert "Tool calls:" not in comment
 
 
@@ -663,7 +674,7 @@ def test_the_comment_of_an_item_that_made_no_tool_call_says_so(
 ) -> None:
     _stage(store, stage_repo, toolbox=Script(make_stage_proposal()))
 
-    (comment,) = _comments(store)
+    (_, comment) = _comments(store)
     assert "The runs of the planner and the review made 1 model request(s)" in comment
     assert "The model made no tool call." in comment
 
@@ -674,7 +685,7 @@ def test_the_comment_of_a_run_that_offered_tools_says_the_model_chose_none(
 ) -> None:
     _stage(store, stage_repo, toolbox=Script(make_stage_proposal()))
 
-    (comment,) = _comments(store)
+    (_, comment) = _comments(store)
     assert (
         "The model made no tool call. The run offered tools on 1 of 1 request(s), and the model "
         "called none." in comment
@@ -688,7 +699,7 @@ def test_the_comment_of_an_item_planned_with_one_call_has_no_report(
 
     _stage(store, stage_repo)
 
-    (comment,) = _comments(store)
+    (_, comment) = _comments(store)
     assert "plan run" not in comment
 
 
@@ -714,7 +725,7 @@ def test_the_comment_of_an_item_with_two_plan_runs_lists_the_calls_of_both_and_s
 
     _stage(store, stage_repo, toolbox=script)
 
-    (comment,) = _comments(store)
+    (_, comment) = _comments(store)
     assert "The runs of the planner and the review made 4 model request(s)" in comment
     first = comment.index("1. `list_files(")
     second = comment.index("2. `read_file(")
@@ -729,7 +740,7 @@ def test_the_comment_holds_the_masked_argument_and_not_the_secret(
 
     _stage(store, stage_repo, toolbox=script)
 
-    (comment,) = _comments(store)
+    (_, comment) = _comments(store)
     assert (_SECRET in comment, "<masked-github-token>" in comment) == (False, True)
 
 
@@ -870,7 +881,7 @@ def test_the_comment_lists_a_named_path_that_the_default_branch_changed(
 
     apply_stage(store, plan, source=stage_repo.clone)
 
-    (comment,) = _comments(store)
+    (_, comment) = _comments(store)
     assert MESSAGES.roadmap.stage_comment_moved in comment
     assert f"`src/devops_cli/sample.py`: {commit} advance main" in comment
 
@@ -888,6 +899,6 @@ def test_the_comment_of_a_plan_that_names_no_moved_path_has_no_moved_section(
 
     apply_stage(store, plan, source=stage_repo.clone)
 
-    (comment,) = _comments(store)
+    (_, comment) = _comments(store)
     assert MESSAGES.roadmap.stage_comment_moved not in comment
     assert "later.txt" not in comment

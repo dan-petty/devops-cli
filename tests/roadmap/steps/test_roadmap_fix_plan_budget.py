@@ -16,12 +16,16 @@ from typing import TYPE_CHECKING
 import pytest
 
 from devops_cli import __version__
-from devops_cli.config.constants import CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER
+from devops_cli.config.constants import (
+    CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER,
+    CONST_ROADMAP_STAGE_COMMENT_MARKER,
+)
 from devops_cli.core import clock as clock_seam
 from devops_cli.exceptions import ServiceStoppingError
 from devops_cli.roadmap.attempt_kill import AttemptKill, AttemptKilled
 from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.service_stop import begin_service_stop
+from devops_cli.roadmap.stage.plan_state import event_key, state_key
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.stage.stage_verify import FIX_PLAN_LABEL, Verification, finding_line
@@ -31,6 +35,7 @@ from devops_cli.telemetry.instruments import ROADMAP_FIX_PLAN_TOTAL
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.model import ModelFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.paths import FIXTURES
 from tests.support.roadmap_fix_plan import (
     PLAN_BRANCH,
     REPAIRED_WHY,
@@ -54,6 +59,10 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 NOW = datetime(2026, 11, 13, 4, 0, tzinfo=UTC)
 BUDGET = 600
 PROGRESS = "fix-plan progress:"
+# A real stage comment of a release before #6197, for the plan pull request #4980.
+LEGACY_STAGE_COMMENT = (FIXTURES / "roadmap_fix_plan" / "stage_comment.txt").read_text(
+    encoding="utf-8"
+)
 
 
 class StepClock:
@@ -130,8 +139,14 @@ def test_a_spent_budget_ends_the_attempt_with_a_timeout_comment_and_no_push(
     config: Callable[..., Path],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """The pull request was staged before #6197, so the attempt builds its plan-state comment from
+    the legacy stage comment: the groups and the advice of that comment, and the open finding of
+    the review of the head. The comment of the attempt holds the budget and the counts, and no
+    list of open findings."""
     config(roadmap={"fix_plan": {"time_budget_seconds": BUDGET}})
     plan = needs_fix_plan(store, stage_repo, github_api)
+    legacy = LEGACY_STAGE_COMMENT.replace("#4980", f"#{plan.pull}")
+    store.seed_comment(plan.number, legacy)
     open_finding = finding(DefectType.CRITERION_DROPPED)
 
     def slow_review(_prompt: str) -> Verification:
@@ -161,12 +176,20 @@ def test_a_spent_budget_ends_the_attempt_with_a_timeout_comment_and_no_push(
         item.job_record.get(FixPlanRecordKey.RESULT),
         item.job_record.get(FixPlanRecordKey.ATTEMPTS),
     ) == ("timeout", "1")
-    (comment,) = [each.body for each in store.comments_on(plan.number)]
-    assert CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER in comment
+    kept, state, comment = [each.body for each in store.comments_on(plan.number)]
+    assert kept == legacy
+    assert state.startswith(f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\n{state_key(plan.pull)}\n")
+    assert (
+        f"branch `{PLAN_BRANCH}`" in state,
+        "budget of 64000 tokens:\n\n1. Read the compare answer's files" in state,
+        finding_line(open_finding) in state,
+        "- `other` at tasks (2): The head-naming rule" in state,
+    ) == (True, True, True, True)
+    assert comment.startswith(f"{CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER}\n{event_key(plan.pull)}\n")
     assert f"#{plan.pull}" in comment
     assert f"{BUDGET} seconds" in comment
     assert "verify_rounds 1" in comment
-    assert finding_line(open_finding) in comment
+    assert finding_line(open_finding) not in comment
     (line,) = result_fields(caplog)
     assert {key: line.get(key) for key in ("result", "success", "class", "step", "before")} == {
         "result": "timeout",

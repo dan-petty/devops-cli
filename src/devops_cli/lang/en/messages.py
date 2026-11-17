@@ -4394,11 +4394,23 @@ class RoadmapMessages:
         "replaces the one of its draft pull request."
     )
     git_failed: str = "`git {command}` failed: {reason}"
-    # The comments of the stage job; each starts with its marker.
-    stage_comment_staged: str = (
-        "{marker}\nStaged: branch `{branch}`, draft pull request #{pull}. The pull request "
-        "plans the item and closes no issue.\n\nThe task groups, with the tokens of the inputs "
-        "of each step, for a budget of {budget} tokens:\n\n{groups}{notes}"
+    # The comments of the stage job; each starts with its marker. The plan-state comment of a plan
+    # pull request (#6197): its hidden key line, the branch and the pull request, then the task
+    # groups and the findings. The stage job and the step fix-plan edit it in place.
+    plan_state_comment: str = (
+        "{marker}\n{key}\nPlan state: branch `{branch}`, draft pull request #{pull}. The pull "
+        "request plans the item and closes no issue. The stage job and the step fix-plan edit "
+        "this comment, and a comment of each run tells what the run did.{groups}"
+    )
+    plan_state_groups: str = (
+        "\n\nThe task groups, with the tokens of the inputs of each step, for a budget of "
+        "{budget} tokens:\n\n{groups}"
+    )
+    # The comment of one stage or restage run (#6197): the facts of that run only, after its
+    # hidden event line. The plan-state comment holds the branch, the groups and the findings.
+    stage_comment_event: str = (
+        "{marker}\n{key}\nThe stage job staged the plan of draft pull request #{pull}. The plan "
+        "state comment of #{pull} holds the branch, the task groups and the findings.{notes}"
     )
     # The draft pull request whose plan the job replaced on the branch of the item (#3387).
     stage_comment_restaged: str = (
@@ -4688,7 +4700,17 @@ class RoadmapMessages:
     fix_plan_comment_revised: str = (
         "{marker}\nThe step fix-plan pushed a revision of the plan of #{pull} ({head}). The model "
         "review found {before} open finding(s) in the plan before the repair and {after} after "
-        "it, so the pull request keeps the label `verdict/fix-plan`.{findings}"
+        "it, so the pull request keeps the label `verdict/fix-plan`."
+    )
+    # The sentence of the comment of an attempt whose plan keeps an open finding (#6197): the
+    # plan-state comment lists the findings, and this comment lists none.
+    fix_plan_comment_state: str = (
+        " The plan state comment of #{pull} lists the open findings that keep the label."
+    )
+    # The sentence of the comment of an attempt whose reviews gave advice (#6197): the plan-state
+    # comment lists the advice, and this comment lists none.
+    fix_plan_comment_advice: str = (
+        " The plan state comment of #{pull} lists the advice of the reviews of this attempt."
     )
     fix_plan_comment_cleared: str = (
         "{marker}\nThe step fix-plan pushed a revision of the plan of #{pull} ({head}). The model "
@@ -4698,7 +4720,7 @@ class RoadmapMessages:
     fix_plan_comment_regated: str = (
         "{marker}\nThe step fix-plan pushed a new plan of #{pull} ({head}). The checks refused "
         "the plan of the old head at the latest default branch, and the stage planner wrote a "
-        "plan that they pass. {why}{findings}"
+        "plan that they pass. {why}"
     )
     fix_plan_regated_clean: str = (
         "The model review found no open finding in the new plan, so the pull request loses the "
@@ -4724,13 +4746,13 @@ class RoadmapMessages:
     fix_plan_comment_stopped: str = (
         "{marker}\nThe step fix-plan stopped before the review of the plan of #{pull} ({head}). "
         "The pull request keeps the label `verdict/fix-plan`, and the step does not return the item "
-        "to New: a person decides. {evidence}{findings}"
+        "to New: a person decides. {evidence}"
     )
     fix_plan_comment_timeout: str = (
         "{marker}\nThe time budget of the step fix-plan ({budget} seconds, "
         "`roadmap.fix_plan.time_budget_seconds`) ended in the step `{step}` of the attempt on "
         "the plan of #{pull} ({head}). The step pushed nothing, and the pull request keeps the label "
-        "`verdict/fix-plan`. The attempt made {counts}.{findings}"
+        "`verdict/fix-plan`. The attempt made {counts}."
     )
     fix_plan_stop_premise: str = (
         "The body of the item says that a class field is absent, and the default branch defines "
@@ -4748,7 +4770,7 @@ class RoadmapMessages:
     fix_plan_requests: dict[str, str] = field(
         default_factory=lambda: {
             "pull_state": "the state, the labels and the head of the plan pull request of the item",
-            "comments": "the comments of the item, to read the open findings of the last plan comment",
+            "comments": "the comments of the item, to read the open findings, the advice and the groups of the plan state comment of the pull request, or of the last legacy plan comment of an older pull request",
             "fetch": "fetch the default branch and the branch of the plan",
             "tip": "the head of the branch of the plan on origin",
             "identity": "the identity of the clone, to find a commit of another author",
@@ -4784,6 +4806,8 @@ class RoadmapMessages:
             "update_pull": "the title or the body of the pushed plan differs",
             "unlabel": "cleared (no open finding remains), dismissed (the review of the head found none), or regated after a review of the new plan with no open finding and no failed step",
             "comment": "the result is revised, cleared, regated, dismissed, stopped or timeout",
+            "state_edit": "a comment of the item holds the plan state key of the pull request: the step edits its open findings and its advice",
+            "state_new": "no comment of the item holds that key: the step posts the plan state comment",
         }
     )
     jev_completeness_question_plan: str = (
@@ -4897,6 +4921,8 @@ class RoadmapMessages:
             "rejected_comments": "the pull request closed with no merge",
             "rejected_path": "the item holds a rejected plan whose text did not change",
             "rejected_reason": "the item holds a rejected plan and the round selects it",
+            "state_edit": "a comment of the item holds the plan state key of the pull request: the job edits it",
+            "state_new": "no comment of the item holds that key: the job posts the plan state comment",
             "delete_rejected": (
                 "the pull request closed with no merge and only the identity of the session "
                 "wrote to the branch"
@@ -5759,6 +5785,7 @@ class RoadmapMessages:
             "labels": "<the labels, the field's family replaced>",
             "record": "<the body, its job record block written>",
             "comment": "<comment>",
+            "comment_id": "<comment id>",
             "title": "<title>",
             "body": "<body>",
             "label": "<label>",
@@ -5830,6 +5857,7 @@ class RoadmapMessages:
             ),
             "body": "the body of {subject}, its job record kept",
             "comment": "comment on {subject}",
+            "edit_comment": "edit the comment of {subject} that holds the key",
             "label": "label {subject}",
             "unlabel": "unlabel {subject}",
             "add_sub_issue": "add {subject} as a sub-issue of {parent}",

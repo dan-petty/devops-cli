@@ -47,7 +47,8 @@ severity, and it reads as a major finding.
 
 - `timeout`: the time budget of the step ended before a plan run or a review (#5363). The step
   pushes nothing, also a gated plan or a revision that exists, and the label stays. The comment
-  lists the open findings that keep the label and the counts of the attempt.
+  holds the counts of the attempt, and the plan-state comment lists the open findings that keep
+  the label.
 - `stopped`: a false premise, an open blocker or a head over the budget stops the attempt before a
   gated plan exists. The label stays, and the comment holds the evidence. A person decides.
 - `failed`: a model call or the checks fail before a gated plan exists, or a step after the checks
@@ -74,11 +75,16 @@ goes on with its class.
 
 **Writes.** A push is one commit on the latest default branch, which the step pushes with
 `--force-with-lease` on the head that it read; the pull request gets the title and the body of the
-plan. The step posts one comment with `CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER` on the issue for
-each attempt that ends `revised`, `cleared`, `regated`, `dismissed`, `stopped` or `timeout`, and
-writes only its own record keys (`FixPlanRecordKey`, ADR 0021 section 8). The comment of a pushed
-revision, or of a plan that loses the label, also lists the other findings of its reviews as
-advice, such as a minor or a nit finding (#5411).
+plan. For each attempt that ends `revised`, `cleared`, `regated`, `dismissed`, `stopped` or
+`timeout`, the step first writes the plan-state comment of the pull request (`plan_state`,
+#6197): the open findings that keep the label, so the next attempt reads them, and after a push
+the task groups of the pushed plan. A pushed revision, or a plan that loses the label, gives the
+other findings of its reviews as the advice of the state comment, such as a minor or a nit finding
+(#5411). A pull request that a release before #6197 staged gets its state comment from the legacy
+comments. Then the step posts one comment with `CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER` and the
+event line of the pull request on the issue: the facts of the attempt and no finding, with one
+sentence that says that the state comment lists the open findings or the advice. The step writes
+only its own record keys (`FixPlanRecordKey`, ADR 0021 section 8).
 
 **Budget.** The setting `roadmap.fix_plan.time_budget_seconds` starts with the call (#5363). The
 planner compares the time with it before each plan run and each review run, and starts no run once
@@ -113,7 +119,6 @@ from devops_cli.config.constants import (
     CONST_OPENSPEC_CHANGES_DIR,
     CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER,
     CONST_ROADMAP_FIX_PLAN_WAIT_HOURS,
-    CONST_ROADMAP_STAGE_COMMENT_MARKER,
     CONST_ROADMAP_STATUS_READY,
 )
 from devops_cli.config.settings import load_settings
@@ -138,6 +143,16 @@ from devops_cli.roadmap.planned import open_plan_creates, planned_changes_at
 from devops_cli.roadmap.pull_labels import remove_pull_labels
 from devops_cli.roadmap.request_plan import fix_plan_requests
 from devops_cli.roadmap.service_stop import raise_if_service_stops
+from devops_cli.roadmap.stage.plan_state import (
+    advisory_part,
+    event_key,
+    groups_part,
+    groups_section,
+    legacy_groups,
+    plan_comment_of,
+    state_text,
+    write_state,
+)
 from devops_cli.roadmap.stage.stage import (
     Blocked,
     FalsePremise,
@@ -159,7 +174,6 @@ from devops_cli.roadmap.stage.stage_verify import (
     PlanPart,
     finding_line,
     findings_section,
-    open_findings_section,
 )
 from devops_cli.roadmap.stores.store import (
     FixPlanRecordKey,
@@ -182,7 +196,7 @@ if TYPE_CHECKING:
     from devops_cli.roadmap.stage.stage_change import StageProposal
     from devops_cli.roadmap.stage.stage_jev_screen import ScreenCase
     from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
-    from devops_cli.roadmap.stores.store import Item, JobRecord, RoadmapStore
+    from devops_cli.roadmap.stores.store import IssueComment, Item, JobRecord, RoadmapStore
 
 logger = logging.getLogger(__name__)
 
@@ -227,11 +241,6 @@ _OLD_PLACE_PARTS: Final[Mapping[str, PlanPart]] = {
 # The severity of an open finding on a line with no severity. A release before #5411 wrote such a
 # line, and each open finding of that release kept the draft, as a major finding does now.
 _UNGRADED_SEVERITY: Final[Severity] = Severity.MAJOR
-# The comments that list the open findings of a plan: the stage comment and this step's comment.
-_PLAN_MARKERS: Final[tuple[str, ...]] = (
-    CONST_ROADMAP_STAGE_COMMENT_MARKER,
-    CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER,
-)
 # The characters of a commit that a comment or a reason shows.
 _SHORT: Final[int] = 12
 # The setting of the time budget, which its error and its comment name (#5363).
@@ -417,9 +426,10 @@ class CommentFindings:
 
 def comment_open_findings(body: str) -> CommentFindings:
     """The open findings that the comment `body` lists first, in the section that
-    `open_findings_section` writes (#3264): the stage comment, or the comment of an attempt of
-    this step that kept the label. A comment with no such section gives none. A line of the section
-    that does not read as a finding is left out and logged, with no text of the comment.
+    `open_findings_section` writes (#3264): the plan-state comment (#6197), or a legacy stage
+    comment or comment of an attempt of this step that kept the label. A comment with no such
+    section gives none. A line of the section that does not read as a finding is left out and
+    logged, with no text of the comment.
 
     The first sentence of the heading finds the section. It names no label, so a comment written
     before the rename of the label to `verdict/fix-plan` still reads (#5968)."""
@@ -451,14 +461,28 @@ def comment_open_findings(body: str) -> CommentFindings:
 
 
 def plan_comment(store: RoadmapStore, number: int, pull: int) -> str:
-    """The newest comment on issue `number` of the stage job or of this step that names plan pull
-    request `pull`, or an empty text when none does. Only a comment of a trusted author counts
-    (`trusted_replies`): the step gives its findings to the planner."""
-    names = re.compile(rf"#{pull}\b")
-    for comment in reversed(trusted_replies(store.comments_on(number))):
-        if any(marker in comment.body for marker in _PLAN_MARKERS) and names.search(comment.body):
-            return comment.body
-    return ""
+    """The last plan comment of plan pull request `pull` on issue `number`, or an empty text: its
+    plan-state comment, else the newest legacy comment of the stage job or of this step that names
+    it, and never the comment of a run (`plan_comment_of`, #6197). Only a comment of a trusted
+    author counts (`trusted_replies`): the step gives its findings to the planner."""
+    return plan_comment_of(trusted_replies(store.comments_on(number)), pull)
+
+
+@dataclass(frozen=True)
+class _PlanSource:
+    """What an attempt reads of the comments of its item (#6197): the last plan comment, whose
+    open findings and advice hold, and the section of the task groups that the state comment
+    keeps when the attempt pushes no plan."""
+
+    body: str = ""
+    groups: str = ""
+
+    @classmethod
+    def of(cls, comments: Sequence[IssueComment], pull: int) -> _PlanSource:
+        """The source of `pull` among the trusted `comments`: the groups of its state comment,
+        else those of its newest legacy stage comment."""
+        body = plan_comment_of(comments, pull)
+        return cls(body, groups_part(body) or legacy_groups(comments, pull))
 
 
 @dataclass(frozen=True)
@@ -885,6 +909,23 @@ def _advice(revision: PlanRevision, decision: _Decision) -> tuple[Finding, ...]:
     )
 
 
+def _open_after(
+    done: FixPlanAttempt,
+    decision: _Decision,
+    revision: PlanRevision,
+    listed: tuple[Finding, ...],
+) -> tuple[Finding, ...]:
+    """The open findings that keep the label after the attempt `done`, which the plan-state
+    comment lists so that the next attempt reads them (`comment_open_findings`): none when the
+    label goes, those of the pushed revision, else those of the review of the head, or those of
+    the last plan comment when that review did not run."""
+    if decision.unlabel:
+        return ()
+    if done.result is FixPlanResult.REVISED and decision.push is not None:
+        return decision.push.open_findings
+    return revision.before if revision.reviewed else listed
+
+
 def _comment(
     target: FixPlanTarget,
     done: FixPlanAttempt,
@@ -893,14 +934,47 @@ def _comment(
     listed: tuple[Finding, ...],
     budget: int,
 ) -> str | None:
-    """The comment of an attempt, or None for an attempt that posts none. A comment that keeps the
-    label lists the open findings that keep it: those of the last review, or those of the last
-    plan comment when no review ran, so the next attempt reads them (`comment_open_findings`).
-    A comment of a pushed revision, or of a plan that loses the label, then lists the advice of
-    its reviews, as the stage comment does (`_advice`, #5411). `budget` is the time budget of the
-    step in seconds, which a `timeout` comment names."""
+    """The comment of an attempt, or None for an attempt that posts none. It holds the facts of the
+    attempt, and no finding: the plan-state comment lists the open findings and the advice of the
+    reviews (`_state`, `_advice`, #5411, #6197), and this comment says so in one sentence for
+    each. No job posts the same content twice (#6193). `budget` is the time budget of the step in
+    seconds, which a `timeout` comment names."""
     text = _result_comment(target, done, decision, revision, listed, budget)
-    return None if text is None else text + findings_section(_advice(revision, decision))
+    if text is None:
+        return None
+    texts = MESSAGES.roadmap
+    if _open_after(done, decision, revision, listed):
+        text += texts.fix_plan_comment_state.format(pull=target.pull)
+    if _advice(revision, decision):
+        text += texts.fix_plan_comment_advice.format(pull=target.pull)
+    return text
+
+
+def _state(
+    target: FixPlanTarget,
+    done: FixPlanAttempt,
+    decision: _Decision,
+    revision: PlanRevision,
+    listed: tuple[Finding, ...],
+    source: _PlanSource,
+) -> str:
+    """The plan-state comment of the pull request after the attempt `done` (#6197). A pushed plan
+    gives the groups and the advice; else the groups and the advice of the last plan comment stay,
+    and the advice of a plan that loses the label replaces them. The open findings are those that
+    keep the label (`_open_after`)."""
+    pushed = decision.push
+    groups = source.groups if pushed is None else groups_section(pushed.budget, pushed.groups)
+    if pushed is not None or decision.unlabel:
+        advisory = findings_section(_advice(revision, decision))
+    else:
+        advisory = advisory_part(source.body)
+    return state_text(
+        target.status.head_ref,
+        target.pull,
+        groups=groups,
+        open_findings=_open_after(done, decision, revision, listed),
+        advisory=advisory,
+    )
 
 
 def _result_comment(
@@ -912,30 +986,22 @@ def _result_comment(
     budget: int,
 ) -> str | None:
     """The comment of the result of an attempt, with no advice, or None for an attempt that posts
-    none."""
+    none. The hidden event line after the marker names the pull request (#6197)."""
     texts = MESSAGES.roadmap
     values = {
-        "marker": CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER,
+        "marker": f"{CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER}\n{event_key(target.pull)}",
         "pull": target.pull,
         "head": done.head[:_SHORT],
         "before": done.before or 0,
         "after": done.after or 0,
     }
-    held = revision.before if revision.reviewed else listed
     match done.result:
         case FixPlanResult.REVISED:
-            after = decision.push.open_findings if decision.push is not None else ()
-            return texts.fix_plan_comment_revised.format(
-                **values, findings=open_findings_section(after)
-            )
+            return texts.fix_plan_comment_revised.format(**values)
         case FixPlanResult.CLEARED:
             return texts.fix_plan_comment_cleared.format(**values)
         case FixPlanResult.REGATED:
-            return texts.fix_plan_comment_regated.format(
-                **values,
-                why=_regated_why(done, decision),
-                findings="" if decision.unlabel else open_findings_section(held),
-            )
+            return texts.fix_plan_comment_regated.format(**values, why=_regated_why(done, decision))
         case FixPlanResult.DISMISSED:
             dismissed = (
                 texts.fix_plan_dismissed_findings.format(
@@ -953,13 +1019,10 @@ def _result_comment(
                 counts=_counts_text(
                     revision.attempt.counts().items() if revision.attempt is not None else ()
                 ),
-                findings=open_findings_section(held),
             )
         case FixPlanResult.STOPPED:
             return texts.fix_plan_comment_stopped.format(
-                **values,
-                evidence=_stop_evidence(revision.outcome),
-                findings=open_findings_section(listed),
+                **values, evidence=_stop_evidence(revision.outcome)
             )
         case _:
             return None
@@ -997,9 +1060,12 @@ def _settle(
     head_plan: StageProposal,
     listed: tuple[Finding, ...],
     revision: PlanRevision,
+    source: _PlanSource,
 ) -> FixPlanAttempt:
     """Write what `revision` makes of the plan `head_plan`, as the module says, and the attempt it
-    was. `listed` are the open findings of the last plan comment."""
+    was. `listed` are the open findings of the last plan comment `source`. An attempt that
+    comments first writes the plan-state comment of the pull request, then its own comment
+    (#6197)."""
     target = attempt.target
     decision = _decide(revision, head_plan, listed)
     head = target.status.head_sha
@@ -1014,7 +1080,10 @@ def _settle(
     done = _attempt_of(target, revision, decision, head)
     comment = _comment(target, done, decision, revision, listed, attempt.budget.seconds)
     if comment is not None:
-        attempt.store.comment(target.item.number, comment)
+        number = target.item.number
+        state = _state(target, done, decision, revision, listed, source)
+        write_state(attempt.store, attempt.repo, number, target.pull, state)
+        attempt.store.comment(number, comment)
     return done
 
 
@@ -1263,7 +1332,8 @@ def _attempt(
     listed: tuple[Finding, ...] = ()
     try:
         sha = _git(source, "rev-parse", f"origin/{attempt.base}")
-        comment_findings = comment_open_findings(plan_comment(store, number, target.pull))
+        plan_source = _PlanSource.of(trusted_replies(store.comments_on(number)), target.pull)
+        comment_findings = comment_open_findings(plan_source.body)
         if comment_findings.unreadable:
             done = _unreadable_findings(attempt, comment_findings)
             store.set_marks(store.item(number) or target.item, _result_marks(target, done))
@@ -1292,7 +1362,7 @@ def _attempt(
         kill = kill_of(attempt.budget, killed)
         _killed(attempt, len(listed), kill)
         raise AttemptKilled(kill) from killed
-    done = _settle(attempt, proposal, listed, revision)
+    done = _settle(attempt, proposal, listed, revision, plan_source)
     counts = revision.attempt.counts() if revision.attempt is not None else {}
     done = replace(done, counts=tuple(counts.items()), comment=len(listed))
     store.set_marks(store.item(number) or target.item, _result_marks(target, done))

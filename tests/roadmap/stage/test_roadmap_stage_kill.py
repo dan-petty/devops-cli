@@ -52,7 +52,7 @@ PULLS = f"/repos/{STAGE_REPO}/pulls"
 # The draft shares the numbers of the issues: item #1 holds 1, so the draft is #2.
 DRAFT = 2
 OPENED = github_json({"number": DRAFT, "html_url": f"https://example.com/pull/{DRAFT}"}, status=201)
-RECORD = ("stage.branch", "stage.pr", "stage.sha", "stage.groups", "stage.text_hash")
+RECORD = ("stage.branch", "stage.pr", "stage.sha", "stage.text_hash")
 
 
 @pytest.fixture

@@ -126,7 +126,6 @@ def _staged(
             StageRecordKey.PR: str(pull),
             StageRecordKey.READY: str(pull),
             StageRecordKey.SHA: "abc",
-            StageRecordKey.GROUPS: json.dumps([["Group", 100]]),
             StageRecordKey.TEXT_HASH: body_hashes(body)[0] if hashed else None,
         },
     )
@@ -581,7 +580,8 @@ def test_a_run_that_names_the_item_stages_a_new_plan_and_the_item_stays_ready(
     assert applied.staged == (number,)
     assert _item(store, number).status == "Ready"
     assert _record(store, number)[StageRecordKey.PR.value] == "9"
-    assert f"> {EVIDENCE}" in store.comments_on(number)[-2].body
+    # The rejection, then the plan-state comment of the new draft and the comment of the run.
+    assert f"> {EVIDENCE}" in store.comments_on(number)[-3].body
 
 
 def test_the_run_that_finds_a_rejection_leaves_the_item_out_though_its_branch_is_gone(

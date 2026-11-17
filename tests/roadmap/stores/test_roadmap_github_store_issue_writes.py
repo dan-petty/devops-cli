@@ -57,6 +57,22 @@ def test_comment_posts_one_comment() -> None:
     ]
 
 
+def test_edit_comment_writes_the_new_text_of_the_comment_by_its_id() -> None:
+    """The plan-state comment is edited in place (#6197): one `PATCH` of the comment."""
+    store, runner = recorded_store({"-X PATCH": {}})
+    store.edit_comment(740, 9001, "The new state.")
+    assert runner.writes == [
+        [
+            "api",
+            "-X",
+            "PATCH",
+            f"repos/{REPO}/issues/comments/9001",
+            "-f",
+            "body=The new state.",
+        ]
+    ]
+
+
 def test_a_close_reads_the_issue_then_comments_then_patches_its_state_and_reason() -> None:
     """The read refuses a pull request or a closed issue before any write; the comment comes
     before the close, so a failed close leaves the evidence (#1658)."""

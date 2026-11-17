@@ -94,6 +94,7 @@ WRITES = frozenset(
     {
         "comment",
         "create_issue",
+        "edit_comment",
         "label_issue",
         "set_field",
         "set_fields",
@@ -119,6 +120,12 @@ class Fault:
     write: str | None = None
     item: int | None = None
     error: Exception | None = None
+
+
+def _changed_at(comment: IssueComment) -> datetime:
+    """When `comment` last changed: its last edit, else its creation. Read by name, so that the
+    fail-to-pass replay loads this module against a base tree whose comment has no edit time."""
+    return getattr(comment, "updated_at", None) or comment.created_at
 
 
 def _number(args: tuple[object, ...]) -> int | None:
@@ -623,11 +630,35 @@ class InMemoryRoadmapStore(RoadmapStore):
         made = IssueComment(
             body=body,
             created_at=as_utc(self._roadmap.clock()),
+            id=self._next_comment_id(),
             author_association=DEFAULT_ROADMAP_MEMORY_AUTHOR_ASSOCIATION,
             author_login=self._actor,
         )
         self._roadmap.comments.setdefault(number, []).append(made)
         self._log("comment", number, value=body)
+
+    def _next_comment_id(self) -> int:
+        """The id of the next comment, as GitHub gives each comment of the repository one."""
+        return 1 + sum(len(comments) for comments in self._roadmap.comments.values())
+
+    def edit_comment(self, number: int, comment_id: int, body: str) -> None:
+        """Write `body` as the text of the comment `comment_id` on issue `number`, which moves the
+        time of its last edit, as the GitHub adapter does (#6197). A comment that the issue does
+        not hold raises, as GitHub answers 404."""
+        self._attempt("edit_comment", number, lambda: self._edit_comment(number, comment_id, body))
+
+    def _edit_comment(self, number: int, comment_id: int, body: str) -> None:
+        comments = self._roadmap.comments.get(number, [])
+        index = next((i for i, c in enumerate(comments) if c.id == comment_id), None)
+        if index is None:
+            raise GitHubOperationError(
+                f"Issue #{number} holds no comment {comment_id}.",
+                operation="roadmap.issue.edit_comment",
+            )
+        comments[index] = comments[index].model_copy(
+            update={"body": body, "updated_at": as_utc(self._roadmap.clock())}
+        )
+        self._log("edit_comment", number, value=body)
 
     def seed_comment(
         self,
@@ -647,6 +678,7 @@ class InMemoryRoadmapStore(RoadmapStore):
         made = IssueComment(
             body=body,
             created_at=as_utc(self._roadmap.clock()),
+            id=self._next_comment_id(),
             author_association=author_association,
             author_login=author_login,
             on_pull_request=issue.pull_request,
@@ -659,11 +691,12 @@ class InMemoryRoadmapStore(RoadmapStore):
         return list(self._roadmap.comments.get(number, []))
 
     def comments_since(self, since: datetime | None) -> Iterator[IssueComment]:
-        """The comments of every issue, newest first, made at or after `since` (all of them when
-        None). A comment here is never edited, so its creation time is the time it changed."""
+        """The comments of every issue, newest first by creation, changed at or after `since` (all
+        of them when None), as GitHub lists them: an edited comment changed at its last edit, so
+        it can come with an older creation time."""
         cutoff = None if since is None else as_utc(since)
         made = (comment for comments in self._roadmap.comments.values() for comment in comments)
-        wanted = (c for c in made if cutoff is None or c.created_at >= cutoff)
+        wanted = (c for c in made if cutoff is None or _changed_at(c) >= cutoff)
         return reversed(sorted(wanted, key=lambda comment: comment.created_at))
 
     def close(self, number: int, reason: CloseReason, *, comment: str | None = None) -> None:
