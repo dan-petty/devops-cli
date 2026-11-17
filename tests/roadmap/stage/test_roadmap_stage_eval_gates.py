@@ -587,6 +587,73 @@ def test_a_tool_setting_diff_refuses_a_spec_delta_and_a_dependency_diff_accepts_
     assert not any("These paths need no spec delta" in problem for problem in entry_problems)
 
 
+_PYPROJECT_HEADER: Final[str] = "--- a/pyproject.toml\n+++ b/pyproject.toml\n"
+# A pyproject.toml whose hunk below starts after the header of its table: line 1 is the header.
+_BASE_UNDER = "[{table}]\na = 1\nb = 2\nc = 3\nd = 4\ne = 5\n"
+_HUNK_UNDER_TABLE = "@@ -5,2 +5,3 @@\n d = 4\n e = 5\n+f = 6\n"
+
+
+@pytest.mark.parametrize(
+    ("diff", "base", "tool_setting"),
+    [
+        pytest.param("", "", False, id="no-diff"),
+        pytest.param(
+            "--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-old\n+new\n"
+            f"{_PYPROJECT_HEADER}@@ -1,1 +1,2 @@\n [tool.ruff]\n+line-length = 99\n",
+            "",
+            True,
+            id="another-file-beside-a-tool-key",
+        ),
+        pytest.param(
+            f"{_PYPROJECT_HEADER}{_HUNK_UNDER_TABLE}",
+            _BASE_UNDER.format(table="tool.ruff"),
+            True,
+            id="tool-header-before-the-hunk",
+        ),
+        pytest.param(
+            f"{_PYPROJECT_HEADER}{_HUNK_UNDER_TABLE}",
+            _BASE_UNDER.format(table="project"),
+            False,
+            id="project-header-before-the-hunk",
+        ),
+        pytest.param(
+            f"{_PYPROJECT_HEADER}@@ -1,1 +1,3 @@\n [tool.ruff]\n+[tool.mypy]\n+strict = true\n",
+            "",
+            True,
+            id="added-tool-table",
+        ),
+        pytest.param(
+            f"{_PYPROJECT_HEADER}@@ -1,1 +1,3 @@\n [tool.ruff]\n+[project.scripts]\n"
+            '+devops = "devops_cli.cli:main"\n',
+            "",
+            False,
+            id="added-project-table",
+        ),
+        pytest.param(
+            f"{_PYPROJECT_HEADER}@@ -1,1 +1,4 @@\n [tool.ruff]\n+# Why the line is long.\n+\n"
+            "+line-length = 99\n",
+            "",
+            True,
+            id="comment-and-blank-line-beside-a-tool-key",
+        ),
+        pytest.param(
+            f"{_PYPROJECT_HEADER}@@ -1,2 +1,2 @@\n [tool.ruff]\n-line-length = 88\n"
+            "\\ No newline at end of file\n+line-length = 99\n\\ No newline at end of file\n",
+            "[tool.ruff]\nline-length = 88",
+            True,
+            id="removed-key-and-no-newline-marker",
+        ),
+    ],
+)
+def test_a_pyproject_diff_is_a_tool_setting_only_when_every_changed_key_is_under_a_tool_table(
+    diff: str, base: str, tool_setting: bool
+) -> None:
+    """The paths gate reads the diff of pyproject.toml, so a change of a tool setting needs no
+    spec delta and a change of another table does (#3491). A table header outside the context of
+    a hunk comes from the base file."""
+    assert stage_change.is_tool_setting_diff(diff, base) is tool_setting
+
+
 ACCEPTANCE_BODY = "Text.\n\n### Acceptance criteria\n\n- [ ] First.\n- [ ] Second.\n"
 
 
