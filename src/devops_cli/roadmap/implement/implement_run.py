@@ -1961,7 +1961,7 @@ class _ItemRun:
         if readiness.answer is not Answer.READY:
             raise _StopError(self.step, readiness.reason)
 
-        mark_ready(self.repo, pull)
+        mark_ready(self.repo, pull, draft=draft)
         marks: dict[Any, str | int | None] = {
             ImplementRecordKey.SHA: head,
             ImplementRecordKey.PR: str(pull),

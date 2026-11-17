@@ -24,10 +24,12 @@ def test_ready_cmd_missing_pull_exits_one(cli: Cli) -> None:
 def test_ready_cmd_marks_ready_and_outputs_json(cli: Cli, monkeypatch: pytest.MonkeyPatch) -> None:
     from devops_cli.roadmap.steps import ready as ready_mod
 
-    marked: list[tuple[str, int, str | None]] = []
+    marked: list[tuple[str, int, str | None, bool]] = []
 
-    def _fake_mark_ready(repo: str, pull: int, expected_head: str | None = None) -> None:
-        marked.append((repo, pull, expected_head))
+    def _fake_mark_ready(
+        repo: str, pull: int, expected_head: str | None = None, *, force: bool = False
+    ) -> None:
+        marked.append((repo, pull, expected_head, force))
 
     monkeypatch.setattr(ready_mod, "mark_ready", _fake_mark_ready)
 
@@ -44,7 +46,7 @@ def test_ready_cmd_marks_ready_and_outputs_json(cli: Cli, monkeypatch: pytest.Mo
         "--force",
     )
     assert result.exit_code == 0, result.output
-    assert marked == [("owner/repo", 42, "1234567890ab")]
+    assert marked == [("owner/repo", 42, "1234567890ab", True)]
     lines = [
         line for line in result.output.strip().splitlines() if "ready" in line or "job" in line
     ]

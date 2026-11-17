@@ -18,13 +18,13 @@ import yaml
 
 from devops_cli.roadmap.run import STATUS_LANE_ROWS
 from devops_cli.roadmap.stores.store import CloseReason, ImplementRecordKey, Item, ItemField
-from tests.support.fakes.github import GitHubApiFake, github_json
+from tests.support.fakes.github import GitHubApiFake, github_json, route_compare_files
 from tests.support.fakes.kubernetes import FakeCluster
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import git_for_real
 from tests.support.paths import REPO_ROOT
-from tests.support.roadmap_implement import PASS, PULL, merge_plan, seed_staged
+from tests.support.roadmap_implement import BRANCH, PASS, PULL, merge_plan, seed_staged
 from tests.support.roadmap_stage import STAGE_REPO, StageRepo
 
 pytestmark = pytest.mark.usefixtures("keyring_store", "app_slug", "cluster")
@@ -61,8 +61,19 @@ def _held(store: InMemoryRoadmapStore, number: int) -> Item:
 
 
 def _draft_with_green_checks(api: GitHubApiFake) -> None:
-    payload = {"state": "open", "draft": True, "merged": False, "head": {"sha": HEAD}}
+    payload = {
+        "state": "open",
+        "draft": True,
+        "merged": False,
+        "head": {"sha": HEAD, "ref": BRANCH},
+        "base": {"ref": "main"},
+    }
     api.route("GET", f"/repos/{STAGE_REPO}/pulls/{PULL}", github_json(payload))
+    changed = {
+        "filename": "openspec/changes/1-the-job-drops-a-comment/proposal.md",
+        "status": "added",
+    }
+    route_compare_files(api, STAGE_REPO, "main", HEAD, changed, merge_base="b" * 40)
     api.route(
         "GET",
         f"/repos/{STAGE_REPO}/commits/{HEAD}/check-runs?per_page=100",

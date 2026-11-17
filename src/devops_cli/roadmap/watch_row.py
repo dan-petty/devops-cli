@@ -10,7 +10,11 @@ the fix Jobs that ended (`fix_checks_row.py`, #5027). A Kubernetes or a configur
 only that round: the row logs and counts it and gives its result (#6018). A delivery draft that a
 fix Job repaired and whose checks pass gets the ready path of the step `fix-checks` once for each
 head, and only the ready path: a check that fails between the two reads gives `skipped`. The row
-leaves every other delivery draft to its implement Job.
+leaves every other delivery draft to its implement Job. A green plan draft is marked ready only
+when `draft_readiness` answers ready for the draft that `read_ready_draft` reads. The record can
+hold one pull request as the plan and as the delivery of its item, and `read_draft` then judges it
+as the delivery, so a task that is not ticked keeps it a draft; the row judges a refused head once
+(#6123).
 """
 
 from __future__ import annotations
@@ -55,6 +59,7 @@ from devops_cli.roadmap.fix_checks_row import (
     round_failed,
     run_fix_checks_round,
 )
+from devops_cli.roadmap.implement.implement_pull import Answer
 from devops_cli.roadmap.jev_completeness import (
     CompletenessOutcome,
     check_completeness,
@@ -65,7 +70,7 @@ from devops_cli.roadmap.stage.stage_criteria import acceptance_criteria
 from devops_cli.roadmap.status_sync import facts_of, job_holds, sync_status
 from devops_cli.roadmap.steps.comment import Target, post
 from devops_cli.roadmap.steps.fix_checks import FixChecksResult, run_fix_checks
-from devops_cli.roadmap.steps.ready import mark_ready
+from devops_cli.roadmap.steps.ready import draft_readiness, mark_ready, read_ready_draft
 from devops_cli.roadmap.steps.watch import (
     DueStep,
     PRVerdict,
@@ -397,7 +402,47 @@ def _evaluate_pull(
         base_ref=base_ref,
         steps=steps,
         entry=entry,
+        checks=checks,
     )
+
+
+def _ready_plan(
+    ctx: _WatchContext,
+    item: Item,
+    pull: int,
+    head: str,
+    base_ref: str,
+    checks: CheckVerdictSummary,
+) -> bool:
+    """Mark the green plan draft `pull` ready, and record `stage.ready`; True when it marked it.
+    A plan that needs a fix stays a draft. Then `draft_readiness` judges the draft that
+    `read_ready_draft` reads (#6123): the record can hold one pull request as the plan and as the
+    delivery of its item, and `read_draft` takes the kind from the record, so a delivery with a
+    task that is not ticked stays a draft. The ledger keeps a refused head in `ready_head`, so the
+    row judges that head once. Last, the Jev completeness check can hold the draft."""
+    if item.job_record.get(StageRecordKey.NEEDS_FIX) == str(pull):
+        return False
+    entry = ctx.recorded_pulls.get(pull)
+    if entry is not None and entry.ready_head == head:
+        return False
+    draft = read_ready_draft(ctx.repo, pull, store=ctx.store, checks=checks)
+    readiness = draft_readiness(draft)
+    if readiness.answer is not Answer.READY:
+        if entry is not None:
+            entry.ready_head = head
+        logger.info(
+            "The watch row leaves %s#%d a draft: %s. %s",
+            ctx.repo,
+            pull,
+            readiness.answer.value,
+            readiness.reason,
+        )
+        return False
+    if _jev_holds(ctx.store, ctx.repo, item, pull, head, base_ref):
+        return False
+    mark_ready(ctx.repo, pull, expected_head=head, draft=draft)
+    ctx.store.set_marks(item, {StageRecordKey.READY: str(pull)})
+    return True
 
 
 def _ready_after_fix(ctx: _WatchContext, item: Item, pull: int, head: str) -> bool:
@@ -432,19 +477,14 @@ def _apply_due_steps(
     base_ref: str,
     steps: Sequence[DueStep],
     entry: WatchLedgerEntry | None,
+    checks: CheckVerdictSummary,
 ) -> None:
     """Execute side-effects for active DueSteps."""
     client = get_github_session().client
 
     if DueStep.READY in steps:
         if is_plan:
-            if item.job_record.get(StageRecordKey.NEEDS_FIX) == str(pr_number):
-                pass
-            elif _jev_holds(ctx.store, ctx.repo, item, pr_number, head_sha, base_ref):
-                pass
-            else:
-                mark_ready(ctx.repo, pr_number, expected_head=head_sha)
-                ctx.store.set_marks(item, {StageRecordKey.READY: str(pr_number)})
+            if _ready_plan(ctx, item, pr_number, head_sha, base_ref, checks):
                 ctx.marked_ready.append(pr_number)
         elif is_draft and _ready_after_fix(ctx, item, pr_number, head_sha):
             ctx.marked_ready.append(pr_number)

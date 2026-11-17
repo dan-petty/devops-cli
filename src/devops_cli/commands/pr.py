@@ -100,7 +100,7 @@ from devops_cli.output import (
     write_stdout,
 )
 from devops_cli.roadmap import pull_labels
-from devops_cli.roadmap.implement.implement_pull import Answer, draft_readiness, read_draft
+from devops_cli.roadmap.implement.implement_pull import Answer, Draft, draft_readiness, read_draft
 from devops_cli.roadmap.pull_status import set_delivered_status
 from devops_cli.roadmap.stores.github_store import issue_args, label_args, repository_file_args
 from devops_cli.roadmap.title_labels import requested_labels
@@ -1421,8 +1421,9 @@ def _no_ci(repo: str, checks: CheckVerdictSummary | None) -> bool:
     return get_github_session().client.count_workflows(repo) == 0
 
 
-def _validate_pr_ready(number: int, owner: str, repo_name: str, pr_data: dict[str, Any]) -> None:
-    """Hold `pr ready` to draft readiness, and warn of each other blocker.
+def _validate_pr_ready(number: int, owner: str, repo_name: str, pr_data: dict[str, Any]) -> Draft:
+    """Hold `pr ready` to draft readiness, warn of each other blocker, and return the judged draft,
+    which `mark_ready` judges again before `gh pr ready` (#6123).
 
     Ready for review says the work is done and its checks pass; the merge itself stays gated by
     `check-readiness`, the required checks and a person. The pull request is a draft until this
@@ -1458,6 +1459,7 @@ def _validate_pr_ready(number: int, owner: str, repo_name: str, pr_data: dict[st
     for blocker in verdict.blocking:
         if not (no_ci and blocker.kind is BlockerKind.CHECKS_PENDING):
             print_warning(f"Still blocks the merge: {blocker.text}")
+    return draft
 
 
 def _verify_pr_draft_transition(number: int, owner: str, repo_name: str) -> None:
@@ -1527,16 +1529,12 @@ def ready_pr(
             monitor_pr_command(number=number, repo=repo)
         return
 
-    if not force:
-        _validate_pr_ready(number, owner, repo_name, pr_data)
+    draft = None if force else _validate_pr_ready(number, owner, repo_name, pr_data)
 
     from devops_cli.roadmap.steps.ready import mark_ready
 
     try:
-        mark_ready(
-            f"{owner}/{repo_name}",
-            number,
-        )
+        mark_ready(f"{owner}/{repo_name}", number, draft=draft, force=force)
     except RoadmapImplementError as exc:
         output = getattr(exc, "output", "") or str(exc)
         _handle_pr_ready_failure(output, number)
