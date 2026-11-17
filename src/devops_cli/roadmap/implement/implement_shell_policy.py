@@ -260,10 +260,6 @@ _E_OPTION = "-e"
 _PATHS_MARK = "--"
 _SHOWN_CHARS = 60
 
-PROGRAMS_PLACEHOLDER = "{{shell_programs}}"
-LOCAL_COMMANDS_PLACEHOLDER = "{{local_commands}}"
-REFUSALS_PLACEHOLDER = "{{shell_refusals}}"
-
 
 # The tokens of a redirect that writes a file. A target of `/dev/null` is allowed, and so is a
 # copy of a stream (`2>&1`, `>&2`).
@@ -599,12 +595,3 @@ def refusals_table() -> str:
     """The Markdown table of the programs that the shell refuses, with what to run instead."""
     rows = [f"| `{refusal.program}` | {refusal.instead} |" for refusal in SHELL_REFUSALS]
     return "\n".join(["| Program | Instead |", "| :--- | :--- |", *rows])
-
-
-def fill_prompt(prompt: str) -> str:
-    """The prompt with its three placeholders replaced by the three tables."""
-    return (
-        prompt.replace(PROGRAMS_PLACEHOLDER, programs_table())
-        .replace(LOCAL_COMMANDS_PLACEHOLDER, local_commands_table())
-        .replace(REFUSALS_PLACEHOLDER, refusals_table())
-    )

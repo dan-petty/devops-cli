@@ -14,7 +14,6 @@ from pathlib import Path
 import pytest
 from pydantic_ai.messages import RetryPromptPart, ToolReturnPart
 
-from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import CONST_ROADMAP_RUN_ERROR_CHARS
 from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS,
@@ -26,11 +25,15 @@ from devops_cli.roadmap.implement.implement_shell_policy import (
     HARNESS_DENIED_OPERATORS,
     IMPLEMENT_SHELL_PROGRAMS,
     IMPLEMENT_SHELL_REPLACEMENTS,
-    fill_prompt,
     pipe_refusal,
 )
 from devops_cli.roadmap.implement.implement_shell_refusal import refusal_hint
-from devops_cli.roadmap.implement.implement_step import StepOutcome, StepStatus, run_step
+from devops_cli.roadmap.implement.implement_step import (
+    StepOutcome,
+    StepStatus,
+    run_step,
+    step_instructions,
+)
 from tests.support.fakes.process import ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import WINDOW, git, is_clean_at, refused_between_reads
@@ -387,7 +390,7 @@ def test_the_stop_of_each_refusal_limit_is_in_the_class_of_a_refused_tool(
 
 
 def _prompt() -> str:
-    return fill_prompt(load_task_prompt("roadmap_implement_step.md"))
+    return step_instructions()
 
 
 def test_each_shell_example_of_the_prompt_passes_the_shell_policy() -> None:
