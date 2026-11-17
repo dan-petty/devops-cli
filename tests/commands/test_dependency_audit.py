@@ -15,18 +15,10 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
 
 from devops_cli.commands import ci
 from devops_cli.commands.ci import get_check_spec
-from devops_cli.config.constants import CONST_NPM_AUDIT_IGNORE_FILE
-from devops_cli.core.dependency_audit import (
-    AuditVerdict,
-    NpmAuditIgnore,
-    active_npm_ignores,
-    audit_verdict,
-    load_npm_audit_ignores,
-)
+from devops_cli.core.dependency_audit import AuditVerdict, audit_verdict
 from tests.support.paths import FIXTURES
 
 _NPM_AUDIT = ["npm", "audit", "--package-lock-only", "--json"]
@@ -85,21 +77,10 @@ def test_every_command_of_the_audit_check_has_a_reading() -> None:
 
 
 _OPENSPEC_LOCK = "src/devops_cli/tools_lock/openspec/package-lock.json"
+# The ignore file that `devops ci audit` reads from the project root (#6204).
+_IGNORE_FILE = ".npm-audit-ignore.yaml"
 _PICOMATCH = "GHSA-fc5q-39xc-vjpf"
 _NPM_AUDIT_OPENSPEC = [*_NPM_AUDIT, "--prefix", "src/devops_cli/tools_lock/openspec"]
-
-
-def _ignore(
-    advisory: str = _PICOMATCH,
-    paths: tuple[str, ...] = (_OPENSPEC_LOCK,),
-    expired_at: date = date(2026, 11, 20),
-) -> NpmAuditIgnore:
-    return NpmAuditIgnore(
-        id=advisory,
-        paths=list(paths),
-        statement="picomatch ReDoS, no released fix (#6202)",
-        expired_at=expired_at,
-    )
 
 
 def test_npm_audit_passes_when_every_advisory_of_the_report_is_ignored() -> None:
@@ -121,76 +102,11 @@ def test_an_ignore_never_turns_an_audit_that_could_not_run_into_a_pass() -> None
     assert audit_verdict(_NPM_AUDIT, 1, report, ignored={_PICOMATCH}) == AuditVerdict.NOT_RUN
 
 
-@pytest.mark.parametrize(
-    ("today", "active", "expired"),
-    [(date(2026, 11, 19), {_PICOMATCH}, []), (date(2026, 11, 20), set(), [_PICOMATCH])],
-    ids=["before-the-date", "on-the-date"],
-)
-def test_an_ignore_applies_until_its_expiry_date_as_trivy_reads_expired_at(
-    today: date, active: set[str], expired: list[str]
-) -> None:
-    applied = active_npm_ignores([_ignore()], _OPENSPEC_LOCK, today)
-    assert set(applied.active) == active
-    assert [entry.id for entry in applied.expired] == expired
-
-
-def test_an_ignore_applies_only_to_the_lockfiles_it_names() -> None:
-    applied = active_npm_ignores(
-        [_ignore()],
-        "src/devops_cli/tools_lock/style-dictionary/package-lock.json",
-        date(2026, 11, 17),
-    )
-    assert not applied.active
-    assert not applied.expired
-
-
-@pytest.mark.parametrize(
-    ("entry", "error"),
-    [
-        ({"id": "GHSA-*", "paths": [_OPENSPEC_LOCK]}, "one advisory, never a wildcard"),
-        (
-            {"id": _PICOMATCH, "paths": ["src/devops_cli/tools_lock/*/package-lock.json"]},
-            "each lockfile, never a wildcard",
-        ),
-        ({"id": _PICOMATCH, "paths": []}, "at least 1 item"),
-        (
-            {"id": _PICOMATCH, "paths": [_OPENSPEC_LOCK], "statement": "no fix yet"},
-            "names the tracking issue",
-        ),
-    ],
-    ids=["wildcard-id", "wildcard-path", "no-path", "no-tracking-issue"],
-)
-def test_an_ignore_entry_names_one_advisory_its_lockfiles_and_a_tracking_issue(
-    entry: dict[str, object], error: str
-) -> None:
-    fields = {"statement": "no released fix (#6202)", "expired_at": "2026-11-20", **entry}
-    with pytest.raises(ValidationError, match=error):
-        NpmAuditIgnore.model_validate(fields)
-
-
-def test_a_missing_ignore_file_ignores_nothing(tmp_path: Path) -> None:
-    assert load_npm_audit_ignores(tmp_path / CONST_NPM_AUDIT_IGNORE_FILE) == ()
-
-
-def test_the_ignore_file_reads_the_trivy_yaml_form(tmp_path: Path) -> None:
-    path = tmp_path / CONST_NPM_AUDIT_IGNORE_FILE
-    path.write_text(
-        "vulnerabilities:\n"
-        f"  - id: {_PICOMATCH}\n"
-        "    paths:\n"
-        f"      - {_OPENSPEC_LOCK}\n"
-        "    statement: picomatch ReDoS, no released fix (#6202)\n"
-        "    expired_at: 2026-11-20\n",
-        encoding="utf-8",
-    )
-    assert load_npm_audit_ignores(path) == (_ignore(),)
-
-
 def _gate_run(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, today: date
 ) -> subprocess.CompletedProcess[str]:
     """The gate's reading of the recorded OpenSpec report, with one ignore file in a project root."""
-    (tmp_path / CONST_NPM_AUDIT_IGNORE_FILE).write_text(
+    (tmp_path / _IGNORE_FILE).write_text(
         "vulnerabilities:\n"
         f"  - id: {_PICOMATCH}\n"
         f"    paths: [{_OPENSPEC_LOCK}]\n"
