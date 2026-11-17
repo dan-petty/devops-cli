@@ -2,27 +2,37 @@
 
 from __future__ import annotations
 
+import json
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from devops_cli.ai.rag.indexer import WorkspaceIndexer
+from devops_cli.ai.rag.ingest import ingest_repository
 from devops_cli.config.constants import (
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
     CONST_ROADMAP_LABELS_PATH,
     CONST_ROADMAP_WEBHOOK_EVENTS,
 )
+from devops_cli.config.defaults import DEFAULT_RAG_COLLECTION, DEFAULT_RAG_DOCS_COLLECTION
 from devops_cli.roadmap.workflow_labels import WORKFLOW_LABELS
+from tests.support.fakes.embeddings import FakeEmbedder
 from tests.support.fakes.github import (
     GitHubApiFake,
     github_json,
     route_installation_repositories,
 )
+from tests.support.fakes.keyring import FakeKeyring
+from tests.support.fakes.qdrant import FakeQdrantClient, seed_chunk
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "example/roadmap"
 OWNER, NAME = REPO.split("/")
+# The RAG rows read Qdrant and the keyring, so every test of the command answers both edges.
+pytestmark = pytest.mark.usefixtures("qdrant", "keyring_store")
 VALID_LABELS_YAML = """
 - name: scope/cli
   color: "dcdcd6"
@@ -48,12 +58,20 @@ def _seed_valid_repo(
     labels_yml: str | None = VALID_LABELS_YAML,
     include_clear_status: bool = True,
     repo_labels: list[tuple[str, str, str]] | None = None,
+    visibility: str = "private",
 ) -> None:
     api.route("GET", "/user", github_json({"login": "octocat"}))
     api.route(
         "GET",
         f"/repos/{REPO}",
-        github_json({"has_issues": has_issues, "name": NAME, "owner": {"login": OWNER}}),
+        github_json(
+            {
+                "has_issues": has_issues,
+                "name": NAME,
+                "owner": {"login": OWNER},
+                "visibility": visibility,
+            }
+        ),
     )
     if labels_yml is not None:
         store.seed_file(CONST_ROADMAP_LABELS_PATH, labels_yml)
@@ -492,3 +510,281 @@ def test_the_service_step_and_the_webhook_row_name_the_same_events() -> None:
         "its `events` must hold `issues`" in section,
         CONST_ROADMAP_WEBHOOK_EVENTS == frozenset({"issues"}),
     ) == (True, True, True)
+
+
+RAG_INDEXED = "indexed"
+RAG_VISIBILITY = "rag visibility"
+RAG_SCHEDULE = "rag schedule"
+_QDRANT_KEY = "qdrant-key-3771"
+
+
+def _seed_project_points(
+    qdrant: FakeQdrantClient,
+    *,
+    visibility: str | None = "private",
+    code: int = 1,
+    docs: int = 1,
+) -> None:
+    """Hold `code` and `docs` points of REPO in the two collections, as the pass writes them."""
+    embedder = FakeEmbedder()
+    recorded = {} if visibility is None else {"visibility": visibility}
+    for index in range(code):
+        seed_chunk(
+            qdrant,
+            embedder,
+            f"def f{index}():\n    return {index}\n",
+            collection=DEFAULT_RAG_COLLECTION,
+            file_path=f"src/m{index}.py",
+            project_name=REPO,
+            **recorded,
+        )
+    for index in range(docs):
+        seed_chunk(
+            qdrant,
+            embedder,
+            f"# Document {index}\n",
+            collection=DEFAULT_RAG_DOCS_COLLECTION,
+            file_path=f"docs/d{index}.md",
+            project_name=REPO,
+            **recorded,
+        )
+
+
+def _repository_reads(api: GitHubApiFake) -> list[str]:
+    """Each GET of the repository that row 1 reads, as the API received it."""
+    return [
+        str(request.url)
+        for request in api.sent
+        if request.method == "GET" and str(request.url).endswith(f"/repos/{REPO}")
+    ]
+
+
+def test_onboard_rag_rows_read_the_index_the_visibility_and_the_schedule(
+    cli: Callable[..., Any],
+    roadmap_store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    config: Callable[..., Path],
+    qdrant: FakeQdrantClient,
+) -> None:
+    _seed_valid_repo(roadmap_store, github_api, visibility="private")
+    config(service={"repos": [REPO]})
+    _seed_project_points(qdrant)
+
+    result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
+
+    assert result.exit_code == 0, result.output
+    assert f"{RAG_INDEXED}: present (code 1, docs 1)" in result.stdout
+    assert f"{RAG_VISIBILITY}: private" in result.stdout
+    assert f"{RAG_SCHEDULE}: present" in result.stdout
+
+
+def test_onboard_rag_indexed_row_reads_partial_with_the_count_of_each_collection(
+    cli: Callable[..., Any],
+    roadmap_store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    config: Callable[..., Path],
+    qdrant: FakeQdrantClient,
+) -> None:
+    _seed_valid_repo(roadmap_store, github_api)
+    config(service={"repos": [REPO]})
+    _seed_project_points(qdrant, code=2, docs=0)
+
+    result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
+
+    assert f"{RAG_INDEXED}: partial (code 2, docs 0)" in result.stdout
+
+
+def test_onboard_rag_rows_read_missing_points_and_send_one_repository_read(
+    cli: Callable[..., Any],
+    roadmap_store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    config: Callable[..., Path],
+) -> None:
+    """A repository that the scheduled pass has not reached yet keeps the exit code at 0, and the
+    visibility row sends no read of its own (#3771)."""
+    _seed_valid_repo(roadmap_store, github_api)
+    config(service={"repos": [REPO]})
+
+    result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
+
+    assert result.exit_code == 0, result.output
+    assert f"{RAG_INDEXED}: missing" in result.stdout
+    assert f"{RAG_VISIBILITY}: not indexed" in result.stdout
+    assert len(_repository_reads(github_api)) == 1
+
+
+def test_onboard_rag_visibility_reports_a_mismatch_with_both_values(
+    cli: Callable[..., Any],
+    roadmap_store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    config: Callable[..., Path],
+    qdrant: FakeQdrantClient,
+) -> None:
+    _seed_valid_repo(roadmap_store, github_api, visibility="public")
+    config(service={"repos": [REPO]})
+    _seed_project_points(qdrant, visibility="private")
+
+    result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
+
+    assert f"{RAG_VISIBILITY}: mismatch (points private, github public)" in result.stdout
+
+
+def test_onboard_rag_visibility_reports_a_point_that_records_no_visibility(
+    cli: Callable[..., Any],
+    roadmap_store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    config: Callable[..., Path],
+    qdrant: FakeQdrantClient,
+) -> None:
+    _seed_valid_repo(roadmap_store, github_api, visibility="private")
+    config(service={"repos": [REPO]})
+    _seed_project_points(qdrant, visibility=None)
+
+    result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
+
+    assert f"{RAG_VISIBILITY}: mismatch (points not recorded, github private)" in result.stdout
+
+
+def test_onboard_rag_visibility_row_reads_not_readable_when_the_repository_read_fails(
+    cli: Callable[..., Any],
+    roadmap_store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    config: Callable[..., Path],
+    qdrant: FakeQdrantClient,
+) -> None:
+    _seed_valid_repo(roadmap_store, github_api)
+    config(service={"repos": [REPO]})
+    _seed_project_points(qdrant)
+    github_api.route("GET", f"/repos/{REPO}", github_json({"message": "Not Found"}, status=404))
+
+    result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
+
+    assert f"{RAG_VISIBILITY}: not readable (the repository read failed)" in result.stdout
+
+
+def test_onboard_rag_schedule_prints_the_line_to_add(
+    cli: Callable[..., Any],
+    roadmap_store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    config: Callable[..., Path],
+) -> None:
+    _seed_valid_repo(roadmap_store, github_api)
+    config(service={"repos": []})
+
+    result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
+
+    assert f"{RAG_SCHEDULE}: missing" in result.stdout
+    assert f"Add to service.repos in config.yaml:\n  - {REPO}" in result.stdout
+
+
+def test_onboard_rag_indexed_row_reads_not_readable_when_the_count_fails(
+    cli: Callable[..., Any],
+    roadmap_store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    config: Callable[..., Path],
+    qdrant: FakeQdrantClient,
+) -> None:
+    _seed_valid_repo(roadmap_store, github_api)
+    config(service={"repos": [REPO]})
+    qdrant.fail_operation("count_points")
+
+    result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
+
+    assert result.exit_code == 0, result.output
+    assert f"{RAG_INDEXED}: not readable (Simulated count_points failure)" in result.stdout
+    assert f"{RAG_VISIBILITY}: not readable" in result.stdout
+    assert f"{RAG_SCHEDULE}: present" in result.stdout
+
+
+def test_onboard_rag_rows_print_no_qdrant_api_key(
+    cli: Callable[..., Any],
+    roadmap_store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    config: Callable[..., Path],
+    qdrant: FakeQdrantClient,
+    keyring_store: FakeKeyring,
+) -> None:
+    """The rows reach Qdrant with the configured key, and neither the report nor a reason prints
+    it (#3771)."""
+    _seed_valid_repo(roadmap_store, github_api)
+    config(service={"repos": [REPO]}, qdrant={"api_key": _QDRANT_KEY})
+    keyring_store.set_password("devops-cli", "qdrant_api_key", _QDRANT_KEY)
+    qdrant.fail_operation("count_points")
+
+    result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
+
+    assert f"{RAG_INDEXED}: not readable" in result.stdout
+    assert _QDRANT_KEY not in result.output
+    assert _QDRANT_KEY not in result.stdout
+
+
+def _run_git(cwd: Path, *args: str) -> None:
+    """Run one git command in `cwd`, as a test that builds a remote to ingest does."""
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+
+
+def _make_bare_remote(tmp_path: Path, files: dict[str, str]) -> Path:
+    """A bare git remote with one commit that holds `files`, as the pass clones it."""
+    bare = tmp_path / "remote.git"
+    bare.mkdir()
+    _run_git(bare, "init", "--bare", "--initial-branch=main")
+    work = tmp_path / "work"
+    work.mkdir()
+    _run_git(work, "init", "--initial-branch=main")
+    _run_git(work, "config", "user.name", "Test User")
+    _run_git(work, "config", "user.email", "test@example.com")
+    for path_str, content in files.items():
+        target = work / path_str
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    _run_git(work, "add", ".")
+    _run_git(work, "commit", "-m", "commit 1")
+    _run_git(work, "remote", "add", "origin", f"file://{bare}")
+    _run_git(work, "push", "-u", "origin", "main")
+    return bare
+
+
+class _GhAnswer:
+    """The answer of a gh runner: one repository payload."""
+
+    def __init__(self, stdout: str) -> None:
+        self.returncode = 0
+        self.stdout = stdout
+        self.stderr = ""
+
+
+def _gh_visibility_runner(visibility: str) -> Any:
+    """A gh runner that answers the repository read with `visibility`."""
+
+    def _runner(_cmd: list[str], **_kwargs: Any) -> _GhAnswer:
+        return _GhAnswer(json.dumps({"visibility": visibility, "name": NAME}))
+
+    return _runner
+
+
+def test_every_written_point_carries_the_repository_project_name(
+    tmp_path: Path,
+    qdrant: FakeQdrantClient,
+    keyring_store: FakeKeyring,
+) -> None:
+    """The pass names each point `owner/name`, never the directory that it runs in (#3771)."""
+    bare = _make_bare_remote(
+        tmp_path,
+        {"src/main.py": "def f():\n    return 1\n", "README.md": "# Roadmap\n"},
+    )
+    worktree = tmp_path / "w-3566"
+    worktree.mkdir()
+    indexer = WorkspaceIndexer(qdrant=qdrant, embedder=FakeEmbedder(), cache_dir=worktree)
+
+    result = ingest_repository(
+        REPO,
+        data_dir=worktree,
+        remote_url=f"file://{bare}",
+        gh_runner=_gh_visibility_runner("private"),
+        indexer=indexer,
+    )
+
+    assert result.success is True
+    points = [point for collection in qdrant.collections.values() for point in collection]
+    assert points
+    assert {point["payload"]["project_name"] for point in points} == {REPO}

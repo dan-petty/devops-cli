@@ -71,6 +71,20 @@ def resolve_repo_paths(data_dir: Path, repo: str) -> tuple[Path, Path, Path]:
 _resolve_repo_paths = resolve_repo_paths
 
 
+def visibility_from_payload(data: dict[str, Any]) -> str:
+    """The visibility that a repository payload records: `public`, or `private`.
+
+    GitHub reports `visibility` on a repository, and `private` on an older answer. A payload with
+    neither reads as private, so a value that no lookup marked never reads as public.
+    """
+    raw_vis = str(data.get("visibility", "")).lower()
+    if raw_vis == "public":
+        return "public"
+    if "private" in data and not data["private"]:
+        return "public"
+    return "private"
+
+
 def read_repo_visibility(repo: str, gh_runner: Any) -> str:
     """Read repository visibility from GitHub API, counting public as public and others as private."""
     owner, name = repo.split("/")
@@ -80,11 +94,7 @@ def read_repo_visibility(repo: str, gh_runner: Any) -> str:
     try:
         stdout_text = res.stdout if isinstance(res.stdout, str) else ""
         data = json.loads(stdout_text or "{}")
-        raw_vis = str(data.get("visibility", "")).lower()
-        if raw_vis == "public":
-            return "public"
-        if "private" in data and not data["private"]:
-            return "public"
+        return visibility_from_payload(data)
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
         logger.debug("Failed to parse GitHub repo payload for %s: %s", repo, exc)
     return "private"
