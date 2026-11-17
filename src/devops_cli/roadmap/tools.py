@@ -46,6 +46,7 @@ _STAGE: Final[frozenset[str]] = frozenset(
 _STAGE_EXTENDED: Final[frozenset[str]] = frozenset({HOLDER_STAGE_EXTENDED, HOLDER_STAGE_RESEARCH})
 _STAGE_RESEARCH: Final[frozenset[str]] = frozenset({HOLDER_STAGE_RESEARCH})
 _IMPLEMENT: Final[frozenset[str]] = frozenset({HOLDER_IMPLEMENT})
+_STAGE_AND_IMPLEMENT: Final[frozenset[str]] = _STAGE | _IMPLEMENT
 _EVERY_JOB_ROLE: Final[frozenset[str]] = frozenset(
     {HOLDER_PLANNING, HOLDER_IMPLEMENTATION, HOLDER_REVIEW}
 )
@@ -93,6 +94,12 @@ TOOLS: Final[dict[str, ToolEntry]] = {
         _STAGE,
     ),
     "read_spec": _read("Reads a base spec of the project, or one requirement of it.", _STAGE),
+    # The tool that reads the comments of the item that a job holds, which each stage toolset and
+    # the implement step have (#6167). It reads no repository and no host.
+    "read_comment": _read(
+        "Reads one comment of the item whole, page by page, or lists every comment.",
+        _STAGE_AND_IMPLEMENT,
+    ),
     # The three tools that `stage-extended` adds (#3238).
     "references": _read(
         "Lists every file of the commit that holds a text, with the count of lines in each.",

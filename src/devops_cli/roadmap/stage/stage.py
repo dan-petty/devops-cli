@@ -111,7 +111,7 @@ from devops_cli.ai.client.models import (
     AICredentialsError,
     StructuredOutputValidationError,
 )
-from devops_cli.ai.context_budget import truncate_to_token_limit
+from devops_cli.ai.context_budget import count_tokens, truncate_to_token_limit
 from devops_cli.ai.jev import JevRouteDecision, route_with_jev
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.commands import BIN_OPENSPEC
@@ -124,6 +124,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_PRIORITY_VALUES,
     CONST_ROADMAP_STAGE_BODY_MAX_TOKENS,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
+    CONST_ROADMAP_STAGE_COMMENTS_MAX_TOKENS,
     CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS,
     CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS,
     CONST_ROADMAP_STAGE_REFUSED_PROBLEM_MAX_CHARS,
@@ -169,6 +170,7 @@ from devops_cli.roadmap.decision_step import Band
 from devops_cli.roadmap.dependencies import open_dependency
 from devops_cli.roadmap.digest_clears import has_digest_clear
 from devops_cli.roadmap.failure import FailureClass, StepName, failure_class_of, retry_after
+from devops_cli.roadmap.item_comments import HeldComment, RequestForm, fit_comments, held_comments
 from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
 from devops_cli.roadmap.owner_question import OwnerQuestion, QuestionOption
 from devops_cli.roadmap.plan_check import PlanFolder, staged_problems
@@ -359,6 +361,7 @@ from devops_cli.roadmap.stores.store import (
     STAGE_PLAN_KEYS,
     STAGE_REMOVAL_KEYS,
     GitHubState,
+    IssueComment,
     Item,
     OwnerQuestionRecordKey,
     RefineRecordKey,
@@ -976,6 +979,8 @@ def select_stageable(
 # cap, so the first plan request leaves room below the limit of the tools (#3477).
 _WINDOW_SHARE_CONTEXT: Final[int] = 2
 _WINDOW_SHARE_BODY: Final[int] = 4
+# The form of the comments of the item in the request (#6167).
+_COMMENT_FORM: Final[RequestForm] = RequestForm()
 # A reply that fails its schema goes back to the model once, with the violations; a second one
 # stops the item.
 _REPLY_RETURNS: Final[int] = 1
@@ -1005,6 +1010,9 @@ class StagedChange:
     open_findings: tuple[Finding, ...] = ()
     pulls_requests: int = 0
     warnings: tuple[str, ...] = ()
+    # The comments of the item that the plan request held whole, which the comment of the staged
+    # item names (#6167).
+    comments: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1318,7 +1326,9 @@ class PlanFiles:
     def path(self, number: int) -> Path:
         return plan_record_path(self.repo, number)
 
-    def key(self, item: Item) -> str:
+    def key(self, item: Item, comments: Sequence[HeldComment] = ()) -> str:
+        """The key of the plan of `item`: a new comment of the item gives a new key, so a kept plan
+        never misses it (#6167)."""
         return plan_key(
             number=item.number,
             title=item.title,
@@ -1326,6 +1336,9 @@ class PlanFiles:
             model=self.model,
             toolset=self.toolset,
             prompt_version=prompt_version(self.toolset),
+            comments=tuple(
+                f"{c.number}\n{c.author}\n{c.at.isoformat()}\n{c.text}" for c in comments
+            ),
         )
 
 
@@ -1372,8 +1385,14 @@ class _Planner:
         time_budget: TimeBudget | None = None,
         dependency_title: Callable[[int], str | None] | None = None,
         jev_route: Callable[..., JevRouteDecision] | None = None,
+        comments_on: Callable[[int], Sequence[IssueComment]] | None = None,
     ) -> None:
         self._client = client
+        # The read of the comments of an item (#6167): the store of the round when the caller has
+        # one, and no comment otherwise. The comments of the item in hand, read once for its
+        # request, its plan key and `read_comment`.
+        self._comments_on = comments_on
+        self._held: tuple[HeldComment, ...] = ()
         # The title of a declared dependency of an item (#4008): the store of the round when the
         # caller has one, and no title otherwise.
         self._dependency_title = dependency_title
@@ -1513,6 +1532,7 @@ class _Planner:
         (#4900, #5066, #4851). The settings load refuses a value of R, E or C above 4 times its
         default."""
         self._start_item()
+        self._hold_comments(target)
         kept, key = self._kept(target)
         self._kept_start = kept is not None
         # A plain client has no trace and its gate is off, on a hit as on a miss.
@@ -1581,9 +1601,19 @@ class _Planner:
         )
         emit(ROADMAP_STAGE_JEV_TOTAL, 1, {"choice": decision.picked_model})
 
+    def _hold_comments(self, target: StageTarget) -> None:
+        """Read the comments of the item in hand once: the request gives them, the key of its plan
+        holds them, and `read_comment` of the planner and of the review reads them (#6167)."""
+        if self._comments_on is not None:
+            self._held = held_comments(self._comments_on(target.item.number))
+        for runner in (self._toolbox, self._verifier):
+            if runner is not None:
+                runner.hold_comments(self._held)
+
     def _start_item(self) -> None:
         """Clear the state of the item before, so the next item starts with no trace, no refused
-        reply and no count."""
+        reply, no count and no comment."""
+        self._held = ()
         self._split_asked = False
         self._premise = None
         self._left = CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS
@@ -1695,7 +1725,7 @@ class _Planner:
         files = self._plan_files
         if files is None:
             return None, None
-        path, key = files.path(target.item.number), files.key(target.item)
+        path, key = files.path(target.item.number), files.key(target.item, self._held)
         kept = read_plan_record(path, key)
         if kept is not None and kept.facts is None:
             # A file of an older job holds no facts for the trace gate: plan the item again.
@@ -2296,13 +2326,24 @@ class _Planner:
         """The request for one item: what the model reads and what the gates need. The open plans
         that create a path are read here, once for the run (#4046)."""
         item = target.item
+        body_cap = min(CONST_ROADMAP_STAGE_BODY_MAX_TOKENS, self._window // _WINDOW_SHARE_BODY)
+        body = truncate_to_token_limit(item.body, body_cap)
+        context_cap = min(
+            CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS, self._window // _WINDOW_SHARE_CONTEXT
+        )
+        # The comments take the room that the body leaves under its cap, then room of the context,
+        # so the request is no larger than it is with no comment (#6167).
+        spare = body_cap - count_tokens(body)
+        comments = fit_comments(
+            self._held,
+            spare + min(CONST_ROADMAP_STAGE_COMMENTS_MAX_TOKENS, context_cap // 2),
+            _COMMENT_FORM,
+        )
         context: str = collect_context(
             self._source,
             self._sha,
             item.body,
-            max_tokens=min(
-                CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS, self._window // _WINDOW_SHARE_CONTEXT
-            ),
+            max_tokens=context_cap - max(0, comments.tokens - spare),
         )
         registry = registry_table(self._source)
         matched = matches(registry, (item.title, item.body), tuple(self._tree.paths_in(item.body)))
@@ -2322,10 +2363,8 @@ class _Planner:
         return StageRequest(
             number=item.number,
             title=item.title,
-            body=truncate_to_token_limit(
-                item.body,
-                min(CONST_ROADMAP_STAGE_BODY_MAX_TOKENS, self._window // _WINDOW_SHARE_BODY),
-            ),
+            body=body,
+            comments=_COMMENT_FORM.value(comments) if comments.tokens else None,
             context=context,
             capabilities=self._capabilities(),
             budget=self._budget,
@@ -2340,6 +2379,7 @@ class _Planner:
             probe_lines=probe.lines,
             overlap_pulls=pulls,
             creators=dict(self._creators()),
+            comment_names=comments.used,
         )
 
     def _dependency_of(self, target: StageTarget, missing: Sequence[str]) -> Blocked | None:
@@ -2512,6 +2552,7 @@ class _Planner:
             proposal,
             pulls_requests=self._pull_requests,
             warnings=warnings,
+            comments=request.comment_names,
         )
 
     def _problems(
@@ -3341,6 +3382,7 @@ def plan_stage(
             dependency_title=lambda number: (
                 None if (held := store.item(number)) is None else held.title
             ),
+            comments_on=store.comments_on,
         )
         ready, stopped, failed, blocked, premise = _plan_each(
             planner, read.selected, writer, _time_premise_of(repo)
@@ -3374,6 +3416,7 @@ def _planner_of(
     gate_returns: int | None = None,
     time_budget: TimeBudget | None = None,
     dependency_title: Callable[[int], str | None] | None = None,
+    comments_on: Callable[[int], Sequence[IssueComment]] | None = None,
     task: str = STAGE_TASK,
     review_task: str = STAGE_REVIEW_TASK,
 ) -> _Planner:
@@ -3388,7 +3431,8 @@ def _planner_of(
     for the request of an item that a person rejected (#3503). `facts_source` is a checkout whose
     `HEAD` supplies a runner fact file that the staged commit lacks (#4207). `gate_returns` is the
     returns of a refused reply; without it, the planner reads `roadmap.stage.gate_returns`.
-    `time_budget` stops the planner before a model call once it is spent (#5363)."""
+    `time_budget` stops the planner before a model call once it is spent (#5363). `comments_on`
+    reads the comments of an item for its request and for `read_comment` (#6167)."""
     window = task_window(task)
     verify_window = task_window(review_task)
     traces: list[RunTrace] = []
@@ -3433,6 +3477,7 @@ def _planner_of(
         gate_returns=gate_returns,
         time_budget=time_budget,
         dependency_title=dependency_title,
+        comments_on=comments_on,
     )
 
 
@@ -3841,13 +3886,18 @@ def _warnings_section(warnings: Sequence[str]) -> str:
 def _notes(change: StagedChange, moved: Sequence[MovedPath] = ()) -> str:
     """The notes that end the comment of a staged item: the named paths that moved first, then the
     open findings, the other findings, the report of the plan runs, the read of the open pull
-    requests, and a validation that did not run (#3309, #3264, #3252)."""
+    requests, the comments of the item that the request held whole, and a validation that did not
+    run (#3309, #3264, #3252, #6167)."""
     unvalidated = "" if change.validated else MESSAGES.roadmap.stage_comment_not_validated
     read = (
         MESSAGES.roadmap.stage_comment_overlaps.format(requests=change.pulls_requests)
         if change.pulls_requests
         else ""
     )
+    if change.comments:
+        read += MESSAGES.roadmap.stage_comment_item_comments.format(
+            names=", ".join(change.comments)
+        )
     advisory = tuple(finding for finding in change.findings if finding not in change.open_findings)
     warnings = _warnings_section(change.warnings)
     return (

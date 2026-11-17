@@ -1044,7 +1044,8 @@ def test_a_round_past_the_setting_needs_more_fixed_than_added_findings() -> None
     ] == [True, True, False, False, True]
 
 
-# The nine read tools of the toolset `base` (#3039): a verification run offers exactly these.
+# The ten read tools of the toolset `base` (#3039, #6167): a verification run offers exactly
+# these.
 _READ_TOOLS = [
     "list_files",
     "read_file",
@@ -1055,6 +1056,7 @@ _READ_TOOLS = [
     "callers",
     "repo_map",
     "read_spec",
+    "read_comment",
 ]
 
 
@@ -1089,7 +1091,7 @@ def verify_checkout(tmp_path: Path) -> tuple[Path, str]:
     return root, _git(root, "rev-parse", "HEAD")
 
 
-def test_a_verify_run_offers_the_nine_read_tools_and_no_write_tool(
+def test_a_verify_run_offers_the_ten_read_tools_and_no_write_tool(
     verify_checkout: tuple[Path, str],
 ) -> None:
     source, sha = verify_checkout

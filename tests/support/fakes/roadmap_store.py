@@ -636,11 +636,13 @@ class InMemoryRoadmapStore(RoadmapStore):
         *,
         author_association: str | None = DEFAULT_ROADMAP_MEMORY_AUTHOR_ASSOCIATION,
         author_login: str | None = None,
+        url: str | None = None,
     ) -> None:
         """Add a comment as another commenter made it, with their relation to the repository and
         their login, as GitHub gives them: the owner's relation unless given, since GitHub gives
         one for every comment. Seeding records no change and no write. A pull request takes a
-        comment as it does on GitHub, and the comment says so (#2754)."""
+        comment as it does on GitHub, and the comment says so (#2754). `url` is the page of the
+        comment, which a job names (#6167)."""
         issue = self._require_issue(number, "roadmap.issue.seed_comment", pull_request=True)
         made = IssueComment(
             body=body,
@@ -648,6 +650,7 @@ class InMemoryRoadmapStore(RoadmapStore):
             author_association=author_association,
             author_login=author_login,
             on_pull_request=issue.pull_request,
+            url=url,
         )
         self._roadmap.comments.setdefault(number, []).append(made)
 

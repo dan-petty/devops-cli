@@ -16,6 +16,7 @@ from pydantic_ai.messages import ModelMessagesTypeAdapter, ModelRequest, UserPro
 
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.config.constants import (
+    CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
     CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE,
     CONST_ROADMAP_STAGE_BODY_MAX_TOKENS,
     CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS,
@@ -230,6 +231,61 @@ def test_a_first_request_of_code_with_the_context_and_the_body_at_their_caps_off
         "read_spec" in script.tools_offered[0],
         _first_request_tokens(script) < _limit(WINDOW) - _PROMPT_HEADROOM,
     ) == (True, True)
+
+
+def _decision(index: int) -> str:
+    return f"Decision {index}: take the next free ADR number, as 0028 and 0029 are taken."
+
+
+def test_the_first_request_holds_the_comments_of_persons_and_of_jobs_whole(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo
+) -> None:
+    """The first request gives the planner every comment of the item, oldest first, with its
+    author: the decision of a person and the report of a roadmap job (#6167)."""
+    number = seed_stageable(store)
+    report = f"{CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER}\nNo open tool covers the need."
+    store.seed_comment(number, report)
+    store.seed_comment(number, _decision(1), author_login="alice")
+    script = _script()
+
+    _plan(store, stage_repo, script)
+
+    comments = _first_request(script)["comments"]
+    assert [(entry["number"], entry["text"]) for entry in comments["comments"]] == [
+        (1, report),
+        (2, _decision(1)),
+    ]
+    assert (comments["unlisted"], "read_comment" in script.tools_offered[0]) == (0, True)
+
+
+def test_a_first_request_of_code_at_its_caps_with_comments_offers_the_tools(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The comments take room of the context, so a first request of code with the context, the
+    body and many long comments at their caps stays under the limit with the headroom of #6103,
+    and gives the newest comment whole (#6167)."""
+    monkeypatch.setattr(stage, "task_window", lambda task: WINDOW)
+    stage_repo.track(
+        {"docs/adr/0001-a-decision.md": _code(3 * CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS)}
+    )
+    number = seed_stageable(store, body=_code(3 * CONST_ROADMAP_STAGE_BODY_MAX_TOKENS))
+    for index in range(40):
+        store.seed_comment(number, f"{_decision(index)}\n{_code(300)}")
+    store.seed_comment(number, _decision(40))
+    script = _script()
+
+    _plan(store, stage_repo, script)
+
+    request = _first_request(script)
+    entries = request["comments"]["comments"]
+    assert (
+        "read_spec" in script.tools_offered[0],
+        _first_request_tokens(script) < _limit(WINDOW) - _PROMPT_HEADROOM,
+        entries[-1].get("text"),
+        len(entries) + request["comments"]["unlisted"],
+    ) == (True, True, _decision(40), 41)
 
 
 def test_a_return_request_keeps_the_full_earlier_plan_when_it_fits(

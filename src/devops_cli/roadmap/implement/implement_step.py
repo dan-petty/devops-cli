@@ -30,7 +30,7 @@ import tempfile
 import time
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from http import HTTPStatus
 from pathlib import Path, PurePosixPath
@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 
 from platformdirs import user_cache_dir
 from pydantic import BaseModel, ConfigDict
-from pydantic_ai import Agent, capture_run_messages
+from pydantic_ai import Agent, Tool, capture_run_messages
 from pydantic_ai.capabilities import AbstractCapability, LocalWorkspace
 from pydantic_ai.conversation import Conversation
 from pydantic_ai.exceptions import (
@@ -81,6 +81,7 @@ from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
     CONST_OPENSPEC_CHANGES_DIR,
     CONST_PRE_COMMIT_COMMIT_STAGE,
+    CONST_ROADMAP_IMPLEMENT_COMMENTS_MAX_TOKENS,
     CONST_ROADMAP_IMPLEMENT_CRITERIA_HEADINGS,
     CONST_ROADMAP_IMPLEMENT_DIFF_CHARS,
     CONST_ROADMAP_IMPLEMENT_DIFF_READ_CHARS,
@@ -125,6 +126,7 @@ from devops_cli.roadmap.implement.implement_base_replay import (
     VerifiedCommand,
     replay_group_tests,
 )
+from devops_cli.roadmap.implement.implement_comments import StepComments
 from devops_cli.roadmap.implement.implement_disk import end_step
 from devops_cli.roadmap.implement.implement_hooks import commit_stage
 from devops_cli.roadmap.implement.implement_limits import (
@@ -162,6 +164,7 @@ from devops_cli.roadmap.implement.implement_test_names import lost_since, unreco
 from devops_cli.roadmap.implement.implement_tool_log import ToolCallLog
 from devops_cli.roadmap.implement.implement_trace import ImplementTrace
 from devops_cli.roadmap.implement.implement_wip import WipCommit, WipKeeper, restore_sources
+from devops_cli.roadmap.item_comments import FittedComments, SectionForm, fit_comments
 from devops_cli.roadmap.mcp import ROLE_IMPLEMENTATION, build_roadmap_mcp_toolset
 from devops_cli.roadmap.plan_read import PlanReadError, group_files
 from devops_cli.roadmap.step_commit import step_commit_title
@@ -353,7 +356,9 @@ class StepInputs:
     read with its line ends. The job writes that text back after each turn. `item_title` is the
     title of the item, which gives the type and the scope of the step commit. `hooks` is the
     trusted configuration of the hooks (`trusted_config`), or None when the repository has no hook
-    (#3043). `recorded_tests` holds each test, as `path::name`, that the step may lose (#3490)."""
+    (#3043). `recorded_tests` holds each test, as `path::name`, that the step may lose (#3490).
+    `comments` are the comments of the item that the message holds, whole or in its index, and
+    `step_comments` are all the comments of the run, which the tool `read_comment` reads (#6167)."""
 
     group: TaskGroup
     change: Path
@@ -366,6 +371,8 @@ class StepInputs:
     hooks: Path | None = None
     recorded_tests: frozenset[str] = frozenset()
     preset: ToolchainPreset = DEVOPS_CLI_PRESET
+    comments: FittedComments = field(default_factory=FittedComments)
+    step_comments: StepComments | None = None
 
 
 def _files_section(source: Path, group: TaskGroup) -> str:
@@ -420,10 +427,14 @@ def build_step_inputs(
     fix: FixRequest | None = None,
     earlier: EarlierStop | None = None,
     preset: ToolchainPreset = DEVOPS_CLI_PRESET,
+    comments: StepComments | None = None,
 ) -> StepInputs:
     """The inputs of group `group` of item `item`, read from the checkout `source`. With `fix`,
     the group is the fix of that failed check and `group` is not read. With `earlier`, the message
-    holds the stop of the earlier Job (#4071).
+    holds the stop of the earlier Job (#4071). With `comments`, the message holds the comments of
+    the item after the documents of the change, in the room that the other inputs leave under the
+    limit and in at most `CONST_ROADMAP_IMPLEMENT_COMMENTS_MAX_TOKENS` tokens: the newest whole,
+    the older ones in an index (#6167). The comments never take the inputs over the limit.
 
     Raises `RoadmapImplementError` for an issue that is no Item, a change that is not in the
     checkout, a group the change lacks, and inputs that measure more than `window` minus
@@ -442,20 +453,27 @@ def build_step_inputs(
             MESSAGES.roadmap.implement_duplicate_group.format(change=change.name, group=twice)
         )
     chosen = _chosen_group(groups, group, fix, change)
-    sections = [
+    head = [
         *rules_sections(source, chosen),
         issue_inputs(held),
         *(f"# {name} of the change\n\n{text.strip()}" for name, text in documents.items()),
+    ]
+    tail = [
         f"# Your group\n\n{chosen.text}",
         _tasks_file_section(source, change, fix),
         earlier.section() if earlier is not None else "",
         _log_section(fix),
         _files_section(source, chosen),
     ]
-    message = "\n\n".join(section for section in sections if section)
+    message = "\n\n".join(section for section in (*head, *tail) if section)
     instructions = step_instructions()
     tokens = count_tokens(instructions) + count_tokens(message)
     limit = window - CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS
+    fitted = FittedComments()
+    if comments is not None and tokens <= limit:
+        message, tokens, fitted = _with_comments(
+            comments, head, tail, instructions, (message, tokens), limit
+        )
     if tokens > limit:
         raise OverWindowError(
             MESSAGES.roadmap.implement_over_window.format(
@@ -477,7 +495,35 @@ def build_step_inputs(
         tokens=tokens,
         fix=fix,
         preset=preset,
+        comments=fitted,
+        step_comments=comments,
     )
+
+
+def _with_comments(
+    comments: StepComments,
+    head: Sequence[str],
+    tail: Sequence[str],
+    instructions: str,
+    plain: tuple[str, int],
+    limit: int,
+) -> tuple[str, int, FittedComments]:
+    """The message with the section of the comments between `head` and `tail`, its tokens, and the
+    comments that it holds. The section gets the room that `plain`, the message with no comment,
+    leaves under `limit` (#6167). The join of the sections can count a few tokens more than its
+    parts: a section that would take the inputs over the limit stays out, and `read_comment` still
+    lists every comment."""
+    form = SectionForm(comments.plan_at)
+    room = min(CONST_ROADMAP_IMPLEMENT_COMMENTS_MAX_TOKENS, limit - plain[1])
+    fitted = fit_comments(comments.held, room, form)
+    if not fitted.tokens:
+        return (*plain, fitted)
+    parts = (*head, form.text(fitted), *tail)
+    message = "\n\n".join(part for part in parts if part)
+    tokens = count_tokens(instructions) + count_tokens(message)
+    if tokens > limit:
+        return (*plain, FittedComments(unlisted=len(comments.held)))
+    return message, tokens, fitted
 
 
 # ── The outcome ───────────────────────────────────────────────────────────────────────────
@@ -530,7 +576,8 @@ class StepOutcome(BaseModel):
     and `verified` holds the verify commands of a group of kind `other`, of a done step (#3042).
     `extension` is the one extension of the token budget that the step got, with the counts that
     gave it (#4394), or None. `cache_read_tokens` is the part of `input_tokens` that the provider
-    read from its cache (#4387)."""
+    read from its cache (#4387). `comments` names each comment of the item that the inputs of the
+    step held whole (#6167)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -561,6 +608,7 @@ class StepOutcome(BaseModel):
     fail_to_pass: BaseReplay | None = None
     verified: tuple[VerifiedCommand, ...] = ()
     extension: BudgetExtension | None = None
+    comments: tuple[str, ...] = ()
 
 
 # ── The agent ─────────────────────────────────────────────────────────────────────────────
@@ -691,6 +739,7 @@ IMPLEMENT_LOCAL_TOOL_NAMES: Final[frozenset[str]] = frozenset(
         "list_files",
         "grep",
         "create_directory",
+        "read_comment",
         IMPLEMENT_SHELL_TOOL,
     }
 )
@@ -706,8 +755,10 @@ def build_agent(
     budget: StepBudget,
     *,
     mcp_toolset: AbstractToolset[Any] | None = None,
+    tools: Sequence[Tool[None]] = (),
 ) -> Agent[None, str]:
-    """The agent of a step: `Coder` on a local workspace at `source`, whose shell runs with the
+    """The agent of a step, with `tools` beside those of the harness, such as `read_comment`
+    (#6167): `Coder` on a local workspace at `source`, whose shell runs with the
     scratch `home` and waits for each command up to `roadmap.implement.command_timeout_seconds`
     (#4493), the hint that a refusal of the shell adds (#2773), and the hooks of `log` for its
     tool calls (#2758). It has no `delegate_task` tool, so the limits of a run cover the whole step,
@@ -730,6 +781,7 @@ def build_agent(
     return Agent(
         model,
         output_type=str,
+        tools=list(tools),
         toolsets=toolsets,
         retries={"tools": log.limits.tool_retries},
         model_settings=ModelSettings(
@@ -2229,6 +2281,7 @@ def _attempt(
                 log,
                 limits,
                 mcp_toolset=mcp_toolset,
+                tools=inputs.step_comments.tools() if inputs.step_comments is not None else (),
             )
             log.fail_to_pass = None
             log.verified.clear()
@@ -2384,6 +2437,7 @@ def run_step(
     earlier: EarlierStop | None = None,
     usage_limits: UsageLimits | None = None,
     token_cap: TokenCap | None = None,
+    comments: StepComments | None = None,
 ) -> StepOutcome:
     """Run group `group` of item `item` in the checkout `source`, with the pydantic-ai `model`.
 
@@ -2425,6 +2479,10 @@ def run_step(
     to the Job log in a runner Job, and then removes the files that git ignores and that its agent
     left: the tree `mutants/` of a mutation run and the files of the scratch folder (`end_step`,
     #6076).
+
+    `comments` are the comments of the item that the run read: the inputs hold them, the agent
+    reads them with `read_comment`, and the outcome names each one that the inputs held whole
+    (#6167).
     """
     inputs = replace(
         build_step_inputs(
@@ -2436,6 +2494,7 @@ def run_step(
             fix=fix,
             earlier=earlier,
             preset=preset,
+            comments=comments,
         ),
         hooks=hooks,
         recorded_tests=recorded_tests,
@@ -2464,6 +2523,7 @@ def run_step(
             trace=trace,
             mcp_toolset=mcp_toolset,
         )
+        outcome = outcome.model_copy(update={"comments": inputs.comments.used})
         done = outcome.status is StepStatus.DONE
         return outcome
     finally:
@@ -2490,12 +2550,13 @@ def run_fix_step(
     recorded_tests: frozenset[str] = frozenset(),
     usage_limits: UsageLimits | None = None,
     token_cap: TokenCap | None = None,
+    comments: StepComments | None = None,
 ) -> StepOutcome:
     """Run the fix of the failed check `fix` for item `item` in the checkout `source`: a step
     whose group is "Make check <name> pass". It commits with the type and the scope of the item,
     that title and the issue reference (`step_commit_title`) when the exit checks pass, and
     `tasks.md` is as it was. Its ladder is the `repair` ladder (#3060). `usage_limits` is as in
-    `run_step`, and so is `token_cap`."""
+    `run_step`, and so are `token_cap` and `comments`."""
     return run_step(
         store,
         item=item,
@@ -2515,6 +2576,7 @@ def run_fix_step(
         recorded_tests=recorded_tests,
         usage_limits=usage_limits,
         token_cap=token_cap,
+        comments=comments,
     )
 
 

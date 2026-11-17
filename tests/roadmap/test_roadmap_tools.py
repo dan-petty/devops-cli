@@ -96,4 +96,4 @@ def test_the_real_stage_toolsets_name_only_tools_of_the_registry(tmp_path: Path)
         "stage-extended": [tool.name for tool in extended.tools()],
     }
 
-    assert (check_tables(tables), {len(names) for names in tables.values()}) == ([], {9, 12})
+    assert (check_tables(tables), {len(names) for names in tables.values()}) == ([], {10, 13})

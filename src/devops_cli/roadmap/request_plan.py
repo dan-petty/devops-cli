@@ -786,6 +786,8 @@ def stage_requests(
         git("fetch_branch", clone, "fetch", "-q", "origin", branch, repeat=each_closed),
         *within(store.open_pulls(), cond["orphan_pulls"]),
         *within(store.comments_on(_p("item")), cond["rejected_reason"], repeat=each_item),
+        # The comments of the item for the plan request and `read_comment` (#6167).
+        *within(store.comments_on(_p("item")), repeat=each_item),
         PlannedRequest("model", req["model_change"], repeat=each_item),
         PlannedRequest(
             "model", req["model_split"], condition=cond["model_split"], repeat=each_item
@@ -1077,6 +1079,20 @@ def implement_requests(
         *within(store.write_status(target), repeat=each_item),
         *within(store.set_marks(target), cond["clear_stop"], repeat=each_item),
         *([git("rebase", tree, "rebase", "origin/main")] if rebase else []),
+        # The comments of the item and the time at which its plan merged, for the inputs of each
+        # step (#6167).
+        *within(store.comments_on(target), repeat=each_item),
+        git(
+            "plan_time",
+            tree,
+            "log",
+            "-1",
+            "--diff-filter=A",
+            "--format=%aI",
+            "HEAD",
+            "--",
+            f"openspec/changes/{_p('change')}/tasks.md",
+        ),
         other("model", "model_step", "model", repeat=each_group),
         other("model", "model_split", "model", when=cond["split"], repeat=each_item),
         git("commit", tree, "commit", "-m", _p("title"), repeat=each_group),

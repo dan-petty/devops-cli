@@ -1,0 +1,23 @@
+# Design
+
+## Decisions
+
+- **All comments, one filter.** `held_comments` keeps each comment that `trust.trusted_replies` keeps (a person with write access, or the Service App), on the issue and not on a pull request. The comments of the roadmap jobs stay: the alternatives check, a suggestion of the Service, the stop of an earlier attempt and the findings of a review are context. The trust filter is the security control of a public repository (`roadmap/trust.py`), not a filter of context.
+- **No collapse.** The job collapses no comment. Each job comment holds the state at its time, and a person can reply to any of them. With the index, an old comment costs one line, so no collapse is needed for the budget.
+- **No cut.** `fit_comments` gives whole comments from the newest back while they fit, then an index line for each older comment while it fits, and counts the rest as `unlisted`. Only the label of an index line is cut (`CONST_ROADMAP_COMMENT_INDEX_CHARS`): it points at the comment, and `read_comment` reads the comment whole. The measure is the text of the form, so a JSON entry of the stage counts its escapes.
+- **The tool reads what the job read.** `read_comment` serves the comments that the job read for the item, so it makes no request and cannot fail on GitHub. It splits a line longer than `CONST_ROADMAP_COMMENT_LINE_CHARS` into numbered lines, and a page names the call for the next page, so a tool cap never drops text. With no number it lists every comment, so an `unlisted` comment is still found.
+- **Stage budget.** The comments take the room that the body leaves under `CONST_ROADMAP_STAGE_BODY_MAX_TOKENS` first, then at most `CONST_ROADMAP_STAGE_COMMENTS_MAX_TOKENS` (6,144) tokens of the context cap, at most half of it. The context loses only the tokens past the room of the body. So the request is never larger than with no comment, and the window test keeps its headroom of 512 tokens. The body is never cut more than before: the median body of 43 roadmap issues counts 476 tokens, and the largest 4,778, so the room of the body holds most comments.
+- **Implement budget.** A step measures its other inputs first. The comments get at most `CONST_ROADMAP_IMPLEMENT_COMMENTS_MAX_TOKENS` (8,000, as one packed file) and at most the room under the limit of the window. A section that would take the inputs over the limit stays out. So the comments never split a group or stop a step.
+- **The plan time comes from git.** `plan_merged_at` reads the author time of the newest commit of the checkout that added the `tasks.md` of the change. For a Planned item it is the squash merge of the plan pull request; for a Staged item it is the commit of the stage job, whose author time a rebase keeps. A fix step after the archive reads the path where the plan added the change.
+- **The record.** The comment of a staged item and the comment of an implement run name each comment that their input held whole, by its page. The GitHub store now reads the id and the page of a comment.
+- **The plan key.** The key of a kept plan holds the comments of the item, so a new comment makes a new plan. An item with no comment keeps its key.
+- **No change of the stage change prompt.** The key `comments` says what its entries are and how to read the others. The tools prompt names `read_comment`.
+
+## Rejected alternatives
+
+- **Leave out the comments of the jobs, as refine does.** The owner refused it on 2026-11-17: an alternatives check, a suggestion of the Service and the stop of an earlier attempt are context that the jobs need.
+- **Cut each comment to a token cap.** The owner refused it on 2026-11-17: a cut drops context. The longest comment of a job on #3827 counts 6,791 tokens; a cap of 4,096 tokens would drop its end.
+- **Extend `read_issue` to read one comment.** `read_issue` reads GitHub, so a failed read would lose the comment, and the toolset `base` has no `read_issue`. The implement agent has no `read_issue` either. One tool over the comments that the job read serves both jobs.
+- **Take the comment budget only from the body cap.** A body at its cap would then leave no room for even the index. The room of the body plus a share of the context always holds the index of a usual item.
+- **Read the merge time of the plan pull request from GitHub (`stage.pr`, `path_changed_at`).** It costs one request for each item, and a Staged item has no merged plan pull request. The commit that added the change gives the same time in the checkout.
+- **Change `roadmap_stage_change.md` to describe the key.** A change of that prompt needs live eval scores (#4005). The note in the request describes the key, so the prompt needs no change.

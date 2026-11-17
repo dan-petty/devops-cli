@@ -4077,6 +4077,8 @@ class RoadmapMessages:
     implement_pull_comment_skipped: str = (
         "- step {step}: skipped, because the default branch does not declare it in {file}"
     )
+    # The comments of the item that the inputs of the steps held whole (#6167).
+    implement_pull_comments_used: str = "- comments of the item in the step inputs: {names}"
     roadmap_toml_invalid: str = "{file} on the default branch is not valid: {reason}"
     implement_scoped_tests_uncovered: str = "not run, because no test covers the changed files"
     implement_strength_no_source: str = (
@@ -4411,6 +4413,10 @@ class RoadmapMessages:
     stage_comment_overlaps: str = (
         "\n\nThe stage job read the open pull requests and their files in {requests} GraphQL "
         "request(s)."
+    )
+    # The comments of the item that the first plan request held whole (#6167).
+    stage_comment_item_comments: str = (
+        "\n\nThe plan request held these comments of the item whole: {names}."
     )
     # The report of the runs of the toolbox for this plan, the planner and the review (#3037,
     # #3039), after the task groups.
@@ -4907,6 +4913,8 @@ class RoadmapMessages:
             "worktree": "the worktree on the staged branch, which the job takes over",
             "worktree_new": "the worktree on a new branch at the fetched default branch",
             "rebase": "rebase the staged branch onto the fetched default branch",
+            "plan_time": "the time at which the plan of the change merged, for the comments of "
+            "the step inputs",
             "model_step": "the implement model runs one task group",
             "model_split": "the stage model splits a group that is over the limit of the step",
             "commit": "commit the files of the task group",
