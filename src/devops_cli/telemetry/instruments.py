@@ -519,6 +519,13 @@ ROADMAP_CLAIM_AGE = Instrument(
     "Age of the oldest claim on an open roadmap item, by repo. The age is the time since the "
     "owner label was set. Zero when no open item holds a claim",
 )
+ROADMAP_CLAIMS = Instrument(
+    "devops_cli_roadmap_claims",
+    InstrumentKind.GAUGE,
+    "1",
+    "Open roadmap items counted by repo and claimant kind (`service`, `agent` or `human`). Each "
+    "round sends 0 for a kind that holds no open item, so the count stays current",
+)
 ROADMAP_INBOX_ITEMS = Instrument(
     "devops_cli_roadmap_inbox_items",
     InstrumentKind.GAUGE,
@@ -943,6 +950,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_ITEMS,
     ROADMAP_STALLED_ITEMS,
     ROADMAP_CLAIM_AGE,
+    ROADMAP_CLAIMS,
     ROADMAP_INBOX_ITEMS,
     ROADMAP_PERSON_CAUSE_INFLOW_TOTAL,
     ROADMAP_PERSON_CAUSE_OUTFLOW_TOTAL,
@@ -1095,6 +1103,7 @@ __all__ = [
     "ROADMAP_ALTERNATIVES_SEARCHES",
     "ROADMAP_ALTERNATIVES_TOTAL",
     "ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS",
+    "ROADMAP_CLAIMS",
     "ROADMAP_CLAIM_AGE",
     "ROADMAP_COMMENT_REPEATS_REFUSED_TOTAL",
     "ROADMAP_CONFLICTED_PULLS",

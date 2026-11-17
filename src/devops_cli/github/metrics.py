@@ -80,6 +80,7 @@ from devops_cli.telemetry.instruments import (
     PROJECT_TRAFFIC_VIEWS,
     PROJECT_TRAFFIC_VIEWS_UNIQUES,
     ROADMAP_CLAIM_AGE,
+    ROADMAP_CLAIMS,
     ROADMAP_ITEM_AGE,
     ROADMAP_ITEMS,
     ROADMAP_OLDEST_ITEM,
@@ -232,6 +233,9 @@ class ProjectMetricsReport(BaseModel):
     item_phases: list[ItemPhaseMetric] = Field(default_factory=list)
     # The age of the oldest claim, or None when the report did not read the label events.
     claim_age_seconds: float | None = None
+    # The open items of each claimant kind, or empty when the report did not read the items
+    # (#4579).
+    claims: dict[str, int] = Field(default_factory=dict)
 
 
 def parse_tag_datetime(date_str: str) -> datetime.datetime:
@@ -593,10 +597,10 @@ def get_item_age_metrics(
     pulls: Mapping[int, PullStatus] | None = None,
     running_units: Collection[int] | None = None,
     stall_hours: int | None = None,
-) -> tuple[list[ItemAgeMetric], float, list[ItemPhaseMetric]]:
+) -> tuple[list[ItemAgeMetric], float, list[ItemPhaseMetric], dict[str, int]]:
     """The age of the oldest open roadmap Item in each pipeline phase, with its number, the age
-    of the oldest claim, and the item and stalled counts of each phase, all at the time `clock`
-    gives (#2919, #5495).
+    of the oldest claim, the item and stalled counts of each phase, and the open items of each
+    claimant kind, all at the time `clock` gives (#2919, #4579, #5495).
 
     The phase age of an Item is the clock minus the time of the event that set its phase. The
     store gives that time through `label_changes` or record timestamps. Raises when the label
@@ -659,14 +663,32 @@ def get_item_age_metrics(
         for p in ACTIVE_PHASES
         if counts.get(p.value, 0) > 0
     ]
-    return item_ages, claim_age, item_phases
+    return item_ages, claim_age, item_phases, claimant_counts(items)
+
+
+_CLAIMANTS: Final[tuple[str, ...]] = ("service", "agent", "human")
+"""The claimant kinds of `ROADMAP_CLAIMS` (#4579). The owner field of an Item holds the same word
+with a capital first letter."""
+
+
+def claimant_counts(items: Iterable[Item]) -> dict[str, int]:
+    """The open items of each claimant kind (#4579): one count for `service`, `agent` and `human`,
+    and 0 for a kind that holds no open item. An item whose owner is no claimant kind counts
+    none."""
+    counts = dict.fromkeys(_CLAIMANTS, 0)
+    for item in items:
+        owner = item.owner
+        if owner is not None and owner.lower() in counts:
+            counts[owner.lower()] += 1
+    return counts
 
 
 def _read_item_ages(
     store: RoadmapStore, repo: str, clock: Callable[[], datetime.datetime]
-) -> tuple[list[ItemAgeMetric], float | None, list[ItemPhaseMetric]]:
+) -> tuple[list[ItemAgeMetric], float | None, list[ItemPhaseMetric], dict[str, int]]:
     """The item ages of one round. A failed read of the label events logs a warning and sends no
-    age this round, and the other sections of the report stay (#2919, #5495)."""
+    age and no claim count this round, and the other sections of the report stay (#2919, #4579,
+    #5495)."""
     try:
         return get_item_age_metrics(store, repo, clock)
     except GitHubOperationError as exc:
@@ -675,7 +697,7 @@ def _read_item_ages(
             repo,
             exc,
         )
-        return [], None, []
+        return [], None, [], {}
 
 
 def get_label_taxonomy_metrics(store: RoadmapStore) -> list[LabelTaxonomyMetric]:
@@ -899,8 +921,8 @@ def collect_project_metrics_report(
     )
     taxonomy_labels = get_label_taxonomy_metrics(roadmap)
     traffic = get_repository_traffic_metrics(target_repo)
-    ages, claim_age, phases = (
-        _read_item_ages(roadmap, target_repo, clock) if item_ages else ([], None, [])
+    ages, claim_age, phases, claims = (
+        _read_item_ages(roadmap, target_repo, clock) if item_ages else ([], None, [], {})
     )
 
     interval_sum = sum(r.days_since_prev for r in releases if r.days_since_prev > 0)
@@ -921,6 +943,7 @@ def collect_project_metrics_report(
         item_ages=ages,
         item_phases=phases,
         claim_age_seconds=claim_age,
+        claims=claims,
     )
 
 
@@ -1026,6 +1049,8 @@ def _emit_item_ages(repo: dict[str, str], report: ProjectMetricsReport) -> None:
     if report.claim_age_seconds is not None:
         emit(ROADMAP_CLAIM_AGE, report.claim_age_seconds, repo)
     _emit_item_phases(repo, report.item_phases)
+    for claimant, count in report.claims.items():
+        emit(ROADMAP_CLAIMS, float(count), {**repo, "claimant": claimant})
 
 
 def emit_project_metrics_telemetry(report: ProjectMetricsReport) -> None:
@@ -1070,6 +1095,7 @@ __all__ = [
     "TrafficReferrerMetric",
     "TrafficSummaryMetric",
     "WorkflowRunMetric",
+    "claimant_counts",
     "collect_project_metrics_report",
     "emit_project_metrics_telemetry",
     "get_ci_workflow_metrics",
