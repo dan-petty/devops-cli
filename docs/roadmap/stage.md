@@ -88,7 +88,7 @@ The run hook offers no tool when the messages and one quarter of the window reac
 
 | Part of the first request | Cap |
 | :--- | :--- |
-| Repository context | 20,480 tokens, or half of a window that is smaller than 40,960 tokens |
+| Repository context | 19,456 tokens, or half of a window that is smaller than 38,912 tokens |
 | Body of the item | 8,192 tokens, or one quarter of a window that is smaller than 32,768 tokens |
 | Capabilities | The names only. `read_spec` gives the purpose and the requirements of one capability on demand. |
 
