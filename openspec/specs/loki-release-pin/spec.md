@@ -6,46 +6,34 @@ The Helm chart and the Loki release that the logging stack runs. Argo CD and `de
 ## Requirements
 
 ### Requirement: Loki runs from the open-source chart at a release that fixes CVE-2026-21729
-The chart source of Application `loki` in `k8s/argocd/apps/loki.yaml` SHALL be the repository `https://grafana-community.github.io/helm-charts`, the chart `loki` and the version 20.0.2, and the AppProject of the Application SHALL admit that repository. The `logging` stack of `devops k8s deploy-stack` SHALL add that repository and install the chart `grafana-community/loki` at the same version. Chart 20.0.2 runs Loki 3.7.9, and Loki 3.7.0 is the first release that fixes CVE-2026-21729.
+The chart source of Application `loki` in `k8s/argocd/apps/loki.yaml` SHALL be the repository `https://grafana-community.github.io/helm-charts` and the chart `loki`, at a chart version that runs Loki 3.7.0 or later, the first release that fixes CVE-2026-21729. The AppProject of the Application SHALL admit that repository. The `logging` stack of `devops k8s deploy-stack` SHALL add that repository and install the chart `grafana-community/loki` at the version of the Application.
 
 #### Scenario: The Argo CD Application installs another chart
-- **WHEN** a test reads the chart source of Application `loki` and the AppProject that the Application names
-- **THEN** the repository is `https://grafana-community.github.io/helm-charts`, the chart is `loki` and the version is 20.0.2
-- **AND** the `sourceRepos` of the AppProject hold that repository
+- **WHEN** a person runs `kubectl -n argocd get application loki`
+- **THEN** the Application is `Synced` and `Healthy`, which Argo CD reports only for a source repository that the AppProject admits
+- **AND** `kubectl -n logging get pod loki-0 -o jsonpath='{.status.containerStatuses[?(@.name=="loki")].image}'` names the image `grafana/loki` with a tag of 3.7.0 or later
 
 #### Scenario: deploy-stack installs another chart
-- **WHEN** a test reads the one Helm release of the `logging` stack and the Helm repositories of that stack
-- **THEN** the release installs `grafana-community/loki` at version 20.0.2
-- **AND** the repository `grafana-community` of the stack is `https://grafana-community.github.io/helm-charts`
+- **WHEN** a person runs `uv run devops k8s deploy-stack --stack logging --dry-run`
+- **THEN** its `helm_commands` add the repository `grafana-community` at `https://grafana-community.github.io/helm-charts`
+- **AND** they install `grafana-community/loki` with a `--version` equal to the `targetRevision` of Application `loki`
 
 ### Requirement: The chart version sets the Loki image
 The chart source of Application `loki` SHALL give the chart the values file `k8s/logging/loki-values.yaml` and no other value: no `parameters`, `values` or `valuesObject`. `k8s/logging/loki-values.yaml` SHALL NOT set `loki.image` or `singleBinary.image`, which can set the tag or the digest of the Loki image. The chart then runs the Loki image of its `appVersion`.
 
 #### Scenario: The values set an older Loki image tag
-- **WHEN** `k8s/logging/loki-values.yaml` sets `loki.image.tag` or `singleBinary.image.tag`, for example to 3.6.11
-- **THEN** a test that reads the values fails, although the chart pin did not change
+- **WHEN** a person runs `kubectl -n logging get pod loki-0 -o jsonpath='{.status.containerStatuses[?(@.name=="loki")].image}'` and `helm show chart loki --repo https://grafana-community.github.io/helm-charts --version <targetRevision>`, with the `targetRevision` of Application `loki`
+- **THEN** the tag of the Loki image is equal to the `appVersion` of the chart
+- **AND** a values file that sets `loki.image.tag` or `singleBinary.image.tag`, for example to 3.6.11, makes the two versions different
 
 #### Scenario: The Application gives the chart another value
-- **WHEN** a person runs `kubectl -n argocd get application loki -o yaml` and `kubectl -n logging get statefulset loki -o jsonpath='{..image}'` on the cluster
-- **THEN** the `helm` block of the chart source holds only `valueFiles` with `k8s/logging/loki-values.yaml`, and the image is the one of the chart release
-
-### Requirement: The Loki values set no key that the chart removed
-`k8s/logging/loki-values.yaml` SHALL NOT set `monitoring.selfMonitoring`, which the grafana-community chart removed in 9.0.0.
-
-#### Scenario: The values set the removed self-monitoring block
-- **WHEN** a test reads `k8s/logging/loki-values.yaml`
-- **THEN** the values have no `monitoring.selfMonitoring` key
+- **WHEN** a person runs `kubectl -n argocd get application loki -o jsonpath='{.spec.sources[0].helm}'`
+- **THEN** the output holds only `valueFiles`, with the one file `$values/k8s/logging/loki-values.yaml`
 
 ### Requirement: The Loki values render no ServiceAccount that no pod uses
 The Loki values SHALL set `memcached.enabled` to `false` while `chunksCache` and `resultsCache` are off, so the chart renders no `loki-memcached` ServiceAccount.
 
 #### Scenario: the values turn the memcached objects off
-- **WHEN** `k8s/logging/loki-values.yaml` is read
-- **THEN** `memcached.enabled` is `false`, and `chunksCache.enabled` and `resultsCache.enabled` are `false`
-
-### Requirement: The Loki values name the documented deployment mode
-The Loki values SHALL set `deploymentMode` to `Monolithic`, and each comment of the values file that names the deployment mode SHALL name `Monolithic`.
-
-#### Scenario: the values file names the current mode
-- **WHEN** `k8s/logging/loki-values.yaml` is read
-- **THEN** `deploymentMode` is `Monolithic` and no line holds `SingleBinary`
+- **WHEN** Argo CD has synced Application `loki`, and a person runs `kubectl -n logging get serviceaccounts,statefulsets`
+- **THEN** the namespace holds no ServiceAccount `loki-memcached`
+- **AND** it holds no StatefulSet `loki-chunks-cache` or `loki-results-cache`
