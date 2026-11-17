@@ -192,6 +192,8 @@ class CaseFacts(_Record):
     # The files that hold the old path or the dotted name of a moved module. An empty tuple
     # records no hit, as every case recorded before #3412 does.
     references: tuple[str, ...] = ()
+    # The diff of pyproject.toml that the change of the case makes, so the paths gate tells a tool
+    # setting from a dependency (#3491). An empty string records no diff.
     pyproject_diff: str = ""
 
 

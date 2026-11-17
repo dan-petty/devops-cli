@@ -827,11 +827,12 @@ def is_tool_setting_diff(diff_text: str, base_text: str = "") -> bool:
     """Whether every changed TOML key in `diff_text` for `pyproject.toml` is under a `[tool.*]` table (#3491)."""
     if not diff_text.strip():
         return False
-    try:
-        from unidiff import PatchSet
+    from unidiff.errors import UnidiffParseError
+    from unidiff.patch import PatchSet
 
+    try:
         patch = PatchSet(diff_text)
-    except Exception:
+    except UnidiffParseError:
         return False
     base_lines = base_text.splitlines() if base_text else []
     changed_keys = 0
