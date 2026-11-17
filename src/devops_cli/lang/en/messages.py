@@ -835,7 +835,7 @@ class K8sMessages:
     )
     searxng_check_passed: str = (
         "All {rows} search rows of SearXNG passed, and the pods open no connection to the "
-        "{destinations} destinations. The check was written for the image {image}."
+        "{destinations} destinations."
     )
     searxng_check_failed: str = (
         "{count} check(s) of the SearXNG service failed: {detail}. Do not fix this in code: "

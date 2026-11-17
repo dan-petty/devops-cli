@@ -106,13 +106,6 @@ The command SHALL start a throwaway pod with a neutral label that is not the lab
 - **WHEN** the connect from the pod with the label of `searxng` to the metadata address succeeds
 - **THEN** the command exits 1 and the report names the SearXNG pod and the metadata role as `reached`.
 
-### Requirement: Pinned image
-An offline check of the `k8s` row of `devops ci` MUST compare the image of Deployment `searxng` with the image that the command names.
-
-#### Scenario: Image bump
-- **WHEN** the Deployment pins an image that differs from `SEARXNG_IMAGE`
-- **THEN** the check fails, names both images and the command that a person runs again.
-
 ### Requirement: Roles in the output
 The command and its output MUST name each pod and each target by a role and MUST NOT hold a private host name or a private address.
 
@@ -126,13 +119,6 @@ The command SHALL pass `--context` to every `kubectl` call.
 #### Scenario: Context option
 - **WHEN** a person runs the command with `--context test-ctx`
 - **THEN** every recorded `kubectl` call names the context `test-ctx`.
-
-### Requirement: Reply fixture from the pinned image
-The reply fixture of the SearXNG provider tests SHALL be a reply that the pinned image gave, and a file next to it SHALL name that image.
-
-#### Scenario: Fixture names the image
-- **WHEN** a test reads the fixture and `SEARXNG_IMAGE`
-- **THEN** the fixture holds the seven reply keys and the file next to it holds `SEARXNG_IMAGE`.
 
 ### Requirement: Hermetic tests
 The tests of the command MUST run with the process and HTTP fakes and MUST NOT skip on the state of the host.

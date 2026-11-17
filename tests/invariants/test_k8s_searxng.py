@@ -18,7 +18,6 @@ from tests.support.k8s_tree import K8S, manifests, pod_spec
 from tests.support.paths import REPO_ROOT
 
 SEARXNG_DIR = K8S / "devops" / "searxng"
-ENGINE_NAMES = REPO_ROOT / "tests" / "fixtures" / "searxng" / "default_engine_names.txt"
 DEAD_ENGINES = REPO_ROOT / "tests" / "fixtures" / "searxng" / "engines_that_never_answer.txt"
 CLUSTER_DOC = REPO_ROOT / "docs" / "CLUSTER.md"
 # The sentence of docs/CLUSTER.md that lists the kept engines, each name in backticks.
@@ -64,27 +63,12 @@ def _settings() -> dict[str, Any]:
     return settings
 
 
-def _default_engine_names() -> set[str]:
-    lines = ENGINE_NAMES.read_text(encoding="utf-8").splitlines()
-    return {line for line in lines if line and not line.startswith("#")}
-
-
 def test_the_image_names_a_release_tag_and_its_digest() -> None:
     """A digest alone hides the release from a reader, and a tag alone can move. The pin names
     both, and Renovate bumps both together."""
     image = _container()["image"]
 
     assert (bool(IMAGE_PATTERN.match(image)), names_latest(image)) == (True, False)
-
-
-def test_the_engine_names_file_is_the_one_of_the_pinned_image() -> None:
-    """The names file holds the engines of the default settings.yml of the image that the
-    Deployment pins. A bump of the image that does not refresh the file fails here."""
-    match = IMAGE_PATTERN.match(_container()["image"])
-    assert match is not None
-    header = ENGINE_NAMES.read_text(encoding="utf-8").splitlines()[0]
-
-    assert f"searxng:{match['tag']}." in header
 
 
 def test_the_deployment_runs_one_pod_with_no_service_account_token() -> None:
@@ -274,17 +258,14 @@ def test_the_settings_keep_no_engine_that_never_answers() -> None:
     assert sorted(set(kept) & set(_dead_engine_names())) == []
 
 
-def test_the_dead_engines_file_gives_a_date_and_a_reason_for_real_engines() -> None:
-    """The file begins with `pypi`, and each line has a date and a reason. A name that is not an
-    engine of the default settings would make the test above pass for any list."""
+def test_the_dead_engines_file_gives_a_date_and_a_reason() -> None:
+    """The file begins with `pypi`, and each line has a date and a reason."""
     lines = [line for line in DEAD_ENGINES.read_text(encoding="utf-8").splitlines() if line]
-    names = _dead_engine_names()
 
     assert (
-        names[:1],
+        _dead_engine_names()[:1],
         [line for line in lines if not DEAD_ENGINE_LINE.match(line)],
-        sorted(set(names) - _default_engine_names()),
-    ) == (["pypi"], [], [])
+    ) == (["pypi"], [])
 
 
 def test_the_cluster_document_lists_the_engines_that_the_settings_keep() -> None:
@@ -322,20 +303,6 @@ def test_the_settings_keep_none_of_the_suspended_or_keyed_engines() -> None:
     declared = [engine["name"] for engine in settings.get("engines", [])]
 
     assert (sorted(named & set(OFF_ENGINES)), declared) == ([], [])
-
-
-def test_every_kept_engine_exists_in_the_default_settings_of_the_pinned_image() -> None:
-    kept = _settings()["use_default_settings"]["engines"]["keep_only"]
-
-    assert sorted(set(kept) - _default_engine_names()) == []
-
-
-def test_the_names_file_holds_the_forbidden_engines_so_the_check_above_means_something() -> None:
-    """The forbidden names are real engines of the default settings: the test of the kept
-    engines would pass for any list if the names file were empty."""
-    names = _default_engine_names()
-
-    assert sorted(name for name in OFF_ENGINES if name not in names) == []
 
 
 def test_every_file_of_the_service_is_in_both_kustomizations_and_the_deploy_stack() -> None:

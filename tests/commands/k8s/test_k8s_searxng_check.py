@@ -196,6 +196,17 @@ def test_six_requests_go_through_the_forward_with_format_json_and_no_credential(
     )
 
 
+def test_a_passing_check_names_no_image_of_its_own(
+    cli: Callable[..., Any], cluster: ProcessFake, web: WebFake
+) -> None:
+    """The check tests the running service, whatever image it runs, so it holds no image of its
+    own and its report names none (#6063)."""
+    result = _check(cli)
+    words = result.output.split()
+
+    assert (result.exit_code, "passed," in words, "written" in words) == (0, True, False)
+
+
 def test_the_report_has_one_row_for_each_search(
     cli: Callable[..., Any], cluster: ProcessFake
 ) -> None:
