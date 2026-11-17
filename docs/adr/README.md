@@ -173,5 +173,6 @@ The links to the OpenSpec change, the spec, the settings and the issue.
 | [0026](0026-github-settings-are-opentofu-code-the-owner-applies.md) | GitHub settings are OpenTofu code the owner applies | accepted | 2026-11-15 |  |
 | [0027](0027-dependency-updates-come-from-self-hosted-renovate.md) | Dependency updates come from self-hosted Renovate | proposed | 2026-11-16 |  |
 | [0028](0028-a-research-agent-composes-open-tools-and-a-research-index.md) | A research agent composes open tools and a research index | accepted | 2026-11-17 |  |
+| [0029](0029-the-roadmap-service-serves-a-read-only-api.md) | The roadmap Service serves a read-only API | accepted | 2026-11-17 |  |
 
 <!-- ADR_INDEX_END -->
