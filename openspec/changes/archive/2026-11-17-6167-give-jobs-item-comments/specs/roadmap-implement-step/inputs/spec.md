@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The inputs of a step are fixed
-The user message of the model SHALL hold, in this order: the `AGENTS.md` of the checkout and the routed sections of its documents; the title, problem and criteria of the item; the `proposal.md`, `design.md` and `tasks.md` of the change; the comments of the item under "Comments on the item", when the run gives them and the item has one; the group; its named files, packed; and, except for a fix step, the path of the `tasks.md` under "The tasks file". It SHALL hold nothing else. The change is the one folder `openspec/changes/<N>-*/`, else the step SHALL raise `RoadmapImplementError`.
+The user message SHALL hold, in order: the `AGENTS.md` of the checkout and its routed sections; the title, problem and criteria of the item; the `proposal.md`, `design.md` and `tasks.md` of the change; the comments of the item that the run gives; the group; its named files, packed; and, except for a fix step, the path of `tasks.md` under "The tasks file". It SHALL hold nothing else. The change is the one folder `openspec/changes/<N>-*/`, else the step SHALL raise `RoadmapImplementError`.
 
 #### Scenario: The first request
 - **WHEN** the step runs group 1 of a change whose group 1 names `src/sample.py` and `tests/test_sample.py`, which does not exist yet
