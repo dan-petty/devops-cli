@@ -3216,8 +3216,11 @@ class RoadmapMessages:
     alternatives_no: str = "no"
     # The comment and the body block the check writes.
     alternatives_comment_heading: str = "## Alternatives check: {verdict}"
-    alternatives_comment_tool: str = "Tool: {name} ({url})"
     alternatives_comment_no_tool: str = "Tool: none found"
+    # The one line of the comment of a skip class (#6168).
+    alternatives_comment_skipped: str = (
+        "Alternatives check: {verdict} ({skip_class} item; no search)."
+    )
     # The line that says why the job, not the model, gave the verdict `rejected` or `in-use`
     # (#3505). The ADR number has four digits, as in the file name.
     alternatives_basis_rejected: str = (
@@ -3225,13 +3228,6 @@ class RoadmapMessages:
     )
     alternatives_basis_in_use: str = "The item already names this tool."
     alternatives_basis_in_repository: str = "The repository already uses this tool."
-    alternatives_comment_skip_class: str = (
-        "Class: {skip_class}. The check makes no search and no model call for an item of this "
-        "class."
-    )
-    alternatives_comment_license: str = "- License: {license}"
-    alternatives_comment_activity: str = "- Last activity: {date}"
-    alternatives_comment_maintained: str = "- Maintained: {answer}"
     alternatives_comment_covers: str = "Covers:"
     alternatives_comment_lacks: str = "Lacks:"
     alternatives_comment_reason: str = "Reason: {reason}"
@@ -3244,9 +3240,11 @@ class RoadmapMessages:
     alternatives_comment_sources: str = "Sources:"
     alternatives_comment_sources_left_out: str = "{count} more sources are left out"
     alternatives_comment_item: str = "- {text}"
+    # The block that GitHub shows closed: the tools considered, the searches and the sources.
+    alternatives_comment_fold_open: str = "<details><summary>Searches ({count})</summary>"
+    alternatives_comment_fold_close: str = "</details>"
     alternatives_comment_footer: str = (
-        "Checked on {date}. A person decides what this means for the item. "
-        "The check changes no label and closes no issue."
+        "A person decides what this check of {date} means for the item."
     )
     alternatives_block_verdict: str = "Alternatives check of {date}: {verdict}."
     alternatives_block_tool: str = (

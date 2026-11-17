@@ -50,10 +50,12 @@ skips the item. A check records the canonical id of its tool and the hash of the
 **Writes.** With `--confirm` a check replaces the job's block in the body, records
 `alternatives.*` in the job record, and posts one comment that carries
 `CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER`. It changes no label and closes no issue. The comment
-gives the verdict, the model's reason for it, the tool, what it covers and lacks, every tool whose
-facts the run read, each search with its number of results, and at most
-`CONST_ROADMAP_ALTERNATIVES_MAX_COMMENT_SOURCES` sources (#2944). A check adds a comment and never
-changes an earlier one. A comment after the job's last one reaches the next check as a reply. A skipped item gets only
+gives the verdict, the model's reason for it, the tool on one line, and what it covers and lacks
+(#2944). One block that GitHub shows closed holds every tool whose facts the run read, each search
+with its number of results, and at most `CONST_ROADMAP_ALTERNATIVES_MAX_COMMENT_SOURCES` sources
+(#6168). A skip class gets one line. The prompt asks for a brief reply; the job refuses no reply
+for its length and cuts no text of it. A check adds a comment and never changes an earlier one. A
+comment after the job's last one reaches the next check as a reply. A skipped item gets only
 `alternatives.failed_at` and `alternatives.failed_error` in its job record; a written check
 clears both.
 
@@ -190,7 +192,8 @@ class AlternativesReply(BaseModel):
     verdict, and the verdict `in-use` with `in_use`, when the item already names that tool.
     `tool_name` is the name that the ADR or the item writes for the tool. The job confirms each
     proposal against the text, and keeps the verdict of the reply when it cannot (#3505).
-    `reason` is the reason of the verdict in one or two sentences (#2944)."""
+    `reason` is the reason of the verdict (#2944). The prompt asks for a brief reply, and the schema
+    sets no length: a long reply is written whole (#6168)."""
 
     verdict: Verdict
     reason: str = Field(min_length=1)
@@ -823,18 +826,19 @@ def _clean(texts: Sequence[str], allowed_urls: set[str]) -> tuple[str, ...]:
     return tuple(sanitize_text(" ".join(text.split()), allowed_urls) for text in texts)
 
 
-def _tool_section(tool: CheckedTool | None) -> list[str]:
+def _tool_line(tool: CheckedTool) -> str:
+    """The tool on one line, with its URL, license, last activity and maintained state: the same
+    line in the comment and in the block."""
     texts = MESSAGES.roadmap
-    if tool is None:
-        return [texts.alternatives_comment_no_tool]
-    return [
-        texts.alternatives_comment_tool.format(name=tool.name, url=tool.url),
-        texts.alternatives_comment_license.format(
-            license=tool.license or texts.alternatives_not_stated
+    return texts.alternatives_block_tool.format(
+        name=tool.name,
+        url=tool.url,
+        license=tool.license or texts.alternatives_not_stated,
+        date=_day(tool.last_activity),
+        maintained=(
+            texts.alternatives_maintained if tool.maintained else texts.alternatives_not_maintained
         ),
-        texts.alternatives_comment_activity.format(date=_day(tool.last_activity)),
-        texts.alternatives_comment_maintained.format(answer=_yes_no(tool.maintained)),
-    ]
+    )
 
 
 def _basis(check: Check) -> list[str]:
@@ -878,6 +882,29 @@ def _search_section(searches: Sequence[Search]) -> list[str]:
     )
 
 
+def _folded_section(check: Check) -> list[str]:
+    """The tools considered, the searches and the sources in one block that GitHub shows closed,
+    so the comment shows the verdict and its evidence first (#6168); none when all three are
+    empty."""
+    texts = MESSAGES.roadmap
+    lists = [
+        _considered_section(check.considered),
+        _search_section(check.searches),
+        _source_section(check.sources),
+    ]
+    shown = [section for section in lists if section]
+    if not shown:
+        return []
+    inside = "\n\n".join("\n".join(section) for section in shown)
+    return [
+        texts.alternatives_comment_fold_open.format(count=len(check.searches)),
+        "",
+        inside,
+        "",
+        texts.alternatives_comment_fold_close,
+    ]
+
+
 def _source_section(sources: Sequence[str]) -> list[str]:
     """At most `CONST_ROADMAP_ALTERNATIVES_MAX_COMMENT_SOURCES` sources, each a URL that GitHub
     shows as a link, and a line that says how many the comment leaves out (#2944)."""
@@ -895,30 +922,31 @@ def _list_section(title: str, lines: Sequence[str]) -> list[str]:
 
 
 def _comment_of(check: Check) -> str:
-    """The comment of a check: the marker, the verdict, the tool with its facts, the lists, and a
-    line that says what the check does not do."""
+    """The comment of a check: the marker, the verdict, the reason, the tool with its facts, what
+    it covers and lacks, the folded evidence, and who decides. A skip class gets one line."""
     texts = MESSAGES.roadmap
+    if check.skip_class:
+        return "\n".join(
+            [
+                CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
+                texts.alternatives_comment_skipped.format(
+                    verdict=check.verdict.value, skip_class=check.skip_class
+                ),
+            ]
+        )
     heading = [
         CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
         texts.alternatives_comment_heading.format(verdict=check.verdict.value),
     ]
-    skip = (
-        [texts.alternatives_comment_skip_class.format(skip_class=check.skip_class)]
-        if check.skip_class
-        else []
-    )
     reason = [texts.alternatives_comment_reason.format(reason=check.reason)] if check.reason else []
     sections = [
         heading,
-        skip,
         reason,
         _basis(check),
-        _tool_section(check.tool),
+        [texts.alternatives_comment_no_tool if check.tool is None else _tool_line(check.tool)],
         _list_section(texts.alternatives_comment_covers, check.covers),
         _list_section(texts.alternatives_comment_lacks, check.lacks),
-        _considered_section(check.considered),
-        _search_section(check.searches),
-        _source_section(check.sources),
+        _folded_section(check),
         [texts.alternatives_comment_footer.format(date=check.checked_at.date().isoformat())],
     ]
     return "\n\n".join("\n".join(section) for section in sections if section)
@@ -927,21 +955,7 @@ def _comment_of(check: Check) -> str:
 def _block_of(check: Check) -> str:
     """The block of the body: the latest verdict and tool, between the job's two markers."""
     texts = MESSAGES.roadmap
-    tool = check.tool
-    if tool is None:
-        detail = texts.alternatives_block_no_tool
-    else:
-        detail = texts.alternatives_block_tool.format(
-            name=tool.name,
-            url=tool.url,
-            license=tool.license or texts.alternatives_not_stated,
-            date=_day(tool.last_activity),
-            maintained=(
-                texts.alternatives_maintained
-                if tool.maintained
-                else texts.alternatives_not_maintained
-            ),
-        )
+    detail = texts.alternatives_block_no_tool if check.tool is None else _tool_line(check.tool)
     skip = (
         [texts.alternatives_block_skip_class.format(skip_class=check.skip_class)]
         if check.skip_class
