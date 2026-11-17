@@ -47,15 +47,17 @@ and, when the run has a clone, its deployed paths. A `covers` or `partly` tool t
 holds gives `in-use` with no proposal of the model, after `rejected`. A failed read of deps.dev
 skips the item. A check records the canonical id of its tool and the hash of the ADRs it read.
 
-**Writes.** With `--confirm` a check replaces the job's block in the body, records
-`alternatives.*` in the job record, and posts one comment that carries
-`CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER`. It changes no label and closes no issue. The comment
-gives the verdict, the model's reason for it, the tool on one line, and what it covers and lacks
-(#2944). One block that GitHub shows closed holds every tool whose facts the run read, each search
-with its number of results, and every source of the reply (#6168, #6177). A skip class gets one
-line. The prompt asks for a brief reply; the job refuses no reply for its length and cuts no text
-or list of it. A check adds a comment and never changes an earlier one. A comment after the job's
-last one reaches the next check as a reply. A skipped item gets only `alternatives.failed_at` and
+**Writes.** With `--confirm` a check replaces the job's block in the body and records
+`alternatives.*` in the job record. It changes no label and closes no issue. The block holds the
+current result: the date, the verdict, the skip class, the basis of a verdict of the job, the tool
+on one line, the model's reason, and what the tool covers and lacks (#2944, #6195). When the result
+changed, a check of an item that is no skip class also posts one comment that carries
+`CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER`: the event. It says that the result in the block
+changed and what it was before, and one block that GitHub shows closed holds every tool whose facts
+the run read, each search with its number of results, and every source of the reply (#6168,
+#6177). The comment repeats no line of the block. The prompt asks for a brief reply; the job
+refuses no reply for its length and cuts no text or list of it. A check adds a comment and never
+changes an earlier one. A comment after the job's last one reaches the next check as a reply. A skipped item gets only `alternatives.failed_at` and
 `alternatives.failed_error` in its job record; a written check clears both.
 
 The check is off when the repository is private, its visibility cannot be read, or no search
@@ -510,7 +512,8 @@ class CheckedTool:
 
 @dataclass(frozen=True)
 class Check:
-    """One item's check, ready to write: the comment, and the body with the job's block.
+    """One item's check, ready to write: the body with the job's block, which holds the result,
+    and the comment, the event of a change of the result, empty for a skip class (#6195).
     `adr_hash` is the hash of the ADRs that the model read, none for a skip class, and
     `in_repository` says that the repository uses the tool of an `in-use` verdict (#4661)."""
 
@@ -828,8 +831,8 @@ def _clean(texts: Sequence[str], allowed_urls: set[str]) -> tuple[str, ...]:
 
 
 def _tool_line(tool: CheckedTool) -> str:
-    """The tool on one line, with its URL, license, last activity and maintained state: the same
-    line in the comment and in the block."""
+    """The tool on one line of the block, with its URL, license, last activity and maintained
+    state."""
     texts = MESSAGES.roadmap
     return texts.alternatives_block_tool.format(
         name=tool.name,
@@ -911,39 +914,42 @@ def _list_section(title: str, lines: Sequence[str]) -> list[str]:
     return [title, *(item.format(text=line) for line in lines)] if lines else []
 
 
-def _comment_of(check: Check) -> str:
-    """The comment of a check: the marker, the verdict, the reason, the tool with its facts, what
-    it covers and lacks, the folded evidence, and who decides. A skip class gets one line."""
+def _result_before(check: Check) -> str:
+    """The result that the job record of the item held before `check`: its verdict and its tool,
+    or no check."""
     texts = MESSAGES.roadmap
+    record = check.item.job_record
+    verdict = record.get(AlternativesRecordKey.VERDICT)
+    if not verdict:
+        return texts.alternatives_comment_before_none
+    tool = record.get(AlternativesRecordKey.TOOL)
+    if tool:
+        return texts.alternatives_comment_before_tool.format(verdict=verdict, tool=tool)
+    return texts.alternatives_comment_before_no_tool.format(verdict=verdict)
+
+
+def _comment_of(check: Check) -> str:
+    """The comment of a check, the event of a change of its result: the marker, the line that says
+    the result in the block of the body changed and what it was before, and the folded evidence of
+    the run. The result itself is in the block only (#6195). A skip class has no evidence, so it
+    gets no comment: the text is empty."""
     if check.skip_class:
-        return "\n".join(
-            [
-                CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
-                texts.alternatives_comment_skipped.format(
-                    verdict=check.verdict.value, skip_class=check.skip_class
-                ),
-            ]
-        )
-    heading = [
-        CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
-        texts.alternatives_comment_heading.format(verdict=check.verdict.value),
-    ]
-    reason = [texts.alternatives_comment_reason.format(reason=check.reason)] if check.reason else []
+        return ""
+    texts = MESSAGES.roadmap
     sections = [
-        heading,
-        reason,
-        _basis(check),
-        [texts.alternatives_comment_no_tool if check.tool is None else _tool_line(check.tool)],
-        _list_section(texts.alternatives_comment_covers, check.covers),
-        _list_section(texts.alternatives_comment_lacks, check.lacks),
+        [
+            CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
+            texts.alternatives_comment_changed.format(before=_result_before(check)),
+        ],
         _folded_section(check),
-        [texts.alternatives_comment_footer.format(date=check.checked_at.date().isoformat())],
     ]
     return "\n\n".join("\n".join(section) for section in sections if section)
 
 
 def _block_of(check: Check) -> str:
-    """The block of the body: the latest verdict and tool, between the job's two markers."""
+    """The block of the body, between the job's two markers: the current result of the check. Its
+    first lines give the date and the verdict, the skip class, the basis of a verdict of the job,
+    the tool and the reason of the model; then what the tool covers and what it lacks (#6195)."""
     texts = MESSAGES.roadmap
     detail = texts.alternatives_block_no_tool if check.tool is None else _tool_line(check.tool)
     skip = (
@@ -951,17 +957,24 @@ def _block_of(check: Check) -> str:
         if check.skip_class
         else []
     )
+    reason = [texts.alternatives_block_reason.format(reason=check.reason)] if check.reason else []
+    head = [
+        texts.alternatives_block_verdict.format(
+            date=check.checked_at.date().isoformat(), verdict=check.verdict.value
+        ),
+        *skip,
+        *_basis(check),
+        detail,
+        *reason,
+    ]
+    sections = [
+        head,
+        _list_section(texts.alternatives_block_covers, check.covers),
+        _list_section(texts.alternatives_block_lacks, check.lacks),
+    ]
+    inside = "\n\n".join("\n".join(section) for section in sections if section)
     return "\n".join(
-        [
-            CONST_ROADMAP_ALTERNATIVES_START_MARKER,
-            texts.alternatives_block_verdict.format(
-                date=check.checked_at.date().isoformat(), verdict=check.verdict.value
-            ),
-            *skip,
-            *_basis(check),
-            detail,
-            CONST_ROADMAP_ALTERNATIVES_END_MARKER,
-        ]
+        [CONST_ROADMAP_ALTERNATIVES_START_MARKER, inside, CONST_ROADMAP_ALTERNATIVES_END_MARKER]
     )
 
 
@@ -1421,6 +1434,12 @@ def _result_changed(check: Check) -> bool:
     return recorded_verdict != check.verdict.value or record.get(AlternativesRecordKey.TOOL) != tool
 
 
+def _posts_comment(check: Check) -> bool:
+    """Whether the write of `check` posts its comment: the check of an item that is no skip class,
+    whose result changed (#4054, #6195)."""
+    return check.skip_class is None and _result_changed(check)
+
+
 class AlternativesWriter:
     """The writes of one alternatives round, made when each item is checked (#4034).
 
@@ -1438,7 +1457,7 @@ class AlternativesWriter:
     def settle(self, outcome: Check | CheckFailure) -> None:
         """Write the result of one item. The block and the marks are written for every check. The
         comment is posted only for a first check and for a check whose verdict or tool differs from
-        the record (#4054). A check is counted in
+        the record (#4054), and never for a skip class (#6195). A check is counted in
         `devops_cli_roadmap_alternatives_total` by its verdict, and its searches in
         `devops_cli_roadmap_alternatives_searches` (#2950). A failure is recorded in the job record
         of its item: the time and the class of the error. Each written check and each failure logs
@@ -1458,7 +1477,7 @@ class AlternativesWriter:
         if not _unchanged_since_read(self._store, outcome):
             return
         number = outcome.item.number
-        changed = _result_changed(outcome)
+        posts = _posts_comment(outcome)
         marks: dict[str, str | None] = {
             AlternativesRecordKey.CHECKED_AT: outcome.checked_at.isoformat(),
             AlternativesRecordKey.BODY_HASH: outcome.body_hash,
@@ -1472,7 +1491,7 @@ class AlternativesWriter:
         if AlternativesRecordKey.FAILED_REASON in outcome.item.job_record:
             marks[AlternativesRecordKey.FAILED_REASON] = None
         self._store.set_marks(outcome.item, marks, body=outcome.new_body)
-        if changed:
+        if posts:
             self._store.comment(number, outcome.comment)
         emit(ROADMAP_ALTERNATIVES_TOTAL, 1, {"verdict": outcome.verdict.value})
         emit(

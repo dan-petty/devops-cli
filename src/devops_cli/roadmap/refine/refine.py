@@ -67,7 +67,8 @@ store refuses the comment of such a look as a repeat, the round records its time
 (`RefineRecordKey.REPEATED_AT`), and the wait starts at that time, so one change gives one look
 (#4793).
 The check of the alternatives job (#2650) is an input of both model calls (`alternatives`: its
-verdict, tool, block and latest comment). A `covers` verdict is a question that only a person
+verdict, tool, block and latest comment whole). The block holds the result, and the comment the
+evidence of the run (#6195). A `covers` verdict is a question that only a person
 answers: adopt the tool, or keep the item with a reason. It is open, and the item waits on a
 person, until a person replies after the job's comment and the proposal answers it (#2652). Refine
 records the covering tool it asked about (`RefineRecordKey.ALTERNATIVES_ASKED`); an open New or
@@ -663,9 +664,11 @@ def _latest_check_comment(comments: Sequence[IssueComment]) -> IssueComment | No
 def _alternatives_request(
     check: RecordedCheck | None, comments: Sequence[IssueComment], covers: CoversQuestion | None
 ) -> dict[str, Any] | None:
-    """The `alternatives` key of a request: the recorded check with the job's latest comment,
-    which lists what the tool covers and lacks, and the replies of persons that answer a `covers`
-    question, or None when the item holds no check."""
+    """The `alternatives` key of a request: the recorded check, whose block holds the result
+    (the reason, and what the tool covers and lacks), the job's latest comment whole, which holds
+    the evidence of the run, and the replies of persons that answer a `covers` question, or None
+    when the item holds no check. The comment of a check before #6195 holds the covers and the
+    lacks itself, so refine still reads them there."""
     if check is None:
         return None
     latest = _latest_check_comment(comments)
@@ -673,11 +676,7 @@ def _alternatives_request(
         "verdict": check.verdict.value,
         "tool": check.tool,
         "block": check.block,
-        "comment": (
-            truncate_to_token_limit(latest.body, max_tokens=CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS)
-            if latest
-            else None
-        ),
+        "comment": latest.body if latest else None,
         "answers": list(covers.answers) if covers is not None else [],
     }
 

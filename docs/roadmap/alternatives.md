@@ -10,7 +10,7 @@ The verdict is `covers`, `partly` or `none`. For every item except those named b
 
 The model can propose two more verdicts: `rejected` and `in-use`. The job gives each one only when the text confirms it. If the text does not confirm a proposal, the job drops it and keeps the verdict of the reply. The model cannot give either verdict as its own. A reply with one gets one more turn. Refine asks a person nothing about a `rejected` or `in-use` check.
 
-The comment of a `rejected` check names the ADR and keeps the tool URL, because a newer fact can change an ADR.
+The block of a `rejected` check names the ADR and keeps the tool URL, because a newer fact can change an ADR.
 
 ### What the check reads of the ADRs
 
@@ -20,7 +20,7 @@ The request holds the entries as `decisions`, the newest ADR first. The text has
 
 ### How the job confirms a proposal
 
-The model proposes `rejected` in the key `adr`, with the number of the ADR that rejected its tool. The job gives `rejected` when `decisions` holds that ADR, an item of its `Considered Options` list names the tool, and no chosen or adopted option names it. A chosen or adopted option that names the tool wins even when it also says `not chosen` or `not adopted`. ADR 0010 names OpenSpec in its chosen option and in other options, so it rejects no OpenSpec. The comment shows the ADR number to a person.
+The model proposes `rejected` in the key `adr`, with the number of the ADR that rejected its tool. The job gives `rejected` when `decisions` holds that ADR, an item of its `Considered Options` list names the tool, and no chosen or adopted option names it. A chosen or adopted option that names the tool wins even when it also says `not chosen` or `not adopted`. ADR 0010 names OpenSpec in its chosen option and in other options, so it rejects no OpenSpec. The block shows the ADR number to a person.
 
 The model proposes `in-use` in the key `in_use`. The job gives `in-use` when the title or the body of the item names the tool. It reads the body outside its own block and outside the refine section, because both name the tool of an earlier check. Without the flag of the model, the text of the item never gives `in-use`. The tools in use can (see [The tools in use](#the-tools-in-use)).
 
@@ -40,7 +40,7 @@ An item of the type `test`, `docs`, `refactor`, `chore`, `ci` or `perf`, and a `
 
 ### The tools in use
 
-Once for a run that checks an item of no skip class, the check reads the inventory of the repository at HEAD. A `covers` or `partly` tool that the inventory holds gets `in-use` with no proposal of the model. An ADR that rejects the tool comes first. The comment and the block say "The repository already uses this tool." The inventory has three sources, the cheapest first:
+Once for a run that checks an item of no skip class, the check reads the inventory of the repository at HEAD. A `covers` or `partly` tool that the inventory holds gets `in-use` with no proposal of the model. An ADR that rejects the tool comes first. The block says "The repository already uses this tool." The inventory has three sources, the cheapest first:
 
 1. The SPDX SBOM that the dependency graph of the repository exports (`GET /repos/{owner}/{repo}/dependency-graph/sbom`), with one request. It holds the package URL of each package of a manifest, a lock file or a workflow. A PyPI package matches by its canonical name, an action by its repository (`pkg:githubactions/github/codeql-action/init` is `github/codeql-action`), and the npm package `@<owner>/<name>` by the repository of the same name. A dependency graph that is off gives an empty SBOM.
 2. The files under `roadmap.alternatives.inventory_paths` of a clone (`k8s`, `tf`, `.devcontainer` and the tools lock by default). They name the services, images and CLIs that no manifest holds, such as LiteLLM or Grafana. The name of the repository or of the package counts as a whole word in any case, as `git grep -i -w -F` finds it. The Service row uses the clone of its lane. On a workstation, `--source <clone>` gives the clone, and with no clone the check uses the other two sources.
@@ -59,19 +59,27 @@ A check of an item of no skip class also records `alternatives.adr_hash`, the ha
 With `--confirm`, a check does these things:
 
 1. It replaces the block `devops-roadmap-alternatives` in the body of the item and records the check in the job record. One request writes both, so a stop never leaves the new block without the record of the check.
-2. It posts one comment, in a separate request after the write, for a first check and for a recheck whose verdict or tool differs from the record of the earlier check. A recheck with the same verdict and the same tool posts no comment: the thread shows only changes. Its block holds the new date, and its record holds the new check time.
+2. It posts one comment, in a separate request after the write, for a first check and for a recheck whose verdict or tool differs from the record of the earlier check. A recheck with the same verdict and the same tool posts no comment: the thread shows only changes. Its block holds the new date, and its record holds the new check time. A check of a skip class posts no comment, because it has no evidence.
 
 A check changes no label and closes no issue. A person decides what a tool means for the item.
 
-The comment gives:
+The block holds the current result of the check:
 
-- the verdict and the reason of the model for it;
-- the tool on one line, with its URL, license, last activity and maintained state, as in the block;
-- what the tool covers and lacks;
-- one block that GitHub shows closed, `Searches (<count>)`. It holds the tools considered: every tool whose facts the run read, each with its URL, license and last activity. It also holds the answered searches with their number of results. Last, it holds every source of the reply. GitHub shows each URL as a link;
-- one sentence that says a person decides what the check means for the item.
+- the date and the verdict;
+- the skip class, for an item of a skip class;
+- the basis of a `rejected` or `in-use` verdict;
+- the tool on one line, with its URL, license, last activity and maintained state;
+- the reason of the model for the verdict;
+- what the tool covers and lacks.
 
-The prompt asks the model for a brief reply: a reason of one sentence, and a few short items in `covers`, `lacks` and `sources`. The check refuses no reply for its length and cuts no text or list of the model. The comment of a skip class is one line, for example `Alternatives check: not-applicable (docs item; no search).`
+The comment is the event of a change of the result. It repeats no line of the block. It gives:
+
+- one line. It says that the result in the block of the issue body changed, and what the result was before the check. It also says that a person decides what the new result means for the item;
+- one block that GitHub shows closed, `Searches (<count>)`. It holds the tools considered: every tool whose facts the run read, each with its URL, license and last activity. It also holds the answered searches with their number of results. Last, it holds every source of the reply. GitHub shows each URL as a link.
+
+The prompt asks the model for a brief reply: a reason of one sentence, and a few short items in `covers`, `lacks` and `sources`. The check refuses no reply for its length and cuts no text or list of the model.
+
+Refine reads the result from the block, and the evidence from the latest comment of the job, whole. A comment of an older form also holds what the tool covers and lacks. Refine reads them there when the block has no such list.
 
 A check that posts a comment adds a new one. It never changes the comment of an earlier check.
 
@@ -100,7 +108,7 @@ The command exits 1 only when it tried items and checked none.
 | Flag | What the run does |
 | :--- | :--- |
 | `--plan` (the default) | Runs the checks and prints them. It writes nothing. |
-| `--confirm` | Writes each check to GitHub as soon as the item is checked: its body block, its job record and, for a first or changed result, its comment. |
+| `--confirm` | Writes each check to GitHub as soon as the item is checked: its body block, its job record and, for a first or changed result of an item that is no skip class, its comment. |
 | `--dry-run` | Makes no request. It prints the requests that a run makes, with placeholders. |
 
 ## Where the rules are

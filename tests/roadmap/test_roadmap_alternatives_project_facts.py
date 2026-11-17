@@ -151,7 +151,7 @@ def test_a_tool_whose_package_the_sbom_holds_is_in_use(
         check.verdict,
         IN_REPOSITORY in check.comment.splitlines(),
         IN_REPOSITORY in check.new_body.splitlines(),
-    ) == (Verdict.IN_USE, True, True)
+    ) == (Verdict.IN_USE, False, True)
 
 
 def test_a_tool_that_the_deployed_paths_of_the_clone_name_is_in_use(

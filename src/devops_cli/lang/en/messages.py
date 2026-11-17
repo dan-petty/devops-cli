@@ -3227,13 +3227,15 @@ class RoadmapMessages:
     alternatives_no_release: str = "none"
     alternatives_yes: str = "yes"
     alternatives_no: str = "no"
-    # The comment and the body block the check writes.
-    alternatives_comment_heading: str = "## Alternatives check: {verdict}"
-    alternatives_comment_no_tool: str = "Tool: none found"
-    # The one line of the comment of a skip class (#6168).
-    alternatives_comment_skipped: str = (
-        "Alternatives check: {verdict} ({skip_class} item; no search)."
+    # The body block holds the result of the check. The comment is the event of a change of the
+    # result: the line that names the result before the check, and the folded evidence (#6195).
+    alternatives_comment_changed: str = (
+        "The result in the alternatives block of the issue body changed. Before this check: "
+        "{before}. A person decides what the new result means for the item."
     )
+    alternatives_comment_before_none: str = "no check"
+    alternatives_comment_before_tool: str = "`{verdict}`, tool {tool}"
+    alternatives_comment_before_no_tool: str = "`{verdict}`, no tool"
     # The line that says why the job, not the model, gave the verdict `rejected` or `in-use`
     # (#3505). The ADR number has four digits, as in the file name.
     alternatives_basis_rejected: str = (
@@ -3241,9 +3243,6 @@ class RoadmapMessages:
     )
     alternatives_basis_in_use: str = "The item already names this tool."
     alternatives_basis_in_repository: str = "The repository already uses this tool."
-    alternatives_comment_covers: str = "Covers:"
-    alternatives_comment_lacks: str = "Lacks:"
-    alternatives_comment_reason: str = "Reason: {reason}"
     alternatives_comment_considered: str = "Tools considered:"
     alternatives_comment_considered_tool: str = (
         "{name} ({url}), license {license}, last activity {date}"
@@ -3255,15 +3254,15 @@ class RoadmapMessages:
     # The block that GitHub shows closed: the tools considered, the searches and the sources.
     alternatives_comment_fold_open: str = "<details><summary>Searches ({count})</summary>"
     alternatives_comment_fold_close: str = "</details>"
-    alternatives_comment_footer: str = (
-        "A person decides what this check of {date} means for the item."
-    )
     alternatives_block_verdict: str = "Alternatives check of {date}: {verdict}."
     alternatives_block_tool: str = (
         "Tool: {name} ({url}), {license}, last activity {date}, {maintained}."
     )
     alternatives_block_no_tool: str = "Tool: none found."
     alternatives_block_skip_class: str = "Class: {skip_class}, no search."
+    alternatives_block_reason: str = "Reason: {reason}"
+    alternatives_block_covers: str = "Covers:"
+    alternatives_block_lacks: str = "Lacks:"
     alternatives_maintained: str = "maintained"
     alternatives_not_maintained: str = "not maintained"
     # `devops roadmap implement` (#2664): the refusals of a step, and why a step stops.
@@ -5864,6 +5863,7 @@ class RoadmapMessages:
             "repeat_refused": "the store refuses the comment of refine as a repeat",
             "job_drafts": "the pull request is an open draft of a job",
             "check_on": "the repository is public and a search provider is configured",
+            "item_not_skip_class": "the item is no skip class",
             "check_changed": (
                 "the check is the first one of the item, or its verdict or its tool differs "
                 "from the record of the earlier check"

@@ -398,14 +398,19 @@ def test_body_with_marks_an_alternatives_plan_lists_one_patch_for_the_block_and_
 
 def test_an_alternatives_plan_lists_the_comment_for_a_first_or_changed_check() -> None:
     """The write of a check is planned for every check. The comment is planned with the condition
-    that the check is a first one, or that its verdict or its tool differs from the record
-    (#4054). A dry run makes no request, so the plan cannot know which case an item is."""
+    that the item is no skip class (#6195) and that the check is a first one, or that its verdict
+    or its tool differs from the record (#4054). A dry run makes no request, so the plan cannot
+    know which case an item is."""
     from devops_cli.roadmap.request_plan import alternatives_requests
 
     _, writes = alternatives_requests(REPO, item=7)
     texts = MESSAGES.roadmap
 
-    changed = f"{texts.plan_conditions['check_on']} and {texts.plan_conditions['check_changed']}"
+    conditions = texts.plan_conditions
+    changed = (
+        f"{conditions['check_on']} and {conditions['item_not_skip_class']} and "
+        f"{conditions['check_changed']}"
+    )
     read, comment = writes[-2:]
     assert (_shape(comment), comment.condition, read.condition) == (
         "api -X POST",
