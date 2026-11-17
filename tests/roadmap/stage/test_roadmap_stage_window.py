@@ -139,6 +139,11 @@ def _return_request(script: Script) -> dict[str, Any]:
     return _request_json(script, 2)
 
 
+# The tokens that the first request at the caps leaves for a change of the stage prompt: #6091 grew
+# the prompt by 243 tokens and took the request 41 tokens over the limit (#6103).
+_PROMPT_HEADROOM = 512
+
+
 def _limit(window: int) -> int:
     """The tokens at which the run hook offers no tool."""
     return window - window // CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE
@@ -210,7 +215,8 @@ def test_a_first_request_of_code_with_the_context_and_the_body_at_their_caps_off
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The reserve of the spec holds for plain text. Quotes and newlines grow in the JSON of the
-    request, so for code the reserve is smaller, and the request must still stay under the limit."""
+    request, so for code the reserve is smaller, and the request must still stay under the limit,
+    with room for a small change of the stage prompt (#6103)."""
     monkeypatch.setattr(stage, "task_window", lambda task: WINDOW)
     stage_repo.track(
         {"docs/adr/0001-a-decision.md": _code(3 * CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS)}
@@ -222,7 +228,7 @@ def test_a_first_request_of_code_with_the_context_and_the_body_at_their_caps_off
 
     assert (
         "read_spec" in script.tools_offered[0],
-        _first_request_tokens(script) < _limit(WINDOW),
+        _first_request_tokens(script) < _limit(WINDOW) - _PROMPT_HEADROOM,
     ) == (True, True)
 
 
