@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING, Annotated, Any, Final
 
 import typer
 from pydantic import BaseModel, ConfigDict, Field
-from rich.markup import escape
 
 from devops_cli.config.commands import build_npm_audit_cmd
 from devops_cli.config.constants import (
@@ -509,7 +508,7 @@ def _check_row_line(badge: str, name: str, text: str) -> str:
 
     `print_muted` reads the line as Rich markup, so the name is escaped with its brackets:
     `[format]` would otherwise read as a style tag and disappear."""
-    label = escape(f"[{name}]")
+    label = escape_text(f"[{name}]")
     return f"  {badge} {label} {text}"
 
 
