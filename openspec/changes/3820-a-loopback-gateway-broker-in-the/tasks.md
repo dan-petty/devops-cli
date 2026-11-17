@@ -42,9 +42,9 @@ Adds: `plus_shell`
 
 Kind: other. Reads: `docs/CLUSTER.md`, `src/devops_cli/roadmap/implement/implement_broker.py`. Changes: `docs/CLUSTER.md`.
 
-- [ ] 5.1 In the **Guarantees.** bullet of `docs/CLUSTER.md`, add the broker address and the step token to the list of values that the shell of a step gets, and state the broker: the job process runs it on the loopback interface for the step, it mints both variables for the step, it forwards only POST /chat/completions and POST /embeddings through the one HTTP client entry point, the AI key stays in the job process, the token dies when the step ends, and a shell call counts in the step budget and in the tier record
+- [x] 5.1 In the **Guarantees.** bullet of `docs/CLUSTER.md`, add the broker address and the step token to the list of values that the shell of a step gets, and state the broker: the job process runs it on the loopback interface for the step, it mints both variables for the step, it forwards only POST /chat/completions and POST /embeddings through the one HTTP client entry point, the AI key stays in the job process, the token dies when the step ends, and a shell call counts in the step budget and in the tier record
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 5.2 Edit `docs/CLUSTER.md`: the broker of a step, its two variables, its two endpoints and its accounting
+- [x] 5.2 Edit `docs/CLUSTER.md`: the broker of a step, its two variables, its two endpoints and its accounting
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
