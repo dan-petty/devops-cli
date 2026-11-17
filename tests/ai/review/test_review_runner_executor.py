@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -24,6 +26,7 @@ from devops_cli.ai.review.flags import resolve_stage_flags
 from devops_cli.ai.review.runner import ReviewClients, execute_review_workflow
 from devops_cli.ai.review_schema import ReviewResult
 from devops_cli.config.constants import CONST_CANARY_WORKDIR_PREFIX
+from devops_cli.exceptions.ai import ReviewScannerMissingError
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.paths import FIXTURES
 
@@ -55,6 +58,19 @@ def bwrap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     stand_in.chmod(0o755)
     monkeypatch.setenv("PATH", os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")]))
     return stand_in
+
+
+@pytest.fixture
+def gitleaks_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """PATH holds no Gitleaks: the runner image lacks the scanner, so the review cannot run it."""
+    installed = shutil.which
+
+    def which(command: str, *args: Any, **kwargs: Any) -> str | None:
+        if Path(command).name == "gitleaks":
+            return None
+        return installed(command, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "which", which)
 
 
 @pytest.fixture
@@ -207,3 +223,27 @@ def test_a_review_outside_the_runner_pod_keeps_the_sandbox(
         {argv[0] for argv in commands},
         {"bandit", "gitleaks", "semgrep"} <= {_confined_program(argv) for argv in commands},
     ) == ({str(bwrap)}, True)
+
+
+def test_a_review_in_the_runner_pod_that_lacks_a_scanner_lists_it_as_not_run_and_exits_nonzero(
+    review_tree: Path,
+    process_fake: ProcessFake,
+    gitleaks_absent: None,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The runner image is the contract: a scanner that it lacks is listed as not installed, the
+    findings of the scanners that ran stay in the report, and the review exits nonzero (#3827)."""
+    _answer_analyzers(process_fake, review_tree)
+
+    with pytest.raises(ReviewScannerMissingError) as raised:
+        _review(review_tree, in_runner=True)
+
+    printed = " ".join(capsys.readouterr().out.split())
+    assert (
+        raised.value.error_code,
+        raised.value.exit_code,
+        "Gitleaks" in str(raised.value),
+        "Not installed, so not run: Gitleaks" in printed,
+        "B602" in printed,
+        "example.lang.security.first.first" in printed,
+    ) == ("REVIEW_SCANNER_MISSING", 1, True, True, True, True)

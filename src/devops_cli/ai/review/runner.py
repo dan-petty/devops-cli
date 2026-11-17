@@ -1394,6 +1394,25 @@ def _report_sandbox_refusal(executor: SandboxToolExecutor) -> None:
         )
 
 
+def _raise_for_missing_scanners(orchestrator: ReviewPipelineOrchestrator) -> None:
+    """Fail a review in the pod of a runner Job closed when the image lacks a scanner (#3827).
+
+    The image is the contract in the runner pod: a scanner that the review's own analyzer table
+    lists as not installed is a broken image, and a review that skipped it cannot read as clean.
+    The findings of the scanners that ran stay in the report, which is printed before this runs.
+    """
+    from devops_cli.ai.review.pipeline import ANALYZER_NOT_INSTALLED
+    from devops_cli.exceptions.ai import ReviewScannerMissingError
+
+    missing = [
+        name
+        for name, state in orchestrator.static_analyzers.items()
+        if state == ANALYZER_NOT_INSTALLED
+    ]
+    if missing:
+        raise ReviewScannerMissingError(missing)
+
+
 def execute_review_workflow(
     pages: list[str],
     title: str,
@@ -1426,9 +1445,10 @@ def execute_review_workflow(
 
     `in_runner` says that the review runs in the pod of a runner Job, whose seccomp profile
     refuses the user namespace that the sandbox needs. There the tools start with the direct
-    executor, and the pod is the isolation boundary (#3827). Everywhere else the review runs its
-    tools in the sandbox, and when the host cannot start it, no tool runs and the review says why
-    when it ends (#2096, decision 1 of #772).
+    executor, and the pod is the isolation boundary (#3827). A scanner that the image lacks is
+    listed as not installed and raises `ReviewScannerMissingError`, so the review does not read
+    as clean. Everywhere else the review runs its tools in the sandbox, and when the host cannot
+    start it, no tool runs and the review says why when it ends (#2096, decision 1 of #772).
     """
     from devops_cli.lang import MESSAGES
 
@@ -1468,6 +1488,7 @@ def execute_review_workflow(
             routed_files=routed_files,
             session_id=session_id,
             partial_context=partial_context,
+            in_runner=in_runner,
         )
     finally:
         if isinstance(executor, SandboxToolExecutor):
@@ -1491,6 +1512,7 @@ def _run_review_with_executor(
     routed_files: Sequence[str],
     session_id: str | None,
     partial_context: bool,
+    in_runner: bool,
 ) -> list[ReviewResult | str]:
     """Build the orchestrator of the review with `executor` and run the review of `all_files`."""
     from devops_cli.ai.review.history import review_subject
@@ -1518,7 +1540,10 @@ def _run_review_with_executor(
         tool_executor=executor,
     )
     if not all_files:
-        return _review_routed_files_only(orchestrator, stage_flags)
+        routed_results = _review_routed_files_only(orchestrator, stage_flags)
+        if in_runner:
+            _raise_for_missing_scanners(orchestrator)
+        return routed_results
 
     n_af = len(all_files)
     with trace_span(
@@ -1540,4 +1565,6 @@ def _run_review_with_executor(
             stage_flags,
             base_revision,
         )
+        if in_runner:
+            _raise_for_missing_scanners(orchestrator)
         return results or []
