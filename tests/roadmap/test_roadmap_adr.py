@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+from pathlib import Path
 
 import pytest
 
@@ -385,7 +386,7 @@ OPENSPEC_OPTIONS = (
         pytest.param(
             Adr(8, "Argo Workflows runs the jobs", OPTIONS),
             ("dbos-inc/dbos-transact-py", "DBOS"),
-            False,
+            True,
             id="runner-up-option",
         ),
         pytest.param(
@@ -423,7 +424,57 @@ OPENSPEC_OPTIONS = (
         ),
     ],
 )
-def test_an_adr_rejects_a_tool_only_when_rejected_options_alone_name_it(
+def test_an_adr_rejects_a_tool_when_no_chosen_or_adopted_option_names_it(
     adr: Adr, tool_names: tuple[str, ...], rejected: bool
 ) -> None:
     assert rejects(adr, *tool_names) is rejected
+
+
+@pytest.mark.parametrize(
+    ("option", "rejected"),
+    [
+        ("**Changie**: chosen, although changie was not chosen for the tags.", False),
+        ("**Changie**: not chosen, after a comparison.", True),
+        ("**Changie**: adopted, then not adopted for the next release.", False),
+    ],
+    ids=["chosen-and-not-chosen", "only-not-chosen", "adopted-and-not-adopted"],
+)
+def test_a_chosen_marker_wins_over_a_not_chosen_phrase(option: str, rejected: bool) -> None:
+    adr = Adr(11, "Releases", f"## Considered Options\n\n- {option}")
+    assert rejects(adr, "changie") is rejected
+
+
+def _real_adr(number: int) -> Adr:
+    path = next(Path(ADR_DIRECTORY).glob(f"{number:04d}-*.md"))
+    adr = adr_of(f"{ADR_DIRECTORY}/{path.name}", path.read_text(encoding="utf-8"))
+    assert adr is not None
+    return adr
+
+
+@pytest.mark.parametrize(
+    ("number", "tool_names", "rejected"),
+    [
+        (18, ("google/gvisor", "gVisor"), True),
+        (18, ("containers/bubblewrap", "bubblewrap"), True),
+        (18, ("kubernetes-sigs/agent-sandbox",), True),
+        (24, ("IBM Carbon",), True),
+        (24, ("GitHub Primer", "Primer"), True),
+        (8, ("APScheduler",), True),
+        (5, ("github/codeql", "CodeQL"), True),
+        (10, ("Fission-AI/OpenSpec", "OpenSpec"), False),
+    ],
+    ids=[
+        "gvisor",
+        "bubblewrap",
+        "deferred-agent-sandbox",
+        "ibm-carbon",
+        "github-primer",
+        "apscheduler",
+        "codeql",
+        "openspec-chosen",
+    ],
+)
+def test_the_census_rejections_replay(
+    number: int, tool_names: tuple[str, ...], rejected: bool
+) -> None:
+    assert rejects(_real_adr(number), *tool_names) is rejected

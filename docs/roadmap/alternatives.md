@@ -20,7 +20,7 @@ The request holds the entries as `decisions`, the newest ADR first. The text has
 
 ### How the job confirms a proposal
 
-The model proposes `rejected` in the key `adr`, with the number of the ADR that rejected its tool. The job gives `rejected` when `decisions` holds that ADR and only its rejected options name the tool. A rejected option is an item of the `Considered Options` list that says `rejected` or `not chosen`. If the title or another option names the tool too, the ADR adopts the tool or decides on a part of it, and the job drops the proposal. ADR 0010 names OpenSpec in its chosen option and in two rejected options, so it rejects no OpenSpec. The comment shows the ADR number to a person.
+The model proposes `rejected` in the key `adr`, with the number of the ADR that rejected its tool. The job gives `rejected` when `decisions` holds that ADR, an item of its `Considered Options` list names the tool, and no chosen or adopted option names it. A chosen or adopted option that names the tool wins even when it also says `not chosen` or `not adopted`. ADR 0010 names OpenSpec in its chosen option and in other options, so it rejects no OpenSpec. The comment shows the ADR number to a person.
 
 The model proposes `in-use` in the key `in_use`. The job gives `in-use` when the title or the body of the item names the tool. It reads the body outside its own block and outside the refine section, because both name the tool of an earlier check. Without the flag of the model, the text of the item never gives `in-use`. The tools in use can (see [The tools in use](#the-tools-in-use)).
 
