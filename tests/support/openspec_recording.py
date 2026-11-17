@@ -8,11 +8,12 @@ the record holds `{cwd}` in its place. A scenario's runs that equal the `empty` 
 `config set` and `update --force`, are kept once, in `empty`, and the fake falls back to them.
 
 Record again when the pin in `tools.lock` changes, or a command the gate or the archive runs, with
-the pinned `openspec` on PATH (`uv run devops install-tools --tool openspec --only-missing`):
+the pinned `openspec` on PATH (`uv run devops install-tools --tool openspec --only-missing`). Record
+inside pytest, so that the isolation of the suite applies: a helper of `tests/support/` runs only
+through pytest. Add a scratch test marked `live("openspec")` that calls `record_scenarios()`, run
+it with `uv run pytest <file> -m live`, and delete it.
 
-    uv run python -c "from tests.support.openspec_recording import record_scenarios; record_scenarios()"
-
-`tests/test_openspec_contract.py` fails until the record is of the locked version.
+`tests/tools_lock/test_openspec_contract.py` fails until the record is of the locked version.
 """
 
 from __future__ import annotations

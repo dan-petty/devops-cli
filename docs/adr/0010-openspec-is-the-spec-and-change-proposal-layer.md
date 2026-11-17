@@ -202,3 +202,7 @@ Two decisions the sequence depends on, confirmed by merging this ADR and reversi
 
 - 2026-11-14: Fact out of date: the static job checks out the full history, because the roadmap-stage-eval-commits row reads it (#4449).
 2026-11-15: Fact out of date: the option `--sync-readme` is deleted, so the command is `devops docs generate` (#5244).
+- 2026-11-17: Fact out of date: OpenSpec 2.1 keeps one skill copy in `.agents/skills`, which Kilo Code reads; each `.claude/skills/openspec-*` is a link to it (#5078).
+- 2026-11-17: Fact out of date: OpenSpec 2.0 retired `delivery`, so the isolated configuration does not set it; each run also takes that directory as its home (#5078).
+- 2026-11-17: Fact out of date: `openspec/config.yaml` also holds `skillsScope: project`, and `.gitignore` re-includes `.claude/skills/openspec-*` with no end slash, so it matches the links (#5078).
+- 2026-11-17: Fact out of date: when a committed skill differs, a regeneration gets the skills of the release from github.com with Git (#5078).

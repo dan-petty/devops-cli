@@ -530,7 +530,6 @@ CONST_DOCS_INVENTORY: Final[dict[str, tuple[str, ...]]] = {
     CONST_DOCS_CLASS_TOOL_GENERATED: (
         ".claude/skills/openspec-*/SKILL.md",
         ".agents/skills/openspec-*/SKILL.md",
-        ".kilocode/skills/openspec-*/SKILL.md",
     ),
 }
 # The classes whose `devops` command lines `devops docs check` resolves against the live command
@@ -4805,7 +4804,6 @@ CONST_REVIEW_ROUTED_PATH_PATTERNS: Final[tuple[str, ...]] = (
     "openspec/**",
     ".claude/skills/openspec-*/**",
     ".agents/skills/openspec-*/**",
-    ".kilocode/skills/openspec-*/**",
     ".agents/skills/.openspec-target",
 )
 # The scanner results that are secrets, by tool, with the rule ids that are (None: every rule).
@@ -5611,23 +5609,27 @@ CONST_OPENSPEC_OPT_OUT_ENV: Final[dict[str, str]] = {
 # Where OpenSpec reads its per-user configuration, which a run replaces with a directory of its own
 # so a developer's profile cannot decide what the tool writes.
 CONST_OPENSPEC_CONFIG_HOME_ENV: Final[str] = "XDG_CONFIG_HOME"
+# The home of a run, which a run also replaces with that directory. OpenSpec 2.1 refreshes the
+# skills it finds under the home (`~/.agents/skills` and the skill folder of each agent there) with
+# the profile of the run, and records each project it updates in a data folder under the home.
+CONST_OPENSPEC_HOME_ENV: Final[str] = "HOME"
 # The workflows of the `custom` profile every agent shares: no archive and no sync, since those
 # write `openspec/specs/`, which only the pull request that closes a change may.
 CONST_OPENSPEC_WORKFLOWS: Final[tuple[str, ...]] = ("propose", "explore", "apply", "update")
-# The settings an isolated configuration holds, in the order they are set: telemetry off, skills
-# only, and the custom profile with its four workflows.
+# The settings an isolated configuration holds, in the order they are set: telemetry off, and the
+# custom profile with its four workflows. OpenSpec 2.0 retired `delivery`: it writes skills only.
 CONST_OPENSPEC_ISOLATED_SETTINGS: Final[tuple[tuple[str, str], ...]] = (
     ("telemetry.enabled", "false"),
-    ("delivery", "skills"),
     ("profile", "custom"),
     ("workflows", json.dumps(list(CONST_OPENSPEC_WORKFLOWS))),
 )
 # The files `openspec update` writes for the agents the project supports, from a checkout's root.
-# Anything else under those directories is not OpenSpec's.
+# Anything else under those directories is not OpenSpec's. Since 2.0 the skills are one copy in
+# `.agents/skills`, which Kilo Code reads, and each `.claude/skills/openspec-*` is a link to its
+# folder there; a glob reads the files through the link.
 CONST_OPENSPEC_GENERATED_GLOBS: Final[tuple[str, ...]] = (
     ".claude/skills/openspec-*/**/*",
     ".agents/skills/openspec-*/**/*",
-    ".kilocode/skills/openspec-*/**/*",
     ".agents/skills/.openspec-target",
 )
 # The artifacts whose instructions the gate renders for a probe change, and that change's name.
