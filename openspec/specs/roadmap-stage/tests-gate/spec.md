@@ -24,17 +24,6 @@ The test rules of a plan: the project form of a verify command, the mirror test 
 - **WHEN** a group gives any of the commands `uv run devops ci`, `uv run devops docs check`, `! git grep -n absent_name src/ tests/` and `! git grep -nI -F old_name -- src/ tests/`
 - **THEN** `check_proposal` returns no problem, and the step runs each of them
 
-### Requirement: A new test module sits in a mirror directory
-`check_proposal` SHALL refuse a path in `creates` that is a test module under `tests/` unless it is in `tests/invariants/` or in the directory that mirrors the package of a source file that the plan changes.
-
-#### Scenario: A flat test path is refused
-- **WHEN** a group creates `tests/test_stage.py` and the plan changes `src/devops_cli/roadmap/stage/stage.py`
-- **THEN** `check_proposal` returns a problem that names the path and the directory `tests/roadmap`
-
-#### Scenario: A mirrored or an invariant test path is accepted
-- **WHEN** a group creates `tests/roadmap/test_stage.py` or `tests/invariants/test_source_tree.py`
-- **THEN** `check_proposal` returns no problem about the test path
-
 ### Requirement: The prompt and the rules give a mirrored test path
 The stage prompt and `openspec/config.yaml` SHALL give only example test paths whose folder under `tests/` mirrors a package of `src/devops_cli/`.
 
@@ -256,3 +245,22 @@ The stage prompt of a run with the toolset `extended` SHALL tell the planner to 
 #### Scenario: The base prompt names the probes
 - **WHEN** the system text of a run with the toolset `base` is built
 - **THEN** it holds a sentence that names `probes` as the source of the test module
+
+### Requirement: A new test module sits in the mirror of its source code
+`check_proposal` SHALL refuse a path in `creates` that is a test module under `tests/` unless it is in the directory that mirrors the package of a source file that the plan changes. When the plan changes no source file, it SHALL refuse a test module directly under `tests/` or in `tests/invariants/`.
+
+#### Scenario: A flat test path is refused
+- **WHEN** a group creates `tests/test_stage.py` and the plan changes `src/devops_cli/roadmap/stage.py`
+- **THEN** `check_proposal` returns a problem that names the path and the directory `tests/roadmap`
+
+#### Scenario: A mirrored test path is accepted
+- **WHEN** a group creates `tests/roadmap/test_stage.py` and the plan changes `src/devops_cli/roadmap/stage.py`
+- **THEN** `check_proposal` returns no problem about the test path
+
+#### Scenario: A new invariant test of a source change
+- **WHEN** a group creates `tests/invariants/test_k8s_runner.py` and the plan changes `src/devops_cli/roadmap/stage.py`
+- **THEN** `check_proposal` returns a problem that names the path and the directory `tests/roadmap`
+
+#### Scenario: A new invariant test of a plan with no source change
+- **WHEN** a group creates `tests/invariants/test_k8s_runner.py` and the plan changes only `.github/renovate.json`
+- **THEN** `check_proposal` returns a problem that names the path and asks for the folder that mirrors the package of the source code that it tests
