@@ -15,7 +15,7 @@ that ends with no reply raises `RoadmapStageError` and names the limit it hit, o
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
@@ -52,6 +52,7 @@ from devops_cli.roadmap.stage.stage_verify import (
 from devops_cli.roadmap.tool_metrics import end_run, start_run
 
 if TYPE_CHECKING:
+    from devops_cli.roadmap.item_comments import HeldComment
     from devops_cli.roadmap.stage.stage import StageClient
 
 TOOLS_TASK = "roadmap_stage_tools.md"
@@ -169,6 +170,11 @@ class ToolboxClient:
     def reads_specs(self) -> bool:
         """Whether `read_spec` can read the specs: the run has OpenSpec."""
         return self._tools.openspec is not None
+
+    def hold_comments(self, comments: Sequence[HeldComment]) -> None:
+        """Give `read_comment` the comments of the item that the next runs plan or review
+        (#6167)."""
+        self._tools.comments.hold(comments)
 
     def chat_structured[M: BaseModel](
         self, system: str, prompt: str, schema: type[M], *, max_retries: int

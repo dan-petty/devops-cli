@@ -3518,6 +3518,13 @@ CONST_ROADMAP_STAGE_VIOLATION_TEXT_MAX_CHARS: Final[int] = 200
 CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS: Final[int] = 19_456
 CONST_ROADMAP_STAGE_BODY_MAX_TOKENS: Final[int] = 8_192
 CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS: Final[int] = 8_192
+# The comments of the item in the first plan request (#6167): they take the room that the body
+# leaves under its cap, and at most this many tokens of the context cap (at most half of it), so
+# the request is no larger than before. The newest comments come whole; the older ones get a line
+# of an index, and `read_comment` reads any comment whole. The longest comment of a person on
+# #6058 counts 2,018 tokens, and the comments of #3827 count about 11,000 tokens with one report of
+# a job of 6,791 tokens, so the most recent comments of both fit whole.
+CONST_ROADMAP_STAGE_COMMENTS_MAX_TOKENS: Final[int] = 6_144
 # The least tool calls that a plan run makes before the window ends its tools (#3880). A run that
 # the window stops sooner has read almost none of the code, and the model answers with a
 # placeholder text. At the window of 65,536 tokens, the runs made 4 and 6 calls and failed; at
@@ -3637,6 +3644,17 @@ CONST_ROADMAP_IMPLEMENT_OUTPUT_WINDOW_SHARE: Final[int] = 4
 # The tokens of one packed file in the inputs of a step. The agent reads more with its tools. It is
 # a sixteenth of the default window of 128,000 tokens (#3206).
 CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS: Final[int] = 8000
+# The most tokens of the comments of the item in the inputs of a step (#6167), as much as one
+# packed file. The comments get at most the room that the other inputs leave under the window, so
+# they never take a step over it. The newest comments come whole, the older ones get a line of an
+# index, and the tool `read_comment` reads any comment whole.
+CONST_ROADMAP_IMPLEMENT_COMMENTS_MAX_TOKENS: Final[int] = 8000
+# The index of the comments of an item (#6167): each line names a comment by its number, author
+# and time, and shows the first line of its text, cut to this many characters, as a label. The
+# comment itself is never cut: `read_comment` reads it whole, in lines of at most
+# `CONST_ROADMAP_COMMENT_LINE_CHARS` characters, so that a page of a tool answer holds whole lines.
+CONST_ROADMAP_COMMENT_INDEX_CHARS: Final[int] = 120
+CONST_ROADMAP_COMMENT_LINE_CHARS: Final[int] = 1000
 # How many lines of the output of a command a stopped step reports. The time that one verification
 # command or static check may run is the setting `roadmap.implement.command_timeout_seconds`.
 CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES: Final[int] = 20

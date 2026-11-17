@@ -293,6 +293,21 @@ def test_two_groups_end_in_commits_a_pushed_branch_a_closing_body_and_a_ready_pu
     )
 
 
+def test_the_pr_comment_names_each_comment_of_the_item_that_the_step_inputs_held_whole(
+    job_world: JobWorld,
+) -> None:
+    """The comment of the run on the pull request names, by its page, each comment of the item
+    that the inputs of a step held whole, once (#6167)."""
+    page = f"https://github.com/{STAGE_REPO}/issues/1#issuecomment-41"
+    job_world.store.seed_comment(1, "Keep the last comment of a thread.", url=page)
+
+    applied = job_world.run(two_groups())
+
+    (comment,) = job_world.sent("POST", f"issues/{PULL}/comments")
+    assert (applied.ready, comment["body"].count(page)) == ((1,), 1)
+    assert f"- comments of the item in the step inputs: {page}" in comment["body"]
+
+
 def _rewrite_why(job_world: JobWorld, why: str) -> None:
     """Make the archive step leave `why` as the "Why" of the archived proposal."""
 

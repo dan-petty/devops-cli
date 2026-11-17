@@ -5,19 +5,28 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
 from devops_cli.ai.client.models import AIClientError
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.config.constants import CONST_ROADMAP_STAGE_COMMENT_MARKER
 from devops_cli.config.settings import RoadmapStageConfig
 from devops_cli.exceptions import ServiceStoppingError, ended_by_stop
 from devops_cli.exceptions.roadmap import RoadmapStageError
+from devops_cli.roadmap.item_comments import held_comments
 from devops_cli.roadmap.service_stop import begin_service_stop
 from devops_cli.roadmap.stage import stage as stage_module
 from devops_cli.roadmap.stage import stage_plan_record
-from devops_cli.roadmap.stage.stage import StagePlan, parse_filters, plan_item, plan_stage
+from devops_cli.roadmap.stage.stage import (
+    PlanFiles,
+    StagePlan,
+    parse_filters,
+    plan_item,
+    plan_stage,
+)
 from devops_cli.roadmap.stage.stage_plan_record import (
     StagePlanRecord,
     plan_key,
@@ -30,8 +39,9 @@ from devops_cli.roadmap.stage.stage_plan_record import (
 from devops_cli.roadmap.stage.stage_request import StageRequest
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient, ToolboxModel
 from devops_cli.roadmap.stage.stage_verify import Verification
+from devops_cli.roadmap.stores.store import IssueComment
 from devops_cli.telemetry.instruments import ROADMAP_STAGE_PLAN_RECORD_TOTAL
-from tests.support.builders import make_stage_proposal
+from tests.support.builders import make_item, make_stage_proposal
 from tests.support.fakes.github import github_json
 from tests.support.fakes.model import ModelFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -576,3 +586,35 @@ def test_a_miss_a_write_and_a_hit_each_add_one_to_the_counter_with_their_result(
         for attrs, value in otlp.points(ROADMAP_STAGE_PLAN_RECORD_TOTAL.name)
     )
     assert points == [("hit", 1.0), ("miss", 1.0), ("written", 1.0)]
+
+
+# ── The comments in the key (#6167) ───────────────────────────────────────────
+
+
+def _comment_at(hour: int, body: str) -> IssueComment:
+    return IssueComment(
+        body=body,
+        created_at=datetime(2026, 11, 17, hour, tzinfo=UTC),
+        author_association="OWNER",
+        author_login="alice",
+    )
+
+
+def test_a_stage_job_comment_after_a_kept_plan_keeps_its_key_and_a_person_comment_changes_it() -> (
+    None
+):
+    """The stage job comments on each failure and stop, so a job comment must not throw a kept plan
+    away; a comment of a person can hold a decision, so it gives a new key."""
+    files = PlanFiles(STAGE_REPO, "model-a", "extended")
+    item = make_item(body="The job drops the last comment of a thread.")
+    decision = _comment_at(9, "Keep the last comment of each thread.")
+    stop = _comment_at(10, f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\nThe plan run failed.")
+    later = _comment_at(11, "Keep the first comment too.")
+
+    kept = files.key(item, held_comments([decision]))
+
+    assert (
+        files.key(item, held_comments([decision, stop])) == kept,
+        files.key(item, held_comments([decision, stop, later])) == kept,
+        files.key(item, held_comments([decision])) == kept,
+    ) == (True, False, True)

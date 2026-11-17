@@ -337,6 +337,7 @@ def _is_pull_request_url(url: str) -> bool:
 
 
 class _CommentPayload(BaseModel):
+    id: int | None = None
     body: str = ""
     created_at: datetime
     author_association: str | None = None
@@ -347,9 +348,11 @@ class _CommentPayload(BaseModel):
         return IssueComment(
             body=self.body,
             created_at=self.created_at,
+            id=self.id,
             author_association=self.author_association,
             author_login=self.author_login,
             on_pull_request=_is_pull_request_url(self.html_url),
+            url=self.html_url or None,
         )
 
 

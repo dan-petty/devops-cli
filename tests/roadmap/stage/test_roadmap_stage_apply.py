@@ -309,6 +309,22 @@ def test_the_comment_says_when_openspec_did_not_validate_the_change(
     assert "`openspec validate` did not run" in _comments(store)[0]
 
 
+def test_the_comment_names_each_comment_of_the_item_that_the_plan_request_held_whole(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, opened: GitHubApiFake
+) -> None:
+    """The comment of a staged item names, by its page, each comment of the item that the plan
+    request held whole (#6167)."""
+    page = f"https://github.com/{STAGE_REPO}/issues/1#issuecomment-9"
+    store.seed_comment(1, "Keep the last comment of a thread.", author_login="alice", url=page)
+    model_fake.answer(make_stage_proposal())
+
+    _stage(store, stage_repo)
+
+    assert (
+        f"The plan request held these comments of the item whole: {page}." in _comments(store)[-1]
+    )
+
+
 def test_a_group_over_the_budget_gets_a_comment_and_a_record_and_no_branch(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,

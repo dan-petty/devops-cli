@@ -53,11 +53,19 @@ PULL = Overlap(
     plan=True,
     paths=(SAMPLE,),
 )
+# The comments of the item (#6167), and the page of the one that the request holds whole.
+COMMENT_PAGE = "https://example.com/roadmap/issues/1#issuecomment-5"
+COMMENTS = {
+    "note": "Every comment on the issue.",
+    "unlisted": 0,
+    "comments": [{"number": 1, "author": "alice", "at": "2026-11-17T09:00Z", "text": "Keep it."}],
+}
 # The keys that the model reads, in the order that the planner writes them.
 MODEL_KEYS = [
     "number",
     "title",
     "body",
+    "comments",
     "context",
     "capabilities",
     "budget",
@@ -75,6 +83,7 @@ def _fields(**overrides: Any) -> dict[str, Any]:
         "number": 1,
         "title": "fix(roadmap): the job drops a comment",
         "body": f"Fix `{SAMPLE}`.",
+        "comments": COMMENTS,
         "context": "### Context\n\nThe sample keeps the comments.",
         "capabilities": ["comment-thread"],
         "budget": 6000,
@@ -87,6 +96,7 @@ def _fields(**overrides: Any) -> dict[str, Any]:
         "probe_lines": (SAMPLE_PROBE,),
         "overlap_pulls": (PULL,),
         "creators": {"tests/test_sample.py": 3308},
+        "comment_names": (COMMENT_PAGE,),
         **overrides,
     }
 
@@ -108,6 +118,7 @@ def test_model_json_unchanged_for_a_request_with_every_key() -> None:
         "number": 1,
         "title": "fix(roadmap): the job drops a comment",
         "body": f"Fix `{SAMPLE}`.",
+        "comments": COMMENTS,
         "context": "### Context\n\nThe sample keeps the comments.",
         "capabilities": ["comment-thread"],
         "budget": 6000,
@@ -121,6 +132,7 @@ def test_model_json_unchanged_for_a_request_with_every_key() -> None:
 
 def test_model_json_unchanged_for_a_request_with_no_optional_key() -> None:
     request = _request(
+        comments=None,
         rejected_plan=None,
         overlaps=None,
         metric_senders=None,
@@ -130,13 +142,19 @@ def test_model_json_unchanged_for_a_request_with_no_optional_key() -> None:
         probe_lines=(),
     )
 
-    assert list(request.for_model()) == MODEL_KEYS[:6]
+    assert list(request.for_model()) == [key for key in MODEL_KEYS[:7] if key != "comments"]
 
 
 def test_model_json_unchanged_holds_no_gate_only_field() -> None:
     sent = _request().for_model()
 
-    assert GATE_ONLY_FIELDS == {"issue_body", "probe_lines", "overlap_pulls", "creators"}
+    assert GATE_ONLY_FIELDS == {
+        "issue_body",
+        "probe_lines",
+        "overlap_pulls",
+        "creators",
+        "comment_names",
+    }
     assert GATE_ONLY_FIELDS.isdisjoint(sent)
     assert set(sent) | GATE_ONLY_FIELDS == set(StageRequest.model_fields)
 
@@ -216,7 +234,7 @@ def test_model_json_unchanged_through_the_planner(
     (call,) = model_fake.calls
     request = json.loads(call.prompt)
     assert list(request) == [
-        key for key in MODEL_KEYS if key not in {"rejected_plan", "issue_dependencies"}
+        key for key in MODEL_KEYS if key not in {"comments", "rejected_plan", "issue_dependencies"}
     ]
     assert {key: request[key] for key in ("number", "title", "body", "budget")} == {
         "number": 1,

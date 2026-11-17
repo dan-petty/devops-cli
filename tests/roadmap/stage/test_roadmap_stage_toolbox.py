@@ -1,6 +1,6 @@
 """Tests for the planner client that calls the tools (#3037, #3238): the run that offers the tools of
 the toolbox, its budget, its trace and its errors. The runs of the budget and the trace use the
-nine tools of the toolset `base`; the toolset tests use `extended`, the default.
+ten tools of the toolset `base`; the toolset tests use `extended`, the default.
 
 pydantic-ai's `FunctionModel` answers each model request from a `Script`, so no test reaches a
 model. The tools read a temporary git repository.
@@ -77,6 +77,7 @@ _TOOLS = [
     "callers",
     "repo_map",
     "read_spec",
+    "read_comment",
 ]
 _EXTENDED_TOOLS = [*_TOOLS, "references", "read_issue", "find_issues"]
 _RESEARCH_TOOLS = [*_EXTENDED_TOOLS, "search_web"]
@@ -143,7 +144,7 @@ def _read(path: str = "src/sample.py") -> ModelResponse:
     return call("read_file", path=path)
 
 
-def test_a_plan_run_offers_the_nine_tools_and_returns_the_plan(
+def test_a_plan_run_offers_the_ten_tools_and_returns_the_plan(
     checkout: tuple[Path, str],
 ) -> None:
     script = Script(_read(), _PLAN)
@@ -188,7 +189,7 @@ def test_the_request_after_the_last_call_that_leaves_a_turn_offers_no_tool(
     plan = _plan(_limited_client(checkout, script))
 
     offered = [len(tools) for tools in script.tools_offered]
-    assert (plan, offered) == (_PLAN, [9] * _LAST_WITH_TOOLS + [0])
+    assert (plan, offered) == (_PLAN, [len(_TOOLS)] * _LAST_WITH_TOOLS + [0])
 
 
 @pytest.mark.parametrize("gone_calls", [1, 2])
@@ -392,7 +393,7 @@ def test_each_run_has_a_new_budget(checkout: tuple[Path, str]) -> None:
     assert (
         [len(tools) for tools in script.tools_offered],
         [len(trace.tool_calls) for trace in client.traces],
-    ) == ([9] * 42, [20, 20])
+    ) == ([len(_TOOLS)] * 42, [20, 20])
 
 
 def _big_file_checkout(checkout: tuple[Path, str]) -> tuple[Path, str]:
@@ -581,7 +582,7 @@ def test_a_checkout_that_is_not_the_staged_commit_is_refused_before_a_run(
     assert script.seen == []
 
 
-def test_the_default_toolset_offers_twelve_tools_and_its_prompt_says_when_to_call_three(
+def test_the_default_toolset_offers_thirteen_tools_and_its_prompt_says_when_to_call_three(
     checkout: tuple[Path, str],
 ) -> None:
     source, sha = checkout
@@ -599,7 +600,7 @@ def test_the_default_toolset_offers_twelve_tools_and_its_prompt_says_when_to_cal
     ) == (_EXTENDED_TOOLS, True)
 
 
-def test_the_research_toolset_offers_thirteen_tools_and_its_prompt_says_when_to_search(
+def test_the_research_toolset_offers_fourteen_tools_and_its_prompt_says_when_to_search(
     checkout: tuple[Path, str],
 ) -> None:
     source, sha = checkout
@@ -617,7 +618,7 @@ def test_the_research_toolset_offers_thirteen_tools_and_its_prompt_says_when_to_
     ) == (_RESEARCH_TOOLS, True)
 
 
-def test_the_base_toolset_offers_nine_tools_and_its_prompt_names_no_other(
+def test_the_base_toolset_offers_ten_tools_and_its_prompt_names_no_other(
     checkout: tuple[Path, str],
 ) -> None:
     script = Script(_read(), _PLAN)
@@ -773,7 +774,7 @@ def test_a_verification_run_counts_its_calls_in_its_own_row(
     )
 
 
-def test_the_extended_toolset_adds_zero_for_its_twelve_tools(
+def test_the_extended_toolset_adds_zero_for_its_thirteen_tools(
     checkout: tuple[Path, str], otlp: FakeCollector
 ) -> None:
     _plan(_client(checkout, Script(_PLAN), toolset="extended"))

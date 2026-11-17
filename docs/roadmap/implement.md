@@ -23,6 +23,7 @@ The provider can fail inside a stream when it cannot read a tool call of the mod
 - The sections of the documents that `AGENTS.md` routes the group to. A test file brings `docs/TESTING.md`.
 - The title, the problem and the acceptance criteria of the item. The criteria hold each `Requirement:` section that refine writes, with its scenarios. The step removes the HTML comments of the body, such as the markers of the jobs.
 - The proposal, the design and the tasks of the change.
+- The comments of the item under "Comments on the item" (#6167), when the job gives them. The job reads them once for the run and gives them to each step, a fix step too. They are every comment that a person with write access or the Service App wrote, oldest first, each with its number, its author and its time: the decisions of persons and the reports of the roadmap jobs, such as the stop of an earlier attempt. The section says when the plan merged: the author time of the newest commit of the checkout that added the `tasks.md` of the change, which is the squash merge of the plan pull request. It holds the line "Comments of persons on the item after its plan merged; a decision here overrides the plan text.", and each whole comment says whether it came before or after the plan merged. No comment is cut. The newest come whole while they fit at most 8,000 tokens (`CONST_ROADMAP_IMPLEMENT_COMMENTS_MAX_TOKENS`) and the room that the other inputs leave under the window, and each older comment gets a line of an index. So the comments never take a step over the window. When no section fits, one line counts the comments, and those after the plan merged, and names `read_comment`. The tool `read_comment` of the agent reads any comment whole, page by page, or lists every comment.
 - The group, and the files that the group names.
 
 The command refuses to start when the inputs do not fit the window of the task, or when the checkout has uncommitted changes.
@@ -47,7 +48,7 @@ The command writes the tasks file back to its text before the run and keeps only
 
 **Result.** When every check passes, the command commits the checkout as `<type>(<scope>): <group title> (#<item>)`. The type and the scope are those of the item title, and the title falls back to `chore` when the item title has no Conventional Commit type. Otherwise it resets the checkout to the commit where the step started. It reports the step as stopped, with the reason and the masked diff of the work it discarded, and exits 1.
 
-The comment of the pull request holds one line for the replay of each behavior group, with its result on the base commit and the tests that failed there. A group of kind `other` shows the masked output of each verify command. The trace holds one check event for each replay, with its exit status.
+The comment of the pull request holds one line for the replay of each behavior group, with its result on the base commit and the tests that failed there. A group of kind `other` shows the masked output of each verify command. One line names each comment of the item that the inputs of a step held whole, by its page. The trace holds one check event for each replay, with its exit status.
 
 A step writes nothing to GitHub.
 

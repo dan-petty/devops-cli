@@ -29,8 +29,10 @@ from tests.support.builders import make_stage_proposal
 from tests.support.paths import REPO_ROOT
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from pathlib import Path
 
+    from devops_cli.roadmap.item_comments import HeldComment
     from tests.support.roadmap_stage import StageRepo
 
 PLAN_ROW = "stage"
@@ -49,6 +51,9 @@ class _ScriptedToolbox(ToolboxClient):
         self._replies = list(replies)
         self.calls = 0
         self.traces: list[RunTrace] = []
+
+    def hold_comments(self, comments: Sequence[HeldComment]) -> None:
+        """The scripted runs read no comment (#6167)."""
 
     def chat_structured(
         self, system: str, prompt: str, schema: type[Any], *, max_retries: int

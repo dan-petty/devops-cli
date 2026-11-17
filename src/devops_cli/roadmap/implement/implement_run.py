@@ -132,6 +132,7 @@ from devops_cli.roadmap.implement.implement_amend import (
     parse_request,
 )
 from devops_cli.roadmap.implement.implement_base_replay import BaseStatus
+from devops_cli.roadmap.implement.implement_comments import StepComments
 from devops_cli.roadmap.implement.implement_disk import log_disk_use
 from devops_cli.roadmap.implement.implement_fix_scope import RepairScope, repair_scope
 from devops_cli.roadmap.implement.implement_hooks import (
@@ -633,6 +634,9 @@ class _ItemRun:
     started: float = field(default_factory=time.monotonic)
     # The strength report of the new tests of the item (#3051).
     strength: StrengthReport | None = None
+    # The comments of the item and the time at which its plan merged, read once for the steps of
+    # the run (#6167).
+    _comments: StepComments | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self.pull = self.target.pull
@@ -782,6 +786,13 @@ class _ItemRun:
                 )
         if self._git("status", "--porcelain"):
             self._git("commit", "-q", "-m", message)
+
+    def _item_comments(self) -> StepComments:
+        """The comments of the item for each step of the run, read once: the first step reads
+        them, and the later steps and the fix steps get the same comments (#6167)."""
+        if self._comments is None:
+            self._comments = StepComments.read(self.store, self.number, self.path)
+        return self._comments
 
     def _active_change(self) -> Path | None:
         """The change folder of the item in the worktree, or None once it is archived."""
@@ -1228,6 +1239,7 @@ class _ItemRun:
                     spend=self._item_spend(),
                     recorded_tests=self._recorded_tests(),
                     earlier=self._take_earlier(),
+                    comments=self._item_comments(),
                 )
             except OverWindowError as err:
                 self._handle_over_window(group, err, change, tasks_text, tasks_file, tasks)
@@ -1734,7 +1746,14 @@ class _ItemRun:
             for step in self.skipped_steps
         ]
         lines = "\n".join(
-            [*amend_lines, *skipped_lines, *scoped_lines, *strength_lines, *self._check_lines()]
+            [
+                *amend_lines,
+                *skipped_lines,
+                *scoped_lines,
+                *strength_lines,
+                *self._check_lines(),
+                *self._comment_lines(),
+            ]
         )
         body = "\n\n".join(part for part in (extra, table, lines) if part)
         if not body:
@@ -1754,6 +1773,15 @@ class _ItemRun:
             run,
             comment,
         )
+
+    def _comment_lines(self) -> list[str]:
+        """The line that names each comment of the item that the inputs of a step of this run held
+        whole, each once, in the order of the steps (#6167). A run whose inputs held none has no
+        line."""
+        names = dict.fromkeys(name for outcome in self.outcomes for name in outcome.comments)
+        if not names:
+            return []
+        return [MESSAGES.roadmap.implement_pull_comments_used.format(names=", ".join(names))]
 
     def _check_lines(self) -> list[str]:
         """The lines of the checks of the outcomes (#3042): the fail-to-pass result of
@@ -1910,6 +1938,7 @@ class _ItemRun:
             trace=self.trace,
             spend=self._item_spend(),
             recorded_tests=self._recorded_tests(),
+            comments=self._item_comments(),
         )
         self.outcomes.append(outcome)
         if outcome.status is StepStatus.STOPPED:

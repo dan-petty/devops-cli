@@ -201,13 +201,24 @@ def prompt_version(toolset: str, *, context: Mapping[str, Any] | None = None) ->
 
 
 def plan_key(
-    *, number: int, title: str, body: str, model: str, toolset: str, prompt_version: str
+    *,
+    number: int,
+    title: str,
+    body: str,
+    model: str,
+    toolset: str,
+    prompt_version: str,
+    comments: Sequence[str] = (),
 ) -> str:
     """The key of a plan: the sha256 of the item number, the title, the two hashes of the body (the
     text of a person and the refine section), the model name, the toolset name and the prompt
-    version."""
+    version, and of the comments of the item that the request gives (#6167). An item with no
+    comment keeps the key that it had before the comments came into the request."""
     outside, inside = body_hashes(body)
-    return _digest([number, title, outside, inside, model, toolset, prompt_version])
+    parts: list[Any] = [number, title, outside, inside, model, toolset, prompt_version]
+    if comments:
+        parts.append(_digest(list(comments)))
+    return _digest(parts)
 
 
 def plan_record_path(repo: str, number: int, data_dir: Path | str | None = None) -> Path:
