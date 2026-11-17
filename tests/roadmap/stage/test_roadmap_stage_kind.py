@@ -79,7 +79,7 @@ def test_an_other_group_with_a_process_and_no_command_is_valid() -> None:
         ({"process": "Look at the output."}, "has a process"),
         (
             {"changes": ["docs/TESTING.md"], "creates": [], "creates_lines": {}},
-            "changes no Python file under src/",
+            "changes no path under src/",
         ),
         (
             {
@@ -87,7 +87,7 @@ def test_an_other_group_with_a_process_and_no_command_is_valid() -> None:
                 "creates": [],
                 "creates_lines": {},
             },
-            "changes no Python file under src/",
+            "changes no path under src/",
         ),
         ({"kind": "mixed"}, "Input should be 'behavior', 'manifest' or 'other'"),
     ],

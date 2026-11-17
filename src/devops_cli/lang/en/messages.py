@@ -5403,11 +5403,11 @@ class RoadmapMessages:
         "Its test is its check, so set process to null."
     )
     stage_kind_no_source: str = (
-        "The group '{title}' has the kind behavior, and it changes no Python file under src/ "
-        "outside the knowledge base. A prompt, a pin, a template or other data under src/ is no "
-        "code. Use the kind manifest for a group that changes only a rule, a dashboard or a case "
-        "file, and the kind other for a group with no test. Or add the path of the code that it "
-        "changes."
+        "The group '{title}' has the kind behavior, and it changes no path under src/ that is "
+        "code: a .py file outside the knowledge base. A prompt, a pin, a template or other data "
+        "under src/ is no code. Use the kind manifest for a group that changes only a rule, a "
+        "dashboard or a case file, and the kind other for a group with no test. Or add the path of "
+        "the code that it changes."
     )
     stage_kind_other_test: str = (
         "The group '{title}' has the kind other, and it has a test. "
