@@ -174,7 +174,7 @@ The issue stewards of tracker #4780 add the rows `resolve`, `group` and `split`.
 - **Fix due marks.** `watch` sets the due mark of a fix row only when that row exists (#5027, #5028) and its mode is `plan` or `on`. Until the fix row is in mode `on`, a verdict of a bot pull request that goes to that row also gets the route of a pull request of a person. Thus a bot pull request with a conflict gets one comment for each head, as the row `pr_conflicts` did.
 - **Bounds.** 0 model calls. One GraphQL query for each repository and tick, and REST with ETags during a GraphQL hold. The limits are request 30 s < one pull request 60 s < row 240 s < tick 300 s.
 - **Marker.** `<!-- devops roadmap watch -->` on its one comment for each head. A ledger holds the pull request, its head, its verdict and the time of its next read. The ledger is a cache: GitHub holds the head, the draft flag and the merge state.
-- **Idempotency key.** The pull request and its head commit. The step `ready` asks `draft_readiness` and reads the expected head before it marks a draft ready (#6123). A due mark has one name for each pull request, so a second set changes nothing.
+- **Idempotency key.** The pull request and its head commit. The step `ready` reads the draft flag and the expected head before it marks a draft ready. A due mark has one name for each pull request, so a second set changes nothing.
 - **Valkey.** When the ledgers move to `valkey-roadmap` (section 3), the ledger is `roadmap:v1:watch:<owner>/<name>`, with the row as its one owner. Until then it is a file beside `schedule.json`.
 
 | Verdict | Bot pull request | Pull request of a person |

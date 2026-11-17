@@ -20,9 +20,9 @@ Kind: behavior. Changes: `src/devops_cli/roadmap/watch_row.py`, `src/devops_cli/
 
 ## 3. Documents
 
-Kind: documents. Changes: `docs/ROADMAP_WORKFLOW.md`, `docs/adr/0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md`.
+Kind: documents. Changes: `docs/ROADMAP_WORKFLOW.md`.
 
-- [x] 3.1 Say that the row `watch` and the step `ready` ask `draft_readiness`, and run `devops docs generate` for the new message
+- [x] 3.1 Say that the row `watch` asks `draft_readiness`, and run `devops docs generate` for the new message
   - Verification: `$ uv run devops ci docs`
 
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
