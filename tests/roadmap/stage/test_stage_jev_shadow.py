@@ -17,7 +17,8 @@ import pytest
 from devops_cli.ai.jev import JevRouteDecision
 from devops_cli.config.settings import load_settings
 from devops_cli.roadmap.agent_run import RunTrace, ToolCallRecord
-from devops_cli.roadmap.stage.stage import PlanFiles, StageTarget, _Planner
+from devops_cli.roadmap.stage import stage as stage_module
+from devops_cli.roadmap.stage.stage import PlanFiles, StageTarget
 from devops_cli.roadmap.stage.stage_paths import StagedTree
 from devops_cli.roadmap.stage.stage_plan_record import delete_plan_record, plan_record_path
 from devops_cli.roadmap.stage.stage_request import StageRequest
@@ -58,7 +59,7 @@ class _ScriptedToolbox(ToolboxClient):
         return self._replies.pop(0)
 
 
-class _StubbedPlanner(_Planner):
+class _StubbedPlanner(stage_module._Planner):
     """A planner whose request is fixed, so that a run needs no checkout."""
 
     def _request(self, target: StageTarget) -> StageRequest:
@@ -86,7 +87,7 @@ def _target() -> StageTarget:
     return StageTarget(item, "feat", "sample")
 
 
-def _planner(client: ToolboxClient, source: Path, jev: Any) -> _Planner:
+def _planner(client: ToolboxClient, source: Path, jev: Any) -> Any:
     specs = {"comment-thread": BaseSpec(purpose="Defines thread comments.", requirements=())}
     return _StubbedPlanner(
         client=client,
@@ -138,8 +139,7 @@ def _enable_shadow(monkeypatch: pytest.MonkeyPatch) -> None:
     stage = base.roadmap.stage.model_copy(update={"jev_shadow": True})
     roadmap = base.roadmap.model_copy(update={"stage": stage})
     monkeypatch.setattr(
-        "devops_cli.roadmap.stage.stage.load_settings",
-        lambda: base.model_copy(update={"roadmap": roadmap}),
+        stage_module, "load_settings", lambda: base.model_copy(update={"roadmap": roadmap})
     )
 
 
@@ -151,7 +151,7 @@ def samples(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, float, dict[str,
     def fake_emit(instrument: Any, value: float, attributes: dict[str, Any] | None = None) -> None:
         found.append((instrument.name, value, attributes))
 
-    monkeypatch.setattr("devops_cli.roadmap.stage.stage.emit", fake_emit)
+    monkeypatch.setattr(stage_module, "emit", fake_emit)
     return found
 
 
