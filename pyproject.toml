@@ -15,8 +15,8 @@ dependencies = [
     "pydantic==2.14.3",
     "pydantic-core==2.50.4",
     "cryptography==50.0.2",
-    "httpx2==2.16.0",
-    "httpcore2==2.16.0",
+    "httpx2==2.16.2",
+    "httpcore2==2.16.2",
     "anyio==4.16.0",
     "keyring==25.7.0",
     "PyYAML==6.0.3",
@@ -26,7 +26,7 @@ dependencies = [
     "requests==2.34.2",
     "fastmcp==4.1.8",
     "qdrant-client==1.20.0",
-    "pydantic-settings==2.16.2",
+    "pydantic-settings==2.16.3",
     "json-repair==0.64.9",
     "jsonschema==4.26.0",
     "tldextract==5.4.0",
@@ -34,7 +34,7 @@ dependencies = [
     "python-hcl2==8.2.0",
     "packaging==26.3",
     "platformdirs==4.14.5",
-    "fastapi==0.162.5",
+    "fastapi==0.162.7",
     "uvicorn==0.54.0",
     "tiktoken==0.14.0",
     "pydantic-ai[spec]==2.59.0",
@@ -94,7 +94,7 @@ dependencies = [
 # The readers of `devops roadmap review run` (#4686): lizard measures the complexity of the hot
 # files of a window. `uv sync --all-groups --all-extras` (the dev setup and CI), the devcontainer
 # image and the Service image install the extra.
-review = ["lizard==1.26.0"]
+review = ["lizard==1.26.1"]
 
 [project.scripts]
 devops = "devops_cli.entry:main"
@@ -106,10 +106,10 @@ dev = [
     "pytest-mock==3.17.0",
     "ruff==0.17.5",
     "mypy==2.4.1",
-    "ty==0.0.101",
-    "types-PyYAML==6.0.12.20261111",
+    "ty==0.0.104",
+    "types-PyYAML==6.0.12.20261113",
     "pytest-cov==7.1.0",
-    "diff-cover==11.0.1",
+    "diff-cover==11.0.2",
     "pytest-xdist==3.8.0",
     "pytest-randomly==5.1.0",
     "pytest-timeout==2.4.0",
@@ -120,8 +120,8 @@ dev = [
     "h11==0.16.0",
     "deptry==0.25.1",
     "mutmut==3.8.1",
-    "syrupy==7.0.0",
-    "ast-grep-cli==0.51.2",
+    "syrupy==7.0.2",
+    "ast-grep-cli==0.51.3",
     "time-machine==3.6.0",
     "fakeredis[valkey]==2.40.0",
     "types-psutil==7.2.2.20261111",
@@ -340,13 +340,13 @@ import-not-found = "ignore"
 invalid-generic-class = "ignore"
 incompatible-method-override = "ignore"
 invalid-argument-type = "ignore"
-invalid-return-type = "ignore"
+invalid-explicit-return = "ignore"
 missing-attribute = "ignore"
 invalid-assignment = "ignore"
 invalid-typed-dict-key = "ignore"
 invalid-await = "ignore"
 deprecated = "ignore"
-call-non-callable = "ignore"
+not-callable = "ignore"
 invalid-parameter-default = "ignore"
 
 [tool.deptry.per_rule_ignores]
