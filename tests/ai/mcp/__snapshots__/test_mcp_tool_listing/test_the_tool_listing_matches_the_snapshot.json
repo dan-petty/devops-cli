@@ -823,6 +823,18 @@
           "default": ".",
           "description": "Directory or file to index into vector store.",
           "type": "string"
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Managed repository in owner/name form to ingest. Repeat to specify more than one repository."
         }
       },
       "type": "object"
