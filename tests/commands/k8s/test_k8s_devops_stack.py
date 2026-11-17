@@ -8,13 +8,8 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
 from devops_cli.commands.k8s.networking import VALID_STACKS, _resolve_stacks
-from devops_cli.commands.k8s.stack_lifecycle import (
-    MANIFESTS_BY_STACK,
-    PRODUCT_MANIFESTS_BY_STACK,
-)
 from devops_cli.dry_run import set_dry_run
 from tests.support.fakes.process import ProcessFake
-from tests.support.k8s_tree import TREE
 
 runner = CliRunner()
 
@@ -36,60 +31,14 @@ def test_devops_stack_registration_and_resolution() -> None:
     )
 
 
-def test_devops_stack_manifests_integrity() -> None:
-    """Every devops manifest exists: the product paths under the product base `k8s/devops`, then
-    the environment paths (#5131). The ConfigMap is rendered from config at deploy time instead.
-    The rate limit of the webhook route is applied before the Ingress that names it (#2476)."""
-    manifests = [
-        *(TREE.path("devops") / p for p in PRODUCT_MANIFESTS_BY_STACK["devops"]),
-        *(TREE.path(p) for p in MANIFESTS_BY_STACK["devops"]),
-    ]
-    filenames = [p.name for p in manifests]
-    rate_limit_then_ingress = ["roadmap-service/middleware.yaml", "roadmap-service/ingress.yaml"]
+def test_the_devops_stack_applies_the_rate_limit_before_the_ingress_that_names_it() -> None:
+    """Traefik refuses an Ingress that names a Middleware that does not exist yet (#2476)."""
+    from devops_cli.commands.k8s.stack_lifecycle import PRODUCT_MANIFESTS_BY_STACK
 
-    assert (
-        len(manifests),
-        all(p.exists() for p in manifests),
-        "networkpolicy.yaml" in filenames,
-        "serviceaccount.yaml" in filenames,
-        any(p.parent.name == "devops" and p.name == "configmap.yaml" for p in manifests),
-        "cronjob.yaml" in filenames,
-        "deployment.yaml" in filenames,
-        "service.yaml" in filenames,
-        "clusterrolebinding.yaml" in filenames,
-        sorted(
-            f"{p.parent.name}/{p.name}"
-            for p in manifests
-            if p.name
-            in {
-                "cronjob-runner.yaml",
-                "cronjob-stage.yaml",
-                "role.yaml",
-                "networkpolicy-egress.yaml",
-            }
-        ),
-        [
-            f"{p.parent.name}/{p.name}"
-            for p in manifests
-            if f"{p.parent.name}/{p.name}" in rate_limit_then_ingress
-        ],
-    ) == (
-        37,
-        True,
-        True,
-        True,
-        False,
-        True,
-        True,
-        True,
-        True,
-        [
-            "devops/cronjob-runner.yaml",
-            "devops/cronjob-stage.yaml",
-            "roadmap-service/networkpolicy-egress.yaml",
-            "roadmap-service/role.yaml",
-        ],
-        rate_limit_then_ingress,
+    paths = PRODUCT_MANIFESTS_BY_STACK["devops"]
+
+    assert paths.index(Path("roadmap-service", "middleware.yaml")) < paths.index(
+        Path("roadmap-service", "ingress.yaml")
     )
 
 

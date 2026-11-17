@@ -9,6 +9,6 @@ Enforces numeric user identifiers for the Mattermost Operator so the kubelet can
 The Mattermost Operator Helm values SHALL specify numeric `runAsUser` and `runAsGroup` identifiers.
 
 #### Scenario: Mattermost Operator specifies numeric UID and GID
-- **WHEN** a test inspects `k8s/mattermost/mattermost-operator-values.yaml`
+- **WHEN** a person runs `kubectl -n mattermost-operator get deployment -o yaml` on the cluster
 - **THEN** `podSecurityContext.runAsUser` is `65532`
 - **AND** `podSecurityContext.runAsGroup` is `65532`

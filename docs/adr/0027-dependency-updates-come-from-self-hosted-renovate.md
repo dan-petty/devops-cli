@@ -60,7 +60,7 @@ The pod runs under Pod Security `restricted` with a read-only root. Its NetworkP
 
 ### Confirmation
 
-`tests/invariants/test_k8s_renovate.py` checks the Secret mounts, the timeouts, the perimeter, the anchored commands, and that this record, `CONTRIBUTING.md` and `docs/CLUSTER.md` name the same exception. The `k8s` row of `devops ci` checks the rendered image digests and the network policies.
+`tests/invariants/test_k8s_renovate.py` checks the row of the cluster Secret table, and that this record, `CONTRIBUTING.md` and `docs/CLUSTER.md` name the same exception. The `k8s` row of `devops ci` checks the rendered image digests and the network policies, and kube-linter (`devops k8s lint`) checks the security controls of the pod. No test asserts a value of the manifests (#6060).
 
 ## More Information
 

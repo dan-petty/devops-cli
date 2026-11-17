@@ -55,8 +55,8 @@ NetworkPolicy `searxng-perimeter` SHALL allow egress to CoreDNS and to `0.0.0.0/
 Every file of `k8s/devops/searxng/` SHALL be in its `kustomization.yaml`, in `k8s/devops/kustomization.yaml` as the folder, and in `MANIFESTS_BY_STACK["devops"]`.
 
 #### Scenario: A file is in one list only
-- **WHEN** a test compares the files of the folder with the three lists
-- **THEN** the lists name the same files
+- **WHEN** `uv run devops ci --check --only k8s` renders Application `devops`, and `uv run devops k8s deploy-stack --stack devops --dry-run` lists its manifests
+- **THEN** the render and the list of the dry run each hold every file of `k8s/devops/searxng/`
 
 ### Requirement: Granian replaces a worker before the memory limit
 The Deployment SHALL set `GRANIAN_WORKERS_MAX_RSS` to `512`, and its memory limit SHALL hold a worker at that value and the new worker that Granian starts in its place: a request of 256 Mi and a limit of 1 Gi.

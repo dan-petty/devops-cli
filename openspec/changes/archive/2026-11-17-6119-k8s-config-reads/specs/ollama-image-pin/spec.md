@@ -1,0 +1,10 @@
+## MODIFIED Requirements
+
+### Requirement: Every Ollama container pins the image by tag and digest
+Each container and init container of the Ollama tiers in `k8s/llm/profiles/ollama-profiles.yaml` and `k8s/llm/profiles/tier-templates/ollama-48gib-slow.yaml` SHALL run the same image, `ollama/ollama:<tag>@sha256:<digest>`. The digest fixes the exact image, so a re-pushed tag cannot change what the tiers run.
+
+#### Scenario: A tier names its image by tag only
+- **WHEN** a person runs `kubectl -n llm get daemonset -o jsonpath='{..image}'` on the cluster
+- **THEN** every image has the form `ollama/ollama:<tag>@sha256:<64 hex digits>`
+- **AND** all tiers use one image
+- **AND** the tag, read as a version, is at least the first release that serves embeddings with `llama-server`

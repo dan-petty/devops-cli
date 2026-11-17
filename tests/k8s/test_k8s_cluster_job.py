@@ -1,6 +1,7 @@
 """The Job that a CronJob's template makes: the stage Job of one item (#5483).
 
-The CronJob template is the committed manifest `k8s/devops/cronjob-stage.yaml`.
+The CronJob template has the shape of each template (`tests.support.job_templates`), not the values
+of a committed manifest.
 """
 
 from __future__ import annotations
@@ -9,7 +10,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-import yaml
 
 from devops_cli.github.repo_ref import RepoRef
 from devops_cli.k8s.cluster_job import (
@@ -24,24 +24,17 @@ from devops_cli.k8s.cluster_job import (
     stage_job_labels,
     stage_job_name,
 )
-from tests.support.paths import REPO_ROOT
+from tests.support.job_templates import cronjob_template
 
 REPO = RepoRef("Example/Project")
 DEADLINE = datetime(2026, 11, 13, 15, 0, tzinfo=UTC)
 ARGS = ["roadmap", "stage", "--repo", "Example/Project", "--job-item", "42", "--confirm"]
 
 
-def _cronjob() -> dict[str, Any]:
-    loaded: dict[str, Any] = yaml.safe_load(
-        (REPO_ROOT / "k8s/devops/cronjob-stage.yaml").read_text(encoding="utf-8")
-    )
-    return loaded
-
-
 def _stage_job(item: int = 42, plan_key: str = "body-hash") -> dict[str, Any]:
     name = stage_job_name(REPO, item, plan_key)
     return build_job(
-        _cronjob(),
+        cronjob_template(STAGE_TEMPLATE),
         ARGS,
         name,
         template=STAGE_TEMPLATE,
@@ -110,9 +103,7 @@ def test_the_job_names_itself_its_deadline_and_the_repository_of_its_token() -> 
 
 
 def test_runner_job_labels_and_annotation_reach_job_and_pod() -> None:
-    cronjob = yaml.safe_load(
-        (REPO_ROOT / "k8s/devops/cronjob-runner.yaml").read_text(encoding="utf-8")
-    )
+    cronjob = cronjob_template(RUNNER_TEMPLATE)
     repo = RepoRef("Dan-Petty/DevOps-CLI")
     item = 4558
     name = runner_job_name(repo, item)
@@ -170,13 +161,8 @@ def test_runner_job_labels_builds_expected_labels() -> None:
 def test_a_planner_job_keeps_the_planner_name_label_on_the_job_and_pod() -> None:
     """The admission policy and the deny-all NetworkPolicy select the planner pod by its own name
     label, so `build_job` sets it on the Job and on its pod (#4003)."""
-    cronjob = yaml.safe_load(
-        (REPO_ROOT / "k8s/devops/roadmap-service/cronjob-planner-run.yaml").read_text(
-            encoding="utf-8"
-        )
-    )
     job = build_job(
-        cronjob,
+        cronjob_template(PLANNER_TEMPLATE),
         ["--version"],
         "devops-cli-planner-run-20261114-120000-ab12",
         template=PLANNER_TEMPLATE,

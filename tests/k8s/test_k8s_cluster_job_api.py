@@ -1,17 +1,15 @@
 """The Kubernetes API calls of the Jobs that the roadmap Service creates (#2667).
 
-The Kubernetes API is faked at its edge (`FakeCluster`). The CronJob template is the committed
-manifest `k8s/devops/cronjob-runner.yaml`.
+The Kubernetes API is faked at its edge (`FakeCluster`). The CronJob template has the shape of the
+runner template (`tests.support.job_templates`), not the values of a committed manifest.
 """
 
 from __future__ import annotations
 
-import copy
 from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-import yaml
 
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE
@@ -24,7 +22,7 @@ from tests.support.fakes.kubernetes import (
     status,
     terminated,
 )
-from tests.support.paths import REPO_ROOT
+from tests.support.job_templates import cronjob_template
 
 JOBS = ("batch", "v1", "jobs")
 CRONJOBS = ("batch", "v1", "cronjobs")
@@ -39,8 +37,7 @@ def _job(name: str, labels: dict[str, str] | None = None, *conditions: tuple[str
 
 @pytest.fixture
 def kube(cluster: FakeCluster) -> FakeCluster:
-    template = yaml.safe_load((REPO_ROOT / "k8s/devops/cronjob-runner.yaml").read_text("utf-8"))
-    cluster.custom_objects.objects[CRONJOBS] = [copy.deepcopy(template)]
+    cluster.custom_objects.objects[CRONJOBS] = [cronjob_template(RUNNER_TEMPLATE)]
     return cluster
 
 

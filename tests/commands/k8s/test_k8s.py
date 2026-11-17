@@ -32,8 +32,6 @@ from tests.support.k8s_commands import (
     name_contexts,
     stock_push_keyring,
 )
-from tests.support.k8s_tree import TREE, release_values
-from tests.support.paths import REPO_ROOT
 from tests.support.tcp_probe import TcpProbe
 
 runner = CliRunner()
@@ -392,13 +390,40 @@ def test_build_helm_upgrade_cmd_carries_take_ownership() -> None:
     assert "--force-conflicts" in cmd_v4
 
 
-def test_deploy_stack_gives_the_prometheus_chart_the_environment_values_then_the_product_rules(
-    cli: Callable[..., Any],
+def _pinned_tree(root: Path, unpinned: str | None = None) -> Path:
+    """An environment tree whose Argo CD Applications pin each chart of stack `infra` at 1.0.0,
+    except the release `unpinned`: the shape that deploy-stack reads, not the committed tree."""
+    from devops_cli.commands.k8s.stack_lifecycle import HELM_RELEASES_BY_STACK
+
+    apps = root / "argocd" / "apps"
+    apps.mkdir(parents=True)
+    for release in HELM_RELEASES_BY_STACK["infra"]:
+        if release["name"] == unpinned:
+            continue
+        source = {"repoURL": "https://charts.example.com", "chart": "c", "targetRevision": "1.0.0"}
+        application = {
+            "apiVersion": "argoproj.io/v1alpha1",
+            "kind": "Application",
+            "metadata": {"name": release["name"], "namespace": "argocd"},
+            "spec": {"sources": [source]},
+        }
+        (apps / f"{release['name']}.yaml").write_text(yaml.safe_dump(application), "utf-8")
+    return root
+
+
+def test_deploy_stack_gives_a_chart_the_environment_values_then_the_product_values(
+    cli: Callable[..., Any], tmp_path: Path
 ) -> None:
-    """The helm command of the prometheus release names each values file in the order of the
-    Application `prometheus`: the environment values, then the product alert rules (#5292). The
-    product file is under the product base of the current repository (#5131)."""
-    res = cli("k8s", "deploy-stack", "--stack", "infra", "--k8s-dir", "k8s", "--dry-run")
+    """The helm command of the prometheus release names the values file of the environment
+    tree, then the alert rules of the product base (#5292, #5131), at the version that its
+    Application pins (#6060)."""
+    env, product = _pinned_tree(tmp_path / "env"), tmp_path / "product"
+    product.mkdir()
+
+    res = cli(
+        "k8s", "deploy-stack", "--stack", "infra", "--k8s-dir", str(env),
+        "--product-dir", str(product), "--dry-run",
+    )  # fmt: skip
     (upgrade,) = [
         cmd
         for cmd in _dry_run_details(res.output)["helm_commands"]
@@ -407,14 +432,58 @@ def test_deploy_stack_gives_the_prometheus_chart_the_environment_values_then_the
 
     assert (
         res.exit_code,
-        [upgrade[i + 1] for i, arg in enumerate(upgrade) if arg == "--values"],
+        [upgrade[i + 1] for i, arg in enumerate(upgrade) if arg in ("--values", "--version")],
     ) == (
         0,
         [
-            str(Path("k8s") / "monitoring" / "prometheus-values.yaml"),
-            str(TREE.path("devops") / "monitoring" / "prometheus-rules-values.yaml"),
+            "1.0.0",
+            str(env / "monitoring" / "prometheus-values.yaml"),
+            str(product / "monitoring" / "prometheus-rules-values.yaml"),
         ],
     )
+
+
+def test_deploy_stack_stops_on_a_release_that_no_application_pins(
+    cli: Callable[..., Any], tmp_path: Path
+) -> None:
+    env = _pinned_tree(tmp_path / "env", unpinned="prometheus")
+
+    res = cli("k8s", "deploy-stack", "--stack", "infra", "--k8s-dir", str(env), "--dry-run")
+
+    assert (res.exit_code, "Application" in res.output, "prometheus" in res.output) == (
+        1,
+        True,
+        True,
+    )
+
+
+def test_deploy_stack_installs_the_barman_cloud_plugin_after_the_operator_and_cert_manager() -> (
+    None
+):
+    """The plugin chart renders a cert-manager Issuer and Certificates, and the plugin must run in
+    the namespace of the CloudNativePG operator. So stack `infra` installs it after both, in
+    `cnpg-system`, and no other stack lists the three releases (#4764)."""
+    from devops_cli.commands.k8s.stack_lifecycle import HELM_RELEASES_BY_STACK
+
+    releases = {
+        stack: [release["name"] for release in stack_releases]
+        for stack, stack_releases in HELM_RELEASES_BY_STACK.items()
+    }
+    namespaces = {
+        release["name"]: release["namespace"]
+        for stack_releases in HELM_RELEASES_BY_STACK.values()
+        for release in stack_releases
+    }
+    infra = releases["infra"]
+    elsewhere = {name for stack, names in releases.items() if stack != "infra" for name in names}
+
+    assert (
+        infra.index("cloudnative-pg") < infra.index("plugin-barman-cloud"),
+        infra.index("cert-manager") < infra.index("plugin-barman-cloud"),
+        namespaces["cert-manager"],
+        namespaces["plugin-barman-cloud"] == namespaces["cloudnative-pg"],
+        elsewhere & {"cloudnative-pg", "cert-manager", "plugin-barman-cloud"},
+    ) == (True, True, "cert-manager", True, set())
 
 
 def test_recover_stuck_helm_release_rolls_back_pending_upgrade(
@@ -493,14 +562,10 @@ def test_teardown_stack_keeps_the_prometheus_operator_crds(
     cluster: FakeCluster, process_fake: ProcessFake
 ) -> None:
     """teardown-stack uninstalls every other infra release but never the CRD release, whose
-    uninstall would delete every ServiceMonitor in the cluster; the CRDs also carry Helm's keep
-    policy against an uninstall by hand (#819)."""
+    uninstall would delete every ServiceMonitor in the cluster (#819)."""
     from devops_cli.commands.k8s.stack_lifecycle import HELM_RELEASES_BY_STACK
 
     infra_names = [r["name"] for r in HELM_RELEASES_BY_STACK["infra"]]
-    crd_values = yaml.safe_load(
-        Path("k8s/monitoring/prometheus-operator-crds-values.yaml").read_text("utf-8")
-    )
 
     result = runner.invoke(app, ["teardown-stack", "--stack", "infra"])
 
@@ -509,12 +574,10 @@ def test_teardown_stack_keeps_the_prometheus_operator_crds(
         result.exit_code,
         "prometheus-operator-crds" in infra_names,
         uninstalled,
-        crd_values["crds"]["annotations"],
     ) == (
         0,
         True,
         [name for name in reversed(infra_names) if name != "prometheus-operator-crds"],
-        {"helm.sh/resource-policy": "keep"},
     )
 
 
@@ -1168,64 +1231,6 @@ def test_k8s_deploy_stack_no_wait(
 # =============================================================================
 
 
-# =============================================================================
-# Thirty Days Of Logs And Metrics (#550)
-# =============================================================================
-
-
-def _repo_yaml(*parts: str) -> dict[str, Any]:
-    loaded: dict[str, Any] = yaml.safe_load(REPO_ROOT.joinpath(*parts).read_text(encoding="utf-8"))
-    return loaded
-
-
-def test_loki_deletes_logs_once_they_are_thirty_days_old() -> None:
-    """`retention_period` is applied only by the compactor, and only with retention on.
-
-    Without `compactor.retention_enabled` Loki kept every chunk whatever its age. Loki 3
-    refuses to start with retention on and no delete-request store, and that store opens
-    the unauthenticated log delete API, which `deletion_mode: disabled` closes.
-    """
-    loki = _repo_yaml("k8s", "logging", "loki-values.yaml")["loki"]
-    compactor, limits = loki["compactor"], loki["limits_config"]
-    assert (
-        compactor["retention_enabled"],
-        compactor["delete_request_store"],
-        limits["retention_period"],
-        limits["deletion_mode"],
-    ) == (True, "filesystem", "720h", "disabled")
-
-
-def test_k8s_stack_deploy_ssa_and_manifest_contracts() -> None:
-    """Verify deploy-stack enforces --force-conflicts and k8s manifests meet security & chart contracts."""
-
-    # 1. Namespaces: logging has baseline pod-security standard
-    ns_docs = list(
-        yaml.safe_load_all((REPO_ROOT / "k8s" / "namespaces.yaml").read_text(encoding="utf-8"))
-    )
-    logging_ns = next(d for d in ns_docs if d and d.get("metadata", {}).get("name") == "logging")
-    assert (
-        logging_ns["metadata"]["labels"]["pod-security.kubernetes.io/enforce"],
-        logging_ns["metadata"]["labels"]["pod-security.kubernetes.io/warn"],
-        logging_ns["metadata"]["labels"]["pod-security.kubernetes.io/audit"],
-    ) == ("baseline", "baseline", "baseline")
-
-    # 2. Loki values: zeroed scalable target replicas for Monolithic mode
-    loki_values = yaml.safe_load(
-        (REPO_ROOT / "k8s" / "logging" / "loki-values.yaml").read_text(encoding="utf-8")
-    )
-    assert (
-        loki_values["read"]["replicas"],
-        loki_values["write"]["replicas"],
-        loki_values["backend"]["replicas"],
-    ) == (0, 0, 0)
-
-    # 3. Qdrant values: disabled unprivileged volume chown initContainer
-    qdrant_values = yaml.safe_load(
-        (REPO_ROOT / "k8s" / "llm" / "values-qdrant.yaml").read_text(encoding="utf-8")
-    )
-    assert qdrant_values["updateVolumeFsOwnership"] is False
-
-
 def test_mask_email_display_variants() -> None:
     """Verify _mask_email_display masks short and long emails while preserving localhost/internal."""
     from devops_cli.commands.k8s.stack_lifecycle import _mask_email_display
@@ -1326,12 +1331,7 @@ def test_pyroscope_helm_release_and_grafana_datasource() -> None:
     assert (
         (pyro_release["chart"], pyro_release["namespace"]),
         pyro_release["chart"].split("/")[0] in _HELM_REPOS_BY_STACK["infra"],
-        release_values(pyro_release)[0].is_file(),
-    ) == (
-        ("grafana/pyroscope", "monitoring"),
-        True,
-        True,
-    )
+    ) == (("grafana/pyroscope", "monitoring"), True)
 
 
 def test_pyroscope_port_forward_and_proxy_targets() -> None:
@@ -1935,23 +1935,15 @@ def test_deploy_stack_on_a_native_cluster_applies_the_rendered_config_map_and_no
     res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
     applied = cluster.writes()
     config_map = yaml.safe_load(cluster.stdin_of(_APPLY_STDIN))
-    # The only ConfigMap files that the stack applies are the settings of SearXNG (#3924) and the
-    # global config of Renovate (#4905). The ConfigMap `devops-cli-config` has no file: it is
-    # rendered and sent on stdin.
+    # The ConfigMap `devops-cli-config` has no file: it is rendered and sent on stdin, and no
+    # command applies its template.
     assert (
         res.exit_code,
-        applied[:2],
+        applied[0][:3],
+        applied[1],
         config_map["metadata"]["name"],
-        [cmd for cmd in applied if any("configmap" in part for part in cmd)],
-    ) == (
-        0,
-        [["kubectl", "apply", "-k", str(TREE.root), *_CONTEXT], _APPLY_STDIN],
-        "devops-cli-config",
-        [
-            ["kubectl", "apply", "-f", str(TREE.path("devops/searxng/configmap.yaml")), *_CONTEXT],
-            ["kubectl", "apply", "-f", str(TREE.path("devops/renovate/configmap.yaml")), *_CONTEXT],
-        ],
-    )
+        [cmd for cmd in applied if any("configmap.example" in part for part in cmd)],
+    ) == (0, ["kubectl", "apply", "-k"], _APPLY_STDIN, "devops-cli-config", [])
 
 
 def test_teardown_stack_devops_deletes_the_config_map_deploy_stack_rendered(
