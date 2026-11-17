@@ -2224,6 +2224,11 @@ class CIMessages:
     audit_not_run: str = (
         "Dependency audit could not run ({tool} audit exited {code}); {tool}'s error is above."
     )
+    audit_ignored: str = "Ignored {advisory} in {path} until {expired_at}: {statement}"
+    audit_ignore_expired: str = (
+        "The ignore of {advisory} in {path} expired on {expired_at}. Bump the package if a release"
+        " fixes it, else renew the entry (SECURITY.md, A Finding with No Fix)."
+    )
     docs_validation: str = "docs validation"
     devcontainer_validation: str = "devcontainer validation"
     openspec_validation: str = "openspec validation"
