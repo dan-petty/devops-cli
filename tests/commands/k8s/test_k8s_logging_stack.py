@@ -10,7 +10,6 @@ from urllib.parse import parse_qs, urlsplit
 
 import httpx2
 import pytest
-import yaml
 from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
@@ -20,7 +19,6 @@ from tests.support.fakes.http import WebFake
 from tests.support.fakes.kubernetes import FakeCluster
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.k8s_commands import answer_helm_version
-from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
 
@@ -238,50 +236,6 @@ def test_deploy_stack_dry_run_lists_the_helm_commands_that_the_real_run_starts(
     assert helm_calls_during_dry_run == []
 
 
-def test_monitoring_network_policy_alloy_egress_rules() -> None:
-    """Verify monitoring NetworkPolicy retains Alloy API discovery and Loki log shipping egress (#548)."""
-    np_path = REPO_ROOT / "k8s" / "monitoring" / "networkpolicy.yaml"
-    np_doc = yaml.safe_load(np_path.read_text(encoding="utf-8"))
-    egress_rules = np_doc.get("spec", {}).get("egress", [])
-
-    api_rule = next(
-        (
-            rule
-            for rule in egress_rules
-            if any(
-                p.get("port") == 6443 and p.get("protocol") == "TCP" for p in rule.get("ports", [])
-            )
-            and any(
-                t.get("ipBlock", {}).get("cidr") == "0.0.0.0/0"
-                and t.get("ipBlock", {}).get("except") == ["169.254.169.254/32"]
-                for t in rule.get("to", [])
-            )
-        ),
-        None,
-    )
-    loki_rule = next(
-        (
-            rule
-            for rule in egress_rules
-            if any(
-                p.get("port") == 3100 and p.get("protocol") == "TCP" for p in rule.get("ports", [])
-            )
-            and any(
-                t.get("namespaceSelector", {})
-                .get("matchLabels", {})
-                .get("kubernetes.io/metadata.name")
-                == "logging"
-                for t in rule.get("to", [])
-            )
-        ),
-        None,
-    )
-    assert isinstance(api_rule, dict)
-    assert isinstance(loki_rule, dict)
-    assert {"port": 6443, "protocol": "TCP"} in api_rule.get("ports", [])
-    assert {"port": 3100, "protocol": "TCP"} in loki_rule.get("ports", [])
-
-
 def test_deploy_logging_stack_dry_run() -> None:
     """Verify deploy-stack --stack logging with dry run."""
     set_dry_run(True)
@@ -442,61 +396,6 @@ def test_k8s_teardown_stack_case_insensitive() -> None:
     result = runner.invoke(app, ["teardown-stack", "--stack", "LOGGING"])
     assert result.exit_code == 0
     assert "teardown_k8s_stack" in result.output
-
-
-def test_logging_stack_security_and_scoping() -> None:
-    """Verify DevSecOps perimeter hardening and bidirectional NetworkPolicy for logging stack (#548)."""
-    logging_dir = REPO_ROOT / "k8s" / "logging"
-    np_path = logging_dir / "networkpolicy.yaml"
-    assert np_path.is_file()
-    np_doc = yaml.safe_load(np_path.read_text(encoding="utf-8"))
-    assert np_doc.get("metadata", {}).get("namespace") == "logging"
-
-    # 1. Egress: exactly intra-namespace and CoreDNS in kube-system
-    egress_rules = np_doc.get("spec", {}).get("egress", [])
-    assert (
-        len(egress_rules),
-        egress_rules[0].get("to"),
-        egress_rules[1].get("to"),
-        egress_rules[1].get("ports"),
-    ) == (
-        2,
-        [{"podSelector": {}}],
-        [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}}}],
-        [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}],
-    )
-
-    # 2. Ingress: intra-namespace and telemetry (monitoring and otel on TCP 3100)
-    ingress_rules = np_doc.get("spec", {}).get("ingress", [])
-    assert len(ingress_rules) == 2
-
-    # Ingress rule 1: intra-namespace
-    assert ingress_rules[0].get("from") == [{"podSelector": {}}]
-
-    # Ingress rule 2: monitoring and the otel collector on port 3100
-    rule_telemetry = ingress_rules[1]
-    from_telemetry = rule_telemetry.get("from", [])
-    allowed_namespaces = {
-        f.get("namespaceSelector", {}).get("matchLabels", {}).get("kubernetes.io/metadata.name")
-        for f in from_telemetry
-    }
-    assert (
-        allowed_namespaces,
-        rule_telemetry.get("ports"),
-    ) == (
-        {"monitoring", "otel"},
-        [{"protocol": "TCP", "port": 3100}],
-    )
-
-    # Ensure no ingress-nginx or unconstrained CIDR rules
-    for rule in ingress_rules:
-        for f in rule.get("from", []):
-            ns_name = (
-                f.get("namespaceSelector", {})
-                .get("matchLabels", {})
-                .get("kubernetes.io/metadata.name", "")
-            )
-            assert (ns_name != "ingress-nginx", "ipBlock" not in f) == (True, True)
 
 
 @pytest.mark.parametrize("follow", [False, True])

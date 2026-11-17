@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 from typer.testing import CliRunner
 
 from tests.support.fakes.kubernetes import FakeCluster
@@ -16,32 +14,6 @@ from tests.support.fakes.process import ProcessAnswer, ProcessFake
 @pytest.fixture
 def runner() -> CliRunner:
     return CliRunner()
-
-
-def test_tempo_pod_meets_the_otel_namespaces_restricted_pod_security() -> None:
-    """The otel namespace enforces PodSecurity restricted, so the chart's pod and its tempo
-    container must set every control restricted requires, or no pod is ever admitted (#1627)."""
-    namespaces = [
-        doc
-        for doc in yaml.safe_load_all(Path("k8s/namespaces.yaml").read_text(encoding="utf-8"))
-        if doc and doc.get("kind") == "Namespace"
-    ]
-    otel_labels = next(n for n in namespaces if n["metadata"]["name"] == "otel")["metadata"][
-        "labels"
-    ]
-    values = yaml.safe_load(Path("k8s/otel/tempo-values.yaml").read_text(encoding="utf-8"))
-    pod = values.get("securityContext", {})
-    container = values.get("tempo", {}).get("securityContext", {})
-
-    assert (
-        otel_labels.get("pod-security.kubernetes.io/enforce"),
-        pod.get("runAsNonRoot"),
-        pod.get("seccompProfile", {}).get("type"),
-        container.get("allowPrivilegeEscalation"),
-        container.get("capabilities", {}).get("drop"),
-        container.get("readOnlyRootFilesystem"),
-        values.get("tempo", {}).get("metricsGenerator", {}).get("enabled", False),
-    ) == ("restricted", True, "RuntimeDefault", False, ["ALL"], True, False)
 
 
 def test_k8s_port_forward_tempo_dry_run(runner: CliRunner) -> None:

@@ -5,10 +5,10 @@ config file, such as a version, a digest, a model, a limit or a key: an update o
 by Renovate, then fails a test although no code changed. The schema and policy tools of CI check
 the form of these files (docs/TESTING.md, "Which change gets a test").
 
-The check finds each test that reads such a file: a path built from `REPO_ROOT` (or the `K8S`,
-`TREE` and `APPLICATIONS` of `tests.support.k8s_tree`) whose first part is a config location, a
-relative `Path` of a config location, or a string of a config path in a module that reads the
-repository. A module-level name, helper or fixture that reads one taints each test that uses it.
+The check finds each test that reads such a file: a path built from `REPO_ROOT` (or the `K8S` and
+`TREE` of `tests.support.k8s_tree`) whose first part is a config location, a
+relative `Path` of a config location, a string of a config path in a module that reads the
+repository, or a call of a reader of `tests.support.k8s_tree`, such as `manifests`. A module-level name, helper or fixture that reads one taints each test that uses it.
 `config_reads.toml` holds, for each module, the count of its tests that still read one: the cases
 the owner has to decide, and the tests of code that take a committed file as input and assert no
 value of it. The counts only fall: a module above or below its count fails the check.
@@ -55,7 +55,20 @@ CONFIG_ROOT_PREFIXES: Final[tuple[str, ...]] = ("Dockerfile", ".trivyignore")
 # The names that stand for the repository root, and those that stand for its `k8s` folder.
 _REPO_NAMES: Final[frozenset[str]] = frozenset({"REPO_ROOT"})
 # The names of `tests.support.k8s_tree` that stand for the `k8s` folder of the repository.
-_K8S_NAMES: Final[frozenset[str]] = frozenset({"K8S", "TREE", "APPLICATIONS"})
+_K8S_NAMES: Final[frozenset[str]] = frozenset({"K8S", "TREE"})
+# The functions of `tests.support.k8s_tree` that give the paths of files of the `k8s` folder, and
+# the readers that it held before #6082, so a reader that comes back is counted too.
+_K8S_READERS: Final[frozenset[str]] = frozenset(
+    {
+        "application_sources",
+        "chart_values",
+        "deploy_stack_manifests",
+        "manifests",
+        "pinned_charts",
+        "release_values",
+        "yaml_documents",
+    }
+)
 _K8S_TREE_MODULE: Final[str] = "tests.support.k8s_tree"
 _PATH_TYPES: Final[frozenset[str]] = frozenset({"Path", "PurePosixPath", "PurePath"})
 ALLOW_LIST: Final[Path] = REPO_ROOT / "tests" / "gate" / "tree_checks" / "config_reads.toml"
@@ -158,6 +171,19 @@ def _is_read_site(node: ast.AST, readers: frozenset[str], k8s_names: frozenset[s
     return isinstance(node, ast.Name) and node.id in k8s_names
 
 
+def _reads(node: ast.AST, readers: frozenset[str], k8s_names: frozenset[str]) -> bool:
+    """`node` holds a read site. A path is judged whole, so the part `REPO_ROOT / 'k8s'` of the
+    path `REPO_ROOT / 'k8s' / 'README.md'`, a document, is no read of its own."""
+    inner = {
+        id(part.left)
+        for part in ast.walk(node)
+        if isinstance(part, ast.BinOp) and isinstance(part.op, ast.Div)
+    }
+    return any(
+        _is_read_site(part, readers, k8s_names) for part in ast.walk(node) if id(part) not in inner
+    )
+
+
 def _top_level_names(node: ast.stmt) -> list[str]:
     """The names a module-level statement binds."""
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -205,7 +231,7 @@ def config_reading_tests(tree: ast.Module) -> list[str]:
         for node in ast.walk(tree)
         if isinstance(node, ast.ImportFrom) and node.module == _K8S_TREE_MODULE
         for alias in node.names
-        if alias.name in _K8S_NAMES
+        if alias.name in _K8S_NAMES | _K8S_READERS
     )
     statements = {
         name: statement for statement in tree.body for name in _top_level_names(statement)
@@ -213,8 +239,7 @@ def config_reading_tests(tree: ast.Module) -> list[str]:
     tainted = {
         name
         for name, statement in statements.items()
-        if not name.startswith("test")
-        and any(_is_read_site(n, readers, k8s_names) for n in ast.walk(statement))
+        if not name.startswith("test") and _reads(statement, readers, k8s_names)
     }
     changed = True
     while changed:
@@ -225,7 +250,7 @@ def config_reading_tests(tree: ast.Module) -> list[str]:
                 changed = True
     found = []
     for name, test in _tests(tree):
-        direct = any(_is_read_site(n, readers, k8s_names) for n in ast.walk(test))
+        direct = _reads(test, readers, k8s_names)
         if direct or _uses(test) & tainted:
             found.append(name)
     return found
@@ -328,6 +353,8 @@ def check_a_test_that_reads_a_config_file_through_a_helper_is_found() -> None:
             "    assert _data('k8s/devops/configmap.example.yaml')\n"
             "def test_docs():\n"
             "    assert (REPO_ROOT / 'docs' / 'TESTING.md').read_text()\n"
+            "def test_document_of_a_config_folder():\n"
+            "    assert (REPO_ROOT / 'k8s' / 'README.md').read_text()\n"
             "class TestManifests:\n"
             "    def test_workflow(self):\n"
             "        assert Path('.github/workflows/ci.yml').read_text()\n"
@@ -336,6 +363,17 @@ def check_a_test_that_reads_a_config_file_through_a_helper_is_found() -> None:
             "from tests.support.k8s_tree import TREE\n"
             "def test_values():\n"
             "    assert TREE.path('llm')\n"
+        ),
+        "tests/a/test_reader.py": (
+            "from tests.support.k8s_tree import deploy_stack_manifests, release_values\n"
+            "def _first(stack):\n"
+            "    return deploy_stack_manifests([stack])[0].read_text()\n"
+            "def test_pod():\n"
+            "    assert _first('devops')\n"
+            "def test_charts():\n"
+            "    assert release_values({'values': ['a.yaml']})\n"
+            "def test_shape():\n"
+            "    assert len({'kind': 'Pod'}) == 1\n"
         ),
         "tests/support/reader.py": (
             "from tests.support.paths import REPO_ROOT\n"
@@ -351,5 +389,7 @@ def check_a_test_that_reads_a_config_file_through_a_helper_is_found() -> None:
         "tests/a/test_helper.py::test_by_helper",
         "tests/a/test_literal.py::TestManifests::test_workflow",
         "tests/a/test_literal.py::test_template",
+        "tests/a/test_reader.py::test_charts",
+        "tests/a/test_reader.py::test_pod",
         "tests/a/test_tree.py::test_values",
     ]
