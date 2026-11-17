@@ -675,7 +675,7 @@ def shell_environment(home: Path) -> dict[str, str]:
     }
     env.update({name: os.environ[name] for name in _PASSED_VARIABLES if os.environ.get(name)})
     broker = live_broker()
-    if broker is not None:
+    if broker is not None and broker.token is not None:
         env["DEVOPS_CLI_BROKER_URL"] = broker.url
         env["DEVOPS_CLI_BROKER_TOKEN"] = broker.token
     return env

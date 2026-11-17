@@ -72,7 +72,7 @@ _NOT_STARTED = (
     "The step broker did not start within {seconds} s: uvicorn ended before it served the loopback "
     "port."
 )
-_REFUSED_TOKEN = "The step broker refuses this request: it holds no valid token of the step."
+_REFUSED_DETAIL = "The step broker refuses this request: it holds no valid token of the step."
 _REFUSED = 401
 
 _LIVE: StepBroker | None = None
@@ -122,10 +122,11 @@ class StepBroker:
     on, and the spend of each tier.
 
     `app` is the FastAPI app that the server runs, which a test also calls directly. `server` and
-    `thread` hold the uvicorn server and its thread until `stop_step_broker` ends them."""
+    `thread` hold the uvicorn server and its thread until `stop_step_broker` ends them, and `token`
+    is None once the step has ended, so no request that still holds it passes the check."""
 
     key: str = field(repr=False)
-    token: str = field(repr=False)
+    token: str | None = field(repr=False)
     url: str
     gateway_url: str
     client: httpx2.Client = field(repr=False)
@@ -211,7 +212,7 @@ def broker_app(broker: StepBroker) -> FastAPI:
         async def forward(request: Request) -> Any:
             authorization = request.headers.get("authorization")
             if not _carries_token(broker, authorization):
-                raise HTTPException(status_code=_REFUSED, detail=_REFUSED_TOKEN)
+                raise HTTPException(status_code=_REFUSED, detail=_REFUSED_DETAIL)
             body = await request.body()
             return await run_in_threadpool(_forward, broker, suffix, body)
 
@@ -381,11 +382,11 @@ def start_step_broker(
 
 
 def stop_step_broker(broker: StepBroker | None) -> None:
-    """End the broker of a step: refuse its token, stop its server, close its client and clear the
+    """End the broker of a step: drop its token, stop its server, close its client and clear the
     live broker, so a request with the token that the step held reaches no gateway."""
     if broker is None:
         return
-    broker.token = ""
+    broker.token = None
     if live_broker() is broker:
         _set_live(None)
     if broker.server is not None:
