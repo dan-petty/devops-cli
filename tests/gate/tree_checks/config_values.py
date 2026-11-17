@@ -6,9 +6,11 @@ by Renovate, then fails a test although no code changed. The schema and policy t
 the form of these files (docs/TESTING.md, "Which change gets a test").
 
 The check finds each test that reads such a file: a path built from `REPO_ROOT` (or the `K8S` and
-`TREE` of `tests.support.k8s_tree`) whose first part is a config location, a
-relative `Path` of a config location, a string of a config path in a module that reads the
-repository, or a call of a reader of `tests.support.k8s_tree`, such as `manifests`. A module-level name, helper or fixture that reads one taints each test that uses it.
+`TREE` of `tests.support.k8s_tree`) whose first part is a config location, a relative `Path` of a
+config location, a string of a config path in a module that reads the repository, or a call of a
+reader of `tests.support.k8s_tree`, such as `deploy_stack_manifests`. It judges a path whole, so
+a Markdown document under a config folder is no read. A module-level name, helper or fixture that
+reads one taints each test that uses it.
 `config_reads.toml` holds, for each module, the count of its tests that still read one: the cases
 the owner has to decide, and the tests of code that take a committed file as input and assert no
 value of it. The counts only fall: a module above or below its count fails the check.
