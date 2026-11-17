@@ -38,12 +38,13 @@ securityContext:
 # update. A changed checksum rolls the pods onto the new list (Helm's checksum/config pattern).
 # When the list changes, set the checksum to the SHA-256 of the text of customMetrics.
 podAnnotations:
-  checksum/counters: "f636a5dfff8c116f098785682de1789ee698a46ab69bbde4c79fed13963665a6"
+  checksum/counters: "6769c70ba2b30f57f47df1ff2ff93deff10a6e5aa3187d67ccf0647c679ee8a5"
 
 # The fields the exporter collects. The chart writes this list to its ConfigMap and mounts it at
 # /etc/dcgm-exporter/default-counters.csv, the file the exporter reads when no -f is given. It is
-# the image's dcp-metrics-included.csv (4.8.4) with two more fields: the enforced power limit and
-# the exporter's count of clock events by reason (#821).
+# the image's dcp-metrics-included.csv (4.8.4) with four more fields: the enforced power limit,
+# the exporter's count of clock events by reason (#821), and the SM activity and SM occupancy
+# ratios (#2407).
 #
 # The *_VIOLATION throttle-time counters stay out. A Tesla PG500-216 returns a negative value for
 # some of them, and the exporter then serves no metric at all for that node.
@@ -101,6 +102,8 @@ customMetrics: |
   # Profiling (DCP) fields
   DCGM_FI_PROF_GR_ENGINE_ACTIVE,   gauge, Ratio of time the graphics engine is active.
   DCGM_FI_PROF_PIPE_TENSOR_ACTIVE, gauge, Ratio of cycles the tensor (HMMA) pipe is active.
+  DCGM_FI_PROF_SM_ACTIVE,          gauge, Ratio of time at least one warp is resident on a streaming multiprocessor (from 0 to 1).
+  DCGM_FI_PROF_SM_OCCUPANCY,       gauge, Ratio of resident warps to the maximum warps of a streaming multiprocessor (from 0 to 1).
   DCGM_FI_PROF_DRAM_ACTIVE,        gauge, Ratio of cycles the device memory interface is active sending or receiving data.
   DCGM_FI_PROF_PCIE_TX_BYTES,      gauge, The rate of data transmitted over the PCIe bus - including both protocol headers and data payloads - in bytes per second.
   DCGM_FI_PROF_PCIE_RX_BYTES,      gauge, The rate of data received over the PCIe bus - including both protocol headers and data payloads - in bytes per second.
