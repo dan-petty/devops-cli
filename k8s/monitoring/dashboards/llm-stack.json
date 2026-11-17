@@ -1412,6 +1412,67 @@
       ]
     },
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "How busy the streaming multiprocessors of each GPU were, as a ratio from 0 to 1 that Grafana draws as a percentage. SM activity is the share of the cycles in which a warp ran (DCGM profiling field DCGM_FI_PROF_SM_ACTIVE); SM occupancy is the mean share of the resident warps of each streaming multiprocessor that were active (DCGM profiling field DCGM_FI_PROF_SM_OCCUPANCY). Only a card with DCGM profiling support reports the two fields: in the cluster, the Tesla PG500-216 and the GeForce RTX 5070 Ti. The Quadro P6000 and the GeForce RTX 3090 report no profiling field and have no line.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "smooth"
+          },
+          "max": 1,
+          "min": 0,
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 83
+      },
+      "id": 39,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "title": "GPU SM Activity and Occupancy",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "avg by (hostname, gpu, modelName) (DCGM_FI_PROF_SM_ACTIVE)",
+          "legendFormat": "{{hostname}} GPU {{gpu}} ({{modelName}})",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "avg by (hostname, gpu, modelName) (DCGM_FI_PROF_SM_OCCUPANCY)",
+          "legendFormat": "{{hostname}} GPU {{gpu}} ({{modelName}})",
+          "refId": "B"
+        }
+      ]
+    },
+    {
       "id": 26,
       "type": "row",
       "title": "Qdrant",
@@ -1420,7 +1481,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 83
+        "y": 91
       },
       "panels": []
     },
@@ -1446,7 +1507,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 84
+        "y": 92
       },
       "id": 27,
       "options": {
@@ -1495,7 +1556,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 84
+        "y": 92
       },
       "id": 28,
       "options": {
@@ -1538,7 +1599,7 @@
         "h": 3,
         "w": 8,
         "x": 16,
-        "y": 84
+        "y": 92
       },
       "id": 34,
       "options": {
@@ -1592,7 +1653,7 @@
         "h": 5,
         "w": 8,
         "x": 16,
-        "y": 87
+        "y": 95
       },
       "id": 29,
       "options": {
