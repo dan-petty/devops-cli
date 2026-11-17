@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-import tomllib
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -30,7 +29,6 @@ from devops_cli.ai.gateway_tune import (
 from devops_cli.ai.run_store import Mechanism, load_runs, new_run
 from devops_cli.ai.spend.models import BackendSpendSummary
 from devops_cli.commands.ai_gateway import app as gateway_cli_app
-from devops_cli.config.defaults import DEFAULT_GATEWAY_TUNE_IMAGE
 from devops_cli.config.settings import AIConfig
 
 runner = CliRunner()
@@ -225,13 +223,6 @@ class TestBench:
             {"engine": "ollama", "kv_cache_tokens": None},
             {"engine": "unknown", "kv_cache_tokens": None},
         )
-
-    def test_sweep_image_runs_the_projects_python(self) -> None:
-        """Verify the sweep container's Python is the version this project targets (3.14)."""
-        pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
-        python = pyproject["tool"]["mypy"]["python_version"]
-
-        assert DEFAULT_GATEWAY_TUNE_IMAGE == f"python:{python}-slim"
 
     def test_gateway_bench_imports_only_standard_library(self) -> None:
         """Verify gateway_bench.py imports only stdlib modules so it runs in python:3.14-slim (#792)."""

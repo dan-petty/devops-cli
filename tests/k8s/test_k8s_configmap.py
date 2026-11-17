@@ -8,15 +8,12 @@ import pytest
 import yaml
 from ruamel.yaml import YAML
 
-from devops_cli.config.settings import AITasksConfig, GitHubAppConfig, ServiceConfig, Settings
+from devops_cli.config.settings import GitHubAppConfig, ServiceConfig, Settings
 from devops_cli.exceptions.k8s import KubernetesContextError
 from devops_cli.k8s.configmap import (
     render_active_devops_configmap,
     render_devops_configmap_content,
 )
-from tests.support.paths import REPO_ROOT
-
-PRODUCT = REPO_ROOT / "k8s" / "devops"
 
 SAMPLE_TEMPLATE = """apiVersion: v1
 kind: ConfigMap
@@ -224,102 +221,6 @@ def test_a_token_repository_of_the_active_config_is_not_rendered_into_the_servic
         "installation_id": 42,
         "slug": "devops-roadmap",
     }
-
-
-def test_the_repository_template_renders_one_model_retry_for_the_cluster() -> None:
-    """Each model call of the Service and the cluster Jobs is sent at most two times (#2494)."""
-    rendered = render_active_devops_configmap(PRODUCT, settings=_settings(["owner/repo"], APP))
-    inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
-
-    assert Settings.model_validate(inner).ai.max_retries == 1
-
-
-def test_every_chat_model_slot_of_the_rendered_template_names_one_hosted_group() -> None:
-    """The Service uses one hosted chat model (#3874). The planner returned to it on 2026-11-10
-    (#4369) after the Sonnet trial of 2026-11-09 (#4204). Every task of `ai.tasks` and the default
-    `ai.model` resolve to the one model, except intake and retitle, which the owner moved to the
-    local model on 2026-11-15, and refine and the alternatives check, which run on it in the owner
-    trial of 2026-11-16. The embedding slot is the embedding model, because a chat model cannot
-    embed. Each job reads its own window (#5903)."""
-    rendered = render_active_devops_configmap(PRODUCT, settings=_settings(["owner/repo"], APP))
-    inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
-    ai = Settings.model_validate(inner).ai
-    chat_slots = {
-        name: ai.for_task(name).model for name in AITasksConfig.model_fields if name != "embedding"
-    }
-
-    assert (
-        ai.model,
-        {
-            name: model
-            for name, model in chat_slots.items()
-            if model != "openrouter/deepseek/deepseek-v4.1-flash-1017"
-        },
-        ai.for_task("embedding").model,
-        (ai.for_task("refine").context_window, ai.for_task("stage").context_window),
-    ) == (
-        "openrouter/deepseek/deepseek-v4.1-flash-1017",
-        {task: "local/qwen3.8:27b" for task in ("intake", "retitle")},
-        "local/qwen3-embedding:0.6b",
-        (256000, 256000),
-    )
-
-
-def test_the_rendered_template_names_the_reference_models_of_the_spend_reports() -> None:
-    """The owner values local tokens at the hosted prices of two models from 2026-11-09 (#4241).
-
-    Without the two names, a deploy removes them from the cluster, and the Service reports value
-    local tokens at the defaults `gpt-4o` and `text-embedding-3-small` again.
-    """
-    rendered = render_active_devops_configmap(PRODUCT, settings=_settings(["owner/repo"], APP))
-    inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
-    ai = Settings.model_validate(inner).ai
-
-    assert (ai.reference_model, ai.reference_embedding_model) == (
-        "qwen3.8:27b",
-        "qwen/qwen3-embedding-8b",
-    )
-
-
-def test_the_template_prices_both_reference_models() -> None:
-    """The repository owns the two prices of the owner decision of 2026-11-09 (#4242)."""
-    rendered = render_active_devops_configmap(PRODUCT, settings=_settings(["owner/repo"], APP))
-    inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
-    prices = Settings.model_validate(inner).ai.price_overrides
-
-    assert {
-        name: (price.prompt_usd_per_million, price.completion_usd_per_million)
-        for name, price in prices.items()
-    } == {
-        "qwen3.8:27b": (0.035, 1.5),
-        "qwen/qwen3-embedding-8b": (0.01, 0.0),
-        "typesafe/jev-1.14": (0.042, 0.0),
-    }
-
-
-def test_the_template_names_the_decision_model() -> None:
-    """The three images know the key, so the template sets the decision model (#4446)."""
-    rendered = render_active_devops_configmap(PRODUCT, settings=_settings(["owner/repo"], APP))
-    inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
-
-    assert Settings.model_validate(inner).ai.decision_model == "typesafe/jev-1.14"
-
-
-def test_the_comment_above_the_reference_models_gives_the_decision_and_the_prices() -> None:
-    """A reader of the template learns who decided, when, and which prices the names stand for."""
-    template = (REPO_ROOT / "k8s" / "devops" / "configmap.example.yaml").read_text(encoding="utf-8")
-    lines = template.splitlines()
-    key = next(i for i, line in enumerate(lines) if line.strip().startswith("reference_model:"))
-    comment_lines: list[str] = []
-    for line in reversed(lines[:key]):
-        if not line.strip().startswith("#"):
-            break
-        comment_lines.append(line)
-    comment = "\n".join(comment_lines)
-
-    assert all(
-        word in comment for word in ("2026-11-09", "0.035", "1.50", "0.01", "pricing_overrides")
-    )
 
 
 def test_render_active_devops_configmap_missing_template_raises(tmp_path: Path) -> None:

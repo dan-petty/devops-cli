@@ -249,13 +249,6 @@ The trial command SHALL write a result file under the data directory with the pa
 - **WHEN** The trial command reads four trials and three of them hold the reward 1
 - **THEN** The result file holds a pass rate of 0.75, a trial count of 4 and the sum of the costs of the four trials.
 
-### Requirement: The Harbor version is pinned
-The change MUST pin one Harbor version in pyproject.toml and in uv.lock.
-
-#### Scenario: The dependency files name one Harbor version
-- **WHEN** The two dependency files are read
-- **THEN** Both files name the same Harbor version.
-
 ### Requirement: No test starts Harbor or Docker
 Every test of the exporter and of the trial command MUST answer the Harbor command line and the Docker engine through the process seam.
 

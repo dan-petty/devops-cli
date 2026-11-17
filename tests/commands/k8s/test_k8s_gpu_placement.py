@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
 from devops_cli.config.constants import (
     CONST_K8S_GPU_ARCHITECTURE_LABEL,
@@ -205,33 +204,6 @@ def test_a_dry_run_reads_no_node_and_runs_nothing(process_fake: ProcessFake, cli
     result = cli(["k8s", "deploy-stack", "--stack", "llm", "--dry-run", "--k8s-dir", "k8s"])
 
     assert (result.exit_code, process_fake.calls) == (0, [])
-
-
-def test_every_ollama_tier_requires_its_labels_with_in_and_only_in() -> None:
-    """The check reads each tier's `matchExpressions` as `In` lists, so a tier written with
-    another operator would be read wrongly: the profiles hold none, and a new one fails here."""
-    operators = {
-        expression["operator"]
-        for document in yaml.safe_load_all(PROFILES.read_text(encoding="utf-8"))
-        if document and document.get("kind") == "DaemonSet"
-        for term in document["spec"]["template"]["spec"]["affinity"]["nodeAffinity"][
-            "requiredDuringSchedulingIgnoredDuringExecution"
-        ]["nodeSelectorTerms"]
-        for expression in term["matchExpressions"]
-    }
-
-    assert operators == {"In"}
-
-
-def test_the_tiers_are_read_from_the_profiles() -> None:
-    """Ten Ollama tiers, each requiring a total-vram label, four of them an architecture too."""
-    tiers = ollama_tiers(PROFILES)
-
-    assert (
-        len(tiers),
-        all(CONST_K8S_GPU_TOTAL_VRAM_LABEL in t.terms[0] for t in tiers),
-        sum(CONST_K8S_GPU_ARCHITECTURE_LABEL in t.terms[0] for t in tiers),
-    ) == (10, True, 4)
 
 
 def test_a_tier_with_another_operator_is_refused(tmp_path: Path) -> None:

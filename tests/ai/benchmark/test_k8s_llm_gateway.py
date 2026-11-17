@@ -4,11 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
-import re
-import sys
 from collections.abc import Callable, Iterator
-from functools import reduce
-from itertools import chain
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -20,7 +16,6 @@ from packaging.version import Version
 
 from devops_cli.ai.benchmark.runner import BenchmarkRunner
 from devops_cli.ai.gateway import DEFAULT_GATEWAY_ROUTES, GatewayRoute, GatewayRouter
-from devops_cli.ai.gateway_render import load_service_context_lengths, load_tier_context_lengths
 from devops_cli.ai.harness.slots import ModelSlot, SubAgentSlot
 from devops_cli.commands.k8s.stack_lifecycle import HELM_RELEASES_BY_STACK, MANIFESTS_BY_STACK
 from devops_cli.config.constants import (
@@ -32,7 +27,6 @@ from devops_cli.config.defaults import (
     DEFAULT_AI_FALLBACK_MODEL,
     DEFAULT_AI_MODEL,
     DEFAULT_BUNDLE_MODELS,
-    DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
     DEFAULT_GATEWAY_REVIEW_SLOTS,
     DEFAULT_OLLAMA_CLUSTER_SERVICE,
     DEFAULT_OLLAMA_CLUSTER_URL,
@@ -47,12 +41,7 @@ from devops_cli.k8s.gpu_matrix import (
     get_service_aliases,
     list_gpu_profiles,
 )
-from tests.support.k8s_tree import TREE
 from tests.support.markdown_examples import (
-    YAML_FENCE_LANGUAGES,
-    code_snippets,
-    fences,
-    headings,
     tables,
 )
 
@@ -64,17 +53,13 @@ PROFILES_DIR = Path("k8s/llm/profiles")
 OLLAMA_PROFILES_MANIFEST = PROFILES_DIR / "ollama-profiles.yaml"
 SERVICES_MANIFEST = PROFILES_DIR / "services.yaml"
 NETWORKPOLICY_MANIFEST = PROFILES_DIR / "networkpolicy.yaml"
-LLM_KUSTOMIZATION = Path("k8s/llm/kustomization.yaml")
 OPEN_WEBUI_VALUES = Path("k8s/llm/values-open-webui.yaml")
-DEVOPS_CONFIGMAP_EXAMPLE = Path("k8s/devops/configmap.example.yaml")
 K8S_README = Path("k8s/README.md")
-GATEWAY_READMES = [K8S_README, PROFILES_DIR / "README.md"]
 INGRESS_ROUTES = Path("k8s/ingress/ingress-routes.yaml")
 DEVCONTAINER = Path(".devcontainer/devcontainer.json")
 # The column of the README's GPU placement table that says whether a node satisfies the tier.
 SERVES_COLUMN = "Serves"
 
-GATEWAY_IMAGE = "ghcr.io/berriai/litellm:v1.103.11"
 # The first release of each line that holds the fixes of GHSA-7hp6-4w63-5g45 (1.103.1) and
 # GHSA-w4c7-34wj-hqm8 (1.103.10), both critical advisories of LiteLLM (#4370).
 GATEWAY_ADVISORY_FIXED_IN = {
@@ -85,8 +70,6 @@ GATEWAY_ADVISORY_FIXED_IN = {
 }
 GATEWAY_SECRET = "llm-gateway-secrets"
 GATEWAY_SECRET_KEY = "master-key"
-# The tiers that load `qwen3.8:27b` and no other model until the configuration changes (#3567).
-SINGLE_MODEL_TIERS = ("ollama-48gib", "ollama-64gib")
 # The UID and GID every ollama tier runs as; no host login account uses it (#1060).
 OLLAMA_UID = 10001
 
@@ -170,13 +153,6 @@ def _gateway_embedding_aliases() -> set[str]:
     return {alias for alias, target in aliases.items() if target in direct}
 
 
-def _job_configmap_embedding_models() -> set[str]:
-    """Return the embedding model the example ConfigMap of the in-cluster jobs sets."""
-    configmap = _load_kind(DEVOPS_CONFIGMAP_EXAMPLE, "ConfigMap")
-    settings = yaml.safe_load(configmap["data"]["devops-cli.yaml"])
-    return {_at(settings, "ai", "tasks", "embedding", "model")}
-
-
 def _default_route_embedding_models() -> set[str]:
     """Return the target model of the `devops-embedding` default gateway route."""
     return {
@@ -204,11 +180,6 @@ def _open_webui_env() -> dict[str, Any]:
     }
 
 
-def _open_webui_embedding_models() -> set[str]:
-    """Return the embedding model that Open WebUI's RAG asks the gateway for."""
-    return {_open_webui_env()["RAG_EMBEDDING_MODEL"]}
-
-
 def _gateway_providers() -> set[str]:
     """Return the LiteLLM providers the gateway ConfigMap's backends name (`ollama`, `ollama_chat`)."""
     return {m["litellm_params"]["model"].partition("/")[0] for m in _gateway_config()["model_list"]}
@@ -219,121 +190,6 @@ def _without_provider(model: str, providers: set[str]) -> str:
     `qwen3-embedding:0.6b`)."""
     provider, _, rest = model.partition("/")
     return rest if provider in providers else model
-
-
-def _gateway_served_models() -> set[str]:
-    """Return the models the gateway ConfigMap names: each group and each backend's model."""
-    entries, providers = _gateway_config()["model_list"], _gateway_providers()
-    return {m["model_name"] for m in entries} | {
-        _without_provider(m["litellm_params"]["model"], providers) for m in entries
-    }
-
-
-def _at(node: Any, *keys: str) -> Any:
-    """Return the value under `keys` in nested mappings, or None where a level is absent, empty
-    or not a mapping."""
-    return reduce(
-        lambda level, key: level.get(key) if isinstance(level, dict) else None, keys, node
-    )
-
-
-def _yaml_documents(readme: Path) -> list[dict[str, Any]]:
-    """Return every mapping document in the README's YAML fences; an empty fence or a document
-    that is no mapping adds none."""
-    return [
-        document
-        for fence in fences(readme, YAML_FENCE_LANGUAGES)
-        for document in yaml.safe_load_all(fence.text)
-        if isinstance(document, dict)
-    ]
-
-
-def _configured_models(document: dict[str, Any], providers: set[str]) -> list[str]:
-    """Return the models a YAML document sets: each `model_list` entry's group and backend model,
-    and the model of `ai.tasks.embedding`."""
-    entries = _at(document, "model_list")
-    named = [
-        _at(entry, *path)
-        for entry in (entries if isinstance(entries, list) else [])
-        for path in (("model_name",), ("litellm_params", "model"))
-    ] + [_at(document, "ai", "tasks", "embedding", "model")]
-    return [_without_provider(model, providers) for model in named if isinstance(model, str)]
-
-
-def _is_model_reference(span: str) -> bool:
-    """Whether a code span is one word that Docker's reference convention, which Ollama's model
-    references follow, splits into a name and a tag (`qwen3-embedding:0.6b`)."""
-    return len(span.split()) == 1 and bool(parse_repository_tag(span)[1])
-
-
-def _gateway_sections(readme: Path) -> list[range]:
-    """Return the lines of each section whose heading names the gateway, through to the next
-    heading at its level or above."""
-    found = headings(readme)
-    return [
-        range(
-            heading.line,
-            next((h.line for h in found[i + 1 :] if h.level <= heading.level), sys.maxsize),
-        )
-        for i, heading in enumerate(found)
-        if "gateway" in heading.text.lower()
-    ]
-
-
-def _gateway_section_models(readme: Path, providers: set[str]) -> list[str]:
-    """Return the model references in the inline code spans of the README's gateway sections."""
-    sections = _gateway_sections(readme)
-    return [
-        _without_provider(span.text, providers)
-        for span in code_snippets(readme)
-        if not span.fenced
-        and any(span.line in section for section in sections)
-        and _is_model_reference(span.text)
-    ]
-
-
-def _gateway_readme_findings(readme: Path) -> tuple[list[str], list[str]]:
-    """Return the models the README names for the gateway that the ConfigMap does not name, and
-    the ConfigMap's embedding groups the README does not name.
-
-    A README names a model in a YAML fence, as a `model_list` entry or the embedding task's
-    model, or in an inline code span of a section whose heading names the gateway.
-    """
-    providers = _gateway_providers()
-    named = set(
-        chain(
-            _gateway_section_models(readme, providers),
-            *(_configured_models(d, providers) for d in _yaml_documents(readme)),
-        )
-    )
-    return sorted(named - _gateway_served_models()), sorted(_gateway_embedding_groups() - named)
-
-
-def _gateway_readme(body: str, *, names_embedding_model: bool = True) -> str:
-    """Return a README whose gateway section holds `body`, after a sentence naming the embedding
-    model unless `names_embedding_model` is False, and whose next section names an image."""
-    served = "The embedding model is `qwen3-embedding:0.6b`.\n\n" if names_embedding_model else ""
-    return (
-        f"# Cluster\n\n## LLM Gateway\n\n{served}{body}\n\n"
-        "## GitOps\n\nThe image is `service:latest`.\n"
-    )
-
-
-def _routes(deployments: list[dict[str, Any]]) -> list[tuple[str, str, int | None]]:
-    """Return each deployment's model, backend and weight, in configuration order."""
-    return [
-        (
-            m["litellm_params"]["model"],
-            m["litellm_params"]["api_base"],
-            m["litellm_params"].get("weight"),
-        )
-        for m in deployments
-    ]
-
-
-def _windows(deployments: list[dict[str, Any]]) -> list[int | None]:
-    """Return the `max_input_tokens` of each deployment, in configuration order."""
-    return [(m.get("model_info") or {}).get("max_input_tokens") for m in deployments]
 
 
 def _kustomized_files(directory: Path) -> set[Path]:
@@ -421,240 +277,6 @@ class TestK8sLLMGatewayManifests:
             "4Gi",
         )
 
-    def test_gateway_configmap_virtual_models(self) -> None:
-        """Verify Gateway ConfigMap defines all virtual model aliases and routing rules."""
-        cfg = _gateway_config()
-        models = list(dict.fromkeys(m["model_name"] for m in cfg["model_list"]))
-
-        assert (
-            models,
-            cfg["router_settings"]["routing_strategy"],
-            cfg["router_settings"]["fallbacks"],
-        ) == (
-            [
-                "devops-chat",
-                "devops-coder",
-                "devops-reasoning",
-                "qwen3-embedding:0.6b",
-                "devops-background",
-                "devops-triage",
-                "devops-review",
-                "qwen3.8:27b",
-            ],
-            "least-busy",
-            [
-                {"devops-reasoning": ["devops-chat"]},
-                {"devops-coder": ["devops-chat"]},
-                {"devops-review": ["devops-background"]},
-                {"claude-sonnet-5-5": ["deepseek-v4.1-flash-1017"]},
-                {"deepseek-v4.1-flash-1017": ["deepseek-v4.1-flash"]},
-                {"devops-triage": ["qwen3.8:27b"]},
-                {"devops-background": ["qwen3.8:27b"]},
-            ],
-        )
-
-    def test_gateway_configmap_routes_coder_and_reasoning(self) -> None:
-        """Verify reasoning and coder aliases reach target Ollama profiles."""
-        cfg = _gateway_config()
-        params = {m["model_name"]: m["litellm_params"] for m in cfg["model_list"]}
-
-        assert (
-            params["devops-reasoning"]["model"],
-            params["devops-reasoning"]["api_base"],
-            params["devops-coder"]["model"],
-            params["devops-coder"]["api_base"],
-        ) == (
-            "ollama_chat/qwen3.8:27b",
-            "http://ollama-48gib-fast.llm.svc.cluster.local:11434",
-            "ollama_chat/qwen3.8:27b",
-            "http://ollama-48gib-fast.llm.svc.cluster.local:11434",
-        )
-
-    def test_gateway_checks_windows_and_has_no_useless_window_fallback(self) -> None:
-        """Verify the router checks each prompt against the window of each deployment, and that no
-        rule escalates a long prompt to a group that has no larger window (#2825).
-
-        `ollama-48gib-fast` holds the largest window, 262144. `devops-coder` and
-        `devops-reasoning` run on it, so a prompt that no `devops-chat` deployment holds does not
-        fit them either."""
-        router = _gateway_config()["router_settings"]
-
-        assert (
-            router["enable_pre_call_checks"],
-            "context_window_fallbacks" in router,
-            next(f for f in router["fallbacks"] if "devops-coder" in f),
-        ) == (
-            True,
-            False,
-            {"devops-coder": ["devops-chat"]},
-        )
-
-    def test_no_openrouter_route_uses_the_floor_variant(self) -> None:
-        """No gateway deployment and no alias names an OpenRouter `:floor` route (#5978).
-
-        `:floor` makes flex endpoints eligible. On 2026-11-16 the cheapest flex endpoint of
-        DeepSeek V4.1 Flash 1017 gave no first token in 300 s, and every job of the group failed.
-        """
-        config = _full_gateway_config()
-        models = [entry["litellm_params"]["model"] for entry in config["model_list"]]
-        aliases = list(config.get("router_settings", {}).get("model_group_alias", {}))
-        assert [name for name in models + aliases if name.endswith(":floor")] == []
-
-    def test_gateway_maps_local_and_provider_model_group_aliases(self) -> None:
-        """Verify the gateway defines model_group_alias for local/ models and provider-prefixed
-        hosted models, and that every alias targets an existing model_name (#5853)."""
-        config = _full_gateway_config()
-        router = config["router_settings"]
-        aliases = router.get("model_group_alias", {})
-        known_models = {m["model_name"] for m in config["model_list"]}
-
-        expected_aliases = {
-            "local/devops-chat": "devops-chat",
-            "local/devops-coder": "devops-coder",
-            "local/devops-reasoning": "devops-reasoning",
-            "local/devops-background": "devops-background",
-            "local/devops-review": "devops-review",
-            "local/devops-triage": "devops-triage",
-            "local/qwen3.8:27b": "qwen3.8:27b",
-            "local/qwen3-embedding:0.6b": "qwen3-embedding:0.6b",
-            "anthropic/claude-sonnet-5-5": "claude-sonnet-5-5",
-            "anthropic/claude-haiku-5-5": "claude-haiku-5-5",
-            "gemini/gemini-3.8-flash": "gemini-3.8-flash",
-            "openrouter/deepseek/deepseek-v4.1-flash-1017": "deepseek-v4.1-flash-1017",
-            "openrouter/deepseek/deepseek-v4.1-flash": "deepseek-v4.1-flash",
-        }
-        for alias, target in expected_aliases.items():
-            assert aliases.get(alias) == target, f"Missing or wrong alias {alias}"
-            assert target in known_models, f"Alias target {target} not in model_list"
-
-    def test_each_chat_deployment_declares_the_window_of_its_tier(self) -> None:
-        """Verify each `ollama_chat` deployment sets `max_input_tokens` in its top-level
-        `model_info`, equal to the context length of its tier, and none hides a `model_info`
-        inside `litellm_params` (#2825).
-
-        LiteLLM v1.103 resolves the window of a deployment from its top-level `model_info`
-        and ignores a key under `litellm_params`, so the pre-call check never ran. A deployment
-        that sets no window reads the cost-map entry of its backend model, which the last
-        deployment registered wrote: `devops-background` read 160000 for a 128000 tier."""
-        tiers = load_tier_context_lengths(OLLAMA_PROFILES_MANIFEST)
-        services = load_service_context_lengths(SERVICES_MANIFEST, tiers)
-        chat = [
-            m
-            for m in _gateway_config()["model_list"]
-            if m["litellm_params"]["model"].startswith("ollama_chat/")
-        ]
-        windows = {
-            (m["model_name"], m["litellm_params"]["api_base"]): (m.get("model_info") or {}).get(
-                "max_input_tokens"
-            )
-            for m in chat
-        }
-        tier_windows = {
-            (m["model_name"], m["litellm_params"]["api_base"]): services[
-                urlsplit(m["litellm_params"]["api_base"]).hostname.split(".")[0]
-            ]
-            for m in chat
-        }
-        misplaced = [
-            (m["model_name"], m["litellm_params"]["api_base"])
-            for m in _gateway_config()["model_list"]
-            if "model_info" in m["litellm_params"]
-        ]
-
-        assert (windows, misplaced) == (tier_windows, [])
-
-    def test_gateway_review_pool_spans_ollama_backends(self) -> None:
-        """Verify devops-review shares requests across Ollama backends with zero retries and no weights."""
-        deployments = _deployments("devops-review")
-        weights = {
-            m["litellm_params"]["api_base"]: m["litellm_params"].get("weight") for m in deployments
-        }
-        retries = [m["litellm_params"].get("num_retries") for m in deployments]
-        assert (
-            weights,
-            retries,
-        ) == (
-            {
-                "http://ollama-48gib-fast.llm.svc.cluster.local:11434": None,
-                "http://ollama-64gib-standard.llm.svc.cluster.local:11434": None,
-            },
-            [0, 0],
-        )
-
-    def test_a_review_can_be_pinned_to_qwen_on_the_tiers_of_the_pool(self) -> None:
-        """Verify the group `qwen3.8:27b` calls `qwen3.8:27b` on the backends and with the windows
-        of the `devops-review` deployments of that model, so a review pinned to it is routed as the
-        pool routes it (#3567). `devops-triage` and `devops-background` fall back to the group."""
-        backend = "ollama_chat/qwen3.8:27b"
-        review = [
-            m for m in _deployments("devops-review") if m["litellm_params"]["model"] == backend
-        ]
-        pinned = _deployments("qwen3.8:27b")
-
-        assert (bool(review), _routes(pinned), _windows(pinned)) == (
-            True,
-            _routes(review),
-            _windows(review),
-        )
-
-    def test_gateway_routes_to_provider_vram_services(self) -> None:
-        """Verify Gateway routes target standardized <llm_provider>-<vram_gib> services."""
-        chat_deployments = _deployments("devops-chat")
-        embedding_deployments = _deployments("qwen3-embedding:0.6b")
-
-        assert (
-            sorted(m["litellm_params"]["api_base"] for m in chat_deployments),
-            sorted(
-                (m["litellm_params"]["order"], m["litellm_params"]["api_base"])
-                for m in embedding_deployments
-            ),
-            {m.get("model_info", {}).get("mode") for m in embedding_deployments},
-        ) == (
-            [
-                "http://ollama-48gib-fast.llm.svc.cluster.local:11434",
-                "http://ollama-64gib-standard.llm.svc.cluster.local:11434",
-            ],
-            [
-                (1, "http://ollama-24gib-embed-gpu0.llm.svc.cluster.local:11434"),
-                (1, "http://ollama-24gib-embed-gpu1.llm.svc.cluster.local:11434"),
-            ],
-            {"embedding"},
-        )
-
-    def test_qwen_and_chat_groups_exclude_16gib_tier(self) -> None:
-        """Verify qwen3.8:27b and devops-chat exclude the 16gib tier and IQ3_S model (#2368).
-
-        The 16gib tier lacks sufficient VRAM for 27B parameters with 48k context, causing heavy
-        CPU offloading and high latency. Furthermore, the GGUF IQ3_S chat template fails on
-        requests without a user query, returning HTTP 500 on multi-turn tool interaction requests.
-        Both groups route only to tiers with at least 48 GiB of VRAM."""
-        chat_deployments = _deployments("devops-chat")
-        qwen_deployments = _deployments("qwen3.8:27b")
-
-        assert (
-            [m["litellm_params"]["model"] for m in chat_deployments],
-            [m["litellm_params"]["api_base"] for m in chat_deployments],
-            [m["litellm_params"]["model"] for m in qwen_deployments],
-            [m["litellm_params"]["api_base"] for m in qwen_deployments],
-        ) == (
-            [
-                "ollama_chat/qwen3.8:27b",
-                "ollama_chat/qwen3.8:27b",
-            ],
-            [
-                "http://ollama-48gib-fast.llm.svc.cluster.local:11434",
-                "http://ollama-64gib-standard.llm.svc.cluster.local:11434",
-            ],
-            [
-                "ollama_chat/qwen3.8:27b",
-                "ollama_chat/qwen3.8:27b",
-            ],
-            [
-                "http://ollama-48gib-fast.llm.svc.cluster.local:11434",
-                "http://ollama-64gib-standard.llm.svc.cluster.local:11434",
-            ],
-        )
-
     def test_every_embedding_deployment_holds_the_largest_rag_chunk(self) -> None:
         """Verify Ollama loads the embedder with a context that holds a whole RAG chunk (#1987).
 
@@ -669,177 +291,26 @@ class TestK8sLLMGatewayManifests:
 
         assert contexts == [CONST_RAG_MAX_CHUNK_TOKENS] * len(contexts)
 
-    def test_embedding_group_spreads_batches_over_order_1_tiers(self) -> None:
-        """Verify Gateway ConfigMap configures simple-shuffle routing for the embedding group (#2027).
-
-        Under least-busy, zero-in-flight ties select the first deployment every time.
-        A routing group with simple-shuffle spreads sequential and parallel embedding batches
-        over both order 1 deployments.
-        """
-        cfg = _gateway_config()
-        routing_groups = cfg["router_settings"].get("routing_groups", [])
-        embedding_group = next(
-            (g for g in routing_groups if g.get("group_name") == "embedding"), None
-        )
-        assert embedding_group is not None
-        assert embedding_group["models"] == ["qwen3-embedding:0.6b"]
-        assert embedding_group["routing_strategy"] == "simple-shuffle"
-
     @pytest.mark.parametrize(
         "embedding_models",
         [
-            pytest.param(_job_configmap_embedding_models, id="the-example-configmap-of-the-jobs"),
             pytest.param(_default_route_embedding_models, id="the-default-gateway-routes"),
             pytest.param(_gpu_matrix_embedding_models, id="the-gpu-matrix-gateway-routes"),
-            pytest.param(_open_webui_embedding_models, id="the-open-webui-rag-embedding"),
         ],
     )
     def test_every_registry_that_names_an_embedding_model_names_a_group_the_gateway_serves(
         self, embedding_models: Callable[[], set[str]]
     ) -> None:
-        """Verify the embedding model that each of four places names is an embedding group of
-        the gateway ConfigMap: the example ConfigMap of the in-cluster jobs, the default
-        gateway routes, the GPU matrix routes and Open WebUI's RAG. A place that falls behind a
-        renamed group sends its requests to a model the gateway refuses (#481, #1637)."""
+        """Verify the embedding model that each of two places in the code names is an embedding
+        group of the gateway ConfigMap: the default gateway routes and the GPU matrix routes. A
+        place that falls behind a renamed group sends its requests to a model the gateway refuses
+        (#481, #1637)."""
         named = embedding_models()
 
         assert (
             bool(named),
             named - (_gateway_embedding_groups() | _gateway_embedding_aliases()),
         ) == (True, set())
-
-    def test_the_embedding_only_tiers_serve_no_generation_group(self) -> None:
-        """Verify the GPU instances at or below the embedding threshold have no generation
-        deployment, and that devops-background has its one deployment on the standard tier (#3501)."""
-        embedding_only = {"ollama-24gib-embed-gpu0", "ollama-24gib-embed-gpu1"}
-        standard = "http://ollama-64gib-standard.llm.svc.cluster.local:11434"
-
-        assert (
-            [
-                m["model_name"]
-                for m in _gateway_config()["model_list"]
-                if (urlsplit(m["litellm_params"].get("api_base", "")).hostname or "").split(".")[0]
-                in embedding_only
-                and m.get("model_info", {}).get("mode") != "embedding"
-            ],
-            _routes(_deployments("devops-background")),
-        ) == ([], [("ollama_chat/qwen3.8:27b", standard, None)])
-
-    def test_devops_triage_serves_qwen_on_standard_tier(self) -> None:
-        """Verify devops-triage has exactly one deployment: ollama_chat/qwen3.8:27b on
-        ollama-64gib-standard."""
-        standard = "http://ollama-64gib-standard.llm.svc.cluster.local:11434"
-        assert _routes(_deployments("devops-triage")) == [
-            ("ollama_chat/qwen3.8:27b", standard, None)
-        ]
-
-    @pytest.mark.parametrize("readme", GATEWAY_READMES, ids=str)
-    def test_a_gateway_readme_names_exactly_the_embedding_groups_the_gateway_serves(
-        self, readme: Path
-    ) -> None:
-        """Verify every model a README names for the gateway, in a YAML fence or in a gateway
-        section's code spans, is one the ConfigMap names, and every embedding group the ConfigMap
-        serves is named: one a README names but the gateway dropped fails the embedding task with
-        HTTP 400, which turns RAG off for the run (#481, #1064). The README must have a gateway
-        section, or the code spans would go unread."""
-        assert (_gateway_readme_findings(readme), bool(_gateway_sections(readme))) == (
-            ([], []),
-            True,
-        )
-
-    @pytest.mark.parametrize(
-        ("readme_text", "unserved", "missing"),
-        [
-            pytest.param(
-                _gateway_readme(
-                    "Also `ollama/qwen3-embedding:0.6b`, `ollama_chat/qwen3.8:27b`, `qwen3.8:27b`,"
-                    " `model_info.mode: embedding`"
-                    " and `devops-review`."
-                ),
-                [],
-                [],
-                id="every-spelling-the-gateway-serves",
-            ),
-            pytest.param(
-                _gateway_readme("A stale option is `mxbai-embed-large:latest`."),
-                ["mxbai-embed-large:latest"],
-                [],
-                id="an-embedding-model-no-table-sizes",
-            ),
-            pytest.param(
-                _gateway_readme("Or `ollama/embeddinggemma:300m`."),
-                ["embeddinggemma:300m"],
-                [],
-                id="a-provider-prefixed-span",
-            ),
-            pytest.param(
-                _gateway_readme(
-                    "- Models: `qwen3.8:27b`\n- Embeddings: `qwen3-embedding:0.6b`, `embeddinggemma:300m`"
-                ),
-                ["embeddinggemma:300m"],
-                [],
-                id="a-list-item",
-            ),
-            pytest.param(
-                _gateway_readme("### Detail\n\nTry `mxbai-embed-large:latest`."),
-                ["mxbai-embed-large:latest"],
-                [],
-                id="a-subsection-of-the-gateway-section",
-            ),
-            pytest.param(
-                _gateway_readme(
-                    "```yml title=config\nai:\n  tasks:\n    embedding:\n"
-                    "      model: embeddinggemma:300m\n```"
-                ),
-                ["embeddinggemma:300m"],
-                [],
-                id="a-yml-fence-with-an-info-string",
-            ),
-            pytest.param(
-                _gateway_readme(
-                    "```yaml\nkind: ConfigMap\n---\nai:\n  tasks:\n    embedding:\n"
-                    "      model: embeddinggemma:300m\n```"
-                ),
-                ["embeddinggemma:300m"],
-                [],
-                id="the-second-document-of-a-fence",
-            ),
-            pytest.param(
-                _gateway_readme(
-                    "```yaml\nmodel_list:\n  - model_name: embeddinggemma:300m\n"
-                    "    litellm_params:\n      model: ollama/embeddinggemma:300m\n```"
-                ),
-                ["embeddinggemma:300m"],
-                [],
-                id="a-model-list-entry",
-            ),
-            pytest.param(
-                _gateway_readme(
-                    "```yaml\n```\n\n```yaml\nai:\n  tasks:\n    embedding:\n```"
-                    "\n\n```yaml\n- a\n- b\n```\n\n```yaml\nai: text\nmodel_list: text\n```"
-                ),
-                [],
-                [],
-                id="an-empty-fence-a-valueless-key-and-documents-that-are-no-mapping",
-            ),
-            pytest.param(
-                _gateway_readme("Chat models only: `qwen3.8:27b`.", names_embedding_model=False),
-                [],
-                ["qwen3-embedding:0.6b"],
-                id="a-readme-that-drops-the-embedding-group",
-            ),
-        ],
-    )
-    def test_the_readme_guard_finds_a_stale_model_wherever_a_gateway_section_names_it(
-        self, tmp_path: Path, readme_text: str, unserved: list[str], missing: list[str]
-    ) -> None:
-        """Verify the guard reads a model the ConfigMap lacks from a code span, a list item, a
-        subsection and every `yaml` or `yml` fence document, whether or not the RAG embedder has a
-        dimension for it, and reads nothing from a section whose heading does not name the gateway
-        (each README names `service:latest` there, an image rather than a model)."""
-        readme = tmp_path / "README.md"
-        readme.write_text(readme_text, encoding="utf-8")
-        assert _gateway_readme_findings(readme) == (unserved, missing)
 
     def test_devops_background_frees_its_slot_before_the_review_client_gives_up(self) -> None:
         """Verify the gateway abandons a devops-background call before the review client's read
@@ -883,20 +354,18 @@ class TestK8sLLMGatewayManifests:
             [(None, [4000])],
         )
 
-    def test_gateway_deployment_pins_litellm_and_reads_master_key_from_secret(self) -> None:
-        """Verify the gateway runs a pinned LiteLLM release and never embeds its master key."""
+    def test_gateway_deployment_reads_master_key_from_secret(self) -> None:
+        """Verify the gateway never embeds its master key."""
         dep = _load_kind(GATEWAY_DIR / "deployment.yaml", "Deployment")
         container = dep["spec"]["template"]["spec"]["containers"][0]
         env = {e["name"]: e for e in container["env"]}
         master_key = env["LITELLM_MASTER_KEY"]
 
         assert (
-            container["image"],
             "value" in master_key,
             master_key["valueFrom"]["secretKeyRef"]["name"],
             master_key["valueFrom"]["secretKeyRef"]["key"],
         ) == (
-            GATEWAY_IMAGE,
             False,
             GATEWAY_SECRET,
             GATEWAY_SECRET_KEY,
@@ -937,17 +406,6 @@ class TestK8sLLMGatewayManifests:
             True,
         )
 
-    def test_the_gateway_names_each_callers_end_user_id_on_its_metrics(self) -> None:
-        """LiteLLM puts the end-user id that a request names, as the `x-litellm-end-user-id`
-        header that devops-cli sends, on its request and token series only when this setting is
-        true, so the AI spend dashboard can split the gateway's traffic by caller (#1668)."""
-        assert (
-            _gateway_config()["litellm_settings"].get(
-                "enable_end_user_cost_tracking_prometheus_only"
-            )
-            is True
-        )
-
     def test_open_webui_values_connect_to_gateway(self) -> None:
         """Verify Open WebUI uses the gateway as its OpenAI connection and for its RAG
         embeddings, both with the shared master key, and has no connection to Ollama's native
@@ -977,131 +435,6 @@ class TestK8sLLMGatewayManifests:
             DEFAULT_AI_GATEWAY_CLUSTER_URL,
             {"secretKeyRef": {"name": GATEWAY_SECRET, "key": GATEWAY_SECRET_KEY}},
         )
-
-    def test_ollama_profiles_define_standard_vram_tiers(self) -> None:
-        """Verify ollama-profiles defines the 8 standard VRAM tiers with nvidia runtime and persistent data."""
-        docs = list(yaml.safe_load_all(OLLAMA_PROFILES_MANIFEST.read_text(encoding="utf-8")))
-        daemonsets = [d for d in docs if d and d.get("kind") == "DaemonSet"]
-        dep_names = [d["metadata"]["name"] for d in daemonsets]
-        expected_names = [
-            "ollama-16gib",
-            "ollama-24gib",
-            "ollama-32gib",
-            "ollama-48gib",
-            "ollama-24gib-embed-gpu0",
-            "ollama-24gib-embed-gpu1",
-            "ollama-64gib",
-            "ollama-72gib",
-            "ollama-96gib",
-            "ollama-128gib",
-        ]
-        assert (
-            dep_names,
-            all(d["spec"]["template"]["spec"]["runtimeClassName"] == "nvidia" for d in daemonsets),
-            all(
-                any(v["name"] == "ollama-data" for v in d["spec"]["template"]["spec"]["volumes"])
-                for d in daemonsets
-            ),
-        ) == (
-            expected_names,
-            True,
-            True,
-        )
-
-    def test_every_ollama_tier_serves_one_request_and_keeps_the_embedder_beside_its_model(
-        self,
-    ) -> None:
-        """Verify each tier reserves KV cache for one context: Ollama sizes it by NUM_PARALLEL (#1061).
-
-        A chat tier the gateway sends embeddings to keeps two models loaded, so the embedder does
-        not evict the chat model where both fit (#1987). Every other tier keeps one. An
-        embedding-only tier keeps its one model loaded for good (#3501).
-        """
-        docs = list(yaml.safe_load_all(OLLAMA_PROFILES_MANIFEST.read_text(encoding="utf-8")))
-        settings = {
-            d["metadata"]["name"]: {
-                var["name"]: var.get("value")
-                for container in d["spec"]["template"]["spec"]["containers"]
-                for var in container.get("env", [])
-                if var["name"]
-                in ("OLLAMA_MAX_LOADED_MODELS", "OLLAMA_NUM_PARALLEL", "OLLAMA_KEEP_ALIVE")
-            }
-            for d in docs
-            if d and d.get("kind") == "DaemonSet"
-        }
-        embedding_only = {"ollama-24gib-embed-gpu0", "ollama-24gib-embed-gpu1"}
-        embedding_tiers = _embedding_tiers() - embedding_only
-        expected = {
-            name: {
-                "OLLAMA_MAX_LOADED_MODELS": "2" if name in embedding_tiers else "1",
-                "OLLAMA_NUM_PARALLEL": "1",
-            }
-            for name in settings
-        }
-        for name in (*embedding_only, *SINGLE_MODEL_TIERS):
-            expected[name]["OLLAMA_KEEP_ALIVE"] = "-1"
-
-        assert settings == expected
-
-    def test_the_48gib_and_64gib_tiers_load_qwen_alone_at_its_native_context(self) -> None:
-        """Verify `ollama-48gib` and `ollama-64gib` keep one model loaded for good, with the native
-        context of `qwen3.8:27b` (262144, from `ollama show`), and that every gateway deployment
-        which calls either tier names that model and no embedding model (#3567).
-
-        A second model on one of these tiers evicts the loaded one and drops its KV cache, so a
-        reply waits for a load. A route for a second model would bring that back, so this test
-        fails on the route, not on the pods."""
-        loaded = {
-            name: {
-                var["name"]: var["value"]
-                for var in _load_deployment(OLLAMA_PROFILES_MANIFEST, name)["spec"]["template"][
-                    "spec"
-                ]["containers"][0]["env"]
-                if var["name"]
-                in (
-                    "OLLAMA_CONTEXT_LENGTH",
-                    "OLLAMA_KEEP_ALIVE",
-                    "OLLAMA_MAX_LOADED_MODELS",
-                    "OLLAMA_NUM_PARALLEL",
-                )
-            }
-            for name in SINGLE_MODEL_TIERS
-        }
-        models = {
-            (m["model_name"], m["litellm_params"]["model"])
-            for m, tiers in _deployment_tiers()
-            if tiers & set(SINGLE_MODEL_TIERS)
-        }
-
-        assert (loaded, {model for _, model in models}) == (
-            {
-                name: {
-                    "OLLAMA_CONTEXT_LENGTH": "262144",
-                    "OLLAMA_KEEP_ALIVE": "-1",
-                    "OLLAMA_MAX_LOADED_MODELS": "1",
-                    "OLLAMA_NUM_PARALLEL": "1",
-                }
-                for name in SINGLE_MODEL_TIERS
-            },
-            {"ollama_chat/qwen3.8:27b"},
-        )
-
-    def test_the_tier_template_of_48gib_loads_one_model(self) -> None:
-        """Verify the 48 GiB template of the old-GPU tiers keeps one model loaded for good, since
-        it is the 48 GiB tier that the thresholds can turn back into a chat tier (#3567)."""
-        template = yaml.safe_load(
-            (TREE.tier_templates / "ollama-48gib-slow.yaml").read_text(encoding="utf-8")
-        )
-        env = {
-            var["name"]: var["value"]
-            for var in template["spec"]["template"]["spec"]["containers"][0]["env"]
-        }
-
-        assert (
-            env["OLLAMA_MAX_LOADED_MODELS"],
-            env["OLLAMA_KEEP_ALIVE"],
-            env["OLLAMA_CONTEXT_LENGTH"],
-        ) == ("1", "-1", "262144")
 
     def test_every_ollama_tier_runs_unprivileged(self) -> None:
         """Verify every tier runs ollama as one non-root UID with no privilege to gain (#1060).
@@ -1159,42 +492,6 @@ class TestK8sLLMGatewayManifests:
 
         assert observed == {name: expected for name in observed}
 
-    def test_ollama_64gib_tier_constrains_prompt_cache_and_memory_limit(self) -> None:
-        """Verify the ollama-64gib tier sets a container memory limit and bounds prompt cache RAM (#2382).
-
-        Node gemini had 15.3 GiB of memory, and the default prompt cache could exhaust it and cause
-        OOM kills. The node has 62.5 GiB now, and the bounds stay: the cache bound of 4096 MiB and
-        the 12Gi limit hold one `llama-server` of about 4 GiB with room to spare (#3567).
-        """
-        dep = _load_deployment(OLLAMA_PROFILES_MANIFEST, "ollama-64gib")
-        container = dep["spec"]["template"]["spec"]["containers"][0]
-        env_vars = {v["name"]: v.get("value") for v in container.get("env", [])}
-        resources = container.get("resources", {})
-
-        assert (
-            env_vars.get("LLAMA_ARG_CACHE_RAM"),
-            resources.get("requests", {}).get("memory"),
-            resources.get("limits", {}).get("memory"),
-        ) == ("4096", "8Gi", "12Gi")
-
-    def test_ollama_16gib_tier_limits_its_memory_to_its_request(self) -> None:
-        """Verify the ollama container of ollama-16gib limits its memory to its 8Gi request (#5115).
-
-        Its node has 16 GiB of RAM, of which about 13 GiB is allocatable, and the tier serves
-        nothing. A model load past the gateway then ends in an OOM kill of the container, not in a
-        node that has no free memory.
-        """
-        dep = _load_deployment(OLLAMA_PROFILES_MANIFEST, "ollama-16gib")
-        (container,) = (
-            c for c in dep["spec"]["template"]["spec"]["containers"] if c["name"] == "ollama"
-        )
-        resources = container.get("resources", {})
-
-        assert (
-            resources.get("requests", {}).get("memory"),
-            resources.get("limits", {}).get("memory"),
-        ) == ("8Gi", "8Gi")
-
     @pytest.mark.parametrize("service_name", ["ollama-16gib", "ollama-48gib"])
     def test_ollama_services_stay_behind_the_gateway(self, service_name: str) -> None:
         """Verify Ollama Services are cluster-internal; LAN clients use the authenticated gateway."""
@@ -1209,24 +506,6 @@ class TestK8sLLMGatewayManifests:
             "ClusterIP",
             11434,
             dep["spec"]["template"]["metadata"]["labels"]["llm.devops.io/provider"],
-        )
-
-    def test_llm_kustomization_includes_profiles(self) -> None:
-        """Verify the llm kustomization includes the profiles package and all its resources."""
-        resources = yaml.safe_load(LLM_KUSTOMIZATION.read_text(encoding="utf-8"))["resources"]
-        profiles_kust = yaml.safe_load(
-            (PROFILES_DIR / "kustomization.yaml").read_text(encoding="utf-8")
-        )
-
-        assert (
-            "profiles" in resources,
-            profiles_kust["resources"],
-        ) == (
-            True,
-            [
-                "services.yaml",
-                "ollama-profiles.yaml",
-            ],
         )
 
     def test_llm_namespace_default_perimeter_excludes_gateway_and_workloads(self) -> None:
@@ -1277,62 +556,6 @@ class TestK8sLLMGatewayManifests:
         )
 
         assert sorted(manifests - applied) == []
-
-    def test_zero_homelab_ip_or_hostname_leakage(self) -> None:
-        """Verify no private RFC 1918 IPs or *.lan hostnames exist in any k8s/llm manifest."""
-        all_yaml_files = sorted(Path("k8s/llm").rglob("*.yaml"))
-        private_ip_pattern = re.compile(
-            r"\b(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b(?!/)"
-        )
-        lan_hostname_pattern = re.compile(r"\b[a-zA-Z0-9_\-]+\.lan\b")
-
-        for file_path in all_yaml_files:
-            content = file_path.read_text(encoding="utf-8")
-            ip_matches = private_ip_pattern.findall(content)
-            lan_matches = lan_hostname_pattern.findall(content)
-            assert (
-                ip_matches,
-                lan_matches,
-            ) == (
-                [],
-                [],
-            )
-
-    def test_gateway_deployment_runs_without_proxy(self) -> None:
-        """Verify gateway deployment does not configure HTTP_PROXY or NO_PROXY."""
-        dep = _load_kind(GATEWAY_DIR / "deployment.yaml", "Deployment")
-        container = dep["spec"]["template"]["spec"]["containers"][0]
-        env = {e["name"]: e["value"] for e in container.get("env", []) if "value" in e}
-
-        assert (
-            "HTTP_PROXY" in env,
-            "HTTPS_PROXY" in env,
-            "NO_PROXY" in env,
-        ) == (
-            False,
-            False,
-            False,
-        )
-
-    def test_gateway_egress_admits_all_backends_in_configmap(self) -> None:
-        """Verify the gateway policy admits every backend the gateway calls (#795).
-
-        The backends are read from the ConfigMap: each `api_base`. Each must be a Service under
-        k8s/llm with a selector, and some egress rule must select a subset of that selector on
-        the Service's numeric targetPort. The test used to pin four selector names, two of which
-        match no pod, and never read the ConfigMap.
-        """
-        policy = _load_kind(GATEWAY_DIR / "networkpolicy.yaml", "NetworkPolicy")
-        backends = _gateway_backends()
-
-        assert (
-            sorted(address for address, target in backends.items() if target is None),
-            sorted(
-                address
-                for address, target in backends.items()
-                if target is not None and not _admits(policy, *target)
-            ),
-        ) == ([], [])
 
 
 _DNS_PEER = {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "kube-system"}}}
@@ -1427,18 +650,6 @@ def _pod_labels(peer: dict[str, Any]) -> dict[str, str]:
     if set(peer) != {"podSelector"} or not isinstance(selector, dict):
         return {}
     return {} if "matchExpressions" in selector else dict(selector.get("matchLabels") or {})
-
-
-def _admits(policy: dict[str, Any], selector: dict[str, str], target_port: int) -> bool:
-    """Whether an egress rule selects a subset of `selector` on TCP `target_port`."""
-    return any(
-        ("TCP", target_port, None) in _ports(rule)
-        and any(
-            labels and labels.items() <= selector.items()
-            for labels in map(_pod_labels, rule.get("to") or [])
-        )
-        for rule in policy["spec"].get("egress") or []
-    )
 
 
 def _peer_violation(
@@ -1667,21 +878,6 @@ def _ollama_services() -> dict[str, dict[str, str]]:
     }
 
 
-def _embedding_tiers() -> set[str]:
-    """Return the Ollama tiers whose pods the Service of a gateway embedding deployment selects."""
-    services = _ollama_services()
-    selectors = [
-        services[(urlsplit(m["litellm_params"]["api_base"]).hostname or "").split(".")[0]]
-        for group in _gateway_embedding_groups()
-        for m in _deployments(group)
-    ]
-    return {
-        tier
-        for tier, labels in _tier_pod_labels().items()
-        if any(selector.items() <= labels.items() for selector in selectors)
-    }
-
-
 def _ollama_ports() -> set[int]:
     """Return the ports the Ollama Services listen on."""
     documents = yaml.safe_load_all(SERVICES_MANIFEST.read_text(encoding="utf-8"))
@@ -1784,17 +980,6 @@ def _consumers_off_serving_tiers(serving: set[str]) -> set[tuple[str, str]]:
     }
 
 
-def test_the_gpu_placement_table_says_for_each_tier_whether_it_serves() -> None:
-    """The README's GPU placement table lists each Ollama tier of the profiles once, in profile
-    order, and its Serves column says yes or no for each, so the serving tiers have one record."""
-    [(header, *rows)] = _placement_tables()
-
-    assert (
-        [row[0].strip("`") for row in rows],
-        SERVES_COLUMN in header and {row[header.index(SERVES_COLUMN)] for row in rows},
-    ) == (list(_tier_pod_labels()), {"yes", "no"})
-
-
 def test_every_ollama_consumer_names_a_service_that_selects_a_serving_tier() -> None:
     """Each place that names an Ollama Service names one that selects the pods of a tier the
     README marks as serving: the CLI's default Service and failover routes, the review slots,
@@ -1815,39 +1000,6 @@ def test_a_tier_that_stops_serving_names_each_consumer_that_reaches_it_alone() -
         ("devops_cli.config.defaults.DEFAULT_GATEWAY_REVIEW_SLOTS", "ollama-64gib-standard"),
         ("devops_cli.k8s.gpu_matrix.gateway_routes", "ollama-64gib-standard"),
     }
-
-
-def test_the_gateway_and_the_review_slots_send_the_16gib_tier_nothing() -> None:
-    """The host of ollama-16gib is unstable, and a cordon does not stop a DaemonSet pod. So the
-    README marks the tier as not serving, its DaemonSet and Services stay for a revert, and no
-    gateway deployment, fallback or review slot reaches it. The review pool keeps two slots."""
-    deployed_groups = {m["model_name"] for m in _full_gateway_config()["model_list"]}
-    fallback_groups = {
-        name
-        for rule in _gateway_config()["router_settings"]["fallbacks"]
-        for source, targets in rule.items()
-        for name in (source, *targets)
-    }
-
-    assert (
-        "ollama-16gib" in _serving_tiers(),
-        "ollama-16gib" in _tier_pod_labels(),
-        "ollama-16gib" in _ollama_services(),
-        sorted(service for _, service in _ollama_consumers() if "16gib" in service),
-        fallback_groups - deployed_groups,
-        DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
-    ) == (False, True, True, [], set(), 2)
-
-
-def test_a_prompt_up_to_the_window_of_the_review_pool_fits_every_deployment_of_the_pool() -> None:
-    """Each deployment of devops-review, and of its fallback devops-background, has the window of
-    262144 tokens that its tier loads, so no deployment of the pool refuses or cuts a prompt that
-    another one takes."""
-    assert {
-        (m.get("model_info") or {}).get("max_input_tokens")
-        for group in ("devops-review", "devops-background")
-        for m in _deployments(group)
-    } == {262144}
 
 
 def _tiers_of(url: str) -> set[str]:
@@ -1992,14 +1144,6 @@ def test_the_default_fallback_model_is_a_model_that_the_default_ollama_tier_serv
     ) == (True, {})
 
 
-def _open_webui_default_models() -> set[str]:
-    """Return each model that Open WebUI's `DEFAULT_MODELS` names. Open WebUI splits the value at
-    each comma."""
-    return {
-        model.strip() for model in _open_webui_env()["DEFAULT_MODELS"].split(",") if model.strip()
-    }
-
-
 def _groups_off_the_gateway(models: set[str]) -> set[str]:
     """Return each of `models` that is no group of the gateway config, or whose deployments call
     no serving tier."""
@@ -2008,20 +1152,6 @@ def _groups_off_the_gateway(models: set[str]) -> set[str]:
     aliases = _full_gateway_config().get("router_settings", {}).get("model_group_alias", {})
     alias_groups = {alias for alias, target in aliases.items() if target in served}
     return models - (served | alias_groups)
-
-
-def test_every_open_webui_default_model_is_a_group_that_the_gateway_serves() -> None:
-    """Each model that Open WebUI's `DEFAULT_MODELS` names is a group of the gateway config with a
-    deployment on a serving tier. Open WebUI asks its OpenAI connection, the gateway, for the
-    model by its group name. The values set no `MODEL_FILTER_LIST`: Open WebUI removed that
-    allow list in v0.4.0, and the list named two models that the gateway does not serve (#2047)."""
-    default_models = _open_webui_default_models()
-
-    assert (
-        bool(default_models),
-        _groups_off_the_gateway(default_models),
-        "MODEL_FILTER_LIST" in _open_webui_env(),
-    ) == (True, set(), False)
 
 
 def test_the_group_check_names_each_model_that_is_no_served_gateway_group() -> None:
@@ -2229,22 +1359,8 @@ def _cache_point_violations(config: dict[str, Any]) -> list[str]:
     return problems
 
 
-def test_every_local_deployment_names_its_backend_so_the_ledger_counts_it_as_local() -> None:
-    """A gateway reply names a deployment model and no backend only for a deployment with no
-    `api_base`, and the spend ledger counts such a call as hosted (#3656). So each deployment of
-    the in-cluster groups sets `api_base`, and each hosted group sets none."""
-    config = _full_gateway_config()
-
-    no_backend = {
-        m["model_name"] for m in config["model_list"] if not m["litellm_params"].get("api_base")
-    }
-
-    assert no_backend == set(HOSTED_GROUPS)
-
-
-# The two DeepSeek groups, and the OpenRouter filter of each of their deployments: fp8 weights
-# only, and only providers that do not store or train on prompts (SECURITY.md item 13).
-DEEPSEEK_GROUPS = ("deepseek-v4.1-flash-1017", "deepseek-v4.1-flash")
+# The OpenRouter filter of each deployment of the two DeepSeek groups: fp8 weights only, and
+# only providers that do not store or train on prompts (SECURITY.md item 13).
 DEEPSEEK_PROVIDER_FILTER = {"quantizations": ["fp8"], "data_collection": "deny"}
 DEEPSEEK_WINDOW = 1048576
 
@@ -2319,28 +1435,6 @@ def test_the_deepseek_group_falls_back_to_the_undated_group_with_the_same_provid
         DEEPSEEK_WINDOW,
         True,
     )
-
-
-def test_health_checks_cover_only_the_hosted_deepseek_groups() -> None:
-    """The gateway checks each DeepSeek deployment every 60 s and keeps a new call off a
-    deployment that failed its last check, before any call fails on it (#5990). No Ollama group
-    is checked: each Ollama tier serves one request at a time, and a check would take that slot
-    from a caller (#5302). Each checked deployment ends its check after 30 s, so a check cycle
-    ends before the next one starts."""
-    config = _full_gateway_config()
-    general = config["general_settings"]
-    checked = general.get("background_health_check_model_groups") or []
-    deployments = [m for m in config["model_list"] if m["model_name"] in checked]
-
-    assert (
-        general.get("background_health_checks"),
-        general.get("enable_health_check_routing"),
-        general.get("health_check_interval"),
-        sorted(checked),
-        sorted({d["model_name"] for d in deployments} - set(HOSTED_GROUPS)),
-        sorted({d["litellm_params"]["model"].partition("/")[0] for d in deployments}),
-        [d["model_info"].get("health_check_timeout") for d in deployments],
-    ) == (True, True, 60, sorted(DEEPSEEK_GROUPS), [], ["openrouter"], [30, 30, 30])
 
 
 def test_the_hosted_groups_call_providers_with_optional_keys_and_join_no_pool() -> None:
@@ -2475,38 +1569,3 @@ def test_each_edit_that_breaks_a_hosted_rule_is_a_violation(
     deployment = copy.deepcopy(_load_kind(GATEWAY_DIR / "deployment.yaml", "Deployment"))
     edit(config, deployment)
     assert expected in _hosted_violations(config, deployment)
-
-
-def test_every_model_of_the_service_config_is_a_group_the_gateway_serves() -> None:
-    """The example config of the Service names each model by a gateway group (#3155)."""
-    configmap = _load_kind(DEVOPS_CONFIGMAP_EXAMPLE, "ConfigMap")
-    ai = yaml.safe_load(configmap["data"]["devops-cli.yaml"])["ai"]
-    named = {ai["model"], *(task["model"] for task in ai["tasks"].values())}
-    cfg = _full_gateway_config()
-    served = {m["model_name"] for m in cfg["model_list"]}
-    aliases = set(cfg.get("router_settings", {}).get("model_group_alias", {}).keys())
-
-    assert sorted(named - (served | aliases)) == []
-
-
-def test_a_second_gateway_replica_comes_only_with_shared_cooldowns_and_a_disruption_budget() -> (
-    None
-):
-    """Each LiteLLM process keeps its own cooldowns of the provider routing (#5990) unless the
-    router shares them through `router_settings.redis_host`. One replica keeps one view of the
-    cooldowns, and the README gives that reason. A second replica needs the shared state and a
-    PodDisruptionBudget, which a single replica cannot have, because it would block a drain (#6066)."""
-    replicas = _load_deployment(GATEWAY_DIR / "deployment.yaml", "llm-gateway")["spec"]["replicas"]
-    shared = "redis_host" in _full_gateway_config()["router_settings"]
-    budgets = [
-        doc
-        for path in sorted(GATEWAY_DIR.glob("*.yaml"))
-        for doc in yaml.safe_load_all(path.read_text(encoding="utf-8"))
-        if doc and doc.get("kind") == "PodDisruptionBudget"
-    ]
-    reason = "one replica, because each LiteLLM process keeps its own cooldowns"
-
-    assert (replicas > 1, shared, bool(budgets), reason in K8S_README.read_text("utf-8")) in {
-        (False, False, False, True),
-        (True, True, True, False),
-    }

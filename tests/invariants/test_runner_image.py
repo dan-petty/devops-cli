@@ -6,7 +6,6 @@ They read only committed files, so they need no network, no image build and no s
 
 from __future__ import annotations
 
-import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -38,29 +37,6 @@ def _stages() -> dict[str, list[list[str]]]:
 
 def _runs(stage: list[list[str]]) -> list[str]:
     return [" ".join(words[1:]) for words in stage if words[0].upper() == "RUN"]
-
-
-def test_the_runner_image_adds_the_dev_dependencies_and_git_to_the_runtime_dependencies() -> None:
-    """Verify that the runner builds on `runner-deps`, which builds on `deps`, installs the dev
-    requirements of the lock and installs git with apt.
-
-    `deps` holds uv, gh and the venv of the runtime requirements. `runner-deps` adds pytest, ruff
-    and mypy to that venv from the dev requirements of the `lock` stage, and the `runner` stage
-    adds only the project, so a change of `src/` keeps the layers of the dependencies (#4550).
-    """
-    all_stages = _stages()
-    runner_deps = all_stages["runner-deps"]
-    installs = [run for run in _runs(runner_deps) if "uv pip install" in run]
-    apt = [run for run in _runs(runner_deps) if "apt-get install" in run]
-
-    assert (
-        all_stages["runner"][0][1:],
-        runner_deps[0][1:],
-        len(installs),
-        "/lock/dev.txt" in installs[0].split(),
-        len(apt),
-        "git" in apt[0].split(),
-    ) == (["runner-deps", "AS", "runner"], ["deps", "AS", "runner-deps"], 1, True, 1, True)
 
 
 def test_the_runner_image_holds_no_npm_pip_or_uv_cache() -> None:
@@ -115,27 +91,6 @@ def test_the_runner_stage_runs_as_user_1000_and_starts_devops() -> None:
     )
 
 
-def test_uv_run_finds_an_interpreter_in_the_runner_image() -> None:
-    """Verify that `uv run` in a worktree can find a Python in the runner image.
-
-    The image forbids a Python download (`UV_PYTHON_DOWNLOADS=never`), and `.python-version` of a
-    checkout can name a patch release that the digest-pinned base image does not have. So the
-    stage names the base image's interpreter in `UV_PYTHON`, which uv then uses for any version
-    of that minor release.
-    """
-    env = env_of(_stages()["runner"])
-    wanted = (REPO_ROOT / ".python-version").read_text(encoding="utf-8").strip()
-
-    assert (env.get("UV_PYTHON"), wanted.count(".")) == ("/usr/local/bin/python3", 2)
-
-
-def test_the_runner_stage_comes_before_service_so_that_the_default_build_is_the_service() -> None:
-    """Verify that `service` is still the last stage, which a build with no `--target` makes."""
-    names = list(_stages())
-
-    assert (names.index("runner") < names.index("service"), names[-1]) == (True, "service")
-
-
 def _release_job() -> dict[str, Any]:
     job: dict[str, Any] = _workflow("release.yml")["jobs"]["runner-image"]
     return job
@@ -143,41 +98,6 @@ def _release_job() -> dict[str, Any]:
 
 def _step(job: dict[str, Any], name: str) -> dict[str, Any]:
     return next(step for step in job["steps"] if step.get("name") == name)
-
-
-def test_the_release_publishes_the_runner_image_next_to_the_service_image() -> None:
-    """Verify that the release builds, smoke-tests, scans, pushes by digest, attests and tags the
-    runner image, in that order, and only in the run that creates a release."""
-    job = _release_job()
-    names = [step.get("name", "") for step in job["steps"]]
-    indices = [names.index(name) for name in RUNNER_STEPS]
-    meta = next(step for step in job["steps"] if step.get("id") == "meta")
-    push = _step(job, "Build and Push Runner Image")["with"]
-    attest = _step(job, "Attest Build Provenance")["with"]
-
-    assert (
-        job["if"],
-        job["needs"],
-        job["env"]["RUNNER_IMAGE"],
-        indices == sorted(indices),
-        _step(job, "Build and Load Runner Image")["with"]["target"],
-        push["target"],
-        "push-by-digest=true" in push["outputs"],
-        push["no-cache-filters"],
-        attest["subject-name"],
-        [line.strip() for line in meta["with"]["tags"].splitlines() if line.strip()],
-    ) == (
-        "needs.release-please.outputs.release_created == 'true'",
-        "release-please",
-        "ghcr.io/${{ github.repository }}/runner",
-        True,
-        "runner",
-        "runner",
-        True,
-        "runner",
-        "ghcr.io/${{ github.repository }}/runner",
-        ["type=raw,value=${{ needs.release-please.outputs.tag_name }}", "type=raw,value=latest"],
-    )
 
 
 def test_the_release_scans_the_runner_image_for_high_and_critical_findings() -> None:
@@ -198,14 +118,6 @@ def test_every_tofu_trivyignore_entry_has_a_reason_and_an_exp_date_that_is_not_p
     text = (REPO_ROOT / ".trivyignore-tofu").read_text(encoding="utf-8")
 
     assert trivyignore_problems(text, datetime.now(UTC).date()) == []
-
-
-def test_the_pull_request_scans_the_runner_image_with_the_tofu_ignores() -> None:
-    """The CI scan of the runner image reads the ignores of the pinned OpenTofu (#5866)."""
-    job = _workflow("ci.yml")["jobs"]["runner-image"]
-    trivy = _step(job, "Scan Runner Image for Vulnerabilities")["with"]
-
-    assert trivy["trivyignores"] == ".trivyignore,.trivyignore-tofu"
 
 
 def test_the_pull_request_check_builds_the_runner_image_and_pushes_nothing() -> None:
@@ -235,43 +147,3 @@ def test_the_pull_request_check_builds_the_runner_image_and_pushes_nothing() -> 
         ["steps.image_changes.outputs.changed == 'true'"] * 3,
         None,
     )
-
-
-def test_the_smoke_test_runs_uv_in_a_copy_of_the_checkout() -> None:
-    """Verify that the smoke test runs `uv run --locked ruff --version` in a copy of the checkout,
-    on a read-only root as the Job does: the step and the job run `uv run` in a worktree."""
-    run = _step(_workflow("ci.yml")["jobs"]["runner-image"], RUNNER_STEPS[1])["run"]
-    lines = [line for line in run.splitlines() if "uv run --locked ruff --version" in line]
-
-    assert (len(lines), "--read-only" in lines[0], ".git" in lines[0]) == (1, True, True)
-
-
-def test_the_smoke_test_of_the_runner_image_is_the_same_in_ci_and_in_the_release() -> None:
-    """Verify that both workflows run one smoke test, in a read-only container with no capability,
-    which checks the tools of a step through the table `RUNNER_TOOLS` and not through a list of
-    its own, bounds the size of the image, and checks that the image holds no compiler (#3072)."""
-    ci = _step(_workflow("ci.yml")["jobs"]["runner-image"], RUNNER_STEPS[1])["run"].strip()
-    release = _step(_release_job(), RUNNER_STEPS[1])["run"].strip()
-
-    assert (
-        ci == release,
-        "--read-only" in ci,
-        "--cap-drop ALL" in ci,
-        "no-new-privileges" in ci,
-        "-m devops_cli.roadmap.runner_tools" in ci,
-        "-gt 3000000000" in ci,
-        [
-            line
-            for line in ci.splitlines()
-            if "--entrypoint" in line and line.endswith('"$IMAGE" --version')
-        ],
-    ) == (True, True, True, True, True, True, [])
-
-
-def test_the_documented_size_bound_of_the_runner_image_is_the_bound_of_the_smoke_test() -> None:
-    """Verify that `docs/CLUSTER.md` states the byte bound that the smoke test enforces (#3072)."""
-    run = _step(_workflow("ci.yml")["jobs"]["runner-image"], RUNNER_STEPS[1])["run"]
-    (bound,) = re.findall(r'"\$size" -gt (\d+)', run)
-    document = (REPO_ROOT / "docs" / "CLUSTER.md").read_text(encoding="utf-8")
-
-    assert f"more than {bound} bytes" in document

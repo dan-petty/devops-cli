@@ -44,6 +44,12 @@ def kube(cluster: FakeCluster) -> FakeCluster:
     return cluster
 
 
+def _template_spec(kube: FakeCluster) -> dict[str, Any]:
+    """The Job spec of the CronJob template, which a Job keeps where the caller gives no value."""
+    spec: dict[str, Any] = kube.custom_objects.objects[CRONJOBS][0]["spec"]["jobTemplate"]["spec"]
+    return spec
+
+
 @pytest.mark.parametrize(
     ("conditions", "expected"),
     [
@@ -307,10 +313,11 @@ def test_a_job_is_created_with_the_resources_given_and_keeps_the_other_values_of
     (job,) = kube.custom_objects.objects[JOBS]
     (container,) = job["spec"]["template"]["spec"]["containers"]
     env = {entry["name"]: entry["value"] for entry in container["env"]}
+    kept = _template_spec(kube)["template"]["spec"]["containers"][0]["resources"]
     assert (container["resources"], env["PYTEST_XDIST_AUTO_NUM_WORKERS"]) == (
         {
-            "requests": {"cpu": "1", "memory": "2Gi", "ephemeral-storage": "4Gi"},
-            "limits": {"cpu": "1", "memory": "12Gi", "ephemeral-storage": "10Gi"},
+            "requests": {**kept["requests"], "cpu": "1", "memory": "2Gi"},
+            "limits": {**kept["limits"], "cpu": "1", "memory": "12Gi"},
         },
         "1",
     )
@@ -323,10 +330,8 @@ def test_a_job_keeps_the_resources_of_the_template_when_the_caller_gives_none(
 
     (job,) = kube.custom_objects.objects[JOBS]
     (container,) = job["spec"]["template"]["spec"]["containers"]
-    assert container["resources"] == {
-        "requests": {"cpu": "2", "memory": "4Gi", "ephemeral-storage": "4Gi"},
-        "limits": {"cpu": "2", "memory": "8Gi", "ephemeral-storage": "10Gi"},
-    }
+    template = _template_spec(kube)["template"]["spec"]["containers"][0]
+    assert container["resources"] == template["resources"]
 
 
 def test_a_job_keeps_the_deadline_of_the_template_when_the_caller_gives_none(
@@ -335,7 +340,10 @@ def test_a_job_keeps_the_deadline_of_the_template_when_the_caller_gives_none(
     ClusterJobs().create(["roadmap"], template=RUNNER_TEMPLATE)
 
     (job,) = kube.custom_objects.objects[JOBS]
-    assert (job["spec"]["activeDeadlineSeconds"], "annotations" in job["metadata"]) == (7200, False)
+    assert (job["spec"]["activeDeadlineSeconds"], "annotations" in job["metadata"]) == (
+        _template_spec(kube)["activeDeadlineSeconds"],
+        False,
+    )
 
 
 def test_a_patch_sets_the_deadline_and_merges_the_annotations_of_the_job(

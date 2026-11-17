@@ -18,8 +18,7 @@
 # gh-dash publishes `checksums.txt`, but it comes from the same release as the asset `digest`, so
 # the two do not check each other. It signs nothing. Never install it with `gh extension install`,
 # `go install` or `brew`: each one skips this pin. A bump of gh-dash also replaces
-# `tests/fixtures/gh_dash_schema/` with the schema of the new version, which
-# `tests/test_gh_dash_config.py` checks against this `version`.
+# `tests/fixtures/gh_dash_schema/` with the schema of the new version.
 # tuicr publishes no checksum file, and its release workflow has no signing or attestation step, so
 # the asset `digest` is the only source of each tuicr `sha256`. Never install it with `curl | sh`,
 # `cargo install` or `brew`, and never run `tuicr update`: each one skips this pin. Take the Linux
@@ -45,8 +44,8 @@
 # `uv run devops openspec check`, and record the tool again for the tests that replay it
 # (`tests/support/openspec_recording.py` says how).
 #
-# Then run `uv run pytest tests/tools_lock tests/commands/test_install_tools.py
-# tests/invariants/test_workflow_contracts.py`, and `devops install-tools --target-dir <dir>` followed by
+# Then run `uv run pytest tests/tools_lock tests/commands/test_install_tools.py`, and
+# `devops install-tools --target-dir <dir>` followed by
 # `devops install-tools --check --target-dir <dir>` to install and confirm every pin.
 
 python_version = "3.14"

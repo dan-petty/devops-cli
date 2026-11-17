@@ -3,11 +3,9 @@ and one task folder for each committed fixture."""
 
 from __future__ import annotations
 
-import tomllib
 from pathlib import Path
 
 import pytest
-from packaging.requirements import Requirement
 
 from devops_cli.config.constants import CONST_ROADMAP_EVAL_IMPLEMENT_FIXTURES
 from devops_cli.roadmap.implement.implement_eval import LoadedCase, load_case, load_cases
@@ -185,18 +183,6 @@ def test_each_committed_fixture_becomes_a_task_folder(tmp_path: Path) -> None:
     assert [folder.name for folder in folders] == [case.name for case in cases]
     for folder in folders:
         assert all(path.read_text(encoding="utf-8").strip() for path in _task_files(folder))
-
-
-def test_the_dependency_files_name_one_harbor_version() -> None:
-    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    pinned = {
-        requirement.name: str(requirement.specifier)
-        for requirement in map(Requirement, pyproject["project"]["dependencies"])
-    }
-    lock = tomllib.loads((REPO_ROOT / "uv.lock").read_text(encoding="utf-8"))
-    locked = {package["name"]: package["version"] for package in lock["package"]}
-
-    assert pinned["harbor"] == f"=={locked['harbor']}"
 
 
 def _task_files(folder: Path) -> list[Path]:

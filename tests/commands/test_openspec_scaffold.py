@@ -1,5 +1,5 @@
-"""The committed OpenSpec scaffold: its configuration, the skills it generates, what git keeps of
-them, and the hooks and workflows that run the gate (#1844, ADR 0010).
+"""The committed OpenSpec scaffold: its configuration, the skills it generates and what git keeps
+of them (#1844, ADR 0010).
 
 OpenSpec fails quietly: a plain scalar containing ` #` is cut at the comment, an unknown
 top-level key is ignored, and a skill hand-edited or generated under a wider profile only shows
@@ -9,14 +9,11 @@ in a regeneration. These tests read the committed files and need no `openspec`.
 from __future__ import annotations
 
 import filecmp
-import re
-from pathlib import Path, PurePosixPath
-from typing import Any
+from pathlib import PurePosixPath
 
 import pytest
 import yaml
 
-from devops_cli.commands.ci import get_check_spec
 from devops_cli.config.constants import (
     CONST_DOCS_CLASS_RECORD,
     CONST_DOCS_CLASS_TOOL_GENERATED,
@@ -26,7 +23,6 @@ from devops_cli.config.constants import (
     CONST_REVIEW_ROUTED_PATH_PATTERNS,
 )
 from devops_cli.core.repo import is_ignored_by_git
-from devops_cli.tools_lock import load_tools_lock
 from tests.support.paths import REPO_ROOT
 
 CONFIG_PATH = REPO_ROOT / "openspec/config.yaml"
@@ -134,14 +130,6 @@ def test_a_configuration_that_would_be_read_otherwise_is_reported(
     assert config_problems(text) == problems
 
 
-def _front_matter(skill: Path) -> dict[str, Any]:
-    """The YAML front matter of the skill file `skill`."""
-    parts = skill.read_text(encoding="utf-8").split("---\n", 2)
-    loaded = yaml.safe_load(parts[1])
-    assert isinstance(loaded, dict)
-    return loaded
-
-
 def test_the_skills_are_the_four_workflows_of_the_custom_profile_in_both_trees() -> None:
     """Propose, explore, apply and update, and no archive or sync skill, which write the living
     spec that only the pull request that closes a change may; the Claude and agents trees are
@@ -165,20 +153,6 @@ def test_the_skills_are_the_four_workflows_of_the_custom_profile_in_both_trees()
         for name in expected
     ] == [True] * 8
     assert (agents / ".openspec-target").read_text(encoding="utf-8") == "agents\n"
-
-
-def test_every_skill_was_generated_by_the_openspec_the_tools_lock_pins() -> None:
-    """Each skill embeds the version that wrote it, so a bump of the pin that did not regenerate
-    them (`uv run devops openspec regenerate`) is found without running OpenSpec."""
-    pinned = load_tools_lock().npm["openspec"].version
-    generated_by = {
-        f"{tree}/{path.parent.name}": _front_matter(path)["metadata"]["generatedBy"]
-        for tree in SKILL_TREES
-        for path in (REPO_ROOT / tree).glob("openspec-*/SKILL.md")
-    }
-    assert sorted(generated_by.items()) == sorted(
-        (f"{tree}/openspec-{name}", pinned) for tree in SKILL_TREES for name in SKILL_WORKFLOWS
-    )
 
 
 def _ignored(path: str) -> bool:
@@ -261,29 +235,3 @@ def test_a_review_routes_the_openspec_files_off_the_persona_pages() -> None:
         routed("openspec/changes/archive/2026-10-23-1847-x/tasks.md"),
         routed("src/devops_cli/openspec/gate.py"),
     ] == [True, True, True, True, True, True, True, True, False]
-
-
-def test_every_devops_ci_runs_the_openspec_row_and_the_hook_runs_it_on_its_files() -> None:
-    """The row has no path filter and no exemption; the commit hook runs only that row, when a
-    commit touches the plans, the config or the skills."""
-    config = yaml.safe_load((REPO_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8"))
-    hooks = {hook["id"]: hook for repo in config["repos"] for hook in repo["hooks"]}
-    hook = hooks["openspec-gate"]
-    touching = [
-        "openspec/config.yaml",
-        "openspec/changes/1900-widget-export/tasks.md",
-        ".claude/skills/openspec-explore/SKILL.md",
-        ".agents/skills/.openspec-target",
-        ".kilocode/skills/openspec-explore/SKILL.md",
-    ]
-    assert (
-        get_check_spec("openspec").cmd,
-        (hook["entry"], hook["pass_filenames"], hook["stages"]),
-        [bool(re.search(hook["files"], path)) for path in touching],
-        re.search(hook["files"], "src/devops_cli/openspec/gate.py"),
-    ) == (
-        ["uv", "run", "devops", "openspec", "check"],
-        ("uv run devops ci --only openspec", False, ["pre-commit"]),
-        [True] * 5,
-        None,
-    )

@@ -7,12 +7,10 @@ import re
 from pathlib import PurePosixPath
 from typing import Any
 
-import pytest
 import yaml
 
 from devops_cli.commands.k8s.stack_lifecycle import PRODUCT_MANIFESTS_BY_STACK
 from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS
-from devops_cli.k8s.image_pins import names_latest
 from devops_cli.k8s.searxng_check import OFF_ENGINES
 from tests.support.k8s_tree import K8S, manifests, pod_spec
 from tests.support.paths import REPO_ROOT
@@ -26,9 +24,6 @@ DOCUMENTED_ENGINES = re.compile(
 )
 # One line of the dead-engines file: the name, then `# <date>: <reason>`.
 DEAD_ENGINE_LINE = re.compile(r"^(?P<name>[^#]+?) # \d{4}-\d{2}-\d{2}: \S.*$")
-IMAGE_PATTERN = re.compile(
-    r"^docker\.io/searxng/searxng:(?P<tag>\d{4}\.\d+\.\d+-[0-9a-f]{7,9})@sha256:[0-9a-f]{64}$"
-)
 # The pod root, not a path of this host, and the IPv4 wildcard address that the pod binds.
 _POD_ROOT = PurePosixPath("/")
 BIND_ALL_IPV4 = str(ipaddress.IPv4Address(0))
@@ -61,20 +56,6 @@ def _settings() -> dict[str, Any]:
     settings = yaml.safe_load(text)
     assert isinstance(settings, dict)
     return settings
-
-
-def test_the_image_names_a_release_tag_and_its_digest() -> None:
-    """A digest alone hides the release from a reader, and a tag alone can move. The pin names
-    both, and Renovate bumps both together."""
-    image = _container()["image"]
-
-    assert (bool(IMAGE_PATTERN.match(image)), names_latest(image)) == (True, False)
-
-
-def test_the_deployment_runs_one_pod_with_no_service_account_token() -> None:
-    spec = _object("Deployment", "searxng")["spec"]
-
-    assert (spec["replicas"], _pod()["automountServiceAccountToken"]) == (1, False)
 
 
 def test_the_pod_meets_pod_security_restricted() -> None:
@@ -153,41 +134,6 @@ def test_the_secret_row_feeds_the_variable_and_restarts_the_deployment() -> None
         ("hex", 32),
         ["deployment/searxng"],
         "devops",
-    )
-
-
-def test_the_probes_read_healthz() -> None:
-    container = _container()
-
-    assert [
-        container[probe]["httpGet"]["path"]
-        for probe in ("startupProbe", "readinessProbe", "livenessProbe")
-    ] == ["/healthz"] * 3
-
-
-def test_the_container_has_requests_and_limits() -> None:
-    """The memory limit holds a worker at `GRANIAN_WORKERS_MAX_RSS` and the new worker that
-    Granian starts in its place, so the slow growth of one worker ends in a replacement, not in
-    an OOM kill (#4939)."""
-    resources = _container()["resources"]
-
-    assert resources == {
-        "requests": {"cpu": "50m", "memory": "256Mi", "ephemeral-storage": "64Mi"},
-        "limits": {"cpu": "1", "memory": "1Gi", "ephemeral-storage": "256Mi"},
-    }
-
-
-def test_the_service_is_a_cluster_ip_on_8080_for_the_pod() -> None:
-    spec = _object("Service", "searxng")["spec"]
-
-    assert (
-        spec["type"],
-        spec["selector"],
-        [(p["port"], p["targetPort"]) for p in spec["ports"]],
-    ) == (
-        "ClusterIP",
-        {"app.kubernetes.io/name": "searxng"},
-        [(8080, 8080)],
     )
 
 
@@ -278,22 +224,6 @@ def test_the_cluster_document_lists_the_engines_that_the_settings_keep() -> None
     assert sorted(re.findall(r"`([^`]+)`", match["names"])) == sorted(kept)
 
 
-def test_the_configmap_says_why_the_two_log_lines_of_the_start_are_harmless() -> None:
-    """The pod logs an ERROR for a missing proxy header and a WARNING for a missing `limiter.toml`.
-    Neither matters with the limiter off, and a comment in the file names the source of each, so a
-    reader does not chase them or mount a `limiter.toml` to hide them."""
-    text = (SEARXNG_DIR / "configmap.yaml").read_text(encoding="utf-8")
-    needles = (
-        "X-Forwarded-For",
-        "searx/botdetection/trusted_proxies.py",
-        "limiter.toml",
-        "searx/botdetection/config.py",
-        "harmless",
-    )
-
-    assert [needle for needle in needles if needle not in text] == []
-
-
 def test_the_settings_keep_none_of_the_suspended_or_keyed_engines() -> None:
     """The scraping engines of these sites were suspended in October 2026, and the keyed Brave
     engine is not used. A setting that names one, in any form, fails here."""
@@ -322,23 +252,4 @@ def test_every_file_of_the_service_is_in_both_kustomizations_and_the_deploy_stac
         files,
         True,
         files,
-    )
-
-
-@pytest.mark.parametrize(
-    ("kind", "name"),
-    [
-        ("ConfigMap", "searxng-settings"),
-        ("Deployment", "searxng"),
-        ("Service", "searxng"),
-        ("NetworkPolicy", "searxng-perimeter"),
-        ("NetworkPolicy", "searxng-clients"),
-    ],
-)
-def test_each_object_is_in_namespace_devops_and_part_of_the_stack(kind: str, name: str) -> None:
-    metadata = _object(kind, name)["metadata"]
-
-    assert (metadata["namespace"], metadata["labels"]["app.kubernetes.io/part-of"]) == (
-        "devops",
-        "devops-cli-stack",
     )

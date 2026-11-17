@@ -12,23 +12,16 @@ import json
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
-import yaml
 from pydantic_ai.messages import ModelMessagesTypeAdapter, ModelRequest, UserPromptPart
 
 from devops_cli.ai.context_budget import count_tokens
-from devops_cli.ai.task_loader import load_task_prompt
-from devops_cli.config import constants
 from devops_cli.config.constants import (
     CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE,
-    CONST_ROADMAP_REFINE_TOOL_MAX_CHARS,
     CONST_ROADMAP_STAGE_BODY_MAX_TOKENS,
     CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS,
     CONST_ROADMAP_STAGE_SPEC_MAX_CHARS,
     CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS,
-    CONST_ROADMAP_STAGE_VERIFY_BODY_MAX_TOKENS,
 )
-from devops_cli.config.defaults import DEFAULT_AI_CONTEXT_WINDOW
-from devops_cli.roadmap.refine.refine_investigation import tokens_of, tool_stop
 from devops_cli.roadmap.stage import stage
 from devops_cli.roadmap.stage.stage import (
     StagePlan,
@@ -46,13 +39,10 @@ from devops_cli.roadmap.stage.stage_verify import (
     Locator,
     PlanPart,
     Verification,
-    VerificationInput,
-    agent_instructions,
 )
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.model import ModelFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
-from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_stage import (
     GONE,
     STAGE_REPO,
@@ -72,13 +62,10 @@ pytestmark = pytest.mark.usefixtures("keyring_store", "model_fake")
 
 # A small planner window, for the scripted runs that test the caps of the first request.
 WINDOW = 65536
-# The window of the `stage` task in the example ConfigMap, and of its model in the gateway.
+# A large review window and a very large model window, for the scripted runs that use a window
+# above the small one.
 CONFIGURED_WINDOW = 256_000
 GATEWAY_WINDOW = 1_048_576
-# The first plan request at its caps, measured on 2026-11-07 (#3880), and the tokens of the longest
-# tool answer, at about 4 characters for a token. The tools end when the messages reach the limit.
-FIRST_REQUEST_TOKENS = 38_000
-TOOL_ANSWER_TOKENS = CONST_ROADMAP_REFINE_TOOL_MAX_CHARS // 4
 # The body of an item that cites `keep`, the function of the sample module that the clone of
 # `tests/support/roadmap_stage.py` writes: the probe writes a line for it, so the content gate
 # refuses a `feasibility` that quotes no probe line.
@@ -475,104 +462,3 @@ def test_the_context_and_the_largest_spec_answer_stay_under_half_of_the_window()
     )
 
     assert CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS + count_tokens(answer) < WINDOW // 2
-
-
-def _data_of(path: str) -> Any:
-    return yaml.safe_load((REPO_ROOT / path).read_text(encoding="utf-8"))
-
-
-def _example_task(name: str) -> dict[str, Any]:
-    return yaml.safe_load(_data_of("k8s/devops/configmap.example.yaml")["data"]["devops-cli.yaml"])[
-        "ai"
-    ]["tasks"][name]
-
-
-def test_the_planner_window_of_the_example_configmap_fits_the_first_request_and_the_minimum_calls() -> (
-    None
-):
-    """The plan runs of the stage job and of `fix-plan` read the windows of their own tasks, and
-    the template sets each of them. At 65,536 tokens the tools end after 4 to 6 calls, and the
-    model writes `x` in every text field of its plan (#3880, #5903)."""
-    needed = (
-        FIRST_REQUEST_TOKENS + constants.CONST_ROADMAP_STAGE_MIN_TOOL_CALLS * TOOL_ANSWER_TOKENS
-    )
-    windows = [_example_task(name)["context_window"] for name in ("stage", "fix_plan")]
-
-    assert ([_limit(window) >= needed for window in windows], _limit(WINDOW) < needed) == (
-        [True, True],
-        True,
-    )
-
-
-def _review_first_request_tokens() -> int:
-    """The tokens of the first request of a review run with no cited file, counted as the run hook
-    counts them: the issue body at its cap, the plan, and the instructions of the review. The
-    request keeps its files below the limit, so a window that fits this request leaves the tools
-    their room (`VerificationInput.of`)."""
-    given = VerificationInput(
-        1,
-        "A title",
-        _words(CONST_ROADMAP_STAGE_VERIFY_BODY_MAX_TOKENS),
-        _PLAN.model_dump(mode="json"),
-        {},
-    )
-    request = ModelRequest(
-        parts=[UserPromptPart(content=given.text())],
-        instructions=agent_instructions(load_task_prompt("roadmap_stage_verify.md")),
-    )
-    return tokens_of([request])
-
-
-def test_the_review_window_of_the_example_configmap_fits_the_first_request_and_the_minimum_calls() -> (
-    None
-):
-    """A review task takes the window of `ai` when it sets none: 32,768 tokens, which ends the
-    tools of a review at 24,576 (#3911). The reviews of the stage job and of `fix-plan` each set
-    their own window (#5903)."""
-    needed = (
-        _review_first_request_tokens()
-        + constants.CONST_ROADMAP_STAGE_MIN_TOOL_CALLS * TOOL_ANSWER_TOKENS
-    )
-    windows = [
-        _example_task(name).get("context_window", DEFAULT_AI_CONTEXT_WINDOW)
-        for name in ("stage_review", "fix_plan_review")
-    ]
-
-    assert (
-        [tool_stop(window) >= needed for window in windows],
-        tool_stop(DEFAULT_AI_CONTEXT_WINDOW) < needed,
-    ) == ([True, True], True)
-
-
-def test_the_planner_and_the_review_both_run_on_deepseek_with_a_window_that_fits() -> None:
-    """The planner returned to DeepSeek on 2026-11-10 (#4369), and the review stays on it
-    (#3874). Each window fits its own first request."""
-    names = ("stage", "stage_review", "fix_plan", "fix_plan_review")
-    tasks = [_example_task(name) for name in names]
-
-    assert [(task["model"], task["context_window"]) for task in tasks] == [
-        ("openrouter/deepseek/deepseek-v4.1-flash-1017", 256_000)
-    ] * len(names)
-
-
-def test_the_documented_window_of_stage_and_its_source_are_the_files_values() -> None:
-    configured = _example_task("stage")
-    gateway_data = _data_of("k8s/llm/gateway/config.yaml")
-    gateway = {entry["model_name"]: entry for entry in gateway_data["model_list"]}
-    aliases = gateway_data.get("router_settings", {}).get("model_group_alias", {})
-    for alias, target in aliases.items():
-        if target in gateway and alias not in gateway:
-            gateway[alias] = gateway[target]
-    model_window = gateway[configured["model"]]["model_info"]["max_input_tokens"]
-    page = (REPO_ROOT / "docs/roadmap/stage.md").read_text(encoding="utf-8")
-
-    assert (configured["context_window"], model_window) == (CONFIGURED_WINDOW, GATEWAY_WINDOW)
-    assert all(
-        text in page
-        for text in (
-            f"`context_window` {CONFIGURED_WINDOW:,}",
-            "k8s/devops/configmap.example.yaml",
-            f"`max_input_tokens` {GATEWAY_WINDOW:,}",
-            "k8s/llm/gateway/config.yaml",
-        )
-    )

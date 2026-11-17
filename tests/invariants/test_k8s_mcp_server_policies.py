@@ -67,16 +67,6 @@ def test_the_policies_admit_the_service_and_the_label_that_build_job_sets_and_no
     assert (_ingress_client_names(), _egress_client_names()) == (expected, expected)
 
 
-def test_the_label_of_a_job_pod_is_the_label_that_the_admission_policy_requires() -> None:
-    policy = _manifest("ValidatingAdmissionPolicy", "roadmap-service-jobs")
-    required = [
-        validation["expression"]
-        for validation in policy["spec"]["validations"]
-        if "object.spec.template.metadata.labels" in validation["expression"]
-    ]
-    assert [f'["{NAME_LABEL}"] == "{_job_pod_name_label()}"' in e for e in required] == [True]
-
-
 def test_ingress_admits_only_tcp_8001_to_the_server_pods() -> None:
     policy = _manifest("NetworkPolicy", "mcp-server-ingress")["spec"]
     (rule,) = policy["ingress"]

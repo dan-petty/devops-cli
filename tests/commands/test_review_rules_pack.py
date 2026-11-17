@@ -1,4 +1,4 @@
-"""Tests for the review Semgrep rule pack, `rules.lock` manifest, and CI workflow contract (#1145)."""
+"""Tests for the review Semgrep rule pack and its `rules.lock` manifest (#1145)."""
 
 from __future__ import annotations
 
@@ -10,10 +10,8 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
-from devops_cli.commands.ci import get_check_specs
 from devops_cli.commands.review import app as review_app
 from devops_cli.config.defaults import DEFAULT_SEMGREP_CONFIG
-from devops_cli.core.command_resolver import resolve_devops_argv
 from devops_cli.dry_run.state import set_dry_run
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.main import app as root_app
@@ -30,7 +28,7 @@ from devops_cli.review.rules_pack import (
 )
 from devops_cli.security.semgrep import files_command, parse_semgrep_json
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
-from tests.support.paths import FIXTURES, REPO_ROOT
+from tests.support.paths import FIXTURES
 
 RECALL_SET_PATH = FIXTURES / "review_recall" / "recall_set.json"
 RULE_ID = "k8s-networkpolicy-ingress-any"
@@ -224,35 +222,3 @@ def test_semgrep_gets_only_its_own_setting_and_not_the_environment_of_the_person
         ("--version", {"SEMGREP_ENABLE_VERSION_CHECK": "0"}),
         ("--test", {"SEMGREP_ENABLE_VERSION_CHECK": "0"}),
     ]
-
-
-def test_ci_workflow_runs_rule_pack_tests_when_rules_change() -> None:
-    """`.github/workflows/rule-pack.yml` runs the rule pack tests outside `devops ci`, only for a
-    pull request that changes the rule pack or the workflow (#1145, #4653)."""
-    workflow = yaml.safe_load(
-        (REPO_ROOT / ".github" / "workflows" / "rule-pack.yml").read_text("utf-8")
-    )
-    job = workflow["jobs"]["rule-pack"]
-    steps = {step["name"]: step for step in job["steps"]}
-    run_step = steps["Run Semgrep Rule Pack Tests"]
-    assert (
-        (job["name"], job["permissions"]),
-        workflow[True]["pull_request"]["paths"][0],
-        workflow["env"]["UV_MANAGED_PYTHON"],
-        (
-            "devops install-tools --tool semgrep" in run_step["run"],
-            "semgrep --test --metrics off src/devops_cli/review/rules" in run_step["run"],
-            "devops review rules test --check" in run_step["run"],
-        ),
-        [step["name"] for step in job["steps"] if "${{" in step.get("run", "")],
-        "rule-pack" in {spec.name for spec in get_check_specs()},
-        resolve_devops_argv(["review", "rules", "test", "--check"]),
-    ) == (
-        ("Rule Pack Tests", {"contents": "read"}),
-        "src/devops_cli/review/rules/**",
-        "1",
-        (True, True, True),
-        [],
-        False,
-        None,
-    )

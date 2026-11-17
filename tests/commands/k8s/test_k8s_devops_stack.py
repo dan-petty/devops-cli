@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import yaml
 from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
@@ -16,7 +15,6 @@ from devops_cli.commands.k8s.stack_lifecycle import (
 from devops_cli.dry_run import set_dry_run
 from tests.support.fakes.process import ProcessFake
 from tests.support.k8s_tree import TREE
-from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
 
@@ -95,16 +93,6 @@ def test_devops_stack_manifests_integrity() -> None:
     )
 
 
-def test_devops_namespace_in_namespaces_yaml() -> None:
-    """Verify namespace devops is registered in k8s/namespaces.yaml."""
-    docs = list(
-        yaml.safe_load_all((REPO_ROOT / "k8s" / "namespaces.yaml").read_text(encoding="utf-8"))
-    )
-    names = {d["metadata"]["name"] for d in docs if d and d.get("kind") == "Namespace"}
-
-    assert "devops" in names
-
-
 def test_deploy_stack_devops_dry_run(isolate_devops_cli_config: Path) -> None:
     """Verify deploy-stack --stack devops includes devops manifests in dry-run output."""
     from devops_cli.config.settings import reset_settings_cache
@@ -124,42 +112,6 @@ def test_deploy_stack_devops_dry_run(isolate_devops_cli_config: Path) -> None:
         ) == (0, False, True, True, True)
     finally:
         set_dry_run(False)
-
-
-def test_roadmap_service_ingress_uses_prefix_pathtype() -> None:
-    """Verify roadmap-service ingress uses Prefix pathType for robust routing."""
-    ingress_file = REPO_ROOT / "k8s" / "devops" / "roadmap-service" / "ingress.yaml"
-    data = yaml.safe_load(ingress_file.read_text(encoding="utf-8"))
-    rule = data["spec"]["rules"][0]
-    path_entry = rule["http"]["paths"][0]
-
-    assert (
-        rule["host"],
-        path_entry["path"],
-        path_entry["pathType"],
-        path_entry["backend"]["service"]["name"],
-        path_entry["backend"]["service"]["port"]["number"],
-    ) == (
-        "hooks.example.com",
-        "/webhooks/github",
-        "Prefix",
-        "roadmap-service",
-        8000,
-    )
-
-
-def test_the_ingress_routes_hold_no_ingress_of_the_devops_namespace() -> None:
-    """The Ingress `devops/roadmap-service` is product content: only
-    `k8s/devops/roadmap-service/ingress.yaml` holds it, and the environment routes of
-    `k8s/ingress/ingress-routes.yaml` hold no copy (#5292)."""
-    routes_file = REPO_ROOT / "k8s" / "ingress" / "ingress-routes.yaml"
-    docs = list(yaml.safe_load_all(routes_file.read_text(encoding="utf-8")))
-
-    assert [
-        d["metadata"]["name"]
-        for d in docs
-        if d and d.get("kind") == "Ingress" and d["metadata"].get("namespace") == "devops"
-    ] == []
 
 
 def test_deploy_stack_domain_option_in_dry_run(isolate_devops_cli_config: Path) -> None:

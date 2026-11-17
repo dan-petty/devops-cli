@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
+
+import yaml
 
 from devops_cli.config.constants import (
     CONST_ARGO_API_GROUP,
@@ -19,6 +22,31 @@ from tests.support.cluster_secret_fakes import FakeCluster as KubectlWorld
 from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.kubernetes import FakeCluster
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+
+
+def write_chart_applications(tree: Path, stack: str, version: str = "1.0.0") -> None:
+    """Write into the environment tree `tree` one Argo CD Application for each Helm release of
+    `stack`, which pins its chart at `version`, as deploy-stack reads the version (#6060)."""
+    from devops_cli.commands.k8s.stack_lifecycle import HELM_RELEASES_BY_STACK
+
+    folder = tree / "argocd" / "apps"
+    folder.mkdir(parents=True, exist_ok=True)
+    for release in HELM_RELEASES_BY_STACK[stack]:
+        application = {
+            "apiVersion": "argoproj.io/v1alpha1",
+            "kind": "Application",
+            "metadata": {"name": release["name"]},
+            "spec": {
+                "sources": [
+                    {
+                        "repoURL": "https://charts.example.com",
+                        "chart": release["chart"].rsplit("/", 1)[-1],
+                        "targetRevision": version,
+                    }
+                ]
+            },
+        }
+        (folder / f"{release['name']}.yaml").write_text(yaml.safe_dump(application), "utf-8")
 
 
 def ingress_list(*routes: tuple[str, str, str]) -> str:

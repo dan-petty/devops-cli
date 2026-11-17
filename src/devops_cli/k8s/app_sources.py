@@ -22,6 +22,8 @@ from pathlib import Path
 from typing import Any, Final
 from urllib.parse import urlsplit
 
+import yaml
+
 from devops_cli.config.constants import (
     CONST_CANONICAL_OCI_SOURCE,
     CONST_GIT_NONINTERACTIVE_ENV,
@@ -145,6 +147,25 @@ def application_sources(doc: Mapping[str, Any]) -> list[dict[str, Any]]:
     spec = doc.get("spec") or {}
     sources = spec.get("sources") or [spec.get("source") or {}]
     return [source for source in sources if isinstance(source, dict)]
+
+
+def chart_versions(folders: Iterable[Path]) -> dict[str, str]:
+    """The chart version that each Argo CD Application in `folders` pins, by the name of the
+    Application: the `targetRevision` of its source with a `chart` (#6060). An Application with no
+    chart source has no entry."""
+    applications = (
+        doc
+        for folder in folders
+        for path in sorted(folder.glob("*.yaml"))
+        for doc in yaml.safe_load_all(path.read_text(encoding="utf-8"))
+        if isinstance(doc, dict) and doc.get("kind") == "Application"
+    )
+    return {
+        str(doc["metadata"]["name"]): revision
+        for doc in applications
+        for source in application_sources(doc)
+        if source.get("chart") and (revision := source_revision(source))
+    }
 
 
 def ref_sources(sources: Iterable[Mapping[str, Any]]) -> dict[str, Mapping[str, Any]]:

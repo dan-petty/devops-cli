@@ -9,8 +9,8 @@ A workload that serves traffic keeps its route through a release and a node drai
 Deployment `devops/mcp-server` SHALL use the `RollingUpdate` strategy with `maxSurge: 1` and `maxUnavailable: 0`. Its readiness probe SHALL call the HTTP route `/healthz` of the server on port 8001.
 
 #### Scenario: A release of the MCP server
-- **WHEN** a test reads `k8s/devops/mcp-server/deployment.yaml`
-- **THEN** the strategy is `RollingUpdate` with `maxSurge: 1` and `maxUnavailable: 0`, and the readiness probe is `httpGet` on `/healthz`, port 8001
+- **WHEN** a release of the MCP server rolls out, and a person runs `kubectl -n devops rollout status deployment/mcp-server`
+- **THEN** the rollout completes, the old pod serves until the new pod is ready, and the new pod is ready only after its `httpGet` probe on `/healthz`, port 8001, answers
 
 ### Requirement: The health route needs no token and gives no data
 The HTTP app of `devops mcp serve --transport streamable-http` SHALL answer `GET /healthz` with 200 and `{"status": "ok"}` with no bearer token. The route SHALL run no tool.
@@ -27,5 +27,5 @@ The HTTP app of `devops mcp serve --transport streamable-http` SHALL answer `GET
 Deployment `llm/llm-gateway` SHALL run more than one replica only when `router_settings.redis_host` shares the cooldowns of the router and a PodDisruptionBudget selects the gateway. With one replica, the gateway SHALL have no PodDisruptionBudget, and `k8s/README.md` SHALL give the reason for one replica.
 
 #### Scenario: One replica
-- **WHEN** a test reads the gateway Deployment, the gateway config and `k8s/README.md`
-- **THEN** the Deployment has one replica, the router sets no `redis_host`, no PodDisruptionBudget selects the gateway, and the README gives the reason
+- **WHEN** a person runs `kubectl -n llm get deploy,pdb` on the cluster
+- **THEN** Deployment `llm-gateway` has one replica, no PodDisruptionBudget selects the gateway, the router sets no `redis_host`, and the README gives the reason

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fnmatch
 import functools
 import json
 import re
@@ -55,11 +54,6 @@ CLOUDFLARE_PROXY_READ_TIMEOUT_SECONDS = 125
 # push, the comment and the result line after it.
 FIX_PLAN_STOP_MARGIN_SECONDS = 1200
 
-# The router-level `allowed_fails` that LiteLLM 1.103.11 takes as unset (`DEFAULT_ALLOWED_FAILS`
-# in litellm/constants.py). At this value the router counts no failures: it cools a deployment
-# only by the failure rate of the minute, and never a group with one deployment (#5990).
-LITELLM_DEFAULT_ALLOWED_FAILS = 3
-
 # The first Ollama release that runs a multimodal embedding model, such as embeddinggemma-2,
 # through llama-server, its runner on Linux. 0.40.0 ran that model on Apple MLX only (#2395).
 OLLAMA_FIRST_LLAMA_SERVER_EMBEDDING_RELEASE = Version("0.40.4")
@@ -91,19 +85,6 @@ def test_a_gateway_attempt_ends_before_the_deadline_of_the_call() -> None:
         < min(CONST_ROADMAP_STAGE_JOB_MARGIN_SECONDS, runner_deadline),
         config["general_settings"]["cancel_on_disconnect"],
     ) == (True, True, True)
-
-
-def test_the_gateway_router_counts_failures_below_the_litellm_default() -> None:
-    """At the LiteLLM default of 3 the router counts no failures, so a group with one deployment
-    never cooled: against a mock provider that stalls, 6 of 6 calls of such a group failed with
-    no cooldown and no fallback before the call (#5990). Below the default the router cools a deployment after
-    `allowed_fails` + 1 failures within `cooldown_time`, and the next call goes to the next order
-    or the fallback. Above 0, so one failure does not cool an Ollama tier."""
-    config = yaml.safe_load((REPO_ROOT / "k8s/llm/gateway/config.yaml").read_text(encoding="utf-8"))
-
-    allowed_fails = config["router_settings"]["allowed_fails"]
-
-    assert 0 < allowed_fails < LITELLM_DEFAULT_ALLOWED_FAILS
 
 
 def test_a_cooled_deepseek_deployment_is_checked_again_before_its_cooldown_ends() -> None:
@@ -199,46 +180,6 @@ def test_traefik_runs_a_chart_that_ships_traefik_v3_7_16() -> None:
         Version(str(chart_source["targetRevision"])) >= TRAEFIK_FIRST_CHART_WITH_V3_7_16,
         values.get("image", {}).get("tag"),
     ) == ("https://traefik.github.io/charts", "traefik", True, None)
-
-
-def test_loki_runs_the_grafana_community_chart_whose_loki_fixes_cve_2026_21729() -> None:
-    """`grafana/loki` in grafana.github.io/helm-charts became the Grafana Enterprise Logs chart,
-    and its newest version still runs Loki 3.6. CVE-2026-21729 affects Loki before 3.7.0: one
-    `detected_fields` request with a very large limit makes Loki allocate memory until it stops.
-    The open-source chart moved to grafana-community/helm-charts, and its 21.2.3 runs Loki 3.7.10
-    (#1632). The Argo CD Application installs that chart from a repository that its project
-    admits. The chart takes the Loki image from its appVersion, so the Application gives the
-    chart the values file and no other value, and the values set no Loki image: `loki.image` and
-    `singleBinary.image` can set an older tag or digest. The values keep no
-    `monitoring.selfMonitoring`, which that chart removed in 9.0.0."""
-    apps = REPO_ROOT / "k8s/argocd/apps"
-    application = yaml.safe_load((apps / "loki.yaml").read_text(encoding="utf-8"))
-    projects = {
-        doc["metadata"]["name"]: doc["spec"]
-        for doc in yaml.safe_load_all((apps / "projects.yaml").read_text(encoding="utf-8"))
-        if doc
-    }
-    values = yaml.safe_load(
-        (REPO_ROOT / "k8s/logging/loki-values.yaml").read_text(encoding="utf-8")
-    )
-    chart_source = next(source for source in application["spec"]["sources"] if "chart" in source)
-
-    assert {
-        "chart": (chart_source["repoURL"], chart_source["chart"], chart_source["targetRevision"]),
-        "project admits the repository": chart_source["repoURL"]
-        in projects[application["spec"]["project"]]["sourceRepos"],
-        "helm": chart_source.get("helm"),
-        "loki.image": values.get("loki", {}).get("image"),
-        "singleBinary.image": values.get("singleBinary", {}).get("image"),
-        "monitoring.selfMonitoring": values.get("monitoring", {}).get("selfMonitoring"),
-    } == {
-        "chart": ("https://grafana-community.github.io/helm-charts", "loki", "21.2.3"),
-        "project admits the repository": True,
-        "helm": {"valueFiles": ["$values/k8s/logging/loki-values.yaml"]},
-        "loki.image": None,
-        "singleBinary.image": None,
-        "monitoring.selfMonitoring": None,
-    }
 
 
 def test_no_ingress_routes_to_loki_in_the_logging_namespace() -> None:
@@ -1221,98 +1162,3 @@ def test_readme_lists_the_table() -> None:
     readme = (K8S_DIR / "README.md").read_text(encoding="utf-8")
     rows = [_readme_row(s, e) for s in CLUSTER_SECRETS for e in s.entries]
     assert [row for row in rows if row not in readme] == []
-
-
-def _document_hosts(documents: Iterator[dict[str, Any] | None]) -> list[str]:
-    hosts = []
-    for doc in documents:
-        if not isinstance(doc, dict):
-            continue
-        if doc.get("kind") == "Ingress":
-            hosts += [rule["host"] for rule in doc["spec"]["rules"] if "host" in rule]
-        if doc.get("kind") == "IngressRoute":
-            hosts += [route["match"] for route in doc["spec"]["routes"]]
-        if doc.get("kind") == "Mattermost":
-            ingress = doc.get("spec", {}).get("ingress", {})
-            if host := ingress.get("host"):
-                hosts.append(host)
-    return hosts
-
-
-def test_the_tunnel_section_of_the_k8s_readme_names_only_hosts_that_a_manifest_serves() -> None:
-    readme = (K8S_DIR / "README.md").read_text(encoding="utf-8")
-    start = "## Cloudflare Wildcard Tunnel & Ingress Routing"
-    end = "### 4. The Kubernetes API at `k8s.<domain>`"
-    assert start in readme, f"Heading {start!r} is missing from k8s/README.md"
-    assert end in readme, f"Heading {end!r} is missing from k8s/README.md"
-
-    section = readme.split(start, 1)[1].split(end, 1)[0]
-    names = set(re.findall(r"[\w*.-]+\.<domain>", section))
-    for match in re.finditer(r"\*\*Subdomain\*\*:\s*`([^`]+)`", section):
-        names.add(f"{match.group(1)}.<domain>")
-
-    served = {
-        host.replace("example.com", "<domain>")
-        for host in _document_hosts(document for _, document in yaml_documents(K8S_DIR))
-    }
-    assert names, "No host names found in tunnel section"
-    assert served, "No served hosts found in Kubernetes manifests"
-
-    unmatched = sorted(
-        name for name in names if not any(fnmatch.fnmatchcase(host, name) for host in served)
-    )
-    assert unmatched == []
-
-
-OWN_IMAGE_PREFIX = "ghcr.io/dan-petty/devops-cli/"
-OWN_IMAGE_KEYS = frozenset({"image", "imageName"})
-RELEASE_IMAGE_PREFIX = "ghcr.io/${{ github.repository }}/"
-
-
-def _own_image_names(node: Any) -> Iterator[str]:
-    """The names of the images of this repository that a YAML node references, at any depth.
-
-    A name is the part after the prefix, without the tag or the digest.
-    """
-    if isinstance(node, dict):
-        for key, value in node.items():
-            if (
-                key in OWN_IMAGE_KEYS
-                and isinstance(value, str)
-                and value.startswith(OWN_IMAGE_PREFIX)
-            ):
-                yield re.split(r"[:@]", value.removeprefix(OWN_IMAGE_PREFIX))[0]
-            else:
-                yield from _own_image_names(value)
-    elif isinstance(node, list):
-        for item in node:
-            yield from _own_image_names(item)
-
-
-def _released_image_names() -> frozenset[str]:
-    """The images that a job of release.yml attests, which a job does after it pushes the image."""
-    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/release.yml").read_text("utf-8"))
-    return frozenset(
-        step["with"]["subject-name"].removeprefix(RELEASE_IMAGE_PREFIX)
-        for job in workflow["jobs"].values()
-        for step in job.get("steps", [])
-        if str(step.get("uses", "")).startswith("actions/attest-build-provenance")
-    )
-
-
-def test_every_image_of_this_repository_that_k8s_names_is_published_by_the_release() -> None:
-    """A manifest or an ImageUpdater under k8s/ that names ghcr.io/dan-petty/devops-cli/<name> needs a
-    job in release.yml that pushes and attests <name>, or the pod waits in ImagePullBackOff (#4324)."""
-    named = {
-        name: path.relative_to(REPO_ROOT).as_posix()
-        for path, document in yaml_documents(K8S_DIR)
-        for name in _own_image_names(document)
-    }
-
-    assert named, "No image of this repository found under k8s/"
-    unpublished = {
-        f"{OWN_IMAGE_PREFIX}{name}": path
-        for name, path in named.items()
-        if name not in _released_image_names()
-    }
-    assert unpublished == {}

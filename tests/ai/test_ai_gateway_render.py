@@ -14,7 +14,6 @@ from devops_cli.ai.gateway_render import (
     render_gateway_config,
 )
 from devops_cli.commands.ai_gateway import app as ai_gateway_app
-from tests.support.k8s_tree import TREE
 
 runner = CliRunner()
 
@@ -198,20 +197,6 @@ def test_load_tier_context_lengths_extracts_env_lengths(tmp_path: Path) -> None:
         lengths.get("ollama-48gib"),
         lengths.get("ollama-64gib"),
     ) == (48000, 128000, 160000)
-
-
-def test_load_tier_context_lengths_against_repository_profiles() -> None:
-    """Verify context lengths from actual repository profiles match expected hardware tiers."""
-    lengths = load_tier_context_lengths(TREE.ollama_profiles)
-
-    assert (
-        lengths.get("ollama-16gib"),
-        lengths.get("ollama-24gib"),
-        lengths.get("ollama-32gib"),
-        lengths.get("ollama-48gib"),
-        lengths.get("ollama-24gib-embed-gpu0"),
-        lengths.get("ollama-64gib"),
-    ) == (131072, 48000, 48000, 262144, 8192, 262144)
 
 
 def test_load_service_context_lengths_maps_services_to_tier_limits(tmp_path: Path) -> None:

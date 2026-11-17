@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import tomllib
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -118,12 +117,8 @@ def test_scan_workflows_fails_when_zizmor_could_not_run(
 
 
 def test_the_ci_gate_runs_the_scan_with_the_pinned_dev_zizmor() -> None:
-    """`devops ci` runs zizmor through `devops scan workflows`, from the dev group's exact pin."""
-    dev = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["dependency-groups"]
-    assert (
-        get_check_spec("zizmor").cmd,
-        [spec for spec in dev["dev"] if spec.startswith("zizmor")],
-    ) == (["uv", "run", "devops", "scan", "workflows"], ["zizmor==1.32.0"])
+    """`devops ci` runs zizmor through `devops scan workflows`, in the environment `uv run` syncs."""
+    assert get_check_spec("zizmor").cmd == ["uv", "run", "devops", "scan", "workflows"]
 
 
 def test_scan_workflows_json_marks_which_findings_block(

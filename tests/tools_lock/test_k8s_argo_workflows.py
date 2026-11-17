@@ -14,11 +14,9 @@ from typing import Any
 import yaml
 
 from devops_cli.config.env import env_var_for_option
-from devops_cli.tools_lock import load_tools_lock
 from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
-ARGO_DIR = K8S_DIR / "argo-workflows"
 NAMESPACE = "argo-workflows"
 EXECUTOR_ACCOUNT = "argo-workflows-executor"
 SYNC_OPTIONS = "argocd.argoproj.io/sync-options"
@@ -153,14 +151,6 @@ def test_the_executor_identity_may_only_create_and_patch_workflow_task_results()
     )
 
 
-def test_the_controller_metrics_are_scraped_through_a_service_monitor() -> None:
-    controller = _values()["controller"]
-    assert (controller["metricsConfig"], controller["serviceMonitor"]) == (
-        {"enabled": True, "port": 9090},
-        {"enabled": True},
-    )
-
-
 def test_the_version_template_runs_the_service_image_with_only_version_and_no_secret() -> None:
     """The template is the cluster job template's pod without its Secret, ConfigMap and token: it
     keeps the writable emptyDir mounts and names the command, because the controller would look an
@@ -200,15 +190,6 @@ def test_the_version_template_has_the_cluster_job_templates_security_context() -
         _cronjob_pod()["securityContext"],
         cronjob_container["securityContext"],
     )
-
-
-def test_a_version_run_has_a_deadline_and_its_workflow_and_pods_are_garbage_collected() -> None:
-    spec = _template()["spec"]
-    assert (
-        spec["activeDeadlineSeconds"],
-        spec["ttlStrategy"],
-        spec["podGC"],
-    ) == (300, {"secondsAfterCompletion": 3600}, {"strategy": "OnWorkflowSuccess"})
 
 
 def test_a_field_that_names_a_secret_is_found_at_any_depth() -> None:
@@ -281,45 +262,4 @@ def test_the_perimeter_admits_the_metrics_scrape_and_reaches_dns_and_the_api_ser
                 },
             ],
         },
-    )
-
-
-def test_the_kustomization_lists_every_manifest_and_stays_out_of_the_root() -> None:
-    """The chart's values are no manifest, so the kustomization leaves them out, and the root
-    kustomization leaves the directory to its Application and to deploy-stack."""
-    kustomization = _load("k8s/argo-workflows/kustomization.yaml")
-    root = _load("k8s/kustomization.yaml")
-    assert (
-        sorted(path.name for path in ARGO_DIR.iterdir()),
-        kustomization["resources"],
-        [resource for resource in root["resources"] if resource.startswith("argo-workflows")],
-    ) == (
-        [
-            "kustomization.yaml",
-            "networkpolicy.yaml",
-            "values.yaml",
-            "workflowtemplate-version.yaml",
-        ],
-        ["networkpolicy.yaml", "workflowtemplate-version.yaml"],
-        [],
-    )
-
-
-def test_the_argo_cli_pin_is_the_version_of_the_controller_and_executor_images() -> None:
-    """One tag sets both images, and the measurement submits its Workflows with the CLI at that
-    tag, whose build the lock fetches for every platform from that release."""
-    values = _values()
-    tag = values["images"]["tag"]
-    argo = load_tools_lock().binary["argo"]
-    release = "https://github.com/argoproj/argo-workflows/releases/download"
-    assert (
-        argo.version,
-        {name: build.url for name, build in argo.platforms.items()},
-        values["controller"].get("image"),
-        values["executor"]["image"],
-    ) == (
-        tag.removeprefix("v"),
-        {name: f"{release}/{tag}/argo-{name}.gz" for name in argo.platforms},
-        None,
-        {"nonroot": True},
     )

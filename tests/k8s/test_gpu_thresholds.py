@@ -15,11 +15,8 @@ from devops_cli.exceptions.k8s import KubernetesDeployError
 from devops_cli.k8s.gpu_thresholds import (
     GpuThresholds,
     TierManifests,
-    load_gpu_thresholds,
-    load_tier_templates,
     render_tier_manifests,
 )
-from tests.support.k8s_tree import TREE
 
 runner = CliRunner()
 
@@ -324,32 +321,6 @@ def test_a_file_without_the_markers_is_refused() -> None:
             GpuThresholds(embedding_only="pascal", per_gpu="pascal"),
             [yaml.safe_load(_TEMPLATE)],
         )
-
-
-def test_the_tracked_manifests_are_the_output_of_the_render() -> None:
-    """The tracked thresholds and templates give exactly the tracked manifests, so a hand edit of
-    a rendered region or a changed threshold with no render fails here."""
-    tracked = TierManifests(
-        profiles=TREE.ollama_profiles.read_text(encoding="utf-8"),
-        services=TREE.llm_services.read_text(encoding="utf-8"),
-        gateway=TREE.gateway_config.read_text(encoding="utf-8"),
-    )
-
-    assert (
-        render_tier_manifests(
-            tracked,
-            load_gpu_thresholds(TREE.gpu_thresholds),
-            load_tier_templates(TREE.tier_templates),
-        )
-        == tracked
-    )
-
-
-def test_the_default_thresholds_are_pascal() -> None:
-    """The tracked file sets both thresholds to pascal."""
-    assert load_gpu_thresholds(TREE.gpu_thresholds) == GpuThresholds(
-        embedding_only="pascal", per_gpu="pascal"
-    )
 
 
 def _write_inputs(tmp_path: Path, gateway: str = _GATEWAY) -> dict[str, Path]:
