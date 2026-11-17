@@ -12,8 +12,14 @@ metadata:
     app.kubernetes.io/part-of: devops-cli-stack
 spec:
   replicas: 1
+  # The server keeps no state: each endpoint is stateless and the pod holds no volume. So a
+  # release starts the new pod first and stops the old pod only when the new pod is ready, and a
+  # running job keeps its MCP calls through the rollout (#6066).
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: mcp-server
@@ -110,8 +116,11 @@ spec:
               port: 8001
             initialDelaySeconds: 5
             periodSeconds: 15
+          # The readiness probe calls the app, so a pod that accepts a connection but cannot
+          # serve a tool gets no traffic. The route needs no token (#6066).
           readinessProbe:
-            tcpSocket:
+            httpGet:
+              path: /healthz
               port: 8001
             initialDelaySeconds: 5
             periodSeconds: 10

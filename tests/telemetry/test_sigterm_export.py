@@ -25,12 +25,20 @@ from devops_cli.telemetry.exporter import OtlpSignal
 from devops_cli.telemetry.instruments import AI_TOKENS_TOTAL, emit
 from tests.support.fakes.otlp import FakeCollector, metric_points
 from tests.support.paths import REPO_ROOT
+from tests.support.waits import wait_while_running
 
 _TOKENS = {"operation": "chat", "type": "prompt"}
 
 # The child records the signal of each export request in the file that its first argument names,
 # then waits for a signal. It runs with no OTLP collector: the recorder is its exporter.
+#
+# The child waits for SIGTERM on the read end of its wakeup pipe, not in `signal.pause()`. A SIGTERM
+# that came after the last check for signals and before the pause system call only set the flag of
+# the C handler, and the pause then waited for a second signal that never came, so the test hung to
+# the bound of pytest-timeout (#6048). The C handler also writes a byte to the wakeup pipe, so the
+# read returns for a signal that came before it, and the Python handler runs as the read returns.
 _CHILD = """
+import os
 import signal
 import sys
 
@@ -56,8 +64,11 @@ class Recorder:
 install_exporter(Recorder())
 install_sigterm_export()
 emit(AI_TOKENS_TOTAL, 120.0, {"operation": "chat", "type": "prompt"})
+wakeup_read, wakeup_write = os.pipe()
+os.set_blocking(wakeup_write, False)
+signal.set_wakeup_fd(wakeup_write)
 print("ready", flush=True)
-signal.pause()
+os.read(wakeup_read, 1)
 """
 
 
@@ -141,22 +152,28 @@ def test_a_process_with_the_default_action_exports_then_ends_by_sigterm(tmp_path
     """Verify a process that had the default action for SIGTERM exports its metrics, and SIGTERM
     still ends it."""
     record = tmp_path / "exports.txt"
-    child = subprocess.Popen(
-        [sys.executable, "-c", _CHILD, str(record)],
-        cwd=tmp_path,
-        env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "src")},
-        stdout=subprocess.PIPE,
-        text=True,
-    )
-    assert child.stdout is not None
+    output = tmp_path / "stdout.txt"
+    with output.open("w", encoding="utf-8") as stdout:
+        child = subprocess.Popen(
+            [sys.executable, "-c", _CHILD, str(record)],
+            cwd=tmp_path,
+            env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "src")},
+            stdout=stdout,
+        )
     try:
-        # The child prints once it waits for the signal; the read returns at once if it exits.
-        ready = child.stdout.readline().strip()
-        if ready == "ready":
-            child.send_signal(signal.SIGTERM)
-    finally:
+        # The child writes its one line once it waits for the signal. SIGTERM goes also after
+        # another line, so the assertion names that line and the test does not wait on.
+        wait_while_running(lambda: output.read_text(encoding="utf-8").endswith("\n"), child)
+        child.send_signal(signal.SIGTERM)
         returncode = child.wait()
-        child.stdout.close()
+    finally:
+        # Each path kills and reaps the child; after its exit both calls return at once.
+        child.kill()
+        child.wait()
 
     exports = record.read_text(encoding="utf-8").split() if record.exists() else []
-    assert (ready, returncode, exports) == ("ready", -signal.SIGTERM, [OtlpSignal.METRICS.value])
+    assert (output.read_text(encoding="utf-8"), returncode, exports) == (
+        "ready\n",
+        -signal.SIGTERM,
+        [OtlpSignal.METRICS.value],
+    )
