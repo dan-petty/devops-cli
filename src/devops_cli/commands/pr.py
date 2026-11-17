@@ -21,6 +21,8 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STATUS_IN_REVIEW,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_PR_CREATE_CLOSING_POLL_ATTEMPTS,
+    DEFAULT_PR_CREATE_CLOSING_POLL_INTERVAL_SECONDS,
     DEFAULT_PR_LIMIT,
     DEFAULT_PR_STATE,
     DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS,
@@ -1162,11 +1164,38 @@ def _plan_title_labels(repo: str | None, title: str, base: str | None) -> None:
     )
 
 
+def _created_status_recorded(repo: str | None, number: int) -> bool:
+    """Set In Progress on the item that the new pull request closes, waiting for its link (#5112).
+
+    GitHub links the issue a pull request closes a moment after it opens, so the read that follows
+    the create can return no issue. It retries that read for a bounded time, then warns that it
+    found no closing issue and leaves the pull request open.
+    """
+    target = _target_repo(repo)
+    if not target or "/" not in target:
+        return True
+    for attempt in range(DEFAULT_PR_CREATE_CLOSING_POLL_ATTEMPTS):
+        try:
+            closed = set_delivered_status(target, number, CONST_ROADMAP_STATUS_IN_PROGRESS)
+        except GitHubOperationError as exc:
+            print_error(
+                MESSAGES.pr.status_not_set.format(number=number, state="open", error=exc),
+                safe=True,
+            )
+            return False
+        if closed is not None:
+            return True
+        if attempt + 1 < DEFAULT_PR_CREATE_CLOSING_POLL_ATTEMPTS:
+            time.sleep(DEFAULT_PR_CREATE_CLOSING_POLL_INTERVAL_SECONDS)
+    print_warning(MESSAGES.pr.status_no_closing_issue.format(number=number))
+    return True
+
+
 def _finish_created_pr(repo: str | None, number: int, title: str, base: str | None) -> None:
     """Set the Status of the item that the new pull request closes, and give the pull request the
     labels of its title. Each step runs when the other fails. The command exits 1 if either failed,
     and the pull request stays open."""
-    status_set = _status_recorded(repo, number, CONST_ROADMAP_STATUS_IN_PROGRESS, "open")
+    status_set = _created_status_recorded(repo, number)
     labels_set = _labels_recorded(repo, number, title, base)
     if not (status_set and labels_set):
         raise typer.Exit(1)

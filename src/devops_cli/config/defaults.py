@@ -803,6 +803,9 @@ DEFAULT_GH_LABEL_LIST_LIMIT: int = 1000
 DEFAULT_PROJECT_METRICS_RELEASE_LIMIT: int = 10
 DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS: int = 6
 DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS: float = 5.0
+# GitHub links the issue a new pull request closes a moment after it opens (#5112).
+DEFAULT_PR_CREATE_CLOSING_POLL_ATTEMPTS: int = 6
+DEFAULT_PR_CREATE_CLOSING_POLL_INTERVAL_SECONDS: float = 5.0
 DEFAULT_GH_SUBPROCESS_TIMEOUT_SECONDS: float = 30.0
 DEFAULT_GH_RUN_LOG_TIMEOUT_SECONDS: float = 120.0
 # The wall-clock bound on one gh process walking every `Link` page of a `devops gh api
