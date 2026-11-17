@@ -34,9 +34,9 @@ Adds: `GoldSetDocument`, `GoldSetScore`, `knowledge_base_source`, `project_diges
 
 Kind: other. Reads: `docs/TESTING.md`, `src/devops_cli/ai/benchmark/gold_set_scorer.py`, `src/devops_cli/ai/benchmark/document_chunker.py`. Changes: `docs/TESTING.md`.
 
-- [ ] 4.1 Add a section to `docs/TESTING.md` beside the fixture rules. It names `tests/fixtures/kb_gold_set/gold_set.json`, the loader, the scorer, the two source adapters and the k=5 depth, and it states that a stale entry names the source that no longer answers, that the gold-set test marks the stale entry against the checked-in article, that the scorer runs offline with the fake Qdrant client and the fake embedder, that the benchmark corpus and its domain vocabulary come from `docs/` under the repository root and never from the bundled folder, and that a person runs the scorer against the real Qdrant and embedding model in the devcontainer and pastes the Markdown score block into the pull request body
+- [x] 4.1 Add a section to `docs/TESTING.md` beside the fixture rules. It names `tests/fixtures/kb_gold_set/gold_set.json`, the loader, the scorer, the two source adapters and the k=5 depth, and it states that a stale entry names the source that no longer answers, that the gold-set test marks the stale entry against the checked-in article, that the scorer runs offline with the fake Qdrant client and the fake embedder, that the benchmark corpus and its domain vocabulary come from `docs/` under the repository root and never from the bundled folder, and that a person runs the scorer against the real Qdrant and embedding model in the devcontainer and pastes the Markdown score block into the pull request body
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 4.2 Edit `docs/TESTING.md` with the gold set, the docs corpus and vocabulary, and the recorded score block
+- [x] 4.2 Edit `docs/TESTING.md` with the gold set, the docs corpus and vocabulary, and the recorded score block
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
