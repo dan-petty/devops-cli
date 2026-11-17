@@ -29,6 +29,7 @@ from devops_cli.ci.fail_to_pass import (
     run_fail_to_pass,
 )
 from devops_cli.commands.ci import app, get_check_specs
+from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import build_subprocess_env, run_subprocess
 from tests.gate import runner as gate_runner
 from tests.support.fakes.git import GitFake
@@ -155,6 +156,7 @@ class _FailToPassState:
     satisfied: bool | None = None
     gate_base: ProcessAnswer = field(default_factory=ProcessAnswer)
     gate_head: ProcessAnswer = field(default_factory=ProcessAnswer)
+    pytest_timeout: bool = False
 
 
 @pytest.fixture
@@ -208,6 +210,10 @@ def _worktree_answer(replay_state: _FailToPassState, call: ProcessCall) -> Proce
 
 
 def _pytest_answer(replay_state: _FailToPassState, call: ProcessCall) -> ProcessAnswer:
+    if replay_state.pytest_timeout:
+        return ProcessAnswer(
+            side_effect=subprocess.TimeoutExpired(call.argv, DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+        )
     cwd_name = Path(call.cwd).name if call.cwd else ""
     if cwd_name == "plain_base":
         xml = (
@@ -330,10 +336,12 @@ def _replay_report(
     outcomes: tuple[dict[str, str], ...] = (),
     could_not_run: dict[str, object] | None = None,
     repaired: tuple[dict[str, str], ...] = (),
-    head_could_not_run: int | None = None,
+    head_could_not_run: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """The whole dump of a feature's report replaying `tests/test_mod.py` in `repo`, whose
     merge base is the commit `main` names."""
+    if could_not_run is not None:
+        could_not_run = {"timeout_seconds": None, **could_not_run}
     return {
         "merge_base": "deadbeef",
         "head": "HEAD",
@@ -412,6 +420,74 @@ def test_fail_to_pass_collection_error_does_not_satisfy_check(
         "errored on base: tests.test_sample (collection failure)" in result.output,
         "1 errored" in result.output,
     ) == (1, True, True)
+
+
+def test_a_base_replay_timeout_is_a_could_not_run_result(
+    replay_state: _FailToPassState, git_fake: GitFake
+) -> None:
+    """A base replay that passes the process-runner limit names the limit, not a pytest status
+    that pytest did not return, and exits with the interrupted-replay status (#4938)."""
+    replay_state.pytest_timeout = True
+    _mock_replay_repo(replay_state, JUNIT_ONE_FAILURE, exit_status=1)
+
+    result = runner.invoke(app, ["fail-to-pass", "--base", "main"])
+
+    assert (
+        result.exit_code,
+        f"{DEFAULT_SUBPROCESS_TIMEOUT_SECONDS:g}" in result.output,
+        "tests/test_sample.py" in result.output,
+        "pytest exited with status" in result.output,
+        "Traceback" in result.output,
+    ) == (1, True, True, False, False)
+
+
+def test_a_head_timeout_names_the_limit_and_files_without_a_status() -> None:
+    report = fail_to_pass.FailToPassReport(
+        merge_base="deadbeef",
+        head="HEAD",
+        changed_test_files=("tests/test_mod.py",),
+        outcomes=(),
+        unchanged_failed=("tests.test_mod::test_x",),
+        head_could_not_run=fail_to_pass.ReplayCouldNotRun(
+            exit_status=1, timeout_seconds=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+        ),
+    )
+
+    output = format_fail_to_pass_report(report)
+
+    assert (
+        f"{DEFAULT_SUBPROCESS_TIMEOUT_SECONDS:g}" in output,
+        "tests/test_mod.py" in output,
+        "pytest exited with status" in output,
+    ) == (True, True, False)
+
+
+def test_a_gate_row_timeout_names_the_limit_without_a_status() -> None:
+    timed_out = fail_to_pass.ReplayCouldNotRun(
+        exit_status=1, timeout_seconds=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+    )
+    report = fail_to_pass.FailToPassReport(
+        merge_base="deadbeef",
+        head="HEAD",
+        changed_test_files=(),
+        outcomes=(),
+        changed_gate_checks=("tests/gate/lint_checks/test_x.py",),
+        gate_rows=(
+            fail_to_pass.GateRowReplay(
+                row="lint",
+                check_modules=("tests/gate/lint_checks/test_x.py",),
+                base=timed_out,
+                head=timed_out,
+            ),
+        ),
+    )
+
+    output = format_fail_to_pass_report(report)
+
+    assert (
+        f"{DEFAULT_SUBPROCESS_TIMEOUT_SECONDS:g}" in output,
+        "pytest exited with status" in output,
+    ) == (True, False)
 
 
 def test_no_title_label_or_body_changes_the_result(
