@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from devops_cli.roadmap.stage.stage_change import (
     StageGroup,
     StageScenario,
@@ -224,3 +226,105 @@ def test_a_scenario_of_the_base_spec_needs_no_new_task() -> None:
     base = {"comment-thread": ("A What Changes line below the least length",)}
 
     assert _field_problems(base, _group(test="Write `test_x`")) == []
+
+
+# ── A changed manifest, workflow or config file needs a command proof (#6080) ──
+
+MANIFEST = "k8s/devops/cronjob-runner.yaml"
+CONFIG_SCENARIO = "The runner mounts the cache"
+CONFIG_TREE = StagedTree(
+    [
+        "src/devops_cli/sample.py",
+        "tests/test_sample.py",
+        "docs/TESTING.md",
+        "pyproject.toml",
+        ".github/workflows/ci.yml",
+        MANIFEST,
+    ]
+)
+
+
+def _other_group(path: str) -> StageGroup:
+    return StageGroup.model_construct(
+        title="Change the file",
+        kind="other",
+        reads=[],
+        changes=[path],
+        creates=[],
+        creates_lines={},
+        test=None,
+        implementation=f"Change `{path}`",
+        documentation=None,
+        verify="uv run devops ci --check --only k8s",
+    )
+
+
+def _config_problems(
+    then: str,
+    *groups: StageGroup,
+    path: str = MANIFEST,
+    base: dict[str, tuple[str, ...]] | None = None,
+) -> list[str]:
+    scenario = StageScenario(name=CONFIG_SCENARIO, when=f"`{path}` is applied", then=then)
+    proposal = make_stage_proposal(
+        specs=[_spec_with([scenario])], groups=[_other_group(path), *groups]
+    )
+    return [
+        problem
+        for problem in check_proposal(
+            proposal, ["comment-thread"], CONFIG_TREE, base_scenarios=base, registry=()
+        )
+        if CONFIG_SCENARIO in problem
+    ]
+
+
+@pytest.mark.parametrize("path", [MANIFEST, ".github/workflows/ci.yml", "pyproject.toml"])
+def test_a_scenario_of_a_changed_config_file_with_no_command_is_refused(path: str) -> None:
+    (problem,) = _config_problems("the runner Job mounts the cache volume", path=path)
+
+    assert f"`{path}`" in problem
+    assert "validator command or the live check" in problem
+
+
+def test_a_behavior_test_that_names_the_changed_manifest_is_no_proof() -> None:
+    reader = _group(test=f"Write `test_x` in `tests/test_sample.py` that reads `{MANIFEST}`")
+
+    (problem,) = _config_problems("the runner Job mounts the cache volume", reader)
+
+    assert f"`{MANIFEST}`" in problem
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "uv run devops ci --check --only k8s",
+        "uv run devops k8s validate k8s/devops",
+        "uv run devops k8s searxng-check",
+        "kubectl get cronjob runner",
+    ],
+)
+def test_a_validator_command_or_a_live_check_proves_a_changed_manifest(command: str) -> None:
+    assert _config_problems(f"`{command}` shows the cache volume of the runner Job") == []
+
+
+@pytest.mark.parametrize(
+    "command", ["uv run devops ci test tests/test_sample.py", "uv run pytest tests/test_sample.py"]
+)
+def test_a_test_run_is_no_proof_of_a_changed_manifest(command: str) -> None:
+    (problem,) = _config_problems(f"`{command}` passes")
+
+    assert f"`{MANIFEST}`" in problem
+
+
+def test_a_scenario_of_the_base_spec_that_names_a_changed_manifest_is_exempt() -> None:
+    base = {"comment-thread": (CONFIG_SCENARIO,)}
+
+    assert _config_problems("the runner Job mounts the cache volume", base=base) == []
+
+
+def test_a_changed_document_keeps_the_rule_of_a_file_that_a_test_names() -> None:
+    """A Markdown document is no config file: a scenario that names it keeps the code rule."""
+    problems = _config_problems("`docs/TESTING.md` states the rule", path="docs/TESTING.md")
+
+    assert len(problems) == 1
+    assert "validator command" not in problems[0]

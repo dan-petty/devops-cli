@@ -4907,6 +4907,12 @@ class RoadmapMessages:
     stage_scenario_no_behavior_task: str = (
         "Scenario '{scenario}' of requirement '{requirement}' has no behavior task."
     )
+    stage_scenario_config_proof: str = (
+        "Scenario '{scenario}' names `{path}`, a manifest, a workflow or a config file that the "
+        "plan changes. Name in its `when` or its `then` the validator command or the live check "
+        "that proves it, such as `uv run devops ci --check --only k8s`. A test that reads the "
+        "file asserts a value of it, and it is no proof."
+    )
     stage_reference_uncovered_file: str = (
         "The quoted search lists `{path}`. Add a task group or a design decision for it."
     )
@@ -5133,6 +5139,10 @@ class RoadmapMessages:
         "Group {group} creates `{path}`, and the directory `{directory}` does not mirror the code "
         "that the plan changes. A new test goes in {expected}. Move it there."
     )
+    stage_test_path_mirror: str = (
+        "the folder under `tests/` that mirrors the package of the source code that it tests, "
+        "and never in `tests/invariants/`"
+    )
     stage_problem_move_prefix: str = (
         "Group {group} moves the prefix `{prefix}` in `{folder}`, and the staged tree also holds "
         "`{path}`. No group names `{path}` in `changes`. List every module of the prefix in the "
@@ -5240,11 +5250,6 @@ class RoadmapMessages:
         "Group {group} changes `{path}` and names no existing test of that module. Add `{test}` "
         "to `reads`, to the `Changes:` line or to a task of the group: the implement job cannot "
         "edit a test that the plan leaves out."
-    )
-    stage_problem_workflow_contract: str = (
-        "Group {group} changes the workflow `{path}` and its `changes` holds no `{test}`. Add "
-        "the contract test to `changes`, and write its case in this group: actionlint and "
-        "zizmor pass without a test of the change."
     )
     stage_problem_constant_mismatch: str = (
         "{constant} is {staged} in the staged tree, but the plan says {plan}."

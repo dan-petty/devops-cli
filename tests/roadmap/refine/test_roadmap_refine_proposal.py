@@ -295,6 +295,19 @@ def test_refines_prompts_load_and_the_reply_prompt_names_every_field() -> None:
     ) == (True, [], [True, True], [])
 
 
+def test_the_reply_prompt_asks_a_config_criterion_for_a_command_proof_as_the_stage_does() -> None:
+    """Refine wrote criteria such as "A test evaluates the package rules of
+    `.github/renovate.json`", and the stage planned a test that asserts a value of the file
+    (#6080). The criterion of a manifest, a workflow or a config file names the command that
+    proves it, with the phrase of the stage prompt."""
+    phrase = "names a validator command or a live check as its proof"
+
+    assert [
+        phrase in load_task_prompt(name)
+        for name in ("roadmap_refine_reply.md", "roadmap_stage_change.md")
+    ] == [True, True]
+
+
 def test_refine_proposal_caps_context_at_job_constant(
     git_repo: Path, store: InMemoryRoadmapStore, config: Any
 ) -> None:
