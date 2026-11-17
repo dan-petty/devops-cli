@@ -28,7 +28,12 @@ from devops_cli.roadmap.stores.store import (
     Item,
     StageRecordKey,
 )
-from tests.support.fakes.github import GitHubApiFake, github_json, route_compare_files
+from tests.support.fakes.github import (
+    GitHubApiFake,
+    github_json,
+    route_compare_files,
+    route_file,
+)
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_implement import BRANCH, FAIL, PASS, PULL, RUNNING, seed_staged
@@ -123,6 +128,26 @@ def test_a_green_draft_is_marked_ready_once_and_recorded(
         _record(store, number)[StageRecordKey.READY],
         _item(store, number).status,
     ) == ((number,), [("pr", "ready", str(PULL), "--repo", STAGE_REPO)], str(PULL), "Ready")
+
+
+def test_a_green_draft_with_a_placeholder_group_title_is_refused_and_not_marked(
+    store: InMemoryRoadmapStore, api: GitHubApiFake, ready: _Ready
+) -> None:
+    seed_staged(store)
+    _pull(api)
+    _checks(api, PASS)
+    route_file(
+        api,
+        STAGE_REPO,
+        "openspec/changes/1-the-job-drops-a-comment/tasks.md",
+        HEAD,
+        "## 1. x\n- [ ] 1.1 Do it\n",
+    )
+
+    applied = mark_stage_ready(store, repo=STAGE_REPO)
+
+    assert applied.marked == ()
+    assert ready.calls == []
 
 
 def test_a_green_draft_with_the_open_finding_label_stays_a_draft_and_is_not_marked(
