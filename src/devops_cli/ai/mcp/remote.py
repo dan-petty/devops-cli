@@ -34,6 +34,8 @@ logger = logging.getLogger(__name__)
 
 # The path of the MCP endpoint below the path of the role.
 _ENDPOINT_PATH: Final = "/mcp"
+# The route of the readiness probe; it needs no token (`k8s/devops/mcp-server/deployment.yaml`).
+_HEALTH_PATH: Final = "/healthz"
 # A shorter token is easy to guess. `openssl rand -hex 32` gives 64 characters.
 _MIN_TOKEN_LENGTH: Final = 32
 # The one caller that the bearer token names: the gateway in front of the server.
@@ -134,6 +136,14 @@ def build_http_app(token: str) -> FastAPI:
     )
     for role, role_app in role_apps.items():
         app.mount(f"/{role}", role_app)
+
+    # The readiness probe of the pod calls this route, and the kubelet holds no token. The app
+    # builds each role server before it answers, so a 200 tells that the tools are loaded. The
+    # route reads no tool and no setting, and it gives no data (#6066).
+    @app.get(_HEALTH_PATH, include_in_schema=False)
+    async def health() -> dict[str, str]:
+        return {"status": "ok"}
+
     return app
 
 
