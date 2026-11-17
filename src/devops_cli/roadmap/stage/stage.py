@@ -1658,6 +1658,7 @@ class _Planner:
         if verifier is None:
             raise _stage_error(MESSAGES.roadmap.fix_plan_no_review, target)
         self._start_item()
+        self._hold_comments(target)
         self._kept_facts = None
         self._judged = feasibility_sentences(proposal)
         request = self._request(target)
