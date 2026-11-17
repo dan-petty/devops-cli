@@ -27,7 +27,6 @@ from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.roadmap.plan_read import read_change
 from devops_cli.roadmap.refine.refine_investigation import tool_stop
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity, load_cases
-from devops_cli.roadmap.stage.stage_pull_files import PullRequestFiles, named_pull_requests
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient, review
 from devops_cli.roadmap.stage.stage_verify import (
     FIX_PLAN_LABEL,
@@ -1292,6 +1291,8 @@ STAGE_3372_ARCHIVE = (
 
 
 def test_only_the_phrase_pull_request_names_a_pull_request() -> None:
+    from devops_cli.roadmap.stage.stage_pull_files import named_pull_requests
+
     texts = [
         "The plan of #3372 in pull request #3378 chose a literal.",
         "See PR #3410 and #3435 and issue #1.",
@@ -1303,6 +1304,8 @@ def test_only_the_phrase_pull_request_names_a_pull_request() -> None:
 
 
 def test_the_payload_holds_the_named_pull_request_files() -> None:
+    from devops_cli.roadmap.stage.stage_pull_files import PullRequestFiles
+
     files = PullRequestFiles(
         3378, "6c15a64a", {"src/devops_cli/roadmap/stage_move.py": "move_prefix_problems = 1\n"}
     )
@@ -1336,6 +1339,8 @@ def _recorded_3378_plan() -> dict[str, str]:
 def test_a_quote_from_a_named_pull_request_file_is_evidence_for_the_3410_claim() -> None:
     """The claim of #3410 about pull request #3378 (#3447): the recorded plan holds no move group,
     and a `false_premise` finding that quotes the literal of a #3378 file is open."""
+    from devops_cli.roadmap.stage.stage_pull_files import PullRequestFiles
+
     body = (
         FIXTURES
         / "roadmap_eval"
