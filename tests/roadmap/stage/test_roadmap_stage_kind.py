@@ -79,7 +79,15 @@ def test_an_other_group_with_a_process_and_no_command_is_valid() -> None:
         ({"process": "Look at the output."}, "has a process"),
         (
             {"changes": ["docs/TESTING.md"], "creates": [], "creates_lines": {}},
-            "changes no path under src/",
+            "changes no Python file under src/",
+        ),
+        (
+            {
+                "changes": ["src/devops_cli/ai/tasks/roadmap_stage_change.md"],
+                "creates": [],
+                "creates_lines": {},
+            },
+            "changes no Python file under src/",
         ),
         ({"kind": "mixed"}, "Input should be 'behavior', 'manifest' or 'other'"),
     ],
@@ -301,7 +309,7 @@ def test_a_stage_prompt_names_each_kind_and_each_field_of_a_group(task: str) -> 
 def test_the_stage_prompt_states_the_rules_that_the_validator_checks() -> None:
     prompt = load_task_prompt("roadmap_stage_change.md")
 
-    assert "path under `src/`" in prompt
+    assert "Python file under `src/`" in prompt
     assert "no `test`" in prompt
     assert "`! git grep -n <name> src/ tests/`" in prompt
 

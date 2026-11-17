@@ -995,7 +995,7 @@ def test_an_unreadable_head_writes_no_result_line_and_uses_no_attempt(
     assert run.attempt.result is FixPlanResult.UNREADABLE
     (warning,) = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     assert "tasks.md" in warning
-    assert "changes no path under src/" in warning
+    assert "changes no Python file under src/" in warning
     assert f"#{plan.pull}" in warning
     assert result_fields(caplog) == []
     assert (model_fake.call_count, verifier.call_count) == (0, 0)

@@ -147,6 +147,8 @@ class _FailToPassState:
     head_junit_xml: str | None = None
     head_exit_status: int = 0
     changed_test_files: tuple[str, ...] = ("tests/test_mod.py",)
+    # The source code that the fix changes: a fix that changes none needs no proof (#6207).
+    changed_source_files: tuple[str, ...] = ("src/devops_cli/sample.py",)
     base_files: dict[str, str] = field(default_factory=dict)
     base_tests: dict[str, str] = field(default_factory=dict)
     active_worktrees: set[Path] = field(default_factory=set)
@@ -279,7 +281,11 @@ def _setup_fail_to_pass_fake(git_fake: GitFake, replay_state: _FailToPassState) 
     git_fake.answer(
         lambda call: "diff" in call.argv,
         lambda _call: ProcessAnswer(
-            returncode=0, stdout="".join(f"M\0{f}\0" for f in replay_state.changed_test_files)
+            returncode=0,
+            stdout="".join(
+                f"M\0{f}\0"
+                for f in (*replay_state.changed_source_files, *replay_state.changed_test_files)
+            ),
         ),
     )
     git_fake.answer(lambda call: "ls-files" in call.argv, ProcessAnswer(returncode=0, stdout=""))
@@ -339,6 +345,7 @@ def _replay_report(
         "gate_rows": (),
         "repaired": repaired,
         "head_could_not_run": head_could_not_run,
+        "needs_proof": True,
     }
 
 
@@ -432,6 +439,38 @@ def test_no_title_label_or_body_changes_the_result(
         "not applicable" in result.output,
         old_options,
     ) == (1, True, False, [2, 2, 2])
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        ("src/devops_cli/ai/tasks/roadmap_stage_change.md",),
+        (
+            "src/devops_cli/tools_lock/tools.lock",
+            "src/devops_cli/tools_lock/openspec/package-lock.json",
+        ),
+        ("src/devops_cli/ai/knowledge_base/devops_cli/sample.py",),
+        (".github/workflows/ci.yml", "k8s/devops/roadmap-service/deployment.yaml"),
+    ],
+    ids=["prompt", "tool-pins", "knowledge-base", "outside-src"],
+)
+def test_a_fix_that_changes_no_source_code_needs_no_test_that_fails_on_base(
+    replay_state: _FailToPassState, git_fake: GitFake, changed: tuple[str, ...]
+) -> None:
+    """A test that fails on base proves a change of code (#6207). A fix that changes only a prompt,
+    a tool pin, the knowledge base or files outside src/ passes with no replay, and says why, so
+    no one writes a test of a value to satisfy the check."""
+    _mock_replay_repo(replay_state, JUNIT_ALL_PASS)
+    replay_state.changed_source_files = changed
+
+    result = runner.invoke(app, ["fail-to-pass", "--base", "main"])
+
+    pytest_calls = [c for c in git_fake.calls if "-m" in c.argv and "pytest" in c.argv]
+    assert (result.exit_code, len(pytest_calls), "changes no source code" in result.output) == (
+        0,
+        0,
+        True,
+    )
 
 
 def test_fail_to_pass_materialises_base_and_overlays_head_tests(
@@ -1175,7 +1214,10 @@ def test_fail_to_pass_dry_run_lists_the_replay_and_starts_nothing(
     assert " -m pytest " in lines[13]
     assert lines[13].endswith("'<unchanged test files>'")
     conditions = [line.split("  [", 1)[1] for line in _plan_lines(result.output)[5:]]
-    replay = "only if a changed test file or gate check exists]"
+    replay = (
+        "only if the fix changes source code and a changed test file exists, or a changed gate check"
+        " exists]"
+    )
     gate = "only if a changed gate check exists]  [repeated for each row of a changed gate check]"
     assert [conditions[index] for index in (0, 1, 6, 7)] == [replay] * 4
     assert all(
@@ -1228,7 +1270,10 @@ def test_fail_to_pass_runs_the_processes_of_its_plan(
     placeholders hold the values that the run reads. A fix that changes only a test file starts
     no gate row, and one that changes only a gate check starts no pytest."""
     process_fake.answer(["git", "merge-base"], ProcessAnswer(stdout="abc123\n"))
-    process_fake.answer(["git", "diff", "--name-status"], ProcessAnswer(stdout=f"M\0{changed}\0"))
+    process_fake.answer(
+        ["git", "diff", "--name-status"],
+        ProcessAnswer(stdout=f"M\0src/devops_cli/sample.py\0M\0{changed}\0"),
+    )
 
     run_fail_to_pass(tmp_path, base="main")
 

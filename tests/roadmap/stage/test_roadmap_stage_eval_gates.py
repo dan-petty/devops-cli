@@ -398,7 +398,7 @@ def test_the_kind_gate_gives_the_message_of_the_schema_for_a_group_with_no_sourc
     problems = run_gates(PlanUnderTest.of_case(case))[GateName.KIND]
 
     assert problems
-    assert all("changes no path under src/" in problem for problem in problems)
+    assert all("changes no Python file under src/" in problem for problem in problems)
 
 
 def test_the_replay_runs_the_check_of_the_job_so_a_spec_rule_that_refuses_all_fails_it(

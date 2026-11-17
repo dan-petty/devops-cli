@@ -2524,6 +2524,8 @@ CONST_CACHE_NAMESPACE_ROOT: Final[str] = "devops-cli"
 # ── Source & Test Tree Layout ────────────────────────────────────────────────
 # Repository layout conventions used to map changed sources onto covering tests.
 CONST_SOURCE_ROOT_DIR: Final[str] = "src"
+# The knowledge base: documents and samples under src/ that are no code of the tool (#6207).
+CONST_KNOWLEDGE_BASE_DIR: Final[str] = "src/devops_cli/ai/knowledge_base"
 CONST_TESTS_ROOT_DIR: Final[str] = "tests"
 CONST_TEST_FILE_PREFIX: Final[str] = "test_"
 CONST_PYTHON_FILE_SUFFIX: Final[str] = ".py"

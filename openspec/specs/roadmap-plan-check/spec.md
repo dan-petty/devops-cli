@@ -297,7 +297,7 @@ The command of the documents step (`uv run devops docs generate`) SHALL be no ma
 - **THEN** the reader gives the documents work with that end
 
 ### Requirement: The plan reader reads the kind of each task group
-The plan reader SHALL take the kind of a task group from its `Kind:` line when the word of the line is a kind. A group with no `Kind:` line, or with a word that is no kind, SHALL read as `behavior` when its first task fails on the base and it changes a path under `src/`, as `manifest` when its first task fails on the base and it changes no such path, and as `other` otherwise.
+The plan reader SHALL take the kind of a task group from its `Kind:` line when the word of the line is a kind. A group with no `Kind:` line, or with a word that is no kind, SHALL read as `behavior` when its first task fails on the base and it changes a `.py` file under `src/` outside the knowledge base, as `manifest` when its first task fails on the base and it changes no such file, and as `other` otherwise. A prompt, a pin or other data under `src/` is no such file.
 
 #### Scenario: A Kind line sets the kind
 - **WHEN** a group says `Kind: other.` and its first task fails on the base
