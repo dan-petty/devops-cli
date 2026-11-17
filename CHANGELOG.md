@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.169.4](https://github.com/dan-petty/devops-cli/compare/v0.169.3...v0.169.4) (2026-11-17)
+
+
+### Bug Fixes
+
+* **deps:** update Helm release grafana to v14.4.2 ([#6098](https://github.com/dan-petty/devops-cli/issues/6098)) ([b8c7632](https://github.com/dan-petty/devops-cli/commit/b8c76323c8f030a75fcd6cda714309a21d7b05f0))
+* **roadmap:** plan-recheck rewrites unmarked verification commands ([#6102](https://github.com/dan-petty/devops-cli/issues/6102)) ([2eb1579](https://github.com/dan-petty/devops-cli/commit/2eb157917c9591fa052d0e31f2de9d04e39fe199))
+* **roadmap:** stop implement early when a test outside diff_scope fails ([#6110](https://github.com/dan-petty/devops-cli/issues/6110)) ([c58b592](https://github.com/dan-petty/devops-cli/commit/c58b592f30eac93197a51bcbc64521105820711e))
+
 ## [0.169.3](https://github.com/dan-petty/devops-cli/compare/v0.169.2...v0.169.3) (2026-11-17)
 
 
