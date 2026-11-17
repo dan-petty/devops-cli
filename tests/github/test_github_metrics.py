@@ -1398,7 +1398,7 @@ def test_an_age_is_the_clock_minus_the_labeled_event_of_the_status() -> None:
     _write_field(store, number, ItemField.STATUS, "Ready")
     clock.at(3600)
 
-    ages, _, _ = get_item_age_metrics(store, REPO, clock)
+    ages, _, _, _ = get_item_age_metrics(store, REPO, clock)
 
     assert _age_of(ages, "ready") == ItemAgeMetric(phase="ready", number=number, age_seconds=3600.0)
 
@@ -1415,7 +1415,7 @@ def test_the_oldest_item_of_a_phase_gives_the_age_and_the_number() -> None:
     _write_field(store, second, ItemField.STATUS, "Ready")
     clock.at(3600)
 
-    ages, _, _ = get_item_age_metrics(store, REPO, clock)
+    ages, _, _, _ = get_item_age_metrics(store, REPO, clock)
 
     assert _age_of(ages, "ready") == ItemAgeMetric(phase="ready", number=first, age_seconds=3600.0)
 
@@ -1433,7 +1433,7 @@ def test_a_status_that_a_person_removed_and_added_again_counts_from_the_second_e
     _write_field(store, number, ItemField.STATUS, "Ready")
     clock.at(3600)
 
-    ages, _, _ = get_item_age_metrics(store, REPO, clock)
+    ages, _, _, _ = get_item_age_metrics(store, REPO, clock)
 
     assert _age_of(ages, "ready").age_seconds == 3400.0
 
@@ -1452,7 +1452,7 @@ def test_a_staged_pull_request_sets_staged_phase() -> None:
     _write_field(store, without_plan, ItemField.STATUS, "Ready")
     clock.at(3600)
 
-    ages, _, _ = get_item_age_metrics(store, REPO, clock)
+    ages, _, _, _ = get_item_age_metrics(store, REPO, clock)
 
     assert (
         _age_of(ages, "staged").number,
@@ -1466,7 +1466,7 @@ def test_a_phase_with_no_item_sends_zero_for_its_age_and_its_number() -> None:
     clock = AgesClock()
     store = InMemoryRoadmapStore(clock=clock)
 
-    ages, claim, _ = get_item_age_metrics(store, REPO, clock)
+    ages, claim, _, _ = get_item_age_metrics(store, REPO, clock)
 
     assert (
         len(ages),
@@ -1490,7 +1490,7 @@ def test_the_oldest_claim_gives_the_claim_age() -> None:
     _write_field(store, second, ItemField.OWNER, "Service")
     clock.at(3600)
 
-    _, claim, _ = get_item_age_metrics(store, REPO, clock)
+    _, claim, _, _ = get_item_age_metrics(store, REPO, clock)
 
     assert claim == 3600.0
 
@@ -1549,7 +1549,7 @@ def test_a_failed_label_read_keeps_the_item_counts_and_sends_no_age(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """When the label events of an Item cannot be read, the report keeps the item counts, has no
-    age and no claim age, and a warning names the repository (#2919)."""
+    age, no claim age and no claim count, and a warning names the repository (#2919, #4579)."""
     clock = AgesClock()
     store = InMemoryRoadmapStore(clock=clock)
     number = _seeded_item(store)
@@ -1573,8 +1573,9 @@ def test_a_failed_label_read_keeps_the_item_counts_and_sends_no_age(
         report.item_ages,
         report.item_phases,
         report.claim_age_seconds,
+        report.claims,
         any(REPO in record.getMessage() for record in caplog.records),
-    ) == ([ItemCountMetric(state="open", priority="P2-Medium", count=1)], [], [], None, True)
+    ) == ([ItemCountMetric(state="open", priority="P2-Medium", count=1)], [], [], None, {}, True)
 
 
 def test_the_age_gauges_are_sent_with_the_item_number_and_the_labels(
@@ -1702,3 +1703,37 @@ def test_a_phase_that_empties_sends_zero_once(
 
     points3 = [p for attrs, p in otlp.points(ROADMAP_ITEMS.name) if attrs.get("phase") == "ready"]
     assert points3 == [1.0, 0.0]
+
+
+def test_each_claimant_kind_gets_a_sample(otlp: FakeCollector) -> None:
+    """#4579: a snapshot sends one claims sample for each claimant kind, and 0 for an empty one."""
+    clock = AgesClock()
+    store = InMemoryRoadmapStore(repo=REPO)
+    number = _seeded_item(store)
+    _write_field(store, number, ItemField.OWNER, "Service")
+
+    _, _, _, claims = get_item_age_metrics(store, REPO, clock)
+    report = ProjectMetricsReport(repo=REPO, generated_at="2026-11-17 00:00:00 UTC", claims=claims)
+
+    emit_project_metrics_telemetry(report)
+
+    points = {attrs["claimant"]: value for attrs, value in otlp.points("devops_cli_roadmap_claims")}
+
+    assert points == {"service": 1.0, "agent": 0.0, "human": 0.0}
+
+
+def test_no_claim_label_holds_an_issue_number_or_is_named_owner(otlp: FakeCollector) -> None:
+    """#4579: each claims label name is repo or claimant, and no value is an issue number."""
+    clock = AgesClock()
+    store = InMemoryRoadmapStore(repo=REPO)
+    number = _seeded_item(store)
+    _write_field(store, number, ItemField.OWNER, "Agent")
+
+    _, _, _, claims = get_item_age_metrics(store, REPO, clock)
+    report = ProjectMetricsReport(repo=REPO, generated_at="2026-11-17 00:00:00 UTC", claims=claims)
+
+    emit_project_metrics_telemetry(report)
+
+    for attrs, _ in otlp.points("devops_cli_roadmap_claims"):
+        assert set(attrs) == {"repo", "claimant"}
+        assert all(not value.isdigit() for value in attrs.values())

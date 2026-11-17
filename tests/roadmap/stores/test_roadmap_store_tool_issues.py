@@ -86,7 +86,7 @@ def _open(store: InMemoryRoadmapStore) -> set[int]:
 
 
 def _metrics(store: InMemoryRoadmapStore) -> set[int]:
-    ages, _, _ = get_item_age_metrics(store, REPO, lambda: NOW, running_units=(), stall_hours=24)
+    ages, _, _, _ = get_item_age_metrics(store, REPO, lambda: NOW, running_units=(), stall_hours=24)
     return {age.number for age in ages if age.number}
 
 
