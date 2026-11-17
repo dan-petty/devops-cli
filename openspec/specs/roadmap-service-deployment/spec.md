@@ -186,13 +186,6 @@ Each job task of `k8s/devops/configmap.example.yaml` except `intake` and `retitl
 - **WHEN** the lines above the task `stage` in the template are read
 - **THEN** they name #4369, the date 2026-11-10, 67 USD a week, #3874 and Sonnet as a later trial
 
-### Requirement: The Service keeps Recreate until its Lease code runs
-`deployment/roadmap-service` SHALL set `replicas: 1` and the `Recreate` strategy until the release that carries the Lease code of the rows runs, so that release stops the old pod, which has no Lease code, before the new pod starts. The switch to `RollingUpdate` with `maxSurge: 1` and `maxUnavailable: 0` SHALL come in a second change (#6107). The readiness of a pod SHALL NOT wait for the Lease `roadmap-service-rows`.
-
-#### Scenario: The release that carries the Lease code
-- **WHEN** that release replaces a pod that has no Lease code
-- **THEN** the old pod stops before the new pod starts, and the new pod takes the Lease and runs the rows
-
 ### Requirement: One pod of the Service holds the rows
 Only the pod that holds the Lease `roadmap-service-rows` (`coordination.k8s.io/v1`) SHALL read the state files of the rows and run the workers and the poll. A pod that waits for the Lease SHALL keep each delivery in its lane queues until it takes the Lease. A pod SHALL give the Lease back after its drain, and a holder that is killed SHALL lose it after its `leaseDurationSeconds`.
 
@@ -218,3 +211,14 @@ The render of ConfigMap `devops-cli-config` from `k8s/devops/configmap.example.y
 #### Scenario: The committed template renders
 - **WHEN** `uv run devops k8s deploy-stack --stack devops --dry-run` renders the ConfigMap from `k8s/devops/configmap.example.yaml`
 - **THEN** the render names no unknown key
+
+### Requirement: The Service rolls with a surge release
+`deployment/roadmap-service` SHALL set `replicas: 1` and `RollingUpdate` with `maxSurge: 1` and `maxUnavailable: 0`, so the old pod gets SIGTERM only after the new pod passes `/readyz`. The new pod SHALL run on the node of the home volume and mount its ReadWriteOnce claim beside the old pod. The readiness of a pod SHALL NOT wait for the Lease `roadmap-service-rows`.
+
+#### Scenario: The manifest checks
+- **WHEN** `uv run devops ci --check --only k8s,kube-linter` runs
+- **THEN** both rows pass, and the `kube-linter` row checks `deployment/roadmap-service` with `no-rolling-update-strategy` and `no-readiness-probe`, with no exception annotation
+
+#### Scenario: A release of the Service
+- **WHEN** a release replaces the pod, and a person runs `kubectl -n devops rollout status deployment/roadmap-service` and `kubectl -n devops get pods -l app.kubernetes.io/name=roadmap-service -w`
+- **THEN** the rollout completes, the new pod is `Ready` before the old pod stops, `kubectl -n devops get lease roadmap-service-rows -o jsonpath='{.spec.holderIdentity}'` names the new pod only after the drain of the old pod ends, and `uv run devops gh api 'repos/<owner>/<repo>/hooks/<id>/deliveries?per_page=100' --jq '[.[] | select(.delivered_at >= "<start of the release>" and .status_code >= 500)] | length'` prints `0`

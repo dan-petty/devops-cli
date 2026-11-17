@@ -10,20 +10,22 @@ metadata:
     ignore-check.kube-linter.io/latest-tag: >-
       Argo CD Image Updater sets the digest of the image in Application devops
       (k8s/argocd/image-updater-values.yaml, #6068).
-    ignore-check.kube-linter.io/no-rolling-update-strategy: >-
-      Recreate until #6107: the pod before the release that carries the Lease code has no
-      Lease code, so this release stops it before the new pod starts.
 spec:
-  # One pod. The Service acts as GitHub App devops-cli-service (ADR 0015) on each repository
+  # One replica. The Service acts as GitHub App devops-cli-service (ADR 0015) on each repository
   # in service.repos. Argo CD self-heals this value, so a scale by hand does not stay. To stop
   # the Service, do the stop switch in docs/CLUSTER.md, "Roadmap service".
   replicas: 1
-  # Recreate until the release that carries the Lease code runs (#6058). Only the pod that holds
-  # the Lease roadmap-service-rows runs the rows, but the pod before that release has no Lease
-  # code, so this release must stop it before the new pod starts. #6107 then switches to
-  # RollingUpdate with maxSurge 1 and maxUnavailable 0 (docs/CLUSTER.md, "Roadmap service").
+  # A surge release (#6107): the new pod starts beside the old pod and gets the webhooks when
+  # /readyz passes, and only then does the old pod get SIGTERM. The PV of the home volume binds to
+  # one node, so the scheduler puts the new pod on that node, and ReadWriteOnce lets the two pods
+  # of that node mount the claim. Only the pod that holds the Lease roadmap-service-rows runs the
+  # rows, so the new pod waits for the Lease while the old pod drains (#6058; docs/CLUSTER.md,
+  # "Roadmap service").
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: roadmap-service
@@ -133,8 +135,8 @@ spec:
             - name: OTEL_SERVICE_NAME
               value: roadmap-service
             # The pod name: the holder identity of the Lease roadmap-service-rows, and the
-            # service.instance.id (`instance`) of the metrics. During the surge release of #6107
-            # two pods send at the same time, so each pod sends its own metric stream (#6058).
+            # service.instance.id (`instance`) of the metrics. During a surge release two pods
+            # send at the same time, so each pod sends its own metric stream (#6058, #6107).
             - name: POD_NAME
               valueFrom:
                 fieldRef:

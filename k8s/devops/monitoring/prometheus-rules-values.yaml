@@ -116,8 +116,9 @@ serverFiles:
             annotations:
               summary: 'The roadmap Service container in {{ $labels.pod }} uses {{ $value | humanizePercentage }} of its memory limit'
               description: 'The working set of container service of pod {{ $labels.namespace }}/{{ $labels.pod }} has been above 85% of its memory limit for 10 minutes, and the kernel kills the container at 100% (docs/CLUSTER.md, Roadmap service).'
-          # The Recreate strategy stops the old pod before it starts the new one, so a rollout
-          # has no available replica for a few minutes.
+          # A surge release keeps the old pod available until the new pod is ready (#6107). A drain
+          # of the node of the volume, or a restart of the pod, has no available replica for a few
+          # minutes.
           - alert: RoadmapServiceUnavailable
             expr: max by (namespace, deployment) (kube_deployment_status_replicas_unavailable{namespace="devops", deployment="roadmap-service"}) > 0
             for: 10m
