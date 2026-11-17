@@ -5242,6 +5242,10 @@ CONST_TRIVY_CONFIG_SCAN_TYPE: Final[str] = "config"
 # The ignore file of the IaC scan: an entry holds the path, the `statement` and `expired_at` of one
 # finding, and Trivy reads it only when it is named with `--ignorefile` (#4401).
 CONST_TRIVY_CONFIG_IGNORE_FILE: Final[str] = ".trivyignore.yaml"
+# The ignore file of `npm audit`, which reads none of its own: one entry for each advisory that no
+# released version fixes, in the form of `.trivyignore.yaml` (SECURITY.md, A Finding with No Fix;
+# #6204).
+CONST_NPM_AUDIT_IGNORE_FILE: Final[str] = ".npm-audit-ignore.yaml"
 # The tool name that GitHub code scanning shows for the `trivy config` results of the SARIF upload.
 CONST_TRIVY_CONFIG_ALERT_TOOL: Final[str] = "Trivy-config"
 # The most issues that one run of `devops scan alerts` files, so a first run over a long list of
