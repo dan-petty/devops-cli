@@ -17,10 +17,13 @@ import pytest
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
+    CONST_ROADMAP_IMPLEMENT_COMMENTS_MAX_TOKENS,
     CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS,
 )
+from devops_cli.roadmap.implement import implement_step
 from devops_cli.roadmap.implement.implement_comments import StepComments, plan_merged_at
-from devops_cli.roadmap.implement.implement_step import build_step_inputs
+from devops_cli.roadmap.implement.implement_step import StepInputs, build_step_inputs
+from devops_cli.roadmap.item_comments import SectionForm, fit_comments
 from devops_cli.roadmap.stores.store import ItemField
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import BODY, REPO, WINDOW, git, make_checkout
@@ -236,3 +239,82 @@ def test_the_plan_time_of_an_archived_change_is_the_time_that_its_plan_merged(
     git(checkout, "commit", "-q", "-m", "archive")
 
     assert plan_merged_at(checkout, archive / "2026-11-18-1-sample-change") == MERGED
+
+
+def _plain_tokens(store: InMemoryRoadmapStore, checkout: Path) -> int:
+    return build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW).tokens
+
+
+def _inputs_at(store: InMemoryRoadmapStore, checkout: Path, room: int) -> StepInputs:
+    """The inputs of group 1 with a window that leaves `room` tokens under the limit for the
+    comments."""
+    window = _plain_tokens(store, checkout) + CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS + room
+    return build_step_inputs(
+        store,
+        item=1,
+        group=1,
+        source=checkout,
+        window=window,
+        comments=StepComments.read(store, 1, checkout),
+    )
+
+
+LEFT_OUT = (
+    "This item has 2 comments that did not fit the input (1 after the plan merged); read them "
+    "with `read_comment`."
+)
+
+
+def test_a_room_too_small_for_the_section_gives_a_line_that_names_read_comment(
+    store: InMemoryRoadmapStore, clock: _Clock, checkout: Path
+) -> None:
+    """The room holds no section of the comments, not even its heading: the inputs hold one line
+    that counts the comments and names `read_comment`, so the agent never misses a decision."""
+    _comment(store, clock, MERGED - timedelta(hours=1), "An old note before the plan.")
+    _comment(store, clock, MERGED + timedelta(hours=1), DECISION)
+
+    inputs = _inputs_at(store, checkout, 60)
+
+    assert (
+        LEFT_OUT in inputs.message,
+        "# Comments on the item" in inputs.message,
+        inputs.comments.unlisted,
+        inputs.tokens <= _plain_tokens(store, checkout) + 60,
+    ) == (True, False, 2, True)
+
+
+def test_a_section_that_the_join_takes_over_the_limit_gives_the_line_in_its_place(
+    store: InMemoryRoadmapStore, clock: _Clock, checkout: Path
+) -> None:
+    """The section fits its room by its own measure, but the joined message counts more tokens and
+    would take the inputs over the limit: the line takes its place. The worst-case frame of the
+    section keeps this rare, so the test gives the helper a measure of the message with no comment
+    that is lower than the message counts, as a join of the sections can be."""
+    _comment(store, clock, MERGED - timedelta(hours=1), "An old note before the plan.")
+    _comment(store, clock, MERGED + timedelta(hours=1), DECISION)
+    comments = StepComments.read(store, 1, checkout)
+    head, tail = ["# Head\n\n" + " ".join(f"word{n}" for n in range(400))], ["# Your group"]
+    instructions = "Do the group."
+    plain = "\n\n".join([*head, *tail])
+    plain_tokens = count_tokens(instructions) + count_tokens(plain)
+    limit = plain_tokens + count_tokens(LEFT_OUT) + 10
+
+    message, tokens, fitted = implement_step._with_comments(
+        comments,
+        head,
+        tail,
+        instructions,
+        (plain, limit - CONST_ROADMAP_IMPLEMENT_COMMENTS_MAX_TOKENS),
+        limit,
+    )
+
+    assert (
+        fit_comments(
+            comments.held, CONST_ROADMAP_IMPLEMENT_COMMENTS_MAX_TOKENS, SectionForm(MERGED)
+        ).tokens
+        > count_tokens(LEFT_OUT) + 10,
+        LEFT_OUT in message,
+        DECISION in message,
+        fitted.used,
+        tokens <= limit,
+    ) == (True, True, False, (), True)

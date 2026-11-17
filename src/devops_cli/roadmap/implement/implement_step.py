@@ -164,7 +164,12 @@ from devops_cli.roadmap.implement.implement_test_names import lost_since, unreco
 from devops_cli.roadmap.implement.implement_tool_log import ToolCallLog
 from devops_cli.roadmap.implement.implement_trace import ImplementTrace
 from devops_cli.roadmap.implement.implement_wip import WipCommit, WipKeeper, restore_sources
-from devops_cli.roadmap.item_comments import FittedComments, SectionForm, fit_comments
+from devops_cli.roadmap.item_comments import (
+    FittedComments,
+    SectionForm,
+    comments_left_out,
+    fit_comments,
+)
 from devops_cli.roadmap.mcp import ROLE_IMPLEMENTATION, build_roadmap_mcp_toolset
 from devops_cli.roadmap.plan_read import PlanReadError, group_files
 from devops_cli.roadmap.step_commit import step_commit_title
@@ -511,19 +516,33 @@ def _with_comments(
     """The message with the section of the comments between `head` and `tail`, its tokens, and the
     comments that it holds. The section gets the room that `plain`, the message with no comment,
     leaves under `limit` (#6167). The join of the sections can count a few tokens more than its
-    parts: a section that would take the inputs over the limit stays out, and `read_comment` still
-    lists every comment."""
+    parts: a section that would take the inputs over the limit stays out. When no section fits,
+    the message holds the one line of `comments_left_out` in its place, so the agent knows to
+    read the comments with `read_comment`; the line stays out only when it too would take the
+    inputs over the limit."""
     form = SectionForm(comments.plan_at)
     room = min(CONST_ROADMAP_IMPLEMENT_COMMENTS_MAX_TOKENS, limit - plain[1])
     fitted = fit_comments(comments.held, room, form)
-    if not fitted.tokens:
-        return (*plain, fitted)
-    parts = (*head, form.text(fitted), *tail)
-    message = "\n\n".join(part for part in parts if part)
-    tokens = count_tokens(instructions) + count_tokens(message)
-    if tokens > limit:
-        return (*plain, FittedComments(unlisted=len(comments.held)))
-    return message, tokens, fitted
+    if fitted.tokens:
+        joined = _joined(head, form.text(fitted), tail, instructions)
+        if joined[1] <= limit:
+            return (*joined, fitted)
+    left_out = FittedComments(unlisted=len(comments.held))
+    if comments.held:
+        joined = _joined(
+            head, comments_left_out(comments.held, comments.plan_at), tail, instructions
+        )
+        if joined[1] <= limit:
+            return (*joined, left_out)
+    return (*plain, left_out)
+
+
+def _joined(
+    head: Sequence[str], section: str, tail: Sequence[str], instructions: str
+) -> tuple[str, int]:
+    """The message with `section` between `head` and `tail`, and the tokens of the inputs."""
+    message = "\n\n".join(part for part in (*head, section, *tail) if part)
+    return message, count_tokens(instructions) + count_tokens(message)
 
 
 # ── The outcome ───────────────────────────────────────────────────────────────────────────

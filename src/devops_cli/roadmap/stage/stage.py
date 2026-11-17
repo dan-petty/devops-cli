@@ -1327,8 +1327,11 @@ class PlanFiles:
         return plan_record_path(self.repo, number)
 
     def key(self, item: Item, comments: Sequence[HeldComment] = ()) -> str:
-        """The key of the plan of `item`: a new comment of the item gives a new key, so a kept plan
-        never misses it (#6167)."""
+        """The key of the plan of `item`: a new comment of a person gives a new key, so a kept plan
+        never misses a decision (#6167). A comment of a job changes no key: the stage job comments
+        on each failure and stop, and a job verdict that can change the plan, such as that of
+        refine or of the alternatives check, lands in the body, whose hashes the key holds. The
+        request of a new plan still gives the model every comment."""
         return plan_key(
             number=item.number,
             title=item.title,
@@ -1337,7 +1340,7 @@ class PlanFiles:
             toolset=self.toolset,
             prompt_version=prompt_version(self.toolset),
             comments=tuple(
-                f"{c.number}\n{c.author}\n{c.at.isoformat()}\n{c.text}" for c in comments
+                f"{c.author}\n{c.at.isoformat()}\n{c.text}" for c in comments if c.by_person
             ),
         )
 

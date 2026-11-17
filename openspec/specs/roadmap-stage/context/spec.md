@@ -154,8 +154,12 @@ The comments SHALL take the room that the body leaves under its cap, and at most
 - **THEN** the request stays under the limit of the tools with 512 tokens of headroom, the newest comment is whole, and the entries and `unlisted` count 41 comments
 
 ### Requirement: A staged item names the comments that its plan request held
-The comment of a staged item SHALL name each comment that the plan request held whole, by its page. The key of the kept plan of an item SHALL hold its comments, so a new comment makes a new plan.
+The comment of a staged item SHALL name each comment that the plan request held whole, by its page. The key of the kept plan of an item SHALL hold the comments of persons, so a new decision makes a new plan. A comment of a job SHALL change no key.
 
 #### Scenario: The record of the comments
 - **WHEN** a staged item has a comment whose page is known
 - **THEN** the comment of the staged item names that page as a comment that the plan request held whole
+
+#### Scenario: The key of a kept plan
+- **WHEN** a stage job comment and then a comment of a person come after a kept plan
+- **THEN** the key stays the same after the job comment and changes after the comment of the person

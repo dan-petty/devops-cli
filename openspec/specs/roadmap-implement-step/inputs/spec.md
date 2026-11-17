@@ -271,8 +271,12 @@ The section of the comments SHALL say when the plan merged: the author time of t
 - **THEN** the plan time is the time that the plan merged
 
 ### Requirement: The comments never take a step over the window
-The comments SHALL take at most `CONST_ROADMAP_IMPLEMENT_COMMENTS_MAX_TOKENS` tokens and at most the room that the other inputs leave under the limit of the window. The newest comments SHALL come whole while they fit, and each older comment SHALL get a line of an index while it fits. No comment SHALL be cut.
+The comments SHALL take at most `CONST_ROADMAP_IMPLEMENT_COMMENTS_MAX_TOKENS` tokens and at most the room that the other inputs leave under the limit of the window. The newest comments SHALL come whole while they fit, and each older comment SHALL get a line of an index while it fits. No comment SHALL be cut. When no section fits, one line SHALL count the comments, and those after the plan merged, and name `read_comment`.
 
 #### Scenario: Comments that do not fit
 - **WHEN** the window leaves 400 tokens for the comments of an item with a comment of 6,000 words and a later decision
 - **THEN** the inputs stay under the limit, hold the decision whole, list the long comment in the index, and hold no word of its end
+
+#### Scenario: No section fits
+- **WHEN** the window leaves 60 tokens for two comments, one of them after the plan merged
+- **THEN** the inputs hold the line "This item has 2 comments that did not fit the input (1 after the plan merged); read them with `read_comment`." and no section of the comments
