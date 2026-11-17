@@ -595,6 +595,18 @@ def test_mcp_server_reads_its_bearer_token_from_the_secret_that_the_push_writes(
     }
 
 
+def test_mcp_server_rolls_with_no_gap_and_its_readiness_calls_the_health_route() -> None:
+    """The server keeps no state, so a release starts the new pod before it stops the old pod.
+    The readiness probe calls the app, not only the socket (#6066)."""
+    spec = _doc("mcp-server/deployment.yaml")["spec"]
+    (container,) = spec["template"]["spec"]["containers"]
+
+    assert (spec["strategy"], container["readinessProbe"]["httpGet"]) == (
+        {"type": "RollingUpdate", "rollingUpdate": {"maxSurge": 1, "maxUnavailable": 0}},
+        {"path": "/healthz", "port": 8001},
+    )
+
+
 def test_the_config_names_the_qdrant_service_and_holds_no_key() -> None:
     """The pods reach Qdrant in namespace llm at its ClusterIP Service, and the key reaches them
     from Secret devops/devops-cli (#3823)."""
