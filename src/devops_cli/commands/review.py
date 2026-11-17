@@ -285,6 +285,7 @@ def _execute_path_review(
     concurrency: int | None,
     parallel: bool,
     full: bool,
+    in_runner: bool,
     override_pages: list[str] | None = None,
 ) -> None:
     print_info("Scanning in place (uncommitted work)...", prefix=False)
@@ -310,6 +311,7 @@ def _execute_path_review(
         parallel=parallel,
         full_output=full,
         routed_files=routed_files,
+        in_runner=in_runner,
     )
 
 
@@ -325,6 +327,7 @@ def _run_path_watcher(
     concurrency: int | None,
     parallel: bool,
     full: bool,
+    in_runner: bool,
 ) -> None:
     """Watch target paths and review changed files on modifications."""
     from devops_cli.watchers.file_watcher import DebouncedFileWatcher
@@ -351,6 +354,7 @@ def _run_path_watcher(
             concurrency=concurrency,
             parallel=parallel,
             full=full,
+            in_runner=in_runner,
             override_pages=pages,
         )
 
@@ -504,6 +508,7 @@ def path(
             concurrency=concurrency,
             parallel=parallel,
             full=full,
+            in_runner=settings.roadmap.implement.in_runner,
         )
         return
 
@@ -517,6 +522,7 @@ def path(
         concurrency=concurrency,
         parallel=parallel,
         full=full,
+        in_runner=settings.roadmap.implement.in_runner,
     )
 
 
@@ -669,6 +675,7 @@ def branch(
             base_revision=base_revision,
             full_output=full,
             session_id=session_id,
+            in_runner=settings.roadmap.implement.in_runner,
         )
         return
 
@@ -695,6 +702,7 @@ def branch(
             full_output=full,
             session_id=session_id,
             partial_context=rw.partial_context,
+            in_runner=settings.roadmap.implement.in_runner,
         )
 
 
@@ -719,6 +727,7 @@ def _run_pr_review_workflow(
     repo_arg: str | None = None,
     *,
     checkout: Path,
+    in_runner: bool,
 ) -> list[ReviewResult | str]:
     """Execute PR review workflow, using detached worktree if available, else partial context.
 
@@ -753,6 +762,7 @@ def _run_pr_review_workflow(
             full_output=full,
             session_id=session_id,
             partial_context=True,
+            in_runner=in_runner,
         )
 
     with review_worktrees_context(
@@ -776,6 +786,7 @@ def _run_pr_review_workflow(
             full_output=full,
             session_id=session_id,
             partial_context=rw.partial_context,
+            in_runner=in_runner,
         )
 
 
@@ -928,6 +939,7 @@ def pr(
             session_id,
             repo_arg=repo,
             checkout=checkout,
+            in_runner=settings.roadmap.implement.in_runner,
         )
 
     if post_comment and reviews:

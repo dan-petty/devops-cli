@@ -325,6 +325,7 @@ def test_run_pr_review_workflow_partial_context(tmp_path: Path) -> None:
             full=False,
             session_id="test-pr-session",
             checkout=tmp_path,
+            in_runner=False,
         )
 
         assert result == []
@@ -370,6 +371,7 @@ def test_run_pr_review_workflow_with_worktree(tmp_path: Path) -> None:
             full=False,
             session_id="test-pr-session",
             checkout=tmp_path,
+            in_runner=False,
         )
 
         assert result == []
