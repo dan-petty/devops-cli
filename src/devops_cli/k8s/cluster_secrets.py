@@ -11,8 +11,11 @@ from __future__ import annotations
 import secrets
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Final, Literal
+from pathlib import Path
+from typing import Any, Final, Literal
 from urllib.parse import quote
+
+import yaml
 
 from devops_cli.config.constants import (
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
@@ -700,3 +703,101 @@ def keyring_only_keys(table: Iterable[ClusterSecret] = CLUSTER_SECRETS) -> froze
         for source in keyring_sources(entry)
         if source.option is None
     )
+
+
+def _resolve_manifest_namespace(doc: Any, file_path: Path, root: Path) -> str:
+    """Find the namespace of a document from its metadata, or from its path under k8s."""
+    if isinstance(doc, dict):
+        meta = doc.get("metadata")
+        if isinstance(meta, dict):
+            ns = meta.get("namespace")
+            if isinstance(ns, str) and ns:
+                return ns
+    if root.is_dir() and file_path.is_relative_to(root):
+        rel = file_path.relative_to(root)
+        if len(rel.parts) > 1:
+            return rel.parts[0]
+    return file_path.parent.name
+
+
+def _find_secret_key_refs(node: Any) -> list[tuple[str, str]]:
+    """Return each (secret_name, key_name) referenced by a secretKeyRef in node."""
+    refs: list[tuple[str, str]] = []
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, dict):
+            skr = current.get("secretKeyRef")
+            if isinstance(skr, dict):
+                name = skr.get("name")
+                key = skr.get("key")
+                if isinstance(name, str) and isinstance(key, str):
+                    refs.append((name, key))
+            stack.extend(current.values())
+        elif isinstance(current, list):
+            stack.extend(current)
+    return refs
+
+
+def _check_secret_ref(
+    secret_name: str,
+    key: str,
+    doc_ns: str,
+    table_by_ref: Mapping[str, ClusterSecret],
+    table_by_name: Mapping[str, list[ClusterSecret]],
+    file_path: Path,
+) -> str | None:
+    secret_ref = f"{doc_ns}/{secret_name}" if doc_ns else None
+    matched_secret: ClusterSecret | None = None
+    if secret_ref and secret_ref in table_by_ref:
+        matched_secret = table_by_ref[secret_ref]
+    elif not secret_ref and len(table_by_name.get(secret_name, ())) == 1:
+        matched_secret = table_by_name[secret_name][0]
+
+    if matched_secret is None:
+        return None
+
+    known_keys = {entry.key for entry in matched_secret.entries}
+    if key not in known_keys:
+        return f"{file_path}: Secret {matched_secret.ref} has no row for key {key!r}"
+    return None
+
+
+def check_secret_key_refs(
+    k8s_dir: Path | str,
+    table: Iterable[ClusterSecret] = CLUSTER_SECRETS,
+) -> list[str]:
+    """Verify that every secretKeyRef in manifests or values under `k8s_dir` referencing a Secret
+    in `table` names a key of that Secret's entries.
+
+    Returns a list of findings for any unknown key referenced. Skips Secrets that are not in
+    `table` (such as chart-made or operator-made Secrets).
+    """
+    root = Path(k8s_dir)
+    table_list = tuple(table)
+    table_by_ref = {s.ref: s for s in table_list}
+    table_by_name: dict[str, list[ClusterSecret]] = {}
+    for s in table_list:
+        table_by_name.setdefault(s.name, []).append(s)
+
+    files = (
+        [root]
+        if root.is_file()
+        else [p for p in sorted(root.rglob("*")) if p.is_file() and p.suffix in (".yaml", ".yml")]
+    )
+    findings: list[str] = []
+    for file_path in files:
+        content = file_path.read_text(encoding="utf-8")
+        documents = list(yaml.safe_load_all(content))
+
+        for doc in documents:
+            if not isinstance(doc, (dict, list)):
+                continue
+            doc_ns = _resolve_manifest_namespace(doc, file_path, root)
+            for secret_name, key in _find_secret_key_refs(doc):
+                problem = _check_secret_ref(
+                    secret_name, key, doc_ns, table_by_ref, table_by_name, file_path
+                )
+                if problem:
+                    findings.append(problem)
+    return findings
