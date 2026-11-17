@@ -133,6 +133,7 @@ from devops_cli.roadmap.inventory import (
 from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
 from devops_cli.roadmap.page_fetch import TOOLSET_ALTERNATIVES, PageFetch, named_urls
 from devops_cli.roadmap.refine.refine import (
+    comments_without_jobs,
     replies_after_marker,
     sanitize_text,
     web_search_of,
@@ -720,7 +721,9 @@ def _request(
         item.body, CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER
     )
     after = replies_after_marker(comments, CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER)
-    replies = (comments if after is None else after)[-CONST_ROADMAP_REFINE_MAX_REPLIES:]
+    replies = comments_without_jobs(comments if after is None else after)[
+        -CONST_ROADMAP_REFINE_MAX_REPLIES:
+    ]
     document = {
         "number": item.number,
         "title": item.title,

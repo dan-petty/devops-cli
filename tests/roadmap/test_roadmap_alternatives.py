@@ -30,7 +30,9 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS,
     CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
     CONST_ROADMAP_ALTERNATIVES_START_MARKER,
+    CONST_ROADMAP_INTAKE_REASON_MARKER,
     CONST_ROADMAP_PAGE_FETCH_MAX,
+    CONST_ROADMAP_REFINE_COMMENT_MARKER,
     CONST_ROADMAP_REFINE_END_MARKER,
     CONST_ROADMAP_REFINE_START_MARKER,
 )
@@ -893,6 +895,35 @@ def test_the_request_holds_every_comment_when_the_job_left_none(
     store: InMemoryRoadmapStore, web_key: None
 ) -> None:
     number = _item(store)
+    store.comment(number, "A person's note.")
+    script = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
+
+    _plan(store, script)
+
+    assert _prompt_of(script.seen[0])["replies"] == ["A person's note."]
+
+
+def test_the_request_leaves_out_the_comment_of_another_job(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    """The intake reason comment is trusted text of a job, not a person reply (#4960)."""
+    number = _item(store)
+    store.comment(number, f"{CONST_ROADMAP_INTAKE_REASON_MARKER}\nWhy this item.")
+    store.comment(number, "A person's note.")
+    script = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
+
+    _plan(store, script)
+
+    assert _prompt_of(script.seen[0])["replies"] == ["A person's note."]
+
+
+def test_the_request_leaves_out_a_job_comment_after_the_last_check(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    """A recheck reads the person replies after the check, not the refine or retitle comments."""
+    number = _item(store)
+    store.comment(number, f"{CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER}\nThe last check.")
+    store.comment(number, f"{CONST_ROADMAP_REFINE_COMMENT_MARKER}\nThe refine step.")
     store.comment(number, "A person's note.")
     script = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
 
