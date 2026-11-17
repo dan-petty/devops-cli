@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.170.0](https://github.com/dan-petty/devops-cli/compare/v0.169.4...v0.170.0) (2026-11-17)
+
+
+### Features
+
+* **service:** Run the Service rows under a Kubernetes Lease ([#6099](https://github.com/dan-petty/devops-cli/issues/6099)) ([894fbdd](https://github.com/dan-petty/devops-cli/commit/894fbdd21a17afd65271ee92d56f1d24834cc58d))
+
+
+### Bug Fixes
+
+* **roadmap:** fix-checks repairs failures its plan causes ([#6121](https://github.com/dan-petty/devops-cli/issues/6121)) ([78544b3](https://github.com/dan-petty/devops-cli/commit/78544b34468e044394cfb14dd3e0792cda42ca10))
+* **roadmap:** mark a draft ready only when draft readiness allows it ([#6132](https://github.com/dan-petty/devops-cli/issues/6132)) ([e0c0cdb](https://github.com/dan-petty/devops-cli/commit/e0c0cdbc1f0f872b68df961ab5792a0f94de359d))
+* **roadmap:** Stop the false strength failure and log the volume use ([#6111](https://github.com/dan-petty/devops-cli/issues/6111)) ([3d2b4e2](https://github.com/dan-petty/devops-cli/commit/3d2b4e2d324bf340ec7e1a6d70a03e048126391a))
+
 ## [0.169.4](https://github.com/dan-petty/devops-cli/compare/v0.169.3...v0.169.4) (2026-11-17)
 
 
