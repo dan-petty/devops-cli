@@ -26,10 +26,12 @@ from tests.support.fakes.github import (
     route_installation_repositories,
 )
 from tests.support.fakes.keyring import FakeKeyring
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.qdrant import FakeQdrantClient, seed_chunk
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "example/roadmap"
+OTHER_REPO = "example/other"
 OWNER, NAME = REPO.split("/")
 # The RAG rows read Qdrant and the keyring, so every test of the command answers both edges.
 pytestmark = pytest.mark.usefixtures("qdrant", "keyring_store")
@@ -229,33 +231,56 @@ def test_onboard_row_4_lists_a_workflow_label_that_github_lacks(
     assert "Missing labels:\n  - status/planned\n" in result.stdout
 
 
+def _ready_confirmed_pass(
+    monkeypatch: pytest.MonkeyPatch,
+    config: Callable[..., Path],
+    processes: ProcessFake,
+    rag_dir: Path,
+) -> None:
+    """Let the confirmed start of #3771 run the pass of REPO: its settings, its checkout and its
+    answers at the process edge."""
+    _seed_rag_clone(rag_dir)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_RAG_DIR", str(rag_dir))
+    config(service={"repos": [REPO]}, qdrant={"url": "http://127.0.0.1:6333"})
+    processes.answer(
+        "gh api repos/example/roadmap",
+        ProcessAnswer(stdout=json.dumps({"visibility": "private"})),
+    )
+    processes.answer(
+        lambda call: "ls-remote" in call.argv,
+        ProcessAnswer(stdout="ref: refs/heads/main\tHEAD\nabc1234567890\tHEAD\n"),
+    )
+
+
 def test_onboard_confirm_creates_missing_labels_and_keeps_differing(
     cli: Callable[..., Any],
     roadmap_store: InMemoryRoadmapStore,
-    github_api: GitHubApiFake,
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
     config: Callable[..., Path],
+    embedder: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # 2 missing labels: status/planned, scope/cli.
     # 1 differing label: type/bug exists with different color ("ffffff").
+    api, processes = github_api_and_gh
     held = [
         ("type/bug", "ffffff", "A bug") if name == "type/bug" else (name, color, desc)
         for name, color, desc in WORKFLOW
         if name != "status/planned"
     ]
-    _seed_valid_repo(roadmap_store, github_api, repo_labels=held)
-    github_api.route("POST", f"/repos/{REPO}/labels", github_json({"name": "status/planned"}))
-    config(service={"repos": [REPO]})
+    _seed_valid_repo(roadmap_store, api, repo_labels=held)
+    api.route("POST", f"/repos/{REPO}/labels", github_json({"name": "status/planned"}))
+    _ready_confirmed_pass(monkeypatch, config, processes, tmp_path / "rag")
 
     result = cli("roadmap", "onboard", "--repo", REPO, "--confirm")
 
     post_label_requests = [
-        req
-        for req in github_api.sent
-        if req.method == "POST" and f"/repos/{REPO}/labels" in str(req.url)
+        req for req in api.sent if req.method == "POST" and f"/repos/{REPO}/labels" in str(req.url)
     ]
     assert len(post_label_requests) == 2
-    patch_requests = [req for req in github_api.sent if req.method == "PATCH"]
-    delete_requests = [req for req in github_api.sent if req.method == "DELETE"]
+    patch_requests = [req for req in api.sent if req.method == "PATCH"]
+    delete_requests = [req for req in api.sent if req.method == "DELETE"]
     assert patch_requests == []
     assert delete_requests == []
     assert "kept" in result.stdout
@@ -265,26 +290,30 @@ def test_onboard_confirm_creates_missing_labels_and_keeps_differing(
 def test_onboard_confirm_second_run_sends_no_writes(
     cli: Callable[..., Any],
     roadmap_store: InMemoryRoadmapStore,
-    github_api: GitHubApiFake,
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
     config: Callable[..., Path],
+    embedder: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _seed_valid_repo(roadmap_store, github_api)
-    config(service={"repos": [REPO]})
+    api, processes = github_api_and_gh
+    _seed_valid_repo(roadmap_store, api)
+    _ready_confirmed_pass(monkeypatch, config, processes, tmp_path / "rag")
 
     # First run on repository with all labels present
     assert cli("roadmap", "onboard", "--repo", REPO, "--confirm").exit_code == 0
     posts_after_first = [
-        req for req in github_api.sent if req.method == "POST" and "/labels" in str(req.url)
+        req for req in api.sent if req.method == "POST" and "/labels" in str(req.url)
     ]
     assert posts_after_first == []
 
     # Second run immediately after
     assert cli("roadmap", "onboard", "--repo", REPO, "--confirm").exit_code == 0
     posts_after_second = [
-        req for req in github_api.sent if req.method == "POST" and "/labels" in str(req.url)
+        req for req in api.sent if req.method == "POST" and "/labels" in str(req.url)
     ]
     assert posts_after_second == []
-    assert [req for req in github_api.sent if req.method in ("PATCH", "DELETE")] == []
+    assert [req for req in api.sent if req.method in ("PATCH", "DELETE")] == []
 
 
 def test_onboard_dry_run_makes_zero_requests(
@@ -716,6 +745,98 @@ def test_onboard_rag_rows_print_no_qdrant_api_key(
     assert f"{RAG_INDEXED}: not readable" in result.stdout
     assert _QDRANT_KEY not in result.output
     assert _QDRANT_KEY not in result.stdout
+
+
+def _seed_rag_clone(rag_dir: Path) -> None:
+    """A checkout of REPO at the head that the pass reads, as a shallow clone of the pass leaves it.
+
+    The pass fetches and checks out a tree that holds `.git`, so the files below it are the files
+    that the indexer reads.
+    """
+    tree = rag_dir / "repos" / OWNER / NAME / "tree"
+    (tree / ".git").mkdir(parents=True)
+    (tree / "src").mkdir()
+    (tree / "src" / "main.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+    (tree / "README.md").write_text("# Roadmap\n", encoding="utf-8")
+
+
+def _pass_calls(processes: ProcessFake) -> list[str]:
+    """Each command that the ingestion pass started, as the process edge received it."""
+    return [
+        " ".join(call.argv)
+        for call in processes.calls
+        if "ls-remote" in call.argv or "repos/" in " ".join(call.argv)
+    ]
+
+
+def test_onboard_confirm_starts_the_pass_for_one_repository(
+    cli: Callable[..., Any],
+    roadmap_store: InMemoryRoadmapStore,
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+    config: Callable[..., Path],
+    qdrant: FakeQdrantClient,
+    embedder: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With --confirm, the command runs the pass of #1389 for the named repository alone, and
+    prints the point count of each collection (#3771)."""
+    api, processes = github_api_and_gh
+    monkeypatch.delenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, raising=False)
+    _seed_valid_repo(roadmap_store, api)
+    rag_dir = tmp_path / "rag"
+    _seed_rag_clone(rag_dir)
+    monkeypatch.setenv("DEVOPS_CLI_DATA_RAG_DIR", str(rag_dir))
+    config(
+        service={"repos": [REPO, OTHER_REPO]},
+        qdrant={"url": "http://127.0.0.1:6333"},
+    )
+    processes.answer(
+        "gh api repos/example/roadmap",
+        ProcessAnswer(stdout=json.dumps({"visibility": "private"})),
+    )
+    processes.answer(
+        lambda call: "ls-remote" in call.argv,
+        ProcessAnswer(stdout="ref: refs/heads/main\tHEAD\nabc1234567890\tHEAD\n"),
+    )
+
+    result = cli("roadmap", "onboard", "--repo", REPO, "--confirm")
+
+    assert result.exit_code == 0, result.output
+    code_points = qdrant.count_points(DEFAULT_RAG_COLLECTION, filter_payload={"project_name": REPO})
+    docs_points = qdrant.count_points(
+        DEFAULT_RAG_DOCS_COLLECTION, filter_payload={"project_name": REPO}
+    )
+    assert (code_points, docs_points) != (0, 0), result.output
+    assert f"RAG points: code {code_points}, docs {docs_points}" in result.stdout
+    calls = _pass_calls(processes)
+    assert any(f"repos/{REPO}" in call for call in calls), calls
+    assert not any(OTHER_REPO in call for call in calls), calls
+
+
+def test_onboard_confirm_refuses_a_repository_outside_service_repos(
+    cli: Callable[..., Any],
+    roadmap_store: InMemoryRoadmapStore,
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+    config: Callable[..., Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--confirm starts no pass when service.repos leaves the repository out (#3771)."""
+    api, processes = github_api_and_gh
+    monkeypatch.delenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, raising=False)
+    _seed_valid_repo(roadmap_store, api)
+    config(
+        service={"repos": [OTHER_REPO]},
+        qdrant={"url": "http://127.0.0.1:6333"},
+        data={"rag_dir": str(tmp_path / "rag")},
+    )
+
+    result = cli("roadmap", "onboard", "--repo", REPO, "--confirm")
+
+    assert result.exit_code == 1, result.output
+    assert f"{REPO} is not in service.repos" in result.output
+    assert _pass_calls(processes) == []
 
 
 def _run_git(cwd: Path, *args: str) -> None:

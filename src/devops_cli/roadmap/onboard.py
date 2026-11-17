@@ -13,7 +13,10 @@ It also reports three RAG rows of the repository: the points that Qdrant holds, 
 those points record, and the schedule that fills them (#3771). The exit code follows the seven
 prerequisites only.
 
-With --confirm, missing labels are created with POST. No labels are edited or deleted.
+With --confirm, missing labels are created with POST. No labels are edited or deleted. With
+--confirm and a repository that service.repos holds, the command also starts the ingestion pass
+of #1389 for that repository alone, and prints the point count of each collection (#3771). The
+command writes no config file.
 """
 
 from __future__ import annotations
@@ -343,6 +346,15 @@ def _recorded_visibility(point: dict[str, Any] | None) -> str | None:
     return str(value).lower() if value else None
 
 
+def _count_project_points(qdrant: QdrantClient, settings: Settings, repo: str) -> tuple[int, int]:
+    """The count of the points of `repo` in the code collection and in the docs collection."""
+    code_collection, docs_collection = rag_collection_names(settings)
+    return (
+        qdrant.count_points(code_collection, filter_payload={"project_name": repo}),
+        qdrant.count_points(docs_collection, filter_payload={"project_name": repo}),
+    )
+
+
 def _read_project_index(repo: str, settings: Settings) -> _ProjectIndex:
     """Count the points of `repo` in both collections, and read the visibility of one of them.
 
@@ -351,9 +363,8 @@ def _read_project_index(repo: str, settings: Settings) -> _ProjectIndex:
     unreachable.
     """
     qdrant = resolve_qdrant_client(settings=settings)
+    code, docs = _count_project_points(qdrant, settings, repo)
     code_collection, docs_collection = rag_collection_names(settings)
-    code = qdrant.count_points(code_collection, filter_payload={"project_name": repo})
-    docs = qdrant.count_points(docs_collection, filter_payload={"project_name": repo})
     point = None
     if code or docs:
         point = _first_point(qdrant, code_collection if code else docs_collection, repo)
@@ -417,6 +428,20 @@ def check_rag_rows(
         _visibility_row(index, repo_payload),
         _check_rag_schedule(repo, settings),
     )
+
+
+def start_rag_pass(repo: str, settings: Settings) -> tuple[int, int]:
+    """Run the ingestion pass of #1389 for `repo` alone, and give the point count of each collection.
+
+    The pass is the only writer to Qdrant. It narrows to the one repository, so a confirmed
+    onboarding of a repository that the schedule holds writes the points of that repository and no
+    other, and a second run at the same head writes no point.
+    """
+    from devops_cli.ai.rag.ingest import run_ingest_pass
+
+    run_ingest_pass(repo_filter=[repo], settings=settings)
+    qdrant = resolve_qdrant_client(settings=settings)
+    return _count_project_points(qdrant, settings, repo)
 
 
 def check_onboarding(
@@ -534,4 +559,5 @@ __all__ = [
     "check_onboarding",
     "check_rag_rows",
     "render_onboarding",
+    "start_rag_pass",
 ]
