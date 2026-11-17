@@ -199,6 +199,17 @@ def test_the_stage_prompt_states_the_documentation_verb_rule() -> None:
     assert "or `null` when the step changes no document" in _PROMPT
 
 
+def test_the_stage_prompt_names_both_command_registration_forms() -> None:
+    """#4119: a CLI command registers its name by a string literal or by a function name, so a
+    check for a command name is a negative search for the bare name, which finds both forms."""
+    assert '@app.command("name")' in _PROMPT
+    assert "@app.command()" in _PROMPT
+    assert "@<group>.command()" in _PROMPT
+    assert "def <name>(" in _PROMPT
+    assert "! git grep -n <name> src/ tests/" in _PROMPT
+    assert '@app.command("<name>")' in _PROMPT
+
+
 def _prompt_limit(key: str) -> int:
     """The number in the sentence of the prompt that says `key` has at most N characters."""
     found = re.search(rf"- `{key}`:[^\n]*?at most (\d+) characters", _PROMPT)
