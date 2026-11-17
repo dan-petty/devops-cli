@@ -10,7 +10,8 @@ and `gh api rate_limit` with a full quota that resets in a minute. It keeps ever
 `project_calls` gives each one that names a project board, so a test shows that a roadmap job
 sends none. Neither starts `gh` nor opens a socket. `GitHubFake.process` stands in for
 `subprocess.run` itself, answering `gh` and passing every other program, such as `git`, to the
-real one.
+real one. `GitHubFake.serve_session` answers the GETs of a GitHub session for the repository
+through the `web` fake in the same way.
 """
 
 from __future__ import annotations
@@ -21,12 +22,17 @@ import time
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, unquote, urlencode, urlsplit
+
+import httpx2
 
 from devops_cli.config.constants import CONST_GH_CLI
 from tests.support.fakes.github import API
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+
+if TYPE_CHECKING:
+    from tests.support.fakes.http import WebFake
 
 PROJECT_WORDS = ("projectV2", "ProjectV2", "roadmap.toml")
 """What a GraphQL request that reads or writes a project board, or a read of the old roadmap
@@ -348,6 +354,23 @@ class GitHubFake:
             return ProcessAnswer(returncode=done.returncode, stdout=done.stdout, stderr=done.stderr)
 
         fake.answer(is_gh, answer)
+
+    def serve_session(self, web: WebFake) -> None:
+        """Answer each GET that a GitHub session sends through `web` for this repository as this
+        fake answers the same path through gh, so a reader that moved from gh to the session
+        (#3941) reads the same repository. A failed answer is not served: `web` gives its own."""
+        prefix = f"{API}/repos/{self.repo}/"
+
+        def answer(request: httpx2.Request) -> httpx2.Response | None:
+            url = str(request.url)
+            if request.method != "GET" or not url.startswith(prefix):
+                return None
+            done = self(["api", url.removeprefix(f"{API}/")])
+            if done.returncode != 0:
+                return None
+            return httpx2.Response(200, json=json.loads(done.stdout))
+
+        web.serve(answer)
 
     def _answer(self, args: list[str], stdin: str | None) -> Any:
         if args[0].startswith(f"{API}/"):
