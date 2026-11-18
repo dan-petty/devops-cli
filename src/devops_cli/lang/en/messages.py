@@ -390,6 +390,22 @@ class ConfigMessages:
     from_file_oversize: str = "The input is larger than {limit} bytes, the limit for a credential."
     from_file_not_text: str = "The input is not UTF-8 text."
     from_file_empty: str = "The input holds no value."
+    generate_no_generator: str = (
+        "The cluster Secret table declares no generator for {key}. It makes these credentials: "
+        "{options}."
+    )
+    generate_exists: str = "{key} is already set in the OS keyring. Add --rotate to replace it."
+    generate_success: str = (
+        "Stored a new {kind} value of {length} bytes for {key} in the OS keyring. "
+        "The value is not printed."
+    )
+    generate_dry_run: str = (
+        "Would store a new {kind} value of {length} bytes for {key} in the OS keyring: {mask}. "
+        "Nothing was written."
+    )
+    generate_with_value: str = "Give VALUE or --generate, not both."
+    generate_with_from_file: str = "Give --from-file or --generate, not both."
+    rotate_without_generate: str = "Give --generate with --rotate."
     unset_success: str = "Removed {key} from {path}:{line}."
     unset_backup: str = "The file before the change is in {backup}."
     plaintext_alert: str = (
