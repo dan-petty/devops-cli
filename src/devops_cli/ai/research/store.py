@@ -14,7 +14,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -185,3 +185,16 @@ class ResearchStore:
         self.qdrant_client.delete_points_by_expiry(
             self.collection_name, _isoformat(now or datetime.now(UTC))
         )
+
+
+def build_research_store() -> ResearchStore:
+    """Build the research store from the settings, with no fallback Qdrant address.
+
+    The Qdrant client and the embedder come from `resolve_rag_components`, as the library vector
+    store takes its own, so an unset `qdrant.url` raises `ConfigurationError` that names the
+    setting and no default address of `devops_cli.config.defaults` stands in for it.
+    """
+    from devops_cli.ai.rag.indexer import resolve_rag_components
+
+    components = resolve_rag_components()
+    return ResearchStore(cast("QdrantProtocol", components.qdrant), components.embedder)

@@ -54,9 +54,9 @@ Adds: `expire`
 Kind: behavior. Reads: `src/devops_cli/ai/research/store.py`, `src/devops_cli/ai/rag/indexer.py`, `src/devops_cli/ai/rag/library_store.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/config/defaults.py`, `tests/ai/agent_audit/test_store.py`. Changes: `src/devops_cli/ai/research/store.py`, `tests/ai/research/test_research_store.py`.
 Adds: `build_research_store`
 
-- [ ] 6.1 Write test_build_research_store_names_the_unset_qdrant_url in `tests/ai/research/test_research_store.py`: it builds the store from settings with no qdrant.url and asserts that the error names qdrant.url, the case The Qdrant address setting is unset
+- [x] 6.1 Write test_build_research_store_names_the_unset_qdrant_url in `tests/ai/research/test_research_store.py`: it builds the store from settings with no qdrant.url and asserts that the error names qdrant.url, the case The Qdrant address setting is unset
   - Verification: `$ uv run devops ci test tests/ai/research/test_research_store.py` fails on the base
-- [ ] 6.2 Add build_research_store to `src/devops_cli/ai/research/store.py`, in the way that build_library_vector_store of `src/devops_cli/ai/rag/library_store.py` builds a LibraryVectorStore, which takes its client and embedder as arguments: it calls resolve_rag_components of `src/devops_cli/ai/rag/indexer.py`, so an unset qdrant.url raises ConfigurationError that names the setting and no fallback address of `src/devops_cli/config/defaults.py` is used
+- [x] 6.2 Add build_research_store to `src/devops_cli/ai/research/store.py`, in the way that build_library_vector_store of `src/devops_cli/ai/rag/library_store.py` builds a LibraryVectorStore, which takes its client and embedder as arguments: it calls resolve_rag_components of `src/devops_cli/ai/rag/indexer.py`, so an unset qdrant.url raises ConfigurationError that names the setting and no fallback address of `src/devops_cli/config/defaults.py` is used
   - Verification: `$ uv run devops ci test tests/ai/research/test_research_store.py` passes
 
 ## 7. Show the research collection in the RAG status
