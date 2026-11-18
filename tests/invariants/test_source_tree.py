@@ -560,7 +560,7 @@ def test_the_roadmap_tests_mirror_the_roadmap_subpackages() -> None:
 # The test directories that patch no name inside devops-cli (#3769, #1336).
 # The counts over all of `tests/` on 2026-11-16 (#5248, #6060). The ratchets only fall: a new string
 # patch of a `devops_cli` name or a new private import fails, and a fix lowers the ceiling.
-_INTERNAL_PATCH_CEILING = 377
+_INTERNAL_PATCH_CEILING = 375
 _PRIVATE_IMPORT_CEILING = 428
 _PATCH_FREE_COMMAND_TEST_DIRECTORIES = ("tests/commands", "tests/invariants")
 _PATCH_CALLS = frozenset({"patch", "setattr"})
