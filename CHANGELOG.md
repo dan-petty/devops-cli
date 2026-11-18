@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.174.2](https://github.com/dan-petty/devops-cli/compare/v0.174.1...v0.174.2) (2026-11-18)
+
+
+### Bug Fixes
+
+* **ci:** Report a timed-out fail-to-pass replay as could not run ([#6229](https://github.com/dan-petty/devops-cli/issues/6229)) ([b466159](https://github.com/dan-petty/devops-cli/commit/b466159e11fe378d4833311155ce14403465ddcf))
+* **k8s:** Check that secretKeyRef entries name generator table keys ([#6230](https://github.com/dan-petty/devops-cli/issues/6230)) ([9be129e](https://github.com/dan-petty/devops-cli/commit/9be129e4c9bca7be3fd4beffd7e0c0e2cc0a4537))
+* **roadmap:** Upserts edit only comments of the tool account ([#6235](https://github.com/dan-petty/devops-cli/issues/6235)) ([955013e](https://github.com/dan-petty/devops-cli/commit/955013e9bf282d5b15cf2589de7831d2e02b9c3b))
+
 ## [0.174.1](https://github.com/dan-petty/devops-cli/compare/v0.174.0...v0.174.1) (2026-11-17)
 
 
