@@ -21,11 +21,13 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES
 from devops_cli.config.settings import RoadmapConfig
+from devops_cli.github.item_label_times import ITEM_LABEL_TIMES_FILE
 from devops_cli.github.session import reset_github_session
 from devops_cli.roadmap.run import (
     DEFAULT_DUE_TABLE,
     run_due_jobs,
 )
+from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.stores.store import (
     ItemField,
 )
@@ -40,7 +42,7 @@ from devops_cli.telemetry.instruments import (
 )
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from tests.support.fakes.git import GitFake
-from tests.support.fakes.github import API
+from tests.support.fakes.github import API, RunnerSession
 from tests.support.fakes.github_repository import GitHubFake
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.otlp import FakeCollector
@@ -144,6 +146,74 @@ def test_the_metrics_job_walks_the_version_tags_of_its_own_clone(
         ],
         [],
     )
+
+
+def _label_event_reads(github: GitHubFake, number: int) -> list[str]:
+    """Each read of the label events of issue `number` that the fake answered, by its path."""
+    endpoint = f"/issues/{number}/events"
+    return [arg for args in github.calls for arg in args if endpoint in arg]
+
+
+def test_the_metrics_row_keeps_the_label_times_in_the_state_directory_of_its_repository(
+    git_fake: GitFake,
+    tmp_path: Path,
+    web: WebFake,
+    git_sim: SimulatedGit,
+    otlp: FakeCollector,
+) -> None:
+    """The row keeps the `updated_at` and the label times of each open Item in
+    item-label-times.json of the state directory that holds its schedule.json, so its second
+    round reads no label events of an Item whose `updated_at` did not move, and still sends the
+    Item's age (#3634)."""
+    row = next(row for row in DEFAULT_DUE_TABLE if row.name == "metrics")
+    remote = bare_remote(tmp_path)
+    github = GitHubFake(
+        REPO,
+        milestones=[{"number": 26, "title": PLANNED, "state": "open"}],
+        events=[
+            {
+                "event": "labeled",
+                "created_at": "2026-10-01T00:00:00Z",
+                "actor": {"login": "dan-petty"},
+                "label": {"name": "status/ready"},
+            }
+        ],
+    )
+    item = 1
+    github.seed_issue(item, "ready item", labels=("priority/p2-medium", "status/ready"))
+    github.install(git_fake)
+    github.serve_session(web)
+    web.page(
+        f"{API}/user",
+        json.dumps({"login": "test-bot"}),
+        headers={"content-type": "application/json"},
+    )
+    web.page(
+        f"{API}/users/test-bot",
+        json.dumps({"id": 4242, "login": "test-bot"}),
+        headers={"content-type": "application/json"},
+    )
+    store = GitHubRoadmapStore(REPO, runner=github, session=RunnerSession(github))
+    data_dir = tmp_path / "data"
+    run_due_jobs(REPO, store, table=(row,), data_dir=data_dir, remote_url=str(remote), now=NOW)
+    otlp.clear()
+
+    run_due_jobs(
+        REPO,
+        store,
+        table=(row,),
+        data_dir=data_dir,
+        remote_url=str(remote),
+        now=NOW + timedelta(minutes=20),
+    )
+
+    record = data_dir / "roadmap" / REPO / ITEM_LABEL_TIMES_FILE
+    ages = {attrs["phase"]: value for attrs, value in otlp.points(ROADMAP_ITEM_AGE.name)}
+    assert (
+        len(_label_event_reads(github, item)),
+        record.is_file(),
+        ages["ready"] > 0.0,
+    ) == (1, True, True)
 
 
 def test_the_metrics_row_sends_the_age_of_a_blocked_item_and_logs_no_collection_failure(

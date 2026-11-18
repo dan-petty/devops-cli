@@ -979,16 +979,22 @@ def _run_metrics_adapter(
     repo: str = "",
     clone_path: Path | None = None,
     now: datetime | None = None,
+    repo_dir: Path | None = None,
     **_: Any,
 ) -> JobOutcome:
     """Collect the project metrics, walking the version tags of the job's clone of `repo` and
     counting the Items of `store`, into OTLP (#1358). The Items also give the age of the oldest
-    Item of each state, which only this row asks for (#2919). Then read the deliveries of the
-    hooks of the repository that got no 2xx answer since its last read, into the Service's gauge
-    (#5017, #6012). A failed collection, a failed read of the hooks and a missing clone fail the
-    row (#4052); the status pages have rows of their own. The inbox of the repository gives one
-    gauge for each counted kind, and a failed read of it sends none this round (#2968)."""
+    Item of each state, which only this row asks for (#2919). The row keeps the `updated_at` and
+    the label times of each open Item in `item-label-times.json` of `repo_dir`, the state
+    directory that holds its `schedule.json`, so a new pod sends no label-event request for an
+    Item whose `updated_at` the file holds, and it reads the label events of at most 20 Items a
+    round (#3634). Then read the deliveries of the hooks of the repository that got no 2xx answer
+    since its last read, into the Service's gauge (#5017, #6012). A failed collection, a failed
+    read of the hooks and a missing clone fail the row (#4052); the status pages have rows of
+    their own. The inbox of the repository gives one gauge for each counted kind, and a failed
+    read of it sends none this round (#2968)."""
     from devops_cli.github.hook_deliveries import report_delivery_failures
+    from devops_cli.github.item_label_times import item_label_times_path
     from devops_cli.github.metrics import (
         collect_project_metrics_report,
         emit_project_metrics_telemetry,
@@ -997,7 +1003,11 @@ def _run_metrics_adapter(
     clone = _job_clone("metrics", clone_path)
     at = now or datetime.now(UTC)
     report = collect_project_metrics_report(
-        root=clone, repo=repo or None, store=store, item_ages=True
+        root=clone,
+        repo=repo or None,
+        store=store,
+        item_ages=True,
+        label_times_record=item_label_times_path(repo_dir) if repo_dir is not None else None,
     )
     emit_project_metrics_telemetry(report)
     report_delivery_failures(report.repo, at)

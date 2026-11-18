@@ -29,9 +29,9 @@ Kind: other. Reads: `tests/github/test_github_metrics_request_budget.py`, `src/d
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/run.py`, `src/devops_cli/github/item_label_times.py`, `tests/roadmap/test_roadmap_run_metrics.py`. Changes: `src/devops_cli/roadmap/run.py`, `tests/roadmap/test_roadmap_run_metrics.py`.
 
-- [ ] 4.1 Write `test_the_metrics_row_keeps_the_label_times_in_the_state_directory_of_its_repository` in `tests/roadmap/test_roadmap_run_metrics.py` first: two rounds of the metrics row with the same repo_dir read the label events of an Item once, the second round still sends its age, and item-label-times.json sits in that directory
+- [x] 4.1 Write `test_the_metrics_row_keeps_the_label_times_in_the_state_directory_of_its_repository` in `tests/roadmap/test_roadmap_run_metrics.py` first: two rounds of the metrics row with the same repo_dir read the label events of an Item once, the second round still sends its age, and item-label-times.json sits in that directory
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_run_metrics.py` fails on the base
-- [ ] 4.2 In `src/devops_cli/roadmap/run.py`, name the keyword `repo_dir: Path | None = None` of `_run_metrics_adapter` before `**_: Any`, pass `label_times_record=item_label_times_path(repo_dir) if repo_dir is not None else None` to `collect_project_metrics_report`, and say in its docstring that the row keeps the label times of each open Item in item-label-times.json of its repository and reads the label events of at most 20 Items a round
+- [x] 4.2 In `src/devops_cli/roadmap/run.py`, name the keyword `repo_dir: Path | None = None` of `_run_metrics_adapter` before `**_: Any`, pass `label_times_record=item_label_times_path(repo_dir) if repo_dir is not None else None` to `collect_project_metrics_report`, and say in its docstring that the row keeps the label times of each open Item in item-label-times.json of its repository and reads the label events of at most 20 Items a round
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_run_metrics.py` passes
 
 ## 5. Name the record file in the cluster document
