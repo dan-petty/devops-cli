@@ -42,9 +42,9 @@ Kind: behavior. Reads: `src/devops_cli/commands/rag.py`, `src/devops_cli/ai/rag/
 
 Kind: other. Reads: `docs/roadmap/onboard.md`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/commands/roadmap.py`, `src/devops_cli/commands/rag.py`, `tests/lang/test_language_catalogs.py`. Changes: `docs/roadmap/onboard.md`, `src/devops_cli/lang/en/help.py`, `docs/commands/roadmap.md`, `docs/commands/ai.md`.
 
-- [ ] 5.1 Edit `docs/roadmap/onboard.md`: describe the `indexed`, `rag visibility` and `rag schedule` rows, the value of each, the `--confirm` start of the pass for one repository, and the exit-code rule that keeps the new rows out of it. Edit `HELP.roadmap.onboard_confirm` in `src/devops_cli/lang/en/help.py` to name the label creation and the start of the pass. Regenerate `docs/commands/roadmap.md` and `docs/commands/ai.md` with the docs generator and commit its output, so the `--repo` option of the drift command appears in the AI page
+- [x] 5.1 Edit `docs/roadmap/onboard.md`: describe the `indexed`, `rag visibility` and `rag schedule` rows, the value of each, the `--confirm` start of the pass for one repository, and the exit-code rule that keeps the new rows out of it. Edit `HELP.roadmap.onboard_confirm` in `src/devops_cli/lang/en/help.py` to name the label creation and the start of the pass. Regenerate `docs/commands/roadmap.md` and `docs/commands/ai.md` with the docs generator and commit its output, so the `--repo` option of the drift command appears in the AI page
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 5.2 Edit `docs/roadmap/onboard.md` and `src/devops_cli/lang/en/help.py`, and regenerate `docs/commands/roadmap.md` and `docs/commands/ai.md` with the docs generator, and run `uv run devops docs generate`
+- [x] 5.2 Edit `docs/roadmap/onboard.md` and `src/devops_cli/lang/en/help.py`, and regenerate `docs/commands/roadmap.md` and `docs/commands/ai.md` with the docs generator, and run `uv run devops docs generate`
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria

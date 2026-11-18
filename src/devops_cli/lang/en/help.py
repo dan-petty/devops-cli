@@ -2212,7 +2212,9 @@ class RoadmapCommandHelp:
         "Check one repository against the roadmap prerequisites and create missing labels. "
         "Details: docs/roadmap/onboard.md."
     )
-    onboard_confirm: str = "Create missing labels and print human steps."
+    onboard_confirm: str = (
+        "Create missing labels, start the RAG pass for the repository, and print human steps."
+    )
     onboard_plan: str = "Check prerequisites, print the rows, and write nothing."
     onboard_dry_run: str = (
         "Make no request: print the requests that a run makes, in order, with placeholders."

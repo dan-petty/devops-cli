@@ -155,3 +155,10 @@ The rag-ingest WorkflowTemplate SHALL set no `OTEL_EXPORTER_OTLP_ENDPOINT`, beca
 #### Scenario: A wrong endpoint fails the k8s row
 - **WHEN** a manifest under `k8s/` sets `OTEL_EXPORTER_OTLP_ENDPOINT` to a host in `otel.svc.cluster.local` other than the Collector Service
 - **THEN** `devops ci --check --only k8s` fails and names the file and the host
+
+### Requirement: The pass names each project owner/name
+`devops ai rag ingest` SHALL name the project of every point that it writes `owner/name`, from the repository list and never from the name of the directory that the command runs in.
+
+#### Scenario: The pass runs outside the checkout
+- **WHEN** The pass indexes the repository owner/name while the directory that it runs in holds another name
+- **THEN** Each written point carries owner/name in its project name and no point carries the directory name.
