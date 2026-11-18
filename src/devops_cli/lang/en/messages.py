@@ -5692,6 +5692,34 @@ class RoadmapMessages:
         "The head of pull request #{number} holds no change folder of the plan of issue #{issue}, "
         "so the run leaves the branch `{branch}` as it is."
     )
+    plan_branches_line: str = "Pull request #{number} on `{branch}`: {result}."
+    plan_branches_change: str = "  changes `{path}`"
+    plan_branches_reason: str = "  {reason}"
+    plan_branches_results: str = (
+        "{branches} open plan branches: {rewritten} rewritten, {unchanged} unchanged, "
+        "{conflict} conflict, {invalid} invalid."
+    )
+    plan_branches_none: str = (
+        "No open draft plan pull request holds the default branch as its base."
+    )
+    plan_branches_conflict: str = (
+        "The rebase of `{branch}` onto `{default}` conflicts, so the run leaves the branch as it "
+        "is."
+    )
+    plan_branches_conflict_paths: str = " The files that are not merged: {paths}."
+    plan_branches_unfit: str = (
+        "The rebase of `{branch}` onto `{default}` leaves a tree that the rewrite does not fit, so "
+        "the run leaves the branch as it is: {reason}"
+    )
+    plan_branches_invalid: str = (
+        "The rewritten plan of pull request #{number} fails a check, so the run leaves the branch "
+        "`{branch}` as it is: {reason}"
+    )
+    plan_branches_commit: str = "rewrite the plan of #{issue}"
+    plan_branches_commit_body: str = (
+        "The mechanical rewrite of `plan_rewrite` repairs the plan of the branch. "
+        "`devops roadmap plan-recheck --branches` made the commit."
+    )
     # The dry runs of `devops roadmap` (#412, #1125): the requests a run makes, none made.
     plan_dry_run: str = (
         "Dry run: no request was made. A run makes these requests, in order; a value in "
