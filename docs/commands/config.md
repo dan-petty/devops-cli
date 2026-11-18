@@ -62,6 +62,8 @@ devops config set [OPTIONS] <key> <value>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--from-file` | `filename` | - | Read the credential from this file, or from stdin to its end when the path is -. Every line and the last newline stay as the input has them, and the value never shows in the output. |
+| `--generate` | `boolean` | - | Make the value with the generator that the cluster Secret table declares for this credential, and store it in the OS keyring. The command prints the kind and the length of the value, never the value itself. |
+| `--rotate` | `boolean` | - | With --generate, replace a value that the OS keyring already holds. Without --generate it is a usage error. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

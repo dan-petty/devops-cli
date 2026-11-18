@@ -33,9 +33,9 @@ Kind: behavior. Reads: `src/devops_cli/docs/generator.py`, `tests/docs/test_docs
 
 Kind: other. Reads: `k8s/README.md`, `docs/CONFIGURATION.md`, `docs/commands/config.md`, `docs/CLI_REFERENCE.md`, `src/devops_cli/docs/generator.py`. Changes: `k8s/README.md`, `docs/CONFIGURATION.md`, `docs/commands/config.md`, `docs/CLI_REFERENCE.md`.
 
-- [ ] 4.1 Rewrite the Crawl4AI bullet of `k8s/README.md` so it names the set command with its generate flag for the token and `devops k8s push-secrets --only devops/crawl4ai --only devops/devops-cli` for the two Secrets, and keeps the sentence that no other command writes them. Then run `uv run devops docs generate`, which writes `docs/CONFIGURATION.md`, `docs/commands/config.md` and `docs/CLI_REFERENCE.md` from the generator and the help text. Edit no generated line by hand
+- [x] 4.1 Rewrite the Crawl4AI bullet of `k8s/README.md` so it names the set command with its generate flag for the token and `devops k8s push-secrets --only devops/crawl4ai --only devops/devops-cli` for the two Secrets, and keeps the sentence that no other command writes them. Then run `uv run devops docs generate`, which writes `docs/CONFIGURATION.md`, `docs/commands/config.md` and `docs/CLI_REFERENCE.md` from the generator and the help text. Edit no generated line by hand
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 4.2 Edit the Crawl4AI bullet of `k8s/README.md` and regenerate `docs/CONFIGURATION.md`, `docs/commands/config.md` and `docs/CLI_REFERENCE.md` with `uv run devops docs generate`
+- [x] 4.2 Edit the Crawl4AI bullet of `k8s/README.md` and regenerate `docs/CONFIGURATION.md`, `docs/commands/config.md` and `docs/CLI_REFERENCE.md` with `uv run devops docs generate`
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
