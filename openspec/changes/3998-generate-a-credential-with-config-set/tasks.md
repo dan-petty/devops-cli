@@ -24,9 +24,9 @@ Adds: `_store_generated`
 
 Kind: behavior. Reads: `src/devops_cli/docs/generator.py`, `tests/docs/test_docs.py`, `docs/CONFIGURATION.md`, `tests/ai/agents/test_pydantic_ai_exceptions.py`, `tests/ai/mcp/test_mcp_tool_registry.py`, `tests/commands/test_all_commands_help_dryrun.py`, `tests/commands/test_cli_format_adoption.py`, `tests/docs/test_docs_adr_records.py`, `tests/docs/test_docs_inventory.py`, `tests/docs/test_docs_knowledge_base_argv.py`, `tests/docs/test_docs_source_argv_collector.py`, `tests/docs/test_docs_synced_blocks.py`, `tests/docs/test_exceptions.py`. Changes: `src/devops_cli/docs/generator.py`, `tests/docs/test_docs.py`.
 
-- [ ] 3.1 `test_the_configuration_page_names_the_generate_command` in `tests/docs/test_docs.py`
+- [x] 3.1 `test_the_configuration_page_names_the_generate_command` in `tests/docs/test_docs.py`
   - Verification: `$ uv run devops ci test tests/docs/test_docs.py` fails on the base
-- [ ] 3.2 Extend the prose of the set command in `generate_configuration_docs` of `src/devops_cli/docs/generator.py`, so the page names the set command with its generate flag for a credential that no person chooses, and names `devops k8s push-secrets` for the Secrets that read it. Write `test_the_configuration_page_names_the_generate_command` in `tests/docs/test_docs.py` first: it builds `DocGenerator` with the module's `generator` fixture, calls `generate_configuration_docs` and asserts that the text holds both command strings
+- [x] 3.2 Extend the prose of the set command in `generate_configuration_docs` of `src/devops_cli/docs/generator.py`, so the page names the set command with its generate flag for a credential that no person chooses, and names `devops k8s push-secrets` for the Secrets that read it. Write `test_the_configuration_page_names_the_generate_command` in `tests/docs/test_docs.py` first: it builds `DocGenerator` with the module's `generator` fixture, calls `generate_configuration_docs` and asserts that the text holds both command strings
   - Verification: `$ uv run devops ci test tests/docs/test_docs.py` passes
 
 ## 4. Edit the Crawl4AI bullet and regenerate the pages
