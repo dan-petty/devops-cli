@@ -172,3 +172,25 @@ def check_no_application_renders_the_devops_cli_config_map_and_no_commit_holds_i
         0,
         "",
     )
+
+
+def check_homelab_project_ignores_the_cnpg_monitoring_config_map() -> None:
+    """AppProject `homelab` ignores the ConfigMap the CloudNativePG operator writes into each
+    namespace that has a Cluster, and keeps its orphan warning on, and the gateway Cluster keeps
+    the default CloudNativePG queries (#5303)."""
+    documents = [
+        document
+        for document in yaml.load_all(
+            (APPS_DIR / "projects.yaml").read_text(encoding="utf-8"), Loader=yaml.CSafeLoader
+        )
+        if document
+    ]
+    homelab = next(document for document in documents if document["metadata"]["name"] == "homelab")
+    orphaned = homelab["spec"]["orphanedResources"]
+
+    assert (
+        orphaned["warn"],
+        {"group": "", "kind": "ConfigMap", "name": "cnpg-default-monitoring"} in orphaned["ignore"],
+        "disableDefaultQueries"
+        in (K8S_DIR / "llm" / "gateway-db.yaml").read_text(encoding="utf-8"),
+    ) == (True, True, False)
