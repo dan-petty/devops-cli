@@ -16,6 +16,15 @@
 # ignores the ranges of other packages. Without `package`, every vulnerability of an advisory
 # counts. The names below are those that the repositories used on 2026-11-07.
 #
+# `osv_ecosystem` and `osv_name` are the identity that OSV gives the component, which differs from
+# its inventory identity: an image is a Debian package, and a Go release binary is the module path
+# of its repository in the ecosystem `Go`. The advisory and release steps query OSV with that pair.
+#
+# A `[[pin]]` entry declares a component that no file of this repository holds, such as the
+# operating system of a node or a driver. `devops research inventory` lists it at the file
+# `external` and line 0. Leave `version` out when the environment holds the version and this
+# repository does not, and write no host name, no address and no device path here.
+#
 # Not mapped, because the advisories of their repositories name no package that matches the pin:
 # the binaries `helm` (the advisories name the Go module of Helm 3), `promtool` and `cloudflared`
 # (free text), and the image `portkeyai/gateway` (no package name).
@@ -84,12 +93,16 @@ ecosystem = "github-release"
 name = "argo"
 repo = "argoproj/argo-workflows"
 package = "github.com/argoproj/argo-workflows/v4"
+osv_ecosystem = "Go"
+osv_name = "github.com/argoproj/argo-workflows/v4"
 
 [[watch]]
 ecosystem = "github-release"
 name = "argocd"
 repo = "argoproj/argo-cd"
 package = "github.com/argoproj/argo-cd/v3"
+osv_ecosystem = "Go"
+osv_name = "github.com/argoproj/argo-cd/v3"
 
 [[watch]]
 ecosystem = "github-release"
@@ -101,6 +114,8 @@ ecosystem = "github-release"
 name = "trivy"
 repo = "aquasecurity/trivy"
 package = "github.com/aquasecurity/trivy"
+osv_ecosystem = "Go"
+osv_name = "github.com/aquasecurity/trivy"
 
 [[watch]]
 ecosystem = "github-release"
@@ -166,3 +181,16 @@ repo = "google/osv-scanner"
 ecosystem = "github-release"
 name = "golangci-lint"
 repo = "golangci/golangci-lint"
+
+# Pins outside the repository: no file of it holds these, so the inventory lists them at the file
+# `external` and line 0.
+
+[[pin]]
+kind = "tool"
+name = "ubuntu"
+osv_ecosystem = "Ubuntu"
+osv_name = "linux"
+
+[[pin]]
+kind = "tool"
+name = "nvidia-driver"
