@@ -2269,6 +2269,7 @@ STOP_SIGNALS = [signal.SIGINT, signal.SIGTERM, signal.SIGHUP]
 
 
 @pytest.mark.live("devops")
+@pytest.mark.real_sleep
 @pytest.mark.usefixtures("default_signal_dispositions")
 @pytest.mark.parametrize("stop_signal", STOP_SIGNALS, ids=lambda sig: sig.name)
 def test_a_signal_to_devops_ci_test_lets_pytest_tear_down_then_stops_its_group(
@@ -2301,6 +2302,7 @@ def test_a_signal_to_devops_ci_test_lets_pytest_tear_down_then_stops_its_group(
 
 
 @pytest.mark.live("devops")
+@pytest.mark.real_sleep
 @pytest.mark.usefixtures("default_signal_dispositions")
 @pytest.mark.parametrize("stop_signal", STOP_SIGNALS, ids=lambda sig: sig.name)
 def test_a_second_signal_to_devops_ci_test_cannot_skip_the_sigkill(
@@ -2370,6 +2372,7 @@ def test_a_stop_signal_cancels_the_gate_and_the_running_row_names_itself(
 
 
 @pytest.mark.live("devops")
+@pytest.mark.real_sleep
 @pytest.mark.usefixtures("default_signal_dispositions")
 def test_a_sigterm_to_the_gate_stops_the_group_of_each_running_row_and_names_it(
     narrowed_project: Path, tmp_path: Path

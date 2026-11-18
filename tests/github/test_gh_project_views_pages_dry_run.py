@@ -30,6 +30,7 @@ from devops_cli.commands.gh import (
     sync_views,
 )
 from devops_cli.dry_run import get_dry_run_class
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 
 REQUEST_PLAN_COMMANDS = [
@@ -133,7 +134,7 @@ def _assert_args_match(actual: list[str], planned: tuple[str, ...], argv: list[s
 
 
 def test_dry_run_plans_match_dispatched_calls(
-    cli: Callable[..., Any], process_fake: ProcessFake
+    cli: Callable[..., Any], process_fake: ProcessFake, clock: ClockFake
 ) -> None:
     """Criteria 4 & 6: planned requests match dispatched calls using a recording fake transport."""
     from devops_cli.github import pages, projects

@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import time
 from collections.abc import Callable
 from typing import Any, TypeVar
 
@@ -36,6 +35,7 @@ from devops_cli.config.defaults import (
     DEFAULT_STRUCTURED_RETRY_BACKOFF_SECONDS,
 )
 from devops_cli.config.settings import AIConfig
+from devops_cli.core import clock
 from devops_cli.exceptions.ai import StructuredOutputSchemaError
 from devops_cli.models.ai import ChatMessage
 from devops_cli.telemetry import trace_span
@@ -248,7 +248,7 @@ class StructuredOutputMixin:
         backoff_seconds: float,
     ) -> None:
         """Back off, and append the reply and the reflection on its failure to the messages."""
-        time.sleep(backoff_seconds * (2 ** (attempt - 1)))
+        clock.sleep(backoff_seconds * (2 ** (attempt - 1)))
         messages.append(ChatMessage(role="assistant", content=raw_text))
         messages.append(build_schema_reflection_message(failure))
 

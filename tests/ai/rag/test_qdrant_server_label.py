@@ -15,6 +15,7 @@ from devops_cli.ai.rag.investigator import investigate_rag_context
 from devops_cli.ai.rag.qdrant import QdrantClient, QdrantClientError
 from devops_cli.config.settings import Settings
 from devops_cli.exceptions import InvalidURLError
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.dns import PUBLIC_ADDRESS, DnsFake
 from tests.support.fakes.kubernetes import FakeCluster
 
@@ -74,7 +75,11 @@ def test_the_label_names_the_server_by_host_and_port(url: str, label: str) -> No
 
 @pytest.mark.parametrize("url", [_HTTP_URL, _K8S_URL], ids=["http", "k8s"])
 def test_the_client_log_line_of_list_collections_names_the_server_by_host_and_port(
-    caplog: pytest.LogCaptureFixture, cluster: FakeCluster, refusing_port: int, url: str
+    caplog: pytest.LogCaptureFixture,
+    cluster: FakeCluster,
+    refusing_port: int,
+    url: str,
+    clock: ClockFake,
 ) -> None:
     """A real client dials a loopback port that refuses; the line names the configured server."""
     cluster.configuration.host = f"http://127.0.0.1:{refusing_port}"

@@ -29,6 +29,8 @@ import time
 from collections.abc import Callable
 from typing import Any, Final
 
+from devops_cli.core import clock
+
 THREAD_HANDOFF_BOUND_SECONDS: Final[float] = 30.0
 """How long a test waits for an event it expects another thread or process to cause."""
 
@@ -44,7 +46,7 @@ def wait_until(condition: Callable[[], bool], bound: float = THREAD_HANDOFF_BOUN
     while True:
         if condition():
             return True
-        time.sleep(POLL_INTERVAL_SECONDS)
+        clock.sleep(POLL_INTERVAL_SECONDS)
         if time.monotonic() >= deadline:
             return False
 
@@ -57,5 +59,5 @@ def wait_while_running(condition: Callable[[], bool], process: subprocess.Popen[
     while process.poll() is None:
         if condition():
             return True
-        time.sleep(POLL_INTERVAL_SECONDS)
+        clock.sleep(POLL_INTERVAL_SECONDS)
     return condition()

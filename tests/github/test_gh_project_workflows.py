@@ -19,6 +19,7 @@ from devops_cli.github.projects import (
     link_project_to_repository,
     reset_project_caches,
 )
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 
@@ -207,7 +208,7 @@ def test_find_remote_project_falls_back_when_not_in_repo(process_fake: ProcessFa
     assert (found["number"], found["id"]) == (5, "PVT_456")
 
 
-def test_link_project_to_repository_formatting(process_fake: ProcessFake) -> None:
+def test_link_project_to_repository_formatting(process_fake: ProcessFake, clock: ClockFake) -> None:
     """link_project_to_repository formats owner and repo properly and invokes gh project link."""
     reset_project_caches()
     process_fake.answer(["gh", "auth", "token"], ProcessAnswer(returncode=0, stdout="fake-token\n"))
@@ -271,7 +272,7 @@ def test_get_project_workflows(process_fake: ProcessFake) -> None:
     assert "users/dan-petty/projects/2/workflows/2" in workflows[0]["url"]
 
 
-def test_get_project_workflows_not_found(process_fake: ProcessFake) -> None:
+def test_get_project_workflows_not_found(process_fake: ProcessFake, clock: ClockFake) -> None:
     """get_project_workflows returns empty list when project cannot be located."""
     mock_empty = {"data": {"repository": {"projectsV2": {"nodes": []}}}}
     process_fake.answer(["gh", "auth", "token"], ProcessAnswer(returncode=0, stdout="fake-token\n"))

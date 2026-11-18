@@ -511,7 +511,7 @@ def _rate_limit_answer(call: ProcessCall) -> ProcessAnswer:
 
 
 def test_pr_edit_fallback_patch_title_body_base_milestone(
-    cli: Callable[..., Any], process_fake: ProcessFake
+    cli: Callable[..., Any], process_fake: ProcessFake, clock: ClockFake
 ) -> None:
     """devops pr edit falls back to REST PATCH when gh pr edit fails (#2159)."""
     # 0. Answer rate_limit requests
@@ -597,7 +597,7 @@ def test_pr_edit_fallback_patch_title_body_base_milestone(
 
 
 def test_pr_edit_fallback_milestone_failure_fails_with_message(
-    cli: Callable[..., Any], process_fake: ProcessFake
+    cli: Callable[..., Any], process_fake: ProcessFake, clock: ClockFake
 ) -> None:
     """A failed milestone PATCH makes devops pr edit fail with its message (#2159)."""
     # 0. Answer rate_limit requests

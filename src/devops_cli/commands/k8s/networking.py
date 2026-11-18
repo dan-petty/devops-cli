@@ -46,6 +46,7 @@ from devops_cli.config.defaults import (
     DEFAULT_VALKEY_PORT,
 )
 from devops_cli.config.settings import load_settings, save_settings, setting_default
+from devops_cli.core import clock
 from devops_cli.core.process import spawn_detached
 from devops_cli.core.validation import is_loopback_host
 from devops_cli.dry_run import dry_run_class, is_dry_run, render_dry_run_result
@@ -1157,7 +1158,6 @@ def port_forward(
     ] = False,
 ) -> None:
     """Port-forward k8s monitoring / LLM stack services to localhost ports."""
-    import time
 
     effective_context = runtime.resolve_effective_context(context)
     if effective_context:
@@ -1198,7 +1198,7 @@ def port_forward(
     )
     services = _collect_port_forward_services(selected_stacks, ports)
     _launch_port_forwards(services, effective_context, address, stack)
-    time.sleep(1.0)
+    clock.sleep(1.0)
     if update_config:
         configure_urls(stack=stack, context=effective_context)
 

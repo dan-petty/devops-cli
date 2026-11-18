@@ -13,6 +13,7 @@ from devops_cli.ai.chaos.models import (
     ChaosStatus,
     ModelChaosReport,
 )
+from devops_cli.core import clock
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import trace_span
 
@@ -126,7 +127,7 @@ class ModelChaosInjector:
             if self.config.dry_run
             else min(self.config.latency_ms / 1000.0, 30.0)
         )
-        time.sleep(simulated_delay)
+        clock.sleep(simulated_delay)
         elapsed_ms = (time.perf_counter() - start_time) * 1000.0
 
         desc = f"Injected synthetic network latency ({self.config.latency_ms}ms target, {elapsed_ms:.1f}ms measured)"

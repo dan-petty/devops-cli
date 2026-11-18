@@ -88,6 +88,7 @@ def _run_child_with_stderr_on_a_pseudo_terminal() -> bytes:
         os.close(master_fd)
 
 
+@pytest.mark.real_sleep
 @pytest.mark.live("python")
 def test_a_pipe_gets_no_elapsed_line() -> None:
     """A command whose stderr is a pipe writes no `Elapsed:` line (#5448)."""
@@ -95,6 +96,7 @@ def test_a_pipe_gets_no_elapsed_line() -> None:
     assert (child.returncode, b"Elapsed:" in child.stderr) == (0, False)
 
 
+@pytest.mark.real_sleep
 @pytest.mark.live("python")
 def test_force_color_with_a_pipe_gets_no_elapsed_line() -> None:
     """`FORCE_COLOR` and `TTY_COMPATIBLE` do not make a pipe a terminal (#5448)."""
@@ -102,6 +104,7 @@ def test_force_color_with_a_pipe_gets_no_elapsed_line() -> None:
     assert (child.returncode, b"Elapsed:" in child.stderr) == (0, False)
 
 
+@pytest.mark.real_sleep
 @pytest.mark.live("python")
 def test_a_pseudo_terminal_gets_the_elapsed_line() -> None:
     """A command whose stderr is a terminal still writes the `Elapsed:` line (#5448)."""

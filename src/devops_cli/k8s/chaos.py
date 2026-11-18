@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import time
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from devops_cli.config.commands import build_kubectl_cmd
 from devops_cli.config.defaults import DEFAULT_CHAOS_DURATION_SECONDS, DEFAULT_K8S_NAMESPACE
+from devops_cli.core import clock
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.validation import validate_k8s_identifier
 from devops_cli.output import print_info, print_success, print_warning
@@ -94,7 +94,7 @@ def execute_chaos_experiment(
         print_info(
             f"Waiting {duration_seconds}s for deployment replica reconciliation...", prefix=False
         )
-        time.sleep(min(duration_seconds, 10))
+        clock.sleep(min(duration_seconds, 10))
 
         # 4. Check rollout status
         rollout_cmd = build_kubectl_cmd(

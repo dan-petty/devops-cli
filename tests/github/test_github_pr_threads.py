@@ -21,7 +21,13 @@ from devops_cli.github.pr_threads import (
     unresolve_pr_review_thread,
 )
 from devops_cli.github.request_classifier import is_write_gh_command
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+
+
+@pytest.fixture(autouse=True)
+def _mock_clock(clock: ClockFake) -> None:
+    pass
 
 
 def _rate_limit_payload() -> str:

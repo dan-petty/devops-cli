@@ -20,6 +20,7 @@ import httpx2
 from pydantic import BaseModel, Field
 
 from devops_cli.config.defaults import DEFAULT_K8S_TUNNEL_PORT
+from devops_cli.core import clock
 from devops_cli.core.process import (
     DetachedProcess,
     run_subprocess,
@@ -209,7 +210,7 @@ def _wait_until_listening(
                     code=code, listener=record.listener, log=record.log_file
                 )
             )
-        time.sleep(_POLL_SECONDS)
+        clock.sleep(_POLL_SECONDS)
     terminate_process_group(record.pid)
     _forget(state_file)
     raise KubernetesTunnelError(

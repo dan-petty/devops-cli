@@ -22,6 +22,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.env import env_var_for_option
 from devops_cli.config.settings import load_settings
+from devops_cli.core import clock
 from devops_cli.core.cli import new_typer
 from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.dry_run.requests import render_request_plan
@@ -265,7 +266,7 @@ def telemetry_test_cmd(
 
     with trace_span(name, attributes={"test": True, "cli": "devops-cli"}) as span_id:
         emit(TELEMETRY_TESTS_TOTAL, 1.0)
-        time.sleep(0.02)  # 20ms simulated span duration
+        clock.sleep(0.02)  # 20ms simulated span duration
 
     elapsed_ms = (time.perf_counter() - start) * 1000
 

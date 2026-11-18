@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
@@ -13,6 +12,7 @@ from devops_cli.config.defaults import (
     DEFAULT_FILE_WATCHER_INTERVAL_SECONDS,
     DEFAULT_FILE_WATCHER_NAME,
 )
+from devops_cli.core import clock
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git
 from devops_cli.telemetry import trace_span
 
@@ -103,7 +103,7 @@ class DebouncedFileWatcher:
             "files_changed",
             {"count": len(changed), "files": [str(p) for p in changed[:5]]},
         )
-        time.sleep(self.debounce_seconds)
+        clock.sleep(self.debounce_seconds)
         self.on_change(changed)
 
     def _run_watch_loop(self, max_iterations: int | None, span_h: Any) -> int:
@@ -117,7 +117,7 @@ class DebouncedFileWatcher:
             iterations += 1
             if max_iterations is not None and iterations >= max_iterations:
                 break
-            time.sleep(self.poll_interval_seconds)
+            clock.sleep(self.poll_interval_seconds)
         return iterations
 
     def watch(self, *, max_iterations: int | None = None) -> None:

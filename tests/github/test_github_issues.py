@@ -27,6 +27,7 @@ from devops_cli.github.issues import (
     render_issue,
 )
 from devops_cli.roadmap.stores.store import GitHubState, ItemField
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.github import JSON_TYPE, GitHubApiFake, github_json, next_page
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -109,7 +110,9 @@ def test_get_repository_issues_parses_json_payload(process_fake: ProcessFake) ->
     assert "type/feature" in issues[0].labels
 
 
-def test_create_repository_issue_returns_created_record(process_fake: ProcessFake) -> None:
+def test_create_repository_issue_returns_created_record(
+    process_fake: ProcessFake, clock: ClockFake
+) -> None:
     """create_repository_issue creates issue with proper command arguments."""
     payload = {
         "number": 84,
@@ -140,7 +143,7 @@ def test_create_repository_issue_returns_created_record(process_fake: ProcessFak
 
 
 def test_create_repository_issue_reports_no_milestone_when_the_patch_fails(
-    process_fake: ProcessFake,
+    process_fake: ProcessFake, clock: ClockFake
 ) -> None:
     """When the create cannot add the milestone, the fallback create succeeds, and the PATCH that
     would set the milestone fails, the issue reports no milestone rather than the one requested
@@ -179,7 +182,7 @@ def test_create_repository_issue_reports_no_milestone_when_the_patch_fails(
 
 
 def test_gh_issues_create_says_the_milestone_was_not_set_when_the_patch_fails(
-    process_fake: ProcessFake, cli: Any
+    process_fake: ProcessFake, cli: Any, clock: ClockFake
 ) -> None:
     """A failed milestone PATCH leaves the issue with no milestone, and the command says so (#2158)."""
     process_fake.answer(
@@ -350,7 +353,7 @@ def test_get_issues_summary() -> None:
 
 
 def test_create_repository_issue_failure_bounds_title_in_error_details(
-    process_fake: ProcessFake,
+    process_fake: ProcessFake, clock: ClockFake
 ) -> None:
     """Verify that GitHubOperationError details truncates unbounded title to max 256 chars."""
     huge_title = "fix(security): " + ("A" * 1500)

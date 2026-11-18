@@ -180,6 +180,7 @@ def test_the_service_installs_its_model_call_limit() -> None:
 # ── The identity ────────────────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.real_sleep
 def test_a_suspended_identity_stops_every_job_of_every_repository(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -338,6 +339,7 @@ def test_the_budget_holds_the_rounds_when_the_last_hour_spent_it_and_frees_them_
     assert not budget.holds()
 
 
+@pytest.mark.real_sleep
 def test_a_round_that_would_pass_the_hourly_budget_waits_for_the_window() -> None:
     """The budget is checked for each request, where the request goes, so a round that starts
     under it waits when it would pass it, and goes on when the window has room (#2547)."""

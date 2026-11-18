@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -27,6 +28,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_START_MARKER,
     CONST_ROADMAP_STATUS_READY,
 )
+from devops_cli.core import clock as clock_seam
 from devops_cli.exceptions import RoadmapRefineError
 from devops_cli.roadmap.body_hash import hash_text
 from devops_cli.roadmap.refine.refine import (
@@ -38,6 +40,7 @@ from devops_cli.roadmap.stores.store import (
     ItemField,
     RefineRecordKey,
 )
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore, JobWrite
 from tests.support.roadmap_refine import (
     CRITERION,
@@ -61,11 +64,15 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 SIX_HOURS = timedelta(hours=6)
 
 
-@pytest.fixture
-def clock() -> Iterator[time_machine.Traveller]:
+@pytest.fixture(autouse=True)
+def clock(monkeypatch: pytest.MonkeyPatch) -> Iterator[ClockFake]:
     """Time stands still until a test moves it: a failed item waits for the time of its class."""
     with time_machine.travel(datetime(2026, 11, 8, 12, 0, tzinfo=UTC), tick=False) as traveller:
-        yield traveller
+        fake = ClockFake(traveller)
+        monkeypatch.setattr(clock_seam, "sleep", fake.sleep)
+        monkeypatch.setattr(clock_seam, "monotonic", fake.monotonic)
+        monkeypatch.setattr(time, "sleep", fake.sleep)
+        yield fake
 
 
 def test_too_big_needs_split(git_repo: Path, store: InMemoryRoadmapStore) -> None:
@@ -200,7 +207,7 @@ def test_two_replies_that_never_validate_on_the_same_body_settle_the_item(
     git_repo: Path,
     store: InMemoryRoadmapStore,
     scripted_gateway: Callable[..., list[httpx2.Request]],
-    clock: time_machine.Traveller,
+    clock: ClockFake,
 ) -> None:
     """A reply that never fits the schema is the item's doing: the first failure records the
     body it saw and settles nothing, the second on the same body settles the item to wait on a
@@ -239,7 +246,7 @@ def test_a_failure_followed_by_a_success_refines_the_item_and_clears_the_failure
     git_repo: Path,
     store: InMemoryRoadmapStore,
     scripted_gateway: Callable[..., list[httpx2.Request]],
-    clock: time_machine.Traveller,
+    clock: ClockFake,
 ) -> None:
     """One reply that never fits the schema does not stop the item: the next round refines it,
     and its record no longer holds the failure (#1526, #1539)."""

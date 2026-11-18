@@ -1066,7 +1066,7 @@ class EmbeddingsEngine:
             logger.debug(
                 "Ollama timeout on %s, backoff %.2fs: %s", _endpoint_text(base_url), delay, exc
             )
-            time.sleep(delay)
+            clock.sleep(delay)
             raise
 
     def _try_query_candidate_nodes(
@@ -1201,7 +1201,7 @@ class EmbeddingsEngine:
                         max_retries,
                         delay,
                     )
-                    time.sleep(delay)
+                    clock.sleep(delay)
                     continue
                 return res, time.monotonic() - started
             except Exception as exc:
@@ -1221,7 +1221,7 @@ class EmbeddingsEngine:
                     exc,
                     delay,
                 )
-                time.sleep(delay)
+                clock.sleep(delay)
 
         if last_exc:
             raise last_exc
