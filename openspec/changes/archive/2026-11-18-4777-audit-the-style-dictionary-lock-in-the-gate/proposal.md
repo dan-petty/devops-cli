@@ -10,7 +10,7 @@ The Style Dictionary lock at `src/devops_cli/tools_lock/style-dictionary/` is ou
 - Override `glob` to 14.0.2 and `minimatch` to 11.0.1 in `src/devops_cli/tools_lock/style-dictionary/package.json`, and write the lock again. `npm audit` of the lock is then clean.
 - Install Style Dictionary in the Design Tokens job of `.github/workflows/ci.yml` with `devops install-tools --tool style-dictionary`, and delete the hand `npm ci` step.
 - Add `style-dictionary` to `NOT_IN_RUNNER` in `src/devops_cli/roadmap/runner_tools.py`, with the Design Tokens reason.
-- Add a Renovate manager for the entry, and name the install and audit paths in `docs/DESIGN.md` and ADR 0024.
+- Add a Renovate manager for the entry, name the install and audit paths in `docs/DESIGN.md`, and add a Status History line to ADR 0024.
 - The change alters a manifest entry, a lockfile, a CI workflow and documents. It adds no requirement to a capability, so it sets `skip_specs: true`.
 
 ## Capabilities
