@@ -558,6 +558,24 @@ def test_a_commit_with_no_check_waits_while_a_pull_request_workflow_can_start_on
     assert verdict.no_ci is False
 
 
+def test_a_payload_with_no_head_commit_fails_closed(github: _GitHub, tmp_path: Path) -> None:
+    """A pull request payload that names no head commit is no read of the checks, so the verdict
+    blocks instead of reporting ready (#4927)."""
+    verdict = _assess(tmp_path, _pr(head={"ref": "feat/x"}))
+
+    assert (
+        BlockerKind.CHECKS_UNREAD in verdict.kinds,
+        verdict.is_ready,
+        verdict.checks,
+        verdict.blockers[0],
+    ) == (
+        True,
+        False,
+        None,
+        "PR #335 check verification failed closed: the pull request read gave no head commit.",
+    )
+
+
 def test_a_repository_with_no_pull_request_workflow_has_no_ci(
     github: _GitHub, tmp_path: Path
 ) -> None:

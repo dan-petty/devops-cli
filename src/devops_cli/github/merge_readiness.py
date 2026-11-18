@@ -285,8 +285,15 @@ def _judge_checks(
 
     With `commit_statuses` off, the checks are the check runs only: a token without the `statuses`
     permission reads them, and no request goes to the commit status endpoint (#2877). A head
-    commit that reports no check is no blocker where no workflow can start one (#5144)."""
+    commit that reports no check is no blocker where no workflow can start one (#5144). A payload
+    that names no head commit is no read of the checks: it fails closed, as a failed check read
+    does (#4927)."""
     if not head_sha:
+        verdict.block(
+            BlockerKind.CHECKS_UNREAD,
+            f"PR #{pr_num} check verification failed closed: the pull request read gave no head "
+            "commit.",
+        )
         return
     if reads.commit_statuses:
         checks = read_commit_checks(
