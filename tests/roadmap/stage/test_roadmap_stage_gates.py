@@ -46,6 +46,8 @@ MODULE_TREE = StagedTree([*TREE_FILES, MODULE_FILE])
 KNOWN = ["comment-thread"]
 MISSING = "src/devops_cli/missing.py"
 NO_SPEC_DELTA = "skip_specs is false, and the reply gives no spec delta."
+DEFECT = "- The earlier reply was wrong to read the probe answer as a false premise."
+QUOTE = f"> {DEFECT}"
 
 
 def _staged_module(path: str) -> str | None:
@@ -111,6 +113,36 @@ def test_the_module_quote_rule_accepts_the_plan_of_this_change() -> None:
     )
 
     assert content_problems(plan) == []
+
+
+def test_the_meta_text_rule_accepts_the_plan_of_this_change() -> None:
+    """The plan's own acceptance test (#3404): the plan adds the gate `meta-text`, so it builds
+    its own `StageProposal`, whose Feasibility section quotes the defect inside a block quotation,
+    and asserts that `content_problems` returns no problem for it. A line of prose with the same
+    words is the one problem of the gate `meta-text`, with its line and its phrase (#4111)."""
+    plan = make_stage_proposal(feasibility=[QUOTE])
+
+    assert content_problems(plan) == []
+    assert check_gates(plan, KNOWN, TREE, registry=())[ProposalGate.META_TEXT] == []
+
+    found = check_gates(make_stage_proposal(feasibility=[DEFECT]), KNOWN, TREE, registry=())
+
+    assert ProposalGate.META_TEXT == "meta-text"
+    (problem,) = found[ProposalGate.META_TEXT]
+    assert "line 1" in problem
+    assert "earlier reply" in problem
+    assert [gate for gate, problems in found.items() if problems] == [ProposalGate.META_TEXT]
+
+    twice = check_gates(
+        make_stage_proposal(feasibility=[DEFECT, "I apologize for the previous turn."]),
+        KNOWN,
+        TREE,
+        registry=(),
+    )
+
+    first, second = twice[ProposalGate.META_TEXT]
+    assert ("line 1" in first, "earlier reply" in first) == (True, True)
+    assert ("line 2" in second, "previous turn" in second) == (True, True)
 
 
 def _reads_a_missing_file(**overrides: object) -> StageProposal:

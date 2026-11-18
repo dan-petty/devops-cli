@@ -79,6 +79,7 @@ from devops_cli.roadmap.stage.stage_criteria import (
     refine_decisions,
 )
 from devops_cli.roadmap.stage.stage_form import form_problems, search_problems
+from devops_cli.roadmap.stage.stage_meta_text import meta_text_problems
 from devops_cli.roadmap.stage.stage_models import parse_class_members
 from devops_cli.roadmap.stage.stage_move import (
     is_prefix_move_group,
@@ -279,6 +280,7 @@ STAGE_EVAL_GATE_PATHS: Final[tuple[str, ...]] = (
     "src/devops_cli/roadmap/stage/stage_form.py",
     "src/devops_cli/roadmap/stage/stage_paths.py",
     "src/devops_cli/roadmap/stage/stage_criteria.py",
+    "src/devops_cli/roadmap/stage/stage_meta_text.py",
     "src/devops_cli/roadmap/stage/stage_eval_gates.py",
 )
 STAGE_EVAL_TRIGGER_PATHS: Final[tuple[str, ...]] = (
@@ -2661,6 +2663,7 @@ class ProposalGate(StrEnum):
 
     SPEC_DELTA = "spec-delta"
     CONTENT = "content"
+    META_TEXT = "meta-text"
     CITATION = "citation"
     FORM = "form"
     EVAL_REPLAY = "eval-replay"
@@ -2995,6 +2998,7 @@ def check_gates(
             *_scenario_problems(proposal.specs, proposal.groups, tree, base_scenarios),
         ],
         ProposalGate.CONTENT: content_problems(proposal, probes),
+        ProposalGate.META_TEXT: meta_text_problems(proposal.feasibility),
         ProposalGate.CITATION: [
             *_plan_citation_problems(proposal, read_text),
             *module_quote_problems(proposal, read_text),
