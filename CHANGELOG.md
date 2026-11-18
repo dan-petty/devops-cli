@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.174.6](https://github.com/dan-petty/devops-cli/compare/v0.174.5...v0.174.6) (2026-11-18)
+
+
+### Bug Fixes
+
+* **terraform:** Count a plan from its own segments and require the file ([#6249](https://github.com/dan-petty/devops-cli/issues/6249)) ([1130cd4](https://github.com/dan-petty/devops-cli/commit/1130cd4c01d8eace26111aa2beee1539cf9fae0d))
+
 ## [0.174.5](https://github.com/dan-petty/devops-cli/compare/v0.174.4...v0.174.5) (2026-11-18)
 
 
