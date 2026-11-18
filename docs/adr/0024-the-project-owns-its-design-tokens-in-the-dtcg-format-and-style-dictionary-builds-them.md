@@ -23,7 +23,7 @@ The artifacts of devops-cli set their colors, fonts and sizes by hand. The inven
 2. **Contrast rules next to the values.** Each color token holds its contrast rule in `$extensions.devops-cli.contrast`: the backgrounds it sits on and its lowest WCAG 2.x ratio. A rule marked `grafana` also holds on the four Grafana backgrounds.
 3. **Style Dictionary builds the tokens.** Style Dictionary (Apache-2.0, 5.8.0 when this record was written) builds each target format with its built-in formats only: `css/variables` and `json/flat`, with the `css` transform group. Four JSON configs in `design/sd/` set `log.warnings` to `"error"`. No custom transform and no custom format exist. `make design-tokens` runs the four builds.
 4. **Committed outputs.** The outputs are in git, and nobody edits them by hand: the token CSS of the docs site (Jekyll cannot run the build) and the token CSS and flat JSON of the package `devops_cli.design`. The CI job "Design Tokens" builds the tokens and fails when an output is not the build.
-5. **The lock and its updates.** `src/devops_cli/tools_lock/style-dictionary/` holds the lock, as OpenSpec has its lock. The devcontainer image and the CI job install it with `npm ci --ignore-scripts`. The lock is no entry of `tools.lock`, so Renovate updates it (decision 9 of #4735), with no minimum release age (CONTRIBUTING.md, "Dependency Versions"). Issue #4777 adds the entry of `tools.lock` when a release has dependencies with no audit finding.
+5. **The lock and its updates.** `src/devops_cli/tools_lock/style-dictionary/` holds the lock, as OpenSpec has its lock. `[npm.style-dictionary]` is an entry of `tools.lock`, so `devops install-tools --tool style-dictionary` installs it and the `audit` row of `devops ci` audits it (#4777). Renovate updates the entry (decision 9 of #4735), with no minimum release age (CONTRIBUTING.md, "Dependency Versions").
 6. **Checks.** `tests/design` checks the name parity of the themes, each contrast rule in both themes, the categorical gates under simulated color vision deficiency, the order of the ramps, the breakpoint literals and the dash patterns. coloraide (MIT) computes the color values. The ast-grep rule `css-color-literal` rejects a color literal in hand-written CSS.
 
 ## Considered Options
@@ -39,10 +39,12 @@ The artifacts of devops-cli set their colors, fonts and sizes by hand. The inven
 - The trial build: `npm ci` in 15 s, the build in 6.0 s, 0 warnings, the same bytes over two builds, 88 CSS variables in 4 files (9,336 bytes, 3,849 bytes gzip).
 - The only custom code is the package module `devops_cli.design`, about 50 lines, which reads the flat JSON and holds the dash patterns of chart lines.
 - Each viewer of a web target sends a request to the Google Fonts css2 API, which serves the Source fonts. The artifact CSP permits only that font host.
-- The dependencies of Style Dictionary 5.8.0 have 6 `npm audit` findings (2 low, 4 moderate). The dependency ranges of Style Dictionary do not permit the fixed releases. Style Dictionary reads only the committed files of `design/`, and the package and the Service image do not hold it. Issue #4777 tracks the findings.
+- `npm audit` of the Style Dictionary 5.8.0 lock is clean. The manifest overrides `glob` to 14.0.2 and `minimatch` to 11.0.1, the releases that fix their advisories, and the low `deepmerge` finding that no release fixes is no longer reported (#4777). Style Dictionary reads only the committed files of `design/`, and the package and the Service image do not hold it.
 
 ## Status History
 
 The merge of the pull request that adds this record is the approval of this record. `git log --follow -- docs/adr/0024-the-project-owns-its-design-tokens-in-the-dtcg-format-and-style-dictionary-builds-them.md` names the merge commit. The owner accepted the recommended spec and each recommended answer on 2026-11-11 (tracker #4735). Issue #4738 adds the tokens, their build and the spec. The other children of #4735 apply the tokens to each artifact.
 
 2026-11-12: Fact out of date: the docs site builds with Zensical, not Jekyll (#5183).
+
+2026-11-18: The Style Dictionary lock is an entry of `tools.lock`, so `devops install-tools --tool style-dictionary` installs it and the `audit` row of `devops ci` audits it. `npm audit` is clean after the `glob` 14.0.2 and `minimatch` 11.0.1 overrides (#4777).

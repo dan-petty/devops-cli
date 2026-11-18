@@ -235,6 +235,10 @@ NOT_IN_RUNNER: dict[str, str] = {
     "gh-dash": _NO_GATE_STEP,
     "tuicr": _NO_GATE_STEP,
     "devcontainers-cli": _NO_GATE_STEP,
+    "style-dictionary": (
+        "Only the Design Tokens job runs it, to build the tokens of `design/`. A Job runs no "
+        "design token build, so the pull request checks it."
+    ),
     "npm": (
         "The audit row runs `npm audit`. The image deletes npm, because the scan of the image "
         "reports the packages that npm bundles, and a Job installs no tool."
