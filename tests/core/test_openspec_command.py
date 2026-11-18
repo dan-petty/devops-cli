@@ -9,7 +9,10 @@ from typing import Any
 
 import pytest
 
-from tests.support.fakes.openspec import OpenSpecFake
+from devops_cli.config.commands import BIN_OPENSPEC
+from devops_cli.lang import MESSAGES
+from devops_cli.tools_lock import load_tools_lock
+from tests.support.fakes.openspec import VERSION_ARGS, OpenSpecFake
 
 Cli = Callable[..., Any]
 
@@ -91,10 +94,88 @@ def test_regenerate_writes_the_skills_under_the_isolated_profile_and_never_a_bar
                 ("config", "set", "workflows", '["propose", "explore", "apply", "update"]'),
                 openspec_fake.calls[0].cwd,
             ),
+            (("--version",), tree),
             (("update", "--force"), tree),
         ],
         False,
     )
+
+
+def test_regenerate_stops_before_it_writes_when_the_binary_is_older(
+    cli: Cli, openspec_fake: OpenSpecFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A binary older than the tools lock pin writes no skill: the command reads the version and
+    stops before `openspec update --force` (#5375)."""
+    tree = openspec_fake.tree("empty")
+    monkeypatch.chdir(tree)
+    openspec_fake.version = "1.14.3"
+
+    result = cli("openspec", "regenerate")
+
+    assert (
+        result.exit_code,
+        [call.argv for call in openspec_fake.calls if call.argv[0] != "config"],
+    ) == (1, [("--version",)])
+
+
+def test_regenerate_stops_when_the_binary_prints_no_version(
+    cli: Cli, openspec_fake: OpenSpecFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A binary that prints no version line writes no skill either (#5375)."""
+    tree = openspec_fake.tree("empty")
+    monkeypatch.chdir(tree)
+    openspec_fake.script(VERSION_ARGS, 1, "", "")
+
+    result = cli("openspec", "regenerate")
+
+    assert (
+        result.exit_code,
+        [call.argv for call in openspec_fake.calls if call.argv[0] != "config"],
+    ) == (1, [("--version",)])
+
+
+def test_regenerate_names_the_path_the_versions_and_the_hint(
+    cli: Cli, openspec_fake: OpenSpecFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The version finding names the binary path, the printed version, the locked version and the
+    install hint (#5375)."""
+    tree = openspec_fake.tree("empty")
+    monkeypatch.chdir(tree)
+    openspec_fake.version = "1.14.3"
+    locked = load_tools_lock().tools()[BIN_OPENSPEC].version
+
+    result = cli("openspec", "regenerate")
+
+    assert (
+        str(openspec_fake.bin_dir / "openspec") in result.output,
+        "1.14.3" in result.output,
+        locked in result.output,
+        MESSAGES.openspec.missing_hint in result.output,
+    ) == (True, True, True, True)
+
+
+def test_regenerate_uses_the_tool_environment_and_timeout_for_the_version_run(
+    cli: Cli, openspec_fake: OpenSpecFake, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The version run of `regenerate` goes through `OpenSpecTool.run`, so it carries the same
+    opt-out environment and isolated configuration as the gate's version run (#5375)."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "developer-config"))
+    monkeypatch.chdir(openspec_fake.tree("empty"))
+
+    cli("openspec", "regenerate")
+
+    [version_call] = [call for call in openspec_fake.calls if call.argv == VERSION_ARGS]
+    assert {
+        key: value
+        for key, value in version_call.env.items()
+        if key not in ("XDG_CONFIG_HOME", "HOME")
+    } == {
+        "DO_NOT_TRACK": "1",
+        "OPENSPEC_NO_UPDATE_CHECK": "1",
+        "OPENSPEC_TELEMETRY": "0",
+        "OPEN_SPEC_INTERACTIVE": "0",
+    }
+    assert version_call.env["XDG_CONFIG_HOME"] != str(tmp_path / "developer-config")
 
 
 def test_regenerate_in_a_dry_run_writes_and_runs_nothing(

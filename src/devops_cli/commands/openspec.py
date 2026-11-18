@@ -6,14 +6,16 @@ from typing import Annotated
 
 import typer
 
+from devops_cli.config.commands import BIN_OPENSPEC
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import find_worktree_root
 from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions import DevOpsCLIError
+from devops_cli.exceptions.tools import ToolExecutionError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.openspec.archive import archive_change, plan_archive
-from devops_cli.openspec.gate import check_openspec, plan_check
+from devops_cli.openspec.gate import check_openspec, plan_check, version_finding
 from devops_cli.openspec.scaffold import scaffold_change
 from devops_cli.openspec.skills import regenerate_skills
 from devops_cli.openspec.tool import isolated_openspec
@@ -49,9 +51,16 @@ def check() -> None:
 @dry_run_class("no-external-request")
 @trace_span("openspec.regenerate")
 def regenerate() -> None:
-    """Rewrite the committed OpenSpec skills under the isolated custom profile."""
+    """Rewrite the committed OpenSpec skills under the isolated custom profile. The command reads
+    the version of the binary on PATH first, and stops before it writes when that binary is not the
+    tools lock's version (#5375)."""
+    root = find_worktree_root()
     with isolated_openspec() as tool:
-        regenerate_skills(tool, find_worktree_root())
+        if not is_dry_run():
+            problem = version_finding(tool, root)
+            if problem is not None:
+                raise ToolExecutionError(problem.detail, tool_name=BIN_OPENSPEC)
+        regenerate_skills(tool, root)
     print_success(MESSAGES.openspec.regenerated)
 
 
