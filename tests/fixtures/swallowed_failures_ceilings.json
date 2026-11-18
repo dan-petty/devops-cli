@@ -2,7 +2,7 @@
   "src/devops_cli/ai/agents/tools.py": 1,
   "src/devops_cli/ai/analyze/outlines.py": 11,
   "src/devops_cli/ai/ast/engine.py": 2,
-  "src/devops_cli/ai/benchmark/document_chunker.py": 8,
+  "src/devops_cli/ai/benchmark/document_chunker.py": 4,
   "src/devops_cli/ai/benchmark/embedding_runner.py": 1,
   "src/devops_cli/ai/benchmark/runner.py": 6,
   "src/devops_cli/ai/client/base.py": 3,
