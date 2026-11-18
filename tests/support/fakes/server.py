@@ -14,7 +14,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+import pytest
+
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from devops_cli.server.start import StartCall
 
 
@@ -33,3 +37,18 @@ class FakeServerStarter:
         self.calls.append(call)
         if call.factory:
             self.apps.append(target())
+
+
+@pytest.fixture
+def server_starter() -> Iterator[FakeServerStarter]:
+    """The server of `devops serve` started through a `FakeServerStarter` the test reads.
+
+    `install_server_starter` puts the fake in place of `UvicornStarter`, and `remove_server_starter`
+    gives the real starter back at teardown.
+    """
+    from devops_cli.server.start import install_server_starter, remove_server_starter
+
+    fake = FakeServerStarter()
+    install_server_starter(fake)
+    yield fake
+    remove_server_starter()

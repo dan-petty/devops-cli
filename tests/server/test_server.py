@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -297,16 +296,14 @@ def test_serve_cli_help(runner: CliRunner) -> None:
     assert "--reload" in result.output
 
 
-def test_serve_cli_invocation_mocked(runner: CliRunner) -> None:
-    """Test devops serve starts uvicorn server."""
-    with patch("uvicorn.run") as mock_uvicorn:
-        result = runner.invoke(serve_app, ["--host", "::1", "--port", "9000"])
-        assert result.exit_code == 0
-        assert mock_uvicorn.called
-        assert (mock_uvicorn.call_args.kwargs["host"], mock_uvicorn.call_args.kwargs["port"]) == (
-            "::1",
-            9000,
-        )
+def test_serve_cli_invocation_mocked(runner: CliRunner, server_starter: Any) -> None:
+    """Test devops serve starts the server on the host and the port that it gets."""
+    result = runner.invoke(serve_app, ["--host", "::1", "--port", "9000"])
+
+    assert (result.exit_code, [(call.host, call.port) for call in server_starter.calls]) == (
+        0,
+        [("::1", 9000)],
+    )
 
 
 def test_serve_service_mode_flags_rejected(runner: CliRunner) -> None:
@@ -375,25 +372,27 @@ def test_serve_service_mode_config_validation(
     ) == (1, True, 1, True, 1, True, True, 1, True, 1, True)
 
 
-def test_serve_service_mode_success(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test valid --service invocation starts uvicorn without banner."""
+def test_serve_service_mode_success(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, server_starter: Any
+) -> None:
+    """Test valid --service invocation starts the server without banner."""
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_REPOS", '["example-org/repo1"]')
     _set_github_app(monkeypatch)
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS", '{"example-org/repo1":"secret-1"}')
 
-    with patch("uvicorn.run") as mock_uvicorn:
-        result = runner.invoke(serve_app, ["--service", "--host", "::1", "--port", "8787"])
-        assert (
-            result.exit_code,
-            mock_uvicorn.called,
-            mock_uvicorn.call_args.kwargs["host"],
-            mock_uvicorn.call_args.kwargs["port"],
-            mock_uvicorn.call_args.kwargs["log_config"],
-        ) == (0, True, "::1", 8787, service_log_config("info"))
+    result = runner.invoke(serve_app, ["--service", "--host", "::1", "--port", "8787"])
+
+    assert (
+        result.exit_code,
+        [(call.host, call.port, call.factory, call.log_config) for call in server_starter.calls],
+    ) == (0, [("::1", 8787, True, service_log_config("info"))])
 
 
 def test_serve_service_mode_leaves_logging_to_the_server(
-    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    runner: CliRunner,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    server_starter: Any,
 ) -> None:
     """`devops serve --service` hands its JSON logging to uvicorn, which applies it as it starts.
 
@@ -406,50 +405,44 @@ def test_serve_service_mode_leaves_logging_to_the_server(
     _set_github_app(monkeypatch)
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS", '{"example-org/repo1":"secret-1"}')
 
-    with patch("uvicorn.run"):
-        result = runner.invoke(serve_app, ["--service"])
+    result = runner.invoke(serve_app, ["--service"])
     logging.getLogger("devops_cli.server").warning("a record after the service command")
 
     assert (result.exit_code, "a record after the service command" in caplog.text) == (0, True)
 
 
-def test_serve_service_mode_builds_the_app_after_the_server_applies_its_logging(
-    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+def test_serve_service_mode_hands_the_starter_an_app_factory_and_the_json_log_config(
+    runner: CliRunner,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    server_starter: Any,
 ) -> None:
-    """uvicorn builds the service app from a factory after it applies the JSON `log_config`.
+    """The command gives the starter a factory and the JSON `log_config`, and builds no app itself.
 
-    Building the app warns about each managed repository with no webhook secret. Built before the
-    command called uvicorn, that warning had no handler yet and came out as plain text on stderr.
+    uvicorn builds the service app from a factory after it applies the `log_config`, so the warning
+    of each managed repository with no webhook secret is logged as JSON. The fake builds exactly one
+    app, inside the start.
     """
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_REPOS", '["example-org/repo1", "example-org/repo2"]')
     _set_github_app(monkeypatch)
     monkeypatch.setenv("DEVOPS_CLI_SERVICE_WEBHOOK_SECRETS", '{"example-org/repo1":"secret-1"}')
 
-    def missing_secret_warnings() -> list[str]:
-        return [
-            record.getMessage()
-            for record in caplog.records
-            if record.getMessage().startswith("No webhook secret configured")
-        ]
+    result = runner.invoke(serve_app, ["--service"])
 
-    warnings_when_run: list[list[str]] = []
-
-    def run(app_factory: Callable[[], object], **_: object) -> None:
-        warnings_when_run.append(missing_secret_warnings())
-        app_factory()
-
-    with patch("uvicorn.run", side_effect=run) as mock_uvicorn:
-        result = runner.invoke(serve_app, ["--service"])
-
+    missing_secret = [
+        record.getMessage()
+        for record in caplog.records
+        if record.getMessage().startswith("No webhook secret configured")
+    ]
     assert (
         result.exit_code,
-        mock_uvicorn.call_args.kwargs.get("factory"),
-        warnings_when_run,
-        missing_secret_warnings(),
+        [(call.factory, call.log_config) for call in server_starter.calls],
+        len(server_starter.apps),
+        missing_secret,
     ) == (
         0,
-        True,
-        [[]],
+        [(True, service_log_config("info"))],
+        1,
         ["No webhook secret configured for managed repository: example-org/repo2"],
     )
 
@@ -469,11 +462,15 @@ def _plan_lines(output: str) -> list[str]:
 @pytest.mark.parametrize("flag_first", [True, False])
 def test_serve_dry_run_lists_the_bind_and_the_start(cli: Any, flag_first: bool) -> None:
     """A dry run builds no app, starts no server, and lists the bind and the start."""
+    from devops_cli.server.start import install_server_starter
+
+    class NoServer:
+        def start(self, target: Any, /, **options: Any) -> None:
+            raise AssertionError("no server")
+
+    install_server_starter(NoServer())
     argv = ["serve", "--host", "127.0.0.1", "--port", "9000", "--workers", "2"]
-    with (
-        patch("uvicorn.run", side_effect=AssertionError("no server")),
-        patch("devops_cli.server.app.create_app", side_effect=AssertionError("no app")),
-    ):
+    with patch("devops_cli.server.app.create_app", side_effect=AssertionError("no app")):
         result = cli(["--dry-run", *argv] if flag_first else [*argv, "--dry-run"])
 
     assert result.exit_code == 0, result.output
@@ -485,8 +482,14 @@ def test_serve_dry_run_lists_the_bind_and_the_start(cli: Any, flag_first: bool) 
 
 def test_serve_service_dry_run_reads_no_settings(cli: Any) -> None:
     """`serve --service --dry-run` loads no settings and reads no credential."""
+    from devops_cli.server.start import install_server_starter
+
+    class NoServer:
+        def start(self, target: Any, /, **options: Any) -> None:
+            raise AssertionError("no server")
+
+    install_server_starter(NoServer())
     with (
-        patch("uvicorn.run", side_effect=AssertionError("no server")),
         patch(
             "devops_cli.config.settings.load_settings", side_effect=AssertionError("no settings")
         ),
@@ -501,13 +504,12 @@ def test_serve_service_dry_run_reads_no_settings(cli: Any) -> None:
     ]
 
 
-def test_serve_starts_what_its_plan_lists(cli: Any) -> None:
-    """The start passes uvicorn the options of the plan."""
+def test_serve_starts_what_its_plan_lists(cli: Any, server_starter: Any) -> None:
+    """The start passes the server the options of the plan."""
     argv = ["serve", "--host", "::1", "--port", "9000", "--workers", "2"]
     planned = _plan_lines(cli([*argv, "--dry-run"]).output)
-    with patch("uvicorn.run") as start:
-        result = cli(argv)
+    result = cli(argv)
 
     assert result.exit_code == 0, result.output
-    options = " ".join(f"{name}={value}" for name, value in start.call_args.kwargs.items())
+    options = " ".join(f"{name}={value}" for name, value in server_starter.calls[0].options.items())
     assert planned == ["BIND tcp ::1:9000", f"START uvicorn rest app ({options})"]
