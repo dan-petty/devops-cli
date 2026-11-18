@@ -813,8 +813,7 @@ class TfCommandHelp:
     out_plan: str = "Write generated plan to file."
     plan_file: str = "Explicit plan file to apply."
     plan_input_file: str = (
-        "Path to raw plan output or log file. With no file, or a path that does not exist,"
-        " the command prints a fixed sample plan."
+        "Path to raw plan output or log file. The file is required and must exist."
     )
     pr: str = (
         "Pull request number for the pr field of the JSON or YAML output."

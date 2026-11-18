@@ -2345,7 +2345,7 @@ Format an OpenTofu plan as a collapsible pull request comment and print it. The 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `plan_file` | `string` | No | - | Path to raw plan output or log file. With no file, or a path that does not exist, the command prints a fixed sample plan. |
+| `plan_file` | `string` | Yes | - | Path to raw plan output or log file. The file is required and must exist. |
 | `pr_number` | `integer` | No | - | Pull request number for the pr field of the JSON or YAML output. The command sends nothing to the pull request. |
 | `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
 | `output_format` | `string` | No | `table` | Output format (table, json, yaml, csv) |
