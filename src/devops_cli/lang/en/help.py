@@ -2847,7 +2847,7 @@ class ResearchCommandHelp:
     inventory: str = (
         "List every pin of the project as a typed component: Python packages, tools, container "
         "images, GitHub Actions, Helm charts and Terraform providers. It reads files only unless "
-        "--render is set."
+        "render is set."
     )
     inventory_root: str = (
         "Root of the repository to read. Default: the repository of the current directory."

@@ -6,7 +6,7 @@ Read what the project pins and watch the upstream of each pin.
 
 ## `devops research inventory`
 
-**List every pin of the project as a typed component: Python packages, tools, container images, GitHub Actions, Helm charts and Terraform providers. It reads files only unless --render is set.**
+**List every pin of the project as a typed component: Python packages, tools, container images, GitHub Actions, Helm charts and Terraform providers. It reads files only unless render is set.**
 
 ```bash
 devops research inventory [OPTIONS]
