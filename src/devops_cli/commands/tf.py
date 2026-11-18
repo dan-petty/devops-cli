@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -811,14 +812,35 @@ def tf_lint(
 # Command: devops tf notify-plan
 # =============================================================================
 
+_PLAN_ACTION_COUNT = re.compile(r"(?P<count>\d+) to (?P<action>add|change|destroy)\b")
+
+
+def _plan_counts(text: str) -> tuple[int, int, int]:
+    """The adds, changes and destroys of a plan's summary line (#4929).
+
+    Each `N to <action>` segment gives its count, so an import segment and other wording of the
+    line change no count. A plan with no such segment reports zero for each."""
+    counts = {"add": 0, "change": 0, "destroy": 0}
+    for match in _PLAN_ACTION_COUNT.finditer(text):
+        counts[match["action"]] = int(match["count"])
+    return counts["add"], counts["change"], counts["destroy"]
+
 
 @app.command("notify-plan")
 @dry_run_class("no-external-request")
 def tf_notify_plan(
     plan_file: Annotated[
-        Path | None,
-        typer.Option("--plan-file", "-p", help=HELP.tf.plan_input_file),
-    ] = None,
+        Path,
+        typer.Option(
+            "--plan-file",
+            "-p",
+            help=HELP.tf.plan_input_file,
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+        ),
+    ],
     pr_number: Annotated[
         int | None,
         typer.Option("--pr", help=HELP.tf.pr),
@@ -834,15 +856,8 @@ def tf_notify_plan(
 ) -> None:
     """Format an OpenTofu plan as a collapsible pull request comment and print it. The command sends no request."""
     resolved_format = resolve_format(output_format, json_output=json_output)
-    raw_text = ""
-    if plan_file and plan_file.exists():
-        raw_text = plan_file.read_text(encoding="utf-8")
-    else:
-        raw_text = "Plan: 2 to add, 1 to change, 0 to destroy."
-
-    adds = 2 if "2 to add" in raw_text else 0
-    changes = 1 if "1 to change" in raw_text else 0
-    destroys = 0
+    raw_text = plan_file.read_text(encoding="utf-8")
+    adds, changes, destroys = _plan_counts(raw_text)
 
     comment_body = f"""### 🚀 OpenTofu / Terraform Plan Summary
 **Result:** `+{adds} ~{changes} -{destroys}`

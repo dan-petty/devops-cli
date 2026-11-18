@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.174.7](https://github.com/dan-petty/devops-cli/compare/v0.174.6...v0.174.7) (2026-11-18)
+
+
+### Bug Fixes
+
+* **ci:** Give each image build its own cache scope ([#6254](https://github.com/dan-petty/devops-cli/issues/6254)) ([708bd3c](https://github.com/dan-petty/devops-cli/commit/708bd3c579fcb75ef47825a5151565b0a2813e9c)), closes [#4928](https://github.com/dan-petty/devops-cli/issues/4928)
+* **roadmap:** Refuse a member that the staged class lacks ([#6005](https://github.com/dan-petty/devops-cli/issues/6005)) ([dfae9b5](https://github.com/dan-petty/devops-cli/commit/dfae9b593056f6800361a3ef8ad43628ff011e34))
+
+## [0.174.6](https://github.com/dan-petty/devops-cli/compare/v0.174.5...v0.174.6) (2026-11-18)
+
+
+### Bug Fixes
+
+* **terraform:** Count a plan from its own segments and require the file ([#6249](https://github.com/dan-petty/devops-cli/issues/6249)) ([1130cd4](https://github.com/dan-petty/devops-cli/commit/1130cd4c01d8eace26111aa2beee1539cf9fae0d))
+
+## [0.174.5](https://github.com/dan-petty/devops-cli/compare/v0.174.4...v0.174.5) (2026-11-18)
+
+
+### Bug Fixes
+
+* **ci:** Refresh durations and run five test shards ([#6248](https://github.com/dan-petty/devops-cli/issues/6248)) ([3a5d6ab](https://github.com/dan-petty/devops-cli/commit/3a5d6ab6965d2c824055c1b4ba2cc327de314eea))
+
+## [0.174.4](https://github.com/dan-petty/devops-cli/compare/v0.174.3...v0.174.4) (2026-11-18)
+
+
+### Bug Fixes
+
+* **security:** Judge KSV-0014 with a dated ignore entry ([#6246](https://github.com/dan-petty/devops-cli/issues/6246)) ([7077f06](https://github.com/dan-petty/devops-cli/commit/7077f068d83198c3d73d250307c337e077209b40))
+
 ## [0.174.3](https://github.com/dan-petty/devops-cli/compare/v0.174.2...v0.174.3) (2026-11-18)
 
 

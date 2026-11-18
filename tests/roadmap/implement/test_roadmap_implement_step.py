@@ -642,6 +642,86 @@ def test_the_agent_of_a_step_runs_its_shell_in_that_environment(
     ]
 
 
+_BROKER_GATEWAY = "https://gateway.example.com/v1"
+_BROKER_KEY = "gateway-secret-key-3820"
+
+
+def test_the_shell_environment_of_a_step_holds_the_broker_and_no_ai_key(
+    tmp_path: Path,
+    checkout: Path,
+    config: Callable[..., Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The AI key stays in the job process, which is not dumpable: the shell gets the address of
+    the live broker and the token of its step, and no value of the key (#3820)."""
+    from devops_cli.roadmap.implement.implement_broker import (
+        live_broker,
+        start_step_broker,
+        stop_step_broker,
+    )
+
+    config(ai={"provider": "gateway", "gateway_url": _BROKER_GATEWAY})
+    monkeypatch.setenv("DEVOPS_CLI_AI_API_KEY", _BROKER_KEY)
+    home = tmp_path / "home"
+    log = ToolCallLog()
+    broker = start_step_broker(StepBudget(progress=log.progress))
+    assert broker is not None
+    try:
+        agent = build_agent(
+            ModelScript(say("x")).model(),
+            checkout,
+            "go",
+            WINDOW,
+            home,
+            log,
+            StepBudget(progress=log.progress),
+        )
+        env = shell_environment(home)
+
+        leaves: list[Any] = []
+
+        def collect(leaf: Any) -> Any:
+            leaves.append(leaf)
+            return leaf
+
+        agent.root_capability.visit_and_replace(collect)
+
+        shells = [leaf for leaf in leaves if isinstance(leaf, Shell)]
+        assert [shell.env for shell in shells] == [env]
+        shell = shells[0]
+        assert (
+            env["DEVOPS_CLI_BROKER_URL"],
+            env["DEVOPS_CLI_BROKER_TOKEN"],
+            live_broker() is broker,
+        ) == (broker.url, broker.token, True)
+        values = [
+            *env.values(),
+            *shell.allowed_commands,
+            *shell.denied_commands,
+            *shell.denied_operators,
+            *shell.tools,
+        ]
+        assert [value for value in values if _BROKER_KEY in value] == []
+    finally:
+        stop_step_broker(broker)
+
+
+def test_a_step_with_no_gateway_gets_no_broker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A step whose provider is not the gateway runs no broker, so its shell gets neither the
+    address nor a token (#3820)."""
+    from devops_cli.roadmap.implement.implement_broker import live_broker, reset_step_broker
+
+    monkeypatch.delenv("DEVOPS_CLI_AI_API_KEY", raising=False)
+    reset_step_broker()
+
+    env = shell_environment(tmp_path / "home")
+
+    assert live_broker() is None
+    assert ("DEVOPS_CLI_BROKER_URL" in env, "DEVOPS_CLI_BROKER_TOKEN" in env) == (False, False)
+
+
 def test_a_commit_that_the_agent_makes_is_reset_and_the_step_commits_the_work(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:

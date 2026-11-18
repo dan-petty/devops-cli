@@ -127,6 +127,34 @@ def parse_class_fields(source_code: str) -> dict[str, dict[str, int]]:
     }
 
 
+def _class_member_names(node: ast.ClassDef) -> set[str]:
+    """The fields, the methods and the nested classes of the body of `node` (#3458)."""
+    members: set[str] = set()
+    for stmt in node.body:
+        if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+            members.add(stmt.target.id)
+        elif isinstance(stmt, ast.Assign):
+            members.update(t.id for t in stmt.targets if isinstance(t, ast.Name))
+        elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            members.add(stmt.name)
+    return members
+
+
+def parse_class_members(source_code: str) -> set[str]:
+    """The fields, the methods and the nested classes of the class body of `source_code` (#3458).
+
+    `source_code` is the source of one class, as `class_sources` gives it. A text that holds no
+    class, or one that `ast` cannot parse, gives no member."""
+    try:
+        tree = ast.parse(source_code)
+    except SyntaxError:
+        return set()
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            return _class_member_names(node)
+    return set()
+
+
 def _grep_class_paths(source: Path, sha: str, name: str, *, with_base: bool = True) -> list[str]:
     """The modules under `src/` at `sha` that define the class `name`. With `with_base`, the
     definition declares a base, as the model reader needs; without it, a class that declares none

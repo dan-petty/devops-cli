@@ -291,7 +291,7 @@ devops tf notify-plan [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--plan-file`, `-p` | `path` | - | Path to raw plan output or log file. With no file, or a path that does not exist, the command prints a fixed sample plan. |
+| `--plan-file`, `-p` | `path` | - | Path to raw plan output or log file. The file is required and must exist. |
 | `--pr` | `integer` | - | Pull request number for the pr field of the JSON or YAML output. The command sends nothing to the pull request. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--format`, `-f` | `string` | `table` | Output format (table, json, yaml, csv) |

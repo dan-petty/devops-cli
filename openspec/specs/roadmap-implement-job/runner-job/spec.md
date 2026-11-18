@@ -71,7 +71,7 @@ When a reported Job leaves its item neither In Review nor stopped, and the recor
 - **AND** the next round creates no Job for the item
 
 ### Requirement: A runner process cannot be read by its own shell
-Before the first step, the job in a runner SHALL clear the dumpable flag of its own process with `prctl(PR_SET_DUMPABLE, 0)`, so that no child reads `/proc/<pid>/environ` of the job. A call that the kernel refuses SHALL make `apply_implement` raise `RoadmapImplementError`, and no step SHALL run. The step of the agent SHALL get none of the variables of the job, except `UV_CACHE_DIR`, `UV_PYTHON` and `PYTEST_XDIST_AUTO_NUM_WORKERS`.
+Before the first step, the job in a runner SHALL clear the dumpable flag of its own process with `prctl(PR_SET_DUMPABLE, 0)`, so that no child reads `/proc/<pid>/environ` of the job. A call that the kernel refuses SHALL make `apply_implement` raise `RoadmapImplementError`, and no step SHALL run. The step of the agent SHALL get none of the variables of the job, except `UV_CACHE_DIR`, `UV_PYTHON`, `PYTEST_XDIST_AUTO_NUM_WORKERS`, `DEVOPS_CLI_BROKER_URL` and `DEVOPS_CLI_BROKER_TOKEN`.
 
 #### Scenario: A child reads the environment of its parent
 - **WHEN** a process sets the flag, holds a variable in its starting environment, and starts a child that opens `/proc/<parent pid>/environ`

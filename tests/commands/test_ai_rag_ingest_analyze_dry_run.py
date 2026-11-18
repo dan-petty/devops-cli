@@ -12,6 +12,8 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
+from devops_cli.ai.rag import drift as rag_drift_mod
+from devops_cli.ai.rag.drift import RAGDriftReport
 from devops_cli.commands.ai_ingest import (
     index_libraries,
     ingest_docs,
@@ -195,6 +197,36 @@ def test_ai_ingest_and_rag_dry_run_json_formats(tmp_path: Path) -> None:
     )
     assert res_drift.exit_code == 0
     assert '"dry_run": true' in res_drift.output
+
+
+def test_rag_drift_repo_option_names_the_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--repo owner/name` names the project of the drift report, not the directory of the checkout."""
+    built: dict[str, Any] = {}
+
+    class RecordingDetector:
+        """Record the keyword arguments that the command gives the drift detector."""
+
+        def __init__(self, **kwargs: Any) -> None:
+            built.update(kwargs)
+
+        def detect_and_sync(self, auto_sync: bool = False) -> RAGDriftReport:
+            """Return a clean report of the project that the command named."""
+            return RAGDriftReport(
+                root_dir=str(tmp_path),
+                project=str(built["project"]),
+                total_files=1,
+                synced_files=1,
+            )
+
+    monkeypatch.setattr(rag_drift_mod, "RAGDriftDetector", RecordingDetector)
+
+    result = runner.invoke(app, ["ai", "rag", "drift", str(tmp_path), "--repo", "example/roadmap"])
+
+    assert result.exit_code == 0, result.output
+    assert built["project"] == "example/roadmap"
+    assert "Project: example/roadmap" in result.output
 
 
 def test_plan_ai_targets_with_openai_provider(monkeypatch: pytest.MonkeyPatch) -> None:

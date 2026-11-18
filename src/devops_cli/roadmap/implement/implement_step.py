@@ -126,6 +126,13 @@ from devops_cli.roadmap.implement.implement_base_replay import (
     VerifiedCommand,
     replay_group_tests,
 )
+from devops_cli.roadmap.implement.implement_broker import (
+    BrokerSpend,
+    StepBroker,
+    live_broker,
+    start_step_broker,
+    stop_step_broker,
+)
 from devops_cli.roadmap.implement.implement_comments import StepComments
 from devops_cli.roadmap.implement.implement_disk import end_step
 from devops_cli.roadmap.implement.implement_hooks import commit_stage
@@ -556,9 +563,9 @@ class StepStatus(StrEnum):
 
 
 class TierSpend(BaseModel):
-    """The requests and tokens that one tier of the ladder spent for a step (#3060).
-    `cache_read_tokens` is the part of `input_tokens` that the provider read from its cache
-    (#4387)."""
+    """The requests and tokens that one tier of the ladder spent for a step (#3060), the shell calls
+    of that tier through the step broker included (#3820). `cache_read_tokens` is the part of
+    `input_tokens` that the provider read from its cache (#4387)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -576,6 +583,15 @@ class TierSpend(BaseModel):
             output_tokens=self.output_tokens + run.output_tokens,
         )
 
+    def plus_shell(self, spend: BrokerSpend) -> TierSpend:
+        """This spend and the shell calls of the step through its broker (#3820)."""
+        return TierSpend(
+            requests=self.requests + spend.requests,
+            input_tokens=self.input_tokens + spend.input_tokens,
+            cache_read_tokens=self.cache_read_tokens + spend.cache_read_tokens,
+            output_tokens=self.output_tokens + spend.output_tokens,
+        )
+
 
 class StepOutcome(BaseModel):
     """The report of a step. `reason` is why a stopped step stopped: the class and the message of
@@ -586,8 +602,9 @@ class StepOutcome(BaseModel):
     `tool_calls` counts the tool calls of the replies (#3030). `removed` lists the stray files that
     the step deleted (#3092). `repair_rounds` counts the extra turns that the step used (#3043).
     `tier` is the last tier that the step ran on, `tiers` names every tier it attempted, and
-    `tier_spend` holds the requests and tokens of each tier (#3060). `failure_class` is the class
-    of a stopped step, when the step knows its cause (#3476). `first_request_tokens` is the input
+    `tier_spend` holds the requests and tokens of each tier (#3060), the shell calls of that tier
+    through the broker of the step included (#3820). `failure_class` is the class of a stopped
+    step, when the step knows its cause (#3476). `first_request_tokens` is the input
     tokens of the first model request of the step, which is the size of that request (#3499), and
     0 when no request got a reply. `largest_request_tokens` is the input tokens of the largest
     model request of the step (#4587), and 0 when no request got a reply.
@@ -645,7 +662,9 @@ def shell_environment(home: Path) -> dict[str, str]:
     download and `uv run` finds no interpreter without it. `PYTEST_XDIST_AUTO_NUM_WORKERS`: the
     pod of the runner sets it to its CPU limit, as `pytest-xdist` counts the CPUs of the node and
     a test run started one worker for each of them (#2806). `AI_AGENT` names the agent tool, so a
-    usage error of a devops command that the agent runs records the caller agent (#4839)."""
+    usage error of a devops command that the agent runs records the caller agent (#4839). A live
+    broker of the step adds its address and the token of the step, which are no variables of the
+    job and hold no AI key (#3820)."""
     env = {
         "HOME": str(home),
         "XDG_CONFIG_HOME": str(home / ".config"),
@@ -655,6 +674,10 @@ def shell_environment(home: Path) -> dict[str, str]:
         "AI_AGENT": "devops-implement",
     }
     env.update({name: os.environ[name] for name in _PASSED_VARIABLES if os.environ.get(name)})
+    broker = live_broker()
+    if broker is not None and broker.token is not None:
+        env["DEVOPS_CLI_BROKER_URL"] = broker.url
+        env["DEVOPS_CLI_BROKER_TOKEN"] = broker.token
     return env
 
 
@@ -2238,6 +2261,15 @@ def _moved_message(
     return repaired.move.message if repaired.move is not None else None
 
 
+def _count_shell_calls_under(tier: str) -> None:
+    """Count the shell calls of the attempt that starts on `tier` under that tier, so a shell call
+    of the step broker joins the record of the tier that served the model call it ran beside
+    (#3820). A step with no live broker has no shell call to count."""
+    broker = live_broker()
+    if broker is not None:
+        broker.tier = tier
+
+
 def _attempt(
     source: Path,
     model: Any,
@@ -2290,6 +2322,7 @@ def _attempt(
             tier, attempt = _tier_for_attempt(tiers, attempt, tier_health)
             if tier:
                 tried.append(tier)
+            _count_shell_calls_under(tier)
             tier_model = model_for_tier(tier) if model_for_tier is not None and tier else model
             agent = build_agent(
                 tier_model,
@@ -2432,6 +2465,36 @@ def _keeper(
     return keeper
 
 
+def _with_shell_spend(outcome: StepOutcome, broker: StepBroker | None) -> StepOutcome:
+    """The outcome of a step with the spend of its shell calls through the broker of the step
+    (#3820): each tier of `tier_spend` takes the requests and tokens of the shell calls of its
+    attempt, and the totals of the outcome take every shell call, as the model spend of a step that
+    names no tier adds to the totals only."""
+    spends = broker.spend_by_tier() if broker is not None else {}
+    if not spends:
+        return outcome
+    tiers = dict(outcome.tier_spend)
+    totals = TierSpend(
+        requests=outcome.requests,
+        input_tokens=outcome.input_tokens,
+        cache_read_tokens=outcome.cache_read_tokens,
+        output_tokens=outcome.output_tokens,
+    )
+    for tier, spend in spends.items():
+        totals = totals.plus_shell(spend)
+        if tier:
+            tiers[tier] = tiers.get(tier, TierSpend()).plus_shell(spend)
+    return outcome.model_copy(
+        update={
+            "requests": totals.requests,
+            "input_tokens": totals.input_tokens,
+            "cache_read_tokens": totals.cache_read_tokens,
+            "output_tokens": totals.output_tokens,
+            "tier_spend": tiers,
+        }
+    )
+
+
 def run_step(
     store: ItemReader,
     *,
@@ -2494,10 +2557,14 @@ def run_step(
     the job, `roadmap.implement.max_requests` and `max_tool_calls`, when the caller gives none
     (#4688, #5440). The step reads its limits of `roadmap.implement` once, when it starts.
 
-    When the step ends, done, stopped or with an error, it writes the disk use of the home volume
+    When the step ends, done, stopped or with an error, it stops the loopback broker of its shell
+    first, so the token of the step dies with it (#3820), then writes the disk use of the home volume
     to the Job log in a runner Job, and then removes the files that git ignores and that its agent
     left: the tree `mutants/` of a mutation run and the files of the scratch folder (`end_step`,
-    #6076).
+    #6076). `start_step_broker` reads the settings and runs no broker for a provider that is not the
+    gateway or for an absent AI key. A shell call through the broker counts as a model call of the
+    attempt that ran it: its new tokens go to the budget of the step, and its requests and tokens to
+    the tier record of the outcome (#3820).
 
     `comments` are the comments of the item that the run read: the inputs hold them, the agent
     reads them with `read_comment`, and the outcome names each one that the inputs held whole
@@ -2524,8 +2591,11 @@ def run_step(
     _require_clean(source)
     log = ToolCallLog(source, trace=trace)
     keeper = _keeper(source, inputs, item, log, on_wip, keep=keep)
+    budget = StepBudget(spend, progress=log.progress, cap=token_cap)
     done = False
+    broker: StepBroker | None = None
     try:
+        broker = start_step_broker(budget)
         outcome = _attempt(
             source,
             model,
@@ -2537,15 +2607,16 @@ def run_step(
             tiers=_ladder_tiers(step_class, ladder),
             model_for_tier=model_for_tier,
             tier_health=tier_health or _gateway_tier_health,
-            limits=StepBudget(spend, progress=log.progress, cap=token_cap),
+            limits=budget,
             usage_limits=usage_limits or step_usage_limits(log.limits),
             trace=trace,
             mcp_toolset=mcp_toolset,
         )
         outcome = outcome.model_copy(update={"comments": inputs.comments.used})
         done = outcome.status is StepStatus.DONE
-        return outcome
+        return _with_shell_spend(outcome, broker)
     finally:
+        stop_step_broker(broker)
         if not done:
             keeper.discard()
         end_step(source, inputs.group.title)

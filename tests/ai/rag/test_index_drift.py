@@ -34,6 +34,26 @@ def _workspace(tmp_path: Path) -> Path:
     return workspace
 
 
+def test_drift_reads_the_project_name_of_the_repo_option(
+    tmp_path: Path, indexer: WorkspaceIndexer
+) -> None:
+    """A worktree names the project of its repository, not the directory of the checkout."""
+    worktree = tmp_path / "w-3566"
+    worktree.mkdir()
+    (worktree / "main.py").write_text("x = 1\n", encoding="utf-8")
+
+    detector = RAGDriftDetector(
+        root_dir=worktree,
+        indexer=indexer,
+        cache_dir=worktree / ".cache",
+        project="example/roadmap",
+    )
+    report = detector.detect_drift(current_cache={})
+
+    assert (detector.project, report.project) == ("example/roadmap", "example/roadmap")
+    assert "w-3566" not in (detector.project, report.project)
+
+
 def test_a_workspace_that_was_indexed_has_no_drift(
     tmp_path: Path, indexer: WorkspaceIndexer
 ) -> None:

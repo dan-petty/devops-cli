@@ -40,6 +40,8 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 METRIC = "devops_cli_github_requests_total"
 SAMPLE = "src/devops_cli/sample.py"
 SAMPLE_PROBE = f"The path `{SAMPLE}` is a file of the staging commit."
+# A feasibility line that names a module under `src/` quotes a statement of it (#3458).
+SAMPLE_STATEMENT = "The file holds `def keep(comments):`."
 CRITERION = "`uv run pytest tests/test_sample.py` - the sample keeps the last comment."
 ISSUE_BODY = f"Fix `{SAMPLE}`.\n\n## Acceptance criteria\n\n- [ ] {CRITERION}\n"
 TREE = StagedTree([SAMPLE])
@@ -224,7 +226,7 @@ def test_model_json_unchanged_through_the_planner(
     seed_stageable(store, body=body)
     model_fake.answer(
         make_stage_proposal(
-            feasibility=[f"The probe shows: {SAMPLE_PROBE}"],
+            feasibility=[f"The probe shows: {SAMPLE_PROBE} {SAMPLE_STATEMENT}"],
             dependencies=[f"#{PULL.number} changes `{SAMPLE}`, so this plan waits for it."],
         )
     )
@@ -257,7 +259,10 @@ def test_model_json_unchanged_on_the_return_of_a_refused_reply(
     pulls_api: GitHubApiFake,
 ) -> None:
     seed_stageable(store, body=f"Fix `{SAMPLE}`.")
-    model_fake.answer(make_stage_proposal(), make_stage_proposal(feasibility=[SAMPLE_PROBE]))
+    model_fake.answer(
+        make_stage_proposal(),
+        make_stage_proposal(feasibility=[f"{SAMPLE_PROBE} {SAMPLE_STATEMENT}"]),
+    )
 
     _plan(store, stage_repo)
 

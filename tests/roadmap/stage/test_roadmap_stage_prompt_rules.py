@@ -748,6 +748,13 @@ def test_the_review_makes_a_name_that_no_longer_fits_a_spec_delta_finding() -> N
     assert "modified requirement whose name no longer fits its text" in definition
 
 
+def test_the_review_refuses_a_line_that_names_a_source_with_no_statement() -> None:
+    verify = load_task_prompt("roadmap_stage_verify.md")
+    (definition,) = re.findall(r"^- `false_premise`:[^\n]*", verify, flags=re.MULTILINE)
+
+    assert "quotes no statement of its module" in definition
+
+
 # ── A plan that changes a planner prompt (#3347) ──────────────────────────────
 
 

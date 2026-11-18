@@ -1,4 +1,14 @@
 misconfigurations:
+  - id: KSV-0014
+    paths:
+      - tests/fixtures/image_pins/chart_render.yaml
+    statement: Test fixture input for Helm chart rendering (#6133)
+    expired_at: 2026-11-21
+  - id: KSV-0118
+    paths:
+      - tests/fixtures/image_pins/chart_render.yaml
+    statement: Test fixture input for Helm chart rendering (#6135)
+    expired_at: 2026-11-21
   - id: KSV-0017
     paths:
       - k8s/gpu-feature-discovery/daemonset.yaml

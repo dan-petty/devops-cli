@@ -823,6 +823,18 @@
           "default": ".",
           "description": "Directory or file to index into vector store.",
           "type": "string"
+        },
+        "repo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Managed repository in owner/name form to ingest. Repeat to specify more than one repository."
         }
       },
       "type": "object"
@@ -5964,16 +5976,8 @@
           "type": "string"
         },
         "plan_file": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Path to raw plan output or log file. With no file, or a path that does not exist, the command prints a fixed sample plan."
+          "description": "Path to raw plan output or log file. The file is required and must exist.",
+          "type": "string"
         },
         "pr_number": {
           "anyOf": [
@@ -5989,6 +5993,9 @@
           "description": "Pull request number for the pr field of the JSON or YAML output. The command sends nothing to the pull request."
         }
       },
+      "required": [
+        "plan_file"
+      ],
       "type": "object"
     }
   },

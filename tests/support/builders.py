@@ -111,7 +111,7 @@ _STAGE_PROPOSAL: dict[str, Any] = {
     "why": "Issue #1: the job drops the last comment of a thread.",
     "what_changes": ["`src/devops_cli/sample.py` keeps the last comment."],
     "skip_specs": False,
-    "feasibility": ["`src/devops_cli/sample.py` shows the fault at the first line."],
+    "feasibility": ["`src/devops_cli/sample.py` shows the fault, as `def keep(comments):` does."],
     "existing_tool": "The standard library covers the need, so the change builds no helper.",
     "decisions": [{"decision": "Keep the list", "reason": "It is the simplest fix."}],
     "rejected": [{"alternative": "A new class", "evidence": "The list already holds the data."}],

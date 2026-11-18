@@ -13,6 +13,7 @@ from devops_cli.roadmap.run import (
     DEFAULT_DUE_TABLE,
     JobRow,
     lane_of_row,
+    lane_specs,
     lanes_to_wake,
     service_jobs,
     service_lanes,
@@ -112,4 +113,27 @@ def test_service_jobs_builds_one_job_for_each_lane_of_the_setting(
         True,
         False,
         len(ROW_NAMES) - 1,
+    )
+
+
+def test_each_lane_spec_holds_its_table_and_clone_directory(
+    tmp_path: Path, config: Callable[..., Path]
+) -> None:
+    """`lane_specs` gives one `LaneSpec` for each lane of `service_lanes`, in the order of the due
+    table, with the rows of its lane and the clone directory `lanes/<lane>`, and `service_jobs`
+    builds one job for each spec (#3885)."""
+    config(service={"lanes": {"model": ["stage", "refine"]}})
+    lanes = service_lanes({"model": ["stage", "refine"]})
+    specs = lane_specs({"model": ["stage", "refine"]})
+
+    assert (
+        list(specs),
+        [spec.table for spec in specs.values()],
+        [spec.clone_dirname for spec in specs.values()],
+        list(service_jobs(tmp_path)),
+    ) == (
+        list(lanes),
+        list(lanes.values()),
+        [f"lanes/{lane}" for lane in lanes],
+        list(specs),
     )

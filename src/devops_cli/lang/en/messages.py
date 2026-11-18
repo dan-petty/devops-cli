@@ -5231,6 +5231,19 @@ class RoadmapMessages:
         "The plan names `{name}` in the {section} and gives no code span that holds text of the "
         "class at the staged commit. Add a code span with a line of `{name}`, or name no class."
     )
+    # A design claim about a member of a class under `src/` names a member that the class body
+    # defines (#3458).
+    stage_problem_class_member: str = (
+        "The plan names `{name}.{member}` in the {section}, and the class `{name}` at the staged "
+        "commit defines no `{member}` member. Name a member that the class defines, or name no "
+        "member."
+    )
+    # A design claim that names a module under `src/` quotes a statement of that module (#3458).
+    stage_problem_module_quote: str = (
+        "The plan names `{path}` in the {section} and gives no code span that holds a statement "
+        "of that module at the staged commit. Add a code span with a line of `{path}`, or name no "
+        "module."
+    )
     stage_problem_verify: str = (
         "Group {group} gives the `verify` command `{command}`. A `verify` command starts with "
         "`uv run devops`, such as `uv run devops ci test tests/roadmap/test_feature.py`, or is a "
