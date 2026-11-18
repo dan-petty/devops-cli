@@ -8,10 +8,16 @@ newest comments come whole while they fit the budget, the older ones get a line 
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 
 from devops_cli.ai.context_budget import count_tokens
-from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER
+from devops_cli.config.constants import (
+    CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
+    CONST_ROADMAP_INTAKE_REASON_MARKER,
+    CONST_ROADMAP_STAGE_COMMENT_MARKER,
+)
+from devops_cli.roadmap.alternatives import alternatives_request
 from devops_cli.roadmap.item_comments import (
     CommentReader,
     HeldComment,
@@ -19,8 +25,9 @@ from devops_cli.roadmap.item_comments import (
     SectionForm,
     fit_comments,
     held_comments,
+    job_comments,
 )
-from devops_cli.roadmap.stores.store import IssueComment
+from devops_cli.roadmap.stores.store import IssueComment, Item
 
 _START = datetime(2026, 11, 17, 9, tzinfo=UTC)
 _REQUEST = RequestForm()
@@ -211,3 +218,77 @@ def test_a_plan_state_comment_reads_as_made_at_its_last_edit() -> None:
         ("Take the next free ADR number.", _START + timedelta(hours=3)),
         (_STATE, edited),
     ]
+
+
+# ── Classification and alternatives request (#6203) ───────────────────────────
+
+
+def test_job_comments_keeps_every_job_marker_and_labels_its_job() -> None:
+    """The shared comment filter returns every comment of a roadmap job with its job name (#6203)."""
+    comments = [
+        _comment(1, f"{CONST_ROADMAP_INTAKE_REASON_MARKER}\nIntake reason."),
+        _comment(2, f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\nStage plan."),
+        _comment(3, "A note of a person."),
+    ]
+
+    filtered = job_comments(comments)
+
+    assert [(c.number, c.job, c.text) for c in filtered] == [
+        (1, "intake", f"{CONST_ROADMAP_INTAKE_REASON_MARKER}\nIntake reason."),
+        (2, "stage", f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\nStage plan."),
+    ]
+
+
+def test_an_intake_reason_reaches_the_alternatives_request_as_a_job_comment() -> None:
+    """The alternatives request holds an intake reason comment as a job comment (#6203)."""
+    item = Item(number=1, title="feat: test item", url="https://example.com/1", body="Body.")
+    comments = [_comment(1, f"{CONST_ROADMAP_INTAKE_REASON_MARKER}\nWhy this item.")]
+
+    request = json.loads(alternatives_request(item, comments, adrs=[]))
+
+    assert "job_comments" in request
+    assert request["job_comments"][0]["job"] == "intake"
+    assert "Why this item." in request["job_comments"][0]["text"]
+
+
+def test_the_alternatives_request_separates_person_replies_and_job_comments() -> None:
+    """The alternatives request puts person replies in replies and job comments in job_comments (#6203)."""
+    item = Item(number=1, title="feat: test item", url="https://example.com/1", body="Body.")
+    comments = [
+        _comment(1, "A person's note."),
+        _comment(2, f"{CONST_ROADMAP_INTAKE_REASON_MARKER}\nWhy this item."),
+    ]
+
+    request = json.loads(alternatives_request(item, comments, adrs=[]))
+
+    assert request["replies"] == ["A person's note."]
+    assert [c["job"] for c in request["job_comments"]] == ["intake"]
+
+
+def test_the_alternatives_request_shows_newest_whole_indexes_older_and_names_read_comment() -> None:
+    """When comments exceed room, the newest is whole, older comments are indexed, and the request names read_comment (#6203)."""
+    item = Item(number=1, title="feat: test item", url="https://example.com/1", body="Body.")
+    comments = [
+        _comment(1, f"{CONST_ROADMAP_INTAKE_REASON_MARKER}\nOlder intake reason: {_words(50)}"),
+        _comment(2, f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\nNewer stage plan: {_words(50)}"),
+    ]
+    raw = alternatives_request(item, comments, adrs=[], max_comment_tokens=300)
+    request = json.loads(raw)
+
+    assert "read_comment" in raw
+    assert request["job_comments"][0].get("about") is not None
+    assert request["job_comments"][0].get("text") is None
+    assert request["job_comments"][1].get("text") is not None
+
+
+def test_read_comment_returns_the_whole_text_of_an_indexed_job_comment() -> None:
+    """The read_comment tool returns the whole text of an indexed job comment (#6203)."""
+    comments = [
+        _comment(1, f"{CONST_ROADMAP_INTAKE_REASON_MARKER}\nWhy this item was created."),
+        _comment(2, f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\nStage plan text."),
+    ]
+    reader = CommentReader(held_comments(comments), max_chars=8000)
+
+    answer = reader.read(1)
+
+    assert "Why this item was created." in str(answer.return_value)
