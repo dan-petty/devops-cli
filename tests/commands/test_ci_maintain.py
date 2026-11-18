@@ -18,14 +18,19 @@ def _answer_audits(
     *,
     uv: tuple[int, str] = (0, ""),
     npm: tuple[int, str] = (0, ""),
+    osv: tuple[int, str] = (0, ""),
 ) -> list[list[str]]:
-    """Answer `uv audit` and `npm audit` with an exit status and output, any other command with
-    success; the commands started, in order."""
+    """Answer `uv audit`, `npm audit` and `osv-scanner` with an exit status and output, any other
+    command with success; the commands started, in order."""
     ran: list[list[str]] = []
 
     def run(cmd: list[str], *args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
         ran.append(cmd)
-        status, output = {"uv": uv, "npm": npm}[cmd[0]] if "audit" in cmd else (0, "")
+        status, output = (
+            {"uv": uv, "npm": npm, "osv-scanner": osv}.get(cmd[0], (0, ""))
+            if "audit" in cmd or cmd[0] == "osv-scanner"
+            else (0, "")
+        )
         return subprocess.CompletedProcess(cmd, status, output, "")
 
     monkeypatch.setattr("subprocess.run", run)
@@ -54,7 +59,7 @@ def test_maintain_runs_every_audit_of_the_audit_check_and_passes_when_all_are_cl
 
     result = runner.invoke(app, ["maintain", "--fix"])
 
-    audits = [cmd for cmd in ran if "audit" in cmd]
+    audits = [cmd for cmd in ran if "audit" in cmd or cmd[0] == "osv-scanner"]
     assert (result.exit_code, audits) == (
         0,
         [

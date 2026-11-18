@@ -78,6 +78,7 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           uv run devops install-tools --tool openspec --only-missing
           uv run devops install-tools --tool tofu --only-missing
+          uv run devops install-tools --tool osv-scanner --only-missing
 
       # The pinned Trivy runs `trivy-config`, the IaC scan of the Security Scan step, which took the
       # place of Checkov (#2214).
