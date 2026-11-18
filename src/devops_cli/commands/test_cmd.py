@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Annotated
 
@@ -17,6 +18,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_SANDBOX_NETWORK,
+    DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     DEFAULT_TABLE_FORMAT,
 )
 from devops_cli.core.cli import new_typer
@@ -26,6 +28,7 @@ from devops_cli.core.test_selection import select_tests_for_sources
 from devops_cli.dry_run import is_dry_run
 from devops_cli.dry_run.decorator import dry_run_class
 from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
+from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
     format_duration,
@@ -161,6 +164,10 @@ def run_test_cmd(
         str | None,
         typer.Option("-k", help="Filter tests by expression."),
     ] = None,
+    timeout: Annotated[
+        int,
+        typer.Option("--timeout", min=1, help=HELP.test.timeout),
+    ] = int(DEFAULT_SUBPROCESS_TIMEOUT_SECONDS),
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.test.dry_run),
@@ -192,7 +199,10 @@ def run_test_cmd(
         return
 
     with trace_span("test.pytest", attributes={"targets": ",".join(target_paths)}):
-        res = run_subprocess(cmd, cwd=repo_root, check=False)
+        try:
+            res = run_subprocess(cmd, cwd=repo_root, check=False, timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            raise DevOpsCLIError(MESSAGES.test.run_timeout.format(seconds=timeout)) from exc
         if res.returncode == 0:
             print_success("Test suite passed cleanly.")
         else:
