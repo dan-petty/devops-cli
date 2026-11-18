@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.178.0](https://github.com/dan-petty/devops-cli/compare/v0.177.1...v0.178.0) (2026-11-18)
+
+
+### Features
+
+* **roadmap:** Rebase and rewrite open plan branches ([#6310](https://github.com/dan-petty/devops-cli/issues/6310)) ([64380c7](https://github.com/dan-petty/devops-cli/commit/64380c719f62a860c5ef3f13ed284af59a992034))
+
+
+### Bug Fixes
+
+* **roadmap:** trace gate judges reads that are no run read ([#6315](https://github.com/dan-petty/devops-cli/issues/6315)) ([b75698b](https://github.com/dan-petty/devops-cli/commit/b75698b8da33cbeff2299ba9b6c0f597041a8aeb))
+
 ## [0.177.1](https://github.com/dan-petty/devops-cli/compare/v0.177.0...v0.177.1) (2026-11-18)
 
 
