@@ -38,9 +38,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/run.py`, `src/devops_cli/github/i
 
 Kind: other. Reads: `docs/CLUSTER.md`, `src/devops_cli/github/item_label_times.py`. Changes: `docs/CLUSTER.md`.
 
-- [ ] 5.1 In item 11 of `docs/CLUSTER.md`, add item-label-times.json to the directory of each repository beside its schedule.json: the metrics row writes the `updated_at` and the label times of each open Item there, keeps the entry of an Item that the cap defers, drops an Item that closes, and reads the label events of at most 20 Items a round
+- [x] 5.1 In item 11 of `docs/CLUSTER.md`, add item-label-times.json to the directory of each repository beside its schedule.json: the metrics row writes the `updated_at` and the label times of each open Item there, keeps the entry of an Item that the cap defers, drops an Item that closes, and reads the label events of at most 20 Items a round
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 5.2 Edit `docs/CLUSTER.md` item 11 to name item-label-times.json beside schedule.json in the directory of each repository, with the `updated_at` it holds, the kept entry of a deferred Item and the cap of 20 label-event reads a round
+- [x] 5.2 Edit `docs/CLUSTER.md` item 11 to name item-label-times.json beside schedule.json in the directory of each repository, with the `updated_at` it holds, the kept entry of a deferred Item and the cap of 20 label-event reads a round
   - Verification: `$ uv run devops ci docs` passes
 
 ## 6. State the live level of the metrics row
