@@ -732,7 +732,7 @@ def test_counters_are_monotonic_deltas_from_the_workload_not_the_process(
 def test_flushes_from_two_threads_send_their_deltas_in_the_order_they_collected_them(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The collector's `deltatocumulative` drops a delta that is not later than the last delta it
+    """The collector's `delta_to_cumulative` drops a delta that is not later than the last delta it
     added to the series. The Service's lane workers flush at the same time, so a flush collects
     only when the export of the flush before it is done (#1629)."""
     client = OTelTelemetryClient(endpoint="http://127.0.0.1:9")
@@ -1165,9 +1165,9 @@ def test_the_collector_deletes_the_host_name_of_devops_cli_metrics_before_it_add
     otlp: FakeCollector,
 ) -> None:
     """A devops-cli build from before #4697 sends `host.name` in its metric Resource, and a new
-    build does not. `deltatocumulative` keys a stream by every resource attribute, while
+    build does not. `delta_to_cumulative` keys a stream by every resource attribute, while
     Prometheus keeps only `job` and `instance`, so the two builds of one workload write two
-    running totals into one series (#5338). A transform processor before `deltatocumulative`
+    running totals into one series (#5338). A transform processor before `delta_to_cumulative`
     deletes `host.name` where `telemetry.sdk.name` is the SDK name that the tracer sends, so
     every build sends one stream and the Resource of another SDK stays as it is."""
     tracer_module.get_tracer().increment_counter("devops_cli_command_total", 1, attributes={})
@@ -1186,7 +1186,7 @@ def test_the_collector_deletes_the_host_name_of_devops_cli_metrics_before_it_add
     )
 
     assert (
-        processors[: processors.index("deltatocumulative")],
+        processors[: processors.index("delta_to_cumulative")],
         config["processors"].get("transform/metric_resource"),
     ) == (
         ["memory_limiter", "transform/metric_resource"],
