@@ -1013,6 +1013,14 @@ def _tiers_of(url: str) -> set[str]:
     }
 
 
+SINGLE_MODEL_TIERS = ("ollama-48gib", "ollama-64gib")
+
+
+def _single_model_tiers_of(url: str) -> set[str]:
+    """Return the single-model tiers whose pods the Service of `url` selects (#3574, #3567)."""
+    return _tiers_of(url) & set(SINGLE_MODEL_TIERS)
+
+
 def _deployment_tiers() -> list[tuple[dict[str, Any], set[str]]]:
     """Return each gateway deployment with the Ollama tiers that its Service selects. The tiers of
     each URL are found once, because each find reads the profiles again."""
@@ -1569,3 +1577,17 @@ def test_each_edit_that_breaks_a_hosted_rule_is_a_violation(
     deployment = copy.deepcopy(_load_kind(GATEWAY_DIR / "deployment.yaml", "Deployment"))
     edit(config, deployment)
     assert expected in _hosted_violations(config, deployment)
+
+
+def test_the_default_embedding_url_names_no_tier_that_loads_one_chat_model() -> None:
+    """The default Ollama embedding URL names no tier that loads one chat model (#3574, #3567)."""
+    assert (
+        bool(_tiers_of(DEFAULT_OLLAMA_EMBEDDING_CLUSTER_URL)),
+        _single_model_tiers_of(DEFAULT_OLLAMA_EMBEDDING_CLUSTER_URL),
+    ) == (True, set())
+
+
+def test_the_embedding_url_check_names_the_48gib_tier() -> None:
+    """The single-model tier check detects a URL pointing to the 48 GiB tier (#3574, #3567)."""
+    test_url = "http://ollama-48gib.llm.svc.cluster.local:11434"
+    assert _single_model_tiers_of(test_url) == {"ollama-48gib"}

@@ -649,3 +649,26 @@ def test_every_help_text_that_lists_stacks_names_each_stack_and_all(cli: Any) ->
         stacks - _words(bootstrap),
         "monitoring" in _words(bootstrap),
     ) == (set(), set(), True, set(), False)
+
+
+@pytest.mark.usefixtures("keyring_store")
+def test_configure_urls_writes_embedding_ollama_urls(
+    tcp_probe: TcpProbe,
+    cluster: FakeCluster,
+    process_fake: ProcessFake,
+) -> None:
+    """_configure_llm_stack_urls writes embedding_ollama_urls and preserves ollama_urls."""
+    tcp_probe.listen("192.0.2.10", 11434)
+    tcp_probe.listen("192.0.2.11", 11434)
+    cluster.core.answers["list_namespaced_service"] = [
+        service("ollama-fast", "llm", port=11434, load_balancer="192.0.2.10"),
+        service("ollama-24gib-embed-gpu0", "llm", port=11434, load_balancer="192.0.2.11"),
+    ]
+    settings = Settings()
+    configured: dict[str, str] = {}
+    _configure_llm_stack_urls(None, settings, configured)
+
+    assert settings.ai.embedding_ollama_urls == ["http://192.0.2.11:11434"]
+    assert settings.ai.ollama_urls == ["http://192.0.2.10:11434"]
+    assert configured["ai.embedding_ollama_urls"] == "http://192.0.2.11:11434"
+    assert configured["ai.ollama_urls"] == "http://192.0.2.10:11434"

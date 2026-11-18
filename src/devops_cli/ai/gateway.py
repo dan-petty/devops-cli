@@ -30,9 +30,8 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_AI_GATEWAY_HEALTH_TIMEOUT_SECONDS,
     DEFAULT_OLLAMA_CLUSTER_URL,
-    DEFAULT_OLLAMA_EMBEDDING_CLUSTER_URL,
 )
-from devops_cli.config.settings import AIConfig, load_settings
+from devops_cli.config.settings import AIConfig, load_settings, setting_default
 from devops_cli.exceptions import ConfigurationError, DevOpsCLIError, ValidationError
 from devops_cli.http.egress import EgressLevel, configured_level
 from devops_cli.http.entry import http_client
@@ -75,7 +74,7 @@ DEFAULT_GATEWAY_ROUTES: Final[tuple[dict[str, str], ...]] = (
         "virtual_model": "devops-embedding",
         "target_model": "qwen3-embedding:0.6b",
         "backend_type": "ollama",
-        "backend_url": DEFAULT_OLLAMA_EMBEDDING_CLUSTER_URL,
+        "backend_url": setting_default("ai.embedding_ollama_urls")[0],
     },
 )
 
