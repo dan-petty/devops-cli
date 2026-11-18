@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from devops_cli.exceptions.research import InventoryError
-from devops_cli.research.models import Ecosystem
+from devops_cli.research.models import ComponentKind, Ecosystem
 from devops_cli.research.watch import WATCH_FILE, read_watch_list
 from tests.support.paths import REPO_ROOT
 
@@ -35,6 +35,30 @@ def test_an_entry_maps_a_component_to_its_repository(tmp_path: Path) -> None:
         None if entry is None else (entry.repo, entry.package),
         watch.entry_of(Ecosystem.DOCKER, "qdrant"),
     ) == (("qdrant/qdrant", "qdrant"), None)
+
+
+def test_the_watch_list_reads_the_osv_identity_and_the_extra_pin(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        '[[watch]]\necosystem = "helm"\nname = "qdrant"\nrepo = "qdrant/qdrant"\n'
+        'osv_ecosystem = "Debian"\nosv_name = "qdrant"\npurl = "pkg:helm/qdrant@1.19.1"\n'
+        '[[pin]]\nkind = "tool"\nname = "ubuntu"\n'
+        'osv_ecosystem = "Ubuntu"\nosv_name = "linux"\nrepo = "example/os"\n',
+    )
+
+    watch = read_watch_list(tmp_path)
+
+    entry = watch.entry_of(Ecosystem.HELM, "qdrant")
+    pin = watch.pin[0]
+    assert (
+        None if entry is None else (entry.osv_ecosystem, entry.osv_name, entry.purl),
+        (pin.kind, pin.name, pin.version, pin.ecosystem, pin.osv_ecosystem, pin.osv_name),
+        pin.repo,
+    ) == (
+        ("Debian", "qdrant", "pkg:helm/qdrant@1.19.1"),
+        (ComponentKind.TOOL, "ubuntu", "", Ecosystem.UNKNOWN, "Ubuntu", "linux"),
+        "example/os",
+    )
 
 
 @pytest.mark.parametrize(
