@@ -84,13 +84,14 @@ repos:
       # The OpenSpec gate (ADR 0010) over the plans and the committed skills: it needs Node and the
       # pinned openspec (`uv run devops install-tools --tool openspec --only-missing`), so it runs
       # only when a commit touches the files it checks. Every `devops ci` and the `Static Analysis`
-      # check of CI run it with no path filter.
+      # check of CI run it with no path filter. When a committed skill differs from what the pinned
+      # openspec writes, its regeneration gets the skills of the release from github.com with Git.
       - id: openspec-gate
         name: openspec gate (change folders and generated skills)
         entry: uv run devops ci --only openspec
         language: system
         stages: [pre-commit]
-        files: ^(openspec/|\.claude/skills/|\.agents/skills/|\.kilocode/skills/)
+        files: ^(openspec/|\.claude/skills/|\.agents/skills/)
         pass_filenames: false
         require_serial: true
 
@@ -106,7 +107,13 @@ repos:
         args:
           - |
             case "$PRE_COMMIT_REMOTE_BRANCH" in refs/heads/*) ;; *) exit 0 ;; esac
-            if ! timeout 20 git fetch --quiet --no-tags origin main; then
+            timeout 24 git fetch --quiet --no-tags origin main
+            status=$?
+            if [ "$status" -eq 124 ]; then
+              echo "The hook stopped its fetch of main from origin after 24 seconds, so it cannot check the branch. Try the push again when the host is less busy."
+              exit 1
+            fi
+            if [ "$status" -ne 0 ]; then
               echo "The hook cannot fetch main from origin, so it cannot check the branch. Make sure that origin is available, then push again."
               exit 1
             fi

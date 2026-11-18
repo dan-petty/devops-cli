@@ -7,45 +7,17 @@ names, with the variables that pre-commit sets for a `git push`, in a real repos
 
 from __future__ import annotations
 
-import os
-import shlex
-import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-import yaml
 
-from tests.support.paths import REPO_ROOT
+from tests.support.branch_current_hook import run_branch_current_hook, stub_git
 
 Git = Callable[..., None]
 
 # The entry of the hook is `sh -c`, so the test starts a real `sh`.
 pytestmark = pytest.mark.live("sh")
-
-
-def _hook(repo: Path, branch: str) -> subprocess.CompletedProcess[str]:
-    """Run the hook for a push of `HEAD` to the remote ref `branch`."""
-    config = yaml.safe_load((REPO_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8"))
-    hook = next(
-        hook for each in config["repos"] for hook in each["hooks"] if hook["id"] == "branch-current"
-    )
-    head = subprocess.run(
-        ["git", "-C", str(repo), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
-    ).stdout.strip()
-    pushed = {
-        "PRE_COMMIT_REMOTE_NAME": "origin",
-        "PRE_COMMIT_REMOTE_BRANCH": branch,
-        "PRE_COMMIT_TO_REF": head,
-    }
-    return subprocess.run(
-        [*shlex.split(hook["entry"]), *hook.get("args", [])],
-        cwd=repo,
-        env={**os.environ, **pushed},
-        capture_output=True,
-        text=True,
-        check=False,
-    )
 
 
 @pytest.fixture
@@ -67,9 +39,9 @@ def behind(repo: Path, git: Git) -> Path:
 def test_a_branch_behind_main_is_refused_with_the_fix_and_passes_after_a_rebase(
     behind: Path, git: Git
 ) -> None:
-    refused = _hook(behind, "refs/heads/feature")
+    refused = run_branch_current_hook(behind, "refs/heads/feature")
     git(behind, "rebase", "origin/main")
-    rebased = _hook(behind, "refs/heads/feature")
+    rebased = run_branch_current_hook(behind, "refs/heads/feature")
 
     assert (refused.returncode, rebased.returncode) == (1, 0)
     assert "git fetch origin && git rebase origin/main" in refused.stdout
@@ -78,4 +50,26 @@ def test_a_branch_behind_main_is_refused_with_the_fix_and_passes_after_a_rebase(
 @pytest.mark.parametrize("branch", ["refs/tags/v1.0.0", ""])
 def test_a_push_of_no_branch_passes(behind: Path, branch: str) -> None:
     """A tag, and a run that is no `git push`, as the scoped checks of the implement Job are."""
-    assert _hook(behind, branch).returncode == 0
+    assert run_branch_current_hook(behind, branch).returncode == 0
+
+
+@pytest.mark.parametrize(
+    ("fetch_status", "message", "absent"),
+    [
+        (124, "24 seconds", "origin is available"),
+        (128, "origin is available", "24 seconds"),
+    ],
+    ids=["timeout", "fetch-failure"],
+)
+def test_a_fetch_that_does_not_finish_names_its_cause(
+    behind: Path, tmp_path: Path, fetch_status: int, message: str, absent: str
+) -> None:
+    """A slow fetch is no proof that origin is unavailable, so a timeout names its own limit."""
+    result = run_branch_current_hook(
+        behind, "refs/heads/feature", path=stub_git(tmp_path / "bin", fetch_status)
+    )
+    assert (result.returncode, message in result.stdout, absent in result.stdout) == (
+        1,
+        True,
+        False,
+    )

@@ -905,6 +905,21 @@ def test_the_title_and_the_body_of_a_pull_request_are_set_with_one_patch(
     }
 
 
+def test_the_body_of_an_issue_is_set_with_one_patch_of_the_issue(
+    github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    """The change goes to the issues endpoint, so it works for an issue, and sends only the body:
+    the title, the labels and the state stay as they are (#6199)."""
+    github_api.route("PATCH", "/repos/octocat/Hello-World/issues/12", github_json({"number": 12}))
+
+    _client().update_issue_body("octocat/Hello-World", 12, "The report of today.")
+
+    assert (github_api.requested, json.loads(github_api.sent[0].content)) == (
+        [f"PATCH {API}/repos/octocat/Hello-World/issues/12"],
+        {"body": "The report of today."},
+    )
+
+
 def test_a_comment_on_a_pull_request_goes_to_its_issue(
     github_api: GitHubApiFake, pin_github_session: str
 ) -> None:

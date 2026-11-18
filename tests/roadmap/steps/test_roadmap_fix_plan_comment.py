@@ -15,17 +15,20 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
 )
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.stage.plan_state import event_key, state_key
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.stage.stage_verify import (
     FIX_PLAN_LABEL,
     PlanPart,
     Verification,
+    finding_line,
 )
 from devops_cli.roadmap.steps.fix_plan import (
     FixPlanResult,
     FixPlanRun,
     comment_open_findings,
+    plan_comment,
     render_fix_plan,
     run_fix_plan,
 )
@@ -43,6 +46,7 @@ from tests.support.roadmap_fix_plan import (
     place,
     planner_requests,
     stage_comment,
+    state_comment,
     valid_changes,
 )
 from tests.support.roadmap_job_result import result_fields
@@ -318,3 +322,122 @@ def test_a_comment_of_another_pull_request_or_an_untrusted_author_is_not_read(
     assert "criterion_dropped" not in first["problem"]
     assert run.attempt is not None
     assert run.attempt.comment == 0
+
+
+# ── The plan-state comment (#6197) ────────────────────────────────────────────
+
+
+def _event(pull: int) -> str:
+    """A comment of an attempt in the form of #6197: it names the pull request and lists no open
+    finding."""
+    return (
+        f"{CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER}\n{event_key(pull)}\nThe step fix-plan stopped "
+        f"before the review of the plan of #{pull}."
+    )
+
+
+def test_the_plan_comment_is_the_state_comment_of_the_pull_request_and_no_newer_comment() -> None:
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    number = store.seed_issue("An item")
+    kept = finding(DefectType.CRITERION_DROPPED)
+    store.seed_comment(number, state_comment(5, [kept]))
+    store.seed_comment(number, state_comment(6, [finding(DefectType.TASK_ORDER)]))
+    store.seed_comment(number, stage_comment(5, []))
+    store.seed_comment(number, _event(5))
+
+    assert comment_open_findings(plan_comment(store, number, 5)) == (kept,)
+
+
+def test_with_no_state_comment_the_plan_comment_is_the_newest_legacy_one_and_no_event() -> None:
+    """A pull request staged before #6197 has no state comment: the newest legacy plan comment
+    holds its findings, and a newer comment of a run lists none, so the read skips it."""
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    number = store.seed_issue("An item")
+    legacy = stage_comment(5, [finding(DefectType.CRITERION_DROPPED)])
+    store.seed_comment(number, legacy)
+    store.seed_comment(number, _event(5))
+
+    assert plan_comment(store, number, 5) == legacy
+
+
+def test_an_attempt_edits_the_state_comment_and_its_comment_lists_no_open_finding(
+    stage_repo: StageRepo, model_fake: ModelFake, github_api: GitHubApiFake
+) -> None:
+    """The attempt pushes a revision that keeps 1 of the 2 open findings of the head. The state
+    comment of the pull request gets that finding and the groups of the pushed plan in place, and
+    the comment of the attempt holds the counts and no list of open findings."""
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    verifier = ModelFake()
+    plan = needs_fix_plan(store, stage_repo, github_api)
+    dropped = finding(DefectType.CRITERION_DROPPED)
+    old_groups = (
+        "\n\nThe task groups, with the tokens of the inputs of each step, for a budget of 9 "
+        "tokens:\n\n1. An old group: 3 tokens"
+    )
+    store.seed_comment(
+        plan.number,
+        state_comment(plan.pull, [dropped], groups=old_groups),
+        author_login=store._actor,
+    )
+    order = finding(DefectType.TASK_ORDER, SAMPLE_QUOTE)
+    verifier.answer(Verification(findings=[dropped, order]), later_review(HOLDS, GONE))
+    model_fake.answer(make_stage_proposal(why=REPAIRED_WHY))
+
+    run = _run(store, stage_repo, verifier)
+
+    assert run.attempt is not None
+    assert run.attempt.result is FixPlanResult.REVISED
+    state, event = [comment.body for comment in store.comments_on(plan.number)]
+    assert (
+        state.startswith(f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\n{state_key(plan.pull)}\n"),
+        comment_open_findings(state) == (dropped,),
+        "An old group" in state,
+        "1. Keep the last comment:" in state,
+        event.startswith(f"{CONST_ROADMAP_FIX_PLAN_COMMENT_MARKER}\n{event_key(plan.pull)}\n"),
+        "2 open finding(s) in the plan before the repair and 1 after it" in event,
+        comment_open_findings(event) == (),
+        "Problem of criterion_dropped." in event,
+    ) == (True, True, False, True, True, True, True, False)
+
+
+def _text_lines(body: str) -> list[str]:
+    """The lines of `body` that a reader sees: no blank line and no hidden line."""
+    lines = (line.strip() for line in body.splitlines())
+    return [line for line in lines if line and not line.startswith("<!--")]
+
+
+@pytest.mark.parametrize("result", [FixPlanResult.REVISED, FixPlanResult.DISMISSED])
+def test_no_line_of_text_of_the_comment_of_an_attempt_is_in_the_state_comment(
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+    result: FixPlanResult,
+) -> None:
+    """No job posts the same content twice (#6193). One attempt writes the plan-state comment and
+    its own comment with the builders of the step, and no line of text of its own comment is in
+    the state comment: the advice of its reviews is only in the state comment, and its own
+    comment says so (#6197)."""
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    verifier = ModelFake()
+    plan = needs_fix_plan(store, stage_repo, github_api)
+    minor = finding(
+        DefectType.SPEC_DELTA_WRONG, where=place("issue", ISSUE_QUOTE), severity=Severity.MINOR
+    )
+    if result is FixPlanResult.REVISED:
+        dropped = finding(DefectType.CRITERION_DROPPED)
+        order = finding(DefectType.TASK_ORDER, SAMPLE_QUOTE)
+        verifier.answer(
+            Verification(findings=[dropped, order]), later_review(HOLDS, GONE, findings=[minor])
+        )
+        model_fake.answer(make_stage_proposal(why=REPAIRED_WHY))
+    else:
+        verifier.answer(Verification(findings=[minor]))
+
+    run = _run(store, stage_repo, verifier)
+
+    assert run.attempt is not None
+    assert run.attempt.result is result
+    state, comment = [each.body for each in store.comments_on(plan.number)]
+    assert finding_line(minor) in state
+    assert [line for line in _text_lines(comment) if line in state] == []
+    assert MESSAGES.roadmap.fix_plan_comment_advice.format(pull=plan.pull).strip() in comment

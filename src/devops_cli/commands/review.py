@@ -921,7 +921,7 @@ def pr(
     checkout = find_repo_root(Path.cwd())
     with tempfile.TemporaryDirectory(prefix=f"devops-review-pr-{number}-") as head_parent:
         head_dir = Path(head_parent)
-        pages, title, _pull, repo_name, base_revision = _prepare_pr_content(
+        pages, title, pull, repo_name, base_revision = _prepare_pr_content(
             number, repo, checkout=checkout, head_dir=head_dir
         )
         reviews = _run_pr_review_workflow(
@@ -952,6 +952,7 @@ def pr(
             repo_name=repo_name,
             number=number,
             base_revision=base_revision,
+            head_sha=pull.head.sha,
         )
 
 

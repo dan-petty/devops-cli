@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 import typer
@@ -123,14 +124,16 @@ def serve(
         )
         return
 
-    import uvicorn
+    from devops_cli.server.start import get_server_starter
 
+    starter = get_server_starter()
     if service:
         from devops_cli.config.constants import CONST_SERVICE_FAILURES_FILENAME
         from devops_cli.config.settings import load_settings
         from devops_cli.roadmap.run import (
             FailureLedger,
             identity_refused,
+            lane_specs,
             retire_lane_state,
             service_jobs,
             service_state_dir,
@@ -165,21 +168,21 @@ def serve(
             failures.keep_in(state_dir / CONST_SERVICE_FAILURES_FILENAME)
             retire_lane_state(state_dir, settings.service.repos, settings.service.lanes)
 
-        # uvicorn calls this factory after it applies log_config, so the warnings building the app
-        # logs (a managed repository with no webhook secret) are JSON too.
-        def service_app() -> Any:
-            return create_service_app(
-                jobs=jobs,
-                settings=settings,
-                secrets=parsed_secrets,
-                identity_refused=identity_refused,
-                state_dir=state_dir,
-                idle=idle,
-                rows_lease=rows_lease_of_pod(),
-                read_row_state=read_row_state,
-            )
-
-        uvicorn.run(
+        # The server calls this factory after it applies log_config, so the warnings building the
+        # app logs (a managed repository with no webhook secret) are JSON too.
+        service_app = partial(
+            create_service_app,
+            jobs=jobs,
+            settings=settings,
+            secrets=parsed_secrets,
+            identity_refused=identity_refused,
+            state_dir=state_dir,
+            idle=idle,
+            rows_lease=rows_lease_of_pod(),
+            read_row_state=read_row_state,
+            lanes=lane_specs(settings.service.lanes),
+        )
+        starter.start(
             service_app,
             factory=True,
             log_config=service_log_config(log_level),
@@ -228,6 +231,6 @@ def serve(
 
     if reload:
         # In reload mode, pass module string
-        uvicorn.run("devops_cli.server.app:create_app", factory=True, **options)
+        starter.start("devops_cli.server.app:create_app", factory=True, **options)
     else:
-        uvicorn.run(fastapi_app, **options)
+        starter.start(fastapi_app, **options)

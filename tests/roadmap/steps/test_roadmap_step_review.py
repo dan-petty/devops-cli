@@ -529,6 +529,7 @@ class World:
 @pytest.fixture
 def world(github_api_and_gh: tuple[GitHubApiFake, ProcessFake]) -> World:
     api, gh = github_api_and_gh
+    api.route("GET", "/user", github_json({"login": BOT}))
     return World(api, gh)
 
 
@@ -785,6 +786,48 @@ def test_a_discard_deletes_the_branch_first_then_closes_then_returns_the_item(
     assert held is not None
     assert (held.status, held.job_record.get(key)) == ("New", None)
     assert set(world.record(item).values()) == {None}
+
+
+def test_a_discard_writes_its_verdict_on_the_issue_and_links_it_from_the_pull_request(
+    world: World,
+) -> None:
+    """The jobs and refine read the comments of the issue, not those of the pull request, so the
+    return comment holds the reason and the evidence of the review, and the comment of the step
+    on the pull request becomes a link to it (#6194)."""
+    item = world.item(record={ImplementRecordKey.BRANCH: "feat/0-other"})
+    pull = world.pull(item)
+    keyed = f"<!-- devops roadmap review: {HEAD} -->"
+    listing = f"/repos/{REPO}/issues/{pull}/comments?per_page=100"
+    world.api.route(
+        "GET",
+        listing,
+        github_json([]),
+        github_json([{"id": 7, "body": keyed, "user": {"login": BOT}}]),
+    )
+    world.api.route("PATCH", f"/repos/{REPO}/issues/comments/7", github_json({"id": 7}))
+    judgement = Judgement(
+        Verdict.DISCARD_IMPLEMENTATION,
+        "The work cannot be fixed.",
+        evidence=(f"{CODE}: the change adds a second store.",),
+    )
+
+    write_verdict(
+        _rule_discard(world, item, pull, PullKind.DELIVERY), judgement, withdraw=world.withdraw
+    )
+
+    (returned,) = [c for c in world.store.comments_on(item) if "review discarded" in c.body]
+    (posted,) = world.comments()
+    (linked,) = [
+        json.loads(request.content)["body"]
+        for request in world.api.sent
+        if request.method == "PATCH" and request.url.path.endswith("/comments/7")
+    ]
+    assert (
+        [text in returned.body for text in (judgement.reason, *judgement.evidence)],
+        judgement.reason in posted,
+        returned.url is not None and returned.url in linked,
+        judgement.reason in linked,
+    ) == ([True, True], True, True, False)
 
 
 def test_a_failed_delete_closes_nothing_and_the_next_call_can_try_again(world: World) -> None:

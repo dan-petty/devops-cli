@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from devops_cli.ai.review.runner import format_pr_review_comment
+from devops_cli.ai.review.runner import format_pr_review_comment, post_pr_review_comment
 from devops_cli.ai.review_schema import Finding, ReviewResult
 from tests.support.fakes.github import (
     github_json,
@@ -19,6 +19,8 @@ from tests.support.fakes.github import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from tests.support.fakes.github import GitHubApiFake
     from tests.support.fakes.model import ModelFake
 
@@ -161,15 +163,179 @@ def test_comment_with_findings_renders_findings_and_model_notes() -> None:
 
 
 def _route_the_pull_request(
-    api: GitHubApiFake, *, files: list[dict[str, Any]], diff: str, comments: bool
+    api: GitHubApiFake,
+    *,
+    files: list[dict[str, Any]],
+    diff: str,
+    comments: bool,
+    head_sha: str = "abc123",
 ) -> None:
-    """Serve pull request 42 of org/repo, whose compare with its base branch holds `files` and
-    `diff`; with `comments`, GitHub also accepts a comment on it."""
-    pull = pull_request_payload(title="Test PR", head_repo="org/repo", base_repo="org/repo")
+    """Serve pull request 42 of org/repo at `head_sha`, whose compare with its base branch holds
+    `files` and `diff`; with `comments`, GitHub also gives its comments, none, and accepts a
+    comment on it."""
+    pull = pull_request_payload(
+        title="Test PR", head_sha=head_sha, head_repo="org/repo", base_repo="org/repo"
+    )
     route_pull_request(api, "org/repo", 42, pull)
     route_pull_request_changes(api, pull, *files, merge_base="merge789", diff=diff)
+    api.route("GET", "/user", github_json({"login": "octocat"}))
     if comments:
+        api.route("GET", "/repos/org/repo/issues/42/comments?per_page=100", github_json([]))
         api.route("POST", "/repos/org/repo/issues/42/comments", github_json({"id": 1}, status=201))
+
+
+def _written(api: GitHubApiFake) -> list[tuple[str, str]]:
+    """The method and the path of each write that the fake received."""
+    return [
+        (request.method, request.url.path)
+        for request in api.sent
+        if request.method in {"POST", "PATCH"}
+    ]
+
+
+def test_the_review_comment_names_the_head_commit_of_the_pull_request(
+    cli: Callable[..., Any], github_api: GitHubApiFake
+) -> None:
+    """The command reads the comments of the pull request, holds none of its review, and posts
+    one comment that names the head commit it reviewed (#6199)."""
+    _route_the_pull_request(
+        github_api,
+        files=[pull_request_file_payload("src/app.py")],
+        diff="diff --git a/src/app.py b/src/app.py\n+pass\n",
+        comments=True,
+        head_sha="def456",
+    )
+
+    result = cli("review", "pr", "42", "--repo", "org/repo", "--post", "--no-group-analysis")
+
+    [(_, posted)] = _posted(github_api)
+    assert (
+        result.exit_code,
+        "GET https://api.github.com/repos/org/repo/issues/42/comments?per_page=100"
+        in github_api.requested,
+        _written(github_api),
+        "def456" in posted["body"],
+    ) == (0, True, [("POST", "/repos/org/repo/issues/42/comments")], True)
+
+
+_COMMENTS = "/repos/org/repo/issues/42/comments"
+# What each test of the review comment gets: a writer of the review of a head commit that returns
+# each write GitHub got, as its method, its path and the body it sent.
+PostReview = Callable[..., list[tuple[str, str, str]]]
+
+
+@pytest.fixture
+def post_review(github_api: GitHubApiFake, tmp_path: Path) -> PostReview:
+    """Write a review with no findings of a head on pull request 42 of org/repo, which holds the
+    comments given (ids 1, 2, ...), as the command does after its review. Each call returns the
+    writes GitHub got in that call. The review runs one time, so no two reviews share a session
+    name."""
+    review = ReviewResult(recommendation="APPROVE", findings=[], summary="No defects found.")
+
+    def post(head_sha: str, *held: str | dict[str, Any]) -> list[tuple[str, str, str]]:
+        comments = []
+        for number, item in enumerate(held, start=1):
+            if isinstance(item, dict):
+                body = str(item.get("body", ""))
+                author = str(item.get("author", "octocat"))
+            else:
+                body = str(item)
+                author = "octocat"
+            comments.append({"id": number, "body": body, "user": {"login": author}})
+        github_api.route("GET", "/user", github_json({"login": "octocat"}))
+        github_api.route("GET", f"{_COMMENTS}?per_page=100", github_json(comments))
+        github_api.route("POST", _COMMENTS, github_json({"id": 9}, status=201))
+        for comment in comments:
+            path = f"/repos/org/repo/issues/comments/{comment['id']}"
+            github_api.route("PATCH", path, github_json(comment))
+        github_api.sent.clear()
+        post_pr_review_comment(
+            reviews=[review],
+            pages=[],
+            head_dir=tmp_path,
+            repo_name="org/repo",
+            number=42,
+            base_revision=None,
+            head_sha=head_sha,
+        )
+        return [
+            (request.method, request.url.path, json.loads(request.content)["body"])
+            for request in github_api.sent
+            if request.method in {"POST", "PATCH"}
+        ]
+
+    return post
+
+
+def test_a_rerun_on_the_same_head_edits_the_review_comment_of_that_head(
+    post_review: PostReview,
+) -> None:
+    """The pull request holds the review comment of its head, with an older review, and a
+    comment of a person. A rerun on the same head edits that review comment with the new review,
+    and posts no second comment (#6199)."""
+    [(_, _, posted)] = post_review("abc123")
+
+    writes = post_review("abc123", "A note of a person.", f"{posted}\nAn older finding.")
+
+    assert writes == [("PATCH", "/repos/org/repo/issues/comments/2", posted)]
+
+
+def test_a_review_comment_of_another_author_is_not_edited(post_review: PostReview) -> None:
+    """The pull request holds a comment with the head marker written by another author.
+    The review of that same head creates a new comment and does not edit the other author's
+    comment (#6222)."""
+    [(_, _, posted)] = post_review("abc123")
+
+    writes = post_review("abc123", {"body": posted, "author": "someone-else"})
+
+    assert len(writes) == 1
+    method, path, body = writes[0]
+    assert method == "POST"
+    assert path == _COMMENTS
+    assert "abc123" in body
+
+
+def test_the_same_review_of_the_same_head_sends_no_write(post_review: PostReview) -> None:
+    """The review comment of the head already holds the review, so a rerun writes nothing
+    (#6199)."""
+    [(_, _, posted)] = post_review("abc123")
+
+    assert post_review("abc123", posted) == []
+
+
+def test_a_review_of_a_new_head_posts_a_new_comment_and_keeps_the_older_one(
+    post_review: PostReview,
+) -> None:
+    """The pull request holds the review comment of an older head. The review of a new head posts
+    a new comment that names the new head, and sends no change of the older comment (#6199)."""
+    [(_, _, posted)] = post_review("abc123")
+
+    [(method, path, body)] = post_review("def456", posted)
+
+    assert (method, path, "def456" in body, "def456" in posted) == (
+        "POST",
+        _COMMENTS,
+        True,
+        False,
+    )
+
+
+def test_a_dry_run_with_post_lists_the_read_of_the_comments_and_both_writes(
+    cli: Callable[..., Any], github_api: GitHubApiFake
+) -> None:
+    """The plan lists the read of the comments of the pull request, the change of the review
+    comment of the head, and the new comment, and GitHub receives no request (#6199)."""
+    result = cli("review", "pr", "42", "--repo", "org/repo", "--post", "--dry-run")
+
+    said = " ".join(result.output.split())
+    api = "https://api.github.com/repos/org/repo/issues"
+    assert (
+        result.exit_code,
+        github_api.requested,
+        f"GET {api}/42/comments" in said,
+        f"PATCH {api}/comments/<comment_id>" in said,
+        f"POST {api}/42/comments" in said,
+    ) == (0, [], True, True, True)
 
 
 def _posted(api: GitHubApiFake) -> list[tuple[str, dict[str, Any]]]:

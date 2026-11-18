@@ -84,6 +84,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _MAX_DIFF_CHARS = DEFAULT_REVIEW_MAX_DIFF_CHARS
+# The first line of the review comment on a pull request. The head commit is its key: a rerun on
+# the same head edits the comment, and a new head gets a new comment (#6199).
+_REVIEW_COMMENT_MARKER = "<!-- devops review pr: {head} -->"
 
 
 class ReviewClients(BaseModel):
@@ -285,19 +288,25 @@ def post_pr_review_comment(
     repo_name: str,
     number: int,
     base_revision: BaseRevision | None,
+    *,
+    head_sha: str,
 ) -> None:
-    """Post formatted review comment to GitHub PR."""
+    """Write the review as the one comment of the PR for its head commit `head_sha` (#6199).
+
+    The comment opens with `_REVIEW_COMMENT_MARKER` of the head. The comments of the PR are read
+    first: a comment that holds the marker of the same head is edited, or left as it is when it
+    already holds this review, and with none a new comment is posted. The comment of an older
+    head stays, so each head that was reviewed keeps its review.
+    """
     from devops_cli.dry_run import is_dry_run
     from devops_cli.github.session import get_github_session
     from devops_cli.lang import MESSAGES
     from devops_cli.output import print_success, print_warning
 
     all_files = resolve_pr_files(pages, base_revision)
-    comment_body = format_pr_review_comment(
-        reviews=reviews,
-        files=all_files,
-        target_dir=head_dir,
-    )
+    marker = _REVIEW_COMMENT_MARKER.format(head=head_sha)
+    review = format_pr_review_comment(reviews=reviews, files=all_files, target_dir=head_dir)
+    comment_body = f"{marker}\n{review}"
     if is_dry_run():
         _debug_block(
             f"Would post PR comment on #{number}",
@@ -305,8 +314,27 @@ def post_pr_review_comment(
         )
         print_warning(MESSAGES.dry_run.skipped_pr_comment.format(number=number), prefix=False)
         return
-    get_github_session().client.create_issue_comment(repo_name, number, comment_body)
-    print_success(f"Review posted as comment on PR #{number}")
+    session = get_github_session()
+    client = session.client
+    session_login = session.login
+    held = next(
+        (
+            c
+            for c in client.list_issue_comments(repo_name, number)
+            if marker in c.body
+            and bool(session_login)
+            and getattr(c, "author", "") == session_login
+        ),
+        None,
+    )
+    if held is None:
+        client.create_issue_comment(repo_name, number, comment_body)
+        print_success(MESSAGES.review.review_posted_pr.format(number=number))
+    elif held.body != comment_body:
+        client.update_issue_comment(repo_name, held.id, comment_body)
+        print_success(MESSAGES.review.review_updated_pr.format(number=number, head=head_sha))
+    else:
+        print_success(MESSAGES.review.review_unchanged_pr.format(number=number, head=head_sha))
 
 
 def _nearest_conventions(start: Path, revision: str | None = None) -> str:

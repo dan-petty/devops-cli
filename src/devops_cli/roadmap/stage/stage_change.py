@@ -42,6 +42,7 @@ from pydantic import (
 from pydantic.json_schema import SkipJsonSchema
 
 from devops_cli.ai.context_budget import count_tokens
+from devops_cli.ci.fail_to_pass import is_source_code
 from devops_cli.config.constants import (
     CONST_DOCS_CLASS_RECORD,
     CONST_DOCS_CLASS_TOOL_OWNED,
@@ -76,6 +77,7 @@ from devops_cli.roadmap.stage.stage_criteria import (
     refine_decisions,
 )
 from devops_cli.roadmap.stage.stage_form import form_problems, search_problems
+from devops_cli.roadmap.stage.stage_models import parse_class_members
 from devops_cli.roadmap.stage.stage_move import (
     is_prefix_move_group,
     move_prefix_problems,
@@ -586,9 +588,11 @@ class StageGroup(_Reply):
 
 
 def changes_source(changes: Sequence[str]) -> bool:
-    """Whether a path of `changes` is under `src/`: a `behavior` group changes such a path (#3035),
-    and the plan reader tells a `behavior` group from a `manifest` group by it (#5205)."""
-    return any(path.startswith(_SOURCE_DIRECTORY) for path in changes)
+    """Whether a path of `changes` is source code (`is_source_code`: a `.py` file under `src/`
+    outside the knowledge base): a `behavior` group changes such a path (#3035, #6207), and the
+    plan reader tells a `behavior` group from a `manifest` group by it (#5205). A prompt, a pin or
+    other data under `src/` is no code, so its test would read a value."""
+    return any(is_source_code(PurePosixPath(path)) for path in changes)
 
 
 def _behavior_problems(group: StageGroup) -> list[str]:
@@ -2718,9 +2722,9 @@ def group_files_problems(groups: Sequence[StageGroup], tree: StagedTree) -> list
 _CLASS_SPAN: Final[re.Pattern[str]] = re.compile(r"^(?P<name>[A-Za-z_]\w*)(?:\.[A-Za-z_]\w*)*$")
 
 
-def _class_claim_lines(proposal: StageProposal) -> list[tuple[str, str]]:
-    """Each line of the plan that makes a design claim, with the name of its section (#3407): a
-    design decision, a rejected alternative and a feasibility line."""
+def _claim_lines(proposal: StageProposal) -> list[tuple[str, str]]:
+    """Each line of the plan that makes a design claim, with the name of its section (#3407,
+    #3458): a design decision, a rejected alternative and a feasibility line."""
     lines: list[tuple[str, str]] = []
     for decision in proposal.decisions:
         lines.append(("design decision", decision.decision))
@@ -2738,6 +2742,16 @@ def _claim_span_name(span: str) -> str | None:
     return match.group("name") if match else None
 
 
+def _claim_span_member(span: str) -> str | None:
+    """The member name of a `Class.member` code span, or None for a span that names no member
+    (#3458)."""
+    match = _CLASS_SPAN.match(span.strip())
+    if match is None:
+        return None
+    parts = match.group(0).split(".")
+    return parts[1] if len(parts) > 1 else None
+
+
 def claimed_classes(proposal: StageProposal) -> set[str]:
     """The name that each code span of a design claim may name (#3407). A span that starts with a
     class name, as the bare name or the name and a dotted member, is a claim, and no other span is
@@ -2745,7 +2759,7 @@ def claimed_classes(proposal: StageProposal) -> set[str]:
     `src/` defines."""
     return {
         name
-        for _, line in _class_claim_lines(proposal)
+        for _, line in _claim_lines(proposal)
         for span in code_spans(line)
         if (name := _claim_span_name(span)) is not None
     }
@@ -2758,32 +2772,57 @@ def _is_class_quote(span: str, source: str) -> bool:
     return len(quote) >= _CITATION_MIN_CHARS and quote in source
 
 
+def _class_claim_line_problems(
+    section: str,
+    line: str,
+    squashed: Mapping[str, str],
+    members: Mapping[str, set[str]],
+    seen: set[tuple[str, str]],
+) -> list[str]:
+    """What is wrong with one design claim line about the classes that it names (#3407, #3458): a
+    member that the class body lacks, or a class that the line gives no quote of."""
+    spans = code_spans(line)
+    problems: list[str] = []
+    for span in spans:
+        name = _claim_span_name(span)
+        if name is None or name not in squashed or (name, section) in seen:
+            continue
+        member = _claim_span_member(span)
+        if member is not None and member not in members[name]:
+            seen.add((name, section))
+            problems.append(
+                MESSAGES.roadmap.stage_problem_class_member.format(
+                    name=name, member=member, section=section
+                )
+            )
+            continue
+        if any(other != span and _is_class_quote(other, squashed[name]) for other in spans):
+            continue
+        seen.add((name, section))
+        problems.append(
+            MESSAGES.roadmap.stage_problem_class_claim.format(name=name, section=section)
+        )
+    return problems
+
+
 def class_claim_problems(
     proposal: StageProposal,
     classes: Mapping[str, str] | None,
 ) -> list[str]:
-    """What is wrong with a design claim about an internal class whose quote the class lacks
-    (#3407). A design decision, a rejected alternative or a feasibility line that names a class
+    """What is wrong with a design claim about an internal class or a member of one (#3407,
+    #3458). A design decision, a rejected alternative or a feasibility line that names a class
     under `src/` in a code span gives another code span whose text the class holds at the staged
-    commit."""
+    commit, and a `Class.member` span names a member that the class body defines."""
     if not classes:
         return []
     squashed = {name: _squash(text) for name, text in classes.items()}
-    problems: list[str] = []
+    members = {name: parse_class_members(text) for name, text in classes.items()}
     seen: set[tuple[str, str]] = set()
-    for section, line in _class_claim_lines(proposal):
-        spans = code_spans(line)
-        for span in spans:
-            name = _claim_span_name(span)
-            if name is None or name not in squashed or (name, section) in seen:
-                continue
-            if any(other != span and _is_class_quote(other, squashed[name]) for other in spans):
-                continue
-            seen.add((name, section))
-            problems.append(
-                MESSAGES.roadmap.stage_problem_class_claim.format(name=name, section=section)
-            )
-    return problems
+    return [
+        problem
+        for section, line in _claim_lines(proposal)
+        for problem in _class_claim_line_problems(section, line, squashed, members, seen)
+    ]
 
 
 def _refine_decision_problems(proposal: StageProposal, issue_body: str) -> list[str]:
@@ -2799,6 +2838,76 @@ def _refine_decision_problems(proposal: StageProposal, issue_body: str) -> list[
     if rejected and not proposal.rejected:
         problems.append(texts.stage_problem_refine_rejected)
     return problems
+
+
+def _is_module_span(span: str) -> bool:
+    """Whether a code span names a Python module under `src/` (#3458)."""
+    return span.startswith(_SOURCE_DIRECTORY) and _is_source_module(span)
+
+
+def _is_module_quote(span: str, source: str) -> bool:
+    """Whether `span` holds a statement of the squashed module `source` (#3458). A quote shorter
+    than the bound of the citation rule matches almost any source, so it is no quote."""
+    quote = _squash(span)
+    return len(quote) >= _CITATION_MIN_CHARS and quote in source
+
+
+def _module_source(
+    span: str, squashed: dict[str, str], read_text: Callable[[str], str | None]
+) -> str | None:
+    """The squashed text of the module that `span` names, or None when the reader gives none
+    (#3458)."""
+    if span not in squashed:
+        text = read_text(span)
+        if text is None:
+            return None
+        squashed[span] = _squash(text)
+    return squashed[span]
+
+
+def _module_quote_line_problems(
+    section: str,
+    line: str,
+    squashed: dict[str, str],
+    read_text: Callable[[str], str | None],
+    seen: set[tuple[str, str]],
+) -> list[str]:
+    """What is wrong with one design claim line about the modules under `src/` that it names
+    (#3458): a module that the line gives no quote of. A module whose text the reader does not give
+    is not judged."""
+    spans = code_spans(line)
+    problems: list[str] = []
+    for span in spans:
+        if not _is_module_span(span) or (span, section) in seen:
+            continue
+        source = _module_source(span, squashed, read_text)
+        if source is None:
+            continue
+        if any(other != span and _is_module_quote(other, source) for other in spans):
+            continue
+        seen.add((span, section))
+        problems.append(
+            MESSAGES.roadmap.stage_problem_module_quote.format(path=span, section=section)
+        )
+    return problems
+
+
+def module_quote_problems(
+    proposal: StageProposal,
+    read_text: Callable[[str], str | None] | None,
+) -> list[str]:
+    """One problem for each design claim line that names a module under `src/` in a code span and
+    gives no other code span that holds a statement of that module at the staged commit (#3458). A
+    check with no reader, and a module whose text the reader does not give, judges no line."""
+    if read_text is None:
+        return []
+    squashed: dict[str, str] = {}
+    seen: set[tuple[str, str]] = set()
+    return [
+        problem
+        for section, line in _claim_lines(proposal)
+        for problem in _module_quote_line_problems(section, line, squashed, read_text, seen)
+    ]
 
 
 def check_gates(
@@ -2848,6 +2957,7 @@ def check_gates(
         ProposalGate.CONTENT: content_problems(proposal, probes),
         ProposalGate.CITATION: [
             *_plan_citation_problems(proposal, read_text),
+            *module_quote_problems(proposal, read_text),
             *command_citation_problems(proposal),
             *proposal_evidence_problems(proposal),
         ],

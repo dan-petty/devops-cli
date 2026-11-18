@@ -100,14 +100,29 @@ def plan_review_pr(
         ),
     ]
     if post_comment:
-        requests.append(
+        issues = f"https://api.github.com/repos/{target_repo}/issues"
+        requests += [
+            PlannedRequest(
+                method="GET",
+                target=f"{issues}/{number}/comments?per_page=100",
+                condition="if --post",
+                repeat="for each page of comments",
+            ),
+            PlannedRequest(
+                method="PATCH",
+                target=f"{issues}/comments/<comment_id>",
+                stdin='{"body": "<review-findings-comment>"}',
+                condition=(
+                    "if --post, a comment holds the marker of the head, and it holds another review"
+                ),
+            ),
             PlannedRequest(
                 method="POST",
-                target=f"https://api.github.com/repos/{target_repo}/issues/{number}/comments",
+                target=f"{issues}/{number}/comments",
                 stdin='{"body": "<review-findings-comment>"}',
-                condition="if --post",
-            )
-        )
+                condition="if --post and no comment holds the marker of the head",
+            ),
+        ]
     return requests
 
 

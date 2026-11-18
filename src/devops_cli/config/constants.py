@@ -530,7 +530,6 @@ CONST_DOCS_INVENTORY: Final[dict[str, tuple[str, ...]]] = {
     CONST_DOCS_CLASS_TOOL_GENERATED: (
         ".claude/skills/openspec-*/SKILL.md",
         ".agents/skills/openspec-*/SKILL.md",
-        ".kilocode/skills/openspec-*/SKILL.md",
     ),
 }
 # The classes whose `devops` command lines `devops docs check` resolves against the live command
@@ -2524,6 +2523,8 @@ CONST_CACHE_NAMESPACE_ROOT: Final[str] = "devops-cli"
 # ── Source & Test Tree Layout ────────────────────────────────────────────────
 # Repository layout conventions used to map changed sources onto covering tests.
 CONST_SOURCE_ROOT_DIR: Final[str] = "src"
+# The knowledge base: documents and samples under src/ that are no code of the tool (#6207).
+CONST_KNOWLEDGE_BASE_DIR: Final[str] = "src/devops_cli/ai/knowledge_base"
 CONST_TESTS_ROOT_DIR: Final[str] = "tests"
 CONST_TEST_FILE_PREFIX: Final[str] = "test_"
 CONST_PYTHON_FILE_SUFFIX: Final[str] = ".py"
@@ -3518,6 +3519,13 @@ CONST_ROADMAP_STAGE_VIOLATION_TEXT_MAX_CHARS: Final[int] = 200
 CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS: Final[int] = 19_456
 CONST_ROADMAP_STAGE_BODY_MAX_TOKENS: Final[int] = 8_192
 CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS: Final[int] = 8_192
+# The comments of the item in the first plan request (#6167): they take the room that the body
+# leaves under its cap, and at most this many tokens of the context cap (at most half of it), so
+# the request is no larger than before. The newest comments come whole; the older ones get a line
+# of an index, and `read_comment` reads any comment whole. The longest comment of a person on
+# #6058 counts 2,018 tokens, and the comments of #3827 count about 11,000 tokens with one report of
+# a job of 6,791 tokens, so the most recent comments of both fit whole.
+CONST_ROADMAP_STAGE_COMMENTS_MAX_TOKENS: Final[int] = 6_144
 # The least tool calls that a plan run makes before the window ends its tools (#3880). A run that
 # the window stops sooner has read almost none of the code, and the model answers with a
 # placeholder text. At the window of 65,536 tokens, the runs made 4 and 6 calls and failed; at
@@ -3637,6 +3645,17 @@ CONST_ROADMAP_IMPLEMENT_OUTPUT_WINDOW_SHARE: Final[int] = 4
 # The tokens of one packed file in the inputs of a step. The agent reads more with its tools. It is
 # a sixteenth of the default window of 128,000 tokens (#3206).
 CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS: Final[int] = 8000
+# The most tokens of the comments of the item in the inputs of a step (#6167), as much as one
+# packed file. The comments get at most the room that the other inputs leave under the window, so
+# they never take a step over it. The newest comments come whole, the older ones get a line of an
+# index, and the tool `read_comment` reads any comment whole.
+CONST_ROADMAP_IMPLEMENT_COMMENTS_MAX_TOKENS: Final[int] = 8000
+# The index of the comments of an item (#6167): each line names a comment by its number, author
+# and time, and shows the first line of its text, cut to this many characters, as a label. The
+# comment itself is never cut: `read_comment` reads it whole, in lines of at most
+# `CONST_ROADMAP_COMMENT_LINE_CHARS` characters, so that a page of a tool answer holds whole lines.
+CONST_ROADMAP_COMMENT_INDEX_CHARS: Final[int] = 120
+CONST_ROADMAP_COMMENT_LINE_CHARS: Final[int] = 1000
 # How many lines of the output of a command a stopped step reports. The time that one verification
 # command or static check may run is the setting `roadmap.implement.command_timeout_seconds`.
 CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES: Final[int] = 20
@@ -3937,6 +3956,13 @@ CONST_ROADMAP_OWNER_VALUES: Final[tuple[str, ...]] = (
 CONST_ROADMAP_INTAKE_REASON_MARKER: Final[str] = "<!-- devops roadmap intake: reason -->"
 # The stage job's comment marker (#2654).
 CONST_ROADMAP_STAGE_COMMENT_MARKER: Final[str] = "<!-- devops roadmap stage -->"
+# The hidden key line of the plan-state comment of a plan pull request (#6197): one comment on the
+# issue of the item for each plan pull request, which the stage job and the step fix-plan edit in
+# place. `{pull}` is the number of the pull request.
+CONST_ROADMAP_PLAN_STATE_KEY: Final[str] = "<!-- devops roadmap plan state #{pull} -->"
+# The hidden line of the comment of one stage run or one fix-plan attempt (#6197): the facts of that
+# run only. A reader of the plan comments of a release before #6197 skips such a comment.
+CONST_ROADMAP_PLAN_EVENT_KEY: Final[str] = "<!-- devops roadmap plan event #{pull} -->"
 # The second marker of the stage job's comment that carries the reason of a rejected plan (#3503):
 # a plan pull request that a person closed with no merge. The comment also holds the stage marker.
 CONST_ROADMAP_STAGE_REJECTED_MARKER: Final[str] = "<!-- devops roadmap stage: rejected plan -->"
@@ -4780,7 +4806,6 @@ CONST_REVIEW_ROUTED_PATH_PATTERNS: Final[tuple[str, ...]] = (
     "openspec/**",
     ".claude/skills/openspec-*/**",
     ".agents/skills/openspec-*/**",
-    ".kilocode/skills/openspec-*/**",
     ".agents/skills/.openspec-target",
 )
 # The scanner results that are secrets, by tool, with the rule ids that are (None: every rule).
@@ -5224,6 +5249,10 @@ CONST_TRIVY_CONFIG_SCAN_TYPE: Final[str] = "config"
 # The ignore file of the IaC scan: an entry holds the path, the `statement` and `expired_at` of one
 # finding, and Trivy reads it only when it is named with `--ignorefile` (#4401).
 CONST_TRIVY_CONFIG_IGNORE_FILE: Final[str] = ".trivyignore.yaml"
+# The ignore file of `npm audit`, which reads none of its own: one entry for each advisory that no
+# released version fixes, in the form of `.trivyignore.yaml` (SECURITY.md, A Finding with No Fix;
+# #6204).
+CONST_NPM_AUDIT_IGNORE_FILE: Final[str] = ".npm-audit-ignore.yaml"
 # The tool name that GitHub code scanning shows for the `trivy config` results of the SARIF upload.
 CONST_TRIVY_CONFIG_ALERT_TOOL: Final[str] = "Trivy-config"
 # The most issues that one run of `devops scan alerts` files, so a first run over a long list of
@@ -5582,23 +5611,27 @@ CONST_OPENSPEC_OPT_OUT_ENV: Final[dict[str, str]] = {
 # Where OpenSpec reads its per-user configuration, which a run replaces with a directory of its own
 # so a developer's profile cannot decide what the tool writes.
 CONST_OPENSPEC_CONFIG_HOME_ENV: Final[str] = "XDG_CONFIG_HOME"
+# The home of a run, which a run also replaces with that directory. OpenSpec 2.1 refreshes the
+# skills it finds under the home (`~/.agents/skills` and the skill folder of each agent there) with
+# the profile of the run, and records each project it updates in a data folder under the home.
+CONST_OPENSPEC_HOME_ENV: Final[str] = "HOME"
 # The workflows of the `custom` profile every agent shares: no archive and no sync, since those
 # write `openspec/specs/`, which only the pull request that closes a change may.
 CONST_OPENSPEC_WORKFLOWS: Final[tuple[str, ...]] = ("propose", "explore", "apply", "update")
-# The settings an isolated configuration holds, in the order they are set: telemetry off, skills
-# only, and the custom profile with its four workflows.
+# The settings an isolated configuration holds, in the order they are set: telemetry off, and the
+# custom profile with its four workflows. OpenSpec 2.0 retired `delivery`: it writes skills only.
 CONST_OPENSPEC_ISOLATED_SETTINGS: Final[tuple[tuple[str, str], ...]] = (
     ("telemetry.enabled", "false"),
-    ("delivery", "skills"),
     ("profile", "custom"),
     ("workflows", json.dumps(list(CONST_OPENSPEC_WORKFLOWS))),
 )
 # The files `openspec update` writes for the agents the project supports, from a checkout's root.
-# Anything else under those directories is not OpenSpec's.
+# Anything else under those directories is not OpenSpec's. Since 2.0 the skills are one copy in
+# `.agents/skills`, which Kilo Code reads, and each `.claude/skills/openspec-*` is a link to its
+# folder there; a glob reads the files through the link.
 CONST_OPENSPEC_GENERATED_GLOBS: Final[tuple[str, ...]] = (
     ".claude/skills/openspec-*/**/*",
     ".agents/skills/openspec-*/**/*",
-    ".kilocode/skills/openspec-*/**/*",
     ".agents/skills/.openspec-target",
 )
 # The artifacts whose instructions the gate renders for a probe change, and that change's name.

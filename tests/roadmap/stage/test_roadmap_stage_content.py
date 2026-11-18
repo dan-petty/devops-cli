@@ -749,7 +749,7 @@ def test_a_prompt_change_that_gives_a_process_is_refused_once() -> None:
 def test_the_plan_check_accepts_the_plan_of_this_change() -> None:
     group = _prompt_group(
         reads=[PROMPT_RULE_TEST],
-        changes=[PROMPT_CHANGE, PROMPT_RULE_TEST],
+        changes=[PLAN_CHECK_FILE, PROMPT_CHANGE, PROMPT_RULE_TEST],
         verify=f"uv run devops ci test {PROMPT_RULE_TEST}",
         test=SELF_ACCEPTANCE_TEST,
     )

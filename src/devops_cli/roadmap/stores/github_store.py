@@ -35,6 +35,7 @@ import logging
 import subprocess
 import threading
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from http import HTTPStatus
 from itertools import islice
@@ -81,6 +82,7 @@ from devops_cli.roadmap.stores.store import (
     ItemField,
     Milestone,
     OpenPull,
+    PostedComment,
     RepositoryFacts,
     RepositoryLabel,
     RoadmapStore,
@@ -337,8 +339,10 @@ def _is_pull_request_url(url: str) -> bool:
 
 
 class _CommentPayload(BaseModel):
+    id: int | None = None
     body: str = ""
     created_at: datetime
+    updated_at: datetime | None = None
     author_association: str | None = None
     author_login: str | None = Field(default=None, validation_alias=AliasPath("user", "login"))
     html_url: str = ""
@@ -347,10 +351,31 @@ class _CommentPayload(BaseModel):
         return IssueComment(
             body=self.body,
             created_at=self.created_at,
+            id=self.id,
             author_association=self.author_association,
             author_login=self.author_login,
             on_pull_request=_is_pull_request_url(self.html_url),
+            url=self.html_url or None,
+            updated_at=self.updated_at,
         )
+
+
+class _PostedCommentPayload(BaseModel):
+    """The answer of GitHub to the post of a comment: the comment, of which the store reads only
+    its page."""
+
+    html_url: str = ""
+
+
+@dataclass(frozen=True)
+class _Posted:
+    """What the store says of a comment that it was asked to post (`PostedComment`)."""
+
+    url: str | None
+    posted: bool
+
+    def __bool__(self) -> bool:
+        return self.posted
 
 
 class _TimelineNodePayload(BaseModel):
@@ -442,6 +467,7 @@ _SBOM = TypeAdapter(_SbomPayload)
 # The SPDX reference type of a package URL.
 _PURL_REFERENCE = "purl"
 _COMMENT = TypeAdapter(_CommentPayload)
+_POSTED_COMMENT = TypeAdapter(_PostedCommentPayload)
 _TIMELINE = TypeAdapter(_TimelinePayload)
 _WORKFLOW_RUN = TypeAdapter(_WorkflowRunPayload)
 _COMMITS = TypeAdapter(list[_CommitPayload])
@@ -636,6 +662,18 @@ def add_sub_issue_args(repo: str, parent: Number, child_id: Number) -> list[str]
 
 def comment_args(repo: str, number: Number, body: str) -> list[str]:
     return ["api", "-X", "POST", comments_endpoint(repo, number), "-f", f"body={body}"]
+
+
+def comment_edit_args(repo: str, comment_id: Number, body: str) -> list[str]:
+    """The `PATCH` that writes `body` as the text of one issue comment (#6197)."""
+    return [
+        "api",
+        "-X",
+        "PATCH",
+        f"repos/{repo}/issues/comments/{comment_id}",
+        "-f",
+        f"body={body}",
+    ]
 
 
 def label_args(repo: str, number: Number, label: str) -> list[str]:
@@ -1049,14 +1087,25 @@ class GitHubRoadmapStore(RoadmapStore):
             self._path_changes[path] = commits[0].committed_at if commits else None
         return self._path_changes[path]
 
-    def comment(self, number: int, body: str) -> bool:
-        """Comment `body` on issue `number`, unless it repeats a recent comment of the same
-        roadmap job there: then it reads the comments of the issue, writes nothing and returns
-        False (#4793)."""
-        if refused_repeat(number, body, lambda: self.comments_on(number), now=self._clock()):
-            return False
-        self._write(comment_args(self._repo, number, body), f"comment on #{number}")
-        return True
+    def comment(self, number: int, body: str) -> PostedComment:
+        """Comment `body` on issue `number`, and give the page of the comment that GitHub
+        answers (#6194). A repeat of a recent comment of the same roadmap job there writes
+        nothing: the store reads the comments of the issue and gives the page of that comment
+        (#4793)."""
+        earlier = refused_repeat(number, body, lambda: self.comments_on(number), now=self._clock())
+        if earlier is not None:
+            return _Posted(earlier.url, posted=False)
+        action = f"comment on #{number}"
+        written = self._write(comment_args(self._repo, number, body), action)
+        return _Posted(self._validate(written, _POSTED_COMMENT, action).html_url or None, True)
+
+    def edit_comment(self, number: int, comment_id: int, body: str) -> None:
+        """Write `body` as the text of the comment `comment_id` on issue `number`, in one `PATCH`
+        of the comment (#6197)."""
+        self._write(
+            comment_edit_args(self._repo, comment_id, body),
+            f"edit comment {comment_id} on #{number}",
+        )
 
     def close(self, number: int, reason: CloseReason, *, comment: str | None = None) -> None:
         """Read issue `number`, post `comment` on it when given, then close it for `reason` in
@@ -1458,6 +1507,7 @@ __all__ = [
     "advisory_args",
     "closures_args",
     "comment_args",
+    "comment_edit_args",
     "comments_endpoint",
     "commit_args",
     "create_issue_args",

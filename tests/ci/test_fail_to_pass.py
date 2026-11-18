@@ -29,6 +29,7 @@ from devops_cli.ci.fail_to_pass import (
     run_fail_to_pass,
 )
 from devops_cli.commands.ci import app, get_check_specs
+from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import build_subprocess_env, run_subprocess
 from tests.gate import runner as gate_runner
 from tests.support.fakes.git import GitFake
@@ -147,12 +148,16 @@ class _FailToPassState:
     head_junit_xml: str | None = None
     head_exit_status: int = 0
     changed_test_files: tuple[str, ...] = ("tests/test_mod.py",)
+    # The source code that the fix changes: a fix that changes none needs no proof (#6207).
+    changed_source_files: tuple[str, ...] = ("src/devops_cli/sample.py",)
     base_files: dict[str, str] = field(default_factory=dict)
     base_tests: dict[str, str] = field(default_factory=dict)
     active_worktrees: set[Path] = field(default_factory=set)
     satisfied: bool | None = None
     gate_base: ProcessAnswer = field(default_factory=ProcessAnswer)
     gate_head: ProcessAnswer = field(default_factory=ProcessAnswer)
+    pytest_timeout: bool = False
+    plain_base_timeout: bool = False
 
 
 @pytest.fixture
@@ -207,6 +212,12 @@ def _worktree_answer(replay_state: _FailToPassState, call: ProcessCall) -> Proce
 
 def _pytest_answer(replay_state: _FailToPassState, call: ProcessCall) -> ProcessAnswer:
     cwd_name = Path(call.cwd).name if call.cwd else ""
+    if replay_state.pytest_timeout or (
+        replay_state.plain_base_timeout and cwd_name == "plain_base"
+    ):
+        return ProcessAnswer(
+            side_effect=subprocess.TimeoutExpired(call.argv, DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+        )
     if cwd_name == "plain_base":
         xml = (
             replay_state.plain_base_junit_xml
@@ -279,7 +290,11 @@ def _setup_fail_to_pass_fake(git_fake: GitFake, replay_state: _FailToPassState) 
     git_fake.answer(
         lambda call: "diff" in call.argv,
         lambda _call: ProcessAnswer(
-            returncode=0, stdout="".join(f"M\0{f}\0" for f in replay_state.changed_test_files)
+            returncode=0,
+            stdout="".join(
+                f"M\0{f}\0"
+                for f in (*replay_state.changed_source_files, *replay_state.changed_test_files)
+            ),
         ),
     )
     git_fake.answer(lambda call: "ls-files" in call.argv, ProcessAnswer(returncode=0, stdout=""))
@@ -324,10 +339,12 @@ def _replay_report(
     outcomes: tuple[dict[str, str], ...] = (),
     could_not_run: dict[str, object] | None = None,
     repaired: tuple[dict[str, str], ...] = (),
-    head_could_not_run: int | None = None,
+    head_could_not_run: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """The whole dump of a feature's report replaying `tests/test_mod.py` in `repo`, whose
     merge base is the commit `main` names."""
+    if could_not_run is not None:
+        could_not_run = {"timeout_seconds": None, **could_not_run}
     return {
         "merge_base": "deadbeef",
         "head": "HEAD",
@@ -339,6 +356,7 @@ def _replay_report(
         "gate_rows": (),
         "repaired": repaired,
         "head_could_not_run": head_could_not_run,
+        "needs_proof": True,
     }
 
 
@@ -407,6 +425,111 @@ def test_fail_to_pass_collection_error_does_not_satisfy_check(
     ) == (1, True, True)
 
 
+def test_a_base_replay_timeout_is_a_could_not_run_result(
+    replay_state: _FailToPassState, git_fake: GitFake
+) -> None:
+    """A base replay that passes the process-runner limit names the limit, not a pytest status
+    that pytest did not return, and exits with the interrupted-replay status (#4938)."""
+    replay_state.pytest_timeout = True
+    _mock_replay_repo(replay_state, JUNIT_ONE_FAILURE, exit_status=1)
+
+    result = runner.invoke(app, ["fail-to-pass", "--base", "main"])
+
+    assert (
+        result.exit_code,
+        f"{DEFAULT_SUBPROCESS_TIMEOUT_SECONDS:g}" in result.output,
+        "tests/test_sample.py" in result.output,
+        "pytest exited with status" in result.output,
+        "Traceback" in result.output,
+    ) == (1, True, True, False, False)
+
+
+def test_a_head_timeout_names_the_limit_and_files_without_a_status() -> None:
+    report = fail_to_pass.FailToPassReport(
+        merge_base="deadbeef",
+        head="HEAD",
+        changed_test_files=("tests/test_mod.py",),
+        outcomes=(),
+        unchanged_failed=("tests.test_mod::test_x",),
+        head_could_not_run=fail_to_pass.ReplayCouldNotRun(
+            exit_status=1, timeout_seconds=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+        ),
+    )
+
+    output = format_fail_to_pass_report(report)
+
+    assert (
+        f"{DEFAULT_SUBPROCESS_TIMEOUT_SECONDS:g}" in output,
+        "tests/test_mod.py" in output,
+        "pytest exited with status" in output,
+    ) == (True, True, False)
+
+
+def test_a_plain_base_timeout_refuses_the_replay_without_a_traceback(
+    tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    replay_state.plain_base_timeout = True
+    replay_state.head_junit_xml = _junit(("test_fixed", "passed", ""), ("test_kept", "passed", ""))
+
+    text = _replay_of_test_mod(
+        tmp_path,
+        replay_state,
+        base=BASE_TESTS,
+        head=HEAD_TESTS,
+        junit=_junit(
+            ("test_fixed", "failure", "assert 1 == 2"), ("test_kept", "failure", "assert 0")
+        ),
+    )
+
+    assert (
+        replay_state.satisfied is False,
+        f"{DEFAULT_SUBPROCESS_TIMEOUT_SECONDS:g}" in text,
+        "pytest exited with status" in text,
+    ) == (True, True, False)
+
+
+def test_a_gate_row_timeout_is_a_could_not_run_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def timed_out(*_args: object, **_kwargs: object) -> None:
+        raise subprocess.TimeoutExpired(["pytest"], DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+
+    monkeypatch.setattr(fail_to_pass, "run_subprocess", timed_out)
+
+    run = fail_to_pass._run_gate_row(Path("."), "lint")
+
+    assert isinstance(run, fail_to_pass.ReplayCouldNotRun)
+    assert run.timeout_seconds == DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+
+
+def test_a_gate_row_timeout_names_the_limit_without_a_status() -> None:
+    timed_out = fail_to_pass.ReplayCouldNotRun(
+        exit_status=1, timeout_seconds=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
+    )
+    report = fail_to_pass.FailToPassReport(
+        merge_base="deadbeef",
+        head="HEAD",
+        changed_test_files=(),
+        outcomes=(),
+        changed_gate_checks=("tests/gate/lint_checks/test_x.py",),
+        gate_rows=(
+            fail_to_pass.GateRowReplay(
+                row="lint",
+                check_modules=("tests/gate/lint_checks/test_x.py",),
+                base=timed_out,
+                head=timed_out,
+            ),
+        ),
+    )
+
+    output = format_fail_to_pass_report(report)
+
+    assert (
+        f"{DEFAULT_SUBPROCESS_TIMEOUT_SECONDS:g}" in output,
+        "pytest exited with status" in output,
+    ) == (True, False)
+
+
 def test_no_title_label_or_body_changes_the_result(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, replay_state: _FailToPassState
 ) -> None:
@@ -432,6 +555,38 @@ def test_no_title_label_or_body_changes_the_result(
         "not applicable" in result.output,
         old_options,
     ) == (1, True, False, [2, 2, 2])
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        ("src/devops_cli/ai/tasks/roadmap_stage_change.md",),
+        (
+            "src/devops_cli/tools_lock/tools.lock",
+            "src/devops_cli/tools_lock/openspec/package-lock.json",
+        ),
+        ("src/devops_cli/ai/knowledge_base/devops_cli/sample.py",),
+        (".github/workflows/ci.yml", "k8s/devops/roadmap-service/deployment.yaml"),
+    ],
+    ids=["prompt", "tool-pins", "knowledge-base", "outside-src"],
+)
+def test_a_fix_that_changes_no_source_code_needs_no_test_that_fails_on_base(
+    replay_state: _FailToPassState, git_fake: GitFake, changed: tuple[str, ...]
+) -> None:
+    """A test that fails on base proves a change of code (#6207). A fix that changes only a prompt,
+    a tool pin, the knowledge base or files outside src/ passes with no replay, and says why, so
+    no one writes a test of a value to satisfy the check."""
+    _mock_replay_repo(replay_state, JUNIT_ALL_PASS)
+    replay_state.changed_source_files = changed
+
+    result = runner.invoke(app, ["fail-to-pass", "--base", "main"])
+
+    pytest_calls = [c for c in git_fake.calls if "-m" in c.argv and "pytest" in c.argv]
+    assert (result.exit_code, len(pytest_calls), "changes no source code" in result.output) == (
+        0,
+        0,
+        True,
+    )
 
 
 def test_fail_to_pass_materialises_base_and_overlays_head_tests(
@@ -1175,7 +1330,10 @@ def test_fail_to_pass_dry_run_lists_the_replay_and_starts_nothing(
     assert " -m pytest " in lines[13]
     assert lines[13].endswith("'<unchanged test files>'")
     conditions = [line.split("  [", 1)[1] for line in _plan_lines(result.output)[5:]]
-    replay = "only if a changed test file or gate check exists]"
+    replay = (
+        "only if the fix changes source code and a changed test file exists, or a changed gate check"
+        " exists]"
+    )
     gate = "only if a changed gate check exists]  [repeated for each row of a changed gate check]"
     assert [conditions[index] for index in (0, 1, 6, 7)] == [replay] * 4
     assert all(
@@ -1228,7 +1386,10 @@ def test_fail_to_pass_runs_the_processes_of_its_plan(
     placeholders hold the values that the run reads. A fix that changes only a test file starts
     no gate row, and one that changes only a gate check starts no pytest."""
     process_fake.answer(["git", "merge-base"], ProcessAnswer(stdout="abc123\n"))
-    process_fake.answer(["git", "diff", "--name-status"], ProcessAnswer(stdout=f"M\0{changed}\0"))
+    process_fake.answer(
+        ["git", "diff", "--name-status"],
+        ProcessAnswer(stdout=f"M\0src/devops_cli/sample.py\0M\0{changed}\0"),
+    )
 
     run_fail_to_pass(tmp_path, base="main")
 

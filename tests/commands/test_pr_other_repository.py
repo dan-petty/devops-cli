@@ -27,11 +27,23 @@ HEAD = "feat/19-node-memory-reservation"
 LABELS = "".join(f'- name: "{name}"\n  color: "ededed"\n' for name in ("type/feature", "scope/k3s"))
 TITLE = "feat(k3s): reserve memory for the system on each node"
 PLAIN_BODY = "Reserve memory for the system and for kubelet, so a pod cannot take all of it."
-NO_CLOSING_ISSUES = json.dumps(
+CLOSING_ISSUE = json.dumps(
     {
         "data": {
             "repository": {
-                "pullRequest": {"closingIssuesReferences": {"totalCount": 0, "nodes": []}}
+                "pullRequest": {
+                    "closingIssuesReferences": {
+                        "totalCount": 1,
+                        "nodes": [
+                            {
+                                "number": 19,
+                                "state": "OPEN",
+                                "repository": {"nameWithOwner": REPO},
+                                "labels": {"nodes": []},
+                            }
+                        ],
+                    }
+                }
             }
         }
     }
@@ -58,7 +70,7 @@ def gh(gh_edge: ProcessFake) -> ProcessFake:
     gh_edge.answer(
         ["gh", "pr", "create"], ProcessAnswer(stdout=f"https://example.com/{REPO}/pull/1\n")
     )
-    gh_edge.answer(mentions("closingIssuesReferences"), ProcessAnswer(stdout=NO_CLOSING_ISSUES))
+    gh_edge.answer(mentions("closingIssuesReferences"), ProcessAnswer(stdout=CLOSING_ISSUE))
     return gh_edge
 
 
@@ -133,7 +145,7 @@ def test_the_fallback_opens_the_draft_from_the_head_it_is_given(
     """The REST fallback posts `--head`, not the branch of the checkout that runs the command."""
     gh_edge.answer(["git", "branch", "--show-current"], ProcessAnswer(stdout="main\n"))
     answer_gh(gh_edge, "pr", "create", returncode=1, stderr="GraphQL error")
-    gh_edge.answer(mentions("closingIssuesReferences"), ProcessAnswer(stdout=NO_CLOSING_ISSUES))
+    gh_edge.answer(mentions("closingIssuesReferences"), ProcessAnswer(stdout=CLOSING_ISSUE))
     gh_edge.answer(mentions("pulls?head="), ProcessAnswer(stdout="[]"))
     gh_edge.answer(
         ["gh", "api", f"repos/{REPO}"], ProcessAnswer(stdout='{"default_branch": "main"}')

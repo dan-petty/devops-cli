@@ -43,27 +43,23 @@ The Job SHALL have the args `roadmap implement --repo <repo> --item <number> --c
 - **THEN** the container args are those args, the variable holds `example/project`, and the record of item 1 holds the Job's name and no `implement.job_state`
 
 ### Requirement: A later round reports the Job that ended
-A round SHALL read the Job of each item whose record holds `implement.job` and no `implement.job_state`. For a Job that ended (Complete or Failed), it SHALL comment on the item, with the marker of the implement job, the state and the last lines of the pod's log, decoded and masked of secrets, in a fenced block, and record `implement.job_state` as `succeeded` or `failed`. A Job that no longer exists SHALL be recorded as `gone`. A log that the API refuses SHALL not block the report.
-
-#### Scenario: A Job that succeeded
-- **WHEN** the Job of an item has the condition Complete and the item is In Review
-- **THEN** the item gets a comment with the state `succeeded`, `implement.job_state` is `succeeded`, and the Status stays In Review
+A round SHALL read the Job of each item whose record holds `implement.job` and no `implement.job_state`. It SHALL record `implement.job_state` as `succeeded` or `failed` for a Job that ended (Complete or Failed), and as `gone` for a Job that no longer exists. Its comment on the item SHALL hold the marker of the implement job, the state and the last lines of the pod's log, decoded and masked of secrets, in a fenced block. A log that the API refuses SHALL not block the report.
 
 #### Scenario: A log with a check mark and several lines
-- **WHEN** the log of the pod is the bytes of two lines, the first with a check mark and the second with a token
+- **WHEN** the log of the pod of a Job that left no result is the bytes of two lines, the first with a check mark and the second with a token
 - **THEN** the comment holds a fenced block with the two lines on two lines, the check mark as the character, the token masked, and no `b'` prefix
 
 #### Scenario: A log with a run of backticks
-- **WHEN** a line of the log holds a run of three backticks
+- **WHEN** a line of the log of a Job that left no result holds a run of three backticks
 - **THEN** the fence of the block is longer than that run
 
 #### Scenario: A log the API refuses
-- **WHEN** the API refuses to read the log of the pod of a Job that failed
+- **WHEN** the API refuses to read the log of the pod of a Job that failed and left no result
 - **THEN** the item gets the comment without a log, `implement.job_state` is `failed`, and the next round raises no error
 
 #### Scenario: A Job that is gone
 - **WHEN** the record of an item names a Job that the API does not list
-- **THEN** `implement.job_state` is `gone`
+- **THEN** `implement.job_state` is `gone`, and the item gets a comment that the Job no longer exists
 
 ### Requirement: A Job that leaves its item eligible stops the item
 When a reported Job leaves its item neither In Review nor stopped, and the record holds no `implement.result` of `ready`, `yielded` or `returned`, the round SHALL set the item Blocked and record `implement.stopped` as `job`. No Job SHALL be created for the item before a clear rule runs.
@@ -75,7 +71,7 @@ When a reported Job leaves its item neither In Review nor stopped, and the recor
 - **AND** the next round creates no Job for the item
 
 ### Requirement: A runner process cannot be read by its own shell
-Before the first step, the job in a runner SHALL clear the dumpable flag of its own process with `prctl(PR_SET_DUMPABLE, 0)`, so that no child reads `/proc/<pid>/environ` of the job. A call that the kernel refuses SHALL make `apply_implement` raise `RoadmapImplementError`, and no step SHALL run. The step of the agent SHALL get none of the variables of the job, except `UV_CACHE_DIR`, `UV_PYTHON` and `PYTEST_XDIST_AUTO_NUM_WORKERS`.
+Before the first step, the job in a runner SHALL clear the dumpable flag of its own process with `prctl(PR_SET_DUMPABLE, 0)`, so that no child reads `/proc/<pid>/environ` of the job. A call that the kernel refuses SHALL make `apply_implement` raise `RoadmapImplementError`, and no step SHALL run. The step of the agent SHALL get none of the variables of the job, except `UV_CACHE_DIR`, `UV_PYTHON`, `PYTEST_XDIST_AUTO_NUM_WORKERS`, `DEVOPS_CLI_BROKER_URL` and `DEVOPS_CLI_BROKER_TOKEN`.
 
 #### Scenario: A child reads the environment of its parent
 - **WHEN** a process sets the flag, holds a variable in its starting environment, and starts a child that opens `/proc/<parent pid>/environ`
@@ -342,3 +338,14 @@ In a runner Job, the end of each step of the agent and each stop of the job SHAL
 #### Scenario: Outside a runner Job
 - **WHEN** a step ends and `roadmap.implement.in_runner` is false
 - **THEN** no `du` command starts and the log holds no disk use line
+
+### Requirement: The round comments only on a Job that left no result
+The round SHALL comment on the item only for a Job whose runner left no result, or for a Job that is gone. A Job whose runner wrote its result, a stop included, SHALL get no comment: the comment of the runner is the report of the run, and the record holds the state and the digest of the Job.
+
+#### Scenario: A Job that succeeded
+- **WHEN** the Job of an item has the condition Complete, the item is In Review, and the record holds `implement.result` equal to `ready`
+- **THEN** the item gets no comment, `implement.job_state` is `succeeded`, and the Status stays In Review
+
+#### Scenario: A Job whose runner wrote its stop
+- **WHEN** the Job of an item has the condition Failed, and its runner set the item Blocked with `implement.stopped` and `implement.result` equal to `stopped`
+- **THEN** the item gets no comment, and `implement.job_state` is `failed`

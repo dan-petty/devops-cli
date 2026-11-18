@@ -57,6 +57,50 @@ def test_a_comment_carries_its_authors_login_and_association() -> None:
     ]
 
 
+def test_a_comment_carries_its_id_and_its_page() -> None:
+    """The stage and the implement jobs name each comment that their input held whole by its page
+    (#6167): a comment gives the id and the page that GitHub holds, and None when GitHub gives
+    neither."""
+    page = f"https://github.com/{REPO}/issues/844#issuecomment-7"
+    store, _ = recorded_store(
+        {
+            "issues/844/comments": [
+                {
+                    "id": 7,
+                    "body": "A reply",
+                    "created_at": "2026-10-02T03:26:48Z",
+                    "html_url": page,
+                },
+                {"body": "An old reply", "created_at": "2026-10-02T03:27:48Z"},
+            ]
+        }
+    )
+
+    assert [(c.id, c.url) for c in store.comments_on(844)] == [(7, page), (None, None)]
+
+
+def test_a_comment_carries_the_time_of_its_last_edit() -> None:
+    """The jobs read the plan-state comment as made at its last edit (#6197): a comment gives the
+    `updated_at` that GitHub holds, and None when GitHub gives none."""
+    store, _ = recorded_store(
+        {
+            "issues/844/comments": [
+                {
+                    "body": "A state",
+                    "created_at": "2026-10-02T03:26:48Z",
+                    "updated_at": "2026-10-03T08:00:00Z",
+                },
+                {"body": "An old reply", "created_at": "2026-10-02T03:27:48Z"},
+            ]
+        }
+    )
+
+    assert [c.updated_at for c in store.comments_on(844)] == [
+        datetime(2026, 10, 3, 8, tzinfo=UTC),
+        None,
+    ]
+
+
 def _repository_comment(
     created_at: str, login: str, association: str, *, page: str = "issues"
 ) -> dict[str, Any]:

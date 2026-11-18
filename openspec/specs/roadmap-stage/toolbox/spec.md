@@ -6,11 +6,11 @@ The read-only toolbox of a plan run: the toolset setting, each tool and its answ
 ## Requirements
 
 ### Requirement: The planner has a read-only toolbox
-The planner of the stage job SHALL plan with an agent that has the tools of the toolset `roadmap.stage.toolset`. The toolset `base` SHALL have exactly `list_files`, `read_file`, `search_code`, `git_log`, `git_show`, `file_symbols`, `callers`, `repo_map` and `read_spec`. The toolset `extended` SHALL add `references`, `read_issue` and `find_issues`. No tool SHALL write a file or run a shell command. A tool SHALL answer a bad argument as text and SHALL NOT raise.
+The planner of the stage job SHALL plan with an agent that has the tools of the toolset `roadmap.stage.toolset`. The toolset `base` SHALL have exactly `list_files`, `read_file`, `search_code`, `git_log`, `git_show`, `file_symbols`, `callers`, `repo_map`, `read_spec` and `read_comment`. The toolset `extended` SHALL add `references`, `read_issue` and `find_issues`. No tool SHALL write a file or run a shell command. A tool SHALL answer a bad argument as text and SHALL NOT raise.
 
 #### Scenario: The tool set
 - **WHEN** the toolbox is built for a checkout and a commit with the toolset `base`
-- **THEN** the names of its tools are exactly the nine above, and `search_web` is not one of them
+- **THEN** the names of its tools are exactly the ten above, and `search_web` is not one of them
 
 #### Scenario: A path outside the repository
 - **WHEN** `read_file` gets the path `../outside.txt`
@@ -78,11 +78,11 @@ The setting `roadmap.stage.toolset` SHALL be `base`, `extended` or `research`, w
 
 #### Scenario: The default
 - **WHEN** no config file and no variable sets `roadmap.stage.toolset`
-- **THEN** the toolset is `extended`, and a plan run offers twelve tools
+- **THEN** the toolset is `extended`, and a plan run offers thirteen tools
 
 #### Scenario: The base toolset
 - **WHEN** the variable `DEVOPS_CLI_ROADMAP_STAGE_TOOLSET` is `base`
-- **THEN** a plan run offers the nine tools, and none of `references`, `read_issue` and `find_issues`
+- **THEN** a plan run offers the ten tools, and none of `references`, `read_issue` and `find_issues`
 
 #### Scenario: A value that is none of the two
 - **WHEN** the variable is `wide`
@@ -90,7 +90,7 @@ The setting `roadmap.stage.toolset` SHALL be `base`, `extended` or `research`, w
 
 #### Scenario: The research toolset
 - **WHEN** the variable `DEVOPS_CLI_ROADMAP_STAGE_TOOLSET` is `research`
-- **THEN** a plan run offers thirteen tools: every tool of `extended` and `search_web`
+- **THEN** a plan run offers fourteen tools: every tool of `extended` and `search_web`
 
 ### Requirement: The tool references counts a text in every file of the commit
 `references(name)` SHALL run `git grep -n -I -F` for the text over the whole staged commit with no cap for a file. It SHALL answer the count of files and lines, and for each file its path, its exact count of lines and its first five line numbers. It SHALL answer as text for a name that is empty, longer than 100 characters, or not one line.
@@ -280,3 +280,21 @@ The description that the stage planner and the refine investigation send for eac
 #### Scenario: The model reads the symbol tool
 - **WHEN** the stage planner builds the definition of `file_symbols`
 - **THEN** its description holds `line: signature` whole and has no `<returns>` part
+
+### Requirement: The tool read_comment reads a comment of the item whole
+`read_comment(number, start_line)` SHALL answer the whole text of comment `number` of the item in hand from line `start_line`, with its author, its time and its page. A line longer than `CONST_ROADMAP_COMMENT_LINE_CHARS` characters SHALL come as more numbered lines. An answer longer than the cap of a tool answer SHALL end with the call that reads the next page, so no text is lost. The tool SHALL read the comments that the job read for the item, and SHALL reach no host.
+
+#### Scenario: A long comment
+- **WHEN** `read_comment` reads a comment of 300 long lines
+- **THEN** the first answer holds line 1 and names the call for the next line, and that call answers the next line
+
+### Requirement: The tool read_comment lists the comments of the item
+`read_comment` with no number SHALL list every comment of the item with its number, author, time and first line. A number that the item does not hold SHALL get an answer that names the numbers of its comments.
+
+#### Scenario: The list of the comments
+- **WHEN** `read_comment` gets no number for an item with two comments
+- **THEN** the answer lists both, each with its number and its author
+
+#### Scenario: A number that the item does not hold
+- **WHEN** `read_comment` gets 4 for an item with one comment
+- **THEN** the answer says that the item has no comment 4

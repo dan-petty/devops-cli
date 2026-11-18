@@ -398,14 +398,19 @@ def test_body_with_marks_an_alternatives_plan_lists_one_patch_for_the_block_and_
 
 def test_an_alternatives_plan_lists_the_comment_for_a_first_or_changed_check() -> None:
     """The write of a check is planned for every check. The comment is planned with the condition
-    that the check is a first one, or that its verdict or its tool differs from the record
-    (#4054). A dry run makes no request, so the plan cannot know which case an item is."""
+    that the item is no skip class (#6195) and that the check is a first one, or that its verdict
+    or its tool differs from the record (#4054). A dry run makes no request, so the plan cannot
+    know which case an item is."""
     from devops_cli.roadmap.request_plan import alternatives_requests
 
     _, writes = alternatives_requests(REPO, item=7)
     texts = MESSAGES.roadmap
 
-    changed = f"{texts.plan_conditions['check_on']} and {texts.plan_conditions['check_changed']}"
+    conditions = texts.plan_conditions
+    changed = (
+        f"{conditions['check_on']} and {conditions['item_not_skip_class']} and "
+        f"{conditions['check_changed']}"
+    )
     read, comment = writes[-2:]
     assert (_shape(comment), comment.condition, read.condition) == (
         "api -X POST",
@@ -628,6 +633,37 @@ def test_the_implement_plan_names_the_comment_endpoint_and_the_lease_that_the_jo
     )
 
 
+def test_the_implement_plan_comments_a_stop_on_the_item_before_it_links_it_on_the_pull() -> None:
+    """A stop posts its comment on the item first, so the comment of the run on the pull request
+    can link it, and then sets the Status. A finished run sets the Status, then comments (#6194)."""
+    from devops_cli.roadmap.request_plan import implement_requests
+
+    _, writes = implement_requests(REPO)
+
+    cond = MESSAGES.roadmap.implement_request_conditions
+
+    def order(condition: str) -> list[str]:
+        """The writes of the end that hold `condition`: the item comment, the pull comment and
+        the Status, in the order of the plan."""
+        names = []
+        for request in writes:
+            text = " ".join(request.argv)
+            if condition not in request.condition:
+                continue
+            if "-X POST" in text and "issues/<item>/comments" in text:
+                names.append("item comment")
+            elif "issues/<pull request>/comments" in text:
+                names.append("pull comment")
+            elif "-X PATCH" in text and "issues/<item>" in text:
+                names.append("status")
+        return names
+
+    assert (order(cond["stop"]), order(cond["ready"])) == (
+        ["item comment", "pull comment", "status"],
+        ["status", "item comment"],
+    )
+
+
 def test_the_implement_plan_with_no_rebase_omits_the_rebase_request() -> None:
     from devops_cli.roadmap.request_plan import implement_requests
 
@@ -846,3 +882,37 @@ def test_the_stage_plan_lists_the_reads_and_the_writes_of_a_rejected_plan() -> N
     ]
     of_a_rejection = [w for w in writes if w.repeat == texts.plan_repeat["stage_rejected"]]
     assert len(of_a_rejection) == 5
+
+
+def _comment_methods(writes: tuple[PlannedRequest, ...]) -> list[tuple[str, str]]:
+    """The method and the condition of each comment write of `writes`, in order."""
+    return [
+        (w.argv[3], w.condition)
+        for w in writes
+        if w.argv[:3] == ("gh", "api", "-X") and "comments" in w.argv[4]
+    ]
+
+
+@pytest.mark.parametrize("job", ["stage", "fix_plan"])
+def test_the_plan_edits_the_plan_state_comment_then_posts_the_comment_of_the_run(job: str) -> None:
+    """The stage job and the step fix-plan edit the plan-state comment of the pull request when a
+    comment of the item holds its key, else post it, and then post the comment of the run
+    (#6197)."""
+    from devops_cli.roadmap.request_plan import fix_plan_requests, stage_requests
+
+    plan = stage_requests if job == "stage" else fix_plan_requests
+    _, writes = plan(REPO)
+
+    texts = MESSAGES.roadmap
+    conditions = (
+        texts.stage_request_conditions if job == "stage" else texts.fix_plan_request_conditions
+    )
+    edit, state, event = _comment_methods(writes)[-3:]
+    assert (
+        edit[0],
+        conditions["state_edit"] in edit[1],
+        state[0],
+        conditions["state_new"] in state[1],
+        event[0],
+        conditions["state_new"] in event[1],
+    ) == ("PATCH", True, "POST", True, "POST", False)

@@ -293,6 +293,21 @@ class StoreRequests:
         read = within(self.comments_on(subject), conditions["job_comment"])
         return [*read, *within(post, conditions["no_repeat"])]
 
+    def edit_comment(self, subject: str) -> Requests:
+        """One `PATCH` that writes the new text of a comment on the issue, by its id (#6197)."""
+        args = gh.comment_edit_args(self.repo, _p("comment_id"), _p("comment"))
+        return [self.gh(args, "edit_comment", subject=subject)]
+
+    def upsert_comment(self, subject: str, *, edit: str, new: str) -> Requests:
+        """The marked-comment upsert of `steps/comment.py` (#6197): the comments of the issue,
+        then the edit of the comment that holds the key when `edit` holds, else the comment, which
+        reads the comments again for its repeat guard, when `new` holds."""
+        return [
+            *self.comments_on(subject),
+            *within(self.edit_comment(subject), edit),
+            *within(self.comment(subject), new),
+        ]
+
     def close(self, subject: str, reason: CloseReason, *, comment: bool) -> Requests:
         """The issue, which a close refuses when it is no open issue, then its comment when one
         is given, then one `PATCH` that closes it for `reason` (#1658)."""
@@ -571,7 +586,9 @@ def alternatives_requests(
     writes = within(
         [
             *store.set_marks(subject),
-            *within(store.comment(subject), cond["check_changed"]),
+            *within(
+                store.comment(subject), both(cond["item_not_skip_class"], cond["check_changed"])
+            ),
         ],
         cond["check_on"],
         each_item,
@@ -708,9 +725,11 @@ def stage_requests(
     item asks the model, and validates the change. The model is asked again only when a task group
     is over the budget, a path of the plan is no file, or the change fails its checks. Each run
     then fetches the staged branch of each closed item. The writes are the worktree, which starts
-    at the staged commit, the commit and the push of each item, the draft pull request, the record and the comment, and the removal of
-    the draft and the branch of a closed item. `limit` and `item` change no request: they change
-    how many items the run repeats them for."""
+    at the staged commit, the commit and the push of each item, the draft pull request, the
+    record, the plan-state comment of the draft (an edit of the comment that holds its key, else a
+    new comment) and the comment of the run (#6197), and the removal of the draft and the branch of
+    a closed item. `limit` and `item` change no request: they change how many items the run
+    repeats them for."""
     del limit
     store = StoreRequests(repo)
     texts = MESSAGES.roadmap
@@ -786,6 +805,8 @@ def stage_requests(
         git("fetch_branch", clone, "fetch", "-q", "origin", branch, repeat=each_closed),
         *within(store.open_pulls(), cond["orphan_pulls"]),
         *within(store.comments_on(_p("item")), cond["rejected_reason"], repeat=each_item),
+        # The comments of the item for the plan request and `read_comment` (#6167).
+        *within(store.comments_on(_p("item")), repeat=each_item),
         PlannedRequest("model", req["model_change"], repeat=each_item),
         PlannedRequest(
             "model", req["model_split"], condition=cond["model_split"], repeat=each_item
@@ -858,6 +879,11 @@ def stage_requests(
             repeat=each_item,
         ),
         *within(store.set_marks(_p("item")), repeat=each_item),
+        # The plan-state comment of the draft, then the comment of the run (#6197).
+        *within(
+            store.upsert_comment(_p("item"), edit=cond["state_edit"], new=cond["state_new"]),
+            repeat=each_item,
+        ),
         *within(store.comment(_p("item")), repeat=each_item),
     ]
     return tuple(reads), tuple(writes)
@@ -871,12 +897,14 @@ def fix_plan_requests(
     until one qualifies. With `--confirm`, the attempt fetches the default branch and the branch of
     the plan, checks the head and its authors, and reads the change folder at the head before the
     attempt marks. A plan that the reader refuses gets only `fix_plan.at` and `fix_plan.result`.
-    Else the attempt moves the clone to the default branch, reads the open findings of the last
-    plan comment of the item, reads the open plans on the default branch when the premise cites a
+    Else the attempt moves the clone to the default branch, reads the open findings and the advice
+    of the plan-state comment of the pull request (of the last legacy plan comment for an older
+    pull request, #6197), reads the open plans on the default branch when the premise cites a
     missing path, and calls the review and the planner. The writes are the attempt marks, the
     marks of a kill of the attempt (#5413), the commit on the default branch, its push with a
-    lease, the title and the body of the pull request, the label, the comment and the result
-    marks. `item` changes no request: it names the one item to judge."""
+    lease, the title and the body of the pull request, the label, the plan-state comment (an edit
+    or a new comment, #6197), the comment of the attempt and the result marks. `item` changes no
+    request: it names the one item to judge."""
     del item
     store = StoreRequests(repo)
     texts = MESSAGES.roadmap
@@ -958,6 +986,11 @@ def fix_plan_requests(
             condition=cond["update_pull"],
         ),
         *within(store.unlabel_issue(_p("pull")), cond["unlabel"]),
+        # The plan-state comment of the pull request, then the comment of the attempt (#6197).
+        *within(
+            store.upsert_comment(_p("item"), edit=cond["state_edit"], new=cond["state_new"]),
+            cond["comment"],
+        ),
         *within(store.comment(_p("item")), cond["comment"]),
         *within(store.set_marks(_p("item")), cond["marks"]),
     ]
@@ -1077,6 +1110,20 @@ def implement_requests(
         *within(store.write_status(target), repeat=each_item),
         *within(store.set_marks(target), cond["clear_stop"], repeat=each_item),
         *([git("rebase", tree, "rebase", "origin/main")] if rebase else []),
+        # The comments of the item and the time at which its plan merged, for the inputs of each
+        # step (#6167).
+        *within(store.comments_on(target), repeat=each_item),
+        git(
+            "plan_time",
+            tree,
+            "log",
+            "-1",
+            "--diff-filter=A",
+            "--format=%aI",
+            "HEAD",
+            "--",
+            f"openspec/changes/{_p('change')}/tasks.md",
+        ),
         other("model", "model_step", "model", repeat=each_group),
         other("model", "model_split", "model", when=cond["split"], repeat=each_item),
         git("commit", tree, "commit", "-m", _p("title"), repeat=each_group),
@@ -1119,8 +1166,18 @@ def implement_requests(
         other("process", "run_log", "gh", "run", "view", "--log-failed", when=cond["run_log"]),
         other("model", "model_fix", "model", when=cond["model_fix"]),
         other("process", "ready", "gh", "pr", "ready", _p("pull"), when=cond["ready"]),
-        *within(store.write_status(target), repeat=each_item),
-        *within(store.comment(target), repeat=each_item),
+        *within(store.write_status(target), cond["ready"], repeat=each_item),
+        *within(store.comment(target), cond["ready"], repeat=each_item),
+        # A stop comments on the item first, so the comment of the run can link it (#6194).
+        *within(store.comment(target), cond["stop"], repeat=each_item),
+        other(
+            "REST write",
+            "pull_comment_stopped",
+            "POST",
+            f"{issues}/{_p('pull')}/comments",
+            when=cond["stop"],
+        ),
+        *within(store.write_status(target), cond["stop"], repeat=each_item),
         git("remove_worktree", clone, "worktree", "remove", "--force", tree),
     ]
     return tuple(reads), tuple(writes)

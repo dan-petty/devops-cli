@@ -445,6 +445,7 @@ def test_upserts_marked_comment(store: InMemoryRoadmapStore, github_api: GitHubA
 
     pr_num = store.seed_pull(TITLE, head_ref=BRANCH, labels=("type/refactor", "scope/roadmap"))
     existing = _existing_pr_payload(number=pr_num)
+    github_api.route("GET", "/user", github_json({"login": "octocat"}))
     github_api.route(
         "GET",
         f"/repos/{REPO}/pulls?head=example:{BRANCH}&state=open",
@@ -455,7 +456,7 @@ def test_upserts_marked_comment(store: InMemoryRoadmapStore, github_api: GitHubA
     github_api.route(
         "GET",
         f"/repos/{REPO}/issues/{pr_num}/comments?per_page=100",
-        github_json([{"id": 999, "body": f"{marker}\nold content"}]),
+        github_json([{"id": 999, "body": f"{marker}\nold content", "user": {"login": "octocat"}}]),
     )
     github_api.route(
         "PATCH",

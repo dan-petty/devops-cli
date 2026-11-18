@@ -126,6 +126,10 @@ class ReviewMessages:
     )
     total_findings_count: str = "[bold]Total Findings:[/bold]  {count}\n"
     review_posted_pr: str = "Review posted as comment on PR #{number}"
+    review_updated_pr: str = "Updated the review comment of head {head} on PR #{number}"
+    review_unchanged_pr: str = (
+        "The review comment of head {head} on PR #{number} already holds this review"
+    )
     no_findings_session: str = "No findings.json in session {name}"
     session_not_found: str = "Session not found matching: {session}"
     no_findings_to_export: str = (
@@ -1614,6 +1618,10 @@ class PRMessages:
     status_not_set: str = (
         "Pull request #{number} is {state}, but the Status of its item was not set: {error}"
     )
+    status_no_closing_issue: str = (
+        "Pull request #{number} is open, but GitHub linked no closing issue, so the Status of its "
+        "item was not set."
+    )
     labels_not_set: str = (
         "Pull request #{number} is open, but the labels of its title were not added: {error} "
         "To add a label by hand, run: devops gh api -X POST repos/{repo}/issues/{number}/labels "
@@ -2220,6 +2228,11 @@ class CIMessages:
     audit_not_run: str = (
         "Dependency audit could not run ({tool} audit exited {code}); {tool}'s error is above."
     )
+    audit_ignored: str = "Ignored {advisory} in {path} until {expired_at}: {statement}"
+    audit_ignore_expired: str = (
+        "The ignore of {advisory} in {path} expired on {expired_at}. Bump the package if a release"
+        " fixes it, else renew the entry (SECURITY.md, A Finding with No Fix)."
+    )
     docs_validation: str = "docs validation"
     devcontainer_validation: str = "devcontainer validation"
     openspec_validation: str = "openspec validation"
@@ -2293,8 +2306,8 @@ class CIMessages:
         "Would read the time of {job} in the last runs of {workflow} on {branch}"
     )
     job_time_issue_filed: str = "Filed the P0 issue https://github.com/{repo}/issues/{number}."
-    job_time_issue_commented: str = (
-        "Commented on the open P0 issue https://github.com/{repo}/issues/{number}."
+    job_time_issue_updated: str = (
+        "Wrote the report into the open P0 issue https://github.com/{repo}/issues/{number}."
     )
     durations_written: str = (
         "Wrote the mean seconds of {modules} test modules from {runs} runs to {path}."
@@ -2354,6 +2367,11 @@ class CIMessages:
         "{failed} failed on base ({failed} failed and {passed} passed in {files}; "
         "{errored} errored)."
     )
+    fail_to_pass_no_source: str = (
+        "The fix changes no source code (a .py file under src/ outside the knowledge base) and no "
+        "module of tests/gate/*_checks/, so it needs no test that fails on its base. A validator "
+        "or a check command proves a change of a prompt, a pin, a manifest or other data."
+    )
     fail_to_pass_no_tests: str = (
         "The fix changes no tests/**/test_*.py file and no module of tests/gate/*_checks/. A fix "
         "adds or changes a test or a gate check that fails on its base."
@@ -2375,6 +2393,18 @@ class CIMessages:
     fail_to_pass_repaired: str = "The head repairs {tests}."
     fail_to_pass_head_could_not_run: str = (
         "The fail-to-pass replay could not run on the head: pytest exited with status {status}."
+    )
+    fail_to_pass_head_timeout: str = (
+        "The fail-to-pass replay could not run on the head: pytest stopped after {seconds} "
+        "seconds replaying {files}."
+    )
+    fail_to_pass_replay_timeout: str = (
+        "The fail-to-pass replay could not run on base: pytest stopped after {seconds} seconds "
+        "replaying {files}. The process runner limit is {seconds} seconds; rerun on a host that "
+        "is less busy."
+    )
+    fail_to_pass_gate_timeout: str = (
+        "The gate row {row} could not run on {tree}: pytest stopped after {seconds} seconds."
     )
     fail_to_pass_could_not_run: str = (
         "The fail-to-pass replay could not run on base: pytest exited with status {status} "
@@ -3218,13 +3248,15 @@ class RoadmapMessages:
     alternatives_no_release: str = "none"
     alternatives_yes: str = "yes"
     alternatives_no: str = "no"
-    # The comment and the body block the check writes.
-    alternatives_comment_heading: str = "## Alternatives check: {verdict}"
-    alternatives_comment_no_tool: str = "Tool: none found"
-    # The one line of the comment of a skip class (#6168).
-    alternatives_comment_skipped: str = (
-        "Alternatives check: {verdict} ({skip_class} item; no search)."
+    # The body block holds the result of the check. The comment is the event of a change of the
+    # result: the line that names the result before the check, and the folded evidence (#6195).
+    alternatives_comment_changed: str = (
+        "The result in the alternatives block of the issue body changed. Before this check: "
+        "{before}. A person decides what the new result means for the item."
     )
+    alternatives_comment_before_none: str = "no check"
+    alternatives_comment_before_tool: str = "`{verdict}`, tool {tool}"
+    alternatives_comment_before_no_tool: str = "`{verdict}`, no tool"
     # The line that says why the job, not the model, gave the verdict `rejected` or `in-use`
     # (#3505). The ADR number has four digits, as in the file name.
     alternatives_basis_rejected: str = (
@@ -3232,9 +3264,6 @@ class RoadmapMessages:
     )
     alternatives_basis_in_use: str = "The item already names this tool."
     alternatives_basis_in_repository: str = "The repository already uses this tool."
-    alternatives_comment_covers: str = "Covers:"
-    alternatives_comment_lacks: str = "Lacks:"
-    alternatives_comment_reason: str = "Reason: {reason}"
     alternatives_comment_considered: str = "Tools considered:"
     alternatives_comment_considered_tool: str = (
         "{name} ({url}), license {license}, last activity {date}"
@@ -3246,15 +3275,15 @@ class RoadmapMessages:
     # The block that GitHub shows closed: the tools considered, the searches and the sources.
     alternatives_comment_fold_open: str = "<details><summary>Searches ({count})</summary>"
     alternatives_comment_fold_close: str = "</details>"
-    alternatives_comment_footer: str = (
-        "A person decides what this check of {date} means for the item."
-    )
     alternatives_block_verdict: str = "Alternatives check of {date}: {verdict}."
     alternatives_block_tool: str = (
         "Tool: {name} ({url}), {license}, last activity {date}, {maintained}."
     )
     alternatives_block_no_tool: str = "Tool: none found."
     alternatives_block_skip_class: str = "Class: {skip_class}, no search."
+    alternatives_block_reason: str = "Reason: {reason}"
+    alternatives_block_covers: str = "Covers:"
+    alternatives_block_lacks: str = "Lacks:"
     alternatives_maintained: str = "maintained"
     alternatives_not_maintained: str = "not maintained"
     # `devops roadmap implement` (#2664): the refusals of a step, and why a step stops.
@@ -3979,6 +4008,11 @@ class RoadmapMessages:
     implement_pull_labels_failed: str = "Labels not updated: {error}"
     implement_pull_comment: str = "{marker}\n{run}\nThe steps of the job:\n\n{lines}"
     implement_pull_comment_run: str = "<!-- devops roadmap implement run: {run} -->"
+    # The line of the comment of a stopped run on the pull request: the stop comment on the issue
+    # holds the stop report, once (#6194).
+    implement_pull_comment_stopped: str = (
+        "Stopped at {step}. The stop report is on #{issue}: {url}."
+    )
     implement_watch_progress: str = (
         "The checks of pull request #{pull} still run after {seconds} s."
     )
@@ -4073,6 +4107,8 @@ class RoadmapMessages:
     implement_pull_comment_skipped: str = (
         "- step {step}: skipped, because the default branch does not declare it in {file}"
     )
+    # The comments of the item that the inputs of the steps held whole (#6167).
+    implement_pull_comments_used: str = "- comments of the item in the step inputs: {names}"
     roadmap_toml_invalid: str = "{file} on the default branch is not valid: {reason}"
     implement_scoped_tests_uncovered: str = "not run, because no test covers the changed files"
     implement_strength_no_source: str = (
@@ -4384,11 +4420,23 @@ class RoadmapMessages:
         "replaces the one of its draft pull request."
     )
     git_failed: str = "`git {command}` failed: {reason}"
-    # The comments of the stage job; each starts with its marker.
-    stage_comment_staged: str = (
-        "{marker}\nStaged: branch `{branch}`, draft pull request #{pull}. The pull request "
-        "plans the item and closes no issue.\n\nThe task groups, with the tokens of the inputs "
-        "of each step, for a budget of {budget} tokens:\n\n{groups}{notes}"
+    # The comments of the stage job; each starts with its marker. The plan-state comment of a plan
+    # pull request (#6197): its hidden key line, the branch and the pull request, then the task
+    # groups and the findings. The stage job and the step fix-plan edit it in place.
+    plan_state_comment: str = (
+        "{marker}\n{key}\nPlan state: branch `{branch}`, draft pull request #{pull}. The pull "
+        "request plans the item and closes no issue. The stage job and the step fix-plan edit "
+        "this comment, and a comment of each run tells what the run did.{groups}"
+    )
+    plan_state_groups: str = (
+        "\n\nThe task groups, with the tokens of the inputs of each step, for a budget of "
+        "{budget} tokens:\n\n{groups}"
+    )
+    # The comment of one stage or restage run (#6197): the facts of that run only, after its
+    # hidden event line. The plan-state comment holds the branch, the groups and the findings.
+    stage_comment_event: str = (
+        "{marker}\n{key}\nThe stage job staged the plan of draft pull request #{pull}. The plan "
+        "state comment of #{pull} holds the branch, the task groups and the findings.{notes}"
     )
     # The draft pull request whose plan the job replaced on the branch of the item (#3387).
     stage_comment_restaged: str = (
@@ -4407,6 +4455,10 @@ class RoadmapMessages:
     stage_comment_overlaps: str = (
         "\n\nThe stage job read the open pull requests and their files in {requests} GraphQL "
         "request(s)."
+    )
+    # The comments of the item that the first plan request held whole (#6167).
+    stage_comment_item_comments: str = (
+        "\n\nThe plan request held these comments of the item whole: {names}."
     )
     # The report of the runs of the toolbox for this plan, the planner and the review (#3037,
     # #3039), after the task groups.
@@ -4674,7 +4726,17 @@ class RoadmapMessages:
     fix_plan_comment_revised: str = (
         "{marker}\nThe step fix-plan pushed a revision of the plan of #{pull} ({head}). The model "
         "review found {before} open finding(s) in the plan before the repair and {after} after "
-        "it, so the pull request keeps the label `verdict/fix-plan`.{findings}"
+        "it, so the pull request keeps the label `verdict/fix-plan`."
+    )
+    # The sentence of the comment of an attempt whose plan keeps an open finding (#6197): the
+    # plan-state comment lists the findings, and this comment lists none.
+    fix_plan_comment_state: str = (
+        " The plan state comment of #{pull} lists the open findings that keep the label."
+    )
+    # The sentence of the comment of an attempt whose reviews gave advice (#6197): the plan-state
+    # comment lists the advice, and this comment lists none.
+    fix_plan_comment_advice: str = (
+        " The plan state comment of #{pull} lists the advice of the reviews of this attempt."
     )
     fix_plan_comment_cleared: str = (
         "{marker}\nThe step fix-plan pushed a revision of the plan of #{pull} ({head}). The model "
@@ -4684,7 +4746,7 @@ class RoadmapMessages:
     fix_plan_comment_regated: str = (
         "{marker}\nThe step fix-plan pushed a new plan of #{pull} ({head}). The checks refused "
         "the plan of the old head at the latest default branch, and the stage planner wrote a "
-        "plan that they pass. {why}{findings}"
+        "plan that they pass. {why}"
     )
     fix_plan_regated_clean: str = (
         "The model review found no open finding in the new plan, so the pull request loses the "
@@ -4710,13 +4772,13 @@ class RoadmapMessages:
     fix_plan_comment_stopped: str = (
         "{marker}\nThe step fix-plan stopped before the review of the plan of #{pull} ({head}). "
         "The pull request keeps the label `verdict/fix-plan`, and the step does not return the item "
-        "to New: a person decides. {evidence}{findings}"
+        "to New: a person decides. {evidence}"
     )
     fix_plan_comment_timeout: str = (
         "{marker}\nThe time budget of the step fix-plan ({budget} seconds, "
         "`roadmap.fix_plan.time_budget_seconds`) ended in the step `{step}` of the attempt on "
         "the plan of #{pull} ({head}). The step pushed nothing, and the pull request keeps the label "
-        "`verdict/fix-plan`. The attempt made {counts}.{findings}"
+        "`verdict/fix-plan`. The attempt made {counts}."
     )
     fix_plan_stop_premise: str = (
         "The body of the item says that a class field is absent, and the default branch defines "
@@ -4734,7 +4796,7 @@ class RoadmapMessages:
     fix_plan_requests: dict[str, str] = field(
         default_factory=lambda: {
             "pull_state": "the state, the labels and the head of the plan pull request of the item",
-            "comments": "the comments of the item, to read the open findings of the last plan comment",
+            "comments": "the comments of the item, to read the open findings, the advice and the groups of the plan state comment of the pull request, or of the last legacy plan comment of an older pull request",
             "fetch": "fetch the default branch and the branch of the plan",
             "tip": "the head of the branch of the plan on origin",
             "identity": "the identity of the clone, to find a commit of another author",
@@ -4770,6 +4832,8 @@ class RoadmapMessages:
             "update_pull": "the title or the body of the pushed plan differs",
             "unlabel": "cleared (no open finding remains), dismissed (the review of the head found none), or regated after a review of the new plan with no open finding and no failed step",
             "comment": "the result is revised, cleared, regated, dismissed, stopped or timeout",
+            "state_edit": "a comment of the item holds the plan state key of the pull request: the step edits its open findings and its advice",
+            "state_new": "no comment of the item holds that key: the step posts the plan state comment",
         }
     )
     jev_completeness_question_plan: str = (
@@ -4883,6 +4947,8 @@ class RoadmapMessages:
             "rejected_comments": "the pull request closed with no merge",
             "rejected_path": "the item holds a rejected plan whose text did not change",
             "rejected_reason": "the item holds a rejected plan and the round selects it",
+            "state_edit": "a comment of the item holds the plan state key of the pull request: the job edits it",
+            "state_new": "no comment of the item holds that key: the job posts the plan state comment",
             "delete_rejected": (
                 "the pull request closed with no merge and only the identity of the session "
                 "wrote to the branch"
@@ -4903,6 +4969,8 @@ class RoadmapMessages:
             "worktree": "the worktree on the staged branch, which the job takes over",
             "worktree_new": "the worktree on a new branch at the fetched default branch",
             "rebase": "rebase the staged branch onto the fetched default branch",
+            "plan_time": "the time at which the plan of the change merged, for the comments of "
+            "the step inputs",
             "model_step": "the implement model runs one task group",
             "model_split": "the stage model splits a group that is over the limit of the step",
             "commit": "commit the files of the task group",
@@ -4914,6 +4982,8 @@ class RoadmapMessages:
             "create_pull": "open the draft pull request of the new branch",
             "body": "set the title and the body of the pull request to close the issue",
             "pull_comment": "comment the outcome of each step on the pull request",
+            "pull_comment_stopped": "link the stop comment on the item from the comment of the "
+            "run on the pull request",
             "run_log": "read the log of the failed check",
             "model_fix": "the implement model fixes the failed check, once",
             "watch": "read the pull request and its checks until they settle",
@@ -5161,6 +5231,19 @@ class RoadmapMessages:
         "The plan names `{name}` in the {section} and gives no code span that holds text of the "
         "class at the staged commit. Add a code span with a line of `{name}`, or name no class."
     )
+    # A design claim about a member of a class under `src/` names a member that the class body
+    # defines (#3458).
+    stage_problem_class_member: str = (
+        "The plan names `{name}.{member}` in the {section}, and the class `{name}` at the staged "
+        "commit defines no `{member}` member. Name a member that the class defines, or name no "
+        "member."
+    )
+    # A design claim that names a module under `src/` quotes a statement of that module (#3458).
+    stage_problem_module_quote: str = (
+        "The plan names `{path}` in the {section} and gives no code span that holds a statement "
+        "of that module at the staged commit. Add a code span with a line of `{path}`, or name no "
+        "module."
+    )
     stage_problem_verify: str = (
         "Group {group} gives the `verify` command `{command}`. A `verify` command starts with "
         "`uv run devops`, such as `uv run devops ci test tests/roadmap/test_feature.py`, or is a "
@@ -5382,9 +5465,11 @@ class RoadmapMessages:
         "Its test is its check, so set process to null."
     )
     stage_kind_no_source: str = (
-        "The group '{title}' has the kind behavior, and it changes no path under src/. "
-        "Use the kind manifest for a group that changes only a rule, a dashboard or a case file, "
-        "and the kind other for a group with no test. Or add the path of the code that it changes."
+        "The group '{title}' has the kind behavior, and it changes no path under src/ that is "
+        "code: a .py file outside the knowledge base. A prompt, a pin, a template or other data "
+        "under src/ is no code. Use the kind manifest for a group that changes only a rule, a "
+        "dashboard or a case file, and the kind other for a group with no test. Or add the path of "
+        "the code that it changes."
     )
     stage_kind_other_test: str = (
         "The group '{title}' has the kind other, and it has a test. "
@@ -5743,6 +5828,7 @@ class RoadmapMessages:
             "labels": "<the labels, the field's family replaced>",
             "record": "<the body, its job record block written>",
             "comment": "<comment>",
+            "comment_id": "<comment id>",
             "title": "<title>",
             "body": "<body>",
             "label": "<label>",
@@ -5814,6 +5900,7 @@ class RoadmapMessages:
             ),
             "body": "the body of {subject}, its job record kept",
             "comment": "comment on {subject}",
+            "edit_comment": "edit the comment of {subject} that holds the key",
             "label": "label {subject}",
             "unlabel": "unlabel {subject}",
             "add_sub_issue": "add {subject} as a sub-issue of {parent}",
@@ -5847,6 +5934,7 @@ class RoadmapMessages:
             "repeat_refused": "the store refuses the comment of refine as a repeat",
             "job_drafts": "the pull request is an open draft of a job",
             "check_on": "the repository is public and a search provider is configured",
+            "item_not_skip_class": "the item is no skip class",
             "check_changed": (
                 "the check is the first one of the item, or its verdict or its tool differs "
                 "from the record of the earlier check"

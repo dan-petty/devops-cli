@@ -9,7 +9,7 @@
     ],
     "returncode": 0,
     "stderr": "",
-    "stdout": "Task status: \u2713 Complete\n\nSpecs to update:\n  widget-export: create\nApplying changes to openspec/specs/widget-export/spec.md:\n  + 1 added\nTotals: + 1, ~ 0, - 0, \u2192 0\nSpecs updated successfully.\nChange '1930-export-widgets' archived as '2026-11-12-1930-export-widgets'.\n"
+    "stdout": "Task status: \u2713 Complete\n\nSpecs to update:\n  widget-export: create\nApplying changes to openspec/specs/widget-export/spec.md:\n  + 1 added\nTotals: + 1, ~ 0, - 0, \u2192 0\nSpecs updated successfully.\nChange '1930-export-widgets' archived as '2026-11-17-1930-export-widgets'.\n"
    },
    {
     "argv": [
@@ -43,7 +43,7 @@
     ],
     "returncode": 0,
     "stderr": "",
-    "stdout": "Task status: \u2713 Complete\n\nSpecs to update:\n  widget-export: create\nApplying changes to openspec/specs/widget-export/spec.md:\n  + 1 added\nTotals: + 1, ~ 0, - 0, \u2192 0\nSpecs updated successfully.\nChange '1932-export-widgets' archived as '2026-11-12-1932-export-widgets'.\n"
+    "stdout": "Task status: \u2713 Complete\n\nSpecs to update:\n  widget-export: create\nApplying changes to openspec/specs/widget-export/spec.md:\n  + 1 added\nTotals: + 1, ~ 0, - 0, \u2192 0\nSpecs updated successfully.\nChange '1932-export-widgets' archived as '2026-11-17-1932-export-widgets'.\n"
    },
    {
     "argv": [
@@ -155,17 +155,6 @@
     "argv": [
      "config",
      "set",
-     "delivery",
-     "skills"
-    ],
-    "returncode": 0,
-    "stderr": "",
-    "stdout": "Set delivery = \"skills\"\n"
-   },
-   {
-    "argv": [
-     "config",
-     "set",
      "profile",
      "custom"
     ],
@@ -183,6 +172,14 @@
     "returncode": 0,
     "stderr": "",
     "stdout": "Set workflows = propose,explore,apply,update\n"
+   },
+   {
+    "argv": [
+     "--version"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "2.1.0\n"
    },
    {
     "argv": [
@@ -219,7 +216,7 @@
     ],
     "returncode": 0,
     "stderr": "- Updating Claude Code...\n\u2714 Updated Claude Code\n- Updating Kilo Code...\n\u2714 Updated Kilo Code\n- Updating Other / Universal (shared .agents skills)...\n\u2714 Updated Other / Universal (shared .agents skills)\n",
-    "stdout": "Force updating 3 tool(s): claude, kilocode, agents\n\n\n\u2713 Updated: Claude Code, Kilo Code, Other / Universal (shared .agents skills) (v1.17.0)\nNote: Your custom profile is missing 2 core workflows: sync, archive\nRun `openspec config profile` to add them, or `openspec config profile core` to use the core set.\nTools: Claude Code, Kilo Code, Other / Universal (shared .agents skills)\n\nRestart your IDE to refresh skills.\n"
+    "stdout": "Force updating 3 tool(s): claude, kilocode, agents\n\n\n\u2713 Updated: Claude Code, Kilo Code, Other / Universal (shared .agents skills) (v2.1.0)\nNote: Your custom profile is missing 2 core workflows: sync, archive\nRun `openspec config profile` to add them, or `openspec config profile core` to use the core set.\nTools: Claude Code, Kilo Code, Other / Universal (shared .agents skills)\n\nRestart your IDE to refresh skills.\n"
    },
    {
     "argv": [
@@ -300,7 +297,7 @@
     ],
     "returncode": 0,
     "stderr": "",
-    "stdout": "{\n  \"changes\": [\n    {\n      \"name\": \"1902-export-json\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-11-12T13:29:38.245Z\",\n      \"status\": \"in-progress\"\n    },\n    {\n      \"name\": \"1901-export-widgets\",\n      \"completedTasks\": 1,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-11-12T13:29:38.242Z\",\n      \"status\": \"complete\"\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+    "stdout": "{\n  \"changes\": [\n    {\n      \"name\": \"1902-export-json\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-11-17T18:58:06.852Z\",\n      \"status\": \"in-progress\"\n    },\n    {\n      \"name\": \"1901-export-widgets\",\n      \"completedTasks\": 1,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-11-17T18:58:06.851Z\",\n      \"status\": \"complete\"\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
    },
    {
     "argv": [
@@ -343,7 +340,7 @@
     ],
     "returncode": 0,
     "stderr": "",
-    "stdout": "{\n  \"changes\": [\n    {\n      \"name\": \"1916-export-yaml\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-11-12T13:29:44.678Z\",\n      \"status\": \"in-progress\"\n    },\n    {\n      \"name\": \"1915-export-json\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-11-12T13:29:44.675Z\",\n      \"status\": \"in-progress\"\n    },\n    {\n      \"name\": \"1914-export-widgets\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-11-12T13:29:44.671Z\",\n      \"status\": \"in-progress\"\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+    "stdout": "{\n  \"changes\": [\n    {\n      \"name\": \"1916-export-yaml\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-11-17T18:58:09.990Z\",\n      \"status\": \"in-progress\"\n    },\n    {\n      \"name\": \"1915-export-json\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-11-17T18:58:09.989Z\",\n      \"status\": \"in-progress\"\n    },\n    {\n      \"name\": \"1914-export-widgets\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-11-17T18:58:09.988Z\",\n      \"status\": \"in-progress\"\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
    },
    {
     "argv": [
@@ -397,7 +394,7 @@
     ],
     "returncode": 0,
     "stderr": "",
-    "stdout": "{\n  \"changes\": [\n    {\n      \"name\": \"1923-dump-widgets\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-11-12T13:29:58.438Z\",\n      \"status\": \"in-progress\"\n    },\n    {\n      \"name\": \"1922-export-json\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-11-12T13:29:58.437Z\",\n      \"status\": \"in-progress\"\n    },\n    {\n      \"name\": \"1921-export-widgets\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-11-12T13:29:58.435Z\",\n      \"status\": \"in-progress\"\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+    "stdout": "{\n  \"changes\": [\n    {\n      \"name\": \"1923-dump-widgets\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-11-17T18:58:16.569Z\",\n      \"status\": \"in-progress\"\n    },\n    {\n      \"name\": \"1922-export-json\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-11-17T18:58:16.568Z\",\n      \"status\": \"in-progress\"\n    },\n    {\n      \"name\": \"1921-export-widgets\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-11-17T18:58:16.567Z\",\n      \"status\": \"in-progress\"\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
    },
    {
     "argv": [
@@ -451,7 +448,7 @@
     ],
     "returncode": 0,
     "stderr": "",
-    "stdout": "{\n  \"changes\": [\n    {\n      \"name\": \"1918-reword-docs\",\n      \"completedTasks\": 1,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-11-12T13:29:52.112Z\",\n      \"status\": \"complete\"\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+    "stdout": "{\n  \"changes\": [\n    {\n      \"name\": \"1918-reword-docs\",\n      \"completedTasks\": 1,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-11-17T18:58:13.226Z\",\n      \"status\": \"complete\"\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
    },
    {
     "argv": [
@@ -483,7 +480,7 @@
     ],
     "returncode": 0,
     "stderr": "",
-    "stdout": "{\n  \"changes\": [\n    {\n      \"name\": \"1917-export-widgets\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-11-12T13:30:04.572Z\",\n      \"status\": \"in-progress\"\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
+    "stdout": "{\n  \"changes\": [\n    {\n      \"name\": \"1917-export-widgets\",\n      \"completedTasks\": 0,\n      \"totalTasks\": 1,\n      \"lastModified\": \"2026-11-17T18:58:19.946Z\",\n      \"status\": \"in-progress\"\n    }\n  ],\n  \"root\": {\n    \"path\": \"{cwd}\",\n    \"source\": \"nearest\"\n  }\n}\n"
    },
    {
     "argv": [
@@ -508,5 +505,5 @@
    }
   ]
  },
- "version": "1.17.0"
+ "version": "2.1.0"
 }

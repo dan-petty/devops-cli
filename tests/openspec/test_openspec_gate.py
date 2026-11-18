@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from devops_cli.config.constants import CONST_OPENSPEC_SCAFFOLD_MARKER
+from devops_cli.config.constants import CONST_OPENSPEC_SCAFFOLD_MARKER, CONST_OPENSPEC_WORKFLOWS
 from devops_cli.exceptions import DependencyError
 from devops_cli.openspec import gate
 from devops_cli.openspec.gate import GateCheck, GateFinding, check_openspec
@@ -28,7 +28,6 @@ OLDER_VERSION = "1.14.3"
 # regeneration of the skills, the probe change and the instructions of each artifact.
 EMPTY_TREE_COMMANDS = [
     ("config", "set", "telemetry.enabled", "false"),
-    ("config", "set", "delivery", "skills"),
     ("config", "set", "profile", "custom"),
     ("config", "set", "workflows", '["propose", "explore", "apply", "update"]'),
     ("--version",),
@@ -46,11 +45,13 @@ EMPTY_TREE_COMMANDS = [
 # The command the overlap check runs once for each active change, as a dry run lists it.
 SHOW_EACH_CHANGE = ("show", "<change>", "--json", "--deltas-only")
 # The variables each run sets, as a dry run lists them: the opt-outs and a placeholder for the
-# configuration directory of the run.
+# configuration directory of the run, which is also its home.
 PLANNED_ENV = (
     "DO_NOT_TRACK=1 OPENSPEC_TELEMETRY=0 OPENSPEC_NO_UPDATE_CHECK=1 OPEN_SPEC_INTERACTIVE=0 "
-    "XDG_CONFIG_HOME='<config-home>'"
+    "XDG_CONFIG_HOME='<config-home>' HOME='<config-home>'"
 )
+# The variables that name the scratch directory of a run.
+SCRATCH_DIRECTORY_ENV = ("XDG_CONFIG_HOME", "HOME")
 
 
 def _archives(fake: OpenSpecFake) -> list[str]:
@@ -124,13 +125,32 @@ def test_every_run_opts_out_and_reads_a_configuration_directory_of_its_own(
     }
     assert (
         [
-            {key: value for key, value in call.env.items() if key != "XDG_CONFIG_HOME"}
+            {key: value for key, value in call.env.items() if key not in SCRATCH_DIRECTORY_ENV}
             for call in openspec_fake.calls
         ],
         config_home == developer_config,
         config_home.is_relative_to(tree),
         config_home.exists(),
     ) == ([opt_outs] * len(EMPTY_TREE_COMMANDS), False, False, False)
+
+
+def test_every_run_takes_its_configuration_directory_as_its_home(
+    openspec_fake: OpenSpecFake, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """OpenSpec 2.1 also refreshes the skills it finds under the home of the person
+    (`~/.agents/skills` and the skill folder of each agent there), with the profile of the run,
+    and records each project it updates in a data folder under the home. Each run takes the
+    scratch configuration directory as its home, so a gate run writes nothing under the home of
+    the person."""
+    developer_home = tmp_path / "developer-home"
+    monkeypatch.setenv("HOME", str(developer_home))
+    tree = openspec_fake.tree("empty")
+
+    check_openspec(tree)
+
+    homes = {call.env["HOME"] for call in openspec_fake.calls}
+    config_homes = {call.env["XDG_CONFIG_HOME"] for call in openspec_fake.calls}
+    assert (homes == config_homes, len(homes), str(developer_home) in homes) == (True, 1, False)
 
 
 def test_a_missing_openspec_names_the_command_that_installs_it(
@@ -427,6 +447,24 @@ def test_a_change_holding_scaffold_marker_fails_the_gate(openspec_fake: OpenSpec
         f.check == GateCheck.SCAFFOLD
         and "openspec/changes/3203-test-change/proposal.md" in f.detail
         for f in findings
+    )
+
+
+def test_a_tree_whose_claude_skills_link_to_the_shared_copy_passes_the_gate(
+    openspec_fake: OpenSpecFake,
+) -> None:
+    """OpenSpec 2.x keeps one copy of each skill in `.agents/skills`, links each
+    `.claude/skills/openspec-*` to its folder there, and keeps no copy in `.kilocode/skills`. The
+    gate reads the files through each link, so the layout that `openspec update` writes passes."""
+    tree = openspec_fake.tree("empty")
+    linked = sorted((tree / ".claude/skills").glob("openspec-*"))
+    for folder in linked:
+        shutil.rmtree(folder)
+        folder.symlink_to(Path("../../.agents/skills") / folder.name, target_is_directory=True)
+
+    assert (check_openspec(tree), [folder.is_symlink() for folder in linked]) == (
+        [],
+        [True] * len(CONST_OPENSPEC_WORKFLOWS),
     )
 
 

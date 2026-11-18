@@ -18,7 +18,9 @@ from pathlib import Path
 
 import pytest
 
+from devops_cli.config.constants import CONST_ROADMAP_STAGE_COMMENT_MARKER
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.stage.plan_state import event_key, state_key
 from devops_cli.roadmap.stage.stage import StageApplied, StagedChange, StagePlan, StageTarget
 from devops_cli.roadmap.stage.stage_change import render_change
 from devops_cli.roadmap.stage.stage_held import restage_record
@@ -184,8 +186,34 @@ def test_a_re_stage_pushes_to_the_same_branch_updates_its_draft_and_names_it(
     assert staged is not None
     assert staged.job_record[StageRecordKey.SHA] == head
     assert staged.job_record[StageRecordKey.RESTAGE] == restage_record(staged, PULL)
-    (comment,) = [comment.body for comment in store.comments_on(ISSUE)]
-    assert MESSAGES.roadmap.stage_comment_restaged.format(pull=PULL) in comment
+    (_, event) = [comment.body for comment in store.comments_on(ISSUE)]
+    assert MESSAGES.roadmap.stage_comment_restaged.format(pull=PULL) in event
+
+
+def test_a_re_stage_edits_the_plan_state_comment_of_its_draft_in_place(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, github_api: GitHubApiFake
+) -> None:
+    """The plan-state comment of the draft holds the plan of the first stage. The re-stage edits
+    that comment and writes no second one, and the comment of the run names the replaced draft
+    and holds no group (#6197)."""
+    old = _push_old_plan(stage_repo)
+    item = _staged_item(store, old)
+    first = f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\n{state_key(PULL)}\nPlan state: the old plan."
+    store.seed_comment(ISSUE, first, author_login=store._actor)
+    base = stage_repo.git("rev-parse", "HEAD")
+    _route_update(github_api, head=old)
+
+    _apply(store, stage_repo, _change(item, replace_pull=PULL), base)
+
+    state, event = [comment.body for comment in store.comments_on(ISSUE)]
+    assert (
+        state.startswith(f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\n{state_key(PULL)}\n"),
+        "the old plan" in state,
+        "budget of 1000 tokens" in state,
+        event.startswith(f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\n{event_key(PULL)}\n"),
+        MESSAGES.roadmap.stage_comment_restaged.format(pull=PULL) in event,
+        "budget of" in event,
+    ) == (True, False, True, True, True, False)
 
 
 def test_a_branch_that_moved_past_the_recorded_commit_refuses_the_push(

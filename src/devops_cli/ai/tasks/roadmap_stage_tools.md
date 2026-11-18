@@ -1,4 +1,4 @@
-You have read-only tools for this task. Use them before you write the plan. Each tool reads the repository at the commit being planned. No tool writes a file or runs a command.
+You have read-only tools for this task. Use them before you write the plan. Each tool reads the repository at the commit being planned, except `read_comment`, which reads the comments of the issue. No tool writes a file or runs a command.
 
 The tools:
 
@@ -11,10 +11,12 @@ The tools:
 - `callers`: lists the places that call a function, a method or a class.
 - `repo_map`: maps the symbols of the source files in one directory.
 - `read_spec`: lists the specs, gives the purpose and lists the requirements of one spec, or returns the whole text of one requirement. Use it to copy the requirement that a `modified` entry replaces.
+- `read_comment`: reads one comment of the issue whole, page by page, or lists every comment of the issue. The input gives the newest comments whole in `comments`, and lists each older one with `about` in place of `text`.
 
 How to work:
 
 - A plan needs about {{plan_calls_advised}} tool calls. Make the calls that matter. Find a part of a file with `file_symbols` or `search_code` before you read it, read a range and not a whole file, and never read lines that you already read. From call number {{plan_calls_notice}}, each answer ends with a notice: read no more, and give your plan. When the context of the model is nearly full, the tools go, and you must give your plan.
+- A comment of a person can decide, change or correct what the body says. When an entry of `comments` has `about` and no `text`, and its line can bear on the plan, read the comment with `read_comment` before you write the plan.
 - When the input holds `problem`, you read the code already. Correct the problem, and call a tool only to check what the problem names.
 - Before you write a path in `reads`, `changes`, a code span or `verify`, confirm with `list_files` or `read_file` that the commit holds the file. Else put the path in `creates`.
 - Before you plan a new function, field, option or test, search for it with `search_code`, `callers` or `file_symbols`. It can exist already. Plan to change the code and the tests that exist, and not to copy them.

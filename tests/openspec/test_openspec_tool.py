@@ -16,14 +16,14 @@ def test_a_setting_the_tool_refuses_stops_the_gate_with_the_command_and_its_reas
 ) -> None:
     """The isolated configuration is the gate's ground: without it nothing else is read."""
     tree = openspec_fake.tree("empty")
-    openspec_fake.script(("config", "set", "delivery", "skills"), 2, stderr="unknown setting")
+    openspec_fake.script(("config", "set", "profile", "custom"), 2, stderr="unknown setting")
 
     with pytest.raises(ToolExecutionError) as refused:
         check_openspec(tree)
 
     assert (refused.value.exit_code, refused.value.message, len(openspec_fake.calls)) == (
         1,
-        "openspec config set delivery skills failed with exit code 2: unknown setting",
+        "openspec config set profile custom failed with exit code 2: unknown setting",
         2,
     )
 

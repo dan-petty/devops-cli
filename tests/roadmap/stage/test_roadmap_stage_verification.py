@@ -12,7 +12,6 @@ from devops_cli.github.client import CreatedPull
 from devops_cli.roadmap.stage.stage import (
     StagePlan,
     _label_needs_fix,
-    _notes,
     parse_filters,
     plan_stage,
 )
@@ -488,9 +487,9 @@ def test_the_comment_lists_the_findings_of_each_repair_round_and_each_verifier_r
     )
     apply_stage(store, plan, source=stage_repo.clone)
 
-    (comment,) = [c.body for c in store.comments_on(1)]
-    assert "Problem of false_premise." in comment
-    assert "src/devops_cli/sample.py" in comment
+    state, event = [c.body for c in store.comments_on(1)]
+    assert "Problem of false_premise." in state
+    assert "src/devops_cli/sample.py" in event
 
 
 def test_a_minor_contrived_test_finding_is_in_the_comment_and_the_draft_opens_and_stays_a_draft(
@@ -514,7 +513,7 @@ def test_a_minor_contrived_test_finding_is_in_the_comment_and_the_draft_opens_an
 
     applied = apply_stage(store, _plan(store, stage_repo, verifier), source=stage_repo.clone)
 
-    (comment,) = [c.body for c in store.comments_on(1)]
+    (comment, _) = [c.body for c in store.comments_on(1)]
     assert applied.staged == (1,)
     assert "contrived_test" in comment
     assert "Problem of contrived_test." in comment
@@ -539,8 +538,9 @@ def test_a_comment_without_findings_has_no_findings_section(
 
     apply_stage(store, _plan(store, stage_repo, verifier), source=stage_repo.clone)
 
-    (comment,) = [c.body for c in store.comments_on(1)]
-    assert "verification" not in comment.lower()
+    comments = [c.body for c in store.comments_on(1)]
+    assert len(comments) == 2
+    assert all("verification" not in comment.lower() for comment in comments)
 
 
 def _seed_pull_5(store: InMemoryRoadmapStore) -> None:
@@ -579,14 +579,19 @@ def test_a_placeholder_finding_keeps_the_draft_and_applies_the_label(
     applied = apply_stage(store, plan, source=stage_repo.clone)
 
     (change,) = plan.ready
-    (comment,) = [c.body for c in store.comments_on(1)]
+    state, event = [c.body for c in store.comments_on(1)]
     assert applied.staged == (1,)
     assert change.open_findings == (placeholder,)
     assert store._roadmap.issues[5].labels == (FIX_PLAN_LABEL,)
     assert json.loads(github_api.sent[-1].content)["draft"] is True
-    assert "placeholder" in comment
-    assert (
-        _notes(change).strip().startswith("A model review of the plan found these open findings.")
+    # The plan-state comment lists the open findings after the groups, and the comment of the run
+    # lists none (#6197).
+    heading = "A model review of the plan found these open findings."
+    assert ("placeholder" in state, heading in state, "placeholder" in event, heading in event) == (
+        True,
+        True,
+        False,
+        False,
     )
 
 
@@ -640,7 +645,7 @@ def test_a_minor_finding_is_a_point_of_the_comment_and_applies_no_label(
     assert (model_fake.call_count, verifier.call_count) == (1, 1)
     assert (change.findings, change.open_findings) == ((minor,), ())
     assert FIX_PLAN_LABEL not in store._roadmap.issues[5].labels
-    (comment,) = [c.body for c in store.comments_on(1)]
+    (comment, _) = [c.body for c in store.comments_on(1)]
     assert "- minor `spec_delta_wrong` at tasks (1): Problem of spec_delta_wrong." in comment
     assert "They stop no draft" in comment
 

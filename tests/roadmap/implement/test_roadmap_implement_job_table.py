@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic_ai.messages import ModelResponse
 
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement.implement_trace import ImplementTrace, decode
 from devops_cli.roadmap.stores.store import ImplementRecordKey
 from tests.support.fakes.process import ProcessAnswer
@@ -44,6 +45,28 @@ def test_the_comment_on_the_pull_request_has_a_row_for_each_step_and_the_scoped_
     ]
     assert all("/" in row[3] for row in rows)
     assert "- scoped check static: passed" in comment["body"]
+
+
+def test_a_stop_after_a_push_shows_its_table_once_in_the_stop_comment_on_the_issue(
+    job_world: JobWorld,
+) -> None:
+    """The stop comment on the issue is the one copy of the stop report: the comment of the run on
+    the pull request links it and holds no table of its own (#6194)."""
+    script = ModelScript(
+        tool_calls(*group_one_calls()), say("Group 1 is done."), say("I could not do group 2.")
+    )
+
+    job_world.run(script)
+
+    texts = MESSAGES.roadmap
+    (stop,) = [c for c in job_world.store.comments_on(1) if "Failure class" in c.body]
+    (comment,) = job_world.sent("POST", f"issues/{PULL}/comments")
+    link = texts.implement_pull_comment_stopped.format(step="group 2", issue=1, url=stop.url)
+    assert (
+        comment["body"].count(texts.implement_table_header),
+        stop.body.count(texts.implement_table_header),
+        link in comment["body"],
+    ) == (0, 1, True)
 
 
 def test_a_step_that_stops_on_a_failed_command_has_its_row_before_the_reason(

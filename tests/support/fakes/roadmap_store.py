@@ -94,6 +94,7 @@ WRITES = frozenset(
     {
         "comment",
         "create_issue",
+        "edit_comment",
         "label_issue",
         "set_field",
         "set_fields",
@@ -119,6 +120,12 @@ class Fault:
     write: str | None = None
     item: int | None = None
     error: Exception | None = None
+
+
+def _changed_at(comment: IssueComment) -> datetime:
+    """When `comment` last changed: its last edit, else its creation. Read by name, so that the
+    fail-to-pass replay loads this module against a base tree whose comment has no edit time."""
+    return getattr(comment, "updated_at", None) or comment.created_at
 
 
 def _number(args: tuple[object, ...]) -> int | None:
@@ -155,6 +162,19 @@ class JobWrite:
     number: int | None = None
     key: str | None = None
     value: str | None = None
+
+
+@dataclass(frozen=True)
+class _Posted:
+    """What the store says of a comment that it was asked to post (`PostedComment`). The fake
+    keeps its own value, so it imports no name that the base tree of a fail-to-pass replay
+    lacks."""
+
+    url: str | None
+    posted: bool
+
+    def __bool__(self) -> bool:
+        return self.posted
 
 
 @dataclass
@@ -597,14 +617,14 @@ class InMemoryRoadmapStore(RoadmapStore):
         """Whether the evidence was seeded as one GitHub confirms."""
         return evidence in self._roadmap.evidence
 
-    def comment(self, number: int, body: str) -> bool:
-        """Comment `body` on issue `number`, unless it repeats a recent comment of the same
-        roadmap job there, as the GitHub adapter does (#4793): a refused repeat is no write, and
-        returns False."""
+    def comment(self, number: int, body: str) -> _Posted:
+        """Comment `body` on issue `number`, and give the page of the comment, as the GitHub
+        adapter does (#6194). A repeat of a recent comment of the same roadmap job there is no
+        write, and gives the page of that comment (#4793)."""
         if self._refused_repeat(number, body):
-            return False
+            return _Posted(self._repeated_page(number, body), posted=False)
         self._attempt("comment", number, lambda: self._comment(number, body))
-        return True
+        return _Posted(self._roadmap.comments[number][-1].url, posted=True)
 
     def _refused_repeat(self, number: int, body: str) -> bool:
         if not any(marker in body for marker in CONST_ROADMAP_JOB_COMMENT_MARKERS):
@@ -613,21 +633,60 @@ class InMemoryRoadmapStore(RoadmapStore):
         # this module, and posts a person's comment, against a base tree that has no guard yet.
         from devops_cli.roadmap.stores.comment_repeat import refused_repeat
 
-        return refused_repeat(
-            number, body, lambda: self.comments_on(number), now=self._roadmap.clock()
+        return bool(
+            refused_repeat(
+                number, body, lambda: self.comments_on(number), now=self._roadmap.clock()
+            )
         )
+
+    def _repeated_page(self, number: int, body: str) -> str | None:
+        """The page of the newest comment on issue `number` whose text is the text of `body`, as
+        the guard compares texts: the comment that a refused repeat repeats (#6194). The fake
+        finds it in its own comments, so it reads no name that the base tree of a fail-to-pass
+        replay lacks."""
+        from devops_cli.roadmap.stores.comment_repeat import fingerprint
+
+        wanted = fingerprint(body)
+        held = reversed(self.comments_on(number))
+        return next((c.url for c in held if fingerprint(c.body) == wanted), None)
 
     def _comment(self, number: int, body: str) -> None:
         issue = self._require_issue(number, "roadmap.issue.comment")
         self._update_issue(issue)
+        made_id = self._next_comment_id()
         made = IssueComment(
             body=body,
             created_at=as_utc(self._roadmap.clock()),
+            id=made_id,
             author_association=DEFAULT_ROADMAP_MEMORY_AUTHOR_ASSOCIATION,
             author_login=self._actor,
+            url=f"{issue.url}#issuecomment-{made_id}",
         )
         self._roadmap.comments.setdefault(number, []).append(made)
         self._log("comment", number, value=body)
+
+    def _next_comment_id(self) -> int:
+        """The id of the next comment, as GitHub gives each comment of the repository one."""
+        return 1 + sum(len(comments) for comments in self._roadmap.comments.values())
+
+    def edit_comment(self, number: int, comment_id: int, body: str) -> None:
+        """Write `body` as the text of the comment `comment_id` on issue `number`, which moves the
+        time of its last edit, as the GitHub adapter does (#6197). A comment that the issue does
+        not hold raises, as GitHub answers 404."""
+        self._attempt("edit_comment", number, lambda: self._edit_comment(number, comment_id, body))
+
+    def _edit_comment(self, number: int, comment_id: int, body: str) -> None:
+        comments = self._roadmap.comments.get(number, [])
+        index = next((i for i, c in enumerate(comments) if c.id == comment_id), None)
+        if index is None:
+            raise GitHubOperationError(
+                f"Issue #{number} holds no comment {comment_id}.",
+                operation="roadmap.issue.edit_comment",
+            )
+        comments[index] = comments[index].model_copy(
+            update={"body": body, "updated_at": as_utc(self._roadmap.clock())}
+        )
+        self._log("edit_comment", number, value=body)
 
     def seed_comment(
         self,
@@ -636,18 +695,22 @@ class InMemoryRoadmapStore(RoadmapStore):
         *,
         author_association: str | None = DEFAULT_ROADMAP_MEMORY_AUTHOR_ASSOCIATION,
         author_login: str | None = None,
+        url: str | None = None,
     ) -> None:
         """Add a comment as another commenter made it, with their relation to the repository and
         their login, as GitHub gives them: the owner's relation unless given, since GitHub gives
         one for every comment. Seeding records no change and no write. A pull request takes a
-        comment as it does on GitHub, and the comment says so (#2754)."""
+        comment as it does on GitHub, and the comment says so (#2754). `url` is the page of the
+        comment, which a job names (#6167)."""
         issue = self._require_issue(number, "roadmap.issue.seed_comment", pull_request=True)
         made = IssueComment(
             body=body,
             created_at=as_utc(self._roadmap.clock()),
+            id=self._next_comment_id(),
             author_association=author_association,
             author_login=author_login,
             on_pull_request=issue.pull_request,
+            url=url,
         )
         self._roadmap.comments.setdefault(number, []).append(made)
 
@@ -656,11 +719,12 @@ class InMemoryRoadmapStore(RoadmapStore):
         return list(self._roadmap.comments.get(number, []))
 
     def comments_since(self, since: datetime | None) -> Iterator[IssueComment]:
-        """The comments of every issue, newest first, made at or after `since` (all of them when
-        None). A comment here is never edited, so its creation time is the time it changed."""
+        """The comments of every issue, newest first by creation, changed at or after `since` (all
+        of them when None), as GitHub lists them: an edited comment changed at its last edit, so
+        it can come with an older creation time."""
         cutoff = None if since is None else as_utc(since)
         made = (comment for comments in self._roadmap.comments.values() for comment in comments)
-        wanted = (c for c in made if cutoff is None or c.created_at >= cutoff)
+        wanted = (c for c in made if cutoff is None or _changed_at(c) >= cutoff)
         return reversed(sorted(wanted, key=lambda comment: comment.created_at))
 
     def close(self, number: int, reason: CloseReason, *, comment: str | None = None) -> None:

@@ -124,6 +124,8 @@ def _record(store: InMemoryRoadmapStore, number: int) -> dict[str, str]:
 
 
 def _staged_comments(store: InMemoryRoadmapStore, number: int) -> list[str]:
+    """The comments of the stage job on item `number`: the plan-state comment of its draft and
+    the comment of each run (#6197)."""
     return [
         c.body
         for c in store.comments_on(number)
@@ -199,7 +201,7 @@ def test_killed_between_items_the_first_item_is_written_and_the_others_have_noth
         len(_staged_comments(store, 1)),
         [_record(store, n).get(StageRecordKey.BRANCH.value) for n in (2, 3)],
         [len(store.comments_on(n)) for n in (2, 3)],
-    ) == ([_branch(1), "main"], [_branch(1)], "4", 1, [None, None], [0, 0])
+    ) == ([_branch(1), "main"], [_branch(1)], "4", 2, [None, None], [0, 0])
 
 
 def test_service_stopping_in_item_three_keeps_item_one_and_records_the_failure_of_item_two(
@@ -238,7 +240,7 @@ def test_service_stopping_in_item_three_keeps_item_one_and_records_the_failure_o
         True,
         [_branch(1), "main"],
         "5",
-        1,
+        2,
         RoadmapStageError.__name__,
         [False, False, False],
         [0, 0, 0],
@@ -275,7 +277,7 @@ def test_a_stop_of_the_service_during_item_one_stages_it_and_takes_no_next_item(
         len(_staged_comments(store, 1)),
         [StageRecordKey.FAILED_ERROR.value in _record(store, n) for n in (1, 2, 3)],
         [len(store.comments_on(n)) for n in (2, 3)],
-    ) == (True, [1], [_branch(1), "main"], 1, [False, False, False], [0, 0])
+    ) == (True, [1], [_branch(1), "main"], 2, [False, False, False], [0, 0])
 
 
 # ── The order of the writes ───────────────────────────────────────────────────
@@ -299,7 +301,6 @@ def _rejected(store: InMemoryRoadmapStore, api: GitHubApiFake, number: int) -> i
             StageRecordKey.PR: str(pull),
             StageRecordKey.READY: str(pull),
             StageRecordKey.SHA: "abc",
-            StageRecordKey.GROUPS: json.dumps([["Group", 100]]),
             StageRecordKey.TEXT_HASH: body_hashes(item.body)[0],
         },
     )
@@ -358,7 +359,8 @@ def test_phase_order_removals_and_rejections_of_unselected_items_come_before_the
         ("plan", 3),
         ("marks", 3),  # the intent mark, before the push
         ("marks", 3),  # the record, after the draft
-        ("comment", 3, "staged"),
+        ("comment", 3, "staged"),  # the plan-state comment of the draft (#6197)
+        ("comment", 3, "staged"),  # the comment of the run
     ]
 
 
@@ -415,7 +417,7 @@ def test_phase_order_a_rejection_of_a_selected_item_falls_between_its_plan_and_i
         "Ready",
         str(pull + 1),
         False,
-        [True, False],
+        [True, False, False],
     )
     assert _pushed(stage_repo) == [_branch(1), "main"]
 
@@ -443,7 +445,7 @@ def test_phase_order_the_moved_paths_are_read_for_each_item_just_before_its_publ
     _round(store, stage_repo)
 
     assert [
-        MESSAGES.roadmap.stage_comment_moved in _staged_comments(store, n)[0] for n in (1, 2)
+        MESSAGES.roadmap.stage_comment_moved in _staged_comments(store, n)[-1] for n in (1, 2)
     ] == [False, True]
 
 

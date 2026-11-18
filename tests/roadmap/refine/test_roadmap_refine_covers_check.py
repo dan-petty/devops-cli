@@ -163,6 +163,8 @@ def test_a_block_that_the_job_writes_during_a_round_is_kept(
 def test_the_request_holds_the_recorded_check_and_the_jobs_comment_is_no_reply(
     git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake, verdict: str
 ) -> None:
+    """A check of the older form holds what the tool lacks in its comment, not in its block: the
+    request keeps that comment, so refine still reads the lacks (#6195)."""
     store.seed_visibility(is_private=True)
     number = seed_item(store, "New", "P1-High")
     _record_check(store, number, verdict, tool=None if verdict == "none" else _SCANNER)
@@ -178,6 +180,40 @@ def test_the_request_holds_the_recorded_check_and_the_jobs_comment_is_no_reply(
         _LACKS in sent["comment"],
         replies_sent(model_fake),
     ) == (verdict, None if verdict == "none" else _SCANNER, True, True, [])
+
+
+def test_the_request_holds_the_result_of_the_block_and_the_whole_evidence_of_the_comment(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """The block holds the result of the check: its reason, covers and lacks. The comment of the
+    job is the evidence of its run. The request holds both, and the comment whole, however long it
+    is: no cut drops a source (#6195)."""
+    store.seed_visibility(is_private=True)
+    number = seed_item(store, "New", "P1-High")
+    _record_check(store, number, "partly", comment=False)
+    result = f"Reason: The tool scans a directory.\n\nLacks:\n- {_LACKS}"
+    store.write_issue_body(
+        number,
+        store.read_issue_body(number).replace(
+            CONST_ROADMAP_ALTERNATIVES_END_MARKER,
+            f"{result}\n{CONST_ROADMAP_ALTERNATIVES_END_MARKER}",
+        ),
+    )
+    sources = "\n".join(
+        f"- https://example.com/source-{n}"
+        for n in range(constants.CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS)
+    )
+    evidence = (
+        f"{CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER}\nThe result changed.\n\n"
+        f"<details><summary>Searches (1)</summary>\n\nSources:\n{sources}\n\n</details>"
+    )
+    store.comment(number, evidence)
+    model_fake.answer(READY)
+
+    plan_refine(store, repo=REPO, source=git_repo)
+
+    sent = _alternatives_sent(model_fake)
+    assert (result in sent["block"], sent["comment"] == evidence) == (True, True)
 
 
 def test_the_request_holds_no_check_for_an_item_without_a_block_or_with_a_deleted_one(

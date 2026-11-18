@@ -152,8 +152,10 @@ def test_a_blocked_item_with_no_stop_on_record_stays(
     roadmap_store: InMemoryRoadmapStore, gh_edge: ProcessFake
 ) -> None:
     number = _recorded_blocked(roadmap_store, stopped=False)
-    assert _set(roadmap_store, gh_edge, "In Progress", ClosingRead((_closing(number),), 1)) is None
-    assert _status(roadmap_store, number) == "Blocked"
+    assert (
+        _set(roadmap_store, gh_edge, "In Progress", ClosingRead((_closing(number),), 1)),
+        _status(roadmap_store, number),
+    ) == (number, "Blocked")
 
 
 def test_a_pull_request_that_closes_no_issue_changes_nothing(
@@ -186,7 +188,10 @@ def test_an_issue_that_is_no_item_changes_nothing(
     roadmap_store: InMemoryRoadmapStore, gh_edge: ProcessFake
 ) -> None:
     number = roadmap_store.seed_issue("A candidate", state=GitHubState.OPEN)
-    assert _set(roadmap_store, gh_edge, "In Progress", ClosingRead((_closing(number),), 1)) is None
+    assert (
+        _set(roadmap_store, gh_edge, "In Progress", ClosingRead((_closing(number),), 1)),
+        _status(roadmap_store, number),
+    ) == (number, None)
 
 
 def test_a_read_that_fails_stops_with_the_reason(
@@ -226,6 +231,74 @@ def test_create_sets_the_status_of_the_issue_the_pull_request_closes(
         app, ["create", "--title", TITLE, "--body", BODY.replace("#1", f"#{item}"), "--repo", REPO]
     )
     assert (result.exit_code, _status(roadmap_store, item)) == (0, "In Progress")
+
+
+def test_create_waits_for_the_closing_issue_link(
+    runner: CliRunner,
+    roadmap_store: InMemoryRoadmapStore,
+    gh_edge: ProcessFake,
+    clock: ClockFake,
+) -> None:
+    """GitHub links the closing issue after the pull request opens, so the first read can return
+    none. The command reads again and sets In Progress when the link appears (#5112)."""
+    item, pull = _delivery(roadmap_store, gh_edge)
+    reads: list[int] = []
+
+    def closing(_call: ProcessCall) -> ProcessAnswer:
+        reads.append(len(reads))
+        read = ClosingRead() if len(reads) == 1 else ClosingRead((_closing(item),), 1)
+        return _closing_reply(read)
+
+    gh_edge.answer(mentions("closingIssuesReferences"), closing)
+    gh_edge.answer(
+        ["gh", "pr", "create"],
+        ProcessAnswer(stdout=f"https://example.com/org/repo/pull/{pull}\n"),
+    )
+
+    result = runner.invoke(
+        app, ["create", "--title", TITLE, "--body", BODY.replace("#1", f"#{item}"), "--repo", REPO]
+    )
+
+    assert (result.exit_code, _status(roadmap_store, item), len(reads)) == (
+        0,
+        "In Progress",
+        2,
+    )
+    assert clock.waits.count(5.0) == 1
+
+
+def test_create_warns_when_no_closing_issue_links(
+    runner: CliRunner,
+    roadmap_store: InMemoryRoadmapStore,
+    gh_edge: ProcessFake,
+    clock: ClockFake,
+) -> None:
+    """A pull request that GitHub links to no issue leaves the Status unset. It warns, and the
+    command still exits 0 because the pull request exists (#5112)."""
+    item, pull = _delivery(roadmap_store, gh_edge)
+    gh_edge.answer(mentions("closingIssuesReferences"), _closing_reply(ClosingRead()))
+    gh_edge.answer(
+        ["gh", "pr", "create"],
+        ProcessAnswer(stdout=f"https://example.com/org/repo/pull/{pull}\n"),
+    )
+
+    result = runner.invoke(
+        app, ["create", "--title", TITLE, "--body", BODY.replace("#1", f"#{item}"), "--repo", REPO]
+    )
+
+    assert (result.exit_code, "linked no closing issue" in result.output) == (0, True)
+    assert _status(roadmap_store, item) == "Ready"
+    assert clock.waits.count(5.0) == 5
+
+
+def test_the_status_setter_returns_the_issue_it_moves(
+    roadmap_store: InMemoryRoadmapStore, gh_edge: ProcessFake
+) -> None:
+    number = _item(roadmap_store, "New")
+    assert (
+        _set(roadmap_store, gh_edge, "In Progress", ClosingRead((_closing(number),), 1)),
+        _status(roadmap_store, number),
+    ) == (number, "In Progress")
 
 
 def test_ready_sets_the_status_of_the_issue_the_pull_request_closes(

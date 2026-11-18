@@ -112,6 +112,7 @@ from devops_cli.roadmap.stores.store import (
     STAGE_REMOVAL_KEYS,
     ImplementRecordKey,
     Item,
+    PostedComment,
     ReviewRecordKey,
     RoadmapStore,
     StageRecordKey,
@@ -557,9 +558,12 @@ def _relabel(call: ReviewCall, label: str) -> None:
         add_pull_labels(call.store, call.pull, (label,))
 
 
-def _return_item(store: RoadmapStore, repo: str, pull: int, number: int, kind: PullKind) -> None:
+def _return_item(
+    store: RoadmapStore, repo: str, pull: int, number: int, kind: PullKind, *, verdict: str = ""
+) -> PostedComment:
     """Return item `number` to New with the keys of its plan or its delivery and the keys of the
-    step cleared, so the stage job plans it again or the implement job builds its plan again."""
+    step cleared, so the stage job plans it again or the implement job builds its plan again. The
+    return comment holds `verdict`, the text of the verdict, when the call has it (#6194)."""
     plan = kind is PullKind.PLAN
     cleared: tuple[Any, ...] = STAGE_REMOVAL_KEYS if plan else _DELIVERY_KEYS
     marks: dict[Any, str | int | None] = dict.fromkeys((*cleared, *ReviewRecordKey))
@@ -568,19 +572,31 @@ def _return_item(store: RoadmapStore, repo: str, pull: int, number: int, kind: P
         f"{CONST_ROADMAP_REVIEW_COMMENT_MARKER}\nThe review discarded pull request #{pull}. The "
         f"item goes back to New for {work}."
     )
-    apply_return(store, plan_return(store, number, comment, repo, marks=marks))
+    if verdict:
+        comment += f"\n\n{verdict}"
+    return apply_return(store, plan_return(store, number, comment, repo, marks=marks))
 
 
-def _discard(call: ReviewCall, withdraw: Withdraw) -> None:
+def _discard(call: ReviewCall, withdraw: Withdraw, verdict: str) -> None:
     """Carry out a discard in an order that a later call can end (#6024): mark the start, delete
     the branch with a lease on the judged head, close the pull request, and return the item. A
     failed delete leaves the pull request open for the next call; after the delete, the next call
-    ends the discard on the closed pull request."""
+    ends the discard on the closed pull request. The return comment on the issue holds `verdict`,
+    as the jobs and refine read the comments of the issue only. Then the comment of the step on
+    the pull request, which held the verdict until now, becomes a link to it (#6194)."""
     head = call.status.head_sha
     call.store.set_marks(call.item, {ReviewRecordKey.DISCARD: f"{call.pull}:{head}"})
     withdraw(call.status.head_ref, head)
     get_github_session().client.close_pull(call.repo, call.pull)
-    _return_item(call.store, call.repo, call.pull, call.item.number, call.kind)
+    posted = _return_item(
+        call.store, call.repo, call.pull, call.item.number, call.kind, verdict=verdict
+    )
+    _comment(
+        call,
+        head,
+        f"The review discarded this pull request. The verdict is on #{call.item.number}: "
+        f"{posted.url or call.item.url}.",
+    )
 
 
 def _finish_discard(
@@ -739,10 +755,11 @@ def write_verdict(
         raise RoadmapImplementError(
             "The step review needs a withdraw to discard: the delete of the branch."
         )
-    _comment(call, call.status.head_sha, _verdict_text(call, judgement, label))
+    verdict = _verdict_text(call, judgement, label)
+    _comment(call, call.status.head_sha, verdict)
     _relabel(call, label)
     if acts and withdraw is not None:
-        _discard(call, withdraw)
+        _discard(call, withdraw, verdict)
     else:
         if judgement.verdict is Verdict.MERGEABLE and call.status.draft:
             draft = read_ready_draft(call.repo, call.pull, store=call.store, status=now)

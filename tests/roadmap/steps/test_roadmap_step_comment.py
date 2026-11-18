@@ -11,6 +11,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+import pytest
+
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER
 from devops_cli.roadmap.steps.comment import Target, post
 from devops_cli.roadmap.stores.store import IssueComment
@@ -23,9 +25,14 @@ if TYPE_CHECKING:
 class FakeCommentTarget:
     """A target for testing read-before-write, upserts, and repeat refusals."""
 
-    def __init__(self, comments: list[IssueComment] | None = None) -> None:
+    def __init__(
+        self,
+        comments: list[IssueComment] | None = None,
+        session_login: str = "devops-cli[bot]",
+    ) -> None:
         self.comments: list[IssueComment] = list(comments or [])
         self.recorded_calls: list[str] = []
+        self.session_login = session_login
 
     def list_comments(self) -> list[IssueComment]:
         self.recorded_calls.append("list")
@@ -39,7 +46,7 @@ class FakeCommentTarget:
                 id=comment_id,
                 body=body,
                 created_at=datetime.now(UTC),
-                author_login="devops-cli[bot]",
+                author_login=self.session_login,
             )
         )
         return comment_id
@@ -83,6 +90,88 @@ def test_upsert_edits_existing_comment() -> None:
     assert target.comments[0].id == 42
     assert target.comments[0].body == new_body
     assert target.recorded_calls == ["list", "update"]
+
+
+def test_marked_comment_of_another_author_is_not_edited() -> None:
+    """When a target already holds a comment with the marker and key but written by another author,
+    create a new comment and do not edit the other author's comment (#6222)."""
+    marker = "<!-- roadmap-test-marker -->"
+    key = "run-101"
+    old_body = f"{marker}\n{key}\n\nSomeone else content"
+    new_body = f"{marker}\n{key}\n\nNew updated content"
+
+    target = FakeCommentTarget(
+        comments=[
+            IssueComment(
+                id=42,
+                body=old_body,
+                created_at=datetime.now(UTC),
+                author_login="someone-else",
+            )
+        ],
+        session_login="devops-cli[bot]",
+    )
+
+    posted = post(target, marker, key, new_body)
+
+    assert posted is True
+    assert len(target.comments) == 2
+    assert target.comments[0].id == 42
+    assert target.comments[0].body == old_body
+    assert target.comments[1].body == new_body
+    assert target.recorded_calls == ["list", "create"]
+
+
+def test_marked_comment_with_no_author_is_not_edited() -> None:
+    """When a marked comment has no author login, create a new comment and leave the comment
+    unchanged (#6222)."""
+    marker = "<!-- roadmap-test-marker -->"
+    key = "run-101"
+    old_body = f"{marker}\n{key}\n\nUnattributed comment"
+    new_body = f"{marker}\n{key}\n\nNew updated content"
+
+    target = FakeCommentTarget(
+        comments=[
+            IssueComment(
+                id=42,
+                body=old_body,
+                created_at=datetime.now(UTC),
+                author_login=None,
+            )
+        ],
+        session_login="devops-cli[bot]",
+    )
+
+    posted = post(target, marker, key, new_body)
+
+    assert posted is True
+    assert len(target.comments) == 2
+    assert target.comments[0].id == 42
+    assert target.comments[0].body == old_body
+    assert target.recorded_calls == ["list", "create"]
+
+
+def test_store_comment_of_another_author_is_not_edited() -> None:
+    """When Target uses a store whose comment list includes a marked comment of another author,
+    post creates a new comment through the store and leaves the stored comment unchanged (#6222)."""
+    store = InMemoryRoadmapStore(repo="owner/repo")
+    num = store.seed_issue("test issue")
+    marker = CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER
+    key = "run-1"
+    old_body = f"{marker}\n{key}\n\nSomeone else's implement comment"
+    new_body = f"{marker}\n{key}\n\nNew implement comment"
+    store.seed_comment(num, old_body, author_login="someone-else")
+
+    target = Target("owner/repo", num, store=store)
+    posted = post(target, marker, key, new_body)
+
+    comments = store.comments_on(num)
+    assert posted is True
+    assert len(comments) == 2
+    assert comments[0].body == old_body
+    assert comments[0].author_login == "someone-else"
+    assert comments[1].body == new_body
+    assert store.writes[-1] == "comment"
 
 
 def test_read_precedes_write() -> None:
@@ -188,8 +277,6 @@ def test_target_with_client_coverage() -> None:
 
 def test_target_with_store_coverage() -> None:
     """Test Target methods when using store."""
-    from unittest.mock import MagicMock
-
     store = InMemoryRoadmapStore(repo="owner/repo")
     num = store.seed_issue("test issue")
     target = Target("owner/repo", num, store=store)
@@ -198,17 +285,30 @@ def test_target_with_store_coverage() -> None:
     assert target.create_comment("first comment") is True
     assert len(target.list_comments()) == 1
 
-    # Update comment in store
-    target.update_comment(None, "updated comment")
-    assert target.list_comments()[0].body == "updated comment"
 
-    # Store with _write
-    write_store = MagicMock(spec=["_write", "comments_on"])
-    write_store._write = MagicMock()
-    write_store.comments_on.return_value = []
-    target_write = Target("owner/repo", num, store=write_store)
-    target_write.update_comment(123, "body")
-    write_store._write.assert_called_once()
+def test_an_upsert_through_the_store_edits_the_marked_comment_by_its_id() -> None:
+    """The store path edits the one comment that holds the marker and the key, by its id, with
+    `RoadmapStore.edit_comment`, and the edit moves the time of its last edit (#6197). The comment
+    of a person before it stays as it is."""
+    times = iter(datetime(2026, 11, 17, hour, tzinfo=UTC) for hour in range(9, 24))
+    store = InMemoryRoadmapStore(repo="owner/repo", clock=lambda: next(times))
+    num = store.seed_issue("test issue")
+    marker = CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER
+    store.seed_comment(num, "A note of a person.", author_login="alice")
+    store.comment(num, f"{marker}\nrun-1\n\nOld state")
+
+    posted = post(
+        Target("owner/repo", num, store=store), marker, "run-1", f"{marker}\nrun-1\n\nNew state"
+    )
+
+    note, state = store.comments_on(num)
+    assert (
+        posted,
+        note.body,
+        state.body,
+        state.updated_at is not None and state.updated_at > state.created_at,
+        store.writes[-1],
+    ) == (True, "A note of a person.", f"{marker}\nrun-1\n\nNew state", True, "edit_comment")
 
 
 def test_with_body_plain_object() -> None:
@@ -218,3 +318,74 @@ def test_with_body_plain_object() -> None:
     obj = _SimpleComment("initial")
     updated = _with_body(obj, "new")
     assert updated.body == "new"
+
+
+class _SimpleTarget:
+    def __init__(self) -> None:
+        self.comments: list[object] = []
+
+    def list_comments(self) -> list[object]:
+        return self.comments
+
+    def create_comment(self, body: str) -> bool:
+        self.comments.append(_SimpleComment(body))
+        return True
+
+
+def test_target_session_login_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Target.session_login resolves from store actor, client session, or get_github_session."""
+    from unittest.mock import MagicMock
+
+    # Client with session login
+    mock_client = MagicMock()
+    mock_session = MagicMock()
+    mock_session.login = "client-bot"
+    mock_client._session = mock_session
+    target_client = Target("owner/repo", 1, client=mock_client)
+    assert target_client.session_login == "client-bot"
+
+    # Client whose session raises an exception
+    mock_client_err = MagicMock()
+    mock_session_err = MagicMock()
+    type(mock_session_err).login = property(
+        lambda self: (_ for _ in ()).throw(RuntimeError("error"))
+    )
+    mock_client_err._session = mock_session_err
+    assert Target("owner/repo", 1, client=mock_client_err).session_login == ""
+
+    import devops_cli.roadmap.steps.comment as comment_mod
+
+    # Default Target falls back to get_github_session
+    fake_session = MagicMock()
+    fake_session.login = "global-bot"
+    monkeypatch.setattr(comment_mod, "get_github_session", lambda: fake_session)
+    target_default = Target("owner/repo", 1)
+    assert target_default.session_login == "global-bot"
+
+    # get_github_session raises an exception
+    monkeypatch.setattr(
+        comment_mod,
+        "get_github_session",
+        lambda: (_ for _ in ()).throw(RuntimeError("error")),
+    )
+    assert Target("owner/repo", 1).session_login == ""
+
+    # post() with a target holding no session_login when get_github_session raises
+    simple = _SimpleTarget()
+    posted = post(simple, "<!-- marker -->", "key", "body")
+    assert posted is True
+
+
+def test_comment_author_helper() -> None:
+    """_comment_author resolves login from author_login, author, dict, or empty."""
+    from devops_cli.github.client import IssueComment as ClientIssueComment
+    from devops_cli.roadmap.steps.comment import _comment_author
+
+    assert (
+        _comment_author(IssueComment(body="", created_at=datetime.now(UTC), author_login="alice"))
+        == "alice"
+    )
+    assert _comment_author(ClientIssueComment(id=1, body="", author="bob")) == "bob"
+    assert _comment_author({"author_login": "charlie"}) == "charlie"
+    assert _comment_author({"author": "dave"}) == "dave"
+    assert _comment_author(_SimpleComment("text")) == ""

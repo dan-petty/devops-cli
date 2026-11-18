@@ -11,20 +11,24 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-from collections.abc import Callable
-from dataclasses import replace
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+from fastapi.testclient import TestClient
 from markdown_it import MarkdownIt
 from pydantic_ai.exceptions import ModelAPIError, ModelHTTPError
+from pydantic_ai.workspaces import CommandResult
+from pydantic_ai.workspaces.local import LocalWorkspaceBackend
 
 from devops_cli.ai.client.models import AICredentialsError
 from devops_cli.config import constants
 from devops_cli.exceptions import RoadmapImplementError
 from devops_cli.git.worktree_add import worktree_directory
 from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement.implement import (
     ImplementPlan,
@@ -44,6 +48,7 @@ from tests.support.base_replay import (
     junit,
 )
 from tests.support.fakes.github import GitHubApiFake, github_json
+from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import (
@@ -79,6 +84,7 @@ from tests.support.roadmap_implement import (
 from tests.support.roadmap_stage import STAGE_REPO, StageRepo
 
 if TYPE_CHECKING:
+    from devops_cli.roadmap.implement.implement_broker import StepBroker
     from devops_cli.roadmap.implement.implement_run import ImplementApplied
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -291,6 +297,21 @@ def test_two_groups_end_in_commits_a_pushed_branch_a_closing_body_and_a_ready_pu
         str(PULL),
         None,
     )
+
+
+def test_the_pr_comment_names_each_comment_of_the_item_that_the_step_inputs_held_whole(
+    job_world: JobWorld,
+) -> None:
+    """The comment of the run on the pull request names, by its page, each comment of the item
+    that the inputs of a step held whole, once (#6167)."""
+    page = f"https://github.com/{STAGE_REPO}/issues/1#issuecomment-41"
+    job_world.store.seed_comment(1, "Keep the last comment of a thread.", url=page)
+
+    applied = job_world.run(two_groups())
+
+    (comment,) = job_world.sent("POST", f"issues/{PULL}/comments")
+    assert (applied.ready, comment["body"].count(page)) == ((1,), 1)
+    assert f"- comments of the item in the step inputs: {page}" in comment["body"]
 
 
 def _rewrite_why(job_world: JobWorld, why: str) -> None:
@@ -661,6 +682,128 @@ def test_the_documentation_and_the_archive_run_in_the_worktree_after_the_last_gr
     )
 
 
+# ── The broker of a step ─────────────────────────────────────────────────────────────────
+
+BROKER_GATEWAY = "https://gateway.example.com/v1"
+BROKER_KEY = "gateway-secret-key-3820"
+
+
+@dataclass(frozen=True)
+class ShellCall:
+    """One command of the shell of a step: its text, the environment that the shell gave it, and
+    the broker that was live for its step."""
+
+    command: str
+    env: dict[str, str]
+    broker: StepBroker | None
+
+
+def _gateway_provider(config: Callable[..., Path], keyring_store: FakeKeyring) -> None:
+    """The gateway as the provider of the job, with its key in the credential store."""
+    config(ai={"provider": "gateway", "gateway_url": BROKER_GATEWAY})
+    keyring_store.set_password("devops-cli", "ai_api_key", BROKER_KEY)
+
+
+@pytest.fixture
+def shell_calls(monkeypatch: pytest.MonkeyPatch) -> list[ShellCall]:
+    """The commands that the shell of a step sends to its workspace, with the environment that it
+    got and the live broker of the step. The workspace answers each command with `ran`, so the test
+    starts no program and the step reads no output of a real tool."""
+    from devops_cli.roadmap.implement.implement_broker import live_broker
+
+    calls: list[ShellCall] = []
+
+    async def run(self: object, command: str, **options: object) -> CommandResult:
+        env = options.get("env")
+        calls.append(
+            ShellCall(
+                command=command,
+                env=dict(env) if isinstance(env, Mapping) else {},
+                broker=live_broker(),
+            )
+        )
+        return CommandResult(exit_code=0, stdout="ran", stderr="")
+
+    monkeypatch.setattr(LocalWorkspaceBackend, "run", run)
+    return calls
+
+
+def _broker_status_after_the_step(call: ShellCall) -> int:
+    """The status of a request with the token that the step held to an allowed path, sent after
+    the step ended."""
+    assert call.broker is not None
+    answer = TestClient(call.broker.app).post(
+        "/v1/chat/completions",
+        headers={"authorization": f"Bearer {call.env['DEVOPS_CLI_BROKER_TOKEN']}"},
+        content=b"{}",
+    )
+    return answer.status_code
+
+
+def _gateway_requests(world: JobWorld) -> list[str]:
+    """The URLs of the requests that the gateway received for the two model endpoints of a step
+    shell."""
+    endpoints = ("/chat/completions", "/embeddings")
+    return [
+        str(request.url)
+        for request in world.api.sent
+        if str(request.url).startswith(BROKER_GATEWAY) and str(request.url).endswith(endpoints)
+    ]
+
+
+def test_apply_implement_gives_a_step_shell_the_broker_variables_and_no_ai_key(
+    job_world: JobWorld,
+    config: Callable[..., Path],
+    keyring_store: FakeKeyring,
+    shell_calls: list[ShellCall],
+) -> None:
+    """The AI key stays in the job process, which is not dumpable: the shell of a step gets the
+    address of the loopback broker and the token of its step, and neither its environment nor its
+    command holds the key (#3820). The token dies when the step ends."""
+    _gateway_provider(config, keyring_store)
+    script = ModelScript(
+        tool_calls(("run_command", {"command": "git status"}), *group_one_calls()),
+        say("Group 1 is done."),
+        tool_calls(*group_two_calls()),
+        say("Group 2 is done."),
+    )
+
+    applied = job_world.run(script)
+
+    (call,) = shell_calls
+    token = call.env["DEVOPS_CLI_BROKER_TOKEN"]
+    assert applied.ready == (1,)
+    assert call.env["DEVOPS_CLI_BROKER_URL"].startswith("http://127.0.0.1:")
+    assert BROKER_KEY not in " ".join(call.env.values())
+    assert (BROKER_KEY in call.command, token in call.command) == (False, False)
+    assert _broker_status_after_the_step(call) == 401
+    assert _gateway_requests(job_world) == []
+
+
+def test_a_stopped_step_still_ends_its_broker(
+    job_world: JobWorld,
+    config: Callable[..., Path],
+    keyring_store: FakeKeyring,
+    shell_calls: list[ShellCall],
+) -> None:
+    """A step that stops ends its broker first, so the token that the step held reaches no gateway
+    after it (#3820)."""
+    from devops_cli.roadmap.implement.implement_broker import live_broker
+
+    _gateway_provider(config, keyring_store)
+    script = ModelScript(
+        tool_calls(("run_command", {"command": "git status"})),
+        say("I could not do it."),
+    )
+
+    applied = job_world.run(script)
+
+    (call,) = shell_calls
+    assert (applied.ready, applied.stopped) == ((), (1,))
+    assert _broker_status_after_the_step(call) == 401
+    assert (_gateway_requests(job_world), live_broker()) == ([], None)
+
+
 def test_a_retry_clears_the_stop_before_the_first_step(job_world: JobWorld) -> None:
     item = job_world.store.item(1)
     assert item is not None
@@ -706,7 +849,8 @@ def test_a_step_that_stops_blocks_the_item_with_a_comment_and_a_record(
 
 def test_a_stop_writes_one_status_comment_to_the_pull_request(job_world: JobWorld) -> None:
     """A stop after a push leaves the commits on the pull request, so the reviewer reads the
-    stopped step and the failure class there too (#3997)."""
+    stopped step there too (#3997). The comment of the run links the stop comment on the issue,
+    which is the one copy of the stop report (#6194)."""
     script = ModelScript(
         tool_calls(*group_one_calls()),
         say("Group 1 is done."),
@@ -716,9 +860,12 @@ def test_a_stop_writes_one_status_comment_to_the_pull_request(job_world: JobWorl
     job_world.run(script)
 
     (comment,) = job_world.sent("POST", f"issues/{PULL}/comments")
-    assert "Stopped at group 2." in comment["body"]
-    assert "Failure class:" in comment["body"]
-    assert "Stopped at group 2." in _stop_comment(job_world)
+    (stop,) = [c for c in job_world.store.comments_on(1) if "Failure class" in c.body]
+    link = MESSAGES.roadmap.implement_pull_comment_stopped.format(
+        step="group 2", issue=1, url=stop.url
+    )
+    assert (link in comment["body"], "Failure class:" in comment["body"]) == (True, False)
+    assert "Stopped at group 2." in stop.body
     assert len(job_world.issue_comments()) == 2
 
 

@@ -132,6 +132,7 @@ from devops_cli.roadmap.implement.implement_amend import (
     parse_request,
 )
 from devops_cli.roadmap.implement.implement_base_replay import BaseStatus
+from devops_cli.roadmap.implement.implement_comments import StepComments
 from devops_cli.roadmap.implement.implement_disk import log_disk_use
 from devops_cli.roadmap.implement.implement_fix_scope import RepairScope, repair_scope
 from devops_cli.roadmap.implement.implement_hooks import (
@@ -633,6 +634,9 @@ class _ItemRun:
     started: float = field(default_factory=time.monotonic)
     # The strength report of the new tests of the item (#3051).
     strength: StrengthReport | None = None
+    # The comments of the item and the time at which its plan merged, read once for the steps of
+    # the run (#6167).
+    _comments: StepComments | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self.pull = self.target.pull
@@ -782,6 +786,13 @@ class _ItemRun:
                 )
         if self._git("status", "--porcelain"):
             self._git("commit", "-q", "-m", message)
+
+    def _item_comments(self) -> StepComments:
+        """The comments of the item for each step of the run, read once: the first step reads
+        them, and the later steps and the fix steps get the same comments (#6167)."""
+        if self._comments is None:
+            self._comments = StepComments.read(self.store, self.number, self.path)
+        return self._comments
 
     def _active_change(self) -> Path | None:
         """The change folder of the item in the worktree, or None once it is archived."""
@@ -1228,6 +1239,7 @@ class _ItemRun:
                     spend=self._item_spend(),
                     recorded_tests=self._recorded_tests(),
                     earlier=self._take_earlier(),
+                    comments=self._item_comments(),
                 )
             except OverWindowError as err:
                 self._handle_over_window(group, err, change, tasks_text, tasks_file, tasks)
@@ -1715,15 +1727,17 @@ class _ItemRun:
         self._delivery_metadata()
         self._comment(pull)
 
-    def _comment(self, pull: int, *, extra: str = "") -> None:
+    def _comment(self, pull: int, *, stopped: str = "") -> None:
         """Write the comment of this run on the pull request: the table of the steps of this Job,
-        the amendments, the scoped runs, the notes, and the stop text of `extra` (#3997). A run
-        has one comment, that the second line marks with the run id (#4070). The first write posts
-        it, and a later write changes it, so a repair round shows in the same comment. A Job with
-        nothing to show writes nothing, so a rerun does not post an empty comment and does not
-        hide the table of the run before."""
+        the amendments, the skipped steps, the scoped runs, the strength and check lines, and the
+        notes. A stop gives `stopped`, the line that links the stop comment on the issue (#3997),
+        in place of the table: the stop comment holds the table and the rest of the stop report,
+        once (#6194). A run has one comment, that the second line marks with the run id (#4070).
+        The first write posts it, and a later write changes it, so a repair round shows in the
+        same comment. A Job with nothing to show writes nothing, so a rerun does not post an empty
+        comment and does not hide the table of the run before."""
         texts = MESSAGES.roadmap
-        table = summary_table(self._row(outcome) for outcome in self.outcomes)
+        table = "" if stopped else summary_table(self._row(outcome) for outcome in self.outcomes)
         amend_lines = [amendment.line() for amendment in self.amendments]
         scoped_lines = self._scoped_lines()
         strength_lines = report_lines(self.strength) if self.strength is not None else []
@@ -1734,9 +1748,16 @@ class _ItemRun:
             for step in self.skipped_steps
         ]
         lines = "\n".join(
-            [*amend_lines, *skipped_lines, *scoped_lines, *strength_lines, *self._check_lines()]
+            [
+                *amend_lines,
+                *skipped_lines,
+                *scoped_lines,
+                *strength_lines,
+                *self._check_lines(),
+                *self._comment_lines(),
+            ]
         )
-        body = "\n\n".join(part for part in (extra, table, lines) if part)
+        body = "\n\n".join(part for part in (stopped, table, lines) if part)
         if not body:
             return
         run = texts.implement_pull_comment_run.format(
@@ -1754,6 +1775,15 @@ class _ItemRun:
             run,
             comment,
         )
+
+    def _comment_lines(self) -> list[str]:
+        """The line that names each comment of the item that the inputs of a step of this run held
+        whole, each once, in the order of the steps (#6167). A run whose inputs held none has no
+        line."""
+        names = dict.fromkeys(name for outcome in self.outcomes for name in outcome.comments)
+        if not names:
+            return []
+        return [MESSAGES.roadmap.implement_pull_comments_used.format(names=", ".join(names))]
 
     def _check_lines(self) -> list[str]:
         """The lines of the checks of the outcomes (#3042): the fail-to-pass result of
@@ -1910,6 +1940,7 @@ class _ItemRun:
             trace=self.trace,
             spend=self._item_spend(),
             recorded_tests=self._recorded_tests(),
+            comments=self._item_comments(),
         )
         self.outcomes.append(outcome)
         if outcome.status is StepStatus.STOPPED:
@@ -2019,7 +2050,9 @@ class _ItemRun:
     def stop(self, stop: _StopError) -> None:
         """Push what passed, tell the item why, set it Blocked, and record the step. A git setting
         that the job does not allow stops the push, and the class of the stop is `git_config`.
-        First it writes the disk use of the home volume at the step to the Job log (#6076)."""
+        First it writes the disk use of the home volume at the step to the Job log (#6076). The
+        stop comment on the issue is the one copy of the stop report; the comment of the run on
+        the pull request links it (#6194)."""
         log_disk_use(self.path, stop.step)
         texts = MESSAGES.roadmap
         try:
@@ -2091,10 +2124,15 @@ class _ItemRun:
             diff=_diff_section(stop),
             note=note,
         )
+        # The issue comment comes first, so the comment of the run can link it (#6194).
+        posted = self.store.comment(self.number, stopped)
         if self.pull is not None:
-            # The stop text without its marker line: `_comment` adds the marker and the run id.
-            self._comment(self.pull, extra="\n".join(stopped.splitlines()[1:]).strip())
-        self.store.comment(self.number, stopped)
+            self._comment(
+                self.pull,
+                stopped=texts.implement_pull_comment_stopped.format(
+                    step=stop.step, issue=self.number, url=posted.url or self.target.item.url
+                ),
+            )
         marks: dict[Any, str | int | None] = {
             ImplementRecordKey.STOPPED: stop.step,
             ImplementRecordKey.FAILURE: klass.value,

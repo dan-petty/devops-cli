@@ -5,8 +5,9 @@ AGENTS.md rule 5 makes a check that averages more than 5 minutes a P0 bug, and t
 its own run is one sample. The check reads the last runs of the job on the branch from GitHub's
 Actions API instead, and passes only when it read all that it asked for and their mean is inside
 the limit. The time in the queue is reported, but the limit does not apply to it (#4634). When the
-mean is over the limit, `raise_alarm` comments on the open alarm issue of the check, or files one
-with the priority P0, so one breach has one issue (#5247).
+mean is over the limit, `raise_alarm` writes the report into the body of the open alarm issue of
+the check, or files one with the priority P0, so one breach has one issue (#5247) and the issue
+holds the report one time, with no comment (#6199).
 """
 
 from __future__ import annotations
@@ -29,6 +30,10 @@ _ALARM_LABELS: Final[tuple[str, ...]] = (
 # The word that the issue search finds in the body of an alarm issue, inside `alarm_marker`.
 ALARM_MARKER: Final[str] = "devops-ci-job-time"
 _ALARM_TITLE: Final[str] = "fix(ci): {job} averages {mean:.0f} s, over the {limit:.0f} s limit"
+# The two lines around the report in the body of the alarm issue. A later run replaces the text
+# between them, and the text of a person outside them stays (#6199).
+_REPORT_START: Final[str] = "<!-- devops ci job-time report: start -->"
+_REPORT_END: Final[str] = "<!-- devops ci job-time report: end -->"
 
 
 @dataclass(frozen=True)
@@ -80,7 +85,8 @@ def check_job_time(
 
 @dataclass(frozen=True)
 class Alarm:
-    """The alarm issue of a check: its number, and whether this run filed it or commented on it."""
+    """The alarm issue of a check: its number, and whether this run filed it or wrote the report
+    into its body."""
 
     number: int
     filed: bool
@@ -93,7 +99,7 @@ def alarm_marker(job: str, *, workflow: str, branch: str) -> str:
 
 
 def alarm_text(report: JobTimeReport, repo: str, *, workflow: str, branch: str) -> str:
-    """The text of the alarm issue or of its comment: the mean, the limit and each run read."""
+    """The report in the body of the alarm issue: the mean, the limit and each run read."""
     rows = "".join(
         f"| [{run.run_id}](https://github.com/{repo}/actions/runs/{run.run_id}) "
         f"| {run.seconds:.0f} | {run.queue_seconds:.0f} |\n"
@@ -112,16 +118,33 @@ def alarm_text(report: JobTimeReport, repo: str, *, workflow: str, branch: str) 
     )
 
 
+def _with_report(body: str, text: str) -> str:
+    """`body` with the report between `_REPORT_START` and `_REPORT_END` replaced by `text`, or
+    with the report at its end when it holds none (#6199).
+
+    The report is the last start line and the first end line after it. A person who deletes one
+    of the two lines leaves a line with no partner: the next run then adds a new report at the end,
+    and no run replaces the text of the person between the two."""
+    block = f"{_REPORT_START}\n{text}{_REPORT_END}"
+    start = body.rfind(_REPORT_START)
+    end = body.find(_REPORT_END, start) if start != -1 else -1
+    if end == -1:
+        return f"{body.rstrip()}\n\n{block}\n" if body.strip() else f"{block}\n"
+    return f"{body[:start]}{block}{body[end + len(_REPORT_END) :]}"
+
+
 def raise_alarm(
     client: GitHubClient, repo: str, report: JobTimeReport, *, workflow: str, branch: str
 ) -> Alarm:
-    """Comment on the open alarm issue of the check of `report`, the lowest number when more than
-    one is open, or file one with the priority P0 when none is open (#5247).
+    """Write the report into the body of the open alarm issue of the check of `report`, the lowest
+    number when more than one is open, or file one with the priority P0 when none is open (#5247).
 
     The issue search finds the issues whose body holds `ALARM_MARKER`, and only an open issue
     whose body holds the `alarm_marker` of the check counts. So a run while the mean stays over
-    the limit comments, and files no second issue, also after a person changed the title or the
-    labels. After the issue is closed, the next breach files a new issue.
+    the limit files no second issue, also after a person changed the title or the labels. After
+    the issue is closed, the next breach files a new issue. The run reads the body as GitHub gives
+    it now, replaces only the report in it, and posts no comment: the issue holds the report one
+    time (#6199). A body that already holds the same report gets no change.
     """
     marker = alarm_marker(report.job, workflow=workflow, branch=branch)
     text = alarm_text(report, repo, workflow=workflow, branch=branch)
@@ -131,12 +154,15 @@ def raise_alarm(
         if hit.state == "open" and marker in (hit.body or "")
     )
     if held:
-        client.create_issue_comment(repo, held[0], text)
+        body = client.get_issue(repo, held[0]).body or ""
+        changed = _with_report(body, text)
+        if changed != body:
+            client.update_issue_body(repo, held[0], changed)
         return Alarm(number=held[0], filed=False)
     title = _ALARM_TITLE.format(
         job=report.job, mean=report.mean_seconds, limit=report.limit_seconds
     )
     number = client.create_issue(
-        repo, title=title, body=f"{text}\n{marker}\n", labels=_ALARM_LABELS
+        repo, title=title, body=f"{_with_report('', text)}{marker}\n", labels=_ALARM_LABELS
     )
     return Alarm(number=number, filed=True)

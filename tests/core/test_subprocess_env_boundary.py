@@ -852,16 +852,18 @@ def test_a_lookup_that_cannot_run_leaves_git_working_and_says_why(
     failure: Exception, reason: str, unresolved_identity: None
 ) -> None:
     """A hung or unrunnable gh means no token: git still runs, and gh's error names the cause."""
+    lookup = (failure, failure) if isinstance(failure, subprocess.TimeoutExpired) else (failure,)
     with faked_children(
-        side_effect=(children := _Children(failure, _gh_answers(), failure))
+        side_effect=(children := _Children(*lookup, _gh_answers(), failure))
     ) as run:
         proc = run_subprocess(["git", "fetch"])
         with pytest.raises(GitHubUnauthenticatedError) as raised:
             run_subprocess([CONST_GH_CLI, "issue", "list"])
+    git_child = next(env for env in _child_envs(children) if env[0] == ["git", "fetch"])
     assert (
         run.call_args_list[0].kwargs["timeout"],
         proc.returncode,
-        _child_envs(children)[1],
+        git_child,
         reason in raised.value.message,
     ) == (DEFAULT_GH_AUTH_TOKEN_TIMEOUT_SECONDS, 0, (["git", "fetch"], None, None), True)
 

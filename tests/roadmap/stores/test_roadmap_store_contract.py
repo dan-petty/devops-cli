@@ -778,11 +778,36 @@ def test_a_job_comment_that_repeats_the_jobs_last_one_is_refused(world: World) -
         world.store.comment(number, changed),
     ]
 
-    assert (posted, [c.body for c in world.store.comments_on(number)], world.writes()) == (
+    assert (
+        [bool(answer) for answer in posted],
+        [c.body for c in world.store.comments_on(number)],
+        world.writes(),
+    ) == (
         [True, False, True],
         [first, changed],
         2,
     )
+
+
+def test_a_comment_gives_the_page_of_the_new_comment(world: World) -> None:
+    """A job links the comment that it posted, so the store gives its page (#6194)."""
+    number = world.seed("linked")
+
+    posted = world.store.comment(number, "Moved to the backlog.")
+
+    (made,) = world.store.comments_on(number)
+    assert (posted.posted, posted.url, made.url is not None) == (True, made.url, True)
+
+
+def test_a_refused_repeat_gives_the_page_of_the_earlier_comment(world: World) -> None:
+    """The earlier comment holds the same text, so a link to it reads the text (#6194)."""
+    number = world.seed("waits")
+    first = f"{CONST_ROADMAP_REFINE_COMMENT_MARKER}\nReady at a9d6d9fd373f after #3566."
+
+    earlier = world.store.comment(number, first)
+    again = world.store.comment(number, first.replace("a9d6d9fd373f", "0232651a6e35"))
+
+    assert (again.posted, again.url, earlier.url is not None) == (False, earlier.url, True)
 
 
 def test_a_close_with_no_comment_only_closes(world: World) -> None:
@@ -1227,8 +1252,10 @@ def test_a_comment_is_kept_on_its_issue_with_the_time_it_was_made(
         IssueComment(
             body="Moved to the backlog.",
             created_at=clock.now,
+            id=1,
             author_association="OWNER",
             author_login="devops-cli",
+            url=f"https://github.com/example/roadmap/issues/{number}#issuecomment-1",
         )
     ]
 

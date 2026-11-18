@@ -13,7 +13,7 @@ the read with an error that names the file.
 
 `names` is the test of the check whether a text names a tool. The check applies it to the title and
 the body of an item, and to the text of an ADR. `rejects` is the test whether an ADR rejects a tool:
-only its rejected options name the tool.
+an option names it and no chosen or adopted option names it.
 """
 
 from __future__ import annotations
@@ -54,9 +54,17 @@ _RECORD_MARKDOWN = MarkdownIt("commonmark").use(front_matter_plugin)
 # A space, `-`, `_` or `.` between the words of a tool name is one separator, so "Argo Workflows"
 # names `argo-workflows`.
 _SEPARATOR = r"[\s._-]+"
-# An option of an ADR that the decision did not take says so: "rejected", "rejected for now" or
-# "not chosen".
-_REJECTED_OPTION = re.compile(r"\b(?:rejected|not chosen)\b", re.IGNORECASE)
+# An option of an ADR that the decision took says "chosen" or "adopted". An option can also say
+# that the decision did not take something, as in "chosen for the notes and not chosen for the
+# tags": the chosen marker wins, so the safe test removes the negative phrases first.
+_CHOSEN_OPTION = re.compile(r"\b(?:chosen|adopted)\b", re.IGNORECASE)
+_NOT_CHOSEN_OPTION = re.compile(r"\bnot\s+(?:chosen|adopted)\b", re.IGNORECASE)
+
+
+def _says_chosen(option: str) -> bool:
+    """Whether `option` marks a chosen or adopted tool, even when it also says `not chosen`."""
+    return bool(_CHOSEN_OPTION.search(_NOT_CHOSEN_OPTION.sub("", option)))
+
 
 # The number of another ADR in a link key: four digits in quotes. YAML reads an unquoted `0017` as
 # the octal 15, so a strict string refuses it.
@@ -308,14 +316,17 @@ def _options(text: str) -> list[str]:
 
 
 def rejects(adr: Adr, *tool_names: str) -> bool:
-    """Whether `adr` rejects the tool that `tool_names` name (#4661): an option of its `Considered
-    Options` that says `rejected` or `not chosen` names the tool, and neither its title nor an
-    option that says neither names it. ADR 0010 names OpenSpec in rejected options, but its
-    chosen option names OpenSpec too, so it rejects no OpenSpec."""
+    """Whether `adr` rejects the tool that `tool_names` name (#4661, #5082): an option of its
+    `Considered Options` names the tool, and neither its title nor a chosen or adopted option
+    names it. An option that an ADR defers counts as rejected, because the check runs again when
+    the ADR changes. ADR 0010 names OpenSpec in other options, but its chosen option names
+    OpenSpec too, so it rejects no OpenSpec."""
     if names(adr.title, *tool_names):
         return False
     named = [option for option in _options(adr.options) if names(option, *tool_names)]
-    return bool(named) and all(_REJECTED_OPTION.search(option) for option in named)
+    if not named:
+        return False
+    return not any(_says_chosen(option) for option in named)
 
 
 __all__ = [

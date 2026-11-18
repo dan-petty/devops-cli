@@ -2,6 +2,103 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.174.7](https://github.com/dan-petty/devops-cli/compare/v0.174.6...v0.174.7) (2026-11-18)
+
+
+### Bug Fixes
+
+* **ci:** Give each image build its own cache scope ([#6254](https://github.com/dan-petty/devops-cli/issues/6254)) ([708bd3c](https://github.com/dan-petty/devops-cli/commit/708bd3c579fcb75ef47825a5151565b0a2813e9c)), closes [#4928](https://github.com/dan-petty/devops-cli/issues/4928)
+* **roadmap:** Refuse a member that the staged class lacks ([#6005](https://github.com/dan-petty/devops-cli/issues/6005)) ([dfae9b5](https://github.com/dan-petty/devops-cli/commit/dfae9b593056f6800361a3ef8ad43628ff011e34))
+
+## [0.174.6](https://github.com/dan-petty/devops-cli/compare/v0.174.5...v0.174.6) (2026-11-18)
+
+
+### Bug Fixes
+
+* **terraform:** Count a plan from its own segments and require the file ([#6249](https://github.com/dan-petty/devops-cli/issues/6249)) ([1130cd4](https://github.com/dan-petty/devops-cli/commit/1130cd4c01d8eace26111aa2beee1539cf9fae0d))
+
+## [0.174.5](https://github.com/dan-petty/devops-cli/compare/v0.174.4...v0.174.5) (2026-11-18)
+
+
+### Bug Fixes
+
+* **ci:** Refresh durations and run five test shards ([#6248](https://github.com/dan-petty/devops-cli/issues/6248)) ([3a5d6ab](https://github.com/dan-petty/devops-cli/commit/3a5d6ab6965d2c824055c1b4ba2cc327de314eea))
+
+## [0.174.4](https://github.com/dan-petty/devops-cli/compare/v0.174.3...v0.174.4) (2026-11-18)
+
+
+### Bug Fixes
+
+* **security:** Judge KSV-0014 with a dated ignore entry ([#6246](https://github.com/dan-petty/devops-cli/issues/6246)) ([7077f06](https://github.com/dan-petty/devops-cli/commit/7077f068d83198c3d73d250307c337e077209b40))
+
+## [0.174.3](https://github.com/dan-petty/devops-cli/compare/v0.174.2...v0.174.3) (2026-11-18)
+
+
+### Bug Fixes
+
+* **security:** Judge KSV-0017 with a dated ignore entry ([#6243](https://github.com/dan-petty/devops-cli/issues/6243)) ([ed927ec](https://github.com/dan-petty/devops-cli/commit/ed927ec254aff1933f624d77f41471f1d20d05df))
+
+## [0.174.2](https://github.com/dan-petty/devops-cli/compare/v0.174.1...v0.174.2) (2026-11-18)
+
+
+### Bug Fixes
+
+* **ci:** Report a timed-out fail-to-pass replay as could not run ([#6229](https://github.com/dan-petty/devops-cli/issues/6229)) ([b466159](https://github.com/dan-petty/devops-cli/commit/b466159e11fe378d4833311155ce14403465ddcf))
+* **k8s:** Check that secretKeyRef entries name generator table keys ([#6230](https://github.com/dan-petty/devops-cli/issues/6230)) ([9be129e](https://github.com/dan-petty/devops-cli/commit/9be129e4c9bca7be3fd4beffd7e0c0e2cc0a4537))
+* **roadmap:** Upserts edit only comments of the tool account ([#6235](https://github.com/dan-petty/devops-cli/issues/6235)) ([955013e](https://github.com/dan-petty/devops-cli/commit/955013e9bf282d5b15cf2589de7831d2e02b9c3b))
+
+## [0.174.1](https://github.com/dan-petty/devops-cli/compare/v0.174.0...v0.174.1) (2026-11-17)
+
+
+### Bug Fixes
+
+* **ci:** Job-time alarm, conflict and review comments post once ([#6219](https://github.com/dan-petty/devops-cli/issues/6219)) ([4644ad5](https://github.com/dan-petty/devops-cli/commit/4644ad556d48723f07c450171d4239c29e013ffb))
+
+## [0.174.0](https://github.com/dan-petty/devops-cli/compare/v0.173.3...v0.174.0) (2026-11-17)
+
+
+### Features
+
+* **openspec:** move OpenSpec to 2.1.0 and its skill layout ([#6216](https://github.com/dan-petty/devops-cli/issues/6216)) ([ba041d8](https://github.com/dan-petty/devops-cli/commit/ba041d87b47ae71474e32bbb6d89543ed6450f65)), closes [#5078](https://github.com/dan-petty/devops-cli/issues/5078)
+
+
+### Bug Fixes
+
+* **roadmap:** Implement writes its stop report once, on the issue ([#6213](https://github.com/dan-petty/devops-cli/issues/6213)) ([aa1a869](https://github.com/dan-petty/devops-cli/commit/aa1a8691889282e6d2d16e3ac2803d82ea5db2c0))
+
+## [0.173.3](https://github.com/dan-petty/devops-cli/compare/v0.173.2...v0.173.3) (2026-11-17)
+
+
+### Bug Fixes
+
+* **ci:** Let npm audit ignore a no-fix finding until a date ([#6205](https://github.com/dan-petty/devops-cli/issues/6205)) ([b1a0266](https://github.com/dan-petty/devops-cli/commit/b1a026687f24083c2365d98f008b4522a6eee017))
+* **ci:** Show the row name in every gate row line ([#6188](https://github.com/dan-petty/devops-cli/issues/6188)) ([319cdb8](https://github.com/dan-petty/devops-cli/commit/319cdb8c9261eb6d9b4f75b9baf72f300eacb6f9))
+* **git:** Give the branch-current fetch a 24 second limit ([#6190](https://github.com/dan-petty/devops-cli/issues/6190)) ([a116fa2](https://github.com/dan-petty/devops-cli/commit/a116fa27824bf6ca095c0a250ba3be41860f1902))
+* **github:** Retry a timed-out gh auth token lookup ([#6201](https://github.com/dan-petty/devops-cli/issues/6201)) ([ffa602f](https://github.com/dan-petty/devops-cli/commit/ffa602fe095141a068a3b361b7e39de74dc5b2b5))
+* **roadmap:** Keep the alternatives result in the body block only ([#6208](https://github.com/dan-petty/devops-cli/issues/6208)) ([6cb6e23](https://github.com/dan-petty/devops-cli/commit/6cb6e23c2d0ad2d6f2a791d50fe54886a3242f84))
+* **roadmap:** Leave other job comments out of the alternatives request ([#6192](https://github.com/dan-petty/devops-cli/issues/6192)) ([e6f5718](https://github.com/dan-petty/devops-cli/commit/e6f571827889d332fcafcb31f11266a4bcc1251c))
+* **roadmap:** One plan-state comment for each plan PR ([#6209](https://github.com/dan-petty/devops-cli/issues/6209)) ([32a0df2](https://github.com/dan-petty/devops-cli/commit/32a0df2962d7abd519f0fce92e4963e5be2a7d04)), closes [#6197](https://github.com/dan-petty/devops-cli/issues/6197)
+
+## [0.173.2](https://github.com/dan-petty/devops-cli/compare/v0.173.1...v0.173.2) (2026-11-17)
+
+
+### Bug Fixes
+
+* **ai:** Omit sampling parameters that Anthropic SDK 2 refuses ([#6184](https://github.com/dan-petty/devops-cli/issues/6184)) ([1774ebf](https://github.com/dan-petty/devops-cli/commit/1774ebf598ae92380d86653120e0419c63e3a09a))
+* **pr:** Wait for the closing issue before setting its status ([#6179](https://github.com/dan-petty/devops-cli/issues/6179)) ([383a20b](https://github.com/dan-petty/devops-cli/commit/383a20b967a1e022cf73388e7463318db756bf3a))
+* **roadmap:** Confirm a rejection unless a chosen option names the tool ([#6186](https://github.com/dan-petty/devops-cli/issues/6186)) ([95b60e7](https://github.com/dan-petty/devops-cli/commit/95b60e7540a36e1477b816f4225f47625b746c4d))
+* **roadmap:** give stage and implement the item comments ([#6182](https://github.com/dan-petty/devops-cli/issues/6182)) ([b5bd396](https://github.com/dan-petty/devops-cli/commit/b5bd396eca149cf7ff4ab5c12bccbaa528080944))
+
+## [0.173.1](https://github.com/dan-petty/devops-cli/compare/v0.173.0...v0.173.1) (2026-11-17)
+
+
+### Bug Fixes
+
+* **deps:** update Helm release cloudnative-pg to v0.29.2 ([#6170](https://github.com/dan-petty/devops-cli/issues/6170)) ([15cc3f4](https://github.com/dan-petty/devops-cli/commit/15cc3f483adda99da79c9d72a6eee23082e8685d))
+* **pr:** Read the head workflow triggers for the merge verdict ([#6173](https://github.com/dan-petty/devops-cli/issues/6173)) ([a42ee46](https://github.com/dan-petty/devops-cli/commit/a42ee4692f952d235a701e50daa108d7b2e2910a))
+* **roadmap:** Make the alternatives comment brief ([#6174](https://github.com/dan-petty/devops-cli/issues/6174)) ([3f422ad](https://github.com/dan-petty/devops-cli/commit/3f422adcb78aaa817cf762fa69ef46a9d0c8fc17))
+* **roadmap:** Show every source in the alternatives comment ([#6178](https://github.com/dan-petty/devops-cli/issues/6178)) ([c8ee558](https://github.com/dan-petty/devops-cli/commit/c8ee55803d6e35485ba50f789cc71beebb21d7f8))
+
 ## [0.173.0](https://github.com/dan-petty/devops-cli/compare/v0.172.0...v0.173.0) (2026-11-17)
 
 

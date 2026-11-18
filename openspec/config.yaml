@@ -1,4 +1,7 @@
 schema: spec-driven
+# The skills stay in the repository, so a cloud agent or a fresh clone reads them (ADR 0010).
+# OpenSpec 2.1 reads this choice and does not ask it again.
+skillsScope: project
 
 context: |
   devops-cli is pre-1.0 alpha software with no backwards compatibility. Artifacts describe the final state, never a transition, a shim or a legacy mode.

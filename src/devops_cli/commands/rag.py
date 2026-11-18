@@ -696,6 +696,10 @@ def drift_cmd(
         bool,
         typer.Option("--fail-on-drift", help=HELP.rag.fail_on_drift),
     ] = False,
+    repo: Annotated[
+        str | None,
+        typer.Option("--repo", "-r", help=HELP.rag.repo),
+    ] = None,
     output_format: Annotated[
         str,
         typer.Option("--format", "-f", help=HELP.options.format_type),
@@ -728,7 +732,7 @@ def drift_cmd(
 
     from devops_cli.ai.rag.drift import RAGDriftDetector
 
-    detector = RAGDriftDetector(root_dir=path)
+    detector = RAGDriftDetector(root_dir=path, project=repo)
     report = detector.detect_and_sync(auto_sync=auto_sync)
     _render_drift_report(report, output_format=output_format, json_output=json_output)
 

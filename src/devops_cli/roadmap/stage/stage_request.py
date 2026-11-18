@@ -21,16 +21,17 @@ if TYPE_CHECKING:
     from devops_cli.roadmap.stage.stage_paths import StagedTree
     from devops_cli.roadmap.stage.stage_registry import RegistryCount
 
-# The fields that only the gates read. The model never gets them.
+# The fields that the model never gets: the inputs of the gates, and the names of the comments that
+# the request holds whole, which the comment of a staged item names (#6167).
 GATE_ONLY_FIELDS: Final[frozenset[str]] = frozenset(
-    {"issue_body", "probe_lines", "overlap_pulls", "creators"}
+    {"issue_body", "probe_lines", "overlap_pulls", "creators", "comment_names"}
 )
 
 
 class StageRequest(BaseModel):
     """The request for one item. The fields up to `probes` are the JSON that the model reads, in
-    key order. A field that is `None` is absent from that JSON. The last four fields are the
-    inputs of the gates."""
+    key order. A field that is `None` is absent from that JSON. The last fields are the inputs of
+    the gates and the names of the comments that the request holds whole."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -38,6 +39,9 @@ class StageRequest(BaseModel):
     title: str
     # The body, cut to the token limit of the request.
     body: str
+    # The comments of the item, oldest first: the newest whole, the older ones listed
+    # (`item_comments.RequestForm`, #6167).
+    comments: dict[str, Any] | None = None
     context: str
     capabilities: list[Any]
     budget: int
@@ -58,6 +62,8 @@ class StageRequest(BaseModel):
     overlap_pulls: tuple[Overlap, ...] = ()
     # The paths that the plans of open items create, each with its item (#3418).
     creators: dict[str, int] = Field(default_factory=dict)
+    # The page, else the number, author and time, of each comment that `comments` holds whole.
+    comment_names: tuple[str, ...] = ()
 
     def for_model(self) -> dict[str, Any]:
         """The JSON that the model reads: no gate-only field, and no key that is `None`."""

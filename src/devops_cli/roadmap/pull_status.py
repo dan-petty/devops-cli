@@ -62,19 +62,24 @@ _FACTS: Final[dict[str, StatusFacts]] = {
 
 def set_delivered_status(repo: str, pull: int, status: str) -> int | None:
     """Set `status` on the item that pull request `pull` of `repo` (`owner/name`) closes, and
-    return its number, or None when the pull request closes no open item of `repo` or the item's
-    Status stays. A read that fails raises `GitHubOperationError` with its reason."""
+    return the number of the open issue it closes, or None when it closes no open issue of `repo`.
+    A closing issue whose Status stays still returns its number (#5112). A read that fails raises
+    `GitHubOperationError` with its reason."""
     owner, _, name = repo.partition("/")
     closing = read_closing_issues(owner, name, pull)
     if closing.error:
         raise GitHubOperationError(MESSAGES.pr.status_closing_unread.format(error=closing.error))
     store = roadmap_store.get_roadmap_store(repo)
+    linked: int | None = None
     for issue in closing.issues:
-        item = store.item(issue.number) if issue.is_of(repo) and issue.state == "OPEN" else None
+        if not issue.is_of(repo) or issue.state != "OPEN":
+            continue
+        linked = issue.number if linked is None else linked
+        item = store.item(issue.number)
         if item is not None and (item.status in _REPLACES[status] or item.holds_service_stop()):
             write_status(store, item, _FACTS[status])
-            return item.number
-    return None
+            return issue.number
+    return linked
 
 
 def set_claimed_status(store: roadmap_store.RoadmapStore, number: int) -> bool:

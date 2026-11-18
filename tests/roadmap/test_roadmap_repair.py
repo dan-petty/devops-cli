@@ -35,6 +35,7 @@ from devops_cli.roadmap.repair import (
     plan_repair,
     render_repair_plan,
 )
+from devops_cli.roadmap.stage.plan_state import event_key, state_key
 from devops_cli.roadmap.stores.store import (
     CloseReason,
     ImplementRecordKey,
@@ -205,6 +206,26 @@ def test_a_comment_of_another_job_after_the_refine_question_is_no_reply(
     store.seed_comment(number, other, author_association="OWNER")
 
     assert _listed(plan_repair(store, repo=STAGE_REPO)) == [(number, StallKind.STUB_REFINE)]
+
+
+def test_a_plan_state_comment_edited_after_the_return_hides_no_filler_return(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """The stage job and the step fix-plan edit the plan-state comment in place (#6197). An edit
+    keeps the comment at its place before the return, so the newest stage comment is still the
+    return, and the comment of the run before it is no reply."""
+    number = _ready(store)
+    marker = CONST_ROADMAP_STAGE_COMMENT_MARKER
+    state = f"{marker}\n{state_key(5)}\nPlan state: branch `fix/1-x`, draft pull request #5."
+    store.comment(number, state)
+    store.comment(number, f"{marker}\n{event_key(5)}\nThe stage job staged the plan of #5.")
+    store.comment(number, RETURN.format(evidence="x"))
+    store.set_field(_item(store, number), ItemField.STATUS, "New")
+    first = store.comments_on(number)[0]
+    assert first.id is not None
+    store.edit_comment(number, first.id, f"{state}\n\nEdited after the return.")
+
+    assert _listed(plan_repair(store, repo=STAGE_REPO)) == [(number, StallKind.FILLER_RETURN)]
 
 
 @pytest.mark.parametrize("other", OTHER_JOBS)

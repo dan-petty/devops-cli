@@ -866,6 +866,12 @@ class GitHubClient:
             _CreatedIssue, self._session.rest("POST", path, body=payload), path=path
         ).number
 
+    def update_issue_body(self, repo: str, number: int, body: str) -> None:
+        """Replace the body of the issue `number` with `body` in one `PATCH` of the issue. The
+        title, the labels and the state stay as they are (#6199)."""
+        path = _repo_path(repo, f"issues/{number}")
+        self._session.rest("PATCH", path, body={"body": body})
+
     def create_issue_comment(self, repo: str, number: int, body: str) -> None:
         """Post `body` as a comment on the issue or pull request `number`."""
         path = _repo_path(repo, f"issues/{number}/comments")

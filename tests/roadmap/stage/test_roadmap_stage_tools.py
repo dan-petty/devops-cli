@@ -1,4 +1,4 @@
-"""Tests for the read-only toolbox of the stage planner (#3037, #3238): nine tools of the `base`
+"""Tests for the read-only toolbox of the stage planner (#3037, #3238): ten tools of the `base`
 toolset and three more of `extended`, on the staged commit of a temporary git repository with two
 commits. No test reaches a model or the network."""
 
@@ -47,6 +47,7 @@ _TOOL_NAMES = [
     "callers",
     "repo_map",
     "read_spec",
+    "read_comment",
 ]
 _EXTENDED_TOOL_NAMES = [*_TOOL_NAMES, "references", "read_issue", "find_issues"]
 _RESEARCH_TOOL_NAMES = [*_EXTENDED_TOOL_NAMES, "search_web"]
@@ -149,7 +150,7 @@ def tools(repo: Path, openspec_fake: OpenSpecFake, tmp_path: Path) -> StageTools
     )
 
 
-def test_the_base_toolset_has_the_nine_tools_and_no_web_search(tools: StageTools) -> None:
+def test_the_base_toolset_has_the_ten_tools_and_no_web_search(tools: StageTools) -> None:
     base = StageTools(source=tools.source, sha=tools.sha, openspec=tools.openspec, toolset="base")
 
     assert [tool.name for tool in base.tools()] == _TOOL_NAMES
@@ -169,8 +170,8 @@ def test_the_research_toolset_adds_search_web(tools: StageTools) -> None:
 
 
 def test_the_toolset_names_the_methods_of_the_registry_holder(tools: StageTools) -> None:
-    """The registry gives the names of the toolset, in table order: `stage` names the nine of
-    `base`, and `stage-extended` names the twelve of `extended`."""
+    """The registry gives the names of the toolset, in table order: `stage` names the ten of
+    `base`, and `stage-extended` names the thirteen of `extended`."""
     base = StageTools(source=tools.source, sha=tools.sha, openspec=tools.openspec, toolset="base")
 
     assert [tool.name for tool in base.tools()] == list(tool_names(HOLDER_STAGE))

@@ -803,6 +803,9 @@ DEFAULT_GH_LABEL_LIST_LIMIT: int = 1000
 DEFAULT_PROJECT_METRICS_RELEASE_LIMIT: int = 10
 DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS: int = 6
 DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS: float = 5.0
+# GitHub links the issue a new pull request closes a moment after it opens (#5112).
+DEFAULT_PR_CREATE_CLOSING_POLL_ATTEMPTS: int = 6
+DEFAULT_PR_CREATE_CLOSING_POLL_INTERVAL_SECONDS: float = 5.0
 DEFAULT_GH_SUBPROCESS_TIMEOUT_SECONDS: float = 30.0
 DEFAULT_GH_RUN_LOG_TIMEOUT_SECONDS: float = 120.0
 # The wall-clock bound on one gh process walking every `Link` page of a `devops gh api
@@ -813,6 +816,9 @@ DEFAULT_GH_MAX_RETRIES: int = 2
 DEFAULT_GH_RESOURCE: str = "core"
 # `gh auth token` answers locally; a hung keyring must not stall the first gh or git call (#767).
 DEFAULT_GH_AUTH_TOKEN_TIMEOUT_SECONDS: float = 5.0
+# A loaded host can start gh slower than the timeout above. One more attempt keeps a valid login
+# from reading as an authentication error (#4940).
+DEFAULT_GH_AUTH_TOKEN_ATTEMPTS: int = 2
 # After `gh auth token` printed no token, git runs without one and looks again only this much later;
 # gh calls look again every time, since they cannot run without one.
 DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS: float = 60.0

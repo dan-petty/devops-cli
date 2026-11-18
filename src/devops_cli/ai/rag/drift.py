@@ -310,11 +310,12 @@ class RAGDriftDetector:
         root_dir: Path | str = ".",
         indexer: WorkspaceIndexer | None = None,
         cache_dir: Path = DEFAULT_RAG_CACHE_DIR,
+        project: str | None = None,
     ) -> None:
         self.root_dir = Path(root_dir).resolve()
         self.cache_dir = cache_dir
         self.indexer = indexer or WorkspaceIndexer(cache_dir=cache_dir)
-        self.project = detect_project_name(self.root_dir, self.root_dir)
+        self.project = project or detect_project_name(self.root_dir, self.root_dir)
 
     def detect_drift(
         self,

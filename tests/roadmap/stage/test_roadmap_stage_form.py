@@ -19,6 +19,7 @@ from devops_cli.roadmap.stage.stage_change import (
     StageRequirement,
     StageScenario,
     StageSpec,
+    changes_source,
     check_proposal,
 )
 from devops_cli.roadmap.stage.stage_form import (
@@ -55,7 +56,7 @@ def _plan(*changes: str, creates: tuple[str, ...] = (), verify: str | None = Non
         "creates": list(creates),
         "creates_lines": {path: 10 for path in creates},
     }
-    sourced = any(path.startswith("src/") for path in changes)
+    sourced = changes_source(changes)
     if not sourced:
         update |= {"kind": "other", "test": None}
         if all(path.startswith("tests/") for path in changes):

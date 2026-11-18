@@ -15,13 +15,14 @@ import sys
 import threading
 import time
 from collections.abc import Awaitable, Callable, Iterator, Sequence
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Final
 
 import typer
 from pydantic import BaseModel, ConfigDict, Field
 
-from devops_cli.config.commands import build_npm_audit_cmd
+from devops_cli.config.commands import build_npm_audit_cmd, npm_audit_lockfile
 from devops_cli.config.constants import (
     CONST_AST_GREP_SCAN_ARGS,
     CONST_BANDIT_INI_NAME,
@@ -39,6 +40,7 @@ from devops_cli.config.constants import (
     CONST_EXIT_FAILURE,
     CONST_GATE_ROW_SCRIPT,
     CONST_GIT_MAIN_BRANCH,
+    CONST_NPM_AUDIT_IGNORE_FILE,
     CONST_PYPROJECT_FILENAME,
     CONST_SOURCE_ROOT_DIR,
     CONST_TESTS_ROOT_DIR,
@@ -61,7 +63,14 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core import clock
 from devops_cli.core.cli import UsageTaggedGroup, new_typer
-from devops_cli.core.dependency_audit import AuditVerdict, audit_verdict
+from devops_cli.core.dependency_audit import (
+    AppliedIgnores,
+    AuditVerdict,
+    active_npm_ignores,
+    audit_verdict,
+    load_npm_audit_ignores,
+    npm_advisory_ids,
+)
 from devops_cli.core.process import prepare_tool_cmd, run_subprocess
 from devops_cli.dry_run import dry_run_class, is_dry_run, render_dry_run_result, set_dry_run
 from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
@@ -390,18 +399,51 @@ def _run(
     return code == 0
 
 
-def _audit_failure_line(cmd: Sequence[str], run: subprocess.CompletedProcess[str]) -> str | None:
-    """What a run of an audit command says went wrong, read by the kind of command; None when the
-    audit was clean."""
-    verdict = audit_verdict(cmd, run.returncode, run.stdout or "")
+def _audit_today() -> date:
+    """The day, in UTC, that the entries of the npm audit ignore file are read against."""
+    return datetime.now(UTC).date()
+
+
+def _audit_ignores(cmd: Sequence[str]) -> AppliedIgnores:
+    """The entries of the npm audit ignore file for the lockfile that `cmd` audits; none for a
+    command that audits no npm lockfile."""
+    lockfile = npm_audit_lockfile(cmd)
+    if lockfile is None:
+        return AppliedIgnores()
+    entries = load_npm_audit_ignores(_get_project_root() / CONST_NPM_AUDIT_IGNORE_FILE)
+    return active_npm_ignores(entries, lockfile, _audit_today())
+
+
+def _audit_reading(
+    cmd: Sequence[str], run: subprocess.CompletedProcess[str]
+) -> tuple[str | None, list[str]]:
+    """What a run of an audit command says went wrong, read by the kind of command (None when the
+    audit was clean), and a line for each ignore entry it used and each that expired."""
+    applied = _audit_ignores(cmd)
+    stdout = run.stdout or ""
+    found = npm_advisory_ids(stdout) if applied.active or applied.expired else frozenset()
+    lockfile = npm_audit_lockfile(cmd)
+    notes = [
+        MESSAGES.ci.audit_ignored.format(
+            advisory=entry.id, path=lockfile, expired_at=entry.expired_at, statement=entry.statement
+        )
+        for advisory, entry in sorted(applied.active.items())
+        if advisory in found
+    ] + [
+        MESSAGES.ci.audit_ignore_expired.format(
+            advisory=entry.id, path=lockfile, expired_at=entry.expired_at
+        )
+        for entry in applied.expired
+    ]
+    verdict = audit_verdict(cmd, run.returncode, stdout, ignored=applied.active.keys())
     if verdict is AuditVerdict.CLEAN:
-        return None
+        return None, notes
     template = (
         MESSAGES.ci.audit_vulnerable
         if verdict is AuditVerdict.VULNERABLE
         else MESSAGES.ci.audit_not_run
     )
-    return template.format(code=run.returncode, tool=cmd[0])
+    return template.format(code=run.returncode, tool=cmd[0]), notes
 
 
 def _report_audit(cmd: list[str]) -> bool:
@@ -413,9 +455,12 @@ def _report_audit(cmd: list[str]) -> bool:
         timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         capture_output=True,
     )
-    failure = _audit_failure_line(cmd, run)
+    failure, notes = _audit_reading(cmd, run)
     if failure is not None:
         _write_process_output(run.stdout, run.stderr)
+    for note in notes:
+        print_info(note, safe=True)
+    if failure is not None:
         print_error(failure, prefix=False)
     return failure is None
 
@@ -503,6 +548,15 @@ def _format_check_badge(passed: bool) -> str:
     return "[green]✓ pass[/green]" if passed else "[bold red]✗ fail[/bold red]"
 
 
+def _check_row_line(badge: str, name: str, text: str) -> str:
+    """A row line with its literal row name, which `--only` and `--skip` take (#5033).
+
+    `print_muted` reads the line as Rich markup, so the name is escaped with its brackets:
+    `[format]` would otherwise read as a style tag and disappear."""
+    label = escape_text(f"[{name}]")
+    return f"  {badge} {label} {text}"
+
+
 def _planned_requests(spec: CheckSpec) -> tuple[PlannedRequest, ...]:
     """The request each command of the check would make."""
     return tuple(_planned_request_for_cmd(cmd) for cmd in spec.commands)
@@ -523,13 +577,15 @@ def _merged_run(
 def _with_audit_failure_line(
     cmd: Sequence[str], run: subprocess.CompletedProcess[str]
 ) -> subprocess.CompletedProcess[str]:
-    """`run` of an audit command, with what it says went wrong at the end of its error output."""
-    failure = _audit_failure_line(cmd, run)
-    if failure is None:
+    """`run` of an audit command, with the ignore entries it used or that expired and what it says
+    went wrong at the end of its error output. A run whose every finding an entry ignores passes."""
+    failure, notes = _audit_reading(cmd, run)
+    lines = [*notes, *([failure] if failure is not None else [])]
+    code = run.returncode if failure is not None else 0
+    if not lines and code == run.returncode:
         return run
-    return subprocess.CompletedProcess(
-        run.args, run.returncode, run.stdout, (run.stderr or "") + failure + "\n"
-    )
+    text = "".join(f"{line}\n" for line in lines)
+    return subprocess.CompletedProcess(run.args, code, run.stdout, (run.stderr or "") + text)
 
 
 async def _run_check_commands(
@@ -603,7 +659,9 @@ async def _execute_check_async(
         refusal = await asyncio.to_thread(check_spec.host_refusal)
         if refusal is not None:
             print_muted(
-                f"  – [{check_spec.name}] {MESSAGES.ci.row_skipped.format(cause=refusal)}",
+                _check_row_line(
+                    "–", check_spec.name, MESSAGES.ci.row_skipped.format(cause=refusal)
+                ),
                 safe=True,
             )
             return CheckResult(
@@ -627,7 +685,11 @@ async def _execute_check_async(
 
             badge = _format_check_badge(passed)
             print_muted(
-                f"  {badge} [{check_spec.name}] {check_spec.display_title} ({format_duration(dur)})"
+                _check_row_line(
+                    badge,
+                    check_spec.name,
+                    f"{check_spec.display_title} ({format_duration(dur)})",
+                )
             )
             sys.stdout.flush()
             return CheckResult(
@@ -645,7 +707,11 @@ async def _execute_check_async(
             timeout_val = exc.timeout or timeout
             timeout_str = f"{timeout_val:g}s"
             print_muted(
-                f"  {badge} [{check_spec.name}] {check_spec.display_title} (timed out after {timeout_str})"
+                _check_row_line(
+                    badge,
+                    check_spec.name,
+                    f"{check_spec.display_title} (timed out after {timeout_str})",
+                )
             )
             sys.stdout.flush()
             return CheckResult(
@@ -665,7 +731,11 @@ async def _execute_check_async(
 
             stopped_after = format_duration(clock.monotonic() - start_time)
             print_muted(
-                f"  {_format_check_badge(False)} [{check_spec.name}] {check_spec.display_title} (stopped after {stopped_after})"
+                _check_row_line(
+                    _format_check_badge(False),
+                    check_spec.name,
+                    f"{check_spec.display_title} (stopped after {stopped_after})",
+                )
             )
             sys.stdout.flush()
             raise
@@ -1210,7 +1280,11 @@ def _run_python_version_step() -> tuple[bool, CheckResult]:
 
     py_badge = "[green]✓ pass[/green]" if py_ok else "[bold red]✗ fail[/bold red]"
     print_muted(
-        f"  {py_badge} [python_version] {py_result.display_title} ({format_duration(py_dur)})"
+        _check_row_line(
+            py_badge,
+            "python_version",
+            f"{py_result.display_title} ({format_duration(py_dur)})",
+        )
     )
     sys.stdout.flush()
     return py_ok, py_result
@@ -2733,7 +2807,7 @@ def job_time(
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Fail when the last runs of a CI job averaged more than the limit (#2699), and with
-    `--file-issue` comment on or file its P0 issue (#5247)."""
+    `--file-issue` write the report into its P0 issue or file one (#5247, #6199)."""
     from devops_cli.core.repo import find_repo_root, get_repo_origin_name
 
     target = repo or get_repo_origin_name(find_repo_root(Path.cwd()))
@@ -2768,7 +2842,7 @@ def job_time(
 
 def _print_alarm(alarm: Alarm, *, repo: str) -> None:
     """Say which issue now holds the breach, and whether this run filed it."""
-    said = MESSAGES.ci.job_time_issue_filed if alarm.filed else MESSAGES.ci.job_time_issue_commented
+    said = MESSAGES.ci.job_time_issue_filed if alarm.filed else MESSAGES.ci.job_time_issue_updated
     print_info(said.format(repo=repo, number=alarm.number), safe=True)
 
 
@@ -2796,9 +2870,15 @@ def _render_job_time_plan(
                 condition=over,
             ),
             PlannedRequest(
-                method="POST",
-                target=f"/repos/{repo}/issues/<number>/comments",
+                method="GET",
+                target=f"/repos/{repo}/issues/<number>",
                 condition=f"{over} and an open issue holds the alarm of {job}",
+            ),
+            PlannedRequest(
+                method="PATCH",
+                target=f"/repos/{repo}/issues/<number>",
+                stdin='{"body": "<the body with the report of this run>"}',
+                condition="the body of that issue does not hold the report of this run",
             ),
             PlannedRequest(
                 method="POST",
