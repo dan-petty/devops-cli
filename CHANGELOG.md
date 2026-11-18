@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.174.7](https://github.com/dan-petty/devops-cli/compare/v0.174.6...v0.174.7) (2026-11-18)
+
+
+### Bug Fixes
+
+* **ci:** Give each image build its own cache scope ([#6254](https://github.com/dan-petty/devops-cli/issues/6254)) ([708bd3c](https://github.com/dan-petty/devops-cli/commit/708bd3c579fcb75ef47825a5151565b0a2813e9c)), closes [#4928](https://github.com/dan-petty/devops-cli/issues/4928)
+* **roadmap:** Refuse a member that the staged class lacks ([#6005](https://github.com/dan-petty/devops-cli/issues/6005)) ([dfae9b5](https://github.com/dan-petty/devops-cli/commit/dfae9b593056f6800361a3ef8ad43628ff011e34))
+
 ## [0.174.6](https://github.com/dan-petty/devops-cli/compare/v0.174.5...v0.174.6) (2026-11-18)
 
 
