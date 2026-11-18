@@ -9,6 +9,8 @@ from typing import Any
 import pytest
 
 from devops_cli.ai.page_text import PageText
+from devops_cli.ai.web_search import SearchHit
+from devops_cli.exceptions.validation import ValidationError
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -88,6 +90,38 @@ def test_upsert_of_an_equal_hash_refreshes_the_dates(qdrant: Any, embedder: Any)
     assert points[0]["vector"] == first["vector"]
     assert len(_calls(qdrant, "upsert_points")) == 1
     assert len(embedder.calls) == 1
+
+
+def test_upsert_refuses_a_search_hit_and_a_page_with_no_fetch_date_and_names_the_page_field(
+    qdrant: Any, embedder: Any
+) -> None:
+    """A search hit, and a page that no fetch of the project gave a date, are refused, so the
+    index holds the text of a fetched page only (#3906)."""
+    store = _store(qdrant, embedder)
+    hit = SearchHit(url=_URL, title="Qdrant filters", snippet=_FIRST_TEXT, provider="searxng")
+    unfetched = {"source_url": _URL, "text": _FIRST_TEXT}
+
+    for page in (hit, unfetched):
+        with pytest.raises(ValidationError) as caught:
+            store.upsert(page, _QUESTION)
+        assert caught.value.details["field"] == "page"
+
+    assert _points(qdrant, store) == []
+    assert _calls(qdrant, "upsert_points") == []
+    assert _calls(qdrant, "set_payload") == []
+
+
+def test_upsert_refuses_a_blank_source_url_and_names_it(qdrant: Any, embedder: Any) -> None:
+    """A page with no source URL has no provenance, so the store refuses it before it writes
+    (#3906)."""
+    store = _store(qdrant, embedder)
+
+    with pytest.raises(ValidationError) as caught:
+        store.upsert(_page(url="   "), _QUESTION)
+
+    assert caught.value.details["field"] == "source_url"
+    assert _points(qdrant, store) == []
+    assert _calls(qdrant, "upsert_points") == []
 
 
 def test_upsert_of_a_changed_text_replaces_the_text(qdrant: Any, embedder: Any) -> None:

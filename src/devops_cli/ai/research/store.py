@@ -22,6 +22,7 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_RESEARCH_COLLECTION,
     DEFAULT_RESEARCH_EXPIRY_DAYS,
 )
+from devops_cli.exceptions.validation import ValidationError
 
 
 def research_point_id(source_url: str) -> str:
@@ -32,6 +33,20 @@ def research_point_id(source_url: str) -> str:
 def _isoformat(moment: datetime) -> str:
     """`moment` as an ISO 8601 UTC string, as a Qdrant date filter reads it."""
     return moment.astimezone(UTC).isoformat()
+
+
+def _check_page(page: object) -> None:
+    """Guard a page that no fetch of the project produced, before any write (#3906).
+
+    A search hit holds a title and a snippet and no page text, so a point cannot come from it. A
+    page with a blank source URL has no provenance. The store keeps fetched pages only.
+    """
+    if not isinstance(page, PageText):
+        raise ValidationError("The research index stores a fetched page only", field="page")
+    if not page.source_url.strip():
+        raise ValidationError(
+            "The research index needs the source URL of the page", field="source_url"
+        )
 
 
 def _payload(page: PageText, question: str) -> dict[str, Any]:
@@ -70,7 +85,11 @@ class ResearchStore:
         A stored page with the same `content_hash` only gets the new `fetch_date` and `expiry`, and
         writes no vector. A changed page, or a URL that the collection does not hold, writes the
         text, its hash, the dates and the question.
+
+        Raises `ValidationError` with the field `page` for a page that is not a `PageText`, and with
+        the field `source_url` for a page with a blank source URL, before any write.
         """
+        _check_page(page)
         payload = _payload(page, question)
         point_id = research_point_id(page.source_url)
         stored = self._stored_payload(page.source_url)
