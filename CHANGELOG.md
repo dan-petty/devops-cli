@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.179.1](https://github.com/dan-petty/devops-cli/compare/v0.179.0...v0.179.1) (2026-11-18)
+
+
+### Bug Fixes
+
+* **monitoring:** make the Service row panels readable ([#6331](https://github.com/dan-petty/devops-cli/issues/6331)) ([f771237](https://github.com/dan-petty/devops-cli/commit/f7712374be95864b44680d4679789f7258ef9012))
+* **monitoring:** show one repository at a time in Project Velocity ([#6329](https://github.com/dan-petty/devops-cli/issues/6329)) ([8fd2456](https://github.com/dan-petty/devops-cli/commit/8fd24561ed724639eb0c26a4d9d401cf35ce34d3))
+
 ## [0.179.0](https://github.com/dan-petty/devops-cli/compare/v0.178.0...v0.179.0) (2026-11-18)
 
 
