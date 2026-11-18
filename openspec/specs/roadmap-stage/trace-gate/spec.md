@@ -236,6 +236,71 @@ The stage job SHALL take a read word as a claim of the run only when it is `read
 - **WHEN** the trace holds the tool `read_file` and the path `docs/a.md`, and the feasibility section says `` `docs/a.md` is a file, and `read_file` on it revealed the text "see `src/b.py`". ``
 - **THEN** `check_proposal` returns no trace problem, and with only the path `src/b.py` in the trace it returns a problem that names `docs/a.md`.
 
+### Requirement: Relative clause read
+The trace gate SHALL not judge the last path before a relative-clause read whose object holds no path.
+
+#### Scenario: Relative clause with a planner read
+- **WHEN** the trace holds the tool `read_file` and `src/devops_cli/sample.py`, and the feasibility section says `` `read_file` of `src/devops_cli/sample.py` showed that `_create` fetches `origin/main`, so the branch can start past the commit that the planner read. ``
+- **THEN** `check_proposal` returns no trace problem.
+
+### Requirement: Code subject before a parenthesis
+The trace gate SHALL not treat a code subject with a file citation in parentheses as a read by the run.
+
+#### Scenario: Code subject with a citation in parentheses
+- **WHEN** the trace holds `src/devops_cli/sample.py` and the feasibility section says `` `collect_context` (`src/devops_cli/sample.py`) reads `CONTEXT.md` and a tree. ``
+- **THEN** `check_proposal` returns no trace problem.
+
+### Requirement: Code subject of code spans only
+The trace gate SHALL recognize a list of code spans as a code subject before a read verb.
+
+#### Scenario: Code subject of multiple code spans
+- **WHEN** the trace holds `src/devops_cli/sample.py` and the feasibility section says `` `src/devops_cli/sample.py:107` and `src/b.py:436` read `_core_v1`. ``
+- **THEN** `check_proposal` returns no trace problem.
+
+### Requirement: Negation includes cannot
+The trace gate SHALL treat `cannot` as a negation word in read claims.
+
+#### Scenario: Negation includes cannot
+- **WHEN** the trace holds no path and the feasibility section says `` `/proc/self/exe` cannot be read. ``
+- **THEN** `check_proposal` returns no trace problem.
+
+### Requirement: Trailing line ranges stripped from citations
+The trace gate SHALL strip trailing ` <start>-<end>` line ranges from path citations.
+
+#### Scenario: Citation with trailing line range
+- **WHEN** the trace holds `src/devops_cli/sample.py` and the feasibility section says `` I read `src/devops_cli/sample.py 590-610` and found the function. ``
+- **THEN** `check_proposal` returns no trace problem.
+- **WHEN** the trace holds the tools `read_file` and `search_code` and no path, and the feasibility section says `` `read_file` of that prompt shows the rule, and `search_code` returned one hit in `src/tf.py`. ``
+- **THEN** `check_proposal` returns no trace problem.
+
+#### Scenario: A path in the result of a read
+- **WHEN** the trace holds the tool `read_file` and the path `docs/a.md`, and the feasibility section says `` `docs/a.md` is a file, and `read_file` on it showed the text "see `src/b.py`". ``
+- **THEN** `check_proposal` returns no trace problem, and with only the path `src/b.py` in the trace it returns a problem that names `docs/a.md`.
+
+#### Scenario: A claim of the run
+- **WHEN** the trace holds no path and the feasibility section says `` I read `src/missing.py` and found the function. ``
+- **THEN** `check_proposal` returns a problem that names `src/missing.py`.
+
+#### Scenario: A passive read
+- **WHEN** the trace holds no path and the feasibility section says `` `src/missing.py` was read on the base. ``
+- **THEN** `check_proposal` returns a problem that names `src/missing.py`.
+
+#### Scenario: A verb of a list
+- **WHEN** the trace holds no path and the feasibility section says `` I listed the folder, opened the test and read `src/missing.py`. ``
+- **THEN** `check_proposal` returns a problem that names `src/missing.py`.
+
+#### Scenario: A noun read
+- **WHEN** the trace holds no path and the feasibility section says `` A quick read of `src/missing.py` shows the seam. ``
+- **THEN** `check_proposal` returns a problem that names `src/missing.py`.
+
+#### Scenario: A participle
+- **WHEN** the trace holds no path and the feasibility section says `` The file `src/missing.py`, read at the base, shows the seam. ``
+- **THEN** `check_proposal` returns a problem that names `src/missing.py`.
+
+#### Scenario: A pronoun object
+- **WHEN** the trace holds the tool `read_file` and the path `docs/a.md`, and the feasibility section says `` `docs/a.md` is a file, and `read_file` on it revealed the text "see `src/b.py`". ``
+- **THEN** `check_proposal` returns no trace problem, and with only the path `src/b.py` in the trace it returns a problem that names `docs/a.md`.
+
 ### Requirement: A search match supports a citation of its line
 `TraceFacts.of` SHALL hold the `path:line` of each match line of a `search_code` or `callers` answer, and the kept plan file SHALL hold those that its Feasibility section cites. The trace gate SHALL accept a read whose object is a `path:line` or `path:line:text` citation of such a line. It SHALL still refuse `read_file`, a read that takes the line through a pronoun, a claim of the whole file, of another line or of a line range, and it SHALL give a path of a probe line no support.
 

@@ -113,6 +113,15 @@ def _read_refusals(sentence: str) -> list[str]:
         # The object of the read is no path, and the path after it is in another clause (#3453).
         "`read_file` of that prompt at lines 24 and 26 shows the key list, and `search_code` "
         "with `Adds:` returned one hit in `src/devops_cli/commands/tf.py`.",
+        # A relative clause read whose object holds no path (#4590).
+        "`read_file` of `src/devops_cli/sample.py` showed that `_create` fetches `origin/main`, "
+        "so the branch can start past the commit that the planner read.",
+        # A code subject with a citation in parentheses (#4590).
+        "`collect_context` (`src/devops_cli/sample.py`) reads `CONTEXT.md` and a tree.",
+        # A plural list of code spans as subject (#4590).
+        "`src/devops_cli/sample.py:107` and `src/b.py:436` read `_core_v1`.",
+        # A negation that uses cannot (#4590).
+        "`/proc/self/exe` cannot be read.",
     ],
 )
 def test_a_read_word_whose_subject_or_object_is_not_a_read_of_the_run_is_no_claim(
@@ -180,6 +189,8 @@ def test_a_read_word_whose_subject_or_object_is_not_a_read_of_the_run_is_no_clai
             "`read_file src/devops_cli/sample.py` and `read_file src/missing.py` show the seam.",
             "src/missing.py",
         ),
+        # A trailing line range after a path is stripped from the citation (#4590).
+        ("I read `src/missing.py 590-610` and found the function.", "src/missing.py"),
     ],
 )
 def test_a_read_claim_of_the_run_with_no_read_of_its_object_is_refused(
