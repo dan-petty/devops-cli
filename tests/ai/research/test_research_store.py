@@ -188,3 +188,18 @@ def test_search_pages_leaves_out_a_page_with_an_injection_pattern(
     hits = store.search_pages(_QUESTION, now=_SEARCH_TIME)
 
     assert [hit.source_url for hit in hits] == [_URL]
+
+
+def test_expire_deletes_the_point_whose_expiry_passed(qdrant: Any, embedder: Any) -> None:
+    """One expired point and one live point: the sweep deletes the expired one (#3906)."""
+    store = _store(qdrant, embedder)
+    store.upsert(_page(url=_EXPIRED_URL), _QUESTION)
+    store.upsert(_page(_SECOND_TEXT, url=_LIVE_URL, fetched_at=_LATER_FETCH), _QUESTION)
+
+    store.expire(now=_LATER_SEARCH_TIME)
+
+    assert [point["payload"]["source_url"] for point in _points(qdrant, store)] == [_LIVE_URL]
+    calls = _calls(qdrant, "delete_points_by_expiry")
+    assert len(calls) == 1
+    assert calls[0][1][0] == store.collection_name
+    assert datetime.fromisoformat(calls[0][1][1]) == _LATER_SEARCH_TIME

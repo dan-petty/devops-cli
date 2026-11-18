@@ -44,9 +44,9 @@ Adds: `ResearchHit`, `search_pages`
 Kind: behavior. Reads: `src/devops_cli/ai/research/store.py`, `src/devops_cli/ai/rag/qdrant.py`, `tests/support/fakes/qdrant.py`, `tests/ai/agent_audit/test_store.py`. Changes: `src/devops_cli/ai/research/store.py`, `tests/ai/research/test_research_store.py`.
 Adds: `expire`
 
-- [ ] 5.1 Write test_expire_deletes_the_point_whose_expiry_passed in `tests/ai/research/test_research_store.py`: two stored pages, one whose expiry is before the given time and one after it; the sweep deletes the first and keeps the second, the case One expired point and one live point
+- [x] 5.1 Write test_expire_deletes_the_point_whose_expiry_passed in `tests/ai/research/test_research_store.py`: two stored pages, one whose expiry is before the given time and one after it; the sweep deletes the first and keeps the second, the case One expired point and one live point
   - Verification: `$ uv run devops ci test tests/ai/research/test_research_store.py` fails on the base
-- [ ] 5.2 Add expire to ResearchStore in `src/devops_cli/ai/research/store.py`: it calls delete_points_by_expiry of `src/devops_cli/ai/rag/qdrant.py` with the given time (the current UTC time when none is given) and returns nothing. A search already skips an expired page, so the sweep only frees the space
+- [x] 5.2 Add expire to ResearchStore in `src/devops_cli/ai/research/store.py`: it calls delete_points_by_expiry of `src/devops_cli/ai/rag/qdrant.py` with the given time (the current UTC time when none is given) and returns nothing. A search already skips an expired page, so the sweep only frees the space
   - Verification: `$ uv run devops ci test tests/ai/research/test_research_store.py` passes
 
 ## 6. Build the research store from the settings

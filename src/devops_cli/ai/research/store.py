@@ -175,3 +175,13 @@ class ResearchStore:
             filter_payload={"must_range": {"expiry": {"gt": _isoformat(moment)}}},
         )
         return [hit for hit in map(_research_hit, found) if hit is not None]
+
+    def expire(self, *, now: datetime | None = None) -> None:
+        """Delete each stored page whose `expiry` is earlier than `now`.
+
+        `now` is the current UTC time when the caller gives none. A search already leaves an
+        expired page out, so the sweep only frees the space that the page holds.
+        """
+        self.qdrant_client.delete_points_by_expiry(
+            self.collection_name, _isoformat(now or datetime.now(UTC))
+        )
