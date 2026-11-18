@@ -153,6 +153,14 @@
       "matchStrings": ["\\n\\[npm\\.devcontainers-cli\\]\\nversion = \"(?<currentValue>[^\"]+)\""],
       "depNameTemplate": "@devcontainers/cli",
       "datasourceTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "description": "The Style Dictionary version of the tools lock. The npm manager updates style-dictionary/package.json and its lockfile.",
+      "managerFilePatterns": ["/^src/devops_cli/tools_lock/tools\\.lock$/"],
+      "matchStrings": ["\\n\\[npm\\.style-dictionary\\]\\nversion = \"(?<currentValue>[^\"]+)\""],
+      "depNameTemplate": "style-dictionary",
+      "datasourceTemplate": "npm"
     }
   ],
   "dependencyDashboard": {

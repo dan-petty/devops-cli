@@ -853,13 +853,9 @@ jobs:
       - name: Install Style Dictionary
         if: steps.changes.outputs.design == 'true'
         timeout-minutes: 2
-        env:
-          TOOL_DIR: ${{ runner.temp }}/style-dictionary
         run: |
-          mkdir -p "$TOOL_DIR"
-          cp src/devops_cli/tools_lock/style-dictionary/package.json src/devops_cli/tools_lock/style-dictionary/package-lock.json "$TOOL_DIR/"
-          npm ci --ignore-scripts --no-audit --no-fund --prefix "$TOOL_DIR"
-          echo "$TOOL_DIR/node_modules/.bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          uv run devops install-tools --tool style-dictionary --only-missing
 
       - name: Build the Design Tokens
         if: steps.changes.outputs.design == 'true'

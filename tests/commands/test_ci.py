@@ -86,7 +86,7 @@ def test_ci_audit_command(process_fake: ProcessFake) -> None:
     result = runner.invoke(app, ["audit"])
     called = _started(process_fake)
     assert result.exit_code == 0
-    assert [cmd[0] for cmd in called] == ["uv", "npm", "npm"]
+    assert [cmd[0] for cmd in called] == ["uv", "npm", "npm", "npm"]
     assert any("uv" in c and "audit" in c for c in called)
 
 
@@ -114,6 +114,15 @@ def test_the_audit_check_audits_uv_and_the_lockfile_of_each_node_tool_without_a_
             "--prefix",
             "src/devops_cli/tools_lock/devcontainers-cli",
         ],
+        [
+            "npm",
+            "audit",
+            "--package-lock-only",
+            "--json",
+            "--no-update-notifier",
+            "--prefix",
+            "src/devops_cli/tools_lock/style-dictionary",
+        ],
     ]
 
 
@@ -128,7 +137,7 @@ def test_the_audit_command_fails_when_either_audit_fails_and_still_runs_the_othe
 
     assert (result.exit_code, [argv[0] for argv in _started(process_fake)]) == (
         1,
-        ["uv", "npm", "npm"],
+        ["uv", "npm", "npm", "npm"],
     )
 
 
