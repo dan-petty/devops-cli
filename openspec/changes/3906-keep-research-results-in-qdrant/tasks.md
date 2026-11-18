@@ -63,9 +63,9 @@ Adds: `build_research_store`
 
 Kind: behavior. Reads: `src/devops_cli/commands/rag.py`, `src/devops_cli/config/defaults.py`, `src/devops_cli/ai/rag/qdrant.py`, `tests/ai/rag/test_knowledge_base_sync.py`, `tests/commands/test_ai_rag_ingest_analyze_dry_run.py`, `tests/commands/test_rag.py`. Changes: `src/devops_cli/commands/rag.py`, `tests/ai/rag/test_knowledge_base_sync.py`.
 
-- [ ] 7.1 Write test_rag_status_lists_the_research_collection_with_its_point_count in `tests/ai/rag/test_knowledge_base_sync.py`, the case Status runs against a Qdrant that holds the collection
+- [x] 7.1 Write test_rag_status_lists_the_research_collection_with_its_point_count in `tests/ai/rag/test_knowledge_base_sync.py`, the case Status runs against a Qdrant that holds the collection
   - Verification: `$ uv run devops ci test tests/ai/rag/test_knowledge_base_sync.py` fails on the base
-- [ ] 7.2 Add a Research Collection row to status_cmd in `src/devops_cli/commands/rag.py`: it names DEFAULT_RAG_RESEARCH_COLLECTION of `src/devops_cli/config/defaults.py` and prints its point count from count_points, so the row names devops_research before any point exists. The case seeds one point of that collection in the qdrant fixture and asserts that the output holds the name and the count
+- [x] 7.2 Add a Research Collection row to status_cmd in `src/devops_cli/commands/rag.py`: it names DEFAULT_RAG_RESEARCH_COLLECTION of `src/devops_cli/config/defaults.py` and prints its point count from count_points, so the row names devops_research before any point exists. The case seeds one point of that collection in the qdrant fixture and asserts that the output holds the name and the count
   - Verification: `$ uv run devops ci test tests/ai/rag/test_knowledge_base_sync.py` passes
 
 ## Criteria
