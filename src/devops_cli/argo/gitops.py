@@ -27,6 +27,7 @@ from devops_cli.argo.sync import build_sync_request_body
 from devops_cli.config.constants import CONST_GIT_NAME_STATUS_TWO_PATH_LETTERS
 from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.config.settings import load_settings
+from devops_cli.core import clock
 from devops_cli.core.paths import validate_no_path_traversal
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_repo_root, is_ignored_by_git
@@ -510,7 +511,7 @@ class GitOpsWatcher:
 
     def _process_drift_cycle(self, drift: list[GitOpsDriftEvent]) -> GitOpsSyncTriggerResult:
         """Process detected drift through debounce window and trigger synchronization."""
-        time.sleep(self.debounce_seconds)
+        clock.sleep(self.debounce_seconds)
         # Re-scan to include any rapid subsequent writes during debounce window
         additional_drift = self.scan_drift()
         combined_drift = drift + additional_drift
@@ -560,7 +561,7 @@ class GitOpsWatcher:
                     iterations += 1
                     if max_iterations is not None and iterations >= max_iterations:
                         break
-                    time.sleep(self.poll_interval_seconds)
+                    clock.sleep(self.poll_interval_seconds)
             except KeyboardInterrupt:
                 self._running = False
             finally:

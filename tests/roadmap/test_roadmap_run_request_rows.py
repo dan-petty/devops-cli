@@ -116,6 +116,7 @@ def _one_round(service: ServiceManager, enqueue: Callable[[], object]) -> list[s
     return sorted({worker.last_round.result for worker in workers if worker.last_round})
 
 
+@pytest.mark.real_sleep
 @pytest.mark.parametrize(
     ("source", "event", "action"), [("poll", "", ""), ("webhook", "issues", "labeled")]
 )
@@ -130,6 +131,7 @@ def test_no_request_of_a_service_round_counts_as_other(
     assert (results, sorted(requests.rows() - ROWS)) == (["success"], ["idle_check", source])
 
 
+@pytest.mark.real_sleep
 def test_one_lane_of_a_repository_reads_its_open_work_in_a_round(
     service: ServiceManager, requests: _Requests
 ) -> None:

@@ -11,6 +11,7 @@ import httpx2
 import pytest
 
 from devops_cli.models.argo import GitOpsDriftEvent, GitOpsSyncTriggerResult
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.waits import wait_until
@@ -488,3 +489,17 @@ def test_inspect_git_manifest_drift_handles_spaces_non_ascii_and_renames(
         "k8s/café.yaml",
         "k8s/renamed.yaml",
     }
+
+
+def test_gitops_watcher_sleeps_between_iterations(tmp_path: Path, clock: ClockFake) -> None:
+    from devops_cli.argo.gitops import GitOpsWatcher
+
+    watcher = GitOpsWatcher(
+        paths=[tmp_path],
+        app_name="test-app",
+        debounce_ms=50,
+        poll_interval_seconds=0.05,
+        dry_run=True,
+    )
+    watcher.watch(max_iterations=2)
+    assert len(clock.waits) == 1

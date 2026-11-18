@@ -5,7 +5,6 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
-import time
 from pathlib import Path
 from typing import Annotated, Any, cast
 
@@ -28,6 +27,7 @@ from devops_cli.config.defaults import (
     DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS,
     DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS,
 )
+from devops_cli.core import clock
 from devops_cli.core.binaries import check_binary
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
@@ -1186,7 +1186,7 @@ def _created_status_recorded(repo: str | None, number: int) -> bool:
         if closed is not None:
             return True
         if attempt + 1 < DEFAULT_PR_CREATE_CLOSING_POLL_ATTEMPTS:
-            time.sleep(DEFAULT_PR_CREATE_CLOSING_POLL_INTERVAL_SECONDS)
+            clock.sleep(DEFAULT_PR_CREATE_CLOSING_POLL_INTERVAL_SECONDS)
     print_warning(MESSAGES.pr.status_no_closing_issue.format(number=number))
     return True
 
@@ -1875,7 +1875,7 @@ def _poll_head_sha_change(
     """Poll PR details until head SHA changes or attempt bound is reached."""
     latest_pr: dict[str, Any] = {}
     for _ in range(DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS):
-        time.sleep(DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS)
+        clock.sleep(DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS)
         latest_pr = _shown_pr(number, target_repo)
         current_sha = latest_pr.get("head", {}).get("sha", "")
         if current_sha and current_sha != pre_sha:

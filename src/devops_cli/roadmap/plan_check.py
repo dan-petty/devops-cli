@@ -34,6 +34,7 @@ from typing import Final, Protocol
 from devops_cli.config.constants import CONST_OPENSPEC_CHANGES_DIR, CONST_OPENSPEC_SPECS_DIR
 from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
 from devops_cli.config.settings import load_settings
+from devops_cli.core import clock
 from devops_cli.dry_run import PlannedRequest
 from devops_cli.exceptions.git import GitOperationError
 from devops_cli.github.check_verdict import (
@@ -336,7 +337,7 @@ def _wait_for_title_check(
     *,
     wait_seconds: float,
     poll_seconds: float,
-    sleep: Callable[[float], None] = time.sleep,
+    sleep: Callable[[float], None] = clock.sleep,
     monotonic: Callable[[], float] = time.monotonic,
 ) -> CheckVerdictSummary:
     """The check summary after the required title check reaches a terminal state, or after

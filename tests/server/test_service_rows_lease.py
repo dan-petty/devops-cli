@@ -149,6 +149,7 @@ def test_a_pod_that_waits_for_the_lease_keeps_its_deliveries_and_reads_the_state
     )
 
 
+@pytest.mark.real_sleep
 def test_a_pod_that_cannot_renew_the_lease_stops_its_rows_and_reports_unhealthy(
     cluster: FakeCluster, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -191,6 +192,7 @@ def test_a_pod_that_takes_the_lease_and_cannot_read_its_state_reports_unhealthy(
     assert (unhealthy, len(failed), _holder(cluster)) == ((False, "pod-a"), 1, None)
 
 
+@pytest.mark.real_sleep
 def test_sigterm_fails_readyz_renews_the_lease_through_the_drain_and_then_gives_it_back(
     cluster: FakeCluster,
 ) -> None:

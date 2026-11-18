@@ -14,6 +14,7 @@ from devops_cli.config.defaults import (
     DEFAULT_TELEMETRY_PROFILE_POLL_INTERVAL_SECONDS,
     DEFAULT_TELEMETRY_PROFILE_POLL_SECONDS,
 )
+from devops_cli.core import clock
 from devops_cli.exceptions import SSRFBlockedError
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client
@@ -236,7 +237,7 @@ def poll_trace_spans(
         spans = fetched or spans
         if time.monotonic() >= deadline:
             return spans
-        time.sleep(interval)
+        clock.sleep(interval)
 
 
 def run_profiled_command(

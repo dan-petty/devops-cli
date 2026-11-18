@@ -1092,7 +1092,7 @@ _METADATA_ADDRESS = "169.254.169.254"
 @pytest.mark.usefixtures("keyring_store")
 @pytest.mark.parametrize("caller", list(_ai_service_levels(False)))
 def test_each_ai_service_caller_dials_the_address_it_checked(
-    monkeypatch: pytest.MonkeyPatch, dns: DnsFake, tmp_path: Path, caller: str
+    monkeypatch: pytest.MonkeyPatch, dns: DnsFake, tmp_path: Path, caller: str, clock: ClockFake
 ) -> None:
     """Old vs new (#2422): a host that answers cloud metadata after two lookups is never reached.
 

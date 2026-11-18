@@ -7,6 +7,7 @@ from qdrant_client import QdrantClient as NativeQdrantClient
 
 from devops_cli.ai.rag.embeddings import EmbeddingsError
 from devops_cli.ai.rag.qdrant import QdrantClient, QdrantClientError, QdrantProtocol
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.qdrant import FakeQdrantClient
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -163,8 +164,12 @@ def test_qdrant_search_dimension_mismatch_raises_permanent_error(
     assert exc_info.value.is_transient is False
 
 
-def test_qdrant_unreachable_server_raises_qdrant_client_error(refusing_port: int) -> None:
-    native = NativeQdrantClient(url=f"http://127.0.0.1:{refusing_port}", timeout=0.01)
+def test_qdrant_unreachable_server_raises_qdrant_client_error(
+    refusing_port: int, clock: ClockFake
+) -> None:
+    native = NativeQdrantClient(
+        url=f"http://127.0.0.1:{refusing_port}", timeout=0.01, check_compatibility=False
+    )
     client = QdrantClient(
         f"http://127.0.0.1:{refusing_port}", client=native, timeout=0.01, allow_private_network=True
     )

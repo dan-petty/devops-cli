@@ -29,6 +29,7 @@ from devops_cli.github.client import (
 )
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.github.session import get_github_session
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.github import (
     API,
     github_json,
@@ -592,7 +593,7 @@ def test_get_compare_diff_reads_the_three_dot_compare_of_the_base_branch_in_the_
 
 
 @pytest.fixture
-def gh_process(process_fake: ProcessFake) -> ProcessFake:
+def gh_process(process_fake: ProcessFake, clock: ClockFake) -> ProcessFake:
     """A process fake answering rate limit checks with fresh quota."""
     fresh_quota = {"limit": 5000, "remaining": 5000, "reset": time.time() + 60}
     process_fake.answer(

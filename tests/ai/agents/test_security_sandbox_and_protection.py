@@ -18,6 +18,7 @@ import pytest
 import typer
 
 from devops_cli.exceptions import SecurityError, ValidationError
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
@@ -199,7 +200,9 @@ def test_docker_sandbox_rejects_symlinks_and_system_roots(
 
 
 # 14. Provider base_url validation (Finding 12)
-def test_create_pydantic_ai_provider_never_reads_a_file_base_url() -> None:
+def test_create_pydantic_ai_provider_never_reads_a_file_base_url(
+    clock: ClockFake,
+) -> None:
     """Verify a provider on a `file://` base URL reads no file.
 
     The provider's factory client sends only http and https: it refuses the scheme at the

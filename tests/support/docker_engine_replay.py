@@ -25,13 +25,14 @@ import socket
 import socketserver
 import tempfile
 import threading
-import time
 from collections.abc import Iterator, Sequence
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
 import h11
+
+from devops_cli.core import clock
 
 # The record of the scenarios' exchanges.
 RECORD = files("tests").joinpath("fixtures", "docker_engine", "recorded_exchanges.json")
@@ -102,7 +103,7 @@ def send_reply(conn: h11.Connection, sock: socket.socket, exchange: dict[str, An
         sock.sendall(
             conn.send(h11.InformationalResponse(status_code=101, headers=headers + upgrade))
         )
-        time.sleep(UPGRADE_PAUSE_SECONDS)
+        clock.sleep(UPGRADE_PAUSE_SECONDS)
         sock.sendall(b"".join(chunks))
         return False
     if framing == "chunked":

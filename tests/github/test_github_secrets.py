@@ -23,6 +23,7 @@ from devops_cli.github.secrets import (
 from tests.support.fakes.process import ProcessAnswer
 
 if TYPE_CHECKING:
+    from tests.support.fakes.clock import ClockFake
     from tests.support.fakes.keyring import KeyringFake
     from tests.support.fakes.process import ProcessFake
 
@@ -30,7 +31,7 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
 @pytest.fixture(autouse=True)
-def _answer_rate_limit(process_fake: ProcessFake) -> None:
+def _answer_rate_limit(process_fake: ProcessFake, clock: ClockFake) -> None:
     payload = json.dumps(
         {
             "resources": {

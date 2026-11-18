@@ -196,6 +196,7 @@ raises-require-match-for = [
 "socket.inet_ntoa".msg = "Parse and format addresses with ipaddress.ip_address."
 "socket.inet_pton".msg = "Parse and format addresses with ipaddress.ip_address."
 "socket.inet_ntop".msg = "Parse and format addresses with ipaddress.ip_address."
+"time.sleep".msg = "Use devops_cli.core.clock.sleep instead of time.sleep."
 
 [tool.mypy]
 python_version = "3.14"
@@ -244,6 +245,7 @@ markers = [
     "bwrap: live sandbox tests requiring bubblewrap; a default run deselects them, -m bwrap (the bwrap row of devops ci) selects them, and they skip where bwrap is not installed",
     "k8s: live cluster tests; a default run deselects them, and -m k8s selects them on a host with a reachable cluster",
     "live: live tests requiring the named local tool binaries; skipped where a binary is not installed",
+    "real_sleep: marks tests allowed to perform real time.sleep (refuse-real-sleeps floor)",
     "unreachable: tests that exercise a refused endpoint before its fake lands",
 ]
 # Logfire's token check warns from a background thread, so the warning fails a test only

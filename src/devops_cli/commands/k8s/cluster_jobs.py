@@ -33,6 +33,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.config.env import setting_variables
 from devops_cli.config.settings import GitHubAppConfig
+from devops_cli.core import clock
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import PlannedRequest, dry_run_class, is_dry_run, render_request_plan
 from devops_cli.exceptions.k8s import ClusterJobError
@@ -208,7 +209,7 @@ def _wait_until_started(name: str, context: str | None, timeout: float) -> bool:
             return True
         if time.monotonic() >= deadline:
             return False
-        time.sleep(_POLL_SECONDS)
+        clock.sleep(_POLL_SECONDS)
 
 
 def _stream_logs(name: str, context: str | None) -> None:
@@ -228,7 +229,7 @@ def _exit_code(name: str, context: str | None, template: JobTemplate) -> int | N
         if code:
             return int(code.split()[0])
         if attempt + 1 < _EXIT_CODE_ATTEMPTS:
-            time.sleep(_POLL_SECONDS)
+            clock.sleep(_POLL_SECONDS)
     return None
 
 
