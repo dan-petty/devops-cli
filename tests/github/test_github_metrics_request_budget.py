@@ -28,7 +28,7 @@ from tests.support.fakes.github import GitHubApiFake, github_json, next_page
 from tests.support.fakes.github_repository import GitHubFake
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.process import ProcessAnswer
-from tests.support.roadmap_github_store import issue_payload
+from tests.support.roadmap_github_store import issue_payload, labeled
 
 REPO = "example/test-repo"
 NOW = datetime.datetime(2026, 11, 14, 12, 0, tzinfo=datetime.UTC)
@@ -36,6 +36,11 @@ MILESTONE = {"number": 1, "title": "2026-11-01", "state": "open"}
 LISTING = f"/repos/{REPO}/issues?state=all&per_page=100"
 RUNS = f"/repos/{REPO}/actions/runs?per_page=50"
 MILESTONES = f"/repos/{REPO}/milestones?state=all&per_page=100"
+ITEM_AGE_READS_PER_ROUND = 20
+"""The most label-event reads that the cap of one metrics-row round allows (#3634)."""
+NEW_POD_ITEMS = 30
+"""The open Items of the new-pod measurement: more than the cap, so a round defers some
+(#3634)."""
 
 
 def _repository() -> GitHubFake:
@@ -54,15 +59,23 @@ def _warm_ages(github: GitHubFake, record: Path) -> None:
 
 
 def _counted_round(
-    tmp_path: Path, git_fake: GitFake, github: GitHubFake, otlp: FakeCollector
+    tmp_path: Path,
+    git_fake: GitFake,
+    github: GitHubFake,
+    otlp: FakeCollector,
+    *,
+    warm: bool = True,
 ) -> int:
+    """The requests of one counted metrics-row round over `github`, after `_warm_ages` fills the
+    record of its label times unless `warm` is false."""
     root = tmp_path / "repo"
     root.mkdir(exist_ok=True)
     git_fake.answer(["git", "tag"], ProcessAnswer(stdout="v0.1.0|2026-10-01T00:00:00+00:00\n"))
     git_fake.answer(["git", "log"], ProcessAnswer(stdout="v0.1.0\n\nCloses #1\n"))
     git_fake.answer(["git", "rev-list"], ProcessAnswer(stdout="1\n"))
     record = item_label_times_path(tmp_path)
-    _warm_ages(github, record)
+    if warm:
+        _warm_ages(github, record)
     from devops_cli.github import metrics as metrics_module
 
     metrics_module._refused_integration_repos.add(REPO)
@@ -141,3 +154,59 @@ def test_one_more_page_of_open_items_fails_the_budget(
         )
     assert str(METRICS_ROW_GITHUB_REQUEST_BUDGET) in str(raised.value)
     assert str(count) in str(raised.value)
+
+
+def _thirty_open_items(github_api: GitHubApiFake) -> None:
+    """One page of 30 open Items that hold a Priority, the CI runs, the milestones and the label
+    events of each Item, so a round with no record reads 20 of them and no other read fails
+    (#3634)."""
+    items = [
+        labeled(issue_payload(number), "priority/p2-medium")
+        for number in range(1, NEW_POD_ITEMS + 1)
+    ]
+    github_api.route("GET", LISTING, github_json(items))
+    github_api.route("GET", RUNS, github_json({"total_count": 0, "workflow_runs": []}))
+    github_api.route("GET", MILESTONES, github_json([MILESTONE]))
+    for number in range(1, NEW_POD_ITEMS + 1):
+        github_api.route(
+            "GET",
+            f"/repos/{REPO}/issues/{number}/events?per_page=100",
+            github_json(
+                [
+                    {
+                        "event": "labeled",
+                        "created_at": "2026-11-01T12:00:00Z",
+                        "actor": {"login": "dan-petty"},
+                        "label": {"name": "priority/p2-medium"},
+                    }
+                ]
+            ),
+        )
+
+
+def test_a_new_pod_sends_24_requests_in_its_first_round(
+    tmp_path: Path,
+    git_fake: GitFake,
+    monkeypatch: pytest.MonkeyPatch,
+    github_api: GitHubApiFake,
+    otlp: FakeCollector,
+) -> None:
+    """A new pod whose record is not there reads the label events of 20 of the 30 open Items, so
+    its first round sends the 4 fixed reads of the row and the 20 reads of the cap: 24 requests.
+    The budget was 5 when #3634 was planned, so that plan counts 25; #6095 lowered it to 4
+    (#3634)."""
+    github = _repository()
+    for number in range(2, NEW_POD_ITEMS + 1):
+        github.seed_issue(number, f"fix: {number}", labels=("priority/p2-medium",))
+    github.answer_children(monkeypatch)
+    _thirty_open_items(github_api)
+    count = _counted_round(tmp_path, git_fake, github, otlp, warm=False)
+    events = [url for url in github_api.requested if "/events?" in url]
+    assert (len(events), count) == (
+        ITEM_AGE_READS_PER_ROUND,
+        METRICS_ROW_GITHUB_REQUEST_BUDGET + ITEM_AGE_READS_PER_ROUND,
+    ), (
+        f"one new pod read the label events of {len(events)} Items and sent {count} GitHub "
+        f"requests in its first round, against the {ITEM_AGE_READS_PER_ROUND} reads of the cap "
+        f"and the {METRICS_ROW_GITHUB_REQUEST_BUDGET} fixed reads of the row"
+    )

@@ -22,7 +22,7 @@ Kind: behavior. Reads: `src/devops_cli/github/metrics.py`, `src/devops_cli/githu
 
 Kind: other. Reads: `tests/github/test_github_metrics_request_budget.py`, `src/devops_cli/github/metrics.py`, `src/devops_cli/github/item_label_times.py`. Changes: `tests/github/test_github_metrics_request_budget.py`.
 
-- [ ] 3.1 Add `test_a_new_pod_sends_25_requests_in_its_first_round` to `tests/github/test_github_metrics_request_budget.py`: seed 30 open Items, run one counted round with a record path whose file does not exist, and assert 25, the 5 fixed reads of `METRICS_ROW_GITHUB_REQUEST_BUDGET` plus the 20 label-event reads of the cap. The pull request body states that number
+- [x] 3.1 Add `test_a_new_pod_sends_25_requests_in_its_first_round` to `tests/github/test_github_metrics_request_budget.py`: seed 30 open Items, run one counted round with a record path whose file does not exist, and assert 25, the 5 fixed reads of `METRICS_ROW_GITHUB_REQUEST_BUDGET` plus the 20 label-event reads of the cap. The pull request body states that number
   - Verification: `$ uv run devops ci test tests/github/test_github_metrics_request_budget.py` passes
 
 ## 4. Keep the record in the state directory of the row
