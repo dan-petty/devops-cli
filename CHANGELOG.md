@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.179.0](https://github.com/dan-petty/devops-cli/compare/v0.178.0...v0.179.0) (2026-11-18)
+
+
+### Features
+
+* **config:** Generate declared credentials from config set ([#6318](https://github.com/dan-petty/devops-cli/issues/6318)) ([abe8785](https://github.com/dan-petty/devops-cli/commit/abe87858ef9aba147e455b633d51211b0156bb50))
+
+
+### Bug Fixes
+
+* **roadmap:** judge the registry of the checked-out tree ([#6322](https://github.com/dan-petty/devops-cli/issues/6322)) ([31a15af](https://github.com/dan-petty/devops-cli/commit/31a15af7dbae240c00cd80d91e52826aa9ad658c))
+* **tests:** refuse real sleeps in tests ([#6317](https://github.com/dan-petty/devops-cli/issues/6317)) ([918c9f4](https://github.com/dan-petty/devops-cli/commit/918c9f41a81ef0fdfc0fd3894c405a0c4b796f8d))
+
 ## [0.178.0](https://github.com/dan-petty/devops-cli/compare/v0.177.1...v0.178.0) (2026-11-18)
 
 
