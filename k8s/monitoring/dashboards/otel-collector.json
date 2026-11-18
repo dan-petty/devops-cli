@@ -491,7 +491,7 @@
           "mode": "multi"
         }
       },
-      "title": "Delta Points Dropped by deltatocumulative",
+      "title": "Delta Points Dropped by delta_to_cumulative",
       "type": "timeseries",
       "targets": [
         {
@@ -504,7 +504,7 @@
           "refId": "A"
         }
       ],
-      "description": "The share of the delta points that the deltatocumulative processor drops, by error: limit when the processor already tracks its limit of streams, or a delta error when the start time of the point is before the start of its stream or the point is older than the last point of its stream. Two processes of one host that send one stream cause the delta errors. No Prometheus series holds the count of a dropped point. The line is at 0.5 %."
+      "description": "The share of the delta points that the delta_to_cumulative processor drops, by error: limit when the processor already tracks its limit of streams, or a delta error when the start time of the point is before the start of its stream or the point is older than the last point of its stream. Two processes of one host that send one stream cause the delta errors. No Prometheus series holds the count of a dropped point. The line is at 0.5 %."
     }
   ],
   "refresh": "10s",

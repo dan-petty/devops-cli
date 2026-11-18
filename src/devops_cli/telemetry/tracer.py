@@ -1133,7 +1133,7 @@ class OTelTelemetryClient:
         The thread calls `flush`, which collects and waits for the export under the flush lock,
         so its export and the flush of the Service after a round never pass each other. The
         SDK's `PeriodicExportingMetricReader` collects outside such a lock: a later delta can
-        then reach the collector first, and `deltatocumulative` drops the earlier one as out of
+        then reach the collector first, and `delta_to_cumulative` drops the earlier one as out of
         order.
         """
         self._periodic_export = threading.Thread(

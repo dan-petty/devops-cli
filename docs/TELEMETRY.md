@@ -17,7 +17,7 @@ SIGTERM flushes once more before the process stops as it did with no handler (#5
 `devops serve --service` is one long process, so it also flushes when each lane batch
 ends. One flush runs at a time, so the deltas reach the collector in the order they
 were collected.
-The collector's `deltatocumulative` processor adds the deltas of each stream (its
+The collector's `delta_to_cumulative` processor adds the deltas of each stream (its
 resource, scope, metric and attributes) into a running total before Prometheus stores
 it. Prometheus names a series by `service.name` (`job`), `service.instance.id`
 (`instance`) and the metric's attributes. Prometheus sets `job` and `instance` from
@@ -29,7 +29,7 @@ Prometheus keeps only `job` and `instance`, so a resource attribute such as
 `host.name`, the pod name, would split one series into a stream that starts at zero
 again. A devops-cli build from before #4697 still sends `host.name`, so the collector
 deletes it from the metric Resource of the `devops-cli-otel` SDK before
-`deltatocumulative` (`transform/metric_resource` in `k8s/otel/values.yaml`, #5338).
+`delta_to_cumulative` (`transform/metric_resource` in `k8s/otel/values.yaml`, #5338).
 An old and a new build of one workload then send one stream, and the alert
 `DevopsCliMetricStreamsShareSeries` shows a second stream that remains.
 The span and log Resource also holds `host.name`, which finds the pod of a
