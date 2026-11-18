@@ -486,6 +486,7 @@ Detect staleness and drift between the working tree and the Qdrant vector index.
 | `path` | `string` | No | `.` | Directory or file to index into vector store. |
 | `auto_sync` | `boolean` | No | `False` | Automatically re-index stale and newly added files. |
 | `fail_on_drift` | `boolean` | No | `False` | Exit with code 1 if index drift or git commit divergence is detected. |
+| `repo` | `string` | No | - | Managed repository in owner/name form to ingest. Repeat to specify more than one repository. |
 | `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
