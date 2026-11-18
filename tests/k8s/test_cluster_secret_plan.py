@@ -583,6 +583,33 @@ def test_the_crawl4ai_token_is_one_managed_credential_for_two_secrets() -> None:
     )
 
 
+def test_the_command_and_the_push_read_one_row() -> None:
+    """The generate flag of `devops config set` takes the generator that the push reads (#3998)."""
+    from devops_cli.k8s.cluster_secrets import generator_for_option, generator_option_names
+
+    (service,) = [secret for secret in CLUSTER_SECRETS if secret.ref == "devops/crawl4ai"]
+    (token,) = service.entries
+    assert (
+        generator_for_option("crawl4ai.api_token") is token.generator,
+        generator_for_option("crawl4ai.api_token"),
+        generator_for_option("gemini.api_key"),
+        generator_option_names(),
+    ) == (
+        True,
+        SecretGenerator("urlsafe", 32),
+        None,
+        (
+            "crawl4ai.api_token",
+            "grafana.password",
+            "mcp.token",
+            "qdrant.api_key",
+            "qdrant.read_only_api_key",
+            "runs.index_password",
+            "valkey.password",
+        ),
+    )
+
+
 def test_the_mcp_token_is_one_managed_credential_for_three_keys() -> None:
     """The server accepts one bearer token, so the key of the server and the key of each client
     job read one keyring entry."""

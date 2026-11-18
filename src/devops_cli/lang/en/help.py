@@ -2572,6 +2572,15 @@ class ConfigCommandHelp:
         "Every line and the last newline stay as the input has them, and the value never shows "
         "in the output."
     )
+    generate: str = (
+        "Make the value with the generator that the cluster Secret table declares for this "
+        "credential, and store it in the OS keyring. The command prints the kind and the "
+        "length of the value, never the value itself."
+    )
+    rotate: str = (
+        "With --generate, replace a value that the OS keyring already holds. Without "
+        "--generate it is a usage error."
+    )
     export_env: str = "Print environment variables as shell export statements."
     json_env: str = "Print environment variables as JSON."
     secret_key: str = "Dotted secret key, e.g. grafana.token."

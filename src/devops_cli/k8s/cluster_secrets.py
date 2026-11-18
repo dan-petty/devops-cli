@@ -694,6 +694,40 @@ def keyring_sources(entry: SecretEntry) -> tuple[KeyringSource, ...]:
     return tuple(s for s in sources if isinstance(s, KeyringSource))
 
 
+def generator_for_option(
+    option: str, table: Iterable[ClusterSecret] = CLUSTER_SECRETS
+) -> SecretGenerator | None:
+    """The generator the table declares for the managed credential `option`."""
+    return next(
+        (
+            entry.generator
+            for secret in table
+            for entry in secret.entries
+            if entry.generator is not None
+            and any(source.option == option for source in keyring_sources(entry))
+        ),
+        None,
+    )
+
+
+def generator_option_names(
+    table: Iterable[ClusterSecret] = CLUSTER_SECRETS,
+) -> tuple[str, ...]:
+    """The managed credential options whose row declares a generator, sorted."""
+    return tuple(
+        sorted(
+            {
+                source.option
+                for secret in table
+                for entry in secret.entries
+                if entry.generator is not None
+                for source in keyring_sources(entry)
+                if source.option is not None
+            }
+        )
+    )
+
+
 def keyring_only_keys(table: Iterable[ClusterSecret] = CLUSTER_SECRETS) -> frozenset[str]:
     """The keyring keys the table declares that no Settings option reads."""
     return frozenset(

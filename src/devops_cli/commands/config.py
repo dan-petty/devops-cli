@@ -37,7 +37,10 @@ from devops_cli.config.os_keyring import (
     SecretStorageError,
     backend_info,
     has_keyring_secret,
+    keyring_read,
+    keyring_write,
     remember_secret,
+    require_persistent_keyring,
 )
 from devops_cli.config.settings import (
     _SECRET_FIELDS,
@@ -263,6 +266,65 @@ def _secret_from_file(key: str, value: str | None, source: BinaryIO) -> str:
     return secret
 
 
+def _refuse_a_second_source(
+    value: str | None, from_file: BinaryIO | None, *, generate: bool, rotate: bool
+) -> None:
+    """Refuse a run that names two sources of one value, or a rotate with no generate."""
+    if rotate and not generate:
+        raise typer.BadParameter(MESSAGES.config.rotate_without_generate, param_hint="'--rotate'")
+    if generate and value is not None:
+        raise typer.BadParameter(MESSAGES.config.generate_with_value, param_hint="'--generate'")
+    if generate and from_file is not None:
+        raise typer.BadParameter(MESSAGES.config.generate_with_from_file, param_hint="'--generate'")
+
+
+def _store_generated(key: str, *, rotate: bool, dry_run: bool) -> None:
+    """Make a credential with the generator of the cluster Secret table, and store it.
+
+    The table is the one declaration of each generator, so this command and
+    `devops k8s push-secrets` make the same value. The value stays in this process and in the
+    keyring: no argument, file, log record or output holds it. A dry run prints the kind, the
+    byte count and a masked placeholder, and reads nothing.
+    """
+    from devops_cli.k8s.cluster_secrets import generator_for_option, generator_option_names
+
+    generator = generator_for_option(key)
+    if generator is None:
+        options = ", ".join(generator_option_names())
+        print_error(
+            MESSAGES.config.generate_no_generator.format(key=key, options=options),
+            prefix=False,
+            safe=True,
+        )
+        raise typer.Exit(1)
+    if dry_run:
+        print_info(
+            MESSAGES.config.generate_dry_run.format(
+                key=key, kind=generator.encoding, length=generator.nbytes, mask="*" * 8
+            ),
+            prefix=False,
+            safe=True,
+        )
+        return
+    name = credential(key).keyring_name
+    try:
+        require_persistent_keyring()
+        if keyring_read(name) is not None and not rotate:
+            print_error(MESSAGES.config.generate_exists.format(key=key), prefix=False, safe=True)
+            raise typer.Exit(1)
+        keyring_write(name, generator.generate())
+    except SecretStorageError as exc:
+        _render_secret_store_error(key, exc)
+        raise typer.Exit(1) from exc
+    print_success(
+        MESSAGES.config.generate_success.format(
+            key=key, kind=generator.encoding, length=generator.nbytes
+        ),
+        prefix=False,
+        safe=True,
+    )
+
+
 @app.command("set")
 @dry_run_class("no-external-request")
 def set_value(
@@ -272,6 +334,8 @@ def set_value(
         typer.FileBinaryRead | None,
         typer.Option("--from-file", metavar="PATH", help=HELP.config.from_file),
     ] = None,
+    generate: Annotated[bool, typer.Option("--generate", help=HELP.config.generate)] = False,
+    rotate: Annotated[bool, typer.Option("--rotate", help=HELP.config.rotate)] = False,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
@@ -282,9 +346,13 @@ def set_value(
     A multi-line credential, such as a PEM private key, comes from a file or stdin:
     `devops config set <key> --from-file key.pem`, or `--from-file -` to read stdin.
     """
+    _refuse_a_second_source(value, from_file, generate=generate, rotate=rotate)
     # An unknown key exits before the prompt, the read of the file and the load of the settings.
     if not is_config_key(key):
         raise _unknown_key(key)
+    if generate:
+        _store_generated(key, rotate=rotate, dry_run=dry_run or is_dry_run())
+        return
     value = (
         _value_or_prompt(key, value)
         if from_file is None
