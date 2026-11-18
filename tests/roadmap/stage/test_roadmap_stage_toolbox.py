@@ -140,6 +140,15 @@ def _plan(client: ToolboxClient) -> Any:
     return client.chat_structured("System.", "{}", StageProposal, max_retries=1)
 
 
+def _review_stop(client: ToolboxClient, *, max_retries: int = 1) -> tuple[str, str, str]:
+    """The stop reason and detail that the run records, and the message of its error, for a review
+    run that stops with no findings (#3717)."""
+    with pytest.raises((RoadmapStageError, AIClientError)) as raised:
+        client.chat_structured("System.", "{}", Verification, max_retries=max_retries)
+    trace = client.traces[-1]
+    return trace.stop_reason, trace.stop_detail, str(raised.value)
+
+
 def _read(path: str = "src/sample.py") -> ModelResponse:
     return call("read_file", path=path)
 
@@ -303,6 +312,43 @@ def test_a_review_run_with_invalid_arguments_raises_the_same_error(
 
     assert not isinstance(raised.value, StructuredOutputValidationError)
     assert str(raised.value).count("invalid arguments") == 1
+
+
+def test_a_text_reply_that_holds_the_findings_gives_them(checkout: tuple[Path, str]) -> None:
+    """pydantic-ai parses a text reply that holds the findings as JSON, so a model that answers in
+    text in place of the output tool gives its findings (#3717)."""
+    client = _client(checkout, Script(ModelResponse(parts=[TextPart('{"findings": []}')])))
+
+    reply = client.chat_structured("System.", "{}", Verification, max_retries=1)
+
+    assert reply.findings == []
+
+
+def test_a_stopped_verification_run_names_its_cause(checkout: tuple[Path, str]) -> None:
+    """A review run that stops names its cause (#3717): the text reply that pydantic-ai refused,
+    the tool of a call that the run refused past the tools retry limit, the output retry limit
+    that the caller set, and the name of the limit that ended the run."""
+    text = _review_stop(_client(checkout, Script(ModelResponse(parts=[TextPart("No findings.")]))))
+    refused = _review_stop(_client(checkout, Script(call("no_such_tool", path="src/sample.py"))))
+    output = _review_stop(
+        _client(checkout, Script(call("final_result", findings="none"))), max_retries=3
+    )
+    budget = _review_stop(_limited_client(checkout, Script(*([_read()] * _CALLS))))
+
+    assert [(reason, detail) for reason, detail, _ in (text, refused, output, budget)] == [
+        ("text_reply", ""),
+        ("refused_tool_call", "no_such_tool"),
+        ("output_retries_exhausted", ""),
+        ("budget_exhausted", "tool_calls_limit"),
+    ]
+    assert (
+        "No findings." in text[2],
+        "no_such_tool" in refused[2],
+        f"tools retry limit of {constants.CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES}"
+        in refused[2],
+        "output retry limit of 3" in output[2],
+        "tool_calls_limit" in budget[2],
+    ) == (True, True, True, True, True)
 
 
 def test_a_reply_that_breaks_the_schema_once_goes_back_and_the_second_stands(
