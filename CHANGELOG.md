@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.175.0](https://github.com/dan-petty/devops-cli/compare/v0.174.7...v0.175.0) (2026-11-18)
+
+
+### Features
+
+* **roadmap:** Add a loopback gateway broker to a step ([#6157](https://github.com/dan-petty/devops-cli/issues/6157)) ([d15dfcf](https://github.com/dan-petty/devops-cli/commit/d15dfcf90f675ea13b2c6fab77c901a6bf863c6e))
+* **roadmap:** Add RAG index rows to repository onboarding ([#6041](https://github.com/dan-petty/devops-cli/issues/6041)) ([59b424a](https://github.com/dan-petty/devops-cli/commit/59b424af964c64eb53425d8211ebfb4dbaabf787))
+* **roadmap:** Seam the serve start and the roadmap table ([#6150](https://github.com/dan-petty/devops-cli/issues/6150)) ([de55e8b](https://github.com/dan-petty/devops-cli/commit/de55e8b309b53b714a43d044dc52e6e1a6a8a3ca))
+
 ## [0.174.7](https://github.com/dan-petty/devops-cli/compare/v0.174.6...v0.174.7) (2026-11-18)
 
 
