@@ -113,6 +113,7 @@ from devops_cli.roadmap.stage.stage import (
 )
 from devops_cli.roadmap.stage.stage_change import check_proposal, issue_dependencies
 from devops_cli.roadmap.stage.stage_paths import StagedTree
+from devops_cli.roadmap.stage.stage_registry import RegistryCount, registry_table
 from devops_cli.roadmap.stage.stage_verify import FIX_PLAN_LABEL
 from devops_cli.roadmap.status_sync import job_holds
 from devops_cli.roadmap.step_files import parse_task_groups
@@ -370,6 +371,11 @@ class _Judge:
         """Every Item, open and closed, read once for the titles that a body names (#4803)."""
         return self._store.items()
 
+    @cached_property
+    def _registry(self) -> tuple[RegistryCount, ...]:
+        """The registry table of the repository, built once from its checkout (#4695)."""
+        return registry_table(self._source)
+
     def _dependency(self, item: Item) -> str | None:
         """An open issue that the Dependencies section of the body names as `#N` (#2654) or by its
         quoted title (#4803), from the shared check (#4009)."""
@@ -465,7 +471,12 @@ class _Judge:
         ) is not None:
             return dependency
         problems = check_proposal(
-            proposal, known, StagedTree(files), requirements=requirements, issue_body=item.body
+            proposal,
+            known,
+            StagedTree(files),
+            requirements=requirements,
+            issue_body=item.body,
+            registry=self._registry,
         )
         return texts.implement_left_plan.format(problem=problems[0]) if problems else None
 

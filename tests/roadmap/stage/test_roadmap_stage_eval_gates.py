@@ -9,12 +9,11 @@ from __future__ import annotations
 
 import inspect
 import sys
-from pathlib import Path
-from typing import Final
+from typing import Any, Final, cast
 
 import pytest
 
-from devops_cli.roadmap.stage import stage_change, stage_eval_gates
+from devops_cli.roadmap.stage import stage_change
 from devops_cli.roadmap.stage.stage_eval_cases import (
     CASES_DIRECTORY,
     CaseFacts,
@@ -40,7 +39,7 @@ from devops_cli.roadmap.stage.stage_eval_gates import (
     replay_case,
     run_gates,
 )
-from devops_cli.roadmap.stage.stage_registry import RegistryCount
+from devops_cli.roadmap.stage.stage_registry import RegistryCount, registry_table
 from devops_cli.roadmap.step_files import parse_task_groups
 from tests.support.paths import REPO_ROOT
 
@@ -48,7 +47,7 @@ from tests.support.paths import REPO_ROOT
 CASES: Final[list[StageCase]] = load_cases(REPO_ROOT / CASES_DIRECTORY)
 # The shape tests read this module's own source, so they spell the whole-set replay in parts: a
 # search for the whole text would find the shape test's own line (#4079).
-_WHOLE_SET_REPLAY = "replay" + "_all(CASES)"
+_WHOLE_SET_REPLAY = "replay" + "_all(CASES, registry=registry)"
 _MODULE_FIXTURE = '@pytest.fixture(scope="module")'
 # The defects of the whole set that a gate judges, and all of them, after #3395 records the
 # placeholder summary of case 3167 at the kind gate. The case of #3408 adds one defect that no gate
@@ -68,10 +67,16 @@ def cases() -> list[StageCase]:
     return CASES
 
 
+@pytest.fixture(scope="session")
+def registry() -> tuple[RegistryCount, ...]:
+    """The real registry table of the repository, built once per test worker (#4695)."""
+    return registry_table(REPO_ROOT)
+
+
 @pytest.fixture(scope="module")
-def report() -> ReplayReport:
+def report(registry: tuple[RegistryCount, ...]) -> ReplayReport:
     """The replay of the whole set, computed once for the module (#4079)."""
-    return replay_all(CASES)
+    return replay_all(CASES, registry=registry)
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda case: case.name)
@@ -128,7 +133,7 @@ def test_the_incident_case_of_pull_3305_is_loaded_and_accepted(cases: list[Stage
     case = next((c for c in cases if c.issue == 3264 and c.pull == 3305), None)
     assert case is not None
     assert any("kind: placeholder" in note for note in case.notes)
-    report = replay_all([case])
+    report = replay_all([case], registry=())
     assert report.failures == []
 
 
@@ -137,28 +142,27 @@ def test_the_plan_that_reads_an_absent_model_field_is_caught_by_paths_gate(
 ) -> None:
     case = next((c for c in cases if c.issue == 3344), None)
     assert case is not None
-    report = replay_all([case])
+    report = replay_all([case], registry=())
     assert report.failures == []
     outcome = next(o for r in report.replays for o in r.outcomes)
     assert outcome.status is DefectStatus.CAUGHT
     assert outcome.defect.gate is GateName.PATHS
 
 
-def test_the_replay_reads_the_registry_table_once(
-    cases: list[StageCase], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The replay reads the table once for the whole set, and gives it to every case (#4057)."""
-    roots: list[Path] = []
+def test_the_eval_gates_registry_fixture_has_session_scope() -> None:
+    """The eval-gates registry fixture builds the table once per worker session (#4695)."""
+    marker = getattr(registry, "_fixture_function_marker", None)
+    assert marker is not None
+    assert marker.scope == "session"
 
-    def counted(root: Path) -> tuple[RegistryCount, ...]:
-        roots.append(root)
-        return ()
 
-    monkeypatch.setattr(stage_eval_gates, "registry_table", counted)
+def test_replay_all_and_replay_case_require_registry_table() -> None:
+    """replay_all and replay_case raise TypeError when registry is not passed (#4695)."""
+    with pytest.raises(TypeError, match="registry"):
+        cast(Any, replay_all)(CASES[:1])
 
-    replay_all(cases[:2])
-
-    assert len(roots) == 1
+    with pytest.raises(TypeError, match="registry"):
+        cast(Any, replay_case)(CASES[0])
 
 
 def test_the_plan_under_test_holds_the_registry_of_its_case(cases: list[StageCase]) -> None:
@@ -212,7 +216,7 @@ def test_the_paths_gate_refuses_a_move_plan_that_leaves_a_reference_hit(
     case = next(c for c in cases if c.issue == 3412)
 
     problems = run_gates(PlanUnderTest.of_case(case))[GateName.PATHS]
-    replay = replay_case(case)
+    replay = replay_case(case, registry=())
 
     assert any(REFERENCE_TEST in problem for problem in problems)
     assert any(REFERENCE_COMMAND_TEST in problem for problem in problems)
@@ -336,7 +340,7 @@ def test_the_judged_share_counts_the_caught_and_the_missed_and_not_the_rest(
     case = next(c for c in cases if c.pull == 2977)
     healed = case.model_copy(update={"plan": {**case.plan, "skip_specs": True, "specs": []}})
 
-    report = replay_all([case, healed])
+    report = replay_all([case, healed], registry=())
 
     assert [t.missed for t in report.by_type()].count(1) == 1
     assert report.judged()[0] == sum(t.caught + t.missed for t in report.by_type())
@@ -363,7 +367,7 @@ def test_a_gate_that_stops_refusing_a_plan_fails_the_replay(cases: list[StageCas
         update={"facts": CaseFacts(tracked=(*case.facts.tracked, *missing), capabilities=())}
     )
 
-    replay = replay_case(healed)
+    replay = replay_case(healed, registry=())
 
     assert any(o.status is DefectStatus.MISSED for o in replay.outcomes)
     assert any("no longer refuses" in failure for failure in replay.failures)
@@ -377,14 +381,14 @@ def test_a_path_gate_that_names_other_paths_than_the_defect_fails_the_replay(
     renamed = defect.model_copy(update={"paths": ("tests/never/named.py",)})
     changed = case.model_copy(update={"defects": (renamed,)})
 
-    assert replay_case(changed).outcomes[0].status is DefectStatus.MISSED
+    assert replay_case(changed, registry=()).outcomes[0].status is DefectStatus.MISSED
 
 
 def test_a_good_plan_that_a_gate_refuses_fails_the_replay(cases: list[StageCase]) -> None:
     good = next(case for case in cases if case.verdict is Verdict.GOOD)
     plan = {**good.plan, "groups": [{**good.groups[0], "changes": ["src/devops_cli/nope.py"]}]}
 
-    replay = replay_case(good.model_copy(update={"plan": plan}))
+    replay = replay_case(good.model_copy(update={"plan": plan}), registry=())
 
     assert replay.refused
     assert replay.failures == [f"{good.name}: a good plan is refused by the gate paths."]
@@ -407,7 +411,7 @@ def test_the_replay_runs_the_check_of_the_job_so_a_spec_rule_that_refuses_all_fa
     good = [case for case in cases if case.verdict is Verdict.GOOD]
     monkeypatch.setattr(stage_change, "_spec_problems", lambda _spec, _known: ["A spec is wrong."])
 
-    report = replay_all(good)
+    report = replay_all(good, registry=())
 
     assert any("a good plan is refused by the gate paths" in f for f in report.failures)
 
@@ -418,8 +422,8 @@ def test_the_capabilities_of_the_facts_decide_if_a_spec_may_modify_a_capability(
     good = next(c for c in cases if c.verdict is Verdict.GOOD and c.plan["specs"][0]["modified"])
     unknown = CaseFacts(tracked=good.facts.tracked, capabilities=())
 
-    assert not replay_case(good).refused
-    assert replay_case(good.model_copy(update={"facts": unknown})).refused
+    assert not replay_case(good, registry=()).refused
+    assert replay_case(good.model_copy(update={"facts": unknown}), registry=()).refused
 
 
 def test_a_kind_defect_that_the_gate_explains_with_other_words_fails_the_replay(
@@ -429,7 +433,7 @@ def test_a_kind_defect_that_the_gate_explains_with_other_words_fails_the_replay(
     defect = next(d for d in case.defects if d.gate is GateName.KIND)
     reworded = defect.model_copy(update={"message": "a text the schema never gives"})
 
-    replay = replay_case(case.model_copy(update={"defects": (reworded,)}))
+    replay = replay_case(case.model_copy(update={"defects": (reworded,)}), registry=())
 
     assert replay.outcomes[0].status is DefectStatus.MISSED
 
@@ -447,7 +451,7 @@ def test_a_pending_defect_of_a_type_with_a_gate_is_stale(cases: list[StageCase])
         update={"type": DefectType.MISSING_PATH, "gate": GateName.PENDING, "paths": ()}
     )
 
-    replay = replay_case(case.model_copy(update={"defects": (defect,)}))
+    replay = replay_case(case.model_copy(update={"defects": (defect,)}), registry=())
 
     assert replay.outcomes[0].status is DefectStatus.STALE
     assert replay.failures[0].endswith("Set its gate in case.json.")
@@ -458,7 +462,7 @@ def test_a_defect_that_no_gate_judges_fails_nothing(cases: list[StageCase]) -> N
     other = next(d for d in case.defects if d.type is DefectType.OTHER)
     other = other.model_copy(update={"gate": GateName.NONE})
 
-    replay = replay_case(case.model_copy(update={"defects": (other,)}))
+    replay = replay_case(case.model_copy(update={"defects": (other,)}), registry=())
 
     assert replay.outcomes[0].status is DefectStatus.UNJUDGED
     assert replay.failures == []
@@ -484,7 +488,7 @@ def test_the_replay_of_the_plan_of_2977_is_refused_for_the_spec_delta_of_a_tests
     case = next(c for c in cases if c.pull == 2977)
     delta = next(d for d in case.defects if d.type is DefectType.SPEC_DELTA_WRONG)
 
-    replay = replay_case(case)
+    replay = replay_case(case, registry=())
 
     assert (case.plan["skip_specs"], [g["changes"] for g in case.groups]) == (
         False,
@@ -505,7 +509,7 @@ def test_the_replay_of_the_plan_of_2526_is_refused_for_the_spec_delta_of_a_root_
     case = next(c for c in cases if c.issue == 2526)
     delta = next(d for d in case.defects if d.type is DefectType.SPEC_DELTA_WRONG)
 
-    replay = replay_case(case)
+    replay = replay_case(case, registry=())
 
     assert delta.gate is GateName.PATHS
     assert next(o.status for o in replay.outcomes if o.defect is delta) is DefectStatus.CAUGHT
@@ -521,7 +525,7 @@ def test_the_replay_of_the_plan_of_2163_is_refused_for_the_spec_delta_of_a_tool_
     case = next(c for c in cases if c.issue == 2163)
     delta = next(d for d in case.defects if d.type is DefectType.SPEC_DELTA_WRONG)
 
-    replay = replay_case(case)
+    replay = replay_case(case, registry=())
 
     assert delta.gate is GateName.PATHS
     assert next(o.status for o in replay.outcomes if o.defect is delta) is DefectStatus.CAUGHT
@@ -707,7 +711,7 @@ def test_the_criteria_gate_passes_a_plan_that_maps_every_criterion(
     good = next(case for case in cases if case.verdict is Verdict.GOOD)
     both = [{"criterion": t, "group": 1, "reason": None} for t in ("First.", "Second.")]
 
-    assert not replay_case(_with_criteria(good, both)).refused
+    assert not replay_case(_with_criteria(good, both), registry=()).refused
 
 
 def test_a_recorded_plan_has_no_criteria_list_so_the_criteria_gate_does_not_judge_it(
@@ -735,7 +739,7 @@ def test_the_replay_of_a_plan_with_a_pytest_verify_command_is_refused_for_its_ve
     forms = [d for d in case.defects if d.type is DefectType.VERIFY_FORM]
     judged = [d for d in forms if d.gate is GateName.PATHS]
 
-    replay = replay_case(case)
+    replay = replay_case(case, registry=())
 
     assert any(g["verify"].startswith("uv run pytest") for g in case.groups)
     assert len(judged) == 1
@@ -752,7 +756,7 @@ def test_the_replay_of_the_plan_of_2576_is_refused_for_its_unnamed_verify_test(
         d for d in case.defects if d.type is DefectType.VERIFY_FORM and d.gate is GateName.PATHS
     ]
 
-    replay = replay_case(case)
+    replay = replay_case(case, registry=())
 
     assert case.groups[0]["verify"] == "uv run devops ci test tests/test_argo_credentials.py"
     assert len(forms) == 1
@@ -840,7 +844,7 @@ def test_a_rule_of_the_check_that_stops_refusing_fails_the_replay_of_its_defects
     holding = [case for case in cases if kind in case.defect_types()]
     monkeypatch.setattr(stage_change, rule, lambda *_: [] if rule == "form_problems" else False)
 
-    report = replay_all(holding)
+    report = replay_all(holding, registry=())
 
     assert GateName.PATHS in caught
     assert any(f"no longer refuses the {kind} defect" in failure for failure in report.failures)
@@ -855,7 +859,7 @@ def test_a_defect_that_the_replay_cannot_show_is_not_a_miss_of_a_gate(
     case = next(c for c in cases if DefectType.IGNORES_EXISTING_CODE in c.defect_types())
     defect = next(d for d in case.defects if d.type is DefectType.IGNORES_EXISTING_CODE)
 
-    replay = replay_case(case.model_copy(update={"defects": (defect,)}))
+    replay = replay_case(case.model_copy(update={"defects": (defect,)}), registry=())
 
     assert (defect.gate, bool(defect.reason)) == (GateName.NONE, True)
     assert replay.outcomes[0].status is DefectStatus.UNJUDGED
@@ -877,7 +881,7 @@ def test_the_replay_catches_a_placeholder_in_why_through_the_content_gate(
     case = _placeholder_case(cases)
     defect = next(d for d in case.defects if d.gate is GateName.CONTENT)
 
-    replay = replay_case(case)
+    replay = replay_case(case, registry=())
 
     assert case.plan["why"] == "x"
     assert defect.type is DefectType.OTHER
@@ -892,7 +896,7 @@ def test_the_replay_catches_a_verify_command_of_true_through_the_paths_gate(
     case = _placeholder_case(cases)
     defect = next(d for d in case.defects if d.type is DefectType.VERIFY_FORM)
 
-    replay = replay_case(case)
+    replay = replay_case(case, registry=())
 
     assert [g["verify"] for g in case.groups] == ["true"]
     assert next(o.status for o in replay.outcomes if o.defect is defect) is DefectStatus.CAUGHT
@@ -916,7 +920,7 @@ def test_a_content_gate_that_stops_refusing_a_plan_fails_the_replay(
         }
     )
 
-    replay = replay_case(written)
+    replay = replay_case(written, registry=())
 
     assert replay.problems[GateName.CONTENT] == []
     assert [o.status for o in replay.outcomes if o.defect.gate is GateName.CONTENT] == [
@@ -927,7 +931,7 @@ def test_a_content_gate_that_stops_refusing_a_plan_fails_the_replay(
 
 def test_the_replay_passes_recorded_constants(cases: list[StageCase]) -> None:
     good_case = next(case for case in cases if case.verdict is Verdict.GOOD)
-    replay = replay_case(good_case)
+    replay = replay_case(good_case, registry=())
     assert not replay.refused
 
     specs = list(good_case.plan["specs"])
@@ -957,7 +961,7 @@ def test_the_replay_passes_recorded_constants(cases: list[StageCase]) -> None:
             "plan": {**good_case.plan, "specs": [bad_spec]},
         }
     )
-    replay_constants = replay_case(case_with_constants)
+    replay_constants = replay_case(case_with_constants, registry=())
     assert any(
         "SUMMARY_MAX_CHARS is 60 in the staged tree, but the plan says 40." in p
         for p in replay_constants.problems[GateName.PATHS]
@@ -987,7 +991,7 @@ def test_the_replay_catches_the_case_of_a_wrong_constant(cases: list[StageCase])
     """A recorded case whose plan states a constant value that the staged tree does not hold is
     refused by the `paths` gate, which runs the constants rule (#3390)."""
     case = next(found for found in cases if found.name == WRONG_CONSTANT_CASE)
-    replay = replay_case(case)
+    replay = replay_case(case, registry=())
     (outcome,) = replay.outcomes
     assert (outcome.status, outcome.defect.type, outcome.defect.gate) == (
         DefectStatus.CAUGHT,

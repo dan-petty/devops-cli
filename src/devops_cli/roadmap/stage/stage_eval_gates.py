@@ -35,7 +35,6 @@ import re
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from pathlib import Path
 from typing import Any, Final
 
 from pydantic import ValidationError
@@ -64,7 +63,7 @@ from devops_cli.roadmap.stage.stage_eval_cases import (
     Verdict,
 )
 from devops_cli.roadmap.stage.stage_paths import StagedTree
-from devops_cli.roadmap.stage.stage_registry import RegistryCount, registry_table
+from devops_cli.roadmap.stage.stage_registry import RegistryCount
 
 
 @dataclass(frozen=True)
@@ -94,7 +93,7 @@ class PlanUnderTest:
     # The files that hold the old path or the dotted name of a moved module, as the job probes
     # them (#3373). An empty tuple records no hit, as the cases recorded before #3412 do.
     references: Sequence[str] = ()
-    registry: Sequence[RegistryCount] | None = None
+    registry: Sequence[RegistryCount] = ()
     constants: Mapping[str, int] = field(default_factory=dict)
     models: Mapping[str, tuple[str, tuple[str, ...]]] = field(default_factory=dict)
     # The source of each class under `src/` that a design claim of the plan names (#3407). An
@@ -108,7 +107,7 @@ class PlanUnderTest:
     def of_case(
         cls,
         case: StageCase,
-        registry: Sequence[RegistryCount] | None = None,
+        registry: Sequence[RegistryCount] = (),
     ) -> PlanUnderTest:
         """The plan of a case. A raw group or spec that fails the schema is kept as it is when it
         can be, with the message of the schema as a problem, so the other gates still judge it."""
@@ -166,6 +165,7 @@ class PlanUnderTest:
         requirements: Mapping[str, Collection[str]] | None = None,
         issue_body: str = "",
         models: Mapping[str, tuple[str, tuple[str, ...]]] | None = None,
+        registry: Sequence[RegistryCount] = (),
     ) -> PlanUnderTest:
         """The plan of a reply that passed the schema, with the tree it was staged on, the
         requirement names of the base spec of each capability, and the body of the issue."""
@@ -178,6 +178,7 @@ class PlanUnderTest:
             issue_body,
             mapped=True,
             models=models or {},
+            registry=registry,
         )
 
 
@@ -450,7 +451,8 @@ def _status(defect: Defect, problems: Mapping[GateName, list[str]]) -> DefectSta
 
 def replay_case(
     case: StageCase,
-    registry: Sequence[RegistryCount] | None = None,
+    *,
+    registry: Sequence[RegistryCount],
 ) -> CaseReplay:
     """Run the gates on the recorded plan of `case` and judge each known defect."""
     problems = run_gates(PlanUnderTest.of_case(case, registry=registry))
@@ -561,8 +563,8 @@ class ReplayReport:
 
 def replay_all(
     cases: Sequence[StageCase],
-    registry: Sequence[RegistryCount] | None = None,
+    *,
+    registry: Sequence[RegistryCount],
 ) -> ReplayReport:
     """Replay every case."""
-    table = registry if registry is not None else registry_table(Path.cwd())
-    return ReplayReport(tuple(replay_case(case, registry=table) for case in cases))
+    return ReplayReport(tuple(replay_case(case, registry=registry) for case in cases))

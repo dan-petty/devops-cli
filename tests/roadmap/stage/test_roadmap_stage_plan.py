@@ -3168,3 +3168,35 @@ def test_a_plan_that_claims_a_missing_check_that_the_base_lacks_stays_ready(
 
     assert len(plan.ready) == 1
     assert plan.premise == ()
+
+
+def test_a_stage_run_judging_two_items_builds_the_registry_table_once(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The stage planner computes registry_table once for the whole run (#4695)."""
+    import devops_cli.roadmap.stage.stage as stage_mod
+
+    calls: list[Path] = []
+    original = stage_mod.registry_table
+
+    def tracking_registry_table(source: Path) -> tuple[RegistryCount, ...]:
+        calls.append(source)
+        return original(source)
+
+    monkeypatch.setattr(stage_mod, "registry_table", tracking_registry_table)
+
+    second = seed_stageable(store, "fix(roadmap): the job drops a label")
+    openspec.script_sequence(validate_args("2-the-job-drops-a-label"), VALID)
+    model_fake.route(_about(item), make_stage_proposal())
+    model_fake.route(_about(second), make_stage_proposal())
+
+    plan = _plan(store, stage_repo)
+
+    assert len(plan.ready) == 2
+    assert len(calls) == 1
+    assert calls[0] == stage_repo.clone
