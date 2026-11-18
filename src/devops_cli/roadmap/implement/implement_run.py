@@ -63,11 +63,11 @@ import subprocess
 import tempfile
 import textwrap
 import time
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
-from pathlib import Path
-from typing import Any, NoReturn
+from pathlib import Path, PurePosixPath
+from typing import Any, Final, NoReturn
 
 from pydantic import BaseModel, TypeAdapter
 from pydantic import ValidationError as ModelValidationError
@@ -111,6 +111,7 @@ from devops_cli.openspec.project import uses_openspec
 from devops_cli.output import print_muted
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.clone_git import default_branch, git
+from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.failure import (
     FailureAction,
     FailureClass,
@@ -225,6 +226,56 @@ from devops_cli.roadmap.title_labels import title_labels
 from devops_cli.security.sanitizer import mask_secrets
 
 _WHY_HEADINGS = frozenset({"why"})
+_SUMMARY_HEADINGS: Final[frozenset[str]] = frozenset({"summary"})
+_WHAT_CHANGES_HEADINGS: Final[frozenset[str]] = frozenset({"what changes"})
+_DOCS_EXTENSIONS: Final[frozenset[str]] = frozenset({".md"})
+
+
+def plan_commit_type(paths: Iterable[str], issue_type: str | None) -> str | None:
+    """The Conventional Commit type that the changed paths select (#4127). A plan that changes only
+    `tests/` uses `test`; only `docs/`, `openspec/` or Markdown files uses `docs`; only
+    `.github/workflows/` or `.github/actions/` uses `ci`; any other set keeps the type of the
+    issue title."""
+    relevant = [
+        p for p in paths if not (p == "openspec/changes" or p.startswith("openspec/changes/"))
+    ]
+    if not relevant or issue_type is None:
+        return issue_type
+    if all(p.startswith("tests/") for p in relevant):
+        return "test"
+    if all(
+        p.startswith("docs/")
+        or p.startswith("openspec/")
+        or PurePosixPath(p).suffix in _DOCS_EXTENSIONS
+        for p in relevant
+    ):
+        return "docs"
+    if all(
+        p.startswith(".github/workflows/") or p.startswith(".github/actions/") for p in relevant
+    ):
+        return "ci"
+    return issue_type
+
+
+def proposal_summary(proposal_file: Path, section: str = "all") -> str | None:
+    """The summary from `proposal_file`: the first non-empty line of `## Summary` when
+    `section` is 'summary' or 'all', else the first bullet of `## What Changes` when
+    `section` is 'changes' or 'all', else None (#4127)."""
+    if not proposal_file.is_file():
+        return None
+    text = proposal_file.read_text(encoding="utf-8")
+    if section in ("summary", "all") and (sec := section_text(text, _SUMMARY_HEADINGS)):
+        body = sec.partition("\n")[2]
+        first_line = next((line.strip() for line in body.splitlines() if line.strip()), None)
+        if first_line:
+            return first_line
+    if section in ("changes", "all") and (sec := section_text(text, _WHAT_CHANGES_HEADINGS)):
+        body = sec.partition("\n")[2]
+        for line in body.splitlines():
+            s = line.strip()
+            if s.startswith(("- ", "* ")) and (bullet := s[2:].strip()):
+                return bullet
+    return None
 
 
 # The run id of the comment on the pull request for a run that no Service started (#4070).
@@ -1599,20 +1650,53 @@ class _ItemRun:
         subject = self._git("log", "-1", "--diff-filter=A", "--format=%s", "HEAD", "--", proposal)
         return plan_summary(subject, self.number)
 
+    def _changed_paths(self) -> list[str]:
+        """The paths changed on the branch past the default branch."""
+        listed = self._git(
+            "diff", "--name-only", "--diff-filter=ACMR", "-z", f"origin/{self.default}", "HEAD"
+        )
+        return [name for name in listed.split("\0") if name]
+
+    def _proposal_file(self) -> Path | None:
+        """The path to proposal.md in the archived change folder or the active change folder (#4127)."""
+        archived = self._archived_name()
+        if archived:
+            proposal = self.path / CONST_OPENSPEC_ARCHIVE_DIR / archived / "proposal.md"
+            if proposal.is_file():
+                return proposal
+        active = self._active_change()
+        if active is not None:
+            proposal = active / "proposal.md"
+            if proposal.is_file():
+                return proposal
+        return None
+
+    def _derived_delivery_title(self, declared: Collection[str]) -> str | None:
+        """The candidate title with type from changed paths and summary from proposal or plan (#4127)."""
+        prop = self._proposal_file()
+        summary = proposal_summary(prop, "summary") if prop is not None else None
+        if summary is None:
+            summary = self._plan_summary()
+        if summary is None and prop is not None:
+            summary = proposal_summary(prop, "changes")
+        if summary is None:
+            return None
+        changed = self._changed_paths()
+        issue_kind = commit_type(self.target.item.title)
+        kind = plan_commit_type(changed, issue_kind) if (changed and issue_kind) else issue_kind
+        return delivery_title(self.target.item.title, declared, summary, kind)
+
     def _delivery_title(self) -> str:
-        """The title of the pull request: the type of the title of the issue, with a scope that
-        `.github/labels.yml` declares on the default branch and no other (#2800), and the summary
-        of the plan, which names the change that the branch makes (#5341). The summary of the
-        title of the issue stands in when the item has no plan title, or when the form refuses the
-        title with the summary of the plan. The check `Semantic PR title` counts the summary in
-        UTF-16 units, so a long summary stops the item before the job writes a title that the
-        check refuses (#3292)."""
+        """The title of the pull request: the type derived from the changed paths (#4127), with a
+        scope that `.github/labels.yml` declares on the default branch and no other (#2800), and
+        the summary of the proposal or plan (#4127, #5341). The summary of the title of the issue
+        stands in when the item has no plan title, or when the form refuses the derived title.
+        The check `Semantic PR title` counts the summary in UTF-16 units, so a long summary stops
+        the item before the job writes a title that the check refuses (#3292)."""
         declared = declared_labels(self.store, ref=None)
-        summary = self._plan_summary()
-        if summary is not None:
-            title = delivery_title(self.target.item.title, declared, summary)
-            if not title_problems(title, declared):
-                return title
+        candidate = self._derived_delivery_title(declared)
+        if candidate is not None and not title_problems(candidate, declared):
+            return candidate
         title = delivery_title(self.target.item.title, declared)
         problems = title_problems(title, declared)
         if problems:
@@ -1708,8 +1792,13 @@ class _ItemRun:
             declared = declared_labels(self.store, ref=None)
             old = title_labels(before.title, declared)
             new = title_labels(delivery_title, declared)
+            stale = list(stale_labels(before.labels, old, new))
+            if new.type_label:
+                for label in before.labels:
+                    if label.startswith("type/") and label != new.type_label and label not in stale:
+                        stale.append(label)
             add_pull_labels(self.store, pull, new.labels)
-            remove_pull_labels(self.store, pull, stale_labels(before.labels, old, new))
+            remove_pull_labels(self.store, pull, tuple(stale))
         except GitHubUnauthenticatedError:
             raise
         except GitHubOperationError as exc:
