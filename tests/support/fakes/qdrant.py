@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+import operator
 import threading
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -31,20 +32,53 @@ def _cosine_similarity(vec_a: Sequence[float], vec_b: Sequence[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
+# The `must_range` bounds that a fake filter reads, with the test of each one against a value.
+_FAKE_RANGE_BOUNDS: tuple[tuple[str, Callable[[str, str], bool]], ...] = (
+    ("gt", operator.gt),
+    ("gte", operator.ge),
+    ("lt", operator.lt),
+    ("lte", operator.le),
+)
+
+
+# The keys of a filter that hold conditions of their own, never a payload field and its value.
+_FAKE_FILTER_KEYS: tuple[str, ...] = ("must_not", "must_range")
+
+
+def _matches_fake_range(value: Any, bounds: Any) -> bool:
+    """Whether a stored ISO 8601 UTC string falls inside the `must_range` bounds, in order."""
+    if not isinstance(value, str) or not isinstance(bounds, dict):
+        return False
+    return all(test(value, bounds[name]) for name, test in _FAKE_RANGE_BOUNDS if name in bounds)
+
+
+def _matches_fake_must(payload: dict[str, Any], filter_payload: dict[str, Any]) -> bool:
+    """Whether each payload field of a filter holds the value that the filter names."""
+    return all(payload.get(k) == v for k, v in filter_payload.items() if k not in _FAKE_FILTER_KEYS)
+
+
+def _matches_fake_must_not(payload: dict[str, Any], must_not: Any) -> bool:
+    """Whether no payload field of a `must_not` mapping holds its value."""
+    if not isinstance(must_not, dict):
+        return True
+    return all(payload.get(nk) != nv for nk, nv in must_not.items())
+
+
+def _matches_fake_must_range(payload: dict[str, Any], must_range: Any) -> bool:
+    """Whether each payload field of a `must_range` mapping falls inside its bounds."""
+    if not isinstance(must_range, dict):
+        return True
+    return all(_matches_fake_range(payload.get(rk), bounds) for rk, bounds in must_range.items())
+
+
 def _matches_fake_filter(payload: dict[str, Any], filter_payload: dict[str, Any] | None) -> bool:
     if not filter_payload:
         return True
-    must_not = filter_payload.get("must_not")
-    for k, v in filter_payload.items():
-        if k == "must_not":
-            continue
-        if payload.get(k) != v:
-            return False
-    if must_not and isinstance(must_not, dict):
-        for nk, nv in must_not.items():
-            if payload.get(nk) == nv:
-                return False
-    return True
+    return (
+        _matches_fake_must(payload, filter_payload)
+        and _matches_fake_must_not(payload, filter_payload.get("must_not"))
+        and _matches_fake_must_range(payload, filter_payload.get("must_range"))
+    )
 
 
 class FakeQdrantClient(QdrantProtocol):
@@ -308,6 +342,24 @@ class FakeQdrantClient(QdrantProtocol):
                 p
                 for p in self.collections[name]
                 if p.get("payload", {}).get("project_name") != project_name
+            ]
+        return True
+
+    def delete_points_by_expiry(
+        self,
+        name: str,
+        before: str,
+        *,
+        wait: bool = True,
+    ) -> bool:
+        if self.refusing:
+            raise QdrantClientError("Server is unreachable")
+        self._record("delete_points_by_expiry", name, before, wait=wait)
+        if name in self.collections:
+            self.collections[name] = [
+                p
+                for p in self.collections[name]
+                if not _matches_fake_range(p.get("payload", {}).get("expiry"), {"lt": before})
             ]
         return True
 
