@@ -278,11 +278,11 @@ The alert rule set SHALL list DevopsCliMetricStreamsShareSeries in its own group
 - **THEN** Each row renders all cells of its source line, and the rendered cells of the alert row name target_info, the job, the instance, the label comparison, 30m and warning.
 
 ### Requirement: The collector deletes the host name of devops-cli metrics before it adds the deltas
-The metrics pipeline of the OpenTelemetry collector SHALL run a transform processor after memory_limiter and before deltatocumulative that deletes the resource attribute host.name where telemetry.sdk.name is the SDK name of the tracer, so that an old and a new devops-cli build of one workload send one stream.
+The metrics pipeline of the OpenTelemetry collector SHALL run a transform processor after memory_limiter and before delta_to_cumulative that deletes the resource attribute host.name where telemetry.sdk.name is the SDK name of the tracer, so that an old and a new devops-cli build of one workload send one stream.
 
 #### Scenario: The rule runs before the deltas are added
 - **WHEN** The test reads the metrics pipeline of `k8s/otel/values.yaml` and the metric Resource that the tracer exports.
-- **THEN** The processors before deltatocumulative are memory_limiter and transform/metric_resource, and transform/metric_resource deletes host.name from the resource where telemetry.sdk.name equals the exported SDK name.
+- **THEN** The processors before delta_to_cumulative are memory_limiter and transform/metric_resource, and transform/metric_resource deletes host.name from the resource where telemetry.sdk.name equals the exported SDK name.
 
 ### Requirement: A group body sends the sub-command histogram point
 A command group that runs its own body with no sub-command SHALL send one point to `devops_cli_subcommand_duration_seconds`, with the group in `command` and in `sub_command` and `ok` or `error` in `status`. A run with a sub-command SHALL send one point from that sub-command, and the group body SHALL send none.
