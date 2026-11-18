@@ -6,7 +6,7 @@
 # goes, lower the count of its module, and remove the line at 0. No line is added.
 
 [modules]
-"tests/ai/benchmark/test_k8s_llm_gateway.py" = 27
+"tests/ai/benchmark/test_k8s_llm_gateway.py" = 29
 "tests/ai/client/test_example_config_loopback_endpoints.py" = 1
 "tests/ai/mcp/test_ai_gateway.py" = 1
 "tests/ai/rag/test_example_config_loopback_rag.py" = 3

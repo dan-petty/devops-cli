@@ -102,6 +102,7 @@ from devops_cli.config.defaults import (
     DEFAULT_LOGS_DATA_DIR,
     DEFAULT_MATTERMOST_TEAM,
     DEFAULT_MODELS_DATA_DIR,
+    DEFAULT_OLLAMA_EMBEDDING_CLUSTER_URL,
     DEFAULT_OLLAMA_MAX_PARALLEL,
     DEFAULT_OTEL_ENDPOINT,
     DEFAULT_QDRANT_TIMEOUT_SECONDS,
@@ -991,6 +992,10 @@ class AIConfig(BaseModel):
     ollama_urls: Annotated[list[HttpUrlStr], Variable()] = Field(
         description="Ollama service URLs (comma-separated)", default_factory=list
     )
+    embedding_ollama_urls: Annotated[list[HttpUrlStr], Variable()] = Field(
+        default_factory=lambda: [DEFAULT_OLLAMA_EMBEDDING_CLUSTER_URL],
+        description="Ollama service URLs for direct embeddings (comma-separated)",
+    )
     ollama_max_parallel: Annotated[int, Variable()] = Field(
         description="Maximum parallel requests per Ollama host",
         default=DEFAULT_OLLAMA_MAX_PARALLEL,
@@ -1080,6 +1085,35 @@ class AIConfig(BaseModel):
                 raise ConfigurationError(
                     f"Invalid ai.ollama_urls entry '{u}': must have http or https scheme and host",
                     key="ai.ollama_urls",
+                )
+            cleaned.append(
+                urlunsplit((scheme, parts.netloc, parts.path, parts.query, parts.fragment)).rstrip(
+                    "/"
+                )
+            )
+        return cleaned
+
+    @property
+    def get_embedding_ollama_urls(self) -> list[str]:
+        """Return non-empty list of Ollama base URLs for embedding."""
+        if not self.embedding_ollama_urls:
+            return []
+
+        from urllib.parse import urlsplit, urlunsplit
+
+        from devops_cli.exceptions.config import ConfigurationError
+
+        cleaned: list[str] = []
+        for u in self.embedding_ollama_urls:
+            raw = (u or "").strip().rstrip("/")
+            if not raw:
+                continue
+            parts = urlsplit(raw)
+            scheme = parts.scheme.lower()
+            if scheme not in ("http", "https") or not parts.netloc or not parts.hostname:
+                raise ConfigurationError(
+                    f"Invalid ai.embedding_ollama_urls entry '{u}': must have http or https scheme and host",
+                    key="ai.embedding_ollama_urls",
                 )
             cleaned.append(
                 urlunsplit((scheme, parts.netloc, parts.path, parts.query, parts.fragment)).rstrip(

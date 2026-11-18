@@ -15,7 +15,10 @@ from devops_cli.commands.k8s.stack_lifecycle import (
     HELM_RELEASES_BY_STACK,
     MANIFESTS_BY_STACK,
 )
-from devops_cli.config.defaults import DEFAULT_OLLAMA_PORT
+from devops_cli.config.defaults import (
+    DEFAULT_OLLAMA_EMBEDDING_CLUSTER_SERVICE,
+    DEFAULT_OLLAMA_PORT,
+)
 from devops_cli.config.settings import Settings
 from devops_cli.k8s.service import KubernetesService
 from tests.gate.k8s_render import applied_documents
@@ -77,9 +80,10 @@ def check_llm_stack_forwards_ollama_through_a_service_deploy_stack_creates() -> 
         return configured.get("ai.ollama_urls")
 
     forward = f"http://localhost:{DEFAULT_OLLAMA_PORT}"
+    expected_looked_up = sorted({*forwarded, ("llm", DEFAULT_OLLAMA_EMBEDDING_CLUSTER_SERVICE)})
     assert (
         configured_ollama(set()),
         configured_ollama({forward}),
         sorted(set(looked_up)),
         sorted({*forwarded, *looked_up} - deployed),
-    ) == (None, forward, sorted(forwarded), [])
+    ) == (None, forward, expected_looked_up, [])

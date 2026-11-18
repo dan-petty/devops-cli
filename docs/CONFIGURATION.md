@@ -240,6 +240,7 @@ AI code review, chat agents, RAG semantic search, and embeddings.
 | `num_ctx` | `Union` | - | - | - |
 | `max_tokens` | `Union` | - | - | - |
 | `ollama_urls` | `list` | `[]` | `DEVOPS_CLI_AI_OLLAMA_URLS` | Ollama service URLs (comma-separated) |
+| `embedding_ollama_urls` | `list` | `['http://ollama-24gib-embed-gpu0.llm.svc.cluster.local:11434']` | `DEVOPS_CLI_AI_EMBEDDING_OLLAMA_URLS` | Ollama service URLs for direct embeddings (comma-separated) |
 | `ollama_max_parallel` | `int` | `2` | `DEVOPS_CLI_AI_OLLAMA_MAX_PARALLEL` | Maximum parallel requests per Ollama host |
 | `gateway_provider` | `str` | `litellm` | - | - |
 | `gateway_url` | `Union` | - | `DEVOPS_CLI_AI_GATEWAY_URL` | AI gateway URL |

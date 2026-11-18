@@ -50,6 +50,7 @@ from devops_cli.config.defaults import (
     DEFAULT_EMBEDDING_INPUT_TYPE,
     DEFAULT_EMBEDDING_PROVIDER_NAME,
     DEFAULT_MAX_RETRIES,
+    DEFAULT_OLLAMA_CLUSTER_URL,
     DEFAULT_RAG_EMBEDDING_BACKOFF_BASE_SECONDS,
     DEFAULT_RAG_EMBEDDING_BATCH_SIZE,
     DEFAULT_RAG_EMBEDDING_BATCH_TIMEOUT,
@@ -463,6 +464,11 @@ class EmbeddingsEngine:
             base_config = ai_config
 
         self.ai_config = base_config.for_task("embedding")
+        task_override = getattr(getattr(base_config, "tasks", None), "embedding", None)
+        task_urls = getattr(task_override, "ollama_urls", None)
+        self._task_embedding_ollama_urls: list[str] | None = (
+            [str(u).rstrip("/") for u in task_urls if u] if task_urls is not None else None
+        )
         self.api_key = api_key
         if self.api_key is None and self.ai_config.provider.lower() in (
             "openai",
@@ -755,12 +761,25 @@ class EmbeddingsEngine:
 
     def _get_ollama_urls(self) -> list[str]:
         """Resolve candidate Ollama endpoint URLs."""
-        urls = (
-            getattr(self.ai_config, "get_ollama_urls", None)
-            or self.ai_config.ollama_urls
-            or ([self.ai_config.api_base_url] if self.ai_config.api_base_url else [])
-        )
-        return [u for u in urls if u]
+        if self._task_embedding_ollama_urls is not None:
+            return self._task_embedding_ollama_urls
+
+        embedding_urls = self.ai_config.get_embedding_ollama_urls
+        default_embed = setting_default("ai.embedding_ollama_urls")
+        if embedding_urls != default_embed:
+            return embedding_urls
+
+        chat_urls = self.ai_config.get_ollama_urls
+        if DEFAULT_OLLAMA_CLUSTER_URL in chat_urls:
+            return embedding_urls
+
+        if chat_urls:
+            return chat_urls
+
+        if not self.ai_config.ollama_urls and self.ai_config.provider == "ollama":
+            return []
+
+        return embedding_urls
 
     def _probe_dimension(self) -> int | None:
         """Dynamically probe active provider to determine the model's actual embedding dimension."""
