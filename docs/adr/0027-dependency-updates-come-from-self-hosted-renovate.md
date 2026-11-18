@@ -54,13 +54,14 @@ The pod runs under Pod Security `restricted` with a read-only root. Its NetworkP
 ### Consequences
 
 - Good, because each pin class gets a manager, and a Dependency Dashboard shows the backlog.
-- Good, because a repository command that goes wrong reaches no key and no internal service.
+- Good, because a repository command reaches no key of the Service and no internal service, because `config.js` removes the installation token file before Renovate processes a repository (#6020).
 - Bad, because the project runs an AGPL-3.0-only image, and each patch idea needs an owner decision.
 - Bad, because the cluster holds one more CronJob, one PVC and one Secret to keep.
+- Bad, because the installation token stays in the memory of the Renovate process for its one hour of life, and only the dropped capabilities and the node setting `kernel.yama.ptrace_scope` of 1 hold it (#6020).
 
 ### Confirmation
 
-`tests/invariants/test_k8s_renovate.py` checks the row of the cluster Secret table, and that this record, `CONTRIBUTING.md` and `docs/CLUSTER.md` name the same exception. The `k8s` row of `devops ci` checks the rendered image digests and the network policies, and kube-linter (`devops k8s lint`) checks the security controls of the pod. No test asserts a value of the manifests (#6060).
+`tests/invariants/test_k8s_renovate.py` checks the row of the cluster Secret table, the license exception records, that the script removes the token file, and that this record names the residual risk. The `k8s` row of `devops ci` checks the rendered image digests, the network policies, that `config.js` removes the token file, and that container `renovate` mounts the volume writable; and kube-linter (`devops k8s lint`) checks the security controls of the pod. No test asserts a value of the manifests (#6060).
 
 ## More Information
 
