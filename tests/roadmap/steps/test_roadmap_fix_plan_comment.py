@@ -374,7 +374,11 @@ def test_an_attempt_edits_the_state_comment_and_its_comment_lists_no_open_findin
         "\n\nThe task groups, with the tokens of the inputs of each step, for a budget of 9 "
         "tokens:\n\n1. An old group: 3 tokens"
     )
-    store.seed_comment(plan.number, state_comment(plan.pull, [dropped], groups=old_groups))
+    store.seed_comment(
+        plan.number,
+        state_comment(plan.pull, [dropped], groups=old_groups),
+        author_login=store._actor,
+    )
     order = finding(DefectType.TASK_ORDER, SAMPLE_QUOTE)
     verifier.answer(Verification(findings=[dropped, order]), later_review(HOLDS, GONE))
     model_fake.answer(make_stage_proposal(why=REPAIRED_WHY))

@@ -199,7 +199,7 @@ def test_a_re_stage_edits_the_plan_state_comment_of_its_draft_in_place(
     old = _push_old_plan(stage_repo)
     item = _staged_item(store, old)
     first = f"{CONST_ROADMAP_STAGE_COMMENT_MARKER}\n{state_key(PULL)}\nPlan state: the old plan."
-    store.seed_comment(ISSUE, first, author_login="devops-roadmap[bot]")
+    store.seed_comment(ISSUE, first, author_login=store._actor)
     base = stage_repo.git("rev-parse", "HEAD")
     _route_update(github_api, head=old)
 

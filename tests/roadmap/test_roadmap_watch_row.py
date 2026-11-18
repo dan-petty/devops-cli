@@ -547,10 +547,16 @@ def test_watch_row_edits_the_conflict_comment_of_an_older_head_in_place(
         check_conclusion="SUCCESS",
     )
     _route_graphql(github_api, [node])
+    github_api.route("GET", "/user", github_json({"login": "octocat"}))
     github_api.route(
         "GET",
         f"/repos/{REPO}/issues/{pr_num}/comments?per_page=100",
-        github_json([{"id": 7, "body": "A review of a person."}, {"id": 8, "body": old_note}]),
+        github_json(
+            [
+                {"id": 7, "body": "A review of a person.", "user": {"login": "reviewer"}},
+                {"id": 8, "body": old_note, "user": {"login": "octocat"}},
+            ]
+        ),
     )
     github_api.route("PATCH", f"/repos/{REPO}/issues/comments/8", github_json({"id": 8}))
 
