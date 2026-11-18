@@ -966,6 +966,28 @@ def plan_check_cmd(
         raise typer.Exit(1)
 
 
+def _recheck_branches(target: str, source: Path | None, *, confirm: bool) -> None:
+    """Judge the change folder of each open draft plan pull request of `target`, and with `confirm`,
+    rebase, rewrite and push each branch whose rewrite changes a file."""
+    from devops_cli.github.session import get_github_session
+    from devops_cli.openspec.tool import isolated_openspec
+    from devops_cli.roadmap.plan_branches import render_branch_run, rewrite_open_branches
+    from devops_cli.roadmap.run import model_clone
+
+    with _exit_on_failure("Could not check the open plan branches again"):
+        _, store = _open_store(target)
+        with isolated_openspec() as tool:
+            run = rewrite_open_branches(
+                store,
+                get_github_session().client,
+                target,
+                source or model_clone(target),
+                tool=tool,
+                confirm=confirm,
+            )
+    write_stdout(render_branch_run(run) + "\n")
+
+
 @app.command("plan-recheck", help=HELP.roadmap.plan_recheck)
 @dry_run_class("request-plan")
 def plan_recheck_cmd(
@@ -976,6 +998,9 @@ def plan_recheck_cmd(
     branch: Annotated[
         str | None, typer.Option("--branch", help=HELP.roadmap.plan_recheck_branch)
     ] = None,
+    branches: Annotated[
+        bool, typer.Option("--branches", help=HELP.roadmap.plan_recheck_branches)
+    ] = False,
     json_output: Annotated[
         bool, typer.Option("--json", help=HELP.roadmap.plan_recheck_json)
     ] = False,
@@ -987,21 +1012,31 @@ def plan_recheck_cmd(
     ] = False,
 ) -> None:
     """Judge each change folder on the default branch again, with one result for each. With a
-    branch, compare its refusals with those of the default branch. With --confirm, write the
-    rewrite of each `rewrite` folder to the working tree of --source."""
+    branch, compare its refusals with those of the default branch. With --branches, judge the change
+    folder of each open plan branch, and with --confirm, rebase, rewrite and push it. With
+    --confirm, write the rewrite of each `rewrite` folder to the working tree of --source."""
     _one_mode(dry_run=dry_run, confirm=confirm)
     if confirm and source is None:
         _refuse(MESSAGES.roadmap.plan_rewrite_need_source)
+    if branches and branch is not None:
+        _refuse(MESSAGES.roadmap.plan_recheck_branches_with_branch)
+    if branches and json_output:
+        _refuse(MESSAGES.roadmap.plan_recheck_branches_json)
     target = _target(repo)
     from devops_cli.openspec.tool import isolated_openspec
     from devops_cli.roadmap.plan_recheck import recheck_plans, render_recheck
     from devops_cli.roadmap.plan_rewrite import write_rewrite
-    from devops_cli.roadmap.request_plan import plan_recheck_requests
+    from devops_cli.roadmap.request_plan import branches_requests, plan_recheck_requests
     from devops_cli.roadmap.run import model_clone
 
     if dry_run or is_dry_run():
-        reads, writes = plan_recheck_requests(target, branch)
+        reads, writes = (
+            branches_requests(target) if branches else plan_recheck_requests(target, branch)
+        )
         render_dry_run("plan-recheck", target, reads, writes)
+        return
+    if branches:
+        _recheck_branches(target, source, confirm=confirm)
         return
     with _exit_on_failure("Could not check the plans again"):
         _, store = _open_store(target)

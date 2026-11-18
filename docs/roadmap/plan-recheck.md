@@ -3,6 +3,8 @@
 `devops roadmap plan-recheck` judges again each change folder that the default branch holds. A plan
 is judged once, when the stage job writes it. A later gate can strand an old plan. A delivered plan
 can stay Planned. The folder of a closed issue stays in every count. This command shows all three.
+With [`--branches`](#the-open-plan-branches) it judges the plan of each open plan branch in place of
+the default branch.
 
 ## What it reads
 
@@ -91,6 +93,8 @@ pull request. The option has these checks:
   file differs, the command writes no file at all, and the error names the file.
 - It writes the folders of the default branch only. With `--branch`, the folders of the branch get
   no write.
+- With `--branches`, it writes no working tree. It rebases, rewrites, checks and pushes each open
+  plan branch, as [The open plan branches](#the-open-plan-branches) says.
 
 ## A plan with no way forward
 
@@ -168,6 +172,51 @@ Use the option in three ways:
   lines under the name of the new gate list its refusals. Use `--source .` in the checkout of the
   branch, so that the command runs the code of the branch.
 
+## The open plan branches
+
+`--branches` judges the plan of each open plan pull request in place of the default branch. The pass
+reads each open draft pull request whose base is the default branch and whose body holds the plan
+line `Plans #<issue>`. It leaves out a delivery branch, a plan pull request that a person made
+ready, and a pull request of another base, and they get no result. It fetches the branch and the
+default branch, and it judges the change folder of the head of the branch with the same plan reader,
+the same gates and `openspec validate`. It applies the mechanical rewrite against the tree of the
+default branch, so the rewrite sees the files that the branch holds after the rebase.
+
+Each branch gets one result. The first rule that holds gives it.
+
+| Result | Meaning |
+| :--- | :--- |
+| `rewritten` | The rewrite changes a file of the change folder. |
+| `unchanged` | The rewrite changes no file. |
+| `conflict` | The rebase conflicts with the default branch, or the rebased tree does not hold the plan that the rewrite expects. |
+| `invalid` | The head holds no change folder of the plan, or a check refuses the rewritten plan. |
+
+Without `--confirm` the pass prints one line for each branch, the files that its rewrite changes and
+the reason that it leaves the branch as it is, and it pushes nothing. With `--confirm` it does this
+for each `rewritten` branch:
+
+- It opens a temporary detached worktree at the head that it read, and it runs
+  `git rebase origin/<default>` there. The checkout of the caller stays as it is.
+- It writes the rewrite, and it checks the result with the plan reader, the gates and
+  `openspec validate`.
+- It commits the changed files once, and it pushes the commit with
+  `--force-with-lease=<branch>:<head>`.
+
+The pass rebases and pushes only when the rewrite changes a file. A branch that only fell behind the
+default branch gets no rebase and no push, so an open plan branch never moves to catch up. The rebase
+rewrites the branch, so the push needs a lease: it goes through only while `origin` still holds the
+head that the pass read, and it refuses a push that another session made. The push event starts the
+checks of the pull request, so the pass dispatches no workflow.
+
+A conflict, and a rewrite that a check refuses, leave the branch as it is. The pass aborts the
+rebase, commits nothing and pushes nothing, and the report names the files that are not merged or the
+gate that refuses the plan. A head that holds no change folder of the plan is `invalid`: no rewrite
+brings a folder that the branch lacks.
+
+The option takes no `--branch`, because it reads the open plan branches itself, and no `--json`.
+`--confirm` needs `--source`, as it does without `--branches`, and `--dry-run` prints the reads and
+the git commands of the pass.
+
 ## Policy
 
 A new gate on merged plans only reports until this pass has run. The pass shows which plans the
@@ -179,8 +228,9 @@ up. The pass closes no issue.
 | `--repo <owner/name>` | The repository. Without it, the origin of the checkout. |
 | `--source <path>` | The clone to read. Without it, the model clone. |
 | `--branch <ref>` | A ref of the clone. Compare its change folders with the default branch. |
+| `--branches` | Judge the change folder of each open draft plan pull request whose base is the default branch. Without `--confirm` it pushes nothing. |
 | `--json` | Print the folders, the counts and the refusals of each gate as JSON. With `--branch`, the key `branch` holds the comparison. |
-| `--confirm` | Write the rewritten files of each `rewrite` folder to the working tree of `--source`. It needs `--source`, and it makes no commit. |
+| `--confirm` | Write the rewritten files of each `rewrite` folder to the working tree of `--source`. With `--branches`, rebase, rewrite, check and push each open plan branch whose rewrite changes a file, once, with a lease. It needs `--source`, and it makes no commit of the files of the default branch. |
 | `--dry-run` | Make no request: print the reads that a run makes, with placeholders. |
 
 ## Where the rules are
