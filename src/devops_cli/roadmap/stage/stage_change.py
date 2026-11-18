@@ -3525,9 +3525,15 @@ def plan_summary(subject: str, number: int) -> str | None:
     return title.removeprefix(lead).strip() or None
 
 
-def delivery_title(issue_title: str, declared: Collection[str], summary: str | None = None) -> str:
+def delivery_title(
+    issue_title: str,
+    declared: Collection[str],
+    summary: str | None = None,
+    commit_type: str | None = None,
+) -> str:
     """The title of the pull request that delivers the code of an item (#2714): the type and the
-    scope of the issue's title, and `summary`, the summary of the plan (#5341). The issue states a
+    scope of the issue's title, and `summary`, the summary of the plan (#5341). With `commit_type`,
+    the given Conventional Commit type replaces the type of the issue (#4127). The issue states a
     goal, and the plan states the change that the branch makes. With no `summary`, the title keeps
     the whole summary of the issue's title. It is never cut, because a cut text ends with `...`
     and hides the summary (#3200): the form check of the pull request judges a long one. The
@@ -3538,7 +3544,12 @@ def delivery_title(issue_title: str, declared: Collection[str], summary: str | N
     head, _, issue_summary = issue_title.partition(":")
     head = head.strip().removesuffix("!")
     scope = commit_scope(issue_title)
-    if scope and f"{CONST_ROADMAP_SCOPE_LABEL_PREFIX}{scope}" not in declared:
+    if commit_type is not None:
+        if scope and f"{CONST_ROADMAP_SCOPE_LABEL_PREFIX}{scope}" in declared:
+            head = f"{commit_type}({scope})"
+        else:
+            head = commit_type
+    elif scope and f"{CONST_ROADMAP_SCOPE_LABEL_PREFIX}{scope}" not in declared:
         head = head.partition("(")[0]
     return f"{head}: {safe_title(issue_summary if summary is None else summary)}"
 

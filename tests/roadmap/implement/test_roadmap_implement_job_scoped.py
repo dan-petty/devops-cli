@@ -617,12 +617,16 @@ def test_a_scoped_check_that_fails_writes_the_delivery_metadata_before_the_push(
         "title": "docs(openspec): plan #1 the job drops a comment",
         "head": {"ref": BRANCH, "sha": ""},
         "base": {"ref": "main", "sha": ""},
-        "labels": [{"name": "type/docs"}, {"name": "scope/openspec"}],
+        "labels": [
+            {"name": "type/docs"},
+            {"name": "scope/openspec"},
+            {"name": "type/infra"},
+        ],
     }
     route_pull_status(job_world.api, staging)
     pr_issue = job_world.store._roadmap.issues[PULL]
     job_world.store._roadmap.issues[PULL] = pr_issue.model_copy(
-        update={"labels": ("type/docs", "scope/openspec")}
+        update={"labels": ("type/docs", "scope/openspec", "type/infra")}
     )
     _fails_until(job_world, PRE_PUSH, "ruff-check....Failed", times=99)
     checked: list[int] = []
@@ -630,7 +634,7 @@ def test_a_scoped_check_that_fails_writes_the_delivery_metadata_before_the_push(
     def push_and_check(call: ProcessCall) -> subprocess.CompletedProcess[str]:
         if _count(job_world, PRE_PUSH) > 0:
             (patched,) = job_world.sent("PATCH", f"pulls/{PULL}")
-            assert patched["title"] == "fix(roadmap): the job drops a comment"
+            assert patched["title"] == "fix(roadmap): The job keeps every comment."
             assert "Closes #1" in str(patched["body"])
             assert set(job_world.store._roadmap.issues[PULL].labels) == {
                 "type/bug",
