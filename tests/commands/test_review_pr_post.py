@@ -178,6 +178,7 @@ def _route_the_pull_request(
     )
     route_pull_request(api, "org/repo", 42, pull)
     route_pull_request_changes(api, pull, *files, merge_base="merge789", diff=diff)
+    api.route("GET", "/user", github_json({"login": "octocat"}))
     if comments:
         api.route("GET", "/repos/org/repo/issues/42/comments?per_page=100", github_json([]))
         api.route("POST", "/repos/org/repo/issues/42/comments", github_json({"id": 1}, status=201))
@@ -231,8 +232,17 @@ def post_review(github_api: GitHubApiFake, tmp_path: Path) -> PostReview:
     name."""
     review = ReviewResult(recommendation="APPROVE", findings=[], summary="No defects found.")
 
-    def post(head_sha: str, *held: str) -> list[tuple[str, str, str]]:
-        comments = [{"id": number, "body": body} for number, body in enumerate(held, start=1)]
+    def post(head_sha: str, *held: str | dict[str, Any]) -> list[tuple[str, str, str]]:
+        comments = []
+        for number, item in enumerate(held, start=1):
+            if isinstance(item, dict):
+                body = str(item.get("body", ""))
+                author = str(item.get("author", "octocat"))
+            else:
+                body = str(item)
+                author = "octocat"
+            comments.append({"id": number, "body": body, "user": {"login": author}})
+        github_api.route("GET", "/user", github_json({"login": "octocat"}))
         github_api.route("GET", f"{_COMMENTS}?per_page=100", github_json(comments))
         github_api.route("POST", _COMMENTS, github_json({"id": 9}, status=201))
         for comment in comments:
@@ -268,6 +278,21 @@ def test_a_rerun_on_the_same_head_edits_the_review_comment_of_that_head(
     writes = post_review("abc123", "A note of a person.", f"{posted}\nAn older finding.")
 
     assert writes == [("PATCH", "/repos/org/repo/issues/comments/2", posted)]
+
+
+def test_a_review_comment_of_another_author_is_not_edited(post_review: PostReview) -> None:
+    """The pull request holds a comment with the head marker written by another author.
+    The review of that same head creates a new comment and does not edit the other author's
+    comment (#6222)."""
+    [(_, _, posted)] = post_review("abc123")
+
+    writes = post_review("abc123", {"body": posted, "author": "someone-else"})
+
+    assert len(writes) == 1
+    method, path, body = writes[0]
+    assert method == "POST"
+    assert path == _COMMENTS
+    assert "abc123" in body
 
 
 def test_the_same_review_of_the_same_head_sends_no_write(post_review: PostReview) -> None:

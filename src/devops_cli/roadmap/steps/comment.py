@@ -41,6 +41,20 @@ class Target:
         self.client = client
         self._cached_comments: list[Any] | None = None
 
+    @property
+    def session_login(self) -> str:
+        """The login of the active session or store actor."""
+        if self.store is not None:
+            actor = getattr(self.store, "actor", None) or getattr(self.store, "_actor", None)
+            if actor:
+                return str(actor)
+        if self.client is not None:
+            session = getattr(self.client, "_session", None)
+            if session is not None and isinstance(getattr(session, "login", None), str):
+                return str(session.login)
+            return ""
+        return get_github_session().login
+
     def _get_client(self) -> GitHubClient:
         if self.client is not None:
             return self.client
@@ -72,7 +86,9 @@ class Target:
         comment_id = self._get_client().comment_on_pull(self.repo, self.number, body)
         if self._cached_comments is not None and comment_id is not None:
             cid = comment_id if isinstance(comment_id, int) else 0
-            self._cached_comments.append(ClientIssueComment(id=cid, body=body))
+            self._cached_comments.append(
+                ClientIssueComment(id=cid, body=body, author=self.session_login)
+            )
         return comment_id
 
     def _update_store_comment(self, comment_id: int | None, body: str) -> None:
@@ -114,22 +130,35 @@ def _with_body(comment: Any, body: str) -> Any:
     return comment
 
 
+def _comment_author(comment: Any) -> str:
+    """Return the author login of `comment`, or empty string when missing."""
+    author = getattr(comment, "author_login", None) or getattr(comment, "author", None)
+    if author:
+        return str(author)
+    if isinstance(comment, dict):
+        return str(comment.get("author_login") or comment.get("author") or "")
+    return ""
+
+
 def post(target: Target | Any, marker: str, key: str | None, body: str) -> bool:
     """Post or update a marked comment on `target`.
 
-    Reads comments first. If an existing comment holds `marker` and `key`, updates it
-    when the body differs, or makes no write when identical. If no matching comment exists,
-    creates the comment, allowing the repeat guard to refuse a duplicate.
+    Reads comments first. If an existing comment holds `marker` and `key`, and its author matches
+    the session login, updates it when the body differs, or makes no write when identical. If no
+    matching comment exists, creates the comment, allowing the repeat guard to refuse a duplicate.
     Returns True when a write occurred, False otherwise.
     """
     comments = target.list_comments()
+    session_login = getattr(target, "session_login", "") or get_github_session().login
 
     matching = None
     for comment in comments:
         c_body = getattr(comment, "body", "")
         if marker and marker in c_body and (not key or key in c_body):
-            matching = comment
-            break
+            c_author = _comment_author(comment)
+            if session_login and c_author == session_login:
+                matching = comment
+                break
 
     if matching is not None:
         c_body = getattr(matching, "body", "")
