@@ -133,6 +133,7 @@ def serve(
         from devops_cli.roadmap.run import (
             FailureLedger,
             identity_refused,
+            lane_specs,
             retire_lane_state,
             service_jobs,
             service_state_dir,
@@ -179,6 +180,7 @@ def serve(
             idle=idle,
             rows_lease=rows_lease_of_pod(),
             read_row_state=read_row_state,
+            lanes=lane_specs(settings.service.lanes),
         )
         starter.start(
             service_app,

@@ -1213,6 +1213,26 @@ def service_lanes(
     return lanes
 
 
+@dataclass(frozen=True)
+class LaneSpec:
+    """One lane of the Service: its name, the rows of its lane in the order of the due table, and
+    the clone directory that its worker uses (#3885). `service_jobs` builds the job of a lane from
+    its spec, and the Service app keeps the specs on its state, so the job and the metadata of a
+    lane cannot drift."""
+
+    name: str
+    table: tuple[JobRow, ...]
+    clone_dirname: str
+
+
+def lane_specs(groups: Mapping[str, Sequence[str]] | None = None) -> dict[str, LaneSpec]:
+    """The `LaneSpec` of each lane of `service_lanes(groups)`, in the same order."""
+    return {
+        lane: LaneSpec(name=lane, table=rows, clone_dirname=lane_clone_dirname(lane))
+        for lane, rows in service_lanes(groups).items()
+    }
+
+
 def lane_of_row(row: str, groups: Mapping[str, Sequence[str]] | None = None) -> str:
     """The name of the lane that runs `row`: the lane of `groups` that names it, else the row's
     own lane, which has its name (#5553)."""
@@ -2158,12 +2178,12 @@ def service_jobs(
         failures = FailureLedger(record=state_dir / CONST_SERVICE_FAILURES_FILENAME)
     cache = PollCache()
     jobs: dict[str, LaneJob] = {}
-    for lane, rows in service_lanes(groups).items():
-        triage = any(row.name == _SCOPED_INTAKE.job for row in rows)
+    for lane, spec in lane_specs(groups).items():
+        triage = any(row.name == _SCOPED_INTAKE.job for row in spec.table)
         jobs[lane] = partial(
             service_job,
-            table=rows,
-            lane=lane,
+            table=spec.table,
+            lane=spec.name,
             failures=failures,
             listing=intake_listing(state_dir) if triage else lane_listing(state_dir, lane),
             polls=cache,
@@ -2212,6 +2232,7 @@ __all__ = [
     "FailureLedger",
     "JobOutcome",
     "JobRow",
+    "LaneSpec",
     "ScopedUpdate",
     "WebhookDelivery",
     "build_stub_table",
@@ -2219,6 +2240,7 @@ __all__ = [
     "identity_refused",
     "lane_clone_dirname",
     "lane_of_row",
+    "lane_specs",
     "lanes_to_wake",
     "model_clone",
     "parse_due_tuple",
