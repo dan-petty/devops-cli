@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.177.0](https://github.com/dan-petty/devops-cli/compare/v0.176.1...v0.177.0) (2026-11-18)
+
+
+### Features
+
+* **research:** Map pins to OSV names and list rendered images ([#6285](https://github.com/dan-petty/devops-cli/issues/6285)) ([475700d](https://github.com/dan-petty/devops-cli/commit/475700d12376807cd03371859f27d2064f2dc127))
+* **research:** Store fetched research pages in Qdrant ([#6301](https://github.com/dan-petty/devops-cli/issues/6301)) ([22832c2](https://github.com/dan-petty/devops-cli/commit/22832c2dd834756afae474c48a1fb337d19b8826))
+
+
+### Bug Fixes
+
+* **cli:** Name the test-run timeout and drop the traceback ([#6296](https://github.com/dan-petty/devops-cli/issues/6296)) ([c49fd02](https://github.com/dan-petty/devops-cli/commit/c49fd02532a0303bdbba5d9585c4f73de3c46086))
+* **deps:** check the tools lock requirement files for advisories ([#6261](https://github.com/dan-petty/devops-cli/issues/6261)) ([ff42fbe](https://github.com/dan-petty/devops-cli/commit/ff42fbefef85853b454855675c09677075bd170b))
+* **github:** Fail closed when a poll reads no head commit ([#6300](https://github.com/dan-petty/devops-cli/issues/6300)) ([79d5747](https://github.com/dan-petty/devops-cli/commit/79d57473b2e69ce8a3de5a7e9688c1b87f919d1a))
+* **k8s:** Ignore the CNPG monitoring ConfigMap as an Argo CD orphan ([#6306](https://github.com/dan-petty/devops-cli/issues/6306)) ([058ce30](https://github.com/dan-petty/devops-cli/commit/058ce303d00f2e6bf63fdc91272ff74af2a6789d))
+* **k8s:** send direct embedding calls to embedding Service ([#6293](https://github.com/dan-petty/devops-cli/issues/6293)) ([e0a7aad](https://github.com/dan-petty/devops-cli/commit/e0a7aad2ccc05a2e717fbf29d52d222709f8566e))
+* **roadmap:** do not create empty groups for whole-suite criteria ([#6303](https://github.com/dan-petty/devops-cli/issues/6303)) ([43f67e0](https://github.com/dan-petty/devops-cli/commit/43f67e099bbebb95b6dc1235869fc6effa80496b))
+* **roadmap:** Name the gh command and the full title when a create fails ([#6302](https://github.com/dan-petty/devops-cli/issues/6302)) ([3f9e060](https://github.com/dan-petty/devops-cli/commit/3f9e060d033d03a38df58a6767b110208830962b))
+* **roadmap:** sync delivery PR title and type with staged plan proposal ([#6297](https://github.com/dan-petty/devops-cli/issues/6297)) ([9b73219](https://github.com/dan-petty/devops-cli/commit/9b73219fc335e181533776fbe3f082a168e13aa0))
+* **telemetry:** Use the delta_to_cumulative name of the collector processor ([#6308](https://github.com/dan-petty/devops-cli/issues/6308)) ([0083d3d](https://github.com/dan-petty/devops-cli/commit/0083d3d1b0ac9323a610bbc3e41b6f768cc4d70e))
+
 ## [0.176.1](https://github.com/dan-petty/devops-cli/compare/v0.176.0...v0.176.1) (2026-11-18)
 
 
