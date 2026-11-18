@@ -12,9 +12,8 @@
 # - `binarySource: install`: containerbase installs the uv, Python and Node versions that a
 #   repository asks for. `containerbaseDir` keeps the downloads on the claim, under `cacheDir`.
 #   Renovate keeps the OSV database in `cacheDir` too.
-# - `allowedCommands`: empty, so no `postUpgradeTasks` command runs (#6022). A task runs in the
-#   container that can read the installation token, so #6020 keeps the token away from the tasks
-#   first; then each command gets an anchored regex again, with no shell.
+# - `allowedCommands`: empty, so no `postUpgradeTasks` command runs (#6022). #6020 keeps the token
+#   away from the tasks; then each command gets an anchored regex again, with no shell.
 # - `executionTimeout` (minutes) ends a child process before the Job deadline, which ends before
 #   GitHub ends the token.
 # - No `gitAuthor`: `platformCommit` (the shared preset) makes GitHub write and sign each commit
@@ -29,16 +28,20 @@ metadata:
     app.kubernetes.io/part-of: devops-cli-stack
 data:
   # The option `token` reads the file that the init container `token` wrote: the installation
-  # token of the Renovate App, with no newline. The key is quoted, as in config.json. Trivy
-  # KSV-0109 reads an unquoted `token:` line as a secret in the ConfigMap, and this line holds a
-  # file read, not a secret.
+  # token of the Renovate App, with no newline, and removes the file at once (#6020). The key is
+  # quoted, as in config.json. Trivy KSV-0109 reads an unquoted `token:` line as a secret in the
+  # ConfigMap, and this line holds a file read, not a secret.
   config.js: |
     // Renovate reads this file (RENOVATE_CONFIG_FILE). The settings are in config.json.
-    const { readFileSync } = require('node:fs');
+    const { readFileSync, unlinkSync } = require('node:fs');
+
+    const tokenPath = process.env.DEVOPS_CLI_TOKEN_FILE ?? '/token/github-token';
+    const token = readFileSync(tokenPath, 'utf8');
+    unlinkSync(tokenPath);
 
     module.exports = {
       ...require('./config.json'),
-      'token': readFileSync('/token/github-token', 'utf8'),
+      'token': token,
     };
   config.json: |
     {
