@@ -5687,6 +5687,11 @@ class RoadmapMessages:
     plan_recheck_request_branch_files: str = "read the files of each change folder of the branch"
     plan_recheck_request_closed: str = "the issue of a folder that is not in the open issues"
     plan_recheck_request_closed_condition: str = "the issue is not open"
+    # The open plan branches of `devops roadmap plan-recheck --branches` (#3969).
+    plan_branches_no_folder: str = (
+        "The head of pull request #{number} holds no change folder of the plan of issue #{issue}, "
+        "so the run leaves the branch `{branch}` as it is."
+    )
     # The dry runs of `devops roadmap` (#412, #1125): the requests a run makes, none made.
     plan_dry_run: str = (
         "Dry run: no request was made. A run makes these requests, in order; a value in "
