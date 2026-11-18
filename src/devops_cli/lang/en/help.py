@@ -2846,10 +2846,15 @@ class ResearchCommandHelp:
     app: str = "Read what the project pins and watch the upstream of each pin."
     inventory: str = (
         "List every pin of the project as a typed component: Python packages, tools, container "
-        "images, GitHub Actions, Helm charts and Terraform providers. It reads files only."
+        "images, GitHub Actions, Helm charts and Terraform providers. It reads files only unless "
+        "--render is set."
     )
     inventory_root: str = (
         "Root of the repository to read. Default: the repository of the current directory."
+    )
+    inventory_render: str = (
+        "Also render the Argo CD Applications and list the images that their charts name. It "
+        "starts helm and kubectl and reads a chart source over the network. A dry run skips it."
     )
     advisories: str = (
         "List the advisories that affect the pins of the project. It asks OSV about the Python "
