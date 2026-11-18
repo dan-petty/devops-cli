@@ -24,6 +24,7 @@ from devops_cli.ai.rag.kb_sync import (
     is_kb_rebuild_needed,
 )
 from devops_cli.config.constants import CONST_RAG_KB_PROJECT
+from devops_cli.config.defaults import DEFAULT_RAG_RESEARCH_COLLECTION
 from devops_cli.telemetry.instruments import RAG_POINTS
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -226,3 +227,22 @@ def test_rag_status_table_displays_collection_metadata(
     assert "384" in output
     assert "abcdef0123456789" in output
     assert "2026-10-11 12:00:00" in output
+
+
+def test_rag_status_lists_the_research_collection_with_its_point_count(
+    cli: Any, qdrant: Any, embedder: Any, config: Any
+) -> None:
+    """Verify rag status names the research collection and its point count (#3906)."""
+    config(qdrant={"url": "http://example.com:6333"})
+    qdrant.collections[DEFAULT_RAG_RESEARCH_COLLECTION] = [
+        {
+            "id": "7d1f2a1e-0f5b-5c1a-9a1b-2f5c1a9a1b2f",
+            "vector": [0.1] * 4,
+            "payload": {"source_url": "http://example.com/page", "text": "a fetched page"},
+        }
+    ]
+
+    result = cli(["ai", "rag", "status"])
+
+    assert result.exit_code == 0
+    assert f"{DEFAULT_RAG_RESEARCH_COLLECTION} (1 point)" in result.output

@@ -129,6 +129,25 @@ def _parse_must_not_conditions(v: Any) -> list[Any]:
     return conditions
 
 
+# The bounds that a `must_range` field condition reads, in the order of `qmodels.DatetimeRange`.
+_MUST_RANGE_BOUNDS: tuple[str, ...] = ("gt", "gte", "lt", "lte")
+
+
+def _parse_must_range_conditions(v: Any) -> list[Any]:
+    """Parse a must_range specification into Qdrant date-range conditions."""
+    if not isinstance(v, dict):
+        return []
+    conditions: list[Any] = []
+    for key, bounds in v.items():
+        if not isinstance(bounds, dict):
+            continue
+        present = {name: bounds[name] for name in _MUST_RANGE_BOUNDS if name in bounds}
+        if not present:
+            continue
+        conditions.append(qmodels.FieldCondition(key=key, range=qmodels.DatetimeRange(**present)))
+    return conditions
+
+
 def _build_payload_filter(filter_payload: dict[str, Any] | None) -> qmodels.Filter | None:
     """Construct Qdrant Filter from payload match criteria."""
     if not filter_payload:
@@ -136,10 +155,15 @@ def _build_payload_filter(filter_payload: dict[str, Any] | None) -> qmodels.Filt
     must_conditions: list[Any] = []
     must_not_conditions: list[Any] = []
     for k, v in filter_payload.items():
-        if k == "must_not":
-            must_not_conditions.extend(_parse_must_not_conditions(v))
-        else:
-            must_conditions.append(qmodels.FieldCondition(key=k, match=qmodels.MatchValue(value=v)))
+        match k:
+            case "must_not":
+                must_not_conditions.extend(_parse_must_not_conditions(v))
+            case "must_range":
+                must_conditions.extend(_parse_must_range_conditions(v))
+            case _:
+                must_conditions.append(
+                    qmodels.FieldCondition(key=k, match=qmodels.MatchValue(value=v))
+                )
     return qmodels.Filter(
         must=must_conditions if must_conditions else None,
         must_not=must_not_conditions if must_not_conditions else None,
@@ -321,6 +345,12 @@ class QdrantProtocol(Protocol):
         name: str,
         project_name: str,
         batch_size: int = 500,
+    ) -> bool: ...
+
+    def delete_points_by_expiry(
+        self,
+        name: str,
+        before: str,
     ) -> bool: ...
 
     def set_payload(
@@ -964,6 +994,48 @@ class QdrantClient:
             )
             raise QdrantClientError(
                 f"Delete by project failed in '{name}': {_error_text(exc)}"
+            ) from exc
+
+    def delete_points_by_expiry(
+        self,
+        name: str,
+        before: str,
+        *,
+        wait: bool = True,
+    ) -> bool:
+        """Delete each point of a collection whose `expiry` payload is earlier than `before`."""
+        expiry_filter = qmodels.Filter(
+            must=[
+                qmodels.FieldCondition(
+                    key="expiry",
+                    range=qmodels.DatetimeRange(lt=before),
+                )
+            ]
+        )
+
+        def _delete_expired(client: NativeQdrantClient) -> Any:
+            return client.delete(
+                collection_name=name,
+                points_selector=qmodels.FilterSelector(filter=expiry_filter),
+                wait=wait,
+            )
+
+        try:
+            self._execute_with_retry(
+                _delete_expired,
+                "delete_points_by_expiry",
+                f"{name}, before={before}",
+            )
+            return True
+        except Exception as exc:
+            logger.debug(
+                "Failed to delete expired points in %s (before: %s): %s",
+                name,
+                before,
+                _error_text(exc),
+            )
+            raise QdrantClientError(
+                f"Delete by expiry failed in '{name}': {_error_text(exc)}"
             ) from exc
 
     def set_payload(
