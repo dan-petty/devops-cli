@@ -1,0 +1,24 @@
+# Design
+
+## Decisions
+
+- **Judge the rule in the stage content check (`src/devops_cli/roadmap/stage/stage_change.py:2180:def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> list[str]:`), before the renderer runs**: The stage job, the plan check and the replay all call `content_problems`, so a bad group goes back to the model as a structured correction and no plan file exists yet.
+- **Keep the rule out of the model validator of `StageGroup` (`class StageGroup(_Reply):`)**: `src/devops_cli/roadmap/plan_read.py:552:return StageGroup(` builds a group from every tasks.md and `src/devops_cli/roadmap/plan_read.py:640:except ValidationError as exc:` turns a schema failure into a read error, so a validator would stop the implement job for a change folder staged before this change.
+- **Read the code spans with the parser of the implement step (`src/devops_cli/roadmap/step_files.py:108:def code_spans(text: str) -> tuple[str, ...]:`)**: The implement step reads a tasks.md with the same parser, so the plan and the step judge a code span the same way.
+- **Count a path as named only when a code span holds exactly that path**: A substring match accepts a longer text, so a task that names a folder would satisfy a group that changes a file.
+- **Keep the `group-no-files` problem of the plan check as the last guard (`src/devops_cli/roadmap/plan_check.py:493:def _size_problems(proposal: StageProposal, folder: PlanFolder) -> list[PlanProblem]:`)**: `src/devops_cli/roadmap/plan_check.py:519:problems.append(PlanProblem(path, "group-no-files", message))` sees the packed files of the checkout, and the content rule cannot see a group that names a path that no file holds.
+- **State the rule in the stage prompt as well as in the check (`src/devops_cli/roadmap/stage/stage_change.py:275:STAGE_EVAL_PROMPT_PATH: Final[str] = "src/devops_cli/ai/tasks/roadmap_stage_change.md"`)**: The model reads the prompt before it writes a group, so fewer replies need a correction round.
+- **Leave the plan reader unchanged (`src/devops_cli/roadmap/plan_read.py:552:return StageGroup(`)**: The reader never calls the content rule, so a tasks.md staged before this change reads back as it did.
+- **Name the changed paths in the seven recorded good stage plans**: The replay refuses a good case when a gate reports a problem (`src/devops_cli/roadmap/stage/stage_eval_gates.py:558:good = [r for r in self.replays if r.case.verdict is Verdict.GOOD]`), so each of the seven takes the same edit as a new reply.
+- **Change no document**: The rule lives in the stage prompt, in the content check and in the spec delta, and no page of `docs/` lists the rules of a task group.
+
+## Rejected alternatives
+
+- **Put the rule in the model validator of `StageGroup` (`class StageGroup(_Reply):`)**: `src/devops_cli/roadmap/plan_read.py:552:return StageGroup(` builds a group from every tasks.md, and `src/devops_cli/roadmap/plan_read.py:640:except ValidationError as exc:` turns a schema failure into a read error, so a validator would stop the implement job for a change folder staged before this change.
+- **Judge the rule in `render_change` after the model reply**: `src/devops_cli/roadmap/stage/stage_change.py:3470:def render_change(` builds the files of the change and returns them, so it holds no path that returns a structured correction to the model.
+- **Detect the fault only in `_size_problems` of the plan check**: `src/devops_cli/roadmap/plan_check.py:493:def _size_problems(proposal: StageProposal, folder: PlanFolder) -> list[PlanProblem]:` measures the packed files of a checkout that holds the plan, so the plan pull request exists before the problem shows.
+- **Rely on the stage check alone and give the model no prompt rule**: The prompt is the only instruction that the planner reads (`src/devops_cli/roadmap/stage/stage_change.py:275:STAGE_EVAL_PROMPT_PATH: Final[str] = "src/devops_cli/ai/tasks/roadmap_stage_change.md"`), so a model that gets no rule omits a path and needs another correction round.
+- **Rely on the stage prompt alone**: A model can still omit a path, and the plan check then fails the plan pull request: `src/devops_cli/roadmap/plan_check.py:518:message = texts.plan_check_group_no_files.format(number=number, title=title)`.
+- **Match a changed path as a substring of the implementation**: A longer text that holds the path would satisfy the rule, so a task that names a folder or a file of a folder would hide the omission of the file itself.
+- **Accept a changed path with an optional line number**: The prompt states the bare path, and a second accepted form needs its own tests and its own sentence in the prompt, so the check keeps one form.
+- **Remove the `group-no-files` problem of the plan check**: `src/devops_cli/roadmap/plan_check.py:519:problems.append(PlanProblem(path, "group-no-files", message))` guards a packing defect that the content rule cannot see, so removing it weakens the plan check.

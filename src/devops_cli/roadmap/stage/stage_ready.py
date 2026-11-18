@@ -164,7 +164,7 @@ def _settle(store: RoadmapStore, repo: str, item: Item, number: int) -> _Outcome
     owner, name = repo.split("/", 1)
     checks = read_check_runs(owner, name, status.head_sha)
     change = _read_plan_change(client, repo, status, item)
-    draft = Draft(kind_of(item, number), status, item, checks, change=change)
+    draft = Draft(kind_of(item, number, status.title), status, item, checks, change=change)
     readiness = draft_readiness(draft)
     if readiness.answer is not Answer.READY:
         return _Outcome.WAITING
