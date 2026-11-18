@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.174.4](https://github.com/dan-petty/devops-cli/compare/v0.174.3...v0.174.4) (2026-11-18)
+
+
+### Bug Fixes
+
+* **security:** Judge KSV-0014 with a dated ignore entry ([#6246](https://github.com/dan-petty/devops-cli/issues/6246)) ([7077f06](https://github.com/dan-petty/devops-cli/commit/7077f068d83198c3d73d250307c337e077209b40))
+
 ## [0.174.3](https://github.com/dan-petty/devops-cli/compare/v0.174.2...v0.174.3) (2026-11-18)
 
 
