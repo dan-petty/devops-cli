@@ -553,3 +553,110 @@ def test_a_stage_plan_draft_with_a_valid_group_title_is_ready() -> None:
     readiness = draft_readiness(draft)
 
     assert readiness.answer is Answer.READY
+
+
+def test_kind_of_resolves_colliding_pr_as_stage_plan_when_title_is_plan() -> None:
+    item = Item(
+        number=1,
+        title="one",
+        url="u1",
+        job_record={ImplementRecordKey.PR: "335", StageRecordKey.PR: "335"},
+    )
+    assert (
+        kind_of(item, 335, title="docs(openspec): plan #1 Keep the last comment")
+        is DraftKind.STAGE_PLAN
+    )
+
+
+def test_kind_of_resolves_colliding_pr_as_implement_when_title_is_implement() -> None:
+    item = Item(
+        number=1,
+        title="one",
+        url="u1",
+        job_record={ImplementRecordKey.PR: "335", StageRecordKey.PR: "335"},
+    )
+    assert kind_of(item, 335, title="fix(roadmap): keep the last comment") is DraftKind.IMPLEMENT
+
+
+def test_kind_of_defaults_to_implement_on_collision_when_no_title_given() -> None:
+    item = Item(
+        number=1,
+        title="one",
+        url="u1",
+        job_record={ImplementRecordKey.PR: "335", StageRecordKey.PR: "335"},
+    )
+    assert kind_of(item, 335) is DraftKind.IMPLEMENT
+
+
+def test_read_draft_classifies_colliding_stage_plan_pr() -> None:
+    store = InMemoryRoadmapStore()
+    issue_num = store.seed_issue(
+        "Issue 1",
+        body=with_record(
+            "",
+            encode_job_record({}, {StageRecordKey.PR: "335", ImplementRecordKey.PR: "335"}),
+        ),
+        fields={ItemField.PRIORITY: "P2-Medium"},
+    )
+    client = MagicMock()
+    pull = PullStatus(
+        state="open",
+        draft=True,
+        title="docs(openspec): plan #1 Keep the last comment",
+        body="Plans #1",
+        head_ref=f"fix/{issue_num}-keep-the-last-comment",
+        head_sha="sha123",
+    )
+    client.get_compare_files.return_value = CompareFiles(
+        files=[
+            PullRequestFile(
+                filename=f"openspec/changes/{issue_num}-feature/tasks.md", status="added"
+            ),
+        ],
+        truncated=False,
+        merge_base="base123",
+    )
+    client.get_file_at.return_value = _COMPLETE_TASKS
+
+    draft = read_draft("dan-petty/devops-cli", 335, pull=pull, store=store, client=client)
+
+    assert draft.kind is DraftKind.STAGE_PLAN
+
+
+def test_draft_readiness_accepts_colliding_stage_plan_with_unticked_tasks() -> None:
+    store = InMemoryRoadmapStore()
+    issue_num = store.seed_issue(
+        "Issue 1",
+        body=with_record(
+            "",
+            encode_job_record({}, {StageRecordKey.PR: "335", ImplementRecordKey.PR: "335"}),
+        ),
+        fields={ItemField.PRIORITY: "P2-Medium"},
+    )
+    client = MagicMock()
+    pull = PullStatus(
+        state="open",
+        draft=True,
+        title="docs(openspec): plan #1 Keep the last comment",
+        body="Plans #1",
+        head_ref=f"fix/{issue_num}-keep-the-last-comment",
+        head_sha="sha123",
+    )
+    unticked_tasks = "## 1. Group 1\n- [ ] 1.1 Task one\n## 2. Group 2\n- [ ] 2.1 Task two\n"
+    client.get_compare_files.return_value = CompareFiles(
+        files=[
+            PullRequestFile(
+                filename=f"openspec/changes/{issue_num}-keep-the-last-comment/tasks.md",
+                status="added",
+            ),
+        ],
+        truncated=False,
+        merge_base="base123",
+    )
+    client.get_file_at.return_value = unticked_tasks
+
+    draft = read_draft("dan-petty/devops-cli", 335, pull=pull, store=store, client=client)
+    readiness = draft_readiness(draft)
+
+    assert draft.kind is DraftKind.STAGE_PLAN
+    assert readiness.answer is Answer.READY
