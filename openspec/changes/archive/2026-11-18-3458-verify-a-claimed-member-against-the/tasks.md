@@ -24,11 +24,11 @@ Adds: `module_quote_problems`, `stage_problem_module_quote`
 
 Kind: behavior. Reads: `src/devops_cli/ai/tasks/roadmap_stage_verify.md`, `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py`. Changes: `src/devops_cli/ai/tasks/roadmap_stage_verify.md`, `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py`.
 
-- [ ] 3.1 `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py` fails on the base: `test_the_review_refuses_a_line_that_names_a_source_with_no_statement` loads `src/devops_cli/ai/tasks/roadmap_stage_verify.md` and asserts that the `false_premise` rule names a line that quotes no statement of its module
+- [x] 3.1 `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py` fails on the base: `test_the_review_refuses_a_line_that_names_a_source_with_no_statement` loads `src/devops_cli/ai/tasks/roadmap_stage_verify.md` and asserts that the `false_premise` rule names a line that quotes no statement of its module
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_prompt_rules.py` fails on the base
-- [ ] 3.2 State in `src/devops_cli/ai/tasks/roadmap_stage_verify.md` that a line which names a type, a member or a module under `src/` and quotes no statement of its module is a `false_premise` finding, so the model review refuses such a line. Add `test_the_review_refuses_a_line_that_names_a_source_with_no_statement` to `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py`. Run `uv run devops roadmap eval verify --model <baseline-model> --source .` on the base commit and on the change with the same model, and state the score before and after the change in the pull request comment
+- [x] 3.2 State in `src/devops_cli/ai/tasks/roadmap_stage_verify.md` that a line which names a type, a member or a module under `src/` and quotes no statement of its module is a `false_premise` finding, so the model review refuses such a line. Add `test_the_review_refuses_a_line_that_names_a_source_with_no_statement` to `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py`. Run `uv run devops roadmap eval verify --model <baseline-model> --source .` on the base commit and on the change with the same model, and state the score before and after the change in the pull request comment
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_prompt_rules.py` passes
-- [ ] 3.3 Edit `src/devops_cli/ai/tasks/roadmap_stage_verify.md` to state the `false_premise` rule for a line that names a source and quotes no statement of its module
+- [x] 3.3 Edit `src/devops_cli/ai/tasks/roadmap_stage_verify.md` to state the `false_premise` rule for a line that names a source and quotes no statement of its module
   - Verification: `$ uv run devops ci docs` passes
 
 ## Workflow follow-up
