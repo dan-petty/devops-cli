@@ -451,6 +451,7 @@ class PullFake:
             f"/repos/{STAGE_REPO}/issues/{PULL}/comments",
             github_json({"id": 1}, status=201),
         )
+        api.route("GET", "/user", github_json({"login": "test-bot"}))
         api.route("PATCH", f"/repos/{STAGE_REPO}/issues/comments/1", github_json({"id": 1}))
         self.comments()
 

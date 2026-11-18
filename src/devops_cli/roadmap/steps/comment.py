@@ -13,6 +13,7 @@ import logging
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
+from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubNotFoundError, GitHubOperationError
 from devops_cli.github.client import IssueComment as ClientIssueComment
 from devops_cli.github.session import get_github_session
@@ -53,14 +54,15 @@ class Target:
             if session is not None:
                 try:
                     login = session.login
-                    if isinstance(login, str):
-                        return login
-                except Exception:
-                    pass
+                    return str(login) if login else ""
+                except DevOpsCLIError, RuntimeError, AttributeError:
+                    return ""
             return ""
         try:
-            return get_github_session().login
-        except Exception:
+            session = get_github_session()
+            login = getattr(session, "login", "")
+            return str(login) if login else ""
+        except DevOpsCLIError, RuntimeError, AttributeError:
             return ""
 
     def _get_client(self) -> GitHubClient:
@@ -160,8 +162,10 @@ def post(target: Target | Any, marker: str, key: str | None, body: str) -> bool:
     session_login = getattr(target, "session_login", None)
     if session_login is None:
         try:
-            session_login = get_github_session().login
-        except Exception:
+            session = get_github_session()
+            login = getattr(session, "login", "")
+            session_login = str(login) if login else ""
+        except DevOpsCLIError, RuntimeError, AttributeError:
             session_login = ""
 
     matching = None

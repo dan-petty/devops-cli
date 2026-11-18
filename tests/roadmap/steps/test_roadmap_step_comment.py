@@ -353,16 +353,19 @@ def test_target_session_login_resolution(monkeypatch: pytest.MonkeyPatch) -> Non
     mock_client_err._session = mock_session_err
     assert Target("owner/repo", 1, client=mock_client_err).session_login == ""
 
+    import devops_cli.roadmap.steps.comment as comment_mod
+
     # Default Target falls back to get_github_session
     fake_session = MagicMock()
     fake_session.login = "global-bot"
-    monkeypatch.setattr("devops_cli.roadmap.steps.comment.get_github_session", lambda: fake_session)
+    monkeypatch.setattr(comment_mod, "get_github_session", lambda: fake_session)
     target_default = Target("owner/repo", 1)
     assert target_default.session_login == "global-bot"
 
     # get_github_session raises an exception
     monkeypatch.setattr(
-        "devops_cli.roadmap.steps.comment.get_github_session",
+        comment_mod,
+        "get_github_session",
         lambda: (_ for _ in ()).throw(RuntimeError("error")),
     )
     assert Target("owner/repo", 1).session_login == ""
