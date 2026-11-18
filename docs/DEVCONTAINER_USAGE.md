@@ -98,10 +98,10 @@ For existing repositories or custom setups, create `.devcontainer/devcontainer.j
   ],
   "containerEnv": {
     "DEVOPS_CLI_CONFIG": "${containerWorkspaceFolder}/config.yaml",
-    "UV_MALWARE_CHECK": "1",
+    "UV_MALWARE_CHECK": "0",
     "UV_CACHE_DIR": "${containerWorkspaceFolder}/.uv"
   },
-  "postCreateCommand": "uv sync",
+  "postCreateCommand": "UV_MALWARE_CHECK=1 uv sync",
   "postStartCommand": "uv run pre-commit install",
   "customizations": {
     "vscode": {

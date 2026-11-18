@@ -250,6 +250,12 @@ def _verify_python_314_environment() -> bool:
     return True
 
 
+# uv's malware check asks api.osv.dev before a command starts. A short DNS failure of that host
+# stops a gate row that installs no package, so each gate command runs with the check off. The
+# steps that install a package keep it on (#4881).
+_GATE_ROW_ENV: dict[str, str] = {"UV_MALWARE_CHECK": "0"}
+
+
 def _with_uv_preview(cmd: Sequence[str]) -> list[str]:
     """`cmd`, with uv's malware-check and check-command preview features on when it starts uv."""
     return prepare_tool_cmd(cmd)
@@ -369,7 +375,8 @@ def _returncode(
 ) -> int:
     """Run a CI check subprocess synchronously and return its exit code; 0 in a dry run. With
     `own_session`, the command runs in a session of its own and is stopped as a whole process
-    group."""
+    group. The command installs no package, so it runs with uv's malware check off (#4881)."""
+    env = {**_GATE_ROW_ENV, **(env or {})}
     if is_dry_run():
         req = _planned_request_for_cmd(cmd, env=env)
         render_request_plan(MESSAGES.ci.ci_dry_run_heading, [req])
@@ -454,6 +461,7 @@ def _report_audit(cmd: list[str]) -> bool:
         cwd=_get_project_root(),
         timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         capture_output=True,
+        env=_GATE_ROW_ENV,
     )
     failure, notes = _audit_reading(cmd, run)
     if failure is not None:
@@ -471,7 +479,8 @@ def _run_audits() -> bool:
     commands = get_check_spec("audit").commands
     if is_dry_run():
         render_request_plan(
-            MESSAGES.ci.ci_dry_run_heading, [_planned_request_for_cmd(cmd) for cmd in commands]
+            MESSAGES.ci.ci_dry_run_heading,
+            [_planned_request_for_cmd(cmd, env=_GATE_ROW_ENV) for cmd in commands],
         )
         return True
     return all([_report_audit(cmd) for cmd in commands])
@@ -558,8 +567,8 @@ def _check_row_line(badge: str, name: str, text: str) -> str:
 
 
 def _planned_requests(spec: CheckSpec) -> tuple[PlannedRequest, ...]:
-    """The request each command of the check would make."""
-    return tuple(_planned_request_for_cmd(cmd) for cmd in spec.commands)
+    """The request each command of the check would make, with uv's malware check off (#4881)."""
+    return tuple(_planned_request_for_cmd(cmd, env=_GATE_ROW_ENV) for cmd in spec.commands)
 
 
 def _merged_run(
@@ -602,6 +611,7 @@ async def _run_check_commands(
             cwd=root,
             timeout=timeout,
             capture_output=capture_output or spec.dependency_audit,
+            env=_GATE_ROW_ENV,
         )
         for cmd in spec.commands
     ]
@@ -1385,7 +1395,7 @@ def _collect_fix_requests(
             continue
         spec = spec_map.get(name)
         if spec and spec.fix_cmd:
-            requests.append(_planned_request_for_cmd(spec.fix_cmd))
+            requests.append(_planned_request_for_cmd(spec.fix_cmd, env=_GATE_ROW_ENV))
     return requests
 
 
@@ -2708,7 +2718,7 @@ def _capture(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     """Run a command in the checked tree as `_run` would, returning its captured output."""
     argv = list(_planned_request_for_cmd(cmd).argv)
     completed: subprocess.CompletedProcess[str] = run_subprocess(
-        argv, cwd=_get_project_root(), capture_output=True
+        argv, cwd=_get_project_root(), capture_output=True, env=_GATE_ROW_ENV
     )
     return completed
 
@@ -2716,9 +2726,11 @@ def _capture(cmd: list[str]) -> subprocess.CompletedProcess[str]:
 def _plan_mutation(run_cmd: list[str]) -> None:
     """The dry run's requests: the mutmut run, its results, and a show for each survivor."""
     requests = [
-        _planned_request_for_cmd(run_cmd),
-        _planned_request_for_cmd(_MUTMUT_RESULTS),
-        _planned_request_for_cmd([*_MUTMUT, "show", "<mutant>"], repeat="each surviving mutant"),
+        _planned_request_for_cmd(run_cmd, env=_GATE_ROW_ENV),
+        _planned_request_for_cmd(_MUTMUT_RESULTS, env=_GATE_ROW_ENV),
+        _planned_request_for_cmd(
+            [*_MUTMUT, "show", "<mutant>"], env=_GATE_ROW_ENV, repeat="each surviving mutant"
+        ),
     ]
     render_request_plan(MESSAGES.ci.ci_dry_run_heading, requests)
 

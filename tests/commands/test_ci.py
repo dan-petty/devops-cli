@@ -190,8 +190,8 @@ def test_the_audit_command_plans_both_audits_in_a_dry_run(process_fake: ProcessF
 
     assert (
         result.exit_code,
-        "1. uv --preview-features" in result.output,
-        "2. npm audit" in result.output,
+        "1. UV_MALWARE_CHECK=0 uv --preview-features" in result.output,
+        "2. UV_MALWARE_CHECK=0 npm audit" in result.output,
         process_fake.calls,
     ) == (
         0,

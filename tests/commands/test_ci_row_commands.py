@@ -17,6 +17,7 @@ from devops_cli.commands.ci import (
     app,
     get_check_spec,
     get_check_specs,
+    resolve_selected_specs,
 )
 from tests.support.agent_markers import agent_marker_names
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
@@ -78,6 +79,20 @@ def test_a_row_command_plans_only_its_row(recorder: list[list[str]]) -> None:
         assert req.line() not in res_tree.stdout
 
 
+def test_the_gate_rows_run_with_the_malware_check_off() -> None:
+    """The plan of `devops ci --only lint` gives every request `UV_MALWARE_CHECK` of `0` (#4881)."""
+    requests = [
+        request
+        for spec in resolve_selected_specs(only=["lint"])
+        for request in _planned_requests(spec)
+    ]
+
+    assert requests != []
+    assert [dict(request.env).get("UV_MALWARE_CHECK") for request in requests] == ["0"] * len(
+        requests
+    )
+
+
 def test_the_row_tuple_matches_the_registry() -> None:
     """The static row tuple in ci.py equals the check specs in registry order."""
     expected = tuple(spec.name for spec in get_check_specs())
@@ -101,7 +116,7 @@ def test_a_row_with_a_hand_written_command_runs_dry_run(recorder: list[list[str]
     """A row with a hand-written command plans its command under dry-run."""
     res = runner.invoke(app, ["lint", "--dry-run"])
     assert res.exit_code == 0
-    expected_cmd = "uv --preview-features malware-check,check-command run ruff check --config pyproject.toml --fix ."
+    expected_cmd = "UV_MALWARE_CHECK=0 uv --preview-features malware-check,check-command run ruff check --config pyproject.toml --fix ."
     assert f"1. {expected_cmd}" in res.stdout
 
 

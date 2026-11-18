@@ -326,6 +326,10 @@ also_copy = [
 ]
 
 [tool.uv]
+# uv has no setting that reports an OSV lookup error as a warning or lengthens its retry, so an
+# already-synced `uv run` aborts before its program starts when api.osv.dev does not resolve. The
+# check therefore runs where a package can arrive: an install step sets UV_MALWARE_CHECK=1, and a
+# check-only gate row, a check hook and an interactive shell set it to 0 (#4881).
 preview-features = ["malware-check", "check-command"]
 
 [tool.ty.environment]
