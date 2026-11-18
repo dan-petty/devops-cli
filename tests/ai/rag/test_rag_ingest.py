@@ -6,6 +6,7 @@ import json
 import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
+from uuid import uuid4
 
 import pytest
 
@@ -110,6 +111,60 @@ def _make_fake_gh_runner(visibility_map: dict[str, str]) -> Any:
         return _ProcResult(returncode=0, stdout=stdout, stderr="")
 
     return _runner
+
+
+def _run_collection() -> str:
+    return f"devops_code_test_{uuid4().hex[:12]}"
+
+
+def _indexed_repository_counts(
+    qdrant: FakeQdrantClient, collection: str, repos: list[str]
+) -> dict[str, int]:
+    return {repo: qdrant.count_points(collection, {"project_name": repo}) for repo in repos}
+
+
+def _assert_repositories_indexed(repos: list[str], counts: dict[str, int]) -> None:
+    """Raise unless every repository of `repos` holds at least one indexed point."""
+    missing = [repo for repo in repos if counts.get(repo, 0) < 1]
+    if missing:
+        raise AssertionError("RAG index has no point for: " + ", ".join(missing))
+
+
+def _make_three_remotes(tmp_path: Path) -> dict[str, str]:
+    """Build one bare git remote per fixture repository, as `owner/<name>`."""
+    remote_urls: dict[str, str] = {}
+    for name in ("alpha", "beta", "gamma"):
+        bare = _make_bare_remote(tmp_path / f"{name}.git", {"module.py": "def f(): pass\n"})
+        remote_urls[f"owner/{name}"] = f"file://{bare}"
+    return remote_urls
+
+
+def _run_coverage_pass(
+    data_dir: Path,
+    collection: str,
+    repos: list[str],
+    remote_urls: dict[str, str],
+    qdrant: FakeQdrantClient,
+) -> dict[str, int]:
+    indexer = WorkspaceIndexer(
+        qdrant=cast(Any, qdrant),
+        embedder=FixedVectorEngine(),
+        code_collection=collection,
+        cache_dir=data_dir,
+    )
+    settings = Settings(
+        service={"repos": repos},
+        qdrant={"url": "http://example.com:6333"},
+        data={"rag_dir": data_dir},
+    )
+    run_ingest_pass(
+        settings=settings,
+        data_dir=data_dir,
+        remote_urls=remote_urls,
+        gh_runner=_make_fake_gh_runner({repo: "public" for repo in repos}),
+        indexer=indexer,
+    )
+    return _indexed_repository_counts(qdrant, collection, repos)
 
 
 def test_first_run_indexes_and_records_head(tmp_path: Path) -> None:
@@ -758,3 +813,63 @@ def test_run_ingest_pass_updates_last_success_timestamp(
     val, labels = found[0]
     assert val > 0
     assert labels == {"repo": "owner/repo"}
+
+
+def test_ingest_pass_indexes_each_managed_repository(tmp_path: Path) -> None:
+    """One pass over three remotes leaves a point for each configured repository."""
+    remote_urls = _make_three_remotes(tmp_path)
+    repos = list(remote_urls)
+    qdrant = FakeQdrantClient()
+    collection = _run_collection()
+    data_dir = tmp_path / "rag"
+
+    try:
+        counts = _run_coverage_pass(data_dir, collection, repos, remote_urls, qdrant)
+        _assert_repositories_indexed(repos, counts)
+        for repo in repos:
+            assert counts[repo] >= 1
+    finally:
+        qdrant.delete_collection(collection)
+        assert collection not in qdrant.list_collections()
+
+
+def test_coverage_assertion_names_the_repository_with_no_point() -> None:
+    repos = ["owner/alpha", "owner/beta", "owner/gamma"]
+
+    with pytest.raises(AssertionError) as exc_info:
+        _assert_repositories_indexed(repos, {"owner/alpha": 3, "owner/beta": 1})
+    message = str(exc_info.value)
+    assert "owner/gamma" in message
+    assert "owner/alpha" not in message
+    assert "owner/beta" not in message
+
+    with pytest.raises(AssertionError) as zero_info:
+        _assert_repositories_indexed(repos, {"owner/alpha": 3, "owner/beta": 0, "owner/gamma": 2})
+    zero_message = str(zero_info.value)
+    assert "owner/beta" in zero_message
+    assert "owner/alpha" not in zero_message
+    assert "owner/gamma" not in zero_message
+
+
+def test_ingest_pass_leaves_no_run_collection(tmp_path: Path) -> None:
+    """Two runs on one fake client give the same counts and leave no collection behind."""
+    remote_urls = _make_three_remotes(tmp_path)
+    repos = list(remote_urls)
+    qdrant = FakeQdrantClient()
+    run_counts: list[dict[str, int]] = []
+    run_collections: list[str] = []
+
+    for run_name in ("run1", "run2"):
+        data_dir = tmp_path / run_name
+        collection = _run_collection()
+        run_collections.append(collection)
+        try:
+            run_counts.append(_run_coverage_pass(data_dir, collection, repos, remote_urls, qdrant))
+        finally:
+            qdrant.delete_collection(collection)
+
+    assert run_counts[0] == run_counts[1]
+    _assert_repositories_indexed(repos, run_counts[0])
+    listed = qdrant.list_collections()
+    for collection in run_collections:
+        assert collection not in listed
