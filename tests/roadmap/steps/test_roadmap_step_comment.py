@@ -320,6 +320,18 @@ def test_with_body_plain_object() -> None:
     assert updated.body == "new"
 
 
+class _SimpleTarget:
+    def __init__(self) -> None:
+        self.comments: list[object] = []
+
+    def list_comments(self) -> list[object]:
+        return self.comments
+
+    def create_comment(self, body: str) -> bool:
+        self.comments.append(_SimpleComment(body))
+        return True
+
+
 def test_target_session_login_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
     """Target.session_login resolves from store actor, client session, or get_github_session."""
     from unittest.mock import MagicMock
@@ -332,12 +344,33 @@ def test_target_session_login_resolution(monkeypatch: pytest.MonkeyPatch) -> Non
     target_client = Target("owner/repo", 1, client=mock_client)
     assert target_client.session_login == "client-bot"
 
+    # Client whose session raises an exception
+    mock_client_err = MagicMock()
+    mock_session_err = MagicMock()
+    type(mock_session_err).login = property(
+        lambda self: (_ for _ in ()).throw(RuntimeError("error"))
+    )
+    mock_client_err._session = mock_session_err
+    assert Target("owner/repo", 1, client=mock_client_err).session_login == ""
+
     # Default Target falls back to get_github_session
     fake_session = MagicMock()
     fake_session.login = "global-bot"
     monkeypatch.setattr("devops_cli.roadmap.steps.comment.get_github_session", lambda: fake_session)
     target_default = Target("owner/repo", 1)
     assert target_default.session_login == "global-bot"
+
+    # get_github_session raises an exception
+    monkeypatch.setattr(
+        "devops_cli.roadmap.steps.comment.get_github_session",
+        lambda: (_ for _ in ()).throw(RuntimeError("error")),
+    )
+    assert Target("owner/repo", 1).session_login == ""
+
+    # post() with a target holding no session_login when get_github_session raises
+    simple = _SimpleTarget()
+    posted = post(simple, "<!-- marker -->", "key", "body")
+    assert posted is True
 
 
 def test_comment_author_helper() -> None:

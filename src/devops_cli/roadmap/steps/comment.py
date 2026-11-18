@@ -50,10 +50,18 @@ class Target:
                 return str(actor)
         if self.client is not None:
             session = getattr(self.client, "_session", None)
-            if session is not None and isinstance(getattr(session, "login", None), str):
-                return str(session.login)
+            if session is not None:
+                try:
+                    login = session.login
+                    if isinstance(login, str):
+                        return login
+                except Exception:
+                    pass
             return ""
-        return get_github_session().login
+        try:
+            return get_github_session().login
+        except Exception:
+            return ""
 
     def _get_client(self) -> GitHubClient:
         if self.client is not None:
@@ -149,7 +157,12 @@ def post(target: Target | Any, marker: str, key: str | None, body: str) -> bool:
     Returns True when a write occurred, False otherwise.
     """
     comments = target.list_comments()
-    session_login = getattr(target, "session_login", "") or get_github_session().login
+    session_login = getattr(target, "session_login", None)
+    if session_login is None:
+        try:
+            session_login = get_github_session().login
+        except Exception:
+            session_login = ""
 
     matching = None
     for comment in comments:
