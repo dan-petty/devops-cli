@@ -1890,10 +1890,18 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
         ): "Git diff to check changed service image sources",
         ("service-image", "Run Service Image Smoke Test"): "Docker container curl/smoke tests",
         (
+            "service-image",
+            "Install Trivy",
+        ): "Installs the pinned Trivy that the Scan Service Image step runs, with the lock's installer (#4229)",
+        (
             "runner-image",
             "Detect Image Content Changes",
         ): "Git diff to check changed runner image sources",
         ("runner-image", "Run Runner Image Smoke Test"): "Docker container tool smoke tests",
+        (
+            "runner-image",
+            "Install Trivy",
+        ): "Installs the pinned Trivy that the Scan Runner Image step runs, with the lock's installer (#4229)",
         (
             "mcp-server-image",
             "Detect Image Content Changes",
@@ -1902,6 +1910,10 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "mcp-server-image",
             "Run MCP Server Image Smoke Test",
         ): "Docker container tool smoke tests",
+        (
+            "mcp-server-image",
+            "Install Trivy",
+        ): "Installs the pinned Trivy that the Scan MCP Server Image step runs, with the lock's installer (#4229)",
         (
             "test",
             "Changed-Line Coverage",
