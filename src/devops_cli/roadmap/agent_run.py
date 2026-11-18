@@ -19,6 +19,7 @@ from pydantic_ai.exceptions import (
     ModelConnectionError,
     ModelHTTPError,
     ModelTimeoutError,
+    UsageLimitExceeded,
 )
 from pydantic_ai.messages import (
     AgentStreamEvent,
@@ -26,6 +27,7 @@ from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
     RetryPromptPart,
+    TextPart,
     ToolCallPart,
     ToolReturn,
     ToolReturnPart,
@@ -215,6 +217,111 @@ class RunLimit(StrEnum):
     WINDOW = "window"
 
 
+class StopReason(StrEnum):
+    """Why a run of an agent stopped with no reply (#3717), as the report of a failed case names
+    it: the text reply that pydantic-ai refused (`text_reply`), the call that the run refused past
+    its retries (`refused_tool_call`), the reply that broke the output schema past its retries
+    (`output_retries_exhausted`), or a limit of the run (`budget_exhausted`)."""
+
+    TEXT_REPLY = "text_reply"
+    REFUSED_TOOL_CALL = "refused_tool_call"
+    OUTPUT_RETRIES_EXHAUSTED = "output_retries_exhausted"
+    BUDGET_EXHAUSTED = "budget_exhausted"
+
+
+@dataclass(frozen=True)
+class StopCause:
+    """Why a run stopped with no reply (#3717): its `reason`, the `detail` that a person acts on
+    (the name of the tool that the run refused, or of the limit that ended it), the retry `limit`
+    that the run used when a retry limit ended it (None otherwise), and `texts`, the text of the
+    reply that stopped the run, masked and cut, so a caller can name it."""
+
+    reason: StopReason
+    detail: str = ""
+    limit: int | None = None
+    texts: tuple[str, ...] = ()
+
+
+# The first line of the message that pydantic-ai raises when the tools retry limit ends a run on a
+# call that it refused (#3717).
+_TOOL_RETRIES_STOP: Final[re.Pattern[str]] = re.compile(
+    r"^Tool .+ exceeded max retries count of \d+"
+)
+# The name of a limit that a `UsageLimitExceeded` message gives, such as `tool_calls_limit`.
+_LIMIT_NAME: Final[re.Pattern[str]] = re.compile(r"\b([a-z_]+_limit)\b")
+# The name of each limit that the hook that offers the tools can reach, as `UsageLimits` spells it,
+# but the window, which is no limit of pydantic-ai (#3717).
+_LIMIT_NAMES: Final[Mapping[RunLimit, str]] = {
+    RunLimit.CALLS: "tool_calls_limit",
+    RunLimit.REQUESTS: "request_limit",
+    RunLimit.WINDOW: "context window",
+}
+
+
+def _last_reply(messages: Sequence[ModelMessage]) -> ModelResponse | None:
+    """The last reply of a run, or None for a run that got no reply."""
+    return next((m for m in reversed(messages) if isinstance(m, ModelResponse)), None)
+
+
+def _limit_name(text: str) -> str:
+    """The name of the limit that the message of a `UsageLimitExceeded` names, or an empty text."""
+    found = _LIMIT_NAME.search(text)
+    return found[1] if found else ""
+
+
+def _refused_name(messages: Sequence[ModelMessage], calls: Sequence[ToolCallPart]) -> str:
+    """The name of the tool that the run refused: the call of the last reply whose name a retry
+    prompt of the run holds, else the name of its last call. pydantic-ai writes the name into the
+    message of the error, which `run_error_message` hides."""
+    refused = {
+        part.tool_name
+        for message in messages
+        if isinstance(message, ModelRequest)
+        for part in message.parts
+        if isinstance(part, RetryPromptPart) and part.tool_name
+    }
+    return next(
+        (call.tool_name for call in reversed(calls) if call.tool_name in refused),
+        calls[-1].tool_name,
+    )
+
+
+def stop_cause(
+    stopped: AgentRunError,
+    messages: Sequence[ModelMessage],
+    *,
+    tool_retries: int,
+    output_retries: int,
+    limits_hit: Sequence[RunLimit] = (),
+) -> StopCause:
+    """Why the run of `messages` stopped with `stopped` (#3717), from the messages of the run and
+    the retry limits that the caller set. `tool_retries` and `output_retries` are the retry limits
+    that the run used, so a report names the limit of that run and not a constant.
+
+    A limit that ended the tools of the run wins over a call that the run refused, because the
+    hook that offers the tools takes them away at that limit and the next call gets the same stop.
+    A reply that holds text and no tool call is the text reply that pydantic-ai refused.
+    """
+    last = _last_reply(messages)
+    parts = last.parts if last is not None else []
+    texts = tuple(bounded_text(part.content) for part in parts if isinstance(part, TextPart))
+    calls = [part for part in parts if isinstance(part, ToolCallPart)]
+    if isinstance(stopped, UsageLimitExceeded):
+        return StopCause(StopReason.BUDGET_EXHAUSTED, _limit_name(stopped.message), texts=texts)
+    if texts and not calls:
+        return StopCause(StopReason.TEXT_REPLY, texts=texts)
+    if calls and _TOOL_RETRIES_STOP.match(stopped.message):
+        if limits_hit:
+            return StopCause(StopReason.BUDGET_EXHAUSTED, _LIMIT_NAMES[limits_hit[0]], texts=texts)
+        return StopCause(
+            StopReason.REFUSED_TOOL_CALL,
+            _refused_name(messages, calls),
+            tool_retries,
+            texts,
+        )
+    return StopCause(StopReason.OUTPUT_RETRIES_EXHAUSTED, limit=output_retries, texts=texts)
+
+
 @dataclass(frozen=True)
 class ToolCallRecord:
     """One tool call of a run: the tool, its argument as JSON, masked and cut, how the call ended,
@@ -242,7 +349,9 @@ class RunTrace:
     that the last reply answered (#4204). `row` is the job row of the run, such as the plan or the
     review of the stage job, and is empty for a run that no job names (#4257). `finish_reason` and
     `answered` are the stop reason and the model name of the last reply, and are empty when the
-    provider gave none (#4313)."""
+    provider gave none (#4313). `stop_reason` and `stop_detail` are the `reason` and the `detail` of
+    a `StopCause` for a run that stopped with no reply, and are empty for a run that gave one
+    (#3717)."""
 
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
     requests: int = 0
@@ -257,11 +366,13 @@ class RunTrace:
     finish_reason: str = ""
     answered: str = ""
     row: str = ""
+    stop_reason: str = ""
+    stop_detail: str = ""
 
     @classmethod
     def combined(cls, traces: Iterable[RunTrace]) -> RunTrace:
         """One trace for all `traces`, in order: their tool calls and offers joined and their counts
-        summed. The violations and the limit are those of the last trace that had any."""
+        summed. The violations, the limit and the stop are those of the last trace that had any."""
         total = cls()
         for trace in traces:
             total.tool_calls.extend(trace.tool_calls)
@@ -276,6 +387,8 @@ class RunTrace:
             total.finish_reason = trace.finish_reason or total.finish_reason
             total.answered = trace.answered or total.answered
             total.limit = trace.limit or total.limit
+            total.stop_reason = trace.stop_reason or total.stop_reason
+            total.stop_detail = trace.stop_detail or total.stop_detail
         return total
 
     def tool_counts(self) -> dict[str, tuple[int, int]]:
@@ -513,6 +626,8 @@ class TraceFacts:
 __all__ = [
     "RunLimit",
     "RunTrace",
+    "StopCause",
+    "StopReason",
     "ToolCallRecord",
     "ToolOutcome",
     "TraceFacts",
@@ -526,4 +641,5 @@ __all__ = [
     "ok_answer",
     "record_run_spend",
     "run_error_message",
+    "stop_cause",
 ]
