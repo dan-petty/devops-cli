@@ -4,6 +4,11 @@ misconfigurations:
       - tests/fixtures/image_pins/chart_render.yaml
     statement: Test fixture input for Helm chart rendering (#6133)
     expired_at: 2026-11-21
+  - id: KSV-0014
+    paths:
+      - tests/fixtures/prompt_adversaries/kubernetes_adversary.yaml
+    statement: Prompt adversary test fixture with injected root filesystem text (#6267)
+    expired_at: 2026-11-21
   - id: KSV-0118
     paths:
       - tests/fixtures/image_pins/chart_render.yaml
