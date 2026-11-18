@@ -139,7 +139,9 @@ def test_no_external_request_commands_run_under_dry_run_proxy(
     assert res_graph.exit_code == 0
 
     # notify-plan
-    res_np = runner.invoke(app, ["--dry-run", "tf", "notify-plan"])
+    plan_file = tmp_path / "plan.txt"
+    plan_file.write_text("No changes.", encoding="utf-8")
+    res_np = runner.invoke(app, ["--dry-run", "tf", "notify-plan", "--plan-file", str(plan_file)])
     assert res_np.exit_code == 0
     assert "OpenTofu / Terraform Plan Summary" in res_np.output
 
