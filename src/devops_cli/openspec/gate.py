@@ -108,9 +108,10 @@ def _instruction_args(artifact: str) -> tuple[str, ...]:
     return ("instructions", artifact, "--change", CONST_OPENSPEC_PROBE_CHANGE, "--json")
 
 
-def _version_finding(tool: OpenSpecTool, root: Path) -> GateFinding | None:
+def version_finding(tool: OpenSpecTool, root: Path) -> GateFinding | None:
     """The problem of a command on PATH that is not the tools lock's version: the version it
-    prints, or that it printed none. None when it prints the locked version."""
+    prints, or that it printed none. None when it prints the locked version. `check_openspec` and
+    `devops openspec regenerate` both call it, so a write and a check read one version (#5375)."""
     printed = version_line(tool.run(VERSION_ARGS, root).stdout)
     locked = load_tools_lock().tools()[BIN_OPENSPEC].version
     path = shutil.which(BIN_OPENSPEC) or BIN_OPENSPEC
@@ -226,7 +227,7 @@ def check_openspec(root: Path) -> list[GateFinding]:
         missing = MESSAGES.openspec.config_missing.format(path=CONFIG_PATH.as_posix())
         return [GateFinding(GateCheck.CONFIGURATION, missing)]
     with isolated_openspec() as tool:
-        version_problem = _version_finding(tool, root)
+        version_problem = version_finding(tool, root)
         if version_problem is not None:
             return [version_problem]
         changes = active_changes(tool, root)
