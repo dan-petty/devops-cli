@@ -26,3 +26,26 @@ The `runner` and `service` stages SHALL copy from `builder` only the `devops_cli
 - **WHEN** a person runs `docker history` on a `runner` or `service` image
 - **THEN** the layers over those of `runner-deps` or `service-deps` start with the `apt-get upgrade` layer and the one `COPY` layer of `devops_cli`, its dist-info and `devops`
 - **AND** `docker run --rm --entrypoint dpkg-query <image> -W -f '${Package}\n'` lists the same packages as the image of `--target runner-deps` or `--target service-deps`
+
+### Requirement: Each image build keeps its own gha cache scope
+
+The image builds of `ci.yml`, `release.yml` and `service-image-test.yml` SHALL set
+`cache-from: type=gha,scope=<target>` and, where they write the cache,
+`cache-to: type=gha,scope=<target>,mode=max`. A build with no target SHALL use `service`. The
+`test-tree` row SHALL fail when an image build cache entry of `./Dockerfile` lacks its target scope,
+and when a `cache-to` entry does not set `mode=max`.
+
+#### Scenario: The release builds three scopes
+
+- **WHEN** the `test-tree` check reads the Service, runner and MCP server builds of `release.yml`
+- **THEN** it finds `scope=service`, `scope=runner` and `scope=mcp-server`, and each `cache-to` entry sets `mode=max`
+
+#### Scenario: A cache entry without a scope
+
+- **WHEN** a workflow has `cache-to: type=gha` with no scope
+- **THEN** the `test-tree` row fails and names the workflow file and the line
+
+#### Scenario: The Service image test reads the service scope
+
+- **WHEN** the check reads `service-image-test.yml`
+- **THEN** it finds `cache-from: type=gha,scope=service` for the Service image build

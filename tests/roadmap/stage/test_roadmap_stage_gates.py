@@ -17,6 +17,7 @@ from devops_cli.roadmap.stage.stage_change import (
     StageProposal,
     check_gates,
     check_proposal,
+    content_problems,
 )
 from devops_cli.roadmap.stage.stage_paths import StagedTree
 from devops_cli.roadmap.stage.stage_request import StageRequest
@@ -24,6 +25,7 @@ from devops_cli.roadmap.stage.stage_specs import BaseSpec
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient
 from devops_cli.roadmap.stores.store import Item
 from tests.support.builders import make_stage_proposal
+from tests.support.paths import REPO_ROOT
 
 if TYPE_CHECKING:
     from tests.support.roadmap_stage import StageRepo
@@ -35,9 +37,78 @@ STAGE_CHANGE = "src/devops_cli/roadmap/stage/stage_change.py"
 STAGE_PROMPT = "src/devops_cli/ai/tasks/roadmap_stage_change.md"
 PROMPT_RULES = "tests/roadmap/stage/test_roadmap_stage_prompt_rules.py"
 STAGE_TREE = StagedTree([*TREE_FILES, STAGE_CHANGE, STAGE_PROMPT, PROMPT_RULES])
+MODULE_FILE = "src/devops_cli/roadmap/step_files.py"
+MESSAGES_FILE = "src/devops_cli/lang/en/messages.py"
+TEST_FILE = "tests/roadmap/stage/test_roadmap_stage_gates.py"
+MODULE_TREE = StagedTree([*TREE_FILES, MODULE_FILE])
 KNOWN = ["comment-thread"]
 MISSING = "src/devops_cli/missing.py"
 NO_SPEC_DELTA = "skip_specs is false, and the reply gives no spec delta."
+
+
+def _staged_module(path: str) -> str | None:
+    """The text of a module of the checkout, as the citation gate reads the staged commit."""
+    file = REPO_ROOT / path
+    return file.read_text(encoding="utf-8") if file.is_file() else None
+
+
+def _module_plan(line: str) -> StageProposal:
+    """The stock plan with one feasibility line that names a module of `src/`."""
+    return make_stage_proposal(feasibility=[line])
+
+
+def test_the_module_quote_rule_accepts_the_plan_of_this_change() -> None:
+    """The plan's own acceptance test (#3404): the plan extends the plan check, so it builds its
+    own `StageProposal` and asserts that `content_problems` returns no problem for it."""
+    group = (
+        make_stage_proposal()
+        .groups[0]
+        .model_copy(
+            update={
+                "title": "Refuse a claim line that names a module with no statement",
+                "reads": [MODULE_FILE, TEST_FILE],
+                "changes": [STAGE_CHANGE, MESSAGES_FILE, TEST_FILE],
+                "creates": [TEST_FILE],
+                "creates_lines": {TEST_FILE: 70},
+                "test": (
+                    "Write `test_the_module_quote_rule_accepts_the_plan_of_this_change` in "
+                    f"`{TEST_FILE}` first, build the plan's own `StageProposal`, assert that "
+                    "`content_problems` returns no problem for it, and refuse a `feasibility` "
+                    f"line that names `{MODULE_FILE}` with no statement; it fails on the base"
+                ),
+                "implementation": (
+                    "Add `module_quote_problems` to "
+                    "`src/devops_cli/roadmap/stage/stage_change.py` and call it in the "
+                    "`citation` gate"
+                ),
+                "verify": f"uv run devops ci test {TEST_FILE}",
+            }
+        )
+    )
+    plan = make_stage_proposal(
+        summary="Refuse a module claim with no statement",
+        why=(
+            "Issue #3458: the plan of #3417 named `src/devops_cli/roadmap/step_files.py` and gave "
+            "no statement of that module."
+        ),
+        what_changes=[
+            f"`{STAGE_CHANGE}` refuses a claim line that names a module with no statement.",
+            f"`{MESSAGES_FILE}` gains the message of the module-quote problem.",
+            f"`{TEST_FILE}` pins the rule.",
+        ],
+        feasibility=[
+            f"`read_file` of `{MODULE_FILE}` showed `class TaskGroup:`, so the module holds the "
+            "group parser."
+        ],
+        existing_tool=(
+            "No open tool covers the check, so the change builds it: about 2,000 tokens to build, "
+            "1,000 tokens for each later fix, and about 30 minutes of elapsed time."
+        ),
+        groups=[group],
+        builds_own=True,
+    )
+
+    assert content_problems(plan) == []
 
 
 def _reads_a_missing_file(**overrides: object) -> StageProposal:
@@ -179,6 +250,44 @@ def test_a_stale_citation_is_a_problem_of_the_gate_citation() -> None:
     assert [gate for gate, problems in found.items() if problems] == [ProposalGate.CITATION]
 
 
+def test_a_claim_line_that_names_a_module_with_no_statement_is_refused() -> None:
+    plan = _module_plan(f"The probe of `{MODULE_FILE}` confirms the group parser.")
+
+    found = check_gates(plan, KNOWN, MODULE_TREE, read_text=_staged_module, registry=())
+
+    (problem,) = found[ProposalGate.CITATION]
+    assert MODULE_FILE in problem
+    assert [gate for gate, problems in found.items() if problems] == [ProposalGate.CITATION]
+
+
+def test_a_claim_line_that_quotes_its_module_passes() -> None:
+    plan = _module_plan(
+        f"The probe of `{MODULE_FILE}` confirms the group parser, as `class TaskGroup:` shows."
+    )
+
+    found = check_gates(plan, KNOWN, MODULE_TREE, read_text=_staged_module, registry=())
+
+    assert found[ProposalGate.CITATION] == []
+    assert not any(found.values())
+
+
+def test_a_quote_that_the_staged_module_lacks_is_refused() -> None:
+    plan = _module_plan(f"The probe of `{MODULE_FILE}` shows `kind: str` in the group parser.")
+
+    found = check_gates(plan, KNOWN, MODULE_TREE, read_text=_staged_module, registry=())
+
+    (problem,) = found[ProposalGate.CITATION]
+    assert MODULE_FILE in problem
+
+
+def test_a_claim_line_that_names_no_module_is_not_judged() -> None:
+    plan = _module_plan("The probe shows the group parser at the first line of the file.")
+
+    found = check_gates(plan, KNOWN, MODULE_TREE, read_text=_staged_module, registry=())
+
+    assert found[ProposalGate.CITATION] == []
+
+
 class _FakeToolboxClient(ToolboxClient):
     def __init__(self, proposal: StageProposal, trace: RunTrace) -> None:
         self._proposal = proposal
@@ -194,7 +303,9 @@ class _FakeToolboxClient(ToolboxClient):
 
 def test_planner_gates_proposal_with_trace_facts(stage_repo: StageRepo) -> None:
     path = "src/devops_cli/roadmap/agent_run.py"
-    proposal = make_stage_proposal(feasibility=[f"The run read `{path}` to confirm the facts."])
+    proposal = make_stage_proposal(
+        feasibility=[f"The run read `{path}` to confirm the facts, as `class RunTrace:` shows."]
+    )
     item = Item(
         number=1,
         title="feat: sample",

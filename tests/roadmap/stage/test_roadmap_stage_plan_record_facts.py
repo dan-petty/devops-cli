@@ -194,7 +194,7 @@ def test_the_facts_hold_only_the_paths_that_the_feasibility_cites(stage_repo: St
     run = RunTrace(
         tool_calls=[_call("read_file", path=cited), _call("read_file", path=other)], row=PLAN_ROW
     )
-    plan = _plan(feasibility=[f"The run read `{cited}` and found the function."])
+    plan = _plan(feasibility=[f"The run read `{cited}` and found `def keep(comments):`."])
     planner = _planner(_ScriptedToolbox([(plan, run)]), stage_repo.clone)
 
     planner.plan(_target())

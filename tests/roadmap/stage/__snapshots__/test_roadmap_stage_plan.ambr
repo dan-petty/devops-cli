@@ -47,7 +47,7 @@
       
       ## Feasibility
       
-      - `src/devops_cli/sample.py` shows the fault at the first line.
+      - `src/devops_cli/sample.py` shows the fault, as `def keep(comments):` does.
       
       ## Existing Tool Considered
       

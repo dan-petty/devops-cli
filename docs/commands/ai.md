@@ -1371,6 +1371,7 @@ devops ai rag drift [OPTIONS] <path>
 |---|---|---|---|
 | `--auto-sync`, `--reindex`, `-s` | `boolean` | - | Automatically re-index stale and newly added files. |
 | `--fail-on-drift` | `boolean` | - | Exit with code 1 if index drift or git commit divergence is detected. |
+| `--repo`, `-r` | `string` | - | Managed repository in owner/name form to ingest. Repeat to specify more than one repository. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |

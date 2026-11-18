@@ -372,7 +372,7 @@ jobs:
           # The final stage runs `apt-get upgrade`: never reuse it, or a cached layer keeps
           # packages a security update has since fixed.
           no-cache-filters: service
-          cache-from: type=gha
+          cache-from: type=gha,scope=service
 
       - name: Run Service Image Smoke Test
         env:
@@ -415,10 +415,10 @@ jobs:
           # The final stage runs `apt-get upgrade`: never reuse it, or a cached layer keeps
           # packages a security update has since fixed.
           no-cache-filters: service
-          cache-from: type=gha
+          cache-from: type=gha,scope=service
           # The one write of the cache of this image, from the build that the release publishes.
           # The image jobs of each pull request read it from main and write none (#4646).
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,scope=service,mode=max
 
       - name: Attest Build Provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
@@ -503,7 +503,7 @@ jobs:
           # The stage runs `apt-get upgrade`: never reuse it, or a cached layer keeps packages a
           # security update has since fixed.
           no-cache-filters: runner
-          cache-from: type=gha
+          cache-from: type=gha,scope=runner
 
       - name: Run Runner Image Smoke Test
         env:
@@ -545,9 +545,9 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           sbom: true
           no-cache-filters: runner
-          cache-from: type=gha
+          cache-from: type=gha,scope=runner
           # The one write of the cache of this image, as in the Service image job (#4646).
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,scope=runner,mode=max
 
       - name: Attest Build Provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
@@ -631,7 +631,7 @@ jobs:
           push: false
           tags: devops-cli-mcp-server:local
           no-cache-filters: mcp-server
-          cache-from: type=gha
+          cache-from: type=gha,scope=mcp-server
 
       - name: Run MCP Server Image Smoke Test
         env:
@@ -669,9 +669,9 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           sbom: true
           no-cache-filters: mcp-server
-          cache-from: type=gha
+          cache-from: type=gha,scope=mcp-server
           # The one write of the cache of this image, as in the Service image job (#4646).
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,scope=mcp-server,mode=max
 
       - name: Attest Build Provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2

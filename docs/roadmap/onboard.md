@@ -14,6 +14,16 @@ The command checks seven prerequisites in this order:
 6. **The repository is in `service.repos`.** Local configuration must include the repository in `service.repos`. When missing, the command outputs the line for `config.yaml` and the stack deployment command. The command never edits `config.yaml`.
 7. **The repository webhook posts the roadmap events to the Service.** The command reads `GET repos/<owner>/<name>/hooks` and compares each hook with `service.webhook_url`. The row is `present` when one active hook has that URL, the content type `json` and each event of `CONST_ROADMAP_WEBHOOK_EVENTS`. The hook can send more events: the Service acknowledges an event that no consumer takes (#5035). A hook with another URL or content type, or a hook that does not send each event of `CONST_ROADMAP_WEBHOOK_EVENTS`, is `wrong`, and the row names the field. With no hook the row is `missing`. An installation token with no administration read reports `not readable as <login>`. Every other state prints the step for a person: the URL, `application/json`, the events, and `devops config set service.webhook_secrets` for the secret. The row writes nothing and prints no secret.
 
+## RAG rows
+
+The command prints three RAG status rows after the prerequisite rows:
+
+1. **`indexed`**: Whether both Qdrant collections (`code` and `docs`) hold points for this repository under the project name `owner/name`. The row reads `present` when both collections hold points, `missing` when they hold none, and `not readable` with the reason when Qdrant cannot be reached.
+2. **`rag visibility`**: Whether Qdrant records the visibility of the points as `public` or `private`, verified against GitHub's `GET repos/<owner>/<name>`. An unscoped search excludes private repositories, so a mismatched visibility leaks or hides code.
+3. **`rag schedule`**: Whether the scheduled ingestion pass includes the repository in `service.repos`. When missing, the command outputs the configuration line to add.
+
+The RAG rows do not change the command exit code. The exit code stays on the seven prerequisite rows.
+
 ## Output and exit code
 
 Each row shows its number, description, state (`present`, `missing`, or `not readable`), and optional reason or next step:
@@ -28,7 +38,7 @@ The command supports four modes:
 
 - **Default**: Runs the check and prints a note that `--confirm` creates missing labels.
 - `--plan`: Runs the check with no write.
-- `--confirm`: Runs the check and creates missing labels on GitHub with `POST repos/<owner>/<name>/labels`. Differing labels are kept. No label is patched or deleted.
+- `--confirm`: Runs the check and creates missing labels on GitHub with `POST repos/<owner>/<name>/labels`. Differing labels are kept. When `service.repos` holds the repository, it also runs the RAG ingestion pass for that repository alone and prints the point count for each collection.
 - `--dry-run`: Makes zero requests to GitHub and renders the planned reads and writes.
 
 You can pass at most one mode flag at a time.

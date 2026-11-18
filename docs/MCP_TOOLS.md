@@ -486,6 +486,7 @@ Detect staleness and drift between the working tree and the Qdrant vector index.
 | `path` | `string` | No | `.` | Directory or file to index into vector store. |
 | `auto_sync` | `boolean` | No | `False` | Automatically re-index stale and newly added files. |
 | `fail_on_drift` | `boolean` | No | `False` | Exit with code 1 if index drift or git commit divergence is detected. |
+| `repo` | `string` | No | - | Managed repository in owner/name form to ingest. Repeat to specify more than one repository. |
 | `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
@@ -2345,7 +2346,7 @@ Format an OpenTofu plan as a collapsible pull request comment and print it. The 
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `plan_file` | `string` | No | - | Path to raw plan output or log file. With no file, or a path that does not exist, the command prints a fixed sample plan. |
+| `plan_file` | `string` | Yes | - | Path to raw plan output or log file. The file is required and must exist. |
 | `pr_number` | `integer` | No | - | Pull request number for the pr field of the JSON or YAML output. The command sends nothing to the pull request. |
 | `json_output` | `boolean` | No | `False` | Output findings or metrics as JSON. |
 | `output_format` | `string` | No | `table` | Output format (table, json, yaml, csv) |

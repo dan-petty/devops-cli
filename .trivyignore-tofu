@@ -2,7 +2,7 @@
 # Pinned findings that cannot be remediated immediately must record a reason and expiration date (exp: YYYY-MM-DD).
 # The runner and MCP server images hold the pinned OpenTofu v1.13.9
 # (opt/devops-tools/tools/tofu/1.13.9/tofu), and its vendored Go modules are older than the fixed
-# versions. Read on 2026-11-15: v1.13.9 (published 2026-11-05) is the newest release. Its go.mod
+# versions. Read on 2026-11-18: v1.13.9 (published 2026-11-05) is the newest release. Its go.mod
 # holds go-jose v4.1.4 (fixed 4.1.6), x/mod v0.39.0 (fixed 0.40.0), x/net v0.57.0 (fixed 0.60.0)
 # and grpc v1.83.1 (fixed 1.83.2). OpenTofu main holds every fix, so the next release should hold
 # them. The entries expire in 3 days, and the entry in `.trivyignore` for the pinned gh does not
@@ -10,12 +10,12 @@
 # finding if it returns. Trivy has no path field in this file format, so an entry matches the id
 # in every binary of the image. Tracked in #5866.
 # go-jose v4.1.4 in OpenTofu v1.13.9; fixed in 4.1.6 (#5866).
-CVE-2026-116587 exp:2026-11-18
+CVE-2026-116587 exp:2026-11-21
 # x/mod v0.39.0 in OpenTofu v1.13.9; fixed in 0.40.0 (#5866).
-CVE-2026-56864 exp:2026-11-18
+CVE-2026-56864 exp:2026-11-21
 # x/mod v0.39.0 in OpenTofu v1.13.9; fixed in 0.40.0 (#5866).
-CVE-2026-56865 exp:2026-11-18
+CVE-2026-56865 exp:2026-11-21
 # x/net v0.57.0 in OpenTofu v1.13.9; fixed in 0.60.0 (#5866).
-CVE-2026-78669 exp:2026-11-18
+CVE-2026-78669 exp:2026-11-21
 # grpc v1.83.1 in OpenTofu v1.13.9; fixed in 1.83.2 (#5866).
-CVE-2026-84445 exp:2026-11-18
+CVE-2026-84445 exp:2026-11-21

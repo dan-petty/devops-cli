@@ -813,8 +813,7 @@ class TfCommandHelp:
     out_plan: str = "Write generated plan to file."
     plan_file: str = "Explicit plan file to apply."
     plan_input_file: str = (
-        "Path to raw plan output or log file. With no file, or a path that does not exist,"
-        " the command prints a fixed sample plan."
+        "Path to raw plan output or log file. The file is required and must exist."
     )
     pr: str = (
         "Pull request number for the pr field of the JSON or YAML output."
@@ -2213,7 +2212,9 @@ class RoadmapCommandHelp:
         "Check one repository against the roadmap prerequisites and create missing labels. "
         "Details: docs/roadmap/onboard.md."
     )
-    onboard_confirm: str = "Create missing labels and print human steps."
+    onboard_confirm: str = (
+        "Create missing labels, start the RAG pass for the repository, and print human steps."
+    )
     onboard_plan: str = "Check prerequisites, print the rows, and write nothing."
     onboard_dry_run: str = (
         "Make no request: print the requests that a run makes, in order, with placeholders."

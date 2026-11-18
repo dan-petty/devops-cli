@@ -2394,6 +2394,18 @@ class CIMessages:
     fail_to_pass_head_could_not_run: str = (
         "The fail-to-pass replay could not run on the head: pytest exited with status {status}."
     )
+    fail_to_pass_head_timeout: str = (
+        "The fail-to-pass replay could not run on the head: pytest stopped after {seconds} "
+        "seconds replaying {files}."
+    )
+    fail_to_pass_replay_timeout: str = (
+        "The fail-to-pass replay could not run on base: pytest stopped after {seconds} seconds "
+        "replaying {files}. The process runner limit is {seconds} seconds; rerun on a host that "
+        "is less busy."
+    )
+    fail_to_pass_gate_timeout: str = (
+        "The gate row {row} could not run on {tree}: pytest stopped after {seconds} seconds."
+    )
     fail_to_pass_could_not_run: str = (
         "The fail-to-pass replay could not run on base: pytest exited with status {status} "
         "replaying {files}. Merge the change to the test harness or to the dependencies first, in "
@@ -5218,6 +5230,19 @@ class RoadmapMessages:
     stage_problem_class_claim: str = (
         "The plan names `{name}` in the {section} and gives no code span that holds text of the "
         "class at the staged commit. Add a code span with a line of `{name}`, or name no class."
+    )
+    # A design claim about a member of a class under `src/` names a member that the class body
+    # defines (#3458).
+    stage_problem_class_member: str = (
+        "The plan names `{name}.{member}` in the {section}, and the class `{name}` at the staged "
+        "commit defines no `{member}` member. Name a member that the class defines, or name no "
+        "member."
+    )
+    # A design claim that names a module under `src/` quotes a statement of that module (#3458).
+    stage_problem_module_quote: str = (
+        "The plan names `{path}` in the {section} and gives no code span that holds a statement "
+        "of that module at the staged commit. Add a code span with a line of `{path}`, or name no "
+        "module."
     )
     stage_problem_verify: str = (
         "Group {group} gives the `verify` command `{command}`. A `verify` command starts with "

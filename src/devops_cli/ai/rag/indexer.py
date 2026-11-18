@@ -494,6 +494,20 @@ class RagComponents(NamedTuple):
     docs_collection: str
 
 
+def rag_collection_names(settings: Settings | None = None) -> tuple[str, str]:
+    """The code and docs collection names that settings configure, as `(code, docs)`.
+
+    The settings default to the loaded settings. One helper names the two collections, so a check
+    that counts a project's points reads the collections that the indexer writes.
+    """
+    if settings is None:
+        from devops_cli.config.settings import load_settings
+
+        settings = load_settings()
+    prefix = settings.qdrant.collection_prefix or "devops"
+    return f"{prefix}_code", f"{prefix}_docs"
+
+
 def resolve_rag_components(settings: Settings | None = None) -> RagComponents:
     """Build the configured Qdrant client, embedder and collection names, once for every caller.
 
@@ -509,12 +523,12 @@ def resolve_rag_components(settings: Settings | None = None) -> RagComponents:
     embedder = cast(
         "EmbeddingsEngine", create_embedder(settings.ai, api_key=get_ai_api_key(settings))
     )
-    prefix = settings.qdrant.collection_prefix or "devops"
+    code_collection, docs_collection = rag_collection_names(settings)
     return RagComponents(
         qdrant=qdrant,
         embedder=embedder,
-        code_collection=f"{prefix}_code",
-        docs_collection=f"{prefix}_docs",
+        code_collection=code_collection,
+        docs_collection=docs_collection,
     )
 
 

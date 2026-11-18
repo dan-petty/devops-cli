@@ -529,6 +529,7 @@ class World:
 @pytest.fixture
 def world(github_api_and_gh: tuple[GitHubApiFake, ProcessFake]) -> World:
     api, gh = github_api_and_gh
+    api.route("GET", "/user", github_json({"login": BOT}))
     return World(api, gh)
 
 
@@ -797,7 +798,12 @@ def test_a_discard_writes_its_verdict_on_the_issue_and_links_it_from_the_pull_re
     pull = world.pull(item)
     keyed = f"<!-- devops roadmap review: {HEAD} -->"
     listing = f"/repos/{REPO}/issues/{pull}/comments?per_page=100"
-    world.api.route("GET", listing, github_json([]), github_json([{"id": 7, "body": keyed}]))
+    world.api.route(
+        "GET",
+        listing,
+        github_json([]),
+        github_json([{"id": 7, "body": keyed, "user": {"login": BOT}}]),
+    )
     world.api.route("PATCH", f"/repos/{REPO}/issues/comments/7", github_json({"id": 7}))
     judgement = Judgement(
         Verdict.DISCARD_IMPLEMENTATION,

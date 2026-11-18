@@ -87,6 +87,7 @@ from devops_cli.roadmap.stores.store import RoadmapStore
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.registry_audit import RegistryAudit, RegistryFinding
+    from devops_cli.roadmap.run import JobRow
 
 app = new_typer(help=HELP.roadmap.app, no_args_is_help=True)
 app.add_typer(eval_app, name="eval", help=HELP.roadmap.eval_app)
@@ -633,10 +634,23 @@ def run_cmd(
         return
 
     target, store = _open_store(repo)
+    run_roadmap_command(target, store, confirm=confirm)
+
+
+def run_roadmap_command(
+    target: str,
+    store: RoadmapStore,
+    *,
+    confirm: bool,
+    table: Sequence[JobRow] | None = None,
+) -> None:
+    """List the due jobs of `target`, or with `confirm` run them and name each that ran. A failed
+    row prints its error as plain text and exits 1. `table` is the due table of the round, the
+    default table when None: a test gives a stub table through it (#3885)."""
     from devops_cli.roadmap.run import run_due_jobs
 
     if not confirm:
-        due = run_due_jobs(target, store, batch={("poll", "", ""): 1}, dry_run=True)
+        due = run_due_jobs(target, store, batch={("poll", "", ""): 1}, dry_run=True, table=table)
         if due:
             write_stdout(f"Due: {', '.join(due)}\n")
         else:
@@ -644,7 +658,7 @@ def run_cmd(
         return
 
     try:
-        ran = run_due_jobs(target, store, batch={("poll", "", ""): 1}, dry_run=False)
+        ran = run_due_jobs(target, store, batch={("poll", "", ""): 1}, dry_run=False, table=table)
         if ran:
             print_success(f"Roadmap jobs completed: {', '.join(ran)}")
     except RoadmapRunError as exc:
@@ -1254,11 +1268,17 @@ def onboard_cmd(
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.onboard_dry_run)] = False,
     confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.onboard_confirm)] = False,
 ) -> None:
-    """Check a repository against the roadmap prerequisites and create missing labels."""
+    """Check a repository against the roadmap prerequisites and create missing labels.
+
+    With --confirm and a repository that service.repos holds, the command also starts the
+    ingestion pass for that repository, and prints the point count of each collection.
+    """
+    from devops_cli.config.settings import load_settings
     from devops_cli.roadmap.onboard import (
         apply_onboarding,
         check_onboarding,
         render_onboarding,
+        start_rag_pass,
     )
     from devops_cli.roadmap.request_plan import onboard_requests
 
@@ -1273,8 +1293,9 @@ def onboard_cmd(
         print_info(MESSAGES.roadmap.onboard_plain_note)
 
     with _exit_on_failure("Could not check onboarding"):
+        settings = load_settings()
         _, store = _open_store(target)
-        report = check_onboarding(store, target)
+        report = check_onboarding(store, target, settings=settings)
 
     applied = None
     if confirm and report.missing_labels:
@@ -1282,6 +1303,17 @@ def onboard_cmd(
             applied = apply_onboarding(target, report)
 
     write_stdout(render_onboarding(report, applied=applied) + "\n")
+    if confirm:
+        if target not in settings.service.repos:
+            print_error(
+                f"{target} is not in service.repos. Add it to the list first; the pass starts for "
+                "a listed repository only.",
+                safe=True,
+            )
+            raise typer.Exit(1)
+        with _exit_on_failure("Could not start the RAG pass"):
+            code_points, docs_points = start_rag_pass(target, settings)
+        print_success(f"RAG points: code {code_points}, docs {docs_points}")
     has_missing = (
         any(r.state == "missing" for r in report.rows if r.number != 4)
         if applied

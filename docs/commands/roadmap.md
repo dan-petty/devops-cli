@@ -337,7 +337,7 @@ devops roadmap onboard [OPTIONS]
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
 | `--plan` | `boolean` | - | Check prerequisites, print the rows, and write nothing. |
 | `--dry-run` | `boolean` | - | Make no request: print the requests that a run makes, in order, with placeholders. |
-| `--confirm` | `boolean` | - | Create missing labels and print human steps. |
+| `--confirm` | `boolean` | - | Create missing labels, start the RAG pass for the repository, and print human steps. |
 
 ---
 

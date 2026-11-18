@@ -314,9 +314,18 @@ def post_pr_review_comment(
         )
         print_warning(MESSAGES.dry_run.skipped_pr_comment.format(number=number), prefix=False)
         return
-    client = get_github_session().client
+    session = get_github_session()
+    client = session.client
+    session_login = session.login
     held = next(
-        (c for c in client.list_issue_comments(repo_name, number) if marker in c.body), None
+        (
+            c
+            for c in client.list_issue_comments(repo_name, number)
+            if marker in c.body
+            and bool(session_login)
+            and getattr(c, "author", "") == session_login
+        ),
+        None,
     )
     if held is None:
         client.create_issue_comment(repo_name, number, comment_body)

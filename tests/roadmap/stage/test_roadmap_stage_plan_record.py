@@ -460,7 +460,11 @@ def test_a_moved_staged_commit_keeps_the_key_and_runs_the_measure_again_on_the_n
     model_fake.answer(make_stage_proposal())
     first = _plan(store, stage_repo)
     before = _key_of_file()
-    lines = [f"def function_{i}(value):\n    return value + {i}\n" for i in range(1500)]
+    # The plan quotes `def keep(comments):`, so the moved module keeps that statement (#3458).
+    lines = [
+        "def keep(comments):\n    return comments\n",
+        *(f"def function_{i}(value):\n    return value + {i}\n" for i in range(1500)),
+    ]
     stage_repo.track({SAMPLE: "\n".join(lines)})
 
     second = _plan(store, stage_repo)

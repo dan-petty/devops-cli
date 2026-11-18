@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "devops-cli"
-version = "0.174.1"
+version = "0.174.7"
 
 description = "DevOps CLI for managing repos, SSH keys, Kubernetes, and more"
 requires-python = ">=3.14"
@@ -73,11 +73,11 @@ dependencies = [
     "statsmodels==0.15.0",
     "prometheus-client==0.26.0",
     "gidgethub==6.0.0",
-    "cachetools==8.0.0",
+    "cachetools==8.0.1",
     "valkey==6.2.0",
     "pybreaker==1.4.1",
     "ruamel-yaml==0.19.1",
-    "filelock==4.2.11",
+    "filelock==4.2.12",
     "psutil==7.2.2",
     "unidiff==1.0.1",
     "ddgs==9.16.1",

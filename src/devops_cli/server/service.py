@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
@@ -75,6 +75,9 @@ from devops_cli.server.routes.webhooks import (
 )
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import get_tracer
+
+if TYPE_CHECKING:
+    from devops_cli.roadmap.run import LaneSpec
 
 logger = logging.getLogger(__name__)
 
@@ -1267,9 +1270,11 @@ def create_service_app(
     idle: IdleRepos | None = None,
     rows_lease: LeaseHolder | None = None,
     read_row_state: Callable[[], None] | None = None,
+    lanes: Mapping[str, LaneSpec] | None = None,
 ) -> FastAPI:
     """Construct production FastAPI service application. `jobs` is each lane's job, run by one
     worker per lane of each repository, the default logging job in one lane when none is given;
+    `lanes` is the `LaneSpec` of each lane, kept on `app.state.lanes` beside the jobs (#3885);
     `pause_until` reads the time a failed round's error names, before which no lane of any
     repository starts a round; `identity_refused` reads whether that error says GitHub refused
     the Service's identity, which stops every round for good; `consumers` take the webhook
@@ -1322,6 +1327,7 @@ def create_service_app(
     )
     app.state.service_manager = manager
     app.state.jobs = lane_jobs
+    app.state.lanes = dict(lanes or {})
     app.state.pause_until = pause_reader
 
     app.middleware("http")(_service_trace_middleware)

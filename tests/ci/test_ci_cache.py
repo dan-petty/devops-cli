@@ -21,6 +21,7 @@ from devops_cli.ci.cache import (
     save_ci_cache,
 )
 from devops_cli.core.gitignore import get_index, reset_indexes
+from devops_cli.core.process import prepare_tool_cmd
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 
@@ -461,3 +462,96 @@ def test_a_tree_edited_during_the_run_is_not_recorded(
         recorded,
         entry is not None and [check.name for check in entry.checks],
     ) == (CacheRecord.TREE_CHANGED, '{"existing": true}', CacheRecord.RECORDED, ["test"])
+
+
+def _tracked_tree(tmp_path: Path, git_fake: GitFake) -> _FingerprintGitRepo:
+    """A tree with one tracked source file and the index that the git fake answers from."""
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[project]\nname = 'app'\n", encoding="utf-8")
+    (tmp_path / "app.py").write_text("value = 1\n", encoding="utf-8")
+    (tmp_path / ".gitignore").write_text(".data/\n", encoding="utf-8")
+    sim = _FingerprintGitRepo(tmp_path, git_fake)
+    sim.git_add("-A")
+    return sim
+
+
+def _matching_entry(tmp_path: Path, options: dict[str, Any]) -> CICacheEntry:
+    """The entry that a run of the tree under `options` would hit."""
+    fingerprinted = compute_workspace_fingerprint(root=tmp_path, options=options)
+    assert fingerprinted is not None
+    fingerprint, head_sha = fingerprinted
+    return CICacheEntry(
+        fingerprint=fingerprint,
+        head_sha=head_sha,
+        timestamp=1000.0,
+        passed=True,
+        options=options,
+        checks=[
+            CICachedCheck(
+                name="test", display_title="pytest & coverage", passed=True, duration_seconds=0.01
+            )
+        ],
+    )
+
+
+def test_a_forced_run_ignores_a_matching_cache_entry(
+    isolated_cache_dir: Path,
+    tmp_path: Path,
+    git_fake: GitFake,
+    monkeypatch: pytest.MonkeyPatch,
+    cli: Callable[..., Any],
+) -> None:
+    """`devops ci --cache --force` runs the checks although the cache holds a verdict of the tree."""
+    from devops_cli.commands.ci import get_check_specs
+
+    _tracked_tree(tmp_path, git_fake)
+    monkeypatch.chdir(tmp_path)
+    options = {"fix": True, "check": False}
+    resolve_ci_cache_path(tmp_path).write_text(
+        _matching_entry(tmp_path, options).model_dump_json(), encoding="utf-8"
+    )
+
+    result = cli("ci", "--cache", "--force")
+
+    started = {call.argv for call in git_fake.calls}
+    commands = [tuple(prepare_tool_cmd(spec.cmd)) for spec in get_check_specs()]
+    assert (
+        result.exit_code,
+        "Utilizing CI cache" in result.output,
+        any(cmd in started for cmd in commands),
+    ) == (0, False, True)
+
+
+def test_a_tree_that_changes_during_the_run_prints_the_warning(
+    isolated_cache_dir: Path,
+    tmp_path: Path,
+    git_fake: GitFake,
+    monkeypatch: pytest.MonkeyPatch,
+    cli: Callable[..., Any],
+) -> None:
+    """A check that rewrites a tracked file makes the run print the warning of the cache, and the
+    cache file keeps the entry that it held before."""
+    from devops_cli.commands.ci import get_check_specs
+    from devops_cli.lang import MESSAGES
+
+    _tracked_tree(tmp_path, git_fake)
+    monkeypatch.chdir(tmp_path)
+    cache_file = resolve_ci_cache_path(tmp_path)
+    cache_file.write_text('{"existing": true}', encoding="utf-8")
+    lint = next(spec for spec in get_check_specs() if spec.name == "lint")
+
+    def rewrite_then_pass(_call: ProcessCall) -> ProcessAnswer:
+        (tmp_path / "app.py").write_text("value = 2\n", encoding="utf-8")
+        return ProcessAnswer(returncode=0)
+
+    lint_argv = tuple(prepare_tool_cmd(lint.cmd))
+    git_fake.answer(lambda call: call.argv == lint_argv, rewrite_then_pass)
+
+    result = cli("ci", "--cache", "--force")
+
+    assert (
+        result.exit_code,
+        " ".join(result.output.split()).count(MESSAGES.ci.cache_tree_changed),
+        cache_file.read_text(encoding="utf-8"),
+    ) == (0, 1, '{"existing": true}')
