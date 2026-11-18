@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.177.1](https://github.com/dan-petty/devops-cli/compare/v0.177.0...v0.177.1) (2026-11-18)
+
+
+### Bug Fixes
+
+* **ci:** Identify a base gate run by its recorded worktree ([#6309](https://github.com/dan-petty/devops-cli/issues/6309)) ([959c74a](https://github.com/dan-petty/devops-cli/commit/959c74a2abec20000f0797110e0ed8494c54d5e1))
+* **ci:** retry the Trivy download of the image scan steps ([#6311](https://github.com/dan-petty/devops-cli/issues/6311)) ([81ff182](https://github.com/dan-petty/devops-cli/commit/81ff1827e0adde7f7959b80cdb100f09f9e27906))
+* **openspec:** Read the openspec version before regenerate writes ([#6312](https://github.com/dan-petty/devops-cli/issues/6312)) ([6d8025f](https://github.com/dan-petty/devops-cli/commit/6d8025f7dd7658c0622b121f0e5e6c0e2192167e))
+
 ## [0.177.0](https://github.com/dan-petty/devops-cli/compare/v0.176.1...v0.177.0) (2026-11-18)
 
 
