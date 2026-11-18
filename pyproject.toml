@@ -106,7 +106,7 @@ dev = [
     "pytest-mock==3.17.0",
     "ruff==0.17.5",
     "mypy==2.4.1",
-    "ty==0.0.105",
+    "ty==0.0.106",
     "types-PyYAML==6.0.12.20261113",
     "pytest-cov==7.1.0",
     "diff-cover==11.0.3",
