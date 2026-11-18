@@ -24,7 +24,7 @@ Adds: `ResearchStore`, `DEFAULT_RAG_RESEARCH_COLLECTION`, `DEFAULT_RESEARCH_EXPI
 
 Kind: behavior. Reads: `src/devops_cli/ai/research/store.py`, `src/devops_cli/ai/page_text.py`, `src/devops_cli/ai/web_search.py`, `tests/ai/agent_audit/test_store.py`. Changes: `src/devops_cli/ai/research/store.py`, `tests/ai/research/test_research_store.py`.
 
-- [ ] 3.1 Write test_upsert_refuses_a_search_hit_and_names_the_page_field and test_upsert_refuses_a_blank_source_url_and_names_it in `tests/ai/research/test_research_store.py`: the first passes a `SearchHit` of `src/devops_cli/ai/web_search.py` in place of the page and asserts a ValidationError with the field page and no point written; the second passes a PageText whose source_url is blank and asserts a ValidationError with the field source_url and no point written. They are the cases A search hit in place of a page and A page with a blank source URL
+- [ ] 3.1 Write test_upsert_refuses_a_search_hit_and_a_page_with_no_fetch_date_and_names_the_page_field and test_upsert_refuses_a_blank_source_url_and_names_it in `tests/ai/research/test_research_store.py`: the first passes a `SearchHit` of `src/devops_cli/ai/web_search.py`, and a plain mapping that holds a source_url and a text and no fetched_at, in place of the page, and asserts a ValidationError with the field page and no point written for each; the second passes a PageText whose source_url is blank and asserts a ValidationError with the field source_url and no point written. They are the cases A search hit in place of a page and A page with a blank source URL
   - Verification: `$ uv run devops ci test tests/ai/research/test_research_store.py` fails on the base
 - [ ] 3.2 Add the guard to ResearchStore.upsert in `src/devops_cli/ai/research/store.py`: when the page is not a PageText of `src/devops_cli/ai/page_text.py`, upsert raises the existing ValidationError of `src/devops_cli/exceptions/validation.py` with the field page, and when its source_url is blank it raises the same error with the field source_url, both before any write. A search hit holds a title and a snippet and no page text, so the index holds fetched pages only and no search-result field
   - Verification: `$ uv run devops ci test tests/ai/research/test_research_store.py` passes
@@ -51,28 +51,29 @@ Adds: `expire`
 
 ## 6. Build the research store from the settings
 
-Kind: behavior. Reads: `src/devops_cli/ai/research/store.py`, `src/devops_cli/ai/rag/indexer.py`, `src/devops_cli/ai/rag/library_store.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/config/defaults.py`, `tests/ai/agent_audit/test_store.py`. Changes: `src/devops_cli/ai/research/store.py`, `src/devops_cli/ai/rag/indexer.py`, `tests/ai/research/test_research_store.py`.
-Adds: `build_research_store`, `research_collection_name`
+Kind: behavior. Reads: `src/devops_cli/ai/research/store.py`, `src/devops_cli/ai/rag/indexer.py`, `src/devops_cli/ai/rag/library_store.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/config/defaults.py`, `tests/ai/agent_audit/test_store.py`. Changes: `src/devops_cli/ai/research/store.py`, `tests/ai/research/test_research_store.py`.
+Adds: `build_research_store`
 
-- [ ] 6.1 Write test_build_research_store_names_the_unset_qdrant_url and test_research_collection_name_follows_the_collection_prefix in `tests/ai/research/test_research_store.py`: the first builds the store from settings with no qdrant.url and asserts that the error names qdrant.url; the second asserts that the name is the collection prefix of the settings followed by _research, devops_research for the default prefix. The first is the case The Qdrant address setting is unset
+- [ ] 6.1 Write test_build_research_store_names_the_unset_qdrant_url in `tests/ai/research/test_research_store.py`: it builds the store from settings with no qdrant.url and asserts that the error names qdrant.url, the case The Qdrant address setting is unset
   - Verification: `$ uv run devops ci test tests/ai/research/test_research_store.py` fails on the base
-- [ ] 6.2 Add research_collection_name to `src/devops_cli/ai/rag/indexer.py` beside rag_collection_names, with the same prefix rule. Add build_research_store to `src/devops_cli/ai/research/store.py`, in the way that build_library_vector_store of `src/devops_cli/ai/rag/library_store.py` builds a LibraryVectorStore, which takes its client and embedder as arguments: it calls resolve_rag_components of `src/devops_cli/ai/rag/indexer.py`, so an unset qdrant.url raises ConfigurationError that names the setting and no fallback address of `src/devops_cli/config/defaults.py` is used
+- [ ] 6.2 Add build_research_store to `src/devops_cli/ai/research/store.py`, in the way that build_library_vector_store of `src/devops_cli/ai/rag/library_store.py` builds a LibraryVectorStore, which takes its client and embedder as arguments: it calls resolve_rag_components of `src/devops_cli/ai/rag/indexer.py`, so an unset qdrant.url raises ConfigurationError that names the setting and no fallback address of `src/devops_cli/config/defaults.py` is used
   - Verification: `$ uv run devops ci test tests/ai/research/test_research_store.py` passes
 
 ## 7. Show the research collection in the RAG status
 
-Kind: behavior. Reads: `src/devops_cli/commands/rag.py`, `src/devops_cli/ai/rag/indexer.py`, `src/devops_cli/ai/rag/qdrant.py`, `tests/ai/rag/test_knowledge_base_sync.py`, `tests/commands/test_ai_rag_ingest_analyze_dry_run.py`, `tests/commands/test_rag.py`. Changes: `src/devops_cli/commands/rag.py`, `tests/ai/rag/test_knowledge_base_sync.py`.
+Kind: behavior. Reads: `src/devops_cli/commands/rag.py`, `src/devops_cli/config/defaults.py`, `src/devops_cli/ai/rag/qdrant.py`, `tests/ai/rag/test_knowledge_base_sync.py`, `tests/commands/test_ai_rag_ingest_analyze_dry_run.py`, `tests/commands/test_rag.py`. Changes: `src/devops_cli/commands/rag.py`, `tests/ai/rag/test_knowledge_base_sync.py`.
 
 - [ ] 7.1 Write test_rag_status_lists_the_research_collection_with_its_point_count in `tests/ai/rag/test_knowledge_base_sync.py`, the case Status runs against a Qdrant that holds the collection
   - Verification: `$ uv run devops ci test tests/ai/rag/test_knowledge_base_sync.py` fails on the base
-- [ ] 7.2 Add a Research Collection row to status_cmd in `src/devops_cli/commands/rag.py`: it names the collection that research_collection_name of `src/devops_cli/ai/rag/indexer.py` gives for the settings and prints its point count from count_points, so the row names devops_research before any point exists. The case seeds one point of that collection in the qdrant fixture and asserts that the output holds the name and the count
+- [ ] 7.2 Add a Research Collection row to status_cmd in `src/devops_cli/commands/rag.py`: it names DEFAULT_RAG_RESEARCH_COLLECTION of `src/devops_cli/config/defaults.py` and prints its point count from count_points, so the row names devops_research before any point exists. The case seeds one point of that collection in the qdrant fixture and asserts that the output holds the name and the count
   - Verification: `$ uv run devops ci test tests/ai/rag/test_knowledge_base_sync.py` passes
 
 ## Criteria
 
-- Pending person: Tests that fail on the base: upsert twice with the same hash writes once; a changed hash updates; an expired point is removed by the sweep; lookup by kind and component returns the point with its URL and date., ADR 0028 replaces two parts of this criterion. The same hash updates fetch_date and expiry and writes no new vector (group 2), and the search is a vector search of the question, because the ADR has no kind field and no component field (group 4). A changed hash replaces the text (group 2), and the sweep deletes an expired point (group 5). A person confirms this reading of the ADR, or amends the ADR.
+- Group 2: Tests that fail on the base: the same page fetched again updates fetch_date and expiry; a changed hash replaces the text; an expired point is removed by the sweep; a search returns the point with its URL and date.
 - Group 3: A test: a point without source_url or fetched_at is refused.
-- Pending person: A test: text with an injection pattern is stored with injection_flag true and lookup for the agent excludes it., ADR 0028 fixes the six fields of a point, so no injection_flag is stored. The search leaves out a page whose text gives a finding to scan_injection_text, so the agent never gets such a page (group 4). A person confirms that a read-time check is enough, or amends the ADR to add the field.
+- Group 4: A test: a search reads no expired point.
+- Group 4: A test: text with an injection pattern is left out of the search for the agent.
 - Group 7: `devops ai rag status` shows the collection.
 - Pending person: `index_doc_chunks` has a caller, or it is removed with its tests (no dead code stays)., search_code with index_doc_chunks returns one line, in the archived task list openspec/changes/archive/2026-11-12-1910-delete-unused-functions-after-manual-caller/tasks.md, and no line under src/ or tests/, so the function is already absent at the staged commit and no group can remove it; a person confirms the absence on the merged tree.
 - Group 6: The Qdrant address comes from the settings, or an error names the setting (no fallback URL).
