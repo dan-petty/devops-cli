@@ -40,7 +40,7 @@ from datetime import UTC, date, datetime
 from http import HTTPStatus
 from itertools import islice
 from pathlib import PurePosixPath
-from typing import Any, Protocol
+from typing import Any, Final, Protocol
 from urllib.parse import quote, urlsplit
 
 from pydantic import AliasPath, BaseModel, Field, TypeAdapter
@@ -649,6 +649,20 @@ def create_issue_args(repo: str, title: str, body: str, labels: Sequence[str] = 
     return ["api", "-X", "POST", f"repos/{repo}/issues", *flags]
 
 
+_FIELD_FLAGS: Final[frozenset[str]] = frozenset({"-f", "-F", "--input", "--raw-field"})
+
+
+def gh_command_name(args: Sequence[str]) -> str:
+    """The `gh` command of `args`, named up to the first field flag: the subcommand and its
+    endpoint, without the title, the body or the labels that a field value carries (#5269)."""
+    named: list[str] = ["gh"]
+    for arg in args:
+        if arg in _FIELD_FLAGS:
+            break
+        named.append(arg)
+    return " ".join(named)
+
+
 def add_sub_issue_args(repo: str, parent: Number, child_id: Number) -> list[str]:
     return [
         "api",
@@ -1010,7 +1024,7 @@ class GitHubRoadmapStore(RoadmapStore):
     def create_issue(self, title: str, body: str, *, labels: Sequence[str] = ()) -> IssueRecord:
         """Open an issue with `title`, `body` and `labels`, returning it."""
         written = self._write(
-            create_issue_args(self._repo, title, body, labels), f"open the issue {title[:64]!r}"
+            create_issue_args(self._repo, title, body, labels), f"open the issue {title!r}"
         )
         return self._kept(self._validate(written, _ISSUE, "issue after it was opened"))
 
@@ -1211,7 +1225,8 @@ class GitHubRoadmapStore(RoadmapStore):
 
     def _contents(self, path: str, ref: str | None) -> tuple[str, str]:
         """The raw answer of the contents request for `path` on `ref`, and where it was read."""
-        proc = self._run(repository_file_args(self._repo, path, ref=ref))
+        args = repository_file_args(self._repo, path, ref=ref)
+        proc = self._run(args)
         where = f"{path} at {ref or 'the default branch'}"
         if proc.returncode == 0:
             return proc.stdout or "", where
@@ -1221,7 +1236,7 @@ class GitHubRoadmapStore(RoadmapStore):
                 operation="roadmap.read",
                 details={"repo": self._repo[:256], "path": path[:256]},
             )
-        raise self._failure(proc, f"read {where}", "roadmap.read")
+        raise self._failure(proc, args, f"read {where}", "roadmap.read")
 
     def repository_is_private(self) -> bool:
         """Whether the repository is private."""
@@ -1375,7 +1390,7 @@ class GitHubRoadmapStore(RoadmapStore):
     def _write(self, args: list[str], action: str, *, input: str | None = None) -> str:
         proc = self._run(args, input=input)
         if proc.returncode != 0:
-            raise self._failure(proc, action, "roadmap.write")
+            raise self._failure(proc, args, action, "roadmap.write")
         return proc.stdout or ""
 
     # ── Reads ──
@@ -1406,7 +1421,7 @@ class GitHubRoadmapStore(RoadmapStore):
             return self._validate(proc.stdout or "", adapter, what)
         if gh_http_status(proc.stderr or "") in absent:
             return None
-        raise self._failure(proc, f"read {what}", "roadmap.read")
+        raise self._failure(proc, args, f"read {what}", "roadmap.read")
 
     def _read_issues(self, query: str) -> list[IssueRecord]:
         issues = self._listing(issues_endpoint(self._repo, query), _ISSUE, "issues")
@@ -1458,7 +1473,7 @@ class GitHubRoadmapStore(RoadmapStore):
     ) -> PayloadT:
         proc = self._run(args)
         if proc.returncode != 0:
-            raise self._failure(proc, f"read {what}", "roadmap.read")
+            raise self._failure(proc, args, f"read {what}", "roadmap.read")
         return self._validate(proc.stdout or "", adapter, what)
 
     def _validate[PayloadT](self, text: str, adapter: TypeAdapter[PayloadT], what: str) -> PayloadT:
@@ -1483,17 +1498,25 @@ class GitHubRoadmapStore(RoadmapStore):
         return self._runner(args, input=input, check=False, quiet=True, use_cache=False)
 
     def _failure(
-        self, proc: subprocess.CompletedProcess[str], action: str, operation: str
+        self,
+        proc: subprocess.CompletedProcess[str],
+        args: Sequence[str],
+        action: str,
+        operation: str,
     ) -> GitHubOperationError:
         """The error for a failed gh command: the class the gh classifier names from gh's
-        stderr, such as `GitHubRateLimitError`, else a failure to do `action`. gh's stdout holds
-        GitHub's answer, possibly partial data with item titles, and is never classified."""
-        output = f"{proc.stderr or ''} {proc.stdout or ''}".strip()
+        stderr, such as `GitHubRateLimitError`, else a failure to do `action` that names the gh
+        command, its exit code and its stderr. gh's stdout holds GitHub's answer, possibly
+        partial data with item titles, and is never classified."""
         classified = classify_gh_failure(
             proc.stderr or "", exit_code=proc.returncode, operation=operation
         )
-        return classified or GitHubOperationError(
-            f"Could not {action} in {self._repo} (exit {proc.returncode}): {output[:256]}",
+        if classified is not None:
+            return classified
+        stderr = (proc.stderr or "").strip()
+        return GitHubOperationError(
+            f"Could not {action} in {self._repo} (exit {proc.returncode}): "
+            f"{gh_command_name(args)}; stderr: {stderr[:256] or '(empty)'}",
             operation=operation,
             details={"repo": self._repo[:256], "exit_code": proc.returncode},
         )
