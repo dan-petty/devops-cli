@@ -43,6 +43,12 @@ class Component(BaseModel):
 
     `file` is the path from the repository root, with `/` separators. `line` counts from 1, and is
     0 when the file's parser gives no line and the text of the file does not show it.
+
+    `osv_ecosystem` and `osv_name` are the identity that OSV gives the component, which differs
+    from its inventory identity for an image, a chart or a release binary; `purl` is the package
+    URL of a package, `registry` the host of an image, and `repo` the upstream repository
+    `owner/name`. Each is empty when the pin and its watch entry give none, so a component that
+    no watch entry names keeps the ecosystem `unknown` and stays in the count.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -53,6 +59,11 @@ class Component(BaseModel):
     version: str
     file: str
     line: int
+    osv_ecosystem: str = ""
+    osv_name: str = ""
+    purl: str = ""
+    registry: str = ""
+    repo: str = ""
 
 
 class InventorySummary(BaseModel):

@@ -22,7 +22,9 @@ from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.research.advisories import advisory_requests, find_advisories
 from devops_cli.research.github_advisories import GitHubAdvisoryClient
 from devops_cli.research.inventory import read_inventory
+from devops_cli.research.mapping import mapped_inventory
 from devops_cli.research.models import AdvisoryReport
+from devops_cli.research.render import renderer_for
 from devops_cli.research.watch import read_watch_list
 from devops_cli.telemetry import trace_span
 
@@ -53,9 +55,16 @@ def inventory(
         bool,
         typer.Option("--json", "-j", help=HELP.options.json_output),
     ] = False,
+    render: Annotated[
+        bool,
+        typer.Option("--render", help=HELP.research.inventory_render),
+    ] = False,
 ) -> None:
     """List every pin of the project."""
-    result = read_inventory(find_repo_root(root))
+    # The render starts helm and reads a chart source over the network, so only the run that asks
+    # for it builds the renderer; a dry run sends no external request and builds none.
+    renderer = renderer_for() if render and not is_dry_run() else None
+    result = mapped_inventory(find_repo_root(root), renderer=renderer)
     resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         emit_serialized(result.model_dump(mode="json"), resolved)
