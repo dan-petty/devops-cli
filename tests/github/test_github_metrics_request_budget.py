@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from devops_cli.github.item_label_times import item_label_times_path
 from devops_cli.github.metrics import (
     METRICS_ROW_GITHUB_REQUEST_BUDGET,
     collect_project_metrics_report,
@@ -47,9 +48,9 @@ def _store(github: GitHubFake) -> GitHubRoadmapStore:
     return GitHubRoadmapStore(REPO, runner=github, session=get_github_session())
 
 
-def _warm_ages(github: GitHubFake) -> None:
-    """Fill the age cache, so the counted round reads no label events."""
-    get_item_age_metrics(_store(github), REPO, clock=lambda: NOW)
+def _warm_ages(github: GitHubFake, record: Path) -> None:
+    """Fill the record of the label times, so the counted round reads no label events."""
+    get_item_age_metrics(_store(github), REPO, clock=lambda: NOW, label_times_record=record)
 
 
 def _counted_round(
@@ -60,7 +61,8 @@ def _counted_round(
     git_fake.answer(["git", "tag"], ProcessAnswer(stdout="v0.1.0|2026-10-01T00:00:00+00:00\n"))
     git_fake.answer(["git", "log"], ProcessAnswer(stdout="v0.1.0\n\nCloses #1\n"))
     git_fake.answer(["git", "rev-list"], ProcessAnswer(stdout="1\n"))
-    _warm_ages(github)
+    record = item_label_times_path(tmp_path)
+    _warm_ages(github, record)
     from devops_cli.github import metrics as metrics_module
 
     metrics_module._refused_integration_repos.add(REPO)
@@ -72,6 +74,7 @@ def _counted_round(
             store=_store(github),
             item_ages=True,
             clock=lambda: NOW,
+            label_times_record=record,
         )
     return int(
         sum(

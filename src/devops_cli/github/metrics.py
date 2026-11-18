@@ -40,6 +40,12 @@ from devops_cli.core.repo import find_worktree_root, get_repo_origin_name
 from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.github.client import GhCliClient, PullStatus
 from devops_cli.github.error_classifier import is_gh_refused_by_token
+from devops_cli.github.item_label_times import (
+    ItemLabelTimesRecord,
+    KeptItemLabelTimes,
+    keep_item_label_times,
+    read_item_label_times,
+)
 from devops_cli.github.repo_ref import RepoRef
 from devops_cli.github.session import GitHubSession, get_github_session
 from devops_cli.roadmap.phase import (
@@ -514,15 +520,9 @@ def get_item_metrics(
 
 _LabelTimes = dict[str, datetime.datetime]
 """The time each label of an Item was set, by label name."""
-_item_label_times: dict[tuple[str, int], tuple[tuple[str | None, str | None], _LabelTimes]] = {}
-"""The label times of each open Item, by repository and number, with the status and owner values
-the times were read for. A round reads an Item again only when one of those values changes
-(#2919)."""
-
-
-def reset_item_age_cache() -> None:
-    """Forget the label times, as a new process has read none (#2919)."""
-    _item_label_times.clear()
+_MAX_ITEM_AGE_READS_PER_ROUND: Final[int] = 20
+"""The most label-event reads that one metrics-row round sends for the open Items of a repository.
+The Items that the cap defers keep their entry and wait for a later round (#3634)."""
 
 
 def _utc_now() -> datetime.datetime:
@@ -543,24 +543,60 @@ def _labeled_since(changes: Iterable[Change]) -> _LabelTimes:
     return since
 
 
-def _label_times(store: RoadmapStore, repo: str, items: list[Item]) -> dict[int, _LabelTimes]:
-    """The label times of each Item of `items`. The store is read for an Item whose status or owner
-    value differs from the one the cache holds. The cache then keeps this round's Items of `repo`
-    only, so a closed Item leaves it and the Items of another repository stay (#2919)."""
-    fresh: dict[tuple[str, int], tuple[tuple[str | None, str | None], _LabelTimes]] = {}
+def _entry_matches(item: Item, entry: KeptItemLabelTimes | None) -> bool:
+    """Whether `entry` holds the label times of `item` at its current `updated_at` (#3634)."""
+    return entry is not None and item.updated_at is not None and entry.updated_at == item.updated_at
+
+
+def _items_to_read(items: list[Item], record: ItemLabelTimesRecord) -> list[Item]:
+    """The Items whose label events a round reads, at most `_MAX_ITEM_AGE_READS_PER_ROUND`: the
+    Items whose `updated_at` moved since the record was written, then the Items that the record
+    does not hold (#3634)."""
+    moved: list[Item] = []
+    new: list[Item] = []
     for item in items:
-        key = (repo, item.number)
-        values = (item.status, item.owner)
-        held = _item_label_times.get(key)
-        if held is not None and held[0] == values:
-            times = held[1]
-        else:
-            times = _labeled_since(store.label_changes(item.number))
-        fresh[key] = (values, times)
-    for key in [key for key in _item_label_times if key[0] == repo]:
-        del _item_label_times[key]
-    _item_label_times.update(fresh)
-    return {item.number: fresh[(repo, item.number)][1] for item in items}
+        entry = record.items.get(item.number)
+        if _entry_matches(item, entry):
+            continue
+        (new if entry is None else moved).append(item)
+    return (moved + new)[:_MAX_ITEM_AGE_READS_PER_ROUND]
+
+
+def _label_times(
+    store: RoadmapStore,
+    items: list[Item],
+    record: ItemLabelTimesRecord | None,
+) -> tuple[dict[int, _LabelTimes], ItemLabelTimesRecord | None]:
+    """The label times of each Item of `items`, and the record that a later round reads.
+
+    A round with no `record` reads the label events of every Item and keeps none. With a record,
+    an Item whose entry holds its current `updated_at` reuses the times of that entry. The round
+    reads the Items whose `updated_at` moved before the Items that the record does not hold, at
+    most `_MAX_ITEM_AGE_READS_PER_ROUND` of them. An Item that the cap defers keeps the times of
+    its entry, and an Item that left the open list leaves the record (#3634).
+    """
+    if record is None:
+        unrecorded = {
+            item.number: _labeled_since(store.label_changes(item.number)) for item in items
+        }
+        return unrecorded, None
+    read_times = {
+        item.number: _labeled_since(store.label_changes(item.number))
+        for item in _items_to_read(items, record)
+    }
+    times: dict[int, _LabelTimes] = {}
+    kept: dict[int, KeptItemLabelTimes] = {}
+    for item in items:
+        entry = record.items.get(item.number)
+        if item.number in read_times:
+            entry = KeptItemLabelTimes(
+                updated_at=item.updated_at,
+                times=read_times[item.number],
+            )
+        if entry is not None:
+            kept[item.number] = entry
+            times[item.number] = entry.times
+    return times, ItemLabelTimesRecord(items=kept)
 
 
 def _age_seconds(now: datetime.datetime, since: datetime.datetime) -> float:
@@ -597,6 +633,7 @@ def get_item_age_metrics(
     pulls: Mapping[int, PullStatus] | None = None,
     running_units: Collection[int] | None = None,
     stall_hours: int | None = None,
+    label_times_record: Path | None = None,
 ) -> tuple[list[ItemAgeMetric], float, list[ItemPhaseMetric], dict[str, int]]:
     """The age of the oldest open roadmap Item in each pipeline phase, with its number, the age
     of the oldest claim, the item and stalled counts of each phase, and the open items of each
@@ -605,10 +642,16 @@ def get_item_age_metrics(
     The phase age of an Item is the clock minus the time of the event that set its phase. The
     store gives that time through `label_changes` or record timestamps. Raises when the label
     events of an Item cannot be read.
+
+    With `label_times_record`, the round keeps the `updated_at` and the label times of each open
+    Item in that file, reads no label events of an Item whose entry holds its current `updated_at`,
+    and reads the label events of at most `_MAX_ITEM_AGE_READS_PER_ROUND` Items (#3634). With no
+    path it reads every Item and keeps no record.
     """
     now = clock()
     items = [item for item in store.items() if item.state is GitHubState.OPEN]
-    times = _label_times(store, repo, items)
+    held = read_item_label_times(label_times_record) if label_times_record is not None else None
+    times, record = _label_times(store, items, held)
     hours = (
         stall_hours
         if stall_hours is not None
@@ -648,7 +691,9 @@ def get_item_age_metrics(
             oldest[item_phase] = (age, item.number)
 
         if item.owner is not None:
-            since = _labeled_at(item, field_label(ItemField.OWNER, item.owner), times[item.number])
+            since = _labeled_at(
+                item, field_label(ItemField.OWNER, item.owner), times.get(item.number, {})
+            )
             if since is not None:
                 claims.append(since)
 
@@ -663,6 +708,8 @@ def get_item_age_metrics(
         for p in ACTIVE_PHASES
         if counts.get(p.value, 0) > 0
     ]
+    if label_times_record is not None and record is not None:
+        keep_item_label_times(label_times_record, record)
     return item_ages, claim_age, item_phases, claimant_counts(items)
 
 
@@ -684,13 +731,17 @@ def claimant_counts(items: Iterable[Item]) -> dict[str, int]:
 
 
 def _read_item_ages(
-    store: RoadmapStore, repo: str, clock: Callable[[], datetime.datetime]
+    store: RoadmapStore,
+    repo: str,
+    clock: Callable[[], datetime.datetime],
+    label_times_record: Path | None = None,
 ) -> tuple[list[ItemAgeMetric], float | None, list[ItemPhaseMetric], dict[str, int]]:
     """The item ages of one round. A failed read of the label events logs a warning and sends no
     age and no claim count this round, and the other sections of the report stay (#2919, #4579,
-    #5495)."""
+    #5495). `label_times_record` is the record of the label times of the repository, which the
+    round keeps (#3634)."""
     try:
-        return get_item_age_metrics(store, repo, clock)
+        return get_item_age_metrics(store, repo, clock, label_times_record=label_times_record)
     except GitHubOperationError as exc:
         logger.warning(
             "No item age is sent for %s this round, because its label events could not be read: %s",
@@ -885,6 +936,7 @@ def collect_project_metrics_report(
     item_ages: bool = False,
     clock: Callable[[], datetime.datetime] = _utc_now,
     session: GitHubSession | None = None,
+    label_times_record: Path | None = None,
 ) -> ProjectMetricsReport:
     """Aggregate complete project metrics across releases, CI checks, milestones, and the
     roadmap's Items.
@@ -894,7 +946,10 @@ def collect_project_metrics_report(
 
     With `item_ages`, the report also holds the age of the oldest Item of each state and of the
     oldest claim, at the time `clock` gives. That reads the label events of each open Item whose
-    status or owner changed, so only the metrics row of the Service asks for it (#2919).
+    `updated_at` moved since the record of its label times was written, so only the metrics row
+    of the Service asks for it (#2919). With `label_times_record`, the round keeps that record,
+    reads no label events of an Item whose entry holds its current `updated_at`, and reads the
+    label events of at most `_MAX_ITEM_AGE_READS_PER_ROUND` Items (#3634).
 
     The releases are the `v*` tags of the git repository at `root`, taken as it is, so a clone
     nested in another checkout, as the roadmap jobs keep under the data directory, reports its
@@ -922,7 +977,9 @@ def collect_project_metrics_report(
     taxonomy_labels = get_label_taxonomy_metrics(roadmap)
     traffic = get_repository_traffic_metrics(target_repo)
     ages, claim_age, phases, claims = (
-        _read_item_ages(roadmap, target_repo, clock) if item_ages else ([], None, [], {})
+        _read_item_ages(roadmap, target_repo, clock, label_times_record)
+        if item_ages
+        else ([], None, [], {})
     )
 
     interval_sum = sum(r.days_since_prev for r in releases if r.days_since_prev > 0)
@@ -1106,7 +1163,6 @@ __all__ = [
     "get_milestone_metrics",
     "get_release_cadence_metrics",
     "get_repository_traffic_metrics",
-    "reset_item_age_cache",
     "reset_refused_paths",
     "reset_sent_item_series",
     "reset_sent_phase_series",
