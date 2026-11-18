@@ -70,11 +70,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/alternatives.py`, `src/devops_cli
 
 ## 8. Name the two ask-mode tools in the extended prompt
 
-Kind: behavior. Reads: `src/devops_cli/ai/tasks/roadmap_stage_tools_extended.md`, `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py`, `tests/roadmap/stage/test_roadmap_stage_toolbox.py`. Changes: `src/devops_cli/ai/tasks/roadmap_stage_tools_extended.md`, `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py`.
+Kind: other. Reads: `src/devops_cli/ai/tasks/roadmap_stage_tools_extended.md`, `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py`, `tests/roadmap/stage/test_roadmap_stage_toolbox.py`. Changes: `src/devops_cli/ai/tasks/roadmap_stage_tools_extended.md`, `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py`.
 
-- [ ] 8.1 `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py` fails first: the text of `src/devops_cli/ai/tasks/roadmap_stage_tools_extended.md` names `research_lookup` and `research_grep` in backticks, says when to call each, and its first line says five more tools
-  - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_prompt_rules.py` fails on the base
-- [ ] 8.2 Add two bullets to the `When to call them` list of `src/devops_cli/ai/tasks/roadmap_stage_tools_extended.md`: call `research_lookup` for a question that an earlier round may have answered, and `research_grep` for an exact term or a pattern over the pages that the index holds. Name both tools in the list of the first line and change that line to `Five more tools are on for this run:`. Add the assertion of the two names to `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py`. This group lands before the registry group, because `tests/roadmap/stage/test_roadmap_stage_toolbox.py` compares the tools of the toolbox with the names of the prompt
+- [ ] 8.1 Add two bullets to the `When to call them` list of `src/devops_cli/ai/tasks/roadmap_stage_tools_extended.md`: call `research_lookup` for a question that an earlier round may have answered, and `research_grep` for an exact term or a pattern over the pages that the index holds. Name both tools in the list of the first line and change that line to `Five more tools are on for this run:`. Add the assertion of the two names, with the first line, to `tests/roadmap/stage/test_roadmap_stage_prompt_rules.py`. This group lands before the registry group, because `tests/roadmap/stage/test_roadmap_stage_toolbox.py` compares the tools of the toolbox with the names of the prompt
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_prompt_rules.py` passes
 
 ## 9. Name the two ask-mode tools in the stage registry
