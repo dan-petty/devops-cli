@@ -276,7 +276,7 @@ def test_the_comment_states_the_graphql_requests_of_the_overlap_read(
         make_stage_proposal(
             feasibility=[
                 "The probe shows: The path `src/devops_cli/sample.py` is a file of the staging "
-                "commit."
+                "commit. The file holds `def keep(comments):`."
             ]
         )
     )

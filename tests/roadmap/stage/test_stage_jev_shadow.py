@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 PLAN_ROW = "stage"
 REPO = "example/repo"
 TOOLSET = "extended"
-CLAIM = "The run read `src/devops_cli/sample.py`."
+CLAIM = "The run read `src/devops_cli/sample.py` at `def keep(comments):`."
 _SAMPLE = "src/devops_cli/sample.py"
 _METRIC = "devops_cli_roadmap_stage_jev_total"
 
