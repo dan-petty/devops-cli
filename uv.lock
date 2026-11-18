@@ -847,7 +847,7 @@ wheels = [
 
 [[package]]
 name = "devops-cli"
-version = "0.176.0"
+version = "0.176.1"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
