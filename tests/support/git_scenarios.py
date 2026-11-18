@@ -134,11 +134,13 @@ class Workspace:
     @contextmanager
     def environment(self) -> Iterator[None]:
         """The process environment that the code of `src/` runs in: its own home and data root,
-        and the C locale."""
+        the C locale, and no git configuration of the host (#4865)."""
         wanted = {
             "HOME": str(self.root / ".home"),
             "LC_ALL": "C",
             "DEVOPS_CLI_USER_DATA_ROOT": str(self.root / "user-data"),
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
         }
         saved = {key: os.environ.get(key) for key in wanted}
         os.environ.update(wanted)
