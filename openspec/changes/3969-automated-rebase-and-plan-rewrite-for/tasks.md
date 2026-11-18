@@ -34,9 +34,9 @@ Adds: `branches_requests`
 
 Kind: other. Reads: `docs/roadmap/plan-recheck.md`, `docs/commands/roadmap.md`, `docs/CLI_REFERENCE.md`. Changes: `docs/roadmap/plan-recheck.md`, `docs/commands/roadmap.md`, `docs/CLI_REFERENCE.md`.
 
-- [ ] 4.1 Document `--branches` in `docs/roadmap/plan-recheck.md` and in the option table of `docs/commands/roadmap.md`: the rebase only when the rewrite changes a file, the lease push, the conflict and refused results, and the rule that a branch whose plan does not change gets no push. Regenerate `docs/CLI_REFERENCE.md` with the docs generator of the `docs-cli-reference` capability, then run the docs row
+- [x] 4.1 Document `--branches` in `docs/roadmap/plan-recheck.md` and in the option table of `docs/commands/roadmap.md`: the rebase only when the rewrite changes a file, the lease push, the conflict and refused results, and the rule that a branch whose plan does not change gets no push. Regenerate `docs/CLI_REFERENCE.md` with the docs generator of the `docs-cli-reference` capability, then run the docs row
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 4.2 Edit `docs/roadmap/plan-recheck.md` and `docs/commands/roadmap.md`, and regenerate `docs/CLI_REFERENCE.md`
+- [x] 4.2 Edit `docs/roadmap/plan-recheck.md` and `docs/commands/roadmap.md`, and regenerate `docs/CLI_REFERENCE.md`
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
