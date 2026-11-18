@@ -224,7 +224,7 @@ def test_fastmcp_pr_check_readiness_tool(mcp_dispatcher: DispatcherFake) -> None
     """Verify pr_check_readiness FastMCP execution contract."""
 
     from devops_cli.ai.mcp.server import pr_check_readiness
-    from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
+    from devops_cli.config.constants import CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS
 
     mcp_dispatcher.answer("PR #187 satisfies merge readiness")
 
@@ -247,7 +247,7 @@ def test_fastmcp_pr_check_readiness_tool(mcp_dispatcher: DispatcherFake) -> None
     assert (res, list(mcp_dispatcher.last.argv), mcp_dispatcher.last.timeout) == (
         "PR #187 satisfies merge readiness",
         expected_cmd,
-        DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+        CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS,
     )
 
 
@@ -255,7 +255,7 @@ def test_fastmcp_pr_thread_resolve_tool(mcp_dispatcher: DispatcherFake) -> None:
     """Verify pr_threads_resolve FastMCP execution contract with without_reply option."""
 
     from devops_cli.ai.mcp.server import pr_threads_resolve
-    from devops_cli.config.defaults import DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS
+    from devops_cli.config.constants import CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS
 
     mcp_dispatcher.answer("Thread resolved")
 
@@ -273,7 +273,7 @@ def test_fastmcp_pr_thread_resolve_tool(mcp_dispatcher: DispatcherFake) -> None:
     assert (res_default, list(mcp_dispatcher.last.argv), mcp_dispatcher.last.timeout) == (
         "Thread resolved",
         cmd_default,
-        DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+        CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS,
     )
 
     # Test without_reply=True
@@ -291,7 +291,7 @@ def test_fastmcp_pr_thread_resolve_tool(mcp_dispatcher: DispatcherFake) -> None:
     assert (res_override, list(mcp_dispatcher.last.argv), mcp_dispatcher.last.timeout) == (
         "Thread resolved",
         cmd_override,
-        DEFAULT_MCP_TOOL_SHORT_TIMEOUT_SECONDS,
+        CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS,
     )
 
 
@@ -299,6 +299,7 @@ def test_fastmcp_pr_ready_tool(mcp_dispatcher: DispatcherFake) -> None:
     """Verify pr_ready FastMCP execution contract."""
 
     from devops_cli.ai.mcp.server import pr_ready
+    from devops_cli.config.constants import CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS
 
     mcp_dispatcher.answer("PR #212 is ready for review")
 
@@ -321,7 +322,7 @@ def test_fastmcp_pr_ready_tool(mcp_dispatcher: DispatcherFake) -> None:
             "owner/repo",
             "--force",
         ],
-        180.0,
+        CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS,
     )
 
 
