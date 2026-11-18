@@ -33,7 +33,7 @@ def recorder(process_fake: ProcessFake) -> list[list[str]]:
 def test_ci_lint_dry_run(recorder: list[list[str]]) -> None:
     """devops ci lint --dry-run prints a one-request plan and starts zero processes."""
     res = runner.invoke(app, ["lint", "--dry-run"])
-    expected_cmd = "uv --preview-features malware-check,check-command run ruff check --config pyproject.toml --fix ."
+    expected_cmd = "UV_MALWARE_CHECK=0 uv --preview-features malware-check,check-command run ruff check --config pyproject.toml --fix ."
     assert (res.exit_code, len(recorder), is_dry_run()) == (0, 0, True)
     assert f"1. {expected_cmd}" in res.stdout
 
@@ -41,7 +41,9 @@ def test_ci_lint_dry_run(recorder: list[list[str]]) -> None:
 def test_ci_format_dry_run(recorder: list[list[str]]) -> None:
     """devops ci format --dry-run prints a one-request plan and starts zero processes."""
     res = runner.invoke(app, ["format", "--dry-run"])
-    expected_cmd = "uv --preview-features malware-check,check-command run ruff format ."
+    expected_cmd = (
+        "UV_MALWARE_CHECK=0 uv --preview-features malware-check,check-command run ruff format ."
+    )
     assert (res.exit_code, len(recorder), is_dry_run()) == (0, 0, True)
     assert f"1. {expected_cmd}" in res.stdout
 
@@ -83,10 +85,11 @@ def test_ci_all_checks_dry_run(recorder: list[list[str]]) -> None:
     specs = get_check_specs()
     # 3 fix steps (format, lint, docs) + 12 check spec rows
     assert (
-        "1. uv --preview-features malware-check,check-command run ruff format ." in res.stdout,
-        "2. uv --preview-features malware-check,check-command run ruff check --config pyproject.toml --fix ."
+        "1. UV_MALWARE_CHECK=0 uv --preview-features malware-check,check-command run ruff format ."
         in res.stdout,
-        "3. uv --preview-features malware-check,check-command run devops docs generate"
+        "2. UV_MALWARE_CHECK=0 uv --preview-features malware-check,check-command run ruff check --config pyproject.toml --fix ."
+        in res.stdout,
+        "3. UV_MALWARE_CHECK=0 uv --preview-features malware-check,check-command run devops docs generate"
         in res.stdout,
     ) == (True, True, True)
     for spec in specs:

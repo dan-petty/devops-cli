@@ -154,6 +154,14 @@ RUNNER_TOOLS: tuple[RunnerTool, ...] = (
     _locked("trivy", "gate:static"),
     _base("nice", "ci:security"),
     _base(
+        "env",
+        "hook:ast-grep-scan",
+        "hook:ast-grep-test",
+        "hook:openspec-gate",
+        "hook:devops-ci-pre-push",
+        "hook:devops-ci-workflows-pre-push",
+    ),
+    _base(
         "timeout",
         "hook:branch-current",
         "hook:devops-ci-pre-push",

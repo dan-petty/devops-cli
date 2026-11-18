@@ -93,7 +93,7 @@ def inspect_project_metadata(repo_path: Path) -> dict[str, str]:
 
 ## 5. Security Recommendations & Zero-Trust Governance
 
-- **PyPI Malware Verification**: Maintain `UV_MALWARE_CHECK=1` in developer environments.
+- **PyPI Malware Verification**: Set `UV_MALWARE_CHECK=1` in the steps that install a package and `UV_MALWARE_CHECK=0` in a check-only command, a check hook and an interactive shell, so a short OSV lookup failure stops no command that installs nothing (#4881).
 - **Safe Subprocess Arguments**: Always pass tokenized command arrays (`["uv", "run", "pytest"]`) rather than formatted strings.
 
 ---

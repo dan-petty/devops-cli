@@ -372,6 +372,8 @@ def _pre_commit_scan_cmd_escapes(project: Path, expected_cmd: list[str]) -> list
     if scan_hook is None:
         return ["ast-grep-scan hook: missing from .pre-commit-config.yaml"]
     cmd = [*scan_hook.get("entry", "").split(), *scan_hook.get("args", [])]
+    if cmd[:2] == ["env", "UV_MALWARE_CHECK=0"]:
+        cmd = cmd[2:]
     if cmd != expected_cmd:
         return [f"ast-grep-scan hook cmd: {cmd}, not {expected_cmd}"]
     return []

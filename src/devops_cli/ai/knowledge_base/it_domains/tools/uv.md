@@ -79,7 +79,7 @@ uv audit
 
 ## 5. Security Recommendations & Zero-Trust Policies
 
-- **Malware Checks**: Keep `UV_MALWARE_CHECK=1` enabled in developer workstations to detect suspicious or typosquatted packages from PyPI before installation.
+- **Malware Checks**: Set `UV_MALWARE_CHECK=1` in the steps that install a package, such as `uv sync`, so uv detects suspicious or typosquatted packages from PyPI before installation. Set `UV_MALWARE_CHECK=0` in a check-only command, a check hook and an interactive shell, because a short DNS failure of `api.osv.dev` otherwise stops a command that installs nothing (#4881).
 - **Lockfile Hash Verification**: Always install packages with locked hashes (`uv sync --frozen` in CI workflows) to prevent supply chain tampering.
 - **Dependency Auditing**: Regularly run `uv audit` or `devops ci` to catch newly published CVE advisories affecting installed third-party wheels.
 

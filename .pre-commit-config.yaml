@@ -67,7 +67,10 @@ repos:
     hooks:
       - id: ast-grep-scan
         name: ast-grep scan (network constructs and working-directory reads in src, elapsed-time bounds in tests)
-        entry: uv run ast-grep scan --error=unused-suppression --error=no-suppress-all src tests
+        # The hook installs no package, so uv's malware check is off: a short DNS failure of
+        # api.osv.dev must not stop a commit. pre-commit has no hook `env`, so the switch is set
+        # through the `env` program in the entry (#4881).
+        entry: env UV_MALWARE_CHECK=0 uv run ast-grep scan --error=unused-suppression --error=no-suppress-all src tests
         language: system
         stages: [pre-commit]
         pass_filenames: false
@@ -75,7 +78,7 @@ repos:
 
       - id: ast-grep-test
         name: ast-grep test (rule tests)
-        entry: uv run ast-grep test --skip-snapshot-tests
+        entry: env UV_MALWARE_CHECK=0 uv run ast-grep test --skip-snapshot-tests
         language: system
         stages: [pre-commit]
         pass_filenames: false
@@ -88,7 +91,7 @@ repos:
       # openspec writes, its regeneration gets the skills of the release from github.com with Git.
       - id: openspec-gate
         name: openspec gate (change folders and generated skills)
-        entry: uv run devops ci --only openspec
+        entry: env UV_MALWARE_CHECK=0 uv run devops ci --only openspec
         language: system
         stages: [pre-commit]
         files: ^(openspec/|\.claude/skills/|\.agents/skills/)
@@ -136,7 +139,7 @@ repos:
       # commits of the branch before they go to GitHub, where a domain is configured (#5295).
       - id: devops-ci-pre-push
         name: devops ci (fast static checks before a push)
-        entry: timeout 40 uv run devops ci --check --only lint,format,domain
+        entry: env UV_MALWARE_CHECK=0 timeout 40 uv run devops ci --check --only lint,format,domain
         language: system
         stages: [pre-push]
         pass_filenames: false
@@ -148,7 +151,7 @@ repos:
       # apply to a push is not run.
       - id: devops-ci-workflows-pre-push
         name: devops ci (workflow checks before a push that changes a workflow)
-        entry: timeout 30 uv run devops ci --check --only actionlint,zizmor
+        entry: env UV_MALWARE_CHECK=0 timeout 30 uv run devops ci --check --only actionlint,zizmor
         language: system
         stages: [pre-push]
         files: ^\.github/(workflows|actions)/
