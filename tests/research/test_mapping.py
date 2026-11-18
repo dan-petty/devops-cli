@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import socket
+import subprocess
 from pathlib import Path
+from typing import Any
 
+import pytest
 from packageurl import PackageURL
 
 from devops_cli.research.container_pins import image_component
@@ -184,3 +188,58 @@ def test_an_image_component_keeps_its_registry_reference(tmp_path: Path) -> None
         _named(inventory.components, "pyyaml").registry,
         registry_of(image_component("python:3.14-slim-trixie", "Dockerfile", 2)),
     ) == ("ghcr.io", "docker.io", "", "docker.io")
+
+
+def test_a_rendered_image_is_listed_when_a_renderer_is_given(tmp_path: Path) -> None:
+    from devops_cli.research.mapping import mapped_inventory
+
+    _write_repository(tmp_path, _MAPPED)
+    calls: list[int] = []
+
+    def renderer() -> list[str]:
+        calls.append(1)
+        return ["quay.io/example-org/only-in-chart:1.2.3"]
+
+    inventory = mapped_inventory(tmp_path, renderer=renderer)
+
+    image = _named(inventory.components, "quay.io/example-org/only-in-chart")
+    assert (image.file, image.line, image.kind, image.version, image.registry) == (
+        "rendered",
+        0,
+        ComponentKind.CONTAINER_IMAGE,
+        "1.2.3",
+        "quay.io",
+    )
+    assert (len(calls), inventory.summary.total) == (1, 5)
+
+
+def test_the_default_inventory_starts_no_program_and_opens_no_connection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from devops_cli.research import render
+    from devops_cli.research.mapping import mapped_inventory
+
+    _write_repository(tmp_path, _MAPPED)
+    built: list[str] = []
+
+    def refuse(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("the inventory reached beyond its files")
+
+    def renderer_never_built(*_args: Any, **_kwargs: Any) -> None:
+        built.append("renderer_for")
+        raise AssertionError("the default inventory built the renderer")
+
+    monkeypatch.setattr(subprocess, "Popen", refuse)
+    monkeypatch.setattr(socket.socket, "connect", refuse)
+    monkeypatch.setattr(socket, "getaddrinfo", refuse)
+    monkeypatch.setattr(render, "renderer_for", renderer_never_built)
+
+    inventory = mapped_inventory(tmp_path)
+
+    assert [component.name for component in inventory.components] == [
+        "ghcr.io/astral-sh/uv",
+        "python",
+        "httpx2",
+        "pyyaml",
+    ]
+    assert (built, inventory.summary.total) == ([], 4)

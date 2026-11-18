@@ -6,16 +6,20 @@ URL of a package, the registry host of an image and the upstream repository. The
 `.devops/research-watch.toml` gives them, and it also declares the pins that no file of the
 repository holds, such as the operating system of a node.
 
-The mapping starts no program and makes no request: it reads the same files as the inventory.
+The mapping starts no program and makes no request: it reads the same files as the inventory. The
+one path that reaches outside them is the opt-in render of the Argo CD Applications, which
+`renderer_for` builds for the caller that asks for it (#3932).
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from packageurl import PackageURL
 
 from devops_cli.docker.registry import image_reference
+from devops_cli.research.container_pins import image_component
 from devops_cli.research.inventory import read_inventory, summarize
 from devops_cli.research.models import Component, ComponentKind, Ecosystem, Inventory
 from devops_cli.research.watch import PinEntry, WatchEntry, WatchList, read_watch_list
@@ -29,6 +33,11 @@ _PURL_TYPES = {
 }
 # The file of a pin that no file of the repository holds.
 _EXTERNAL_FILE = "external"
+# The file of an image that only the rendered Applications name.
+_RENDERED_FILE = "rendered"
+
+# The opt-in render of the Argo CD Applications, which gives the image references of their charts.
+Render = Callable[[], Iterable[str]]
 
 
 def purl_of(component: Component) -> str:
@@ -56,12 +65,25 @@ def apply_mapping(components: list[Component], watch: WatchList) -> list[Compone
     return [*mapped, *(_pin_component(pin) for pin in watch.pin)]
 
 
-def mapped_inventory(root: Path) -> Inventory:
+def mapped_inventory(root: Path, *, renderer: Render | None = None) -> Inventory:
     """The inventory of `root`, mapped to the OSV identity, the purl and the repository of each
-    component, and extended with the pins of the watch list."""
-    components = apply_mapping(read_inventory(root).components, read_watch_list(root))
-    components.sort(key=lambda c: (c.file, c.line, c.name))
-    return Inventory(components=components, summary=summarize(components))
+    component, and extended with the pins of the watch list.
+
+    `renderer` is the opt-in render of the Argo CD Applications: with one set, each image that the
+    rendered charts name joins the inventory at the file `rendered`. Without one, the inventory
+    reads the files of `root` alone and reaches nothing outside them.
+    """
+    components = read_inventory(root).components
+    if renderer is not None:
+        components = [*components, *_rendered_components(renderer())]
+    mapped = apply_mapping(components, read_watch_list(root))
+    mapped.sort(key=lambda c: (c.file, c.line, c.name))
+    return Inventory(components=mapped, summary=summarize(mapped))
+
+
+def _rendered_components(references: Iterable[str]) -> list[Component]:
+    """The container image component of each reference that the rendered Applications name."""
+    return [image_component(reference, _RENDERED_FILE, 0) for reference in references]
 
 
 def _mapped(component: Component, entry: WatchEntry | None) -> Component:
