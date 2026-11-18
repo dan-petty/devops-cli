@@ -77,3 +77,5 @@ Each item names this record, `docs/adr/0028-a-research-agent-composes-open-tools
 ## Status History
 
 2026-11-17: Accepted by the owner, item #3877.
+
+2026-11-18: Clarified (#6294): the index keeps one point for each `source_url`. The same hash updates `fetch_date` and `expiry`, and a new hash replaces the text and the `content_hash` of that point.
