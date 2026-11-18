@@ -6,7 +6,7 @@ Read what the project pins and watch the upstream of each pin.
 
 ## `devops research inventory`
 
-**List every pin of the project as a typed component: Python packages, tools, container images, GitHub Actions, Helm charts and Terraform providers. It reads files only.**
+**List every pin of the project as a typed component: Python packages, tools, container images, GitHub Actions, Helm charts and Terraform providers. It reads files only unless --render is set.**
 
 ```bash
 devops research inventory [OPTIONS]
@@ -19,6 +19,7 @@ devops research inventory [OPTIONS]
 | `--root` | `path` | - | Root of the repository to read. Default: the repository of the current directory. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+| `--render` | `boolean` | - | Also render the Argo CD Applications and list the images that their charts name. It starts helm and kubectl and reads a chart source over the network. A dry run skips it. |
 
 ---
 

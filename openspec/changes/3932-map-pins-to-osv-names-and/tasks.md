@@ -51,9 +51,9 @@ Kind: other. Reads: `.devops/research-watch.toml`, `src/devops_cli/research/mapp
 
 Kind: other. Reads: `docs/CLI_REFERENCE.md`, `docs/commands/research.md`, `docs/MCP_TOOLS.md`, `src/devops_cli/commands/research.py`. Changes: `docs/CLI_REFERENCE.md`, `docs/commands/research.md`, `docs/MCP_TOOLS.md`.
 
-- [ ] 6.1 Run `uv run devops docs generate` and commit the three generated pages, so `docs/CLI_REFERENCE.md` and `docs/commands/research.md` list `--render` under `devops research inventory` and `docs/MCP_TOOLS.md` holds the new description of `research_inventory`. The settings table gains no row, because the change adds no setting. Edit no generated page by hand
+- [x] 6.1 Run `uv run devops docs generate` and commit the three generated pages, so `docs/CLI_REFERENCE.md` and `docs/commands/research.md` list `--render` under `devops research inventory` and `docs/MCP_TOOLS.md` holds the new description of `research_inventory`. The settings table gains no row, because the change adds no setting. Edit no generated page by hand
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 6.2 Regenerate `docs/CLI_REFERENCE.md`, `docs/commands/research.md` and `docs/MCP_TOOLS.md` with `uv run devops docs generate`
+- [x] 6.2 Regenerate `docs/CLI_REFERENCE.md`, `docs/commands/research.md` and `docs/MCP_TOOLS.md` with `uv run devops docs generate`
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
