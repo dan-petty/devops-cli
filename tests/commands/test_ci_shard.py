@@ -58,7 +58,10 @@ def _planned_test_row(*options: str) -> list[str]:
     result = runner.invoke(app, ["--dry-run", "--only", "test", *options])
     set_dry_run(False)
     words = _said(result.output).split()
-    return words[words.index("1.") + 1 :]
+    row = words[words.index("1.") + 1 :]
+    # The plan shows the gate-row environment before the command; a recorded call holds the command
+    # alone (#4881).
+    return row[1:] if row[:1] == ["UV_MALWARE_CHECK=0"] else row
 
 
 def _report_path(row: list[str]) -> str | None:
