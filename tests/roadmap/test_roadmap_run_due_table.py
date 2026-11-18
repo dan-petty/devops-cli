@@ -9,10 +9,11 @@ from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
 
 import pytest
+import typer
 
+from devops_cli.commands.roadmap import run_roadmap_command
 from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_DUE_STAMP,
     CONST_ROADMAP_WEBHOOK_EVENTS,
@@ -390,11 +391,11 @@ def test_a_refine_round_that_set_an_item_ready_and_failed_another_makes_stage_du
     ) == (("refine",), NOW.isoformat(), ("stage", "refine"))
 
 
-def test_failure_isolation_and_cli_exit(
+def test_the_cli_prints_a_markup_error_of_a_failing_row(
     seeded_store: InMemoryRoadmapStore,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    cli: Callable[..., Any],
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """A failed stub lets the next job run, keeps its own schedule stamp unwritten, and the CLI
     exits 1 naming it."""
@@ -413,20 +414,24 @@ def test_failure_isolation_and_cli_exit(
     with pytest.raises(RoadmapRunError) as exc_info:
         poll_round(seeded_store, tmp_path, table=table, batch={OPENED: 1})
     sched_data = read_schedule(tmp_path)
+    first_round = tuple(ran_jobs)
 
-    def failing_adapter(*_: Any, **__: Any) -> JobOutcome:
+    def markup_intake(**_: Any) -> JobOutcome:
         raise RoadmapRunError("Crash [bold red]markup[/bold red]", failed_jobs=("intake",))
 
-    with patch("devops_cli.roadmap.run.run_due_jobs", side_effect=failing_adapter):
-        res = cli(["roadmap", "run", "--confirm", "-R", REPO])
+    stub = build_stub_table({"intake": markup_intake, "refine": ok_refine})
+    with pytest.raises(typer.Exit) as exited:
+        run_roadmap_command(REPO, seeded_store, confirm=True, table=stub)
+    captured = capsys.readouterr()
+    output = captured.out + captured.err
 
     assert (
         exc_info.value.failed_jobs,
-        tuple(ran_jobs),
+        first_round,
         "intake" not in sched_data,
         "refine" in sched_data,
-        res.exit_code,
-        "[bold red]markup[/bold red]" in res.output,
+        exited.value.exit_code,
+        "[bold red]markup[/bold red]" in output,
     ) == (("intake",), ("intake", "refine"), True, True, 1, True)
 
 

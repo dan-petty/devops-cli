@@ -87,6 +87,7 @@ from devops_cli.roadmap.stores.store import RoadmapStore
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.registry_audit import RegistryAudit, RegistryFinding
+    from devops_cli.roadmap.run import JobRow
 
 app = new_typer(help=HELP.roadmap.app, no_args_is_help=True)
 app.add_typer(eval_app, name="eval", help=HELP.roadmap.eval_app)
@@ -633,10 +634,23 @@ def run_cmd(
         return
 
     target, store = _open_store(repo)
+    run_roadmap_command(target, store, confirm=confirm)
+
+
+def run_roadmap_command(
+    target: str,
+    store: RoadmapStore,
+    *,
+    confirm: bool,
+    table: Sequence[JobRow] | None = None,
+) -> None:
+    """List the due jobs of `target`, or with `confirm` run them and name each that ran. A failed
+    row prints its error as plain text and exits 1. `table` is the due table of the round, the
+    default table when None: a test gives a stub table through it (#3885)."""
     from devops_cli.roadmap.run import run_due_jobs
 
     if not confirm:
-        due = run_due_jobs(target, store, batch={("poll", "", ""): 1}, dry_run=True)
+        due = run_due_jobs(target, store, batch={("poll", "", ""): 1}, dry_run=True, table=table)
         if due:
             write_stdout(f"Due: {', '.join(due)}\n")
         else:
@@ -644,7 +658,7 @@ def run_cmd(
         return
 
     try:
-        ran = run_due_jobs(target, store, batch={("poll", "", ""): 1}, dry_run=False)
+        ran = run_due_jobs(target, store, batch={("poll", "", ""): 1}, dry_run=False, table=table)
         if ran:
             print_success(f"Roadmap jobs completed: {', '.join(ran)}")
     except RoadmapRunError as exc:

@@ -8,7 +8,6 @@ import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 
@@ -21,9 +20,9 @@ from devops_cli.roadmap.run import (
     DEFAULT_DUE_TABLE,
     service_state_dir,
 )
-from devops_cli.server.service import TriggerBatch, no_round_pause
+from devops_cli.server.service import no_round_pause
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
-from tests.support.roadmap_run import NOW, OPENED, PLACED, REPO
+from tests.support.roadmap_run import PLACED, REPO
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -40,36 +39,22 @@ def service_settings(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.usefixtures("service_settings")
-def test_service_wiring(
-    seeded_store: InMemoryRoadmapStore,
-    roadmap_store_repos: list[str],
-    cli: Callable[..., Any],
-) -> None:
+def test_service_wiring(cli: Callable[..., Any], server_starter: Any) -> None:
     """`devops serve --service` passes one job for each row to create_service_app, with no
     reader of a round pause: no roadmap read has a budget refusal that names one (ADR 0016).
-    Each lane's job opens the store and runs its own row in its own clone `lanes/<lane>`
-    (#1532, #5553). The start removes the clone of an earlier lane."""
+    The app holds one `LaneSpec` for each job: the rows of the lane and its own clone
+    `lanes/<lane>` (#1532, #5553, #3885). The start removes the clone of an earlier lane."""
     retired = service_state_dir() / REPO / "model-clone"
     retired.mkdir(parents=True)
-    with patch("uvicorn.run") as mock_uvicorn:
-        res = cli(["serve", "--service"])
-        fastapi_app = mock_uvicorn.call_args[0][0]()
+    res = cli(["serve", "--service"])
+    fastapi_app = server_starter.apps[0]
 
-    batch = TriggerBatch(repo=REPO, counts={OPENED: 1}, first_at=NOW, last_at=NOW)
-    with patch("devops_cli.roadmap.run.run_due_jobs") as mock_run:
-        for lane_job in fastapi_app.state.jobs.values():
-            lane_job(batch)
-
-    lanes = [
-        (call.args[0], call.kwargs["table"], call.kwargs["clone_dirname"], call.kwargs["lane"])
-        for call in mock_run.call_args_list
-    ]
     assert (
         res.exit_code,
         list(fastapi_app.state.jobs),
         fastapi_app.state.pause_until is no_round_pause,
-        REPO in roadmap_store_repos,
-        lanes,
+        list(fastapi_app.state.lanes),
+        [(spec.name, spec.table, spec.clone_dirname) for spec in fastapi_app.state.lanes.values()],
         retired.exists(),
     ) == (
         0,
@@ -90,15 +75,15 @@ def test_service_wiring(
             "alternatives",
         ],
         True,
-        True,
-        [(REPO, (row,), f"lanes/{row.name}", row.name) for row in DEFAULT_DUE_TABLE],
+        [row.name for row in DEFAULT_DUE_TABLE],
+        [(row.name, (row,), f"lanes/{row.name}") for row in DEFAULT_DUE_TABLE],
         False,
     )
 
 
 @pytest.mark.usefixtures("service_settings")
 def test_the_service_that_serve_starts_reads_its_halt_and_budget_from_the_volume(
-    cli: Callable[..., Any],
+    cli: Callable[..., Any], server_starter: Any
 ) -> None:
     """`devops serve --service` gives the Service the state directory on its volume. A Service
     that starts there after a halt and after 60 requests in the budget window is still halted,
@@ -110,16 +95,15 @@ def test_the_service_that_serve_starts_reads_its_halt_and_budget_from_the_volume
     window = [[(datetime.now(UTC) - timedelta(minutes=5)).isoformat(), 60]]
     (volume / CONST_SERVICE_BUDGET_FILENAME).write_text(json.dumps(window), encoding="utf-8")
 
-    with patch("uvicorn.run") as mock_uvicorn:
-        res = cli(["serve", "--service"])
-        manager = mock_uvicorn.call_args[0][0]().state.service_manager
+    res = cli(["serve", "--service"])
+    manager = server_starter.apps[0].state.service_manager
 
     assert (res.exit_code, manager.pause.halted(), manager.budget.spent()) == (0, True, 60)
 
 
 @pytest.mark.usefixtures("service_settings")
 def test_in_a_pod_the_service_reads_its_volume_only_when_it_holds_the_lease_of_the_rows(
-    cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch
+    cli: Callable[..., Any], monkeypatch: pytest.MonkeyPatch, server_starter: Any
 ) -> None:
     """In a pod, the downward API gives `POD_NAME` and `POD_NAMESPACE`. `devops serve --service`
     then gives the Service the Lease roadmap-service-rows, with the pod name as the holder
@@ -133,9 +117,8 @@ def test_in_a_pod_the_service_reads_its_volume_only_when_it_holds_the_lease_of_t
     halt = {"identity": "devops-roadmap[bot]", "repo": REPO, "kind": "GitHubUnauthenticatedError"}
     (volume / CONST_SERVICE_HALT_FILENAME).write_text(json.dumps(halt), encoding="utf-8")
 
-    with patch("uvicorn.run") as mock_uvicorn:
-        res = cli(["serve", "--service"])
-        manager = mock_uvicorn.call_args[0][0]().state.service_manager
+    res = cli(["serve", "--service"])
+    manager = server_starter.apps[0].state.service_manager
 
     lease = manager.rows_lease
     assert (
