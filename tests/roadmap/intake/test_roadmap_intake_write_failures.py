@@ -16,6 +16,7 @@ from devops_cli.exceptions.git import (
 )
 from devops_cli.exceptions.roadmap import RoadmapIntakeError
 from devops_cli.github.rate_limiter import run_gh
+from devops_cli.roadmap.intake.intake import NewCandidate, intake_candidate
 from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.stores.store import (
     install_roadmap_store,
@@ -23,7 +24,7 @@ from devops_cli.roadmap.stores.store import (
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
-from tests.support.roadmap_intake import REPO, FakeModel, Roadmap, labels_of
+from tests.support.roadmap_intake import REGRESSION, REPO, FakeModel, Roadmap, labels_of
 
 
 class GhLabelStore(InMemoryRoadmapStore):
@@ -92,6 +93,30 @@ def test_a_candidate_whose_write_fails_is_named_and_the_others_are_still_placed(
         roadmap.fields(last),
         roadmap.store.item(refused),
     ) == ((refused,), True, placed, placed, None)
+
+
+def test_a_new_candidate_that_cannot_be_filed_is_named_by_its_full_title(
+    roadmap: Roadmap,
+) -> None:
+    """A new candidate whose create fails is named in the intake summary by the full title, not a
+    title cut to 80 characters (#5269)."""
+    title = "fix(roadmap): " + "x" * 90
+    candidate = NewCandidate(title=title, body="Body.")
+    roadmap.store.fail_write(
+        write="create_issue",
+        error=GitHubOperationError("HTTP 502: Bad Gateway", operation="roadmap.write"),
+    )
+
+    with pytest.raises(RoadmapIntakeError) as raised:
+        intake_candidate(
+            roadmap.store,
+            candidate,
+            repo=REPO,
+            model=FakeModel(proposals={title: REGRESSION}),
+            confirm=True,
+        )
+
+    assert title in str(raised.value)
 
 
 @pytest.mark.parametrize(

@@ -457,10 +457,10 @@ class PlacementFailure:
 
     @property
     def name(self) -> str:
-        """How messages name the candidate: its number, or its title when it has none."""
+        """How messages name the candidate: its number, or its full title when it has none."""
         if self.number is not None:
             return f"#{self.number}"
-        return MESSAGES.roadmap.intake_failed_new.format(title=self.title[:80])
+        return MESSAGES.roadmap.intake_failed_new.format(title=self.title)
 
 
 @dataclass(frozen=True)
