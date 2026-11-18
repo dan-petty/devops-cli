@@ -6558,6 +6558,7 @@ class RoadmapMessages:
     verify_eval_failed: str = (
         "{failed} case(s) could not run. The score counts their defects as not found."
     )
+    verify_eval_failed_case: str = "The case {name} stopped with the reason {reason}."
     verify_eval_storing: str = (
         "The run writes each case to {path} when the case ends. To continue a stopped run, give "
         "this file to --resume."
