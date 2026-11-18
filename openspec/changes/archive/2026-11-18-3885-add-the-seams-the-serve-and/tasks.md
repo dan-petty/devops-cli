@@ -50,9 +50,9 @@ Kind: other. Reads: `src/devops_cli/commands/ci.py`, `src/devops_cli/ci/cache.py
 
 Kind: other. Reads: `docs/TESTING.md`, `src/devops_cli/server/start.py`. Changes: `docs/TESTING.md`.
 
-- [ ] 6.1 Add the server start seam and the lane metadata to the vocabulary and the fakes of `docs/TESTING.md`, beside the exporter seam, and name `src/devops_cli/server/start.py` and the lane metadata on the app state as the places that hold them
+- [x] 6.1 Add the server start seam and the lane metadata to the vocabulary and the fakes of `docs/TESTING.md`, beside the exporter seam, and name `src/devops_cli/server/start.py` and the lane metadata on the app state as the places that hold them
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 6.2 Edit `docs/TESTING.md` to name the server start fake and the lane metadata on the app state
+- [x] 6.2 Edit `docs/TESTING.md` to name the server start fake and the lane metadata on the app state
   - Verification: `$ uv run devops ci docs` passes
 
 ## Workflow follow-up
