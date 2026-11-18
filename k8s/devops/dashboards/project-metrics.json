@@ -11,27 +11,45 @@
   "panels": [
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "id": 1,
       "title": "Release Frequency & Cadence",
       "type": "row"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "Total releases tracked. It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null }
+              {
+                "color": "green",
+                "value": null
+              }
             ]
           },
           "unit": "short"
         }
       },
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
       "id": 2,
       "options": {
         "colorMode": "value",
@@ -39,7 +57,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": [ "lastNotNull" ],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         }
@@ -48,8 +68,11 @@
       "type": "stat",
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max(last_over_time(devops_cli_project_releases[$__range]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(last_over_time(devops_cli_project_releases{job=\"$job\",repo=\"$repo\"}[1h]))",
           "instant": true,
           "legendFormat": "Releases",
           "refId": "A"
@@ -57,21 +80,34 @@
       ]
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "Average interval in days between published releases.",
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null }
+              {
+                "color": "green",
+                "value": null
+              }
             ]
           },
           "unit": "d"
         }
       },
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
       "id": 3,
       "options": {
         "colorMode": "value",
@@ -79,7 +115,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": [ "lastNotNull" ],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         }
@@ -88,8 +126,11 @@
       "type": "stat",
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_avg(sum(last_over_time(devops_cli_project_release_interval_days[$__range])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_avg(sum(last_over_time(devops_cli_project_release_interval_days{job=\"$job\",repo=\"$repo\"}[1h])))",
           "instant": true,
           "legendFormat": "Days",
           "refId": "A"
@@ -97,139 +138,231 @@
       ]
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "Release cadence percentiles (p50 and p95) in days.",
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": { "axisCenteredZero": false, "drawStyle": "line", "lineInterpolation": "smooth" },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "lineInterpolation": "smooth"
+          },
           "unit": "d"
         }
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      },
       "id": 4,
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
       "title": "Release Cadence Distribution (p50, p95)",
-      "type": "timeseries",
+      "type": "stat",
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.5, sum(last_over_time(devops_cli_project_release_interval_days[$__range])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.5, sum(last_over_time(devops_cli_project_release_interval_days{job=\"$job\",repo=\"$repo\"}[1h])))",
           "legendFormat": "p50",
-          "refId": "A"
+          "refId": "A",
+          "instant": true
         },
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_quantile(0.95, sum(last_over_time(devops_cli_project_release_interval_days[$__range])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum(last_over_time(devops_cli_project_release_interval_days{job=\"$job\",repo=\"$repo\"}[1h])))",
           "legendFormat": "p95",
-          "refId": "B"
+          "refId": "B",
+          "instant": true
         }
       ]
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "Interval in days per release.",
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": { "axisCenteredZero": false, "drawStyle": "line", "lineInterpolation": "smooth" },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "lineInterpolation": "smooth"
+          },
           "unit": "d"
         }
       },
-      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 5 },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
       "id": 5,
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "options": {
+        "xField": "release"
+      },
       "title": "Release Intervals",
-      "type": "timeseries",
+      "type": "barchart",
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "histogram_avg(sum by (release) (last_over_time(devops_cli_project_release_interval_days[$__range])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_avg(sum by (release) (last_over_time(devops_cli_project_release_interval_days{job=\"$job\",repo=\"$repo\"}[1h])))",
           "legendFormat": "{{release}}",
-          "refId": "A"
+          "refId": "A",
+          "instant": true
         }
       ]
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
       "id": 6,
       "title": "Commits & Pull Requests Velocity",
       "type": "row"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "Total commits included in each release. It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": { "axisCenteredZero": false, "drawStyle": "bars", "fillOpacity": 80 },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "bars",
+            "fillOpacity": 80
+          },
           "unit": "short"
         }
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      },
       "id": 7,
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
-      "title": "Commits per Release",
-      "type": "timeseries",
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (release) (last_over_time(devops_cli_project_commits[$__range]))",
-          "legendFormat": "{{release}}",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "Total pull requests merged for each release. It shows the latest value of each series in the time range, and no data when none was sent in it.",
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": { "axisCenteredZero": false, "drawStyle": "bars", "fillOpacity": 80 },
-          "unit": "short"
-        }
+      "options": {
+        "xField": "release"
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
-      "id": 8,
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
-      "title": "Merged Pull Requests per Release",
-      "type": "timeseries",
+      "title": "Commits & Pull Requests per Release",
+      "type": "barchart",
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (release) (last_over_time(devops_cli_project_prs[$__range]))",
-          "legendFormat": "{{release}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "topk(10, sum by (release) (last_over_time(devops_cli_project_commits{job=\"$job\",repo=\"$repo\"}[1h])))",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "commits",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "topk(10, sum by (release) (last_over_time(devops_cli_project_prs{job=\"$job\",repo=\"$repo\"}[1h])))",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "pull requests",
+          "refId": "B"
         }
       ]
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
       "id": 9,
       "title": "CI Quality Gates & Pass Rates",
       "type": "row"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "Overall pass rate percentage across all CI workflows. It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 80 },
-              { "color": "green", "value": 95 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.8
+              },
+              {
+                "color": "green",
+                "value": 0.95
+              }
             ]
           },
-          "unit": "percent"
+          "unit": "percentunit"
         }
       },
-      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 19 },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 19
+      },
       "id": 10,
       "options": {
         "colorMode": "value",
@@ -237,154 +370,271 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": [ "lastNotNull" ],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         }
       },
-      "title": "CI Quality Gate Pass Rate",
+      "title": "CI pass rate, last 50 runs",
       "type": "stat",
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(last_over_time(devops_cli_project_ci_runs{conclusion=\"success\"}[$__range])) / clamp_min(sum(last_over_time(devops_cli_project_ci_runs[$__range])), 1) * 100",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(last_over_time(devops_cli_project_ci_runs{job=\"$job\",repo=\"$repo\",conclusion=\"success\"}[1h])) / clamp_min(sum(last_over_time(devops_cli_project_ci_runs{job=\"$job\",repo=\"$repo\"}[1h])), 1)",
           "instant": true,
-          "legendFormat": "Pass Rate %",
+          "legendFormat": "Pass Rate",
           "refId": "A"
         }
       ]
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "CI workflow run completions by workflow name and conclusion (success vs failure). It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": { "axisCenteredZero": false, "drawStyle": "line", "lineInterpolation": "smooth" },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "lineInterpolation": "smooth"
+          },
           "unit": "short"
         }
       },
-      "gridPos": { "h": 6, "w": 16, "x": 8, "y": 19 },
+      "gridPos": {
+        "h": 6,
+        "w": 16,
+        "x": 8,
+        "y": 19
+      },
       "id": 11,
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "options": {
+        "orientation": "horizontal",
+        "stacking": "normal"
+      },
       "title": "CI Runs by Workflow & Conclusion",
-      "type": "timeseries",
+      "type": "barchart",
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (workflow, conclusion) (last_over_time(devops_cli_project_ci_runs[$__range]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (workflow, conclusion) (last_over_time(devops_cli_project_ci_runs{job=\"$job\",repo=\"$repo\"}[1h]))",
           "legendFormat": "{{workflow}} ({{conclusion}})",
-          "refId": "A"
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        {
+          "id": "groupingToMatrix",
+          "options": {
+            "columnField": "conclusion",
+            "rowField": "workflow",
+            "valueField": "Value"
+          }
         }
       ]
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
       "id": 12,
       "title": "Release & Taxonomy Tracking",
       "type": "row"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "Roadmap items, the issues with a priority label, by release and state. The release is the first v* tag whose commits close the item. An open item, or a closed item that no release holds, shows as unreleased. It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": { "axisCenteredZero": false, "drawStyle": "bars", "fillOpacity": 80 },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "bars",
+            "fillOpacity": 80
+          },
           "unit": "short"
         }
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 26 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 26
+      },
       "id": 13,
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "options": {
+        "orientation": "auto",
+        "stacking": "normal",
+        "xField": "release"
+      },
       "title": "Items by Release",
-      "type": "timeseries",
+      "type": "barchart",
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "label_replace(sum by (release, state) (last_over_time(devops_cli_project_items[$__range])), \"release\", \"unreleased\", \"release\", \"^$\")",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (release, state) (last_over_time(devops_cli_project_items{job=\"$job\",repo=\"$repo\"}[1h])) and on (release) topk(10, sum by (release) (last_over_time(devops_cli_project_commits{job=\"$job\",repo=\"$repo\"}[1h])))",
           "legendFormat": "{{release}} ({{state}})",
-          "refId": "A"
+          "refId": "A",
+          "instant": true
         }
       ]
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "Open and closed roadmap items, the issues with a priority label, in all releases and in none. It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": { "axisCenteredZero": false, "drawStyle": "line", "lineInterpolation": "smooth" },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "lineInterpolation": "smooth"
+          },
           "unit": "short"
         }
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 26 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 26
+      },
       "id": 14,
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
-      "title": "Active Items by State",
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "title": "Items by state",
       "type": "timeseries",
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (state) (last_over_time(devops_cli_project_items[$__range]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (state) (last_over_time(devops_cli_project_items{job=\"$job\",repo=\"$repo\"}[1h]))",
           "legendFormat": "{{state}}",
           "refId": "A"
         }
       ]
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "The age of the oldest open roadmap item in each state, and the age of the oldest claim on an open item. The age is the time since the status or owner label was set. It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": { "axisCenteredZero": false, "drawStyle": "line", "lineInterpolation": "smooth" },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "drawStyle": "line",
+            "lineInterpolation": "smooth"
+          },
           "unit": "s"
         }
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 34 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 34
+      },
       "id": 24,
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
       "title": "Oldest Item Age by Phase",
       "type": "timeseries",
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max by (phase) (last_over_time(devops_cli_roadmap_item_age_seconds[$__range]))",
-          "legendFormat": "{{phase}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (state, plan) (last_over_time(devops_cli_roadmap_item_age_seconds{job=\"$job\",repo=\"$repo\"}[1h]))",
+          "instant": false,
+          "legendFormat": "{{state}} (waits for owner: {{plan}})",
           "refId": "A"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max(last_over_time(devops_cli_roadmap_claim_age_seconds[$__range]))",
-          "legendFormat": "oldest claim",
-          "refId": "B"
         }
       ]
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "Lines of the inbox of each repository that wait for a person, by kind: blocked, refine, split, alternatives, failed, stage_retry, claim and labels. It shows the latest value of each series in the time range, and no data when none was sent in it. The metrics row of the roadmap Service and `devops roadmap inbox` send the counts.",
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null }
+              {
+                "color": "green",
+                "value": null
+              }
             ]
           },
           "unit": "short"
         }
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 34 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 34
+      },
       "id": 25,
       "options": {
         "displayMode": "gradient",
         "orientation": "horizontal",
         "reduceOptions": {
-          "calcs": [ "lastNotNull" ],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -394,8 +644,11 @@
       "type": "bargauge",
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (kind) (last_over_time(devops_cli_roadmap_inbox_items[$__range]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (kind) (last_over_time(devops_cli_roadmap_inbox_items{job=\"$job\",repo=\"$repo\"}[1h]))",
           "instant": true,
           "legendFormat": "{{kind}}",
           "refId": "A"
@@ -404,27 +657,45 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 42 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 42
+      },
       "id": 15,
       "title": "GitHub Traffic & Repository Engagement",
       "type": "row"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "Total repository page views and unique visitors over the last 14 days. It shows the latest value of each series in the time range, and no data when none was sent in it. The roadmap Service and `devops gh metrics --emit-telemetry` send traffic numbers. A repository whose traffic GitHub refused has no traffic series.",
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null }
+              {
+                "color": "green",
+                "value": null
+              }
             ]
           },
           "unit": "short"
         }
       },
-      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 43 },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 43
+      },
       "id": 16,
       "options": {
         "colorMode": "value",
@@ -432,7 +703,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": [ "lastNotNull" ],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         }
@@ -441,15 +714,21 @@
       "type": "stat",
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max(last_over_time(devops_cli_project_traffic_views[$__range]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(last_over_time(devops_cli_project_traffic_views{job=\"$job\",repo=\"$repo\"}[1h]))",
           "instant": true,
           "legendFormat": "Total Views",
           "refId": "A"
         },
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max(last_over_time(devops_cli_project_traffic_views_uniques[$__range]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(last_over_time(devops_cli_project_traffic_views_uniques{job=\"$job\",repo=\"$repo\"}[1h]))",
           "instant": true,
           "legendFormat": "Unique Visitors",
           "refId": "B"
@@ -457,21 +736,34 @@
       ]
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "Total git clones and unique cloners over the last 14 days. It shows the latest value of each series in the time range, and no data when none was sent in it. The roadmap Service and `devops gh metrics --emit-telemetry` send traffic numbers. A repository whose traffic GitHub refused has no traffic series.",
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "blue", "value": null }
+              {
+                "color": "blue",
+                "value": null
+              }
             ]
           },
           "unit": "short"
         }
       },
-      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 43 },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 8,
+        "y": 43
+      },
       "id": 17,
       "options": {
         "colorMode": "value",
@@ -479,7 +771,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": [ "lastNotNull" ],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         }
@@ -488,15 +782,21 @@
       "type": "stat",
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max(last_over_time(devops_cli_project_traffic_clones[$__range]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(last_over_time(devops_cli_project_traffic_clones{job=\"$job\",repo=\"$repo\"}[1h]))",
           "instant": true,
           "legendFormat": "Total Clones",
           "refId": "A"
         },
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max(last_over_time(devops_cli_project_traffic_clones_uniques[$__range]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(last_over_time(devops_cli_project_traffic_clones_uniques{job=\"$job\",repo=\"$repo\"}[1h]))",
           "instant": true,
           "legendFormat": "Unique Cloners",
           "refId": "B"
@@ -504,21 +804,34 @@
       ]
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "GitHub repository stargazers and forks count. It shows the latest value of each series in the time range, and no data when none was sent in it.",
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "yellow", "value": null }
+              {
+                "color": "yellow",
+                "value": null
+              }
             ]
           },
           "unit": "short"
         }
       },
-      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 43 },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 43
+      },
       "id": 18,
       "options": {
         "colorMode": "value",
@@ -526,7 +839,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": [ "lastNotNull" ],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         }
@@ -535,15 +850,21 @@
       "type": "stat",
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max(last_over_time(devops_cli_project_stars[$__range]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(last_over_time(devops_cli_project_stars{job=\"$job\",repo=\"$repo\"}[1h]))",
           "instant": true,
           "legendFormat": "Stars",
           "refId": "A"
         },
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max(last_over_time(devops_cli_project_forks[$__range]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(last_over_time(devops_cli_project_forks{job=\"$job\",repo=\"$repo\"}[1h]))",
           "instant": true,
           "legendFormat": "Forks",
           "refId": "B"
@@ -551,27 +872,42 @@
       ]
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "Top GitHub repository traffic referral sources over the last 14 days. It shows the latest value of each series in the time range, and no data when none was sent in it. The roadmap Service and `devops gh metrics --emit-telemetry` send traffic numbers. A repository whose traffic GitHub refused has no traffic series.",
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "blue", "value": null }
+              {
+                "color": "blue",
+                "value": null
+              }
             ]
           },
           "unit": "short"
         }
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 47 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 47
+      },
       "id": 19,
       "options": {
         "displayMode": "gradient",
         "orientation": "horizontal",
         "reduceOptions": {
-          "calcs": [ "lastNotNull" ],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -581,8 +917,11 @@
       "type": "bargauge",
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "topk(10, sum by (referrer) (last_over_time(devops_cli_project_traffic_referrers[$__range])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "topk(10, sum by (referrer) (last_over_time(devops_cli_project_traffic_referrers{job=\"$job\",repo=\"$repo\"}[1h])))",
           "instant": true,
           "legendFormat": "{{referrer}}",
           "refId": "A"
@@ -590,27 +929,42 @@
       ]
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "Most popular content paths and documentation visited over the last 14 days. It shows the latest value of each series in the time range, and no data when none was sent in it. The roadmap Service and `devops gh metrics --emit-telemetry` send traffic numbers. A repository whose traffic GitHub refused has no traffic series.",
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "purple", "value": null }
+              {
+                "color": "purple",
+                "value": null
+              }
             ]
           },
           "unit": "short"
         }
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 47 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 47
+      },
       "id": 20,
       "options": {
         "displayMode": "gradient",
         "orientation": "horizontal",
         "reduceOptions": {
-          "calcs": [ "lastNotNull" ],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -620,8 +974,11 @@
       "type": "bargauge",
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "topk(10, sum by (path) (last_over_time(devops_cli_project_traffic_paths[$__range])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "topk(10, sum by (path) (last_over_time(devops_cli_project_traffic_paths{job=\"$job\",repo=\"$repo\"}[1h])))",
           "instant": true,
           "legendFormat": "{{path}}",
           "refId": "A"
@@ -630,24 +987,50 @@
     },
     {
       "collapsed": false,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 55 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 55
+      },
       "id": 21,
       "title": "Upstream Platform Operational Status",
       "type": "row"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "Published operational status reported by GitHub Statuspage (0=Operational, 1=Minor, 2=Major, 3=Critical). It shows the latest value sent in the last hour, whatever the time range, and no data when none was sent in that hour.",
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "mappings": [
             {
               "options": {
-                "0": { "color": "green", "index": 0, "text": "Operational" },
-                "1": { "color": "yellow", "index": 1, "text": "Minor Incident" },
-                "2": { "color": "orange", "index": 2, "text": "Major Outage" },
-                "3": { "color": "red", "index": 3, "text": "Critical Outage" }
+                "0": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "Operational"
+                },
+                "1": {
+                  "color": "yellow",
+                  "index": 1,
+                  "text": "Minor Incident"
+                },
+                "2": {
+                  "color": "orange",
+                  "index": 2,
+                  "text": "Major Outage"
+                },
+                "3": {
+                  "color": "red",
+                  "index": 3,
+                  "text": "Critical Outage"
+                }
               },
               "type": "value"
             }
@@ -655,17 +1038,34 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 1 },
-              { "color": "orange", "value": 2 },
-              { "color": "red", "value": 3 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "orange",
+                "value": 2
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
             ]
           },
           "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 56 },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 56
+      },
       "id": 22,
       "options": {
         "colorMode": "value",
@@ -673,7 +1073,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": [ "lastNotNull" ],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -683,8 +1085,11 @@
       "type": "stat",
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "last_over_time(devops_cli_upstream_service_status{service=\"github\"}[1h])",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "last_over_time(devops_cli_upstream_service_status{job=\"$job\",repo=\"$repo\",service=\"github\"}[1h])",
           "instant": true,
           "legendFormat": "GitHub",
           "refId": "A"
@@ -692,18 +1097,39 @@
       ]
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "description": "Published operational status reported by Cloudflare Statuspage (0=Operational, 1=Minor, 2=Major, 3=Critical). It shows the latest value sent in the last hour, whatever the time range, and no data when none was sent in that hour.",
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "mappings": [
             {
               "options": {
-                "0": { "color": "green", "index": 0, "text": "Operational" },
-                "1": { "color": "yellow", "index": 1, "text": "Minor Incident" },
-                "2": { "color": "orange", "index": 2, "text": "Major Outage" },
-                "3": { "color": "red", "index": 3, "text": "Critical Outage" }
+                "0": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "Operational"
+                },
+                "1": {
+                  "color": "yellow",
+                  "index": 1,
+                  "text": "Minor Incident"
+                },
+                "2": {
+                  "color": "orange",
+                  "index": 2,
+                  "text": "Major Outage"
+                },
+                "3": {
+                  "color": "red",
+                  "index": 3,
+                  "text": "Critical Outage"
+                }
               },
               "type": "value"
             }
@@ -711,17 +1137,34 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 1 },
-              { "color": "orange", "value": 2 },
-              { "color": "red", "value": 3 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "orange",
+                "value": 2
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
             ]
           },
           "unit": "short"
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 56 },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 56
+      },
       "id": 23,
       "options": {
         "colorMode": "value",
@@ -729,7 +1172,9 @@
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
-          "calcs": [ "lastNotNull" ],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -739,8 +1184,11 @@
       "type": "stat",
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "last_over_time(devops_cli_upstream_service_status{service=\"cloudflare\"}[1h])",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "last_over_time(devops_cli_upstream_service_status{job=\"$job\",repo=\"$repo\",service=\"cloudflare\"}[1h])",
           "instant": true,
           "legendFormat": "Cloudflare",
           "refId": "A"
@@ -776,5 +1224,67 @@
   "timezone": "browser",
   "title": "Project & Engineering Velocity",
   "uid": "devops-project-metrics",
-  "version": 1
+  "version": 1,
+  "templating": {
+    "list": [
+      {
+        "allValue": null,
+        "current": {
+          "selected": true,
+          "text": "roadmap-service",
+          "value": "roadmap-service"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(devops_cli_project_items, job)",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Job",
+        "multi": false,
+        "name": "job",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(devops_cli_project_items, job)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": null,
+        "current": {
+          "selected": true,
+          "text": "dan-petty/devops-cli",
+          "value": "dan-petty/devops-cli"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(devops_cli_project_items{job=\"$job\"}, repo)",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Repository",
+        "multi": false,
+        "name": "repo",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(devops_cli_project_items{job=\"$job\"}, repo)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  }
 }

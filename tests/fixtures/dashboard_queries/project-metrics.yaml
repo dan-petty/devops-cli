@@ -11,33 +11,541 @@ tests:
     shape: snapshot_gauge
     interval: 15m
     input_series:
-      - series: 'devops_cli_upstream_service_status{job="roadmap-service", service="github", indicator="major"}'
+      - series: 'devops_cli_upstream_service_status{job="roadmap-service", repo="dan-petty/devops-cli", service="github", indicator="major"}'
         values: '2x8'
-      - series: 'devops_cli_upstream_service_status{job="roadmap-service", service="github"}'
+      - series: 'devops_cli_upstream_service_status{job="roadmap-service", repo="dan-petty/devops-cli", service="github"}'
         values: '_x8 2x40 0x48'
-      - series: 'devops_cli_upstream_service_status{job="roadmap-service", service="cloudflare", indicator="major"}'
+      - series: 'devops_cli_upstream_service_status{job="roadmap-service", repo="dan-petty/devops-cli", service="cloudflare", indicator="major"}'
         values: '2x8'
-      - series: 'devops_cli_upstream_service_status{job="roadmap-service", service="cloudflare"}'
+      - series: 'devops_cli_upstream_service_status{job="roadmap-service", repo="dan-petty/devops-cli", service="cloudflare"}'
         values: '_x8 2x40 1x48'
     promql_expr_test:
       # The last value of the last hour, not the worst value of an older series.
       - panel: GitHub Published Service Status
         ref_id: A
-        expr: 'last_over_time(devops_cli_upstream_service_status{service="github"}[1h])'
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'last_over_time(devops_cli_upstream_service_status{job="$job",repo="$repo",service="github"}[1h])'
         eval_time: 24h
         exp_samples:
-          - labels: 'devops_cli_upstream_service_status{job="roadmap-service", service="github"}'
+          - labels: 'devops_cli_upstream_service_status{job="roadmap-service", repo="dan-petty/devops-cli", service="github"}'
             value: 0
       - panel: Cloudflare Published Service Status
         ref_id: A
-        expr: 'last_over_time(devops_cli_upstream_service_status{service="cloudflare"}[1h])'
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'last_over_time(devops_cli_upstream_service_status{job="$job",repo="$repo",service="cloudflare"}[1h])'
         eval_time: 24h
         exp_samples:
-          - labels: 'devops_cli_upstream_service_status{job="roadmap-service", service="cloudflare"}'
+          - labels: 'devops_cli_upstream_service_status{job="roadmap-service", repo="dan-petty/devops-cli", service="cloudflare"}'
             value: 1
       # A status sent more than 1 h before is not shown as the current status.
       - panel: GitHub Published Service Status
         ref_id: A
-        expr: 'last_over_time(devops_cli_upstream_service_status{service="github"}[1h])'
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'last_over_time(devops_cli_upstream_service_status{job="$job",repo="$repo",service="github"}[1h])'
         eval_time: 26h
+        exp_samples: []
+
+  # Each query filters on job and repo, so two repositories and two jobs in the telemetry do not
+  # mix in any panel (#4712).
+  - name: the Service writes project metrics for two repositories and two jobs once each 15 min
+    shape: snapshot_gauge
+    interval: 15m
+    input_series:
+      - series: 'devops_cli_project_releases{job="roadmap-service", repo="dan-petty/devops-cli"}'
+        values: '10x96'
+      - series: 'devops_cli_project_releases{job="roadmap-service", repo="other-org/other-repo"}'
+        values: '20x96'
+      - series: 'devops_cli_project_releases{job="other-service", repo="dan-petty/devops-cli"}'
+        values: '30x96'
+
+      - series: 'devops_cli_project_release_interval_days{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.1.0"}'
+        values: '{{schema:0 count:10 sum:50 buckets:[10] offset:1}}x96'
+      - series: 'devops_cli_project_release_interval_days{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.2.0"}'
+        values: '{{schema:0 count:5 sum:25 buckets:[5] offset:1}}x96'
+      - series: 'devops_cli_project_release_interval_days{job="roadmap-service", repo="other-org/other-repo", release="v1.0.0"}'
+        values: '{{schema:0 count:10 sum:200 buckets:[10] offset:1}}x96'
+      - series: 'devops_cli_project_release_interval_days{job="other-service", repo="dan-petty/devops-cli", release="v1.0.0"}'
+        values: '{{schema:0 count:10 sum:200 buckets:[10] offset:1}}x96'
+
+      - series: 'devops_cli_project_ci_runs{job="roadmap-service", repo="dan-petty/devops-cli", workflow="ci", conclusion="success"}'
+        values: '30x96'
+      - series: 'devops_cli_project_ci_runs{job="roadmap-service", repo="dan-petty/devops-cli", workflow="ci", conclusion="failure"}'
+        values: '3x96'
+      - series: 'devops_cli_project_ci_runs{job="roadmap-service", repo="dan-petty/devops-cli", workflow="release", conclusion="success"}'
+        values: '11x96'
+      - series: 'devops_cli_project_ci_runs{job="roadmap-service", repo="dan-petty/devops-cli", workflow="release", conclusion="failure"}'
+        values: '1x96'
+      - series: 'devops_cli_project_ci_runs{job="roadmap-service", repo="other-org/other-repo", workflow="ci", conclusion="success"}'
+        values: '100x96'
+      - series: 'devops_cli_project_ci_runs{job="other-service", repo="dan-petty/devops-cli", workflow="ci", conclusion="success"}'
+        values: '200x96'
+
+      - series: 'devops_cli_project_commits{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.1.0"}'
+        values: '10x96'
+      - series: 'devops_cli_project_commits{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.2.0"}'
+        values: '20x96'
+      - series: 'devops_cli_project_commits{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.3.0"}'
+        values: '30x96'
+      - series: 'devops_cli_project_commits{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.4.0"}'
+        values: '40x96'
+      - series: 'devops_cli_project_commits{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.5.0"}'
+        values: '50x96'
+      - series: 'devops_cli_project_commits{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.6.0"}'
+        values: '60x96'
+      - series: 'devops_cli_project_commits{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.7.0"}'
+        values: '70x96'
+      - series: 'devops_cli_project_commits{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.8.0"}'
+        values: '80x96'
+      - series: 'devops_cli_project_commits{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.9.0"}'
+        values: '90x96'
+      - series: 'devops_cli_project_commits{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.10.0"}'
+        values: '100x96'
+      - series: 'devops_cli_project_commits{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.11.0"}'
+        values: '110x96'
+      - series: 'devops_cli_project_commits{job="roadmap-service", repo="other-org/other-repo", release="v0.2.0"}'
+        values: '999x96'
+      - series: 'devops_cli_project_commits{job="other-service", repo="dan-petty/devops-cli", release="v0.2.0"}'
+        values: '999x96'
+
+      - series: 'devops_cli_project_prs{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.1.0"}'
+        values: '1x96'
+      - series: 'devops_cli_project_prs{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.2.0"}'
+        values: '2x96'
+      - series: 'devops_cli_project_prs{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.3.0"}'
+        values: '3x96'
+      - series: 'devops_cli_project_prs{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.4.0"}'
+        values: '4x96'
+      - series: 'devops_cli_project_prs{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.5.0"}'
+        values: '5x96'
+      - series: 'devops_cli_project_prs{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.6.0"}'
+        values: '6x96'
+      - series: 'devops_cli_project_prs{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.7.0"}'
+        values: '7x96'
+      - series: 'devops_cli_project_prs{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.8.0"}'
+        values: '8x96'
+      - series: 'devops_cli_project_prs{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.9.0"}'
+        values: '9x96'
+      - series: 'devops_cli_project_prs{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.10.0"}'
+        values: '10x96'
+      - series: 'devops_cli_project_prs{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.11.0"}'
+        values: '11x96'
+      - series: 'devops_cli_project_prs{job="roadmap-service", repo="other-org/other-repo", release="v0.2.0"}'
+        values: '999x96'
+      - series: 'devops_cli_project_prs{job="other-service", repo="dan-petty/devops-cli", release="v0.2.0"}'
+        values: '999x96'
+
+      - series: 'devops_cli_project_items{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.2.0", state="closed", type="bug", priority="p1-high"}'
+        values: '5x96'
+      - series: 'devops_cli_project_items{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.2.0", state="open", type="bug", priority="p1-high"}'
+        values: '2x96'
+      - series: 'devops_cli_project_items{job="roadmap-service", repo="dan-petty/devops-cli", release="v9.9.9", state="open", type="bug", priority="p1-high"}'
+        values: '7x96'
+      - series: 'devops_cli_project_items{job="roadmap-service", repo="other-org/other-repo", release="v0.2.0", state="closed", type="bug", priority="p1-high"}'
+        values: '50x96'
+      - series: 'devops_cli_project_items{job="other-service", repo="dan-petty/devops-cli", release="v0.2.0", state="closed", type="bug", priority="p1-high"}'
+        values: '60x96'
+
+      - series: 'devops_cli_roadmap_item_age_seconds{job="roadmap-service", repo="dan-petty/devops-cli", state="blocked", plan="owner-alice", item="1"}'
+        values: '172800x96'
+      - series: 'devops_cli_roadmap_item_age_seconds{job="roadmap-service", repo="dan-petty/devops-cli", state="blocked", plan="owner-alice", item="2"}'
+        values: '864000x96'
+      - series: 'devops_cli_roadmap_item_age_seconds{job="roadmap-service", repo="other-org/other-repo", state="blocked", plan="owner-alice", item="3"}'
+        values: '9999999x96'
+      - series: 'devops_cli_roadmap_item_age_seconds{job="other-service", repo="dan-petty/devops-cli", state="blocked", plan="owner-alice", item="4"}'
+        values: '9999999x96'
+
+      - series: 'devops_cli_roadmap_inbox_items{job="roadmap-service", repo="dan-petty/devops-cli", kind="blocked"}'
+        values: '3x96'
+      - series: 'devops_cli_roadmap_inbox_items{job="roadmap-service", repo="other-org/other-repo", kind="blocked"}'
+        values: '30x96'
+
+      - series: 'devops_cli_project_stars{job="roadmap-service", repo="dan-petty/devops-cli"}'
+        values: '1234x96'
+      - series: 'devops_cli_project_stars{job="roadmap-service", repo="other-org/other-repo"}'
+        values: '5000x96'
+      - series: 'devops_cli_project_forks{job="roadmap-service", repo="dan-petty/devops-cli"}'
+        values: '56x96'
+      - series: 'devops_cli_project_traffic_views{job="roadmap-service", repo="dan-petty/devops-cli"}'
+        values: '500x96'
+      - series: 'devops_cli_project_traffic_views_uniques{job="roadmap-service", repo="dan-petty/devops-cli"}'
+        values: '250x96'
+      - series: 'devops_cli_project_traffic_clones{job="roadmap-service", repo="dan-petty/devops-cli"}'
+        values: '120x96'
+      - series: 'devops_cli_project_traffic_clones_uniques{job="roadmap-service", repo="dan-petty/devops-cli"}'
+        values: '45x96'
+      - series: 'devops_cli_project_traffic_referrers{job="roadmap-service", repo="dan-petty/devops-cli", referrer="google"}'
+        values: '80x96'
+      - series: 'devops_cli_project_traffic_paths{job="roadmap-service", repo="dan-petty/devops-cli", path="/docs"}'
+        values: '150x96'
+    promql_expr_test:
+      - panel: Total Releases Tracked
+        ref_id: A
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'max(last_over_time(devops_cli_project_releases{job="$job",repo="$repo"}[1h]))'
+        eval_time: 24h
+        exp_samples:
+          - labels: '{}'
+            value: 10
+
+      - panel: Average Cadence
+        ref_id: A
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'histogram_avg(sum(last_over_time(devops_cli_project_release_interval_days{job="$job",repo="$repo"}[1h])))'
+        eval_time: 24h
+        exp_samples:
+          - labels: '{}'
+            value: 5
+
+      - panel: Release Cadence Distribution (p50, p95)
+        ref_id: A
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'histogram_quantile(0.5, sum(last_over_time(devops_cli_project_release_interval_days{job="$job",repo="$repo"}[1h])))'
+        eval_time: 24h
+        exp_samples:
+          - labels: '{}'
+            value: 1.414213562373095
+
+      - panel: Release Cadence Distribution (p50, p95)
+        ref_id: B
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'histogram_quantile(0.95, sum(last_over_time(devops_cli_project_release_interval_days{job="$job",repo="$repo"}[1h])))'
+        eval_time: 24h
+        exp_samples:
+          - labels: '{}'
+            value: 1.931872657849691
+
+      - panel: Release Intervals
+        ref_id: A
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'histogram_avg(sum by (release) (last_over_time(devops_cli_project_release_interval_days{job="$job",repo="$repo"}[1h])))'
+        eval_time: 24h
+        exp_samples:
+          - labels: '{release="v0.1.0"}'
+            value: 5
+          - labels: '{release="v0.2.0"}'
+            value: 5
+
+      # 41 successes and 4 failures give 91.1 % (41/45).
+      - panel: CI pass rate, last 50 runs
+        ref_id: A
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'sum(last_over_time(devops_cli_project_ci_runs{job="$job",repo="$repo",conclusion="success"}[1h])) / clamp_min(sum(last_over_time(devops_cli_project_ci_runs{job="$job",repo="$repo"}[1h])), 1)'
+        eval_time: 24h
+        exp_samples:
+          - labels: '{}'
+            value: 0.9111111111111111
+
+      # Workflow conclusions return one row for each workflow and conclusion.
+      - panel: CI Runs by Workflow & Conclusion
+        ref_id: A
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'sum by (workflow, conclusion) (last_over_time(devops_cli_project_ci_runs{job="$job",repo="$repo"}[1h]))'
+        eval_time: 24h
+        exp_samples:
+          - labels: '{workflow="ci", conclusion="failure"}'
+            value: 3
+          - labels: '{workflow="ci", conclusion="success"}'
+            value: 30
+          - labels: '{workflow="release", conclusion="failure"}'
+            value: 1
+          - labels: '{workflow="release", conclusion="success"}'
+            value: 11
+
+      # At most 10 releases: the lowest release v0.1.0 is cut.
+      - panel: Commits & Pull Requests per Release
+        ref_id: A
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'topk(10, sum by (release) (last_over_time(devops_cli_project_commits{job="$job",repo="$repo"}[1h])))'
+        eval_time: 24h
+        exp_samples:
+          - labels: '{release="v0.11.0"}'
+            value: 110
+          - labels: '{release="v0.10.0"}'
+            value: 100
+          - labels: '{release="v0.9.0"}'
+            value: 90
+          - labels: '{release="v0.8.0"}'
+            value: 80
+          - labels: '{release="v0.7.0"}'
+            value: 70
+          - labels: '{release="v0.6.0"}'
+            value: 60
+          - labels: '{release="v0.5.0"}'
+            value: 50
+          - labels: '{release="v0.4.0"}'
+            value: 40
+          - labels: '{release="v0.3.0"}'
+            value: 30
+          - labels: '{release="v0.2.0"}'
+            value: 20
+
+      - panel: Commits & Pull Requests per Release
+        ref_id: B
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'topk(10, sum by (release) (last_over_time(devops_cli_project_prs{job="$job",repo="$repo"}[1h])))'
+        eval_time: 24h
+        exp_samples:
+          - labels: '{release="v0.11.0"}'
+            value: 11
+          - labels: '{release="v0.10.0"}'
+            value: 10
+          - labels: '{release="v0.9.0"}'
+            value: 9
+          - labels: '{release="v0.8.0"}'
+            value: 8
+          - labels: '{release="v0.7.0"}'
+            value: 7
+          - labels: '{release="v0.6.0"}'
+            value: 6
+          - labels: '{release="v0.5.0"}'
+            value: 5
+          - labels: '{release="v0.4.0"}'
+            value: 4
+          - labels: '{release="v0.3.0"}'
+            value: 3
+          - labels: '{release="v0.2.0"}'
+            value: 2
+
+      # Panel 13 matches only the releases that the commits gauge holds (v9.9.9 is cut).
+      - panel: Items by Release
+        ref_id: A
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'sum by (release, state) (last_over_time(devops_cli_project_items{job="$job",repo="$repo"}[1h])) and on (release) topk(10, sum by (release) (last_over_time(devops_cli_project_commits{job="$job",repo="$repo"}[1h])))'
+        eval_time: 24h
+        exp_samples:
+          - labels: '{release="v0.2.0", state="closed"}'
+            value: 5
+          - labels: '{release="v0.2.0", state="open"}'
+            value: 2
+
+      - panel: Items by state
+        ref_id: A
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'sum by (state) (last_over_time(devops_cli_project_items{job="$job",repo="$repo"}[1h]))'
+        eval_time: 24h
+        exp_samples:
+          - labels: '{state="closed"}'
+            value: 5
+          - labels: '{state="open"}'
+            value: 9
+
+      # The longest wait for a state and plan is reported.
+      - panel: Oldest Item Age by Phase
+        ref_id: A
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'max by (state, plan) (last_over_time(devops_cli_roadmap_item_age_seconds{job="$job",repo="$repo"}[1h]))'
+        eval_time: 24h
+        exp_samples:
+          - labels: '{state="blocked", plan="owner-alice"}'
+            value: 864000
+
+      - panel: Inbox Items by Kind
+        ref_id: A
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'sum by (kind) (last_over_time(devops_cli_roadmap_inbox_items{job="$job",repo="$repo"}[1h]))'
+        eval_time: 24h
+        exp_samples:
+          - labels: '{kind="blocked"}'
+            value: 3
+
+      - panel: GitHub Stars & Forks
+        ref_id: A
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'max(last_over_time(devops_cli_project_stars{job="$job",repo="$repo"}[1h]))'
+        eval_time: 24h
+        exp_samples:
+          - labels: '{}'
+            value: 1234
+
+      - panel: GitHub Stars & Forks
+        ref_id: B
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'max(last_over_time(devops_cli_project_forks{job="$job",repo="$repo"}[1h]))'
+        eval_time: 24h
+        exp_samples:
+          - labels: '{}'
+            value: 56
+
+      - panel: Views (14d Total & Uniques)
+        ref_id: A
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'max(last_over_time(devops_cli_project_traffic_views{job="$job",repo="$repo"}[1h]))'
+        eval_time: 24h
+        exp_samples:
+          - labels: '{}'
+            value: 500
+
+      - panel: Views (14d Total & Uniques)
+        ref_id: B
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'max(last_over_time(devops_cli_project_traffic_views_uniques{job="$job",repo="$repo"}[1h]))'
+        eval_time: 24h
+        exp_samples:
+          - labels: '{}'
+            value: 250
+
+      - panel: Git Clones & Uniques (14d)
+        ref_id: A
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'max(last_over_time(devops_cli_project_traffic_clones{job="$job",repo="$repo"}[1h]))'
+        eval_time: 24h
+        exp_samples:
+          - labels: '{}'
+            value: 120
+
+      - panel: Git Clones & Uniques (14d)
+        ref_id: B
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'max(last_over_time(devops_cli_project_traffic_clones_uniques{job="$job",repo="$repo"}[1h]))'
+        eval_time: 24h
+        exp_samples:
+          - labels: '{}'
+            value: 45
+
+      - panel: Top Referral Sources (14 Days)
+        ref_id: A
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'topk(10, sum by (referrer) (last_over_time(devops_cli_project_traffic_referrers{job="$job",repo="$repo"}[1h])))'
+        eval_time: 24h
+        exp_samples:
+          - labels: '{referrer="google"}'
+            value: 80
+
+      - panel: Popular Content Paths (14 Days)
+        ref_id: A
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'topk(10, sum by (path) (last_over_time(devops_cli_project_traffic_paths{job="$job",repo="$repo"}[1h])))'
+        eval_time: 24h
+        exp_samples:
+          - labels: '{path="/docs"}'
+            value: 150
+
+  - name: samples older than one hour show no data
+    shape: snapshot_gauge
+    interval: 15m
+    input_series:
+      - series: 'devops_cli_project_items{job="roadmap-service", repo="dan-petty/devops-cli", release="v0.2.0", state="open", type="bug", priority="p1-high"}'
+        values: '5x8'
+      - series: 'devops_cli_project_traffic_views{job="roadmap-service", repo="dan-petty/devops-cli"}'
+        values: '500x8'
+      - series: 'devops_cli_project_traffic_views_uniques{job="roadmap-service", repo="dan-petty/devops-cli"}'
+        values: '250x8'
+      - series: 'devops_cli_project_traffic_clones{job="roadmap-service", repo="dan-petty/devops-cli"}'
+        values: '120x8'
+      - series: 'devops_cli_project_traffic_clones_uniques{job="roadmap-service", repo="dan-petty/devops-cli"}'
+        values: '45x8'
+      - series: 'devops_cli_project_traffic_referrers{job="roadmap-service", repo="dan-petty/devops-cli", referrer="google"}'
+        values: '80x8'
+      - series: 'devops_cli_project_traffic_paths{job="roadmap-service", repo="dan-petty/devops-cli", path="/docs"}'
+        values: '150x8'
+    promql_expr_test:
+      - panel: Items by state
+        ref_id: A
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'sum by (state) (last_over_time(devops_cli_project_items{job="$job",repo="$repo"}[1h]))'
+        eval_time: 24h
+        exp_samples: []
+
+      - panel: Views (14d Total & Uniques)
+        ref_id: A
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'max(last_over_time(devops_cli_project_traffic_views{job="$job",repo="$repo"}[1h]))'
+        eval_time: 24h
+        exp_samples: []
+
+      - panel: Views (14d Total & Uniques)
+        ref_id: B
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'max(last_over_time(devops_cli_project_traffic_views_uniques{job="$job",repo="$repo"}[1h]))'
+        eval_time: 24h
+        exp_samples: []
+
+      - panel: Git Clones & Uniques (14d)
+        ref_id: A
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'max(last_over_time(devops_cli_project_traffic_clones{job="$job",repo="$repo"}[1h]))'
+        eval_time: 24h
+        exp_samples: []
+
+      - panel: Git Clones & Uniques (14d)
+        ref_id: B
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'max(last_over_time(devops_cli_project_traffic_clones_uniques{job="$job",repo="$repo"}[1h]))'
+        eval_time: 24h
+        exp_samples: []
+
+      - panel: Top Referral Sources (14 Days)
+        ref_id: A
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'topk(10, sum by (referrer) (last_over_time(devops_cli_project_traffic_referrers{job="$job",repo="$repo"}[1h])))'
+        eval_time: 24h
+        exp_samples: []
+
+      - panel: Popular Content Paths (14 Days)
+        ref_id: A
+        variables:
+          job: roadmap-service
+          repo: dan-petty/devops-cli
+        expr: 'topk(10, sum by (path) (last_over_time(devops_cli_project_traffic_paths{job="$job",repo="$repo"}[1h])))'
+        eval_time: 24h
         exp_samples: []
