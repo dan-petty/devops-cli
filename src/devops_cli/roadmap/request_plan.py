@@ -1263,6 +1263,137 @@ def plan_recheck_requests(
     return (*git_reads, *store.open_items(), *closed), ()
 
 
+def branches_requests(
+    repo: str,
+) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
+    """What `devops roadmap plan-recheck --branches` reads, in order, and the writes `--confirm`
+    adds after them (#3969). The run reads the default branch, its base specs and its files, the
+    open pull requests, and the head and the change folder of each open draft plan pull request.
+    With --confirm, it opens a temporary worktree at the head of each branch whose rewrite changes
+    a file, rebases it, writes the rewrite, commits it once and pushes it with a lease on the head
+    that the run read. It calls no model."""
+    texts = MESSAGES.roadmap
+    clone = "<model-clone>"
+    store = StoreRequests(repo)
+    pull = _p("pull")
+    branch = _p("branch")
+    each = texts.plan_repeat["plan_branch"]
+    rewritten = texts.plan_repeat["plan_branch_rewritten"]
+    reads = [
+        PlannedRequest(
+            "git",
+            texts.plan_recheck_request_fetch,
+            argv=("git", "-C", clone, "fetch", "-q", "origin", "main"),
+        ),
+        PlannedRequest(
+            "git",
+            texts.plan_recheck_request_tree,
+            argv=("git", "-C", clone, "ls-tree", "-r", "--name-only", "origin/main"),
+        ),
+        PlannedRequest(
+            "git",
+            texts.plan_branches_request_specs,
+            argv=(
+                "git",
+                "-C",
+                clone,
+                "show",
+                "origin/main:openspec/specs/<capability>/spec.md",
+            ),
+            repeat=texts.plan_repeat["spec_file"],
+        ),
+        *store.open_pulls(),
+        PlannedRequest(
+            "git",
+            texts.plan_branches_request_fetch,
+            argv=("git", "-C", clone, "fetch", "-q", "origin", branch, "main"),
+            repeat=each,
+        ),
+        PlannedRequest(
+            "git",
+            texts.plan_branches_request_head,
+            argv=("git", "-C", clone, "rev-parse", f"origin/{branch}"),
+            repeat=each,
+        ),
+        PlannedRequest(
+            "git",
+            texts.plan_branches_request_branch_tree,
+            argv=("git", "-C", clone, "ls-tree", "-r", "--name-only", f"origin/{branch}"),
+            repeat=each,
+        ),
+        PlannedRequest(
+            "git",
+            texts.plan_branches_request_files,
+            argv=(
+                "git",
+                "-C",
+                clone,
+                "show",
+                f"origin/{branch}:openspec/changes/{_p('change')}/<file>",
+            ),
+            repeat=texts.plan_repeat["plan_branch_file"],
+        ),
+        planned_session_read(
+            f"/repos/{repo}/pulls/{pull}",
+            texts.plan_targets["plan_branch_pull"].format(subject=pull),
+            repeat=each,
+        ),
+        planned_session_read(
+            f"/repos/{repo}/issues/{pull}",
+            texts.plan_targets["plan_branch_issue"].format(subject=pull),
+            repeat=each,
+        ),
+        planned_gh(
+            gh.issue_args(repo, _p("item")),
+            texts.plan_targets["plan_branch_item"],
+            condition=texts.plan_conditions["plan_branch_rewritten"],
+            repeat=rewritten,
+        ),
+    ]
+    writes = [
+        PlannedRequest(
+            "git",
+            texts.plan_branches_write_worktree,
+            argv=("git", "-C", clone, "worktree", "add", "--detach", _p("worktree"), _p("head")),
+            repeat=rewritten,
+        ),
+        PlannedRequest(
+            "git",
+            texts.plan_branches_write_rebase,
+            argv=("git", "-C", _p("worktree"), "rebase", "-q", "origin/main"),
+            repeat=rewritten,
+        ),
+        PlannedRequest(
+            "git",
+            texts.plan_branches_write_add,
+            argv=("git", "-C", _p("worktree"), "add", "--", _p("paths")),
+            repeat=rewritten,
+        ),
+        PlannedRequest(
+            "git",
+            texts.plan_branches_write_commit,
+            argv=("git", "-C", _p("worktree"), "commit", "-q", "-m", _p("message")),
+            repeat=rewritten,
+        ),
+        PlannedRequest(
+            "git",
+            texts.plan_branches_write_push,
+            argv=(
+                "git",
+                "-C",
+                _p("worktree"),
+                "push",
+                "-q",
+                "--force-with-lease=refs/heads/<branch>:<head>",
+                "origin",
+                "HEAD:refs/heads/<branch>",
+            ),
+            repeat=rewritten,
+        ),
+    ]
+    return tuple(reads), tuple(writes)
+
+
 def inbox_requests(
     repo: str,
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
@@ -1365,6 +1496,7 @@ def render_dry_run(
 __all__ = [
     "StoreRequests",
     "alternatives_requests",
+    "branches_requests",
     "consolidate_requests",
     "explain_requests",
     "fix_plan_requests",

@@ -1,8 +1,10 @@
-"""`devops roadmap plan-recheck`: its dry run and its JSON output (#3492)."""
+"""`devops roadmap plan-recheck`: its dry run, its JSON output and its open plan branches
+(#3492, #3969)."""
 
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -12,6 +14,7 @@ from typer.testing import CliRunner
 from devops_cli.commands.roadmap import app
 from devops_cli.roadmap.stage.stage_change import render_change
 from tests.support.builders import make_stage_proposal
+from tests.support.fakes.github import github_json, pull_request_payload
 from tests.support.roadmap_stage import VALID_REPORT, StageRepo, validate_args
 
 if TYPE_CHECKING:
@@ -19,27 +22,88 @@ if TYPE_CHECKING:
 
     from tests.support.fakes.github import GitHubApiFake
     from tests.support.fakes.openspec import OpenSpecFake
+    from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "example/roadmap"
 CHANGE = "1-keep-the-last-comment"
 ROOT = f"openspec/changes/{CHANGE}"
 TASKS = f"{ROOT}/tasks.md"
 DESIGN = f"{ROOT}/design.md"
+ISSUE = 1
+BRANCH = "docs/1-keep-the-last-comment"
+AHEAD = "docs/1-ahead"
+PLAN_TITLE = f"docs(openspec): plan #{ISSUE} Keep the last comment"
+PLAN_BODY = f"Plans #{ISSUE}"
 runner = CliRunner()
 
 
-def _old_plan() -> dict[str, str]:
-    """A merged plan that the rewrite fixes: no `Verification:` line and no `design.md`."""
-    files = render_change(
+def _plan() -> dict[str, str]:
+    """The stock plan of the item, which the mechanical rewrite leaves as it is."""
+    return render_change(
         CHANGE,
         make_stage_proposal(),
         {"comment-thread"},
         created=datetime(2026, 11, 4, tzinfo=UTC).date(),
     )
+
+
+def _old_plan() -> dict[str, str]:
+    """A merged plan that the rewrite fixes: no `Verification:` line and no `design.md`."""
+    files = _plan()
     del files[DESIGN]
     kept = [line for line in files[TASKS].splitlines(keepends=True) if "Verification:" not in line]
     files[TASKS] = "".join(kept)
     return files
+
+
+def _push(repo: StageRepo, branch: str, files: Mapping[str, str]) -> None:
+    """Commit `files` on `branch` of `origin`, from `main`, and leave the clone on `main`."""
+    repo.git("switch", "-q", "-c", branch)
+    for path, text in files.items():
+        target = repo.clone / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "-m", f"plan on {branch}")
+    repo.git("push", "-q", "origin", branch)
+    repo.git("switch", "-q", "main")
+
+
+def _seed_pull(store: InMemoryRoadmapStore, branch: str) -> int:
+    """An open draft plan pull request on `branch`, with the number it got."""
+    return store.seed_pull(PLAN_TITLE, head_ref=branch, draft=True)
+
+
+def _route_pull(
+    api: GitHubApiFake,
+    repo: StageRepo,
+    number: int,
+    *,
+    title: str = PLAN_TITLE,
+    body: str = PLAN_BODY,
+) -> None:
+    """The reads of the facts of the pull request `number`: its head and its body."""
+    base = repo.git("rev-parse", "main")
+    api.route(
+        "GET",
+        f"/repos/{REPO}/pulls/{number}",
+        github_json(pull_request_payload(title=title, head_sha="a" * 40, base_sha=base)),
+    )
+    api.route(
+        "GET",
+        f"/repos/{REPO}/issues/{number}",
+        github_json(
+            {
+                "number": number,
+                "title": title,
+                "state": "open",
+                "body": body,
+                "comments": 0,
+                "labels": [],
+                "pull_request": {"merged_at": None},
+            }
+        ),
+    )
 
 
 def _confirm(repo: StageRepo, *extra: str) -> Result:
@@ -240,3 +304,130 @@ def test_a_file_that_differs_from_the_default_branch_stops_the_write_before_any_
     assert rewrite_repo.git("status", "--porcelain") == before
     assert "Verification:" not in (rewrite_repo.clone / TASKS).read_text(encoding="utf-8")
     assert (rewrite_repo.clone / DESIGN).read_text(encoding="utf-8") == "# My own design\n"
+
+
+def _branches(stage_repo: StageRepo, *extra: str) -> Result:
+    args = ["plan-recheck", "--repo", REPO, "--source", str(stage_repo.clone), "--branches", *extra]
+    return runner.invoke(app, args, catch_exceptions=False)
+
+
+@pytest.mark.usefixtures("openspec_fake")
+def test_each_open_plan_branch_is_judged(
+    stage_repo: StageRepo,
+    github_api: GitHubApiFake,
+    roadmap_store: InMemoryRoadmapStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`--branches` prints one result for each open draft plan pull request: the branch whose plan
+    the rewrite changes is `rewritten`, the branch it leaves is `unchanged`, and a run without
+    `--confirm` pushes neither."""
+    stage_repo.track(_plan())
+    stage_repo.push_branch(BRANCH)
+    _push(stage_repo, AHEAD, _old_plan())
+    same = _seed_pull(roadmap_store, BRANCH)
+    changed = _seed_pull(roadmap_store, AHEAD)
+    for number in (same, changed):
+        _route_pull(github_api, stage_repo, number)
+    before = stage_repo.origin_git("rev-parse", f"refs/heads/{AHEAD}")
+    monkeypatch.chdir(stage_repo.clone)
+
+    result = _branches(stage_repo)
+
+    assert result.exit_code == 0, result.output
+    assert f"Pull request #{same} on `{BRANCH}`: unchanged." in result.output
+    assert f"Pull request #{changed} on `{AHEAD}`: rewritten." in result.output
+    assert f"  changes `{TASKS}`" in result.output
+    assert "2 open plan branches: 1 rewritten, 1 unchanged, 0 conflict, 0 invalid." in result.output
+    assert stage_repo.origin_git("rev-parse", f"refs/heads/{AHEAD}") == before
+
+
+@pytest.mark.usefixtures("openspec_fake")
+def test_a_delivery_branch_is_left_out(
+    stage_repo: StageRepo,
+    github_api: GitHubApiFake,
+    roadmap_store: InMemoryRoadmapStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A draft pull request that the implement job took over as the delivery of the item is no
+    plan branch, so the run gives it no result."""
+    stage_repo.track(_plan())
+    stage_repo.push_branch(BRANCH)
+    plan = _seed_pull(roadmap_store, BRANCH)
+    delivery = roadmap_store.seed_pull(
+        "feat(roadmap): deliver the plan", head_ref="feat/2-deliver", draft=True
+    )
+    _route_pull(github_api, stage_repo, plan)
+    _route_pull(
+        github_api,
+        stage_repo,
+        delivery,
+        title="feat(roadmap): deliver the plan",
+        body="Closes #2",
+    )
+    monkeypatch.chdir(stage_repo.clone)
+
+    result = _branches(stage_repo)
+
+    assert result.exit_code == 0, result.output
+    assert f"Pull request #{plan} on `{BRANCH}`" in result.output
+    assert f"Pull request #{delivery}" not in result.output
+    assert "1 open plan branches:" in result.output
+
+
+def test_the_branches_dry_run_lists_the_reads(github_api: GitHubApiFake) -> None:
+    """The dry run of `--branches` lists the reads of the pass and the writes of a confirmed push,
+    and it makes no request."""
+    result = runner.invoke(
+        app, ["plan-recheck", "--repo", REPO, "--dry-run", "--branches"], catch_exceptions=False
+    )
+
+    assert result.exit_code == 0, result.output
+    assert f"/repos/{REPO}/pulls" in result.output
+    assert "ls-tree -r --name-only origin/main" in result.output
+    assert "fetch -q origin '<branch>' main" in result.output
+    assert "worktree add --detach" in result.output
+    assert "--force-with-lease=refs/heads/<branch>:<head>" in result.output
+    assert github_api.sent == []
+
+
+@pytest.mark.usefixtures("roadmap_store")
+def test_confirm_pushes_the_rewritten_branch_once(
+    stage_repo: StageRepo,
+    github_api: GitHubApiFake,
+    openspec_fake: OpenSpecFake,
+    roadmap_store: InMemoryRoadmapStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With `--confirm`, the command rebases, rewrites and pushes the branch whose plan the rewrite
+    changes, as one commit."""
+    stage_repo.track(_plan())
+    _push(stage_repo, AHEAD, _old_plan())
+    number = _seed_pull(roadmap_store, AHEAD)
+    _route_pull(github_api, stage_repo, number)
+    openspec_fake.script(validate_args(CHANGE), 0, VALID_REPORT)
+    before = stage_repo.origin_git("rev-parse", f"refs/heads/{AHEAD}")
+    monkeypatch.chdir(stage_repo.clone)
+
+    result = _branches(stage_repo, "--confirm")
+
+    assert result.exit_code == 0, result.output
+    assert f"Pull request #{number} on `{AHEAD}`: rewritten." in result.output
+    after = stage_repo.origin_git("rev-parse", f"refs/heads/{AHEAD}")
+    assert after != before
+    assert stage_repo.origin_git("rev-list", "--count", f"{before}..{after}") == "1"
+
+
+def test_the_branches_option_takes_no_branch(stage_repo: StageRepo) -> None:
+    """`--branches` reads the open plan branches itself, so it refuses `--branch`."""
+    result = _branches(stage_repo, "--branch", "topic")
+
+    assert result.exit_code == 1
+    assert "takes no --branch" in result.output
+
+
+def test_the_branches_option_takes_no_json(stage_repo: StageRepo) -> None:
+    """The pass prints one line for each open plan branch, so it refuses `--json`."""
+    result = _branches(stage_repo, "--json")
+
+    assert result.exit_code == 1
+    assert "takes no --json" in result.output

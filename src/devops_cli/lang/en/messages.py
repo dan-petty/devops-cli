@@ -5720,6 +5720,25 @@ class RoadmapMessages:
         "The mechanical rewrite of `plan_rewrite` repairs the plan of the branch. "
         "`devops roadmap plan-recheck --branches` made the commit."
     )
+    # The requests of the dry run of `devops roadmap plan-recheck --branches` (#3969).
+    plan_branches_request_specs: str = "read each base spec of the default branch"
+    plan_branches_request_fetch: str = (
+        "fetch the branch of an open plan pull request and the default branch"
+    )
+    plan_branches_request_head: str = "read the head commit of the branch"
+    plan_branches_request_branch_tree: str = "list the files of the branch head"
+    plan_branches_request_files: str = "read the files of the change folder of the branch"
+    plan_branches_write_worktree: str = "open a temporary worktree at the head of the branch"
+    plan_branches_write_rebase: str = "rebase the worktree onto the default branch"
+    plan_branches_write_add: str = "stage the files that the rewrite changes"
+    plan_branches_write_commit: str = "commit the rewrite once"
+    plan_branches_write_push: str = "push the commit with a lease on the head that the run read"
+    plan_recheck_branches_with_branch: str = (
+        "The --branches option takes no --branch: it reads each open plan branch itself."
+    )
+    plan_recheck_branches_json: str = (
+        "The --branches pass prints one line for each open plan branch, so it takes no --json."
+    )
     # The dry runs of `devops roadmap` (#412, #1125): the requests a run makes, none made.
     plan_dry_run: str = (
         "Dry run: no request was made. A run makes these requests, in order; a value in "
@@ -5892,6 +5911,10 @@ class RoadmapMessages:
             "new_branch": "<new branch>",
             "change": "<change>",
             "pull": "<pull request>",
+            "worktree": "<temporary worktree>",
+            "head": "<head commit>",
+            "paths": "<the rewritten files>",
+            "message": "<commit message>",
             "remote_tip": "<remote tip>",
             "tip": "<tip>",
             "git_folder": "<new git folder>",
@@ -5919,6 +5942,9 @@ class RoadmapMessages:
             "commit": "the commit {subject} cites",
             "path_change": "the newest commit on the default branch that changed {subject}",
             "open_pulls": "the open pull requests",
+            "plan_branch_pull": "the plan pull request {subject}",
+            "plan_branch_issue": "the body of the plan pull request {subject}",
+            "plan_branch_item": "the issue of the plan, for its body",
             "repository_labels": "the labels of the repository",
             "visibility": "whether the repository is private",
             "web_search": "a web search for {subject}",
@@ -6013,6 +6039,9 @@ class RoadmapMessages:
             "consolidate_embed": "an open item has a text that the cache of vectors lacks",
             "claim_made": "the claim of the agent is made",
             "behind": "the item is New, Ready or Planned, or has no Status",
+            "plan_branch_rewritten": (
+                "the rewrite changes the plan of the branch and the run confirms the push"
+            ),
         }
     )
     plan_repeat: dict[str, str] = field(
@@ -6047,6 +6076,10 @@ class RoadmapMessages:
             "stage_rejected": "for each item whose plan pull request closed with no merge",
             "stage_rejected_path": "for each file that the reason of a rejected plan names, at most {limit}",
             "open_plan": "for each open item with a change folder, once a run",
+            "plan_branch": "for each open draft plan pull request",
+            "plan_branch_file": "for each file of the change folder of the branch",
+            "plan_branch_rewritten": "for each open plan branch whose rewrite changes a file",
+            "spec_file": "for each spec file of the default branch",
             "implement_item": "for each item the run implements, up to the limit",
             "implement_group": "for each task group that has an unticked task",
             "missing_label": "for each declared label that the repository lacks",
