@@ -27,6 +27,7 @@ devops test run [OPTIONS] <target>
 | `--fail-fast`, `-x` | `boolean` | - | Stop immediately on the first test failure. |
 | `--verbose`, `-v` | `boolean` | - | Enable verbose pytest output (-vv). |
 | `-k` | `string` | - | Filter tests by expression. |
+| `--timeout` | `integer` | `1800` | Seconds the pytest subprocess may run before the command stops it. |
 | `--dry-run` | `boolean` | - | Simulate test execution. |
 
 ---

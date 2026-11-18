@@ -2709,6 +2709,10 @@ class TestMessages:
     )
     changed_whole_suite: str = "No changed file maps to a test module: running the whole suite."
     changed_targets: str = "Running the {count} test target(s) the changes reach:"
+    run_timeout: str = (
+        "The pytest subprocess did not finish within the {seconds}-second limit of "
+        "`devops test run`. Raise the limit with the `--timeout` option."
+    )
 
 
 @dataclass(frozen=True)

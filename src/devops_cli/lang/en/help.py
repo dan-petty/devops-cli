@@ -2728,6 +2728,7 @@ class TestCommandHelp:
     coverage: str = "Run with code coverage analysis."
     fail_fast: str = "Stop immediately on the first test failure."
     verbose: str = "Enable verbose pytest output (-vv)."
+    timeout: str = "Seconds the pytest subprocess may run before the command stops it."
     dry_run: str = "Simulate test execution."
     profile_memory: str = (
         "Deterministic async memory and connection pool profiler using tracemalloc."
