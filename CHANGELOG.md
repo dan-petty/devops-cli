@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.176.1](https://github.com/dan-petty/devops-cli/compare/v0.176.0...v0.176.1) (2026-11-18)
+
+
+### Bug Fixes
+
+* **ci:** Turn uv's malware check off where no package arrives ([#6289](https://github.com/dan-petty/devops-cli/issues/6289)) ([7359eb8](https://github.com/dan-petty/devops-cli/commit/7359eb818b8bf967cc13c38c40109dd06aebe27c))
+* **deps:** update tools (patch) ([#6284](https://github.com/dan-petty/devops-cli/issues/6284)) ([97bb46c](https://github.com/dan-petty/devops-cli/commit/97bb46c821ec47f37d333be60cea0f67dff9f4e1))
+
 ## [0.176.0](https://github.com/dan-petty/devops-cli/compare/v0.175.0...v0.176.0) (2026-11-18)
 
 
