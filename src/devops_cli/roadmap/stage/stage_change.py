@@ -95,7 +95,6 @@ from devops_cli.roadmap.stage.stage_registry import (
     RegistryCount,
     matches,
     missing_test_paths,
-    registry_table,
 )
 from devops_cli.roadmap.step_files import code_spans, named_files, packed_file, parse_task_groups
 from devops_cli.roadmap.step_rules import rules_sections
@@ -2952,7 +2951,7 @@ def check_gates(
     search_evidence: Mapping[str, Sequence[str]] | None = None,
     plan_creates: Mapping[str, int] | None = None,
     read_text: Callable[[str], str | None] | None = None,
-    registry: Sequence[RegistryCount] | None = None,
+    registry: Sequence[RegistryCount],
     constants: Mapping[str, int] | None = None,
     references: Sequence[str] = (),
     models: Mapping[str, tuple[str, Sequence[str]]] | None = None,
@@ -3012,7 +3011,7 @@ def check_gates(
         ProposalGate.CREATES: creates_problems(proposal.groups, plan_creates or {}),
         ProposalGate.REGISTRY: registry_problems(
             proposal,
-            registry if registry is not None else registry_table(Path.cwd()),
+            registry,
         ),
         ProposalGate.CONSTANTS: constant_problems(plan_texts(proposal), constants or {}),
         ProposalGate.TRACE: _trace_problems(proposal, trace, probes, judged),
@@ -3035,7 +3034,7 @@ def check_proposal(
     search_evidence: Mapping[str, Sequence[str]] | None = None,
     plan_creates: Mapping[str, int] | None = None,
     read_text: Callable[[str], str | None] | None = None,
-    registry: Sequence[RegistryCount] | None = None,
+    registry: Sequence[RegistryCount],
     constants: Mapping[str, int] | None = None,
     references: Sequence[str] = (),
     models: Mapping[str, tuple[str, Sequence[str]]] | None = None,

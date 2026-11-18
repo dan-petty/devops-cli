@@ -420,7 +420,7 @@ def test_the_golden_set_holds_the_placeholder_case_of_3174(cases: list[StageCase
     """The replay reports the case of #3174 and its one placeholder group (#3264)."""
     case = next(c for c in cases if c.pull == 3174)
 
-    report = replay_all([case])
+    report = replay_all([case], registry=())
 
     assert [group["title"] for group in case.groups] == ["placeholder"]
     assert (case.defect_types(), case.defects[0].gate) == ({DefectType.OTHER}, GateName.NONE)

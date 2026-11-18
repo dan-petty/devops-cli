@@ -1,0 +1,10 @@
+id: stage-registry-cwd-read
+language: python
+severity: error
+files:
+  - "src/**"
+message: registry_table called with Path.cwd(). Pass the checked-out repository path instead.
+rule:
+  any:
+    - pattern: registry_table(Path.cwd())
+    - pattern: registry_table(pathlib.Path.cwd())

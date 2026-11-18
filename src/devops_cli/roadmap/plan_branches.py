@@ -28,7 +28,7 @@ reader, gates and OpenSpec check as `devops roadmap plan-check`, and it calls no
 from __future__ import annotations
 
 import logging
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
@@ -52,6 +52,7 @@ from devops_cli.roadmap.plan_read import (
 from devops_cli.roadmap.plan_rewrite import PlanRewrite, rewrite_plan, write_rewrite
 from devops_cli.roadmap.stage.stage_change import check_gates
 from devops_cli.roadmap.stage.stage_paths import StagedTree
+from devops_cli.roadmap.stage.stage_registry import RegistryCount, registry_table
 from devops_cli.roadmap.stage.stage_validate import validate_change
 from devops_cli.roadmap.stores.store import RoadmapStore
 
@@ -218,6 +219,7 @@ def _plan_problem(
     requirements: Mapping[str, Collection[str]],
     base_scenarios: Mapping[str, Collection[str]],
     issue_body: str,
+    registry: Sequence[RegistryCount] = (),
 ) -> str | None:
     """What the plan reader, the gates or `openspec validate` find wrong in the rewritten plan, or
     None when every check passes."""
@@ -233,6 +235,7 @@ def _plan_problem(
         requirements=requirements,
         base_scenarios=base_scenarios,
         issue_body=issue_body,
+        registry=registry,
     )
     problems = [problem for gate in found.values() for problem in gate]
     if problems:
@@ -255,6 +258,7 @@ def push_rewrite(
     requirements: Mapping[str, Collection[str]],
     base_scenarios: Mapping[str, Collection[str]],
     issue_body: str = "",
+    registry: Sequence[RegistryCount] = (),
 ) -> BranchRewrite:
     """Rebase the branch of `target` onto `default` in a detached worktree, write `rewrite` there,
     check it, and push it as one commit with a lease on the head that the pass read.
@@ -287,6 +291,7 @@ def push_rewrite(
             requirements=requirements,
             base_scenarios=base_scenarios,
             issue_body=issue_body,
+            registry=registry,
         )
         if problem is not None:
             reason = texts.plan_branches_invalid.format(
@@ -341,6 +346,7 @@ def rewrite_open_branches(
     tree = StagedTree(paths)
     known, requirements = specs_at(source, rev, operation=GIT_OPERATION, files=paths)
     base_scenarios = scenario_names_at(source, rev, operation=GIT_OPERATION, files=paths)
+    registry = registry_table(source)
     records: list[BranchRewrite] = []
     for pull in open_plan_pulls(store, reads, repo, default):
         record = branch_rewrite(source, pull, default, tree)
@@ -357,6 +363,7 @@ def rewrite_open_branches(
                 requirements=requirements,
                 base_scenarios=base_scenarios,
                 issue_body=item.body if item is not None else "",
+                registry=registry,
             )
         records.append(record)
     return BranchRun(repo, default, confirm, tuple(records))

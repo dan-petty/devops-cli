@@ -316,7 +316,7 @@ from devops_cli.roadmap.stage.stage_pull_files import (
     pull_request_files,
 )
 from devops_cli.roadmap.stage.stage_references import reference_files
-from devops_cli.roadmap.stage.stage_registry import matches, registry_table
+from devops_cli.roadmap.stage.stage_registry import RegistryCount, matches, registry_table
 from devops_cli.roadmap.stage.stage_rejected import (
     ReadFailure,
     RejectedPlan,
@@ -1430,6 +1430,7 @@ class _Planner:
         self._traces: list[RunTrace] = [] if traces is None else traces
         self._source = source
         self._sha = sha
+        self._registry: tuple[RegistryCount, ...] = registry_table(source)
         self._specs = specs
         self._known = frozenset(specs)
         self._requirements = {name: spec.requirements for name, spec in specs.items()}
@@ -2354,7 +2355,7 @@ class _Planner:
             item.body,
             max_tokens=context_cap - max(0, comments.tokens - spare),
         )
-        registry = registry_table(self._source)
+        registry = self._registry
         matched = matches(registry, (item.title, item.body), tuple(self._tree.paths_in(item.body)))
         if matched:
             lines = [f"- {entry.path} ({entry.declaring_path}:{entry.line})" for entry in matched]
@@ -2630,7 +2631,7 @@ class _Planner:
                 # The citation rule reads the staged commit, the one the probe and the model read
                 # (#3422), and never the working tree.
                 read_text=partial(_read_staged_file, self._source, self._sha),
-                registry=registry_table(self._source),
+                registry=self._registry,
                 constants=constants,
                 references=references,
                 models=models,
@@ -2761,7 +2762,7 @@ class _Planner:
             item_title=target.item.title,
             item_body=target.item.body,
             budget=self._budget,
-            registry=registry_table(self._source),
+            registry=self._registry,
         )
         found = staged_problems(folder, number=target.item.number, title=title, body=body)
         return [problem.line for problem in found]
