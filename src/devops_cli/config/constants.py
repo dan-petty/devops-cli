@@ -5259,6 +5259,9 @@ CONST_TRIVY_CONFIG_IGNORE_FILE: Final[str] = ".trivyignore.yaml"
 # released version fixes, in the form of `.trivyignore.yaml` (SECURITY.md, A Finding with No Fix;
 # #6204).
 CONST_NPM_AUDIT_IGNORE_FILE: Final[str] = ".npm-audit-ignore.yaml"
+# The ignore file of `osv-scanner` for tools-lock requirement files (SECURITY.md, A Finding with No
+# Fix; #3988).
+CONST_OSV_SCANNER_IGNORE_FILE: Final[str] = ".osv-scanner-ignore.yaml"
 # The tool name that GitHub code scanning shows for the `trivy config` results of the SARIF upload.
 CONST_TRIVY_CONFIG_ALERT_TOOL: Final[str] = "Trivy-config"
 # The most issues that one run of `devops scan alerts` files, so a first run over a long list of

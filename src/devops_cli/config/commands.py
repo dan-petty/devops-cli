@@ -260,6 +260,21 @@ def npm_audit_lockfile(cmd: Sequence[str]) -> str | None:
     return f"{cmd[cmd.index('--prefix') + 1]}/package-lock.json"
 
 
+def build_osv_scanner_audit_cmd(requirement_file: Path | str) -> list[str]:
+    """Build an `osv-scanner` audit command for a requirement file."""
+    return [BIN_OSV_SCANNER, "--lockfile", f"requirements.txt:{requirement_file}"]
+
+
+def osv_scanner_lockfile(cmd: Sequence[str]) -> str | None:
+    """The requirement file that an `osv-scanner` audit command reads; None for any other command."""
+    if not cmd or cmd[0] != BIN_OSV_SCANNER or "--lockfile" not in cmd:
+        return None
+    target = cmd[cmd.index("--lockfile") + 1]
+    if target.startswith("requirements.txt:"):
+        return target.removeprefix("requirements.txt:")
+    return target
+
+
 def build_openspec_cmd(*args: str) -> list[str]:
     """Build an `openspec` command: the pinned OpenSpec's program, then its arguments."""
     return [BIN_OPENSPEC, *args]

@@ -12,11 +12,12 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from devops_cli.config.constants import CONST_NPM_AUDIT_IGNORE_FILE
+from devops_cli.config.constants import CONST_NPM_AUDIT_IGNORE_FILE, CONST_OSV_SCANNER_IGNORE_FILE
 from devops_cli.core.dependency_audit import (
     NpmAuditIgnore,
     active_npm_ignores,
     load_npm_audit_ignores,
+    load_osv_audit_ignores,
 )
 
 _OPENSPEC_LOCK = "src/devops_cli/tools_lock/openspec/package-lock.json"
@@ -99,3 +100,28 @@ def test_the_ignore_file_reads_the_trivy_yaml_form(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     assert load_npm_audit_ignores(path) == (_ignore(),)
+
+
+def test_load_osv_audit_ignores_reads_osv_scanner_ignore_file(tmp_path: Path) -> None:
+    path = tmp_path / CONST_OSV_SCANNER_IGNORE_FILE
+    path.write_text(
+        "vulnerabilities:\n"
+        "  - id: GHSA-5h93-6whr-6q8j\n"
+        "    paths:\n"
+        "      - src/devops_cli/tools_lock/semgrep.txt\n"
+        "    statement: mcp advisory (#3988)\n"
+        "    expired_at: 2026-11-21\n",
+        encoding="utf-8",
+    )
+    assert load_osv_audit_ignores(path) == (
+        NpmAuditIgnore(
+            id="GHSA-5h93-6whr-6q8j",
+            paths=["src/devops_cli/tools_lock/semgrep.txt"],
+            statement="mcp advisory (#3988)",
+            expired_at=date(2026, 11, 21),
+        ),
+    )
+
+
+def test_missing_osv_scanner_ignore_file_ignores_nothing(tmp_path: Path) -> None:
+    assert load_osv_audit_ignores(tmp_path / CONST_OSV_SCANNER_IGNORE_FILE) == ()

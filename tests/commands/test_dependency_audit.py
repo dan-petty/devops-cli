@@ -10,6 +10,7 @@ and `vulnerable` answer the advisory request, `registry_unreachable` refuses the
 
 from __future__ import annotations
 
+import json
 import subprocess
 from datetime import date
 from pathlib import Path
@@ -18,7 +19,8 @@ import pytest
 
 from devops_cli.commands import ci
 from devops_cli.commands.ci import get_check_spec
-from devops_cli.core.dependency_audit import AuditVerdict, audit_verdict
+from devops_cli.config.commands import osv_scanner_lockfile
+from devops_cli.core.dependency_audit import AuditVerdict, audit_verdict, osv_advisory_ids
 from tests.support.paths import FIXTURES
 
 _NPM_AUDIT = ["npm", "audit", "--package-lock-only", "--json"]
@@ -135,3 +137,123 @@ def test_the_gate_fails_once_the_ignore_expired_and_says_so(
     run = _gate_run(monkeypatch, tmp_path, date(2026, 11, 20))
     assert run.returncode == 1
     assert "expired" in run.stderr
+
+
+_SEMGREP_REQUIREMENTS = "src/devops_cli/tools_lock/semgrep.txt"
+_OSV_AUDIT_SEMGREP = ["osv-scanner", "--lockfile", f"requirements.txt:{_SEMGREP_REQUIREMENTS}"]
+_SEMGREP_REPORT = """
+Total 2 packages affected by 2 known vulnerabilities from 1 ecosystem.
+╭─────────────────────────────────────┬──────┬───────────┬─────────╮
+│ OSV URL                             │ CVSS │ ECOSYSTEM │ PACKAGE │
+├─────────────────────────────────────┼──────┼───────────┼─────────┤
+│ https://osv.dev/GHSA-5h93-6whr-6q8j │ 5.9  │ PyPI      │ mcp     │
+│ https://osv.dev/GHSA-xcq7-p3pf-p88h │ 5.3  │ PyPI      │ opentelemetry-api │
+╰─────────────────────────────────────┴──────┴───────────┴─────────╯
+"""
+
+
+def test_osv_scanner_audit_verdict_tells_clean_from_vulnerable_and_could_not_run() -> None:
+    assert audit_verdict(_OSV_AUDIT_SEMGREP, 0, "") == AuditVerdict.CLEAN
+    assert audit_verdict(_OSV_AUDIT_SEMGREP, 1, _SEMGREP_REPORT) == AuditVerdict.VULNERABLE
+    assert audit_verdict(_OSV_AUDIT_SEMGREP, 127, "") == AuditVerdict.NOT_RUN
+
+
+def test_osv_scanner_audit_passes_when_every_advisory_of_the_report_is_ignored() -> None:
+    ignored = {"GHSA-5h93-6whr-6q8j", "GHSA-xcq7-p3pf-p88h"}
+    assert (
+        audit_verdict(_OSV_AUDIT_SEMGREP, 1, _SEMGREP_REPORT, ignored=ignored) == AuditVerdict.CLEAN
+    )
+
+
+def test_osv_scanner_audit_fails_when_unignored_advisory_remains() -> None:
+    assert (
+        audit_verdict(_OSV_AUDIT_SEMGREP, 1, _SEMGREP_REPORT, ignored={"GHSA-5h93-6whr-6q8j"})
+        == AuditVerdict.VULNERABLE
+    )
+
+
+def test_the_audit_check_audits_the_requirements_file_of_each_python_tool() -> None:
+    assert _OSV_AUDIT_SEMGREP in get_check_spec("audit").commands
+
+
+def _gate_run_osv(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, today: date
+) -> subprocess.CompletedProcess[str]:
+    """The gate's reading of the recorded osv-scanner report, with one ignore file in a project root."""
+    (tmp_path / ".osv-scanner-ignore.yaml").write_text(
+        "vulnerabilities:\n"
+        "  - id: GHSA-5h93-6whr-6q8j\n"
+        f"    paths: [{_SEMGREP_REQUIREMENTS}]\n"
+        "    statement: mcp advisory, no released fix (#3988)\n"
+        "    expired_at: 2026-11-20\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ci, "_get_project_root", lambda: tmp_path)
+    monkeypatch.setattr(ci, "_audit_today", lambda: today)
+    single_advisory_report = """
+Total 1 package affected by 1 known vulnerability from 1 ecosystem.
+╭─────────────────────────────────────┬──────┬───────────┬─────────╮
+│ OSV URL                             │ CVSS │ ECOSYSTEM │ PACKAGE │
+├─────────────────────────────────────┼──────┼───────────┼─────────┤
+│ https://osv.dev/GHSA-5h93-6whr-6q8j │ 5.9  │ PyPI      │ mcp     │
+╰─────────────────────────────────────┴──────┴───────────┴─────────╯
+"""
+    run = subprocess.CompletedProcess(_OSV_AUDIT_SEMGREP, 1, single_advisory_report, "")
+    return ci._with_audit_failure_line(_OSV_AUDIT_SEMGREP, run)
+
+
+def test_the_gate_passes_an_ignored_osv_scanner_report_and_names_the_ignore(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    run = _gate_run_osv(monkeypatch, tmp_path, date(2026, 11, 17))
+    assert run.returncode == 0
+    assert "GHSA-5h93-6whr-6q8j" in run.stderr
+    assert "2026-11-20" in run.stderr
+
+
+def test_the_gate_fails_once_the_osv_scanner_ignore_expired_and_says_so(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    run = _gate_run_osv(monkeypatch, tmp_path, date(2026, 11, 20))
+    assert run.returncode == 1
+    assert "expired" in run.stderr
+
+
+def test_osv_scanner_lockfile_extracts_path_and_handles_other_commands() -> None:
+    assert (
+        osv_scanner_lockfile(["osv-scanner", "--lockfile", "requirements.txt:semgrep.txt"])
+        == "semgrep.txt"
+    )
+    assert osv_scanner_lockfile(["osv-scanner", "--lockfile", "semgrep.txt"]) == "semgrep.txt"
+    assert osv_scanner_lockfile(["osv-scanner", "scan"]) is None
+    assert osv_scanner_lockfile(["npm", "audit"]) is None
+    assert osv_scanner_lockfile([]) is None
+
+
+def test_osv_advisory_ids_reads_json_and_table_reports() -> None:
+    assert osv_advisory_ids("") == frozenset()
+    json_report = json.dumps(
+        {
+            "results": [
+                {
+                    "packages": [
+                        {
+                            "vulnerabilities": [
+                                {"id": "GHSA-5h93-6whr-6q8j"},
+                                {"name": "no-id-field"},
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    )
+    assert osv_advisory_ids(json_report) == frozenset({"GHSA-5h93-6whr-6q8j"})
+    assert osv_advisory_ids("[1, 2, 3]") == frozenset()
+    assert osv_advisory_ids('{"results": []}') == frozenset()
+    assert osv_advisory_ids(_SEMGREP_REPORT) == frozenset(
+        {
+            "GHSA-5h93-6whr-6q8j",
+            "GHSA-xcq7-p3pf-p88h",
+        }
+    )
