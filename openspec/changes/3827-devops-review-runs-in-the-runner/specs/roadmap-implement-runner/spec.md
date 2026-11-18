@@ -5,7 +5,7 @@ The runner image SHALL hold Gitleaks, Pluto, osv-scanner, golangci-lint and Semg
 
 #### Scenario: Each added scanner in the table
 - **WHEN** the runner tool table is read after the change
-- **THEN** Gitleaks, Pluto, osv-scanner, golangci-lint and Semgrep are entries of `RUNNER_TOOLS` at their lock versions, and none of the five is an entry of `NOT_IN_RUNNER`
+- **THEN** Gitleaks, Pluto, osv-scanner, golangci-lint and Semgrep are entries of `RUNNER_TOOLS`, and none of the five is an entry of `NOT_IN_RUNNER`
 
 #### Scenario: The cluster tools stay out
 - **WHEN** the runner tool table is read after the change

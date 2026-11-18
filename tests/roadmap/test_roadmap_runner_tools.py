@@ -588,3 +588,29 @@ def test_a_hook_is_missing_its_program_when_the_program_is_not_on_the_search_pat
         tuple(HOOK_PROGRAMS),
         (),
     )
+
+
+# ── The review scanners run in the pod of a runner Job (#3827) ──────────────────────────────
+
+REVIEW_SCANNERS = ("gitleaks", "pluto", "osv-scanner", "golangci-lint", "semgrep")
+
+
+def test_the_review_scanners_are_runner_tools_from_the_devtools_image() -> None:
+    """The direct executor runs each scanner of the review in the pod, so the runner holds the five
+    that the devtools image installs, and the runner holds the binary of each analyzer of the
+    review. No scanner is in `NOT_IN_RUNNER`."""
+    from devops_cli.ai.review.pipeline import STATIC_ANALYZERS
+
+    held = {tool.name: tool for tool in RUNNER_TOOLS}
+    analyzers = {binary for _, binary, _ in STATIC_ANALYZERS}
+
+    assert (
+        [name for name in REVIEW_SCANNERS if name not in held],
+        sorted(
+            name
+            for name in REVIEW_SCANNERS
+            if name in held and held[name].source is not ToolSource.DEVTOOLS
+        ),
+        sorted(set(REVIEW_SCANNERS) & set(NOT_IN_RUNNER)),
+        sorted(analyzers - HELD),
+    ) == ([], [], [], [])
