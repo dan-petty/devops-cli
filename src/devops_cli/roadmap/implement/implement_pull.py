@@ -100,12 +100,14 @@ class Draft:
     files_truncated: bool = False
 
 
-def kind_of(item: Item | None, pull: int | None = None) -> DraftKind:
+def kind_of(item: Item | None, pull: int | None = None, title: str | None = None) -> DraftKind:
     """The kind of pull request: agent, person, implement or stage plan.
 
     Reads the record, in this order: `owner/agent` gives agent, `owner/human` gives person,
     `implement.pr` equal to the pull request gives implement, `stage.pr` equal to it gives
-    stage plan, else person.
+    stage plan, else person. When both records hold the pull request number, the title
+    breaks the tie: a title starting with `docs(openspec): plan` gives stage plan, else
+    implement.
     """
     if item is None:
         return DraftKind.PERSON
@@ -114,9 +116,15 @@ def kind_of(item: Item | None, pull: int | None = None) -> DraftKind:
     if item.owner == "human" or "owner/human" in item.labels:
         return DraftKind.PERSON
     pull_str = str(pull) if pull is not None else None
-    if pull_str and item.job_record.get(ImplementRecordKey.PR) == pull_str:
+    implement_pr = item.job_record.get(ImplementRecordKey.PR)
+    stage_pr = item.job_record.get(StageRecordKey.PR)
+    if pull_str and implement_pr == pull_str and stage_pr == pull_str:
+        if title is not None and title.startswith("docs(openspec): plan"):
+            return DraftKind.STAGE_PLAN
         return DraftKind.IMPLEMENT
-    if pull_str and item.job_record.get(StageRecordKey.PR) == pull_str:
+    if pull_str and implement_pr == pull_str:
+        return DraftKind.IMPLEMENT
+    if pull_str and stage_pr == pull_str:
         return DraftKind.STAGE_PLAN
     return DraftKind.PERSON
 
@@ -327,7 +335,7 @@ def read_draft(
 
     store = store or roadmap_store.get_roadmap_store(repo)
     item = store.item(issue)
-    kind = kind_of(item, number)
+    kind = kind_of(item, number, pull.title)
     if kind not in (DraftKind.IMPLEMENT, DraftKind.STAGE_PLAN):
         return Draft(
             kind=kind,
