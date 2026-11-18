@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.174.5](https://github.com/dan-petty/devops-cli/compare/v0.174.4...v0.174.5) (2026-11-18)
+
+
+### Bug Fixes
+
+* **ci:** Refresh durations and run five test shards ([#6248](https://github.com/dan-petty/devops-cli/issues/6248)) ([3a5d6ab](https://github.com/dan-petty/devops-cli/commit/3a5d6ab6965d2c824055c1b4ba2cc327de314eea))
+
 ## [0.174.4](https://github.com/dan-petty/devops-cli/compare/v0.174.3...v0.174.4) (2026-11-18)
 
 
