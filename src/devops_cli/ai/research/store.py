@@ -16,6 +16,8 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from devops_cli.ai.page_text import PageText
 from devops_cli.ai.rag.qdrant import QdrantProtocol
 from devops_cli.config.defaults import (
@@ -23,11 +25,17 @@ from devops_cli.config.defaults import (
     DEFAULT_RESEARCH_EXPIRY_DAYS,
 )
 from devops_cli.exceptions.validation import ValidationError
+from devops_cli.security.prompt_injection import scan_injection_text
 
 
 def research_point_id(source_url: str) -> str:
     """The id of the point that holds `source_url`: a UUID version 5 of the URL."""
     return str(uuid.uuid5(uuid.NAMESPACE_URL, source_url))
+
+
+# How many pages one search reads at most. A page whose text holds an injection pattern is left out
+# after the search, so the reply can hold fewer pages than this.
+_SEARCH_RESULT_LIMIT = 10
 
 
 def _isoformat(moment: datetime) -> str:
@@ -60,6 +68,35 @@ def _payload(page: PageText, question: str) -> dict[str, Any]:
         "question": question,
         "text": page.text,
     }
+
+
+class ResearchHit(BaseModel):
+    """One stored research page, with the provenance that a search returns (#3906)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    source_url: str = Field(description="The URL that the project fetched the page from")
+    fetch_date: datetime = Field(description="When the project fetched the page")
+    question: str = Field(description="The question that the page answers")
+    text: str = Field(description="The text of the fetched page")
+    score: float = Field(description="The similarity of the page to the question")
+
+
+def _research_hit(raw: dict[str, Any]) -> ResearchHit | None:
+    """The hit of one Qdrant point, or None when it holds no provenance or an injection pattern."""
+    payload = raw.get("payload") or {}
+    source_url = payload.get("source_url")
+    fetch_date = payload.get("fetch_date")
+    text = payload.get("text", "")
+    if not source_url or not fetch_date or scan_injection_text(text):
+        return None
+    return ResearchHit(
+        source_url=source_url,
+        fetch_date=datetime.fromisoformat(fetch_date),
+        question=payload.get("question", ""),
+        text=text,
+        score=float(raw.get("score") or 0.0),
+    )
 
 
 class ResearchStore:
@@ -114,3 +151,27 @@ class ResearchStore:
             self.collection_name, {"source_url": source_url}, limit=1
         )
         return found[0]["payload"] if found else None
+
+    def search_pages(
+        self,
+        question: str,
+        *,
+        limit: int = _SEARCH_RESULT_LIMIT,
+        now: datetime | None = None,
+    ) -> list[ResearchHit]:
+        """The stored pages that answer `question`, with no expired page and no injected page.
+
+        The search keeps only the points whose `expiry` is later than `now`, which is the current
+        UTC time when the caller gives none, so a page that no sweep has removed yet stays out of
+        the reply. A page whose text gives a finding to `scan_injection_text` is left out as well,
+        so the agent gets no fetched page with an injection pattern, and the six fields of ADR 0028
+        stay as they are.
+        """
+        moment = now or datetime.now(UTC)
+        found = self.qdrant_client.search_points(
+            self.collection_name,
+            self.embedder.embed_query(question),
+            limit=limit,
+            filter_payload={"must_range": {"expiry": {"gt": _isoformat(moment)}}},
+        )
+        return [hit for hit in map(_research_hit, found) if hit is not None]
