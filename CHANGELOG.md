@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.176.0](https://github.com/dan-petty/devops-cli/compare/v0.175.0...v0.176.0) (2026-11-18)
+
+
+### Features
+
+* **ai:** Score retrieval with KB gold set ([#6169](https://github.com/dan-petty/devops-cli/issues/6169)) ([06f8e4f](https://github.com/dan-petty/devops-cli/commit/06f8e4f7bb73a8ca0506a0aed60d8ed3818601af))
+
+
+### Bug Fixes
+
+* **deps:** update Helm release argo-cd to v10.18.1 ([#6283](https://github.com/dan-petty/devops-cli/issues/6283)) ([d2407c5](https://github.com/dan-petty/devops-cli/commit/d2407c5da0044eb605350af72a2223492897d8bd))
+* **design:** audit the Style Dictionary lock in the gate ([#6265](https://github.com/dan-petty/devops-cli/issues/6265)) ([c3566da](https://github.com/dan-petty/devops-cli/commit/c3566da02a9da1842c266d001dc1de07c3a11500))
+* **k8s:** Keep the Renovate token away from upgrade tasks ([#6251](https://github.com/dan-petty/devops-cli/issues/6251)) ([fa261c8](https://github.com/dan-petty/devops-cli/commit/fa261c8d3edd73edb25df3febf1675ccf1ec3db5))
+* **mcp:** bound the GitHub MCP tools longer than a GitHub read ([#6272](https://github.com/dan-petty/devops-cli/issues/6272)) ([059df0f](https://github.com/dan-petty/devops-cli/commit/059df0fcdecbd286e47033792ce1812002cf02e8))
+* **roadmap:** Isolate the review window git transcript from the host ([#6282](https://github.com/dan-petty/devops-cli/issues/6282)) ([4b14315](https://github.com/dan-petty/devops-cli/commit/4b143153ffc06f9b4f2bf624b2bf4ecca08d92a5))
+* **roadmap:** Label other job comments in the alternatives request ([#6264](https://github.com/dan-petty/devops-cli/issues/6264)) ([917ad07](https://github.com/dan-petty/devops-cli/commit/917ad07005d4ac384c44b384d16f2b9ac1ff8a4f))
+* **roadmap:** preserve stage plan kind on pr collision ([#6288](https://github.com/dan-petty/devops-cli/issues/6288)) ([8859a9b](https://github.com/dan-petty/devops-cli/commit/8859a9b4db9f396b5e04109a7313930580d54ff4))
+* **security:** Judge KSV-0014 with a dated ignore entry ([#6286](https://github.com/dan-petty/devops-cli/issues/6286)) ([07240a1](https://github.com/dan-petty/devops-cli/commit/07240a143d3a4b8834e3f2630bfe3875f8e3c779))
+
 ## [0.175.0](https://github.com/dan-petty/devops-cli/compare/v0.174.7...v0.175.0) (2026-11-18)
 
 
