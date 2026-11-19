@@ -18,7 +18,7 @@
 
 ## 3. Documents
 
-- [ ] 3.1 Describe the presence check in the comment of the smoke step of `Dockerfile` and in `docs/CLUSTER.md`, and the managers and groups in `docs/SDLC.md`.
+- [x] 3.1 Describe the presence check in the comment of the smoke step of `Dockerfile` and in `docs/CLUSTER.md`, and the managers and groups in `docs/SDLC.md`.
   - Verification: `$ uv run devops ci --check --only docs`
 
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
