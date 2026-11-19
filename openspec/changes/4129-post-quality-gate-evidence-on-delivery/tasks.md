@@ -23,9 +23,9 @@ Adds: `_publish_evidence`
 
 Kind: other. Reads: `CONTEXT.md`, `docs/ROADMAP_WORKFLOW.md`, `tests/invariants/test_roadmap_workflow_doc.py`. Changes: `CONTEXT.md`, `docs/ROADMAP_WORKFLOW.md`.
 
-- [ ] 3.1 Edit the Implementing entry of `CONTEXT.md` so its list of the run names the evidence comment of the pull request before `gh pr ready`. Edit the Verify row of `docs/ROADMAP_WORKFLOW.md` so it says that the runner Job publishes the check-results comment of the head commit before it marks the pull request ready, and that a failed write stops the item
+- [x] 3.1 Edit the Implementing entry of `CONTEXT.md` so its list of the run names the evidence comment of the pull request before `gh pr ready`. Edit the Verify row of `docs/ROADMAP_WORKFLOW.md` so it says that the runner Job publishes the check-results comment of the head commit before it marks the pull request ready, and that a failed write stops the item
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 3.2 Edit `CONTEXT.md` and `docs/ROADMAP_WORKFLOW.md` to name the evidence comment of the head commit before the ready mark
+- [x] 3.2 Edit `CONTEXT.md` and `docs/ROADMAP_WORKFLOW.md` to name the evidence comment of the head commit before the ready mark
   - Verification: `$ uv run devops ci docs` passes
 
 ## Workflow follow-up
