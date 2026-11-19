@@ -478,9 +478,10 @@ def evidence_pr(
 ) -> None:
     """Write the check results of the head commit of a pull request as its one evidence comment.
 
-    The command takes no text of its own: the table, the links and the skipped checks all come
-    from the check runs that GitHub returns. It updates its comment when one exists, never posts a
-    second one, and posts nothing when it cannot read the checks."""
+    The head commit is the one that the pull request reports. The command takes no text of its
+    own: the table, the links and the skipped checks all come from the check runs that GitHub
+    returns. It updates its comment when one exists, never posts a second one, and posts nothing
+    when it cannot read the checks."""
     if dry_run or is_dry_run():
         render_request_plan(MESSAGES.pr.evidence_dry_run_heading, plan_pr_evidence(number, repo))
         return

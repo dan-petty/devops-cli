@@ -94,22 +94,29 @@ def _opens_with_marker(body: str) -> bool:
 
 
 def publish_pr_evidence(
-    session: GitHubSession, repo: str, number: int, *, attribution: Sequence[str] = ()
+    session: GitHubSession,
+    repo: str,
+    number: int,
+    *,
+    attribution: Sequence[str] = (),
+    head: str | None = None,
 ) -> EvidenceOutcome:
     """Write the check results of the head commit of pull request `number` in `repo` as the one
     comment of the pull request that opens with the marker line and that the session's own login
     wrote: update it when it exists, else post it. A comment of another author never matches, so
     nobody can claim the marker. No check run that cannot be read is posted: a read that fails
-    raises, and nothing is written."""
+    raises, and nothing is written. `head` is the head commit to publish when the caller already
+    read it; the head of the pull request is used when it is None."""
     client = session.client
     pull = client.get_pull(repo, number)
+    sha = head or pull.head.sha
     owner, name = repo.split("/", 1)
-    summary = read_check_runs(owner, name, pull.head.sha, session=session)
+    summary = read_check_runs(owner, name, sha, session=session)
     if summary.unread_reason:
         raise GitHubUnreadError(summary.unread_reason, details={"repo": repo, "pull": number})
     body = build_pr_evidence_comment(
         summary.items,
-        head_sha=pull.head.sha,
+        head_sha=sha,
         title=pull.title,
         labels=pull.labels,
         attribution=attribution,

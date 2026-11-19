@@ -299,6 +299,44 @@ def test_two_groups_end_in_commits_a_pushed_branch_a_closing_body_and_a_ready_pu
     )
 
 
+def test_the_job_changes_the_evidence_comment_before_it_marks_the_pull_request_ready(
+    job_world: JobWorld,
+) -> None:
+    """The job publishes the check results of the head commit as the one evidence comment of the
+    delivery pull request, and it marks the pull request ready only after that write (#4129)."""
+    applied = job_world.run(two_groups())
+
+    head = job_world.repo.origin_git("rev-parse", BRANCH)
+    (changed,) = job_world.sent("PATCH", "issues/comments/900")
+    posted = job_world.sent("POST", f"issues/{PULL}/comments")
+    (ready_requests,) = job_world.pull.ready_requests
+    assert applied.ready == (1,)
+    assert f"Head commit: `{head}`" in changed["body"]
+    assert not any(
+        str(body["body"]).startswith(constants.CONST_PR_EVIDENCE_MARKER) for body in posted
+    )
+    assert any(
+        entry.startswith("PATCH ") and entry.endswith("/issues/comments/900")
+        for entry in ready_requests
+    )
+
+
+def test_a_failed_evidence_change_stops_the_item(job_world: JobWorld) -> None:
+    """A GitHub refusal of the evidence comment stops the item before the ready mark, so the pull
+    request stays a draft (#4129)."""
+    job_world.api.route(
+        "PATCH",
+        f"/repos/{STAGE_REPO}/issues/comments/900",
+        github_json({"message": "Validation Failed"}, status=422),
+    )
+
+    applied = job_world.run(two_groups())
+
+    status, record = _item(job_world)
+    assert (applied.stopped, applied.ready, job_world.pull.ready_calls) == ((1,), (), [])
+    assert (status, record.get("implement.stopped")) == ("Blocked", "ready")
+
+
 def test_the_pr_comment_names_each_comment_of_the_item_that_the_step_inputs_held_whole(
     job_world: JobWorld,
 ) -> None:

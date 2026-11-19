@@ -21,6 +21,7 @@ from typing import Any
 import pytest
 from pydantic_ai.messages import ModelResponse
 
+from devops_cli.config.constants import CONST_PR_EVIDENCE_MARKER
 from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap.implement.implement import parse_implement_filters, plan_implement
@@ -357,6 +358,15 @@ PASS: dict[str, Any] = {
 FAIL: dict[str, Any] = {**PASS, "conclusion": "failure"}
 RUNNING: dict[str, Any] = {**PASS, "status": "in_progress", "conclusion": None}
 _PULL_API = f"api repos/{STAGE_REPO}/pulls/{PULL}"
+# The login of the session that the job acts as.
+_LOGIN = "test-bot"
+# The one evidence comment of the pull request (#4129): the publisher of the job changes it, so a
+# run posts no second evidence comment.
+_EVIDENCE_COMMENT = {
+    "id": 900,
+    "body": f"{CONST_PR_EVIDENCE_MARKER}\n## Check results\n",
+    "user": {"login": _LOGIN},
+}
 _THREADS_QUERY = "GetReviewThreads"
 
 # The repository's pull-request workflow, so a head commit with no check waits for one (#5144).
@@ -410,6 +420,9 @@ class PullFake:
         self.conflict = False
         self.closed = False
         self.ready_calls: list[tuple[str, ...]] = []
+        # The requests that the API had received at each `gh pr ready`, so a test tells which of
+        # the evidence write and the ready mark came first (#4129).
+        self.ready_requests: list[list[str]] = []
         self.log = "FAILED tests/test_shout.py::test_shout - assert 'A' == 'a'"
         self.run_view_calls: list[tuple[str, ...]] = []
         self.threads()
@@ -451,14 +464,20 @@ class PullFake:
             f"/repos/{STAGE_REPO}/issues/{PULL}/comments",
             github_json({"id": 1}, status=201),
         )
-        api.route("GET", "/user", github_json({"login": "test-bot"}))
+        api.route("GET", "/user", github_json({"login": _LOGIN}))
         api.route("PATCH", f"/repos/{STAGE_REPO}/issues/comments/1", github_json({"id": 1}))
+        api.route(
+            "PATCH",
+            f"/repos/{STAGE_REPO}/issues/comments/{_EVIDENCE_COMMENT['id']}",
+            github_json({"id": _EVIDENCE_COMMENT["id"]}),
+        )
         self.comments()
 
     def comments(self, *comments: dict[str, Any]) -> None:
-        """The comments that the pull request holds when the job lists them (#4070). None at first."""
+        """The comments that the pull request holds when the job lists them (#4070). The evidence
+        comment of the job's login comes first, so a test's comments follow it (#4129)."""
         listing = f"/repos/{STAGE_REPO}/issues/{PULL}/comments?per_page=100"
-        self.api.route("GET", listing, github_json(list(comments)))
+        self.api.route("GET", listing, github_json([_EVIDENCE_COMMENT, *comments]))
 
     def _answer(self, route: str, answer: ProcessAnswer) -> None:
         self.gh.answer(lambda call, key=route: key in " ".join(call.argv), answer)
@@ -509,6 +528,7 @@ class PullFake:
 
     def _ready(self, call: ProcessCall) -> subprocess.CompletedProcess[str]:
         self.ready_calls.append(call.argv[1:])
+        self.ready_requests.append(list(self.api.requested))
         return subprocess.CompletedProcess([], 0, stdout="")
 
     def _run_view(self, call: ProcessCall) -> subprocess.CompletedProcess[str]:
