@@ -45,12 +45,16 @@ The preset SHALL turn on OSV alerts and give an alert pull request the labels `t
 - **AND** the only approval rules match `python` minor and major updates, and the `node`, PostgreSQL and Mattermost majors
 
 ### Requirement: Every pin of the repository has a Renovate manager
-No rule SHALL turn off a manager. Each pinned file SHALL match a file pattern of its manager. Custom managers SHALL read the pins that no built-in manager reads: the Python minor, the runner tools table, the tools lock, CloudNativePG and Mattermost images, values tags with no repository and Grafana plugins. Pins that a test compares SHALL share one group of every update type.
+No rule SHALL turn off a manager. Each pinned file SHALL match a file pattern of its manager. Custom managers SHALL read the pins that no built-in manager reads: the Python minor, the tools lock, CloudNativePG and Mattermost images, values tags with no repository and Grafana plugins. No custom manager SHALL write a tool version into a Python file under `src/`, except `DEFAULT_PYTHON_VERSION`. Pins of one tool in several files SHALL share one group of every update type.
 
 #### Scenario: The managers are read against the tracked files
 - **WHEN** a test applies the file patterns and the match strings of the configuration to the tracked files
 - **THEN** each pinned file matches its manager, and the custom managers find exactly the expected pins
-- **AND** the coupled groups `trivy`, `argo`, `cloudflared`, `uv`, `gh`, `node`, `python runtime`, `ruff`, `bandit`, `actionlint`, `openspec` and `dcgm-exporter` set no update type
+- **AND** the coupled groups `trivy`, `argo`, `cloudflared`, `uv`, `node`, `python runtime`, `ruff`, `bandit`, `actionlint`, `openspec` and `dcgm-exporter` set no update type
+
+#### Scenario: A uv or Node update changes no runtime code
+- **WHEN** Renovate opens a pull request in the group `uv` or `node`
+- **THEN** its diff holds no file under `src/devops_cli/`, and no `Fail-to-Pass Check` runs on it
 
 ### Requirement: Renovate titles fit the semantic title check
 The preset SHALL write each title as `chore(deps): update <dependency> to <version>`, name an action without the word `action`, name a devcontainer feature by the last part of its reference, and add no `[SECURITY]` suffix, so that each summary has at most 60 characters.
@@ -88,9 +92,10 @@ The repository configuration SHALL give each update of the `helm` datasource the
 - **WHEN** Renovate opens a pull request that moves a chart, alone or in the group `dcgm-exporter`
 - **THEN** its title has the prefix `fix(deps):`, and release-please adds a changelog line for it
 
-### Requirement: An update of runtime code has the prefix of a release
+### Requirement: A Renovate update of runtime code has the prefix of a release
 The repository configuration SHALL give each update that changes a file under `src/devops_cli/` the prefix `fix(deps):`, because the `Semantic PR title` check refuses a hidden type for runtime code and release-please must release the change. A group takes the prefix of its first update, so each group that holds such a file, and lock file maintenance, SHALL set the same prefix for each of their updates.
 
-#### Scenario: An update of the tools lock or of the runner tools table
-- **WHEN** Renovate opens a pull request that changes a file under `src/devops_cli/`, alone, in the group `uv`, `node`, `python runtime`, `bandit` or `tools`, or as lock file maintenance
+#### Scenario: An update of a pin under src
+- **WHEN** Renovate opens a pull request that changes a file under `src/devops_cli/`, alone, in the group `python runtime`, `bandit` or `tools`, or as lock file maintenance
 - **THEN** its title has the prefix `fix(deps):`, the `Semantic PR title` check passes with no manual retitle, and release-please adds a changelog line for it
+- **AND** no update changes the runner tools table `RUNNER_TOOLS`, because it holds no version

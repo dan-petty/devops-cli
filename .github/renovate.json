@@ -41,23 +41,6 @@
     },
     {
       "customType": "regex",
-      "description": "The uv version of the runner tools table. A test compares it with the Dockerfile.",
-      "managerFilePatterns": ["/^src/devops_cli/roadmap/runner_tools\\.py$/"],
-      "matchStrings": ["\\nUV_VERSION = \"(?<currentValue>[^\"]+)\""],
-      "depNameTemplate": "ghcr.io/astral-sh/uv",
-      "datasourceTemplate": "docker"
-    },
-    {
-      "customType": "regex",
-      "description": "The Node major of the runner tools table. A test compares it with the Dockerfile and .node-version.",
-      "managerFilePatterns": ["/^src/devops_cli/roadmap/runner_tools\\.py$/"],
-      "matchStrings": ["\\nNODE_MAJOR = \"(?<currentValue>\\d+)\""],
-      "depNameTemplate": "node",
-      "datasourceTemplate": "node-version",
-      "versioningTemplate": "node"
-    },
-    {
-      "customType": "regex",
       "description": "The Python minor of the setup-uv python-version inputs.",
       "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/", "/^\\.github/actions/[^/]+/action\\.ya?ml$/"],
       "matchStrings": ["python-version: \"(?<currentValue>3\\.\\d+)\""],
@@ -179,7 +162,7 @@
       "groupName": "tools"
     },
     {
-      "description": "A file under src/devops_cli/ is runtime code, so the update is a fix: the Semantic PR title check refuses a hidden type there, and release-please releases it (#6061). Such files are the tools lock with its npm and pip-compile files, the runner tools table and DEFAULT_PYTHON_VERSION. A group takes the prefix of its first update, so each group with such a member sets the prefix itself: uv, node, python runtime and bandit.",
+      "description": "A file under src/devops_cli/ is runtime code, so the update is a fix: the Semantic PR title check refuses a hidden type there, and release-please releases it (#6061). Such files are the tools lock with its npm and pip-compile files and DEFAULT_PYTHON_VERSION. No custom manager writes another tool version into a Python file under src/ (#5585). A group takes the prefix of its first update, so each group with such a member sets the prefix itself: python runtime and bandit.",
       "matchFileNames": ["src/devops_cli/**"],
       "commitMessagePrefix": "fix(deps):"
     },
@@ -259,18 +242,13 @@
       "groupName": "cloudflared"
     },
     {
-      "description": "The two Dockerfiles, the setup-uv version inputs and the runner tools table.",
+      "description": "The two Dockerfiles and the setup-uv version inputs. The uv image of the service image's Dockerfile is a fix by the base image rule, and a group takes the prefix of its first update, so the group sets the prefix itself.",
       "matchPackageNames": ["astral-sh/uv", "ghcr.io/astral-sh/uv"],
       "groupName": "uv",
       "commitMessagePrefix": "fix(deps):"
     },
     {
-      "description": "The gh download of the Dockerfile and the runner tools table.",
-      "matchPackageNames": ["cli/cli"],
-      "groupName": "gh"
-    },
-    {
-      "description": ".node-version, the node images, the devcontainer node feature and the runner tools table.",
+      "description": ".node-version, the node images and the devcontainer node feature. The node image of the service image's Dockerfile is a fix by the base image rule, and a group takes the prefix of its first update, so the group sets the prefix itself.",
       "matchPackageNames": ["node"],
       "groupName": "node",
       "commitMessagePrefix": "fix(deps):"

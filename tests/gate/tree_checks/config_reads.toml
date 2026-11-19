@@ -59,7 +59,7 @@
 "tests/roadmap/test_roadmap_run_intake_row.py" = 4
 "tests/roadmap/test_roadmap_run_job.py" = 4
 "tests/roadmap/test_roadmap_run_job_rows.py" = 2
-"tests/roadmap/test_roadmap_runner_tools.py" = 10
+"tests/roadmap/test_roadmap_runner_tools.py" = 7
 "tests/roadmap/test_roadmap_status_round.py" = 2
 "tests/roadmap/test_roadmap_watch_row.py" = 2
 "tests/security/test_scanner_contract.py" = 1

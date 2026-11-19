@@ -7,15 +7,15 @@ hold, where the image gets it, and the command that proves it runs. `NOT_IN_RUNN
 program that the image does not hold, with the reason, so a person sees that a decision was made.
 
 The image build runs `python -m devops_cli.roadmap.runner_tools` as its last step, so an image
-that lacks a tool, or holds it at another version than its pin, does not build. A test in
+that lacks a tool, or holds a tool whose version command fails, does not build. A test in
 `tests/roadmap/test_roadmap_runner_tools.py` fails when a program that a `devops ci` row, a hook of
-`.pre-commit-config.yaml`, a live-marked test, a required job of `ci.yml` or an entry of the tools
-lock needs is in neither table.
+`.pre-commit-config.yaml`, a live-marked test or a required job of `ci.yml` needs is in neither
+table.
 
-Where the version comes from: a dev dependency has the version of the lockfile (the installed
-distribution), a tool of the lock has the version of `tools.lock`, and a tool that the Dockerfile
-pins by image digest or release has the version in its `pin`. A test compares each pin with the
-Dockerfile. A package of the distribution (apt) and a program of the base image have no pin.
+The module holds no tool version (#5585). The Dockerfile pins a tool by image digest or release,
+and `tools.lock` pins the tools of the lock; the build installs what they name. A copy here would be
+a second pin for each update to change. Only a dev dependency and the project must print a version:
+the version of their installed distribution, so the program on PATH is the one of the venv.
 """
 
 from __future__ import annotations
@@ -26,24 +26,10 @@ import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path
 
-from devops_cli.config.defaults import DEFAULT_PYTHON_VERSION
 from devops_cli.core.process import run_subprocess
 from devops_cli.lang import MESSAGES
 from devops_cli.output import print_error, print_success
-from devops_cli.tools_lock import load_tools_lock
-
-# The directory in which the image links the commands of the tools lock, and its user data root.
-TOOLS_DIR = Path("/opt/devops-tools")
-TOOLS_BIN_DIR = TOOLS_DIR / "bin"
-USER_DATA_ROOT_VARIABLE = "DEVOPS_CLI_USER_DATA_ROOT"
-
-# The pins that only the Dockerfile holds. A test reads the Dockerfile and compares.
-UV_VERSION = "0.13.9"
-GH_VERSION = "2.105.0"
-NODE_MAJOR = "24"
-ACTIONLINT_VERSION = "1.17.1"
 
 
 class ToolSource(StrEnum):
@@ -61,8 +47,7 @@ class ToolSource(StrEnum):
 class RunnerTool:
     """One program of the image. `check` is the command that proves it runs; with no `check` the
     program only has to be on PATH. `package` is the distribution of a dev dependency when its name
-    differs from the program. `pin` is the text that the output of `check` must hold, for a tool
-    that the Dockerfile pins. `needed_by` says why the image holds it: `ci:<row>`, `hook:<id>`,
+    differs from the program. `needed_by` says why the image holds it: `ci:<row>`, `hook:<id>`,
     `gate:<job>`, `test:<marker>` or `job`."""
 
     name: str
@@ -70,7 +55,6 @@ class RunnerTool:
     needed_by: tuple[str, ...]
     check: tuple[str, ...] = ()
     package: str = ""
-    pin: str = ""
 
 
 def _dev(name: str, *needed_by: str, package: str = "") -> RunnerTool:
@@ -97,7 +81,6 @@ RUNNER_TOOLS: tuple[RunnerTool, ...] = (
         ToolSource.IMAGE_PIN,
         ("ci:lockfile", "ci:build", "ci:uv-check", "hook:ast-grep-scan"),
         ("uv", "--version"),
-        pin=UV_VERSION,
     ),
     RunnerTool(
         "python",
@@ -112,7 +95,6 @@ RUNNER_TOOLS: tuple[RunnerTool, ...] = (
             "ci:domain",
         ),
         ("python", "--version"),
-        pin=f"Python {DEFAULT_PYTHON_VERSION}.",
     ),
     RunnerTool("python3", ToolSource.BASE, ("test:live",), ("python3", "--version")),
     RunnerTool(
@@ -122,14 +104,8 @@ RUNNER_TOOLS: tuple[RunnerTool, ...] = (
         ("devops", "--version"),
     ),
     _apt("git", "ci:git", "ci:lint", "ci:constructs", "ci:domain", "job"),
-    RunnerTool("gh", ToolSource.IMAGE_PIN, ("job",), ("gh", "--version"), pin=GH_VERSION),
-    RunnerTool(
-        "node",
-        ToolSource.IMAGE_PIN,
-        ("ci:openspec",),
-        ("node", "--version"),
-        pin=f"v{NODE_MAJOR}.",
-    ),
+    RunnerTool("gh", ToolSource.IMAGE_PIN, ("job",), ("gh", "--version")),
+    RunnerTool("node", ToolSource.IMAGE_PIN, ("ci:openspec",), ("node", "--version")),
     _locked("openspec", "ci:openspec", "hook:openspec-gate"),
     _locked("tofu", "gate:static"),
     _dev("pytest", "ci:test", "ci:bwrap", package="pytest"),
@@ -148,7 +124,6 @@ RUNNER_TOOLS: tuple[RunnerTool, ...] = (
         ToolSource.IMAGE_PIN,
         ("ci:actionlint", "gate:static", "hook:devops-ci-workflows-pre-push"),
         ("actionlint", "--version"),
-        pin=ACTIONLINT_VERSION,
     ),
     _apt("shellcheck", "ci:actionlint"),
     _locked("trivy", "gate:static"),
@@ -177,8 +152,8 @@ RUNNER_TOOLS: tuple[RunnerTool, ...] = (
     _base("false", "test:live"),
 )
 
-# Why the image does not hold a program that a source of the gate or an entry of the tools lock
-# names. The key is the program. A test fails when a program is in neither table.
+# Why the image does not hold a program. The key is the program. A test fails when a program that
+# a source of the gate names is in neither table.
 _NO_CLUSTER = (
     "No check, hook, test or job of the gate runs it. The Job has no cluster token and no "
     "container engine."
@@ -192,8 +167,8 @@ _NO_GATE_STEP = "No step of a required job of `ci.yml` runs it."
 # A hook of `.pre-commit-config.yaml` that runs a program that the image does not hold, with the
 # programs it runs. The Job leaves the hook out of the configuration it gives `pre-commit` when one
 # of its programs is not on PATH, because no agent can repair a missing program. The checks of the
-# pull request run the hook (#3134). The image holds actionlint since 1.17.1 (#3108), so no hook
-# needs this table today; a test holds that each program here is in `NOT_IN_RUNNER`.
+# pull request run the hook (#3134). The image holds actionlint (#3108), so no hook needs this
+# table today; a test holds that each program here is in `NOT_IN_RUNNER`.
 HOOK_PROGRAMS: dict[str, tuple[str, ...]] = {}
 
 
@@ -268,48 +243,22 @@ def tool_names() -> tuple[str, ...]:
 
 
 def expected_text(tool: RunnerTool) -> str:
-    """The text that the output of the check of `tool` must hold, or the empty string when the tool
-    has no pin: a package of the distribution and a program of the base image."""
+    """The version of the installed distribution that the output of the check of `tool` must hold:
+    for a dev dependency and for the project. The empty string for every other tool, because the
+    Dockerfile or `tools.lock` holds its pin."""
     match tool.source:
         case ToolSource.DEV_GROUP:
             return importlib.metadata.version(tool.package)
-        case ToolSource.TOOLS_LOCK:
-            return load_tools_lock().tools()[tool.name].version
         case ToolSource.PROJECT:
             return importlib.metadata.version("devops-cli")
-        case ToolSource.IMAGE_PIN:
-            return tool.pin
         case _:
             return ""
 
 
-def _pin_failure(tool: RunnerTool) -> str | None:
-    """Why a tool of the lock is not linked at its locked version in the tools directory, or None.
-    This is `devops install-tools --check` for that one tool."""
-    done = run_subprocess(
-        [
-            "devops",
-            "install-tools",
-            "--check",
-            "--tool",
-            tool.name,
-            "--target-dir",
-            str(TOOLS_BIN_DIR),
-        ],
-        extra_allowed_env=[USER_DATA_ROOT_VARIABLE],
-    )
-    if done.returncode == 0:
-        return None
-    return MESSAGES.roadmap.runner_tool_off_pin.format(
-        tool=tool.name, output=(done.stdout + done.stderr).strip()
-    )
-
-
 def tool_failure(tool: RunnerTool) -> str | None:
-    """Why `tool` fails its check, or None when it runs and holds its pin."""
+    """Why `tool` fails its check, or None when it is on PATH, its version command exits 0, and a
+    dev dependency or the project prints its installed version."""
     texts = MESSAGES.roadmap
-    if tool.source is ToolSource.TOOLS_LOCK and (failure := _pin_failure(tool)):
-        return failure
     if not tool.check:
         if shutil.which(tool.name) is None:
             return texts.runner_tool_missing.format(tool=tool.name)
@@ -322,7 +271,7 @@ def tool_failure(tool: RunnerTool) -> str | None:
         )
     wanted = expected_text(tool)
     if wanted and wanted not in output:
-        return texts.runner_tool_version.format(tool=tool.name, wanted=wanted, output=output)
+        return texts.runner_tool_other_version.format(tool=tool.name, wanted=wanted, output=output)
     return None
 
 

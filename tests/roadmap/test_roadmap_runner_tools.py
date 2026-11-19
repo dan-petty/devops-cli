@@ -1,15 +1,16 @@
 """The table of the tools that the runner image must hold (#3072).
 
 The first tests read the sources of the gate offline: the rows of `devops ci`, the hooks of
-`.pre-commit-config.yaml`, the required jobs of `ci.yml`, the live-marked tests and the tools lock.
-They fail when a program that one of them needs is in neither `RUNNER_TOOLS` nor `NOT_IN_RUNNER`.
-The next tests compare the pins of the table with the Dockerfiles. The last tests run the check of
-a tool over the process fake.
+`.pre-commit-config.yaml`, the required jobs of `ci.yml` and the live-marked tests. They fail when a
+program that one of them needs is in neither `RUNNER_TOOLS` nor `NOT_IN_RUNNER`. The next tests read
+the stages of the Dockerfile. The last tests run the check of a tool over the process fake. No test
+compares a tool version with the Dockerfile or `tools.lock`: they hold the only pins (#5585).
 """
 
 from __future__ import annotations
 
 import ast
+import importlib.metadata
 import shlex
 import tomllib
 from collections.abc import Iterator, Sequence
@@ -20,15 +21,10 @@ import pytest
 import yaml
 
 from devops_cli.commands.ci import get_check_specs
-from devops_cli.config.defaults import DEFAULT_PYTHON_VERSION
 from devops_cli.roadmap.runner_tools import (
-    ACTIONLINT_VERSION,
-    GH_VERSION,
     HOOK_PROGRAMS,
-    NODE_MAJOR,
     NOT_IN_RUNNER,
     RUNNER_TOOLS,
-    UV_VERSION,
     RunnerTool,
     ToolSource,
     expected_text,
@@ -38,7 +34,6 @@ from devops_cli.roadmap.runner_tools import (
     tool_failure,
     tool_names,
 )
-from devops_cli.tools_lock import load_tools_lock
 from tests.support.dockerfile import stages
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.paths import REPO_ROOT, TESTS_ROOT
@@ -154,10 +149,6 @@ def test_each_binary_of_a_live_marked_test_is_held_or_left_out_with_a_reason() -
     assert (sorted(needed - DECIDED), "jq" in needed) == ([], True)
 
 
-def test_each_tool_of_the_tools_lock_is_held_or_left_out_with_a_reason() -> None:
-    assert sorted(set(load_tools_lock().tools()) - DECIDED) == []
-
-
 # ── The two tables agree with each other and with the sources ───────────────────────────────
 
 
@@ -207,14 +198,6 @@ def test_a_tool_that_a_row_starts_names_that_row_as_a_reason() -> None:
     assert missing == []
 
 
-def test_a_tool_that_the_lock_gives_is_a_tool_of_the_lock() -> None:
-    locked = set(load_tools_lock().tools())
-
-    assert sorted(t.name for t in RUNNER_TOOLS if t.source is ToolSource.TOOLS_LOCK) == sorted(
-        {t.name for t in RUNNER_TOOLS if t.source is ToolSource.TOOLS_LOCK} & locked
-    )
-
-
 def test_the_version_of_each_dev_dependency_is_the_version_of_the_lockfile() -> None:
     """The check of a dev dependency reads the installed distribution. The image syncs the
     lockfile, so the distribution must be the version that `uv.lock` names."""
@@ -226,7 +209,7 @@ def test_the_version_of_each_dev_dependency_is_the_version_of_the_lockfile() -> 
     assert {t.package: expected_text(t) for t in dev} == {t.package: locked[t.package] for t in dev}
 
 
-# ── The pins of the table agree with the Dockerfiles ────────────────────────────────────────
+# ── The table agrees with the stages of the Dockerfile ───────────────────────────────────────
 
 
 def _runner() -> list[list[str]]:
@@ -241,62 +224,12 @@ def _runs(stage: list[list[str]]) -> list[str]:
     return [" ".join(words[1:]) for words in stage if words[0].upper() == "RUN"]
 
 
-def test_the_pins_of_the_table_are_the_pins_of_the_dockerfile() -> None:
-    """Renovate pins the digest of each Dockerfile image beside its tag (`pinDigests`), so both
-    Dockerfiles name the uv image as `<version>@sha256:<digest>` (#4974)."""
-    dockerfile = _text("Dockerfile")
-    devcontainer = _text(".devcontainer/Dockerfile")
-
-    assert (
-        f"ghcr.io/astral-sh/uv:{UV_VERSION}@sha256:" in dockerfile,
-        f"--from=ghcr.io/astral-sh/uv:{UV_VERSION}@sha256:" in devcontainer,
-        f"/releases/download/v{GH_VERSION}/" in dockerfile,
-        f"FROM node:{NODE_MAJOR}-" in dockerfile,
-        _text(".node-version").strip(),
-        f"FROM python:{DEFAULT_PYTHON_VERSION}-" in dockerfile,
-        _text(".python-version").startswith(f"{DEFAULT_PYTHON_VERSION}."),
-    ) == (True, True, True, True, NODE_MAJOR, True, True)
-
-
-def test_the_scanned_tools_are_in_the_runner_with_the_pins_of_their_images() -> None:
-    """The runner image holds actionlint, shellcheck and Trivy (#3108). actionlint 1.17.1 and
-    Trivy 0.76.2 hold Go 1.27.3, and the scan accepts them with the dated CVE-2026-97054 entry of
-    .trivyignore-tofu (#6366, #6367) until a release holds the fix."""
-    tools = {tool.name: tool for tool in RUNNER_TOOLS}
-    dockerfile = _text("Dockerfile")
-    actionlint = f"docker.io/kjanat/actionlint:{ACTIONLINT_VERSION}@sha256:"
-
-    assert (
-        not {"trivy", "actionlint", "shellcheck"} & set(NOT_IN_RUNNER),
-        tools["actionlint"].source is ToolSource.IMAGE_PIN,
-        tools["trivy"].source is ToolSource.TOOLS_LOCK,
-        tools["shellcheck"].source is ToolSource.APT,
-        actionlint in dockerfile,
-        actionlint in _text(".devcontainer/Dockerfile"),
-        "--tool trivy" in dockerfile,
-        "shellcheck" in dockerfile,
-    ) == (True, True, True, True, True, True, True, True)
-
-
 def test_the_apt_packages_of_the_runner_are_the_apt_tools_of_the_table() -> None:
     (install,) = (run for run in _runs(_stage("runner-deps")) if "apt-get install" in run)
     words = shlex.split(install.split("apt-get install")[1].split("&&")[0])
     packages = {word for word in words if not word.startswith("-")} - {"ca-certificates"}
 
     assert packages == {t.name for t in RUNNER_TOOLS if t.source is ToolSource.APT}
-
-
-def test_the_runner_installs_the_tools_of_the_lock_that_the_table_holds_and_the_service_none() -> (
-    None
-):
-    held = {t.name for t in RUNNER_TOOLS if t.source is ToolSource.TOOLS_LOCK}
-    in_runner = " ".join(_runs(_stage("runner-tools")))
-    in_service = " ".join(_runs(_stage("service")) + _runs(_stage("service-deps")))
-
-    assert (
-        [name for name in sorted(held - {"openspec"}) if f"--tool {name}" not in in_runner],
-        "install-tools" in in_service,
-    ) == ([], False)
 
 
 def test_the_last_step_of_the_runner_runs_the_check_of_every_tool_as_the_job_user() -> None:
@@ -318,30 +251,34 @@ def test_the_last_step_of_the_runner_runs_the_check_of_every_tool_as_the_job_use
 
 # ── The check of one tool ───────────────────────────────────────────────────────────────────
 
-
-def _tool(name: str = "ruff", **fields: Any) -> RunnerTool:
-    return RunnerTool(name, ToolSource.IMAGE_PIN, ("job",), (name, "--version"), **fields)
+RUFF = importlib.metadata.version("ruff")
 
 
-def test_a_tool_passes_when_its_version_command_prints_its_pin(process_fake: ProcessFake) -> None:
-    process_fake.answer("ruff --version", ProcessAnswer(stdout="ruff 0.16.8\n"))
-
-    assert tool_failure(_tool(pin="0.16.8")) is None
+def _dev_tool() -> RunnerTool:
+    return RunnerTool("ruff", ToolSource.DEV_GROUP, ("job",), ("ruff", "--version"), package="ruff")
 
 
-def test_a_tool_fails_when_it_prints_another_version(process_fake: ProcessFake) -> None:
-    process_fake.answer("ruff --version", ProcessAnswer(stdout="ruff 0.15.0\n"))
+def test_a_dev_dependency_passes_when_it_prints_its_installed_version(
+    process_fake: ProcessFake,
+) -> None:
+    process_fake.answer("ruff --version", ProcessAnswer(stdout=f"ruff {RUFF}\n"))
 
-    assert tool_failure(_tool(pin="0.16.8")) == (
-        "Runner tool 'ruff' does not hold its pin '0.16.8'. "
-        "Its version command printed: ruff 0.15.0"
+    assert tool_failure(_dev_tool()) is None
+
+
+def test_a_dev_dependency_fails_when_it_prints_another_version(process_fake: ProcessFake) -> None:
+    process_fake.answer("ruff --version", ProcessAnswer(stdout="ruff 0.0.1\n"))
+
+    assert tool_failure(_dev_tool()) == (
+        f"Runner tool 'ruff' is not at its installed version '{RUFF}'. "
+        "Its version command printed: ruff 0.0.1"
     )
 
 
 def test_a_tool_fails_when_its_version_command_fails(process_fake: ProcessFake) -> None:
     process_fake.answer("ruff --version", ProcessAnswer(returncode=127))
 
-    assert tool_failure(_tool(pin="0.16.8")) == (
+    assert tool_failure(_dev_tool()) == (
         "Runner tool 'ruff': `ruff --version` exited with status 127."
     )
 
@@ -356,53 +293,36 @@ def test_a_tool_with_no_command_fails_when_it_is_not_on_path(
     )
 
 
-def test_a_tool_with_no_pin_passes_on_any_output(process_fake: ProcessFake) -> None:
+def test_an_apt_tool_passes_on_any_output(process_fake: ProcessFake) -> None:
     process_fake.answer("git --version", ProcessAnswer(stdout="git version 2.47.3\n"))
 
     assert tool_failure(RunnerTool("git", ToolSource.APT, ("job",), ("git", "--version"))) is None
 
 
-def test_a_tool_of_the_lock_must_link_at_its_locked_version(process_fake: ProcessFake) -> None:
-    process_fake.answer(
-        ["devops", "install-tools", "--check"],
-        ProcessAnswer(returncode=1, stderr="trivy 0.75.0: not installed\n"),
-    )
-    tool = RunnerTool("trivy", ToolSource.TOOLS_LOCK, ("gate:static",), ("trivy", "--version"))
-
-    assert tool_failure(tool) == (
-        "Runner tool 'trivy' is not at its locked version. trivy 0.75.0: not installed"
-    )
-    (call,) = process_fake.calls
-    assert call.argv[:6] == (
-        "devops",
-        "install-tools",
-        "--check",
-        "--tool",
-        "trivy",
-        "--target-dir",
-    )
-
-
-def test_the_check_of_a_tool_of_the_lock_runs_the_version_command_after_the_pin_check(
+def test_a_tool_that_the_image_pins_passes_on_any_version_and_runs_only_its_version_command(
     process_fake: ProcessFake,
 ) -> None:
-    version = load_tools_lock().tools()["trivy"].version
-    process_fake.answer("trivy --version", ProcessAnswer(stdout=f"Version: {version}\n"))
-    tool = RunnerTool("trivy", ToolSource.TOOLS_LOCK, ("gate:static",), ("trivy", "--version"))
+    """The Dockerfile and `tools.lock` hold the pins of these tools, so the check compares no
+    version: the tool runs, and the build installed the version that the pin names (#5585)."""
+    process_fake.answer(lambda call: True, ProcessAnswer(stdout="tool 0.0.0\n"))
+    pinned = [
+        tool
+        for tool in RUNNER_TOOLS
+        if tool.source in {ToolSource.IMAGE_PIN, ToolSource.TOOLS_LOCK}
+    ]
 
-    assert (tool_failure(tool), [call.argv[0] for call in process_fake.calls]) == (
-        None,
-        ["devops", "trivy"],
-    )
+    assert {tool.name: tool_failure(tool) for tool in pinned} == {
+        tool.name: None for tool in pinned
+    }
+    assert [call.argv[0] for call in process_fake.calls] == [tool.check[0] for tool in pinned]
 
 
 @pytest.fixture
 def every_tool_passes(process_fake: ProcessFake) -> ProcessFake:
-    """Each version command prints its own pin, and each pin check of the lock succeeds."""
+    """Each version command exits 0, and a dev dependency and the project print their installed
+    version."""
 
     def answer(call: Any) -> ProcessAnswer:
-        if call.argv[1:2] == ("install-tools",):
-            return ProcessAnswer()
         # The process runner puts preview flags after `uv`, so the tool is found by its program.
         tool = next(t for t in RUNNER_TOOLS if t.check and t.check[0] == call.argv[0])
         return ProcessAnswer(stdout=f"{tool.name} {expected_text(tool)}\n")
@@ -414,8 +334,8 @@ def every_tool_passes(process_fake: ProcessFake) -> ProcessFake:
 def test_every_tool_of_the_table_has_a_check_that_the_fake_can_answer(
     every_tool_passes: ProcessFake,
 ) -> None:
-    """This fails when a pin cannot be read from its source, such as a dev dependency that is
-    not installed."""
+    """This fails when an installed version cannot be read, such as a dev dependency that is not
+    installed."""
     assert failures() == []
 
 
@@ -432,7 +352,7 @@ def test_main_exits_0_when_every_tool_passes(
     every_tool_passes: ProcessFake, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert main() == 0
-    assert f"All {len(RUNNER_TOOLS)} runner tools run at their pins." in capsys.readouterr().out
+    assert f"All {len(RUNNER_TOOLS)} runner tools are on PATH and run." in capsys.readouterr().out
 
 
 def test_a_hook_that_the_job_leaves_out_is_a_hook_of_the_config_and_runs_programs_not_in_the_image() -> (

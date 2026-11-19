@@ -161,8 +161,10 @@ ENV HOME=/home/devops \
 WORKDIR /home/devops
 USER 1000:1000
 
-# The smoke test of the stage: every tool of `RUNNER_TOOLS` runs, and every tool of the lock links at
-# its locked version. A tool that is missing, or at another version than its pin, fails the build.
+# The smoke test of the stage: every tool of `RUNNER_TOOLS` is on PATH and its version command exits
+# 0, and a dev dependency and the project print their installed version. A missing tool fails the
+# build. The pins of this file and of `tools.lock` are the only pins, so the check compares no other
+# version (#5585).
 RUN DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools python -m devops_cli.roadmap.runner_tools
 
 ENTRYPOINT ["devops"]
