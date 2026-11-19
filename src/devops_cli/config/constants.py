@@ -864,6 +864,10 @@ CONST_DEVCONTAINER_JSON_PATH = Path(CONST_DEVCONTAINER_DIR_NAME) / CONST_DEVCONT
 CONST_DEVCONTAINER_IMAGE_PREFIX = "mcr.microsoft.com/devcontainers/python:"
 CONST_DEVCONTAINER_PUBLISHED_IMAGE = "ghcr.io/dan-petty/devops-cli/devcontainer:latest"
 CONST_CANONICAL_OCI_SOURCE: Final[str] = "https://github.com/dan-petty/devops-cli"
+# The public image of the development tools (dan-petty/devtools). Renovate keeps the version
+# of weaver and of the other binary tools in its mise files, so an install hint names the image
+# and no version.
+CONST_DEVTOOLS_IMAGE: Final[str] = "ghcr.io/dan-petty/devtools"
 # The Secret Service gh, git and Python keyring use; dbus-x11 satisfies gnome-keyring's
 # session-bus dependency without pulling in systemd. Mirrors .devcontainer/Dockerfile.
 CONST_KEYRING_PACKAGES: Final[tuple[str, ...]] = ("gnome-keyring", "dbus-x11")
@@ -2131,7 +2135,6 @@ CONST_SEMCONV_GENAI_GIT_URL: Final[str] = (
 CONST_SEMCONV_GENAI_MODEL_DIR: Final[str] = "model"
 CONST_SEMCONV_RESOLVED_REGISTRY_FILE: Final[str] = "resolved.yaml"
 CONST_SEMCONV_WEAVER_BIN: Final[str] = "weaver"
-CONST_SEMCONV_WEAVER_VERSION: Final[str] = "0.26.1"
 CONST_URL_WEAVER_RELEASES: Final[str] = "https://github.com/open-telemetry/weaver/releases"
 CONST_GIT_COMMIT_SHA_PATTERN: Final[re.Pattern[str]] = re.compile(r"[0-9a-f]{40}")
 # A quoted string in Python source whose text starts with the GenAI attribute namespace.

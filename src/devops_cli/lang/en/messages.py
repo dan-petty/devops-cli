@@ -1960,6 +1960,10 @@ class TelemetryMessages:
         "{path} now holds {attributes} attributes, {metrics} metrics and {spans} span types "
         "from {repo}@{commit} (weaver {weaver})."
     )
+    weaver_missing_hint: str = (
+        "The devtools image {image} has weaver in /usr/local/bin. Copy weaver from that image, "
+        "or install it from {releases_url}, and put it on PATH."
+    )
     usage_ledger_unwritable: str = (
         "devops-cli cannot write the usage-error ledger {path}: {reason}. "
         "Set telemetry.usage_ledger to false to stop the ledger."

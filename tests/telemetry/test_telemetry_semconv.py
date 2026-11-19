@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from collections.abc import Callable
@@ -18,12 +19,14 @@ import devops_cli.telemetry.semconv as semconv
 from devops_cli.commands.telemetry import app
 from devops_cli.config.constants import CONST_GIT_COMMIT_SHA_PATTERN
 from devops_cli.dry_run import set_dry_run
+from devops_cli.exceptions import DependencyError
 from devops_cli.telemetry.semconv import (
     GENAI_SNAPSHOT_PATH,
     current_genai_names,
     find_unknown_genai_literals,
     load_genai_snapshot,
     reduce_resolved_registry,
+    refresh_genai_snapshot,
     render_genai_snapshot,
     weaver_package_argv,
 )
@@ -186,8 +189,7 @@ def test_reducer_drops_deprecated_names_and_is_byte_stable(
             None,
             PINNED_COMMIT,
             _package_writes_fixture,
-            "Required dependency 'weaver' is not installed or not available in PATH. Install "
-            "weaver 0.26.1 from https://github.com/open-telemetry/weaver/releases",
+            "Required dependency 'weaver' is not installed or not available in PATH.",
             id="weaver-not-on-path",
         ),
         pytest.param(
@@ -233,6 +235,24 @@ def test_refresh_refuses_and_leaves_the_snapshot_unchanged(
         result.output
     )
     assert snapshot_copy.read_bytes() == before
+
+
+def test_missing_weaver_hint_names_the_devtools_image_and_no_version(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The hint names where weaver comes from, and no copied version that a weaver release makes wrong."""
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    monkeypatch.setattr(semconv, "run_subprocess", _refuse_subprocess)
+
+    with pytest.raises(DependencyError) as caught:
+        refresh_genai_snapshot(PINNED_COMMIT, snapshot_path=tmp_path / "semconv_genai.json")
+
+    hint = caught.value.details["install_hint"]
+    assert (
+        "ghcr.io/dan-petty/devtools" in hint,
+        "https://github.com/open-telemetry/weaver/releases" in hint,
+        re.findall(r"\d+\.\d+", hint),
+    ) == (True, True, []), hint
 
 
 def test_refresh_rewrites_the_snapshot_from_weavers_package(
