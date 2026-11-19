@@ -2,8 +2,9 @@
 
 ## Decisions
 
-- Delete the three tests. Trivy drops an entry after its `exp:` date, so the image scan is the check of the date. A second check in Tests & Coverage only makes unrelated pull requests fail.
-- Replace "Each MCP ignore entry stays valid" with a requirement whose scenario names the MCP Server Image scan as its proof. openspec/config.yaml forbids a scenario that a test proves by a read of a config file. A MODIFIED delta cannot drop the old scenario, so the delta removes the old requirement and adds the new one.
+- Delete the three tests. Trivy drops an entry from 00:00 UTC of its `exp:` date, so the image scan is the check of the date. A second check in Tests & Coverage only makes unrelated pull requests fail.
+- Remove "Each MCP ignore entry stays valid" and add no requirement. openspec/config.yaml gives a change that only deletes tests no new requirement. The delta exists only because the scenario of the old requirement names a deleted test.
+- Do not state that one ignore file sets the date of its finding. Each trivy-action step joins the files of its `trivyignores` input, and Trivy hides a finding while one entry of the same ID is valid. `CVE-2026-78661` and `CVE-2026-78669` are in `.trivyignore-mcp-server` and in `.trivyignore-tofu` with different dates.
 - Keep `tests/support/trivyignore.py` and its unit tests in this change. The stale-entry test and the unit tests go in a separate item.
 
 ## Rejected alternatives
