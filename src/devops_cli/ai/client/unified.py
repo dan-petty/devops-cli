@@ -6,7 +6,7 @@ import logging
 import time
 from collections.abc import Callable, Generator
 from functools import cached_property
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import httpx2
 
@@ -57,6 +57,15 @@ if TYPE_CHECKING:
     from pydantic_ai.messages import FinishReason
 
 logger = logging.getLogger(__name__)
+
+_STREAM_ERRORS: tuple[type[Exception], ...] = (
+    httpx2.HTTPError,
+    AIClientError,
+    ConnectionResetError,
+    BrokenPipeError,
+    TimeoutError,
+    OSError,
+)
 
 
 def _set_timing_span_attributes(span_handle: Any, res: LLMResponse) -> None:
@@ -234,18 +243,64 @@ class LLMClient(
 
     def _connection_error(self, exc: Exception) -> AIClientError:
         """The error for a provider that cannot be reached; `timed_out` says the cause was a
-        timeout (#2562)."""
+        timeout (#2562). The error names the class of the error, the class of the first error
+        of its cause chain, and the backend host (#4753)."""
+        from devops_cli.security.sanitizer import mask_secrets
+
+        trans_exc: BaseException = exc
+        if (
+            hasattr(exc, "__cause__")
+            and exc.__cause__ is not None
+            and isinstance(exc.__cause__, (httpx2.HTTPError, httpx2.TransportError))
+        ):
+            trans_exc = exc.__cause__
+
+        curr: BaseException = trans_exc
+        seen = {id(curr)}
+        while curr.__cause__ is not None and id(curr.__cause__) not in seen:
+            curr = curr.__cause__
+            seen.add(id(curr))
+
+        exc_class = type(trans_exc).__name__
+        cause_class = type(curr).__name__ if curr is not trans_exc else None
+
+        host = self.backend_host if self._config.provider != "ollama" else None
+        if host:
+            if cause_class:
+                cause_detail = f"{exc_class} from {cause_class}: {host}"
+            else:
+                cause_detail = f"{exc_class}: {host}"
+        else:
+            if cause_class:
+                cause_detail = f"{exc_class} from {cause_class}"
+            else:
+                cause_detail = f"{exc_class}"
+
+        cause_detail = mask_secrets(cause_detail)
+        timed_out = (
+            isinstance(exc, httpx2.TimeoutException)
+            or isinstance(trans_exc, httpx2.TimeoutException)
+            or getattr(exc, "timed_out", False)
+        )
         return AIClientError(
-            self._unreachable_message(), timed_out=isinstance(exc, httpx2.TimeoutException)
+            self._unreachable_message(cause_detail),
+            timed_out=bool(timed_out),
         )
 
-    def _unreachable_message(self) -> str:
+    def _unreachable_message(self, cause: str | None = None) -> str:
         provider = self._config.provider
+        cause_str = f" ({cause})" if cause else ""
         if provider == "ollama":
-            return "Cannot connect to Ollama. Start Ollama, or run: devops ai config --provider ollama --ollama-urls <urls>"
+            return (
+                f"Cannot connect to Ollama{cause_str}. Start Ollama, or run: "
+                "devops ai config --provider ollama --ollama-urls <urls>"
+            )
         if provider == "claude":
-            return "Cannot connect to Claude API. Check network access and api_base_url (devops ai config --provider claude --api-base-url <url>)."
-        return "Cannot connect to AI provider API. Check network access, api_base_url, and API key."
+            return (
+                f"Cannot connect to Claude API{cause_str}. Check network access and api_base_url "
+                "(devops ai config --provider claude --api-base-url <url>)."
+            )
+        return f"Cannot connect to AI provider API{cause_str}. Check network access, api_base_url, and API key."
 
     @property
     def backend_type(self) -> str:
@@ -946,6 +1001,147 @@ class LLMClient(
         span_h.set_attribute("gen_ai.response.time_to_first_chunk", ttft)
         return ttft
 
+    def _create_stream_gen(
+        self,
+        system: str,
+        messages: list[ChatMessage],
+        enable_thinking: bool,
+        priority: RequestPriority | str | None,
+        sanitize: bool,
+    ) -> tuple[Generator[str], Any]:
+        gen = self._dispatch_stream(
+            system, messages, enable_thinking=enable_thinking, priority=priority
+        )
+        processor = None
+        if sanitize:
+            from devops_cli.ai.client.streaming import StreamingTokenProcessor
+            from devops_cli.ai.profiles import get_model_thinking_tags
+
+            tags = get_model_thinking_tags(self._config.model)
+            processor = StreamingTokenProcessor(thinking_tags=tags)
+            gen = processor.sanitize_stream(gen)
+        return gen, processor
+
+    def _handle_stream_exception(
+        self,
+        exc: Exception,
+        span_h: Any,
+        processor: Any,
+        spend_state: list[bool],
+        accumulated_chunks: list[str],
+        p: str,
+        messages: list[ChatMessage],
+        system: str,
+        t_start: float,
+    ) -> NoReturn:
+        if processor is not None:
+            _set_stream_sanitizer_attributes(span_h, processor)
+        span_h.record_exception(exc)
+        if accumulated_chunks and not spend_state[0]:
+            spend_state[0] = True
+            self._record_stream_spend(
+                span_h,
+                p,
+                messages,
+                system,
+                "".join(accumulated_chunks),
+                self._stream_seconds(t_start),
+                CONST_FINISH_REASON_ERROR,
+            )
+        if isinstance(exc, AIClientError):
+            raise exc
+        raise self._connection_error(exc) from exc
+
+    def _finalize_stream_spend(
+        self,
+        span_h: Any,
+        processor: Any,
+        spend_state: list[bool],
+        accumulated_chunks: list[str],
+        p: str,
+        messages: list[ChatMessage],
+        system: str,
+        t_start: float,
+    ) -> None:
+        if accumulated_chunks and not spend_state[0]:
+            spend_state[0] = True
+            total_dur = self._stream_seconds(t_start)
+            finish_reason = network.stream_finish_reason.get()
+            _set_finish_reason_attribute(span_h, finish_reason)
+            span_h.set_attribute("llm.stream.chunk_count", len(accumulated_chunks))
+            span_h.set_attribute("llm.wall_seconds", total_dur)
+            if processor is not None:
+                _set_stream_sanitizer_attributes(span_h, processor)
+            self._record_stream_spend(
+                span_h,
+                p,
+                messages,
+                system,
+                "".join(accumulated_chunks),
+                total_dur,
+                finish_reason,
+            )
+
+    def _stream_attempts(
+        self,
+        system: str,
+        messages: list[ChatMessage],
+        enable_thinking: bool,
+        resolved_p: RequestPriority | str | None,
+        sanitize: bool,
+        span_h: Any,
+        t_start: float,
+        accumulated_chunks: list[str],
+        spend_state: list[bool],
+        processor_ref: list[Any],
+        p: str,
+    ) -> Generator[str]:
+        import sys
+
+        first_token_time: float | None = None
+        from devops_cli.ai.retries import is_pre_chunk_reset
+
+        stream_errors: tuple[type[Exception], ...] = _STREAM_ERRORS
+        if "openai" in sys.modules:
+            import openai
+
+            stream_errors = (*stream_errors, openai.OpenAIError)
+        if "anthropic" in sys.modules:
+            import anthropic
+
+            stream_errors = (*stream_errors, anthropic.AnthropicError)
+
+        max_attempts = self._max_attempts()
+        for stream_attempt in range(1, max_attempts + 1):
+            try:
+                gen, processor = self._create_stream_gen(
+                    system, messages, enable_thinking, resolved_p, sanitize
+                )
+                processor_ref[0] = processor
+                for chunk in gen:
+                    first_token_time = self._record_first_token(span_h, t_start, first_token_time)
+                    accumulated_chunks.append(chunk)
+                    yield chunk
+                break
+            except stream_errors as exc:
+                if (
+                    not accumulated_chunks
+                    and stream_attempt < max_attempts
+                    and is_pre_chunk_reset(exc)
+                ):
+                    continue
+                self._handle_stream_exception(
+                    exc,
+                    span_h,
+                    processor_ref[0],
+                    spend_state,
+                    accumulated_chunks,
+                    p,
+                    messages,
+                    system,
+                    t_start,
+                )
+
     def chat_messages_stream(
         self,
         system: str,
@@ -964,7 +1160,6 @@ class LLMClient(
         system = with_style_request(system)
         p = self._config.provider
         t_start = time.perf_counter()
-        first_token_time: float | None = None
         resolved_p = (
             RequestPriority(priority)
             if isinstance(priority, str)
@@ -1002,58 +1197,34 @@ class LLMClient(
             network.stream_server.set(None)
             network.stream_usage.set(None)
             accumulated_chunks: list[str] = []
-            processor: Any = None
-            spend_recorded = False
-            try:
-                gen = self._dispatch_stream(
-                    system, messages, enable_thinking=enable_thinking, priority=resolved_p
-                )
-                if sanitize:
-                    from devops_cli.ai.client.streaming import StreamingTokenProcessor
-                    from devops_cli.ai.profiles import get_model_thinking_tags
+            processor_ref: list[Any] = [None]
+            spend_state = [False]
 
-                    tags = get_model_thinking_tags(self._config.model)
-                    processor = StreamingTokenProcessor(thinking_tags=tags)
-                    gen = processor.sanitize_stream(gen)
-                for chunk in gen:
-                    first_token_time = self._record_first_token(span_h, t_start, first_token_time)
-                    accumulated_chunks.append(chunk)
-                    yield chunk
-            except Exception as exc:
-                if processor is not None:
-                    _set_stream_sanitizer_attributes(span_h, processor)
-                span_h.record_exception(exc)
-                if accumulated_chunks and not spend_recorded:
-                    spend_recorded = True
-                    self._record_stream_spend(
-                        span_h,
-                        p,
-                        messages,
-                        system,
-                        "".join(accumulated_chunks),
-                        self._stream_seconds(t_start),
-                        CONST_FINISH_REASON_ERROR,
-                    )
-                raise
+            try:
+                yield from self._stream_attempts(
+                    system,
+                    messages,
+                    enable_thinking,
+                    resolved_p,
+                    sanitize,
+                    span_h,
+                    t_start,
+                    accumulated_chunks,
+                    spend_state,
+                    processor_ref,
+                    p,
+                )
             finally:
-                if accumulated_chunks and not spend_recorded:
-                    spend_recorded = True
-                    total_dur = self._stream_seconds(t_start)
-                    finish_reason = network.stream_finish_reason.get()
-                    _set_finish_reason_attribute(span_h, finish_reason)
-                    span_h.set_attribute("llm.stream.chunk_count", len(accumulated_chunks))
-                    span_h.set_attribute("llm.wall_seconds", total_dur)
-                    if processor is not None:
-                        _set_stream_sanitizer_attributes(span_h, processor)
-                    self._record_stream_spend(
-                        span_h,
-                        p,
-                        messages,
-                        system,
-                        "".join(accumulated_chunks),
-                        total_dur,
-                        finish_reason,
-                    )
+                self._finalize_stream_spend(
+                    span_h,
+                    processor_ref[0],
+                    spend_state,
+                    accumulated_chunks,
+                    p,
+                    messages,
+                    system,
+                    t_start,
+                )
 
     def _record_stream_spend(
         self,
