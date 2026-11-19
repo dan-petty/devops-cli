@@ -655,8 +655,9 @@ class TestValkeyClientFailures:
     def test_a_command_the_server_rejects_is_a_command_error(
         self, valkey_client: ValkeyClient
     ) -> None:
-        with pytest.raises(ValkeyCommandError, match="unknown command"):
+        with pytest.raises(ValkeyCommandError, match="unknown command") as raised:
             valkey_client.execute("NOSUCHCOMMAND")
+        assert (raised.value.exit_code, raised.value.error_code) == (1, "VALKEY_COMMAND_ERROR")
 
     def test_a_rejected_command_in_a_pipeline_is_a_command_error(
         self, valkey_client: ValkeyClient
