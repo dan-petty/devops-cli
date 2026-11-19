@@ -25,7 +25,9 @@ runs:
         node-version-file: .node-version
 
     # The image holds the Dev Containers CLI of its devtools base, so the CLI that starts the image
-    # comes from the image. `devcontainer up` pulls the image, so the copy pulls nothing more.
+    # comes from the image. `devcontainer up` pulls the image, so the copy pulls nothing more. The
+    # build action writes its CLI to $RUNNER_TEMP/devcontainers-cli on the same runner, and
+    # `docker cp` copies into a directory that exists. So this step removes its own directory first.
     - name: Copy the Dev Containers CLI from the image
       shell: bash
       env:
@@ -34,8 +36,9 @@ runs:
         set -euo pipefail
         docker pull --quiet "$REF" > /dev/null
         ID="$(docker create "$REF")"
+        rm -rf "$RUNNER_TEMP/devcontainer-smoke-cli"
         docker cp --quiet "$ID:/usr/local/lib/devtools/npm/node_modules/@devcontainers/cli" \
-          "$RUNNER_TEMP/devcontainers-cli"
+          "$RUNNER_TEMP/devcontainer-smoke-cli"
         docker rm "$ID" > /dev/null
 
     # The credential helpers of github.com are the empty value, which clears the helpers of the
@@ -46,7 +49,7 @@ runs:
         REF: ${{ inputs.image-ref }}
       run: |
         set -euo pipefail
-        devcontainer() { node "$RUNNER_TEMP/devcontainers-cli/devcontainer.js" "$@"; }
+        devcontainer() { node "$RUNNER_TEMP/devcontainer-smoke-cli/devcontainer.js" "$@"; }
         CHILD="$RUNNER_TEMP/devcontainer-child"
         mkdir -p "$CHILD/.devcontainer" "$HOME/.ssh"
         jq -n --arg image "$REF" '{
