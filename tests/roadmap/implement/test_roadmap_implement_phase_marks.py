@@ -600,7 +600,7 @@ def test_watch_progress_line_a_watch_that_ends_at_the_first_poll_writes_none(
 def test_request_count_the_comment_costs_one_read_and_one_write(job_world: JobWorld) -> None:
     job_world.run(two_groups())
 
-    assert _comment_calls(job_world) == ["GET", "POST"]
+    assert _comment_calls(job_world) == ["GET", "POST", "GET", "PATCH"]
 
 
 def test_request_count_a_repair_round_reads_the_comments_once_and_changes_the_comment(
@@ -610,13 +610,14 @@ def test_request_count_a_repair_round_reads_the_comments_once_and_changes_the_co
 
     job_world.run(two_groups(*a_fix()))
 
-    assert _comment_calls(job_world) == ["GET", "POST", "PATCH"]
+    assert _comment_calls(job_world) == ["GET", "POST", "PATCH", "GET", "PATCH"]
 
 
 def test_request_count_the_marker_and_the_two_phase_marks_cost_at_most_five_requests(
     job_world: JobWorld,
 ) -> None:
-    """One read of the comments, and for each phase mark a read of the item and a write."""
+    """One read of the comments for the run comment and one for the evidence comment, and for each
+    phase mark a read of the item and a write."""
     job_world.run(two_groups())
 
     reads = _comment_calls(job_world).count("GET")
@@ -625,8 +626,8 @@ def test_request_count_the_marker_and_the_two_phase_marks_cost_at_most_five_requ
         for write in job_world.store.job_writes()
         if write.key in (CHECKED, PUBLISHED) and write.value is not None
     ]
-    assert reads + 2 * len(marks) <= 5
-    assert (reads, len(marks)) == (1, 2)
+    assert reads + 2 * len(marks) <= 6
+    assert (reads, len(marks)) == (2, 2)
 
 
 # ── The record ────────────────────────────────────────────────────────────────────────────

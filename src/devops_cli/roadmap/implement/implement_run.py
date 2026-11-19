@@ -106,6 +106,7 @@ from devops_cli.exceptions.roadmap import GitSettingsError, OverWindowError
 from devops_cli.git.worktree_add import add_worktree
 from devops_cli.github.check_verdict import PRCheckItem, read_check_runs
 from devops_cli.github.client import PullRequestFile
+from devops_cli.github.pr_evidence import publish_pr_evidence
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.project import uses_openspec
@@ -2094,6 +2095,7 @@ class _ItemRun:
         if readiness.answer is not Answer.READY:
             raise _StopError(self.step, readiness.reason)
 
+        self._publish_evidence(pull, head)
         mark_ready(self.repo, pull, draft=draft)
         marks: dict[Any, str | int | None] = {
             ImplementRecordKey.SHA: head,
@@ -2117,6 +2119,16 @@ class _ItemRun:
                 **spend,
             ),
         )
+
+    def _publish_evidence(self, pull: int, head: str) -> None:
+        """Publish the check results of `head` as the one evidence comment of the delivery pull
+        request (#4129). The evidence is a condition of the ready transition: a write that GitHub
+        refuses stops the item before the ready mark, so the pull request stays a draft and a retry
+        publishes the evidence again."""
+        try:
+            publish_pr_evidence(get_github_session(), self.repo, pull, head=head)
+        except GitHubOperationError as exc:
+            raise _StopError(self.step, str(exc)) from exc
 
     # ── The end for a claim ──
 
