@@ -11,7 +11,7 @@ Kind: behavior. Reads: `src/devops_cli/ci/fail_to_pass.py`, `src/devops_cli/ci/c
 
 ## 2. Documents
 
-- [ ] 2.1 State the rule in the module docstring of `src/devops_cli/ci/fail_to_pass.py`, in `docs/TESTING.md` and in "Fail-to-Pass Evidence" of `CONTRIBUTING.md`.
+- [x] 2.1 State the rule in the module docstring of `src/devops_cli/ci/fail_to_pass.py`, in `docs/TESTING.md` and in "Fail-to-Pass Evidence" of `CONTRIBUTING.md`.
   - Verification: `$ uv run devops ci --check --only docs`
 
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
