@@ -630,7 +630,6 @@
   "tests/http/test_entry_contract.py": 1.0,
   "tests/http/test_gateway_review_stall.py": 1.8,
   "tests/http/test_http.py": 0.0,
-  "tests/http/test_http_async_client.py": 0.0,
   "tests/http/test_http_connection_pool.py": 0.2,
   "tests/http/test_http_egress.py": 9.0,
   "tests/http/test_retry.py": 0.5,
