@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.180.0](https://github.com/dan-petty/devops-cli/compare/v0.179.5...v0.180.0) (2026-11-19)
+
+
+### Features
+
+* **roadmap:** give the implement agent read-only code tools ([#6401](https://github.com/dan-petty/devops-cli/issues/6401)) ([30f26a4](https://github.com/dan-petty/devops-cli/commit/30f26a4570a858b311c2b26605d7566a340e4b70))
+
 ## [0.179.5](https://github.com/dan-petty/devops-cli/compare/v0.179.4...v0.179.5) (2026-11-19)
 
 
