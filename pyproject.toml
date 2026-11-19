@@ -125,7 +125,7 @@ dev = [
     "syrupy==7.0.2",
     "ast-grep-cli==0.51.3",
     "time-machine==3.6.0",
-    "fakeredis[valkey]==2.40.0",
+    "fakeredis[lua,valkey]==2.40.0",
     "types-psutil==7.2.2.20261111",
     "types-docker==7.2.0.20261102",
     "cel-expr-python==0.1.4",
