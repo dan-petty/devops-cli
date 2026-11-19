@@ -17,10 +17,10 @@ if TYPE_CHECKING:
 import pytest
 
 from devops_cli.config import constants
+from devops_cli.roadmap.body_hash import extract_section_and_outside
 from devops_cli.roadmap.owner_question import frame_hash
 from devops_cli.roadmap.refine.refine import (
     RefinementProposal,
-    inspect_checkout,
     plan_refine,
     render_refine_plan,
 )
@@ -101,21 +101,26 @@ def test_each_item_refine_leaves_new_waits_on_its_next_step_with_no_model_call(
 def test_an_item_refine_cannot_ready_gets_one_comment_and_a_record_of_its_next_step(
     git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
 ) -> None:
-    """Refine posts one comment that carries its marker and gives the item's next step: the
-    question, the proposed split for a person to make, or the open items it waits on. The job
-    record keeps the step, the split and the blockers (#1758). A wait on a person is one owner
-    question with the hidden block of its hash (#3077)."""
+    """Refine posts one comment that carries its marker and gives the item's next step. The
+    comment names the part of refine's section that holds the question, the split or the open
+    items, and the section holds them (#6196). The job record keeps the step, the split and the
+    blockers (#1758). A wait on a person is one owner question with the hidden block of its hash
+    (#3077)."""
     blocker, asked, split, blocked = _seed_waiting_items(store, model_fake)
 
     refine_round(store, git_repo)
 
-    sha = inspect_checkout(git_repo, REPO)[:12]
     marker = constants.CONST_ROADMAP_REFINE_COMMENT_MARKER
     record_keys = ("refine.next_step", "refine.needs_split", "refine.blocked_by")
     comments = {number: comment_bodies(store, number) for number in (asked, split, blocked)}
+    sections = {
+        number: extract_section_and_outside(store.read_issue_body(number))[1] or ""
+        for number in (split, blocked)
+    }
     (question,) = comments[asked]
     assert (
         {number: comments[number] for number in (split, blocked)},
+        ("1. The first change." in sections[split], f"#{blocker}" in sections[blocked]),
         {
             number: tuple(
                 require_item(store, number).job_record.get(RefineRecordKey(key))
@@ -133,18 +138,16 @@ def test_an_item_refine_cannot_ready_gets_one_comment_and_a_record_of_its_next_s
     ) == (
         {
             split: [
-                f"{marker}\nThe proposal at {sha} needs splitting into 2 items. A person splits "
-                "the item into the items below, or replies in a comment or edits the body to "
-                "keep one item, and the next refine round looks at the item again.\n\n"
-                "1. The first change.\n2. The second change."
+                f"{marker}\nNext step: a person splits the item, or replies in a comment or "
+                "edits the body to keep one item. See Fit in the section Proposed design of the "
+                "body."
             ],
             blocked: [
-                f"{marker}\nRefine cannot set this item to Ready at {sha} while the items below "
-                "stay open. The next refine round looks at the item again when they close, or "
-                "when a person replies in a comment or edits the body.\n\n"
-                f"- #{blocker}"
+                f"{marker}\nNext step: the open items close, or a person replies in a comment or "
+                "edits the body. See Dependencies in the section Proposed design of the body."
             ],
         },
+        (True, True),
         {
             asked: ("person", "false", None),
             split: ("split", "true", None),
@@ -152,7 +155,7 @@ def test_an_item_refine_cannot_ready_gets_one_comment_and_a_record_of_its_next_s
         },
         (
             True,
-            1,
+            0,
             require_item(store, asked).job_record.get(OwnerQuestionRecordKey.HASH),
             require_item(store, asked).job_record.get(OwnerQuestionRecordKey.HASH),
             _OPEN_QUESTION,
@@ -160,21 +163,23 @@ def test_an_item_refine_cannot_ready_gets_one_comment_and_a_record_of_its_next_s
     )
 
 
-def test_the_next_step_comment_holds_the_models_text_sanitized_and_one_line_for_each_point(
+def test_the_points_of_a_next_step_hold_the_models_text_sanitized_and_one_line_for_each_point(
     git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
 ) -> None:
-    """The model's split reaches the comment as the section shows it: no raw HTML, every handle in
-    a code span so no one is pinged, and each point on its own line (#1758)."""
+    """The model's split reaches the points of the next step, which the report shows: no raw
+    HTML, every handle in a code span so no one is pinged, and each point on its own line (#1758).
+    The comment holds no point: the section holds the split (#6196)."""
     store.seed_visibility(is_private=True)
     number = seed_item(store, "New", "P1-High")
     split_offs = ["Ask @owner <b>now</b>\n\n## Then this", "The second change."]
     model_fake.answer(SPLIT.model_copy(update={"split_offs": split_offs}))
 
-    refine_round(store, git_repo)
+    plan = refine_round(store, git_repo)
 
-    assert [comment.splitlines()[-2:] for comment in comment_bodies(store, number)] == [
-        ["1. Ask `@owner` &lt;b>now&lt;/b> ## Then this", "2. The second change."]
-    ]
+    assert (
+        [r.step_details for r in plan.refined_items],
+        ["@owner" in comment for comment in comment_bodies(store, number)],
+    ) == ([("Ask `@owner` &lt;b>now&lt;/b> ## Then this", "The second change.")], [False])
 
 
 def test_a_link_in_a_code_block_of_the_models_point_is_a_code_span_on_the_points_line(
@@ -183,14 +188,14 @@ def test_a_link_in_a_code_block_of_the_models_point_is_a_code_span_on_the_points
     """A point goes on one line before it is sanitized: the line has no code block, so the
     link that a code block held goes in a code span and GitHub does not link it (#2525)."""
     store.seed_visibility(is_private=True)
-    number = seed_item(store, "New", "P1-High")
+    seed_item(store, "New", "P1-High")
     split_offs = ["Read this:\n\n    www.example.com", "The second change."]
     model_fake.answer(SPLIT.model_copy(update={"split_offs": split_offs}))
 
-    refine_round(store, git_repo)
+    plan = refine_round(store, git_repo)
 
-    assert [comment.splitlines()[-2:] for comment in comment_bodies(store, number)] == [
-        ["1. Read this: `www.example.com`", "2. The second change."]
+    assert [r.step_details for r in plan.refined_items] == [
+        ("Read this: `www.example.com`", "The second change.")
     ]
 
 
