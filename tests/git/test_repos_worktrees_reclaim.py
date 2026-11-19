@@ -65,6 +65,13 @@ def _directory_bytes(path: Path) -> int:
     return sum(item.stat().st_size for item in path.rglob("*") if item.is_file())
 
 
+def _head(repo: Path) -> str:
+    """The commit that the clone has checked out."""
+    return subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
 def _add(cli: Cli, repo: Path, *extra: str, issue: int = 2345) -> Any:
     return cli(
         "repos",
@@ -99,6 +106,33 @@ def test_add_removes_a_merged_worktree_and_creates_the_new_one(
     ]
     assert size > 0
     assert report["reclaim_error"] is None
+
+
+def test_a_failed_read_of_origin_removes_no_worktree(
+    cli: Cli,
+    repo: Path,
+    git: Git,
+    managed: Path,
+    github_api: GitHubApiFake,
+    new_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """The run reads `origin` before it reclaims, so a failed read changes nothing (#6340)."""
+    merged = managed / "wt_merged"
+    _merged(github_api, _worktree(git, repo, "fix/2100-old", merged))
+    git(repo, "remote", "set-url", "origin", str(tmp_path / "gone" / "app.git"))
+    before = _head(repo)
+
+    result = _add(cli, repo)
+
+    said = " ".join(result.output.split())
+    assert result.exit_code == 1, result.output
+    assert merged.is_dir()
+    assert not new_dir.exists()
+    assert _head(repo) == before
+    assert github_api.requested == []
+    assert "git ls-remote --heads origin" in said
+    assert "credential.https://github.com.helper" not in said
 
 
 def test_the_table_output_names_each_removed_worktree_with_its_size(
