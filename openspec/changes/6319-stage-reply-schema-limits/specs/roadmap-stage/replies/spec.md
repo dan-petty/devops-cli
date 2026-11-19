@@ -15,6 +15,17 @@ The reply schema SHALL hold no maximum length on `pull_request_body`. When its t
 - **WHEN** the first reply holds a `pull_request_body` of 1200 characters, the shorter text holds 1100 characters, and the second reply holds a body of 100 characters
 - **THEN** the second plan request holds the problem of the long body, and the draft opens with the second body
 
+### Requirement: The shorter text of a long body is asked once and checked
+The stage job SHALL keep the shorter text of each long body text of the item, and a reply with the same text SHALL make no second rewrite call. A closing keyword in the shorter text SHALL stop the item, as a closing keyword in the reply does.
+
+#### Scenario: A shorter text with a closing keyword stops the item
+- **WHEN** the reply holds a `pull_request_body` of 1200 characters and the shorter text starts with `Closes #12`
+- **THEN** the item fails with a reason that names the keyword `closes`, and the job stages no change for it
+
+#### Scenario: The same long body gets one rewrite call
+- **WHEN** `openspec validate` refuses the files of the first reply, which holds a `pull_request_body` of 1200 characters, and the second reply holds the same text
+- **THEN** the model gets three requests, only the second request asks for a shorter text, and the draft body holds the shorter text
+
 ### Requirement: A null optional text reads as its default
 The reply schema of the stage job SHALL read `null` as the empty text for `security` of the proposal and for `kind` of a reference. A value of another type SHALL break the schema and go back to the model once with the name of its field.
 

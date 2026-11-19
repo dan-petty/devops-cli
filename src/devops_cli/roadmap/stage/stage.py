@@ -1261,6 +1261,14 @@ def _stage_error(message: str, target: StageTarget) -> RoadmapStageError:
     return RoadmapStageError(message, failed_items=[target.item.number])
 
 
+def _stop_on_closing_keyword(target: StageTarget, title: str, text: str) -> None:
+    """Raise when the title or the body text `text`, as `safe_text` writes it, has a closing
+    keyword before an issue reference: a plan closes no issue."""
+    keyword = closing_keyword_in(f"{title}\n{safe_text(text)}")
+    if keyword is not None:
+        raise _stage_error(MESSAGES.roadmap.stage_closing.format(keyword=keyword), target)
+
+
 def _check_secrets(target: StageTarget, files: Mapping[str, str]) -> None:
     """Raise when a file holds redacted text (#3416)."""
     for path, text in files.items():
@@ -1483,6 +1491,9 @@ class _Planner:
         # The findings of each problem text that the checks sent back for the item in hand: the
         # problem is their joined text (#4846).
         self._findings: dict[str, tuple[StageFinding, ...]] = {}
+        # The shorter text that the body rewrite gave for each long body text of the item in hand,
+        # so a reply with the same text makes no second rewrite call (#6319).
+        self._shorter: dict[str, str] = {}
         # The replies of the item in hand that the checks refused, with their problems, from the
         # first ask to the last revision of a repair round (#4312).
         self._refused: list[tuple[StageProposal, str]] = []
@@ -1631,6 +1642,7 @@ class _Planner:
         self._premise = None
         self._left = CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS
         self._findings = {}
+        self._shorter = {}
         self._traces.clear()
         self._refused = []
         self._stopped_by_checks = False
@@ -2465,17 +2477,20 @@ class _Planner:
     ) -> str | _Refused:
         """The body of the draft, built and checked by `build_plan_body`. A text with a closing
         keyword stops the item. A text over its room in the plan form gets a shorter text from one
-        turn of the body rewrite, and the proposal keeps the full text (#6319). A body that breaks
-        the plan form goes back to the model."""
+        turn of the body rewrite, and the proposal keeps the full text (#6319). The job keeps the
+        shorter text of each long text of the item, and a closing keyword in it also stops the
+        item. A body that breaks the plan form goes back to the model."""
         text = proposal.pull_request_body
+        _stop_on_closing_keyword(target, title, text)
         shown = safe_text(text)
-        keyword = closing_keyword_in(f"{title}\n{shown}")
-        if keyword is not None:
-            raise _stage_error(MESSAGES.roadmap.stage_closing.format(keyword=keyword), target)
         room = body_room(target.item.number, target.change)
         if len(shown) > room:
-            problem = MESSAGES.roadmap.stage_body_long.format(length=len(shown), limit=room)
-            text = self._ask(BodyReply, BODY_TASK, {"text": shown, "problems": [problem]}).text
+            if shown not in self._shorter:
+                problem = MESSAGES.roadmap.stage_body_long.format(length=len(shown), limit=room)
+                request = {"text": shown, "problems": [problem]}
+                self._shorter[shown] = self._ask(BodyReply, BODY_TASK, request).text
+            text = self._shorter[shown]
+            _stop_on_closing_keyword(target, title, text)
         try:
             return pull_request_body(target.item.number, target.change, text)
         except ValidationError as exc:

@@ -109,6 +109,17 @@ def test_the_reader_reads_the_security_section() -> None:
     assert read_change(_files(original)).security == "The egress rule is required for logging."
 
 
+def test_a_read_plan_keeps_a_long_why_as_its_body_text() -> None:
+    """The reply schema holds no limit on the body text (#6319), so the reader cuts no `why`."""
+    from devops_cli.roadmap.plan_read import file_facts
+
+    why = " ".join(["The job keeps each fact of the plan."] * 30)
+    original = make_stage_proposal(why=why)
+
+    assert read_change(_files(original)).pull_request_body == why
+    assert file_facts(original).pull_request_body == why
+
+
 def test_a_plan_with_no_security_reads_as_empty_text() -> None:
     assert read_change(_files(make_stage_proposal())).security == ""
 

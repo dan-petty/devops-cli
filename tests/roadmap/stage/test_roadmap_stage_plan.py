@@ -1363,6 +1363,48 @@ def test_a_shorter_text_still_over_its_room_goes_back_to_the_planner(
     assert "The limit is 1000" in _requests(model_fake)[2]["problem"]
 
 
+@pytest.mark.usefixtures("openspec")
+def test_a_shorter_text_with_a_closing_keyword_stops_the_item(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    """The job checks the text that the draft body holds: a closing keyword in the shorter text
+    stops the item as a closing keyword in the reply does (#6319)."""
+    model_fake.answer(
+        make_stage_proposal(pull_request_body=_text(1200)),
+        BodyReply(text=f"Closes #12. {_text(300)}"),
+        make_stage_proposal(),
+    )
+
+    plan = _plan(store, stage_repo)
+
+    (failure,) = plan.failed
+    assert plan.ready == ()
+    assert (failure.number, failure.error) == (item, "RoadmapStageError")
+    assert "closes" in failure.reason
+
+
+def test_the_same_long_body_gets_one_rewrite_turn(
+    store: InMemoryRoadmapStore,
+    item: int,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+) -> None:
+    """A plan that comes back with the same long body uses the shorter text of the first turn, and
+    the job makes no second rewrite call (#6319)."""
+    openspec.script_sequence(VALIDATE, (1, "ERROR: a requirement has no scenario\n"), VALID)
+    long_text, short_text = _text(1200), _text(300)
+    reply = make_stage_proposal(pull_request_body=long_text)
+    model_fake.answer(reply, BodyReply(text=short_text), reply)
+
+    plan = _plan(store, stage_repo)
+
+    (change,) = plan.ready
+    assert change.body.startswith(f"{short_text}\n\nPlans #{item}\n")
+    rewrite = load_task_prompt(BODY_TASK)
+    assert [call.system_prompt == rewrite for call in model_fake.calls] == [False, True, False]
+
+
 def _reply_with_security(security: object) -> str:
     """A reply as the model writes it: JSON, with the sample `security` replaced."""
     return json.dumps(make_stage_proposal().model_dump() | {"security": security})

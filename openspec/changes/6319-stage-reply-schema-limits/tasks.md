@@ -14,4 +14,11 @@
 - [x] 2.2 Add `OptionalLine`, a `Line` with a `BeforeValidator` that maps `None` to the empty text, and give it to `security` of `StageProposal` and `kind` of `StageReference`
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_plan.py`
 
+## 3. The shorter text and the read plan
+
+- [x] 3.1 Add failing tests: a shorter text with a closing keyword stops the item; a reply with the same long body makes one rewrite call; a read plan keeps a `why` of more than 800 characters as its body text
+  - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_plan.py tests/roadmap/test_roadmap_plan_read.py`
+- [x] 3.2 Keep the shorter text of each long text of the item in the stage planner, check the shorter text for a closing keyword, and remove `_READ_BODY_CHARS` of `plan_read.py`
+  - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_plan.py tests/roadmap/test_roadmap_plan_read.py`
+
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).

@@ -9,6 +9,8 @@ A schema limit of the plan reply that is not a plan defect fails a stage item wi
 - The reply schema holds no maximum length on `pull_request_body`. The stage constant `BODY_MAX_CHARS` of `stage_change.py` goes, because no code reads it after the change. The stage prompt keeps its aim of 800 characters, and a test holds that a body of that length fits the plan form with the longest issue number and slug.
 - `pull_form.plan_body_room` gives the characters that the `Plans` line and the `Change:` line leave for the text in the 1000 characters of the plan form. `build_plan_body` builds its lines with the same helper.
 - When the text of the body is longer than its room, the stage job asks the model once for a shorter text. It uses the reply `BodyReply` and the prompt of the pull body rewrite (`pull_retry.BODY_TASK`), and builds the draft body from the shorter text. The proposal and the kept plan keep the full text. A shorter text that the plan form still refuses goes back to the planner as a refused body, as before.
+- The job keeps the shorter text of each long body text of the item, so a reply with the same text makes no second rewrite call. A closing keyword in the shorter text stops the item, as a closing keyword in the reply does.
+- The plan reader (`plan_read.py`) gives the whole `why` as the body text of a read plan. Its cut at 800 characters (`_READ_BODY_CHARS`) was there only for the schema cap, and it goes.
 - A null `security` and a null `kind` of a reference read as their default empty text (`OptionalLine`, a Pydantic `BeforeValidator`). A value of another type still breaks the schema and goes back to the model once with its field.
 - `pull_request_body` of `stage_change.py` takes the text of the body, not the proposal, so the job can build a body from the shorter text.
 - The change carries a spec delta in `roadmap-stage/replies`, because the reply schema and the requests of the stage job are observable.
@@ -22,7 +24,7 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-stage/replies`: a long plan body gets a shorter text from one model turn, and a null optional text reads as its default.
+- `roadmap-stage/replies`: a long plan body gets a shorter text from one model turn, the job asks for that text once and checks it for a closing keyword, and a null optional text reads as its default.
 
 ## Impact
 
