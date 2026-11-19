@@ -4,7 +4,7 @@
 
 Kind: other. Reads: `docs/TESTING.md`. Changes: `k8s/llm/gateway/config.yaml`, `k8s/llm/gateway/servicemonitor.yaml`, `tests/gate/k8s_checks/llm_gateway.py`.
 
-- [ ] 1.1 In `k8s/llm/gateway/config.yaml`, set `prometheus_exclude_labels: ["client_ip", "user_agent"]` under `litellm_settings`, before `callbacks: ["prometheus", "otel"]`, with a comment that says why (#4545, #6439)
+- [x] 1.1 In `k8s/llm/gateway/config.yaml`, set `prometheus_exclude_labels: ["client_ip", "user_agent"]` under `litellm_settings`, before `callbacks: ["prometheus", "otel"]`, with a comment that says why (#4545, #6439)
   - Verification: `$ uv run devops ci --check --only k8s`
 - [ ] 1.2 In `k8s/llm/gateway/servicemonitor.yaml`, remove the comment and the `metricRelabelings` block with its two `labeldrop` rules
   - Verification: `$ uv run devops ci --check --only k8s`
