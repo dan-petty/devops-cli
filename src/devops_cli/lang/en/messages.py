@@ -2392,9 +2392,15 @@ class CIMessages:
         "module of tests/gate/*_checks/, so it needs no test that fails on its base. A validator "
         "or a check command proves a change of a prompt, a pin, a manifest or other data."
     )
+    fail_to_pass_deleted_checks: str = (
+        "The fix changes no source code (a .py file under src/ outside the knowledge base). Each "
+        "module of tests/gate/*_checks/ that it changes only loses checks: {checks}. A deleted "
+        "check runs on neither tree, so the fix needs no test that fails on its base."
+    )
     fail_to_pass_no_tests: str = (
-        "The fix changes no tests/**/test_*.py file and no module of tests/gate/*_checks/. A fix "
-        "adds or changes a test or a gate check that fails on its base."
+        "The fix changes no tests/**/test_*.py file and adds or changes no case of "
+        "tests/gate/*_checks/. A deleted check runs on neither tree. A fix adds or changes a test "
+        "or a gate check that fails on its base."
     )
     fail_to_pass_none_failed: str = (
         "A fix needs at least one changed test that fails on base, or that errors there at "
