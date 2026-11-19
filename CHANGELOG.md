@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.179.3](https://github.com/dan-petty/devops-cli/compare/v0.179.2...v0.179.3) (2026-11-19)
+
+
+### Bug Fixes
+
+* **security:** bump gh and ignore CVE-2026-97054 in unfixed tools ([#6370](https://github.com/dan-petty/devops-cli/issues/6370)) ([8030bed](https://github.com/dan-petty/devops-cli/commit/8030bedfae6c72e0c2174d042169e74ea560ca01))
+
 ## [0.179.2](https://github.com/dan-petty/devops-cli/compare/v0.179.1...v0.179.2) (2026-11-19)
 
 
