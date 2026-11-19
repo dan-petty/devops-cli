@@ -1,16 +1,20 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
-### Requirement: The job publishes the evidence before it marks the pull request ready
-When `draft_readiness` answers ready for the implement pull request, the job SHALL publish the evidence of the head commit with the existing evidence publisher, and SHALL run `gh pr ready` only after the publisher writes the comment. When the publisher fails, the job SHALL stop the item before `gh pr ready`, leave the pull request a draft and set the Status to Blocked.
+### Requirement: A pull request that passes its checks is marked ready
+When `draft_readiness` answers ready for the implement pull request and no review thread is open, the job SHALL publish the evidence comment of the head commit through `publish_pr_evidence`, and then run `gh pr ready` and set Status to In Review. When the answer is wait or refuse, or the publisher raises a `GitHubOperationError`, the job SHALL stop the item and SHALL NOT run `gh pr ready`. The job SHALL NOT merge.
 
-#### Scenario: Checks pass and the evidence posts
-- **WHEN** the checks of the delivery pull request settle with a ready result
-- **THEN** the job posts the evidence comment and then runs `gh pr ready` once
+#### Scenario: The finish
+- **WHEN** the checks pass
+- **THEN** the job writes one evidence comment that names the head commit before it runs `gh pr ready <pr>` once, Status is In Review, the record holds the number of the pull request, the last commit and the spend, and the issue holds one comment that starts with the marker and names the pull request
 
-#### Scenario: The publisher fails
-- **WHEN** the evidence publisher raises a Git Hub operation error
-- **THEN** the item is Blocked, the pull request stays a draft, and `gh pr ready` ran never
+#### Scenario: A task group stays unticked
+- **WHEN** the archived tasks file of the job holds an unticked task in group 2 after the archive step
+- **THEN** the item is Blocked with a reason that names group 2, `gh pr ready` ran never, and the class of the failure is `plan_defect`
 
-#### Scenario: The evidence comment exists already
-- **WHEN** the pull request holds an evidence comment from the job's own login
-- **THEN** the publisher updates that comment and posts no second comment
+#### Scenario: A check starts after the watch
+- **WHEN** a check run of the head is running when the job reads the check runs before it marks the pull request ready
+- **THEN** the item is Blocked with the reason that a check runs, and `gh pr ready` ran never
+
+#### Scenario: The evidence publisher fails
+- **WHEN** `publish_pr_evidence` raises a `GitHubOperationError` for the head commit
+- **THEN** the item is Blocked with the stop of the ready step, the record holds the stopped step, and `gh pr ready` ran never
