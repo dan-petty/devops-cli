@@ -18,9 +18,10 @@ RUN UV_PYTHON_DOWNLOADS=never uv export --locked --no-dev --extra review --no-em
       --format requirements-txt -o /lock/requirements.txt
 
 # The venv of the runtime requirements in /opt/devops-cli/.venv, which is outside the home volume.
-# `--require-hashes` refuses a distribution that the lock does not name with its hash. The venv
-# holds the tiktoken encodings, so `devops` counts tokens with no download. /run/user/1000 holds the
-# container-local session bus of gnome-keyring; /tmp is shared.
+# `--require-hashes` refuses a distribution that the lock does not name with its hash. This stage
+# writes the tiktoken encodings to /usr/local/share/tiktoken (TIKTOKEN_CACHE_DIR), so `devops`
+# counts tokens with no download. /run/user/1000 holds the container-local session bus of
+# gnome-keyring; /tmp is shared.
 FROM devtools AS venv
 ENV PYTHONUNBUFFERED=1 \
     UV_LINK_MODE=copy \
@@ -51,8 +52,9 @@ COPY --from=devtools /usr/local/lib/devtools/npm/node_modules/@devcontainers/cli
 # run it, and so does this repository's first post-create, before `uv sync` fills .venv. The venv
 # is the last directory of PATH, so its python does not hide the python of the system. The
 # remoteEnv PATH of .devcontainer/devcontainer.json puts .venv/bin first, so in this repository
-# `devops` is the editable install of the checkout (#2449). The project layer is the last layer,
-# and `--link` makes it independent of the layers under it.
+# `devops` is the editable install of the checkout (#2449). The project layer is the last layer of
+# this file, and `--link` makes it independent of the layers under it. The Dev Containers CLI adds
+# the layers of the two Features over it (#6470).
 FROM venv
 ENV PATH="${PATH}:/opt/devops-cli/.venv/bin"
 COPY --link --from=project --parents /opt/devops-cli/.venv/lib/python3.*/site-packages/devops_cli \

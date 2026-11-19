@@ -14,12 +14,13 @@ tags:
 
 ## 1. Overview & Domain Architecture
 
-Development Containers (DevContainers) provide fully configured, reproducible development environments running inside Docker containers. In `devops-cli`, DevContainer automation standardizes toolchain installations (Python 3.14+, Docker, Kubernetes CLI tools, OpenTofu), manages persistent developer shell histories, automates SSH commit signing, configures Model Context Protocol (MCP) servers, and synchronizes multi-root VS Code workspaces.
+Development Containers (DevContainers) provide fully configured, reproducible development environments running inside containers of a host engine, such as Podman or Docker. In `devops-cli`, DevContainer automation standardizes toolchain installations (Python 3.14+, Podman with a Docker-compatible `docker` command, Kubernetes CLI tools, OpenTofu), manages persistent developer shell histories, automates SSH commit signing, configures Model Context Protocol (MCP) servers, and synchronizes multi-root VS Code workspaces.
 
 ```mermaid
 graph TD
-    A[Host Workstation / Codespaces] --> B[Docker Engine / DinD Socket]
+    A[Host Workstation / Codespaces] --> B[Host Engine: Podman or Docker]
     B --> C[DevContainer Image: ghcr.io/dan-petty/devops-cli/devcontainer:latest]
+    C --> I[Podman in Podman: docker command + Docker API socket]
     C --> D[Persistent Volumes: .bash_history, .zsh_history]
     C --> E[Post-Create Hook: devops devcontainer post-create]
     C --> F[Post-Start Hook: devops devcontainer post-start]
