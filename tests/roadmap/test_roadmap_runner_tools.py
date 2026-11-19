@@ -259,8 +259,9 @@ def test_the_pins_of_the_table_are_the_pins_of_the_dockerfile() -> None:
 
 
 def test_the_scanned_tools_are_in_the_runner_with_the_pins_of_their_images() -> None:
-    """actionlint 1.17.1 holds a fixed Go toolchain and Trivy 0.76.2 holds go-jose 4.1.6, so the
-    scan accepts both and the runner image holds actionlint, shellcheck and Trivy (#3108)."""
+    """The runner image holds actionlint, shellcheck and Trivy (#3108). actionlint 1.17.1 and
+    Trivy 0.76.2 hold Go 1.27.3, and the scan accepts them with the dated CVE-2026-97054 entry of
+    .trivyignore-tofu (#6366, #6367) until a release holds the fix."""
     tools = {tool.name: tool for tool in RUNNER_TOOLS}
     dockerfile = _text("Dockerfile")
     actionlint = f"docker.io/kjanat/actionlint:{ACTIONLINT_VERSION}@sha256:"

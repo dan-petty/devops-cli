@@ -10,3 +10,6 @@ CVE-2026-78669 exp:2026-11-20
 
 # CVE-2026-78661 (HIGH) in golang.org/x/net v0.57.0, vendored by pinned kubectl v1.37.2; fixed in x/net 0.62.0. On 2026-11-17 kubectl v1.37.2 is the newest stable release, and the go.mod of v1.37.2 and of the branch release-1.37 has x/net 0.57.0. Added in #5582. Renewed in #6079. Tracked in #6084 (see SECURITY.md #a-finding-with-no-fix).
 CVE-2026-78661 exp:2026-11-20
+
+# CVE-2026-97054 (HIGH) in the Go stdlib v1.26.10 of pinned kubectl v1.37.2; fixed in Go 1.26.11 and 1.27.4 (2026-11-10). On 2026-11-19 kubectl v1.37.2 (published 2026-10-28) is the newest stable release, and v1.38.0-beta.0 is a pre-release. The entry of `.trivyignore-tofu` for this id is for the runner tools; this entry keeps kubectl covered when that entry goes. Added on 2026-11-19, so its limit of 14 days in all is 2026-12-03. Tracked in #6084 (see SECURITY.md #a-finding-with-no-fix).
+CVE-2026-97054 exp:2026-11-22

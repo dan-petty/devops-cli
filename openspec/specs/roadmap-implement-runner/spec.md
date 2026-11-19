@@ -224,10 +224,18 @@ The smoke test of the runner image in `ci.yml` and in `release.yml` SHALL be the
 - **THEN** the two texts are equal, they run the check module and the size bound, and no line runs `--entrypoint <tool> "$IMAGE" --version`
 
 ### Requirement: The runner image passes the image scan
-The runner image SHALL pass the scan of `ci.yml` and `release.yml` (Trivy, `HIGH,CRITICAL`, fixed findings only) with no `.trivyignore` entry. A tool whose newest release fails the scan SHALL be in `NOT_IN_RUNNER`, with the finding as the reason. A tool whose newest release passes the scan SHALL be in `RUNNER_TOOLS`, and the `runner` stage SHALL install it.
+The runner image SHALL pass the scan of `ci.yml` and `release.yml` (Trivy, `HIGH,CRITICAL`, fixed findings only). Each entry of an ignore file that the scan reads SHALL be one that SECURITY.md "A Finding with No Fix" allows. A tool that the image does not hold for a finding SHALL be in `NOT_IN_RUNNER`, with the finding as the reason. A tool whose newest release passes the scan SHALL be in `RUNNER_TOOLS`, and the `runner` stage SHALL install it.
+
+#### Scenario: A release of the tool fixes the finding
+- **WHEN** a release of a tool of the image holds the fixed version that the scan names
+- **THEN** the pin of the tool names that release, and the scan of the Runner Image job exits 0
+
+#### Scenario: No release of the tool fixes the finding
+- **WHEN** the newest release of a tool that the gate needs holds a fixed HIGH finding, and no release of the tool holds the fix
+- **THEN** `.trivyignore-tofu` holds an entry for the finding with a reason, a tracking issue and an `exp:` date, and the scan of the Runner Image job exits 0
 
 #### Scenario: A tool fails the scan
-- **WHEN** the newest release of a tool that the gate needs holds a fixed HIGH finding
+- **WHEN** the image stops holding a tool that the gate needs, because of a finding that SECURITY.md allows no ignore entry for
 - **THEN** the table `NOT_IN_RUNNER` names the tool with the image scan as the reason, and the `runner` stage installs neither it nor a tool that only serves it
 
 #### Scenario: The scanned tools return
@@ -235,7 +243,7 @@ The runner image SHALL pass the scan of `ci.yml` and `release.yml` (Trivy, `HIGH
 - **THEN** `RUNNER_TOOLS` holds `actionlint`, `shellcheck` and `trivy`, and the `runner` stage installs all three
 
 #### Scenario: The image is scanned
-- **WHEN** `trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1` runs on the built `runner` target
+- **WHEN** the Runner Image job runs `trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1` with the ignore files `.trivyignore` and `.trivyignore-tofu` on the built `runner` target
 - **THEN** it exits 0
 
 ### Requirement: The policy admits only the sizes in the table

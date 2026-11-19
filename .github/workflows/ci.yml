@@ -443,6 +443,7 @@ jobs:
             .dockerignore
             .trivyignore
             .trivyignore-mcp-server
+            .trivyignore-tofu
             src
             pyproject.toml
             uv.lock
@@ -563,6 +564,7 @@ jobs:
             .dockerignore
             .trivyignore
             .trivyignore-mcp-server
+            .trivyignore-tofu
             src
             pyproject.toml
             uv.lock
@@ -678,6 +680,7 @@ jobs:
             .dockerignore
             .trivyignore
             .trivyignore-mcp-server
+            .trivyignore-tofu
             src
             pyproject.toml
             uv.lock
