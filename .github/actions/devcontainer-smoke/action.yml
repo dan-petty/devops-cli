@@ -25,9 +25,9 @@ runs:
         node-version-file: .node-version
 
     # The image holds the Dev Containers CLI of its devtools base, so the CLI that starts the image
-    # comes from the image. `devcontainer up` pulls the image, so the copy pulls nothing more. The
-    # build action writes its CLI to $RUNNER_TEMP/devcontainers-cli on the same runner, and
-    # `docker cp` copies into a directory that exists. So this step removes its own directory first.
+    # comes from the image. The copy pulls the image, so `devcontainer up` pulls nothing more. The
+    # step writes to a directory of its own and removes it first, because `docker cp` copies into a
+    # directory that already exists.
     - name: Copy the Dev Containers CLI from the image
       shell: bash
       env:
