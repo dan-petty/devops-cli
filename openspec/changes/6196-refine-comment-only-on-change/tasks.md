@@ -18,5 +18,7 @@
 
 - [x] 3.1 Describe the section, the event line, the gate and `refine.frame` in `docs/roadmap/refine.md`, `docs/ROADMAP_WORKFLOW.md` and `docs/roadmap/inbox.md`, and regenerate the generated documents.
   - Verification: `$ uv run devops docs generate --check`
+- [x] 3.2 Change the scenarios of `roadmap-refine/proposal`, `roadmap-refine/alternatives`, `roadmap-refine/writes` and `roadmap-refine/waits` that put the question, the point or the wait text in the comment, and check the section and the comment of a question for a person in its test.
+  - Verification: `$ uv run devops ci test tests/roadmap/refine/test_roadmap_refine_decisions.py tests/roadmap/refine/test_roadmap_refine_covers_check.py tests/roadmap/refine/test_roadmap_refine_next_step.py tests/roadmap/refine/test_roadmap_refine_recorded_wait.py` and `$ uv run devops ci --check --only openspec`
 
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).

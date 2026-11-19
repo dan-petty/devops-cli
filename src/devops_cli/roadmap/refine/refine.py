@@ -3287,9 +3287,9 @@ def refine_one_item(
     )
     if refused is not None:
         is_ready, step, model_details = False, NextStep.PERSON, (refused,)
-    # The details hold the model's text, which goes into a comment: sanitized like the section,
-    # on one line each (#1758). Each goes on its line first, so its code is the code that the
-    # comment shows (#2525).
+    # The details hold the model's text, which the report shows as the points of the next step:
+    # sanitized like the section, on one line each (#1758). Each goes on its line first, so its
+    # code is the code that the report shows (#2525). No comment holds them (#6196).
     details = tuple(sanitize_text(" ".join(d.split()), allowed_urls) for d in model_details)
     if refusal is not None:
         details = (_failure_line(refusal, tries),)

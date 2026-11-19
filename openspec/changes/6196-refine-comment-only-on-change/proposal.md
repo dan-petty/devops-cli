@@ -25,8 +25,10 @@
 ### Modified Capabilities
 
 - `roadmap-refine/waits`: the section names the watched files, and the wait text comes from the section and the replies.
+- `roadmap-refine/proposal`: the section holds the question for a person, and the comment names Open questions.
+- `roadmap-refine/writes`: the points of a next step, not a comment, go on one line before refine sanitizes them.
 - `roadmap-refine/deferred-parts`: the section names the new items of the deferred parts.
-- `roadmap-refine/alternatives`: the event line of a wait on the alternatives check.
+- `roadmap-refine/alternatives`: the event line of a wait on the alternatives check, and the section holds the adopt-or-keep question.
 - `roadmap-job-comments`: the repeat guard keeps the question hash of a frame.
 
 ## Impact
