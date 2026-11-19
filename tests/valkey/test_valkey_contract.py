@@ -87,6 +87,9 @@ def test_the_record_is_of_the_locked_valkey_py() -> None:
     )
 
 
+# The wall clock stands still, so the fake reads no time between two commands of a scenario and a
+# bounded TTL is the same on a loaded host. The replay reads no clock.
+@pytest.mark.usefixtures("clock")
 @pytest.mark.parametrize("scenario", SCENARIOS, ids=lambda scenario: scenario.name)
 def test_the_fake_answers_each_scenario_as_the_recorded_server(
     scenario: ValkeyScenario, valkey_server: FakeServer
