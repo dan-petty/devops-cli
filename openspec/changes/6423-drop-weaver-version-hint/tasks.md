@@ -18,9 +18,9 @@ Kind: deletion.
 
 ## 3. Documents
 
-Kind: documents.
+Kind: documents. Changes: `src/devops_cli/docs/generator.py`, `docs/TELEMETRY.md`.
 
-- [ ] 3.1 Regenerate the reference documents for the changed message
+- [x] 3.1 Name the devtools image as the source of weaver in `docs/TELEMETRY.md` (generated from `src/devops_cli/docs/generator.py`)
   - Verification: `$ uv run devops docs generate --check`
 
 ## Workflow follow-up

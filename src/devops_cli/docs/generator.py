@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from devops_cli.config.constants import (
     CONST_CONFIG_BACKUP_INFIX,
     CONST_CONFIG_BACKUPS_KEPT,
+    CONST_DEVTOOLS_IMAGE,
     CONST_DOC_CREDENTIAL_NAME_WORD_PAIRS,
     CONST_DOC_CREDENTIAL_NAME_WORDS,
     CONST_DOC_CREDENTIAL_NAMING_WORD,
@@ -1253,7 +1254,9 @@ class DocGenerator:
             "snapshot, and on any f-string that builds one.",
             "- **Refresh**: A person moves the pin with "
             "`devops telemetry semconv refresh --commit <sha>`, which needs weaver on PATH and "
-            "network access, then fixes what the check reports. The gate never runs weaver.",
+            "network access, then fixes what the check reports. The devtools image "
+            f"`{CONST_DEVTOOLS_IMAGE}` has weaver in `/usr/local/bin`, and Renovate keeps its "
+            "version current there. The gate never runs weaver.",
             "",
         ]
 
