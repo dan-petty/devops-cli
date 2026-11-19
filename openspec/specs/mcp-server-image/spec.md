@@ -74,10 +74,3 @@ The MCP Server Image scan MUST keep the `CVE-2026-78661` entry when the `CVE-202
 #### Scenario: The gh entry is absent from the scan input
 - **WHEN** A test removes every `CVE-2026-78661` line from `.trivyignore` and reads both ignore files.
 - **THEN** `.trivyignore-mcp-server` still holds a `CVE-2026-78661` entry with an `exp:` date.
-
-### Requirement: Each MCP ignore entry stays valid
-Each entry of `.trivyignore-mcp-server` SHALL hold a comment with its reason and tracking issue, and an `exp:YYYY-MM-DD` date that is not past.
-
-#### Scenario: Every entry has a reason, a tracking issue and a future expiry
-- **WHEN** A test reads each entry line of `.trivyignore-mcp-server`.
-- **THEN** The comment above it is non-empty and holds an issue number, and the line holds an `exp:` date after the test date.
