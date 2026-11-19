@@ -1518,8 +1518,10 @@ def test_fail_to_pass_runs_the_processes_of_its_plan(
     }
     planned = []
     for request in plan_fail_to_pass("main"):
-        if "failed on base" in request.condition or request.condition.startswith(skipped):
-            continue  # Read only when a test failed on base: this replay ran no test.
+        if "failed or errored on base" in request.condition or request.condition.startswith(
+            skipped
+        ):
+            continue  # Read only when a test failed or errored on base: this replay ran no test.
         line = shlex.join(request.argv)
         for placeholder, value in values.items():
             line = line.replace(shlex.quote(placeholder), value).replace(placeholder, value)
