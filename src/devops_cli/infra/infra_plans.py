@@ -279,7 +279,7 @@ def plan_apply(target: ApplyTarget) -> list[PlannedRequest]:
             PlannedRequest(
                 method="EXEC",
                 target="the run of the hosts with no disruptive class",
-                argv=runner(f"{','.join(together)}:!<offline group>", check_mode=False),
+                argv=runner(host_pattern(",".join(together), "<offline group>"), check_mode=False),
             )
         )
     alone = [host.host for host in plan.hosts if host.disruptive] if plan else ["<host>"]

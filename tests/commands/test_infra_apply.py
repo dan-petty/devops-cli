@@ -701,6 +701,26 @@ def test_the_table_names_each_host_with_its_node_and_memory(lab: Lab, person_cal
     assert any(line.startswith("Apply ") and ": ok, in " in line for line in lines)
 
 
+def test_the_dry_run_shows_each_together_host_as_its_own_term(
+    lab: Lab, person_caller: None
+) -> None:
+    def no_restart(call: ProcessCall, project: Path) -> list[dict[str, Any]]:
+        events = site_events(project, limit_hosts(call))
+        dropped = "Restart the demo unit"
+        return [e for e in events if (e.get("event_data") or {}).get("task") != dropped]
+
+    lab.runs(no_restart)
+    plan = lab.plan(f"{NODE_1},{NODE_4}")
+    assert not [host["disruptive"] for host in plan["hosts"] if host["disruptive"]]
+    calls = len(lab.process_fake.calls)
+
+    result = lab.apply(plan, "--dry-run")
+
+    assert result.exit_code == 0, result.output
+    assert len(lab.process_fake.calls) == calls
+    assert f"--limit '{NODE_1},{NODE_4},!<offline group>'" in result.output
+
+
 def test_dry_run_starts_no_process(
     lab: Lab,
     tmp_path: Path,

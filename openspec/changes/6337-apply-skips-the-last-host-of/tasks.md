@@ -22,9 +22,9 @@ Kind: behavior. Reads: `src/devops_cli/infra/infra_plans.py`, `src/devops_cli/in
 
 Kind: behavior. Reads: `src/devops_cli/infra/infra_plans.py`, `src/devops_cli/infra/plan.py`, `tests/commands/test_infra_apply.py`. Changes: `src/devops_cli/infra/infra_plans.py`, `tests/commands/test_infra_apply.py`.
 
-- [ ] 3.1 Add `test_the_dry_run_shows_each_together_host_as_its_own_term` to `tests/commands/test_infra_apply.py`: plan the hosts `node-1.example.com` and `node-4.example.com` with the event of the task `Restart the demo unit` dropped, then run the apply with `--dry-run` and assert that the shown request holds `--limit 'node-1.example.com,node-4.example.com,!<offline group>'`. It fails on main, which shows the colon before the exclusion
+- [x] 3.1 Add `test_the_dry_run_shows_each_together_host_as_its_own_term` to `tests/commands/test_infra_apply.py`: plan the hosts `node-1.example.com` and `node-4.example.com` with the event of the task `Restart the demo unit` dropped, then run the apply with `--dry-run` and assert that the shown request holds `--limit 'node-1.example.com,node-4.example.com,!<offline group>'`. It fails on main, which shows the colon before the exclusion
   - Verification: `$ uv run devops ci test tests/commands/test_infra_apply.py` fails on the base
-- [ ] 3.2 Build the shown pattern of the together run in `plan_apply` in `src/devops_cli/infra/infra_plans.py` with `host_pattern(",".join(together), "<offline group>")` instead of the literal `:!<offline group>`. Keep the snapshot of the one-host together run unchanged
+- [x] 3.2 Build the shown pattern of the together run in `plan_apply` in `src/devops_cli/infra/infra_plans.py` with `host_pattern(",".join(together), "<offline group>")` instead of the literal `:!<offline group>`. Keep the snapshot of the one-host together run unchanged
   - Verification: `$ uv run devops ci test tests/commands/test_infra_apply.py` passes
 
 ## 4. Read the hosts of a comma limit in the fake runner
