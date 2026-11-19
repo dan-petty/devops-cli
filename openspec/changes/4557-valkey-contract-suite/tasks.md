@@ -11,7 +11,7 @@ Kind: test-only edit. Changes: `tests/support/valkey_scenarios.py`, `tests/valke
 
 Kind: data. Changes: `pyproject.toml`, `uv.lock`.
 
-- [ ] 2.1 Pin `fakeredis[lua,valkey]==2.40.0` in the `dev` group and run `uv lock`, so `lupa` installs and the fake side of the suite passes.
+- [x] 2.1 Pin `fakeredis[lua,valkey]==2.40.0` in the `dev` group and run `uv lock`, so `lupa` installs and the fake side of the suite passes.
   - Verification: `$ uv lock --check`
 
 ## 3. The record and replay support

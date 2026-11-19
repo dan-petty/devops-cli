@@ -86,11 +86,7 @@ class TestValkeyClientDestination:
         cursor, keys = valkey_client.scan(0)
         assert isinstance(cursor, int)
         assert isinstance(keys, list)
-        from devops_cli.exceptions.valkey import ValkeyCommandError
-
-        with pytest.raises(ValkeyCommandError) as raised:
-            valkey_client.eval("return 42", 0)
-        assert raised.value.error_code == "VALKEY_COMMAND_ERROR"
+        assert valkey_client.eval("return 42", 0) == 42
 
         reset_valkey_client()
         try:
