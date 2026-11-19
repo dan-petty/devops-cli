@@ -182,9 +182,11 @@ def test_a_body_edit_after_a_stage_return_gives_a_new_look_and_resets_the_second
 def test_an_item_a_person_sets_back_after_a_stage_return_that_refine_answered_waits_for_a_reason(
     git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
 ) -> None:
-    """The stage return is older than refine's last comment, so it is no cause of the wait: the
-    item that a person set back waits for the reason of that person."""
+    """The new look after the stage return finds another design, so refine posts its event (#6196).
+    The stage return is older than refine's last comment, so it is no cause of the wait: the item
+    that a person set back waits for the reason of that person."""
     number = _stage_returned_item(store, model_fake, git_repo)
+    model_fake.answer(READY.model_copy(update={"problem_statement": "Another design."}))
     refine_round(store, git_repo)
     person = store.as_actor("alice")
     person.set_field(require_item(person, number), ItemField.STATUS, "New")

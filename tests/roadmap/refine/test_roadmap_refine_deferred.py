@@ -18,6 +18,7 @@ import pytest
 from pydantic import ValidationError
 
 from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.roadmap.body_hash import body_hashes
 from devops_cli.roadmap.intake.intake_model import (
     ModelProposal,
     ProposalRequest,
@@ -370,6 +371,7 @@ def test_deferred_apply_files_the_parts_first_then_sets_the_item_ready_and_links
     refine_comments = [c.body for c in store.comments_on(1)]
     item = store.item(1)
     assert item is not None
+    moved = f"### Moved to new items\n#{numbers[0]}, #{numbers[1]}\n"
     assert (
         applied.readied_count,
         _status(store, 1),
@@ -378,7 +380,9 @@ def test_deferred_apply_files_the_parts_first_then_sets_the_item_ready_and_links
         store.order,
         _record(store, 1, RefineRecordKey.DEFERRED),
         len(refine_comments),
-        f"Moved to new items: #{numbers[0]}, #{numbers[1]}." in refine_comments[0],
+        moved in store.read_issue_body(1),
+        f"#{numbers[0]}" in refine_comments[0],
+        _record(store, 1, RefineRecordKey.SECTION_HASH) == body_hashes(store.read_issue_body(1))[1],
         item.sub_issues,
         [issue.parent for issue in new],
     ) == (
@@ -389,6 +393,8 @@ def test_deferred_apply_files_the_parts_first_then_sets_the_item_ready_and_links
         [f"create {_STORAGE.title}", f"create {_EXPORT.title}", "body #1"],
         f"{numbers[0]},{numbers[1]}",
         1,
+        True,
+        False,
         True,
         0,
         [None, None],

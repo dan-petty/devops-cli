@@ -22,6 +22,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_MAX_TRIES,
 )
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.body_hash import extract_section_and_outside
 from devops_cli.roadmap.refine.refine import (
     AcceptanceCriterion,
     JobCheck,
@@ -342,16 +343,19 @@ def test_a_stopped_investigation_with_nothing_else_open_keeps_the_first_proposal
 def test_a_question_marked_a_person_decides_still_makes_a_person_wait(
     git_repo: Path, store: InMemoryRoadmapStore
 ) -> None:
+    """The section holds the question that a person decides, and the one frame names it (#6196)."""
     number = _seed(store)
 
     plan = _round(store, git_repo, {number: _PERSON_WAIT})
 
     asked = store.comments_on(number)
-    assert (plan.refined_items[0].next_step, len(asked), "(a person decides)" in asked[0].body) == (
-        NextStep.PERSON,
-        1,
-        True,
-    )
+    _, section = extract_section_and_outside(store.read_issue_body(number))
+    assert (
+        plan.refined_items[0].next_step,
+        len(asked),
+        "(a person decides)" in (section or ""),
+        "Open questions" in asked[0].body,
+    ) == (NextStep.PERSON, 1, True, True)
 
 
 def test_a_job_failure_comes_before_a_question_for_a_person(

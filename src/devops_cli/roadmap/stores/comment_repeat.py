@@ -16,7 +16,9 @@ the same replies as when the repeat had posted.
 Two texts are the same when their fingerprints are the same: the SHA-256 of the text, with each
 run of white space made one space and each identifier of seven or more hexadecimal digits that
 holds a digit made one placeholder. A round names the commit it read, an image digest or a run,
-and these change while the facts stay the same.
+and these change while the facts stay the same. The hash of the owner question of a frame is a
+fact: a refine frame names the place of its question in the body of the item, so the hash alone
+tells two questions apart (#6196).
 """
 
 from __future__ import annotations
@@ -40,6 +42,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REVIEW_COMMENT_MARKER,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
 )
+from devops_cli.roadmap.owner_question import frame_hash
 from devops_cli.roadmap.stores.store import IssueComment
 from devops_cli.telemetry.instruments import ROADMAP_COMMENT_REPEATS_REFUSED_TOTAL, emit
 
@@ -75,9 +78,10 @@ def comment_job(body: str) -> tuple[str, str] | None:
 
 def fingerprint(body: str) -> str:
     """The SHA-256 of `body` with its white space made single spaces and its identifiers left
-    out."""
+    out, and with the hash of the owner question that a frame in `body` asks (#6196)."""
     text = " ".join(_IDENTIFIER_RE.sub("<id>", body).split())
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    question = frame_hash(body) or ""
+    return hashlib.sha256(f"{text}\n{question}".encode()).hexdigest()
 
 
 def recent_repeat(

@@ -6,11 +6,15 @@
 
 Refine uses the code and the documents of the repository. For an item it writes a proposed design, tasks and acceptance criteria. When the item is whole, it sets the Status to Ready.
 
-An item that refine cannot set to Ready gets one comment with its next step. The step is one of these:
+An item that refine cannot set to Ready gets a next step. The step is one of these:
 
 - The questions that a person answers.
 - The split that a person makes.
 - The open items that this item waits on.
+
+The section `Proposed design` of the body holds the whole result of a round: the design, the open questions (`Open questions`), the split (`Fit`), the suspected block, the dependencies, the files whose change ends a wait (`Watched files`, sorted) and the new issues of deferred parts (`Moved to new items`). The labels hold the Status, and the `checked-at` line of the section holds the commit.
+
+The comment of refine is one event line. It names the next step and the parts of the section that hold it, for example `Next step: the open items close, or a person replies in a comment or edits the body. See Dependencies in the section Proposed design of the body.` It holds no line of the section, no commit and no Status sentence (#6196). Refine posts it only when the result changed since the round before: the next step, the section without its `checked-at` line, or the item that holds the owner-question frame. A round that files a deferred part also posts it. A round with the same result posts no comment and records the time at which it read the comments (`refine.repeated_at`). A round that posts clears that time.
 
 A proposal that names an open issue as a dependency is not whole. The item waits on that issue. Refine does not set it to Ready, and a Ready item goes back to New. A closed dependency holds nothing back.
 
@@ -20,9 +24,11 @@ Refine looks at the item again after a reply, a body edit, or the close of those
 
 Refine writes the new body, the job record and the Status of an item with one request. The comment follows as a separate request. A stop after the write leaves the new body and its marks together.
 
-The store posts no comment of a roadmap job that repeats a recent comment of the same job (#4793). Before it posts, it reads the comments of the item. It refuses the comment when the job's comments after the last comment of a person or of another job hold the same text, made less than 7 days ago. The text compares with its commits, image digests and run IDs left out, so a new look that finds the same next step at a new commit posts nothing. Each refusal adds 1 to `devops_cli_roadmap_comment_repeats_refused_total` under the `row` of the job. When the store refuses a comment of refine, refine records the time of the round in the job record (`refine.repeated_at`). The wait then starts at that time and not at the last comment, so the change that gave the new look gives no other look.
+The store posts no comment of a roadmap job that repeats a recent comment of the same job (#4793). Before it posts, it reads the comments of the item. It refuses the comment when the job's comments after the last comment of a person or of another job hold the same text, made less than 7 days ago. The text compares with its commits, image digests and run IDs left out, so a new look that finds the same next step at a new commit posts nothing. The hash of the question of an owner-question frame is no such identifier: two frames of two questions are no repeat. Each refusal adds 1 to `devops_cli_roadmap_comment_repeats_refused_total` under the `row` of the job. When the store refuses a comment of refine, refine records the time at which the round read the comments in the job record (`refine.repeated_at`).
 
-An item that waits on a person has one more way out. The comment of refine names issues and files in its questions. Refine looks at the item again when an issue that the comment names closes after the comment, or when a file that it names changes on the default branch after the comment. A round reads at most 5 issues and 5 files from one comment.
+The wait starts at the later of refine's last comment and `refine.repeated_at`. A reply, or an answer to a frame on another item, ends the wait only when it is not older than that start, so a round with no comment that read it gives no other look. A reply that a person makes while a round runs, after its read, is newer than the start and ends the wait. The model still reads each reply since refine's last comment, so no reply is lost. The change of a cited file or the close of a named issue before the start ends no wait either. A stage return counts from refine's last comment.
+
+An item that waits on a person has one more way out. The open questions, the suspected block and the watched files of the section, and the replies that the rounds read, name issues and files. Refine looks at the item again when an issue that they name closes after the start of the wait, or when a file that they name changes on the default branch after it. A round reads at most 5 issues and 5 files of one wait.
 
 A wait on a person also ends when older rules set it. Each round that writes a proposal records the version of its rules in the job record (`refine.rules`). The version is the time from which the rules hold (`CONST_ROADMAP_REFINE_RULES_SINCE`). A round refines an unchanged item again when its recorded version is older than the current one. A record with no version comes from before the version was recorded: its version is the time of refine's last comment. The new round records the current version, so the item gets one new look for each change of the rules. A pull request that changes a rule that sets a next step sets a later time in the constant.
 
@@ -75,7 +81,7 @@ Two kinds of item wait for a person. Only `--item` refines them:
 
 ### Owner questions
 
-When refine needs a decision from the owner, it posts one owner-question frame comment for the first open question. Refine asks at most one open question per item at a time; any other questions wait for later rounds. When an older open item holds a frame with the same question hash, refine posts a link comment instead of a new frame.
+When refine needs a decision from the owner, it posts one owner-question frame comment for the first open question. The frame names the first point of `Open questions`, or the part of the section that holds the question, in place of the question text, and keeps the options, the recommendation, the evidence and the hidden hash of the question. Refine asks at most one open question per item at a time; any other questions wait for later rounds. When an older open item holds a frame with the same question hash, refine posts a link comment instead of a new frame. The job record holds the item of the frame (`refine.frame`). When the open item that holds the frame of the question is another item, because the older item closed or no longer asks the question, the wait ends and the next round posts the frame.
 
 A reply by the owner, a member, or a collaborator answers the question and resumes refinement. The answer is recorded in the job record and given to the model in the next round. Replies from unknown users or bots are ignored.
 
@@ -94,7 +100,7 @@ An item with sub-issues or the label `type/epic` is a tracker. Its sub-issues de
 
 ## Parts that cannot be built now
 
-A part of an item can be one that nobody can build or decide now. When the rest of the item is Ready, refine moves that part to new issues through intake. Each new issue starts with `Split from #<issue>.`. Refine names the new issues in its Ready comment and records them as `refine.deferred`.
+A part of an item can be one that nobody can build or decide now. When the rest of the item is Ready, refine moves that part to new issues through intake. Each new issue starts with `Split from #<issue>.`. Refine names the new issues under `Moved to new items` in its section and records them as `refine.deferred`. Its event line names that part.
 
 An item that is too big for one pull request still waits for a person to split it.
 
@@ -144,7 +150,8 @@ The command [`devops roadmap repair`](repair.md) sets back the items that a plac
 | The authors that the jobs trust, the review of a bot item, the replies that the model reads | [roadmap-author-trust](../../openspec/specs/roadmap-author-trust/spec.md) |
 | The proposal, the options of a decision, the investigation, web search | [roadmap-refine/proposal](../../openspec/specs/roadmap-refine/proposal/spec.md), [roadmap-refine/investigation](../../openspec/specs/roadmap-refine/investigation/spec.md) |
 | The check for alternatives, the review of a proposal | [roadmap-refine/alternatives](../../openspec/specs/roadmap-refine/alternatives/spec.md), [roadmap-refine/review](../../openspec/specs/roadmap-refine/review/spec.md) |
-| The next-step comment, the paths of a block, a change that ends a wait | [roadmap-refine/waits](../../openspec/specs/roadmap-refine/waits/spec.md) |
+| The section, the event comment, a round with no comment | [roadmap-refine/comments](../../openspec/specs/roadmap-refine/comments/spec.md) |
+| The paths of a block, a change that ends a wait | [roadmap-refine/waits](../../openspec/specs/roadmap-refine/waits/spec.md) |
 | A deferred part and its filing through intake | [roadmap-refine/deferred-parts](../../openspec/specs/roadmap-refine/deferred-parts/spec.md) |
 | What a round writes, the context of the cited code | [roadmap-refine/writes](../../openspec/specs/roadmap-refine/writes/spec.md), [roadmap-refine/context](../../openspec/specs/roadmap-refine/context/spec.md) |
 | The labels and the record of an item | [roadmap-item-labels](../../openspec/specs/roadmap-item-labels/spec.md) |

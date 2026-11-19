@@ -17,7 +17,7 @@ The lines come in this order of classes:
 3. The open release pull request (G3), class `release`.
 4. Items in `status/blocked`, with their cause, class `blocked`.
 5. New items that wait on a person in refine, one line for each, class `refine`. The line comes from the job record: the last refine round left a question for a person, or the stage job returned the item twice on the same body. A reply shows in the list until the next refine round. `devops roadmap explain <number>` gives the cause.
-6. New items with a split that no person has applied, one line for each, class `split`. Refine proposed the split in a comment.
+6. New items with a split that no person has applied, one line for each, class `split`. Refine proposed the split under Fit in its section of the body.
 7. New items whose refine round put a covering tool to a person, one line for each, class `alternatives`. The line names the tool.
 8. New items whose refine job failed as often as the limit allows, one line for each, class `failed`. The line names the failed checks, the count of tries and the last error, and asks no question. An item that refine will try again has no line. A body edit makes refine try again.
 9. Ready items whose stage job failed, one line for each, class `stage_retry`. The line names the failure class of the last plan or write, such as `provider` or `limit_reached`. The stage job holds the item for the wait of that class and takes it again when the wait ends, so the line asks nothing of a person. `devops roadmap explain <number>` names the wait. An item in `status/new` keeps the class of its last failure with no line, because the stage job does not take a New item. A staged item clears the class.

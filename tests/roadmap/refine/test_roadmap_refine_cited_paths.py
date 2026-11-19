@@ -13,10 +13,12 @@ if TYPE_CHECKING:
 import pytest
 import time_machine
 
+from devops_cli.roadmap.body_hash import extract_section_and_outside
 from devops_cli.roadmap.refine.refine import (
     RefinementProposal,
     plan_refine,
 )
+from devops_cli.roadmap.step_files import section_text
 from devops_cli.roadmap.stores.store import (
     RefineRecordKey,
 )
@@ -104,12 +106,13 @@ def test_a_waiting_item_whose_cited_path_does_not_change_keeps_waiting_with_no_m
     ) == ([(number, "blocked")], [], 0)
 
 
-def test_refine_records_each_cited_path_the_checkout_holds_once_and_names_them_in_its_comment(
+def test_refine_records_each_cited_path_the_checkout_holds_once_and_names_them_in_its_section(
     git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
 ) -> None:
     """Refine keeps a cited path once and without its line, only when the checkout holds it at
-    the refined commit, and never a path outside the repository. Its comment names the files
-    whose change ends the wait (#2005)."""
+    the refined commit, and never a path outside the repository. Its section names the files
+    whose change ends the wait (#2005), and its comment names that part of the section and no
+    file (#6196)."""
     store.seed_visibility(is_private=True)
     number = seed_item(store, "New", "P1-High")
     cited = ["src/sample.py:1", "src/missing.py", "../CONTEXT.md", "/etc/hosts"]
@@ -119,13 +122,18 @@ def test_refine_records_each_cited_path_the_checkout_holds_once_and_names_them_i
     refine_round(store, git_repo)
 
     (comment,) = store.comments_on(number)
+    _, section = extract_section_and_outside(store.read_issue_body(number))
+    watched = section_text(section or "", frozenset({"watched files"}))
     assert (
         require_item(store, number).job_record.get(RefineRecordKey.BLOCK_PATHS),
-        comment.body.splitlines()[-1],
+        watched.splitlines()[2:],
+        "Watched files" in comment.body,
+        "CONTEXT.md" in comment.body,
     ) == (
         "src/sample.py,CONTEXT.md",
-        "The next refine round also looks at the item again when a commit on the default "
-        "branch changes one of these files: `src/sample.py`, `CONTEXT.md`.",
+        ["- `CONTEXT.md`", "- `src/sample.py`"],
+        True,
+        False,
     )
 
 

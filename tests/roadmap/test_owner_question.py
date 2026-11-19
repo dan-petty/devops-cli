@@ -70,6 +70,27 @@ def test_the_form_holds_the_question_once_with_its_options_and_the_hash() -> Non
     ) == (1, 2, [True, True], True, True, True, True)
 
 
+def test_a_frame_that_names_the_place_of_its_question_keeps_the_rest_and_the_hash() -> None:
+    """A job that keeps the question in the body of the item names that place in the frame in
+    place of the question text. The options, the recommendation, the evidence and the hidden block
+    stay, and the hash still covers the question, so items that ask it still share one frame
+    (#6196)."""
+    question = _question()
+    place = "The first point of Open questions in the section Proposed design of the body."
+
+    rendered = question.render(asked=place)
+
+    assert (
+        QUESTION in rendered,
+        place in rendered,
+        [text in rendered and result in rendered for text, result in (SPLIT, KEEP)],
+        RECOMMENDATION in rendered,
+        SPLIT_EVIDENCE in rendered,
+        f"<!-- owner-question:{question.hash} -->" in rendered,
+        rendered.startswith(CONST_ROADMAP_REFINE_COMMENT_MARKER),
+    ) == (False, True, [True, True], True, True, True, True)
+
+
 def test_a_form_holds_three_options_and_refuses_one_option_or_four() -> None:
     rendered = _question(options=(SPLIT, KEEP, DEFER)).render()
 

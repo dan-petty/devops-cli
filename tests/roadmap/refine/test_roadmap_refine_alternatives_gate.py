@@ -36,7 +36,7 @@ from tests.support.roadmap_refine import (
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 
-_WAIT = "Waiting for the alternatives check to run."
+_WAIT = "Next step: the alternatives check records a verdict."
 
 
 def _record_check(store: InMemoryRoadmapStore, number: int, verdict: str) -> None:
@@ -79,7 +79,7 @@ def test_each_step_map_holds_the_alternatives_key() -> None:
     texts = MESSAGES.roadmap
 
     assert (
-        "alternatives" in texts.refine_step_comments,
+        "alternatives" in texts.refine_event_steps,
         "alternatives" in texts.refine_left_waits,
         "alternatives" in texts.refine_step_headings,
     ) == (True, True, True)

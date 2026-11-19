@@ -37,7 +37,7 @@ Before refine writes the model's text into the issue body or a comment, it SHALL
 - **THEN** refine writes `[end-marker]` in the code span, so the marker ends no section
 
 ### Requirement: Refine writes the code in the model's text as it is
-Refine SHALL write a link, a handle or a reference in a code block of the model's text as it is, and in a code span as it is when the text shows no backtick as text. A code span that refine adds SHALL close on its own backticks only, also where GitHub takes a later code span of a length that it closed before as text. Refine SHALL put each point of a comment on one line before it sanitizes the point.
+Refine SHALL write a link, a handle or a reference in a code block of the model's text as it is, and in a code span as it is when the text shows no backtick as text. A code span that refine adds SHALL close on its own backticks only, also where GitHub takes a later code span of a length that it closed before as text. Refine SHALL put each point of a next step on one line before it sanitizes the point.
 
 #### Scenario: A link, a handle or a reference in code
 - **WHEN** the model's text is ``Run `curl www.example.com` here``, ``Run `see other/repo#1 now` here``, ``Ask `ping @alice now` ``, a fenced code block or an indented code block that holds a `www.` link
@@ -53,7 +53,7 @@ Refine SHALL write a link, a handle or a reference in a code block of the model'
 
 #### Scenario: A comment point with a code block
 - **WHEN** a split-off of the model is `Read this:`, a blank line, and `www.example.com` indented by four spaces
-- **THEN** the comment shows the point as ``1. Read this: `www.example.com` ``
+- **THEN** the next step holds the point ``Read this: `www.example.com` ``
 
 ### Requirement: The hash of the body leaves out the job's block
 The hash that refine records as `refine.body_hash` SHALL be the hash of the body outside the alternatives job's block and refine's section, as the check for an unchanged item computes it. The check before a write SHALL compare the hash of the whole body outside refine's section, so a block that the job wrote after refine read the body is kept.

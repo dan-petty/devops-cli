@@ -156,7 +156,7 @@ def _stub(store: InMemoryRoadmapStore, problem: str = "x", tool: str = "x") -> i
             RefineRecordKey.FAILURE: "Searched: nothing",
         },
     )
-    asked = step_comment(_item(store, number), NextStep.PERSON, [_ASKED], SHA)
+    asked = step_comment(_item(store, number), NextStep.PERSON, [_ASKED])
     store.comment(number, asked)
     return number
 
