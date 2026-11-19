@@ -4,9 +4,9 @@
 
 Kind: behavior. Reads: `src/devops_cli/infra/plan.py`, `tests/infra/test_plan.py`, `tests/commands/test_infra_plan.py`, `tests/commands/test_infra_apply.py`, `tests/infra/test_apply.py`. Changes: `src/devops_cli/infra/plan.py`, `tests/infra/test_plan.py`.
 
-- [ ] 1.1 Add `pytest.param("a,b", "offline", "a,b,!offline", id="comma-limit")` and `pytest.param("gpu_nodes", "offline", "gpu_nodes:!offline", id="single-group")` to `test_a_host_in_the_offline_group_is_never_in_the_limit` in `tests/infra/test_plan.py`; the comma case fails on main, where `host_pattern` gives `a,b:!offline`
+- [x] 1.1 Add `pytest.param("a,b", "offline", "a,b,!offline", id="comma-limit")` and `pytest.param("gpu_nodes", "offline", "gpu_nodes:!offline", id="single-group")` to `test_a_host_in_the_offline_group_is_never_in_the_limit` in `tests/infra/test_plan.py`; the comma case fails on main, where `host_pattern` gives `a,b:!offline`
   - Verification: `$ uv run devops ci test tests/infra/test_plan.py` fails on the base
-- [ ] 1.2 Change `host_pattern` in `src/devops_cli/infra/plan.py` so it joins the offline exclusion with a comma when the limit holds a comma and with a colon when it holds none. Keep `all:!offline` when the limit is absent, and keep the pattern unchanged when no offline group is named. Update the module docstring line that shows the limit as `<limit>:!<offline group>`. The cases `all`, `node-5.example.com` and `k3s_agent` of `tests/infra/test_plan.py` keep their answer
+- [x] 1.2 Change `host_pattern` in `src/devops_cli/infra/plan.py` so it joins the offline exclusion with a comma when the limit holds a comma and with a colon when it holds none. Keep `all:!offline` when the limit is absent, and keep the pattern unchanged when no offline group is named. Update the module docstring line that shows the limit as `<limit>:!<offline group>`. The cases `all`, `node-5.example.com` and `k3s_agent` of `tests/infra/test_plan.py` keep their answer
   - Verification: `$ uv run devops ci test tests/infra/test_plan.py` passes
 
 ## 2. Show the fixed separator in the dry run of the plan command
