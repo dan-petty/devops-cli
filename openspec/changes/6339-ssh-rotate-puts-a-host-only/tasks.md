@@ -24,9 +24,9 @@ Adds: `host_only_public_key`, `host_only_key_instruction`
 
 Kind: other. Reads: `docs/commands/ssh.md`, `docs/CLI_REFERENCE.md`. Changes: `docs/commands/ssh.md`, `docs/CLI_REFERENCE.md`.
 
-- [ ] 3.1 Run `uv run devops docs generate`, the command of `src/devops_cli/commands/docs.py:def generate`, after the docstring of `rotate` changes. It writes the new help into `docs/commands/ssh.md` and the command summary of `docs/CLI_REFERENCE.md`. Change no line of them by hand
+- [x] 3.1 Run `uv run devops docs generate`, the command of `src/devops_cli/commands/docs.py:def generate`, after the docstring of `rotate` changes. It writes the new help into `docs/commands/ssh.md` and the command summary of `docs/CLI_REFERENCE.md`. Change no line of them by hand
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 3.2 Regenerate `docs/commands/ssh.md` and `docs/CLI_REFERENCE.md` with `uv run devops docs generate`
+- [x] 3.2 Regenerate `docs/commands/ssh.md` and `docs/CLI_REFERENCE.md` with `uv run devops docs generate`
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria

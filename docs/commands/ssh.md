@@ -46,7 +46,8 @@ devops ssh register [OPTIONS]
 
 Rotate keys older than rotation_days (default 90).
 
-Generates, registers, and reports the old key.
+Only the prefix in ssh.key_prefix registers the new key on GitHub and sets it as the git signing key.
+Every other prefix is for hosts only: the run prints the new public key to put on the hosts.
 
 ```bash
 devops ssh rotate [OPTIONS]
