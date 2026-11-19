@@ -13,7 +13,10 @@ A gate check module that only loses checks needs no proof, since a deleted check
 tree (#6456). Its head keeps the top-level statements of its base in the same order, by syntax
 tree and with no module docstring, and leaves out at least one `def check_*`. Each statement that
 it leaves out is an import, an assignment to names, a function or a class, and the head uses no
-name that such a statement binds. So no kept case can see the change.
+name that such a statement binds. A left-out statement also runs no code at import that can set
+state: it holds no call that runs at import, no decorator other than a pytest mark or a
+`functools` decorator, no class base or keyword, and no import of a module of the project that the
+head does not import too. So no kept case can see the change.
 """
 
 from __future__ import annotations
@@ -21,11 +24,21 @@ from __future__ import annotations
 import ast
 from typing import NamedTuple
 
-from devops_cli.config.constants import CONST_GATE_CHECK_PREFIX, CONST_TEST_FILE_PREFIX
+from devops_cli.config.constants import (
+    CONST_GATE_CHECK_PREFIX,
+    CONST_TEST_FILE_PREFIX,
+    CONST_TESTS_ROOT_DIR,
+)
 
 _QualifiedName = tuple[str, ...]
 # The top-level statements that bind a name with no assignment.
 _DEFINITIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Import, ast.ImportFrom)
+# The decorators that set no state outside the function that they take: a pytest mark holds the
+# cases of a check, and a `functools` decorator such as `cache` wraps the function.
+_PURE_DECORATORS = ("pytest.mark.", "functools.")
+# The top packages of the project: the tests and this package. Their modules can set state at
+# import that a kept case reads.
+_PROJECT_PACKAGES = frozenset({CONST_TESTS_ROOT_DIR, __name__.partition(".")[0]})
 
 
 class ParsedTests(NamedTuple):
@@ -175,26 +188,95 @@ def _used_names(head: list[ast.stmt]) -> set[str]:
     return names
 
 
+def _imported_modules(node: ast.Import | ast.ImportFrom) -> set[str]:
+    """The modules whose code an import runs: each module of `import`, or the module of `from`
+    with a dot for each level of a relative import."""
+    if isinstance(node, ast.Import):
+        return {alias.name for alias in node.names}
+    return {"." * node.level + (node.module or "")}
+
+
+def _is_project_module(module: str) -> bool:
+    """Whether `module` is a module of the project: relative, or under a project package."""
+    return module.startswith(".") or module.partition(".")[0] in _PROJECT_PACKAGES
+
+
+def _has_call(nodes: list[ast.AST]) -> bool:
+    """Whether a call is in one of `nodes`."""
+    return any(isinstance(node, ast.Call) for root in nodes for node in ast.walk(root))
+
+
+def _is_pure_decorator(decorator: ast.expr) -> bool:
+    """Whether `decorator` is a pytest mark or a `functools` decorator, with or without arguments."""
+    target = decorator.func if isinstance(decorator, ast.Call) else decorator
+    return ast.unparse(target).startswith(_PURE_DECORATORS)
+
+
+def _runs_code(node: ast.stmt, head_modules: set[str]) -> bool:
+    """Whether a left-out statement runs code at import that can set state that a kept case
+    reads. A decorator is a call, and a class statement calls the metaclass and the
+    `__init_subclass__` of its bases. The body of a function runs only when a case calls it. An
+    import of a module of the project runs its code, unless the head imports that module too
+    (`head_modules`). A module of the standard library or of a dependency sets no state that a
+    gate check reads."""
+    match node:
+        case ast.Import() | ast.ImportFrom():
+            return any(
+                _is_project_module(module)
+                and not any(
+                    loaded == module or loaded.startswith(f"{module}.") for loaded in head_modules
+                )
+                for module in _imported_modules(node)
+            )
+        case ast.FunctionDef() | ast.AsyncFunctionDef():
+            evaluated: list[ast.AST] = [node.args, *([node.returns] if node.returns else [])]
+            return not all(map(_is_pure_decorator, node.decorator_list)) or _has_call(evaluated)
+        case ast.ClassDef():
+            return (
+                bool(node.bases or node.keywords)
+                or not all(map(_is_pure_decorator, node.decorator_list))
+                or any(_runs_code(statement, head_modules) for statement in node.body)
+            )
+    return _has_call([node])
+
+
+def _check_names(module: str, statements: list[ast.stmt]) -> tuple[str, ...]:
+    """The `def check_*` of `statements`, in their order, named `<module>.<check>` as
+    `tests/gate/runner.py` names a case."""
+    return tuple(
+        f"{module}.{node.name}"
+        for node in statements
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+        and node.name.startswith(CONST_GATE_CHECK_PREFIX)
+    )
+
+
 def only_deleted_checks(module: str, base: str | None, head: str | None) -> tuple[str, ...]:
     """The checks that a gate check module deletes, named `<module>.<check>` as
     `tests/gate/runner.py` names a case, in the order of the base, when the module only loses
     checks (#6456). Else an empty tuple: the module is new or deleted, a side does not parse, or
     the head adds, changes or moves a statement, or leaves out a statement that a kept case can
-    see."""
+    see or that runs code at import."""
     if (base_body := _statements(base)) is None or (head_body := _statements(head)) is None:
         return ()
     if (left_out := _left_out(base_body, head_body)) is None:
         return ()
+    head_modules: set[str] = set()
+    for stmt in head_body:
+        if isinstance(stmt, ast.Import | ast.ImportFrom):
+            head_modules |= _imported_modules(stmt)
     bound: set[str] = set()
     for node in left_out:
-        if (names := _bound_names(node)) is None:
+        if (names := _bound_names(node)) is None or _runs_code(node, head_modules):
             return ()
         bound |= names
     if bound & _used_names(head_body):
         return ()
-    return tuple(
-        f"{module}.{node.name}"
-        for node in left_out
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
-        and node.name.startswith(CONST_GATE_CHECK_PREFIX)
-    )
+    return _check_names(module, left_out)
+
+
+def deleted_module_checks(module: str, base: str | None) -> tuple[str, ...]:
+    """The checks of a gate check module that the fix deletes, read from its base, named and
+    ordered as `only_deleted_checks` names them (#6456). Empty when the base does not parse. The
+    module stays out of the replay: no case of it runs on either tree."""
+    return _check_names(module, _statements(base) or [])
