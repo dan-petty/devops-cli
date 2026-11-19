@@ -27,7 +27,10 @@ from devops_cli.ai.client.models import (
 from devops_cli.ai.client.network import validate_base_url
 from devops_cli.ai.client.ollama import OllamaProviderMixin
 from devops_cli.ai.client.openai import OpenAICompatProviderMixin
-from devops_cli.ai.client.structured import StructuredOutputMixin
+from devops_cli.ai.client.structured import (
+    _CURRENT_REQUEST_TIMEOUT,
+    StructuredOutputMixin,
+)
 from devops_cli.ai.client.style_request import with_style_request
 from devops_cli.ai.thinking_stream import strip_think_blocks
 from devops_cli.config.constants import (
@@ -400,9 +403,11 @@ class LLMClient(
 
     def _request_timeout(self) -> httpx2.Timeout:
         """The caller's timeout, else the task's configured `timeout`, else the HTTP default."""
+        explicit = _CURRENT_REQUEST_TIMEOUT.get()
         return request_timeout(
             read=(
-                self._request_timeout_seconds
+                explicit
+                or self._request_timeout_seconds
                 or self._config.timeout
                 or DEFAULT_HTTP_TIMEOUT_SECONDS
             ),

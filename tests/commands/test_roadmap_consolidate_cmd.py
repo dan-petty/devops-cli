@@ -214,3 +214,41 @@ def test_confirm_without_decline_is_refused(
     assert result.exit_code == 1
     assert "--decline" in result.output
     assert board.calls == []
+
+
+def test_consolidate_rejects_limit_above_maximum_20(
+    cli: Callable[..., Any], roadmap_store: InMemoryRoadmapStore, board: ModelFake
+) -> None:
+    """The roadmap consolidate command rejects limit above 20 (#4856)."""
+    result = cli("roadmap", "consolidate", "--repo", REPO, "--limit", "21")
+
+    assert result.exit_code != 0
+    assert "20" in result.output
+    assert board.calls == []
+
+
+def test_consolidate_budget_exceeded_writes_plan_and_prints_diagnostic_to_stderr(
+    cli: Callable[..., Any],
+    roadmap_store: InMemoryRoadmapStore,
+    board: ModelFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A consolidate run reaching its budget exits 0, writes the plan, and prints unjudged to stderr (#4856)."""
+    _answer(board)
+
+    import time
+
+    current = [1000.0]
+
+    def fake_monotonic() -> float:
+        val = current[0]
+        current[0] += 1000.0
+        return val
+
+    monkeypatch.setattr(time, "monotonic", fake_monotonic)
+
+    result = cli("roadmap", "consolidate", "--repo", REPO)
+
+    assert result.exit_code == 0, result.output
+    assert len(_plan_files()) == 1
+    assert "unjudged" in result.output

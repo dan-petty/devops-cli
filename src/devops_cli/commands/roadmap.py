@@ -35,7 +35,10 @@ import typer
 from devops_cli.commands.roadmap_eval import eval_app
 from devops_cli.commands.roadmap_review import review_app
 from devops_cli.commands.roadmap_step import step_app
-from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
+from devops_cli.config.constants import (
+    CONST_OUTPUT_FORMAT_TABLE,
+    CONST_ROADMAP_CONSOLIDATE_MAX_LIMIT,
+)
 from devops_cli.config.defaults import (
     DEFAULT_LOG_TAIL_LINES,
     DEFAULT_ROADMAP_IMPLEMENT_LIMIT,
@@ -392,7 +395,13 @@ def consolidate_cmd(
     repo: RepoOption = None,
     ref: Annotated[str | None, typer.Option("--ref", help=HELP.roadmap.consolidate_ref)] = None,
     limit: Annotated[
-        int | None, typer.Option("--limit", min=1, help=HELP.roadmap.consolidate_limit)
+        int | None,
+        typer.Option(
+            "--limit",
+            min=1,
+            max=CONST_ROADMAP_CONSOLIDATE_MAX_LIMIT,
+            help=HELP.roadmap.consolidate_limit,
+        ),
     ] = None,
     decline: Annotated[
         str | None, typer.Option("--decline", help=HELP.roadmap.consolidate_decline)
@@ -447,6 +456,12 @@ def consolidate_cmd(
         )
     write_stdout(job.render_plan(plan) + "\n")
     print_info(texts.consolidate_written.format(path=job.plan_path(directory, plan.day)))
+    if plan.budget_exceeded:
+        print_warning(
+            texts.consolidate_budget_diagnostic.format(unjudged=plan.unjudged),
+            to_stderr=True,
+            safe=True,
+        )
 
 
 @app.command("stage", help=HELP.roadmap.stage)

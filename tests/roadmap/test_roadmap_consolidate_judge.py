@@ -179,3 +179,61 @@ def test_the_digest_of_a_case_follows_its_texts_and_its_evidence() -> None:
 
     assert case().digest == case().digest
     assert case().digest != changed.digest
+
+
+def test_short_remaining_budget_limits_request_timeout(model_fake: ModelFake) -> None:
+    """When remaining budget < 360s, timeout is remaining budget - 60s (#4856)."""
+    scripted(model_fake)
+    t0 = 1000.0
+    deadline = t0 + 350.0
+    recorded_timeouts: list[float | None] = []
+
+    class SpyClient:
+        def chat_structured(
+            self, system: str, prompt: str, schema: Any, *, timeout: float | None = None
+        ) -> Any:
+            recorded_timeouts.append(timeout)
+            return model_fake.chat_structured(system, prompt, schema)
+
+    j = GatewayShortlistJudge(AIConfig(), client=SpyClient())
+    res = j.judge(case(), deadline=deadline, clock=lambda: t0)
+    assert res is not None
+    assert recorded_timeouts == [290.0, 290.0]
+
+
+def test_remaining_budget_under_margin_makes_no_request(model_fake: ModelFake) -> None:
+    """When remaining budget <= 60s, judge makes no request and returns None (#4856)."""
+    scripted(model_fake)
+    t0 = 1000.0
+    deadline = t0 + 50.0
+    j = GatewayShortlistJudge(AIConfig(), client=model_fake)
+    res = j.judge(case(), deadline=deadline, clock=lambda: t0)
+    assert res is None
+    assert model_fake.calls == []
+
+
+def test_second_request_skipped_when_budget_drops_under_margin(model_fake: ModelFake) -> None:
+    """When first request leaves < 60s, second request is skipped (#4856)."""
+    scripted(model_fake)
+    current_time = [1000.0]
+    deadline = 1100.0
+
+    class AdvancingClient:
+        def chat_structured(
+            self, system: str, prompt: str, schema: Any, *, timeout: float | None = None
+        ) -> Any:
+            current_time[0] = 1060.0
+            return model_fake.chat_structured(system, prompt, schema)
+
+    j = GatewayShortlistJudge(AIConfig(), client=AdvancingClient())
+    res = j.judge(case(), deadline=deadline, clock=lambda: current_time[0])
+    assert res is None
+    assert len(model_fake.calls) == 1
+
+
+def test_judge_request_timeout_returns_none_and_does_not_abort(model_fake: ModelFake) -> None:
+    """A model request timeout marks shortlist unjudged and returns None (#4856)."""
+    model_fake.route_error(stage("proposal"), TimeoutError("timed out"))
+    j = GatewayShortlistJudge(AIConfig(), client=model_fake)
+    res = j.judge(case())
+    assert res is None

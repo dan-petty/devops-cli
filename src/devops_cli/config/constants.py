@@ -305,6 +305,7 @@ CONST_MCP_LAZY_DOMAINS: Final[frozenset[str]] = frozenset(
 # `GitHubUnreadError` and the dispatch does not stop it with exit code 124 (#4784). The value is the
 # MCP read bound, and `constants.py` cannot import it from `defaults.py`, which imports this module.
 CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS: Final[float] = 300.0
+CONST_MCP_ROADMAP_CONSOLIDATE_TIMEOUT_SECONDS: Final[float] = 900.0
 
 # Command exposure table: (command_path, timeout_seconds, read_only, format_json)
 # A role server and a client choose tools by the read-only flag. A tool whose command writes local
@@ -427,7 +428,7 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     # The plan run only: the tool publishes no `--decline` or `--confirm` (#3745). A run judges at
     # most `--limit` shortlists (default 10). On 2026-11-10 a run judged 6 in about 6 minutes, so
     # 10 need about 10. A run that stops keeps each judgement in its progress file.
-    (("roadmap", "consolidate"), 900.0, True, False),
+    (("roadmap", "consolidate"), CONST_MCP_ROADMAP_CONSOLIDATE_TIMEOUT_SECONDS, True, False),
     (("roadmap", "intake"), 300.0, False, False),
     # `--confirm` writes the proposed designs to GitHub (#3235).
     (("roadmap", "refine"), 300.0, False, False),
@@ -4029,6 +4030,13 @@ CONST_ROADMAP_JOB_COMMENT_MARKERS: Final[tuple[str, ...]] = (
 )
 # `devops roadmap consolidate` (#1127): where its files are, under the data directory.
 CONST_ROADMAP_CONSOLIDATE_DIR: Final[str] = "roadmap/consolidate"
+# The run budget and request timeouts of `devops roadmap consolidate` (#4856). The run budget is
+# shorter than the MCP tool timeout (900 s) with margin, and the request timeout is shorter than
+# the run budget with margin.
+CONST_ROADMAP_CONSOLIDATE_RUN_BUDGET_SECONDS: Final[float] = 780.0
+CONST_ROADMAP_CONSOLIDATE_REQUEST_TIMEOUT_SECONDS: Final[float] = 300.0
+CONST_ROADMAP_CONSOLIDATE_MARGIN_SECONDS: Final[float] = 60.0
+CONST_ROADMAP_CONSOLIDATE_MAX_LIMIT: Final[int] = 20
 CONST_ROADMAP_LABELS_PATH: Final[str] = ".github/labels.yml"
 # `devops roadmap eval implement` (#3030). The folder of the fixtures in a checkout, and the folder
 # of the JSON reports under the data directory. The patterns are the files that a scratch file
