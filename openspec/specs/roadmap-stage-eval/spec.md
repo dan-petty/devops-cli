@@ -583,3 +583,10 @@ The MCP exposure table SHALL hold no entry for `devops roadmap eval stage`, so t
 #### Scenario: The eval stage command stays excluded
 - **WHEN** A test resolves the path of `devops roadmap eval stage` in the command tree and asks the MCP server for its tool.
 - **THEN** The path resolves to a command, and the server returns no tool for it.
+
+### Requirement: The verify report names the stop reason of a failed case
+The eval verify report SHALL record the typed stop reason of each failed case in its JSON and SHALL name it in its text.
+
+#### Scenario: A case stops with a typed reason
+- **WHEN** A case run stops with the reason `text_reply`.
+- **THEN** The JSON holds that reason for the case and the text report names it.
