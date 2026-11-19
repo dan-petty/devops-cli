@@ -23,14 +23,18 @@ A refine comment SHALL name the next step and the parts of the refine section th
 - **THEN** the comment is `Next step: the open items close, or a person replies in a comment or edits the body. See Dependencies in the section Proposed design of the body.`
 
 ### Requirement: The refine frame names the section
-The owner-question frame of refine SHALL name the parts of the refine section that hold its question in place of the question text. It SHALL keep the options, the recommendation, the evidence and the hidden block with the hash of the question. The frames of stage and implement SHALL keep the question text.
+The owner-question frame of refine SHALL name the parts of the refine section that hold its question in place of the question text. It asks only the first open question, so it SHALL name the first point of `Open questions`. It SHALL keep the options, the recommendation, the evidence and the hidden block with the hash of the question. The frames of stage and implement SHALL keep the question text.
 
 #### Scenario: A question for a person
 - **WHEN** a round leaves an open question for a person
 - **THEN** the frame names `Open questions`, holds no text of the question, and its hidden hash is the `owner_question.hash` of the record
 
+#### Scenario: Two open questions
+- **WHEN** a round leaves two open questions for a person
+- **THEN** the frame names the first point of `Open questions`, and its hidden hash is the hash of the first question
+
 ### Requirement: Refine posts a comment only on a changed result
-Refine SHALL post its comment only when the next step, the section without its `checked-at` line or the item that holds the frame differs from the round before, or when the round files a deferred part. A round that posts no comment SHALL record its time as `refine.repeated_at`. A round that posts one SHALL clear it.
+Refine SHALL post its comment only when the next step, the section without its `checked-at` line or the item that holds the frame differs from the round before, or when the round files a deferred part. A round that posts no comment SHALL record as `refine.repeated_at` the time at which it read the comments. A round that posts one SHALL clear it.
 
 #### Scenario: The same result after a reply
 - **WHEN** a person replies and the next round finds the same question
@@ -45,11 +49,15 @@ Refine SHALL post its comment only when the next step, the section without its `
 - **THEN** the round posts one event line
 
 ### Requirement: A round with no comment starts the wait
-A reply and an answer to a frame on another item SHALL end a wait only when made at or after the later of refine's last comment and `refine.repeated_at`. The model SHALL read each reply since refine's last comment. A stage return SHALL count from refine's last comment, so a second return whose comment the store refuses as a repeat still waits on a person.
+The wait SHALL start at the later of refine's last comment and `refine.repeated_at`. A reply and an answer to a frame on another item SHALL end a wait only when made at or after that start. The model SHALL read each reply since refine's last comment. A stage return SHALL count from refine's last comment, so a second return whose comment the store refuses as a repeat still waits on a person.
 
 #### Scenario: A second reply after a round with no comment
 - **WHEN** a person replies, the next round finds the same question, a later round runs, and then the person replies again
 - **THEN** the later round keeps the item waiting with no model call, and the round after the second reply sends both replies to the model
+
+#### Scenario: A reply while a round with no comment runs
+- **WHEN** a person replies after a round read the comments and before it writes, and the round finds the same question
+- **THEN** `refine.repeated_at` is the time of the read, and the next round sends the reply to the model
 
 ### Requirement: A frame moves when the item that holds it closes
 Refine SHALL record as `refine.frame` the item whose comment holds the frame of the question that it asked. The wait SHALL end when the open item that holds that frame is another item, and the next round SHALL post the frame when no older open item asks the question.
