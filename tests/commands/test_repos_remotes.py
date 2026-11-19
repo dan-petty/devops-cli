@@ -523,7 +523,7 @@ def test_remotes_updates_remote_url_when_changed(
 def test_remotes_helper_functions(tmp_path: Path, git_fake: GitFake) -> None:
     """Test resolution helpers and edge cases."""
     from devops_cli.gitea.remotes import (
-        _extract_branch_name_from_porcelain,
+        extract_branch_name_from_porcelain,
         read_default_branch,
         resolve_repo_owner_name,
     )
@@ -545,8 +545,8 @@ def test_remotes_helper_functions(tmp_path: Path, git_fake: GitFake) -> None:
     )
     assert read_default_branch(standalone) == "main"
 
-    # _extract_branch_name_from_porcelain with spaces and fallback
-    b1 = _extract_branch_name_from_porcelain("* refs/heads/feature:refs/heads/feature", ["main"])
+    # extract_branch_name_from_porcelain with spaces and fallback
+    b1 = extract_branch_name_from_porcelain("* refs/heads/feature:refs/heads/feature", ["main"])
     assert b1 == "feature"
-    b2 = _extract_branch_name_from_porcelain("malformed-line", ["fallback-branch"])
+    b2 = extract_branch_name_from_porcelain("malformed-line", ["fallback-branch"])
     assert b2 == "fallback-branch"

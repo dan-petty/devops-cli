@@ -43,6 +43,10 @@ from devops_cli.exceptions.git import (
     GitOperationError,
     InvalidBranchNameError,
 )
+from devops_cli.exceptions.gitea import (
+    GiteaAccessBlocked,
+    GiteaError,
+)
 from devops_cli.exceptions.http import ServiceRequestError
 from devops_cli.exceptions.k8s import (
     ChaosExecutionError,
@@ -182,6 +186,8 @@ __all__ = [
     "GitHubUnauthenticatedError",
     "GitHubUnreadError",
     "GitOperationError",
+    "GiteaAccessBlocked",
+    "GiteaError",
     "ImplementEvalError",
     "InvalidBranchNameError",
     "InvalidURLError",

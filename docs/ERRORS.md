@@ -66,6 +66,8 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `GitHubUnreadError` | `GITHUB_UNREAD` | `1` | Git | Raised when no answer from GitHub could be read, so what the request did is unknown. |
 | `GitOperationError` | `GIT_OPERATION_ERROR` | `1` | Git | Base exception for Git repository and branch operation failures. |
 | `GitSettingsError` | `ROADMAP_IMPLEMENT_REFUSED` | `1` | Roadmap | Raised when the git settings of the checkout of the implement job hold a key, an attribute |
+| `GiteaAccessBlocked` | `GITEA_ACCESS_BLOCKED` | `1` | Gitea | Raised when Cloudflare Access blocks a Gitea request with a redirect or challenge. |
+| `GiteaError` | `GITEA_ERROR` | `1` | Gitea | Base exception for Gitea forge operations. |
 | `HTTPTimeoutTypeError` | `VALIDATION_ERROR` | `1` | Devops_cli.http.client | Raised when an invalid timeout parameter type is provided. |
 | `HarnessValidationError` | `HARNESS_VALIDATION_ERROR` | `1` | Ai | Raised when an AI evaluation or harness schema validation fails. |
 | `ImagePinError` | `K8S_IMAGE_PIN_ERROR` | `1` | K8s | Raised when an image that an Argo CD Application pins does not resolve in its registry, or an |

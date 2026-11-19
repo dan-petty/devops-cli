@@ -321,7 +321,7 @@ def run_repos_remotes(
         raise typer.Exit(1)
 
 
-def _extract_branch_name_from_porcelain(line: str, fallback_branches: list[str]) -> str:
+def extract_branch_name_from_porcelain(line: str, fallback_branches: list[str]) -> str:
     parts = line.split("\t")
     if len(parts) >= 2:
         ref_part = parts[1].strip()
@@ -386,11 +386,11 @@ def _process_porcelain_lines(output: str, label: str, branches: list[str]) -> tu
         flag = raw_line[0] if raw_line else ""
         if flag in ("*", " ", "+"):
             has_porcelain = True
-            b_name = _extract_branch_name_from_porcelain(raw_line, branches)
+            b_name = extract_branch_name_from_porcelain(raw_line, branches)
             print_info(f"{label}: {b_name} updated", prefix=False)
         elif flag == "!":
             has_porcelain = True
-            b_name = _extract_branch_name_from_porcelain(raw_line, branches)
+            b_name = extract_branch_name_from_porcelain(raw_line, branches)
             print_error(
                 f"{label}: {b_name} rejected (non-fast-forward). "
                 f"Inspect with: git log gitea/{b_name} ^origin/{b_name}",
