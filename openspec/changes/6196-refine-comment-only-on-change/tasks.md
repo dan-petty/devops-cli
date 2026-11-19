@@ -16,7 +16,7 @@
 
 ## 3. Documents
 
-- [ ] 3.1 Describe the section, the event line, the gate and `refine.frame` in `docs/roadmap/refine.md`, `docs/ROADMAP_WORKFLOW.md` and `docs/roadmap/inbox.md`, and regenerate the generated documents.
+- [x] 3.1 Describe the section, the event line, the gate and `refine.frame` in `docs/roadmap/refine.md`, `docs/ROADMAP_WORKFLOW.md` and `docs/roadmap/inbox.md`, and regenerate the generated documents.
   - Verification: `$ uv run devops docs generate --check`
 
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
