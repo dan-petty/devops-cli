@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.179.2](https://github.com/dan-petty/devops-cli/compare/v0.179.1...v0.179.2) (2026-11-19)
+
+
+### Bug Fixes
+
+* **ai:** retry gateway connect failures and reset streams ([#6345](https://github.com/dan-petty/devops-cli/issues/6345)) ([f0a5435](https://github.com/dan-petty/devops-cli/commit/f0a5435937a388685e5b3fdffbadd127c231d2b9))
+* **deps:** drop the ignore of the withdrawn picomatch advisory ([#6348](https://github.com/dan-petty/devops-cli/issues/6348)) ([1447ec3](https://github.com/dan-petty/devops-cli/commit/1447ec383fae369b5b2e5c75461259d179db5848))
+* **k8s:** loosen the stage limits and correct the Service config notes ([#6356](https://github.com/dan-petty/devops-cli/issues/6356)) ([397d066](https://github.com/dan-petty/devops-cli/commit/397d0665ff0497070805384bfd8dcac73ab3836a))
+* **roadmap:** skip Python keywords in stage removal names ([#6349](https://github.com/dan-petty/devops-cli/issues/6349)) ([5e6822d](https://github.com/dan-petty/devops-cli/commit/5e6822d0517dc1a2e08c00300d8c853b76721a4e))
+* **roadmap:** Tell the stage planner what counts as source code ([#6335](https://github.com/dan-petty/devops-cli/issues/6335)) ([b9060f5](https://github.com/dan-petty/devops-cli/commit/b9060f5745e23d7d459a96ed51f2965e981ca475))
+
 ## [0.179.1](https://github.com/dan-petty/devops-cli/compare/v0.179.0...v0.179.1) (2026-11-18)
 
 
