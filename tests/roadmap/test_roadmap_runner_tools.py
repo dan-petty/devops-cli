@@ -352,7 +352,7 @@ def test_main_exits_0_when_every_tool_passes(
     every_tool_passes: ProcessFake, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert main() == 0
-    assert f"All {len(RUNNER_TOOLS)} runner tools run." in capsys.readouterr().out
+    assert f"All {len(RUNNER_TOOLS)} runner tools are on PATH and run." in capsys.readouterr().out
 
 
 def test_a_hook_that_the_job_leaves_out_is_a_hook_of_the_config_and_runs_programs_not_in_the_image() -> (
