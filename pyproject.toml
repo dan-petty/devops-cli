@@ -88,6 +88,8 @@ dependencies = [
     "jq==1.13.0",
     "harbor==0.26.0",
     "tomlkit==0.15.2",
+    "numpy==2.5.4",
+    "pytrec-eval-terrier==0.5.11",
 ]
 
 [project.optional-dependencies]
@@ -354,6 +356,9 @@ invalid-await = "ignore"
 deprecated = "ignore"
 not-callable = "ignore"
 invalid-parameter-default = "ignore"
+
+[tool.deptry]
+package_module_name_map = { "pytrec-eval-terrier" = "pytrec_eval" }
 
 [tool.deptry.per_rule_ignores]
 # Tree-sitter grammars are loaded by name in ai/ast/engine.py.

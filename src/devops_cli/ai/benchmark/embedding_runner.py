@@ -21,9 +21,9 @@ from devops_cli.ai.benchmark.embedding_tasks import (
 )
 from devops_cli.ai.benchmark.labels import server_label
 from devops_cli.ai.benchmark.model_spec import parse_model_spec
+from devops_cli.ai.benchmark.retrieval_metrics import rank_corpus, score_retrieval
 from devops_cli.ai.benchmark.runner import _get_benchmarks_base_dir, _key_for_endpoint
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine
-from devops_cli.ai.vector_similarity import cosine_similarity
 from devops_cli.config.constants import (
     CONST_EMBEDDING_REPORT_FILENAME,
     CONST_FP32_BYTES_PER_ELEMENT,
@@ -64,16 +64,6 @@ from devops_cli.output import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def compute_ndcg_at_k(ranked_indices: list[int], target_idx: int, k: int = 5) -> float:
-    """Compute Normalized Discounted Cumulative Gain at rank K for binary relevance."""
-    for rank_idx, doc_idx in enumerate(ranked_indices[:k], 1):
-        if doc_idx == target_idx:
-            dcg = 1.0 / math.log2(rank_idx + 1)
-            idcg = 1.0 / math.log2(1 + 1)
-            return float(dcg / idcg)
-    return 0.0
 
 
 _RANK_MEDALS: dict[int, str] = {1: "🥇", 2: "🥈", 3: "🥉"}
@@ -347,7 +337,7 @@ class EmbeddingBenchmarkRunner:
             endpoint = self.servers[0] if self.servers else _NO_SERVER
         return self.evaluate_model_on_server(model_name, endpoint, pairs, corpus)
 
-    def evaluate_model_on_server(  # noqa: C901
+    def evaluate_model_on_server(
         self,
         model_name: str,
         server_url: str,
@@ -426,82 +416,34 @@ class EmbeddingBenchmarkRunner:
             is_normalized = abs(norm - 1.0) < 0.05 or abs(norm - 0.0) < 0.01
 
         # 5. Compute semantic retrieval metrics (Recall@1, Recall@3, Recall@5, MRR, NDCG@5, Margin)
-        top1_hits = 0
-        top3_hits = 0
-        top5_hits = 0
-        reciprocal_ranks: list[float] = []
-        ndcg_scores: list[float] = []
-        margins: list[float] = []
-        target_sims: list[float] = []
-        distractor_sims: list[float] = []
-        category_hits: dict[str, list[int]] = {}
-
-        has_all_queries = query_vectors and len(query_vectors) == len(pairs)
-        has_all_corpus = corpus_vectors and len(corpus_vectors) == len(corpus)
+        has_all_queries = bool(query_vectors and len(query_vectors) == len(pairs))
+        has_all_corpus = bool(corpus_vectors and len(corpus_vectors) == len(corpus))
 
         if has_all_queries and has_all_corpus:
-            for idx, (eval_item, q_vec) in enumerate(zip(pairs, query_vectors, strict=False)):
-                cat = getattr(eval_item, "category", "general")
-                category_hits.setdefault(cat, [])
-
-                scored_passages: list[tuple[int, float]] = []
-                for c_idx, c_vec in enumerate(corpus_vectors):
-                    sim = cosine_similarity(q_vec, c_vec)
-                    scored_passages.append((c_idx, sim))
-
-                scored_passages.sort(key=lambda x: x[1], reverse=True)
-                ranked_indices = [idx_and_sim[0] for idx_and_sim in scored_passages]
-
-                target_idx = getattr(eval_item, "target_section_index", idx)
-
-                if target_idx in ranked_indices:
-                    rank = ranked_indices.index(target_idx) + 1
-                else:
-                    rank = len(corpus)
-
-                rr = 1.0 / rank
-                reciprocal_ranks.append(rr)
-
-                # Compute NDCG@5
-                ndcg = compute_ndcg_at_k(ranked_indices, target_idx, k=5)
-                ndcg_scores.append(ndcg)
-
-                # Target similarity vs best distractor
-                t_sim = next((sim for c_i, sim in scored_passages if c_i == target_idx), 0.0)
-                target_sims.append(t_sim)
-
-                other_sims = [sim for c_i, sim in scored_passages if c_i != target_idx]
-                best_other_sim = max(other_sims) if other_sims else 0.0
-                distractor_sims.extend(other_sims)
-                margins.append(t_sim - best_other_sim)
-
-                if rank == 1:
-                    top1_hits += 1
-                    category_hits[cat].append(1)
-                else:
-                    category_hits[cat].append(0)
-
-                if rank <= 3:
-                    top3_hits += 1
-                if rank <= 5:
-                    top5_hits += 1
-
-        total_pairs = max(len(pairs), 1)
-        recall_1 = (top1_hits / total_pairs) * 100.0
-        recall_3 = (top3_hits / total_pairs) * 100.0
-        recall_5 = (top5_hits / total_pairs) * 100.0
-        mrr = (sum(reciprocal_ranks) / len(reciprocal_ranks)) if reciprocal_ranks else 0.0
-        ndcg_5 = (sum(ndcg_scores) / len(ndcg_scores)) if ndcg_scores else 0.0
-        mean_margin = (sum(margins) / len(margins)) if margins else 0.0
-
-        mean_t_sim = sum(target_sims) / len(target_sims) if target_sims else 0.0
-        mean_d_sim = sum(distractor_sims) / len(distractor_sims) if distractor_sims else 0.0
-        separation = mean_t_sim - mean_d_sim
-
-        cat_accs = {
-            cat: (sum(hits) / len(hits) * 100.0) if hits else 0.0
-            for cat, hits in category_hits.items()
-        }
+            targets = [
+                getattr(eval_item, "target_section_index", idx)
+                for idx, eval_item in enumerate(pairs)
+            ]
+            categories = [getattr(eval_item, "category", "general") for eval_item in pairs]
+            scores, ranked_indices = rank_corpus(query_vectors, corpus_vectors)
+            retrieval_scores = score_retrieval(scores, ranked_indices, targets, categories)
+            recall_1 = retrieval_scores.recall_at_1
+            recall_3 = retrieval_scores.recall_at_3
+            recall_5 = retrieval_scores.recall_at_5
+            mrr = retrieval_scores.mrr
+            ndcg_5 = retrieval_scores.ndcg_at_5
+            mean_margin = retrieval_scores.mean_margin
+            separation = retrieval_scores.separation
+            cat_accs = retrieval_scores.category_accuracies
+        else:
+            recall_1 = 0.0
+            recall_3 = 0.0
+            recall_5 = 0.0
+            mrr = 0.0
+            ndcg_5 = 0.0
+            mean_margin = 0.0
+            separation = 0.0
+            cat_accs = {}
 
         # Overall Score Calculation: 60% Retrieval Quality, 30% Throughput/Latency, 10% Health
         quality_score = (
