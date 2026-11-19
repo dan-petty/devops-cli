@@ -1,0 +1,736 @@
+{
+ "valkey_py": "6.2.0",
+ "server": {
+  "valkey_version": "9.1.4"
+ },
+ "scenarios": {
+  "set_nx_ex": [
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-NAME",
+     "valkey-py"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-VER",
+     "6.2.0"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "SET",
+     "devops-contract:set_nx_ex:key",
+     "first",
+     "EX",
+     "60",
+     "NX"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "SET",
+     "devops-contract:set_nx_ex:key",
+     "second",
+     "EX",
+     "60",
+     "NX"
+    ],
+    "reply": "$-1\r\n"
+   },
+   {
+    "command": [
+     "TTL",
+     "devops-contract:set_nx_ex:key"
+    ],
+    "reply": ":60\r\n"
+   },
+   {
+    "command": [
+     "GET",
+     "devops-contract:set_nx_ex:key"
+    ],
+    "reply": "$5\r\nfirst\r\n"
+   },
+   {
+    "command": [
+     "DEL",
+     "devops-contract:set_nx_ex:key"
+    ],
+    "reply": ":1\r\n"
+   }
+  ],
+  "set_exat": [
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-NAME",
+     "valkey-py"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-VER",
+     "6.2.0"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "SET",
+     "devops-contract:set_exat:key",
+     "first",
+     "EXAT",
+     "4102444800"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "EXPIRETIME",
+     "devops-contract:set_exat:key"
+    ],
+    "reply": ":4102444800\r\n"
+   },
+   {
+    "command": [
+     "SET",
+     "devops-contract:set_exat:key",
+     "second",
+     "KEEPTTL",
+     "XX"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "EXPIRETIME",
+     "devops-contract:set_exat:key"
+    ],
+    "reply": ":4102444800\r\n"
+   },
+   {
+    "command": [
+     "GET",
+     "devops-contract:set_exat:key"
+    ],
+    "reply": "$6\r\nsecond\r\n"
+   },
+   {
+    "command": [
+     "SET",
+     "devops-contract:set_exat:gone",
+     "past",
+     "EXAT",
+     "1"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "GET",
+     "devops-contract:set_exat:gone"
+    ],
+    "reply": "$-1\r\n"
+   },
+   {
+    "command": [
+     "DEL",
+     "devops-contract:set_exat:key",
+     "devops-contract:set_exat:gone"
+    ],
+    "reply": ":1\r\n"
+   }
+  ],
+  "hincrby": [
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-NAME",
+     "valkey-py"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-VER",
+     "6.2.0"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "HINCRBY",
+     "devops-contract:hincrby:hash",
+     "count",
+     "5"
+    ],
+    "reply": ":5\r\n"
+   },
+   {
+    "command": [
+     "HINCRBY",
+     "devops-contract:hincrby:hash",
+     "count",
+     "-2"
+    ],
+    "reply": ":3\r\n"
+   },
+   {
+    "command": [
+     "HSET",
+     "devops-contract:hincrby:hash",
+     "text",
+     "x"
+    ],
+    "reply": ":1\r\n"
+   },
+   {
+    "command": [
+     "HINCRBY",
+     "devops-contract:hincrby:hash",
+     "text",
+     "1"
+    ],
+    "reply": "-ERR hash value is not an integer\r\n"
+   },
+   {
+    "command": [
+     "HGETALL",
+     "devops-contract:hincrby:hash"
+    ],
+    "reply": "*4\r\n$5\r\ncount\r\n$1\r\n3\r\n$4\r\ntext\r\n$1\r\nx\r\n"
+   },
+   {
+    "command": [
+     "DEL",
+     "devops-contract:hincrby:hash"
+    ],
+    "reply": ":1\r\n"
+   }
+  ],
+  "zadd_and_trim": [
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-NAME",
+     "valkey-py"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-VER",
+     "6.2.0"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "ZADD",
+     "devops-contract:zadd_and_trim:window",
+     "1",
+     "a",
+     "2",
+     "b",
+     "3",
+     "c",
+     "4",
+     "d"
+    ],
+    "reply": ":4\r\n"
+   },
+   {
+    "command": [
+     "ZREMRANGEBYSCORE",
+     "devops-contract:zadd_and_trim:window",
+     "-inf",
+     "2"
+    ],
+    "reply": ":2\r\n"
+   },
+   {
+    "command": [
+     "ZRANGE",
+     "devops-contract:zadd_and_trim:window",
+     "0",
+     "-1",
+     "WITHSCORES"
+    ],
+    "reply": "*4\r\n$1\r\nc\r\n$1\r\n3\r\n$1\r\nd\r\n$1\r\n4\r\n"
+   },
+   {
+    "command": [
+     "ZADD",
+     "devops-contract:zadd_and_trim:window",
+     "5",
+     "e"
+    ],
+    "reply": ":1\r\n"
+   },
+   {
+    "command": [
+     "ZREMRANGEBYRANK",
+     "devops-contract:zadd_and_trim:window",
+     "0",
+     "-3"
+    ],
+    "reply": ":1\r\n"
+   },
+   {
+    "command": [
+     "ZCARD",
+     "devops-contract:zadd_and_trim:window"
+    ],
+    "reply": ":2\r\n"
+   },
+   {
+    "command": [
+     "ZRANGE",
+     "devops-contract:zadd_and_trim:window",
+     "0",
+     "-1"
+    ],
+    "reply": "*2\r\n$1\r\nd\r\n$1\r\ne\r\n"
+   },
+   {
+    "command": [
+     "DEL",
+     "devops-contract:zadd_and_trim:window"
+    ],
+    "reply": ":1\r\n"
+   }
+  ],
+  "lock_lifecycle": [
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-NAME",
+     "valkey-py"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-VER",
+     "6.2.0"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "SCRIPT",
+     "FLUSH"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "SET",
+     "devops-contract:lock_lifecycle:lock",
+     "devops-contract-token",
+     "PX",
+     "10000",
+     "NX"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "SET",
+     "devops-contract:lock_lifecycle:lock",
+     "devops-contract-other",
+     "PX",
+     "10000",
+     "NX"
+    ],
+    "reply": "$-1\r\n"
+   },
+   {
+    "command": [
+     "EVALSHA",
+     "a4e8783852e6b949f9ef3a97212805108459a890",
+     "1",
+     "devops-contract:lock_lifecycle:lock",
+     "devops-contract-token",
+     "5000",
+     "0"
+    ],
+    "reply": "-NOSCRIPT No matching script.\r\n"
+   },
+   {
+    "command": [
+     "SCRIPT",
+     "LOAD",
+     "\n        local token = redis.call('get', KEYS[1])\n        if not token or token ~= ARGV[1] then\n            return 0\n        end\n        local expiration = redis.call('pttl', KEYS[1])\n        if not expiration then\n            expiration = 0\n        end\n        if expiration < 0 then\n            return 0\n        end\n\n        local newttl = ARGV[2]\n        if ARGV[3] == \"0\" then\n            newttl = ARGV[2] + expiration\n        end\n        redis.call('pexpire', KEYS[1], newttl)\n        return 1\n    "
+    ],
+    "reply": "$40\r\na4e8783852e6b949f9ef3a97212805108459a890\r\n"
+   },
+   {
+    "command": [
+     "EVALSHA",
+     "a4e8783852e6b949f9ef3a97212805108459a890",
+     "1",
+     "devops-contract:lock_lifecycle:lock",
+     "devops-contract-token",
+     "5000",
+     "0"
+    ],
+    "reply": ":1\r\n"
+   },
+   {
+    "command": [
+     "PTTL",
+     "devops-contract:lock_lifecycle:lock"
+    ],
+    "reply": ":14964\r\n"
+   },
+   {
+    "command": [
+     "GET",
+     "devops-contract:lock_lifecycle:lock"
+    ],
+    "reply": "$21\r\ndevops-contract-token\r\n"
+   },
+   {
+    "command": [
+     "EVALSHA",
+     "c3f8721cbb97f72bc19e972846bd7aaf91901658",
+     "1",
+     "devops-contract:lock_lifecycle:lock",
+     "devops-contract-token"
+    ],
+    "reply": "-NOSCRIPT No matching script.\r\n"
+   },
+   {
+    "command": [
+     "SCRIPT",
+     "LOAD",
+     "\n        local token = redis.call('get', KEYS[1])\n        if not token or token ~= ARGV[1] then\n            return 0\n        end\n        redis.call('del', KEYS[1])\n        return 1\n    "
+    ],
+    "reply": "$40\r\nc3f8721cbb97f72bc19e972846bd7aaf91901658\r\n"
+   },
+   {
+    "command": [
+     "EVALSHA",
+     "c3f8721cbb97f72bc19e972846bd7aaf91901658",
+     "1",
+     "devops-contract:lock_lifecycle:lock",
+     "devops-contract-token"
+    ],
+    "reply": ":1\r\n"
+   },
+   {
+    "command": [
+     "GET",
+     "devops-contract:lock_lifecycle:lock"
+    ],
+    "reply": "$-1\r\n"
+   },
+   {
+    "command": [
+     "EXISTS",
+     "devops-contract:lock_lifecycle:lock"
+    ],
+    "reply": ":0\r\n"
+   }
+  ],
+  "lock_lost": [
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-NAME",
+     "valkey-py"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-VER",
+     "6.2.0"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "SCRIPT",
+     "FLUSH"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "SET",
+     "devops-contract:lock_lost:lock",
+     "devops-contract-token",
+     "PX",
+     "10000",
+     "NX"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "SET",
+     "devops-contract:lock_lost:lock",
+     "devops-contract-intruder"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "GET",
+     "devops-contract:lock_lost:lock"
+    ],
+    "reply": "$24\r\ndevops-contract-intruder\r\n"
+   },
+   {
+    "command": [
+     "EVALSHA",
+     "a4e8783852e6b949f9ef3a97212805108459a890",
+     "1",
+     "devops-contract:lock_lost:lock",
+     "devops-contract-token",
+     "5000",
+     "0"
+    ],
+    "reply": "-NOSCRIPT No matching script.\r\n"
+   },
+   {
+    "command": [
+     "SCRIPT",
+     "LOAD",
+     "\n        local token = redis.call('get', KEYS[1])\n        if not token or token ~= ARGV[1] then\n            return 0\n        end\n        local expiration = redis.call('pttl', KEYS[1])\n        if not expiration then\n            expiration = 0\n        end\n        if expiration < 0 then\n            return 0\n        end\n\n        local newttl = ARGV[2]\n        if ARGV[3] == \"0\" then\n            newttl = ARGV[2] + expiration\n        end\n        redis.call('pexpire', KEYS[1], newttl)\n        return 1\n    "
+    ],
+    "reply": "$40\r\na4e8783852e6b949f9ef3a97212805108459a890\r\n"
+   },
+   {
+    "command": [
+     "EVALSHA",
+     "a4e8783852e6b949f9ef3a97212805108459a890",
+     "1",
+     "devops-contract:lock_lost:lock",
+     "devops-contract-token",
+     "5000",
+     "0"
+    ],
+    "reply": ":0\r\n"
+   },
+   {
+    "command": [
+     "EVALSHA",
+     "c3f8721cbb97f72bc19e972846bd7aaf91901658",
+     "1",
+     "devops-contract:lock_lost:lock",
+     "devops-contract-token"
+    ],
+    "reply": "-NOSCRIPT No matching script.\r\n"
+   },
+   {
+    "command": [
+     "SCRIPT",
+     "LOAD",
+     "\n        local token = redis.call('get', KEYS[1])\n        if not token or token ~= ARGV[1] then\n            return 0\n        end\n        redis.call('del', KEYS[1])\n        return 1\n    "
+    ],
+    "reply": "$40\r\nc3f8721cbb97f72bc19e972846bd7aaf91901658\r\n"
+   },
+   {
+    "command": [
+     "EVALSHA",
+     "c3f8721cbb97f72bc19e972846bd7aaf91901658",
+     "1",
+     "devops-contract:lock_lost:lock",
+     "devops-contract-token"
+    ],
+    "reply": ":0\r\n"
+   },
+   {
+    "command": [
+     "GET",
+     "devops-contract:lock_lost:lock"
+    ],
+    "reply": "$24\r\ndevops-contract-intruder\r\n"
+   },
+   {
+    "command": [
+     "DEL",
+     "devops-contract:lock_lost:lock"
+    ],
+    "reply": ":1\r\n"
+   }
+  ],
+  "registered_script": [
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-NAME",
+     "valkey-py"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-VER",
+     "6.2.0"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "SCRIPT",
+     "FLUSH"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "EVALSHA",
+     "8cd00688c05c46bde4a2e60658ef20a2e5c0b248",
+     "1",
+     "devops-contract:registered_script:count",
+     "3"
+    ],
+    "reply": "-NOSCRIPT No matching script.\r\n"
+   },
+   {
+    "command": [
+     "SCRIPT",
+     "LOAD",
+     "return redis.call('INCRBY', KEYS[1], ARGV[1])"
+    ],
+    "reply": "$40\r\n8cd00688c05c46bde4a2e60658ef20a2e5c0b248\r\n"
+   },
+   {
+    "command": [
+     "EVALSHA",
+     "8cd00688c05c46bde4a2e60658ef20a2e5c0b248",
+     "1",
+     "devops-contract:registered_script:count",
+     "3"
+    ],
+    "reply": ":3\r\n"
+   },
+   {
+    "command": [
+     "EVALSHA",
+     "8cd00688c05c46bde4a2e60658ef20a2e5c0b248",
+     "1",
+     "devops-contract:registered_script:count",
+     "4"
+    ],
+    "reply": ":7\r\n"
+   },
+   {
+    "command": [
+     "SCRIPT",
+     "EXISTS",
+     "8cd00688c05c46bde4a2e60658ef20a2e5c0b248"
+    ],
+    "reply": "*1\r\n:1\r\n"
+   },
+   {
+    "command": [
+     "GET",
+     "devops-contract:registered_script:count"
+    ],
+    "reply": "$1\r\n7\r\n"
+   },
+   {
+    "command": [
+     "DEL",
+     "devops-contract:registered_script:count"
+    ],
+    "reply": ":1\r\n"
+   }
+  ],
+  "eval": [
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-NAME",
+     "valkey-py"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-VER",
+     "6.2.0"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "EVAL",
+     "return {1, 'two', 3.7, false, {KEYS[1], ARGV[1]}}",
+     "1",
+     "devops-contract:eval:key",
+     "x"
+    ],
+    "reply": "*5\r\n:1\r\n$3\r\ntwo\r\n:3\r\n$-1\r\n*2\r\n$24\r\ndevops-contract:eval:key\r\n$1\r\nx\r\n"
+   },
+   {
+    "command": [
+     "EVAL",
+     "redis.call('SET', KEYS[1], ARGV[1]); return redis.call('GET', KEYS[1])",
+     "1",
+     "devops-contract:eval:key",
+     "stored"
+    ],
+    "reply": "$6\r\nstored\r\n"
+   },
+   {
+    "command": [
+     "EVAL",
+     "return redis.status_reply('DONE')",
+     "0"
+    ],
+    "reply": "+DONE\r\n"
+   },
+   {
+    "command": [
+     "EVAL",
+     "return redis.error_reply('devops contract refusal')",
+     "0"
+    ],
+    "reply": "-devops contract refusal\r\n"
+   },
+   {
+    "command": [
+     "DEL",
+     "devops-contract:eval:key"
+    ],
+    "reply": ":1\r\n"
+   }
+  ]
+ }
+}

@@ -18,13 +18,13 @@ Kind: data. Changes: `pyproject.toml`, `uv.lock`.
 
 Kind: test-only edit. Changes: `tests/support/valkey_replay.py`, `tests/support/valkey_recording.py`, `tests/fixtures/valkey/recorded_exchanges.json`, `tests/valkey/test_valkey_contract.py`.
 
-- [ ] 3.1 Write `RecordedValkey`: it serves the recorded replies of one scenario in order on a socket that the test binds, answers a request that is not the next recorded one with an error reply, and keeps it in `unexpected`. `remaining` counts the replies that no request took.
+- [x] 3.1 Write `RecordedValkey`: it serves the recorded replies of one scenario in order on a socket that the test binds, answers a request that is not the next recorded one with an error reply, and keeps it in `unexpected`. `remaining` counts the replies that no request took.
   - Verification: `$ uv run devops ci test tests/valkey/test_valkey_contract.py`
-- [ ] 3.2 Write the recorder, and record each scenario against a `valkey-server` from the downloaded Debian package, on loopback with no persistence. The record keeps the server version and the valkey-py version.
+- [x] 3.2 Write the recorder, and record each scenario against a new, empty `valkey-server` on a loopback port with no persistence: the unpacked Debian package on a workstation, or a temporary Pod of the official image `valkey/valkey` with a port-forward. The record keeps the server version and the valkey-py version.
   - Verification: `$ uv run devops ci test tests/valkey/test_valkey_contract.py`
-- [ ] 3.3 Run each scenario over a real valkey-py client on `RecordedValkey`. Assert that both sides give the same result, that `unexpected` is empty and `remaining` is 0, and that the suite fails when the record is not of the locked valkey-py version.
+- [x] 3.3 Run each scenario over a real valkey-py client on `RecordedValkey`. Assert that both sides give the same result, that `unexpected` is empty and `remaining` is 0, and that the suite fails when the record is not of the locked valkey-py version.
   - Verification: `$ uv run devops ci test tests/valkey/test_valkey_contract.py`
-- [ ] 3.4 Confirm that the record holds no host path, hostname or private address.
+- [x] 3.4 Confirm that the record holds no host path, hostname or private address.
   - Verification: `$ ! grep -nE '/(home|workspaces|tmp)/|\.lan\b|192\.168\.|\b10\.[0-9]+\.[0-9]+\.[0-9]+' tests/fixtures/valkey/recorded_exchanges.json`
 
 ## 4. Documents

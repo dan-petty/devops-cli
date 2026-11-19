@@ -48,13 +48,13 @@ None. The change is test-only and has no spec delta.
 - `lupa` 2.8 (PyPI, released 2026-04-15) has the MIT license and the classifier `Development Status :: 5 - Production/Stable`. Stefan Behnel, a core developer of Cython, maintains it, with five releases from 2025-01 to 2026-04. It ships a `cp314` manylinux x86_64 wheel. It meets the project rule for a reputable, maintained, permissive dependency.
 - valkey-py 6.2.0 `Script.__call__` answers `NOSCRIPT` with `SCRIPT LOAD` and a second `EVALSHA` (`valkey/commands/core.py`), not with `EVAL`. The scenarios record this real fallback, and a separate scenario sends `EVAL`.
 - valkey-py 6.2.0 sends `CLIENT SETINFO LIB-NAME` and `CLIENT SETINFO LIB-VER` on each new connection (`valkey/connection.py:436`). The request bytes therefore depend on the valkey-py version, and the record keeps that version.
-- `command -v valkey-server` finds nothing in the devcontainer (Debian forky/sid). `apt-cache policy valkey-server` gives the candidate 9.1.4-1. The recorder runs that binary from a downloaded package, not from a host install.
+- `command -v valkey-server` finds nothing in the devcontainer (Debian forky/sid). `apt-cache policy valkey-server` gives the candidate 9.1.4-1. The recorder needs no host install: it records from that binary in a downloaded package, or from a temporary Pod of the official image `valkey/valkey`. The record at hand came from a new, empty Pod of `valkey/valkey:9.1.4-alpine` through a port-forward.
 - `git grep -n "no contract suite" -- docs tests src` finds the Valkey statements at `docs/TESTING.md:278` and `tests/support/fakes/valkey.py:8`. ADR 0021 (line 284) plans this suite before the first step that uses a lock. That record is accepted, so its body does not change (`docs/adr/README.md`), and this change fulfills the plan without a `Status History` line.
 
 ## Existing Tool Considered
 
 - **fakeredis with `lupa`** covers Lua in the fake. The `lua` extra is the documented way to get `EVAL` and `EVALSHA`. The change adds no Lua shim of its own.
-- **The Valkey release binary**, from the Debian package `valkey-server`, gives the real answers for the record. It runs only when a person records again, outside pytest, on loopback with no persistence.
+- **The Valkey release binary**, from the Debian package `valkey-server` or the official image `valkey/valkey`, gives the real answers for the record. It runs only when a person records again, outside pytest, on a loopback port with no persistence.
 - **The record-and-replay pattern of the Docker engine suite** (`tests/support/docker_engine_recording.py`, `tests/support/docker_engine_replay.py`) gives the form of the recorder, the replay and the version check.
 - `pytest-redis` and `testcontainers` start a real server or a container from pytest. Rules 75 and 87 of `docs/TESTING.md` refuse both. This plan found no maintained Python package that records and replays RESP exchanges. The recorder and the replay are new test code, about 400 lines. Cost: about 80,000 tokens and 4 hours to build, about 5,000 tokens a month to keep, and about 10,000 tokens to fix.
 - The change deletes no internal code.
