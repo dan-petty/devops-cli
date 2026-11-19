@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.181.0](https://github.com/dan-petty/devops-cli/compare/v0.180.0...v0.181.0) (2026-11-19)
+
+
+### Features
+
+* **k8s:** Point Argo CD to Gitea for git and PR dev images ([#6432](https://github.com/dan-petty/devops-cli/issues/6432)) ([4a801d0](https://github.com/dan-petty/devops-cli/commit/4a801d043c19cb258296e4cbdff0870086ff6a4a))
+* **repos:** Add a gitea remote to every clone ([#6424](https://github.com/dan-petty/devops-cli/issues/6424)) ([6489b7a](https://github.com/dan-petty/devops-cli/commit/6489b7a72b8fd5d6c32b7dfbd2153be86f42da6d))
+
+
+### Bug Fixes
+
+* **roadmap:** keep no tool versions in runner_tools.py ([#6403](https://github.com/dan-petty/devops-cli/issues/6403)) ([814ee5b](https://github.com/dan-petty/devops-cli/commit/814ee5bc69b17a2be5f3a72c5196d5dc72b45826))
+
 ## [0.180.0](https://github.com/dan-petty/devops-cli/compare/v0.179.5...v0.180.0) (2026-11-19)
 
 
