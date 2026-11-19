@@ -2102,6 +2102,11 @@ class SSHMessages:
     days_remaining: str = "Rotation:    {days} days remaining"
     rotation_overdue: str = "Rotation:    overdue by {days} days — run 'devops ssh rotate'"
     grace_period_notice: str = "\nOld key {name} remains active for {grace_days} grace days. Remove manually from GitHub when ready."
+    host_only_public_key: str = "Public key: {pub_key}"
+    host_only_key_instruction: str = (
+        "The prefix '{prefix}' is for hosts only: the key is on no GitHub account and signs no "
+        "commit. Put the public key on the hosts with the infra role."
+    )
     new_key_already_exists: str = "New key already exists: {path}"
     table_title_managed_keys: str = "Managed SSH Keys"
 
