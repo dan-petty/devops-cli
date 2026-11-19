@@ -14,7 +14,10 @@ of a manifest or a config value (#6080, #6207). The check and the documents disa
 - A changed gate check module "only loses checks" when its head keeps the top-level statements of
   its base in the same order with some left out, at least one left-out statement is a
   `def check_*`, and each left-out statement is an import, an assignment to names, a function or a
-  class whose names the head does not use. The command compares the statements by syntax tree,
+  class whose names the head does not use and that runs no code at import (a call outside a
+  function body, a decorator other than a pytest mark or a `functools` decorator, a class base, or
+  an import of a module of the project that the head does not import). The command compares the
+  statements by syntax tree,
   so a comment or a blank line changes nothing. A changed check, helper, constant, decorator,
   `parametrize` label or import, an added statement and a moved statement make the module
   changed, as today.
@@ -24,9 +27,11 @@ of a manifest or a config value (#6080, #6207). The check and the documents disa
 - A module that only loses checks starts no gate row. The other changed modules keep their
   replay, and a fix that changes source code still needs a proof.
 - A new module, a renamed module and a module that does not parse keep the replay. A deleted
-  module stays out of the replay, as it is today.
-- The command reads each changed check module at the merge base, and at a named head with
-  `git ls-tree` and `git cat-file`. The dry run lists these reads.
+  module stays out of the replay, as it is today, and the report names its checks from the merge
+  base.
+- The command reads each changed or deleted check module at the merge base, and each changed
+  check module at a named head, with `git ls-tree` and `git cat-file`. The dry run lists these
+  reads.
 - The command output and its exit status change, so the change has a spec delta.
 
 ## Capabilities
@@ -68,6 +73,6 @@ test from an unchanged one (#3124, #6372). It parses each side, and `ast.dump` w
 numbers gives a statement that a comment or layout does not change. Griffe finds removed objects
 of a Python API, but it compares signatures and ignores the bodies of functions, so it cannot see
 a changed check or helper. A text diff cannot tell a deleted check from a deleted line in a kept
-check. No open tool decides whether a module only loses functions. The change adds one function of
-about 40 lines to `changed_tests.py` and a field to the report. It costs about 6,000 tokens and
-one hour to build, and about 1,000 tokens to keep.
+check. No open tool decides whether a module only loses functions. The change adds about 190
+lines of small functions and docstrings to `changed_tests.py` and a field to the report. It costs
+about 40,000 tokens and three hours to build with its review, and about 2,000 tokens to keep.
