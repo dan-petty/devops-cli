@@ -131,9 +131,9 @@ _REFERENCES_TITLE: Final[str] = "Unchanged references"
 _REFERENCE: Final[re.Pattern[str]] = re.compile(
     r"^`(?P<path>[^`]+)` \((?P<kind>.*?)\): (?P<reason>.+)$"
 )
-# The summary and the length of the body that the reader gives: no file holds them.
+# The summary that the reader gives: no file holds it. The body text is the whole `why`, as the
+# reply schema holds no limit on its length (#6319).
 _READ_SUMMARY: Final[str] = "Read the plan of the change folder"
-_READ_BODY_CHARS: Final[int] = 800
 # The fields of a `StageProposal` that no file of the change folder holds. The reader gives each a
 # fixed value or a value of another field, and `file_facts` sets them to that value. A person writes
 # `## Weakened checks` by hand (#3490), and the writer writes no such section.
@@ -663,7 +663,7 @@ def read_change(files: Mapping[str, str]) -> StageProposal:
     try:
         return StageProposal(
             summary=_READ_SUMMARY,
-            pull_request_body=why[:_READ_BODY_CHARS],
+            pull_request_body=why,
             why=why,
             what_changes=what_changes or [why],
             skip_specs=_skip_specs(files[f"{root}{_CHANGE_FILE}"]),
@@ -708,7 +708,7 @@ def file_facts(proposal: StageProposal) -> StageProposal:
     return proposal.model_copy(
         update={
             "summary": _READ_SUMMARY,
-            "pull_request_body": proposal.why[:_READ_BODY_CHARS],
+            "pull_request_body": proposal.why,
             "builds_own": False,
             "weakened_checks": [],
             "groups": [_group_facts(group) for group in proposal.groups],

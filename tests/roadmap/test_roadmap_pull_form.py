@@ -25,6 +25,7 @@ from devops_cli.roadmap.pull_form import (
     build_title,
     is_placeholder,
     plan_body_problems,
+    plan_body_room,
     summary_length,
     title_problems,
 )
@@ -450,6 +451,18 @@ def test_a_plan_text_that_closes_an_issue_is_refused() -> None:
 def test_a_plan_text_over_the_limit_is_refused_and_not_cut() -> None:
     with pytest.raises(ValidationError, match="Shorten the text above `Closes`"):
         build_plan_body(why="A reason that is long. " * 50, issue=3215, change=PLAN_CHANGE)
+
+
+def test_the_room_of_a_plan_text_is_the_text_that_the_plan_form_takes() -> None:
+    """A caller measures a text against the room before it builds the body (#6319): a text that
+    fills the room builds, and one more character breaks the limit."""
+    room = plan_body_room(3215, PLAN_CHANGE)
+
+    body = build_plan_body(why="a" * room, issue=3215, change=PLAN_CHANGE)
+
+    assert len(body) == BODY_MAX_CHARS
+    with pytest.raises(ValidationError, match=f"The limit is {BODY_MAX_CHARS}"):
+        build_plan_body(why="a" * (room + 1), issue=3215, change=PLAN_CHANGE)
 
 
 def test_a_short_plan_text_names_plans_and_where_the_text_goes() -> None:

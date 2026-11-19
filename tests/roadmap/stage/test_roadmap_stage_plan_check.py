@@ -177,7 +177,7 @@ def test_the_check_before_the_push_refuses_the_plan_of_5407_as_the_ci_check_did(
     stage_repo.track({path: f"The file {path}.\n" for path in NAMED_5407})
     proposal = read_change(files)
     title = staging_title(1, proposal.summary)
-    body = pull_request_body(1, change, proposal)
+    body = pull_request_body(1, change, proposal.pull_request_body)
 
     found = staged_problems(_folder(stage_repo, change, files), number=1, title=title, body=body)
 
@@ -196,7 +196,7 @@ def test_the_check_before_the_push_judges_no_open_dependency(stage_repo: StageRe
     proposal = make_stage_proposal(dependencies=["#3224: the dependency record"])
     files = render_change(CHANGE, proposal, {"roadmap-refine"}, created=CREATED)
     title = staging_title(1, proposal.summary)
-    body = pull_request_body(1, CHANGE, proposal)
+    body = pull_request_body(1, CHANGE, proposal.pull_request_body)
 
     found = staged_problems(_folder(stage_repo, CHANGE, files), number=1, title=title, body=body)
 

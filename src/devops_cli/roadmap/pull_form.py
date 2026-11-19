@@ -440,6 +440,18 @@ def build_plan_body(*, why: str, issue: int, change: str) -> str:
 
     Nothing is cut. A body that breaks a rule of `plan_body_problems` raises `ValidationError` that
     names every problem, and the caller writes a better `why`."""
-    body = f"{why.strip()}\n\nPlans #{issue}\n\nChange: `{change}/`"
+    body = f"{why.strip()}{_plan_lines(issue, change)}"
     _refuse(plan_body_problems(body, issue), "body")
     return body
+
+
+def plan_body_room(issue: int, change: str) -> int:
+    """The most characters of a one-line `why` that `build_plan_body` takes for `issue` and the
+    folder `change` (#6319): `BODY_MAX_CHARS` less the `Plans` line and the `Change:` line. A
+    caller measures a text against it and asks for a shorter text, so nothing is cut."""
+    return BODY_MAX_CHARS - len(_plan_lines(issue, change))
+
+
+def _plan_lines(issue: int, change: str) -> str:
+    """The lines of a plan body after its text: `Plans #<issue>` and the `Change:` line."""
+    return f"\n\nPlans #{issue}\n\nChange: `{change}/`"

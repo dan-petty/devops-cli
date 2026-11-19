@@ -1,7 +1,8 @@
 """The one-retry rebuild of a refused pull request body (#3599).
 
 A pull request body that breaks form rules is sent to the model once with the list of problems.
-A second refusal stops the item with the `refused_reply` failure class.
+A second refusal stops the item with the `refused_reply` failure class. The stage job asks the
+same prompt, with `BodyReply`, for a shorter text of a plan body over its room (#6319).
 """
 
 from __future__ import annotations
@@ -20,7 +21,9 @@ from devops_cli.exceptions.roadmap import RefusedPullReply
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.roadmap.intake.intake_model import gateway_address
 
-_PROMPT: Final[str] = "roadmap_implement_body.md"
+# The prompt of the rewrite: the implement job and the stage job (#6319) ask it for a shorter or a
+# fixed body text.
+BODY_TASK: Final[str] = "roadmap_implement_body.md"
 
 
 class BodyReply(BaseModel):
@@ -57,7 +60,7 @@ class GatewayPullBody:
 
         request = json.dumps({"text": text, "problems": list(problems)})
         try:
-            reply = self._built().chat_structured(load_task_prompt(_PROMPT), request, BodyReply)
+            reply = self._built().chat_structured(load_task_prompt(BODY_TASK), request, BodyReply)
             return reply.text
         except StructuredOutputValidationError:
             return ""
@@ -106,6 +109,7 @@ def retried_body(
 
 
 __all__ = [
+    "BODY_TASK",
     "BodyReply",
     "GatewayPullBody",
     "PullBodyClient",

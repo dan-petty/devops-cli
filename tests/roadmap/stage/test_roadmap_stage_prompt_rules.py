@@ -19,7 +19,6 @@ from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_BODY_MAX_CHARS
 from devops_cli.core.command_resolver import resolve_devops_argv
 from devops_cli.roadmap.stage.stage_change import (
-    BODY_MAX_CHARS,
     CREATED_LINE_TOKENS,
     PURPOSE_MIN_CHARS,
     SUMMARY_MAX_CHARS,
@@ -255,24 +254,27 @@ def test_the_prompt_gives_the_form_of_the_title_that_the_job_writes() -> None:
     assert f"`{form}`" in _PROMPT
 
 
-def test_the_body_limit_of_the_prompt_is_the_limit_of_the_schema() -> None:
+def test_a_body_over_the_limit_of_the_prompt_passes_the_schema() -> None:
+    """The prompt asks for a short body, and the schema holds no cap (#6319): the job asks the model
+    for a shorter text when a body is over its room in the plan form."""
     limit = _prompt_limit("pull_request_body")
 
-    assert limit == BODY_MAX_CHARS
-    assert make_stage_proposal(pull_request_body="a" * limit)
-    with pytest.raises(ValueError, match="at most 800 characters"):
-        make_stage_proposal(pull_request_body="a" * (limit + 1))
+    proposal = make_stage_proposal(pull_request_body="a" * (limit * 2))
+
+    assert len(proposal.pull_request_body) == limit * 2
+    assert "maxLength" not in StageProposal.model_json_schema()["properties"]["pull_request_body"]
 
 
 def test_the_body_of_the_plan_fits_the_body_limit_of_the_contributing_guide() -> None:
-    """The draft body is `Plans #<number>`, the body of the plan and the `Change:` line. With the
-    longest body, a five-digit number and a long slug, it stays within the limit of a body that
-    CONTRIBUTING.md sets and that the delivery uses."""
+    """The draft body is `Plans #<number>`, the body of the plan and the `Change:` line. With a body
+    of the length that the prompt asks for, the longest number and a long slug, it stays within
+    the limit of a body that CONTRIBUTING.md sets and that the delivery uses, so a body that keeps
+    to the prompt needs no shorter text."""
     found = re.search(r"in at most ([\d,]+) characters before the trailers", _CONTRIBUTING)
     assert found is not None
     limit = int(found.group(1).replace(",", ""))
-    proposal = make_stage_proposal(pull_request_body="a" * BODY_MAX_CHARS)
-    body = pull_request_body(_LARGEST_NUMBER, f"{_LARGEST_NUMBER}-{'a' * 60}", proposal)
+    text = "a" * _prompt_limit("pull_request_body")
+    body = pull_request_body(_LARGEST_NUMBER, f"{_LARGEST_NUMBER}-{'a' * 60}", text)
 
     assert limit == CONST_ROADMAP_IMPLEMENT_BODY_MAX_CHARS
     assert len(body) <= limit
