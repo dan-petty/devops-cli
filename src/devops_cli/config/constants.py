@@ -2625,6 +2625,9 @@ CONST_FAIL_TO_PASS_HOST_PATH_GUARD_MESSAGE: Final[str] = "host path reached with
 # module on the base and head trees (#4554).
 CONST_GATE_DIR: Final[str] = "tests/gate"
 CONST_GATE_CHECKS_PACKAGE_SUFFIX: Final[str] = "_checks"
+# The prefix of a check function of a gate check module, which `tests/gate/runner.py` runs as a
+# case. A module that only loses such functions needs no proof (#6456).
+CONST_GATE_CHECK_PREFIX: Final[str] = "check_"
 CONST_PYTHON_PACKAGE_INIT_FILE: Final[str] = "__init__.py"
 CONST_GATE_ROW_SCRIPT: Final[str] = (
     "import sys; from tests.gate.{module} import main; sys.exit(main())"

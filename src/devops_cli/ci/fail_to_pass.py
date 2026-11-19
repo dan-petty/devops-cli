@@ -22,12 +22,14 @@ call phase ran and proves nothing. pytest reports the collection error of a file
 no class name, named by the module path of the file. That case names the whole file, which counts
 as changed when its syntax tree differs from the merge base or the file is new.
 
-A changed check module of `tests/gate/<row>_checks/` is a gate check (#4554). For each row of
-these modules, the command runs the gate module `tests.gate.<row>` once on the base tree with the
-head's `tests/` and once on the head tree, and reads the failed cases that `tests/gate/runner.py`
-prints. Each run imports `devops_cli` from the `src/` of its own tree (#5353). A case of a
-changed check module that fails on base and passes on head proves the fix, when both trees run the
-same cases. A row run that could not run, or a base failure of a check module that the fix does
+A changed check module of `tests/gate/<row>_checks/` is a gate check (#4554), unless it only
+loses checks (`only_deleted_checks`). A deleted check module is no gate check either. A deleted
+check runs on neither tree, so it can prove no fix, and a fix that changes no source code and only
+deletes checks needs no proof (#6456). For each row of the gate checks, the command runs the gate
+module `tests.gate.<row>` once on the base tree with the head's `tests/` and once on the head
+tree, and reads the failed cases that `tests/gate/runner.py` prints. Each run imports
+`devops_cli` from the `src/` of its own tree (#5353). A case of a changed check module that fails
+on base and passes on head proves the fix, when both trees run the same cases. A row run that could not run, or a base failure of a check module that the fix does
 not change, proves nothing and fails the replay.
 
 The run exits non-zero unless no replay fails and at least one changed test fails on base, or
@@ -50,7 +52,14 @@ from pathlib import Path, PurePath, PurePosixPath
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from devops_cli.ci.changed_tests import ParsedTests, is_file_changed, is_test_changed, parse_tests
+from devops_cli.ci.changed_tests import (
+    ParsedTests,
+    deleted_module_checks,
+    is_file_changed,
+    is_test_changed,
+    only_deleted_checks,
+    parse_tests,
+)
 from devops_cli.config.constants import (
     CONST_FAIL_TO_PASS_COULD_NOT_RUN_EXIT_STATUSES,
     CONST_FAIL_TO_PASS_GATE_ROW_EXIT_STATUSES,
@@ -233,6 +242,9 @@ class FailToPassReport(BaseModel):
     # False when the fix changes no source code and no gate check, so no test needs to fail on base
     # (#6207).
     needs_proof: bool = True
+    # The checks that the gate check modules that only lose checks delete, as `<module>.<check>`.
+    # A deleted check runs on neither tree, so it proves nothing and needs no proof (#6456).
+    deleted_gate_checks: tuple[str, ...] = ()
 
     @property
     def failed_count(self) -> int:
@@ -289,8 +301,9 @@ class FailToPassReport(BaseModel):
     def satisfied(self) -> bool:
         """Whether the fail-to-pass gate is satisfied: no replay refuses the fix, and at least one
         changed test fails on base, or errors there at collection or setup (#6372), or a gate case
-        of a changed check module fails on base and passes on head (#4554). A fix that changes no source code and no gate check
-        needs neither (#6207)."""
+        of a changed check module fails on base and passes on head (#4554). A fix that changes no
+        source code and no gate check needs neither (#6207). A check module that only loses
+        checks is no changed gate check (#6456)."""
         if not self.needs_proof:
             return True
         if self.tests_refused or any(row.refused for row in self.gate_rows):
@@ -393,6 +406,10 @@ class ChangedTests(BaseModel):
     test_files: tuple[str, ...]
     gate_checks: tuple[str, ...] = ()
     source_files: tuple[str, ...] = ()
+    # The checks that the fix deletes, as `<module>.<check>`: from each changed gate check module
+    # that only loses checks, and from each deleted gate check module. Neither module is in
+    # `gate_checks` (#6456).
+    deleted_checks: tuple[str, ...] = ()
 
 
 def verify_commit_argv(revision: str) -> list[str]:
@@ -442,26 +459,59 @@ def _untracked_files(root: Path) -> list[str]:
     return list(filter(None, listed.split("\0")))
 
 
+def _head_source(root: Path, head: str, path: str) -> str | None:
+    """The text of `path` at `head`: in the working tree for `HEAD`, as the replay overlays the
+    tests of the working tree, else at the revision `head`."""
+    if head != "HEAD":
+        return read_file_at_revision(root, head, path)
+    head_file = root / path
+    return head_file.read_text(encoding="utf-8") if head_file.is_file() else None
+
+
+def _deleted_checks_by_module(
+    root: Path, merge_base: str, head: str, gate_checks: Sequence[str]
+) -> dict[str, tuple[str, ...]]:
+    """The checks that each module of `gate_checks` deletes, for the modules that only lose checks
+    (#6456)."""
+    deleted: dict[str, tuple[str, ...]] = {}
+    for path in gate_checks:
+        if checks := only_deleted_checks(
+            PurePosixPath(path).stem,
+            read_file_at_revision(root, merge_base, path),
+            _head_source(root, head, path),
+        ):
+            deleted[path] = checks
+    return deleted
+
+
 def changed_tests(root: Path, base: str, head: str = "HEAD") -> ChangedTests:
     """Resolve the merge base of `base` and `head`, and list the added or modified
-    `tests/**/test_*.py` files, check modules of `tests/gate/<row>_checks/` and source files."""
+    `tests/**/test_*.py` files, check modules of `tests/gate/<row>_checks/` and source files.
+    A check module that only loses checks is no changed gate check, and a deleted check module is
+    none either: the result names their deleted checks instead (#6456)."""
     if (merge_base := resolve_merge_base(root, base, head)) is None:
         raise GitOperationError(MESSAGES.ci.mutate_base_refused.format(base=base))
     _verify_commit(root, base)
     _verify_commit(root, head)
     diff_head = None if head == "HEAD" else head
-    tracked = [
-        change.path
-        for change in list_changed_files(root, merge_base, diff_head)
-        if change.change_type != _DELETED
-    ]
+    changes = list_changed_files(root, merge_base, diff_head)
+    tracked = [change.path for change in changes if change.change_type != _DELETED]
     untracked = _untracked_files(root) if head == "HEAD" else []
     paths = sorted(set(tracked) | set(untracked))
+    gate_checks = [path for path in paths if is_gate_check(PurePosixPath(path))]
+    deleted = _deleted_checks_by_module(root, merge_base, head, gate_checks)
+    for change in changes:
+        if change.change_type == _DELETED and is_gate_check(PurePosixPath(change.path)):
+            deleted[change.path] = deleted_module_checks(
+                PurePosixPath(change.path).stem,
+                read_file_at_revision(root, merge_base, change.path),
+            )
     return ChangedTests(
         merge_base=merge_base,
         test_files=tuple(path for path in paths if is_test_file(PurePosixPath(path))),
-        gate_checks=tuple(path for path in paths if is_gate_check(PurePosixPath(path))),
+        gate_checks=tuple(path for path in gate_checks if path not in deleted),
         source_files=tuple(path for path in paths if is_source_code(PurePosixPath(path))),
+        deleted_checks=tuple(check for path in sorted(deleted) for check in deleted[path]),
     )
 
 
@@ -553,6 +603,12 @@ TEMP_DIR_PLACEHOLDER = "<temp-dir>"
 CHANGED_TESTS_PLACEHOLDER = "<changed test files>"
 BLOB_PLACEHOLDER = "<blob of the changed test file>"
 GATE_ROW_PLACEHOLDER = "<gate row>"
+GATE_MODULE_PLACEHOLDER = "<changed gate check module>"
+GATE_BLOB_PLACEHOLDER = "<blob of the changed gate check module>"
+GATE_MODULE_READ = "a module of tests/gate/*_checks/ changes"
+EACH_GATE_MODULE = "for each changed module of tests/gate/*_checks/"
+GATE_BASE_READ = "a module of tests/gate/*_checks/ changes or is deleted"
+EACH_BASE_GATE_MODULE = "for each changed or deleted module of tests/gate/*_checks/"
 UNCHANGED_CHECK = "a test that failed or errored on base is in a changed test file"
 TEST_REPLAY = "a changed test file exists and the fix changes source code or a gate check"
 GATE_REPLAY = "a changed gate check exists"
@@ -566,7 +622,10 @@ def plan_fail_to_pass(base: str, head: str = "HEAD") -> list[PlannedRequest]:
     """The processes that `run_fail_to_pass` starts, in order, with no git call made: the
     merge base, the commits, the changed test files and the gate rows are placeholders. The
     base tree exists only when a changed test file or gate check exists, pytest runs only for a
-    changed test file, and a gate row runs on each tree only for a changed gate check (#4554)."""
+    changed test file, and a gate row runs on each tree only for a changed gate check (#4554).
+    The text of each changed check module at the merge base, and at a named head, tells whether
+    the module only loses checks. The text of a deleted check module at the merge base names its
+    checks (#6456)."""
     diff_head = None if head == "HEAD" else head
     tmp = PurePosixPath(TEMP_DIR_PLACEHOLDER)
     tree = tmp / "tree"
@@ -585,6 +644,26 @@ def plan_fail_to_pass(base: str, head: str = "HEAD") -> list[PlannedRequest]:
             condition=GATE_REPLAY,
             repeat=EACH_GATE_ROW,
         )
+
+    def module_read(
+        revision: str, holder: str, condition: str, repeat: str
+    ) -> list[PlannedRequest]:
+        return [
+            PlannedRequest(
+                method="git",
+                target="ls-tree",
+                argv=tuple(ls_tree_argv(revision, GATE_MODULE_PLACEHOLDER)),
+                condition=condition,
+                repeat=repeat,
+            ),
+            PlannedRequest(
+                method="git",
+                target="cat-file",
+                argv=tuple(cat_file_argv(GATE_BLOB_PLACEHOLDER)),
+                condition=both(condition, f"{holder} holds it"),
+                repeat=repeat,
+            ),
+        ]
 
     def head_pytest(target: str) -> PlannedRequest:
         return PlannedRequest(
@@ -609,6 +688,11 @@ def plan_fail_to_pass(base: str, head: str = "HEAD") -> list[PlannedRequest]:
         )
     else:
         requests.append(git(untracked_tests_argv()))
+    requests += module_read(
+        MERGE_BASE_PLACEHOLDER, "the merge base", GATE_BASE_READ, EACH_BASE_GATE_MODULE
+    )
+    if diff_head is not None:
+        requests += module_read(diff_head, "the head", GATE_MODULE_READ, EACH_GATE_MODULE)
     requests += [
         git(worktree_add_argv(tree, MERGE_BASE_PLACEHOLDER), replay),
         git(archive_argv(tmp / "tests.tar", tests_archive_args(head)), replay),
@@ -936,10 +1020,15 @@ def run_fail_to_pass(root: Path, *, base: str, head: str = "HEAD") -> FailToPass
             changed_test_files=changed.test_files,
             outcomes=(),
             needs_proof=False,
+            deleted_gate_checks=changed.deleted_checks,
         )
     if not changed.test_files and not changed.gate_checks:
         return FailToPassReport(
-            merge_base=changed.merge_base, head=head, changed_test_files=(), outcomes=()
+            merge_base=changed.merge_base,
+            head=head,
+            changed_test_files=(),
+            outcomes=(),
+            deleted_gate_checks=changed.deleted_checks,
         )
     rows = _check_modules_by_row(changed.gate_checks)
     with tempfile.TemporaryDirectory() as tmp:
@@ -999,6 +1088,7 @@ def run_fail_to_pass(root: Path, *, base: str, head: str = "HEAD") -> FailToPass
         ),
         repaired=repaired,
         head_could_not_run=head_could_not_run,
+        deleted_gate_checks=changed.deleted_checks,
     )
 
 
@@ -1121,6 +1211,10 @@ def format_fail_to_pass_report(report: FailToPassReport) -> str:
     """Format a human-readable per-test, per-gate-row and summary report for
     `devops ci fail-to-pass`."""
     if not report.needs_proof:
+        if report.deleted_gate_checks:
+            return MESSAGES.ci.fail_to_pass_deleted_checks.format(
+                checks=", ".join(report.deleted_gate_checks)
+            )
         return MESSAGES.ci.fail_to_pass_no_source
     lines = [
         MESSAGES.ci.fail_to_pass_test_line.format(

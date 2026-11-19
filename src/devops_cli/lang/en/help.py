@@ -995,7 +995,8 @@ class CICommandHelp:
         "Replay added or modified tests against the merge-base tree to prove a defect fix's "
         "tests fail unpatched. A changed module under tests/gate/*_checks/ runs its gate row on "
         "the base and head trees: a case of that module that fails on base and passes on head "
-        "proves the fix."
+        "proves the fix. A module that only loses checks, and a deleted module, run no gate row. "
+        "A fix that changes no source code and only deletes checks needs no proof."
     )
     fail_to_pass_head: str = (
         "Head git revision supplying the overlaid tests/ tree, the head replay tree and the head "
