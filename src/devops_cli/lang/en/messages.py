@@ -2388,14 +2388,15 @@ class CIMessages:
         "{errored} errored)."
     )
     fail_to_pass_no_source: str = (
-        "The fix changes no source code (a .py file under src/ outside the knowledge base) and no "
-        "module of tests/gate/*_checks/, so it needs no test that fails on its base. A validator "
-        "or a check command proves a change of a prompt, a pin, a manifest or other data."
+        "The fix changes no source code (a .py file under src/ outside the knowledge base) and "
+        "adds or changes no case of tests/gate/*_checks/, so it needs no test that fails on its "
+        "base. A validator or a check command proves a change of a prompt, a pin, a manifest or "
+        "other data."
     )
     fail_to_pass_deleted_checks: str = (
-        "The fix changes no source code (a .py file under src/ outside the knowledge base). Each "
-        "module of tests/gate/*_checks/ that it changes only loses checks: {checks}. A deleted "
-        "check runs on neither tree, so the fix needs no test that fails on its base."
+        "The fix changes no source code (a .py file under src/ outside the knowledge base), and "
+        "it only deletes checks of tests/gate/*_checks/: {checks}. A deleted check runs on "
+        "neither tree, so the fix needs no test that fails on its base."
     )
     fail_to_pass_no_tests: str = (
         "The fix changes no tests/**/test_*.py file and adds or changes no case of "

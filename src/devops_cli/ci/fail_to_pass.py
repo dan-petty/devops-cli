@@ -23,13 +23,13 @@ no class name, named by the module path of the file. That case names the whole f
 as changed when its syntax tree differs from the merge base or the file is new.
 
 A changed check module of `tests/gate/<row>_checks/` is a gate check (#4554), unless it only
-loses checks (`only_deleted_checks`): a deleted check runs on neither tree, so it can prove no
-fix, and a fix that changes no source code and only deletes checks needs no proof (#6456). For
-each row of the gate checks, the command runs the gate module `tests.gate.<row>` once on the base
-tree with the head's `tests/` and once on the head tree, and reads the failed cases that
-`tests/gate/runner.py` prints. Each run imports `devops_cli` from the `src/` of its own tree (#5353). A case of a
-changed check module that fails on base and passes on head proves the fix, when both trees run the
-same cases. A row run that could not run, or a base failure of a check module that the fix does
+loses checks (`only_deleted_checks`). A deleted check module is no gate check either. A deleted
+check runs on neither tree, so it can prove no fix, and a fix that changes no source code and only
+deletes checks needs no proof (#6456). For each row of the gate checks, the command runs the gate
+module `tests.gate.<row>` once on the base tree with the head's `tests/` and once on the head
+tree, and reads the failed cases that `tests/gate/runner.py` prints. Each run imports
+`devops_cli` from the `src/` of its own tree (#5353). A case of a changed check module that fails
+on base and passes on head proves the fix, when both trees run the same cases. A row run that could not run, or a base failure of a check module that the fix does
 not change, proves nothing and fails the replay.
 
 The run exits non-zero unless no replay fails and at least one changed test fails on base, or
@@ -54,6 +54,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.ci.changed_tests import (
     ParsedTests,
+    deleted_module_checks,
     is_file_changed,
     is_test_changed,
     only_deleted_checks,
@@ -405,8 +406,9 @@ class ChangedTests(BaseModel):
     test_files: tuple[str, ...]
     gate_checks: tuple[str, ...] = ()
     source_files: tuple[str, ...] = ()
-    # The checks that the changed gate check modules delete, as `<module>.<check>`, when a module
-    # only loses checks. Such a module is not in `gate_checks` (#6456).
+    # The checks that the fix deletes, as `<module>.<check>`: from each changed gate check module
+    # that only loses checks, and from each deleted gate check module. Neither module is in
+    # `gate_checks` (#6456).
     deleted_checks: tuple[str, ...] = ()
 
 
@@ -485,28 +487,31 @@ def _deleted_checks_by_module(
 def changed_tests(root: Path, base: str, head: str = "HEAD") -> ChangedTests:
     """Resolve the merge base of `base` and `head`, and list the added or modified
     `tests/**/test_*.py` files, check modules of `tests/gate/<row>_checks/` and source files.
-    A check module that only loses checks is no changed gate check: the result names its deleted
-    checks instead (#6456)."""
+    A check module that only loses checks is no changed gate check, and a deleted check module is
+    none either: the result names their deleted checks instead (#6456)."""
     if (merge_base := resolve_merge_base(root, base, head)) is None:
         raise GitOperationError(MESSAGES.ci.mutate_base_refused.format(base=base))
     _verify_commit(root, base)
     _verify_commit(root, head)
     diff_head = None if head == "HEAD" else head
-    tracked = [
-        change.path
-        for change in list_changed_files(root, merge_base, diff_head)
-        if change.change_type != _DELETED
-    ]
+    changes = list_changed_files(root, merge_base, diff_head)
+    tracked = [change.path for change in changes if change.change_type != _DELETED]
     untracked = _untracked_files(root) if head == "HEAD" else []
     paths = sorted(set(tracked) | set(untracked))
     gate_checks = [path for path in paths if is_gate_check(PurePosixPath(path))]
     deleted = _deleted_checks_by_module(root, merge_base, head, gate_checks)
+    for change in changes:
+        if change.change_type == _DELETED and is_gate_check(PurePosixPath(change.path)):
+            deleted[change.path] = deleted_module_checks(
+                PurePosixPath(change.path).stem,
+                read_file_at_revision(root, merge_base, change.path),
+            )
     return ChangedTests(
         merge_base=merge_base,
         test_files=tuple(path for path in paths if is_test_file(PurePosixPath(path))),
         gate_checks=tuple(path for path in gate_checks if path not in deleted),
         source_files=tuple(path for path in paths if is_source_code(PurePosixPath(path))),
-        deleted_checks=tuple(check for checks in deleted.values() for check in checks),
+        deleted_checks=tuple(check for path in sorted(deleted) for check in deleted[path]),
     )
 
 
@@ -602,6 +607,8 @@ GATE_MODULE_PLACEHOLDER = "<changed gate check module>"
 GATE_BLOB_PLACEHOLDER = "<blob of the changed gate check module>"
 GATE_MODULE_READ = "a module of tests/gate/*_checks/ changes"
 EACH_GATE_MODULE = "for each changed module of tests/gate/*_checks/"
+GATE_BASE_READ = "a module of tests/gate/*_checks/ changes or is deleted"
+EACH_BASE_GATE_MODULE = "for each changed or deleted module of tests/gate/*_checks/"
 UNCHANGED_CHECK = "a test that failed or errored on base is in a changed test file"
 TEST_REPLAY = "a changed test file exists and the fix changes source code or a gate check"
 GATE_REPLAY = "a changed gate check exists"
@@ -617,7 +624,8 @@ def plan_fail_to_pass(base: str, head: str = "HEAD") -> list[PlannedRequest]:
     base tree exists only when a changed test file or gate check exists, pytest runs only for a
     changed test file, and a gate row runs on each tree only for a changed gate check (#4554).
     The text of each changed check module at the merge base, and at a named head, tells whether
-    the module only loses checks (#6456)."""
+    the module only loses checks. The text of a deleted check module at the merge base names its
+    checks (#6456)."""
     diff_head = None if head == "HEAD" else head
     tmp = PurePosixPath(TEMP_DIR_PLACEHOLDER)
     tree = tmp / "tree"
@@ -637,21 +645,23 @@ def plan_fail_to_pass(base: str, head: str = "HEAD") -> list[PlannedRequest]:
             repeat=EACH_GATE_ROW,
         )
 
-    def module_read(revision: str, holder: str) -> list[PlannedRequest]:
+    def module_read(
+        revision: str, holder: str, condition: str, repeat: str
+    ) -> list[PlannedRequest]:
         return [
             PlannedRequest(
                 method="git",
                 target="ls-tree",
                 argv=tuple(ls_tree_argv(revision, GATE_MODULE_PLACEHOLDER)),
-                condition=GATE_MODULE_READ,
-                repeat=EACH_GATE_MODULE,
+                condition=condition,
+                repeat=repeat,
             ),
             PlannedRequest(
                 method="git",
                 target="cat-file",
                 argv=tuple(cat_file_argv(GATE_BLOB_PLACEHOLDER)),
-                condition=both(GATE_MODULE_READ, f"{holder} holds it"),
-                repeat=EACH_GATE_MODULE,
+                condition=both(condition, f"{holder} holds it"),
+                repeat=repeat,
             ),
         ]
 
@@ -678,9 +688,11 @@ def plan_fail_to_pass(base: str, head: str = "HEAD") -> list[PlannedRequest]:
         )
     else:
         requests.append(git(untracked_tests_argv()))
-    requests += module_read(MERGE_BASE_PLACEHOLDER, "the merge base")
+    requests += module_read(
+        MERGE_BASE_PLACEHOLDER, "the merge base", GATE_BASE_READ, EACH_BASE_GATE_MODULE
+    )
     if diff_head is not None:
-        requests += module_read(diff_head, "the head")
+        requests += module_read(diff_head, "the head", GATE_MODULE_READ, EACH_GATE_MODULE)
     requests += [
         git(worktree_add_argv(tree, MERGE_BASE_PLACEHOLDER), replay),
         git(archive_argv(tmp / "tests.tar", tests_archive_args(head)), replay),

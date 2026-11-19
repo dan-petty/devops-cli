@@ -154,6 +154,8 @@ class _FailToPassState:
     base_tests: dict[str, str] = field(default_factory=dict)
     # The files that a revision other than the merge base holds, such as `--head feature`.
     head_tests: dict[str, str] = field(default_factory=dict)
+    # The files that the fix deletes (#6456).
+    deleted_files: tuple[str, ...] = ()
     active_worktrees: set[Path] = field(default_factory=set)
     # The worktree `git worktree add` made for the merge base: the folder named `tree` (#5361).
     base_worktrees: set[Path] = field(default_factory=set)
@@ -312,7 +314,8 @@ def _setup_fail_to_pass_fake(git_fake: GitFake, replay_state: _FailToPassState) 
             stdout="".join(
                 f"M\0{f}\0"
                 for f in (*replay_state.changed_source_files, *replay_state.changed_test_files)
-            ),
+            )
+            + "".join(f"D\0{f}\0" for f in replay_state.deleted_files),
         ),
     )
     git_fake.answer(lambda call: "ls-files" in call.argv, ProcessAnswer(returncode=0, stdout=""))
@@ -1483,8 +1486,8 @@ def test_fail_to_pass_dry_run_lists_the_replay_and_starts_nothing(
         (line.split("  [", 1)[1] for line in _plan_lines(result.output)[start:end])
         for start, end in ((5, 7), (7, None))
     )
-    module_read = "only if a module of tests/gate/*_checks/ changes"
-    each_module = "  [repeated for each changed module of tests/gate/*_checks/]"
+    module_read = "only if a module of tests/gate/*_checks/ changes or is deleted"
+    each_module = "  [repeated for each changed or deleted module of tests/gate/*_checks/]"
     assert list(reads) == [
         f"{module_read}]{each_module}",
         f"{module_read} and the merge base holds it]{each_module}",
@@ -1517,13 +1520,15 @@ def test_fail_to_pass_dry_run_of_a_head_lists_the_fallback_diff(
         "  [only if the three-dot diff fails]"
     )
     assert not [line for line in lines if "ls-files" in line]
+    base_read = "  [only if a module of tests/gate/*_checks/ changes or is deleted"
+    each_base_module = "  [repeated for each changed or deleted module of tests/gate/*_checks/]"
     module_read = "  [only if a module of tests/gate/*_checks/ changes"
     each_module = "  [repeated for each changed module of tests/gate/*_checks/]"
     assert lines[5:9] == [
         "git --literal-pathspecs ls-tree -z --full-tree '<merge-base>' -- "
-        f"'<changed gate check module>'{module_read}]{each_module}",
+        f"'<changed gate check module>'{base_read}]{each_base_module}",
         "git cat-file blob '<blob of the changed gate check module>'"
-        f"{module_read} and the merge base holds it]{each_module}",
+        f"{base_read} and the merge base holds it]{each_base_module}",
         "git --literal-pathspecs ls-tree -z --full-tree feature -- "
         f"'<changed gate check module>'{module_read}]{each_module}",
         "git cat-file blob '<blob of the changed gate check module>'"
@@ -2042,10 +2047,36 @@ def test_the_report_of_a_fix_that_only_deletes_gate_checks_names_each_check(
         False,
         ("gateway.check_old_rule",),
         (),
-        "The fix changes no source code (a .py file under src/ outside the knowledge base). Each "
-        "module of tests/gate/*_checks/ that it changes only loses checks: "
-        "gateway.check_old_rule. A deleted check runs on neither tree, so the fix needs no test "
-        "that fails on its base.",
+        "The fix changes no source code (a .py file under src/ outside the knowledge base), and "
+        "it only deletes checks of tests/gate/*_checks/: gateway.check_old_rule. A deleted check "
+        "runs on neither tree, so the fix needs no test that fails on its base.",
+    )
+
+
+def test_a_fix_that_deletes_a_gate_check_module_names_each_check_of_it(
+    tmp_path: Path, replay_state: _FailToPassState, git_fake: GitFake
+) -> None:
+    """A deleted gate check module runs no case on either tree, as a deleted check does. The
+    report names each check of it from the merge base, in the order of the paths, next to the
+    checks of a module that only loses checks. The replay starts no gate row (#6456)."""
+    deleted_module = "tests/gate/k8s_checks/argo.py"
+    replay_state.base_tests[deleted_module] = GATEWAY_BASE
+    replay_state.deleted_files = (deleted_module,)
+
+    report = _gate_check_fix(
+        tmp_path, replay_state, {GATEWAY_CHECK: (GATEWAY_BASE, GATEWAY_ONLY_DELETED)}
+    )
+
+    assert (
+        report.satisfied,
+        report.needs_proof,
+        report.deleted_gate_checks,
+        _started(git_fake),
+    ) == (
+        True,
+        False,
+        ("argo.check_kept_rule", "argo.check_old_rule", "gateway.check_old_rule"),
+        [],
     )
 
 
