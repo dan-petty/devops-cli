@@ -282,6 +282,12 @@ RUNS_CODE = {
     "left-out-assigned-call": f"_ = {CALL}",
     "left-out-call-decorator": '@pytest.fixture(autouse=True)\ndef _env():\n    return ""\n',
     "left-out-plain-decorator": '@REGISTRY.register\ndef _env():\n    return ""\n',
+    "left-out-call-in-mark-argument": (
+        '@pytest.mark.parametrize("port", _ports())\ndef check_more_ports(port):\n    assert port\n'
+    ),
+    "left-out-call-in-functools-argument": (
+        '@functools.lru_cache(maxsize=_size())\ndef _env():\n    return ""\n'
+    ),
     "left-out-default-call": (
         'def _env(strict=os.environ.setdefault("GATE_STRICT", "1")):\n    return strict\n'
     ),

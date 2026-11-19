@@ -14,8 +14,8 @@ tree (#6456). Its head keeps the top-level statements of its base in the same or
 tree and with no module docstring, and leaves out at least one `def check_*`. Each statement that
 it leaves out is an import, an assignment to names, a function or a class, and the head uses no
 name that such a statement binds. A left-out statement also runs no code at import that can set
-state: it holds no call that runs at import, no decorator other than a pytest mark or a
-`functools` decorator, no class base or keyword, and no import of a module of the project that the
+state: it holds no call that runs at import (also in the arguments of a decorator), no decorator
+other than a pytest mark or a `functools` decorator, no class base or keyword, and no import of a module of the project that the
 head does not import too. So no kept case can see the change.
 """
 
@@ -207,9 +207,12 @@ def _has_call(nodes: list[ast.AST]) -> bool:
 
 
 def _is_pure_decorator(decorator: ast.expr) -> bool:
-    """Whether `decorator` is a pytest mark or a `functools` decorator, with or without arguments."""
-    target = decorator.func if isinstance(decorator, ast.Call) else decorator
-    return ast.unparse(target).startswith(_PURE_DECORATORS)
+    """Whether `decorator` is a pytest mark or a `functools` decorator with no call in its
+    arguments. The arguments of a decorator run at import, so a call in them can set state."""
+    if isinstance(decorator, ast.Call):
+        arguments: list[ast.AST] = [*decorator.args, *decorator.keywords]
+        return _is_pure_decorator(decorator.func) and not _has_call(arguments)
+    return ast.unparse(decorator).startswith(_PURE_DECORATORS)
 
 
 def _runs_code(node: ast.stmt, head_modules: set[str]) -> bool:

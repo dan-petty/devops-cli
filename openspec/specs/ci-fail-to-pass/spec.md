@@ -304,7 +304,7 @@ The base, plain-base, head and gate-row replays SHALL use this report.
 - **THEN** the module does not only lose checks
 
 #### Scenario: A left-out statement that runs code at import
-- **WHEN** `tests/gate/k8s_checks/gateway.py` loses `check_old_rule` and a helper with a decorator other than a pytest mark or a `functools` decorator, a call in a default value, a class with a base, or an import of a module of the project that the head does not import
+- **WHEN** `tests/gate/k8s_checks/gateway.py` loses `check_old_rule` and a helper with a decorator other than a pytest mark or a `functools` decorator, a call in the arguments of a decorator, a call in a default value, a class with a base, or an import of a module of the project that the head does not import
 - **THEN** the module does not only lose checks
 
 ### Requirement: A deleted gate check module names its checks
