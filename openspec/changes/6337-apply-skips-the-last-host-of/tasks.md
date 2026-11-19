@@ -31,7 +31,7 @@ Kind: behavior. Reads: `src/devops_cli/infra/infra_plans.py`, `src/devops_cli/in
 
 Kind: other. Reads: `tests/commands/test_infra_apply.py`, `tests/support/infra.py`, `src/devops_cli/infra/apply.py`. Changes: `tests/commands/test_infra_apply.py`, `tests/support/infra.py`.
 
-- [ ] 4.1 Drop each term of the `--limit` that starts with `!` in `limit_hosts` in `tests/support/infra.py`, so the fake reads the hosts of the comma form. Add `test_the_together_run_names_each_host_as_its_own_term` to `tests/commands/test_infra_apply.py`: plan `node-1.example.com` and `node-4.example.com` with the event of the task `Restart the demo unit` dropped, apply the plan, and assert that the `--limit` of the `ansible-runner` call is `node-1.example.com,node-4.example.com,!offline` and that the first step is `run node-1.example.com,node-4.example.com`
+- [x] 4.1 Drop each term of the `--limit` that starts with `!` in `limit_hosts` in `tests/support/infra.py`, so the fake reads the hosts of the comma form. Add `test_the_together_run_names_each_host_as_its_own_term` to `tests/commands/test_infra_apply.py`: plan `node-1.example.com` and `node-4.example.com` with the event of the task `Restart the demo unit` dropped, apply the plan, and assert that the `--limit` of the `ansible-runner` call is `node-1.example.com,node-4.example.com,!offline` and that the first step is `run node-1.example.com,node-4.example.com`
   - Verification: `$ uv run devops ci test tests/commands/test_infra_apply.py` passes
 
 ## Criteria
