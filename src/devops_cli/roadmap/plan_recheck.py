@@ -66,6 +66,7 @@ from devops_cli.roadmap.stage.stage_paths import (
     record_module_tests,
     record_test_references,
 )
+from devops_cli.roadmap.stage.stage_registry import RegistryCount, registry_table
 from devops_cli.roadmap.stage.stage_validate import validate_change
 from devops_cli.roadmap.step_files import parse_task_groups
 from devops_cli.roadmap.stores.store import GitHubState, Item, RoadmapStore
@@ -253,6 +254,7 @@ class _Pass:
     closed: frozenset[int]
     tool: OpenSpecTool
     test_search: Callable[[str], Sequence[str]]
+    registry: Sequence[RegistryCount]
 
 
 def _refused(
@@ -368,6 +370,7 @@ def _record(shared: _Pass, issue: int, folder: str) -> PlanRecord:
         issue_body=held.body if held is not None else "",
         manifest_references=record_test_references(proposal.groups, shared.test_search),
         module_tests=record_module_tests(proposal.groups, shared.tree, shared.test_search),
+        registry=shared.registry,
     )
     refusals = [
         Refusal(folder, gate.value, problem)
@@ -419,6 +422,7 @@ def _judge(
         closed=closed,
         tool=tool,
         test_search=_test_search(source, rev),
+        registry=registry_table(source),
     )
     return tuple(_record(shared, issue, folder) for issue, folder in sorted(planned.active.items()))
 

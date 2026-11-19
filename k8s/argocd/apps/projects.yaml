@@ -94,6 +94,11 @@ spec:
       - group: ''
         kind: ConfigMap
         name: devops-cli-config
+      # The CloudNativePG operator writes this ConfigMap into every namespace that has a Cluster,
+      # with no ownerReferences and no tracking id, so Argo CD reports it as an orphan (#5303).
+      - group: ''
+        kind: ConfigMap
+        name: cnpg-default-monitoring
       - group: ''
         kind: Secret
         name: alertmanager-mattermost

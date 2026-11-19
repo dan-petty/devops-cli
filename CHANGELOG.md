@@ -2,6 +2,116 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.179.2](https://github.com/dan-petty/devops-cli/compare/v0.179.1...v0.179.2) (2026-11-19)
+
+
+### Bug Fixes
+
+* **ai:** retry gateway connect failures and reset streams ([#6345](https://github.com/dan-petty/devops-cli/issues/6345)) ([f0a5435](https://github.com/dan-petty/devops-cli/commit/f0a5435937a388685e5b3fdffbadd127c231d2b9))
+* **deps:** drop the ignore of the withdrawn picomatch advisory ([#6348](https://github.com/dan-petty/devops-cli/issues/6348)) ([1447ec3](https://github.com/dan-petty/devops-cli/commit/1447ec383fae369b5b2e5c75461259d179db5848))
+* **k8s:** loosen the stage limits and correct the Service config notes ([#6356](https://github.com/dan-petty/devops-cli/issues/6356)) ([397d066](https://github.com/dan-petty/devops-cli/commit/397d0665ff0497070805384bfd8dcac73ab3836a))
+* **roadmap:** skip Python keywords in stage removal names ([#6349](https://github.com/dan-petty/devops-cli/issues/6349)) ([5e6822d](https://github.com/dan-petty/devops-cli/commit/5e6822d0517dc1a2e08c00300d8c853b76721a4e))
+* **roadmap:** Tell the stage planner what counts as source code ([#6335](https://github.com/dan-petty/devops-cli/issues/6335)) ([b9060f5](https://github.com/dan-petty/devops-cli/commit/b9060f5745e23d7d459a96ed51f2965e981ca475))
+
+## [0.179.1](https://github.com/dan-petty/devops-cli/compare/v0.179.0...v0.179.1) (2026-11-18)
+
+
+### Bug Fixes
+
+* **monitoring:** make the Service row panels readable ([#6331](https://github.com/dan-petty/devops-cli/issues/6331)) ([f771237](https://github.com/dan-petty/devops-cli/commit/f7712374be95864b44680d4679789f7258ef9012))
+* **monitoring:** show one repository at a time in Project Velocity ([#6329](https://github.com/dan-petty/devops-cli/issues/6329)) ([8fd2456](https://github.com/dan-petty/devops-cli/commit/8fd24561ed724639eb0c26a4d9d401cf35ce34d3))
+
+## [0.179.0](https://github.com/dan-petty/devops-cli/compare/v0.178.0...v0.179.0) (2026-11-18)
+
+
+### Features
+
+* **config:** Generate declared credentials from config set ([#6318](https://github.com/dan-petty/devops-cli/issues/6318)) ([abe8785](https://github.com/dan-petty/devops-cli/commit/abe87858ef9aba147e455b633d51211b0156bb50))
+
+
+### Bug Fixes
+
+* **roadmap:** judge the registry of the checked-out tree ([#6322](https://github.com/dan-petty/devops-cli/issues/6322)) ([31a15af](https://github.com/dan-petty/devops-cli/commit/31a15af7dbae240c00cd80d91e52826aa9ad658c))
+* **tests:** refuse real sleeps in tests ([#6317](https://github.com/dan-petty/devops-cli/issues/6317)) ([918c9f4](https://github.com/dan-petty/devops-cli/commit/918c9f41a81ef0fdfc0fd3894c405a0c4b796f8d))
+
+## [0.178.0](https://github.com/dan-petty/devops-cli/compare/v0.177.1...v0.178.0) (2026-11-18)
+
+
+### Features
+
+* **roadmap:** Rebase and rewrite open plan branches ([#6310](https://github.com/dan-petty/devops-cli/issues/6310)) ([64380c7](https://github.com/dan-petty/devops-cli/commit/64380c719f62a860c5ef3f13ed284af59a992034))
+
+
+### Bug Fixes
+
+* **roadmap:** trace gate judges reads that are no run read ([#6315](https://github.com/dan-petty/devops-cli/issues/6315)) ([b75698b](https://github.com/dan-petty/devops-cli/commit/b75698b8da33cbeff2299ba9b6c0f597041a8aeb))
+
+## [0.177.1](https://github.com/dan-petty/devops-cli/compare/v0.177.0...v0.177.1) (2026-11-18)
+
+
+### Bug Fixes
+
+* **ci:** Identify a base gate run by its recorded worktree ([#6309](https://github.com/dan-petty/devops-cli/issues/6309)) ([959c74a](https://github.com/dan-petty/devops-cli/commit/959c74a2abec20000f0797110e0ed8494c54d5e1))
+* **ci:** retry the Trivy download of the image scan steps ([#6311](https://github.com/dan-petty/devops-cli/issues/6311)) ([81ff182](https://github.com/dan-petty/devops-cli/commit/81ff1827e0adde7f7959b80cdb100f09f9e27906))
+* **openspec:** Read the openspec version before regenerate writes ([#6312](https://github.com/dan-petty/devops-cli/issues/6312)) ([6d8025f](https://github.com/dan-petty/devops-cli/commit/6d8025f7dd7658c0622b121f0e5e6c0e2192167e))
+
+## [0.177.0](https://github.com/dan-petty/devops-cli/compare/v0.176.1...v0.177.0) (2026-11-18)
+
+
+### Features
+
+* **research:** Map pins to OSV names and list rendered images ([#6285](https://github.com/dan-petty/devops-cli/issues/6285)) ([475700d](https://github.com/dan-petty/devops-cli/commit/475700d12376807cd03371859f27d2064f2dc127))
+* **research:** Store fetched research pages in Qdrant ([#6301](https://github.com/dan-petty/devops-cli/issues/6301)) ([22832c2](https://github.com/dan-petty/devops-cli/commit/22832c2dd834756afae474c48a1fb337d19b8826))
+
+
+### Bug Fixes
+
+* **cli:** Name the test-run timeout and drop the traceback ([#6296](https://github.com/dan-petty/devops-cli/issues/6296)) ([c49fd02](https://github.com/dan-petty/devops-cli/commit/c49fd02532a0303bdbba5d9585c4f73de3c46086))
+* **deps:** check the tools lock requirement files for advisories ([#6261](https://github.com/dan-petty/devops-cli/issues/6261)) ([ff42fbe](https://github.com/dan-petty/devops-cli/commit/ff42fbefef85853b454855675c09677075bd170b))
+* **github:** Fail closed when a poll reads no head commit ([#6300](https://github.com/dan-petty/devops-cli/issues/6300)) ([79d5747](https://github.com/dan-petty/devops-cli/commit/79d57473b2e69ce8a3de5a7e9688c1b87f919d1a))
+* **k8s:** Ignore the CNPG monitoring ConfigMap as an Argo CD orphan ([#6306](https://github.com/dan-petty/devops-cli/issues/6306)) ([058ce30](https://github.com/dan-petty/devops-cli/commit/058ce303d00f2e6bf63fdc91272ff74af2a6789d))
+* **k8s:** send direct embedding calls to embedding Service ([#6293](https://github.com/dan-petty/devops-cli/issues/6293)) ([e0a7aad](https://github.com/dan-petty/devops-cli/commit/e0a7aad2ccc05a2e717fbf29d52d222709f8566e))
+* **roadmap:** do not create empty groups for whole-suite criteria ([#6303](https://github.com/dan-petty/devops-cli/issues/6303)) ([43f67e0](https://github.com/dan-petty/devops-cli/commit/43f67e099bbebb95b6dc1235869fc6effa80496b))
+* **roadmap:** Name the gh command and the full title when a create fails ([#6302](https://github.com/dan-petty/devops-cli/issues/6302)) ([3f9e060](https://github.com/dan-petty/devops-cli/commit/3f9e060d033d03a38df58a6767b110208830962b))
+* **roadmap:** sync delivery PR title and type with staged plan proposal ([#6297](https://github.com/dan-petty/devops-cli/issues/6297)) ([9b73219](https://github.com/dan-petty/devops-cli/commit/9b73219fc335e181533776fbe3f082a168e13aa0))
+* **telemetry:** Use the delta_to_cumulative name of the collector processor ([#6308](https://github.com/dan-petty/devops-cli/issues/6308)) ([0083d3d](https://github.com/dan-petty/devops-cli/commit/0083d3d1b0ac9323a610bbc3e41b6f768cc4d70e))
+
+## [0.176.1](https://github.com/dan-petty/devops-cli/compare/v0.176.0...v0.176.1) (2026-11-18)
+
+
+### Bug Fixes
+
+* **ci:** Turn uv's malware check off where no package arrives ([#6289](https://github.com/dan-petty/devops-cli/issues/6289)) ([7359eb8](https://github.com/dan-petty/devops-cli/commit/7359eb818b8bf967cc13c38c40109dd06aebe27c))
+* **deps:** update tools (patch) ([#6284](https://github.com/dan-petty/devops-cli/issues/6284)) ([97bb46c](https://github.com/dan-petty/devops-cli/commit/97bb46c821ec47f37d333be60cea0f67dff9f4e1))
+
+## [0.176.0](https://github.com/dan-petty/devops-cli/compare/v0.175.0...v0.176.0) (2026-11-18)
+
+
+### Features
+
+* **ai:** Score retrieval with KB gold set ([#6169](https://github.com/dan-petty/devops-cli/issues/6169)) ([06f8e4f](https://github.com/dan-petty/devops-cli/commit/06f8e4f7bb73a8ca0506a0aed60d8ed3818601af))
+
+
+### Bug Fixes
+
+* **deps:** update Helm release argo-cd to v10.18.1 ([#6283](https://github.com/dan-petty/devops-cli/issues/6283)) ([d2407c5](https://github.com/dan-petty/devops-cli/commit/d2407c5da0044eb605350af72a2223492897d8bd))
+* **design:** audit the Style Dictionary lock in the gate ([#6265](https://github.com/dan-petty/devops-cli/issues/6265)) ([c3566da](https://github.com/dan-petty/devops-cli/commit/c3566da02a9da1842c266d001dc1de07c3a11500))
+* **k8s:** Keep the Renovate token away from upgrade tasks ([#6251](https://github.com/dan-petty/devops-cli/issues/6251)) ([fa261c8](https://github.com/dan-petty/devops-cli/commit/fa261c8d3edd73edb25df3febf1675ccf1ec3db5))
+* **mcp:** bound the GitHub MCP tools longer than a GitHub read ([#6272](https://github.com/dan-petty/devops-cli/issues/6272)) ([059df0f](https://github.com/dan-petty/devops-cli/commit/059df0fcdecbd286e47033792ce1812002cf02e8))
+* **roadmap:** Isolate the review window git transcript from the host ([#6282](https://github.com/dan-petty/devops-cli/issues/6282)) ([4b14315](https://github.com/dan-petty/devops-cli/commit/4b143153ffc06f9b4f2bf624b2bf4ecca08d92a5))
+* **roadmap:** Label other job comments in the alternatives request ([#6264](https://github.com/dan-petty/devops-cli/issues/6264)) ([917ad07](https://github.com/dan-petty/devops-cli/commit/917ad07005d4ac384c44b384d16f2b9ac1ff8a4f))
+* **roadmap:** preserve stage plan kind on pr collision ([#6288](https://github.com/dan-petty/devops-cli/issues/6288)) ([8859a9b](https://github.com/dan-petty/devops-cli/commit/8859a9b4db9f396b5e04109a7313930580d54ff4))
+* **security:** Judge KSV-0014 with a dated ignore entry ([#6286](https://github.com/dan-petty/devops-cli/issues/6286)) ([07240a1](https://github.com/dan-petty/devops-cli/commit/07240a143d3a4b8834e3f2630bfe3875f8e3c779))
+
+## [0.175.0](https://github.com/dan-petty/devops-cli/compare/v0.174.7...v0.175.0) (2026-11-18)
+
+
+### Features
+
+* **roadmap:** Add a loopback gateway broker to a step ([#6157](https://github.com/dan-petty/devops-cli/issues/6157)) ([d15dfcf](https://github.com/dan-petty/devops-cli/commit/d15dfcf90f675ea13b2c6fab77c901a6bf863c6e))
+* **roadmap:** Add RAG index rows to repository onboarding ([#6041](https://github.com/dan-petty/devops-cli/issues/6041)) ([59b424a](https://github.com/dan-petty/devops-cli/commit/59b424af964c64eb53425d8211ebfb4dbaabf787))
+* **roadmap:** Seam the serve start and the roadmap table ([#6150](https://github.com/dan-petty/devops-cli/issues/6150)) ([de55e8b](https://github.com/dan-petty/devops-cli/commit/de55e8b309b53b714a43d044dc52e6e1a6a8a3ca))
+
 ## [0.174.7](https://github.com/dan-petty/devops-cli/compare/v0.174.6...v0.174.7) (2026-11-18)
 
 

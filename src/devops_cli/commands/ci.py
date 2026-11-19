@@ -22,7 +22,13 @@ from typing import TYPE_CHECKING, Annotated, Any, Final
 import typer
 from pydantic import BaseModel, ConfigDict, Field
 
-from devops_cli.config.commands import build_npm_audit_cmd, npm_audit_lockfile
+from devops_cli.config.commands import (
+    BIN_OSV_SCANNER,
+    build_npm_audit_cmd,
+    build_osv_scanner_audit_cmd,
+    npm_audit_lockfile,
+    osv_scanner_lockfile,
+)
 from devops_cli.config.constants import (
     CONST_AST_GREP_SCAN_ARGS,
     CONST_BANDIT_INI_NAME,
@@ -41,6 +47,7 @@ from devops_cli.config.constants import (
     CONST_GATE_ROW_SCRIPT,
     CONST_GIT_MAIN_BRANCH,
     CONST_NPM_AUDIT_IGNORE_FILE,
+    CONST_OSV_SCANNER_IGNORE_FILE,
     CONST_PYPROJECT_FILENAME,
     CONST_SOURCE_ROOT_DIR,
     CONST_TESTS_ROOT_DIR,
@@ -69,7 +76,9 @@ from devops_cli.core.dependency_audit import (
     active_npm_ignores,
     audit_verdict,
     load_npm_audit_ignores,
+    load_osv_audit_ignores,
     npm_advisory_ids,
+    osv_advisory_ids,
 )
 from devops_cli.core.process import prepare_tool_cmd, run_subprocess
 from devops_cli.dry_run import dry_run_class, is_dry_run, render_dry_run_result, set_dry_run
@@ -250,6 +259,12 @@ def _verify_python_314_environment() -> bool:
     return True
 
 
+# uv's malware check asks api.osv.dev before a command starts. A short DNS failure of that host
+# stops a gate row that installs no package, so each gate command runs with the check off. The
+# steps that install a package keep it on (#4881).
+_GATE_ROW_ENV: dict[str, str] = {"UV_MALWARE_CHECK": "0"}
+
+
 def _with_uv_preview(cmd: Sequence[str]) -> list[str]:
     """`cmd`, with uv's malware-check and check-command preview features on when it starts uv."""
     return prepare_tool_cmd(cmd)
@@ -369,7 +384,8 @@ def _returncode(
 ) -> int:
     """Run a CI check subprocess synchronously and return its exit code; 0 in a dry run. With
     `own_session`, the command runs in a session of its own and is stopped as a whole process
-    group."""
+    group. The command installs no package, so it runs with uv's malware check off (#4881)."""
+    env = {**_GATE_ROW_ENV, **(env or {})}
     if is_dry_run():
         req = _planned_request_for_cmd(cmd, env=env)
         render_request_plan(MESSAGES.ci.ci_dry_run_heading, [req])
@@ -404,13 +420,20 @@ def _audit_today() -> date:
     return datetime.now(UTC).date()
 
 
+def _audit_lockfile(cmd: Sequence[str]) -> str | None:
+    return npm_audit_lockfile(cmd) or osv_scanner_lockfile(cmd)
+
+
 def _audit_ignores(cmd: Sequence[str]) -> AppliedIgnores:
-    """The entries of the npm audit ignore file for the lockfile that `cmd` audits; none for a
-    command that audits no npm lockfile."""
-    lockfile = npm_audit_lockfile(cmd)
+    """The entries of the ignore file for the lockfile or requirement file that `cmd` audits; none
+    for a command that audits no lockfile."""
+    lockfile = _audit_lockfile(cmd)
     if lockfile is None:
         return AppliedIgnores()
-    entries = load_npm_audit_ignores(_get_project_root() / CONST_NPM_AUDIT_IGNORE_FILE)
+    if cmd and cmd[0] == BIN_OSV_SCANNER:
+        entries = load_osv_audit_ignores(_get_project_root() / CONST_OSV_SCANNER_IGNORE_FILE)
+    else:
+        entries = load_npm_audit_ignores(_get_project_root() / CONST_NPM_AUDIT_IGNORE_FILE)
     return active_npm_ignores(entries, lockfile, _audit_today())
 
 
@@ -421,8 +444,11 @@ def _audit_reading(
     audit was clean), and a line for each ignore entry it used and each that expired."""
     applied = _audit_ignores(cmd)
     stdout = run.stdout or ""
-    found = npm_advisory_ids(stdout) if applied.active or applied.expired else frozenset()
-    lockfile = npm_audit_lockfile(cmd)
+    if cmd and cmd[0] == BIN_OSV_SCANNER:
+        found = osv_advisory_ids(stdout) if applied.active or applied.expired else frozenset()
+    else:
+        found = npm_advisory_ids(stdout) if applied.active or applied.expired else frozenset()
+    lockfile = _audit_lockfile(cmd)
     notes = [
         MESSAGES.ci.audit_ignored.format(
             advisory=entry.id, path=lockfile, expired_at=entry.expired_at, statement=entry.statement
@@ -454,6 +480,7 @@ def _report_audit(cmd: list[str]) -> bool:
         cwd=_get_project_root(),
         timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
         capture_output=True,
+        env=_GATE_ROW_ENV,
     )
     failure, notes = _audit_reading(cmd, run)
     if failure is not None:
@@ -471,7 +498,8 @@ def _run_audits() -> bool:
     commands = get_check_spec("audit").commands
     if is_dry_run():
         render_request_plan(
-            MESSAGES.ci.ci_dry_run_heading, [_planned_request_for_cmd(cmd) for cmd in commands]
+            MESSAGES.ci.ci_dry_run_heading,
+            [_planned_request_for_cmd(cmd, env=_GATE_ROW_ENV) for cmd in commands],
         )
         return True
     return all([_report_audit(cmd) for cmd in commands])
@@ -558,8 +586,8 @@ def _check_row_line(badge: str, name: str, text: str) -> str:
 
 
 def _planned_requests(spec: CheckSpec) -> tuple[PlannedRequest, ...]:
-    """The request each command of the check would make."""
-    return tuple(_planned_request_for_cmd(cmd) for cmd in spec.commands)
+    """The request each command of the check would make, with uv's malware check off (#4881)."""
+    return tuple(_planned_request_for_cmd(cmd, env=_GATE_ROW_ENV) for cmd in spec.commands)
 
 
 def _merged_run(
@@ -602,6 +630,7 @@ async def _run_check_commands(
             cwd=root,
             timeout=timeout,
             capture_output=capture_output or spec.dependency_audit,
+            env=_GATE_ROW_ENV,
         )
         for cmd in spec.commands
     ]
@@ -871,6 +900,16 @@ def _npm_audit_cmds() -> list[list[str]]:
     ]
 
 
+def _tools_lock_audit_cmds() -> list[list[str]]:
+    """`osv-scanner` of the requirement files of each Python tool in the tools lock."""
+    from devops_cli.tools_lock import load_tools_lock
+
+    return [
+        build_osv_scanner_audit_cmd(f"{CONST_TOOLS_LOCK_REPO_DIR}/{tool.requirements}")
+        for tool in load_tools_lock().python.values()
+    ]
+
+
 # The git row records every scenario of the git fake again with the real git, outside pytest, and
 # fails when a committed transcript differs (#2146). `git` is on the stock runner.
 _GIT_TRANSCRIPTS_SCRIPT = (
@@ -969,7 +1008,7 @@ def get_check_specs() -> list[CheckSpec]:
             name="audit",
             display_title=MESSAGES.ci.dependency_audit,
             cmd=["uv", "audit"],
-            also_cmds=_npm_audit_cmds(),
+            also_cmds=[*_npm_audit_cmds(), *_tools_lock_audit_cmds()],
             dependency_audit=True,
             span_name="ci.step.audit",
             metric_step="audit",
@@ -1385,7 +1424,7 @@ def _collect_fix_requests(
             continue
         spec = spec_map.get(name)
         if spec and spec.fix_cmd:
-            requests.append(_planned_request_for_cmd(spec.fix_cmd))
+            requests.append(_planned_request_for_cmd(spec.fix_cmd, env=_GATE_ROW_ENV))
     return requests
 
 
@@ -2708,7 +2747,7 @@ def _capture(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     """Run a command in the checked tree as `_run` would, returning its captured output."""
     argv = list(_planned_request_for_cmd(cmd).argv)
     completed: subprocess.CompletedProcess[str] = run_subprocess(
-        argv, cwd=_get_project_root(), capture_output=True
+        argv, cwd=_get_project_root(), capture_output=True, env=_GATE_ROW_ENV
     )
     return completed
 
@@ -2716,9 +2755,11 @@ def _capture(cmd: list[str]) -> subprocess.CompletedProcess[str]:
 def _plan_mutation(run_cmd: list[str]) -> None:
     """The dry run's requests: the mutmut run, its results, and a show for each survivor."""
     requests = [
-        _planned_request_for_cmd(run_cmd),
-        _planned_request_for_cmd(_MUTMUT_RESULTS),
-        _planned_request_for_cmd([*_MUTMUT, "show", "<mutant>"], repeat="each surviving mutant"),
+        _planned_request_for_cmd(run_cmd, env=_GATE_ROW_ENV),
+        _planned_request_for_cmd(_MUTMUT_RESULTS, env=_GATE_ROW_ENV),
+        _planned_request_for_cmd(
+            [*_MUTMUT, "show", "<mutant>"], env=_GATE_ROW_ENV, repeat="each surviving mutant"
+        ),
     ]
     render_request_plan(MESSAGES.ci.ci_dry_run_heading, requests)
 

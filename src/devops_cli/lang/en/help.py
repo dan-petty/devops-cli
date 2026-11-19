@@ -1997,13 +1997,24 @@ class RoadmapCommandHelp:
         "rewrite, new-plan, delivered or cleanup, and each refusal names its gate. With --branch, "
         "list the refusals of each gate for the branch and the default branch, and mark each "
         "refusal that the branch adds as a case to review. A folder gets rewrite only when the "
-        "mechanical rewrite of the plan fixes it. The command reads GitHub and git and calls no "
-        "model. It writes no file unless you give --confirm. Details: docs/roadmap/plan-recheck.md."
+        "mechanical rewrite of the plan fixes it. With --branches, judge the change folder of each "
+        "open draft plan pull request whose base is the default branch, and with --confirm, rebase "
+        "it, rewrite it, check it and push it once with a lease. The command reads GitHub and git "
+        "and calls no model. It writes no file unless you give --confirm. Details: "
+        "docs/roadmap/plan-recheck.md."
     )
     plan_recheck_source: str = "The clone of the repository. Without it, the model clone."
     plan_recheck_branch: str = (
         "A ref of the clone, such as HEAD or origin/<branch>. The command judges its change "
         "folders on its own tree and compares them with the default branch."
+    )
+    plan_recheck_branches: str = (
+        "Judge the change folder of each open draft plan pull request whose base is the default "
+        "branch. Without --confirm, it prints the result of each branch and pushes nothing. With "
+        "--confirm, it rebases the branch onto the default branch, writes the mechanical rewrite, "
+        "checks it and pushes it once with a lease. A branch whose plan the rewrite does not change "
+        "gets no rebase and no push, and a conflict or a refused rewrite leaves the branch as it "
+        "is. It takes no --branch and no --json."
     )
     plan_recheck_json: str = (
         "Print the folders, the counts and the refusals of each gate as JSON, with the result of "
@@ -2011,8 +2022,10 @@ class RoadmapCommandHelp:
     )
     plan_recheck_confirm: str = (
         "Write the rewritten files of each rewrite folder of the default branch to the working "
-        "tree of --source. It needs --source. It writes no file if one differs from the default "
-        "branch, and it makes no commit. Review the diff, and open a pull request."
+        "tree of --source, and make no commit. It needs --source, and it writes no file if one "
+        "differs from the default branch. With --branches, rebase, rewrite, check and push each "
+        "open plan branch whose rewrite changes a file, once, with a lease on the head that the "
+        "run read. Review the diff, and open a pull request."
     )
     plan_recheck_dry_run: str = (
         "Make no request: print the reads that a run makes, in order, with placeholders."
@@ -2559,6 +2572,15 @@ class ConfigCommandHelp:
         "Every line and the last newline stay as the input has them, and the value never shows "
         "in the output."
     )
+    generate: str = (
+        "Make the value with the generator that the cluster Secret table declares for this "
+        "credential, and store it in the OS keyring. The command prints the kind and the "
+        "length of the value, never the value itself."
+    )
+    rotate: str = (
+        "With --generate, replace a value that the OS keyring already holds. Without "
+        "--generate it is a usage error."
+    )
     export_env: str = "Print environment variables as shell export statements."
     json_env: str = "Print environment variables as JSON."
     secret_key: str = "Dotted secret key, e.g. grafana.token."
@@ -2728,6 +2750,7 @@ class TestCommandHelp:
     coverage: str = "Run with code coverage analysis."
     fail_fast: str = "Stop immediately on the first test failure."
     verbose: str = "Enable verbose pytest output (-vv)."
+    timeout: str = "Seconds the pytest subprocess may run before the command stops it."
     dry_run: str = "Simulate test execution."
     profile_memory: str = (
         "Deterministic async memory and connection pool profiler using tracemalloc."
@@ -2846,10 +2869,15 @@ class ResearchCommandHelp:
     app: str = "Read what the project pins and watch the upstream of each pin."
     inventory: str = (
         "List every pin of the project as a typed component: Python packages, tools, container "
-        "images, GitHub Actions, Helm charts and Terraform providers. It reads files only."
+        "images, GitHub Actions, Helm charts and Terraform providers. It reads files only unless "
+        "render is set."
     )
     inventory_root: str = (
         "Root of the repository to read. Default: the repository of the current directory."
+    )
+    inventory_render: str = (
+        "Also render the Argo CD Applications and list the images that their charts name. It "
+        "starts helm and kubectl and reads a chart source over the network. A dry run skips it."
     )
     advisories: str = (
         "List the advisories that affect the pins of the project. It asks OSV about the Python "

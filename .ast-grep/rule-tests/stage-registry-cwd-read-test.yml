@@ -1,0 +1,8 @@
+id: stage-registry-cwd-read
+valid:
+  - "table = registry_table(checkout)"
+  - "table = registry_table(self._source)"
+  - "table = registry_table(source)"
+invalid:
+  - "table = registry_table(Path.cwd())"
+  - "table = registry_table(pathlib.Path.cwd())"

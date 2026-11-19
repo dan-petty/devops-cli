@@ -53,7 +53,7 @@ def _only_tests(group: dict[str, Any]) -> bool:
 
 
 def test_the_dropped_case_has_one_defect_that_no_gate_judges(cases: dict[str, StageCase]) -> None:
-    replay = replay_case(cases[DROPPED])
+    replay = replay_case(cases[DROPPED], registry=())
 
     (defect,) = cases[DROPPED].defects
     assert (defect.type, defect.gate, defect.reason.strip() != "") == (
@@ -66,7 +66,7 @@ def test_the_dropped_case_has_one_defect_that_no_gate_judges(cases: dict[str, St
 
 
 def test_no_gate_refuses_the_plan_of_the_dropped_case(cases: dict[str, StageCase]) -> None:
-    replay = replay_case(cases[DROPPED])
+    replay = replay_case(cases[DROPPED], registry=())
 
     assert not replay.refused
 
@@ -76,7 +76,7 @@ def test_the_good_case_is_the_twin_of_the_dropped_case_and_every_gate_accepts_it
 ) -> None:
     good = cases[DELIVERED]
 
-    replay = replay_case(good)
+    replay = replay_case(good, registry=())
 
     assert (good.verdict, good.twin_of, good.defects) == (Verdict.GOOD, DROPPED, ())
     assert not replay.refused

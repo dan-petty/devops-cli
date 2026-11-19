@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -13,8 +14,12 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.config import app as config_app
 from devops_cli.config.constants import CONST_GH_CLI
+from devops_cli.config.env import credential
 from devops_cli.config.settings import Settings
 from devops_cli.exceptions.config import ConfigurationError
+from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS
+from devops_cli.k8s.secret_push import EntryState, PushOptions, plan_push, secret_line
+from tests.support.cluster_secret_fakes import FakeCluster
 from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
@@ -90,6 +95,140 @@ def test_config_set_prompts_hidden_for_a_credential_without_a_value(
 def test_config_set_requires_a_value_for_a_non_credential_key() -> None:
     result = runner.invoke(config_app, ["set", "ai.model"])
     assert result.exit_code == 2
+
+
+def test_generate_the_crawl4ai_token(keyring_store: FakeKeyring) -> None:
+    """`--generate` stores a URL-safe 43-character token and prints no part of it."""
+    result = runner.invoke(config_app, ["set", "crawl4ai.api_token", "--generate"])
+
+    stored = keyring_store.writes.get("crawl4ai_api_token", "")
+    assert (
+        result.exit_code,
+        re.fullmatch(r"[A-Za-z0-9_-]{43}", stored) is not None,
+        "crawl4ai.api_token" in result.output,
+        bool(stored) and stored in result.output,
+    ) == (0, True, True, False), result.output
+
+
+def test_a_typed_credential_has_no_generator(keyring_store: FakeKeyring) -> None:
+    """A credential that no row of the cluster Secret table generates is refused (#3998)."""
+    result = runner.invoke(config_app, ["set", "gemini.api_key", "--generate"])
+    output = " ".join(result.output.split())
+    assert (
+        result.exit_code,
+        keyring_store.writes,
+        [
+            name in output
+            for name in (
+                "crawl4ai.api_token",
+                "qdrant.api_key",
+                "runs.index_password",
+                "valkey.password",
+                "grafana.password",
+            )
+        ],
+    ) == (1, {}, [True] * 5)
+
+
+def test_a_token_is_already_stored(keyring_store: FakeKeyring) -> None:
+    """A stored value stays unless `--rotate` is given."""
+    keyring_store.values["crawl4ai_api_token"] = "stored-token-value-0001"
+    result = runner.invoke(config_app, ["set", "crawl4ai.api_token", "--generate"])
+    assert (
+        result.exit_code,
+        "--rotate" in result.output,
+        keyring_store.values["crawl4ai_api_token"],
+        keyring_store.writes,
+    ) == (1, True, "stored-token-value-0001", {})
+
+
+def test_rotate_the_token(keyring_store: FakeKeyring) -> None:
+    """`--rotate` replaces the stored value with a new one of the declared kind and length."""
+    keyring_store.values["crawl4ai_api_token"] = "stored-token-value-0001"
+    result = runner.invoke(config_app, ["set", "crawl4ai.api_token", "--generate", "--rotate"])
+
+    rotated = keyring_store.values["crawl4ai_api_token"]
+    assert (
+        result.exit_code,
+        rotated != "stored-token-value-0001",
+        re.fullmatch(r"[A-Za-z0-9_-]{43}", rotated) is not None,
+        rotated in result.output,
+    ) == (0, True, True, False)
+
+
+def test_dry_run_of_a_generate(keyring_store: FakeKeyring) -> None:
+    """A dry run prints the generator's shape and reads and writes nothing."""
+    keyring_store.values["crawl4ai_api_token"] = "stored-token-value-0001"
+    result = runner.invoke(config_app, ["set", "crawl4ai.api_token", "--generate", "--dry-run"])
+    output = " ".join(result.output.split())
+    assert (
+        result.exit_code,
+        "urlsafe" in output,
+        "32" in output,
+        "****" in output,
+        keyring_store.values["crawl4ai_api_token"],
+        keyring_store.reads,
+    ) == (0, True, True, True, "stored-token-value-0001", [])
+
+
+@pytest.mark.parametrize(
+    ("extra", "named"),
+    [
+        pytest.param(["value"], "VALUE", id="value"),
+        pytest.param(["--from-file", "KEY_PATH"], "--from-file", id="from-file"),
+    ],
+)
+def test_a_typed_value_and_generate_together(
+    keyring_store: FakeKeyring, tmp_path: Path, extra: list[str], named: str
+) -> None:
+    """A value and `--generate` name two sources of one value, so the run is a usage error."""
+    source = tmp_path / "credential.txt"
+    source.write_text("typed-value", encoding="utf-8")
+    argv = [part.replace("KEY_PATH", str(source)) for part in extra]
+    result = runner.invoke(config_app, ["set", "crawl4ai.api_token", "--generate", *argv])
+    assert (
+        result.exit_code,
+        "--generate" in result.output,
+        named in result.output,
+        keyring_store.writes,
+    ) == (2, True, True, {})
+
+
+def test_rotate_without_generate(keyring_store: FakeKeyring) -> None:
+    """`--rotate` alone names no source of a value, so it is a usage error."""
+    result = runner.invoke(config_app, ["set", "crawl4ai.api_token", "--rotate"])
+    assert (result.exit_code, "--generate" in result.output, keyring_store.writes) == (2, True, {})
+
+
+def test_the_plan_reads_a_stored_token(
+    keyring_store: FakeKeyring, process_fake: ProcessFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """After a generate, the push takes the token from the keyring, not from its generator."""
+    monkeypatch.setenv("DEVOPS_CLI_TELEMETRY_ENABLED", "false")
+    monkeypatch.delenv("DEVOPS_CLI_HEADLESS_AUTH", raising=False)
+    cluster = FakeCluster()
+    process_fake.answer(lambda _call: True, ProcessAnswer(side_effect=cluster))
+
+    generated = runner.invoke(config_app, ["set", "crawl4ai.api_token", "--generate"])
+    (row,) = [secret for secret in CLUSTER_SECRETS if secret.ref == "devops/crawl4ai"]
+    plan = plan_push([row], PushOptions(context="test-ctx"))
+    (entry,) = plan.secrets[0].entries
+    line = secret_line(plan.secrets[0], preview=True)
+    assert (
+        generated.exit_code,
+        entry.state,
+        entry.entry.source.label,
+        "would create" in line,
+        "would generate" in line,
+        keyring_store.writes["crawl4ai_api_token"] in line,
+    ) == (
+        0,
+        EntryState.CREATED,
+        f"keyring {credential('crawl4ai.api_token').keyring_name}",
+        True,
+        False,
+        False,
+    )
 
 
 # A PEM-shaped value (RFC 7468) with a label no secret scanner takes for a real private key.

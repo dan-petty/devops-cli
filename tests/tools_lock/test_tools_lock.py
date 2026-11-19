@@ -119,7 +119,7 @@ def test_every_node_lockfile_is_version_3_with_a_sha512_for_each_registry_packag
             or urlsplit(str(entry.get("resolved"))).hostname != "registry.npmjs.org"
             or entry.get("hasInstallScript")
         ],
-    ) == ({"openspec": 3, "devcontainers-cli": 3}, True, [])
+    ) == ({"openspec": 3, "devcontainers-cli": 3, "style-dictionary": 3}, True, [])
 
 
 def test_a_node_tools_command_is_the_link_npm_makes_in_its_version_directory(

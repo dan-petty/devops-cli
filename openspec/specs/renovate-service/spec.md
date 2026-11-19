@@ -13,12 +13,15 @@ The `executionTimeout` of the global config, in seconds, SHALL be less than `act
 - **THEN** no Job failed with the reason `DeadlineExceeded`, because Renovate ends a long run at `executionTimeout` before the Job deadline, and the token stays valid for the whole run
 
 ### Requirement: Only the token init container reads Secret renovate
-Init container `token` SHALL run the Service image with the args `gh app-token --app renovate --write /token/github-token`, and SHALL be the only container with `envFrom` (optional) or a `secretKeyRef`. No volume SHALL be a Secret. Container `renovate` SHALL mount the volume `token` read-only, and `config.js` SHALL read `/token/github-token`.
+Init container `token` SHALL run the Service image with the args `gh app-token --app renovate --write /token/github-token`, and SHALL be the only container with `envFrom` (optional) or a `secretKeyRef`. No volume SHALL be a Secret. Container `renovate` SHALL mount the volume `token` writable, and `config.js` SHALL read `/token/github-token` into the config and remove that file before it exports the config, so a child process of user 12021 finds no token file.
 
 #### Scenario: A container reads the Secret
-- **WHEN** a person runs `kubectl -n devops get cronjob renovate -o yaml` on the cluster
-- **THEN** init container `token` is the only container with `envFrom` or a `secretKeyRef`, no volume is a Secret, and container `renovate` mounts the volume `token` with `readOnly: true`
-- **AND** `uv run devops gh pr list --state all` shows the pull requests that the last run opened with the token that the init container wrote
+- **WHEN** a person runs `kubectl get cronjob renovate -o yaml` in namespace `devops` on the cluster
+- **THEN** init container `token` is the only container with `envFrom` or a `secretKeyRef`, no volume is a Secret, and container `renovate` mounts the volume `token` with no `readOnly: true`, and `uv run devops gh pr list --state all` lists the pull requests that the last run opened with the token that the init container wrote
+
+#### Scenario: A config that keeps the token
+- **WHEN** `uv run devops ci --check --only k8s` runs against a `config.js` that reads `/token/github-token` and does not remove it
+- **THEN** the row exits non-zero and its message names `/token/github-token`
 
 ### Requirement: The pod meets Pod Security restricted with a read-only root
 The pod SHALL run as user and group 12021 with `runAsNonRoot`, `fsGroup` 12021, the `RuntimeDefault` seccomp profile and no service account token. Each container SHALL drop all capabilities, allow no privilege escalation and have a read-only root. The volumes SHALL be ConfigMap, emptyDir and PVC volumes only.
@@ -41,12 +44,16 @@ The global config SHALL set `platform: github`, `autodiscover: true`, `onboardin
 - **WHEN** a Renovate run reaches a repository of the App installation that holds no Renovate config, and a person runs `kubectl -n devops logs <pod> -c renovate`
 - **THEN** the log says that the run skips the repository, and the repository gets no onboarding pull request
 
-### Requirement: No upgrade task runs until the token is out of its reach
-A `postUpgradeTasks` command runs in the container that can read the installation token (#6020). Until #6020 keeps the token away from the tasks, `allowedCommands` SHALL be empty, the Renovate config of this repository SHALL name no `postUpgradeTasks`, and `allowShellExecutorForPostUpgradeCommands` SHALL be false. A group that needs a task SHALL name its commands in `prBodyNotes`.
+### Requirement: A post-upgrade task cannot open the installation token
+A `postUpgradeTasks` command SHALL run as user 12021 in container `renovate` and SHALL open no `/token/github-token`, because `config.js` reads that file into the Renovate config and removes it before Renovate processes a repository. `allowShellExecutorForPostUpgradeCommands` SHALL stay false, and `allowedCommands` SHALL hold only an anchored regex for each command that `.github/renovate.json` names, so a command with no regex runs nowhere.
 
 #### Scenario: A new command
-- **WHEN** a person runs `kubectl -n devops get configmap renovate-config -o yaml` on the cluster before #6020
-- **THEN** `allowedCommands` is empty, so Renovate runs no `postUpgradeTasks` command
+- **WHEN** a person runs `kubectl get configmap renovate-config -o yaml` in namespace `devops` on the cluster
+- **THEN** `allowedCommands` holds only anchored regexes and `allowShellExecutorForPostUpgradeCommands` is false, so Renovate runs no command that no regex matches and no command in a shell
+
+#### Scenario: The token path after the config runs
+- **WHEN** `uv run devops ci test tests/invariants/test_k8s_renovate.py` runs the `config.js` of ConfigMap `renovate-config` with `DEVOPS_CLI_TOKEN_FILE` at a temporary path and then starts a `node` child process that opens that path
+- **THEN** the child exits non-zero with `ENOENT`, because the script removed the file before the child started
 
 ### Requirement: The caches are on a kept claim, and Renovate opens update pull requests
 The config SHALL set `binarySource: install`, `cacheDir` on PVC `renovate-cache` (`local-path`, 5Gi, ReadWriteOnce, `Prune=false,Delete=false`), `containerbaseDir` under it, `repositoryCache: enabled`, `reportType: file` and `persistRepoData: false`. The container SHALL set no `RENOVATE_DRY_RUN`: the first measured run (#4909) was a lookup dry run, and Renovate now opens update pull requests.

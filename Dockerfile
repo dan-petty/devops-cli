@@ -5,7 +5,8 @@ FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678
 FROM node:24-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0 AS node
 
 # The maintained actionlint fork that knows current runner labels, pinned by digest (#1501,
-# #3108). Its 1.17.1 release holds a fixed Go toolchain, so the image scan accepts it.
+# #3108). Its 1.17.1 release holds Go 1.27.3, and `.trivyignore-tofu` names the finding of that Go
+# version until a release holds the fix (#6367).
 FROM docker.io/kjanat/actionlint:1.17.1@sha256:c0a63b3e5c974c2466ead39404b70e448176beaff8c5ec7af0b2e96191aea661 AS actionlint
 
 # The requirements of `uv.lock`, with their hashes and without the project (#4550). A release
@@ -41,17 +42,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends -o Acquire::Ret
     rm -rf /var/lib/apt/lists/* && \
     case "${TARGETARCH}" in \
       amd64) \
-        url="https://github.com/cli/cli/releases/download/v2.103.3/gh_2.103.3_linux_amd64.tar.gz"; \
-        sha=4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d ;; \
+        url="https://github.com/cli/cli/releases/download/v2.105.0/gh_2.105.0_linux_amd64.tar.gz"; \
+        sha=79e7ab5db738c48777b696e374f8b428f0647debfb424f44d2f426370407fe2f ;; \
       arm64) \
-        url="https://github.com/cli/cli/releases/download/v2.103.3/gh_2.103.3_linux_arm64.tar.gz"; \
-        sha=ee32df2323c8847f5fac6cb6b4b69ca75828e9329a8f22f677021f7b3306ce63 ;; \
+        url="https://github.com/cli/cli/releases/download/v2.105.0/gh_2.105.0_linux_arm64.tar.gz"; \
+        sha=b1278c75107423d818f1937fd92cafc9e5e9b606631568f68d7fb816f5885a02 ;; \
       *) echo "no gh build for ${TARGETARCH}" >&2; exit 1 ;; \
     esac && \
     curl -fsSL --retry 8 --retry-all-errors --retry-delay 2 -o /tmp/gh.tar.gz "$url" && \
     echo "$sha  /tmp/gh.tar.gz" | sha256sum -c - && \
     tar -xzf /tmp/gh.tar.gz -C /tmp && \
-    install -m 755 "/tmp/gh_2.103.3_linux_${TARGETARCH}/bin/gh" /usr/local/bin/gh && \
+    install -m 755 "/tmp/gh_2.105.0_linux_${TARGETARCH}/bin/gh" /usr/local/bin/gh && \
     rm -rf /tmp/gh*
 
 COPY --from=lock /lock/runtime.txt /lock/runtime.txt

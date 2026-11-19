@@ -390,6 +390,22 @@ class ConfigMessages:
     from_file_oversize: str = "The input is larger than {limit} bytes, the limit for a credential."
     from_file_not_text: str = "The input is not UTF-8 text."
     from_file_empty: str = "The input holds no value."
+    generate_no_generator: str = (
+        "The cluster Secret table declares no generator for {key}. It makes these credentials: "
+        "{options}."
+    )
+    generate_exists: str = "{key} is already set in the OS keyring. Add --rotate to replace it."
+    generate_success: str = (
+        "Stored a new {kind} value of {length} bytes for {key} in the OS keyring. "
+        "The value is not printed."
+    )
+    generate_dry_run: str = (
+        "Would store a new {kind} value of {length} bytes for {key} in the OS keyring: {mask}. "
+        "Nothing was written."
+    )
+    generate_with_value: str = "Give VALUE or --generate, not both."
+    generate_with_from_file: str = "Give --from-file or --generate, not both."
+    rotate_without_generate: str = "Give --generate with --rotate."
     unset_success: str = "Removed {key} from {path}:{line}."
     unset_backup: str = "The file before the change is in {backup}."
     plaintext_alert: str = (
@@ -2709,6 +2725,10 @@ class TestMessages:
     )
     changed_whole_suite: str = "No changed file maps to a test module: running the whole suite."
     changed_targets: str = "Running the {count} test target(s) the changes reach:"
+    run_timeout: str = (
+        "The pytest subprocess did not finish within the {seconds}-second limit of "
+        "`devops test run`. Raise the limit with the `--timeout` option."
+    )
 
 
 @dataclass(frozen=True)
@@ -5683,6 +5703,58 @@ class RoadmapMessages:
     plan_recheck_request_branch_files: str = "read the files of each change folder of the branch"
     plan_recheck_request_closed: str = "the issue of a folder that is not in the open issues"
     plan_recheck_request_closed_condition: str = "the issue is not open"
+    # The open plan branches of `devops roadmap plan-recheck --branches` (#3969).
+    plan_branches_no_folder: str = (
+        "The head of pull request #{number} holds no change folder of the plan of issue #{issue}, "
+        "so the run leaves the branch `{branch}` as it is."
+    )
+    plan_branches_line: str = "Pull request #{number} on `{branch}`: {result}."
+    plan_branches_change: str = "  changes `{path}`"
+    plan_branches_reason: str = "  {reason}"
+    plan_branches_results: str = (
+        "{branches} open plan branches: {rewritten} rewritten, {unchanged} unchanged, "
+        "{conflict} conflict, {invalid} invalid."
+    )
+    plan_branches_none: str = (
+        "No open draft plan pull request holds the default branch as its base."
+    )
+    plan_branches_conflict: str = (
+        "The rebase of `{branch}` onto `{default}` conflicts, so the run leaves the branch as it "
+        "is."
+    )
+    plan_branches_conflict_paths: str = " The files that are not merged: {paths}."
+    plan_branches_unfit: str = (
+        "The rebase of `{branch}` onto `{default}` leaves a tree that the rewrite does not fit, so "
+        "the run leaves the branch as it is: {reason}"
+    )
+    plan_branches_invalid: str = (
+        "The rewritten plan of pull request #{number} fails a check, so the run leaves the branch "
+        "`{branch}` as it is: {reason}"
+    )
+    plan_branches_commit: str = "rewrite the plan of #{issue}"
+    plan_branches_commit_body: str = (
+        "The mechanical rewrite of `plan_rewrite` repairs the plan of the branch. "
+        "`devops roadmap plan-recheck --branches` made the commit."
+    )
+    # The requests of the dry run of `devops roadmap plan-recheck --branches` (#3969).
+    plan_branches_request_specs: str = "read each base spec of the default branch"
+    plan_branches_request_fetch: str = (
+        "fetch the branch of an open plan pull request and the default branch"
+    )
+    plan_branches_request_head: str = "read the head commit of the branch"
+    plan_branches_request_branch_tree: str = "list the files of the branch head"
+    plan_branches_request_files: str = "read the files of the change folder of the branch"
+    plan_branches_write_worktree: str = "open a temporary worktree at the head of the branch"
+    plan_branches_write_rebase: str = "rebase the worktree onto the default branch"
+    plan_branches_write_add: str = "stage the files that the rewrite changes"
+    plan_branches_write_commit: str = "commit the rewrite once"
+    plan_branches_write_push: str = "push the commit with a lease on the head that the run read"
+    plan_recheck_branches_with_branch: str = (
+        "The --branches option takes no --branch: it reads each open plan branch itself."
+    )
+    plan_recheck_branches_json: str = (
+        "The --branches pass prints one line for each open plan branch, so it takes no --json."
+    )
     # The dry runs of `devops roadmap` (#412, #1125): the requests a run makes, none made.
     plan_dry_run: str = (
         "Dry run: no request was made. A run makes these requests, in order; a value in "
@@ -5855,6 +5927,10 @@ class RoadmapMessages:
             "new_branch": "<new branch>",
             "change": "<change>",
             "pull": "<pull request>",
+            "worktree": "<temporary worktree>",
+            "head": "<head commit>",
+            "paths": "<the rewritten files>",
+            "message": "<commit message>",
             "remote_tip": "<remote tip>",
             "tip": "<tip>",
             "git_folder": "<new git folder>",
@@ -5882,6 +5958,9 @@ class RoadmapMessages:
             "commit": "the commit {subject} cites",
             "path_change": "the newest commit on the default branch that changed {subject}",
             "open_pulls": "the open pull requests",
+            "plan_branch_pull": "the plan pull request {subject}",
+            "plan_branch_issue": "the body of the plan pull request {subject}",
+            "plan_branch_item": "the issue of the plan, for its body",
             "repository_labels": "the labels of the repository",
             "visibility": "whether the repository is private",
             "web_search": "a web search for {subject}",
@@ -5976,6 +6055,9 @@ class RoadmapMessages:
             "consolidate_embed": "an open item has a text that the cache of vectors lacks",
             "claim_made": "the claim of the agent is made",
             "behind": "the item is New, Ready or Planned, or has no Status",
+            "plan_branch_rewritten": (
+                "the rewrite changes the plan of the branch and the run confirms the push"
+            ),
         }
     )
     plan_repeat: dict[str, str] = field(
@@ -6010,6 +6092,10 @@ class RoadmapMessages:
             "stage_rejected": "for each item whose plan pull request closed with no merge",
             "stage_rejected_path": "for each file that the reason of a rejected plan names, at most {limit}",
             "open_plan": "for each open item with a change folder, once a run",
+            "plan_branch": "for each open draft plan pull request",
+            "plan_branch_file": "for each file of the change folder of the branch",
+            "plan_branch_rewritten": "for each open plan branch whose rewrite changes a file",
+            "spec_file": "for each spec file of the default branch",
             "implement_item": "for each item the run implements, up to the limit",
             "implement_group": "for each task group that has an unticked task",
             "missing_label": "for each declared label that the repository lacks",

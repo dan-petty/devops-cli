@@ -154,8 +154,10 @@ def _build_client(
 
             effective_transport = create_retry_transport(
                 max_attempts=retries.attempts,
+                connect_max_attempts=retries.connect_attempts,
                 wrapped=AttemptRecordingTransport(effective_transport),
                 retry_on=connect_failed,
+                jitter=retries.jitter,
             )
         else:
             effective_transport = ReadRetryTransport(effective_transport, retries)

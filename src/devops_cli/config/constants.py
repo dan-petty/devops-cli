@@ -300,6 +300,12 @@ CONST_MCP_LAZY_DOMAINS: Final[frozenset[str]] = frozenset(
         "verify",
     }
 )
+# The dispatch bound of each `gh` and `pr` MCP tool. It is longer than the GitHub session read
+# bound (`DEFAULT_GH_SESSION_READ_TIMEOUT_SECONDS`, 60 s), so a read fails first with its
+# `GitHubUnreadError` and the dispatch does not stop it with exit code 124 (#4784). The value is the
+# MCP read bound, and `constants.py` cannot import it from `defaults.py`, which imports this module.
+CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS: Final[float] = 300.0
+
 # Command exposure table: (command_path, timeout_seconds, read_only, format_json)
 # A role server and a client choose tools by the read-only flag. A tool whose command writes local
 # state or a file is not read-only, also when the dry-run class of the command is
@@ -351,31 +357,31 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     (("docker", "sandbox"), 300.0, False, False),
     (("docker", "sign"), 300.0, False, False),
     (("docker", "verify"), 300.0, True, False),
-    (("gh", "issue", "close"), 60.0, False, False),
-    (("gh", "issue", "create"), 60.0, False, False),
-    (("gh", "issue", "edit"), 60.0, False, False),
-    (("gh", "issue", "list"), 60.0, True, False),
-    (("gh", "issue", "status"), 60.0, True, False),
-    (("gh", "issue", "triage"), 60.0, True, False),
-    (("gh", "issue", "view"), 60.0, True, False),
-    (("gh", "label", "list"), 60.0, True, False),
-    (("gh", "label", "sync"), 300.0, False, False),
-    (("gh", "milestones", "close"), 60.0, False, False),
-    (("gh", "milestones", "edit"), 60.0, False, False),
-    (("gh", "milestones", "list"), 60.0, True, False),
-    (("gh", "pages", "status"), 60.0, True, False),
-    (("gh", "pages", "verify"), 30.0, True, False),
-    (("gh", "project", "audit"), 60.0, True, False),
-    (("gh", "project", "list"), 60.0, True, False),
-    (("gh", "project", "reconcile"), 60.0, False, False),
-    (("gh", "project", "status"), 30.0, True, False),
-    (("gh", "project", "sync"), 300.0, False, False),
-    (("gh", "rate-limit"), 60.0, True, False),
-    (("gh", "run", "list"), 60.0, True, False),
-    (("gh", "run", "view"), 60.0, True, False),
-    (("gh", "views", "audit"), 60.0, True, False),
-    (("gh", "views", "spec"), 30.0, True, False),
-    (("gh", "views", "sync"), 300.0, False, False),
+    (("gh", "issue", "close"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, False, False),
+    (("gh", "issue", "create"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, False, False),
+    (("gh", "issue", "edit"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, False, False),
+    (("gh", "issue", "list"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, True, False),
+    (("gh", "issue", "status"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, True, False),
+    (("gh", "issue", "triage"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, True, False),
+    (("gh", "issue", "view"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, True, False),
+    (("gh", "label", "list"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, True, False),
+    (("gh", "label", "sync"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, False, False),
+    (("gh", "milestones", "close"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, False, False),
+    (("gh", "milestones", "edit"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, False, False),
+    (("gh", "milestones", "list"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, True, False),
+    (("gh", "pages", "status"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, True, False),
+    (("gh", "pages", "verify"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, True, False),
+    (("gh", "project", "audit"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, True, False),
+    (("gh", "project", "list"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, True, False),
+    (("gh", "project", "reconcile"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, False, False),
+    (("gh", "project", "status"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, True, False),
+    (("gh", "project", "sync"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, False, False),
+    (("gh", "rate-limit"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, True, False),
+    (("gh", "run", "list"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, True, False),
+    (("gh", "run", "view"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, True, False),
+    (("gh", "views", "audit"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, True, False),
+    (("gh", "views", "spec"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, True, False),
+    (("gh", "views", "sync"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, False, False),
     (("grafana", "dashboards", "list"), 30.0, True, False),
     (("k8s", "audit"), 60.0, True, False),
     (("k8s", "bootstrap"), 360.0, False, False),
@@ -394,19 +400,19 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     (("k8s", "teardown-stack"), 180.0, False, False),
     (("k8s", "validate"), 60.0, True, False),
     # `--auto-resolve` resolves review threads on GitHub (#3235).
-    (("pr", "check-readiness"), 60.0, False, False),
-    (("pr", "checks"), 60.0, True, False),
-    (("pr", "close"), 60.0, False, False),
-    (("pr", "describe"), 60.0, True, False),
-    (("pr", "diff"), 60.0, True, False),
-    (("pr", "edit"), 60.0, False, False),
-    (("pr", "list"), 60.0, True, False),
-    (("pr", "monitor"), 210.0, True, False),
-    (("pr", "ready"), 180.0, False, False),
-    (("pr", "threads", "list"), 60.0, True, False),
-    (("pr", "threads", "reply"), 60.0, False, False),
-    (("pr", "threads", "resolve"), 60.0, False, False),
-    (("pr", "update"), 60.0, False, False),
+    (("pr", "check-readiness"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, False, False),
+    (("pr", "checks"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, True, False),
+    (("pr", "close"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, False, False),
+    (("pr", "describe"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, True, False),
+    (("pr", "diff"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, True, False),
+    (("pr", "edit"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, False, False),
+    (("pr", "list"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, True, False),
+    (("pr", "monitor"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, True, False),
+    (("pr", "ready"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, False, False),
+    (("pr", "threads", "list"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, True, False),
+    (("pr", "threads", "reply"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, False, False),
+    (("pr", "threads", "resolve"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, False, False),
+    (("pr", "update"), CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, False, False),
     (("prometheus", "query"), 30.0, True, False),
     (("research", "advisories"), 120.0, True, True),
     (("research", "inventory"), 30.0, True, True),
@@ -5253,6 +5259,9 @@ CONST_TRIVY_CONFIG_IGNORE_FILE: Final[str] = ".trivyignore.yaml"
 # released version fixes, in the form of `.trivyignore.yaml` (SECURITY.md, A Finding with No Fix;
 # #6204).
 CONST_NPM_AUDIT_IGNORE_FILE: Final[str] = ".npm-audit-ignore.yaml"
+# The ignore file of `osv-scanner` for tools-lock requirement files (SECURITY.md, A Finding with No
+# Fix; #3988).
+CONST_OSV_SCANNER_IGNORE_FILE: Final[str] = ".osv-scanner-ignore.yaml"
 # The tool name that GitHub code scanning shows for the `trivy config` results of the SARIF upload.
 CONST_TRIVY_CONFIG_ALERT_TOOL: Final[str] = "Trivy-config"
 # The most issues that one run of `devops scan alerts` files, so a first run over a long list of

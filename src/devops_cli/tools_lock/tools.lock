@@ -608,6 +608,12 @@ description = "Dev Containers CLI, which builds the published devcontainer image
 source = "https://github.com/devcontainers/cli"
 bin = "devcontainer"
 
+[npm.style-dictionary]
+version = "5.8.0"
+description = "Style Dictionary, which builds the design tokens of design/ (#4777)"
+source = "https://github.com/style-dictionary/style-dictionary"
+bin = "style-dictionary"
+
 [binary.vale]
 version = "3.26.0"
 description = "Prose linter, which checks the ASD-STE100 rules of the hand-written documents (#5157)"

@@ -11,6 +11,7 @@ import typer
 from devops_cli.config.constants import CONST_OUTPUT_FORMAT_TABLE
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
+    DEFAULT_RAG_RESEARCH_COLLECTION,
     DEFAULT_TABLE_FORMAT,
 )
 from devops_cli.config.settings import load_settings
@@ -499,6 +500,19 @@ def _render_collections_table(qdrant: Any, collections: list[str]) -> None:
     )
 
 
+def _research_collection_label(qdrant: Any, is_alive: bool) -> str:
+    """Name the research collection and its point count (#3906).
+
+    The row names `devops_research` before its first point exists, so an empty collection reads
+    as `0 points` and no reader takes a missing row for a missing store.
+    """
+    if not is_alive:
+        return DEFAULT_RAG_RESEARCH_COLLECTION
+    count = qdrant.count_points(DEFAULT_RAG_RESEARCH_COLLECTION)
+    unit = "point" if count == 1 else "points"
+    return f"{DEFAULT_RAG_RESEARCH_COLLECTION} ({count} {unit})"
+
+
 @app.command("status")
 @dry_run_class("request-plan")
 def status_cmd(
@@ -531,6 +545,7 @@ def status_cmd(
         ["Embedding Model", embedder.model],
         ["Code Collection", code_coll],
         ["Docs Collection", docs_coll],
+        ["Research Collection", _research_collection_label(qdrant, is_alive)],
         ["RAG Enabled", str(settings.ai.rag.enabled)],
     ]
 

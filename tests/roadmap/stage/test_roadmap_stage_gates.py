@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -20,6 +21,7 @@ from devops_cli.roadmap.stage.stage_change import (
     content_problems,
 )
 from devops_cli.roadmap.stage.stage_paths import StagedTree
+from devops_cli.roadmap.stage.stage_registry import RegistryCount
 from devops_cli.roadmap.stage.stage_request import StageRequest
 from devops_cli.roadmap.stage.stage_specs import BaseSpec
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient
@@ -364,3 +366,57 @@ def test_planner_gates_proposal_with_trace_facts(stage_repo: StageRepo) -> None:
     with pytest.raises(RoadmapStageError) as exc_info:
         planner_zero._gated(target, request)
     assert path in str(exc_info.value)
+
+
+def test_check_gates_and_check_proposal_require_registry_keyword_argument() -> None:
+    """check_gates and check_proposal raise TypeError when registry is omitted (#4695)."""
+    proposal = make_stage_proposal()
+    with pytest.raises(TypeError, match="registry"):
+        cast(Any, check_gates)(proposal, KNOWN, TREE)
+
+    with pytest.raises(TypeError, match="registry"):
+        cast(Any, check_proposal)(proposal, KNOWN, TREE)
+
+
+def test_the_registry_gate_judges_the_passed_table_not_the_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The gate judges the passed registry table and never the process directory (#4695)."""
+    from devops_cli.roadmap.stage.stage_change import StageGroup
+
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    (workdir / "tests").mkdir()
+    (workdir / "tests" / "test_workdir.py").write_text(
+        'REGISTRY_COUNTS = (("ratchet", "workdir_token", "tests/test_w.py"),)\n',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(workdir)
+
+    judged_table = (
+        RegistryCount(
+            kind="ratchet",
+            token="judged_token",
+            path="tests/test_judged.py",
+            line=5,
+            declaring_path="tests/test_judged_decl.py",
+        ),
+    )
+    group = StageGroup.model_validate(
+        {
+            "kind": "behavior",
+            "title": "A group mentioning both tokens",
+            "test": "Check judged_token and workdir_token in test.",
+            "implementation": "Do work.",
+            "documentation": "Docs.",
+            "changes": ["src/devops_cli/sample.py"],
+            "reads": [],
+            "creates": [],
+            "verify": "uv run pytest tests/test_sample.py",
+        }
+    )
+    plan = make_stage_proposal(groups=[group])
+    problems = check_proposal(plan, KNOWN, TREE, registry=judged_table)
+
+    assert any("judged_token" in p and "tests/test_judged.py" in p for p in problems)
+    assert not any("workdir_token" in p for p in problems)

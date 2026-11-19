@@ -36,6 +36,7 @@ from devops_cli.roadmap.stores.listing_snapshot import (
 from devops_cli.roadmap.stores.store import RoadmapStore, install_roadmap_store
 from devops_cli.server.service import ServiceManager, TriggerBatch
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.github import RunnerSession
 from tests.support.fakes.process import ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -151,7 +152,10 @@ def test_each_lane_reads_every_issue_through_its_own_snapshot(
 
 @pytest.mark.usefixtures("roadmap_bot", "cluster")
 def test_a_lane_round_with_a_kept_snapshot_reads_only_the_changed_issues(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    process_fake: ProcessFake,
+    clock: ClockFake,
 ) -> None:
     """Test first for #4854: the first round of the lane of `watch` reads the whole listing
     and keeps a snapshot. The next round reads only the issues changed since its watermark, one

@@ -42,16 +42,16 @@ A page selects its theme with the CSS files: `tokens-light.css` on `:root`, `tok
 
 ### Install Style Dictionary
 
-The devcontainer image holds `style-dictionary` on `PATH`. `src/devops_cli/tools_lock/style-dictionary/` holds the lock. On another host, install the lock outside the checkout and give the program to `make`:
+The devcontainer image holds `style-dictionary` on `PATH`. `src/devops_cli/tools_lock/style-dictionary/` holds the lock, and `[npm.style-dictionary]` is an entry of `tools.lock`, so the `audit` row of `devops ci` audits it and `devops install-tools` installs it. On another host, install the lock and give the program to `make`:
 
 ```bash
-mkdir -p "$HOME/.local/share/style-dictionary"
-cp src/devops_cli/tools_lock/style-dictionary/package.json src/devops_cli/tools_lock/style-dictionary/package-lock.json "$HOME/.local/share/style-dictionary/"
-npm ci --ignore-scripts --prefix "$HOME/.local/share/style-dictionary"
-make design-tokens STYLE_DICTIONARY="$HOME/.local/share/style-dictionary/node_modules/.bin/style-dictionary"
+devops install-tools --tool style-dictionary
+make design-tokens
 ```
 
-Renovate proposes each new release of Style Dictionary, a minor or a patch in the `tools` group and a major in a pull request of its own, and the CI job "Design Tokens" fails when the release changes an output. The lock is no entry of `tools.lock`, so `devops install-tools` does not install it, and the `audit` row of `devops ci` does not audit it (#4777).
+`devops install-tools` links `style-dictionary` into `$HOME/.local/bin`, so `make` finds it when that directory is on `PATH`.
+
+Renovate proposes each new release of Style Dictionary, a minor or a patch in the `tools` group and a major in a pull request of its own, and the CI job "Design Tokens" fails when the release changes an output (#4777).
 
 ### Read the tokens in Python
 

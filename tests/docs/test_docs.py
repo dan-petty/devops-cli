@@ -536,6 +536,14 @@ def test_doc_generator_configuration_docs(generator: DocGenerator) -> None:
     assert "| Option | Type | Default | Environment Variable | Description |" in content
 
 
+def test_the_configuration_page_names_the_generate_command(generator: DocGenerator) -> None:
+    """The configuration page names the command that makes a credential which no person chooses,
+    and the command that writes the cluster Secrets that read it (#3998)."""
+    content = generator.generate_configuration_docs()
+    assert "`devops config set <key> --generate`" in content
+    assert "`devops k8s push-secrets`" in content
+
+
 def test_configuration_and_telemetry_docs_name_the_telemetry_variables_that_work(
     generator: DocGenerator,
 ) -> None:

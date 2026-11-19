@@ -162,3 +162,28 @@ def test_each_count_of_the_result_lines_starts_with_the_base_of_the_job_grades()
 
     assert len(counts) > 0
     assert [count for count in counts if not count.startswith(f"{RESULT_LINES} | regexp ")] == []
+
+
+def test_project_metrics_dashboard_filters_on_job_and_repo_and_holds_no_range() -> None:
+    """The project metrics dashboard defines single-value template variables `job` and `repo` with
+    defaults `roadmap-service` and `dan-petty/devops-cli`, every Prometheus target filters on both
+    variables, and no target holds `$__range` (#4712)."""
+    dashboard = json.loads(
+        (PRODUCT_DASHBOARDS_DIR / "project-metrics.json").read_text(encoding="utf-8")
+    )
+    variables = {
+        variable["name"]: variable for variable in dashboard.get("templating", {}).get("list", [])
+    }
+    assert "job" in variables
+    assert "repo" in variables
+    assert variables["job"]["current"]["value"] == "roadmap-service"
+    assert variables["repo"]["current"]["value"] == "dan-petty/devops-cli"
+    assert not variables["job"].get("multi", False)
+    assert not variables["repo"].get("multi", False)
+
+    expressions = _expressions(dashboard)
+    assert len(expressions) > 0
+    for expr in expressions:
+        assert 'job="$job"' in expr, f'{expr} misses job="$job"'
+        assert 'repo="$repo"' in expr, f'{expr} misses repo="$repo"'
+        assert "$__range" not in expr, f"{expr} contains $__range"

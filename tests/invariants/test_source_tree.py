@@ -365,6 +365,43 @@ def test_unreachable_call_in_src_fails_ban() -> None:
     assert "docs/TESTING.md # Doubles" in violations[0]
 
 
+def _time_sleep_calls_in_src(trees: ParsedTreeMap) -> list[str]:
+    """Each place in src/ outside clock.py that calls time.sleep(...) (#4669)."""
+    src = (REPO_ROOT / "src").resolve()
+    clock_file = (src / "devops_cli" / "core" / "clock.py").resolve()
+    violations: list[str] = []
+    for path, tree in trees.items():
+        resolved = Path(path).resolve()
+        if resolved == clock_file:
+            continue
+        rel = resolved.relative_to(src).as_posix()
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "time"
+                and node.func.attr == "sleep"
+            ):
+                violations.append(f"{rel}:{node.lineno}")
+    return sorted(violations)
+
+
+def test_no_direct_time_sleep_stays_in_src(parsed_source_trees: ParsedTreeMap) -> None:
+    """Every wait in src outside clock.py calls the clock seam, not time.sleep (#4669)."""
+    assert _time_sleep_calls_in_src(parsed_source_trees) == []
+
+
+def test_direct_time_sleep_in_src_fails_ban() -> None:
+    """A direct time.sleep() call in src/ outside clock.py fails the ban (#4669)."""
+    source = "import time\ndef fn():\n    time.sleep(1.0)\n"
+    tree = ast.parse(source)
+    trees = {(REPO_ROOT / "src" / "devops_cli" / "waiter.py").resolve(): tree}
+    violations = _time_sleep_calls_in_src(trees)
+    assert len(violations) == 1
+    assert "devops_cli/waiter.py:3" in violations[0]
+
+
 _TEST_RESERVED_DIRECTORIES = frozenset(
     {"fixtures", "golden", "__snapshots__", "__pycache__", "support", "invariants", "gate"}
 )

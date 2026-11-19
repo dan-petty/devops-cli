@@ -396,6 +396,44 @@ def test_test_run_execution(process_fake: ProcessFake) -> None:
     assert res_fail.exit_code == 1
 
 
+def test_test_run_passes_the_timeout_option_to_the_subprocess(process_fake: ProcessFake) -> None:
+    """`--timeout` is the timeout of the pytest subprocess, and it defaults to 1800 s (#4926)."""
+    process_fake.answer("uv", ProcessAnswer(returncode=0))
+
+    runner.invoke(app_cli, ["run", "tests/test_scan.py", "--timeout", "60"])
+    given = next(call for call in process_fake.calls if "pytest" in call.argv)
+
+    process_fake.reset()
+    runner.invoke(app_cli, ["run", "tests/test_scan.py"])
+    default = next(call for call in process_fake.calls if "pytest" in call.argv)
+
+    assert (given.timeout, default.timeout) == (60, 1800)
+
+
+def test_test_run_reports_a_timeout_as_one_error_line(process_fake: ProcessFake) -> None:
+    """A run past its limit prints one error line that names the seconds and `--timeout`, prints no
+    traceback, and exits 1 (#4926)."""
+    process_fake.answer("uv", ProcessAnswer(delay=5))
+
+    res = runner.invoke(app_cli, ["run", "tests/test_scan.py", "--timeout", "1"])
+
+    assert (
+        res.exit_code,
+        "1-second limit" in res.output,
+        "--timeout" in res.output,
+        "Traceback" in res.output,
+    ) == (1, True, True, False)
+
+
+def test_a_pytest_failure_before_the_timeout_keeps_its_output(process_fake: ProcessFake) -> None:
+    """A non-zero pytest status before the limit reports the pytest result and no timeout error."""
+    process_fake.answer("uv", ProcessAnswer(returncode=2))
+
+    res = runner.invoke(app_cli, ["run", "tests/test_scan.py", "--timeout", "60"])
+
+    assert (res.exit_code, "exit code 2" in res.output, "timeout" in res.output) == (2, True, False)
+
+
 def test_test_load_missing_k6_and_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
 ) -> None:

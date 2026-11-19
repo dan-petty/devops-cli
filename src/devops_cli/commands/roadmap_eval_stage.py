@@ -58,13 +58,21 @@ def _record(cases_dir: Path | None, names: tuple[str, ...], limit: int | None) -
 
 
 def _replay(
-    cases_dir: Path | None, names: tuple[str, ...], limit: int | None, *, as_json: bool
+    cases_dir: Path | None,
+    names: tuple[str, ...],
+    limit: int | None,
+    *,
+    source: Path | None = None,
+    as_json: bool,
 ) -> None:
+    from devops_cli.core.repo import find_repo_root
     from devops_cli.roadmap.stage.stage_eval_cases import load_cases, select_cases
     from devops_cli.roadmap.stage.stage_eval_gates import replay_all
     from devops_cli.roadmap.stage.stage_eval_render import render_replay, replay_json
+    from devops_cli.roadmap.stage.stage_registry import registry_table
 
-    report = replay_all(select_cases(load_cases(cases_dir), names, limit))
+    registry = registry_table(source or find_repo_root())
+    report = replay_all(select_cases(load_cases(cases_dir), names, limit), registry=registry)
     write_stdout(replay_json(report) if as_json else render_replay(report))
     if report.failures:
         raise typer.Exit(1)
@@ -292,7 +300,7 @@ def eval_stage_cmd(
         _record(cases_dir, names, limit)
         return
     if replay:
-        _replay(cases_dir, names, limit, as_json=as_json)
+        _replay(cases_dir, names, limit, source=source, as_json=as_json)
         return
     _run(
         cases_dir,

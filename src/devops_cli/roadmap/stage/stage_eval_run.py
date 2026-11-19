@@ -50,6 +50,7 @@ from devops_cli.roadmap.stage.stage_change import StageProposal, render_change
 from devops_cli.roadmap.stage.stage_eval_cases import GateName, StageCase
 from devops_cli.roadmap.stage.stage_eval_gates import PlanUnderTest, run_gates
 from devops_cli.roadmap.stage.stage_paths import StagedTree
+from devops_cli.roadmap.stage.stage_registry import RegistryCount, registry_table
 from devops_cli.roadmap.stage.stage_specs import read_base_specs
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient
 from devops_cli.roadmap.stores.store import Item
@@ -121,7 +122,11 @@ def item_of(case: StageCase) -> Item:
 
 
 def _first_reply_problems(
-    case: StageCase, reply: StageProposal, source: Path, openspec: OpenSpecTool | None
+    case: StageCase,
+    reply: StageProposal,
+    source: Path,
+    openspec: OpenSpecTool | None,
+    registry: Sequence[RegistryCount] = (),
 ) -> dict[GateName, list[str]]:
     """What each gate finds in the first reply, against the files of the checkout and the change
     folder that the reply would write. `openspec` lists the base specs of the checkout."""
@@ -130,7 +135,9 @@ def _first_reply_problems(
     files = render_change(case.change, reply, known, created=datetime.now(UTC).date())
     tree = StagedTree.read(source, operation=_OPERATION).with_files(files)
     requirements = {name: spec.requirements for name, spec in specs.items()}
-    return run_gates(PlanUnderTest.of_reply(reply, tree, known, requirements, case.issue_body))
+    return run_gates(
+        PlanUnderTest.of_reply(reply, tree, known, requirements, case.issue_body, registry=registry)
+    )
 
 
 def _planned_as(planned: StagedChange | OverBudget) -> tuple[Outcome, str]:
@@ -162,6 +169,7 @@ def run_case(
     openspec: OpenSpecTool | None = None,
     toolset: StageToolset | None = None,
     traces: list[RunTrace] | None = None,
+    registry: Sequence[RegistryCount] = (),
 ) -> CaseRun:
     """Plan one case in a checkout of its staging commit. Rejected credentials stop the run; any
     other error of the planner ends the case as a `refused` or `failed` case.
@@ -203,7 +211,7 @@ def run_case(
         except (AIClientError, RoadmapStageError, ToolExecutionError) as exc:
             outcome, reason = _ended(exc)
         first = (
-            _first_reply_problems(case, recorder.replies[0], source, openspec)
+            _first_reply_problems(case, recorder.replies[0], source, openspec, registry=registry)
             if recorder.replies
             else None
         )
@@ -230,6 +238,7 @@ def run_cases(
     `toolset`. A commit that git cannot check out ends its case as `failed`, so the finished cases
     keep their runs and the cases after it run (#3688)."""
     runs: list[CaseRun] = []
+    registry = registry_table(repository)
     with openspec_tool() as tool:
         for case in cases:
             try:
@@ -242,6 +251,7 @@ def run_cases(
                         toolbox=toolbox,
                         openspec=tool,
                         toolset=toolset,
+                        registry=registry,
                     )
                 )
             except GitOperationError as exc:

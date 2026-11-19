@@ -260,8 +260,8 @@ class TestSingleRetryLayerAndStatusRules:
     def test_each_failed_connect_to_the_gateway_is_sent_max_retries_plus_one_times(
         self, web: WebFake, clock: ClockFake
     ) -> None:
-        """Verify a call whose connect fails each time is sent `ai.max_retries` + 1 times: the call
-        never reached the gateway, so only the client can send it again (#5965)."""
+        """Verify a call whose connect fails each time is sent up to 10 times: the call
+        never reached the gateway, so only the client can send it again (#5965, #4753)."""
 
         def refuse(request: httpx2.Request) -> httpx2.Response:
             raise httpx2.ConnectError("Connection refused", request=request)
@@ -279,7 +279,7 @@ class TestSingleRetryLayerAndStatusRules:
         with pytest.raises(AIClientError, match="Cannot connect to AI provider API"):
             client.chat("system prompt", "review test prompt")
 
-        assert len(sent) == 4
+        assert len(sent) == 10
 
     @pytest.mark.usefixtures("scanner_fake")
     def test_transport_answers_400_once_fails_without_second_attempt_and_reports_status(

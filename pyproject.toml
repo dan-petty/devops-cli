@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "devops-cli"
-version = "0.174.7"
+version = "0.179.2"
 
 description = "DevOps CLI for managing repos, SSH keys, Kubernetes, and more"
 requires-python = ">=3.14"
@@ -73,7 +73,7 @@ dependencies = [
     "statsmodels==0.15.0",
     "prometheus-client==0.26.0",
     "gidgethub==6.0.0",
-    "cachetools==8.0.1",
+    "cachetools==8.0.2",
     "valkey==6.2.0",
     "pybreaker==1.4.1",
     "ruamel-yaml==0.19.1",
@@ -106,7 +106,7 @@ dev = [
     "pytest-mock==3.17.0",
     "ruff==0.17.5",
     "mypy==2.4.1",
-    "ty==0.0.105",
+    "ty==0.0.107",
     "types-PyYAML==6.0.12.20261113",
     "pytest-cov==7.1.0",
     "diff-cover==11.0.3",
@@ -196,6 +196,7 @@ raises-require-match-for = [
 "socket.inet_ntoa".msg = "Parse and format addresses with ipaddress.ip_address."
 "socket.inet_pton".msg = "Parse and format addresses with ipaddress.ip_address."
 "socket.inet_ntop".msg = "Parse and format addresses with ipaddress.ip_address."
+"time.sleep".msg = "Use devops_cli.core.clock.sleep instead of time.sleep."
 
 [tool.mypy]
 python_version = "3.14"
@@ -244,6 +245,7 @@ markers = [
     "bwrap: live sandbox tests requiring bubblewrap; a default run deselects them, -m bwrap (the bwrap row of devops ci) selects them, and they skip where bwrap is not installed",
     "k8s: live cluster tests; a default run deselects them, and -m k8s selects them on a host with a reachable cluster",
     "live: live tests requiring the named local tool binaries; skipped where a binary is not installed",
+    "real_sleep: marks tests allowed to perform real time.sleep (refuse-real-sleeps floor)",
     "unreachable: tests that exercise a refused endpoint before its fake lands",
 ]
 # Logfire's token check warns from a background thread, so the warning fails a test only
@@ -326,6 +328,10 @@ also_copy = [
 ]
 
 [tool.uv]
+# uv has no setting that reports an OSV lookup error as a warning or lengthens its retry, so an
+# already-synced `uv run` aborts before its program starts when api.osv.dev does not resolve. The
+# check therefore runs where a package can arrive: an install step sets UV_MALWARE_CHECK=1, and a
+# check-only gate row, a check hook and an interactive shell set it to 0 (#4881).
 preview-features = ["malware-check", "check-command"]
 
 [tool.ty.environment]

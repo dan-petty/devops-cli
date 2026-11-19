@@ -12,6 +12,10 @@ import httpx2
 import pytest
 
 from devops_cli.config import defaults
+from devops_cli.config.constants import (
+    CONST_MCP_EXPOSURE_TABLE,
+    CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS,
+)
 from devops_cli.exceptions.git import GitHubUnreadError
 from devops_cli.github import session_transport
 from devops_cli.github.session import get_github_session
@@ -115,3 +119,25 @@ def test_each_bound_of_the_chain_is_shorter_than_the_bound_around_it(
     inner call fails first and the call around it gets that error, not its own deadline. A bound
     that is not defined is endless."""
     assert getattr(defaults, inner, math.inf) < getattr(defaults, outer, math.inf)
+
+
+# The MCP tool groups whose every command reads GitHub: `gh` and `pr`. A write command reads before
+# it writes, so the read bound of the session applies to each one (#4784).
+_GITHUB_TOOL_GROUPS: Final = frozenset({"gh", "pr"})
+
+
+def test_each_github_mcp_tool_outlasts_the_github_read_bound() -> None:
+    """Every `gh` and `pr` tool of the exposure table reads GitHub through the session, so its
+    dispatch bound is the named GitHub MCP bound, above `DEFAULT_GH_SESSION_READ_TIMEOUT_SECONDS`.
+    A row at or below the read bound fails and is named (#4784)."""
+    short = [
+        f"{' '.join(path)}: {timeout}"
+        for path, timeout, *_ in CONST_MCP_EXPOSURE_TABLE
+        if path[0] in _GITHUB_TOOL_GROUPS
+        and (
+            timeout != CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS
+            or timeout <= defaults.DEFAULT_GH_SESSION_READ_TIMEOUT_SECONDS
+        )
+    ]
+
+    assert (CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, short) == (300.0, [])

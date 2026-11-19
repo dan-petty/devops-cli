@@ -35,6 +35,7 @@ from devops_cli.ai.client.streaming import (
 )
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.http import WebFake
 from tests.support.llm_stream_fakes import (
     NDJSON,
@@ -560,7 +561,9 @@ def test_streaming_extractors_edge_cases() -> None:
     )
 
 
-def test_ollama_streaming_and_failover(monkeypatch: pytest.MonkeyPatch, web: WebFake) -> None:
+def test_ollama_streaming_and_failover(
+    monkeypatch: pytest.MonkeyPatch, web: WebFake, clock: ClockFake
+) -> None:
     ollama_cfg = AIConfig(
         provider="ollama",
         model="llama3",

@@ -256,6 +256,34 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
             return acquire_gateway_slot()
         return nullcontext(0.0)
 
+    def _execute_chat_completion_attempt(
+        self, params: dict[str, Any], chunks_read: list[int]
+    ) -> tuple[Any, Any, float]:
+        import openai
+
+        from devops_cli.ai.spend.transport import record_failed_attempt
+
+        with self._gateway_slot():
+            start_time = time.monotonic()
+            with self._openai_client().chat.completions.create(**params) as stream:
+                reply_headers = stream.response.headers
+                try:
+                    parsed = _read_completion(
+                        stream,
+                        network.DEFAULT_AI_MAX_RESPONSE_BYTES,
+                        chunks_read=chunks_read,
+                    )
+                except openai.APIError, AIClientError, httpx2.HTTPError:
+                    # The transport returned a 200 and recorded nothing: the attempt failed
+                    # in its stream.
+                    record_failed_attempt(
+                        request=stream.response.request,
+                        duration=time.monotonic() - start_time,
+                        headers=reply_headers,
+                    )
+                    raise
+            return parsed, reply_headers, time.monotonic() - start_time
+
     def _openai_compat_messages(
         self,
         system: str,
@@ -269,90 +297,89 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         timeout (#2365)."""
         import openai
 
-        from devops_cli.ai.spend.transport import record_failed_attempt
-
         params = self._prepare_params(
             system, messages, stream=True, enable_thinking=enable_thinking, sampling=sampling
         )
-        with self._gateway_slot():
-            start_time = time.monotonic()
+        from devops_cli.ai.retries import is_pre_chunk_reset
+
+        max_attempts = self._max_attempts()
+        for attempt in range(1, max_attempts + 1):
+            chunks_read = [0]
             try:
-                with self._openai_client().chat.completions.create(**params) as stream:
-                    reply_headers = stream.response.headers
-                    try:
-                        parsed = _read_completion(stream, network.DEFAULT_AI_MAX_RESPONSE_BYTES)
-                    except openai.APIError, AIClientError, httpx2.HTTPError:
-                        # The transport returned a 200 and recorded nothing: the attempt failed
-                        # in its stream.
-                        record_failed_attempt(
-                            request=stream.response.request,
-                            duration=time.monotonic() - start_time,
-                            headers=reply_headers,
-                        )
-                        raise
-                wall_elapsed = time.monotonic() - start_time
+                parsed, reply_headers, wall_elapsed = self._execute_chat_completion_attempt(
+                    params, chunks_read
+                )
+                break
             except openai.APIError as exc:
+                if chunks_read[0] == 0 and attempt < max_attempts and is_pre_chunk_reset(exc):
+                    continue
                 raise self._map_openai_error(exc) from exc
             except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
                 raise self._connection_error(exc) from exc
             except httpx2.HTTPError as exc:
+                if chunks_read[0] == 0 and attempt < max_attempts and is_pre_chunk_reset(exc):
+                    continue
                 raise self._provider_http_error(
                     exc,
                     "Provider request failed. Check network access, API endpoint, and credentials.",
                 ) from exc
+            except AIClientError as exc:
+                if chunks_read[0] == 0 and attempt < max_attempts and is_pre_chunk_reset(exc):
+                    continue
+                raise
 
-            choices = parsed.choices if parsed.choices else []
-            first_choice = choices[0] if choices else None
-            msg = first_choice.message if first_choice else None
-            raw_content = str(getattr(msg, "content", "") or "")
-            extra = getattr(msg, "model_extra", None) or {}
-            choice_extra = getattr(first_choice, "model_extra", None) or {}
-            raw_reasoning = (
-                getattr(msg, "reasoning_content", None)
-                or getattr(msg, "reasoning", None)
-                or getattr(first_choice, "reasoning", None)
-                or extra.get("reasoning_content")
-                or extra.get("reasoning")
-                or choice_extra.get("reasoning")
-            )
-            thinking_str = str(raw_reasoning).strip() if raw_reasoning else None
-            content, thinking_str = self._extract_inline_thinking(raw_content, thinking_str)
+        choices = parsed.choices if parsed.choices else []
+        first_choice = choices[0] if choices else None
+        msg = first_choice.message if first_choice else None
+        raw_content = str(getattr(msg, "content", "") or "")
+        extra = getattr(msg, "model_extra", None) or {}
+        choice_extra = getattr(first_choice, "model_extra", None) or {}
+        raw_reasoning = (
+            getattr(msg, "reasoning_content", None)
+            or getattr(msg, "reasoning", None)
+            or getattr(first_choice, "reasoning", None)
+            or extra.get("reasoning_content")
+            or extra.get("reasoning")
+            or choice_extra.get("reasoning")
+        )
+        thinking_str = str(raw_reasoning).strip() if raw_reasoning else None
+        content, thinking_str = self._extract_inline_thinking(raw_content, thinking_str)
 
-            usage = parsed.usage
-            details = getattr(usage, "completion_tokens_details", None) if usage else None
-            reasoning_tokens = getattr(details, "reasoning_tokens", None) if details else None
-            prompt_details = getattr(usage, "prompt_tokens_details", None) if usage else None
-            cache_read_tokens = (
-                getattr(prompt_details, "cached_tokens", None) if prompt_details else None
-            )
-            # A Claude group of the gateway names the tokens that Anthropic wrote to its cache
-            # here (#3658).
-            cache_write_tokens = (
-                getattr(prompt_details, "cache_write_tokens", None) if prompt_details else None
-            )
-            origin = httpx2.URL(self._api_base()).origin
+        usage = parsed.usage
+        details = getattr(usage, "completion_tokens_details", None) if usage else None
+        reasoning_tokens = getattr(details, "reasoning_tokens", None) if details else None
+        prompt_details = getattr(usage, "prompt_tokens_details", None) if usage else None
+        cache_read_tokens = (
+            getattr(prompt_details, "cached_tokens", None) if prompt_details else None
+        )
+        # A Claude group of the gateway names the tokens that Anthropic wrote to its cache
+        # here (#3658).
+        cache_write_tokens = (
+            getattr(prompt_details, "cache_write_tokens", None) if prompt_details else None
+        )
+        origin = httpx2.URL(self._api_base()).origin
 
-            raw_finish = getattr(first_choice, "finish_reason", None) if first_choice else None
-            finish_reason = provider_finish_reason(CONST_OPENAI_FINISH_REASONS, raw_finish)
+        raw_finish = getattr(first_choice, "finish_reason", None) if first_choice else None
+        finish_reason = provider_finish_reason(CONST_OPENAI_FINISH_REASONS, raw_finish)
 
-            return LLMResponse(
-                content,
-                processing_seconds=None,
-                wall_seconds=wall_elapsed,
-                backend_info=f"{self.backend_type} ({origin_label(origin)})",
-                origin=origin,
-                thinking=thinking_str,
-                prompt_tokens=getattr(usage, "prompt_tokens", None) if usage else None,
-                completion_tokens=getattr(usage, "completion_tokens", None) if usage else None,
-                total_tokens=getattr(usage, "total_tokens", None) if usage else None,
-                served_by=extract_served_by(reply_headers),
-                served_model=extract_served_model(reply_headers),
-                model=parsed.model,
-                finish_reason=finish_reason,
-                reasoning_tokens=reasoning_tokens,
-                cache_read_tokens=cache_read_tokens,
-                cache_write_tokens=cache_write_tokens,
-            )
+        return LLMResponse(
+            content,
+            processing_seconds=None,
+            wall_seconds=wall_elapsed,
+            backend_info=f"{self.backend_type} ({origin_label(origin)})",
+            origin=origin,
+            thinking=thinking_str,
+            prompt_tokens=getattr(usage, "prompt_tokens", None) if usage else None,
+            completion_tokens=getattr(usage, "completion_tokens", None) if usage else None,
+            total_tokens=getattr(usage, "total_tokens", None) if usage else None,
+            served_by=extract_served_by(reply_headers),
+            served_model=extract_served_model(reply_headers),
+            model=parsed.model,
+            finish_reason=finish_reason,
+            reasoning_tokens=reasoning_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
+        )
 
     def _openai_compat_stream(
         self,
@@ -500,7 +527,9 @@ def _frame_status(exc: openai.APIError) -> int | None:
     return int(code) if code.isdigit() else None
 
 
-def _read_completion(stream: Any, limit_bytes: int) -> ParsedChatCompletionSnapshot:
+def _read_completion(
+    stream: Any, limit_bytes: int, chunks_read: list[int] | None = None
+) -> ParsedChatCompletionSnapshot:
     """The completion that the chunks of a chat stream make, joined by the SDK's own accumulator.
 
     It has the content, the `reasoning_content` that a model sends, the model, the finish reason
@@ -517,6 +546,8 @@ def _read_completion(stream: Any, limit_bytes: int) -> ParsedChatCompletionSnaps
     for chunk in stream:
         state.handle_chunk(chunk)
         chunks += 1
+        if chunks_read is not None:
+            chunks_read[0] = chunks
     if not chunks:
         raise AIClientError(_STREAM_CUT)
     snapshot = state.current_completion_snapshot

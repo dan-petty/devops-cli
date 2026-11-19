@@ -6,7 +6,8 @@ import time
 
 
 def sleep(seconds: float) -> None:
-    time.sleep(seconds)
+    # Clock seam is the one allowed real wait in the codebase (#4669).
+    time.sleep(seconds)  # noqa: TID251
 
 
 def monotonic() -> float:

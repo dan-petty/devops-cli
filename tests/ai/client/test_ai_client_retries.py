@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock, patch
 
 import httpx2
@@ -333,3 +333,207 @@ def test_dispatch_transport_error_reports_cannot_connect() -> None:
             client.chat_messages(messages=[ChatMessage(role="user", content="hi")])
 
     assert "Cannot connect to AI provider API" in str(exc_info.value)
+
+
+def test_six_connect_failures_then_a_reply(web: WebFake, clock: ClockFake) -> None:
+    """The AI client transport sends a request again after connect errors up to 10 attempts (#4753)."""
+    client = LLMClient(
+        AIConfig(
+            provider="gateway",
+            gateway_url="http://gateway.example.com:4000/v1",
+            model="devops-coder",
+            max_retries=1,
+        ),
+        api_key="sk-test",
+        cache_enabled=False,
+    )
+    attempts = [0]
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        attempts[0] += 1
+        if attempts[0] <= 6:
+            raise httpx2.ConnectError("Connection refused", request=request)
+        return httpx2.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {"role": "assistant", "content": "seventh reply"},
+                        "finish_reason": "stop",
+                    }
+                ]
+            },
+        )
+
+    sent = serve_llm(web, handler)
+    reply = client.chat("sys", "hi", use_cache=False)
+    assert (str(reply), len(sent)) == ("seventh reply", 7)
+
+
+def test_reply_reset_before_first_chunk_retried(web: WebFake, clock: ClockFake) -> None:
+    """The AI client replays when reply resets before the first chunk (#4753)."""
+    client = LLMClient(
+        AIConfig(
+            provider="gateway",
+            gateway_url="http://gateway.example.com:4000/v1",
+            model="devops-coder",
+            max_retries=2,
+        ),
+        api_key="sk-test",
+        cache_enabled=False,
+    )
+    attempts = [0]
+
+    def failing_stream() -> Any:
+        raise httpx2.ReadError("connection reset by peer")
+        yield b""
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        attempts[0] += 1
+        if attempts[0] == 1:
+            return httpx2.Response(
+                200, headers={"content-type": "text/event-stream"}, content=failing_stream()
+            )
+        return httpx2.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {"role": "assistant", "content": "second reply"},
+                        "finish_reason": "stop",
+                    }
+                ]
+            },
+        )
+
+    sent = serve_llm(web, handler)
+    reply = client.chat("sys", "hi", use_cache=False)
+    assert (str(reply), len(sent)) == ("second reply", 2)
+
+
+def test_reset_mid_stream_raises_and_no_replay(
+    web: WebFake, clock: ClockFake, spend_ledger: SpendLedger
+) -> None:
+    """A stream that yielded at least one chunk must not be replayed when connection resets (#4753)."""
+    client = LLMClient(
+        AIConfig(
+            provider="gateway",
+            gateway_url="http://gateway.example.com:4000/v1",
+            model="devops-coder",
+            max_retries=2,
+        ),
+        api_key="sk-test",
+        cache_enabled=False,
+    )
+
+    def mid_reset_stream() -> Any:
+        from tests.support.llm_stream_fakes import openai_chunk
+
+        yield openai_chunk("first chunk")
+        raise httpx2.ReadError("connection reset mid-stream")
+
+    sent = serve_llm(
+        web,
+        lambda request: httpx2.Response(
+            200, headers={"content-type": "text/event-stream"}, content=mid_reset_stream()
+        ),
+    )
+    with pytest.raises(AIClientError) as exc_info:
+        list(client.chat_messages_stream("sys", [ChatMessage(role="user", content="hi")]))
+
+    assert "Cannot connect" in str(exc_info.value)
+    assert len(sent) == 1
+    import contextlib
+    import sqlite3
+
+    with contextlib.closing(sqlite3.connect(spend_ledger.db_path)) as conn:
+        rows = conn.execute(
+            "SELECT request_type, finish_reason FROM ai_spend_records ORDER BY id"
+        ).fetchall()
+    assert rows == [("stream", "error")]
+
+
+def test_connect_retries_bounded_by_read_timeout(web: WebFake, clock: ClockFake) -> None:
+    """Connect retries stop before outer read timeout elapses and raise AIClientError within 60s (#4753)."""
+    client = LLMClient(
+        AIConfig(
+            provider="gateway",
+            gateway_url="http://gateway.example.com:4000/v1",
+            model="devops-coder",
+            timeout=60.0,
+        ),
+        api_key="sk-test",
+        cache_enabled=False,
+    )
+
+    def timeout_handler(request: httpx2.Request) -> httpx2.Response:
+        clock.shift(5.0)
+        raise httpx2.ConnectTimeout("connect timed out", request=request)
+
+    sent = serve_llm(web, timeout_handler)
+    with pytest.raises(AIClientError) as exc_info:
+        client.chat("sys", "hi", use_cache=False)
+
+    assert "Cannot connect" in str(exc_info.value)
+    assert len(sent) <= 10
+    assert clock.monotonic() <= 60.0
+
+
+def test_error_names_cause_and_host_without_api_key(web: WebFake, clock: ClockFake) -> None:
+    """AIClientError of failed connect names error class, cause class, host, and no API key (#4753)."""
+    import socket
+
+    import httpcore2
+
+    client = LLMClient(
+        AIConfig(
+            provider="gateway",
+            gateway_url="http://gateway.example.com:4000/v1",
+            model="devops-coder",
+            max_retries=0,
+        ),
+        api_key="sk-secret-key-that-must-never-leak",
+        cache_enabled=False,
+    )
+
+    def dns_fail_handler(request: httpx2.Request) -> httpx2.Response:
+        gai = socket.gaierror(-2, "Name or service not known")
+        hcore = httpcore2.ConnectError("Failed to resolve")
+        hcore.__cause__ = gai
+        conn_err = httpx2.ConnectError("Failed to connect", request=request)
+        conn_err.__cause__ = hcore
+        raise conn_err
+
+    serve_llm(web, dns_fail_handler)
+    with pytest.raises(AIClientError) as exc_info:
+        client.chat("sys", "hi", use_cache=False)
+
+    msg = str(exc_info.value)
+    assert "ConnectError" in msg
+    assert "gaierror" in msg
+    assert "gateway.example.com" in msg
+    assert "sk-secret-key-that-must-never-leak" not in msg
+
+
+def test_one_retry_layer_no_double_loop(web: WebFake, clock: ClockFake) -> None:
+    """AI client sends exactly the policy's number of requests and dispatch does not double-loop (#4753)."""
+    client = LLMClient(
+        AIConfig(
+            provider="gateway",
+            gateway_url="http://gateway.example.com:4000/v1",
+            model="devops-coder",
+            max_retries=1,
+        ),
+        api_key="sk-test",
+        cache_enabled=False,
+    )
+
+    def refuse_handler(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ConnectError("Connection refused", request=request)
+
+    sent = serve_llm(web, refuse_handler)
+    with pytest.raises(AIClientError) as exc_info:
+        client.chat("sys", "hi", use_cache=False)
+
+    assert "Cannot connect" in str(exc_info.value)
+    assert len(sent) == 10

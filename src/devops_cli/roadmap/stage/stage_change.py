@@ -95,7 +95,6 @@ from devops_cli.roadmap.stage.stage_registry import (
     RegistryCount,
     matches,
     missing_test_paths,
-    registry_table,
 )
 from devops_cli.roadmap.step_files import code_spans, named_files, packed_file, parse_task_groups
 from devops_cli.roadmap.step_rules import rules_sections
@@ -2216,7 +2215,7 @@ def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> lis
 
 
 _NEGATION: Final[re.Pattern[str]] = re.compile(
-    r"\b(?:not|never|no|without|neither|nor)\b", re.IGNORECASE
+    r"\b(?:not|never|no|without|neither|nor|cannot)\b", re.IGNORECASE
 )
 # A read word is a form of `read` or `ran`, or the tool `read_file`. A `read` before a hyphen is a
 # part of another word, such as `read-only` (#4495).
@@ -2296,9 +2295,17 @@ _PRONOUN_OBJECT: Final[re.Pattern[str]] = re.compile(
     re.IGNORECASE,
 )
 # The present tense of `read` with a code span, `it` or `which` before it says what code does, such
-# as "it reads `.github/labels.yml`". It is no claim that the run read the file (#4314).
+# as "it reads `.github/labels.yml`" or "`collect_context` (`src/x.py`) reads `CONTEXT.md`". It is
+# no claim that the run read the file (#4314, #4590).
 _CODE_READS: Final[re.Pattern[str]] = re.compile(
-    r"(?:`[^`\n]+`|\b(?:it|which))\s*(?:,|\bis\b|\bare\b)?\s*$", re.IGNORECASE
+    r"(?:`[^`\n]+`|\b(?:it|which))\s*(?:\([^)]*\)\s*)?(?:,|\bis\b|\bare\b)?\s*$", re.IGNORECASE
+)
+_CODE_SPAN_ITEM: Final[str] = r"`[^`\n]+`(?:\s*\([^)]*\))?"
+# A plural list of code spans as subject before `read`, as in "`src/a.py:107` and `src/b.py:436` read
+# `_core_v1`" (#4590).
+_PLURAL_CODE_READ: Final[re.Pattern[str]] = re.compile(
+    rf"{_CODE_SPAN_ITEM}\s*(?:,\s*{_CODE_SPAN_ITEM}\s*)*\b(?:and|or)\s+{_CODE_SPAN_ITEM}\s*$",
+    re.IGNORECASE,
 )
 _PATH_EXTENSIONS: Final[tuple[str, ...]] = (
     ".py",
@@ -2338,19 +2345,25 @@ _TOOL_CALL: Final[re.Pattern[str]] = re.compile(
 # The start and the end line after the path of a toolbox tool, as in `read_file path 50 215`
 # (#5391).
 _LINE_ARGUMENTS: Final[re.Pattern[str]] = re.compile(r"(?:\s+\d+){1,2}$")
+# A trailing line range after a path, as in `path 590-610` (#4590).
+_TRAILING_RANGE: Final[re.Pattern[str]] = re.compile(r"\s+\d+-\d+$")
 
 
 def _citation(span: str, stage_tools: Collection[str]) -> str:
     """The citation of a code span, without a leading `./` (#4463): the first string argument of
     a toolbox tool call, as in `read_file("path", 60, 80)`, else the span without a toolbox tool
-    name before it, as in `read_file path`, and without the start and end line after that path,
-    as in `read_file path 50 215` (#5391)."""
+    name before it, as in `read_file path`, without the start and end line after that path,
+    as in `read_file path 50 215` (#5391), and without a trailing line range, as in
+    `path 590-610` (#4590)."""
     call = _TOOL_CALL.match(span)
     if call and call["tool"] in stage_tools:
         return (call["double"] or call["single"]).removeprefix("./")
     tool, _, rest = span.partition(" ")
     if tool in stage_tools and rest.strip():
         span = _LINE_ARGUMENTS.sub("", rest.strip())
+    stripped = _TRAILING_RANGE.sub("", span)
+    if _is_path_span(stripped):
+        span = stripped
     return span.removeprefix("./")
 
 
@@ -2404,11 +2417,15 @@ def _claim_words(sentence: str, stage_tools: set[str]) -> str:
 
 
 def _is_code_reading(sentence: str, read: re.Match[str]) -> bool:
-    """Whether `read` is `reads` or `reading` with code as its subject: a code span, `it` or
-    `which` before it (#4314). The sentence holds the code spans that the claim blanks."""
-    return read.group().lower() in ("reads", "reading") and bool(
-        _CODE_READS.search(sentence[: read.start()])
-    )
+    """Whether `read` is `reads` or `reading` with code as its subject (#4314), or `read` after a
+    plural list of code spans (#4590). The sentence holds the code spans that the claim blanks."""
+    text = sentence[: read.start()]
+    verb = read.group().lower()
+    if verb in ("reads", "reading"):
+        return bool(_CODE_READS.search(text) or _PLURAL_CODE_READ.search(text))
+    if verb == "read":
+        return bool(_PLURAL_CODE_READ.search(text))
+    return False
 
 
 def _reader_words(text: str) -> list[str]:
@@ -2506,6 +2523,15 @@ def _object_span(
     obj = [(pos, span) for pos, span in paths if read.end() <= pos < stop]
     if obj and not (earlier and _PRONOUN_OBJECT.match(claim, read.end(), obj[0][0])):
         return obj[0][1], True
+    relative = re.search(r"\b(?:that|which|who)\s*$", claim[:clause], re.IGNORECASE)
+    if relative:
+        before_rel = claim[: relative.start()]
+        marks = list(_CLAUSE_START.finditer(before_rel))
+        ant_start = marks[-1].end() if marks else 0
+        ant_paths = [span for pos, span in paths if ant_start <= pos < relative.start()]
+        if ant_paths:
+            return ant_paths[-1], False
+        return None
     if earlier:
         return earlier[-1], False
     after = [span for pos, span in paths if read.end() <= pos < end]
@@ -2925,7 +2951,7 @@ def check_gates(
     search_evidence: Mapping[str, Sequence[str]] | None = None,
     plan_creates: Mapping[str, int] | None = None,
     read_text: Callable[[str], str | None] | None = None,
-    registry: Sequence[RegistryCount] | None = None,
+    registry: Sequence[RegistryCount],
     constants: Mapping[str, int] | None = None,
     references: Sequence[str] = (),
     models: Mapping[str, tuple[str, Sequence[str]]] | None = None,
@@ -2985,7 +3011,7 @@ def check_gates(
         ProposalGate.CREATES: creates_problems(proposal.groups, plan_creates or {}),
         ProposalGate.REGISTRY: registry_problems(
             proposal,
-            registry if registry is not None else registry_table(Path.cwd()),
+            registry,
         ),
         ProposalGate.CONSTANTS: constant_problems(plan_texts(proposal), constants or {}),
         ProposalGate.TRACE: _trace_problems(proposal, trace, probes, judged),
@@ -3008,7 +3034,7 @@ def check_proposal(
     search_evidence: Mapping[str, Sequence[str]] | None = None,
     plan_creates: Mapping[str, int] | None = None,
     read_text: Callable[[str], str | None] | None = None,
-    registry: Sequence[RegistryCount] | None = None,
+    registry: Sequence[RegistryCount],
     constants: Mapping[str, int] | None = None,
     references: Sequence[str] = (),
     models: Mapping[str, tuple[str, Sequence[str]]] | None = None,
@@ -3525,9 +3551,15 @@ def plan_summary(subject: str, number: int) -> str | None:
     return title.removeprefix(lead).strip() or None
 
 
-def delivery_title(issue_title: str, declared: Collection[str], summary: str | None = None) -> str:
+def delivery_title(
+    issue_title: str,
+    declared: Collection[str],
+    summary: str | None = None,
+    commit_type: str | None = None,
+) -> str:
     """The title of the pull request that delivers the code of an item (#2714): the type and the
-    scope of the issue's title, and `summary`, the summary of the plan (#5341). The issue states a
+    scope of the issue's title, and `summary`, the summary of the plan (#5341). With `commit_type`,
+    the given Conventional Commit type replaces the type of the issue (#4127). The issue states a
     goal, and the plan states the change that the branch makes. With no `summary`, the title keeps
     the whole summary of the issue's title. It is never cut, because a cut text ends with `...`
     and hides the summary (#3200): the form check of the pull request judges a long one. The
@@ -3538,7 +3570,12 @@ def delivery_title(issue_title: str, declared: Collection[str], summary: str | N
     head, _, issue_summary = issue_title.partition(":")
     head = head.strip().removesuffix("!")
     scope = commit_scope(issue_title)
-    if scope and f"{CONST_ROADMAP_SCOPE_LABEL_PREFIX}{scope}" not in declared:
+    if commit_type is not None:
+        if scope and f"{CONST_ROADMAP_SCOPE_LABEL_PREFIX}{scope}" in declared:
+            head = f"{commit_type}({scope})"
+        else:
+            head = commit_type
+    elif scope and f"{CONST_ROADMAP_SCOPE_LABEL_PREFIX}{scope}" not in declared:
         head = head.partition("(")[0]
     return f"{head}: {safe_title(issue_summary if summary is None else summary)}"
 

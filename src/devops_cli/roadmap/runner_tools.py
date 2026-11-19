@@ -41,7 +41,7 @@ USER_DATA_ROOT_VARIABLE = "DEVOPS_CLI_USER_DATA_ROOT"
 
 # The pins that only the Dockerfile holds. A test reads the Dockerfile and compares.
 UV_VERSION = "0.13.9"
-GH_VERSION = "2.103.3"
+GH_VERSION = "2.105.0"
 NODE_MAJOR = "24"
 ACTIONLINT_VERSION = "1.17.1"
 
@@ -154,6 +154,14 @@ RUNNER_TOOLS: tuple[RunnerTool, ...] = (
     _locked("trivy", "gate:static"),
     _base("nice", "ci:security"),
     _base(
+        "env",
+        "hook:ast-grep-scan",
+        "hook:ast-grep-test",
+        "hook:openspec-gate",
+        "hook:devops-ci-pre-push",
+        "hook:devops-ci-workflows-pre-push",
+    ),
+    _base(
         "timeout",
         "hook:branch-current",
         "hook:devops-ci-pre-push",
@@ -235,6 +243,10 @@ NOT_IN_RUNNER: dict[str, str] = {
     "gh-dash": _NO_GATE_STEP,
     "tuicr": _NO_GATE_STEP,
     "devcontainers-cli": _NO_GATE_STEP,
+    "style-dictionary": (
+        "Only the Design Tokens job runs it, to build the tokens of `design/`. A Job runs no "
+        "design token build, so the pull request checks it."
+    ),
     "npm": (
         "The audit row runs `npm audit`. The image deletes npm, because the scan of the image "
         "reports the packages that npm bundles, and a Job installs no tool."

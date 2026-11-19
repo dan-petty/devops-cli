@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import time
 from collections.abc import Callable
 
 from devops_cli.config.defaults import (
     DEFAULT_RESOURCE_WATCHER_INTERVAL_SECONDS,
     DEFAULT_RESOURCE_WATCHER_NAME,
 )
+from devops_cli.core import clock
 from devops_cli.output import Console, Live, RenderableType
 from devops_cli.telemetry import trace_span
 
@@ -42,7 +42,7 @@ class LiveResourceWatcher:
             iterations += 1
             if max_iterations is not None and iterations >= max_iterations:
                 break
-            time.sleep(self.interval_seconds)
+            clock.sleep(self.interval_seconds)
         return iterations
 
     def watch(self, *, max_iterations: int | None = None) -> None:

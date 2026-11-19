@@ -40,6 +40,7 @@ from devops_cli.config.constants import (
     CONST_REVIEW_CHARS_PER_TOKEN,
 )
 from devops_cli.config.defaults import DEFAULT_GATEWAY_TUNE_IMAGE
+from devops_cli.core import clock
 from devops_cli.exceptions import DevOpsCLIError
 
 _INSTRUCTION = "List up to five concrete defects in this code, one line each.\n\n"
@@ -310,7 +311,7 @@ def _kubectl(
         if proc.returncode == 0 or _UNREACHABLE not in (proc.stderr or ""):
             return proc
         if attempt < _KUBECTL_ATTEMPTS:
-            time.sleep(attempt)
+            clock.sleep(attempt)
     return proc
 
 
@@ -379,7 +380,7 @@ def _wait_for_running(
             raise GatewayTuneError(
                 f"The sweep container in {namespace}/{pod} did not start in {timeout:.0f} s."
             )
-        time.sleep(poll)
+        clock.sleep(poll)
 
 
 def _ensure_sweep_container(

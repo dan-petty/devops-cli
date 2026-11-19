@@ -15,7 +15,8 @@
 #    NetworkPolicy lets it reach only CoreDNS, the OTel collector and public HTTPS.
 #
 # The timeouts nest: `executionTimeout` (15 minutes) < `activeDeadlineSeconds` (3000 s) < the
-# token life (3600 s). Renovate opens update pull requests (#6022); no post-upgrade task runs until #6020.
+# token life (3600 s). Renovate opens update pull requests (#6022). #6020 keeps the token away from
+# tasks.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -182,7 +183,6 @@ spec:
                   readOnly: true
                 - name: token
                   mountPath: /token
-                  readOnly: true
                 - name: tmp
                   mountPath: /tmp
                 - name: seeded

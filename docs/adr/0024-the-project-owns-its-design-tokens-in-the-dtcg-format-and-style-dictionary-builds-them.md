@@ -46,3 +46,5 @@ The artifacts of devops-cli set their colors, fonts and sizes by hand. The inven
 The merge of the pull request that adds this record is the approval of this record. `git log --follow -- docs/adr/0024-the-project-owns-its-design-tokens-in-the-dtcg-format-and-style-dictionary-builds-them.md` names the merge commit. The owner accepted the recommended spec and each recommended answer on 2026-11-11 (tracker #4735). Issue #4738 adds the tokens, their build and the spec. The other children of #4735 apply the tokens to each artifact.
 
 2026-11-12: Fact out of date: the docs site builds with Zensical, not Jekyll (#5183).
+
+2026-11-18: Fact out of date: the Style Dictionary lock is an entry of `tools.lock`, and `npm audit` of it is clean (#4777).

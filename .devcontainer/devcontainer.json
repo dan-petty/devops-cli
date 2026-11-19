@@ -10,7 +10,7 @@
   "remoteEnv": {
     "PATH": "${containerWorkspaceFolder}/.venv/bin:${containerEnv:PATH}"
   },
-  "postCreateCommand": "devops devcontainer post-create",
+  "postCreateCommand": "UV_MALWARE_CHECK=1 devops devcontainer post-create",
   "postStartCommand": "devops devcontainer post-start",
   "customizations": {
     "vscode": {

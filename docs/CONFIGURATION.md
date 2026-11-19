@@ -21,6 +21,8 @@ To edit another file, run `DEVOPS_CLI_CONFIG=<file> devops config unset <key>`. 
 
 `devops config set` takes a key that names a settings field with a value, or a credential. For any other key, it exits 1 with `Unknown config key: '<key>'` before it asks for a value or reads a file, and names the known keys with a similar name. `devops config get` gives the same message for a key that it cannot find.
 
+`devops config set <key> --generate` makes the value of a credential that no person chooses, with the generator that the cluster Secret table declares for that credential, and stores it in the OS keyring. It prints the kind and the length of the value, and never the value. A value that the keyring already holds stays, and `--rotate` replaces it. `--dry-run` writes nothing. `devops k8s push-secrets` writes the cluster Secrets that read the stored values, and no other command writes them.
+
 ---
 
 ## GitHub Configuration (`github`)
@@ -240,6 +242,7 @@ AI code review, chat agents, RAG semantic search, and embeddings.
 | `num_ctx` | `Union` | - | - | - |
 | `max_tokens` | `Union` | - | - | - |
 | `ollama_urls` | `list` | `[]` | `DEVOPS_CLI_AI_OLLAMA_URLS` | Ollama service URLs (comma-separated) |
+| `embedding_ollama_urls` | `list` | `['http://ollama-24gib-embed-gpu0.llm.svc.cluster.local:11434']` | `DEVOPS_CLI_AI_EMBEDDING_OLLAMA_URLS` | Ollama service URLs for direct embeddings (comma-separated) |
 | `ollama_max_parallel` | `int` | `2` | `DEVOPS_CLI_AI_OLLAMA_MAX_PARALLEL` | Maximum parallel requests per Ollama host |
 | `gateway_provider` | `str` | `litellm` | - | - |
 | `gateway_url` | `Union` | - | `DEVOPS_CLI_AI_GATEWAY_URL` | AI gateway URL |

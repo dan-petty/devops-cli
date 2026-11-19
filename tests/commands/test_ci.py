@@ -86,14 +86,22 @@ def test_ci_audit_command(process_fake: ProcessFake) -> None:
     result = runner.invoke(app, ["audit"])
     called = _started(process_fake)
     assert result.exit_code == 0
-    assert [cmd[0] for cmd in called] == ["uv", "npm", "npm"]
+    assert [cmd[0] for cmd in called] == [
+        "uv",
+        "npm",
+        "npm",
+        "npm",
+        "osv-scanner",
+        "osv-scanner",
+        "osv-scanner",
+    ]
     assert any("uv" in c and "audit" in c for c in called)
 
 
 def test_the_audit_check_audits_uv_and_the_lockfile_of_each_node_tool_without_a_shell() -> None:
     """One check carries both audits as argument lists, each started on its own: `uv audit` of
-    `uv.lock`, and `npm audit` of the lockfile in the repository's copy of the lock directory,
-    which needs no install."""
+    `uv.lock`, `npm audit` of the lockfile in the repository's copy of the lock directory,
+    and `osv-scanner` of the requirements file of each Python tool, which need no install."""
     assert get_check_spec("audit").commands == [
         ["uv", "audit"],
         [
@@ -114,10 +122,34 @@ def test_the_audit_check_audits_uv_and_the_lockfile_of_each_node_tool_without_a_
             "--prefix",
             "src/devops_cli/tools_lock/devcontainers-cli",
         ],
+        [
+            "npm",
+            "audit",
+            "--package-lock-only",
+            "--json",
+            "--no-update-notifier",
+            "--prefix",
+            "src/devops_cli/tools_lock/style-dictionary",
+        ],
+        [
+            "osv-scanner",
+            "--lockfile",
+            "requirements.txt:src/devops_cli/tools_lock/semgrep.txt",
+        ],
+        [
+            "osv-scanner",
+            "--lockfile",
+            "requirements.txt:src/devops_cli/tools_lock/bandit.txt",
+        ],
+        [
+            "osv-scanner",
+            "--lockfile",
+            "requirements.txt:src/devops_cli/tools_lock/ansible-core.txt",
+        ],
     ]
 
 
-@pytest.mark.parametrize("failing", ["uv", "npm"])
+@pytest.mark.parametrize("failing", ["uv", "npm", "osv-scanner"])
 def test_the_audit_command_fails_when_either_audit_fails_and_still_runs_the_other(
     process_fake: ProcessFake, failing: str
 ) -> None:
@@ -128,7 +160,7 @@ def test_the_audit_command_fails_when_either_audit_fails_and_still_runs_the_othe
 
     assert (result.exit_code, [argv[0] for argv in _started(process_fake)]) == (
         1,
-        ["uv", "npm", "npm"],
+        ["uv", "npm", "npm", "npm", "osv-scanner", "osv-scanner", "osv-scanner"],
     )
 
 
@@ -181,11 +213,13 @@ def test_the_audit_command_plans_both_audits_in_a_dry_run(process_fake: ProcessF
 
     assert (
         result.exit_code,
-        "1. uv --preview-features" in result.output,
-        "2. npm audit" in result.output,
+        "1. UV_MALWARE_CHECK=0 uv --preview-features" in result.output,
+        "2. UV_MALWARE_CHECK=0 npm audit" in result.output,
+        "5. UV_MALWARE_CHECK=0 osv-scanner --lockfile" in result.output,
         process_fake.calls,
     ) == (
         0,
+        True,
         True,
         True,
         [],
@@ -1856,10 +1890,18 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
         ): "Git diff to check changed service image sources",
         ("service-image", "Run Service Image Smoke Test"): "Docker container curl/smoke tests",
         (
+            "service-image",
+            "Install Trivy",
+        ): "Installs the pinned Trivy that the Scan Service Image step runs, with the lock's installer (#4229)",
+        (
             "runner-image",
             "Detect Image Content Changes",
         ): "Git diff to check changed runner image sources",
         ("runner-image", "Run Runner Image Smoke Test"): "Docker container tool smoke tests",
+        (
+            "runner-image",
+            "Install Trivy",
+        ): "Installs the pinned Trivy that the Scan Runner Image step runs, with the lock's installer (#4229)",
         (
             "mcp-server-image",
             "Detect Image Content Changes",
@@ -1868,6 +1910,10 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "mcp-server-image",
             "Run MCP Server Image Smoke Test",
         ): "Docker container tool smoke tests",
+        (
+            "mcp-server-image",
+            "Install Trivy",
+        ): "Installs the pinned Trivy that the Scan MCP Server Image step runs, with the lock's installer (#4229)",
         (
             "test",
             "Changed-Line Coverage",
@@ -2223,6 +2269,7 @@ STOP_SIGNALS = [signal.SIGINT, signal.SIGTERM, signal.SIGHUP]
 
 
 @pytest.mark.live("devops")
+@pytest.mark.real_sleep
 @pytest.mark.usefixtures("default_signal_dispositions")
 @pytest.mark.parametrize("stop_signal", STOP_SIGNALS, ids=lambda sig: sig.name)
 def test_a_signal_to_devops_ci_test_lets_pytest_tear_down_then_stops_its_group(
@@ -2255,6 +2302,7 @@ def test_a_signal_to_devops_ci_test_lets_pytest_tear_down_then_stops_its_group(
 
 
 @pytest.mark.live("devops")
+@pytest.mark.real_sleep
 @pytest.mark.usefixtures("default_signal_dispositions")
 @pytest.mark.parametrize("stop_signal", STOP_SIGNALS, ids=lambda sig: sig.name)
 def test_a_second_signal_to_devops_ci_test_cannot_skip_the_sigkill(
@@ -2324,6 +2372,7 @@ def test_a_stop_signal_cancels_the_gate_and_the_running_row_names_itself(
 
 
 @pytest.mark.live("devops")
+@pytest.mark.real_sleep
 @pytest.mark.usefixtures("default_signal_dispositions")
 def test_a_sigterm_to_the_gate_stops_the_group_of_each_running_row_and_names_it(
     narrowed_project: Path, tmp_path: Path

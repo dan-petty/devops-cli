@@ -95,6 +95,7 @@ CONST_AST_GREP_RULE_FILES: Final[dict[str, tuple[str, ...]]] = {
     **dict.fromkeys(CONST_TEST_CONSTRUCT_RULES, ("tests/**",)),
     "review-cwd-read": CONST_REVIEW_CWD_READ_FILES,
     "css-color-literal": CONST_DESIGN_CSS_FILES,
+    "stage-registry-cwd-read": ("src/**",),
 }
 
 _RULES_DIR = REPO_ROOT / ".ast-grep" / "rules"
@@ -112,6 +113,11 @@ _OTHER_TREE = {
     "src/devops_cli/design/css": "src",
 }
 _CWD_READ = "from pathlib import Path\n\nroot = Path.cwd()\n"
+_STAGE_REGISTRY_CWD_READ = (
+    "from devops_cli.roadmap.stage.stage_registry import registry_table\n"
+    "from pathlib import Path\n\n"
+    "table = registry_table(Path.cwd())\n"
+)
 _ELAPSED_UPPER_BOUND = (
     "import time\n\n\n"
     "def test_parse_is_fast():\n"
@@ -183,6 +189,11 @@ VIOLATIONS: Final[tuple[Violation, ...]] = (
         "github-request-scope-row",
         "src",
         "with request_scope(repo=repo):\n    read_issues()\n",
+    ),
+    Violation(
+        "stage-registry-cwd-read",
+        "src",
+        _STAGE_REGISTRY_CWD_READ,
     ),
 )
 
@@ -372,6 +383,8 @@ def _pre_commit_scan_cmd_escapes(project: Path, expected_cmd: list[str]) -> list
     if scan_hook is None:
         return ["ast-grep-scan hook: missing from .pre-commit-config.yaml"]
     cmd = [*scan_hook.get("entry", "").split(), *scan_hook.get("args", [])]
+    if cmd[:2] == ["env", "UV_MALWARE_CHECK=0"]:
+        cmd = cmd[2:]
     if cmd != expected_cmd:
         return [f"ast-grep-scan hook cmd: {cmd}, not {expected_cmd}"]
     return []

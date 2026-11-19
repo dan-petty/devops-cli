@@ -119,7 +119,23 @@ The job SHALL push the branch of a Planned item with `-u origin` when it first h
 - **THEN** the job removes the branch from `origin`, stops the item, and the record holds no pull request
 
 ### Requirement: The pull request that delivers the code has the type of the issue
-The job SHALL set the title of the pull request of a Staged or a Planned item to the type and the scope of the issue title and the summary of the plan. Before it writes the title, the job SHALL check it with the form of the pull request and SHALL stop the item when the form refuses it. The job SHALL leave out the scope when `.github/labels.yml` on the default branch declares no label `scope/<scope>`. The job SHALL set the title in the same call that sets the body `Closes #<issue>`.
+The job SHALL set the delivery pull request title using the Conventional Commit type selected by the changed paths. The summary SHALL come from the proposal `## Summary` section, `## What Changes`, or the issue summary. Before writing the title, the job SHALL check it with the pull request form and fall back to the issue title when invalid. The job SHALL drop undeclared scopes, and SHALL set the title when setting `Closes #<issue>`.
+
+#### Scenario: A test-only plan
+- **WHEN** the staged plan changes only paths under `tests/` and the issue title starts with `perf(roadmap):`
+- **THEN** `_delivery_title()` returns a title that starts with `test(roadmap):`
+
+#### Scenario: A proposal with a summary
+- **WHEN** the archived proposal has a `## Summary` section whose first line is `pin a single registry read` and the changed paths are test-only
+- **THEN** `_delivery_title()` returns `test(roadmap): pin a single registry read`
+
+#### Scenario: A proposal without a summary
+- **WHEN** the proposal has no `## Summary` section and its first `## What Changes` bullet is `- Add two regression tests`
+- **THEN** `_delivery_title()` returns a title whose summary is `Add two regression tests`
+
+#### Scenario: No usable proposal summary
+- **WHEN** the proposal has no `## Summary` and no `## What Changes` section
+- **THEN** `_delivery_title()` returns the title that `delivery_title(self.target.item.title, declared)` returns
 
 #### Scenario: A Staged item
 - **WHEN** the title of the issue is `fix(roadmap): the job drops a comment`, the commit of the staged branch that adds the change folder has the subject `docs(openspec): plan #1 Keep the last comment of a thread`, and the job finishes the change
@@ -472,3 +488,10 @@ The comment of a run on the pull request SHALL name, by its page, each comment o
 #### Scenario: A comment of the item
 - **WHEN** the item has one comment with a known page and the run passes two groups
 - **THEN** the comment of the run names the page once, on the line "comments of the item in the step inputs"
+
+### Requirement: Type label follows title
+The implement job SHALL set the pull request's `type/*` label from the delivery title and remove any stale `type/*` label.
+
+#### Scenario: A test-only plan on a `type/infra` issue
+- **WHEN** the implement job updates a pull request whose current title is `perf(roadmap): cache registry_table in stage eval replay` and the delivery title is `test(roadmap): pin a single registry read`
+- **THEN** the pull request has `type/test` and does not have `type/infra`

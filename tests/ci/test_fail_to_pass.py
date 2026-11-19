@@ -153,6 +153,8 @@ class _FailToPassState:
     base_files: dict[str, str] = field(default_factory=dict)
     base_tests: dict[str, str] = field(default_factory=dict)
     active_worktrees: set[Path] = field(default_factory=set)
+    # The worktree `git worktree add` made for the merge base: the folder named `tree` (#5361).
+    base_worktrees: set[Path] = field(default_factory=set)
     satisfied: bool | None = None
     gate_base: ProcessAnswer = field(default_factory=ProcessAnswer)
     gate_head: ProcessAnswer = field(default_factory=ProcessAnswer)
@@ -169,6 +171,10 @@ def _handle_worktree_add(replay_state: _FailToPassState, argv: list[str]) -> Pro
     dest = Path(argv[argv.index("add") + 3])
     dest.mkdir(parents=True, exist_ok=True)
     replay_state.active_worktrees.add(dest.resolve())
+    # The base replay tree is the worktree named `tree`; a head or plain-base worktree is not it
+    # (#5361).
+    if dest.name == "tree":
+        replay_state.base_worktrees.add(dest.resolve())
     for rel, text in {**replay_state.base_files, **replay_state.base_tests}.items():
         target = dest / rel
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -270,13 +276,18 @@ def _is_gate_row_run(call: ProcessCall) -> bool:
 
 
 def _gate_row_answer(replay_state: _FailToPassState, call: ProcessCall) -> ProcessAnswer:
-    """The output of a gate row run: the base answer in the replay tree, else the head answer."""
-    return replay_state.gate_base if _ran_on_base(call) else replay_state.gate_head
+    """The output of a gate row run: the base answer in a recorded base worktree, else the head
+    answer."""
+    return replay_state.gate_base if _ran_on_base(replay_state, call) else replay_state.gate_head
 
 
-def _ran_on_base(call: ProcessCall) -> bool:
-    """Whether `call` ran in the replay tree of the merge base."""
-    return call.cwd is not None and Path(call.cwd).name == "tree"
+def _ran_on_base(replay_state: _FailToPassState, call: ProcessCall) -> bool:
+    """Whether `call` ran in the base worktree that `git worktree add` recorded, not in a folder
+    that is merely named `tree` (#5361)."""
+    if call.cwd is None:
+        return False
+    cwd = Path(call.cwd).resolve()
+    return any(cwd.is_relative_to(worktree) for worktree in replay_state.base_worktrees)
 
 
 @pytest.fixture(autouse=True)
@@ -1453,16 +1464,75 @@ def _gate_replay(
     return report.satisfied, format_fail_to_pass_report(report)
 
 
-def _gate_row_runs(git_fake: GitFake) -> list[tuple[str, str]]:
+def _gate_row_runs(replay_state: _FailToPassState, git_fake: GitFake) -> list[tuple[str, str]]:
     """The tree and the gate module of each gate row run, in order."""
     return [
         (
-            "base" if _ran_on_base(call) else "head",
+            "base" if _ran_on_base(replay_state, call) else "head",
             call.argv[2].split("from tests.gate.")[1].split(" ")[0],
         )
         for call in git_fake.calls
         if _is_gate_row_run(call)
     ]
+
+
+def _gate_call(cwd: Path) -> ProcessCall:
+    """A gate row run in `cwd`."""
+    return ProcessCall(argv=("python", "-c", "from tests.gate.k8s import main; main()"), cwd=cwd)
+
+
+def test_a_gate_row_in_a_recorded_worktree_gets_the_base_answer(
+    tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """A gate row in the worktree that `git worktree add` recorded is a base run (#5361)."""
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    replay_state.base_worktrees.add(tree.resolve())
+    replay_state.gate_base = _row_answer(107, FIXED_CASE)
+    replay_state.gate_head = _row_answer(107)
+
+    assert _gate_row_answer(replay_state, _gate_call(tree)) is replay_state.gate_base
+
+
+def test_a_gate_row_in_a_subfolder_of_a_recorded_worktree_gets_the_base_answer(
+    tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """A gate row in a subfolder of the recorded base worktree is still a base run (#5361)."""
+    tree = tmp_path / "tree"
+    sub = tree / "sub"
+    sub.mkdir(parents=True)
+    replay_state.base_worktrees.add(tree.resolve())
+    replay_state.gate_base = _row_answer(107, FIXED_CASE)
+    replay_state.gate_head = _row_answer(107)
+
+    assert _gate_row_answer(replay_state, _gate_call(sub)) is replay_state.gate_base
+
+
+def test_a_gate_row_in_an_unrecorded_folder_named_tree_gets_the_head_answer(
+    tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """A folder named `tree` that no `git worktree add` recorded is a head run (#5361)."""
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    replay_state.gate_base = _row_answer(107, FIXED_CASE)
+    replay_state.gate_head = _row_answer(107)
+
+    assert _gate_row_answer(replay_state, _gate_call(tree)) is replay_state.gate_head
+
+
+def test_a_gate_check_proves_the_fix_when_the_checkout_folder_is_named_tree(
+    tmp_path: Path, replay_state: _FailToPassState, git_fake: GitFake
+) -> None:
+    """A checkout root whose folder is named `tree` is not the replay tree, so the head gate row
+    gets the head answer and the case proves the fix (#5361)."""
+    satisfied, _ = _gate_replay(
+        tmp_path / "tree", replay_state, base=_row_answer(107, FIXED_CASE), head=_row_answer(107)
+    )
+
+    assert (satisfied, _gate_row_runs(replay_state, git_fake)) == (
+        True,
+        [("base", "k8s"), ("head", "k8s")],
+    )
 
 
 def test_a_gate_check_that_fails_on_base_and_passes_on_head_proves_the_fix(
@@ -1474,7 +1544,7 @@ def test_a_gate_check_that_fails_on_base_and_passes_on_head_proves_the_fix(
         tmp_path, replay_state, base=_row_answer(107, FIXED_CASE), head=_row_answer(107)
     )
 
-    assert (satisfied, text, _gate_row_runs(git_fake)) == (
+    assert (satisfied, text, _gate_row_runs(replay_state, git_fake)) == (
         True,
         f"  failed on base, passed on head: k8s {FIXED_CASE}\n"
         f"k8s gate row: 1 of 107 cases failed on base, 0 of 107 on head ({OTEL_CHECK}).",
@@ -1601,7 +1671,7 @@ def test_the_check_directory_names_the_row_of_a_changed_module(
         ),
     )
 
-    assert _gate_row_runs(git_fake) == [
+    assert _gate_row_runs(replay_state, git_fake) == [
         ("base", "k8s"),
         ("base", "tree"),
         ("head", "k8s"),
@@ -1619,7 +1689,11 @@ def test_a_test_only_fix_starts_no_gate_row(
 
     report = run_fail_to_pass(repo, base="main")
 
-    assert (report.satisfied, report.gate_rows, _gate_row_runs(git_fake)) == (True, (), [])
+    assert (report.satisfied, report.gate_rows, _gate_row_runs(replay_state, git_fake)) == (
+        True,
+        (),
+        [],
+    )
 
 
 @pytest.mark.parametrize(
@@ -1663,7 +1737,9 @@ def test_a_named_head_runs_the_gate_row_in_a_worktree_of_that_head(
     )
 
     head_tree = next(
-        call.cwd for call in git_fake.calls if _is_gate_row_run(call) and not _ran_on_base(call)
+        call.cwd
+        for call in git_fake.calls
+        if _is_gate_row_run(call) and not _ran_on_base(replay_state, call)
     )
     added = [call.argv[-2:] for call in git_fake.calls if call.argv[1:3] == ("worktree", "add")]
     assert (satisfied, added[-1], replay_state.active_worktrees) == (

@@ -7,9 +7,14 @@ from qdrant_client import QdrantClient as NativeQdrantClient
 
 from devops_cli.ai.rag.embeddings import EmbeddingsError
 from devops_cli.ai.rag.qdrant import QdrantClient, QdrantClientError, QdrantProtocol
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.qdrant import FakeQdrantClient
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
+
+_EXPIRED = "2026-01-01T00:00:00+00:00"
+_NOW = "2026-06-01T00:00:00+00:00"
+_LIVE = "2027-01-01T00:00:00+00:00"
 
 
 @pytest.fixture
@@ -17,6 +22,16 @@ def memory_qdrant_client() -> QdrantClient:
     """A real QdrantClient wrapper running over native in-memory local mode."""
     native = NativeQdrantClient(location=":memory:")
     return QdrantClient("http://localhost:6333", client=native, allow_private_network=True)
+
+
+@pytest.fixture(params=["native", "fake"])
+def contract_client(
+    request: pytest.FixtureRequest, memory_qdrant_client: QdrantClient
+) -> QdrantProtocol:
+    """One client of the contract: the real wrapper over local mode, and the shared fake."""
+    if request.param == "fake":
+        return FakeQdrantClient()
+    return memory_qdrant_client
 
 
 def test_qdrant_protocol_and_fake() -> None:
@@ -149,14 +164,54 @@ def test_qdrant_search_dimension_mismatch_raises_permanent_error(
     assert exc_info.value.is_transient is False
 
 
-def test_qdrant_unreachable_server_raises_qdrant_client_error(refusing_port: int) -> None:
-    native = NativeQdrantClient(url=f"http://127.0.0.1:{refusing_port}", timeout=0.01)
+def test_qdrant_unreachable_server_raises_qdrant_client_error(
+    refusing_port: int, clock: ClockFake
+) -> None:
+    native = NativeQdrantClient(
+        url=f"http://127.0.0.1:{refusing_port}", timeout=0.01, check_compatibility=False
+    )
     client = QdrantClient(
         f"http://127.0.0.1:{refusing_port}", client=native, timeout=0.01, allow_private_network=True
     )
     with pytest.raises(QdrantClientError) as raised:
         client.list_collections()
     assert raised.value.error_code == "DEVOPS_CLI_ERROR"
+
+
+def test_delete_points_by_expiry(contract_client: QdrantProtocol) -> None:
+    contract_client.ensure_collection("reseach", vector_size=4)
+    contract_client.upsert_points(
+        "reseach",
+        [
+            {"id": "expired", "vector": [1.0, 0.0, 0.0, 0.0], "payload": {"expiry": _EXPIRED}},
+            {"id": "live", "vector": [0.0, 1.0, 0.0, 0.0], "payload": {"expiry": _LIVE}},
+        ],
+    )
+
+    assert contract_client.delete_points_by_expiry("reseach", _NOW) is True
+
+    remaining = contract_client.scroll_points("reseach", limit=10)
+    assert [point["payload"]["expiry"] for point in remaining] == [_LIVE]
+
+
+def test_search_skips_a_point_whose_expiry_passed(contract_client: QdrantProtocol) -> None:
+    contract_client.ensure_collection("reseach", vector_size=4)
+    contract_client.upsert_points(
+        "reseach",
+        [
+            {"id": "expired", "vector": [1.0, 0.0, 0.0, 0.0], "payload": {"expiry": _EXPIRED}},
+            {"id": "live", "vector": [0.6, 0.8, 0.0, 0.0], "payload": {"expiry": _LIVE}},
+        ],
+    )
+
+    hits = contract_client.search_points(
+        "reseach",
+        [1.0, 0.0, 0.0, 0.0],
+        limit=10,
+        filter_payload={"must_range": {"expiry": {"gt": _NOW}}},
+    )
+
+    assert [hit["payload"]["expiry"] for hit in hits] == [_LIVE]
 
 
 def test_qdrant_must_not_list_filter(memory_qdrant_client: QdrantClient) -> None:

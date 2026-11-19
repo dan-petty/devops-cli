@@ -16,6 +16,7 @@ import httpx2
 import pytest
 
 from devops_cli.config.constants import CONST_AI_JEV_ASK_MAX_INPUT_CHARS, CONST_AI_JEV_MODEL
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.keyring import FakeKeyring
 
@@ -228,7 +229,9 @@ def test_a_gateway_failure_exits_non_zero_without_the_key(
     assert _KEY not in result.output
 
 
-def test_a_lost_connection_exits_non_zero(cli: Callable[..., Any], jev: WebFake) -> None:
+def test_a_lost_connection_exits_non_zero(
+    cli: Callable[..., Any], jev: WebFake, clock: ClockFake
+) -> None:
     jev.fail(_URL, httpx2.ConnectError("Connection refused"))
 
     result = cli("ai", "ask-jev", "noul", "Is it?")

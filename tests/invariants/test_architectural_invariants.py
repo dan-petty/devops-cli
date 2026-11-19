@@ -136,6 +136,7 @@ DEFAULT_SUPPRESSION_CEILINGS: dict[str, int] = {
     "src noqa: E402": 2,
     "src noqa: F401": 0,
     "src noqa: SIM115": 1,
+    "src noqa: TID251": 1,
     "src noqa: UP036": 1,
     # #1538: `.bandit` skips B603, so the three `# nosec B603` markers went.
     "src nosec": 10,

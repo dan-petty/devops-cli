@@ -215,7 +215,7 @@ devops roadmap plan-check [OPTIONS] <pull_request>
 
 ## `devops roadmap plan-recheck`
 
-**Check each change folder on the default branch again. Each folder gets one result: ok, rewrite, new-plan, delivered or cleanup, and each refusal names its gate. With --branch, list the refusals of each gate for the branch and the default branch, and mark each refusal that the branch adds as a case to review. A folder gets rewrite only when the mechanical rewrite of the plan fixes it. The command reads GitHub and git and calls no model. It writes no file unless you give --confirm. Details: docs/roadmap/plan-recheck.md.**
+**Check each change folder on the default branch again. Each folder gets one result: ok, rewrite, new-plan, delivered or cleanup, and each refusal names its gate. With --branch, list the refusals of each gate for the branch and the default branch, and mark each refusal that the branch adds as a case to review. A folder gets rewrite only when the mechanical rewrite of the plan fixes it. With --branches, judge the change folder of each open draft plan pull request whose base is the default branch, and with --confirm, rebase it, rewrite it, check it and push it once with a lease. The command reads GitHub and git and calls no model. It writes no file unless you give --confirm. Details: docs/roadmap/plan-recheck.md.**
 
 ```bash
 devops roadmap plan-recheck [OPTIONS]
@@ -228,9 +228,10 @@ devops roadmap plan-recheck [OPTIONS]
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
 | `--source` | `path` | - | The clone of the repository. Without it, the model clone. |
 | `--branch` | `string` | - | A ref of the clone, such as HEAD or origin/\<branch\>. The command judges its change folders on its own tree and compares them with the default branch. |
+| `--branches` | `boolean` | - | Judge the change folder of each open draft plan pull request whose base is the default branch. Without --confirm, it prints the result of each branch and pushes nothing. With --confirm, it rebases the branch onto the default branch, writes the mechanical rewrite, checks it and pushes it once with a lease. A branch whose plan the rewrite does not change gets no rebase and no push, and a conflict or a refused rewrite leaves the branch as it is. It takes no --branch and no --json. |
 | `--json` | `boolean` | - | Print the folders, the counts and the refusals of each gate as JSON, with the result of each folder. |
 | `--dry-run` | `boolean` | - | Make no request: print the reads that a run makes, in order, with placeholders. |
-| `--confirm` | `boolean` | - | Write the rewritten files of each rewrite folder of the default branch to the working tree of --source. It needs --source. It writes no file if one differs from the default branch, and it makes no commit. Review the diff, and open a pull request. |
+| `--confirm` | `boolean` | - | Write the rewritten files of each rewrite folder of the default branch to the working tree of --source, and make no commit. It needs --source, and it writes no file if one differs from the default branch. With --branches, rebase, rewrite, check and push each open plan branch whose rewrite changes a file, once, with a lease on the head that the run read. Review the diff, and open a pull request. |
 
 ---
 

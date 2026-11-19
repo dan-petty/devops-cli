@@ -7,7 +7,12 @@ and of kube-linter, and no test asserts a value of them (#6060).
 
 from __future__ import annotations
 
+import json
+import os
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from devops_cli.config.env import env_var_for_option
 from devops_cli.k8s.cluster_secrets import (
@@ -17,6 +22,7 @@ from devops_cli.k8s.cluster_secrets import (
     SettingSource,
 )
 from tests.support.paths import REPO_ROOT
+from tests.support.renovate import renovate_configmap_data
 
 SETTINGS = (
     "renovate.github_app_id",
@@ -24,6 +30,47 @@ SETTINGS = (
     "renovate.github_app_private_key",
 )
 ADR = REPO_ROOT / "docs" / "adr" / "0027-dependency-updates-come-from-self-hosted-renovate.md"
+
+
+@pytest.mark.live("node")
+def test_the_config_removes_the_token_before_a_child_process_can_read_it(
+    tmp_path: Path,
+) -> None:
+    """The config script reads the token from disk and removes the file at once."""
+    data = renovate_configmap_data()
+    (tmp_path / "config.js").write_text(data["config.js"], encoding="utf-8")
+    (tmp_path / "config.json").write_text(data["config.json"], encoding="utf-8")
+    token_file = tmp_path / "github-token"
+    token_file.write_text("test-token\n", encoding="utf-8")
+
+    env = {**os.environ, "DEVOPS_CLI_TOKEN_FILE": str(token_file)}
+    exported = subprocess.run(
+        ["node", "-e", "console.log(JSON.stringify(require('./config.js')))", "-"],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=10,
+    ).stdout
+    config = json.loads(exported)
+    assert config["token"] == "test-token\n"
+
+    child = subprocess.run(
+        [
+            "node",
+            "-e",
+            f"const {{ readFileSync }} = require('node:fs'); readFileSync({json.dumps(str(token_file))});",
+        ],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    assert child.returncode != 0
+    assert "ENOENT" in child.stderr
 
 
 def test_the_secret_row_holds_the_two_ids_and_the_key_under_their_variables() -> None:
@@ -82,3 +129,10 @@ def test_the_records_of_the_license_exception_agree() -> None:
         )
         for name, lines in found.items()
     } == {name: (True, True, True, True) for name in places}
+
+
+def test_the_adr_names_the_token_in_memory_as_the_residual_risk() -> None:
+    """ADR 0027 names the residual risk in memory and drops the false claim (#6020)."""
+    lines = ADR.read_text(encoding="utf-8").splitlines()
+    assert any("memory" in line and "one hour" in line for line in lines)
+    assert not any("a repository command that goes wrong reaches no key" in line for line in lines)

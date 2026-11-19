@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture(autouse=True)
-def _answer_rate_limit(process_fake: ProcessFake) -> None:
+def _answer_rate_limit(process_fake: ProcessFake, clock: ClockFake) -> None:
     fresh_quota = {"limit": 5000, "remaining": 5000, "reset": time.time() + 60}
     process_fake.answer(
         ["gh", "api", "rate_limit"],

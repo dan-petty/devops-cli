@@ -32,6 +32,7 @@ from devops_cli.config.defaults import (
     DEFAULT_HTTP_PROBE_TIMEOUT_SECONDS,
     DEFAULT_K8S_STACK,
     DEFAULT_OLLAMA_CLUSTER_SERVICE,
+    DEFAULT_OLLAMA_EMBEDDING_CLUSTER_SERVICE,
     DEFAULT_OLLAMA_PORT,
     DEFAULT_OPEN_WEBUI_PORT,
     DEFAULT_OTEL_PORT,
@@ -45,6 +46,7 @@ from devops_cli.config.defaults import (
     DEFAULT_VALKEY_PORT,
 )
 from devops_cli.config.settings import load_settings, save_settings, setting_default
+from devops_cli.core import clock
 from devops_cli.core.process import spawn_detached
 from devops_cli.core.validation import is_loopback_host
 from devops_cli.dry_run import dry_run_class, is_dry_run, render_dry_run_result
@@ -340,6 +342,18 @@ def _update_ollama_urls(
         configured["ai.ollama_urls"] = ", ".join(settings.ai.ollama_urls)
 
 
+def _update_embedding_ollama_urls(
+    settings: Any,
+    configured: dict[str, str],
+    embedding_url: str | None,
+) -> None:
+    """Update settings.ai.embedding_ollama_urls."""
+    if not embedding_url:
+        return
+    settings.ai.embedding_ollama_urls = [embedding_url]
+    configured["ai.embedding_ollama_urls"] = embedding_url
+
+
 def _extract_loopback_fallback(detected_url: str, default_scheme: str) -> str | None:
     """Extract scheme and port from detected URL and resolve loopback fallback."""
     import httpx2
@@ -501,11 +515,15 @@ def _configure_llm_stack_urls(
     raw_ollama = _detect_service_url(
         DEFAULT_OLLAMA_CLUSTER_SERVICE, "llm", context=effective_context
     )
+    raw_embedding = _detect_service_url(
+        DEFAULT_OLLAMA_EMBEDDING_CLUSTER_SERVICE, "llm", context=effective_context
+    )
     raw_webui = _detect_service_url("open-webui", "llm", context=effective_context)
     raw_qdrant = _detect_service_url("qdrant", "llm", context=effective_context)
     raw_valkey = _detect_service_url("valkey", "llm", context=effective_context)
 
     ollama_url = _resolve_accessible_url(raw_ollama, preferred_localhost_ports=[11434])
+    embedding_url = _resolve_accessible_url(raw_embedding, preferred_localhost_ports=[11434])
     webui_url = _resolve_accessible_url(raw_webui, preferred_localhost_ports=[3000, 8080])
     qdrant_url = _resolve_accessible_url(raw_qdrant, preferred_localhost_ports=[6333])
     valkey_url = _as_valkey_url(
@@ -515,6 +533,7 @@ def _configure_llm_stack_urls(
     )
 
     _update_ollama_urls(settings, configured, ollama_url)
+    _update_embedding_ollama_urls(settings, configured, embedding_url)
     _apply_service_url(
         settings, configured, "open_webui.url", webui_url, getattr(settings.open_webui, "url", None)
     )
@@ -606,6 +625,7 @@ _NODEPORT_KEYS_INFRA: tuple[str, ...] = (
 )
 _NODEPORT_KEYS_LLM: tuple[str, ...] = (
     "ai.ollama_urls",
+    "ai.embedding_ollama_urls",
     "open_webui.url",
     "qdrant.url",
     "valkey.url",
@@ -1138,7 +1158,6 @@ def port_forward(
     ] = False,
 ) -> None:
     """Port-forward k8s monitoring / LLM stack services to localhost ports."""
-    import time
 
     effective_context = runtime.resolve_effective_context(context)
     if effective_context:
@@ -1179,7 +1198,7 @@ def port_forward(
     )
     services = _collect_port_forward_services(selected_stacks, ports)
     _launch_port_forwards(services, effective_context, address, stack)
-    time.sleep(1.0)
+    clock.sleep(1.0)
     if update_config:
         configure_urls(stack=stack, context=effective_context)
 

@@ -42,6 +42,55 @@ def test_create_issue_posts_its_title_body_and_labels() -> None:
     )
 
 
+_LONG_TITLE = (
+    "test(docs): six docs tests read the DEVOPS_CLI_CONFIG of the shell, and this title is longer "
+    "than the sixty-four characters the error used to keep"
+)
+
+
+def test_a_failed_create_names_the_full_title_the_command_and_the_stderr() -> None:
+    """A failed `gh issue create` names the full title, the gh command and its stderr, so the
+    reader sees what intake sent and what gh answered (#5269)."""
+    store, _runner = recorded_store({"-X POST": (1, "unexpected end of JSON input")})
+
+    with pytest.raises(GitHubOperationError) as err:
+        store.create_issue(_LONG_TITLE, "Body.")
+
+    text = str(err.value)
+    assert (
+        _LONG_TITLE in text,
+        f"gh api -X POST repos/{REPO}/issues" in text,
+        "exit 1" in text,
+        "stderr: unexpected end of JSON input" in text,
+        "GitHub returned malformed issue after it was opened" in text,
+    ) == (True, True, True, True, False)
+
+
+def test_a_failed_create_with_a_validation_error_names_its_command_and_stderr() -> None:
+    """A gh validation error is named with the command, the exit code and the stderr (#5269)."""
+    store, _runner = recorded_store({"-X POST": (1, "HTTP 422: Validation Failed")})
+
+    with pytest.raises(GitHubOperationError) as err:
+        store.create_issue("A title", "Body.")
+
+    text = str(err.value)
+    assert (
+        f"gh api -X POST repos/{REPO}/issues" in text,
+        "exit 1" in text,
+        "stderr: HTTP 422: Validation Failed" in text,
+    ) == (True, True, True)
+
+
+def test_a_failed_create_with_no_stderr_says_it_is_empty() -> None:
+    """A failed `gh issue create` that wrote no stderr says so (#5269)."""
+    store, _runner = recorded_store({"-X POST": (1, "")})
+
+    with pytest.raises(GitHubOperationError) as err:
+        store.create_issue("A title", "Body.")
+
+    assert "stderr: (empty)" in str(err.value)
+
+
 def test_comment_posts_one_comment() -> None:
     store, runner = recorded_store({"-X POST": {}})
     store.comment(740, "Status set to Ready.")

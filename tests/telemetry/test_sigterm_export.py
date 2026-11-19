@@ -148,6 +148,7 @@ def test_the_cli_entry_installs_the_export_at_sigterm(
 
 
 @pytest.mark.live("python")
+@pytest.mark.real_sleep
 def test_a_process_with_the_default_action_exports_then_ends_by_sigterm(tmp_path: Path) -> None:
     """Verify a process that had the default action for SIGTERM exports its metrics, and SIGTERM
     still ends it."""

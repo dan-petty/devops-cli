@@ -122,7 +122,7 @@ def test_coverage_build_index_runs_exact_argv_and_ctrace_env(process_fake: Proce
         0,
         1,
         expected_cmd,
-        {"COVERAGE_CORE": "ctrace"},
+        {"UV_MALWARE_CHECK": "0", "COVERAGE_CORE": "ctrace"},
     )
 
 
@@ -148,7 +148,7 @@ def test_coverage_without_build_index_preserves_standard_argv_and_env(
         0,
         1,
         expected_cmd,
-        None,
+        {"UV_MALWARE_CHECK": "0"},
     )
 
 

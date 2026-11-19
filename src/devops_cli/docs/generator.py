@@ -802,6 +802,13 @@ class DocGenerator:
             "it asks for a value or reads a file, and names the known keys with a similar name. "
             "`devops config get` gives the same message for a key that it cannot find.",
             "",
+            "`devops config set <key> --generate` makes the value of a credential that no person "
+            "chooses, with the generator that the cluster Secret table declares for that "
+            "credential, and stores it in the OS keyring. It prints the kind and the length of "
+            "the value, and never the value. A value that the keyring already holds stays, and "
+            "`--rotate` replaces it. `--dry-run` writes nothing. `devops k8s push-secrets` writes "
+            "the cluster Secrets that read the stored values, and no other command writes them.",
+            "",
             "---",
             "",
         ]
@@ -976,7 +983,7 @@ class DocGenerator:
             "`devops serve --service` is one long process, so it also flushes when each lane batch",
             "ends. One flush runs at a time, so the deltas reach the collector in the order they",
             "were collected.",
-            "The collector's `deltatocumulative` processor adds the deltas of each stream (its",
+            "The collector's `delta_to_cumulative` processor adds the deltas of each stream (its",
             "resource, scope, metric and attributes) into a running total before Prometheus stores",
             "it. Prometheus names a series by `service.name` (`job`), `service.instance.id`",
             "(`instance`) and the metric's attributes. Prometheus sets `job` and `instance` from",
@@ -988,7 +995,7 @@ class DocGenerator:
             "`host.name`, the pod name, would split one series into a stream that starts at zero",
             "again. A devops-cli build from before #4697 still sends `host.name`, so the collector",
             "deletes it from the metric Resource of the `devops-cli-otel` SDK before",
-            "`deltatocumulative` (`transform/metric_resource` in `k8s/otel/values.yaml`, #5338).",
+            "`delta_to_cumulative` (`transform/metric_resource` in `k8s/otel/values.yaml`, #5338).",
             "An old and a new build of one workload then send one stream, and the alert",
             "`DevopsCliMetricStreamsShareSeries` shows a second stream that remains.",
             "The span and log Resource also holds `host.name`, which finds the pod of a",

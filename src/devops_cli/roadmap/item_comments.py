@@ -26,7 +26,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from itertools import accumulate
-from typing import Any, Final, Protocol
+from typing import Any, Final, Protocol, cast
 
 from pydantic_ai.messages import ToolReturn
 
@@ -34,10 +34,10 @@ from devops_cli.ai.context_budget import count_tokens
 from devops_cli.config.constants import (
     CONST_ROADMAP_COMMENT_INDEX_CHARS,
     CONST_ROADMAP_COMMENT_LINE_CHARS,
-    CONST_ROADMAP_JOB_COMMENT_MARKERS,
     CONST_ROADMAP_PLAN_STATE_KEY,
 )
 from devops_cli.roadmap.agent_run import cut_answer, empty_answer, error_answer, ok_answer
+from devops_cli.roadmap.stores.comment_repeat import comment_job
 from devops_cli.roadmap.stores.store import IssueComment
 from devops_cli.roadmap.trust import trusted_replies
 from devops_cli.security.sanitizer import mask_secrets
@@ -90,13 +90,15 @@ def _time(at: datetime) -> str:
 @dataclass(frozen=True)
 class HeldComment:
     """One comment of the item as a model reads it: its number (1 is the oldest), its author, its
-    time, its whole text with each secret masked, and its page on GitHub when the store gives it."""
+    time, its whole text with each secret masked, its page on GitHub when the store gives it, and
+    the name of its roadmap job when a job wrote it (#6203)."""
 
     number: int
     author: str
     at: datetime
     text: str
     url: str | None = None
+    job: str | None = None
 
     @property
     def name(self) -> str:
@@ -106,10 +108,8 @@ class HeldComment:
     @property
     def by_person(self) -> bool:
         """Whether a person wrote the comment: no bot, and no marker of a roadmap job, which a
-        person who runs a job writes too."""
-        return not self.author.endswith(_BOT_SUFFIX) and not any(
-            marker in self.text for marker in CONST_ROADMAP_JOB_COMMENT_MARKERS
-        )
+        person who runs a job writes too (#6203)."""
+        return not self.author.endswith(_BOT_SUFFIX) and self.job is None
 
     @property
     def about(self) -> str:
@@ -139,16 +139,30 @@ def held_comments(comments: Sequence[IssueComment]) -> tuple[HeldComment, ...]:
     comment takes its place and its time from its last edit (`_held_at`)."""
     trusted = trusted_replies([c for c in comments if not c.on_pull_request])
     ordered = sorted(trusted, key=_held_at)
-    return tuple(
-        HeldComment(
-            number=number,
-            author=comment.author_login or _UNKNOWN_AUTHOR,
-            at=_held_at(comment),
-            text=mask_secrets(comment.body),
-            url=comment.url,
+    held: list[HeldComment] = []
+    for number, comment in enumerate(ordered, 1):
+        found = comment_job(comment.body)
+        held.append(
+            HeldComment(
+                number=number,
+                author=comment.author_login or _UNKNOWN_AUTHOR,
+                at=_held_at(comment),
+                text=mask_secrets(comment.body),
+                url=comment.url,
+                job=found[1] if found is not None else None,
+            )
         )
-        for number, comment in enumerate(ordered, 1)
-    )
+    return tuple(held)
+
+
+def job_comments(comments: Sequence[IssueComment | HeldComment]) -> list[HeldComment]:
+    """The comments that a roadmap job wrote, oldest first, each labeled with the name of its job (#6203)."""
+    held: Sequence[HeldComment]
+    if comments and isinstance(comments[0], HeldComment):
+        held = cast(Sequence[HeldComment], comments)
+    else:
+        held = held_comments(cast(Sequence[IssueComment], comments))
+    return [c for c in held if c.job is not None]
 
 
 @dataclass(frozen=True)
@@ -303,6 +317,52 @@ class RequestForm:
         }
 
 
+# ── The comments of other jobs in the alternatives request (#6203) ────────────
+
+
+@dataclass(frozen=True)
+class AlternativesJobForm:
+    """The comments of other roadmap jobs in the alternatives request (#6203)."""
+
+    def frame(self) -> str:
+        return _json({"job_comments": []})
+
+    def whole(self, comment: HeldComment) -> str:
+        return _nested(self._whole(comment))
+
+    def listed(self, comment: HeldComment) -> str:
+        return _nested(self._listed(comment))
+
+    def text(self, fitted: FittedComments) -> str:
+        return _json(self.value(fitted))
+
+    def value(self, fitted: FittedComments) -> list[dict[str, Any]]:
+        return [
+            *(self._listed(comment) for comment in fitted.index),
+            *(self._whole(comment) for comment in fitted.whole),
+        ]
+
+    @staticmethod
+    def _whole(comment: HeldComment) -> dict[str, Any]:
+        return {
+            "job": comment.job or "unknown",
+            "number": comment.number,
+            "author": comment.author,
+            "at": _time(comment.at),
+            "text": comment.text,
+        }
+
+    @staticmethod
+    def _listed(comment: HeldComment) -> dict[str, Any]:
+        return {
+            "job": comment.job or "unknown",
+            "number": comment.number,
+            "author": comment.author,
+            "at": _time(comment.at),
+            "about": comment.about,
+        }
+
+
 # ── The section of an implement step ─────────────────────────────────────────
 
 
@@ -429,6 +489,7 @@ class CommentReader:
 
 
 __all__ = [
+    "AlternativesJobForm",
     "CommentForm",
     "CommentReader",
     "FittedComments",
@@ -438,4 +499,5 @@ __all__ = [
     "comments_left_out",
     "fit_comments",
     "held_comments",
+    "job_comments",
 ]

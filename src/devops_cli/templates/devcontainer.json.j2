@@ -53,7 +53,7 @@
     "GIT_CONFIG_VALUE_2": "",
     "GIT_CONFIG_KEY_3": "credential.https://gist.github.com.helper",
     "GIT_CONFIG_VALUE_3": "!gh auth git-credential",
-    "UV_MALWARE_CHECK": "1",
+    "UV_MALWARE_CHECK": "0",
     "DO_NOT_TRACK": "1",
     "OPENSPEC_TELEMETRY": "0",
     "OPENSPEC_NO_UPDATE_CHECK": "1",
@@ -107,7 +107,7 @@
     }
   },
   {% endif %}
-  "postCreateCommand": "devops devcontainer post-create",
+  "postCreateCommand": "UV_MALWARE_CHECK=1 devops devcontainer post-create",
   "postStartCommand": "devops devcontainer post-start",
   "customizations": {
     "vscode": {

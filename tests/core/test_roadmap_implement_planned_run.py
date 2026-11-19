@@ -24,7 +24,6 @@ from tests.support.roadmap_implement import (
     PULL,
     TASKS_PATH,
     TICKED_FIRST,
-    TITLE,
     JobWorld,
     a_fix,
     group_one_calls,
@@ -48,6 +47,9 @@ def _on_origin(world: JobWorld) -> list[str]:
     return world.repo.origin_git("branch", "--format=%(refname:short)").split()
 
 
+DELIVERY_TITLE = "fix(roadmap): The job keeps every comment."
+
+
 def test_two_groups_make_a_new_branch_a_draft_a_closing_body_and_a_ready_pull_request(
     planned_world: JobWorld,
 ) -> None:
@@ -65,12 +67,12 @@ def test_two_groups_make_a_new_branch_a_draft_a_closing_body_and_a_ready_pull_re
         True,
         BRANCH,
         "main",
-        TITLE,
+        DELIVERY_TITLE,
     )
     assert created["body"].startswith("Closes #1")
     assert planned_world.sent("PATCH", f"pulls/{PULL}") == [
         {
-            "title": TITLE,
+            "title": DELIVERY_TITLE,
             "body": "The job drops the last comment of a thread (#1). It must keep it."
             f"\n\nCloses #1\n\nChange: `openspec/changes/archive/2026-10-29-{CHANGE}/`",
         }

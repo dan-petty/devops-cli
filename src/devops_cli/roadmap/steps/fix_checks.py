@@ -481,7 +481,7 @@ def _repair(store: RoadmapStore, client: Any, facts: _Round, repair: Repair) -> 
     the plan whose failure the change causes, and a comment names the files of the repair (#6116).
     A push that the lease refuses because the head moved is a skip with no record: a new head is a
     new unit (#5027)."""
-    is_plan = kind_of(facts.item, facts.pull) == DraftKind.STAGE_PLAN
+    is_plan = kind_of(facts.item, facts.pull, facts.status.title) == DraftKind.STAGE_PLAN
     caused: tuple[FileCause, ...] = ()
     with repair.checkout(facts.status, facts.item_num) as checkout:
         tier1 = repair.tier1(checkout.path, facts.item_num, facts.check, facts.log)
@@ -547,7 +547,7 @@ def _ready_after_repair(
         and checks.is_passing
         and item is not None
         and item.job_record.get(FixChecksRecordKey.RESULT) == FixChecksResult.REPAIRED
-        and kind_of(item, facts.pull) is DraftKind.IMPLEMENT
+        and kind_of(item, facts.pull, facts.status.title) is DraftKind.IMPLEMENT
     ):
         return skipped
     draft = read_draft(

@@ -12,6 +12,7 @@ import pytest
 from devops_cli.k8s.chaos import execute_chaos_experiment
 from devops_cli.k8s.diff import diff_helm_release
 from devops_cli.k8s.logs import stream_multi_pod_logs
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 
@@ -69,7 +70,7 @@ def test_execute_chaos_experiment_dry_run() -> None:
     assert result.pods_affected == 1
 
 
-def test_execute_chaos_experiment_live(process_fake: ProcessFake) -> None:
+def test_execute_chaos_experiment_live(process_fake: ProcessFake, clock: ClockFake) -> None:
     process_fake.answer(
         lambda call: "get" in call.argv,
         ProcessAnswer(returncode=0, stdout="pod/web-app-123\n"),

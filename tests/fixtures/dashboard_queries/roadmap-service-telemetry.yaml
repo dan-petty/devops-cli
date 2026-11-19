@@ -11,18 +11,155 @@ tests:
     interval: 15m
     input_series:
       - series: 'devops_cli_roadmap_alternatives_unchecked_items{job="roadmap-service", repo="example/one"}'
-        values: '9 8 8 7 5 3'
+        values: "9 8 8 7 5 3"
       - series: 'devops_cli_roadmap_alternatives_unchecked_items{job="roadmap-service", repo="example/two"}'
-        values: '2 2 2 2 1 1'
+        values: "2 2 2 2 1 1"
+      - series: 'devops_cli_roadmap_alternatives_oldest_check_age_seconds{job="roadmap-service", repo="example/one"}'
+        values: "500 400 300"
+      - series: 'devops_cli_service_job_suspended{job="roadmap-service", repo="dan-petty/devops-cli", row="r1"}'
+        values: "0 0 0 0 0 0 0 0 0"
+      - series: 'devops_cli_service_job_suspended{job="roadmap-service", repo="dan-petty/devops-cli", row="r2"}'
+        values: "1 1 1 1 1 1 1 1 1"
+      - series: 'devops_cli_service_job_suspended{job="roadmap-service", repo="dan-petty/devops-cli", row="r3"}'
+        values: "0 0 0 0 0 0 0 0 0"
+      - series: 'devops_cli_service_job_suspended{job="roadmap-service", repo="dan-petty/devops-cli", row="r4"}'
+        values: "1 1 1 1 1 1 1 1 1"
+      - series: 'devops_cli_service_job_suspended{job="roadmap-service", repo="dan-petty/devops-cli", row="r5"}'
+        values: "0 0 0 0 0 0 0 0 0"
+      - series: 'devops_cli_service_job_suspended{job="roadmap-service", repo="dan-petty/devops-cli", row="r6"}'
+        values: "1 1 1 1 1 1 1 1 1"
     promql_expr_test:
-      # At 80m, 5 min after the last snapshot, each repository shows its last value.
-      - panel: Alternatives Unchecked Items
+      - panel: "Unchecked: unchecked items by repository in the range"
         ref_id: A
-        variables: {job: roadmap-service}
-        expr: 'sum by (repo) (last_over_time(devops_cli_roadmap_alternatives_unchecked_items{job=~"$job"}[1d]))'
+        variables: { __range: 1d, job: roadmap-service }
+        expr: 'sum by (repo) (last_over_time(devops_cli_roadmap_alternatives_unchecked_items{job=~"$job"}[$__range]))'
         eval_time: 80m
         exp_samples:
           - labels: '{repo="example/one"}'
             value: 3
           - labels: '{repo="example/two"}'
             value: 1
+      - panel: "Age: oldest check age by repository in the range"
+        ref_id: A
+        variables: { __range: 1d, job: roadmap-service }
+        expr: 'max by (repo) (last_over_time(devops_cli_roadmap_alternatives_oldest_check_age_seconds{job=~"$job"}[$__range]))'
+        eval_time: 30m
+        exp_samples:
+          - labels: '{repo="example/one"}'
+            value: 300
+      - panel: "Suspension: suspended rows by repository and row"
+        ref_id: A
+        variables: { job: roadmap-service, repo: dan-petty/devops-cli }
+        expr: 'max by (repo, row) (last_over_time(devops_cli_service_job_suspended{job=~"$job",repo=~"$repo"}[5m]))'
+        eval_time: 2h
+        exp_samples:
+          - labels: '{repo="dan-petty/devops-cli", row="r1"}'
+            value: 0
+          - labels: '{repo="dan-petty/devops-cli", row="r2"}'
+            value: 1
+          - labels: '{repo="dan-petty/devops-cli", row="r3"}'
+            value: 0
+          - labels: '{repo="dan-petty/devops-cli", row="r4"}'
+            value: 1
+          - labels: '{repo="dan-petty/devops-cli", row="r5"}'
+            value: 0
+          - labels: '{repo="dan-petty/devops-cli", row="r6"}'
+            value: 1
+
+  - name: the Service runs jobs, tracks durations, and records errors
+    shape: sparse_counter
+    interval: 15m
+    input_series:
+      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="dan-petty/devops-cli", lane="intake", row="intake", result="error"}'
+        values: "0+7x8"
+      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="dan-petty/devops-cli", lane="intake", row="intake", result="ok"}'
+        values: "0+93x8"
+      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="dan-petty/devops-cli", lane="stage", row="stage", result="error"}'
+        values: "0+0x8"
+      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="dan-petty/devops-cli", lane="refine", row="refine", result="ok"}'
+        values: "0+12x8"
+      - series: 'devops_cli_service_job_seconds_total{job="roadmap-service", repo="dan-petty/devops-cli", lane="intake"}'
+        values: "0+120x8"
+      - series: 'devops_cli_service_job_seconds_total{job="roadmap-service", repo="dan-petty/devops-cli", lane="refine"}'
+        values: "0+1080x8"
+      - series: 'devops_cli_service_job_start_timestamp_seconds{job="roadmap-service", repo="dan-petty/devops-cli", lane="intake"}'
+        values: "6600x9"
+      - series: 'devops_cli_roadmap_alternatives_searches{job="roadmap-service", verdict="use"}'
+        values: "{{schema:0 count:0 sum:0}}+{{schema:0 count:3 sum:15 buckets:[3] offset:2}}x8"
+    promql_expr_test:
+      - panel: "Errors: share of failed rounds and rejected webhooks"
+        ref_id: A
+        variables:
+          { __interval: 15m, job: roadmap-service, repo: dan-petty/devops-cli }
+        expr: '(sum(rate(devops_cli_service_jobs_total{job=~"$job",repo=~"$repo",result="error"}[$__rate_interval])) or sum(rate(devops_cli_service_jobs_total{job=~"$job",repo=~"$repo"}[$__rate_interval])) * 0) / sum(rate(devops_cli_service_jobs_total{job=~"$job",repo=~"$repo"}[$__rate_interval]))'
+        eval_time: 2h
+        exp_samples:
+          - labels: "{}"
+            value: 0.0625
+      - panel: "Rounds: service rounds per hour by lane and result"
+        ref_id: A
+        variables:
+          { __interval: 15m, job: roadmap-service, repo: dan-petty/devops-cli }
+        expr: 'sum by (lane, result) (rate(devops_cli_service_jobs_total{job=~"$job",repo=~"$repo"}[$__rate_interval])) * 3600'
+        eval_time: 2h
+        exp_samples:
+          - labels: '{lane="intake", result="error"}'
+            value: 28
+          - labels: '{lane="intake", result="ok"}'
+            value: 372
+          - labels: '{lane="refine", result="ok"}'
+            value: 48
+          - labels: '{lane="stage", result="error"}'
+            value: 0
+      - panel: "Errors: failed rounds by repository and row in the range"
+        ref_id: A
+        variables:
+          { __range: 2h, job: roadmap-service, repo: dan-petty/devops-cli }
+        expr: 'sum by (repo, row) (increase(devops_cli_service_jobs_total{job=~"$job",repo=~"$repo",result="error"}[$__range])) > 0'
+        eval_time: 2h
+        exp_samples:
+          - labels: '{repo="dan-petty/devops-cli", row="intake"}'
+            value: 56
+      - panel: "Duration: mean round seconds by lane in the range"
+        ref_id: A
+        variables:
+          { __range: 2h, job: roadmap-service, repo: dan-petty/devops-cli }
+        expr: 'sum by (lane) (increase(devops_cli_service_job_seconds_total{job=~"$job",repo=~"$repo"}[$__range])) / sum by (lane) (increase(devops_cli_service_jobs_total{job=~"$job",repo=~"$repo"}[$__range]))'
+        eval_time: 2h
+        exp_samples:
+          - labels: '{lane="intake"}'
+            value: 1.2
+          - labels: '{lane="refine"}'
+            value: 90
+      - panel: "Age: time since round start by repository and lane"
+        ref_id: A
+        variables: { job: roadmap-service, repo: dan-petty/devops-cli }
+        expr: '(time() - max by (repo, lane) (last_over_time(devops_cli_service_job_start_timestamp_seconds{job=~"$job",repo=~"$repo"}[5m]))) > 0'
+        eval_time: 2h
+        exp_samples:
+          - labels: '{lane="intake", repo="dan-petty/devops-cli"}'
+            value: 600
+      - panel: "Identity: refused identity checks in the range"
+        ref_id: A
+        variables: { job: roadmap-service }
+        expr: 'max by (identity) (last_over_time(devops_cli_service_identity_refused_total{job=~"$job"}[5m])) or vector(0)'
+        eval_time: 2h
+        exp_samples:
+          - labels: "{}"
+            value: 0
+      - panel: "Searches: mean searches per check by verdict in the range"
+        ref_id: A
+        variables: { __range: 2h, job: roadmap-service }
+        expr: 'histogram_avg(sum by (verdict) (increase(devops_cli_roadmap_alternatives_searches{job=~"$job"}[$__range])))'
+        eval_time: 2h
+        exp_samples:
+          - labels: '{verdict="use"}'
+            value: 5
+      - panel: "Checks: count of checks by verdict in the range"
+        ref_id: A
+        variables: { __range: 2h, job: roadmap-service }
+        expr: 'histogram_count(sum by (verdict) (increase(devops_cli_roadmap_alternatives_searches{job=~"$job"}[$__range])))'
+        eval_time: 2h
+        exp_samples:
+          - labels: '{verdict="use"}'
+            value: 24

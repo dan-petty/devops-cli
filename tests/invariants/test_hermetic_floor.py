@@ -520,6 +520,7 @@ def test_process_wide_state_resets_between_tests(
     result.assert_outcomes(passed=2)
 
 
+@pytest.mark.real_sleep
 def test_a_dispatch_worker_abandoned_by_a_timeout_is_finished_before_the_next_test_starts(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -533,11 +534,13 @@ def test_a_dispatch_worker_abandoned_by_a_timeout_is_finished_before_the_next_te
         import threading
         import time
 
+        import pytest
         from devops_cli.ai.mcp.dispatcher import InProcessDispatcher
         from devops_cli.main import app
 
         finished = []
 
+        @pytest.mark.real_sleep
         def test_the_dispatch_times_out_and_the_command_is_released(monkeypatch):
             release = threading.Event()
 
@@ -1103,3 +1106,32 @@ def test_marked():
         "tests/k8s/test_k8s_offline.py",
     )
     result.assert_outcomes(passed=1, deselected=1)
+
+
+@pytest.mark.real_sleep
+def test_the_floor_refuses_real_sleeps_exceeding_budget(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A test that sleeps for real past the 0.25 s budget fails unless marked real_sleep (#4669)."""
+    result = _run_with_floor(
+        pytester,
+        monkeypatch,
+        """
+        import time
+        import pytest
+
+        def test_unmarked_sleep_fails():
+            time.sleep(0.3)
+
+        @pytest.mark.real_sleep
+        def test_marked_sleep_passes():
+            time.sleep(0.3)
+
+        def test_budgeted_sleep_passes():
+            time.sleep(0.01)
+        """,
+    )
+    result.assert_outcomes(passed=3, errors=1)
+    failed_lines = [line for line in result.stdout.lines if "real sleep of" in line]
+    assert len(failed_lines) >= 1
+    assert "exceeded 0.25 s budget" in failed_lines[0]

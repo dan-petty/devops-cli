@@ -974,3 +974,20 @@ def test_the_stage_prompt_tells_the_planner_to_reuse_the_refine_block() -> None:
         "holds a proposed design: carry its `Chosen` decisions and `Rejected` alternatives into `decisions` and `rejected`."
         in _PROMPT
     )
+
+
+# ── Whole-suite criteria and no empty task groups (#4114) ────────────────────
+
+
+@pytest.mark.parametrize("task", [_CHANGE_PROMPT, _SPLIT_PROMPT])
+def test_the_prompts_forbid_empty_groups_and_map_whole_suite_criteria(task: str) -> None:
+    prompt = load_task_prompt(task)
+
+    assert (
+        "Do not create a task group that only updates docstrings or restates instructions."
+        in prompt
+    )
+    assert (
+        "Map a global, performance, or hermeticity criterion to the task group that delivers or completes the suite."
+        in prompt
+    )

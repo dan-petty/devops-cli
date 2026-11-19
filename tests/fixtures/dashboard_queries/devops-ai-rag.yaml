@@ -18,7 +18,7 @@ tests:
         values: '0+1x192'
     promql_expr_test:
       # 96 samples in 24 h: 96 x 0.5 + 96 x 0.25. The devops-cli job is not selected.
-      - panel: AI Spend in Range
+      - panel: 'Spend: AI spend in the range'
         ref_id: A
         variables: {__range: 24h, job: roadmap-service}
         expr: 'sum(increase(devops_cli_ai_spend_usd_total{job=~"$job"}[$__range])) or vector(0)'
@@ -27,7 +27,7 @@ tests:
           - labels: '{}'
             value: 72
       # With All selected, Grafana puts the values of the variable as one regex.
-      - panel: AI Spend in Range
+      - panel: 'Spend: AI spend in the range'
         ref_id: A
         variables: {__range: 24h, job: '(devops-cli|roadmap-service)'}
         expr: 'sum(increase(devops_cli_ai_spend_usd_total{job=~"$job"}[$__range])) or vector(0)'
@@ -35,6 +35,14 @@ tests:
         exp_samples:
           - labels: '{}'
             value: 168
+      - panel: 'Spend: AI spend in the last day'
+        ref_id: A
+        variables: {job: roadmap-service}
+        expr: 'sum(increase(devops_cli_ai_spend_usd_total{job=~"$job"}[1d])) or vector(0)'
+        eval_time: 48h
+        exp_samples:
+          - labels: '{}'
+            value: 72
 
   - name: a Service pod starts with a zero sample in the range
     shape: zero_start
@@ -44,13 +52,23 @@ tests:
       - series: 'devops_cli_ai_spend_usd_total{job="roadmap-service", server="gateway-a"}'
         values: '_x120 0+0.5x72'
     promql_expr_test:
-      - panel: AI Spend in Range
+      - panel: 'Spend: AI spend in the range'
         ref_id: A
         variables: {__range: 24h, job: roadmap-service}
         expr: 'sum(increase(devops_cli_ai_spend_usd_total{job=~"$job"}[$__range])) or vector(0)'
         eval_time: 48h
         exp_samples:
           - labels: '{}'
+            value: 36
+      - panel: 'Spend: hourly AI spend by server'
+        ref_id: A
+        variables: {__interval: 1h, job: roadmap-service}
+        expr: 'sum by (server) (increase(devops_cli_ai_spend_usd_total{job=~"$job"}[$__interval]))'
+        bars: 24h
+        total: 36
+        eval_time: 48h
+        exp_samples:
+          - labels: '{server="gateway-a"}'
             value: 36
 
   - name: the counter drops when a new Service pod starts
@@ -62,7 +80,7 @@ tests:
         values: '100+0.5x100 0.5+0.5x91'
     promql_expr_test:
       # 2 before the drop, from 148 at 24h to 150, and 46 after it.
-      - panel: AI Spend in Range
+      - panel: 'Spend: AI spend in the range'
         ref_id: A
         variables: {__range: 24h, job: roadmap-service}
         expr: 'sum(increase(devops_cli_ai_spend_usd_total{job=~"$job"}[$__range])) or vector(0)'
@@ -70,3 +88,45 @@ tests:
         exp_samples:
           - labels: '{}'
             value: 48
+      - panel: 'Spend: hourly AI spend by server'
+        ref_id: A
+        variables: {__interval: 1h, job: roadmap-service}
+        expr: 'sum by (server) (increase(devops_cli_ai_spend_usd_total{job=~"$job"}[$__interval]))'
+        bars: 24h
+        total: 48
+        eval_time: 48h
+        exp_samples:
+          - labels: '{server="gateway-a"}'
+            value: 48
+
+  - name: the stage planner calls tools and logs answer sizes
+    shape: sparse_counter
+    interval: 15m
+    input_series:
+      - series: 'devops_cli_roadmap_tool_calls_total{job="roadmap-service", row="stage", tool="repo_map", outcome="ok"}'
+        values: '0+1x8'
+      - series: 'devops_cli_roadmap_tool_calls_total{job="roadmap-service", row="stage", tool="read_file", outcome="error"}'
+        values: '0+2x8'
+      - series: 'devops_cli_roadmap_tool_calls_total{job="roadmap-service", row="stage", tool="search", outcome="ok"}'
+        values: '0+0x8'
+      - series: 'devops_cli_roadmap_tool_answer_chars{job="roadmap-service", row="stage", tool="repo_map"}'
+        values: '{{schema:0 count:0 sum:0}}+{{schema:0 count:2 sum:1000 buckets:[2] offset:8}}x8'
+    promql_expr_test:
+      - panel: 'Calls: planner tool calls in the range'
+        ref_id: A
+        variables: {__range: 2h, job: roadmap-service}
+        expr: 'sum by (tool, outcome) (increase(devops_cli_roadmap_tool_calls_total{job=~"$job",row="stage"}[$__range])) > 0'
+        eval_time: 2h
+        exp_samples:
+          - labels: '{outcome="error", tool="read_file"}'
+            value: 16
+          - labels: '{outcome="ok", tool="repo_map"}'
+            value: 8
+      - panel: 'Size: mean tool answer size in characters'
+        ref_id: A
+        variables: {__range: 2h, job: roadmap-service}
+        expr: 'histogram_avg(sum by (tool) (increase(devops_cli_roadmap_tool_answer_chars{job=~"$job",row="stage"}[$__range])))'
+        eval_time: 2h
+        exp_samples:
+          - labels: '{tool="repo_map"}'
+            value: 500

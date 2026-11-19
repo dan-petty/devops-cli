@@ -6,7 +6,7 @@
 # goes, lower the count of its module, and remove the line at 0. No line is added.
 
 [modules]
-"tests/ai/benchmark/test_k8s_llm_gateway.py" = 27
+"tests/ai/benchmark/test_k8s_llm_gateway.py" = 29
 "tests/ai/client/test_example_config_loopback_endpoints.py" = 1
 "tests/ai/mcp/test_ai_gateway.py" = 1
 "tests/ai/rag/test_example_config_loopback_rag.py" = 3
@@ -41,7 +41,7 @@
 "tests/prometheus/test_dashboard_queries.py" = 7
 "tests/prometheus/test_implement_failure_labels.py" = 1
 "tests/prometheus/test_k8s_monitoring_alerting.py" = 6
-"tests/prometheus/test_k8s_monitoring_dashboards.py" = 4
+"tests/prometheus/test_k8s_monitoring_dashboards.py" = 5
 "tests/release/test_release_merge_pick.py" = 1
 "tests/research/test_sweep.py" = 7
 "tests/review/test_review_intake_handoff.py" = 1

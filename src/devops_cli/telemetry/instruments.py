@@ -1,7 +1,7 @@
 """The counters and histograms devops-cli sends over OTLP (#564).
 
 Every command runs as its own short-lived process, so a counter or histogram cannot keep a
-running total. Each observation is sent as a delta, and the collector's `deltatocumulative`
+running total. Each observation is sent as a delta, and the collector's `delta_to_cumulative`
 processor adds a series' deltas up across processes before Prometheus stores them. A histogram
 is exponential, so Prometheus stores it as a native histogram under the instrument's own name,
 with no `_bucket`, `_sum` or `_count` series (#792); a dashboard reads it with
