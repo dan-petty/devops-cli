@@ -351,3 +351,15 @@ def plan_argo_workflows_logs(
             condition="pod discovered from workflow",
         ),
     ]
+
+
+def plan_argo_trial_list(
+    namespace: str = DEFAULT_ARGOCD_NAMESPACE,
+) -> list[PlannedRequest]:
+    """Plan listing Argo CD trial applications."""
+    return [
+        PlannedRequest(
+            method="CustomObjectsApi.list_namespaced_custom_object",
+            target=f"argoproj.io/v1alpha1/namespaces/{namespace}/applications",
+        )
+    ]

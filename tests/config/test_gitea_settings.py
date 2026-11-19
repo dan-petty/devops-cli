@@ -70,3 +70,31 @@ def test_gitea_token_resolution(
     monkeypatch.delenv("DEVOPS_CLI_GITEA_TOKEN", raising=False)
     keyring_store.set_password("devops-cli", "gitea_token", "keyring-token-456")
     assert get_gitea_token(load_settings()) == "keyring-token-456"
+
+
+def test_gitea_argocd_token_credential_declaration() -> None:
+    """gitea.argocd_token is declared as a managed credential (#1082)."""
+    cred = credential("gitea.argocd_token")
+    assert cred.key == "gitea.argocd_token"
+    assert cred.keyring_name == "gitea_argocd_token"
+    assert "DEVOPS_CLI_GITEA_ARGOCD_TOKEN" in cred.env_vars
+    assert "gitea.argocd_token" in secret_keys()
+
+
+def test_gitea_argocd_token_resolution(
+    monkeypatch: pytest.MonkeyPatch, keyring_store: FakeKeyring
+) -> None:
+    """gitea.argocd_token resolves from environment variable or keyring (#1082)."""
+    from devops_cli.config.settings import get_gitea_argocd_token
+
+    monkeypatch.setenv("DEVOPS_CLI_GITEA_ARGOCD_TOKEN", "test-argo-token")
+    settings = load_settings()
+    assert get_gitea_argocd_token(settings) == "test-argo-token"
+
+    monkeypatch.setenv("DEVOPS_CLI_GITEA_ARGOCD_TOKEN", "***masked***")
+    settings = load_settings()
+    assert get_gitea_argocd_token(settings) is None
+
+    monkeypatch.delenv("DEVOPS_CLI_GITEA_ARGOCD_TOKEN", raising=False)
+    keyring_store.set_password("devops-cli", "gitea_argocd_token", "keyring-argo-token")
+    assert get_gitea_argocd_token(load_settings()) == "keyring-argo-token"

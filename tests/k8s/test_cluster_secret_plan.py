@@ -489,6 +489,10 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
         ),
         ("gitea/gitea-admin", "username", "gitea", True, None, None, ("deployment/gitea",)),
         ("gitea/gitea-admin", "password", "gitea", True, None, None, ("deployment/gitea",)),
+        ("argocd/gitea-repo-creds", "url", "gitea", True, None, None, ()),
+        ("argocd/gitea-repo-creds", "username", "gitea", True, None, None, ()),
+        ("argocd/gitea-repo-creds", "type", "gitea", True, None, None, ()),
+        ("argocd/gitea-repo-creds", "password", "gitea", True, None, None, ()),
         ("mattermost/mattermost-db", "username", "chat", True, None, None, ()),
         (
             "mattermost/mattermost-db",

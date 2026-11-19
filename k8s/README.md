@@ -775,6 +775,10 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `argocd/argocd-notifications-secret` | `github-installationID` | setting argocd.github_app_installation_id | yes | fail | infra | none |
 | `argocd/argocd-notifications-secret` | `github-privateKey` | keyring `argocd_github_app_private_key` | yes | adopt the live value; else fail | infra | none |
 | `argocd/argocd-notifications-secret` | `mattermost-deploys-url` | derived from keyring mattermost_deploys_hook | no | skip with a warning | infra | none |
+| `argocd/gitea-repo-creds` | `url` | literal | yes | fail | gitea | none |
+| `argocd/gitea-repo-creds` | `username` | setting gitea.argocd_username | yes | fail | gitea | none |
+| `argocd/gitea-repo-creds` | `type` | literal | yes | fail | gitea | none |
+| `argocd/gitea-repo-creds` | `password` | keyring `gitea_argocd_token` | yes | adopt the live value; else fail | gitea | none |
 | `gitea/gitea-admin` | `username` | literal | yes | fail | gitea | `deployment/gitea` |
 | `gitea/gitea-admin` | `password` | keyring `gitea_admin_password` | yes | adopt the live value; else fail | gitea | `deployment/gitea` |
 | `mattermost/mattermost-db` | `username` | literal | yes | fail | chat | none |
@@ -793,6 +797,7 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 - `devops/renovate` holds the GitHub App `dan-petty-renovate` that self-hosted Renovate acts as ([Renovate](../docs/CLUSTER.md#renovate)). Its keys are the variables of `renovate.github_app_id`, `renovate.github_app_installation_id` and `renovate.github_app_private_key`, so the init container `token` of CronJob `renovate` reads them with `envFrom`, and no other container reads the Secret. Store the values with `devops config set renovate.github_app_id <app-id>`, `devops config set renovate.github_app_installation_id <installation-id>` and `devops config set renovate.github_app_private_key --from-file <key.pem>`, then run `devops k8s push-secrets --only devops/renovate --plan` and `devops k8s push-secrets --only devops/renovate`. Each run reads the Secret at its start, so no workload restarts, and the `homelab` project ignores the pushed Secret as an orphan. Renovate is an optional feature: a push with no Renovate settings skips the three keys and writes no Secret, and the `token` container then names the settings that are not set and stops the run. Push it to one cluster only: two clusters that run Renovate as the same App push to the same branches.
 - `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY` is the private key of GitHub App `devops-cli-service`, which the roadmap Service and the cluster Jobs act as ([ADR 0015](../docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md)). Store it with `devops config set service.github_app.private_key --from-file <key.pem>`. A pod whose environment holds the key acts as the App: it mints an installation token, mints a new one before the token expires, and gives the current token to each gh and git child as GH_TOKEN. A workstation keeps the key only in the keyring, so a workstation run keeps the gh login of its person.
 - `argocd/argocd-notifications-secret` holds the GitHub App that Argo CD's GitHub notifier acts as, and the webhook URL for Mattermost deploys. Its `service.github` refers to the keys as `$github-appID`, `$github-installationID` and `$github-privateKey`, and `service.webhook.mattermost` refers to `$mattermost-deploys-url`. Store the values with `devops config set argocd.github_app_id <id>`, `devops config set argocd.github_app_installation_id <id>`, `devops config set argocd.github_app_private_key --from-file <key.pem>`, and `devops config set mattermost.deploys_hook`, then run `devops k8s push-secrets --only argocd/argocd-notifications-secret`. The Argo CD values set `notifications.secret.create: false`, so the chart never creates a Secret of the same name, and the `homelab` project ignores the pushed Secret as an orphan.
+- `argocd/gitea-repo-creds` holds the repository credential that Argo CD uses to clone trial repositories from Gitea over internal HTTP (#1082). The setting `gitea.argocd_username` names the user, and `gitea_argocd_token` in the OS keyring holds the token. The `gitea` stack pushes it.
 - `monitoring/alertmanager-mattermost` holds the incoming webhook URL that Alertmanager uses to post critical and warning alerts to Mattermost. Store the webhook token with `devops config set mattermost.alerts_hook`, then push with `devops k8s push-secrets --only monitoring/alertmanager-mattermost`. The `homelab` project ignores the Secret as an orphan.
 - `monitoring/grafana-image-renderer` holds the token that Grafana sends to its image renderer ([Grafana Image Renderer](#grafana-image-renderer)). Its keyring value, `grafana_renderer_token`, is no managed credential: no setting reads it, and only the Grafana pod and the renderer pod do. Neither pod starts without the Secret. `deploy-stack` pushes it before the Helm releases. On a cluster that Argo CD manages, a person runs `devops k8s push-secrets --only monitoring/grafana-image-renderer` before the first sync of values that enable the renderer. A change restarts `deployment/grafana` and `deployment/grafana-image-renderer`. The `homelab` project ignores the Secret as an orphan.
 - `DEVOPS_CLI_MATTERMOST_COMMAND_TOKEN` holds the authentication token that verifies `/roadmap` slash command requests from Mattermost to the Service's webhook router. Store the token with `devops config set mattermost.command_token`, then push with `devops k8s push-secrets --only devops/devops-cli`.
@@ -978,6 +983,25 @@ Gitea keeps its repositories, its packages and its SQLite database (WAL mode) on
 There are no backups yet. A branch that a clone pushed is also in that clone, but an issue or a pull request made in Gitea is lost with the node.
 
 The next major version of the chart (its main branch, with Gitea 28) replaces `gitea.admin` with `secrets.admin`, turns persistence off by default and moves `strategy` under `deployment`. Change those keys in `gitea/values.yaml` in the pull request that changes the pinned version in `argocd/apps/gitea.yaml` and `HELM_RELEASES_BY_STACK`.
+
+### Trials
+
+A trial deploys transient workloads into a fenced cluster namespace from a Gitea branch (#1082).
+
+- **Purpose**: A trial is for new components or test manifests that do not name a managed namespace.
+- **Existing stacks**: Changes to an existing stack still go through a pull request to `main`. Retargeting a managed Application introduces drift against git and breaks GitOps guarantees.
+- **Git URLs**: Argo CD reads repositories from Gitea over in-cluster HTTP (`http://gitea-http.gitea.svc.cluster.local:3000/`). Developers and workstations push to `https://git.<domain>`.
+- **Credential setup**: Store a scoped `read:repository` token in the keyring, then push the repository credentials:
+  ```bash
+  uv run devops config set gitea.argocd_token
+  uv run devops k8s push-secrets --only argocd/gitea-repo-creds
+  ```
+- **Lifecycle**:
+  - Start: `uv run devops argo cd trial start --branch <branch> --path <path>` validates the branch and path on Gitea, creates Namespace `trial-<name>`, and applies Application `trial-<name>`.
+  - Follow: `uv run devops argo cd apps status trial-<name>` monitors synchronization and health.
+  - End: `uv run devops argo cd trial end <name>` deletes Application `trial-<name>`, waits for resources to be removed, and deletes Namespace `trial-<name>`.
+- **Network policies**: A trial namespace has no NetworkPolicy by default. A trial must supply its own NetworkPolicy if network isolation is needed.
+- **Mainline safety**: Every Application committed to `main` reads GitHub (`https://github.com/dan-petty/devops-cli.git`), not Gitea. If Gitea degrades or fails, production GitOps continues without interruption.
 
 ## Mattermost
 

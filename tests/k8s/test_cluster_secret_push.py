@@ -614,6 +614,27 @@ def test_a_missing_namespace_skips_under_stack_and_fails_under_only(
     ) == (0, True, 1, [])
 
 
+def test_gitea_repo_creds_secret_row_and_namespace_gate(
+    cluster: FakeCluster, stub_keyring: FakeKeyring
+) -> None:
+    """argocd/gitea-repo-creds is gated by namespace gitea and skips on minikube (#1082)."""
+    secret = next(s for s in CLUSTER_SECRETS if s.ref == "argocd/gitea-repo-creds")
+    assert secret.gate_namespace == "gitea"
+    assert secret.labels.get("argocd.argoproj.io/secret-type") == "repo-creds"
+    entries = {e.key: e.source for e in secret.entries}
+    assert (
+        getattr(entries["url"], "value", None) == "http://gitea-http.gitea.svc.cluster.local:3000/"
+    )
+    assert getattr(entries["type"], "value", None) == "git"
+
+    # Gitea namespace absent: skipped under --stack gitea
+    cluster.namespaces = {"argocd"}
+    skipped = _push("--stack", "gitea")
+    assert skipped.exit_code == 0
+    assert "Namespace gitea not found" in skipped.output
+    assert not any(s.ref == "argocd/gitea-repo-creds" for s in cluster.applies())
+
+
 def test_the_leaked_last_applied_annotation_is_removed_once(
     cluster: FakeCluster, stub_keyring: FakeKeyring
 ) -> None:

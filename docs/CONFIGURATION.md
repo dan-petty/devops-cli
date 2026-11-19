@@ -106,6 +106,7 @@ gitea configuration settings.
 | `username` | `Union` | - | `DEVOPS_CLI_GITEA_USERNAME` | The Gitea user login associated with gitea.token |
 | `github_branches` | `list` | `['main']` | `DEVOPS_CLI_GITEA_GITHUB_BRANCHES` | The GitHub branch patterns mirrored to Gitea |
 | `extra_checkouts` | `list` | `[]` | `DEVOPS_CLI_GITEA_EXTRA_CHECKOUTS` | Extra git checkouts outside repos/ carrying a gitea remote |
+| `argocd_username` | `str` | `argocd` | `DEVOPS_CLI_GITEA_ARGOCD_USERNAME` | The Gitea user login that Argo CD uses to read repositories |
 
 ## Mattermost Configuration (`mattermost`)
 

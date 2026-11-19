@@ -253,6 +253,67 @@ devops argo cd apps retire-helm-records [OPTIONS]
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 
+### `devops argo cd trial`
+
+```bash
+devops argo cd trial COMMAND [ARGS]...
+```
+
+#### `devops argo cd trial start`
+
+**Deploy a trial application from a Gitea branch into a fenced namespace.**
+
+```bash
+devops argo cd trial start [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--branch`, `-b` | `string` | - | The Gitea git branch to deploy. |
+| `--path`, `-p` | `string` | - | The directory path in the repository containing Kubernetes manifests. |
+| `--repo`, `-r` | `string` | `dan-petty/devops-cli` | The Gitea repository in owner/name format. |
+| `--name`, `-n` | `string` | - | The name for the trial application and namespace. |
+| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+#### `devops argo cd trial end`
+
+**Delete a trial application and remove its fenced namespace.**
+
+```bash
+devops argo cd trial end [OPTIONS] <name>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<name>` | `string` | Yes | The name for the trial application and namespace. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+#### `devops argo cd trial list`
+
+**List all active trial applications in project trial.**
+
+```bash
+devops argo cd trial list [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
 ---
 
 ## `devops argo workflows`

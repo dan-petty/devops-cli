@@ -141,6 +141,9 @@ spec:
       - group: argoproj.io
         kind: AppProject
         name: default
+      - group: argoproj.io
+        kind: Application
+        name: trial-*
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
@@ -196,3 +199,17 @@ spec:
       namespace: mattermost-operator
     - server: https://kubernetes.default.svc
       namespace: cert-manager
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: trial
+  namespace: argocd
+spec:
+  description: Transient trial applications deployed from internal Gitea branches
+  clusterResourceWhitelist: []
+  sourceRepos:
+    - http://gitea-http.gitea.svc.cluster.local:3000/*/*
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: trial-*

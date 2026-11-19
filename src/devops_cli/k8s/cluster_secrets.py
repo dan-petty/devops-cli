@@ -197,6 +197,7 @@ class ClusterSecret:
     labels: dict[str, str] = field(default_factory=dict)
     change_note: str = ""
     secret_type: SecretType = "Opaque"
+    gate_namespace: str | None = None
 
     @property
     def ref(self) -> str:
@@ -619,6 +620,22 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         ),
         restarts=(Workload("deployment", "gitea"),),
         labels={"app.kubernetes.io/name": "gitea"},
+    ),
+    # Argo CD repository credentials for internal Gitea (#1082).
+    # Allows Argo CD repo-server to pull Git repositories from the in-cluster Gitea service.
+    # Gated by namespace `gitea` so clusters without Gitea (such as minikube) skip it.
+    ClusterSecret(
+        namespace="argocd",
+        name="gitea-repo-creds",
+        gate_namespace="gitea",
+        stack="gitea",
+        entries=(
+            SecretEntry("url", LiteralSource("http://gitea-http.gitea.svc.cluster.local:3000/")),
+            SecretEntry("username", SettingSource("gitea.argocd_username")),
+            SecretEntry("type", LiteralSource("git")),
+            SecretEntry("password", KeyringSource.for_credential("gitea.argocd_token")),
+        ),
+        labels={"argocd.argoproj.io/secret-type": "repo-creds"},
     ),
     ClusterSecret(
         namespace="mattermost",

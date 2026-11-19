@@ -48,6 +48,7 @@ from devops_cli.dry_run import dry_run_class, is_dry_run
 from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.exceptions.argo import ArgoError, ArgoWorkflowTimeoutError
 from devops_cli.exceptions.config import ConfigurationError
+from devops_cli.gitea.exceptions import GiteaAccessBlocked
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.models.argo import ArgoCDApp, ArgoRolloutState
 from devops_cli.output import (
@@ -84,6 +85,8 @@ cd_app.add_typer(gitops_app, name="gitops")
 # A refusal at the connect ends each command with its message and no traceback.
 cd_apps_app = new_typer(help=HELP.argo.cd)
 cd_app.add_typer(cd_apps_app, name="apps")
+cd_trial_app = new_typer(help=HELP.argo.trial)
+cd_app.add_typer(cd_trial_app, name="trial")
 
 
 # =============================================================================
@@ -557,6 +560,118 @@ def cd_apps_retire_helm_records(
 
     retired = retire_helm_records(plan, effective_context, progress=_retired)
     print_success(MESSAGES.argo.helm_records_done.format(releases=len(retired)))
+
+
+# =============================================================================
+# Commands: devops argo cd trial (start, end, list)
+# =============================================================================
+
+
+@cd_trial_app.command("start")
+@dry_run_class("request-plan")
+def cd_trial_start(
+    branch: Annotated[str, typer.Option("--branch", "-b", help=HELP.argo.trial_branch)],
+    path: Annotated[str, typer.Option("--path", "-p", help=HELP.argo.trial_path)],
+    repo: Annotated[
+        str, typer.Option("--repo", "-r", help=HELP.argo.trial_repo)
+    ] = "dan-petty/devops-cli",
+    name: Annotated[str | None, typer.Option("--name", "-n", help=HELP.argo.trial_name)] = None,
+    context: Annotated[
+        str | None, typer.Option("--context", "-c", help=HELP.options.context)
+    ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Deploy a trial application from a Gitea branch into a fenced namespace."""
+    import yaml
+
+    from devops_cli.argo.trial import start_trial
+
+    is_dry = dry_run or is_dry_run()
+    try:
+        _ns_manifest, app_manifest = start_trial(
+            branch=branch,
+            path=path,
+            repo=repo,
+            name=name,
+            context=context,
+            dry_run=is_dry,
+        )
+    except GiteaAccessBlocked as exc:
+        print_error(str(exc), prefix=False)
+        raise typer.Exit(1) from None
+    except (ArgoError, ConfigurationError) as exc:
+        print_error(str(exc), prefix=False)
+        raise typer.Exit(1) from None
+
+    app_name = app_manifest["metadata"]["name"]
+    if is_dry:
+        write_stdout(yaml.safe_dump(app_manifest, sort_keys=False))
+        return
+
+    print_success(f"Trial Application '{app_name}' created in project 'trial'.", prefix=False)
+    print_info(f"Follow with: devops argo cd apps status {app_name}", prefix=False)
+
+
+@cd_trial_app.command("end")
+@dry_run_class("request-plan")
+def cd_trial_end(
+    name: Annotated[str, typer.Argument(help=HELP.argo.trial_name)],
+    context: Annotated[
+        str | None, typer.Option("--context", "-c", help=HELP.options.context)
+    ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Delete a trial application and remove its fenced namespace."""
+    from devops_cli.argo.trial import end_trial
+
+    is_dry = dry_run or is_dry_run()
+    try:
+        app_name = end_trial(
+            name,
+            context=context,
+            dry_run=is_dry,
+        )
+    except (ArgoError, ConfigurationError) as exc:
+        print_error(str(exc), prefix=False)
+        raise typer.Exit(1) from None
+
+    if is_dry:
+        print_info(
+            f"Would delete Application '{app_name}' and Namespace '{app_name}'", prefix=False
+        )
+        return
+
+    print_success(f"Trial '{app_name}' ended and Namespace '{app_name}' deleted.", prefix=False)
+
+
+@cd_trial_app.command("list")
+@dry_run_class("request-plan")
+def cd_trial_list(
+    context: Annotated[
+        str | None, typer.Option("--context", "-c", help=HELP.options.context)
+    ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """List all active trial applications in project trial."""
+    if dry_run or is_dry_run():
+        from devops_cli.argo.argo_plans import plan_argo_trial_list
+
+        render_request_plan(
+            "Plan for listing Argo CD trial applications",
+            plan_argo_trial_list(),
+        )
+        return
+
+    from devops_cli.argo.trial import list_trials
+
+    try:
+        rows = list_trials(context=context)
+    except (ArgoError, ConfigurationError) as exc:
+        print_error(str(exc), prefix=False)
+        raise typer.Exit(1) from None
+
+    columns = ["Application", "Branch", "Path", "Sync", "Health", "Age"]
+    print_table(title="Argo CD Trial Applications", columns=columns, rows=rows)
 
 
 # =============================================================================
