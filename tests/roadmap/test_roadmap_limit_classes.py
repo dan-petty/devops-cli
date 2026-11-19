@@ -688,6 +688,22 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "other",
         "open items that may cite one path before the citation shows no shared cause",
     ),
+    "CONST_ROADMAP_CONSOLIDATE_RUN_BUDGET_SECONDS": (
+        "kept",
+        "ends a consolidate run before the 900 s MCP tool limit (#4856)",
+    ),
+    "CONST_ROADMAP_CONSOLIDATE_REQUEST_TIMEOUT_SECONDS": (
+        "kept",
+        "caps one model request within the consolidate run budget (#4856)",
+    ),
+    "CONST_ROADMAP_CONSOLIDATE_MARGIN_SECONDS": (
+        "kept",
+        "safety margin reserved before the consolidate run budget ends (#4856)",
+    ),
+    "CONST_ROADMAP_CONSOLIDATE_MAX_LIMIT": (
+        "kept",
+        "maximum shortlists accepted by consolidate to prevent timeout (#4856)",
+    ),
     "DEFAULT_ROADMAP_INTAKE_EXCERPT_CHARS": (
         "kept",
         "the excerpt of a candidate that the model reads",

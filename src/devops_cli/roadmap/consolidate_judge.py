@@ -16,13 +16,19 @@ checks it, and a verdict only flags a group. A call that cannot reach its model 
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from enum import StrEnum
-from typing import Protocol, Self
+from typing import Protocol, Self, TypeVar
 
+import httpx2
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.config.constants import (
+    CONST_ROADMAP_CONSOLIDATE_MARGIN_SECONDS,
+    CONST_ROADMAP_CONSOLIDATE_REQUEST_TIMEOUT_SECONDS,
+)
 from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions.ai import ModelGatewayUnreachableError
 from devops_cli.exceptions.base import DevOpsCLIError
@@ -32,9 +38,24 @@ from devops_cli.roadmap.intake.intake_model import Embedder, gateway_address
 _PROPOSE_PROMPT = "roadmap_consolidate_propose.md"
 _REFUTE_PROMPT = "roadmap_consolidate_refute.md"
 _NOTHING_WRITTEN = "consolidate wrote no plan"
+_T = TypeVar("_T", bound=BaseModel)
 # A model call that fails: the clients raise a `DevOpsCLIError`, and a connection that they do not
 # wrap is an `OSError`.
 _FAILED_CALL = (DevOpsCLIError, OSError)
+
+
+def _is_timeout(exc: BaseException) -> bool:
+    """Whether `exc` represents a request timeout (#4856)."""
+    if isinstance(exc, (TimeoutError, httpx2.TimeoutException)):
+        return True
+    if getattr(exc, "timed_out", False):
+        return True
+    msg = str(exc).lower()
+    if "time" in msg and "out" in msg:
+        return True
+    if exc.__cause__ is not None and _is_timeout(exc.__cause__):
+        return True
+    return False
 
 
 class Shape(StrEnum):
@@ -155,7 +176,13 @@ class Judgement(BaseModel):
 class ShortlistJudge(Protocol):
     """The one function that makes verdicts for a shortlist."""
 
-    def judge(self, case: ShortlistCase) -> Judgement:
+    def judge(
+        self,
+        case: ShortlistCase,
+        *,
+        deadline: float | None = None,
+        clock: Callable[[], float] = ...,
+    ) -> Judgement | None:
         """The group of `case` and a verdict for each member that belongs to it."""
 
 
@@ -200,7 +227,9 @@ class Rebuttal(BaseModel):
 class JudgeClient(Protocol):
     """What the judge needs of `LLMClient`."""
 
-    def chat_structured[T: BaseModel](self, system: str, prompt: str, schema: type[T]) -> T: ...
+    def chat_structured[T: BaseModel](
+        self, system: str, prompt: str, schema: type[T], *, timeout: float | None = None
+    ) -> T: ...
 
 
 def _items(case: ShortlistCase) -> dict[str, object]:
@@ -233,26 +262,74 @@ class GatewayShortlistJudge:
         self._api_key = api_key
         self._client = client
 
-    def judge(self, case: ShortlistCase) -> Judgement:
-        """A proposal, then its refutation. A schema failure raises
-        `StructuredOutputValidationError` for this shortlist; a gateway that does not answer
-        raises `ModelGatewayUnreachableError`."""
+    def _call_judge_step(
+        self,
+        client: JudgeClient,
+        prompt_file: str,
+        request_body: str,
+        schema_cls: type[_T],
+        deadline: float | None,
+        clock: Callable[[], float],
+    ) -> _T | None:
         from devops_cli.ai.client.models import StructuredOutputValidationError
 
-        client = self._built()
+        req_timeout = self._budget_timeout(deadline, clock)
+        if req_timeout is None:
+            return None
+
         try:
-            proposal = client.chat_structured(
-                load_task_prompt(_PROPOSE_PROMPT), proposal_request(case), Proposal
-            )
-            rebuttal = client.chat_structured(
-                load_task_prompt(_REFUTE_PROMPT), refutation_request(case, proposal), Rebuttal
+            return self._call_structured(
+                client,
+                load_task_prompt(prompt_file),
+                request_body,
+                schema_cls,
+                timeout=req_timeout,
             )
         except StructuredOutputValidationError:
             raise
+        except TimeoutError, httpx2.TimeoutException:
+            return None
         except _FAILED_CALL as exc:
+            if _is_timeout(exc):
+                return None
             raise ModelGatewayUnreachableError(
                 gateway_address(self._ai), exc, consequence=_NOTHING_WRITTEN
             ) from exc
+
+    def judge(
+        self,
+        case: ShortlistCase,
+        *,
+        deadline: float | None = None,
+        clock: Callable[[], float] | None = None,
+    ) -> Judgement | None:
+        """A proposal, then its refutation. A schema failure raises
+        `StructuredOutputValidationError` for this shortlist; a gateway that does not answer
+        raises `ModelGatewayUnreachableError`. A request timeout returns None (#4856)."""
+        actual_clock = clock or time.monotonic
+        client = self._built()
+        proposal = self._call_judge_step(
+            client,
+            _PROPOSE_PROMPT,
+            proposal_request(case),
+            Proposal,
+            deadline,
+            actual_clock,
+        )
+        if proposal is None:
+            return None
+
+        rebuttal = self._call_judge_step(
+            client,
+            _REFUTE_PROMPT,
+            refutation_request(case, proposal),
+            Rebuttal,
+            deadline,
+            actual_clock,
+        )
+        if rebuttal is None:
+            return None
+
         return Judgement(
             anchor=proposal.anchor,
             shape=proposal.shape,
@@ -274,12 +351,39 @@ class GatewayShortlistJudge:
             ),
         )
 
+    def _budget_timeout(self, deadline: float | None, clock: Callable[[], float]) -> float | None:
+        """The per-request timeout: at most 300 s, or remaining budget minus 60 s (#4856)."""
+        if deadline is None:
+            return CONST_ROADMAP_CONSOLIDATE_REQUEST_TIMEOUT_SECONDS
+        remaining = deadline - clock()
+        margin = CONST_ROADMAP_CONSOLIDATE_MARGIN_SECONDS
+        if remaining - margin <= 0:
+            return None
+        return min(CONST_ROADMAP_CONSOLIDATE_REQUEST_TIMEOUT_SECONDS, remaining - margin)
+
+    def _call_structured[T: BaseModel](
+        self,
+        client: JudgeClient,
+        system: str,
+        prompt: str,
+        schema: type[T],
+        *,
+        timeout: float,
+    ) -> T:
+        try:
+            return client.chat_structured(system, prompt, schema, timeout=timeout)
+        except TypeError:
+            return client.chat_structured(system, prompt, schema)
+
     def _built(self) -> JudgeClient:
         if self._client is None:
             from devops_cli.ai.client import get_llm_client
 
             self._client = get_llm_client(
-                task="consolidate", config=self._ai.for_task("consolidate"), api_key=self._api_key
+                task="consolidate",
+                config=self._ai.for_task("consolidate"),
+                api_key=self._api_key,
+                request_timeout_seconds=CONST_ROADMAP_CONSOLIDATE_REQUEST_TIMEOUT_SECONDS,
             )
         return self._client
 

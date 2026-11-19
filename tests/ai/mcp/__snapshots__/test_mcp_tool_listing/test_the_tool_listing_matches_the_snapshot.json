@@ -4857,6 +4857,7 @@
         "limit": {
           "anyOf": [
             {
+              "maximum": 20,
               "minimum": 1,
               "type": "integer"
             },

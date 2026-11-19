@@ -3120,6 +3120,9 @@ class RoadmapMessages:
     consolidate_counts: str = (
         "{groups} group(s), {new} of them new. {unjudged} shortlist(s) wait for a later run."
     )
+    consolidate_budget_diagnostic: str = (
+        "The consolidate run budget ended. {unjudged} shortlist(s) wait unjudged."
+    )
     consolidate_written: str = "Plan written to {path}."
     consolidate_decline_unknown: str = (
         "The last plan holds no group {group}. Run consolidate, then give an id from its summary."

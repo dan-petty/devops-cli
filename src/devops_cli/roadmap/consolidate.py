@@ -31,18 +31,22 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
-from typing import Final, Protocol
+from typing import Any, Final, Protocol
 
+import httpx2
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from devops_cli.ai.client.models import StructuredOutputValidationError
 from devops_cli.config.constants import (
     CONST_GH_ISSUE_STATE_REASON_REOPENED,
     CONST_ROADMAP_CONSOLIDATE_DIR,
+    CONST_ROADMAP_CONSOLIDATE_MARGIN_SECONDS,
+    CONST_ROADMAP_CONSOLIDATE_RUN_BUDGET_SECONDS,
     CONST_ROADMAP_STATUS_IN_PROGRESS,
     CONST_ROADMAP_STATUS_IN_REVIEW,
 )
@@ -274,6 +278,7 @@ class Plan(BaseModel):
     left_out: tuple[LeftOut, ...] = ()
     judged: tuple[Judged, ...] = ()
     unjudged: int = 0
+    budget_exceeded: bool = False
     dry_run: bool = Field(default=False, exclude=True)
     requests: tuple[PlannedRequest, ...] = Field(default=(), exclude=True)
     write_requests: tuple[PlannedRequest, ...] = Field(default=(), exclude=True)
@@ -538,6 +543,189 @@ def _pending(
     return tuple(found[key] for key in sorted(found))
 
 
+@dataclass
+class _ConsolidateContext:
+    store: RoadmapStore
+    edges: Edges
+    repo: str
+    directory: Path
+    today: date
+    board: _Board
+    items: dict[int, Any]
+    earlier: Plan | None
+    previous: set[str]
+    remembered: dict[str, Judged]
+    texts: Any
+    cap: int
+    deadline: float
+    clock: Callable[[], float]
+
+
+@dataclass
+class _ConsolidateState:
+    calls: int = 0
+    unjudged: int = 0
+    budget_exceeded: bool = False
+    used: dict[str, Judged] = field(default_factory=dict)
+    groups: list[Group] = field(default_factory=list)
+    failures: list[Failure] = field(default_factory=list)
+    left_out: list[LeftOut] = field(default_factory=list)
+
+
+def _filter_kept_members(
+    store: RoadmapStore,
+    board: _Board,
+    shortlist: Shortlist,
+) -> list[Member]:
+    """Return shortlist members that are not started and not reopened."""
+    return [
+        m
+        for m in shortlist.members
+        if m.number not in board.started
+        and not _was_reopened(store, board, m.number, shortlist.anchor)
+    ]
+
+
+def _call_judge(
+    judge: Any,
+    case: ShortlistCase,
+    anchor: int,
+    deadline: float,
+    clock: Callable[[], float],
+) -> tuple[Judgement | None, Failure | None, bool]:
+    """Call the judge for a shortlist case, returning (judgement, failure, is_timeout)."""
+    try:
+        try:
+            judgement = judge.judge(case, deadline=deadline, clock=clock)
+        except TypeError:
+            judgement = judge.judge(case)
+        return judgement, None, judgement is None
+    except StructuredOutputValidationError as exc:
+        failure = Failure(
+            anchor=anchor,
+            step=StepName.JUDGE,
+            failure_class=failure_class_of(exc),
+            error=str(exc)[:300],
+        )
+        return None, failure, False
+    except TimeoutError, httpx2.TimeoutException:
+        return None, None, True
+
+
+def _judge_shortlist(
+    edges: Edges,
+    case: ShortlistCase,
+    anchor: int,
+    deadline: float,
+    clock: Callable[[], float],
+) -> tuple[Judged | None, Failure | None, bool]:
+    """Execute judgement for an unremembered case."""
+    judgement, failure, is_timeout = _call_judge(edges.judge, case, anchor, deadline, clock)
+    if failure is not None:
+        return None, failure, False
+    if is_timeout:
+        near_deadline = clock() >= deadline or (
+            deadline - clock() <= CONST_ROADMAP_CONSOLIDATE_MARGIN_SECONDS
+        )
+        return None, None, near_deadline
+    if judgement is None:
+        return None, None, False
+    return Judged(digest=case.digest, judgement=judgement), None, False
+
+
+def _obtain_judged(
+    shortlist: Shortlist,
+    case: ShortlistCase,
+    state: _ConsolidateState,
+    ctx: _ConsolidateContext,
+) -> Judged | None:
+    """Return the judged case, or None if skipped/budget exceeded/failed."""
+    found = ctx.remembered.get(case.digest)
+    if found is not None:
+        return found
+    if ctx.clock() >= ctx.deadline:
+        state.budget_exceeded = True
+        state.unjudged += 1
+        return None
+    if state.calls >= ctx.cap:
+        state.unjudged += 1
+        return None
+    state.calls += 1
+    found, failure, budget_exhausted = _judge_shortlist(
+        ctx.edges, case, shortlist.anchor, ctx.deadline, ctx.clock
+    )
+    if failure is not None:
+        state.failures.append(failure)
+        return None
+    if found is None:
+        if budget_exhausted:
+            state.budget_exceeded = True
+        state.unjudged += 1
+        return None
+    ctx.remembered[case.digest] = found
+    _write(
+        _progress_path(ctx.directory, ctx.today),
+        _Progress(repo=ctx.repo, judged=tuple(ctx.remembered.values())),
+    )
+    return found
+
+
+def _settle_group(
+    shortlist: Shortlist,
+    kept: list[Member],
+    found: Judged,
+    board: _Board,
+    edges: Edges,
+    items: dict[int, Any],
+    texts: Any,
+    previous: set[str],
+) -> tuple[Group | None, LeftOut | None]:
+    """Settle the judged shortlist into a group or a left_out entry."""
+    group = _settle(shortlist, kept, found.judgement, board, edges.source)
+    if group is None:
+        dropped = found.judgement.verdict is Refutation.DROPPED
+        reason = texts.consolidate_left_refuted if dropped else texts.consolidate_left_rules
+        return None, LeftOut(anchor=shortlist.anchor, reason=reason)
+    declined = _declined(items[group.anchor].job_record.get(ConsolidateRecordKey.DECLINED))
+    if _all_linked(shortlist, group) or group.id in declined:
+        reason = (
+            texts.consolidate_left_declined
+            if group.id in declined
+            else texts.consolidate_left_linked
+        )
+        return None, LeftOut(anchor=group.anchor, group=group.id, reason=reason)
+    return group.model_copy(update={"carried": group.id in previous}), None
+
+
+def _process_shortlist(
+    shortlist: Shortlist,
+    state: _ConsolidateState,
+    ctx: _ConsolidateContext,
+) -> None:
+    kept = _filter_kept_members(ctx.store, ctx.board, shortlist)
+    if not kept:
+        return
+    if all(_linked(m) for m in kept):
+        state.left_out.append(
+            LeftOut(anchor=shortlist.anchor, reason=ctx.texts.consolidate_left_linked)
+        )
+        return
+
+    case = _case(shortlist, kept, ctx.board)
+    found = _obtain_judged(shortlist, case, state, ctx)
+    if found is None:
+        return
+
+    state.used[case.digest] = found
+    group, left = _settle_group(
+        shortlist, kept, found, ctx.board, ctx.edges, ctx.items, ctx.texts, ctx.previous
+    )
+    if left is not None:
+        state.left_out.append(left)
+    elif group is not None:
+        state.groups.append(group)
+
+
 def run_consolidate(
     store: RoadmapStore,
     edges: Edges,
@@ -546,15 +734,19 @@ def run_consolidate(
     directory: Path,
     today: date,
     limit: int | None = None,
+    budget: float | None = None,
+    clock: Callable[[], float] | None = None,
 ) -> Plan:
     """Judge the shortlists of the open items and write the plan. It writes no GitHub change.
 
     At most `limit` shortlists (`DEFAULT_ROADMAP_CONSOLIDATE_JUDGED` by default) go to the judge;
-    one whose case was judged before costs no call and does not count. The progress file holds each
-    judgement as soon as it is made; the plan file is written when the run ends. A judge that
-    raises `ModelGatewayUnreachableError` ends the run with no plan.
+    one whose case was judged before costs no call and does not count. The run budget stops new
+    judgements when it ends, counts remaining shortlists unjudged and writes the plan (#4856). The
+    progress file holds each judgement as soon as it is made; the plan file is written when the run
+    ends. A judge that raises `ModelGatewayUnreachableError` ends the run with no plan.
     """
-    texts = MESSAGES.roadmap
+    actual_clock = clock or time.monotonic
+    actual_budget = budget if budget is not None else CONST_ROADMAP_CONSOLIDATE_RUN_BUDGET_SECONDS
     cap = DEFAULT_ROADMAP_CONSOLIDATE_JUDGED if limit is None else limit
     lists = consolidation_groups(store, edges.embed)
     items = {item.number: item for item in store.open_items()}
@@ -571,77 +763,38 @@ def run_consolidate(
     }
     previous = {group.id for group in earlier.groups} if earlier else set()
 
-    used: dict[str, Judged] = {}
-    groups: list[Group] = []
-    failures: list[Failure] = []
-    left_out: list[LeftOut] = []
-    unjudged = calls = 0
+    ctx = _ConsolidateContext(
+        store=store,
+        edges=edges,
+        repo=repo,
+        directory=directory,
+        today=today,
+        board=board,
+        items=items,
+        earlier=earlier,
+        previous=previous,
+        remembered=remembered,
+        texts=MESSAGES.roadmap,
+        cap=cap,
+        deadline=actual_clock() + actual_budget,
+        clock=actual_clock,
+    )
+    state = _ConsolidateState()
+
     for shortlist in _order(lists):
-        kept = [
-            m
-            for m in shortlist.members
-            if m.number not in board.started
-            and not _was_reopened(store, board, m.number, shortlist.anchor)
-        ]
-        if not kept:
-            continue
-        if all(_linked(m) for m in kept):
-            left_out.append(LeftOut(anchor=shortlist.anchor, reason=texts.consolidate_left_linked))
-            continue
-        case = _case(shortlist, kept, board)
-        found = remembered.get(case.digest)
-        if found is None:
-            if calls >= cap:
-                unjudged += 1
-                continue
-            calls += 1
-            try:
-                judgement = edges.judge.judge(case)
-            except StructuredOutputValidationError as exc:
-                failures.append(
-                    Failure(
-                        anchor=shortlist.anchor,
-                        step=StepName.JUDGE,
-                        failure_class=failure_class_of(exc),
-                        error=str(exc)[:300],
-                    )
-                )
-                continue
-            found = Judged(digest=case.digest, judgement=judgement)
-            remembered[case.digest] = found
-            used[case.digest] = found
-            _write(
-                _progress_path(directory, today),
-                _Progress(repo=repo, judged=tuple(remembered.values())),
-            )
-        used[case.digest] = found
-        group = _settle(shortlist, kept, found.judgement, board, edges.source)
-        if group is None:
-            dropped = found.judgement.verdict is Refutation.DROPPED
-            reason = texts.consolidate_left_refuted if dropped else texts.consolidate_left_rules
-            left_out.append(LeftOut(anchor=shortlist.anchor, reason=reason))
-            continue
-        declined = _declined(items[group.anchor].job_record.get(ConsolidateRecordKey.DECLINED))
-        if _all_linked(shortlist, group) or group.id in declined:
-            reason = (
-                texts.consolidate_left_declined
-                if group.id in declined
-                else texts.consolidate_left_linked
-            )
-            left_out.append(LeftOut(anchor=group.anchor, group=group.id, reason=reason))
-            continue
-        groups.append(group.model_copy(update={"carried": group.id in previous}))
+        _process_shortlist(shortlist, state, ctx)
 
     plan = Plan(
         repo=repo,
         day=today,
         sha=edges.source.sha,
-        groups=tuple(groups),
-        pending_closes=_pending(groups, earlier, board),
-        failures=tuple(failures),
-        left_out=tuple(left_out),
-        judged=tuple(used.values()),
-        unjudged=unjudged,
+        groups=tuple(state.groups),
+        pending_closes=_pending(state.groups, earlier, board),
+        failures=tuple(state.failures),
+        left_out=tuple(state.left_out),
+        judged=tuple(state.used.values()),
+        unjudged=state.unjudged,
+        budget_exceeded=state.budget_exceeded,
     )
     _write(plan_path(directory, today), plan)
     _progress_path(directory, today).unlink(missing_ok=True)
@@ -751,6 +904,18 @@ def render_plan(plan: Plan) -> str:
     return "\n".join(lines)
 
 
+def check_consolidate_timeout_chain(
+    request_timeout: float, run_budget: float, tool_limit: float
+) -> None:
+    """Verify that request timeout is below run budget, and run budget is below tool limit (#4856)."""
+    if request_timeout >= run_budget:
+        raise AssertionError(
+            f"request timeout ({request_timeout}s) is not below run budget ({run_budget}s)"
+        )
+    if run_budget >= tool_limit:
+        raise AssertionError(f"run budget ({run_budget}s) is not below tool limit ({tool_limit}s)")
+
+
 __all__ = [
     "Decline",
     "Edges",
@@ -763,6 +928,7 @@ __all__ = [
     "PendingClose",
     "Plan",
     "Source",
+    "check_consolidate_timeout_chain",
     "decline_group",
     "dry_run_consolidate",
     "group_id",

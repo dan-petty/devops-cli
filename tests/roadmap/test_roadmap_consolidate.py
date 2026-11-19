@@ -4,6 +4,7 @@ fake, and the judge is scripted. No test reaches a network, a model or a cluster
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Sequence
 from datetime import date
 from pathlib import Path
@@ -11,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from devops_cli.ai.client.models import StructuredOutputValidationError
+from devops_cli.config.constants import CONST_ROADMAP_CONSOLIDATE_RUN_BUDGET_SECONDS
 from devops_cli.exceptions.ai import ModelGatewayUnreachableError
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.roadmap.consolidate import (
@@ -137,10 +139,19 @@ def run(
     *,
     source: Source | None = None,
     limit: int | None = None,
+    budget: float = CONST_ROADMAP_CONSOLIDATE_RUN_BUDGET_SECONDS,
+    clock: Callable[[], float] = time.monotonic,
     day: date = DAY,
 ) -> Plan:
     return run_consolidate(
-        store, edges(judge, source), repo=REPO, directory=tmp_path, today=day, limit=limit
+        store,
+        edges(judge, source),
+        repo=REPO,
+        directory=tmp_path,
+        today=day,
+        limit=limit,
+        budget=budget,
+        clock=clock,
     )
 
 
@@ -677,3 +688,52 @@ def test_a_dropped_proposal_and_a_declined_group_are_listed_as_left_out(
     assert [(o.group, o.reason) for o in declined.left_out] == [
         (group.id, "a person declined the group")
     ]
+
+
+def test_consolidate_run_budget_stops_new_judgements(
+    store: InMemoryRoadmapStore, tmp_path: Path
+) -> None:
+    """A run stops starting new judgements when its budget ends, writes the plan, and reports unjudged (#4856)."""
+    two_pairs(store)
+    current_time = [1000.0]
+    called_cases: list[int] = []
+
+    def mock_judge(c: ShortlistCase) -> Judgement:
+        called_cases.append(c.anchor.number)
+        current_time[0] += 800.0
+        return judgement(c)
+
+    plan = run(
+        store,
+        Judge(mock_judge),
+        tmp_path,
+        budget=780.0,
+        clock=lambda: current_time[0],
+    )
+
+    assert plan.budget_exceeded is True
+    assert len(called_cases) == 1
+    assert plan.unjudged == 1
+    assert len(plan.groups) == 1
+    assert plan_path(tmp_path, DAY).is_file()
+
+
+def test_consolidate_request_timeout_marks_shortlist_unjudged_and_does_not_abort(
+    store: InMemoryRoadmapStore, tmp_path: Path
+) -> None:
+    """A model request timeout marks that shortlist unjudged and continues when budget remains (#4856)."""
+    two_pairs(store)
+    called_cases: list[int] = []
+
+    def mock_judge(c: ShortlistCase) -> Judgement:
+        called_cases.append(c.anchor.number)
+        if len(called_cases) == 1:
+            raise TimeoutError("model request timed out")
+        return judgement(c)
+
+    plan = run(store, Judge(mock_judge), tmp_path)
+
+    assert len(called_cases) == 2
+    assert plan.unjudged == 1
+    assert len(plan.groups) == 1
+    assert plan_path(tmp_path, DAY).is_file()

@@ -6,6 +6,7 @@ import json
 import logging
 import re
 from collections.abc import Callable
+from contextvars import ContextVar
 from typing import Any, TypeVar
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -42,6 +43,11 @@ from devops_cli.telemetry import trace_span
 from devops_cli.telemetry.instruments import AI_STRUCTURED_ATTEMPTS_TOTAL, emit
 
 logger = logging.getLogger(__name__)
+
+# The explicit per-request timeout override when a caller bounds an individual request (#4856).
+_CURRENT_REQUEST_TIMEOUT: ContextVar[float | None] = ContextVar(
+    "_CURRENT_REQUEST_TIMEOUT", default=None
+)
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -264,6 +270,7 @@ class StructuredOutputMixin:
         enable_thinking: bool = False,
         use_cache: bool = True,
         context_tag: str | None = None,
+        timeout: float | None = None,
     ) -> T:
         """Send chat request and guarantee validated structured Pydantic output with repair and retry.
 
@@ -276,6 +283,37 @@ class StructuredOutputMixin:
         """
         if schema is None:
             raise StructuredOutputSchemaError("A schema model class must be provided.")
+
+        token = _CURRENT_REQUEST_TIMEOUT.set(timeout) if timeout is not None else None
+        try:
+            return self._chat_structured_dispatch(
+                system,
+                prompt,
+                schema,
+                user=user,
+                max_retries=max_retries,
+                backoff_seconds=backoff_seconds,
+                enable_thinking=enable_thinking,
+                use_cache=use_cache,
+                context_tag=context_tag,
+            )
+        finally:
+            if token is not None:
+                _CURRENT_REQUEST_TIMEOUT.reset(token)
+
+    def _chat_structured_dispatch[T: BaseModel](
+        self,
+        system: str,
+        prompt: str | list[ChatMessage] | None,
+        schema: type[T],
+        *,
+        user: str | None,
+        max_retries: int,
+        backoff_seconds: float,
+        enable_thinking: bool,
+        use_cache: bool,
+        context_tag: str | None,
+    ) -> T:
 
         messages = _prepare_structured_messages(prompt, user)
         model_name = str(getattr(self._config, "model", "default"))
