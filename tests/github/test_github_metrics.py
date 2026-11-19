@@ -1503,7 +1503,7 @@ def test_the_oldest_claim_gives_the_claim_age() -> None:
     assert claim == 3600.0
 
 
-def test_a_round_reads_an_items_label_events_only_when_its_status_or_owner_changes(
+def test_a_round_reads_an_items_label_events_only_when_its_updated_at_moves(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1609,27 +1609,28 @@ def test_a_round_reads_the_label_events_of_at_most_20_items(
     assert (len(first_round), len(reads), sorted(first_round + reads)) == (20, 5, numbers)
 
 
-def test_a_deferred_item_is_read_before_a_new_one(
+def test_a_round_reads_the_item_with_the_oldest_entry_first(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A round reads an Item whose `updated_at` moved before an Item that the record does not
-    hold, also when the new Item comes first in the open list (#3634)."""
+    """A round reads first an Item that the record does not hold, then the Items whose
+    `updated_at` moved, the oldest `updated_at` in their entry first, also when the open list
+    gives them in the other order (#3634)."""
     clock = AgesClock()
     store = InMemoryRoadmapStore(clock=clock)
+    newer = _seeded_item(store, "newer")
+    older = _seeded_item(store, "older")
     new = _seeded_item(store, "new")
-    deferred = _seeded_item(store, "deferred")
-    _write_field(store, deferred, ItemField.STATUS, "Ready")
-    clock.at(60)
-    _write_field(store, deferred, ItemField.STATUS, "Planned")
+    clock.at(120)
+    _write_field(store, newer, ItemField.STATUS, "Ready")
+    _write_field(store, older, ItemField.STATUS, "Ready")
     record_path = item_label_times_path(tmp_path)
     keep_item_label_times(
         record_path,
         ItemLabelTimesRecord(
             items={
-                deferred: KeptItemLabelTimes(
-                    updated_at=AGES_START, times={"status/ready": AGES_START}
-                )
+                newer: KeptItemLabelTimes(updated_at=AGES_START + datetime.timedelta(seconds=60)),
+                older: KeptItemLabelTimes(updated_at=AGES_START),
             }
         ),
     )
@@ -1637,7 +1638,56 @@ def test_a_deferred_item_is_read_before_a_new_one(
 
     get_item_age_metrics(store, REPO, clock, label_times_record=record_path)
 
-    assert reads == [deferred, new]
+    assert reads == [new, older, newer]
+
+
+def test_items_that_move_in_each_round_do_not_starve_another_item(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """21 held Items move before each round and one more Item has no entry. Two rounds read all
+    22 Items, because an Item that the cap defers keeps its older entry and comes first in the
+    next round (#3634)."""
+    clock = AgesClock()
+    store = InMemoryRoadmapStore(clock=clock)
+    moving = [_seeded_item(store, f"moving {index}") for index in range(21)]
+    record_path = item_label_times_path(tmp_path)
+    get_item_age_metrics(store, REPO, clock, label_times_record=record_path)
+    get_item_age_metrics(store, REPO, clock, label_times_record=record_path)
+    waiting = _seeded_item(store, "waiting")
+    reads = _count_label_reads(store, monkeypatch)
+
+    for second, priority in ((60, "P1-High"), (120, "P2-Medium")):
+        clock.at(second)
+        for number in moving:
+            _write_field(store, number, ItemField.PRIORITY, priority)
+        get_item_age_metrics(store, REPO, clock, label_times_record=record_path)
+
+    assert (len(reads), sorted(set(reads))) == (40, sorted([*moving, waiting]))
+
+
+def test_an_owned_item_that_the_cap_defers_logs_no_missing_label_event(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An owned Item with no entry that the cap leaves unread has no label times in this round,
+    so the round logs no "No labeled event" warning for it and gives it no claim age (#3634)."""
+    clock = AgesClock()
+    store = InMemoryRoadmapStore(clock=clock)
+    for index in range(20):
+        _seeded_item(store, f"item {index}")
+    deferred = _seeded_item(store, "deferred")
+    _write_field(store, deferred, ItemField.OWNER, "Agent")
+    clock.at(3600)
+    record_path = item_label_times_path(tmp_path)
+
+    with caplog.at_level(logging.WARNING, logger="devops_cli.github.metrics"):
+        _, claim, _, _ = get_item_age_metrics(store, REPO, clock, label_times_record=record_path)
+
+    assert (
+        [r.getMessage() for r in caplog.records if "No labeled event" in r.getMessage()],
+        claim,
+    ) == ([], 0.0)
 
 
 def test_a_round_keeps_the_entry_of_an_item_it_deferred(

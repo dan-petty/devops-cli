@@ -65,7 +65,7 @@ def read_item_label_times(path: Path) -> ItemLabelTimesRecord:
     except (OSError, ValueError) as exc:
         logger.warning(
             "The item label times record %s cannot be read (%s); this round reads the label "
-            "events of every Item and writes the file again.",
+            "events of at most 20 Items and writes the file again.",
             path,
             _reason(exc),
         )

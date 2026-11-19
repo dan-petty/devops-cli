@@ -54,6 +54,32 @@ def test_a_missing_record_reads_as_an_empty_record(tmp_path: Path) -> None:
     assert (record.items, record) == ({}, ItemLabelTimesRecord())
 
 
+def test_a_record_that_cannot_be_read_logs_one_warning_and_reads_as_empty(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A record file that holds no valid record reads as an empty record, with one warning that
+    names the file and says that the round reads at most the cap of 20 Items (#3634)."""
+    from devops_cli.github.item_label_times import (
+        ItemLabelTimesRecord,
+        item_label_times_path,
+        read_item_label_times,
+    )
+
+    path = item_label_times_path(tmp_path)
+    path.write_text("{not json", encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING, logger="devops_cli.github.item_label_times"):
+        record = read_item_label_times(path)
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert (
+        record,
+        len(warnings),
+        str(path) in warnings[0],
+        "at most 20 Items" in warnings[0],
+    ) == (ItemLabelTimesRecord(), 1, True, True)
+
+
 def test_a_record_that_cannot_be_written_logs_one_error(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:

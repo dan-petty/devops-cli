@@ -16,15 +16,19 @@ The metrics row SHALL write to the record file of its repository the `updated_at
 - **THEN** the file that the round writes holds no entry for that Item
 
 ### Requirement: The row reads the label events of at most 20 Items in one round
-The metrics row SHALL read the label changes of at most 20 Items in one round. It SHALL read an Item whose `updated_at` moved before an Item that the record file does not hold. An Item that the round does not read keeps the label times of its entry, or waits for a later round when it has no entry.
+The metrics row SHALL read the label changes of at most 20 Items in one round. It SHALL read the Items in the order of their entry, oldest first: an Item that the record file does not hold first, then an Item whose `updated_at` moved, the oldest `updated_at` in its entry first. An Item that the round does not read keeps the label times of its entry, or waits for a later round when it has no entry. So Items that move in each round do not keep another Item out of the reads.
 
 #### Scenario: More changed Items than the cap
 - **WHEN** more open Items hold an updated_at other than the one the file holds than the cap in one round
 - **THEN** the round reads the label events of exactly 20 Items and the rest wait for later rounds
 
-#### Scenario: A deferred Item comes first
-- **WHEN** a round starts with an Item that the file holds at an older updated_at and an Item that the file does not hold
-- **THEN** the round reads the label events of the deferred Item first and fills the rest of the cap with the new Item
+#### Scenario: The oldest entry comes first
+- **WHEN** a round starts with an Item that the file does not hold and two moved Items whose entries hold different updated_at values
+- **THEN** the round reads the Item with no entry first, then the moved Item with the older updated_at, then the other moved Item
+
+#### Scenario: Items that move in each round do not keep an Item out
+- **WHEN** 21 Items that the file holds move before each round, and one more Item has no entry
+- **THEN** two rounds read the label events of all 22 Items
 
 ### Requirement: A failed write of the record keeps the round
 When the record file of the metrics row cannot be written, the row SHALL log one error that names the file and SHALL send the ages and the other metrics of the round. The next round SHALL write the file again.

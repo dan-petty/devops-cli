@@ -14,6 +14,7 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+import math
 import re
 import subprocess
 from collections import Counter
@@ -548,18 +549,23 @@ def _entry_matches(item: Item, entry: KeptItemLabelTimes | None) -> bool:
     return entry is not None and item.updated_at is not None and entry.updated_at == item.updated_at
 
 
+def _last_read(item: Item, record: ItemLabelTimesRecord) -> float:
+    """The `updated_at` that the entry of `item` holds, in epoch seconds, or minus infinity when
+    the record holds no time of it: the order in which a round reads the Items (#3634)."""
+    entry = record.items.get(item.number)
+    if entry is None or entry.updated_at is None:
+        return -math.inf
+    return entry.updated_at.timestamp()
+
+
 def _items_to_read(items: list[Item], record: ItemLabelTimesRecord) -> list[Item]:
-    """The Items whose label events a round reads, at most `_MAX_ITEM_AGE_READS_PER_ROUND`: the
-    Items whose `updated_at` moved since the record was written, then the Items that the record
-    does not hold (#3634)."""
-    moved: list[Item] = []
-    new: list[Item] = []
-    for item in items:
-        entry = record.items.get(item.number)
-        if _entry_matches(item, entry):
-            continue
-        (new if entry is None else moved).append(item)
-    return (moved + new)[:_MAX_ITEM_AGE_READS_PER_ROUND]
+    """The Items whose label events a round reads, at most `_MAX_ITEM_AGE_READS_PER_ROUND`, the
+    oldest entry first: the Items that the record does not hold, then the Items whose `updated_at`
+    moved, by the `updated_at` that their entry holds. An Item that the cap defers keeps its older
+    entry, so in the next round it comes before the Items that this round reads, and Items that
+    move in each round do not keep it out of the reads (#3634)."""
+    stale = [item for item in items if not _entry_matches(item, record.items.get(item.number))]
+    return sorted(stale, key=lambda item: _last_read(item, record))[:_MAX_ITEM_AGE_READS_PER_ROUND]
 
 
 def _label_times(
@@ -571,9 +577,10 @@ def _label_times(
 
     A round with no `record` reads the label events of every Item and keeps none. With a record,
     an Item whose entry holds its current `updated_at` reuses the times of that entry. The round
-    reads the Items whose `updated_at` moved before the Items that the record does not hold, at
-    most `_MAX_ITEM_AGE_READS_PER_ROUND` of them. An Item that the cap defers keeps the times of
-    its entry, and an Item that left the open list leaves the record (#3634).
+    reads the other Items in the order of `_items_to_read`, at most
+    `_MAX_ITEM_AGE_READS_PER_ROUND` of them. An Item that the cap defers keeps the times of its
+    entry, an Item with no entry that the cap defers has no times in this round, and an Item that
+    left the open list leaves the record (#3634).
     """
     if record is None:
         unrecorded = {
@@ -690,10 +697,8 @@ def get_item_age_metrics(
         else:
             oldest[item_phase] = (age, item.number)
 
-        if item.owner is not None:
-            since = _labeled_at(
-                item, field_label(ItemField.OWNER, item.owner), times.get(item.number, {})
-            )
+        if item.owner is not None and item.number in times:
+            since = _labeled_at(item, field_label(ItemField.OWNER, item.owner), times[item.number])
             if since is not None:
                 claims.append(since)
 
