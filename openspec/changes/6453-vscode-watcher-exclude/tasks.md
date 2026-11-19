@@ -4,7 +4,7 @@
 
 Kind: other. Changes: `.vscode/settings.json`.
 
-- [ ] 1.1 Add `files.watcherExclude` with `.data/**`, `repos/**`, `.claude/worktrees/**`, `.venv/**`, `.mypy_cache/**`, `.ruff_cache/**`, `.pytest_cache/**` and `mutants/**`
+- [x] 1.1 Add `files.watcherExclude` with `.data/**`, `repos/**`, `.claude/worktrees/**`, `.venv/**`, `.mypy_cache/**`, `.ruff_cache/**`, `.pytest_cache/**` and `mutants/**`
   - Verification: `$ uv run devops ci --check --only lint,format`
 
 ## 2. Documents

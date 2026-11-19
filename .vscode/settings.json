@@ -1,4 +1,14 @@
 {
   "antigravity.autoOpenFiles": false,
-  "jetski-web.autoOpenFiles": false
+  "jetski-web.autoOpenFiles": false,
+  "files.watcherExclude": {
+    ".data/**": true,
+    "repos/**": true,
+    ".claude/worktrees/**": true,
+    ".venv/**": true,
+    ".mypy_cache/**": true,
+    ".ruff_cache/**": true,
+    ".pytest_cache/**": true,
+    "mutants/**": true
+  }
 }
