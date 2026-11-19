@@ -123,6 +123,7 @@ class RunReport(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     model: str = ""
+    tools: bool = True
     results: tuple[ResultReport, ...]
 
     def count(self, status: Status) -> int:
@@ -257,7 +258,9 @@ def _step_properties(
     ]
 
 
-def run_case(loaded: LoadedCase, *, repo: Path, model: Any, window: int) -> ResultReport:
+def run_case(
+    loaded: LoadedCase, *, repo: Path, model: Any, window: int, tools: bool = True
+) -> ResultReport:
     """Run the group of the fixture with `model`, in a scratch clone of `repo`, and evaluate the
     properties. A step that refuses to start (inputs over the window) is reported as `refused`
     with its properties skipped. Raises `ImplementEvalError` when `repo` lacks the base commit,
@@ -279,6 +282,7 @@ def run_case(loaded: LoadedCase, *, repo: Path, model: Any, window: int) -> Resu
                 keep=False,
                 # A clone has no remote, so the fixture holds the record that the step reads.
                 recorded_tests=frozenset(case.allow_lost_tests),
+                tools=tools,
             )
         except RoadmapImplementError as refusal:
             reason = str(refusal)
@@ -426,8 +430,9 @@ def render_report(report: RunReport) -> str:
     """The report as text: a block for each result, then the totals."""
     texts = MESSAGES.roadmap
     count = len(report.results)
+    mode = texts.eval_implement_mode_tools if report.tools else texts.eval_implement_mode_no_tools
     title = (
-        texts.eval_implement_title.format(count=count, model=report.model)
+        texts.eval_implement_title.format(count=count, model=report.model, mode=mode)
         if report.model
         else texts.eval_implement_title_check.format(count=count)
     )
@@ -457,13 +462,14 @@ def write_report(report: RunReport, directory: Path, moment: datetime) -> Path:
     return Path(name)
 
 
-def render_dry_run(cases: Sequence[LoadedCase], *, model: str) -> str:
+def render_dry_run(cases: Sequence[LoadedCase], *, model: str, tools: bool = True) -> str:
     """What a run does, making no request: the steps, and the model requests of each, at most
     `roadmap.implement.max_requests` for a step."""
     from devops_cli.config.settings import load_settings
     from devops_cli.dry_run.requests import PlannedRequest
 
     texts = MESSAGES.roadmap
+    mode = texts.eval_implement_mode_tools if tools else texts.eval_implement_mode_no_tools
     limit = load_settings().roadmap.implement.max_requests
     steps = [
         texts.eval_implement_dry_step.format(
@@ -481,5 +487,10 @@ def render_dry_run(cases: Sequence[LoadedCase], *, model: str) -> str:
         ).line()
         for c in cases
     ]
-    lines = [texts.eval_implement_dry_title, *steps, "", texts.eval_implement_dry_requests]
+    lines = [
+        texts.eval_implement_dry_title.format(mode=mode),
+        *steps,
+        "",
+        texts.eval_implement_dry_requests,
+    ]
     return "\n".join([*lines, *(f"{n}. {line}" for n, line in enumerate(requests, 1))]) + "\n"

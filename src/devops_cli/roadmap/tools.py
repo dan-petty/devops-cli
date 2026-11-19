@@ -50,6 +50,7 @@ _STAGE_AND_IMPLEMENT: Final[frozenset[str]] = _STAGE | _IMPLEMENT
 _EVERY_JOB_ROLE: Final[frozenset[str]] = frozenset(
     {HOLDER_PLANNING, HOLDER_IMPLEMENTATION, HOLDER_REVIEW}
 )
+_PLANNING_AND_REVIEW: Final[frozenset[str]] = frozenset({HOLDER_PLANNING, HOLDER_REVIEW})
 _PLANNING: Final[frozenset[str]] = frozenset({HOLDER_PLANNING})
 _IMPLEMENTATION: Final[frozenset[str]] = frozenset({HOLDER_IMPLEMENTATION})
 
@@ -77,8 +78,8 @@ def _write(purpose: str, holders: frozenset[str]) -> ToolEntry:
 TOOLS: Final[dict[str, ToolEntry]] = {
     # The nine tools of the toolset `stage`, which `stage-extended` also holds (#3037). The first
     # two serve the implement step too, so their purpose fits both hosts.
-    "list_files": _read("Lists the files and directories under a directory.", _STAGE),
-    "read_file": _read("Reads the numbered lines of a file.", _STAGE),
+    "list_files": _read("Lists the files and directories under a directory.", _STAGE_AND_IMPLEMENT),
+    "read_file": _read("Reads the numbered lines of a file.", _STAGE_AND_IMPLEMENT),
     "search_code": _read(
         "Finds a text in the files of the staged commit and lists each match with its line.",
         _STAGE,
@@ -128,6 +129,7 @@ TOOLS: Final[dict[str, ToolEntry]] = {
     "run_command": _write(
         "Runs a command of the allowlist in the workspace and waits until it ends.", _IMPLEMENT
     ),
+    "create_directory": _write("Creates a directory in the workspace.", _IMPLEMENT),
     # The reads of GitHub, which every job role holds.
     "gh_issue_list": _read(
         "Lists the issues of the repository on GitHub, with their labels and milestone.",
@@ -163,12 +165,12 @@ TOOLS: Final[dict[str, ToolEntry]] = {
         "Lists the review threads of a pull request, with their files and comments.",
         _EVERY_JOB_ROLE,
     ),
-    # The two security lookups, which every job role holds.
+    # The two security lookups, which planning and review hold.
     "security_intel_network": _read(
-        "Looks up the reputation of a network address or a domain.", _EVERY_JOB_ROLE
+        "Looks up the reputation of a network address or a domain.", _PLANNING_AND_REVIEW
     ),
     "security_intel_package": _read(
-        "Looks up the advisories of a package in OSV.dev.", _EVERY_JOB_ROLE
+        "Looks up the advisories of a package in OSV.dev.", _PLANNING_AND_REVIEW
     ),
     # The reads of the cluster, which the planning role holds.
     "argo_cd_apps_list": _read("Lists the applications of Argo CD.", _PLANNING),
@@ -218,6 +220,9 @@ def check_tables(tables: Mapping[str, Iterable[str]]) -> list[str]:
 __all__ = [
     "HOLDERS",
     "HOLDER_IMPLEMENT",
+    "HOLDER_IMPLEMENTATION",
+    "HOLDER_PLANNING",
+    "HOLDER_REVIEW",
     "HOLDER_STAGE",
     "HOLDER_STAGE_EXTENDED",
     "HOLDER_STAGE_RESEARCH",

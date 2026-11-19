@@ -61,7 +61,9 @@ def _check(cases: list[LoadedCase], source: Path, *, run_commands: bool, json_ou
         raise typer.Exit(1)
 
 
-def _report_run(model: str, results: list[ResultReport], *, json_output: bool) -> None:
+def _report_run(
+    model: str, results: list[ResultReport], *, tools: bool = True, json_output: bool
+) -> None:
     """Print the report of the results so far, and write its JSON file."""
     from devops_cli.roadmap.implement.implement_eval_run import (
         RunReport,
@@ -69,14 +71,19 @@ def _report_run(model: str, results: list[ResultReport], *, json_output: bool) -
         write_report,
     )
 
-    report = RunReport(model=model, results=tuple(results))
+    report = RunReport(model=model, tools=tools, results=tuple(results))
     _emit(report, json_output=json_output)
     saved = write_report(report, report_directory(), datetime.now(UTC))
     print_muted(MESSAGES.roadmap.eval_implement_saved.format(path=saved), to_stderr=True)
 
 
 def _run(
-    cases: list[LoadedCase], source: Path, model_name: str | None, *, json_output: bool
+    cases: list[LoadedCase],
+    source: Path,
+    model_name: str | None,
+    *,
+    tools: bool = True,
+    json_output: bool,
 ) -> None:
     """Run the step of each case with the model, report, and write the JSON report. A fixture that
     raises ends the run, and the results of the fixtures before it are reported and written first,
@@ -93,10 +100,10 @@ def _run(
                 ),
                 to_stderr=True,
             )
-            results.append(run_case(case, repo=source, model=model, window=window))
+            results.append(run_case(case, repo=source, model=model, window=window, tools=tools))
     finally:
         if results:
-            _report_run(name, results, json_output=json_output)
+            _report_run(name, results, tools=tools, json_output=json_output)
 
 
 @dry_run_class("request-plan")
@@ -113,6 +120,9 @@ def implement_cmd(
     model: Annotated[
         str | None, typer.Option("--model", "-m", help=HELP.roadmap.eval_implement_model)
     ] = None,
+    no_tools: Annotated[
+        bool, typer.Option("--no-tools", help=HELP.roadmap.eval_implement_no_tools)
+    ] = False,
     json_output: Annotated[
         bool, typer.Option("--json", help=HELP.roadmap.eval_implement_json)
     ] = False,
@@ -136,13 +146,14 @@ def implement_cmd(
         load_cases(fixtures or root / CONST_ROADMAP_EVAL_IMPLEMENT_FIXTURES), tuple(fixture or ())
     )
     clone_from = source or root
+    tools = not no_tools
     if dry:
         from devops_cli.config.settings import load_settings
         from devops_cli.roadmap.implement.implement_eval_run import render_dry_run
 
         name = model or load_settings().ai.for_task("implement").model
-        write_stdout(render_dry_run(cases, model=name))
+        write_stdout(render_dry_run(cases, model=name, tools=tools))
     elif check_only:
         _check(cases, clone_from, run_commands=run_commands, json_output=json_output)
     else:
-        _run(cases, clone_from, model, json_output=json_output)
+        _run(cases, clone_from, model, tools=tools, json_output=json_output)

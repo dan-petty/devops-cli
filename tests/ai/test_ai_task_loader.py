@@ -48,11 +48,14 @@ def test_a_prompt_renders_a_context_value() -> None:
     """#4633: a caller that passes a context renders the prompt as a Jinja2 template."""
     rendered = load_task_prompt(
         "roadmap_implement_step.md",
+        tools="TOOLS-MARK",
         shell_programs="PROGRAMS-MARK",
         local_commands="COMMANDS-MARK",
         shell_refusals="REFUSALS-MARK",
     )
 
+    assert "TOOLS-MARK" in rendered
+    assert "{{tools}}" not in rendered
     assert "PROGRAMS-MARK" in rendered
     assert "{{shell_programs}}" not in rendered
 
@@ -106,12 +109,14 @@ def test_the_implement_prompt_equals_today_s_fill_prompt_output() -> None:
         local_commands_table,
         programs_table,
         refusals_table,
+        tools_table,
     )
     from devops_cli.roadmap.implement.implement_step import step_instructions
 
     raw = load_task_prompt("roadmap_implement_step.md")
     today = (
-        raw.replace("{{shell_programs}}", programs_table())
+        raw.replace("{{tools}}", tools_table())
+        .replace("{{shell_programs}}", programs_table())
         .replace("{{local_commands}}", local_commands_table())
         .replace("{{shell_refusals}}", refusals_table())
     )

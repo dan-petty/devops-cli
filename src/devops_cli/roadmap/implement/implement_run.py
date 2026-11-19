@@ -63,6 +63,7 @@ import subprocess
 import tempfile
 import textwrap
 import time
+from collections import Counter
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
@@ -1838,6 +1839,7 @@ class _ItemRun:
         ]
         lines = "\n".join(
             [
+                *self._tool_lines(),
                 *amend_lines,
                 *skipped_lines,
                 *scoped_lines,
@@ -1864,6 +1866,17 @@ class _ItemRun:
             run,
             comment,
         )
+
+    def _tool_lines(self) -> list[str]:
+        """The line of the comment that names each tool that the steps of this run called, with its count
+        (#3148). A run whose steps called none has no line."""
+        totals: Counter[str] = Counter()
+        for outcome in self.outcomes:
+            totals.update(outcome.tool_counts)
+        if not totals:
+            return []
+        tools = ", ".join(f"{tool} {count}" for tool, count in totals.most_common())
+        return [MESSAGES.roadmap.implement_pull_comment_tools.format(tools=tools)]
 
     def _comment_lines(self) -> list[str]:
         """The line that names each comment of the item that the inputs of a step of this run held

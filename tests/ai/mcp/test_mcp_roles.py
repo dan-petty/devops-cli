@@ -46,13 +46,21 @@ def _fake_tool(name: str, *, read_only: bool | None) -> Any:
 
 def test_two_connections_with_different_roles_see_different_tool_lists() -> None:
     planning, implementation, review = (_names(role) for role in JOB_ROLES)
-    assert (len(planning), len(implementation), len(review)) == (28, 17, 16)
+    assert (len(planning), len(implementation), len(review)) == (28, 15, 16)
     assert (review < implementation, review < planning, implementation - planning) == (
-        True,
+        False,
         True,
         {"pr_describe"},
     )
     assert (planning & {"k8s_pods"}, implementation & {"k8s_pods"}) == ({"k8s_pods"}, set())
+
+
+def test_the_implementation_role_holds_no_security_lookup() -> None:
+    tools = tools_for_role(ROLE_IMPLEMENTATION, _catalogue())
+    names = {tool.name for tool in tools}
+    assert "security_intel_network" not in names
+    assert "security_intel_package" not in names
+    assert len(names) == 15
 
 
 def test_ops_holds_every_tool_but_the_hydrate_tool() -> None:

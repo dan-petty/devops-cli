@@ -67,7 +67,7 @@ _CLUSTER_READS: Final[frozenset[str]] = frozenset(
 
 _JOB_ROLE_TOOLS: Final[dict[str, frozenset[str]]] = {
     ROLE_PLANNING: _GITHUB_READS | _SECURITY_INTEL | _CLUSTER_READS,
-    ROLE_IMPLEMENTATION: _GITHUB_READS | _SECURITY_INTEL | {"pr_describe"},
+    ROLE_IMPLEMENTATION: _GITHUB_READS | {"pr_describe"},
     ROLE_REVIEW: _GITHUB_READS | _SECURITY_INTEL,
 }
 

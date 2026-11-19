@@ -3671,7 +3671,9 @@ class RoadmapMessages:
         "run again."
     )
     eval_implement_apply_failed: str = "The recorded diff does not apply to the base: {reason}"
-    eval_implement_title: str = "Implement eval: {count} result(s), model {model}."
+    eval_implement_title: str = "Implement eval: {count} result(s), model {model}, {mode}."
+    eval_implement_mode_tools: str = "with tools"
+    eval_implement_mode_no_tools: str = "without tools"
     eval_implement_title_check: str = "Implement eval of recorded results: {count} result(s)."
     eval_implement_running: str = "Running fixture {name} ({number} of {total})."
     eval_implement_head: str = "{name} / {result}: {status} (issue #{issue}, group {group})"
@@ -3692,7 +3694,7 @@ class RoadmapMessages:
     eval_implement_differ: str = "{count} recorded result(s) differ from their record."
     eval_implement_saved: str = "Report: {path}"
     eval_implement_dry_title: str = (
-        "Dry run: no request was made, nothing was cloned and no model ran. The steps are:"
+        "Dry run: no request was made, nothing was cloned and no model ran ({mode}). The steps are:"
     )
     eval_implement_dry_step: str = "- {name}: issue #{issue}, group {group}, base {sha}"
     eval_implement_dry_requests: str = "The model requests of a run:"
@@ -4031,6 +4033,7 @@ class RoadmapMessages:
     implement_pull_labels_failed: str = "Labels not updated: {error}"
     implement_pull_comment: str = "{marker}\n{run}\nThe steps of the job:\n\n{lines}"
     implement_pull_comment_run: str = "<!-- devops roadmap implement run: {run} -->"
+    implement_pull_comment_tools: str = "- tools: {tools}"
     # The line of the comment of a stopped run on the pull request: the stop comment on the issue
     # holds the stop report, once (#6194).
     implement_pull_comment_stopped: str = (
