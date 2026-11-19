@@ -213,3 +213,39 @@ def test_gitea_error_masks_token() -> None:
         gitea.create_repo("org", "my-repo")
     assert "secret-token-xyz" not in str(exc.value)
     assert "create_repo" in str(exc.value)
+
+
+def test_gitea_client_check_error_non_json_body() -> None:
+    """_check_error handles plain-text (non-JSON) error bodies."""
+
+    def handler(_request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(502, text="Bad Gateway html page")
+
+    client = httpx2.Client(transport=httpx2.MockTransport(handler))
+    gitea = GiteaClient("https://git.example.com", "token-123", client=client)
+    with pytest.raises(GiteaError) as exc:
+        gitea.version()
+    assert "Bad Gateway html page" in str(exc.value)
+    gitea.close()
+
+
+def test_gitea_access_blocked_masks_token_in_reason() -> None:
+    """GiteaAccessBlocked masks token if present in reason."""
+    exc = GiteaAccessBlocked("Custom reason with secret-tok", token="secret-tok")
+    assert "secret-tok" not in str(exc)
+    assert "[REDACTED]" in str(exc)
+
+
+def test_gitea_models_username_and_login_fallbacks() -> None:
+    """Gitea models validate login/username and name/username bidirectional fallbacks."""
+    from devops_cli.gitea.models import GiteaOrg, GiteaUser
+
+    u1 = GiteaUser.model_validate({"id": 1, "username": "bob"})
+    assert u1.login == "bob"
+    u2 = GiteaUser.model_validate({"id": 2, "login": "carol"})
+    assert u2.username == "carol"
+
+    o1 = GiteaOrg.model_validate({"username": "devops-org"})
+    assert o1.name == "devops-org"
+    o2 = GiteaOrg.model_validate({"name": "sales-org"})
+    assert o2.username == "sales-org"

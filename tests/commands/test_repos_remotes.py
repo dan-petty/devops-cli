@@ -405,3 +405,148 @@ def test_remotes_adds_path_to_extra_checkouts(
 
     settings = load_settings()
     assert str(extra_dir.resolve()) in settings.gitea.extra_checkouts
+
+
+def test_remotes_exits_when_token_unset(
+    cli: Callable[..., Any], isolate_devops_cli_config: Path, keyring_store: FakeKeyring
+) -> None:
+    """remotes exits 1 and names 'devops config set gitea.token' when token is unset."""
+    settings = load_settings()
+    settings.gitea.url = "https://git.example.com"
+    save_settings(settings, keys=("gitea.url",))
+
+    result = cli("repos", "remotes")
+    assert result.exit_code != 0
+    assert "gitea.token" in result.output
+
+
+def test_remotes_updates_remote_url_when_changed(
+    cli: Callable[..., Any],
+    isolate_devops_cli_config: Path,
+    keyring_store: FakeKeyring,
+    git_fake: GitFake,
+    tmp_path: Path,
+) -> None:
+    """remotes runs 'git remote set-url gitea' when the URL changes."""
+    _setup_config(keyring_store)
+
+    clone_dir = tmp_path / "repos" / "testorg" / "testrepo"
+    clone_dir.mkdir(parents=True)
+    (clone_dir / ".git").mkdir()
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        url_str = str(request.url)
+        if "/api/v1/user" in url_str:
+            return httpx2.Response(200, json={"id": 1, "login": "testorg", "username": "testorg"})
+        if "/branch_protections" in url_str and request.method == "GET":
+            return httpx2.Response(200, json=[])
+        if "/branch_protections" in url_str and request.method == "POST":
+            return httpx2.Response(
+                201, json={"rule_name": "main", "enable_push": True, "enable_force_push": False}
+            )
+        if "/api/v1/repos/testorg/testrepo" in url_str:
+            return httpx2.Response(
+                200, json={"id": 1, "name": "testrepo", "default_branch": "main"}
+            )
+        return httpx2.Response(200, json={})
+
+    install_transport(lambda level: httpx2.MockTransport(handler))
+
+    git_fake.answer(
+        ["git", "-C", str(clone_dir), "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+        ProcessAnswer(stdout="origin/main\n"),
+    )
+    git_fake.answer(
+        ["git", "-C", str(clone_dir), "remote", "-v"],
+        ProcessAnswer(
+            stdout="origin https://github.com/testorg/testrepo.git (fetch)\ngitea https://old.example.com/testorg/testrepo.git (fetch)\n"
+        ),
+    )
+    git_fake.answer(
+        ["git", "-C", str(clone_dir), "remote", "get-url", "gitea"],
+        ProcessAnswer(stdout="https://old.example.com/testorg/testrepo.git\n"),
+    )
+    git_fake.answer(
+        [
+            "git",
+            "-C",
+            str(clone_dir),
+            "remote",
+            "set-url",
+            "gitea",
+            "https://git.example.com/testorg/testrepo.git",
+        ],
+        ProcessAnswer(),
+    )
+    git_fake.answer(
+        [
+            "git",
+            "-C",
+            str(clone_dir),
+            "config",
+            "--add",
+            "credential.https://git.example.com.helper",
+            "",
+        ],
+        ProcessAnswer(),
+    )
+    git_fake.answer(
+        [
+            "git",
+            "-C",
+            str(clone_dir),
+            "config",
+            "--add",
+            "credential.https://git.example.com.helper",
+            "!devops repos gitea credential",
+        ],
+        ProcessAnswer(),
+    )
+    git_fake.answer(
+        ["git", "-C", str(clone_dir), "config", "checkout.defaultRemote", "origin"],
+        ProcessAnswer(),
+    )
+    git_fake.answer(
+        ["git", "-C", str(clone_dir), "config", "remote.gitea.tagOpt", "--no-tags"],
+        ProcessAnswer(),
+    )
+    git_fake.answer(
+        ["git", "-C", str(clone_dir), "push", "gitea", "refs/remotes/origin/main:refs/heads/main"],
+        ProcessAnswer(),
+    )
+
+    result = cli("repos", "remotes", "--base-dir", str(tmp_path / "repos"))
+    assert result.exit_code == 0
+    assert any("set-url" in call.argv for call in git_fake.calls)
+
+
+def test_remotes_helper_functions(tmp_path: Path, git_fake: GitFake) -> None:
+    """Test resolution helpers and edge cases."""
+    from devops_cli.gitea.remotes import (
+        _extract_branch_name_from_porcelain,
+        read_default_branch,
+        resolve_repo_owner_name,
+    )
+
+    # resolve_repo_owner_name with no slash origin
+    standalone = tmp_path / "simple-repo"
+    standalone.mkdir()
+    git_fake.answer(
+        ["git", "-C", str(standalone), "remote", "get-url", "origin"],
+        ProcessAnswer(stdout="simple-repo.git\n"),
+    )
+    owner, name = resolve_repo_owner_name(standalone, tmp_path / "other")
+    assert (owner, name) == ("unknown", "simple-repo")
+
+    # read_default_branch fallback
+    git_fake.answer(
+        ["git", "-C", str(standalone), "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+        ProcessAnswer(returncode=1, stdout=""),
+    )
+    assert read_default_branch(standalone) == "main"
+
+    # _extract_branch_name_from_porcelain with spaces and fallback
+    b1 = _extract_branch_name_from_porcelain("* refs/heads/feature:refs/heads/feature", ["main"])
+    assert b1 == "feature"
+    b2 = _extract_branch_name_from_porcelain("malformed-line", ["fallback-branch"])
+    assert b2 == "fallback-branch"

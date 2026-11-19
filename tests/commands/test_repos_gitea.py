@@ -232,3 +232,89 @@ def test_credential_store_and_erase_noop(cli: Callable[..., Any]) -> None:
     assert res1.exit_code == 0
     res2 = cli("repos", "gitea", "credential", "erase")
     assert res2.exit_code == 0
+
+
+def test_connect_dry_run(cli: Callable[..., Any]) -> None:
+    """connect --dry-run prints request plan and makes no changes."""
+    result = cli("repos", "gitea", "connect", "--url", "https://git.example.com", "--dry-run")
+    assert result.exit_code == 0
+    assert (
+        "Plan for" in result.output
+        or "PlannedRequest" in result.output
+        or "connect" in result.output
+    )
+
+
+def test_connect_refuses_invalid_url(
+    cli: Callable[..., Any], isolate_devops_cli_config: Path
+) -> None:
+    """connect refuses an invalid URL."""
+    result = cli("repos", "gitea", "connect", "--url", "http://git.example.com")
+    assert result.exit_code != 0
+    assert "invalid" in result.output.lower() or "https" in result.output.lower()
+
+
+def test_connect_fails_when_token_unset(
+    cli: Callable[..., Any], isolate_devops_cli_config: Path, keyring_store: FakeKeyring
+) -> None:
+    """connect fails with exit 1 when gitea.token is unset."""
+    result = cli("repos", "gitea", "connect", "--url", "https://git.example.com")
+    assert result.exit_code != 0
+    assert "gitea.token" in result.output
+
+
+def test_connect_fails_when_ingress_not_found(
+    cli: Callable[..., Any],
+    isolate_devops_cli_config: Path,
+    keyring_store: FakeKeyring,
+    process_fake: ProcessFake,
+) -> None:
+    """connect fails when no Ingress matching gitea-http is found."""
+    keyring_store.set_password("devops-cli", "gitea_token", "valid-token-123")
+    empty_ingress = {"items": []}
+    process_fake.answer(
+        ["kubectl", "get", "ingress", "-A", "-o", "json"],
+        ProcessAnswer(stdout=json.dumps(empty_ingress)),
+    )
+    result = cli("repos", "gitea", "connect")
+    assert result.exit_code != 0
+    assert "gitea-http" in result.output
+
+
+def test_connect_handles_access_blocked(
+    cli: Callable[..., Any],
+    isolate_devops_cli_config: Path,
+    keyring_store: FakeKeyring,
+) -> None:
+    """connect handles Cloudflare Access redirect gracefully."""
+    keyring_store.set_password("devops-cli", "gitea_token", "valid-token-123")
+
+    def handler(_request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
+            302, headers={"Location": "https://access.cloudflareaccess.com/login"}
+        )
+
+    install_transport(lambda level: httpx2.MockTransport(handler))
+    result = cli("repos", "gitea", "connect", "--url", "https://git.example.com")
+    assert result.exit_code != 0
+    assert "bypass" in result.output.lower() or "blocked" in result.output.lower()
+
+
+def test_credential_get_non_https_and_missing_url(
+    cli: Callable[..., Any], isolate_devops_cli_config: Path, keyring_store: FakeKeyring
+) -> None:
+    """credential get exits silently when protocol is not https or gitea.url is not set."""
+    keyring_store.set_password("devops-cli", "gitea_token", "tok")
+    # 1. Non-https protocol
+    res1 = cli(
+        "repos", "gitea", "credential", "get", input="protocol=http\nhost=git.example.com\n\n"
+    )
+    assert res1.exit_code == 0
+    assert res1.output.strip() == ""
+
+    # 2. Gitea URL unset
+    res2 = cli(
+        "repos", "gitea", "credential", "get", input="protocol=https\nhost=git.example.com\n\n"
+    )
+    assert res2.exit_code == 0
+    assert res2.output.strip() == ""

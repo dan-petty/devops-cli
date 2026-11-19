@@ -42,6 +42,13 @@ def test_gitea_url_refuses_path() -> None:
     assert "path" in str(exc.value).lower()
 
 
+def test_gitea_url_refuses_invalid_url() -> None:
+    """Gitea URL refuses an unparseable URL string."""
+    with pytest.raises(ValidationError) as exc:
+        GiteaConfig(url="https://git.example.com/\x00")
+    assert "not a valid url" in str(exc.value).lower()
+
+
 def test_gitea_token_credential_declaration() -> None:
     """gitea.token is declared as a managed credential."""
     cred = credential("gitea.token")

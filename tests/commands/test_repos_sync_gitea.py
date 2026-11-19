@@ -460,3 +460,109 @@ def test_repos_clone_gitea_failure_warns_and_keeps_clone(
     )
     assert result.exit_code == 0
     assert "Gitea remote setup for failrepo failed" in result.output
+
+
+def test_repos_clone_skips_gitea_when_token_unset(
+    cli: Callable[..., Any],
+    isolate_devops_cli_config: Path,
+    keyring_store: FakeKeyring,
+    git_fake: GitFake,
+    tmp_path: Path,
+    known_hosts: Path,
+) -> None:
+    """When gitea.url is set but gitea.token is not, clone warns and skips."""
+    settings = load_settings()
+    settings.gitea.url = "https://git.example.com"
+    save_settings(settings, keys=("gitea.url",))
+
+    repos_dir = tmp_path / "repos"
+    dest_dir = repos_dir / "myorg" / "notokenrepo"
+
+    git_fake.answer(
+        ["git", "clone", "--", "https://github.com/myorg/notokenrepo.git", str(dest_dir)],
+        ProcessAnswer(),
+    )
+    result = cli(
+        "repos", "clone", "https://github.com/myorg/notokenrepo.git", "--base-dir", str(repos_dir)
+    )
+    assert result.exit_code == 0
+    assert "gitea.token is not set" in result.output
+
+
+def test_sync_repo_to_gitea_direct_unit_cases(tmp_path: Path, git_fake: GitFake) -> None:
+    """Direct tests for sync_repo_to_gitea edge branches."""
+    from devops_cli.gitea.remotes import sync_repo_to_gitea
+
+    repo_dir = tmp_path / "sample"
+    repo_dir.mkdir()
+    settings = load_settings()
+
+    # 1. No gitea remote present
+    git_fake.answer(["git", "-C", str(repo_dir), "remote"], ProcessAnswer(stdout="origin\n"))
+    assert sync_repo_to_gitea(repo_dir, "sample", settings) is True
+
+    # 2. Push porcelain output with '=' (up to date) and 'To ...' / 'Done' lines
+    settings.gitea.github_branches = ("main",)
+    git_fake.answer(["git", "-C", str(repo_dir), "remote"], ProcessAnswer(stdout="origin\ngitea\n"))
+    git_fake.answer(
+        ["git", "-C", str(repo_dir), "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+        ProcessAnswer(stdout="origin/main\n"),
+    )
+    git_fake.answer(
+        [
+            "git",
+            "-C",
+            str(repo_dir),
+            "for-each-ref",
+            "--format=%(refname:strip=3)",
+            "refs/remotes/origin",
+        ],
+        ProcessAnswer(stdout="main\n"),
+    )
+    git_fake.answer(
+        [
+            "git",
+            "-C",
+            str(repo_dir),
+            "push",
+            "--porcelain",
+            "gitea",
+            "refs/remotes/origin/main:refs/heads/main",
+        ],
+        ProcessAnswer(
+            returncode=0,
+            stdout="To https://git.example.com/repo.git\n=\trefs/heads/main:refs/heads/main\t[up to date]\nDone\n",
+        ),
+    )
+    assert sync_repo_to_gitea(repo_dir, "sample", settings) is True
+
+    # 3. Push failed with non-zero exit and no porcelain lines
+    git_fake.answer(["git", "-C", str(repo_dir), "remote"], ProcessAnswer(stdout="origin\ngitea\n"))
+    git_fake.answer(
+        ["git", "-C", str(repo_dir), "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+        ProcessAnswer(stdout="origin/main\n"),
+    )
+    git_fake.answer(
+        [
+            "git",
+            "-C",
+            str(repo_dir),
+            "for-each-ref",
+            "--format=%(refname:strip=3)",
+            "refs/remotes/origin",
+        ],
+        ProcessAnswer(stdout="main\n"),
+    )
+    git_fake.answer(
+        [
+            "git",
+            "-C",
+            str(repo_dir),
+            "push",
+            "--porcelain",
+            "gitea",
+            "refs/remotes/origin/main:refs/heads/main",
+        ],
+        ProcessAnswer(returncode=1, stdout="", stderr="fatal: remote repository not found\n"),
+    )
+    assert sync_repo_to_gitea(repo_dir, "sample", settings) is False
