@@ -400,10 +400,10 @@
    },
    {
     "command": [
-     "PTTL",
+     "TTL",
      "devops-contract:lock_lifecycle:lock"
     ],
-    "reply": ":14964\r\n"
+    "reply": ":15\r\n"
    },
    {
     "command": [

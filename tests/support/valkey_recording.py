@@ -40,10 +40,10 @@ Then stop the server. For the Pod, stop the port-forward and delete the Pod:
 
     kubectl -n <namespace> delete pod valkey-contract-record
 
-Record again when the valkey-py pin in `uv.lock` changes, or when a scenario changes. In a new
-record, only the `PTTL` reply of `lock_lifecycle` changes by some milliseconds. It is the time
-between two commands, and the scenario keeps only a bounded fact of it.
-`tests/valkey/test_valkey_contract.py` fails until the record is of the locked valkey-py.
+Record again when the valkey-py pin in `uv.lock` changes, or when a scenario changes. A new
+record of the same scenarios is the same file: each scenario uses fixed keys, tokens and times,
+and reads a time to live in whole seconds (`TTL`), which the time between two commands does not
+change. `tests/valkey/test_valkey_contract.py` fails until the record is of the locked valkey-py.
 """
 
 from __future__ import annotations

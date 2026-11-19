@@ -130,15 +130,14 @@ def lock_lifecycle(client: valkey.Valkey) -> tuple[Any, ...]:
     acquired = lock.acquire(token=LOCK_TOKEN)
     refused = other.acquire(token=OTHER_TOKEN)
     extended = lock.extend(LOCK_EXTEND_SECONDS)
-    left = client.pttl(name)
+    left = client.ttl(name)
     owned = lock.owned()
     lock.release()
-    limit = (LOCK_TIMEOUT_SECONDS + LOCK_EXTEND_SECONDS) * 1000
     return (
         acquired,
         refused,
         extended,
-        LOCK_TIMEOUT_SECONDS * 1000 < left <= limit,
+        LOCK_TIMEOUT_SECONDS < left <= LOCK_TIMEOUT_SECONDS + LOCK_EXTEND_SECONDS,
         owned,
         lock.owned(),
         client.exists(name),
