@@ -8,11 +8,11 @@ Issue #3634 reports a metrics row that spent 627 to 1000 GitHub requests an hour
 
 - The label times of each open Item move from the process dict `_item_label_times` to `item-label-times.json` in the state directory of each repository, beside its `schedule.json`, written atomically by the new module `src/devops_cli/github/item_label_times.py`.
 - Each entry holds the Item's `updated_at`, so a round sends no label-event request for an Item whose entry holds that value, also in a new pod.
-- A round that keeps a record reads the label events of at most 20 Items (`_MAX_ITEM_AGE_READS_PER_ROUND`), an Item whose `updated_at` moved before an Item that the record does not hold, and the Items that the cap defers keep their entry and wait for later rounds.
+- A round that keeps a record reads the label events of at most 20 Items (`_MAX_ITEM_AGE_READS_PER_ROUND`), the oldest entry first: an Item that the record does not hold, then an Item whose `updated_at` moved, by the `updated_at` of its entry. The Items that the cap defers keep their entry and wait for later rounds.
 - A round writes the record with the entry of every open Item, drops the entry of each Item that left the open list, and logs one error that names the file when the write fails.
 - The metrics row passes the `repo_dir` of its repository, which the due table already gives it, as the record path; `reset_item_age_cache` and its entry in the reset map of `tests/conftest.py` go.
 - `devops gh metrics` keeps its read of every Item's label events, because it has no record file and the cap belongs to the row.
-- A test measures one new pod at 25 GitHub requests in its first round over 30 open Items: the 5 fixed reads of the row plus the 20 label-event reads of the cap, and the pull request body states that number.
+- A test measures one new pod at 24 GitHub requests in its first round over 30 open Items: the 4 fixed reads of the row plus the 20 label-event reads of the cap, and the pull request body states that number. The plan counted 25, because `METRICS_ROW_GITHUB_REQUEST_BUDGET` was 5 when it was planned; #6095 set it to 4.
 - `docs/CLUSTER.md` names `item-label-times.json` in item 11 and gives the live check of the row's hourly cost in item 12.
 - The spec delta of `project-metrics-dashboard` renames and rewrites the label-event requirement onto `updated_at`, and adds the record file, the cap of 20 label-event reads a round and the failed write.
 - The change fits one pull request.

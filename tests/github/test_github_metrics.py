@@ -15,6 +15,13 @@ import pytest
 from devops_cli.config.constants import CONST_GITHUB_APP_PRIVATE_KEY_ENV
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.git import GitHubOperationError
+from devops_cli.github.item_label_times import (
+    ItemLabelTimesRecord,
+    KeptItemLabelTimes,
+    item_label_times_path,
+    keep_item_label_times,
+    read_item_label_times,
+)
 from devops_cli.github.metrics import (
     ItemAgeMetric,
     ItemCountMetric,
@@ -48,6 +55,7 @@ from devops_cli.github.metrics import (
 from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.stores.store import (
     Change,
+    CloseReason,
     GitHubState,
     ItemField,
     RoadmapStore,
@@ -1495,37 +1503,41 @@ def test_the_oldest_claim_gives_the_claim_age() -> None:
     assert claim == 3600.0
 
 
-def test_a_round_reads_an_items_label_events_only_when_its_status_or_owner_changes(
+def test_a_round_reads_an_items_label_events_only_when_its_updated_at_moves(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The first round reads each Item once. A round with no change reads none, and a changed
-    Status reads that one Item only."""
+    Status reads that one Item only, because the write moved its `updated_at` (#2919, #3634)."""
     clock = AgesClock()
     store = InMemoryRoadmapStore(clock=clock)
     changed = _seeded_item(store, "changed")
     _write_field(store, changed, ItemField.STATUS, "Ready")
     steady = _seeded_item(store, "steady")
     _write_field(store, steady, ItemField.STATUS, "Ready")
+    record_path = item_label_times_path(tmp_path)
     reads = _count_label_reads(store, monkeypatch)
 
-    get_item_age_metrics(store, REPO, clock)
+    get_item_age_metrics(store, REPO, clock, label_times_record=record_path)
     first_round = sorted(reads)
     reads.clear()
-    get_item_age_metrics(store, REPO, clock)
+    get_item_age_metrics(store, REPO, clock, label_times_record=record_path)
     no_change = list(reads)
     reads.clear()
+    clock.at(60)
     _write_field(store, changed, ItemField.STATUS, "Planned")
-    get_item_age_metrics(store, REPO, clock)
+    get_item_age_metrics(store, REPO, clock, label_times_record=record_path)
 
     assert (first_round, no_change, reads) == (sorted([changed, steady]), [], [changed])
 
 
 def test_a_round_of_one_repository_keeps_the_label_times_of_another(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A process that serves two repositories reads an Item's label events once. A round of the
-    second repository leaves the first repository's times, so the next round of the first reads
-    none of its Items again (#2919)."""
+    """Each repository keeps its own record. A round of the second repository leaves the first
+    repository's record, so the next round of the first reads none of its Items again (#2919,
+    #3634)."""
     clock = AgesClock()
     store = InMemoryRoadmapStore(clock=clock)
     number = _seeded_item(store)
@@ -1533,13 +1545,196 @@ def test_a_round_of_one_repository_keeps_the_label_times_of_another(
     other = InMemoryRoadmapStore(clock=clock)
     other_number = _seeded_item(other)
     _write_field(other, other_number, ItemField.STATUS, "Ready")
-    get_item_age_metrics(store, REPO, clock)
-    get_item_age_metrics(other, "example/other-repo", clock)
+    first_record = item_label_times_path(tmp_path / "first")
+    first_record.parent.mkdir()
+    second_record = item_label_times_path(tmp_path / "second")
+    second_record.parent.mkdir()
+    get_item_age_metrics(store, REPO, clock, label_times_record=first_record)
+    get_item_age_metrics(other, "example/other-repo", clock, label_times_record=second_record)
     reads = _count_label_reads(store, monkeypatch)
 
-    get_item_age_metrics(store, REPO, clock)
+    get_item_age_metrics(store, REPO, clock, label_times_record=first_record)
 
     assert reads == []
+
+
+def test_a_new_process_reads_no_label_events_of_an_item_the_record_holds(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A record that holds an Item's `updated_at` keeps its label times, so a new process sends
+    no label-event request for that Item and still sends its age (#3634)."""
+    clock = AgesClock()
+    store = InMemoryRoadmapStore(clock=clock)
+    number = _seeded_item(store)
+    _write_field(store, number, ItemField.STATUS, "Ready")
+    clock.at(3600)
+    record_path = item_label_times_path(tmp_path)
+    keep_item_label_times(
+        record_path,
+        ItemLabelTimesRecord(
+            items={
+                number: KeptItemLabelTimes(
+                    updated_at=AGES_START, times={"status/ready": AGES_START}
+                )
+            }
+        ),
+    )
+    reads = _count_label_reads(store, monkeypatch)
+
+    ages, _, _, _ = get_item_age_metrics(store, REPO, clock, label_times_record=record_path)
+
+    assert (reads, _age_of(ages, "ready").age_seconds) == ([], 3600.0)
+
+
+def test_a_round_reads_the_label_events_of_at_most_20_items(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A round reads the label events of 20 Items at most, and the Items that the cap defers wait
+    for later rounds (#3634)."""
+    clock = AgesClock()
+    store = InMemoryRoadmapStore(clock=clock)
+    numbers = [_seeded_item(store, f"item {index}") for index in range(25)]
+    for number in numbers:
+        _write_field(store, number, ItemField.STATUS, "Ready")
+    record_path = item_label_times_path(tmp_path)
+    reads = _count_label_reads(store, monkeypatch)
+
+    get_item_age_metrics(store, REPO, clock, label_times_record=record_path)
+    first_round = list(reads)
+    reads.clear()
+    get_item_age_metrics(store, REPO, clock, label_times_record=record_path)
+
+    assert (len(first_round), len(reads), sorted(first_round + reads)) == (20, 5, numbers)
+
+
+def test_a_round_reads_the_item_with_the_oldest_entry_first(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A round reads first an Item that the record does not hold, then the Items whose
+    `updated_at` moved, the oldest `updated_at` in their entry first, also when the open list
+    gives them in the other order (#3634)."""
+    clock = AgesClock()
+    store = InMemoryRoadmapStore(clock=clock)
+    newer = _seeded_item(store, "newer")
+    older = _seeded_item(store, "older")
+    new = _seeded_item(store, "new")
+    clock.at(120)
+    _write_field(store, newer, ItemField.STATUS, "Ready")
+    _write_field(store, older, ItemField.STATUS, "Ready")
+    record_path = item_label_times_path(tmp_path)
+    keep_item_label_times(
+        record_path,
+        ItemLabelTimesRecord(
+            items={
+                newer: KeptItemLabelTimes(updated_at=AGES_START + datetime.timedelta(seconds=60)),
+                older: KeptItemLabelTimes(updated_at=AGES_START),
+            }
+        ),
+    )
+    reads = _count_label_reads(store, monkeypatch)
+
+    get_item_age_metrics(store, REPO, clock, label_times_record=record_path)
+
+    assert reads == [new, older, newer]
+
+
+def test_items_that_move_in_each_round_do_not_starve_another_item(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """21 held Items move before each round and one more Item has no entry. Two rounds read all
+    22 Items, because an Item that the cap defers keeps its older entry and comes first in the
+    next round (#3634)."""
+    clock = AgesClock()
+    store = InMemoryRoadmapStore(clock=clock)
+    moving = [_seeded_item(store, f"moving {index}") for index in range(21)]
+    record_path = item_label_times_path(tmp_path)
+    get_item_age_metrics(store, REPO, clock, label_times_record=record_path)
+    get_item_age_metrics(store, REPO, clock, label_times_record=record_path)
+    waiting = _seeded_item(store, "waiting")
+    reads = _count_label_reads(store, monkeypatch)
+
+    for second, priority in ((60, "P1-High"), (120, "P2-Medium")):
+        clock.at(second)
+        for number in moving:
+            _write_field(store, number, ItemField.PRIORITY, priority)
+        get_item_age_metrics(store, REPO, clock, label_times_record=record_path)
+
+    assert (len(reads), sorted(set(reads))) == (40, sorted([*moving, waiting]))
+
+
+def test_an_owned_item_that_the_cap_defers_logs_no_missing_label_event(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An owned Item with no entry that the cap leaves unread has no label times in this round,
+    so the round logs no "No labeled event" warning for it and gives it no claim age (#3634)."""
+    clock = AgesClock()
+    store = InMemoryRoadmapStore(clock=clock)
+    for index in range(20):
+        _seeded_item(store, f"item {index}")
+    deferred = _seeded_item(store, "deferred")
+    _write_field(store, deferred, ItemField.OWNER, "Agent")
+    clock.at(3600)
+    record_path = item_label_times_path(tmp_path)
+
+    with caplog.at_level(logging.WARNING, logger="devops_cli.github.metrics"):
+        _, claim, _, _ = get_item_age_metrics(store, REPO, clock, label_times_record=record_path)
+
+    assert (
+        [r.getMessage() for r in caplog.records if "No labeled event" in r.getMessage()],
+        claim,
+    ) == ([], 0.0)
+
+
+def test_a_round_keeps_the_entry_of_an_item_it_deferred(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An Item that the cap defers keeps the entry of its older `updated_at` and times, so it
+    waits for a later round with the times that the record already held (#3634)."""
+    clock = AgesClock()
+    store = InMemoryRoadmapStore(clock=clock)
+    numbers = [_seeded_item(store, f"item {index}") for index in range(21)]
+    for number in numbers:
+        _write_field(store, number, ItemField.STATUS, "Ready")
+    record_path = item_label_times_path(tmp_path)
+    get_item_age_metrics(store, REPO, clock, label_times_record=record_path)
+    get_item_age_metrics(store, REPO, clock, label_times_record=record_path)
+    before = read_item_label_times(record_path)
+    reads = _count_label_reads(store, monkeypatch)
+    clock.at(60)
+    for number in numbers:
+        _write_field(store, number, ItemField.PRIORITY, "P1-High")
+
+    get_item_age_metrics(store, REPO, clock, label_times_record=record_path)
+    after = read_item_label_times(record_path)
+
+    deferred = numbers[-1]
+    assert (
+        len(reads),
+        deferred in reads,
+        after.items[deferred] == before.items[deferred],
+    ) == (20, False, True)
+
+
+def test_a_closed_item_leaves_the_record(tmp_path: Path) -> None:
+    """An Item that is no longer open leaves the record, so the next write does not hold it
+    (#3634)."""
+    clock = AgesClock()
+    store = InMemoryRoadmapStore(clock=clock)
+    kept = _seeded_item(store, "kept")
+    closed = _seeded_item(store, "closed")
+    record_path = item_label_times_path(tmp_path)
+    get_item_age_metrics(store, REPO, clock, label_times_record=record_path)
+
+    store.close(closed, CloseReason.COMPLETED)
+    get_item_age_metrics(store, REPO, clock, label_times_record=record_path)
+
+    assert set(read_item_label_times(record_path).items) == {kept}
 
 
 def test_a_failed_label_read_keeps_the_item_counts_and_sends_no_age(
