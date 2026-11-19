@@ -12,7 +12,13 @@ from pydantic_ai.retries import (
     RetryConfig,
     wait_retry_after,
 )
-from tenacity import retry_if_exception, stop_after_attempt, wait_exponential
+from tenacity import (
+    RetryCallState,
+    retry_if_exception,
+    wait_exponential,
+    wait_exponential_jitter,
+)
+from tenacity.stop import stop_base
 
 from devops_cli.config.constants import CONST_RETRYABLE_HTTP_STATUS_CODES
 from devops_cli.core import clock
@@ -41,6 +47,87 @@ def is_retryable_status_code(
     return status_code in retry_statuses or (500 <= status_code < 600)
 
 
+def is_pre_chunk_reset(exc: BaseException) -> bool:
+    """Whether an exception while reading a reply stream is a connection reset before data."""
+    import httpcore2
+
+    # If it is a connect failure or status error, the transport handles it; do not treat as stream reset
+    curr: BaseException | None = exc
+    seen: set[int] = set()
+    while curr is not None and id(curr) not in seen:
+        seen.add(id(curr))
+        if connect_failed(curr) or isinstance(curr, httpx2.HTTPStatusError):
+            return False
+        curr = getattr(curr, "__cause__", None)
+
+    curr = exc
+    seen.clear()
+    while curr is not None and id(curr) not in seen:
+        seen.add(id(curr))
+        if isinstance(
+            curr,
+            (
+                httpx2.ReadError,
+                httpcore2.ReadError,
+                ConnectionResetError,
+                BrokenPipeError,
+                httpx2.RemoteProtocolError,
+                httpcore2.RemoteProtocolError,
+            ),
+        ):
+            return True
+        if "Provider stream ended before its final frame." in str(curr):
+            return True
+        curr = getattr(curr, "__cause__", None)
+
+    return False
+
+
+class _TransportRetryStop(stop_base):
+    """Stop strategy for AI client HTTP transport:
+    - Allows up to `connect_max_attempts` (10) for connect errors, regardless of `max_attempts`.
+    - Allows up to `max_attempts` for other retryable failures.
+    - Stops before the outer read timeout elapses (no attempt starts when its connect timeout
+      would pass the read timeout).
+    """
+
+    def __init__(self, max_attempts: int = 5, connect_max_attempts: int | None = None) -> None:
+        self.max_attempts = max_attempts
+        self.connect_max_attempts = (
+            connect_max_attempts if connect_max_attempts is not None else max_attempts
+        )
+
+    def __call__(self, retry_state: RetryCallState) -> bool:
+        exc = (
+            retry_state.outcome.exception()
+            if retry_state.outcome and retry_state.outcome.failed
+            else None
+        )
+        is_connect = connect_failed(exc) if exc is not None else False
+        limit = self.connect_max_attempts if is_connect else self.max_attempts
+        if retry_state.attempt_number >= limit:
+            return True
+
+        if is_connect:
+            req = retry_state.args[0] if retry_state.args else None
+            if req is not None:
+                started = req.extensions.setdefault("_retry_started", clock.monotonic())
+                timeout_ext = req.extensions.get("timeout") or {}
+                read_timeout = timeout_ext.get("read")
+                connect_timeout = timeout_ext.get("connect", 5.0)
+                if connect_timeout is None:
+                    connect_timeout = 5.0
+                else:
+                    connect_timeout = min(connect_timeout, 5.0)
+                if read_timeout is not None:
+                    elapsed = clock.monotonic() - started
+                    upcoming = getattr(retry_state, "upcoming_sleep", 0.0) or 0.0
+                    if elapsed + upcoming + connect_timeout > read_timeout:
+                        return True
+
+        return False
+
+
 def create_retry_config(
     max_attempts: int = 5,
     min_wait: float = 1.0,
@@ -48,6 +135,8 @@ def create_retry_config(
     retry_statuses: tuple[int, ...] = DEFAULT_RETRYABLE_STATUS_CODES,
     reraise: bool = True,
     retry_on: Callable[[BaseException], bool] | None = None,
+    connect_max_attempts: int | None = None,
+    jitter: float = 0.0,
     **kwargs: Any,
 ) -> RetryConfig:
     """Construct a native RetryConfig with tenacity stop, wait_retry_after, and retry strategies.
@@ -64,13 +153,21 @@ def create_retry_config(
             return is_retryable_status_code(exc.response.status_code, retry_statuses)
         return False
 
+    fallback_strategy: Any
+    if jitter > 0:
+        fallback_strategy = wait_exponential_jitter(initial=min_wait, max=max_wait, jitter=jitter)
+    else:
+        fallback_strategy = wait_exponential(multiplier=min_wait, max=max_wait)
+
     wait_strategy = wait_retry_after(
-        fallback_strategy=wait_exponential(multiplier=min_wait, max=max_wait),
+        fallback_strategy=fallback_strategy,
         max_wait=max_wait,
     )
 
     config: RetryConfig = {
-        "stop": stop_after_attempt(max_attempts),
+        "stop": _TransportRetryStop(
+            max_attempts=max_attempts, connect_max_attempts=connect_max_attempts
+        ),
         "wait": wait_strategy,
         "retry": retry_if_exception(retry_on or should_retry),
         "reraise": reraise,
@@ -88,6 +185,7 @@ class ExpiringConnectionTransport(httpx2.BaseTransport):
     def handle_request(self, request: httpx2.Request) -> httpx2.Response:
         from devops_cli.http.pool import close_expired_connections
 
+        request.extensions.setdefault("_retry_started", clock.monotonic())
         try:
             return self.wrapped.handle_request(request)
         finally:
@@ -106,6 +204,7 @@ class AsyncExpiringConnectionTransport(httpx2.AsyncBaseTransport):
     async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
         from devops_cli.http.pool import close_expired_connections
 
+        request.extensions.setdefault("_retry_started", clock.monotonic())
         try:
             return await self.wrapped.handle_async_request(request)
         finally:
@@ -196,5 +295,6 @@ __all__ = [
     "create_async_retry_transport",
     "create_retry_config",
     "create_retry_transport",
+    "is_pre_chunk_reset",
     "is_retryable_status_code",
 ]

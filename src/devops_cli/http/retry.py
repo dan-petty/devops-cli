@@ -102,6 +102,8 @@ class ConnectRetryPolicy:
     LLM gateway does, uses it (#5965)."""
 
     attempts: int
+    connect_attempts: int = 10
+    jitter: float = 1.0
 
 
 @dataclass(frozen=True, slots=True)
