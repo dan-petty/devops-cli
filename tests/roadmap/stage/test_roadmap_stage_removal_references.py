@@ -77,6 +77,44 @@ def test_find_removed_names_returns_empty_when_no_removal() -> None:
     assert names == set()
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("The change drops `and` from the title.", id="hard-keyword"),
+        pytest.param("The change drops `match` from the title.", id="soft-keyword"),
+        pytest.param("`and` is removed from the title.", id="passive-keyword"),
+    ],
+)
+def test_find_removed_names_skips_a_python_keyword(text: str) -> None:
+    assert find_removed_names(text) == set()
+
+
+def test_find_removed_names_keeps_an_ordinary_identifier() -> None:
+    assert find_removed_names("The change removes `old_helper`.") == {"old_helper"}
+
+
+def test_a_plan_that_drops_a_keyword_has_no_unhandled_test_reference(tmp_path: Path) -> None:
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir(parents=True)
+    (tests_dir / "example_test.py").write_text(
+        "def test_it():\n    assert ready and done\n",
+        encoding="utf-8",
+    )
+    change_dir = tmp_path / "openspec" / "changes" / "6328-sample"
+    change_dir.mkdir(parents=True)
+    (change_dir / "proposal.md").write_text(
+        "The change drops `and` from the title.\n",
+        encoding="utf-8",
+    )
+    (change_dir / "design.md").write_text("Decisions:\n- None\n", encoding="utf-8")
+    (change_dir / "tasks.md").write_text("# Tasks\n- [ ] 1.1 Edit the title\n", encoding="utf-8")
+
+    result = scan_removal_references(tmp_path, change_dir)
+
+    assert not result.has_test_failures
+    assert result.unhandled_tests == {}
+
+
 def test_scan_reports_unhandled_test_reference(tmp_path: Path) -> None:
     tests_dir = tmp_path / "tests"
     tests_dir.mkdir(parents=True)

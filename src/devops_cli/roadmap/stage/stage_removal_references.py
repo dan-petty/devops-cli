@@ -9,6 +9,7 @@ references produce warnings in the staged issue comment.
 
 from __future__ import annotations
 
+import keyword
 import re
 from collections import defaultdict
 from collections.abc import Iterator, Mapping
@@ -62,16 +63,22 @@ _IGNORE_DIRS: Final[frozenset[str]] = frozenset(
 )
 
 
+def _is_removable_identifier(span: str) -> bool:
+    """Return True when `span` is a Python identifier that is not a hard or soft keyword."""
+    return span.isidentifier() and not keyword.iskeyword(span) and not keyword.issoftkeyword(span)
+
+
 def find_removed_names(text: str) -> set[str]:
     """Return each backticked identifier that a removal verb governs in `text`.
 
     Prepositional phrases (such as `from ...`) specify containers and are excluded.
+    A Python hard or soft keyword (such as `and` or `match`) is never a removed name (#6328).
     """
     removed: set[str] = set()
 
     for match in _PASSIVE_RE.finditer(text):
         span = match.group(1).strip()
-        if span.isidentifier():
+        if _is_removable_identifier(span):
             removed.add(span)
 
     for line in text.splitlines():
@@ -81,7 +88,7 @@ def find_removed_names(text: str) -> set[str]:
             governed_text = subtext[: prep_match.start()] if prep_match else subtext
             for span in _CODE_SPAN_RE.findall(governed_text):
                 ident = span.strip()
-                if ident.isidentifier():
+                if _is_removable_identifier(ident):
                     removed.add(ident)
 
     return removed
