@@ -11,11 +11,11 @@
 
 ## 2. Workflows and actions
 
-- [ ] 2.1 Build with the CLI of the `devcontainers-cli` stage, start with the CLI of the image, add the smoke checks of the venv, the tools, Podman, the API socket and the credential helpers, and remove the `devops install-tools` steps and the uv steps that only they needed
+- [x] 2.1 Build with the CLI of the `devcontainers-cli` stage, start with the CLI of the image, add the smoke checks of the venv, the tools, Podman, the API socket and the credential helpers, and remove the `devops install-tools` steps and the uv steps that only they needed
   - Verification: `$ uv run devops ci --check --only actionlint,zizmor`
-- [ ] 2.2 Remove the `tools_lock` path filter of `devcontainer-image.yml`, and give the step that calls the smoke action `timeout-minutes`
+- [x] 2.2 Remove the `tools_lock` path filter of `devcontainer-image.yml`, and give the step that calls the smoke action `timeout-minutes`
   - Verification: `$ ! git grep -n 'tools_lock' -- .github/workflows/devcontainer-image.yml`
-- [ ] 2.3 Change the release test to the release jobs with no uv steps
+- [x] 2.3 Change the release test to the release jobs with no uv steps
   - Verification: `$ uv run devops ci test tests/commands/test_ci.py`
 
 ## 3. Renovate

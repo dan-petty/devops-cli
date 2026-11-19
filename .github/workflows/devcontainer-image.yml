@@ -3,11 +3,11 @@ name: DevContainer Image
 # Builds the devcontainer image with the actions release.yml uses (#1895), pushes it by digest to a
 # registry on the runner, starts it as its remote user, and publishes nothing. It runs on the daily
 # schedule, on a manual run and on a pull request that changes an image input other than src/: the
-# build definition, the build context filter, the project and lock files, the README that the
-# package build reads, the tool locks, the two actions or this workflow. The image installs the CLI
-# with --no-deps, and Static Analysis builds the package, so a pull request that changes only src/
-# starts no job here; the next daily run builds the image from main (#4658). The native paths
-# filter stops the run before a runner starts. The check is not required.
+# build definition, which pins the devtools image, the build context filter, the project and lock
+# files, the README that the package build reads, the two actions or this workflow. The image
+# installs the CLI with --no-deps, and Static Analysis builds the package, so a pull request that
+# changes only src/ starts no job here; the next daily run builds the image from main (#4658). The
+# native paths filter stops the run before a runner starts. The check is not required.
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -18,7 +18,6 @@ on:
       - "pyproject.toml"
       - "uv.lock"
       - "README.md"
-      - "src/devops_cli/tools_lock/**"
       - ".github/actions/devcontainer-image/**"
       - ".github/actions/devcontainer-smoke/**"
       - ".github/workflows/devcontainer-image.yml"
@@ -39,8 +38,6 @@ concurrency:
 env:
   # No tool the job runs reports usage.
   DO_NOT_TRACK: "1"
-  # uv runs only its own CPython builds, never the runner image's Python (#1494).
-  UV_MANAGED_PYTHON: "1"
 
 jobs:
   devcontainer:
@@ -66,12 +63,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-
-      - name: Set up uv toolchain
-        uses: ./.github/actions/setup-toolchain
-        with:
-          cache-suffix: devcontainer
-          save-uv-cache: "false"
 
       # Read access only: the build reads the cache the release writes.
       - name: Log in to GitHub Container Registry (GHCR)
@@ -103,6 +94,7 @@ jobs:
           cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/devcontainer:buildcache
 
       - name: Start the DevContainer Image as Its Remote User
+        timeout-minutes: 10
         uses: ./.github/actions/devcontainer-smoke
         with:
           image-ref: localhost:5000/devcontainer@${{ steps.image.outputs.digest }}

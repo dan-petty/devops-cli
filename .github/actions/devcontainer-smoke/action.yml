@@ -2,12 +2,14 @@ name: Start the DevContainer image as its remote user
 description: >-
   Start a pushed devcontainer image as a child repository does, before anything attests or tags
   it (#1895). `devcontainer up` on a configuration that names only the image proves that the
-  image's devcontainer.metadata label gives the remote user vscode, and the image then runs as
-  vscode, uid and gid 1000, with a command from each Dev Container Feature on its path. The
-  network diagnostics commands are on its path, and `ping` works as vscode with the
-  ping_group_range run argument of the workspace (#5343). The docker-in-docker feature makes the container privileged, so the caller's job holds no write
-  scope and no OIDC token. The caller checks out the repository, installs uv with the project
-  synchronized, and logs in to the registry that holds the image.
+  image's devcontainer.metadata label gives the remote user vscode, the remoteEnv and the start of
+  the podman-in-podman Feature, whose post-start check waits for Podman. The image then runs as
+  vscode, uid and gid 1000, with devops from its venv and the tools of the devtools image on its
+  path. The network diagnostics commands are on its path, and `ping` works as vscode with the
+  ping_group_range run argument of the workspace (#5343). `docker` runs rootless Podman, and the
+  socket of the Docker API is the rootful Podman API service. The podman-in-podman Feature makes
+  the container privileged, so the caller's job holds no write scope and no OIDC token. The caller
+  checks out the repository and logs in to the registry that holds the image.
 
 inputs:
   image-ref:
@@ -22,27 +24,54 @@ runs:
       with:
         node-version-file: .node-version
 
-    - name: Install the Dev Containers CLI
+    # The image holds the Dev Containers CLI of its devtools base, so the CLI that starts the image
+    # comes from the image. `devcontainer up` pulls the image, so the copy pulls nothing more.
+    - name: Copy the Dev Containers CLI from the image
       shell: bash
-      run: uv run devops install-tools --tool devcontainers-cli --only-missing
+      env:
+        REF: ${{ inputs.image-ref }}
+      run: |
+        set -euo pipefail
+        docker pull --quiet "$REF" > /dev/null
+        ID="$(docker create "$REF")"
+        docker cp --quiet "$ID:/usr/local/lib/devtools/npm/node_modules/@devcontainers/cli" \
+          "$RUNNER_TEMP/devcontainers-cli"
+        docker rm "$ID" > /dev/null
 
+    # The credential helpers of github.com are the empty value, which clears the helpers of the
+    # files, and then gh, in this order (the GIT_CONFIG_* entries of remoteEnv).
     - name: Start the image as its remote user
       shell: bash
       env:
         REF: ${{ inputs.image-ref }}
       run: |
         set -euo pipefail
-        export PATH="$HOME/.local/bin:$PATH"
+        devcontainer() { node "$RUNNER_TEMP/devcontainers-cli/devcontainer.js" "$@"; }
         CHILD="$RUNNER_TEMP/devcontainer-child"
         mkdir -p "$CHILD/.devcontainer" "$HOME/.ssh"
-        jq -n --arg image "$REF" '{image: $image, updateRemoteUserUID: false}' > "$CHILD/.devcontainer/devcontainer.json"
-        devcontainer up --workspace-folder "$CHILD" --skip-post-create > /dev/null
-        test "$(devcontainer exec --workspace-folder "$CHILD" id -un)" = vscode
-        docker run --rm --user vscode --sysctl "net.ipv4.ping_group_range=1000 1000" "$REF" sh -ec '
-          test "$(id -u):$(id -g)" = 1000:1000
-          for TOOL in zsh git gh copilot node npm docker kubectl helm minikube claude \
-              ping tracepath traceroute mtr nc tcpdump; do
+        jq -n --arg image "$REF" '{
+          image: $image,
+          updateRemoteUserUID: false,
+          runArgs: ["--sysctl=net.ipv4.ping_group_range=1000 1000"]
+        }' > "$CHILD/.devcontainer/devcontainer.json"
+        devcontainer up --workspace-folder "$CHILD" > /dev/null
+        devcontainer exec --workspace-folder "$CHILD" bash -ec '
+          test "$(id -un) $(id -u):$(id -g)" = "vscode 1000:1000"
+          test "$(command -v devops)" = /opt/devops-cli/.venv/bin/devops
+          devops --version > /dev/null
+          for TOOL in zsh git gh copilot claude node npm openspec semgrep kubectl helm minikube \
+              trivy podman docker ping tracepath traceroute mtr nc tcpdump; do
             command -v "$TOOL" > /dev/null || { echo "missing: $TOOL" >&2; exit 1; }
           done
+          kubectl version --client > /dev/null
+          helm version > /dev/null
+          minikube version > /dev/null
+          trivy --version > /dev/null
+          gh --version > /dev/null
+          openspec --version > /dev/null
+          semgrep --version > /dev/null
           ping -c 1 127.0.0.1 > /dev/null
-          devops --version > /dev/null'
+          docker version | grep -q "Podman Engine"
+          test "$DOCKER_HOST" = unix:///var/run/docker.sock
+          podman --url "$DOCKER_HOST" version | grep -q "^Server:"
+          test "$(git -C / config --get-all credential.https://github.com.helper)" = "$(printf "\n%s" "!gh auth git-credential")"'
