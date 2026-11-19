@@ -73,11 +73,12 @@ def test_config_audit_keys_json_output() -> None:
         "keys" in data,
         "is_compliant" in data,
         len(data["keys"]),
-    ) == (True, True, True, 28)
+    ) == (True, True, True, 29)
 
     keys = {k["key"] for k in data["keys"]}
     assert (
         not [key for key in keys if key.partition(".")[0] == "github"],
+        "gitea.token" in keys,
         "grafana.token" in keys,
         "grafana.password" in keys,
         "argocd.token" in keys,
@@ -100,6 +101,7 @@ def test_config_audit_keys_json_output() -> None:
         "mcp.stage_token" in keys,
         "mcp.implement_token" in keys,
     ) == (
+        True,
         True,
         True,
         True,

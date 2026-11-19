@@ -149,7 +149,7 @@ def _ensure_remote_git_config(
     if not dry_run:
         run_subprocess(
             ["git", "-C", str(repo_dir), "config", "--add", f"credential.{gitea_url}.helper", ""],
-            check=False,
+            check=True,
         )
         run_subprocess(
             [
@@ -161,15 +161,15 @@ def _ensure_remote_git_config(
                 f"credential.{gitea_url}.helper",
                 "!devops repos gitea credential",
             ],
-            check=False,
+            check=True,
         )
         run_subprocess(
             ["git", "-C", str(repo_dir), "config", "checkout.defaultRemote", "origin"],
-            check=False,
+            check=True,
         )
         run_subprocess(
             ["git", "-C", str(repo_dir), "config", "remote.gitea.tagOpt", "--no-tags"],
-            check=False,
+            check=True,
         )
     return remote_action
 

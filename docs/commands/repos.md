@@ -249,5 +249,6 @@ devops repos gitea connect [OPTIONS]
 |---|---|---|---|
 | `--url` | `string` | - | Gitea instance HTTPS URL (defaults to discovered Ingress host). |
 | `--context` | `string` | - | Kubernetes context to query for Gitea Ingress. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

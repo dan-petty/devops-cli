@@ -4255,7 +4255,7 @@
     }
   },
   "repos_sync": {
-    "description": "Fetch (and optionally pull) all tracking branches across repos.",
+    "description": "Fetch (and optionally pull) all tracking branches across repos, and push default branches to Gitea.\n\nGitHub owns the default branch. devops repos sync carries the default branch from origin\nto Gitea without force. Pass --no-gitea to skip pushing to Gitea.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -4274,6 +4274,11 @@
         "dry_run": {
           "default": false,
           "description": "Preview execution plan without mutating external state.",
+          "type": "boolean"
+        },
+        "no_gitea": {
+          "default": false,
+          "description": "Do not push branches to Gitea remotes.",
           "type": "boolean"
         },
         "pull": {

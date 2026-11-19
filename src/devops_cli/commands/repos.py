@@ -147,7 +147,7 @@ def _ensure_gitea_remote_for_clone(repo_dir: Path, base_dir: Path, settings: Any
     try:
         with GiteaClient(settings.gitea.url, token) as client:
             ensure_clone_remotes(repo_dir, base_dir, client, settings, dry_run=False)
-    except (GiteaError, GiteaAccessBlocked, Exception) as exc:
+    except (GiteaError, GiteaAccessBlocked, subprocess.SubprocessError, OSError) as exc:
         print_warning(
             f"Gitea remote setup for {repo_dir.name} failed: {exc}",
             prefix=False,
@@ -343,7 +343,7 @@ def _sync_single_repo(
     failed = False
     try:
         fetch_all(repo_dir)
-    except (DevOpsCLIError, OSError, subprocess.SubprocessError, Exception) as exc:
+    except (DevOpsCLIError, OSError, subprocess.SubprocessError) as exc:
         print_error(f"{label}: {exc}")
         return False
 
@@ -351,7 +351,7 @@ def _sync_single_repo(
         if pull:
             pull_tracking(repo_dir)
         print_success(f"{label}")
-    except (DevOpsCLIError, OSError, subprocess.SubprocessError, Exception) as exc:
+    except (DevOpsCLIError, OSError, subprocess.SubprocessError) as exc:
         failed = True
         print_error(f"{label}: {exc}")
 
@@ -361,7 +361,7 @@ def _sync_single_repo(
         try:
             if not sync_repo_to_gitea(repo_dir, label, settings):
                 failed = True
-        except (DevOpsCLIError, OSError, subprocess.SubprocessError, Exception) as exc:
+        except (DevOpsCLIError, OSError, subprocess.SubprocessError) as exc:
             failed = True
             print_error(f"{label}: Gitea push failed: {exc}")
 
@@ -441,6 +441,7 @@ def _plan_update(repos_list: list[Path], ws_file: Path, *, pull: bool) -> None:
 
 
 @app.command("remotes")
+@dry_run_class("request-plan")
 def remotes(
     base_dir: Annotated[
         Path | None, typer.Option("--base-dir", "-d", help=HELP.repos.remotes_base_dir)
@@ -487,11 +488,13 @@ gitea_app.add_typer(credential_app, name="credential", hidden=True)
 
 
 @gitea_app.command("connect")
+@dry_run_class("request-plan")
 def gitea_connect(
     url: Annotated[str | None, typer.Option("--url", help=HELP.repos.gitea_connect_url)] = None,
     context: Annotated[
         str | None, typer.Option("--context", help=HELP.repos.gitea_connect_context)
     ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Connect devops-cli to Gitea, verify credentials, and store settings."""
     from devops_cli.commands.k8s.networking import (
@@ -504,8 +507,19 @@ def gitea_connect(
         get_gitea_token,
         save_settings,
     )
+    from devops_cli.dry_run import is_dry_run
+    from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
     from devops_cli.gitea.client import GiteaClient
     from devops_cli.gitea.exceptions import GiteaAccessBlocked, GiteaError
+
+    if dry_run or is_dry_run():
+        target = url or "http://gitea-http.gitea.svc.cluster.local:3000"
+        plan = [
+            PlannedRequest("GET", f"{target}/api/v1/version"),
+            PlannedRequest("GET", f"{target}/api/v1/user"),
+        ]
+        render_request_plan("devops repos gitea connect", plan)
+        return
 
     effective_url: str | None = url
     if effective_url is not None:
@@ -564,6 +578,7 @@ def gitea_connect(
 
 
 @credential_app.command("get")
+@dry_run_class("no-external-request")
 def credential_get() -> None:
     """Git credential helper get command."""
     import sys
@@ -590,7 +605,7 @@ def credential_get() -> None:
 
     try:
         gitea_host = httpx2.URL(settings.gitea.url).host
-    except Exception:
+    except ValueError, httpx2.InvalidURL:
         return
 
     from urllib.parse import urlsplit
@@ -605,12 +620,14 @@ def credential_get() -> None:
 
 
 @credential_app.command("store")
+@dry_run_class("no-external-request")
 def credential_store() -> None:
     """Git credential helper store command (no-op)."""
     pass
 
 
 @credential_app.command("erase")
+@dry_run_class("no-external-request")
 def credential_erase() -> None:
     """Git credential helper erase command (no-op)."""
     pass

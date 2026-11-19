@@ -104,7 +104,7 @@ class GiteaClient:
             try:
                 body = response.json()
                 msg = body.get("message") if isinstance(body, dict) else str(body)
-            except Exception:
+            except ValueError, KeyError:
                 msg = response.text or f"HTTP {response.status_code}"
             target = f" for {repo}" if repo else ""
             raise GiteaError(f"{call_name}{target}: {msg}", token=self.token)
