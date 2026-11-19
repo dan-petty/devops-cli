@@ -165,6 +165,11 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_GEMINI_API_KEY` | `gemini.api_key` | 🔒 Yes | Google Gemini API key that `devops k8s push-secrets` writes to the LLM gateway Secret (stored in OS keyring) |
 | `DEVOPS_CLI_GITEA_ADMIN_PASSWORD` | `gitea.admin_password` | 🔒 Yes | Password of Gitea's admin user, which `devops k8s push-secrets` writes to Secret gitea/gitea-admin (stored in OS keyring) |
 | `DEVOPS_CLI_GITEA_APPLICATIONS` | `gitea.applications` | No | The Argo CD Applications of the Gitea stack, which 'devops k8s doctor --stack gitea' checks |
+| `DEVOPS_CLI_GITEA_EXTRA_CHECKOUTS` | `gitea.extra_checkouts` | No | Extra git checkouts outside repos/ carrying a gitea remote |
+| `DEVOPS_CLI_GITEA_GITHUB_BRANCHES` | `gitea.github_branches` | No | The GitHub branch patterns mirrored to Gitea |
+| `DEVOPS_CLI_GITEA_TOKEN` | `gitea.token` | 🔒 Yes | Gitea API token (stored in OS keyring) |
+| `DEVOPS_CLI_GITEA_URL` | `gitea.url` | No | The HTTPS URL of the Gitea instance (with no path) |
+| `DEVOPS_CLI_GITEA_USERNAME` | `gitea.username` | No | The Gitea user login associated with gitea.token |
 | `DEVOPS_CLI_GITHUB_DEFAULT_ORG` | `github.default_org` | No | Default GitHub organization |
 | `DEVOPS_CLI_GRAFANA_PASSWORD` | `grafana.password` | 🔒 Yes | Grafana admin password (stored in OS keyring) |
 | `DEVOPS_CLI_GRAFANA_TOKEN` | `grafana.token` | 🔒 Yes | Grafana API token (stored in OS keyring) |

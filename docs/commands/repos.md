@@ -70,7 +70,12 @@ devops repos list [OPTIONS]
 
 ## `devops repos update`
 
-**Fetch (and optionally pull) all tracking branches across repos.**
+**Fetch (and optionally pull) all tracking branches across repos, and push default branches to Gitea.**
+
+Fetch (and optionally pull) all tracking branches across repos, and push default branches to Gitea.
+
+GitHub owns the default branch. devops repos sync carries the default branch from origin
+to Gitea without force. Pass --no-gitea to skip pushing to Gitea.
 
 ```bash
 devops repos update [OPTIONS]
@@ -82,13 +87,19 @@ devops repos update [OPTIONS]
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | - |
 | `--pull` / `--no-pull` | `boolean` | `True` | - |
+| `--no-gitea` | `boolean` | - | Do not push branches to Gitea remotes. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
 ## `devops repos sync`
 
-**Fetch (and optionally pull) all tracking branches across repos.**
+**Fetch (and optionally pull) all tracking branches across repos, and push default branches to Gitea.**
+
+Fetch (and optionally pull) all tracking branches across repos, and push default branches to Gitea.
+
+GitHub owns the default branch. devops repos sync carries the default branch from origin
+to Gitea without force. Pass --no-gitea to skip pushing to Gitea.
 
 ```bash
 devops repos sync [OPTIONS]
@@ -100,6 +111,38 @@ devops repos sync [OPTIONS]
 |---|---|---|---|
 | `--base-dir`, `-d` | `path` | - | - |
 | `--pull` / `--no-pull` | `boolean` | `True` | - |
+| `--no-gitea` | `boolean` | - | Do not push branches to Gitea remotes. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops repos remotes`
+
+**Ensure Gitea remotes, organizations, repositories, protections, and default branch seeds.**
+
+Ensure Gitea remotes, organizations, repositories, protections, and default branch seeds.
+
+GitHub owns the default branch (main), tags, pull requests, CI, and releases. Gitea owns
+iteration branches.
+
+Setup:
+1. Set the keyring token: devops config set gitea.token
+2. Connect to Gitea: devops repos gitea connect
+3. Configure remotes: devops repos remotes
+
+Traffic passes Cloudflare Access through the homelab-public-ip-bypass policy.
+Push iteration branches to Gitea with: git push -u gitea \<topic\>
+
+```bash
+devops repos remotes [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--base-dir`, `-d` | `path` | - | Base repository root directory. |
+| `--path`, `-p` | `path` | - | Extra repository checkout path outside repos/ to configure and sync. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
@@ -183,5 +226,28 @@ devops repos worktrees prune [OPTIONS]
 | `--dry-run`, `-n` | `boolean` | - | Preview execution plan without mutating external state. |
 | `--format` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 | `--json` | `boolean` | - | Emit output as JSON. |
+
+---
+
+## `devops repos gitea`
+
+```bash
+devops repos gitea COMMAND [ARGS]...
+```
+
+### `devops repos gitea connect`
+
+**Connect devops-cli to Gitea, verify credentials, and store settings.**
+
+```bash
+devops repos gitea connect [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--url` | `string` | - | Gitea instance HTTPS URL (defaults to discovered Ingress host). |
+| `--context` | `string` | - | Kubernetes context to query for Gitea Ingress. |
 
 ---

@@ -57,9 +57,11 @@ The command groups of `devops` and their commands. The page of each group in `co
 | [**repos**](commands/repos.md) | `devops repos clone-org [OPTIONS] <org>` | Clone all repos from a GitHub org into `repos/<org>/.`. |
 |  | `devops repos clone [OPTIONS] <url>` | Clone an individual repository into `repos/<org>/<name>/.` (or `repos/_standalone/<name>/.`). |
 |  | `devops repos list [OPTIONS]` | List all cloned repositories. |
-|  | `devops repos update [OPTIONS]` | Fetch (and optionally pull) all tracking branches across repos. |
-|  | `devops repos sync [OPTIONS]` | Fetch (and optionally pull) all tracking branches across repos. |
+|  | `devops repos update [OPTIONS]` | Fetch (and optionally pull) all tracking branches across repos, and push default branches to Gitea. |
+|  | `devops repos sync [OPTIONS]` | Fetch (and optionally pull) all tracking branches across repos, and push default branches to Gitea. |
+|  | `devops repos remotes [OPTIONS]` | Ensure Gitea remotes, organizations, repositories, protections, and default branch seeds. |
 |  | `devops repos worktrees COMMAND [ARGS]...` | Clone, synchronize, and manage organization repositories. |
+|  | `devops repos gitea COMMAND [ARGS]...` | Clone, synchronize, and manage organization repositories. |
 | [**ssh**](commands/ssh.md) | `devops ssh generate [OPTIONS]` | Generate a new Ed25519 SSH key with prefix and YYYYMMDD date suffix. |
 |  | `devops ssh register [OPTIONS]` | Generate, rotate, audit, and register Ed25519 SSH keypairs. |
 |  | `devops ssh rotate [OPTIONS]` | Rotate keys older than rotation_days (default 90). |

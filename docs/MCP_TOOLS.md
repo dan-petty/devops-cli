@@ -105,7 +105,7 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`pr_update`](#pr_update) | `false` | Merge the base branch into a pull request only when a required check failed on its head. |
 | [`prometheus_query`](#prometheus_query) | `true` | Execute an instant PromQL query. |
 | [`repos_list`](#repos_list) | `true` | List all cloned repositories. |
-| [`repos_sync`](#repos_sync) | `false` | Fetch (and optionally pull) all tracking branches across repos. |
+| [`repos_sync`](#repos_sync) | `false` | Fetch (and optionally pull) all tracking branches across repos, and push default branches to Gitea.  GitHub owns the default branch. devops repos sync carries the default branch from origin to Gitea without force. Pass --no-gitea to skip pushing to Gitea. |
 | [`research_advisories`](#research_advisories) | `true` | List the advisories that affect the pins of the project. It asks OSV about the Python and Node packages, and GitHub about the Actions and about the components that .devops/research-watch.toml maps to a repository. It flags a CVE of the CISA KEV list as exploited, and counts the components that no source matches. |
 | [`research_inventory`](#research_inventory) | `true` | List every pin of the project as a typed component: Python packages, tools, container images, GitHub Actions, Helm charts and Terraform providers. It reads files only unless render is set. |
 | [`review_branch`](#review_branch) | `true` | Review a git branch diff. |
@@ -1724,7 +1724,10 @@ List all cloned repositories.
 
 ### `repos_sync`
 
-Fetch (and optionally pull) all tracking branches across repos.
+Fetch (and optionally pull) all tracking branches across repos, and push default branches to Gitea.
+
+GitHub owns the default branch. devops repos sync carries the default branch from origin
+to Gitea without force. Pass --no-gitea to skip pushing to Gitea.
 
 **Annotations:** `readOnlyHint: false`
 
@@ -1734,6 +1737,7 @@ Fetch (and optionally pull) all tracking branches across repos.
 |---|---|---|---|---|
 | `base_dir` | `string` | No | - | - |
 | `pull` | `boolean` | No | `True` | - |
+| `no_gitea` | `boolean` | No | `False` | Do not push branches to Gitea remotes. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `research_advisories`

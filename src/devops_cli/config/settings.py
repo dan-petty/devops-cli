@@ -91,6 +91,7 @@ from devops_cli.config.defaults import (
     DEFAULT_DATA_DIR,
     DEFAULT_FEEDBACK_DATASET_PATH,
     DEFAULT_GITEA_APPLICATIONS,
+    DEFAULT_GITEA_GITHUB_BRANCHES,
     DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_INFRA_DRAIN_TIMEOUT_SECONDS,
     DEFAULT_INFRA_NODE_READY_TIMEOUT_SECONDS,
@@ -291,6 +292,24 @@ ServiceUrlStr = Annotated[
 ]
 
 
+def _validate_gitea_url(v: str) -> str:
+    """Validate Gitea URL: must be an HTTPS URL with no path."""
+    try:
+        parsed = httpx2.URL(v)
+    except Exception as exc:
+        raise ValueError("gitea.url is not a valid URL") from exc
+    if parsed.scheme != "https":
+        raise ValueError("gitea.url must use https scheme")
+    if parsed.path and parsed.path != "/":
+        raise ValueError("gitea.url must have no path")
+    return str(parsed).rstrip("/")
+
+
+GiteaUrlStr = Annotated[
+    str, StringConstraints(strip_whitespace=True), AfterValidator(_validate_gitea_url)
+]
+
+
 def _is_list_annotation(annotation: Any) -> bool:
     """Report whether annotation represents a list or optional list type."""
     origin = typing.get_origin(annotation)
@@ -418,12 +437,28 @@ class RenovateConfig(BaseModel):
 
 
 class GiteaConfig(BaseModel):
-    """The Gitea stack of the cluster (#5131)."""
+    """The Gitea forge configuration (#1090, #5131)."""
 
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
     applications: Annotated[list[str], Variable()] = Field(
         default_factory=lambda: list(DEFAULT_GITEA_APPLICATIONS),
         description="The Argo CD Applications of the Gitea stack, which 'devops k8s doctor --stack gitea' checks",
+    )
+    url: Annotated[GiteaUrlStr | None, Variable()] = Field(
+        default=None,
+        description="The HTTPS URL of the Gitea instance (with no path)",
+    )
+    username: Annotated[str | None, Variable()] = Field(
+        default=None,
+        description="The Gitea user login associated with gitea.token",
+    )
+    github_branches: Annotated[list[str], Variable()] = Field(
+        default_factory=lambda: list(DEFAULT_GITEA_GITHUB_BRANCHES),
+        description="The GitHub branch patterns mirrored to Gitea",
+    )
+    extra_checkouts: Annotated[list[str], Variable()] = Field(
+        default_factory=list,
+        description="Extra git checkouts outside repos/ carrying a gitea remote",
     )
 
 
@@ -3092,6 +3127,12 @@ def get_runs_index_password(settings: Settings) -> str | None:
 def get_gitea_admin_password(settings: Settings) -> str | None:
     """Resolve the password of Gitea's admin user."""
     return _resolve("gitea.admin_password", settings)
+
+
+def get_gitea_token(settings: Settings) -> str | None:
+    """Resolve the Gitea API token, rejecting masked placeholder values."""
+    token = _resolve("gitea.token", settings)
+    return token if token and not token.startswith("*") else None
 
 
 def get_cloudflare_api_token(settings: Settings) -> str | None:
