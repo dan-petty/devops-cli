@@ -41,7 +41,7 @@ USER_DATA_ROOT_VARIABLE = "DEVOPS_CLI_USER_DATA_ROOT"
 
 # The pins that only the Dockerfile holds. A test reads the Dockerfile and compares.
 UV_VERSION = "0.13.9"
-GH_VERSION = "2.103.3"
+GH_VERSION = "2.105.0"
 NODE_MAJOR = "24"
 ACTIONLINT_VERSION = "1.17.1"
 

@@ -353,7 +353,7 @@ The programs that the shell refuses, and what to run instead:
 
 A verification command of a plan starts with a program of the first table other than `git`, with `openspec` or `devops`, or with the `!` of the negative search. The step runs git in a verification command only as the negative search `! git grep`: it runs the command in the checkout, where git reads the configuration that the agent can write, and the negative search reaches no remote and gets no token. The step, the stage gate, the plan reader and the amendments read the same rule (`read_verification`).
 
-The runner image holds the tools that the gate and the hooks need, listed in `RUNNER_TOOLS` in `src/devops_cli/roadmap/runner_tools.py`. It holds `actionlint`, `shellcheck` and Trivy since their releases passed the image scan (#3108). It leaves out npm, so a Job cannot run the `audit` row; the pull request runs it. The shell can start only the programs above. The checks of a group run them through `uv run`.
+The runner image holds the tools that the gate and the hooks need, listed in `RUNNER_TOOLS` in `src/devops_cli/roadmap/runner_tools.py`. It holds `actionlint`, `shellcheck` and Trivy (#3108). The image scan accepts `actionlint` and Trivy with the dated CVE-2026-97054 entry of `.trivyignore-tofu` (#6366, #6367) until a release holds the fix. It leaves out npm, so a Job cannot run the `audit` row; the pull request runs it. The shell can start only the programs above. The checks of a group run them through `uv run`.
 
 ## The open plans in the stage context
 
