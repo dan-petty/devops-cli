@@ -35,6 +35,7 @@ from devops_cli.infra.plan import (
     PROJECT_FOLDER,
     REQUIREMENTS_FILE,
     galaxy_argv,
+    host_pattern,
     runner_argv,
 )
 from devops_cli.infra.repo_tree import apply_read_commands, pull_number, read_commands
@@ -179,7 +180,7 @@ def plan_plan(
                     folder,
                     playbook,
                     ident="<ident>",
-                    pattern=f"{limit or 'all'}:!<offline group>",
+                    pattern=host_pattern(limit, "<offline group>"),
                     sources=("<inventory>",),
                     tags=tags,
                     key=Path("<key of devops ssh>"),

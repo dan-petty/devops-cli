@@ -334,3 +334,25 @@ def test_dry_run_starts_no_process(
     assert result.exit_code == 0, result.output
     assert process_fake.calls == []
     assert result.output.replace(str(tmp_path), "<tmp>") == snapshot
+
+
+def test_the_dry_run_shows_each_term_of_a_comma_limit(
+    cli: Callable[..., Any],
+    ready: Callable[..., Path],
+    process_fake: ProcessFake,
+    agent_caller: None,
+) -> None:
+    """Ansible splits a comma pattern on the commas only, so the exclusion is its own term."""
+    result = cli(
+        "infra",
+        "plan",
+        REPO,
+        PLAYBOOK,
+        "--limit",
+        "node-1.example.com,node-2.example.com",
+        "--dry-run",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert process_fake.calls == []
+    assert "--limit 'node-1.example.com,node-2.example.com,!<offline group>'" in result.output

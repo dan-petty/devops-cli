@@ -13,9 +13,9 @@ Kind: behavior. Reads: `src/devops_cli/infra/plan.py`, `tests/infra/test_plan.py
 
 Kind: behavior. Reads: `src/devops_cli/infra/infra_plans.py`, `src/devops_cli/infra/plan.py`, `tests/commands/test_infra_plan.py`. Changes: `src/devops_cli/infra/infra_plans.py`, `tests/commands/test_infra_plan.py`.
 
-- [ ] 2.1 Add `test_the_dry_run_shows_each_term_of_a_comma_limit` to `tests/commands/test_infra_plan.py`: a dry run with `--limit node-1.example.com,node-2.example.com` shows `--limit 'node-1.example.com,node-2.example.com,!<offline group>'` and starts no process. It fails on main, which shows the colon before the exclusion
+- [x] 2.1 Add `test_the_dry_run_shows_each_term_of_a_comma_limit` to `tests/commands/test_infra_plan.py`: a dry run with `--limit node-1.example.com,node-2.example.com` shows `--limit 'node-1.example.com,node-2.example.com,!<offline group>'` and starts no process. It fails on main, which shows the colon before the exclusion
   - Verification: `$ uv run devops ci test tests/commands/test_infra_plan.py` fails on the base
-- [ ] 2.2 Build the shown pattern of `plan_plan` in `src/devops_cli/infra/infra_plans.py` with `host_pattern(limit, "<offline group>")` instead of the literal `:!<offline group>`, and import `host_pattern` from `devops_cli.infra.plan`. Keep the snapshot of the one-host limit unchanged
+- [x] 2.2 Build the shown pattern of `plan_plan` in `src/devops_cli/infra/infra_plans.py` with `host_pattern(limit, "<offline group>")` instead of the literal `:!<offline group>`, and import `host_pattern` from `devops_cli.infra.plan`. Keep the snapshot of the one-host limit unchanged
   - Verification: `$ uv run devops ci test tests/commands/test_infra_plan.py` passes
 
 ## 3. Show the fixed separator in the dry run of the apply command
