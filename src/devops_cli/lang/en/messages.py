@@ -2887,10 +2887,27 @@ class RoadmapMessages:
         "empty, and the next write of its record replaces it."
     )
     # Every comment refine posts starts with its marker (#1758), so a later round finds a reply.
-    refine_ready_comment: str = (
-        "{marker}\nStatus set to Ready at {sha} (see proposed design in issue body)."
+    # The comment is one event line: the next step and the parts of refine's section that hold
+    # it. The section holds the result, the labels the Status and `checked-at` the commit (#6196).
+    refine_event_comment: str = "{marker}\n{step} {place}"
+    refine_section_place: str = "See {parts} in the section Proposed design of the body."
+    refine_section_place_whole: str = "See the section Proposed design of the body."
+    # The next step of each event line, by the step's value (#1758, #6196). A wait on a person
+    # posts the owner-question frame.
+    refine_event_steps: dict[str, str] = field(
+        default_factory=lambda: {
+            "ready": "Next step: the stage job writes the plan of the item.",
+            "split": (
+                "Next step: a person splits the item, or replies in a comment or edits the body "
+                "to keep one item."
+            ),
+            "blocked": (
+                "Next step: the open items close, or a person replies in a comment or edits the "
+                "body."
+            ),
+            "alternatives": "Next step: the alternatives check records a verdict.",
+        }
     )
-    refine_step_comment: str = "{marker}\n{status}{step}\n\n{details}"
     # The owner question that a wait on a person posts (#3077): the two answers and what the job
     # does with each, the answer the job recommends, and the evidence that the owner reads. The
     # question and the option texts make the hash, so two items that ask one question share a frame.
@@ -2902,11 +2919,9 @@ class RoadmapMessages:
     )
     refine_owner_question_recommendation: str = "Decide the question: only a person can answer it."
     refine_owner_question_evidence: str = "The item and its cited evidence: {url}"
-    # Deferred parts (#2423): the first line of a new issue, the sentence of the Ready comment,
-    # the detail of an item that a part keeps waiting, and the warning of a round that filed
-    # only some parts.
+    # Deferred parts (#2423): the first line of a new issue, the detail of an item that a part
+    # keeps waiting, and the warning of a round that filed only some parts.
     refine_deferred_split_from: str = "Split from #{number}."
-    refine_deferred_comment: str = "Moved to new items: {items}."
     refine_deferred_refused: str = (
         'Intake cannot file the deferred part "{title}". Decide the part, or take it out of '
         "the item."
@@ -2915,35 +2930,11 @@ class RoadmapMessages:
         "Refine filed {filed} of the {count} deferred parts of #{number} and left the item as it "
         "was. The next round files the rest."
     )
-    refine_back_to_new: str = "Status set back to New at {sha}. "
-    # The comment that gives an item its next step, by the step's value (#1758).
-    refine_step_comments: dict[str, str] = field(
-        default_factory=lambda: {
-            "person": (
-                "Refine cannot set this item to Ready at {sha} until a person answers the "
-                "questions below. Reply in a comment or edit the body, and the next refine round "
-                "looks at the item again."
-            ),
-            "split": (
-                "The proposal at {sha} needs splitting into {count} items. A person splits the "
-                "item into the items below, or replies in a comment or edits the body to keep "
-                "one item, and the next refine round looks at the item again."
-            ),
-            "blocked": (
-                "Refine cannot set this item to Ready at {sha} while the items below stay open. "
-                "The next refine round looks at the item again when they close, or when a person "
-                "replies in a comment or edits the body."
-            ),
-            "alternatives": (
-                "Waiting for the alternatives check to run. The next refine round looks at the "
-                "item again after the check records a verdict."
-            ),
-        }
-    )
-    # The last line of a next-step comment whose block cites code (#2005).
+    # The first line of the part of refine's section that names the files whose change ends a
+    # wait (#2005, #6196).
     refine_block_paths: str = (
-        "The next refine round also looks at the item again when a commit on the default "
-        "branch changes one of these files: {paths}."
+        "A commit on the default branch that changes one of these files starts the next refine "
+        "round."
     )
     refine_requirement_keyword: str = (
         "The requirement must contain SHALL or MUST, as an OpenSpec requirement does."
@@ -6004,7 +5995,10 @@ class RoadmapMessages:
     )
     plan_conditions: dict[str, str] = field(
         default_factory=lambda: {
-            "posted": "the change posts a comment",
+            "refine_changed": (
+                "the next step, the section without its checked-at line or the item that holds "
+                "the frame differs from the round before, or the round files a deferred part"
+            ),
             "job_comment": "the comment holds the marker of a roadmap job",
             "no_repeat": (
                 "the comment repeats no comment that the same job made on the issue in the last "

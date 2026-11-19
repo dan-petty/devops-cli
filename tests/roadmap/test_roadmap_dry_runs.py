@@ -237,17 +237,16 @@ def test_a_refine_plan_posts_the_comment_only_when_the_result_of_the_round_chang
     from devops_cli.roadmap.request_plan import refine_requests
 
     conditions = MESSAGES.roadmap.plan_conditions
+    changed = conditions["refine_changed"]
     plans = [refine_requests(REPO, None)[1], refine_requests(REPO, None, item=7)[1]]
     shapes = [
         [
             (r.argv[0] if r.argv[0] == "GET" else _shape(r), r.condition)
             for r in writes
-            if r.condition.endswith((conditions["job_comment"], conditions["no_repeat"]))
-            and conditions["outside_notice"] not in r.condition
+            if r.condition.startswith(changed)
         ]
         for writes in plans
     ]
-    changed = conditions["refine_changed"]
     assert (
         shapes
         == [

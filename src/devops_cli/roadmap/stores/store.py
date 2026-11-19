@@ -157,7 +157,10 @@ class RefineRecordKey(StrEnum):
     count moved (#3667). A round whose model call failed records the time, the step and the class
     of the failure, so the next round leaves the item out until the wait of the class passes
     (#4061). A round that writes a proposal records the version of the rules that set its next step
-    (`CONST_ROADMAP_REFINE_RULES_SINCE`, #4795)."""
+    (`CONST_ROADMAP_REFINE_RULES_SINCE`, #4795). A round that posts no comment, because its result
+    is the one of the round before, records its time, and a round that posts one clears it. A round
+    that asks an owner question records the number of the item whose comment holds its frame
+    (#6196)."""
 
     BODY_HASH = "refine.body_hash"
     SECTION_HASH = "refine.section_hash"
@@ -183,6 +186,7 @@ class RefineRecordKey(StrEnum):
     FAILED_STEP = "refine.failed_step"
     FAILED_CLASS = "refine.failed_class"
     RULES = "refine.rules"
+    FRAME = "refine.frame"
 
 
 class JudgeVerdict(StrEnum):

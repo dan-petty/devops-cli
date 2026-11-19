@@ -45,7 +45,7 @@ Refine SHALL post its comment only when the next step, the section without its `
 - **THEN** the round posts one event line
 
 ### Requirement: A round with no comment starts the wait
-A reply, an answer to a frame on another item and a stage return SHALL end a wait only when made at or after the later of refine's last comment and `refine.repeated_at`. The model SHALL read each reply since refine's last comment.
+A reply and an answer to a frame on another item SHALL end a wait only when made at or after the later of refine's last comment and `refine.repeated_at`. The model SHALL read each reply since refine's last comment. A stage return SHALL count from refine's last comment, so a second return whose comment the store refuses as a repeat still waits on a person.
 
 #### Scenario: A second reply after a round with no comment
 - **WHEN** a person replies, the next round finds the same question, a later round runs, and then the person replies again
