@@ -2892,6 +2892,11 @@ class RoadmapMessages:
     refine_event_comment: str = "{marker}\n{step} {place}"
     refine_section_place: str = "See {parts} in the section Proposed design of the body."
     refine_section_place_whole: str = "See the section Proposed design of the body."
+    # Two or more parts: the parts before the last, with the separator between them, and the last.
+    refine_section_parts: str = "{parts} and {last}"
+    refine_section_parts_separator: str = ", "
+    # The frame asks the first open question alone, so it names that point of the part.
+    refine_frame_part: str = "the first point of {part}"
     # The next step of each event line, by the step's value (#1758, #6196). A wait on a person
     # posts the owner-question frame.
     refine_event_steps: dict[str, str] = field(

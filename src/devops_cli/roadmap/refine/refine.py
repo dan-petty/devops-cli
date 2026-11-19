@@ -37,42 +37,42 @@ A part of an item that cannot be built as written, or that waits on a question o
 a person or an outside event settles, moves to new issues (`deferred`, #2423) when the rest of the
 item is Ready. Intake plans each part; `--confirm` files the parts first, each with a body that
 starts with `Split from #<issue>.`, then writes the section and sets Ready. The section names the
-new issues under `Moved to new items` and the job record holds them (`RefineRecordKey.DEFERRED`).
-A part that intake
-cannot place keeps the item New and waiting on a person. An item that is too big for one pull
-request still waits for a person to split it.
+new issues under `Moved to new items` and the job record holds them (`RefineRecordKey.DEFERRED`). A
+part that intake cannot place keeps the item New and waiting on a person. An item that is too big
+for one pull request still waits for a person to split it.
 
 Every item refine does not set Ready gets a next step (`NextStep`, #1758), recorded in its job
 record: the open questions go to a person, a split goes to a person with the proposed items, and
-open dependencies block it. The section of refine holds the result of the round: the questions,
-Fit, the suspected block, the dependencies, the watched files and the new items of the deferred
-parts. The labels hold the Status and `checked-at` the commit. The comment that carries
+open dependencies block it. The section of refine holds the result of the round: the questions, Fit,
+the suspected block, the dependencies, the watched files and the new items of the deferred parts.
+The labels hold the Status and `checked-at` the commit. The comment that carries
 `CONST_ROADMAP_REFINE_COMMENT_MARKER` is one event line that names the next step and the parts of
-the section that hold it, and it posts only when the next step, the section without its
-`checked-at` line or the item that holds the frame differs from the round before, or when the
-round files a deferred part (#6196). A round that posts none records its time
-(`RefineRecordKey.REPEATED_AT`). A later round looks at an unchanged item again when a comment
-follows refine's last one and that time, or when every item that blocks it is closed. The comments
-since refine's last one reach the model as `replies`, also those that a round with no comment read. A round that reads the comments of a waiting item records what they gave
-(`RefineRecordKey.COMMENTS_SEEN`, `COMMENTED_AT` and `WAIT_REFS`: the count of comments the issue
-listing carried, the time of refine's last comment, and the issues and paths that the parts of the
-section that name a cause and the replies name). So an item that waits and holds that count costs no comment read and no body read: a new
-comment moves the count, and the other exits use the record alone (#3667). A comment that is no
-reply costs one read, and the round records the new count. Two waits still cost one comment read
-each round: an item that refine set Ready and a person or the stage job set back to New, and an
-item that an account the jobs do not trust opened. An item the model refines reads its comments
-once. The store reads each blocker, path and named issue once a round. An item refine cannot
-write a design for (too big, or two replies that never validated) waits on a body edit alone. An
-unchanged item whose record holds no step is refined again so it gets one. The report groups
-every item by its next step.
-A proposal with a suspected block or an open dependency also names the repository paths whose
-code causes the block (`block_paths`). Refine records those that the checkout holds, at most
+the section that hold it, and it posts only when the next step, the section without its `checked-at`
+line or the item that holds the frame differs from the round before, or when the round files a
+deferred part (#6196). A round that posts none records the time at which it read the comments
+(`RefineRecordKey.REPEATED_AT`), and the wait starts at the later of that time and refine's last
+comment. A later round looks at an unchanged item again when a comment follows the start of the
+wait, or when every item that blocks it is closed. The comments since refine's last one reach the
+model as `replies`, also those that a round with no comment read. A round that reads the comments of
+a waiting item records what they gave (`RefineRecordKey.COMMENTS_SEEN`, `COMMENTED_AT` and
+`WAIT_REFS`: the count of comments the issue listing carried, the time of refine's last comment, and
+the issues and paths that the parts of the section that name a cause and the replies name). So an
+item that waits and holds that count costs no comment read and no body read: a new comment moves the
+count, and the other exits use the record alone (#3667). A comment that is no reply costs one read,
+and the round records the new count. Two waits still cost one comment read each round: an item that
+refine set Ready and a person or the stage job set back to New, and an item that an account the jobs
+do not trust opened. An item the model refines reads its comments once. The store reads each
+blocker, path and named issue once a round. An item refine cannot write a design for (too big, or
+two replies that never validated) waits on a body edit alone. An unchanged item whose record holds
+no step is refined again so it gets one. The report groups every item by its next step.
+A proposal with a suspected block or an open dependency also names the repository paths whose code
+causes the block (`block_paths`). Refine records those that the checkout holds, at most
 `CONST_ROADMAP_REFINE_MAX_BLOCK_PATHS`, and a later round looks at the waiting item again when a
-commit on the default branch changed one of them at or after refine's last comment (#2005). That
+commit on the default branch changed one of them at or after the start of the wait (#2005). That
 costs one commit read for each recorded path of an item that still waits, once a round. When such a
 look finds the result of the round before, or the store refuses its comment as a repeat, the round
-records its time (`RefineRecordKey.REPEATED_AT`), and the wait starts at that time, so one change
-gives one look (#4793, #6196).
+records the time of its read (`RefineRecordKey.REPEATED_AT`), and the wait starts at that time, so
+one change gives one look (#4793, #6196).
 The check of the alternatives job (#2650) is an input of both model calls (`alternatives`: its
 verdict, tool, block and latest comment whole). The block holds the result, and the comment the
 evidence of the run (#6195). A `covers` verdict is a question that only a person
@@ -257,6 +257,7 @@ from devops_cli.roadmap.refine.refine_investigation import (
 )
 from devops_cli.roadmap.service_stop import raise_if_service_stops
 from devops_cli.roadmap.status_sync import StatusFacts, owns_status, write_status
+from devops_cli.roadmap.step_files import section_text
 from devops_cli.roadmap.stores.store import (
     AlternativesRecordKey,
     ChangeKind,
@@ -466,7 +467,10 @@ class RefinedItem:
     trusted person gave to the frame of the question the record holds, which the request of the
     item carries and apply records (#3077). `frame` is the item whose comment holds the frame of
     `owner_question`. `repeated` is set when the result is the one of the round before: the round
-    posts no comment, and apply records its time (#6196)."""
+    posts no comment, and apply records `read_at`, the time at which the round read the comments
+    of the item, so a reply made while the round ran ends the wait (#6196). A result that the
+    round built before it read the comments holds the time it was built, and it posts no
+    comment."""
 
     item: Item
     proposal: RefinementProposal
@@ -494,6 +498,7 @@ class RefinedItem:
     owner_answer: OwnerAnswer | None = None
     frame: int | None = None
     repeated: bool = False
+    read_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     context_before: int = 0
     context_after: int = 0
 
@@ -1717,8 +1722,25 @@ def _section_place(parts: Sequence[str]) -> str:
     texts = MESSAGES.roadmap
     if not parts:
         return texts.refine_section_place_whole
-    named = parts[0] if len(parts) == 1 else f"{', '.join(parts[:-1])} and {parts[-1]}"
+    *head, last = parts
+    named = (
+        texts.refine_section_parts.format(
+            parts=texts.refine_section_parts_separator.join(head), last=last
+        )
+        if head
+        else last
+    )
     return texts.refine_section_place.format(parts=named)
+
+
+def _frame_place(parts: Sequence[str]) -> str:
+    """The sentence of the frame that names `parts` of refine's section: the first of them holds
+    the question, and of the open questions the frame asks the first one alone
+    (`owner_question_of`), so it names that point of the part."""
+    if parts and parts[0] == _PART_OPEN_QUESTIONS:
+        first = MESSAGES.roadmap.refine_frame_part.format(part=parts[0])
+        return _section_place((first, *parts[1:]))
+    return _section_place(parts)
 
 
 def step_comment(
@@ -1734,20 +1756,19 @@ def step_comment(
     section holds the result, the labels the Status and `checked-at` the commit, so the comment
     repeats none of them (#1758, #6196).
 
-    A wait on a person is one owner-question frame for the first open question, which names
-    `parts` in place of the question text, and which `holder` links when an older open item
-    already asks it (#3077)."""
+    A wait on a person is one owner-question frame for the first open question, which names the
+    place of that question in `parts` in place of the question text (`_frame_place`), and which
+    `holder` links when an older open item already asks it (#3077)."""
     texts = MESSAGES.roadmap
-    place = _section_place(parts)
     question = owner_question_of(item, step, details)
     if question is not None:
         if holder is None:
-            return question.render(asked=place)
+            return question.render(asked=_frame_place(parts))
         return question.link_comment(frame_item=holder.number, frame_url=holder.url)
     return texts.refine_event_comment.format(
         marker=CONST_ROADMAP_REFINE_COMMENT_MARKER,
         step=texts.refine_event_steps[step.value],
-        place=place,
+        place=_section_place(parts),
     )
 
 
@@ -2289,25 +2310,13 @@ def _closed_since(store: RoadmapStore, number: int, since: datetime) -> bool:
 _WAIT_PARTS: Final = frozenset(
     part.casefold() for part in (_PART_OPEN_QUESTIONS, _PART_SUSPECTED_BLOCK, _PART_WATCHED_FILES)
 )
-# The tokens whose text a part of the section shows: its lines and its code.
-_TEXT_TOKENS: Final = frozenset({"inline", "fence", "code_block"})
 
 
-def _wait_parts(body: str) -> list[str]:
+def _wait_parts(body: str) -> str:
     """The text of the parts of refine's section of `body` that name the cause of a wait: the
     open questions, the suspected block and the watched files (#6196)."""
     _, section = extract_section_and_outside(body)
-    if section is None:
-        return []
-    tokens = _GITHUB_MARKDOWN.parse(section)
-    texts: list[str] = []
-    kept = False
-    for index, token in enumerate(tokens):
-        if token.type == "heading_open":
-            kept = tokens[index + 1].content.strip().casefold() in _WAIT_PARTS
-        elif kept and token.type in _TEXT_TOKENS:
-            texts.append(token.content)
-    return texts
+    return "" if section is None else section_text(section, _WAIT_PARTS)
 
 
 def _wait_text(body: str, comments: Sequence[IssueComment]) -> str:
@@ -2318,7 +2327,7 @@ def _wait_text(body: str, comments: Sequence[IssueComment]) -> str:
     marked = [i for i, c in enumerate(comments) if CONST_ROADMAP_REFINE_COMMENT_MARKER in c.body]
     start = marked[-2] + 1 if len(marked) > 1 else 0
     replies = comments_without_jobs(comments[start:])
-    return "\n".join([*_wait_parts(body), *(comment.body for comment in replies)])
+    return "\n".join([_wait_parts(body), *(comment.body for comment in replies)])
 
 
 def _wait_refs(text: str, own: int) -> str:
@@ -3190,6 +3199,8 @@ def refine_one_item(
     alert = _item_alert(item, current_body, repo)
 
     # Step 2: Proposal generation. Only the comments of trusted authors reach the model (#3502).
+    # The time of the read starts the wait of a round that posts no comment (#6196).
+    read_at = datetime.now(UTC)
     comments = trusted_replies(store.comments_on(item.number))
     returned = _stage_return(item, comments)
     check = recorded_check(item, current_body)
@@ -3379,6 +3390,7 @@ def refine_one_item(
         owner_answer=answer,
         frame=frame,
         repeated=repeated,
+        read_at=read_at,
         context_before=getattr(ctx, "before", 0),
         context_after=getattr(ctx, "after", 0),
     )
@@ -3947,7 +3959,7 @@ def _refine_marks(r: RefinedItem, deferred: Sequence[int], section_hash: str | N
         else None,
         OwnerQuestionRecordKey.ANSWER: _recorded_answer(r),
         RefineRecordKey.FRAME: None if r.frame is None else str(r.frame),
-        RefineRecordKey.REPEATED_AT: datetime.now(UTC).isoformat() if r.repeated else None,
+        RefineRecordKey.REPEATED_AT: r.read_at.isoformat() if r.repeated else None,
         **_failure_marks(r.item, r.failure, r.tries),
     }
     if r.judge is not None or RefineRecordKey.JUDGE in r.item.job_record:
@@ -3990,13 +4002,13 @@ def _apply_refined(store: RoadmapStore, r: RefinedItem, *, repo: str) -> RefineA
         store.set_marks(r.item, marks, body=body)
 
     # Comment: a round whose result changed posts it (#6196), and a repeat that the store refuses
-    # starts the wait at this round (#4793)
+    # starts the wait at the read of this round (#4793)
     comments = 0
     comment = r.reason_comment
     if comment and store.comment(r.item.number, comment):
         comments = 1
     elif comment:
-        store.set_marks(r.item, {RefineRecordKey.REPEATED_AT: datetime.now(UTC).isoformat()})
+        store.set_marks(r.item, {RefineRecordKey.REPEATED_AT: r.read_at.isoformat()})
     return RefineApplied(
         refined_count=1,
         readied_count=readied,
