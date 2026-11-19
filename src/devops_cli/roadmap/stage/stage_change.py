@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Final, Self, assert_never
 from pydantic import (
     AfterValidator,
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     StringConstraints,
@@ -62,6 +63,7 @@ from devops_cli.roadmap.pull_form import (
 from devops_cli.roadmap.pull_form import (
     build_plan_body,
     is_placeholder,
+    plan_body_room,
     summary_length,
 )
 from devops_cli.roadmap.refine.refine import sanitize_text
@@ -126,8 +128,6 @@ ISSUE_NUMBER_DIGITS: Final[int] = 6
 STAGE_SUMMARY_MAX_CHARS: Final[int] = SUMMARY_MAX_CHARS - summary_length(
     MESSAGES.roadmap.stage_title_lead.format(number=10**ISSUE_NUMBER_DIGITS - 1)
 )
-# The most characters of the body of a pull request: it is the message of the squash commit.
-BODY_MAX_CHARS: Final[int] = 800
 # The fewest characters of the Purpose of a new capability, so archive never writes TBD.
 PURPOSE_MIN_CHARS: Final[int] = 50
 # The most characters of the text of a requirement: `MAX_REQUIREMENT_TEXT_LENGTH` of OpenSpec
@@ -379,6 +379,17 @@ Command = Annotated[
 # A text of a file of the change that is not a task: on one line, and at the start of a line only
 # when it starts with no block syntax.
 Line = Annotated[str, StringConstraints(strip_whitespace=True), AfterValidator(one_line)]
+
+
+def _no_text_for_null(value: object) -> object:
+    """`None` as the empty text, the default of an optional text (#6319). A value of another type
+    stays, and the schema refuses it."""
+    return "" if value is None else value
+
+
+# A `Line` that the reply can give as `null` for no text: a model writes `null` for an optional
+# text, and the reply means the default.
+OptionalLine = Annotated[Line, BeforeValidator(_no_text_for_null)]
 LineStart = Annotated[
     str,
     StringConstraints(strip_whitespace=True),
@@ -485,7 +496,7 @@ class StageReference(_Reply):
     """A reference hit for a moved module (#3373)."""
 
     path: str
-    kind: Line = ""
+    kind: OptionalLine = ""
     unchanged: bool = False
     reason: Line | None = None
 
@@ -696,7 +707,10 @@ class StageProposal(_Reply):
     # The limit counts the text as the title shows it (see `_summary_fits_the_title`), so the schema
     # gives it as `maxLength` for the model and checks it in the validator, not with `max_length`.
     summary: str = Field(min_length=1, json_schema_extra={"maxLength": STAGE_SUMMARY_MAX_CHARS})
-    pull_request_body: str = Field(min_length=1, max_length=BODY_MAX_CHARS)
+    # No limit of length, not even a `maxLength` hint, as a provider that constrains the reply to
+    # the schema cuts the text there. The prompt asks for a short text, and the job asks the model
+    # for a shorter one when the text is over its room in the plan form (#6319).
+    pull_request_body: str = Field(min_length=1)
     why: LineStart
     what_changes: list[Line] = Field(min_length=1)
     skip_specs: bool
@@ -711,7 +725,7 @@ class StageProposal(_Reply):
     criteria: list[StageCriterion] = Field(default_factory=list)
     dependencies: list[Line] = Field(default_factory=list)
     references: list[StageReference] = Field(default_factory=list)
-    security: Line = ""
+    security: OptionalLine = ""
     # The plan reader fills this list from `## Weakened checks` of `proposal.md` (#3490). The reply
     # schema does not show it: `render_change` writes no such section, so a key in a reply is lost.
     weakened_checks: SkipJsonSchema[list[WeakenedCheck]] = Field(default_factory=list)
@@ -3580,15 +3594,21 @@ def delivery_title(
     return f"{head}: {safe_title(issue_summary if summary is None else summary)}"
 
 
-def pull_request_body(number: int, change: str, proposal: StageProposal) -> str:
-    """The body of the draft: `Plans #<issue>`, the what and why, and the change folder. It is
-    built and checked by `build_plan_body`, which raises `ValidationError` for a body that breaks
-    the plan form."""
-    return build_plan_body(
-        why=safe_text(proposal.pull_request_body),
-        issue=number,
-        change=f"openspec/changes/{change}",
-    )
+def pull_request_body(number: int, change: str, text: str) -> str:
+    """The body of the draft: `Plans #<issue>`, the what and why `text` of the model as `safe_text`
+    writes it, and the change folder. It is built and checked by `build_plan_body`, which raises
+    `ValidationError` for a body that breaks the plan form."""
+    return build_plan_body(why=safe_text(text), issue=number, change=_change_path(change))
+
+
+def body_room(number: int, change: str) -> int:
+    """The most characters of the what and why of the draft body for item `number` and the change
+    `change`, as `safe_text` writes the text (#6319)."""
+    return plan_body_room(number, _change_path(change))
+
+
+def _change_path(change: str) -> str:
+    return f"openspec/changes/{change}"
 
 
 def safe_text(text: str) -> str:

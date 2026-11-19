@@ -4,9 +4,11 @@ The job turns each item that a label filter names into a branch `<type>/<issue>-
 fetched default branch, with the OpenSpec change `openspec/changes/<issue>-<slug>/` written from
 the refined body, one commit by the identity of the session, and a draft pull request whose title
 is `docs(openspec): plan #<issue> <summary>` (a plan is no fix: #2714) and whose body starts with
-`Plans #<issue>`. It never changes the item's Status. The staged branch and the draft are the
-record. The job does not mark the draft ready: the row `stage_ready` of the Service does, when the
-checks of the draft have passed (`stage_ready`).
+`Plans #<issue>`. The reply schema holds no limit on the length of the body text: a text over its
+room in the plan form gets a shorter text from one turn of the body rewrite (`pull_retry`), and
+the proposal keeps the full text (#6319). The job never changes the item's Status. The staged
+branch and the draft are the record. The job does not mark the draft ready: the row `stage_ready`
+of the Service does, when the checks of the draft have passed (`stage_ready`).
 
 **Selection.** `--filter family=value` is repeatable over the label families `status`,
 `priority`, `type`, `value` and `effort`. The values of one family are alternatives, and the
@@ -194,6 +196,7 @@ from devops_cli.roadmap.pull_form import (
     title_problems,
 )
 from devops_cli.roadmap.pull_labels import add_pull_labels, read_title_labels, remove_pull_labels
+from devops_cli.roadmap.pull_retry import BODY_TASK, BodyReply
 from devops_cli.roadmap.refine.refine import (
     NextStep,
     body_dependencies,
@@ -226,6 +229,7 @@ from devops_cli.roadmap.stage.stage_change import (
     MeasuredGroup,
     StageGroup,
     StageProposal,
+    body_room,
     check_gates,
     claimed_classes,
     closing_keyword_in,
@@ -2460,12 +2464,20 @@ class _Planner:
         self, target: StageTarget, title: str, proposal: StageProposal
     ) -> str | _Refused:
         """The body of the draft, built and checked by `build_plan_body`. A text with a closing
-        keyword stops the item. A body that breaks the plan form goes back to the model."""
-        keyword = closing_keyword_in(f"{title}\n{safe_text(proposal.pull_request_body)}")
+        keyword stops the item. A text over its room in the plan form gets a shorter text from one
+        turn of the body rewrite, and the proposal keeps the full text (#6319). A body that breaks
+        the plan form goes back to the model."""
+        text = proposal.pull_request_body
+        shown = safe_text(text)
+        keyword = closing_keyword_in(f"{title}\n{shown}")
         if keyword is not None:
             raise _stage_error(MESSAGES.roadmap.stage_closing.format(keyword=keyword), target)
+        room = body_room(target.item.number, target.change)
+        if len(shown) > room:
+            problem = MESSAGES.roadmap.stage_body_long.format(length=len(shown), limit=room)
+            text = self._ask(BodyReply, BODY_TASK, {"text": shown, "problems": [problem]}).text
         try:
-            return pull_request_body(target.item.number, target.change, proposal)
+            return pull_request_body(target.item.number, target.change, text)
         except ValidationError as exc:
             lines = (line.removeprefix("- ") for line in str(exc).splitlines())
             return self._refusal(check_findings(BODY_GATE, [" ".join(lines)]), proposal)

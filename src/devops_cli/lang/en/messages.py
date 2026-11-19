@@ -4354,6 +4354,11 @@ class RoadmapMessages:
         "The title or the body of the pull request has the closing keyword {keyword} before an "
         "issue reference. A pull request that plans an item closes no issue."
     )
+    # The problem that the stage job gives the body rewrite for a plan body over its room (#6319).
+    stage_body_long: str = (
+        "The text has {length} characters, and the limit is {limit}. Write a shorter text that "
+        "keeps each fact."
+    )
     stage_validate_unreadable: str = (
         "OpenSpec exited with 0 and printed no report that the stage job can read."
     )
