@@ -4,7 +4,7 @@
 
 Kind: test-only edit. Changes: `tests/support/valkey_scenarios.py`, `tests/valkey/test_valkey_contract.py`.
 
-- [ ] 1.1 Write the scenarios (`SET NX EX`, `SET EXAT`, `HINCRBY`, `ZADD` with a trim, valkey-py `Lock` acquire, extend, `owned()` and release, Lua through `register_script`, and `EVAL`) and the suite that runs each scenario over the fake. Before the `lua` extra, the fake side fails on the Lua and `Lock` cases.
+- [x] 1.1 Write the scenarios (`SET NX EX`, `SET EXAT`, `HINCRBY`, `ZADD` with a trim, valkey-py `Lock` acquire, extend, `owned()` and release, Lua through `register_script`, and `EVAL`) and the suite that runs each scenario over the fake. Before the `lua` extra, the fake side fails on the Lua and `Lock` cases.
   - Verification: `$ uv run devops ci test tests/valkey/test_valkey_contract.py`
 
 ## 2. The dependency
