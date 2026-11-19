@@ -914,8 +914,8 @@ def test_a_replay_that_could_not_run_keeps_the_last_whole_lines_within_the_bound
             False,
             "  passed on base: tests.test_sample::test_unchanged_passes\n"
             "0 failed on base (0 failed and 1 passed in tests/test_mod.py; 0 errored).\n"
-            "A fix needs at least one changed test that fails or errors on base "
-            "(tests.test_sample::test_unchanged_passes).",
+            "A fix needs at least one changed test that fails on base, or that errors there at "
+            "collection or setup (tests.test_sample::test_unchanged_passes).",
         ),
         (
             1,
@@ -958,8 +958,8 @@ def test_a_replay_that_collects_no_tests_is_an_empty_replay(
     assert (report.satisfied, format_fail_to_pass_report(report)) == (
         False,
         "0 failed on base (0 failed and 0 passed in tests/test_mod.py; 0 errored).\n"
-        "A fix needs at least one changed test that fails or errors on base "
-        "(tests/test_mod.py).",
+        "A fix needs at least one changed test that fails on base, or that errors there at "
+        "collection or setup (tests/test_mod.py).",
     )
 
 
@@ -1273,7 +1273,7 @@ def test_a_repair_alone_does_not_satisfy_the_replay(
 
     assert replay_state.satisfied is False
     assert "The head repairs tests.test_mod::test_kept." in text
-    assert "A fix needs at least one changed test that fails or errors on base" in text
+    assert "A fix needs at least one changed test that fails on base" in text
 
 
 def test_a_head_replay_that_could_not_run_refuses_the_replay(

@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: A changed test that errors on base proves the fix
-`devops ci fail-to-pass` SHALL count a changed test that errors on base, at collection, import, setup or teardown, as a proof of the fix, as it counts a changed test that fails in the call phase. A collection error names a whole test file: it SHALL count as changed when the syntax tree of the file differs from the merge base or the file is new. The report SHALL name each changed test that proves the fix.
+`devops ci fail-to-pass` SHALL count a changed test that errors on base at collection or setup as a proof of the fix, as it counts a changed test that fails in the call phase. An error at teardown SHALL NOT prove the fix. A collection error names a whole test file: it SHALL count as changed when the syntax tree of the file differs from the merge base or the file is new. The report SHALL name each changed test that proves the fix.
 
 #### Scenario: The only changed test file fails to collect on base
 - **WHEN** the fix changes `tests/test_sample.py`, and the replay reports only a collection error of `tests.test_sample`
@@ -11,6 +11,10 @@
 - **WHEN** a changed test errors on base with `failed on setup with "AttributeError: module has no attribute 'new_field'"`
 - **THEN** the replay is satisfied
 
+#### Scenario: A changed test errors only at teardown
+- **WHEN** the only changed test passes in the call phase on base and errors with `failed on teardown with "AttributeError: fixture has no attribute 'close'"`
+- **THEN** the replay is not satisfied, and its report says that a fix needs a changed test that fails on base, or that errors there at collection or setup
+
 #### Scenario: A comment does not change an errored file
 - **WHEN** the head of a test file adds only a comment, and the file fails to collect on base
 - **THEN** the command exits 1, and its report says that a test the fix does not change does not pass on the head and names the file
@@ -18,7 +22,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The replay reads no title, label or body
-`devops ci fail-to-pass` SHALL take no pull request title, label or body. It SHALL fail unless at least one changed test fails or errors on base, or a case of a changed gate check fails on base and passes on head.
+`devops ci fail-to-pass` SHALL take no pull request title, label or body. It SHALL fail unless at least one changed test fails on base, or errors there at collection or setup, or a case of a changed gate check fails on base and passes on head.
 
 #### Scenario: An escape line in the environment
 - **WHEN** `PR_TITLE` is `feat(ci): add a check`, `PR_BODY` holds `Fail-to-pass: not applicable: the tests pass on base`, and every changed test passes on base

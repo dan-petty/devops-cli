@@ -4,8 +4,9 @@
 
 - One set of statuses, `failed` and `errored`, means "does not pass on base". The proof, the
   search for unchanged tests and the host path guard all read this set.
-- `FailToPassReport.proof` lists the test IDs of the outcomes in that set that are not unchanged
-  and not repaired. `satisfied` asks for a proof or a gate case. The rule that a failure in no
+- `TestCaseOutcome.proves_fix` is true for a failure, and for an error whose message starts with
+  pytest's `collection failure` or `failed on setup with`. `FailToPassReport.proof` lists the test
+  IDs of the outcomes that prove the fix and are not unchanged and not repaired. `satisfied` asks for a proof or a gate case. The rule that a failure in no
   changed file counts as changed stays, and applies to errors too.
 - A collection error of a file names no test. `_test_location` maps an outcome with no class name
   and the module path of a changed test file as its name to that file and an empty test name.
@@ -17,6 +18,11 @@
   and the tests give a proof. A replay that the tests refuse prints its reason and no proof line.
 
 ## Rejected alternatives
+
+- Count every error of a changed test as a proof: pytest also reports an error at teardown as an
+  error, and gives a test whose call phase passes and whose fixture teardown errors one case with
+  `failed on teardown with`. That test ran its assertions on base and they passed, so it does not
+  show a fail-to-pass. The issue asks only for errors at collection, import or setup.
 
 - Count every changed test file that errors at collection as a proof: a file whose head changes
   only a comment has the same syntax tree as the base, and the rule of #3124 counts no such test

@@ -2393,7 +2393,8 @@ class CIMessages:
         "adds or changes a test or a gate check that fails on its base."
     )
     fail_to_pass_none_failed: str = (
-        "A fix needs at least one changed test that fails or errors on base ({tests})."
+        "A fix needs at least one changed test that fails on base, or that errors there at "
+        "collection or setup ({tests})."
     )
     fail_to_pass_guard_failed: str = (
         "The host path guard of the test harness stopped the replay on base ({tests}). The replay "

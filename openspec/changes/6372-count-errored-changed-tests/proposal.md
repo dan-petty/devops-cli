@@ -13,8 +13,10 @@ passes after it as FAIL_TO_PASS. Closes #6372.
 
 ## What Changes
 
-- A changed test that errors on the base (at collection, import, setup or teardown) proves the fix,
-  as a changed test that fails in the call phase does.
+- A changed test that errors on the base at collection or setup proves the fix, as a changed test
+  that fails in the call phase does. pytest gives these errors the messages `collection failure`
+  and `failed on setup with`. An error at teardown (`failed on teardown with`) comes after the call
+  phase ran, so it does not prove the fix.
 - pytest reports a collection error of a file as one case with no class name and the module path
   of the file as its name. This case names the whole file. It counts as changed when the syntax
   tree of the file differs from the merge base, or when the file is new.
