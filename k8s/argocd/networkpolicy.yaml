@@ -95,3 +95,11 @@ spec:
       ports:
         - protocol: TCP
           port: 8065
+    # 6. Allow repo-server to pull Git repositories from in-cluster Gitea on port 3000 (#1082)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: gitea
+      ports:
+        - protocol: TCP
+          port: 3000

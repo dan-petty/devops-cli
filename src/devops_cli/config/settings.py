@@ -460,6 +460,10 @@ class GiteaConfig(BaseModel):
         default_factory=list,
         description="Extra git checkouts outside repos/ carrying a gitea remote",
     )
+    argocd_username: Annotated[str, Variable()] = Field(
+        default="argocd",
+        description="The Gitea user login that Argo CD uses to read repositories",
+    )
 
 
 class MattermostConfig(BaseModel):
@@ -3132,6 +3136,12 @@ def get_gitea_admin_password(settings: Settings) -> str | None:
 def get_gitea_token(settings: Settings) -> str | None:
     """Resolve the Gitea API token, rejecting masked placeholder values."""
     token = _resolve("gitea.token", settings)
+    return token if token and not token.startswith("*") else None
+
+
+def get_gitea_argocd_token(settings: Settings) -> str | None:
+    """The Gitea token for Argo CD repo-creds, read from the keyring (#1082)."""
+    token = _resolve("gitea.argocd_token", settings)
     return token if token and not token.startswith("*") else None
 
 

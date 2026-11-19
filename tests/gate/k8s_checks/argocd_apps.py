@@ -194,3 +194,80 @@ def check_homelab_project_ignores_the_cnpg_monitoring_config_map() -> None:
         "disableDefaultQueries"
         in (K8S_DIR / "llm" / "gateway-db.yaml").read_text(encoding="utf-8"),
     ) == (True, True, False)
+
+
+def check_appproject_trial_and_orphans() -> None:
+    """AppProject `trial` isolates Gitea trial workloads and homelab ignores them as orphans (#1082)."""
+    documents = [
+        document
+        for document in yaml.load_all(
+            (APPS_DIR / "projects.yaml").read_text(encoding="utf-8"), Loader=yaml.CSafeLoader
+        )
+        if document
+    ]
+    trial = next(document for document in documents if document["metadata"]["name"] == "trial")
+    homelab = next(document for document in documents if document["metadata"]["name"] == "homelab")
+    homelab_sys = next(
+        document for document in documents if document["metadata"]["name"] == "homelab-system"
+    )
+
+    trial_dest = trial["spec"]["destinations"]
+    trial_sources = trial["spec"]["sourceRepos"]
+    trial_whitelist = trial["spec"]["clusterResourceWhitelist"]
+
+    assert trial_sources == ["http://gitea-http.gitea.svc.cluster.local:3000/*/*"]
+    assert trial_dest == [{"server": "https://kubernetes.default.svc", "namespace": "trial-*"}]
+    assert trial_whitelist == []
+
+    # Assert no managed project claims trial-* namespaces
+    for proj in (homelab, homelab_sys):
+        dest_namespaces = [d.get("namespace", "") for d in proj["spec"].get("destinations", [])]
+        assert not any("trial" in ns for ns in dest_namespaces)
+
+    # Assert homelab ignores trial-* Applications as orphans
+    orphaned = homelab["spec"]["orphanedResources"]["ignore"]
+    assert {"group": "argoproj.io", "kind": "Application", "name": "trial-*"} in orphaned
+
+
+def check_mainline_git_sources_safety_rule() -> None:
+    """Every Git source under k8s/argocd/ points to GitHub and never to Gitea (#1082)."""
+    apps = _all_applications()
+    for name, app in apps.items():
+        spec = app.get("spec", {})
+        sources = list(spec.get("sources", []))
+        if "source" in spec and isinstance(spec["source"], dict):
+            sources.append(spec["source"])
+        for src in sources:
+            if not isinstance(src, dict) or "chart" in src:
+                continue
+            repo_url = src.get("repoURL", "")
+            assert repo_url.removesuffix(".git") == "https://github.com/dan-petty/devops-cli", (
+                f"Application '{name}' git source must point to GitHub, got: {repo_url}"
+            )
+            assert "gitea" not in repo_url.lower(), (
+                f"Application '{name}' git source must not name Gitea: {repo_url}"
+            )
+            assert "git." not in repo_url.lower(), (
+                f"Application '{name}' git source must not name Gitea: {repo_url}"
+            )
+
+
+def check_argocd_networkpolicy_gitea_egress() -> None:
+    """argocd-default-perimeter allows egress to Gitea on TCP port 3000 (#1082)."""
+    policy = _load_yaml(ARGOCD_DIR / "networkpolicy.yaml")
+    egress_rules = policy.get("spec", {}).get("egress", [])
+    has_gitea_egress = False
+    for rule in egress_rules:
+        to_selectors = rule.get("to", [])
+        ports = rule.get("ports", [])
+        matches_gitea_ns = any(
+            t.get("namespaceSelector", {}).get("matchLabels", {}).get("kubernetes.io/metadata.name")
+            == "gitea"
+            for t in to_selectors
+        )
+        matches_port_3000 = any(p.get("port") == 3000 and p.get("protocol") == "TCP" for p in ports)
+        if matches_gitea_ns and matches_port_3000:
+            has_gitea_egress = True
+            break
+
+    assert has_gitea_egress, "argocd-default-perimeter missing egress rule to gitea:3000"

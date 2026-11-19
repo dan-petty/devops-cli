@@ -249,3 +249,43 @@ def test_gitea_models_username_and_login_fallbacks() -> None:
     assert o1.name == "devops-org"
     o2 = GiteaOrg.model_validate({"name": "sales-org"})
     assert o2.username == "sales-org"
+
+
+def test_gitea_client_branch() -> None:
+    """branch() returns branch dict on 200 and None on 404."""
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        url = str(request.url)
+        if "missing-branch" in url:
+            return httpx2.Response(404, json={"message": "Branch not found"})
+        if "main" in url:
+            assert url == "https://git.example.com/api/v1/repos/owner/repo/branches/main"
+            return httpx2.Response(200, json={"name": "main", "commit": {"id": "abcdef"}})
+        return httpx2.Response(500, json={"message": "Server error"})
+
+    client = httpx2.Client(transport=httpx2.MockTransport(handler))
+    gitea = GiteaClient("https://git.example.com", "token-123", client=client)
+
+    assert gitea.branch("owner", "repo", "missing-branch") is None
+    res = gitea.branch("owner", "repo", "main")
+    assert res == {"name": "main", "commit": {"id": "abcdef"}}
+
+
+def test_gitea_client_contents() -> None:
+    """contents() returns content dict/list on 200 and None on 404, passing ref param."""
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        url = str(request.url)
+        if "missing-path" in url:
+            return httpx2.Response(404, json={"message": "Not found"})
+        if "k8s/monitoring" in url:
+            assert request.url.params.get("ref") == "feat/branch"
+            return httpx2.Response(200, json=[{"name": "service.yaml", "type": "file"}])
+        return httpx2.Response(500, json={"message": "Server error"})
+
+    client = httpx2.Client(transport=httpx2.MockTransport(handler))
+    gitea = GiteaClient("https://git.example.com", "token-123", client=client)
+
+    assert gitea.contents("owner", "repo", "missing-path", ref="feat/branch") is None
+    res = gitea.contents("owner", "repo", "k8s/monitoring", ref="feat/branch")
+    assert res == [{"name": "service.yaml", "type": "file"}]

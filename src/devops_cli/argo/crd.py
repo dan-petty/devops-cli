@@ -31,7 +31,7 @@ from devops_cli.config.constants import (
     CONST_ROLLOUT_FIELD_PROMOTE_FULL,
     CONST_ROLLOUT_FIELD_RESTART_AT,
 )
-from devops_cli.config.defaults import DEFAULT_K8S_NAMESPACE
+from devops_cli.config.defaults import DEFAULT_ARGOCD_NAMESPACE, DEFAULT_K8S_NAMESPACE
 from devops_cli.core.validation import is_valid_k8s_name
 from devops_cli.exceptions.argo import ArgoError, ArgoResourceNotFoundError
 from devops_cli.models.argo import ArgoResourceState, ArgoRolloutState, ArgoWorkflowState
@@ -246,6 +246,34 @@ class ArgoCRDService:
             return self.patch_resource(plural, name, manifest, namespace=namespace)
         return dict(created or {})
 
+    def delete_resource(
+        self, plural: str, name: str, namespace: str = DEFAULT_K8S_NAMESPACE
+    ) -> dict[str, Any]:
+        """Delete an Argo custom resource."""
+        _require_k8s_name(name, f"{plural} name")
+        _require_k8s_name(namespace, "namespace", namespace=True)
+        try:
+            deleted = self._api().delete_namespaced_custom_object(
+                group=CONST_ARGO_API_GROUP,
+                version=CONST_ARGO_API_VERSION,
+                namespace=namespace,
+                plural=plural,
+                name=name,
+            )
+        except Exception as exc:
+            if is_not_found_error(exc):
+                raise ArgoResourceNotFoundError(
+                    f"Argo {plural[:-1]} '{name}' not found in namespace '{namespace}'",
+                    resource=name,
+                    namespace=namespace,
+                ) from exc
+            raise ArgoError(
+                f"Failed deleting Argo {plural[:-1]} '{name}': {exc}",
+                resource=name,
+                namespace=namespace,
+            ) from exc
+        return dict(deleted or {})
+
     # -- Applications & ApplicationSets ---------------------------------------
 
     def apply_application(
@@ -255,6 +283,21 @@ class ArgoCRDService:
         return ArgoResourceState.from_manifest(
             self.apply_resource(CONST_ARGO_PLURAL_APPLICATIONS, manifest, namespace=namespace)
         )
+
+    def delete_application(
+        self, name: str, namespace: str = DEFAULT_ARGOCD_NAMESPACE
+    ) -> dict[str, Any]:
+        """Delete an ArgoCD Application manifest natively."""
+        return self.delete_resource(CONST_ARGO_PLURAL_APPLICATIONS, name, namespace=namespace)
+
+    def list_applications(
+        self, namespace: str = DEFAULT_ARGOCD_NAMESPACE
+    ) -> list[ArgoResourceState]:
+        """List ArgoCD Applications."""
+        return [
+            ArgoResourceState.from_manifest(item)
+            for item in self.list_resources(CONST_ARGO_PLURAL_APPLICATIONS, namespace=namespace)
+        ]
 
     # -- Rollouts -------------------------------------------------------------
 

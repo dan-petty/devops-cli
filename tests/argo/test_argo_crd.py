@@ -226,6 +226,56 @@ def test_apply_resource_requires_manifest_name(service: ArgoCRDService) -> None:
         service.apply_resource(CONST_ARGO_PLURAL_APPLICATIONS, {}, namespace="argocd")
 
 
+def test_delete_resource_success(cluster: FakeCluster, service: ArgoCRDService) -> None:
+    """delete_resource removes the object from cluster (#1082)."""
+    _seed(
+        cluster,
+        CONST_ARGO_PLURAL_APPLICATIONS,
+        {"metadata": {"name": "test-app", "namespace": "argocd"}, "spec": {}},
+    )
+    result = service.delete_resource(CONST_ARGO_PLURAL_APPLICATIONS, "test-app", namespace="argocd")
+    assert result == {"kind": "Status", "status": "Success"}
+    assert _sent(cluster, "delete_namespaced_custom_object")[0]["name"] == "test-app"
+
+
+def test_delete_resource_not_found(service: ArgoCRDService) -> None:
+    """delete_resource raises ArgoResourceNotFoundError when missing (#1082)."""
+    with pytest.raises(ArgoResourceNotFoundError, match="Argo application 'missing-app' not found"):
+        service.delete_resource(CONST_ARGO_PLURAL_APPLICATIONS, "missing-app", namespace="argocd")
+
+
+def test_delete_resource_generic_error(cluster: FakeCluster, service: ArgoCRDService) -> None:
+    """delete_resource raises ArgoError on unexpected error (#1082)."""
+    cluster.custom_objects.fail("delete_namespaced_custom_object", RuntimeError("cluster error"))
+    with pytest.raises(ArgoError, match="Failed deleting Argo application 'test-app'"):
+        service.delete_resource(CONST_ARGO_PLURAL_APPLICATIONS, "test-app", namespace="argocd")
+
+
+def test_delete_application(cluster: FakeCluster, service: ArgoCRDService) -> None:
+    """delete_application deletes the application resource (#1082)."""
+    _seed(
+        cluster,
+        CONST_ARGO_PLURAL_APPLICATIONS,
+        {"metadata": {"name": "my-app", "namespace": "argocd"}, "spec": {}},
+    )
+    result = service.delete_application("my-app", namespace="argocd")
+    assert result == {"kind": "Status", "status": "Success"}
+    assert _sent(cluster, "delete_namespaced_custom_object")[0]["name"] == "my-app"
+
+
+def test_list_applications(cluster: FakeCluster, service: ArgoCRDService) -> None:
+    """list_applications lists applications projected as ArgoResourceState (#1082)."""
+    _seed(
+        cluster,
+        CONST_ARGO_PLURAL_APPLICATIONS,
+        {"metadata": {"name": "app-1", "namespace": "argocd"}, "spec": {}},
+        {"metadata": {"name": "app-2", "namespace": "argocd"}, "spec": {}},
+    )
+    apps = service.list_applications(namespace="argocd")
+    assert len(apps) == 2
+    assert [a.name for a in apps] == ["app-1", "app-2"]
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. Rollout control-plane mutations
 # ─────────────────────────────────────────────────────────────────────────────

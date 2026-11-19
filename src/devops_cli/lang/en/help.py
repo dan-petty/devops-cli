@@ -899,6 +899,14 @@ class ArgoCommandHelp:
         "Delete the records of each release that qualifies. Without it, the command prints the "
         "plan and deletes nothing."
     )
+    trial: str = "Transient trial workload management."
+    trial_start: str = "Deploy a trial application from a Gitea branch into a fenced namespace."
+    trial_end: str = "Delete a trial application and remove its fenced namespace."
+    trial_list: str = "List all active trial applications in project trial."
+    trial_branch: str = "The Gitea git branch to deploy."
+    trial_path: str = "The directory path in the repository containing Kubernetes manifests."
+    trial_repo: str = "The Gitea repository in owner/name format."
+    trial_name: str = "The name for the trial application and namespace."
 
 
 @dataclass(frozen=True)

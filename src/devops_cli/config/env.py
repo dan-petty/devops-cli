@@ -103,6 +103,10 @@ CREDENTIALS: tuple[Credential, ...] = (
     ),
     Credential("gitea.token", "Gitea API token (stored in OS keyring)"),
     Credential(
+        "gitea.argocd_token",
+        "Gitea token with read:repository scope for Argo CD repo-creds (stored in OS keyring)",
+    ),
+    Credential(
         "cloudflare.api_token",
         "Cloudflare API Token (stored in OS keyring)",
         aliases=("CLOUDFLARE_API_TOKEN",),

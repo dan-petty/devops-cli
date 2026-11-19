@@ -456,13 +456,17 @@ def _present(
     """The Secrets whose namespace exists, and those skipped; `--only` fails on a missing one."""
     existing = {
         ns: namespace_exists(ns, options.context)
-        for ns in dict.fromkeys(s.namespace for s in selected)
+        for ns in dict.fromkeys(s.gate_namespace or s.namespace for s in selected)
     }
-    missing = [secret for secret in selected if not existing[secret.namespace]]
+    missing = [
+        secret for secret in selected if not existing[secret.gate_namespace or secret.namespace]
+    ]
     if missing and options.strict_namespaces:
-        names = ", ".join(sorted({secret.namespace for secret in missing}))
+        names = ", ".join(sorted({secret.gate_namespace or secret.namespace for secret in missing}))
         raise ClusterSecretPushError(f"Namespace not found: {names}. Apply its manifests first.")
-    return [secret for secret in selected if existing[secret.namespace]], missing
+    return [
+        secret for secret in selected if existing[secret.gate_namespace or secret.namespace]
+    ], missing
 
 
 def plan_push(selected: Sequence[ClusterSecret], options: PushOptions) -> PushPlan:
@@ -809,7 +813,8 @@ def _when_present(secret: ClusterSecret, options: PushOptions) -> tuple[str, ...
     """When a Secret's requests run: `--only` stops on a missing namespace, `--stack` skips it."""
     if options.strict_namespaces:
         return (_ALL_PRESENT,)
-    return (f"namespace {secret.namespace} exists",)
+    gate = secret.gate_namespace or secret.namespace
+    return (f"namespace {gate} exists",)
 
 
 def dry_run_push(selected: Sequence[ClusterSecret], options: PushOptions) -> PushResult:
@@ -820,7 +825,9 @@ def dry_run_push(selected: Sequence[ClusterSecret], options: PushOptions) -> Pus
     """
     requests = _RequestPlan(options)
     requests.keyring("read", CONST_KEYRING_UNLOCK_PROBE_KEY)
-    for namespace in dict.fromkeys(secret.namespace for secret in selected):
+    for namespace in dict.fromkeys(
+        (secret.gate_namespace or secret.namespace) for secret in selected
+    ):
         requests.kubectl(_namespace_args(namespace), f"namespace {namespace}")
     for secret in selected:
         _plan_reads(requests, secret, _when_present(secret, options))

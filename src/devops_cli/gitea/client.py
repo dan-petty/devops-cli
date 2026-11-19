@@ -75,6 +75,7 @@ class GiteaClient:
         path: str,
         *,
         json_data: Any = None,
+        params: dict[str, Any] | None = None,
     ) -> httpx2.Response:
         url = f"{self.api_url}/{path.lstrip('/')}"
         headers = {"Authorization": f"token {self.token}"}
@@ -83,6 +84,7 @@ class GiteaClient:
             url,
             headers=headers,
             json=json_data,
+            params=params,
         )
 
         if response.is_redirect:
@@ -218,3 +220,33 @@ class GiteaClient:
         )
         self._check_error(resp, "create_branch_protection", repo=f"{owner}/{repo}")
         return GiteaBranchProtection.model_validate(resp.json())
+
+    def branch(self, owner: str, repo: str, branch: str) -> dict[str, Any] | None:
+        """GET /api/v1/repos/{owner}/{repo}/branches/{branch}."""
+        escaped_owner = quote(owner, safe="")
+        escaped_repo = quote(repo, safe="")
+        escaped_branch = quote(branch, safe="")
+        resp = self._request(
+            "GET", f"repos/{escaped_owner}/{escaped_repo}/branches/{escaped_branch}"
+        )
+        if resp.status_code == 404:
+            return None
+        self._check_error(resp, "branch", repo=f"{owner}/{repo}")
+        raw = resp.json()
+        return raw if isinstance(raw, dict) else None
+
+    def contents(self, owner: str, repo: str, path: str, *, ref: str | None = None) -> Any | None:
+        """GET /api/v1/repos/{owner}/{repo}/contents/{path}."""
+        escaped_owner = quote(owner, safe="")
+        escaped_repo = quote(repo, safe="")
+        escaped_path = quote(path.lstrip("/"), safe="/")
+        params = {"ref": ref} if ref else None
+        resp = self._request(
+            "GET",
+            f"repos/{escaped_owner}/{escaped_repo}/contents/{escaped_path}",
+            params=params,
+        )
+        if resp.status_code == 404:
+            return None
+        self._check_error(resp, "contents", repo=f"{owner}/{repo}")
+        return resp.json()
