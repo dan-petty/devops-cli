@@ -268,6 +268,10 @@ USER vscode
   ```bash
   podman volume rm devops-cli-venv devops-cli-mypy-cache devops-cli-pytest-cache devops-cli-ruff-cache devops-cli-uv
   ```
+- **File watcher**: the VS Code file watcher adds one inotify watch for each folder that it watches. All processes of the user share the limit in `/proc/sys/fs/inotify/max_user_watches`. When the watcher uses all watches, other programs cannot add a watch: for example, aardvark-dns stops and container names do not resolve (#6453). `files.watcherExclude` in `.vscode/settings.json` excludes the agent worktrees (`.data/`, `.claude/worktrees/`), the clones (`repos/`), `.venv/` and the tool caches. VS Code adds these patterns to its default excludes and applies a change with no rebuild. `files.exclude` and `search.exclude` do not change the watcher. Add a new folder with many subfolders to the same setting. To count the watches of the file watcher:
+  ```bash
+  for pid in $(pgrep -u "$(id -u)" -f '[-]-type=fileWatcher'); do echo "$pid $(cat /proc/$pid/fdinfo/* 2>/dev/null | grep -c '^inotify')"; done
+  ```
 
 ---
 
