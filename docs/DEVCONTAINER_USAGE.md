@@ -257,6 +257,7 @@ USER vscode
   ```bash
   devcontainer build --workspace-folder . --config .devcontainer/image/devcontainer.json --image-name devops-cli-devcontainer:local
   ```
+- **The tools of each infra repo**: an infra repo pins the tools of its checks and plays, and the key `tools.install` of its project profile names the command that installs them into its checkout. The type `ansible-k8s` sets `make install`; `[tools] install = []` in `.devops/project.toml` turns it off. `devops devcontainer post-start` runs the command in the checkout of each entry of `infra.repos`, so the devcontainer holds no second copy of the versions of an infra repo. A missing checkout, an invalid profile, a failed install or an install of more than 600 s is a warning, and the start goes on. For dan-petty/homelab, the first install takes about 100 s and 1.6 GB in the checkout, and a later start about 1 s. After a clone or a `git pull` that changes a pin, run `make install` in the checkout, or `devops devcontainer post-start`.
 - **Mounts that hold data**: the `.data` volume (agent worktrees and state), the home volume (the keyring and its copies, shell history, tool logins), the bind mount of the host `~/.ssh` and the `/tmp` volume. A test fails if one of them leaves the file. Before a change to the mounts or the image, export the volumes on the host:
   ```bash
   mkdir -p ~/devcontainer-backup

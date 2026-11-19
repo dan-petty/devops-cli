@@ -152,6 +152,7 @@ def test_a_complete_repo_has_every_row_present(onboarding: Onboarding) -> None:
         'ansible.playbook_dir = "ansible/playbooks" (.devops/project.toml)',
         'ansible.roles_path = ["ansible/roles"] (.devops/project.toml)',
         'ansible.offline_group = "offline" (template: ansible-k8s)',
+        'tools.install = ["make", "install"] (template: ansible-k8s)',
     )
 
 

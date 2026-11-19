@@ -34,6 +34,7 @@
      - ansible.playbook_dir = "ansible/playbooks" (.devops/project.toml)
      - ansible.roles_path = ["ansible/roles"] (.devops/project.toml)
      - ansible.offline_group = "offline" (template: ansible-k8s)
+     - tools.install = ["make", "install"] (template: ansible-k8s)
   3. ansible.cfg is at the root of the repository: present
   4. The inventory names hosts: present (6 hosts in 6 groups)
      - debian_nodes: 4 hosts

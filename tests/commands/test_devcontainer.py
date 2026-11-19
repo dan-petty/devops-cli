@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
@@ -443,6 +444,60 @@ class TestDevcontainerCli:
         assert result.exit_code == 0
         assert "Installed pre-commit Git hooks" in result.output
         assert any("pre-commit" in c.argv and "install" in c.argv for c in process_fake.calls)
+
+    @pytest.mark.usefixtures("no_configured_k8s_context")
+    def test_post_start_installs_the_tools_of_each_infra_repo(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        process_fake: ProcessFake,
+        config: Callable[..., Path],
+    ) -> None:
+        """post-start runs the install command of the profile of each infra repo in its checkout,
+        and a failed install is a warning: the start goes on (#6336)."""
+        monkeypatch.setenv("HOME", str(tmp_path / "home"))
+        monkeypatch.setenv("DEVOPS_MINIKUBE_AUTOSTART", "false")
+        checkout = tmp_path / "infra"
+        checkout.mkdir()
+        (checkout / "ansible.cfg").write_text("[defaults]\n", encoding="utf-8")
+        config(infra={"repos": [{"repo": "example-org/infra", "path": str(checkout)}]})
+        process_fake.answer("make install", ProcessAnswer(returncode=2, stderr="no target\n"))
+
+        result = runner.invoke(app, ["post-start", "--workspace", str(tmp_path / "ws")])
+
+        assert result.exit_code == 0
+        assert [c.cwd for c in process_fake.calls if c.argv == ("make", "install")] == [checkout]
+        assert "the install of the tools of example-org/infra" in " ".join(result.output.split())
+
+    @pytest.mark.usefixtures("no_configured_k8s_context")
+    def test_post_start_dry_run_plans_the_install_of_each_infra_repo(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        process_fake: ProcessFake,
+        config: Callable[..., Path],
+    ) -> None:
+        """The dry run of post-start lists the install command of each infra repo, and runs no
+        command (#6336)."""
+        checkout = tmp_path / "infra"
+        checkout.mkdir()
+        (checkout / "ansible.cfg").write_text("[defaults]\n", encoding="utf-8")
+        config(infra={"repos": [{"repo": "example-org/infra", "path": str(checkout)}]})
+
+        result = runner.invoke(
+            app, ["post-start", "--workspace", str(tmp_path), "--dry-run", "--json"]
+        )
+
+        assert result.exit_code == 0
+        requests = json.loads(result.output[result.output.find("{") :])["requests"]
+        assert {
+            "method": "make",
+            "target": "example-org/infra",
+            "argv": ["make", "install"],
+            "condition": f"run in the checkout {checkout}",
+        }.items() <= next(r for r in requests if r["target"] == "example-org/infra").items()
+        assert process_fake.calls == []
 
     @pytest.mark.usefixtures("no_configured_k8s_context")
     @pytest.mark.parametrize(

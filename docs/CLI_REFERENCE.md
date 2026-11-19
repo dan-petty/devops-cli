@@ -77,7 +77,8 @@ The command groups of `devops` and their commands. The page of each group in `co
 |  | `devops devcontainer list [OPTIONS]` | List repos with their devcontainer status. |
 |  | `devops devcontainer unlock-keyring [OPTIONS]` | Create or unlock the gnome-keyring login keyring that gh, git and devops store secrets in. |
 |  | `devops devcontainer post-create [OPTIONS]` | Execute DevContainer post-create setup tasks (history, shell completions, config prep). |
-|  | `devops devcontainer post-start [OPTIONS]` | Execute DevContainer post-start tasks (SSH keys, git defaults, kubeconfig, MCP sync). |
+|  | `devops devcontainer post-start [OPTIONS]` | Execute DevContainer post-start tasks (SSH keys, git defaults, kubeconfig, MCP sync, the
+tools of each infra repo). |
 |  | `devops devcontainer run-lifecycle [OPTIONS]` | Run specified DevContainer lifecycle hook tasks natively in Python. |
 |  | `devops devcontainer bootstrap-k8s [OPTIONS]` | Execute Minikube cluster startup in the background. |
 | [**workspace**](commands/workspace.md) | `devops workspace add [OPTIONS] <repo_path>` | Add a folder to the VS Code workspace file. |

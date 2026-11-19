@@ -68,6 +68,18 @@ class KubernetesProfile(BaseModel):
     dir: str | None = Field(default=None, description="The folder of the Kubernetes manifests")
 
 
+class ToolsProfile(BaseModel):
+    """How a checkout of the repository installs the tools that its checks and plays use."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    install: list[str] = Field(
+        default_factory=list,
+        description="The command, as a list of arguments, that installs the tools of the "
+        "repository into its checkout, run at the root of the checkout. Empty: no command",
+    )
+
+
 class ProjectProfile(BaseModel):
     """The facts of a repository that devops-cli reads."""
 
@@ -76,6 +88,7 @@ class ProjectProfile(BaseModel):
     extends: ProjectType | None = Field(default=None, description="The type of the repository")
     ansible: AnsibleProfile = Field(default_factory=AnsibleProfile)
     kubernetes: KubernetesProfile = Field(default_factory=KubernetesProfile)
+    tools: ToolsProfile = Field(default_factory=ToolsProfile)
 
 
 @dataclass(frozen=True)
@@ -263,6 +276,7 @@ __all__ = [
     "ProjectProfile",
     "ProjectType",
     "ResolvedProfile",
+    "ToolsProfile",
     "resolve_profile",
     "type_template",
 ]

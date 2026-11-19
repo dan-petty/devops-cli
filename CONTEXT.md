@@ -290,7 +290,7 @@ _Avoid_: re-plan, second plan
 _Avoid_: pre-drain, drain test
 
 **Project profile**:
-The facts of one repository that devops-cli reads: its type and the layout of its files. They merge from the field defaults, the type template in `src/devops_cli/templates/profiles/`, detection in the files of the repository and its own `.devops/project.toml`, and each value records its source. The config of devops-cli holds operational keys only, never a fact of a project.
+The facts of one repository that devops-cli reads: its type, the layout of its files and the command that installs its tools into a checkout (`tools.install`). They merge from the field defaults, the type template in `src/devops_cli/templates/profiles/`, detection in the files of the repository and its own `.devops/project.toml`, and each value records its source. The config of devops-cli holds operational keys only, never a fact of a project.
 _Avoid_: project config, repo settings, manifest
 
 **Environment tree**:

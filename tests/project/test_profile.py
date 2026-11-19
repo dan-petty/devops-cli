@@ -40,6 +40,7 @@ def test_an_ansible_cfg_makes_the_type_and_gives_the_layout(tmp_path: Path) -> N
             "offline_group": "offline",
         },
         "kubernetes": {"dir": "k8s"},
+        "tools": {"install": ["make", "install"]},
     }
     assert resolved.sources == {
         "extends": "detected: ansible.cfg",
@@ -48,6 +49,7 @@ def test_an_ansible_cfg_makes_the_type_and_gives_the_layout(tmp_path: Path) -> N
         "ansible.roles_path": "detected: ansible.cfg",
         "ansible.offline_group": "template: ansible-k8s",
         "kubernetes.dir": "detected: k8s",
+        "tools.install": "template: ansible-k8s",
     }
     assert resolved.project_file is False
 
@@ -67,6 +69,17 @@ def test_the_project_file_wins_over_detection_and_the_template(tmp_path: Path) -
         resolved.sources["ansible.inventory"],
         resolved.project_file,
     ) == ("retired", ".devops/project.toml", ".devops/project.toml", "detected: ansible.cfg", True)
+
+
+def test_the_project_file_turns_off_the_install_command_of_the_template(tmp_path: Path) -> None:
+    root = _repo(tmp_path, project_file="[tools]\ninstall = []\n")
+
+    resolved = resolve_profile(root)
+
+    assert (resolved.profile.tools.install, resolved.sources["tools.install"]) == (
+        [],
+        ".devops/project.toml",
+    )
 
 
 def test_the_values_to_declare_are_those_that_differ_from_the_template(tmp_path: Path) -> None:
@@ -115,4 +128,4 @@ def test_an_invalid_project_file_is_refused(tmp_path: Path, text: str) -> None:
 
 
 def test_each_type_has_a_packaged_template() -> None:
-    assert [sorted(type_template(kind)) for kind in ProjectType] == [["ansible"]]
+    assert [sorted(type_template(kind)) for kind in ProjectType] == [["ansible", "tools"]]

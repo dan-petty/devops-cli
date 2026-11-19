@@ -126,7 +126,8 @@ devops devcontainer post-create [OPTIONS]
 
 ## `devops devcontainer post-start`
 
-**Execute DevContainer post-start tasks (SSH keys, git defaults, kubeconfig, MCP sync).**
+**Execute DevContainer post-start tasks (SSH keys, git defaults, kubeconfig, MCP sync, the
+tools of each infra repo).**
 
 ```bash
 devops devcontainer post-start [OPTIONS]

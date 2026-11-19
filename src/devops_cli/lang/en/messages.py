@@ -1533,6 +1533,19 @@ class InfraMessages:
         "Run the command again with --confirm to write the entry, at agent access none unless "
         "a person gives --agent-access."
     )
+    # The tools of each infra repo, which `devops devcontainer post-start` installs (#6336).
+    tools_installed: str = "Installed the tools of {repo} in {path} ({command})"
+    tools_planned: str = "Would install the tools of {repo} in {path} ({command})"
+    tools_no_checkout: str = "Warning: {repo} has no checkout at {path}; no tools installed"
+    tools_no_command: str = "{repo} in {path} declares no install command (tools.install)"
+    tools_invalid_profile: str = "Warning: the project profile of {repo} is invalid: {reason}"
+    tools_failed: str = (
+        "Warning: the install of the tools of {repo} in {path} failed with exit code {code}: "
+        "{reason}"
+    )
+    tools_timed_out: str = (
+        "Warning: the install of the tools of {repo} in {path} did not end in {seconds:.0f} s"
+    )
 
 
 @dataclass(frozen=True)

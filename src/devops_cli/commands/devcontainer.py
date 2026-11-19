@@ -1129,12 +1129,18 @@ def _run_post_start_lifecycle(workspace_dir: Path, *, dry_run: bool = False) -> 
         else:
             actions.append("Installed pre-commit Git hooks (uv run pre-commit install)")
 
-    # 7. D-Bus session bus, on which gnome-keyring is activated for gh, git and Python keyring,
+    # 7. The tools of each infra repo, at the versions that the repository pins: the install
+    # command of its project profile, run in its checkout (#6336)
+    from devops_cli.infra.tools import install_repo_tools
+
+    actions.extend(install_repo_tools(load_settings(), dry_run=dry_run))
+
+    # 8. D-Bus session bus, on which gnome-keyring is activated for gh, git and Python keyring,
     # and any gh token that fell back to plain text while the keyring was unavailable
     actions.extend(_start_session_bus(dry_run=dry_run))
     actions.extend(_gh_plaintext_token_warnings())
 
-    # 8. Align kubectl with the configured context -- last, because the minikube supervisor
+    # 9. Align kubectl with the configured context -- last, because the minikube supervisor
     # above runs `minikube start`, and that rewrites current-context to "minikube". Aligning
     # any earlier is undone immediately, which is exactly how a container configured for one
     # cluster ends up pointing at another on every rebuild.
@@ -1465,7 +1471,8 @@ def post_start(
         bool, typer.Option("--json", "-j", help=HELP.options.json_output)
     ] = False,
 ) -> None:
-    """Execute DevContainer post-start tasks (SSH keys, git defaults, kubeconfig, MCP sync)."""
+    """Execute DevContainer post-start tasks (SSH keys, git defaults, kubeconfig, MCP sync, the
+    tools of each infra repo)."""
     ws = workspace.resolve()
     if dry_run or is_dry_run():
         from devops_cli.devcontainer.devcontainer_plans import plan_post_start

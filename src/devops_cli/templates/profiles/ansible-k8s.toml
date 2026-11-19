@@ -5,3 +5,8 @@
 [ansible]
 playbook_dir = "playbooks"
 offline_group = "offline"
+
+[tools]
+# The repository installs its tools into its checkout, at the versions that it pins, with
+# `make install` (dan-petty/homelab#62). `devops devcontainer post-start` runs it.
+install = ["make", "install"]

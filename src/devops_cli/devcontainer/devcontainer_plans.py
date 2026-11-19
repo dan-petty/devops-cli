@@ -142,7 +142,11 @@ def plan_post_create(workspace: Path | str = ".") -> list[PlannedRequest]:
 
 
 def plan_post_start(workspace: Path | str = ".") -> list[PlannedRequest]:
-    """Plan git configuration and kubectl context alignment."""
+    """Plan git configuration, the install of the tools of each infra repo and kubectl context
+    alignment."""
+    from devops_cli.config.settings import load_settings
+    from devops_cli.infra.tools import plan_repo_tools
+
     desired = configured_context()
     target_ctx = desired or "<context>"
     return [
@@ -156,6 +160,7 @@ def plan_post_start(workspace: Path | str = ".") -> list[PlannedRequest]:
             target="config --global init.defaultBranch main",
             argv=("git", "config", "--global", "init.defaultBranch", "main"),
         ),
+        *plan_repo_tools(load_settings()),
         PlannedRequest(
             method="kubectl",
             target="config get-contexts -o name",

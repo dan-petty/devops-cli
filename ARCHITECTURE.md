@@ -126,6 +126,7 @@ flowchart TD
         T5["Apply Git User & Security Defaults"]
         T6["Validate Kubeconfig & Cluster Context"]
         T7["Register FastMCP Server Configuration"]
+        T8["Install the Tools of Each Infra Repo (tools.install)"]
     end
 
     PY_ENGINE --> PostCreateTasks

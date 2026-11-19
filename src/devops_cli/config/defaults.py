@@ -72,6 +72,10 @@ DEFAULT_INFRA_PING_TIMEOUT_SECONDS: float = 300.0
 DEFAULT_INFRA_GALAXY_TIMEOUT_SECONDS: float = 600.0
 DEFAULT_INFRA_PLAN_TIMEOUT_SECONDS: float = 1800.0
 DEFAULT_INFRA_PLAN_TIMEOUT_MARGIN_SECONDS: int = 60
+# The bound of the install command of an infra repo (`tools.install` of its project profile), which
+# `devops devcontainer post-start` runs in its checkout (#6336). A first install of
+# dan-petty/homelab downloads devops-cli and 6 tools in about 100 s.
+DEFAULT_INFRA_TOOLS_INSTALL_TIMEOUT_SECONDS: float = 600.0
 # The node steps of `devops infra apply` (#5125). Each kubectl request stops at its request bound,
 # below the process bound of the command. The drain check (`kubectl drain --dry-run=server`) stops
 # at its own bound, and a drain at `infra.drain_timeout_seconds`, each the margin below its
