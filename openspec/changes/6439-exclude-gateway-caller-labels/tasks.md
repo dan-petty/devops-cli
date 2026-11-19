@@ -13,6 +13,6 @@ Kind: other. Reads: `docs/TESTING.md`. Changes: `k8s/llm/gateway/config.yaml`, `
 
 ## Workflow follow-up
 
-- Pending a person: after the merge and the Argo CD sync of Application `llm`, run the live checks of the scenarios "The gateway series carry no caller labels" and, 24 h later, "Prometheus refuses no gateway sample".
-- The stored gateway history from 2026-11-15T23Z to the rollout stays wrong; a person decides whether to mark it (see #4624).
-- The alert `AlloyRemoteWriteSamplesFailed` has no runbook; a person decides whether a new item owns it (see #1131).
+- Pending a person: after the merge and the Argo CD sync of Application `llm`, run the live checks of the scenario "The gateway series carry no caller labels" and, 24 h later, of the scenarios "Prometheus refuses no gateway sample" and "Each target keeps its scrapes".
+- The stored metric history from 2026-11-15T23Z to the rollout stays wrong; this change does not mark it (see #6457).
+- The alert `AlloyRemoteWriteSamplesFailed` has no `Do this` step in the alert table of `k8s/README.md`; this change does not add it (see #5471).

@@ -25,6 +25,10 @@ The LLM gateway config SHALL set `litellm_settings.prometheus_exclude_labels` to
 - **WHEN** a person runs `sum(increase(prometheus_remote_storage_samples_failed_total{job="integrations/alloy"}[24h]))` in Prometheus 24 h after the Argo CD sync of Application `llm`
 - **THEN** the query gives 0, and `ALERTS{alertname="AlloyRemoteWriteSamplesFailed"}` returns no series
 
+#### Scenario: Each target keeps its scrapes
+- **WHEN** a person runs the Loki query `sum(count_over_time({namespace="monitoring", container="alloy"} |= "duplicate sample" [24h]))` and the PromQL query `sum by(job)(count_over_time(up[2h])) / on(job) group_left count by(job)(max_over_time(up[2h]))` 24 h after the Argo CD sync of Application `llm`
+- **THEN** the Loki query gives 0, and the PromQL query gives 120 for `roadmap-service` and `valkey-devops`
+
 ### Requirement: The label reader checks run in the k8s row
 The two checks that no dashboard query and no alert expression names `client_ip` or `user_agent` SHALL run in the `k8s` row of `devops ci`, which the Static Analysis check runs.
 

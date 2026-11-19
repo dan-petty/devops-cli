@@ -21,7 +21,7 @@ The cause is the two `labeldrop` rules of the gateway ServiceMonitor that #5896 
 
 - The ConfigMap name of the gateway holds a hash of the config, so the gateway Deployment rolls once after the Argo CD sync of Application `llm`. Its counters start again from 0, which `rate()` and `increase()` handle.
 - No panel can split the gateway traffic by caller address or by devops-cli release. No panel, alert rule or command does that now, and the `end_user` label still names each caller.
-- The stored gateway history from 2026-11-15T23Z to the rollout stays wrong. This change does not repair it.
+- The stored metric history from 2026-11-15T23Z to the rollout stays wrong. This change does not repair or mark it (see #6457).
 - The change fits one pull request.
 
 ## Feasibility
@@ -30,7 +30,7 @@ Read on 2026-11-19 at tag v1.103.11 of BerriAI/litellm, the image tag of `k8s/ll
 
 - `litellm/__init__.py:477-478` declares `prometheus_exclude_metrics` and `prometheus_exclude_labels`.
 - `litellm/integrations/prometheus.py:275` reads the setting into the logger, and `:897-919` checks each name against the defined labels. An unknown name raises `ValueError`.
-- The metric factory at `:1158-1178` makes each metric without the excluded label names, and `_ExcludedLabelMetric.labels()` (`:163-184`) drops the excluded values. `get_labels_for_metric` (`:1188-1204`) and `_inc_labeled_counter` (`:1304-1317`) are the increment path of all seven families.
+- `get_labels_for_metric` (`:1188-1204`) leaves the excluded labels out of the label names of each family. `_inc_labeled_counter` (`:1304-1317`) gives the same list to `prometheus_label_factory` (`:4531`), which keeps only the values of those labels (`:4556-4560`). This is the increment path of all seven families. The wrapper `_ExcludedLabelMetric` (`:163-184`) applies only to a metric with fixed label names, and none of the seven families is such a metric.
 - No premium or licence check gates the setting.
 - The note at `litellm/proxy/proxy_server.py:5857-5860` says that the order of keys has mattered for other Prometheus settings, so the key comes before `callbacks`.
 
