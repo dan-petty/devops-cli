@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from devops_cli.ci.changed_tests import is_file_changed, is_test_changed, parse_tests
+from devops_cli.ci.changed_tests import (
+    is_file_changed,
+    is_test_changed,
+    only_deleted_checks,
+    parse_tests,
+)
 
 BASE = '''\
 """Module docstring."""
@@ -140,3 +145,175 @@ def test_a_file_is_changed_when_its_syntax_tree_differs_or_is_new(
     file changed: a comment or a blank line changes no file, and a file that is new or that a
     parse does not hold is not known unchanged."""
     assert is_file_changed(parse_tests(base), parse_tests(head)) is changed
+
+
+# A check module of `tests/gate/k8s_checks/` at the merge base (#6456).
+GATE_BASE = '''\
+"""Checks of the gateway manifests."""
+
+from pathlib import Path
+
+import pytest
+import yaml
+
+GATEWAY_DIR = Path("k8s/gateway")
+SERVICE_MONITOR = GATEWAY_DIR / "servicemonitor.yaml"
+
+# The labels that no query reads.
+DROPPED_LABELS = ("client_ip", "user_agent")
+
+
+def _load(path):
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def check_kept_rule():
+    assert _load(GATEWAY_DIR / "config.yaml")["drop"] == list(DROPPED_LABELS)
+
+
+def check_old_rule():
+    assert _load(SERVICE_MONITOR)["drop"] == list(DROPPED_LABELS)
+
+
+@pytest.mark.parametrize("port", [80, 443])
+def check_ports(port):
+    assert port in _load(GATEWAY_DIR / "service.yaml")["ports"]
+'''
+
+OLD_RULE = """\
+def check_old_rule():
+    assert _load(SERVICE_MONITOR)["drop"] == list(DROPPED_LABELS)
+
+
+"""
+PORTS = """\
+
+
+@pytest.mark.parametrize("port", [80, 443])
+def check_ports(port):
+    assert port in _load(GATEWAY_DIR / "service.yaml")["ports"]
+"""
+MONITOR = 'SERVICE_MONITOR = GATEWAY_DIR / "servicemonitor.yaml"\n'
+COMMENT = "# The labels that no query reads."
+
+
+def _without(source: str, *parts: str) -> str:
+    """`source` with each of `parts` taken out."""
+    for part in parts:
+        assert part in source
+        source = source.replace(part, "", 1)
+    return source
+
+
+# The fix of #6439: it deletes a check and the constant that only that check read, and it changes
+# the text of a comment.
+ONLY_DELETED = _without(GATE_BASE, OLD_RULE, MONITOR).replace(COMMENT, "# Excluded at the source.")
+
+
+@pytest.mark.parametrize(
+    ("base", "head", "deleted"),
+    [
+        (GATE_BASE, ONLY_DELETED, ("gateway.check_old_rule",)),
+        (GATE_BASE, _without(GATE_BASE, PORTS), ("gateway.check_ports",)),
+        (
+            GATE_BASE,
+            _without(GATE_BASE, OLD_RULE, MONITOR, PORTS),
+            ("gateway.check_old_rule", "gateway.check_ports"),
+        ),
+        (
+            GATE_BASE,
+            ONLY_DELETED.replace('"""Checks of the gateway', '"""Checks of the', 1),
+            ("gateway.check_old_rule",),
+        ),
+    ],
+    ids=["check-constant-comment", "parametrized-check", "two-checks-in-order", "docstring"],
+)
+def test_a_module_that_only_loses_checks_names_them(
+    base: str, head: str, deleted: tuple[str, ...]
+) -> None:
+    """A gate check module whose head keeps the statements of its base in order, and leaves out
+    only checks and names that the head does not use, names each deleted check as the gate runner
+    names a case. A comment, a blank line and the module docstring change nothing (#6456)."""
+    assert only_deleted_checks("gateway", base, head) == deleted
+
+
+REBOUND = 'DROPPED_LABELS = ("client_ip", "user_agent")\n'
+REBINDING = 'DROPPED_LABELS = ("client_ip",)\n'
+CALL = 'yaml.add_constructor("!env", lambda loader, node: "")\n'
+PATH_IMPORT = "from pathlib import Path\n"
+GATEWAY_DIR = 'GATEWAY_DIR = Path("k8s/gateway")\n'
+# A second definition of a kept check, which the first one does not run.
+KEPT_AGAIN = """
+
+def check_kept_rule():
+    assert _load(GATEWAY_DIR / "values.yaml")
+"""
+
+
+@pytest.mark.parametrize(
+    ("base", "head"),
+    [
+        (
+            GATE_BASE,
+            _without(GATE_BASE, OLD_RULE).replace('"config.yaml"', '"values.yaml"', 1),
+        ),
+        (
+            GATE_BASE,
+            _without(GATE_BASE, OLD_RULE, MONITOR)
+            + '\n\ndef check_new_rule():\n    assert _load(GATEWAY_DIR / "config.yaml")\n',
+        ),
+        (
+            GATE_BASE,
+            _without(GATE_BASE, OLD_RULE, MONITOR).replace(
+                'encoding="utf-8"', 'encoding="ascii"', 1
+            ),
+        ),
+        (
+            GATE_BASE,
+            _without(GATE_BASE, OLD_RULE, MONITOR).replace("[80, 443]", "[80]", 1),
+        ),
+        (
+            GATE_BASE,
+            _without(GATE_BASE, OLD_RULE, MONITOR).replace("import yaml", "import os\nimport yaml"),
+        ),
+        (GATE_BASE, _without(GATE_BASE, OLD_RULE, MONITOR, PORTS).replace(COMMENT, PORTS)),
+        (GATE_BASE, _without(ONLY_DELETED, GATEWAY_DIR)),
+        (GATE_BASE.replace(REBOUND, REBOUND + REBINDING), ONLY_DELETED),
+        (GATE_BASE.replace(REBOUND, REBOUND + CALL), ONLY_DELETED),
+        (
+            GATE_BASE.replace(PATH_IMPORT, f"from __future__ import annotations\n{PATH_IMPORT}"),
+            ONLY_DELETED,
+        ),
+        (GATE_BASE + KEPT_AGAIN, GATE_BASE),
+        (GATE_BASE, GATE_BASE.replace(COMMENT, "# Excluded at the source.")),
+        (None, ONLY_DELETED),
+        (GATE_BASE, None),
+        ("def check_old_rule(:\n", ONLY_DELETED),
+        (GATE_BASE, "def check_kept_rule(:\n"),
+    ],
+    ids=[
+        "other-check-changed",
+        "check-added",
+        "helper-changed",
+        "parametrize-label-changed",
+        "import-added",
+        "statement-moved",
+        "left-out-name-still-used",
+        "left-out-rebinding-of-a-used-name",
+        "left-out-top-level-call",
+        "left-out-future-import",
+        "deleted-redefinition-of-a-kept-check",
+        "no-check-deleted",
+        "new-module",
+        "no-head",
+        "base-cannot-parse",
+        "head-cannot-parse",
+    ],
+)
+def test_a_module_that_does_more_than_lose_checks_names_none(
+    base: str | None, head: str | None
+) -> None:
+    """A module that adds, changes or moves a statement, that leaves out a statement that a kept
+    case can still see, or that a side does not hold or parse, names no deleted check, so its
+    gate row still needs a case that proves the fix (#6456)."""
+    assert only_deleted_checks("gateway", base, head) == ()
