@@ -292,6 +292,7 @@ class TestCLIPrewarmCommand:
     ) -> None:
         """Verify devops ai prewarm counts its run one time, by model, evict and outcome."""
         model_fake.set_preload_results({"http://localhost:11434": node_ok})
+        model_fake.set_available_models(["gemma4:26b"])
 
         result = cli("ai", "prewarm", "--model", "gemma4:26b", "--single-node")
 
@@ -413,11 +414,14 @@ class TestPrewarmToolTakesNoUrlFromTheModel:
 
         failed, reply = await _call_prewarm_tool({"keep_alive": "24h"})
 
+        post_sent = [request for request in web.sent if request.method == "POST"]
+        post_recorded = [request for request in web.recorded if request.method == "POST"]
+
         assert (
             failed,
-            sorted(f"{request.url.host}:{request.url.port}" for request in web.sent),
-            [(request.method, request.url.path) for request in web.sent],
-            [request.json for request in web.recorded],
+            sorted(f"{request.url.host}:{request.url.port}" for request in post_sent),
+            [(request.method, request.url.path) for request in post_sent],
+            [request.json for request in post_recorded],
             reply.count("confirmed HTTP 200 (keep_alive=24h)"),
         ) == (
             False,
@@ -456,7 +460,7 @@ class TestPrewarmToolTakesNoUrlFromTheModel:
 
         await _call_prewarm_tool({})
 
-        assert {str(request.url) for request in web.sent} == (
+        assert {str(request.url) for request in web.sent if request.method == "POST"} == (
             {f"http://{address}:11434/api/generate"} if dialled else set()
         )
 
@@ -474,7 +478,11 @@ class TestPrewarmToolTakesNoUrlFromTheModel:
 
         assert (
             result.exit_code,
-            [f"{request.url.host}:{request.url.port}" for request in web.sent],
+            [
+                f"{request.url.host}:{request.url.port}"
+                for request in web.sent
+                if request.method == "POST"
+            ],
         ) == (0, ["example.com:11434"])
 
 
@@ -575,9 +583,132 @@ class TestPrewarmCounterModelLabel:
         label: str,
     ) -> None:
         """The counter holds the model as a label of safe characters and at most 128 of them."""
+        model_fake.set_available_models([model])
         result = cli("ai", "prewarm", "--model", model, "--single-node")
 
-        assert (result.exit_code, [a["model"] for a, _ in otlp.points(AI_PREWARMS_TOTAL.name)]) == (
+        (span,) = [s for s in otlp.spans if s.name == "ai.prewarm"]
+        assert (
+            result.exit_code,
+            [a["model"] for a, _ in otlp.points(AI_PREWARMS_TOTAL.name)],
+            span.attributes["ai.model"],
+        ) == (
             0,
             [label],
+            label,
         )
+
+    def test_unreported_model_gives_other_in_counter_and_span(
+        self,
+        cli: Callable[..., Any],
+        model_fake: ModelFake,
+        otlp: FakeCollector,
+    ) -> None:
+        """A model that no server reports gives 'other' in the counter label and the span attribute."""
+        model_fake.set_available_models([])
+        result = cli("ai", "prewarm", "--model", "unreported-model:latest", "--single-node")
+
+        (span,) = [s for s in otlp.spans if s.name == "ai.prewarm"]
+        assert (
+            result.exit_code,
+            [a["model"] for a, _ in otlp.points(AI_PREWARMS_TOTAL.name)],
+            span.attributes["ai.model"],
+        ) == (
+            0,
+            ["other"],
+            "other",
+        )
+
+    def test_configured_model_passes_without_server_report(
+        self,
+        config: Callable[..., Any],
+        cli: Callable[..., Any],
+        model_fake: ModelFake,
+        otlp: FakeCollector,
+    ) -> None:
+        """The configured ai.model passes even when no server reports it."""
+        config(ai={"provider": "ollama", "model": "my-default-model"})
+        model_fake.set_available_models([])
+        result = cli("ai", "prewarm", "--model", "my-default-model", "--single-node")
+
+        (span,) = [s for s in otlp.spans if s.name == "ai.prewarm"]
+        assert (
+            result.exit_code,
+            [a["model"] for a, _ in otlp.points(AI_PREWARMS_TOTAL.name)],
+            span.attributes["ai.model"],
+        ) == (
+            0,
+            ["my-default-model"],
+            "my-default-model",
+        )
+
+    def test_reported_model_passes(
+        self,
+        cli: Callable[..., Any],
+        model_fake: ModelFake,
+        otlp: FakeCollector,
+    ) -> None:
+        """A reported model passes to the counter label and span attribute."""
+        model_fake.set_available_models(["custom-reported:26b"])
+        result = cli("ai", "prewarm", "--model", "custom-reported:26b", "--single-node")
+
+        (span,) = [s for s in otlp.spans if s.name == "ai.prewarm"]
+        assert (
+            result.exit_code,
+            [a["model"] for a, _ in otlp.points(AI_PREWARMS_TOTAL.name)],
+            span.attributes["ai.model"],
+        ) == (
+            0,
+            ["custom-reported:26b"],
+            "custom-reported:26b",
+        )
+
+    def test_failing_list_models_gives_other_and_prewarm_runs(
+        self,
+        cli: Callable[..., Any],
+        model_fake: ModelFake,
+        otlp: FakeCollector,
+    ) -> None:
+        """A failing list_models call results in 'other' and the prewarm still runs."""
+        from devops_cli.ai.client import AIClientError
+
+        model_fake.set_list_models_error(AIClientError("connection refused"))
+        result = cli("ai", "prewarm", "--model", "some-unlisted-model", "--single-node")
+
+        (span,) = [s for s in otlp.spans if s.name == "ai.prewarm"]
+        assert (
+            result.exit_code,
+            [a["model"] for a, _ in otlp.points(AI_PREWARMS_TOTAL.name)],
+            span.attributes["ai.model"],
+            len(model_fake.preload_calls),
+        ) == (
+            0,
+            ["other"],
+            "other",
+            1,
+        )
+
+    def test_url_option_queries_only_named_server(
+        self,
+        config: Callable[..., Any],
+        cli: Callable[..., Any],
+        model_fake: ModelFake,
+    ) -> None:
+        """The --url option queries only the named server for models."""
+        config(ai={"provider": "ollama", "ollama_urls": ["http://example.org:11434"]})
+        result = cli("ai", "prewarm", "--url", "http://example.com:11434", "--model", "gemma4:26b")
+
+        assert result.exit_code == 0
+        assert model_fake.list_models_calls == [["http://example.com:11434"]]
+
+    def test_non_ollama_provider_queries_no_server_for_models(
+        self,
+        config: Callable[..., Any],
+        cli: Callable[..., Any],
+        model_fake: ModelFake,
+    ) -> None:
+        """A provider other than ollama does not query servers for models."""
+        config(ai={"provider": "openai", "model": "gpt-4o", "api_key": "test"})
+        result = cli("ai", "prewarm", "--model", "gpt-4o")
+
+        assert result.exit_code == 0
+        assert model_fake.list_models_calls == []

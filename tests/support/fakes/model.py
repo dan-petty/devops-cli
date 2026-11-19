@@ -198,6 +198,7 @@ class ModelFake(Model):
         self._preload_calls: list[dict[str, Any]] = []
         self._factory_calls: list[dict[str, Any]] = []
         self._list_models_error: Exception | None = None
+        self.list_models_calls: list[Sequence[str] | None] = []
         self._config = _FakeConfig(provider=system, model=model_name)
 
     @property
@@ -295,13 +296,15 @@ class ModelFake(Model):
         self._factory_calls.clear()
         self._preload_results = None
         self._list_models_error = None
+        self.list_models_calls.clear()
 
     def get_context_window(self, model: str | None = None) -> int:
         """Return fake context window token limit for `LLMClient` compatibility."""
         return 128000
 
-    def list_models(self) -> list[str]:
+    def list_models(self, urls: Sequence[str] | None = None) -> list[str]:
         """Return the sequence of available models."""
+        self.list_models_calls.append(urls)
         if getattr(self, "_list_models_error", None) is not None:
             raise self._list_models_error
         return list(self._available_models)
