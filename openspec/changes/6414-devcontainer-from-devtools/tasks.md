@@ -25,7 +25,7 @@
 
 ## 4. Documents
 
-- [ ] 4.1 Describe the devtools base, Podman, the two image stores, `DOCKER_HOST`, the inotify risk, the `devcontainer upgrade` step and `remoteEnv` in `docs/DEVCONTAINER_USAGE.md`, the path filter in `docs/SDLC.md`, Podman in place of Docker-in-Docker in the knowledge base, the Purpose of the `devcontainer-image-tools` spec, and the source of the keyring packages in `src/devops_cli/config/constants.py`
+- [x] 4.1 Describe the devtools base, Podman, the two image stores, `DOCKER_HOST`, the inotify risk, the `devcontainer upgrade` step and `remoteEnv` in `docs/DEVCONTAINER_USAGE.md`, the path filter in `docs/SDLC.md`, Podman in place of Docker-in-Docker in the knowledge base, the Purpose of the `devcontainer-image-tools` spec, and the source of the keyring packages in `src/devops_cli/config/constants.py`
   - Verification: `$ git grep -n 'devcontainer upgrade' docs/DEVCONTAINER_USAGE.md`
 
 ## Workflow follow-up

@@ -1,7 +1,7 @@
 # devcontainer-image-tools Specification
 
 ## Purpose
-The devcontainer image holds every tool of `tools.lock` at its locked version in standard locations, so a tool is on PATH after a build and a rebuild of the image is the way to change it.
+The devcontainer image builds FROM the devtools image at a digest and takes each tool from it, in standard locations. It adds the venv of devops-cli, the user vscode and Podman, so a tool is on PATH after a build and a new devtools digest is the way to change it.
 
 ## Requirements
 

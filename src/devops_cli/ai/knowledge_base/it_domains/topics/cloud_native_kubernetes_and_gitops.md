@@ -36,7 +36,7 @@ graph TD
   - **Helm**: Parameterized packaging, semantic release versioning, atomic rollback capabilities.
   - **Kustomize**: Template-free overlay inheritance (`base/` + `overlays/<env>/`) using strategic merge patches.
 - **Kubernetes Cluster Topologies & Targeting**:
-  - **Embedded DevContainer Minikube**: Local single-node cluster using the Docker-in-Docker driver (`--driver=docker`) with GPU passthrough and conditional autostart governed by `k8s.context == "minikube"`.
+  - **Embedded DevContainer Minikube**: Local single-node cluster with the docker driver (`--driver=docker`), which runs against Podman in the devcontainer, with GPU passthrough and conditional autostart governed by `k8s.context == "minikube"`.
   - **Docker Desktop Kubernetes (`docker-desktop`)**: Local workstation cluster running on macOS/Windows host, accessed via bind-mounted `~/.kube` and `host.docker.internal:6443`.
   - **Local Host Clusters (`kind`, `k3s`, `k3d`)**: Containerized or lightweight local clusters running on the workstation host without consuming DevContainer resources.
   - **Cloud-Managed Clusters (Amazon EKS, Google GKE, Azure AKS)**: Remote enterprise clusters authenticated via cloud provider CLIs (`aws`, `gcloud`, `az`) and IAM credentials forwarded into the container.

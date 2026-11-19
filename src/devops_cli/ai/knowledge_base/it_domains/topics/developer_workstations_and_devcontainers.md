@@ -32,7 +32,7 @@ graph TD
 ## 2. Key Concepts & Theoretical Foundations
 
 - **Development Container Specification (OCI)**: Standardized specification (`.devcontainer/devcontainer.json`) defining container image references, editor extensions, lifecycle hooks, and port forwarding.
-- **Docker-in-Docker (DinD)**: Mounting `/var/run/docker.sock` to enable container building, image inspection, and Minikube execution inside development environments without nested virtualization penalties.
+- **Podman in Podman**: A container engine inside the development container (the `podman-in-podman` Feature), with a Docker-compatible `docker` command and socket, for container builds, image inspection and Minikube without nested virtualization.
 - **Persistent State across Rebuilds**: Preserving shell history, configuration directories (`~/.gemini/config`), and cache directories (`~/.cache/uv`) across container rebuilds via host volume mounts.
 - **Multi-Root Workspaces**: Aggregating multiple independent child repositories under `repos/<org>/` into a single root `.code-workspace` file.
 
