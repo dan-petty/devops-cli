@@ -1,0 +1,21 @@
+# Design
+
+## Decisions
+
+- **Exclude the labels in LiteLLM.** `litellm_settings.prometheus_exclude_labels: ["client_ip", "user_agent"]` removes the two labels before exposition. `_ExcludedLabelMetric.labels()` (`litellm/integrations/prometheus.py:163-184` at v1.103.11) drops the excluded values, so the counts of all callers go into one series in the process. Prometheus gets one series for each remaining label set, and no two samples collide.
+- **Put the key before `callbacks`.** `callbacks` only adds the callback name and mounts `/metrics/` (`litellm/proxy/common_utils/callback_utils.py:177-180`, `:401-404`). LiteLLM makes the collectors later. The note at `litellm/proxy/proxy_server.py:5857-5860` shows that the order of keys has mattered for other Prometheus settings, so the safe order costs nothing.
+- **Remove the `labeldrop` rules in the same change.** With no label to drop, the rules do nothing. Two places that remove the same labels give two sources of truth.
+- **Delete the endpoint check and write no new value check.** `check_the_gateway_endpoint_drops_the_caller_labels` asserts the `labeldrop` list, the port, the path and the interval of a manifest. `docs/TESTING.md` forbids a check that asserts a value of a manifest or a config file. A check that reads the new key would break the same rule. `uv run devops ci --check --only k8s` renders the manifests, and the live check after the Argo CD sync proves the result.
+- **Keep the two reader checks.** No dashboard query and no alert expression may group by or filter on a label that the gateway does not send. These checks assert a rule over a set of expressions, not a value.
+- **A typo in a label name.** `PrometheusLogger.__init__` raises `ValueError` on a label name that it does not know (`prometheus.py:908-917`), and callback setup can swallow that error. Both names are defined labels of v1.103.11. The live check counts `litellm_deployment_total_requests_total` after the sync, so a lost callback shows.
+
+## Rejected alternatives
+
+- **Remove the `labeldrop` rules only.** It stops the collisions. But the deployment families have no `end_user` label, so the TTL eviction never removes their series (`prometheus.py:1285-1287`). Each caller address and each devops-cli release adds series until the gateway restarts: about 1,330 to 1,500 extra series after 3 days of pod uptime, measured on 2026-11-19. That gives up the bound of #4545.
+- **`prometheus_metrics_config` with `include_labels`.** When groups are given, `_is_metric_enabled` returns only the listed metrics (`prometheus.py:1150-1156`). Each family that is not listed stops, so the config must list each family and label that a reader uses, and it breaks when a release adds one.
+- **Upgrade LiteLLM for `prometheus_metrics_max_series_per_metric`.** The setting is not in v1.103.11. It caps the series and puts the rest into an `other` series, but the labels stay, so readers still read split values.
+- **Aggregate before storage in Alloy or in the OpenTelemetry Collector.** It gives correct values, but it is a pipeline of 40 to 60 lines for one target. It must add the metadata labels back by hand, and it sums away each label that a later LiteLLM release adds. AGENTS.md rule 3 prefers LiteLLM's own setting.
+- **Relabel `client_ip` and `user_agent` to a constant, or drop whole families.** A relabel rule cannot add values, so the label sets still collide with different values. Dropping whole families breaks `llm-stack.json`, `ai-spend.json` and the `devops ai gateway load` reads.
+- **Scrape the gateway directly with Prometheus.** Prometheus does not refuse the scrape, but the TSDB keeps the first sample of each label set and drops the rest with no counter (`tsdb/head_append.go:1341-1354`, `:1446-1448` at v3.16.0). The data stays wrong and nothing shows it.
+- **Alloy remote write 2.0 with partial commit.** It keeps the samples of other targets only. The colliding gateway samples still drop, the setting is experimental, and the alert stays noisy.
+- **`use_x_forwarded_for` with a constant header, and a user agent with no release.** Each caller must comply, and Open WebUI and the health check do not. The comment of `k8s/llm/gateway/config.yaml` says not to set `use_x_forwarded_for` while a pod can forge the header, because it gets around the rate limit by source.
