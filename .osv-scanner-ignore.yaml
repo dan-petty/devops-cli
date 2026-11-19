@@ -27,6 +27,13 @@ vulnerabilities:
     statement: >-
       mcp 1.29.0 advisory; semgrep 1.179.0 (and 1.186.0) pins mcp==1.29.0 (#3988).
     expired_at: 2026-11-21
+  - id: GHSA-qx49-fqc8-xw99
+    paths:
+      - src/devops_cli/tools_lock/semgrep.txt
+    statement: >-
+      mcp 1.29.0 advisory (HIGH, fixed in 1.30.0); semgrep 1.186.0, the newest release, pins
+      mcp==1.29.0 (#6480).
+    expired_at: 2026-11-22
   - id: GHSA-mf5v-w3w3-f6cg
     paths:
       - src/devops_cli/tools_lock/semgrep.txt
