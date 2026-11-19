@@ -17,8 +17,8 @@ Issue #5585: `src/devops_cli/roadmap/runner_tools.py` holds copies of tool versi
 
 ## Capabilities
 
-- Modified: `roadmap-implement-runner` (The runner stage holds the tools of a step; The runner image holds each tool that the gate and the hooks need; The build of the runner image fails on a missing tool, renamed from "The build of the runner image fails on a missing tool or a wrong pin").
-- Modified: `release-concurrency-and-renovate` (Every pin of the repository has a Renovate manager; An update of runtime code has the prefix of a release).
+- Modified: `roadmap-implement-runner` (The runner stage holds the tools of a step; The build of the runner image fails on a missing tool, renamed from "The build of the runner image fails on a missing tool or a wrong pin"). "The runner tools table names each tool that the gate and the hooks need" replaces "The runner image holds each tool that the gate and the hooks need", because OpenSpec refuses a MODIFIED block that gives a scenario a new title.
+- Modified: `release-concurrency-and-renovate` (Every pin of the repository has a Renovate manager). "A Renovate update of runtime code has the prefix of a release" replaces "An update of runtime code has the prefix of a release", for the same reason.
 
 ## Impact
 

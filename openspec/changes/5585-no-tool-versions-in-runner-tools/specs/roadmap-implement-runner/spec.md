@@ -20,17 +20,6 @@ The `runner` stage of `Dockerfile` SHALL build from `runner-deps`, which builds 
 - **WHEN** a test reads the `runner-deps` stage
 - **THEN** the apt packages of `runner-deps` are the apt tools of `RUNNER_TOOLS` and `ca-certificates`
 
-### Requirement: The runner image holds each tool that the gate and the hooks need
-`RUNNER_TOOLS` in `devops_cli.roadmap.runner_tools` SHALL list each program that the runner image must hold, its source, why it is there, and the command that proves it runs. `NOT_IN_RUNNER` SHALL name each program that the image leaves out, with the reason. The module SHALL hold no tool version: `Dockerfile` and `tools.lock` hold the pins.
-
-#### Scenario: A source of the gate needs a program that is in neither table
-- **WHEN** a program of a `devops ci` row, of a hook of `.pre-commit-config.yaml`, of a required job of `ci.yml` or of a live-marked test is in neither `RUNNER_TOOLS` nor `NOT_IN_RUNNER`
-- **THEN** a test fails and names the program
-
-#### Scenario: A pin drifts from the Dockerfile
-- **WHEN** a pull request changes the version of uv, gh, Node, Python or actionlint in `Dockerfile`
-- **THEN** it changes no file under `src/`, because `RUNNER_TOOLS` holds no version and no test compares a version with `Dockerfile`
-
 ### Requirement: The build of the runner image fails on a missing tool
 The last step of the `runner` stage SHALL run `python -m devops_cli.roadmap.runner_tools` as user 1000. The check SHALL fail when a program is not on PATH or its version command exits non-zero. For a dev dependency and for the project, it SHALL also fail when the output lacks the version of the installed distribution. It SHALL compare no other version.
 
@@ -45,3 +34,22 @@ The last step of the `runner` stage SHALL run `python -m devops_cli.roadmap.runn
 #### Scenario: Every tool passes
 - **WHEN** every version command exits 0, and each dev dependency prints its installed version
 - **THEN** the check prints the number of tools and exits 0
+
+## REMOVED Requirements
+
+### Requirement: The runner image holds each tool that the gate and the hooks need
+**Reason**: Its scenario "A pin drifts from the Dockerfile" names a copy of a pin that the module does not hold now. OpenSpec refuses a MODIFIED block that gives a scenario a new title, so the requirement goes and comes back with a new name.
+**Migration**: The requirement "The runner tools table names each tool that the gate and the hooks need" holds the same rule.
+
+## ADDED Requirements
+
+### Requirement: The runner tools table names each tool that the gate and the hooks need
+`RUNNER_TOOLS` in `devops_cli.roadmap.runner_tools` SHALL list each program that the runner image must hold, its source, why it is there, and the command that proves it runs. `NOT_IN_RUNNER` SHALL name each program that the image leaves out, with the reason. The module SHALL hold no tool version: `Dockerfile` and `tools.lock` hold the pins.
+
+#### Scenario: A source of the gate needs a program that is in neither table
+- **WHEN** a program of a `devops ci` row, of a hook of `.pre-commit-config.yaml`, of a required job of `ci.yml` or of a live-marked test is in neither `RUNNER_TOOLS` nor `NOT_IN_RUNNER`
+- **THEN** a test fails and names the program
+
+#### Scenario: A Dockerfile pin bump changes no runner code
+- **WHEN** a pull request changes the version of uv, gh, Node, Python or actionlint in `Dockerfile`
+- **THEN** it changes no line of `src/devops_cli/roadmap/runner_tools.py`, because `RUNNER_TOOLS` holds no version and no test compares a version with `Dockerfile`
