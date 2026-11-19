@@ -5,7 +5,8 @@ exports the commit (`repo_tree.export_commit`) into the project folder of an ans
 data folder under `<data dir>/infra/<owner>/<name>/plans/` (mode 0700). It reads the profile and
 the inventory in the export, installs the pinned collections of `collections/requirements.yml`
 once for each version of the file, and runs `ansible-runner run <folder> --playbook <playbook>`
-with `--check --diff -v` and the limit `<limit>:!<offline group>`. The run gets the repo's
+with `--check --diff -v` and the limit `<limit>`, followed by `!<offline group>` as its own comma
+term after a comma limit and as a colon term otherwise. The run gets the repo's
 `ansible.cfg`, the key of `devops ssh` as `ansible_ssh_private_key_file`, host key checks on, and
 the environment of the process runner, so no `ANSIBLE_` variable of the person reaches it. The
 `TERM` of the person reaches it, and ansible-runner gives the run a pseudo-terminal, so in a color
@@ -163,9 +164,13 @@ _HIDDEN_UNIT: Final[str] = "(hidden)"
 
 def host_pattern(limit: str | None, offline_group: str | None) -> str:
     """The hosts that the run reaches: the limit, else all hosts, and never a host of the group
-    of hosts out of service."""
+    of hosts out of service. Ansible splits a pattern that holds a comma on the commas only, so
+    the exclusion is its own comma term after a comma limit and a colon term otherwise."""
     pattern = limit or _ALL_HOSTS
-    return f"{pattern}:!{offline_group}" if offline_group else pattern
+    if not offline_group:
+        return pattern
+    separator = "," if "," in pattern else ":"
+    return f"{pattern}{separator}!{offline_group}"
 
 
 def nondisruptive_units(inventory: AnsibleInventory) -> dict[str, frozenset[str]]:

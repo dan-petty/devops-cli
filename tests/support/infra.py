@@ -291,9 +291,11 @@ def terminal_events(call: ProcessCall, project: Path) -> list[dict[str, Any]]:
 
 
 def limit_hosts(call: ProcessCall) -> tuple[str, ...]:
-    """The hosts of the `--limit` of an `ansible-runner run`, before `:!<offline group>`."""
+    """The hosts of the `--limit` of an `ansible-runner run`: each term, without the offline
+    exclusion that follows a colon and without each `!` term of a comma limit."""
     pattern = call.argv[call.argv.index("--limit") + 1]
-    return tuple(pattern.split(":", 1)[0].split(","))
+    terms = (term.split(":", 1)[0] for term in pattern.split(","))
+    return tuple(term for term in terms if not term.startswith("!"))
 
 
 def is_check_run(call: ProcessCall) -> bool:

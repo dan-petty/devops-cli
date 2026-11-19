@@ -357,7 +357,9 @@ def test_the_disruptive_class_comes_from_the_action_and_its_arguments(
         pytest.param(
             "node-5.example.com", "offline", "node-5.example.com:!offline", id="offline-host"
         ),
+        pytest.param("a,b", "offline", "a,b,!offline", id="comma-limit"),
         pytest.param("k3s_agent", None, "k3s_agent", id="no-offline-group"),
+        pytest.param("gpu_nodes", "offline", "gpu_nodes:!offline", id="single-group"),
     ],
 )
 def test_a_host_in_the_offline_group_is_never_in_the_limit(
