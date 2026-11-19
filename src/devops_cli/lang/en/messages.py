@@ -6024,8 +6024,8 @@ class RoadmapMessages:
             ),
             "issues_unread": "the run has not read every issue yet",
             "labels_differ": "the labels of the repository differ from .github/labels.yml",
-            "still_waiting": "no comment follows refine's last comment on the waiting item",
-            "person_waiting": "the item waits on a person, and no comment follows refine's last one",
+            "still_waiting": "no reply follows the start of the wait of the waiting item",
+            "person_waiting": "the item waits on a person, and no reply follows the start of its wait",
             "named_closed": "the issue that the wait text names is closed and changed since the wait",
             "capped": (
                 "the cap on refine's comments leaves the item alone, and no earlier round "
