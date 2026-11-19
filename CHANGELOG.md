@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.181.1](https://github.com/dan-petty/devops-cli/compare/v0.181.0...v0.181.1) (2026-11-19)
+
+
+### Bug Fixes
+
+* **devcontainer:** exclude agent worktrees from the VS Code watcher ([#6454](https://github.com/dan-petty/devops-cli/issues/6454)) ([8952d83](https://github.com/dan-petty/devops-cli/commit/8952d83b8c542191554c40bfaf2ffea0925c949b))
+* **telemetry:** drop the copied weaver version from the install hint ([#6462](https://github.com/dan-petty/devops-cli/issues/6462)) ([e3ed7e7](https://github.com/dan-petty/devops-cli/commit/e3ed7e74dafb19166789d5ca576c63992626a6b3))
+
 ## [0.181.0](https://github.com/dan-petty/devops-cli/compare/v0.180.0...v0.181.0) (2026-11-19)
 
 
