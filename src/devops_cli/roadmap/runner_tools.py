@@ -152,8 +152,8 @@ RUNNER_TOOLS: tuple[RunnerTool, ...] = (
     _base("false", "test:live"),
 )
 
-# Why the image does not hold a program that a source of the gate or an entry of the tools lock
-# names. The key is the program. A test fails when a program is in neither table.
+# Why the image does not hold a program. The key is the program. A test fails when a program that
+# a source of the gate names is in neither table.
 _NO_CLUSTER = (
     "No check, hook, test or job of the gate runs it. The Job has no cluster token and no "
     "container engine."
@@ -167,8 +167,8 @@ _NO_GATE_STEP = "No step of a required job of `ci.yml` runs it."
 # A hook of `.pre-commit-config.yaml` that runs a program that the image does not hold, with the
 # programs it runs. The Job leaves the hook out of the configuration it gives `pre-commit` when one
 # of its programs is not on PATH, because no agent can repair a missing program. The checks of the
-# pull request run the hook (#3134). The image holds actionlint since 1.17.1 (#3108), so no hook
-# needs this table today; a test holds that each program here is in `NOT_IN_RUNNER`.
+# pull request run the hook (#3134). The image holds actionlint (#3108), so no hook needs this
+# table today; a test holds that each program here is in `NOT_IN_RUNNER`.
 HOOK_PROGRAMS: dict[str, tuple[str, ...]] = {}
 
 

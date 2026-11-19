@@ -3466,7 +3466,7 @@ class RoadmapMessages:
         "Runner tool '{tool}' is not at its installed version '{wanted}'. Its version command "
         "printed: {output}"
     )
-    runner_tools_ready: str = "All {count} runner tools run."
+    runner_tools_ready: str = "All {count} runner tools are on PATH and run."
     implement_tool_line: str = "Tool call: {tool}, {outcome}."
     implement_tool_line_program: str = "Tool call: {tool}, program {program}, {outcome}."
     implement_tool_started: str = "Tool call: {tool}, started: {command}"
