@@ -6,14 +6,14 @@ Kind: behavior. Changes: `src/devops_cli/telemetry/semconv.py`, `src/devops_cli/
 
 - [x] 1.1 Test that with no weaver on PATH, the refusal names `ghcr.io/dan-petty/devtools` and the weaver releases page, and holds no version number
   - Verification: `$ uv run devops ci test tests/telemetry/test_telemetry_semconv.py`
-- [ ] 1.2 Move the hint to `MESSAGES.telemetry.weaver_missing_hint` with the image `CONST_DEVTOOLS_IMAGE` and no version, and delete `CONST_SEMCONV_WEAVER_VERSION`
+- [x] 1.2 Move the hint to `MESSAGES.telemetry.weaver_missing_hint` with the image `CONST_DEVTOOLS_IMAGE` and no version, and delete `CONST_SEMCONV_WEAVER_VERSION`
   - Verification: `$ uv run devops ci test tests/telemetry/test_telemetry_semconv.py`
 
 ## 2. No copied weaver version is left
 
 Kind: deletion.
 
-- [ ] 2.1 Confirm that no code under `src/` or `tests/` names the deleted constant
+- [x] 2.1 Confirm that no code under `src/` or `tests/` names the deleted constant
   - Verification: `$ ! git grep -n SEMCONV_WEAVER_VERSION -- src/ tests/`
 
 ## 3. Documents

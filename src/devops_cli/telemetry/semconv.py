@@ -19,6 +19,7 @@ from typing import Any, NamedTuple
 import yaml
 
 from devops_cli.config.constants import (
+    CONST_DEVTOOLS_IMAGE,
     CONST_GIT_COMMIT_SHA_PATTERN,
     CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_PERM_REPO_FILE,
@@ -30,7 +31,6 @@ from devops_cli.config.constants import (
     CONST_SEMCONV_GENAI_REPO,
     CONST_SEMCONV_RESOLVED_REGISTRY_FILE,
     CONST_SEMCONV_WEAVER_BIN,
-    CONST_SEMCONV_WEAVER_VERSION,
     CONST_URL_WEAVER_RELEASES,
 )
 from devops_cli.config.defaults import DEFAULT_SEMCONV_WEAVER_TIMEOUT_SECONDS
@@ -41,6 +41,7 @@ from devops_cli.exceptions import (
     TelemetryError,
     ValidationError,
 )
+from devops_cli.lang import MESSAGES
 from devops_cli.output.file_writer import write_text_file
 
 GENAI_SNAPSHOT_PATH = Path(__file__).with_name("semconv_genai.json")
@@ -203,9 +204,8 @@ def refresh_genai_snapshot(
     if weaver is None:
         raise DependencyError(
             CONST_SEMCONV_WEAVER_BIN,
-            install_hint=(
-                f"Install weaver {CONST_SEMCONV_WEAVER_VERSION} from "
-                f"{CONST_URL_WEAVER_RELEASES} and put it on PATH."
+            install_hint=MESSAGES.telemetry.weaver_missing_hint.format(
+                image=CONST_DEVTOOLS_IMAGE, releases_url=CONST_URL_WEAVER_RELEASES
             ),
         )
     with tempfile.TemporaryDirectory(prefix="devops-semconv-") as work_dir:
