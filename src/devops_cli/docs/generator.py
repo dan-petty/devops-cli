@@ -1248,7 +1248,7 @@ class DocGenerator:
             "- **Private keys**: Anything the conventions do not define is written under `llm.*`, "
             "such as `llm.request.priority`, `llm.tokens_per_second` and `llm.usage.cost_usd`, "
             "never under `gen_ai.*`.",
-            "- **Check**: `tests/test_telemetry_semconv.py` reads every Python file under "
+            "- **Check**: `tests/telemetry/test_telemetry_semconv.py` reads every Python file under "
             "`src/devops_cli/`, comments and docstrings included. It fails on a quoted string "
             "starting with `gen_ai.` that is not a current attribute key or metric name in the "
             "snapshot, and on any f-string that builds one.",

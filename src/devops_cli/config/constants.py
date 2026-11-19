@@ -865,7 +865,8 @@ CONST_DEVCONTAINER_IMAGE_PREFIX = "mcr.microsoft.com/devcontainers/python:"
 CONST_DEVCONTAINER_PUBLISHED_IMAGE = "ghcr.io/dan-petty/devops-cli/devcontainer:latest"
 CONST_CANONICAL_OCI_SOURCE: Final[str] = "https://github.com/dan-petty/devops-cli"
 # The public image of the development tools (dan-petty/devtools). Renovate keeps the version
-# of each tool in its mise files, so an install hint names the image and no version.
+# of weaver and of the other binary tools in its mise files, so an install hint names the image
+# and no version.
 CONST_DEVTOOLS_IMAGE: Final[str] = "ghcr.io/dan-petty/devtools"
 # The Secret Service gh, git and Python keyring use; dbus-x11 satisfies gnome-keyring's
 # session-bus dependency without pulling in systemd. Mirrors .devcontainer/Dockerfile.
