@@ -58,7 +58,7 @@ The devcontainer image SHALL have the Debian packages `iputils-ping`, `iputils-t
 - **THEN** `kubectl version --client`, `helm version`, `minikube version`, `trivy --version`, `gh --version`, `openspec --version` and `semgrep --version` exit with code 0
 
 ### Requirement: The image holds devops in a venv
-The image SHALL install the requirements of `uv.lock` with `--require-hashes` into `/opt/devops-cli/.venv`, the last directory of `PATH`, then the project as the last layer, and SHALL set `USER vscode`.
+The image SHALL install the requirements of `uv.lock` with `--require-hashes` into `/opt/devops-cli/.venv`, the last directory of `PATH`, then the project as the last layer of `.devcontainer/Dockerfile` (the Dev Containers CLI adds the Feature layers over it, #6470), and SHALL set `USER vscode`.
 
 #### Scenario: devops comes from the venv
 - **WHEN** the smoke action starts the built image as `vscode`
