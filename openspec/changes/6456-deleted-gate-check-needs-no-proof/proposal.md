@@ -25,6 +25,8 @@ of a manifest or a config value (#6080, #6207). The check and the documents disa
   replay, and a fix that changes source code still needs a proof.
 - A new module, a renamed module and a module that does not parse keep the replay. A deleted
   module stays out of the replay, as it is today.
+- The command reads each changed check module at the merge base, and at a named head with
+  `git ls-tree` and `git cat-file`. The dry run lists these reads.
 - The command output and its exit status change, so the change has a spec delta.
 
 ## Capabilities
@@ -38,8 +40,8 @@ of a manifest or a config value (#6080, #6207). The check and the documents disa
 
 The fix of #6439 (pull request #6459) gets a green `Fail-to-Pass Check` with no new test. A fix
 that adds or changes a gate case still needs a case that fails on the base and passes on the head.
-The workflow, the dry run and the replay of test files do not change. The change fits one pull
-request.
+The workflow and the replay of test files do not change. The dry run also lists the reads of each
+changed gate check module. The change fits one pull request.
 
 ## Feasibility
 

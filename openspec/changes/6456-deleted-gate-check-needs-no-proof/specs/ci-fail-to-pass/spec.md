@@ -39,6 +39,13 @@
 - **WHEN** a fix changes a `.py` file under `src/` and no test file, and its only other change deletes `check_old_rule` of `tests/gate/k8s_checks/gateway.py`
 - **THEN** the command starts no gate row, exits 1, and says that the fix changes no test and no gate check that can fail on its base
 
+### Requirement: The dry run lists the reads of a changed gate check module
+`devops ci fail-to-pass --dry-run` SHALL list the `git ls-tree` and `git cat-file` reads of each changed module of `tests/gate/*_checks/` at the merge base, and at a named head, with the condition `a module of tests/gate/*_checks/ changes`, and SHALL start no process.
+
+#### Scenario: A dry run with a named head
+- **WHEN** `devops ci fail-to-pass --base main --head feature --dry-run` runs
+- **THEN** the plan lists a read of the changed gate check module at `<merge-base>` and at `feature`, each repeated for each changed module of `tests/gate/*_checks/`, and no process starts
+
 ## MODIFIED Requirements
 
 ### Requirement: A changed gate check is replayed with its row
