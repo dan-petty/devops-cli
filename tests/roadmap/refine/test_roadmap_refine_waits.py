@@ -19,7 +19,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_START_MARKER,
     CONST_ROADMAP_STATUS_READY,
 )
-from devops_cli.roadmap.body_hash import hash_text
+from devops_cli.roadmap.body_hash import extract_section_and_outside, hash_text
 from devops_cli.roadmap.refine.refine import (
     plan_refine,
 )
@@ -100,7 +100,8 @@ def test_an_unchanged_item_whose_record_needs_a_split_but_holds_no_step_gets_its
     git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
 ) -> None:
     """An unchanged item whose record holds `refine.needs_split` and no next step is refined
-    again, not skipped, and its split goes to a person in a comment (#1758)."""
+    again, not skipped, and its split goes to a person: the section holds the split and the
+    comment names Fit (#1758, #6196)."""
     store.seed_visibility(is_private=True)
     number = seed_item(store, "New", "P1-High")
     section = "## Proposed design\nNeeds splitting into 2 items."
@@ -118,10 +119,12 @@ def test_an_unchanged_item_whose_record_needs_a_split_but_holds_no_step_gets_its
 
     plan = refine_round(store, git_repo)
 
+    _, section = extract_section_and_outside(store.read_issue_body(number))
     assert (
         [(r.item.number, r.next_step) for r in plan.refined_items],
-        [comment.splitlines()[-2:] for comment in comment_bodies(store, number)],
-    ) == ([(number, "split")], [["1. The first change.", "2. The second change."]])
+        ["See Fit in" in comment for comment in comment_bodies(store, number)],
+        "1. The first change.\n2. The second change." in (section or ""),
+    ) == ([(number, "split")], [True], True)
 
 
 def test_an_item_a_person_sets_back_to_new_waits_for_their_reason_and_is_refined_after_it(

@@ -22,7 +22,7 @@ from devops_cli.ai.client.models import (
 )
 from devops_cli.config import constants
 from devops_cli.config.settings import reset_settings_cache
-from devops_cli.roadmap.body_hash import hash_text
+from devops_cli.roadmap.body_hash import body_hashes
 from devops_cli.roadmap.refine.refine import (
     AcceptanceCriterion,
     QuestionAnswer,
@@ -496,14 +496,27 @@ def stage_returns(store: InMemoryRoadmapStore, number: int) -> None:
 
 
 def seed_person_wait(store: InMemoryRoadmapStore, text: str, *, paths: str | None = None) -> int:
-    """A New item whose last refine round left it waiting on a person, with `text` in the comment
-    of that round, as a round with the same body would leave it."""
+    """A New item whose last refine round left it waiting on a person, as a round with the same body
+    would leave it: `text` is the open question of refine's section in the body, and refine's
+    comment names the section and holds none of its text (#6196)."""
     number = seed_item(store, "New", "P1-High")
+    section = (
+        f"{constants.CONST_ROADMAP_REFINE_START_MARKER}\n"
+        f"<!-- checked-at: sha={REFINE_HEAD_SHA} -->\n## Proposed design\n\n"
+        f"### Open questions\n- {text}\n{constants.CONST_ROADMAP_REFINE_END_MARKER}"
+    )
+    store.write_issue_body(number, f"{require_item(store, number).body}\n\n{section}")
+    body_hash, section_hash = body_hashes(require_item(store, number).body)
     record: dict[RefineRecordKey, str | None] = {
-        RefineRecordKey.BODY_HASH: hash_text(require_item(store, number).body),
+        RefineRecordKey.BODY_HASH: body_hash,
+        RefineRecordKey.SECTION_HASH: section_hash,
         RefineRecordKey.NEXT_STEP: "person",
         RefineRecordKey.BLOCK_PATHS: paths,
     }
     store.set_marks(require_item(store, number), record)
-    store.seed_comment(number, f"{REFINE_MARKER}\nA person answers these questions.\n\n- {text}")
+    store.seed_comment(
+        number,
+        f"{REFINE_MARKER}\nNext step: a person replies in a comment or edits the body. See Open "
+        "questions in the section Proposed design of the body.",
+    )
     return number

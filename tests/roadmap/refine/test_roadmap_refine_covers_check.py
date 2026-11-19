@@ -5,13 +5,14 @@ closes it and the record it keeps (#1335).
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from tests.support.fakes.model import ModelFake
 import pytest
+import time_machine
 
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config import constants
@@ -248,7 +249,8 @@ def test_a_covers_check_with_no_reply_is_a_question_for_a_person_the_model_canno
     git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
 ) -> None:
     """The item is otherwise ready, and the model answers the question as a decision: the
-    question is still open, the next step is a person, and the item stays New."""
+    question is still open, the next step is a person, and the item stays New. The section holds
+    the question, and the frame names it (#6196)."""
     store.seed_visibility(is_private=True)
     number = seed_item(store, "New", "P1-High")
     _record_check(store, number, "covers")
@@ -265,8 +267,9 @@ def test_a_covers_check_with_no_reply_is_a_question_for_a_person_the_model_canno
         "adopt the tool" in refined.open_questions[0].lower(),
         refined.open_questions[0].endswith("(a person decides)"),
         require_item(store, number).status,
-        "adopt the tool" in comment_bodies(store, number)[-1].lower(),
-    ) == ("person", False, 1, True, True, True, "New", True)
+        "adopt the tool" in require_item(store, number).body.lower(),
+        "Open questions" in comment_bodies(store, number)[-1],
+    ) == ("person", False, 1, True, True, True, "New", True, True)
 
 
 def test_a_reply_and_an_answer_close_the_covers_question_and_set_the_item_ready(
@@ -440,31 +443,39 @@ def test_a_ready_item_that_gets_a_covers_check_goes_back_to_new_with_the_questio
 def test_the_same_covering_tool_found_again_asks_nothing_and_a_new_tool_asks_again(
     git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
 ) -> None:
+    """The reply answers the item that held the frame, so the next round moves the frame to the
+    item that still asks the question (#6196). Then the same tool found again asks nothing, and a
+    new tool, a day later when the cap on refine's comments allows one, asks again."""
     store.seed_visibility(is_private=True)
-    ready = seed_item(store, "Ready", "P1-High", refined=True)
-    waiting = seed_item(store, "New", "P1-High")
-    _record_check(store, ready, "covers")
-    _record_check(store, waiting, "covers")
-    model_fake.answer(READY)
-    refine_round(store, git_repo)
-    store.as_actor("alice").comment(ready, "Keep it: the tool has no SARIF output.")
-    model_fake.answer(_with_questions(_adopt_or_keep("Adopt the tool?")))
-    refine_round(store, git_repo)
-    calls = model_fake.call_count
+    with time_machine.travel(datetime(2026, 11, 17, 9, tzinfo=UTC), tick=False) as clock:
+        ready = seed_item(store, "Ready", "P1-High", refined=True)
+        waiting = seed_item(store, "New", "P1-High")
+        _record_check(store, ready, "covers")
+        _record_check(store, waiting, "covers")
+        model_fake.answer(READY)
+        refine_round(store, git_repo)
+        store.as_actor("alice").comment(ready, "Keep it: the tool has no SARIF output.")
+        model_fake.answer(_with_questions(_adopt_or_keep("Adopt the tool?")))
+        refine_round(store, git_repo)
+        refine_round(store, git_repo)
+        frame = require_item(store, waiting).job_record.get(RefineRecordKey.FRAME)
+        calls = model_fake.call_count
 
-    _record_check(store, ready, "covers")
-    _record_check(store, waiting, "covers")
-    same = plan_refine(store, repo=REPO, source=git_repo)
-    same_calls = model_fake.call_count - calls
-    _record_check(store, waiting, "covers", tool=_OTHER_SCANNER)
-    new = plan_refine(store, repo=REPO, source=git_repo)
+        _record_check(store, ready, "covers")
+        _record_check(store, waiting, "covers")
+        same = plan_refine(store, repo=REPO, source=git_repo)
+        same_calls = model_fake.call_count - calls
+        clock.shift(timedelta(days=1, hours=1))
+        _record_check(store, waiting, "covers", tool=_OTHER_SCANNER)
+        new = plan_refine(store, repo=REPO, source=git_repo)
 
     assert (
         same.refined_items,
         [(w.item.number, w.step.value) for w in same.waiting_items],
         same_calls,
         [(r.item.number) for r in new.refined_items],
-    ) == ([], [(waiting, "person")], 0, [waiting])
+        frame,
+    ) == ([], [(waiting, "person")], 0, [waiting], str(waiting))
 
 
 def test_a_check_that_no_longer_covers_clears_the_tool_refine_asked_about(

@@ -28,7 +28,6 @@ from devops_cli.roadmap.refine.refine import (
     RefinementProposal,
     apply_refine,
     check_person_edits,
-    inspect_checkout,
     plan_refine,
     select_candidates,
 )
@@ -160,9 +159,10 @@ def test_ready_items_refine_never_saw_are_taken_in_each_milestone_and_backlog_p0
 def test_a_ready_item_refine_finds_not_ready_goes_back_to_new_and_then_waits_on_a_person(
     git_repo: Path, store: InMemoryRoadmapStore
 ) -> None:
-    """Refine sets a Ready item it never saw back to New when its proposal is not ready, saying so
-    in the one owner question that asks a person about the suspected block, and the next round
-    leaves it waiting on that person (#1515, #1758, #3077)."""
+    """Refine sets a Ready item it never saw back to New when its proposal is not ready, and the
+    one owner question asks a person about the suspected block, which the frame names in the
+    section. The labels hold the Status, so the frame holds no Status sentence (#6196). The next
+    round leaves the item waiting on that person (#1515, #1758, #3077)."""
     number = seed_item(store, CONST_ROADMAP_STATUS_READY, "P1-High", milestone=SECOND)
     blocked = RefinementProposal(
         existing_tool=NO_OPEN_TOOL,
@@ -173,13 +173,13 @@ def test_a_ready_item_refine_finds_not_ready_goes_back_to_new_and_then_waits_on_
     llm = MockLLMClient(proposal=blocked)
     apply_refine(store, plan_refine(store, repo=REPO, source=git_repo, model=llm))
     again = plan_refine(store, repo=REPO, source=git_repo, model=llm)
-    sha = inspect_checkout(git_repo, REPO)[:12]
     (comment,) = comment_bodies(store, number)
     record = require_item(store, number).job_record
     assert (
         require_item(store, number).status,
         comment.startswith(constants.CONST_ROADMAP_REFINE_COMMENT_MARKER),
-        f"Status set back to New at {sha}. " in comment,
+        "Status" in comment,
+        "Suspected block" in comment,
         comment.count("Waiting on the owner"),
         frame_hash(comment),
         record.get(OwnerQuestionRecordKey.HASH),
@@ -189,8 +189,9 @@ def test_a_ready_item_refine_finds_not_ready_goes_back_to_new_and_then_waits_on_
     ) == (
         "New",
         True,
+        False,
         True,
-        1,
+        0,
         record.get(OwnerQuestionRecordKey.HASH),
         frame_hash(comment),
         "Waiting on the owner",

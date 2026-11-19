@@ -17,6 +17,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_COMMENT_MARKER,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
 )
+from devops_cli.roadmap.owner_question import OwnerQuestion, QuestionOption
 from devops_cli.roadmap.stores.comment_repeat import COMMENT_JOBS
 from devops_cli.roadmap.stores.store import CloseReason, GitHubState
 from devops_cli.telemetry.instruments import ROADMAP_COMMENT_REPEATS_REFUSED_TOTAL
@@ -87,6 +88,34 @@ def test_a_changed_fact_posts_a_new_comment(store: InMemoryRoadmapStore) -> None
     store.comment(number, changed)
 
     assert _bodies(store, number) == [first, changed]
+
+
+def test_two_frames_that_name_the_place_of_two_questions_post_both(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """A refine frame names the place of its question in the body, so two frames differ only in
+    the hash of their question, which is no identifier of a run: both post, and the same frame
+    again is a repeat (#6196)."""
+    number = store.seed_issue("asks")
+    place = "See Open questions in the section Proposed design of the body."
+    frames = [
+        OwnerQuestion(
+            marker=CONST_ROADMAP_REFINE_COMMENT_MARKER,
+            question=question,
+            options=(
+                QuestionOption(text="Decide the question", result="The job uses the answer."),
+                QuestionOption(text="Leave it to the job", result="The job decides."),
+            ),
+            recommendation="Decide the question.",
+            evidence=("https://example.com/7",),
+        ).render(asked=place)
+        for question in ("Which store holds the record?", "Which key holds the record?")
+    ]
+
+    for frame in [*frames, frames[-1]]:
+        store.comment(number, frame)
+
+    assert _bodies(store, number) == frames
 
 
 def test_a_reply_of_a_person_ends_the_run_so_the_same_answer_posts_again(
