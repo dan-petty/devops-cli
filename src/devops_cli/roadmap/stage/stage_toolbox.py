@@ -80,10 +80,6 @@ _DEFAULT_TASKS: Final[Mapping[type[BaseModel], str]] = {
     Verification: STAGE_REVIEW_TASK,
     LaterVerification: STAGE_REVIEW_TASK,
 }
-# The `stop_reason` of a run that the context window starved, and of a run whose model call
-# failed (#3717): a case of the eval report then names the phase that stopped it.
-_STOP_WINDOW_STARVED: Final = "window_starved"
-_STOP_MODEL_ERROR: Final = "model_error"
 
 
 def run_limits() -> UsageLimits:
@@ -221,13 +217,13 @@ class ToolboxClient:
         except AIClientError as failed:
             # The model call of the run failed, and the case of the eval report names that phase
             # and not a cause of a reply (#3717).
-            trace.stop_reason = _STOP_MODEL_ERROR
+            trace.stop_reason = StopReason.MODEL_ERROR
             trace.stop_detail = type(failed).__name__
             raise
         finally:
             end_run(trace, row=row, toolset=self._toolset, finished=finished)
         if self._window_starved(trace):
-            trace.stop_reason = _STOP_WINDOW_STARVED
+            trace.stop_reason = StopReason.WINDOW_STARVED
             trace.stop_detail = str(self._window)
             template = (
                 MESSAGES.roadmap.stage_window_starved
@@ -269,7 +265,7 @@ def _stopped(result: InvestigationStopped, trace: RunTrace, schema: type[BaseMod
             MESSAGES.roadmap.stage_invalid_arguments.format(reason=result.message)
         )
     message = (
-        _review_stopped(result)
+        MESSAGES.roadmap.stage_verify_stopped.format(reason=_stop_detail(result.cause))
         if _AGENT_ROWS[schema] is REVIEW_ROW
         else MESSAGES.roadmap.stage_run_stopped.format(reason=result.message)
     )
@@ -289,23 +285,17 @@ def _stopped(result: InvestigationStopped, trace: RunTrace, schema: type[BaseMod
     return RoadmapStageError(message)
 
 
-def _review_stopped(result: InvestigationStopped) -> str:
-    """The text of a review stop from the typed cause of its run (#3717): the text reply that
-    pydantic-ai refused, the tool of a call that the run refused, the output retry limit that the
-    run used, or the limit that ended its tools. A run with no cause keeps the text of its
-    message."""
-    cause = result.cause
-    if cause is None:
-        return MESSAGES.roadmap.stage_verify_stopped.format(reason=result.message)
-    return MESSAGES.roadmap.stage_verify_stopped.format(reason=_stop_detail(cause))
-
-
 def _stop_detail(cause: StopCause) -> str:
-    """The text of the cause of a review stop (#3717), which `stage_verify_stopped` names."""
+    """The text of the cause of a review stop (#3717), which `stage_verify_stopped` names: the text
+    reply that pydantic-ai refused, the tool of a call that the run does not offer, the tool of an
+    offered call whose arguments break its schema, the output retry limit that the run used, or
+    the limit that ended its tools. `_stopped` names a cut reply and arguments that are no JSON
+    text with texts of their own, and `stop_cause` gives no other reason."""
     texts = MESSAGES.roadmap
     templates: Mapping[StopReason, str] = {
         StopReason.TEXT_REPLY: texts.stage_verify_stop_text_reply,
         StopReason.REFUSED_TOOL_CALL: texts.stage_verify_stop_refused_tool,
+        StopReason.TOOL_RETRIES_EXHAUSTED: texts.stage_verify_stop_tool_retries,
         StopReason.OUTPUT_RETRIES_EXHAUSTED: texts.stage_verify_stop_output_retries,
         StopReason.BUDGET_EXHAUSTED: texts.stage_verify_stop_budget,
     }

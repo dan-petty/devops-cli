@@ -351,6 +351,32 @@ def test_a_stopped_verification_run_names_its_cause(checkout: tuple[Path, str]) 
     ) == (True, True, True, True, True)
 
 
+def test_a_review_run_that_calls_an_offered_tool_with_invalid_arguments_names_no_refused_tool(
+    checkout: tuple[Path, str],
+) -> None:
+    """The run offers `read_file`. A call with arguments that break the schema of the tool, and a
+    call with arguments that are no JSON text, stop with a reason of their own, and the message
+    does not say that the run does not offer the tool (#3717)."""
+    schema = _review_stop(_client(checkout, Script(call("read_file", wrong="src/sample.py"))))
+    joined = _review_stop(
+        _client(
+            checkout,
+            Script(ModelResponse(parts=[ToolCallPart("read_file", '{"path": "a"}{"path": "b"}')])),
+        )
+    )
+
+    assert [(reason, detail) for reason, detail, _ in (schema, joined)] == [
+        ("tool_retries_exhausted", "read_file"),
+        ("invalid_arguments", "read_file"),
+    ]
+    assert (
+        "read_file" in schema[2],
+        f"tools retry limit of {constants.CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES}" in schema[2],
+        "invalid arguments" in joined[2],
+        "does not offer" in schema[2] + joined[2],
+    ) == (True, True, True, False)
+
+
 def test_a_reply_that_breaks_the_schema_once_goes_back_and_the_second_stands(
     checkout: tuple[Path, str],
 ) -> None:
@@ -396,10 +422,18 @@ def test_the_tools_prompt_names_exactly_the_tools_of_the_toolbox(
 
 
 def test_a_failed_model_call_raises_the_clients_own_error(checkout: tuple[Path, str]) -> None:
-    with pytest.raises(AIClientError) as caught:
-        _plan(_client(checkout, Script(ModelHTTPError(500, "m"))))
+    """The trace of the run names the failed model call as its stop (#3717)."""
+    client = _client(checkout, Script(ModelHTTPError(500, "m")))
 
-    assert type(caught.value) is AIClientError
+    with pytest.raises(AIClientError) as caught:
+        _plan(client)
+
+    (trace,) = client.traces
+    assert (type(caught.value), trace.stop_reason, trace.stop_detail) == (
+        AIClientError,
+        "model_error",
+        "AIClientError",
+    )
 
 
 def test_a_refused_key_raises_the_credentials_error(checkout: tuple[Path, str]) -> None:
@@ -537,6 +571,9 @@ def test_a_review_run_whose_tools_the_window_ends_too_soon_fails_and_names_the_r
     message = str(raised.value)
     assert ("12000" in message, "ai.tasks.stage_review.context_window" in message) == (True, True)
     assert "ai.tasks.stage.context_window" not in message
+    # The trace names the window as the stop of the run (#3717).
+    (trace,) = client.traces
+    assert (trace.stop_reason, trace.stop_detail) == ("window_starved", "12000")
 
 
 def test_a_run_of_another_job_names_the_window_setting_of_its_own_task(

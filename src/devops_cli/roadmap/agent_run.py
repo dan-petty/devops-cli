@@ -22,6 +22,7 @@ from pydantic_ai.exceptions import (
     UsageLimitExceeded,
 )
 from pydantic_ai.messages import (
+    INVALID_JSON_KEY,
     AgentStreamEvent,
     ModelMessage,
     ModelRequest,
@@ -219,22 +220,32 @@ class RunLimit(StrEnum):
 
 class StopReason(StrEnum):
     """Why a run of an agent stopped with no reply (#3717), as the report of a failed case names
-    it: the text reply that pydantic-ai refused (`text_reply`), the call that the run refused past
-    its retries (`refused_tool_call`), the reply that broke the output schema past its retries
-    (`output_retries_exhausted`), or a limit of the run (`budget_exhausted`)."""
+    it: the text reply that pydantic-ai refused (`text_reply`), a call to a tool that the run does
+    not offer past the tools retry limit (`refused_tool_call`), a call to a tool that the run
+    offers with arguments that break the schema of the tool past that limit
+    (`tool_retries_exhausted`), a call with arguments that are no JSON text
+    (`invalid_arguments`, #4228), a reply that the output token limit cut (`output_limit`,
+    #4220), a reply that broke the output schema past its retries (`output_retries_exhausted`),
+    a limit of the run (`budget_exhausted`), a window that ended the tools too soon
+    (`window_starved`, #3880), or a model call that failed (`model_error`)."""
 
     TEXT_REPLY = "text_reply"
     REFUSED_TOOL_CALL = "refused_tool_call"
+    TOOL_RETRIES_EXHAUSTED = "tool_retries_exhausted"
+    INVALID_ARGUMENTS = "invalid_arguments"
+    OUTPUT_LIMIT = "output_limit"
     OUTPUT_RETRIES_EXHAUSTED = "output_retries_exhausted"
     BUDGET_EXHAUSTED = "budget_exhausted"
+    WINDOW_STARVED = "window_starved"
+    MODEL_ERROR = "model_error"
 
 
 @dataclass(frozen=True)
 class StopCause:
     """Why a run stopped with no reply (#3717): its `reason`, the `detail` that a person acts on
-    (the name of the tool that the run refused, or of the limit that ended it), the retry `limit`
-    that the run used when a retry limit ended it (None otherwise), and `texts`, the text of the
-    reply that stopped the run, masked and cut, so a caller can name it."""
+    (the name of the tool whose call stopped the run, or of the limit that ended it), the retry
+    `limit` that the run used when a retry limit ended it (None otherwise), and `texts`, the text
+    of the reply that stopped the run, masked and cut, so a caller can name it."""
 
     reason: StopReason
     detail: str = ""
@@ -269,11 +280,11 @@ def _limit_name(text: str) -> str:
     return found[1] if found else ""
 
 
-def _refused_name(messages: Sequence[ModelMessage], calls: Sequence[ToolCallPart]) -> str:
-    """The name of the tool that the run refused: the call of the last reply whose name a retry
-    prompt of the run holds, else the name of its last call. pydantic-ai writes the name into the
-    message of the error, which `run_error_message` hides."""
-    refused = {
+def _retried_name(messages: Sequence[ModelMessage], calls: Sequence[ToolCallPart]) -> str:
+    """The name of the tool whose calls spent the tools retry limit: the call of the last reply
+    whose name a retry prompt of the run holds, else the name of its last call. pydantic-ai writes
+    the name into the message of the error, which `run_error_message` hides."""
+    retried = {
         part.tool_name
         for message in messages
         if isinstance(message, ModelRequest)
@@ -281,43 +292,72 @@ def _refused_name(messages: Sequence[ModelMessage], calls: Sequence[ToolCallPart
         if isinstance(part, RetryPromptPart) and part.tool_name
     }
     return next(
-        (call.tool_name for call in reversed(calls) if call.tool_name in refused),
+        (call.tool_name for call in reversed(calls) if call.tool_name in retried),
         calls[-1].tool_name,
     )
+
+
+def _tool_retries_cause(
+    messages: Sequence[ModelMessage],
+    calls: Sequence[ToolCallPart],
+    *,
+    offered: Collection[str],
+    tool_retries: int,
+    limits_hit: Sequence[RunLimit],
+    texts: tuple[str, ...],
+) -> StopCause:
+    """The cause of a stop by the tools retry limit (#3717). pydantic-ai gives the same message
+    for a call to a tool that the run does not offer and for a call to an offered tool whose
+    arguments break the schema of the tool, so the names that the run offered tell them apart.
+    A limit that ended the tools wins, because the hook that offers the tools takes them away at
+    that limit and the next call gets the same stop."""
+    if limits_hit:
+        return StopCause(StopReason.BUDGET_EXHAUSTED, _LIMIT_NAMES[limits_hit[0]], texts=texts)
+    name = _retried_name(messages, calls)
+    reason = StopReason.TOOL_RETRIES_EXHAUSTED if name in offered else StopReason.REFUSED_TOOL_CALL
+    return StopCause(reason, name, tool_retries, texts)
 
 
 def stop_cause(
     stopped: AgentRunError,
     messages: Sequence[ModelMessage],
     *,
+    offered: Collection[str],
     tool_retries: int,
     output_retries: int,
     limits_hit: Sequence[RunLimit] = (),
 ) -> StopCause:
-    """Why the run of `messages` stopped with `stopped` (#3717), from the messages of the run and
-    the retry limits that the caller set. `tool_retries` and `output_retries` are the retry limits
-    that the run used, so a report names the limit of that run and not a constant.
+    """Why the run of `messages` stopped with `stopped` (#3717), from the messages of the run, the
+    names of the tools that it offered and the retry limits that the caller set. `tool_retries`
+    and `output_retries` are the retry limits that the run used, so a report names the limit of
+    that run and not a constant.
 
-    A limit that ended the tools of the run wins over a call that the run refused, because the
-    hook that offers the tools takes them away at that limit and the next call gets the same stop.
-    A reply that holds text and no tool call is the text reply that pydantic-ai refused.
+    The output token limit cut the last reply when its finish reason is `length` (#4220). A call
+    whose arguments pydantic-ai keeps under `INVALID_JSON_KEY` holds arguments that are no JSON
+    text, as when a gateway joins the arguments of several calls into one text (#4228). A reply
+    that holds text and no tool call is the text reply that pydantic-ai refused.
     """
     last = _last_reply(messages)
     parts = last.parts if last is not None else []
     texts = tuple(bounded_text(part.content) for part in parts if isinstance(part, TextPart))
     calls = [part for part in parts if isinstance(part, ToolCallPart)]
+    invalid = next((call for call in calls if INVALID_JSON_KEY in call.args_as_dict()), None)
     if isinstance(stopped, UsageLimitExceeded):
         return StopCause(StopReason.BUDGET_EXHAUSTED, _limit_name(stopped.message), texts=texts)
+    if last is not None and last.finish_reason == "length":
+        return StopCause(StopReason.OUTPUT_LIMIT, texts=texts)
+    if invalid is not None:
+        return StopCause(StopReason.INVALID_ARGUMENTS, invalid.tool_name, texts=texts)
     if texts and not calls:
         return StopCause(StopReason.TEXT_REPLY, texts=texts)
     if calls and _TOOL_RETRIES_STOP.match(stopped.message):
-        if limits_hit:
-            return StopCause(StopReason.BUDGET_EXHAUSTED, _LIMIT_NAMES[limits_hit[0]], texts=texts)
-        return StopCause(
-            StopReason.REFUSED_TOOL_CALL,
-            _refused_name(messages, calls),
-            tool_retries,
-            texts,
+        return _tool_retries_cause(
+            messages,
+            calls,
+            offered=offered,
+            tool_retries=tool_retries,
+            limits_hit=limits_hit,
+            texts=texts,
         )
     return StopCause(StopReason.OUTPUT_RETRIES_EXHAUSTED, limit=output_retries, texts=texts)
 
@@ -349,8 +389,8 @@ class RunTrace:
     that the last reply answered (#4204). `row` is the job row of the run, such as the plan or the
     review of the stage job, and is empty for a run that no job names (#4257). `finish_reason` and
     `answered` are the stop reason and the model name of the last reply, and are empty when the
-    provider gave none (#4313). `stop_reason` and `stop_detail` are the `reason` and the `detail` of
-    a `StopCause` for a run that stopped with no reply, and are empty for a run that gave one
+    provider gave none (#4313). `stop_reason` and `stop_detail` are the reason and the detail of
+    the stop of a run that gave no reply, and are None and empty for a run that gave one
     (#3717)."""
 
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
@@ -366,7 +406,7 @@ class RunTrace:
     finish_reason: str = ""
     answered: str = ""
     row: str = ""
-    stop_reason: str = ""
+    stop_reason: StopReason | None = None
     stop_detail: str = ""
 
     @classmethod

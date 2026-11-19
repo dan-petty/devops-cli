@@ -37,7 +37,7 @@ from devops_cli.dry_run import PlannedRequest
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
-from devops_cli.roadmap.agent_run import RunTrace
+from devops_cli.roadmap.agent_run import RunTrace, StopReason
 from devops_cli.roadmap.clone_git import checkout_at
 from devops_cli.roadmap.refine.refine_investigation import task_window
 from devops_cli.roadmap.stage.stage import StageClient, openspec_tool
@@ -94,7 +94,8 @@ class CaseVerification:
 @dataclass(frozen=True)
 class CaseOutcome:
     """One case in the score. `error` is set, and the counts are zero, for a case whose call
-    failed, and `reason` is the typed reason of its stop (#3717)."""
+    failed, and `reason` is the typed reason of its stop, or None for a case whose run gave a reply
+    or that did not run (#3717)."""
 
     name: str
     good: bool
@@ -103,7 +104,7 @@ class CaseOutcome:
     findings: tuple[Finding, ...] = ()
     returning: int = 0
     error: str = ""
-    reason: str = ""
+    reason: StopReason | None = None
 
 
 @dataclass(frozen=True)
@@ -211,7 +212,7 @@ def verify_score(
     )
 
 
-def _not_run(case: StageCase, error: str = "", *, reason: str = "") -> CaseOutcome:
+def _not_run(case: StageCase, error: str = "", *, reason: StopReason | None = None) -> CaseOutcome:
     """The outcome of a case whose call failed with `error` and the typed `reason` of its stop, or
     that did not run."""
     return CaseOutcome(
@@ -283,7 +284,7 @@ def _run_cases(
     by_name = {case.name: case for case in cases}
     rejected: list[AICredentialsError] = []
     # The typed reason of the stop of each case whose review ended with no findings (#3717).
-    stops: dict[str, str] = {}
+    stops: dict[str, StopReason] = {}
 
     def task(name: str) -> CaseVerification:
         if rejected:
@@ -314,7 +315,7 @@ def _run_cases(
             rejected.append(exc)
             raise
         finally:
-            if reason := _stop_reason(traces):
+            if (reason := _stop_reason(traces)) is not None:
                 stops[case.name] = reason
         return CaseVerification(tuple(findings), len(open_findings(findings, read)))
 
@@ -329,7 +330,7 @@ def _run_cases(
             | None,
         ) -> None:
             if result is not None and not rejected:
-                ended(_outcome(by_name[result.name], result, reason=stops.get(result.name, "")))
+                ended(_outcome(by_name[result.name], result, reason=stops.get(result.name)))
 
     dataset: Dataset[str, CaseVerification, StageCase] = Dataset(
         name=_DATASET_NAME,
@@ -340,10 +341,10 @@ def _run_cases(
         raise rejected[0]
 
 
-def _stop_reason(traces: Sequence[RunTrace]) -> str:
-    """The typed reason that the last run of a case stopped with (#3717), or an empty text for a
-    case whose run gave its reply, or that started no run."""
-    return traces[-1].stop_reason if traces else ""
+def _stop_reason(traces: Sequence[RunTrace]) -> StopReason | None:
+    """The typed reason that the last run of a case stopped with (#3717), or None for a case whose
+    run gave its reply, or that started no run."""
+    return traces[-1].stop_reason if traces else None
 
 
 def _outcome(
@@ -351,7 +352,7 @@ def _outcome(
     result: ReportCase[str, CaseVerification, StageCase]
     | ReportCaseFailure[str, CaseVerification, StageCase],
     *,
-    reason: str = "",
+    reason: StopReason | None = None,
 ) -> CaseOutcome:
     """The outcome of `case` from the result of its run, with the typed `reason` of a stop."""
     from pydantic_evals.reporting import ReportCaseFailure
@@ -480,7 +481,7 @@ def render_verify(score: VerifyScore, *, gateway: str) -> str:
         *(
             texts.verify_eval_failed_case.format(name=case.name, reason=case.reason)
             for case in score.cases
-            if case.reason
+            if case.reason is not None
         ),
     ]
     if score.left_out:

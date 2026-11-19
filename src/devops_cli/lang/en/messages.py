@@ -4432,6 +4432,12 @@ class RoadmapMessages:
         "the model called the tool `{tool}`, which the run does not offer, past the tools retry "
         "limit of {limit}"
     )
+    # A call to a tool that the run offers, with arguments that break the schema of the tool, past
+    # the tools retry limit of the run (#3717).
+    stage_verify_stop_tool_retries: str = (
+        "the model called the tool `{tool}` with arguments that break the schema of the tool, past "
+        "the tools retry limit of {limit}"
+    )
     # A reply that broke the schema of the findings past the output retry limit of the run (#3717).
     stage_verify_stop_output_retries: str = (
         "the model gave no valid findings past the output retry limit of {limit}"

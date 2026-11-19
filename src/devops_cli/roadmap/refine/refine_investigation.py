@@ -29,7 +29,6 @@ from pydantic_ai.exceptions import (
     UsageLimitExceeded,
 )
 from pydantic_ai.messages import (
-    INVALID_JSON_KEY,
     ModelMessage,
     ModelRequest,
     ModelRequestPart,
@@ -70,6 +69,7 @@ from devops_cli.roadmap.agent_run import (
     RunLimit,
     RunTrace,
     StopCause,
+    StopReason,
     cut_answer,
     drain_events,
     empty_answer,
@@ -203,15 +203,16 @@ class InvestigationStopped:
     schema: `schema_broken` is then false (#4228).
 
     `cause` is the typed cause of the stop (#3717), which names the tool, the retry limit or the
-    limit that ended the run, and `texts` is the text of the reply that stopped it."""
+    limit that ended the run, and the text of the reply that stopped it. `output_limit` and
+    `invalid_arguments` are true for the reasons `output_limit` and `invalid_arguments` of the
+    cause."""
 
     reason: str
     message: str
+    cause: StopCause
     schema_broken: bool = False
     output_limit: bool = False
     invalid_arguments: bool = False
-    cause: StopCause | None = None
-    texts: tuple[str, ...] = ()
 
 
 @dataclass
@@ -520,24 +521,6 @@ def _broke_the_output_rules(messages: Sequence[ModelMessage], tools: Collection[
     return not any(call.tool_name in tools for call in calls)
 
 
-def _cut_by_the_output_limit(messages: Sequence[ModelMessage]) -> bool:
-    """Whether the last reply of the run ended with the finish reason `length`: the output token
-    limit of the request cut it (#4220)."""
-    replies = [message for message in messages if isinstance(message, ModelResponse)]
-    return bool(replies) and replies[-1].finish_reason == "length"
-
-
-def _has_invalid_arguments(messages: Sequence[ModelMessage]) -> bool:
-    """Whether a tool call of the last reply of the run holds arguments that are not one JSON
-    object (#4228). pydantic-ai wraps the raw text of such arguments under the key
-    `INVALID_JSON_KEY`, so that key marks the call."""
-    replies = [message for message in messages if isinstance(message, ModelResponse)]
-    return any(
-        isinstance(part, ToolCallPart) and INVALID_JSON_KEY in part.args_as_dict()
-        for part in (replies[-1].parts if replies else [])
-    )
-
-
 def _toolset_names(toolsets: Sequence[Any] | None) -> set[str]:
     """The names of tools exposed by `toolsets`."""
     if not toolsets:
@@ -554,29 +537,31 @@ def _stopped_outcome(
     tool_names: Collection[str],
     limits_hit: list[RunLimit],
     *,
+    offered: Sequence[tuple[str, ...]],
     tool_retries: int,
     output_retries: int,
     trace: RunTrace | None = None,
 ) -> InvestigationStopped:
     """The result when an investigation ends early from a usage limit or model behavior. It names
-    the cause of the stop (#3717), and records it on `trace` when the caller keeps one."""
+    the cause of the stop (#3717) from the tools that the requests of the run `offered`, and
+    records it on `trace` when the caller keeps one."""
     if isinstance(stopped, UsageLimitExceeded) and not limits_hit:
         limits_hit.append(RunLimit.CALLS)
-    model_stopped = isinstance(stopped, UnexpectedModelBehavior)
-    output_limit = model_stopped and _cut_by_the_output_limit(messages)
-    invalid_arguments = model_stopped and not output_limit and _has_invalid_arguments(messages)
-    schema_broken = (
-        model_stopped
-        and not output_limit
-        and not invalid_arguments
-        and _broke_the_output_rules(messages, tool_names)
-    )
     cause = stop_cause(
         stopped,
         messages,
+        offered={name for names in offered for name in names},
         tool_retries=tool_retries,
         output_retries=output_retries,
         limits_hit=limits_hit,
+    )
+    output_limit = cause.reason is StopReason.OUTPUT_LIMIT
+    invalid_arguments = cause.reason is StopReason.INVALID_ARGUMENTS
+    schema_broken = (
+        isinstance(stopped, UnexpectedModelBehavior)
+        and not output_limit
+        and not invalid_arguments
+        and _broke_the_output_rules(messages, tool_names)
     )
     if trace is not None:
         trace.stop_reason = cause.reason
@@ -584,11 +569,10 @@ def _stopped_outcome(
     return InvestigationStopped(
         type(stopped).__name__,
         run_error_message(stopped),
+        cause,
         schema_broken=schema_broken,
         output_limit=output_limit,
         invalid_arguments=invalid_arguments,
-        cause=cause,
-        texts=cause.texts,
     )
 
 
@@ -659,6 +643,7 @@ def investigate[T: BaseModel](
                 messages,
                 tool_names,
                 limits_hit,
+                offered=offered,
                 tool_retries=CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES,
                 output_retries=output_retries_used,
                 trace=trace,
