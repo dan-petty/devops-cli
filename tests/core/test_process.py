@@ -938,6 +938,15 @@ def test_a_relative_data_directory_gets_no_token_folder_and_the_error_names_the_
     )
 
 
+def _subcommand(argv: list[str]) -> str:
+    """The first word of a child after the `-c` words that the runner gives a network git child, so
+    a test names a child by its subcommand."""
+    words = argv[1:]
+    while words[:1] == ["-c"]:
+        words = words[2:]
+    return words[0]
+
+
 def test_in_a_runner_the_leftover_processes_end_before_and_after_each_child_with_the_token(
     pin_github_session: str, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path]
 ) -> None:
@@ -954,7 +963,7 @@ def test_in_a_runner_the_leftover_processes_end_before_and_after_each_child_with
         order.append("sweep")
 
     def child(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        order.append(argv[1])
+        order.append(_subcommand(argv))
         return subprocess.CompletedProcess(argv, 0, "", "")
 
     monkeypatch.setattr(process_hardening, "end_leftover_processes", sweep)
