@@ -987,7 +987,7 @@ requires-dist = [
     { name = "fastapi", specifier = "==0.162.7" },
     { name = "fastmcp", specifier = "==4.1.8" },
     { name = "filelock", specifier = "==4.2.12" },
-    { name = "genai-prices", specifier = "==0.2.4" },
+    { name = "genai-prices", specifier = "==0.2.5" },
     { name = "gidgethub", specifier = "==6.0.0" },
     { name = "graphql-core", specifier = "==3.3.2" },
     { name = "harbor", specifier = "==0.26.0" },
@@ -1429,15 +1429,15 @@ wheels = [
 
 [[package]]
 name = "genai-prices"
-version = "0.2.4"
+version = "0.2.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx2" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8a/9f/388b765c15826b3abd6c5769e2fce2d6d2a51d2b26b39ca1dbb0ae230e5c/genai_prices-0.2.4.tar.gz", hash = "sha256:2c5d2a9da050fc944fc1d8ab11df2e7f0b592dd908666ad103a2c13eb6b3d038", size = 165823, upload-time = "2026-11-17T19:59:01.149Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c9/57/d35f58ac166442f4dd63cf6ace63445fd5bd46eb170241cebd5437b719e6/genai_prices-0.2.5.tar.gz", hash = "sha256:7e3ee897a16a39a1ac1cff328a3f9d839412f6f619028821dcb45b84338f5d3a", size = 166210, upload-time = "2026-11-19T17:55:07.367Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7e/26/91921f0df3cc4681312000eaa5743a2120a6e53bb65415f7313620cfdb6f/genai_prices-0.2.4-py3-none-any.whl", hash = "sha256:4a2577e937c9ea9e8488617cc7e78e134098305e9d541a9c598c17aa6b128d17", size = 175490, upload-time = "2026-11-17T19:58:59.996Z" },
+    { url = "https://files.pythonhosted.org/packages/ef/b7/b72d69ed599146e2a7ca1f484cda17878810205b9ce28fbf5c7a30138fee/genai_prices-0.2.5-py3-none-any.whl", hash = "sha256:864883e3b52031840b8240283c0a3b4ba22315b588e7fe2876025e38194179fc", size = 175874, upload-time = "2026-11-19T17:55:06.117Z" },
 ]
 
 [[package]]
