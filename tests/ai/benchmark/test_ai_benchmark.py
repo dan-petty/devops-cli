@@ -586,9 +586,8 @@ def test_embedding_benchmark_runner_and_metrics(tmp_path: Path) -> None:
     """Verify embedding math functions, dry run execution, markdown rendering, and reports."""
     from devops_cli.ai.benchmark.embedding_runner import (
         EmbeddingBenchmarkRunner,
-        compute_ndcg_at_k,
-        cosine_similarity,
     )
+    from devops_cli.ai.vector_similarity import cosine_similarity
 
     # 1. cosine_similarity edge cases
     assert cosine_similarity([1.0, 0.0], [1.0, 0.0]) == pytest.approx(1.0)
@@ -597,12 +596,7 @@ def test_embedding_benchmark_runner_and_metrics(tmp_path: Path) -> None:
     assert cosine_similarity([1.0], [1.0, 2.0]) == 0.0
     assert cosine_similarity([], []) == 0.0
 
-    # 2. compute_ndcg_at_k
-    assert compute_ndcg_at_k([0, 1, 2], target_idx=0, k=3) == pytest.approx(1.0)
-    assert compute_ndcg_at_k([1, 2, 0], target_idx=0, k=3) > 0.0
-    assert compute_ndcg_at_k([1, 2, 3], target_idx=0, k=3) == 0.0
-
-    # 3. EmbeddingBenchmarkRunner in dry-run mode
+    # 2. EmbeddingBenchmarkRunner in dry-run mode
     emb_runner = EmbeddingBenchmarkRunner(
         models=["nomic-embed-text", "all-minilm"],
         servers=["http://example.com:11434", "http://example.com:11435"],

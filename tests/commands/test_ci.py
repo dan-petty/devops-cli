@@ -1102,7 +1102,11 @@ def test_service_image_smoke_test_parity() -> None:
         "--read-only" in ci_run,
         "--cap-drop ALL" in ci_run,
         "no-new-privileges" in ci_run,
-    ) == (True, True, True, True)
+        "numpy" in ci_run,
+        "pytrec_eval" in ci_run,
+        "numpy" in rel_run,
+        "pytrec_eval" in rel_run,
+    ) == (True, True, True, True, True, True, True, True)
 
 
 def test_pytest_worker_arguments_consistency(ci_root: Path, process_fake: ProcessFake) -> None:

@@ -15,12 +15,12 @@ from typer.testing import CliRunner
 from devops_cli.ai.benchmark.document_chunker import SectionRetrievalTask
 from devops_cli.ai.benchmark.embedding_runner import (
     EmbeddingBenchmarkRunner,
-    cosine_similarity,
 )
 from devops_cli.ai.benchmark.embedding_tasks import (
     get_embedding_eval_dataset,
 )
 from devops_cli.ai.rag.embeddings import EmbeddingsError
+from devops_cli.ai.vector_similarity import cosine_similarity
 from devops_cli.commands.benchmark import app
 from devops_cli.config.settings import load_settings
 from devops_cli.exceptions.security import SSRFBlockedError
@@ -232,7 +232,8 @@ def _docs_root(tmp_path: Path) -> Path:
         page.parent.mkdir(parents=True, exist_ok=True)
         page.write_text(f"# {words.split()[0].title()}\n\n{words}\n", encoding="utf-8")
     (root / "docs" / "KNOWLEDGE_BASE.md").write_text(
-        "# Knowledge Base Catalog\n\nThe index of the bundled manuals.\n", encoding="utf-8"
+        "# Knowledge Base Catalog\n\nThe index of the bundled manuals.\n",
+        encoding="utf-8",
     )
     (root / "AGENTS.md").write_text("# Agents\n\nThe rules of the repository.\n", encoding="utf-8")
     article = (
@@ -332,7 +333,9 @@ def test_infer_category_exact_word_boundaries_and_domain_classification(
 
     # Word boundary test: "practice" and "prevent" do NOT falsely match PR/CI
     arch_boundary = InMemoryDocumentTokenizer._infer_category(
-        "Best Practice Refactoring", "Prevent coupling and increase cohesion.", repo_root=root
+        "Best Practice Refactoring",
+        "Prevent coupling and increase cohesion.",
+        repo_root=root,
     )
     assert arch_boundary == "architecture"
 
@@ -385,7 +388,11 @@ def test_embedding_engine_resolution_and_live_eval(tmp_path: Path) -> None:
             ["target passage text for evaluation", "distractor text"],
             server_url="http://localhost:11434",
         )
-        assert (res.model, res.dimension, res.recall_at_1 >= 0.0) == ("test-embed", 384, True)
+        assert (res.model, res.dimension, res.recall_at_1 >= 0.0) == (
+            "test-embed",
+            384,
+            True,
+        )
 
 
 def test_embedding_engine_provider_resolution() -> None:
@@ -417,16 +424,10 @@ def test_embedding_engine_provider_resolution() -> None:
     assert raised.value.error_code == "VALIDATION_ERROR"
 
 
-def test_compute_ndcg_and_report_rendering() -> None:
-    """Verify compute_ndcg_at_k with rank outside k and full report print rendering."""
-    from devops_cli.ai.benchmark.embedding_runner import compute_ndcg_at_k
+def test_report_rendering() -> None:
+    """Verify full report print rendering."""
     from devops_cli.models.benchmark import EmbeddingServerSummary
 
-    # 1. compute_ndcg_at_k
-    assert compute_ndcg_at_k([0, 1, 2], target_idx=0, k=5) == 1.0
-    assert compute_ndcg_at_k([1, 2, 3, 4, 5, 0], target_idx=0, k=5) == 0.0
-
-    # 2. EmbeddingBenchmarkRunner.print_report with server summaries and categories
     runner = EmbeddingBenchmarkRunner(models=["m1", "m2"], is_dry_run=True)
     res_1 = EmbeddingBenchmarkResult(
         model="m1",
@@ -502,6 +503,28 @@ def test_compute_ndcg_and_report_rendering() -> None:
     md = runner.generate_markdown(rep)
     assert "Server Hardware Comparison" in md
     assert "Key Recommendations" in md
+
+
+def test_runner_scores_a_target_absent_from_the_corpus_as_zero() -> None:
+    """Verify that an absent target in the corpus scores zero for MRR and NDCG."""
+    runner = EmbeddingBenchmarkRunner(models=["m"], is_dry_run=False)
+    task = SectionRetrievalTask(
+        id="eval-absent",
+        target_section_index=99,
+        target_heading="Absent",
+        query="absent query",
+        target_passage="absent target",
+        category="general",
+    )
+    mock_engine = MagicMock()
+    mock_engine.embed_texts.side_effect = lambda texts, *, is_query=False: (
+        [[1.0, 0.0] for _ in texts] if is_query else [[0.0, 1.0] for _ in texts]
+    )
+    with patch.object(runner, "_engine_for_model", return_value=mock_engine):
+        res = runner.evaluate_model("m", [task], ["corpus chunk"])
+    assert res.recall_at_1 == 0.0
+    assert res.mrr == 0.0
+    assert res.ndcg_at_5 == 0.0
 
 
 @pytest.mark.parametrize(
@@ -714,10 +737,16 @@ def test_the_category_table_has_a_column_for_each_category_a_run_scored(
         session_id="20261022-sess",
         models=[
             EmbeddingBenchmarkResult(
-                model="model-a", server="localhost", dimension=3, category_accuracies=scored
+                model="model-a",
+                server="localhost",
+                dimension=3,
+                category_accuracies=scored,
             ),
             EmbeddingBenchmarkResult(
-                model="model-b", server="localhost", dimension=3, category_accuracies={"code": 80.0}
+                model="model-b",
+                server="localhost",
+                dimension=3,
+                category_accuracies={"code": 80.0},
             ),
         ],
     )
@@ -753,7 +782,8 @@ def _source_tree(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     (tree / "beta.go").write_text(
-        "package main\n\nfunc ServeHTTP() {\n}\n\ntype Router struct {\n}\n", encoding="utf-8"
+        "package main\n\nfunc ServeHTTP() {\n}\n\ntype Router struct {\n}\n",
+        encoding="utf-8",
     )
     (tree / "run.sh").write_text("#!/bin/sh\necho hi\n", encoding="utf-8")
     (tree / "NOTES.md").write_text("# Notes\nNot code.\n", encoding="utf-8")
@@ -761,7 +791,12 @@ def _source_tree(tmp_path: Path) -> Path:
 
 
 def _code_task(
-    number: int, target: int, location: str, query: str, passage: str, category: str = "code"
+    number: int,
+    target: int,
+    location: str,
+    query: str,
+    passage: str,
+    category: str = "code",
 ) -> SectionRetrievalTask:
     """The retrieval task `load_code_chunk_corpus` builds for the chunk at `location`."""
     return SectionRetrievalTask(
@@ -827,12 +862,16 @@ def test_code_tasks_are_sampled_evenly_across_the_chunks(tmp_path: Path) -> None
     from devops_cli.ai.benchmark.code_chunk_corpus import load_code_chunk_corpus
 
     (tmp_path / "many.py").write_text(
-        "".join(f"def fn_{name}():\n    return 1\n" for name in "abcdef"), encoding="utf-8"
+        "".join(f"def fn_{name}():\n    return 1\n" for name in "abcdef"),
+        encoding="utf-8",
     )
 
     tasks, corpus = load_code_chunk_corpus(tmp_path, sample_count=3)
 
-    assert ([(task.target_section_index, task.query) for task in tasks], len(corpus)) == (
+    assert (
+        [(task.target_section_index, task.query) for task in tasks],
+        len(corpus),
+    ) == (
         [(0, "many.py fn_a"), (2, "many.py fn_c"), (4, "many.py fn_e")],
         6,
     )
@@ -850,13 +889,18 @@ def test_a_query_that_names_two_chunks_has_no_single_target(tmp_path: Path) -> N
 
     tasks, corpus = load_code_chunk_corpus(tmp_path, sample_count=15)
 
-    assert ([(task.target_section_index, task.query) for task in tasks], len(corpus)) == (
+    assert (
+        [(task.target_section_index, task.query) for task in tasks],
+        len(corpus),
+    ) == (
         [(2, "dup.py unique")],
         3,
     )
 
 
-def test_a_class_is_queried_by_its_first_symbols_as_the_index_lookup_is(tmp_path: Path) -> None:
+def test_a_class_is_queried_by_its_first_symbols_as_the_index_lookup_is(
+    tmp_path: Path,
+) -> None:
     """Verify a class with many methods is queried by its first five symbols, the lookup
     `outlines` makes for a file, not by every method (#481)."""
     from devops_cli.ai.benchmark.code_chunk_corpus import load_code_chunk_corpus
@@ -876,7 +920,8 @@ def test_a_files_preamble_is_a_distractor_not_a_target(tmp_path: Path) -> None:
     from devops_cli.ai.benchmark.code_chunk_corpus import load_code_chunk_corpus
 
     (tmp_path / "service.py").write_text(
-        '"""Serve."""\nimport os\n\n\ndef serve():\n    return os.name\n', encoding="utf-8"
+        '"""Serve."""\nimport os\n\n\ndef serve():\n    return os.name\n',
+        encoding="utf-8",
     )
 
     tasks, corpus = load_code_chunk_corpus(tmp_path, sample_count=15)
@@ -1039,7 +1084,12 @@ def test_a_code_run_is_recorded_with_the_files_it_ranked(
 
     assert (result.exit_code, recorded.subject) == (
         0,
-        {"kind": "embedding", "document": None, "code": "924c82ce9f27350f", "samples": 5},
+        {
+            "kind": "embedding",
+            "document": None,
+            "code": "924c82ce9f27350f",
+            "samples": 5,
+        },
     )
 
 
@@ -1133,7 +1183,11 @@ def test_the_code_and_document_options_are_not_taken_together(
         "--dry-run",
     )
 
-    assert (result.exit_code, "pass one" in result.output, "Benchmark Suite" in result.output) == (
+    assert (
+        result.exit_code,
+        "pass one" in result.output,
+        "Benchmark Suite" in result.output,
+    ) == (
         1,
         True,
         False,
@@ -1186,7 +1240,10 @@ def test_a_dry_run_embedding_benchmark_names_each_server_by_host_and_port(
     by the URL that holds its userinfo: for a configured server and for a `model@endpoint`
     (#2481)."""
     bench = EmbeddingBenchmarkRunner(
-        models=["nomic-embed-text:latest", f"qwen3-embedding:0.6b@{_SERVER_WITH_USERINFO}"],
+        models=[
+            "nomic-embed-text:latest",
+            f"qwen3-embedding:0.6b@{_SERVER_WITH_USERINFO}",
+        ],
         servers=[_SERVER_WITH_USERINFO, "http://example.com:11435"],
         is_dry_run=True,
     )
@@ -1291,9 +1348,13 @@ def test_a_failed_embedding_run_sends_the_server_userinfo_and_names_only_its_hos
 
 
 @pytest.mark.parametrize(
-    "userinfo", ["bench-user:" + _SERVER_SECRET, _SERVER_SECRET], ids=["password", "user-name-only"]
+    "userinfo",
+    ["bench-user:" + _SERVER_SECRET, _SERVER_SECRET],
+    ids=["password", "user-name-only"],
 )
-def test_an_embedding_endpoint_error_names_the_endpoint_by_host_and_port(userinfo: str) -> None:
+def test_an_embedding_endpoint_error_names_the_endpoint_by_host_and_port(
+    userinfo: str,
+) -> None:
     """Verify the errors that the benchmark writes for an endpoint it refuses, a `model@endpoint`
     that ollama_urls cannot hold or one that is not the gateway, name each URL by `host[:port]`
     and never by its userinfo (#2481)."""
@@ -1346,7 +1407,13 @@ def test_an_embedding_benchmark_sends_the_userinfo_and_records_only_the_host_and
     )
 
     result = cli(
-        "ai", "benchmark", "--type", "embedding", *options, "--code", _source_tree(tmp_path)
+        "ai",
+        "benchmark",
+        "--type",
+        "embedding",
+        *options,
+        "--code",
+        _source_tree(tmp_path),
     )
 
     (recorded,) = load_runs(Mechanism.AI_BENCHMARK)

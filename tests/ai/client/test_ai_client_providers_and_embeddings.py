@@ -15,10 +15,6 @@ from devops_cli.ai.benchmark.document_chunker import (
     InMemoryDocumentTokenizer,
     load_test_document_corpus,
 )
-from devops_cli.ai.benchmark.embedding_runner import (
-    compute_ndcg_at_k,
-    cosine_similarity,
-)
 from devops_cli.ai.client import (
     AIClientError,
     LLMClient,
@@ -32,6 +28,9 @@ from devops_cli.ai.client.streaming import (
     StreamFrame,
     _ollama_stream_frame,
     _read_event_stream,
+)
+from devops_cli.ai.vector_similarity import (
+    cosine_similarity,
 )
 from devops_cli.config.settings import AIConfig
 from devops_cli.models.ai import ChatMessage
@@ -190,11 +189,6 @@ def test_embedding_runner_similarity_and_ndcg() -> None:
 
     assert cosine_similarity(v1, v2) == pytest.approx(1.0)
     assert cosine_similarity(v1, v3) == pytest.approx(0.0)
-
-    ranked = ["doc1", "doc2", "doc3"]
-    relevant = {"doc1", "doc3"}
-    ndcg = compute_ndcg_at_k(ranked, relevant, k=3)
-    assert 0.0 <= ndcg <= 1.0
 
 
 def test_chunk_extractors_and_stream_helpers() -> None:
