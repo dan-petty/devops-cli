@@ -230,6 +230,14 @@ def _rotated_title(active_prefix: str) -> str:
     return f"{active_prefix or 'devops-cli'}-{_date_suffix()}"
 
 
+def _rotate_dry_run_notes(active_prefix: str, github_enabled: bool) -> list[str]:
+    """The notes under the requests of a rotation. A prefix that registers on no GitHub account
+    sends no request, so the notes tell where the public key of the new key goes instead."""
+    if not github_enabled:
+        return [MESSAGES.ssh.host_only_key_instruction.format(prefix=active_prefix)]
+    return [MESSAGES.ssh.rotate_dry_run_note, MESSAGES.ssh.key_placeholder_note]
+
+
 @app.command()
 @dry_run_class("request-plan")
 def rotate(
@@ -250,7 +258,8 @@ def rotate(
 ) -> None:
     """Rotate keys older than rotation_days (default 90).
 
-    Generates, registers, and reports the old key.
+    Only the prefix in ssh.key_prefix registers the new key on GitHub and sets it as the git signing key.
+    Every other prefix is for hosts only: the run prints the new public key to put on the hosts.
     """
     from devops_cli.config.settings import load_settings
     from devops_cli.crypto.ssh_keys import (
@@ -259,13 +268,17 @@ def rotate(
         get_key_age_days,
         get_ssh_key_prefix,
     )
-    from devops_cli.github.ssh import SSHRegistrationError, register_key_on_github
+    from devops_cli.github.ssh import (
+        SSHRegistrationError,
+        register_key_on_github,
+        registers_on_github,
+    )
 
     settings = load_settings()
     target_key_dir = (key_dir or settings.ssh.key_dir).expanduser()
-    active_prefix = (
-        prefix if prefix is not None else (settings.ssh.key_prefix or get_ssh_key_prefix())
-    )
+    project_prefix = settings.ssh.key_prefix or get_ssh_key_prefix()
+    active_prefix = prefix if prefix is not None else project_prefix
+    github_enabled = registers_on_github(active_prefix, project_prefix)
 
     if dry_run or is_dry_run():
         from devops_cli.github.ssh_plans import plan_rotate
@@ -273,9 +286,11 @@ def rotate(
         render_request_plan(
             MESSAGES.ssh.rotate_dry_run_heading,
             plan_rotate(
-                _rotated_key_path(target_key_dir, active_prefix), _rotated_title(active_prefix)
+                _rotated_key_path(target_key_dir, active_prefix),
+                _rotated_title(active_prefix),
+                github_enabled=github_enabled,
             ),
-            [MESSAGES.ssh.rotate_dry_run_note, MESSAGES.ssh.key_placeholder_note],
+            _rotate_dry_run_notes(active_prefix, github_enabled),
         )
         return
 
@@ -313,6 +328,13 @@ def rotate(
         print_success(f"Generated: {new_key_path}")
 
     pub_key = new_key_path.with_name(f"{new_key_path.name}.pub").read_text(encoding="utf-8").strip()
+    if not github_enabled:
+        print_info(MESSAGES.ssh.host_only_public_key.format(pub_key=pub_key), prefix=False)
+        print_info(
+            MESSAGES.ssh.host_only_key_instruction.format(prefix=active_prefix), prefix=False
+        )
+        return
+
     try:
         register_key_on_github(pub_key, _rotated_title(active_prefix))
         _configure_git_signing(new_key_path)

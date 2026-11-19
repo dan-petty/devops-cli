@@ -970,6 +970,60 @@ def test_rotate_of_a_project_with_no_key_changes_nothing_and_points_to_generate(
     ) == (0, before, [], True, True)
 
 
+def test_rotate_of_a_host_only_prefix_sends_no_request_and_runs_no_git_command(
+    key_dir_of_three_projects: Path,
+    global_git_config: Path,
+    cli: Callable[..., Any],
+    github_api: GitHubApiFake,
+    git_fake: GitFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A prefix that is not the project prefix reaches the hosts alone: the rotation registers no
+    key on GitHub, runs no `git config` command, and prints the public key with the host
+    instruction (#6339)."""
+    monkeypatch.chdir(key_dir_of_three_projects)
+    _accept_keys(github_api)
+    new_key = key_dir_of_three_projects / f"alpha-id_ed25519-{date.today():%Y%m%d}"
+
+    result = cli("ssh", "rotate", "--prefix", "alpha", "--force")
+
+    public_line = (key_dir_of_three_projects / f"{new_key.name}.pub").read_text(encoding="utf-8")
+    output = _squash(result.output)
+    assert (result.exit_code, new_key.exists(), github_api.requested, git_fake.calls) == (
+        0,
+        True,
+        [],
+        [],
+    )
+    assert (public_line.strip() in output, global_git_config.exists()) == (True, False)
+    assert "Put the public key on the hosts" in output
+    assert "Remove manually from GitHub" not in output
+
+
+def test_rotate_of_the_project_prefix_registers_and_signs(
+    key_dir_of_three_projects: Path,
+    global_git_config: Path,
+    cli: Callable[..., Any],
+    github_api: GitHubApiFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The project prefix is the one that registers on GitHub and signs the commits: the rotation
+    sends the new key to both endpoints and points the global git config at it (#6339)."""
+    monkeypatch.chdir(key_dir_of_three_projects)
+    _accept_keys(github_api)
+    new_key = key_dir_of_three_projects / f"{_PROJECT_PREFIX}-id_ed25519-{date.today():%Y%m%d}"
+
+    result = cli("ssh", "rotate", "--force")
+
+    public_line = (key_dir_of_three_projects / f"{new_key.name}.pub").read_text(encoding="utf-8")
+    signing_config = global_git_config.read_text(encoding="utf-8")
+    assert (
+        result.exit_code,
+        [(sent.method, json.loads(sent.content)["key"]) for sent in github_api.sent],
+    ) == (0, [("POST", public_line.strip()), ("POST", public_line.strip())])
+    assert str(new_key) in signing_config
+
+
 def test_status_shows_the_key_of_the_project(
     key_dir_of_three_projects: Path, cli: Callable[..., Any]
 ) -> None:
@@ -1166,6 +1220,41 @@ def test_ssh_rotate_dry_run_writes_no_key_and_lists_the_requests(
     assert all(
         "the newest key is older than the rotation age or --force is set" in line for line in lines
     )
+
+
+def test_ssh_rotate_dry_run_of_a_host_only_prefix_lists_no_github_request(
+    key_dir_of_three_projects: Path,
+    cli: Callable[..., Any],
+    github_api: GitHubApiFake,
+    git_fake: GitFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A dry run of a prefix that reaches the hosts alone lists no key request and no `git config`
+    command, and says where the public key goes (#6339)."""
+    monkeypatch.chdir(key_dir_of_three_projects)
+    before = sorted(path.name for path in key_dir_of_three_projects.iterdir())
+
+    result = cli("ssh", "rotate", "--dry-run", "--prefix", "alpha")
+
+    output = _squash(result.output)
+    assert (result.exit_code, _plan_lines(result.output), github_api.requested, git_fake.calls) == (
+        0,
+        [],
+        [],
+        [],
+    )
+    assert sorted(path.name for path in key_dir_of_three_projects.iterdir()) == before
+    assert ("POST /user/keys" in output, "git config" in output) == (False, False)
+    assert "Put the public key on the hosts" in output
+
+
+def test_ssh_rotate_help_names_the_github_prefix(cli: Callable[..., Any]) -> None:
+    """The help names `ssh.key_prefix` as the only prefix that registers on GitHub, and says that
+    every other prefix is for hosts only (#6339)."""
+    result = cli("ssh", "rotate", "--help")
+
+    output = _squash(result.output)
+    assert (result.exit_code, "ssh.key_prefix" in output, "hosts only" in output) == (0, True, True)
 
 
 def test_ssh_register_runs_the_requests_of_its_plan(

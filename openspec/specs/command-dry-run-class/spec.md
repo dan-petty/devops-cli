@@ -845,7 +845,7 @@ The five commands `branches clean`, `branches jira`, `branches list`, `repos lis
 - **THEN** the output says that it would create the branch `feature/PROJ-1` and no `git checkout` runs
 
 ### Requirement: ssh-request-plans
-The commands `ssh register` and `ssh rotate` SHALL carry the `request-plan` dry-run class and SHALL expose `--dry-run`. A dry run SHALL make no request to GitHub, start no process, and print the requests of the real run in order.
+The commands `ssh register` and `ssh rotate` SHALL carry the `request-plan` dry-run class and SHALL expose `--dry-run`. A dry run SHALL make no request to GitHub, start no process, and print the requests of the real run in order. A dry run of `ssh rotate` for a prefix that is not the project prefix SHALL list no GitHub key request and no `git config` command.
 
 #### Scenario: Dry run on ssh register
 - **WHEN** user executes `devops ssh register --dry-run` and `devops --dry-run ssh register`
@@ -858,6 +858,10 @@ The commands `ssh register` and `ssh rotate` SHALL carry the `request-plan` dry-
 #### Scenario: The plan matches the real run
 - **WHEN** a test runs `devops ssh register` against `github_api` routes that accept both keys, and compares the requests that it received with the plan lines that have no condition
 - **THEN** the methods and the paths are the same, in the same order
+
+#### Scenario: Dry run of a host-only prefix
+- **WHEN** a test runs `devops ssh rotate --prefix alpha --dry-run` with `ssh.key_prefix` set to `devops-cli`
+- **THEN** the output lists no `POST /user/keys`, no `POST /user/ssh_signing_keys` and no `git config` command, and holds the line that tells the person to put the public key on the hosts
 
 ### Requirement: ssh-no-external-request
 The commands `ssh audit`, `ssh generate`, `ssh list` and `ssh status` SHALL carry the `no-external-request` dry-run class. `ssh audit`, `ssh list` and `ssh status` SHALL run normally under `devops --dry-run` and SHALL have no `--dry-run` option. `ssh generate` SHALL provide a local preview under `--dry-run` that writes no key.

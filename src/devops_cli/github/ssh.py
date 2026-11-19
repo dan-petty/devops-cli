@@ -22,6 +22,16 @@ class SSHRegistrationError(GitHubOperationError):
     """Raised when SSH/signing key registration on GitHub fails."""
 
 
+def registers_on_github(prefix: str, project_prefix: str) -> bool:
+    """Whether the key of *prefix* belongs on the GitHub account: only the project prefix does.
+
+    A hyphen and an underscore are the same separator, as the key selection of
+    `devops_cli.crypto.ssh_keys.list_managed_keys` folds them, so `devops-cli` matches
+    `devops_cli`. Every other prefix is for the hosts only.
+    """
+    return prefix.replace("_", "-") == project_prefix.replace("_", "-")
+
+
 def register_key_on_github(pub_key: str, title: str) -> None:
     """Add *pub_key* to GitHub as both an auth key and a signing key, as the session's identity.
 

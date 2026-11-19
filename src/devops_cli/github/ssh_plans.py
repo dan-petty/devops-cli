@@ -47,9 +47,12 @@ def plan_register(key_path: Path | str, title: str, condition: str = "") -> list
     return requests
 
 
-def plan_rotate(key_path: Path, title: str) -> list[PlannedRequest]:
+def plan_rotate(key_path: Path, title: str, github_enabled: bool = True) -> list[PlannedRequest]:
     """The requests of `plan_register` for the new key, which the run makes only when it
-    rotates."""
+    rotates. A prefix that is not the project prefix registers on no GitHub account and signs no
+    commit, so `github_enabled=False` plans nothing at all (#6339)."""
+    if not github_enabled:
+        return []
     return plan_register(
         key_path,
         title,
