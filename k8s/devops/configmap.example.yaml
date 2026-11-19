@@ -17,10 +17,12 @@ data:
       gateway_url: http://llm-gateway.llm.svc.cluster.local:4000/v1
       allow_private_network: true
       # Each roadmap job has a task of its own in ai.tasks, so a model trial moves one job
-      # (#5903). A job starts on DeepSeek, the model of ai.model (owner decisions of 2026-11-07,
-      # #3874, and 2026-11-16), and a job moves to local/qwen3.8:27b only after its grade reaches
-      # 80%. A task that sets no model uses ai.model. The embedding slot stays the embedding
-      # model, because a chat model cannot embed.
+      # (#5903). A new job starts on DeepSeek, the model of ai.model (owner decisions of
+      # 2026-11-07, #3874, and 2026-11-16). After its grade reaches 80%, a person can try it on
+      # local/qwen3.8:27b with a revert rule. A job stays on local/qwen3.8:27b only while its
+      # grade is above 90% over 7 days and its largest request stays under 256,000 tokens (owner
+      # decision of 2026-11-13). A task that sets no model uses ai.model. The embedding slot stays
+      # the embedding model, because a chat model cannot embed.
       # Each prompt of a DeepSeek slot leaves the cluster to OpenRouter (SECURITY.md rule 13).
       # The DeepSeek slots name the gateway group deepseek-v4.1-flash-1017. On 2026-11-16 its
       # dated model waited about 300 s for its first token on OpenRouter, and every job call
@@ -81,8 +83,10 @@ data:
         # A plan run needs about 38,000 tokens for its first request and 1.5 million input tokens
         # in 23 requests, and the run ends its tools at three quarters of the window. At 65,536
         # tokens the tools ended after 2 or 3 requests, and the model answered with a placeholder
-        # (#3880). 256,000 tokens is the smallest window that an fp8 provider of the gateway group
-        # offers; the group allows 1,048,576.
+        # (#3880). No provider limit sets 256,000 tokens now: on 2026-11-19 each fp8 endpoint of
+        # the group offered 1,000,000 tokens or more, and the group allows 1,048,576. The stage
+        # run reached its window stop in 5 of the 28 six-hour periods of the 7 days to 2026-11-19
+        # (devops_cli_roadmap_tool_limit_hits_total, limit "window").
         stage:
           model: openrouter/deepseek/deepseek-v4.1-flash-1017
           context_window: 256000
@@ -120,13 +124,20 @@ data:
           context_window: 256000
         # The implement job runs every step on the same group (#3573). Its prompts, which hold
         # the code of the repository, leave the cluster to OpenRouter (SECURITY.md rule 13). The
-        # window is the smallest that an fp8 provider of the group offers (256,000 tokens); the
-        # gateway group allows 1,048,576. The task implement_split is the call that splits a task
-        # group of the job.
+        # window is 256,000 tokens. No provider limit sets it: on 2026-11-19 each fp8 endpoint of
+        # the group offered 1,000,000 tokens or more, and the group allows 1,048,576. The task
+        # implement_split is the call that splits a task group of the job.
         implement:
           model: openrouter/deepseek/deepseek-v4.1-flash-1017
           context_window: 256000
         implement_split:
+          model: openrouter/deepseek/deepseek-v4.1-flash-1017
+          context_window: 256000
+        # The fix-checks Job runs a step of the implement job, so its task gets the window of the
+        # implement task. With no entry, its window is the code default of 128,000 tokens.
+        # fix_checks passed 1 of 8 runs in the 7 days to 2026-11-19, and a limit of a job under
+        # 80% goes up. No failure of the 8 is a window stop.
+        fix_checks:
           model: openrouter/deepseek/deepseek-v4.1-flash-1017
           context_window: 256000
         # Intake and retitle run on the local model in the cluster, by the owner decision of
@@ -171,17 +182,19 @@ data:
         installation_id: 1
         slug: devops-cli-service
     # The stage job of the Service (docs/CLUSTER.md, Roadmap service): it stages the Ready items
-    # that this filter names, at most `limit` in a round, in task groups that each fit
-    # `step_tokens`. At `planned_limit` open Planned items it plans only items with the priority
+    # that this filter names, one stage Job for each free slot of `jobs` and `model_jobs`, in
+    # task groups that each fit `step_tokens`. `limit` applies only to a `devops roadmap stage`
+    # run that a person starts. At `planned_limit` open Planned items it plans only items with the priority
     # P0-Critical or P1-High. A repository's ConfigMap changes the filter; an entry is
     # `family=value` over status, priority, type, value or effort. The `toolset` names the tools
     # of a plan run: `extended` adds `references`, `read_issue` and `find_issues`, which read
     # GitHub with the token of the Service; `base` has the nine tools that read the staged
     # commit only.
     roadmap:
-      # The MCP server that the stage and implement jobs call at `<url>/<role>/mcp`. Both jobs stay
-      # off until `roadmap.stage.mcp` or `roadmap.implement.mcp` is true. They send the token of
-      # Secret devops/mcp-server (`devops k8s push-secrets`).
+      # The MCP server that the stage and implement jobs call at `<url>/<role>/mcp`. A job adds
+      # the remote tools of its role only when `roadmap.stage.mcp` or `roadmap.implement.mcp` is
+      # true, and then sends the token of Secret devops/mcp-server (`devops k8s push-secrets`).
+      # Both are false, so no job calls this URL now.
       mcp:
         url: http://mcp-server.devops.svc.cluster.local:8001
       stage:
@@ -194,11 +207,21 @@ data:
         # The stage Jobs that run at once in the cluster, for every repository together (#4559).
         # Each Job plans one item in a pod of its own, with one model call in flight.
         jobs: 1
+        # While the stage queue holds 10 or more items, the next stage round starts 4 minutes
+        # after the last one, not at the interval of the row, so a free slot gets its next Job at
+        # the next poll. In the 7 days to 2026-11-19 the next Job started a median of 9.1 minutes
+        # after a Job ended, while the queue grew from 186 to 207 items in one day. A stage round
+        # costs about 6 counted GitHub requests.
+        backlog_interval_minutes: 4
+        backlog_threshold: 10
         # The limits that end a stage attempt (#5440) are twice the code defaults, by the owner
         # decision of 2026-11-13 for the jobs under 80%, and again on 2026-11-16 (#5583).
+        # `gate_returns` is 8 since 2026-11-19: from 2026-11-16, 5 of the 6 gate refusals ended at
+        # return 6, and stage passed 49% of its attempts in 7 days. The settings refuse a value
+        # above 12.
         verify_repair_rounds: 4
         verify_repair_rounds_ceiling: 8
-        gate_returns: 6
+        gate_returns: 8
         gate_return_extensions: 2
         plan_defect_limit: 6
         max_requests: 500
@@ -206,7 +229,7 @@ data:
       # What TypeSafe Jev does in intake (#4395, ADR 0019): `off` makes no request, `shadow` keeps
       # the triage model for every label and records the Jev answers in the job record of each
       # issue (`devops roadmap eval jev --from-shadow` reads them), `on` lets Jev decide. Jev
-      # must not decide yet. An image from before #4395 refuses `shadow`: roll the image first.
+      # must not decide yet.
       intake:
         jev: "off"
       # The row fix_plan repairs one plan pull request with the label verdict/fix-plan in a round
@@ -230,23 +253,22 @@ data:
       # starts none, `plan` runs the step without --confirm, so the Job logs the repair that it
       # would make and writes nothing, and `on` repairs the check and pushes. The code starts in
       # `plan`; by the owner direction of 2026-11-16 this cluster runs `on`, with no week in `plan`.
-      # An image from before #5027 ignores the key.
       fix_checks:
         mode: "on"
       # The step review gives a bot pull request one verdict (#5969). `off` sends no request,
       # `plan` judges and logs the verdict and writes nothing, and `on` lets
       # `devops roadmap step review --confirm` write the label and the comment and take the next
       # action. A pull request gets at most `rounds` verdicts, and one review at most
-      # `token_budget` new tokens. It starts in `plan`, and a person sets `on`. The model of the
-      # task `ai.tasks.review` stays out of this file until the release with the task runs: an
-      # older image refuses the key, and the code default is DeepSeek.
+      # `token_budget` new tokens. It starts in `plan`, and a person sets `on`. The code default
+      # of the task `ai.tasks.review` is DeepSeek with a 256,000-token window, so this file does
+      # not set it.
       review:
         mode: plan
         rounds: 3
         token_budget: 16000000
       # The most model Jobs that run at once in the cluster, for all repositories together: the
       # implement, stage and fix-checks Jobs, with the fix-checks Jobs first (#6017). The owner
-      # chose 6 on 2026-11-16. The code default is 2. An image from before #5027 ignores the key.
+      # chose 6 on 2026-11-16. The code default is 2.
       model_jobs: 6
       # The mode of each decision point (ADR 0020): `off`, `shadow` or `on`. The verify screen
       # (`stage.verify_screen`) asks the decision model before the model review of a plan. In
