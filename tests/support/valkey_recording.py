@@ -13,13 +13,14 @@ holds other data, such as a Valkey of the cluster. `record_scenarios` connects o
 and refuses a server that holds a key. Start a new, empty server with no persistence, and make it
 available on a loopback port. Use one of these two ways.
 
-On a workstation, the Debian package gives a server with no install. Unpack it in an empty
-scratch directory:
+On a Debian workstation, the Debian packages give a server with no install. The server needs
+`liblzf.so.1`, which a Debian host often does not have, so download `liblzf1` too. Unpack the
+packages in an empty scratch directory, and give the loader their library directory (on amd64):
 
-    apt-get download valkey-server valkey-tools
+    apt-get download valkey-server valkey-tools liblzf1
     for f in *.deb; do dpkg-deb -x "$f" root; done
-    root/usr/bin/valkey-server --bind 127.0.0.1 --port 6390 --save '' --appendonly no \
-        --protected-mode yes
+    LD_LIBRARY_PATH=root/usr/lib/x86_64-linux-gnu root/usr/bin/valkey-server --bind 127.0.0.1 \
+        --port 6390 --save '' --appendonly no --protected-mode yes
 
 In a cluster, start a temporary Pod of the official image `valkey/valkey` and forward a loopback
 port to it. The Pod must be new and empty. Never forward to a Valkey of the cluster that holds
@@ -39,7 +40,9 @@ Then stop the server. For the Pod, stop the port-forward and delete the Pod:
 
     kubectl -n <namespace> delete pod valkey-contract-record
 
-Record again when the valkey-py pin in `uv.lock` changes, or when a scenario changes.
+Record again when the valkey-py pin in `uv.lock` changes, or when a scenario changes. In a new
+record, only the `PTTL` reply of `lock_lifecycle` changes by some milliseconds. It is the time
+between two commands, and the scenario keeps only a bounded fact of it.
 `tests/valkey/test_valkey_contract.py` fails until the record is of the locked valkey-py.
 """
 
