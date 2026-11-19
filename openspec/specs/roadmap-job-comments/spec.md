@@ -77,3 +77,10 @@ The stage, refine and implement jobs SHALL pass the stop-after-each-write harnes
 #### Scenario: A stop after each write leaves no extra comment
 - **WHEN** `stop_after_each_write` runs each job.
 - **THEN** `StopReplay.extra_comments()` is empty for every stop.
+
+### Requirement: The repeat guard keeps the question of a frame
+The fingerprint of a comment SHALL hold the hash of the owner question that a frame in the comment asks, so two frames that differ only in that hash SHALL both post, and the same frame again SHALL be a repeat.
+
+#### Scenario: Two frames that name the place of two questions
+- **WHEN** refine posts the frame of one question and then the frame of another question, each with the same place text, and then the second frame again
+- **THEN** the item holds the two frames, and the third comment is refused

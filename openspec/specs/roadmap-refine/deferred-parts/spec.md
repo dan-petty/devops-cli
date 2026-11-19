@@ -47,11 +47,11 @@ When refine plans an item Ready with deferred parts, it SHALL make one intake pl
 - **THEN** the plan holds the intake plan of the part and the store holds no new issue
 
 ### Requirement: A deferred part is linked by a body line, a comment and a record
-Refine SHALL NOT link a deferred part as a sub-issue of the item. After it files the parts, refine SHALL add one sentence that names each new issue number to the Ready comment of the item, SHALL NOT post another comment, and SHALL record the numbers, comma separated, as `refine.deferred` in the job record.
+Refine SHALL NOT link a deferred part as a sub-issue of the item. After it files the parts, refine SHALL name each new issue number under `### Moved to new items` in its section, SHALL post one event comment that names that part and no issue number, and SHALL record the numbers, comma separated, as `refine.deferred` in the job record.
 
 #### Scenario: The links of two parts
 - **WHEN** refine files two parts of item 7 as issues 21 and 22
-- **THEN** the Ready comment of item 7 names `#21` and `#22`, the job record of item 7 holds `refine.deferred` `21,22`, and item 7 has no sub-issue
+- **THEN** the refine section of item 7 holds `### Moved to new items` with `#21, #22`, its one refine comment names neither number, the job record of item 7 holds `refine.deferred` `21,22` and the hash of the new section, and item 7 has no sub-issue
 
 ### Requirement: A part that intake cannot place keeps the item New
 When the intake plan of a deferred part has no placement, or the text of the part is refused as a secret, refine SHALL NOT set the item Ready, SHALL file no part of the item, and SHALL give the item the next step `person` with a detail that names the part.
