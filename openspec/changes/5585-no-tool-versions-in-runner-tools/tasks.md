@@ -11,9 +11,9 @@
 
 ## 2. Renovate writes no tool version into src
 
-- [x] 2.1 In `.github/renovate.json`, delete the custom managers of `UV_VERSION` and `NODE_MAJOR`, and remove the runner tools table from the descriptions of the `uv`, `gh` and `node` groups and of the `src/devops_cli/**` rule.
-  - Verification: `$ ! git grep -n -E 'runner_tools|runner tools table' -- .github/renovate.json`
-- [x] 2.2 Confirm that no Python file under `src/` holds a copied tool version.
+- [x] 2.1 In `.github/renovate.json`, delete the custom managers of `UV_VERSION` and `NODE_MAJOR`, remove the runner tools table from the descriptions of the `uv` and `node` groups and of the `src/devops_cli/**` rule, and delete the rule of the group `gh`, which matches no dependency.
+  - Verification: `$ ! git grep -n -E 'runner_tools|runner tools table|cli/cli' -- .github/renovate.json`
+- [x] 2.2 Confirm that no Python file under `src/` holds a copy of the uv, gh, Node or actionlint version.
   - Verification: `$ ! git grep -n -E '^(UV|GH|ACTIONLINT)_VERSION|NODE_MAJOR' -- src`
 
 ## 3. Documents

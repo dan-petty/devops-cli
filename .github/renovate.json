@@ -248,11 +248,6 @@
       "commitMessagePrefix": "fix(deps):"
     },
     {
-      "description": "The gh download of the Dockerfile.",
-      "matchPackageNames": ["cli/cli"],
-      "groupName": "gh"
-    },
-    {
       "description": ".node-version, the node images and the devcontainer node feature. The node image of the service image's Dockerfile is a fix by the base image rule, and a group takes the prefix of its first update, so the group sets the prefix itself.",
       "matchPackageNames": ["node"],
       "groupName": "node",

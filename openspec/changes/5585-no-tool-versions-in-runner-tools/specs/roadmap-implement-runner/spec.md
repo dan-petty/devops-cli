@@ -52,4 +52,4 @@ The last step of the `runner` stage SHALL run `python -m devops_cli.roadmap.runn
 
 #### Scenario: A Dockerfile pin bump changes no runner code
 - **WHEN** a pull request changes the version of uv, gh, Node, Python or actionlint in `Dockerfile`
-- **THEN** it changes no line of `src/devops_cli/roadmap/runner_tools.py`, because `RUNNER_TOOLS` holds no version and no test compares a version with `Dockerfile`
+- **THEN** it changes no line of `src/devops_cli/roadmap/runner_tools.py`, because `RUNNER_TOOLS` holds no version

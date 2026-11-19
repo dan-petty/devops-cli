@@ -19,4 +19,4 @@
   - After this change, no module under `src/` holds only a tool version. An AST scan of `src/` finds one module that holds only assignments and a version name: `src/devops_cli/config/defaults.py`, with 642 assignments. Its `DEFAULT_PYTHON_VERSION` stays until order 7 of the issue removes it.
   - The owner rule of 2026-11-19 forbids a tool version in a `.py` file. A guard that lets a pin-only module skip the check would make such a file easier to add.
   - `stage_change.py` calls `is_source_code` with the planned paths of a change, which can be files that do not exist yet. A parse needs the file.
-  So `is_source_code` stays a rule of the path, and the header of `fail-to-pass.yml` agrees with it, because no pin stays in a `.py` file.
+  So `is_source_code` stays a rule of the path, as the header of `fail-to-pass.yml` says. After this change, only the Renovate update of `DEFAULT_PYTHON_VERSION` writes a tool version into a `.py` file under `src/`. The copied weaver version `CONST_SEMCONV_WEAVER_VERSION` in `src/devops_cli/config/constants.py` has no manager, and #6423 removes it.
