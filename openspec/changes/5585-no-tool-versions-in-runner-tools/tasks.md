@@ -6,7 +6,7 @@
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_runner_tools.py`
 - [x] 1.2 In `src/devops_cli/roadmap/runner_tools.py`, delete `UV_VERSION`, `GH_VERSION`, `NODE_MAJOR`, `ACTIONLINT_VERSION`, `RunnerTool.pin`, the Python pin, `_pin_failure`, `TOOLS_DIR`, `TOOLS_BIN_DIR`, `USER_DATA_ROOT_VARIABLE`, the `IMAGE_PIN` and `TOOLS_LOCK` branches of `expected_text`, and the imports of `DEFAULT_PYTHON_VERSION` and `load_tools_lock`. In `src/devops_cli/lang/en/messages.py`, delete `runner_tool_off_pin`, rename `runner_tool_version` to `runner_tool_other_version`, and change `runner_tools_ready`.
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_runner_tools.py tests/invariants/test_runner_hooks.py tests/roadmap/stage/test_roadmap_stage_context.py`
-- [ ] 1.3 Lower the count of `tests/roadmap/test_roadmap_runner_tools.py` in `tests/gate/tree_checks/config_reads.toml` to the tests that still read a committed file.
+- [x] 1.3 Lower the count of `tests/roadmap/test_roadmap_runner_tools.py` in `tests/gate/tree_checks/config_reads.toml` to the tests that still read a committed file.
   - Verification: `$ uv run devops ci --check --only test-tree`
 
 ## 2. Renovate writes no tool version into src
