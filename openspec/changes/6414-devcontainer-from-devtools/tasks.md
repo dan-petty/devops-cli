@@ -20,7 +20,7 @@
 
 ## 3. Renovate
 
-- [ ] 3.1 Group `ghcr.io/dan-petty/devtools` for each manager, remove the Python-minor custom manager of `.devcontainer/Dockerfile`, and rewrite the descriptions that name devcontainer copies
+- [x] 3.1 Group `ghcr.io/dan-petty/devtools` for each manager, remove the Python-minor custom manager of `.devcontainer/Dockerfile`, and rewrite the descriptions that name devcontainer copies
   - Verification: `$ docker run --rm -v "$PWD:/repo:ro" -w /repo --entrypoint renovate-config-validator ghcr.io/renovatebot/renovate:44.239.2 --strict --no-global .github/renovate.json`
 
 ## 4. Documents
