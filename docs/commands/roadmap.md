@@ -492,6 +492,7 @@ devops roadmap eval implement [OPTIONS]
 | `--fixtures` | `path` | - | Folder of the fixtures. Without it, the command uses tests/fixtures/roadmap_eval/implement of this checkout. |
 | `--source` | `path` | - | Path to the clone of the repository to clone from. It must hold the base commit of each fixture. Without it, the command uses this checkout. |
 | `--model`, `-m` | `string` | - | Model for the step, in place of the model of the task ai.tasks.implement. |
+| `--no-tools` | `boolean` | - | Run the selected fixtures with the remote MCP tools of the step off. Run the same model with and without this option to compare the two scores. |
 | `--json` | `boolean` | - | Print the report as JSON. |
 | `--dry-run` | `boolean` | - | Make no request: list the fixtures and the model requests of the steps. Nothing is cloned and no model runs. |
 | `--check-only` | `boolean` | - | Make no model call: evaluate the four properties that a diff decides on each recorded result of each fixture, and exit 1 when a result fails other properties than its record says. This is the offline mode. |

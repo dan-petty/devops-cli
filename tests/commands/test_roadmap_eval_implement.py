@@ -49,7 +49,7 @@ def test_a_dry_run_lists_the_steps_and_makes_no_request(
 
     assert result.exit_code == 0, result.output
     assert result.stdout.splitlines()[0:4] == [
-        "Dry run: no request was made, nothing was cloned and no model ran. The steps are:",
+        "Dry run: no request was made, nothing was cloned and no model ran (with tools). The steps are:",
         "- a-case: issue #1, group 1, base 0123456789ab",
         "- b-case: issue #1, group 1, base 0123456789ab",
         "",

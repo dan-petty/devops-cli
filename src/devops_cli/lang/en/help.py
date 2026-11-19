@@ -2124,6 +2124,10 @@ class RoadmapCommandHelp:
         "With --check-only: clone the base, apply each recorded diff and run the two properties "
         "that run commands."
     )
+    eval_implement_no_tools: str = (
+        "Run the selected fixtures with the remote MCP tools of the step off. "
+        "Run the same model with and without this option to compare the two scores."
+    )
     eval_harbor_app: str = (
         "Export an implement eval fixture as a Harbor task, and run the trials of one task with "
         "the Harbor command line. Harbor (harbor-framework/harbor) runs one agent on one task in "

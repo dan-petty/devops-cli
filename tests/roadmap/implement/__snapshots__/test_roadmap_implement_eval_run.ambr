@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: test_the_report_renders_each_result_with_its_cost_and_its_first_failed_property
   '''
-  Implement eval: 3 result(s), model example-model.
+  Implement eval: 3 result(s), model example-model, with tools.
   
   sample / step: done (issue #1, group 1)
     Cost: 10 tokens in, 5 out, 2 requests, 4 tool calls, 1.5 s.

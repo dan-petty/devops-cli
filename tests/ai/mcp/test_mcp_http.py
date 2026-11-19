@@ -48,7 +48,7 @@ def test_each_role_endpoint_lists_the_tools_of_its_role(client: TestClient) -> N
     planning, implementation, review = (
         _tool_names(client, role) for role in ("planning", "implementation", "review")
     )
-    assert (len(planning), len(implementation), len(review)) == (28, 17, 16)
+    assert (len(planning), len(implementation), len(review)) == (28, 15, 16)
     assert "k8s_pods" in planning
     assert "k8s_pods" not in review
 

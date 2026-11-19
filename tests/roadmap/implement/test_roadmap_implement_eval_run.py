@@ -79,7 +79,13 @@ def test_a_step_that_does_the_group_passes_the_six_properties_and_leaves_nothing
     report = run_case(_loaded(tmp_path, base), repo=checkout, model=script.model(), window=WINDOW)
 
     clones = {call.cwd for call in programs.calls if call.argv[0] == "uv"}
-    assert (report.fixture, report.status, report.reason, report.requests, report.tool_calls) == (
+    assert (
+        report.fixture,
+        report.status,
+        report.reason,
+        report.requests,
+        report.tool_calls,
+    ) == (
         "sample",
         "done",
         "",
@@ -158,7 +164,10 @@ def test_a_step_that_removed_a_scratch_file_is_done_and_still_fails_the_scope(
     report = run_case(_loaded(tmp_path, base), repo=checkout, model=script.model(), window=WINDOW)
 
     assert report.status == "done"
-    assert (_statuses(report)["diff_scope"], _statuses(report)["no_scratch"]) == ("fail", "fail")
+    assert (_statuses(report)["diff_scope"], _statuses(report)["no_scratch"]) == (
+        "fail",
+        "fail",
+    )
     assert report.first_failed == "diff_scope"
 
 
@@ -267,12 +276,23 @@ def test_a_check_of_recorded_results_needs_no_clone_and_matches_the_record(
 def test_a_result_that_fails_other_properties_than_recorded_does_not_match(
     tmp_path: Path,
 ) -> None:
-    results = [{"name": "good", "source": "a test", "diff": "good.diff", "fails": ["diff_scope"]}]
+    results = [
+        {
+            "name": "good",
+            "source": "a test",
+            "diff": "good.diff",
+            "fails": ["diff_scope"],
+        }
+    ]
     loaded = load_case(write_fixture(tmp_path, case=case_data(results=results)))
 
     (report,) = check_recorded(loaded)
 
-    assert (report.matches, report.expected, report.first_failed) == (False, ("diff_scope",), None)
+    assert (report.matches, report.expected, report.first_failed) == (
+        False,
+        ("diff_scope",),
+        None,
+    )
 
 
 def test_a_check_with_commands_applies_the_diff_in_a_clone_and_runs_the_commands(
@@ -280,10 +300,16 @@ def test_a_check_with_commands_applies_the_diff_in_a_clone_and_runs_the_commands
 ) -> None:
     checkout, base = repo
     programs.answer(
-        lambda call: command_text(call) == "uv run devops docs check", ProcessAnswer(returncode=1)
+        lambda call: command_text(call) == "uv run devops docs check",
+        ProcessAnswer(returncode=1),
     )
     results = [
-        {"name": "good", "source": "a test", "diff": "good.diff", "fails": ["verify_passes"]},
+        {
+            "name": "good",
+            "source": "a test",
+            "diff": "good.diff",
+            "fails": ["verify_passes"],
+        },
         {
             "name": "scratch",
             "source": "a test",
@@ -297,7 +323,11 @@ def test_a_check_with_commands_applies_the_diff_in_a_clone_and_runs_the_commands
     )
 
     assert _statuses(good) == SIX_WITH_DOCS_FAILING
-    assert (good.expected, good.matches, scratch.matches) == (("verify_passes",), True, True)
+    assert (good.expected, good.matches, scratch.matches) == (
+        ("verify_passes",),
+        True,
+        True,
+    )
     assert is_clean_at(checkout, base)
 
 
@@ -306,7 +336,8 @@ def test_a_command_property_that_differs_from_the_record_does_not_match(
 ) -> None:
     checkout, base = repo
     programs.answer(
-        lambda call: command_text(call) == "uv run devops docs check", ProcessAnswer(returncode=1)
+        lambda call: command_text(call) == "uv run devops docs check",
+        ProcessAnswer(returncode=1),
     )
     loaded = _loaded(tmp_path, base)
 
@@ -320,7 +351,12 @@ def test_a_command_property_in_the_record_is_not_checked_without_commands(
     tmp_path: Path,
 ) -> None:
     results = [
-        {"name": "good", "source": "a test", "diff": "good.diff", "fails": ["tests_pass"]},
+        {
+            "name": "good",
+            "source": "a test",
+            "diff": "good.diff",
+            "fails": ["tests_pass"],
+        },
     ]
     loaded = load_case(write_fixture(tmp_path, case=case_data(results=results)))
 
@@ -348,7 +384,14 @@ def test_a_diff_that_does_not_apply_leaves_the_command_properties_skipped(
         tmp_path / "fixture",
         case=case_data(
             base=base,
-            results=[{"name": "broken", "source": "a test", "diff": "broken.diff", "fails": []}],
+            results=[
+                {
+                    "name": "broken",
+                    "source": "a test",
+                    "diff": "broken.diff",
+                    "fails": [],
+                }
+            ],
         ),
         diffs={"broken.diff": broken},
     )
@@ -369,7 +412,8 @@ def test_the_report_renders_each_result_with_its_cost_and_its_first_failed_prope
         loaded,
         repo=checkout,
         model=ModelScript(
-            tool_calls(write_call("scratch.py", "x = 1\n"), *the_whole_group()), say("Done.")
+            tool_calls(write_call("scratch.py", "x = 1\n"), *the_whole_group()),
+            say("Done."),
         ).model(),
         window=WINDOW,
     )
@@ -379,7 +423,9 @@ def test_the_report_renders_each_result_with_its_cost_and_its_first_failed_prope
     assert render_report(report) == snapshot
 
 
-def test_the_report_is_written_as_json_in_a_file_named_for_the_moment(tmp_path: Path) -> None:
+def test_the_report_is_written_as_json_in_a_file_named_for_the_moment(
+    tmp_path: Path,
+) -> None:
     report = RunReport(results=tuple(check_recorded(load_case(write_fixture(tmp_path / "f")))))
 
     path = write_report(report, tmp_path / "reports", datetime(2026, 11, 1, 12, 30, 5, tzinfo=UTC))
@@ -394,7 +440,9 @@ def test_the_report_is_written_as_json_in_a_file_named_for_the_moment(tmp_path: 
     )
 
 
-def test_two_reports_of_the_same_second_are_written_to_two_files(tmp_path: Path) -> None:
+def test_two_reports_of_the_same_second_are_written_to_two_files(
+    tmp_path: Path,
+) -> None:
     moment = datetime(2026, 11, 1, 12, 30, 5, tzinfo=UTC)
     first = RunReport(model="model-a", results=())
     second = RunReport(model="model-b", results=())
@@ -414,7 +462,7 @@ def test_a_dry_run_lists_the_steps_and_their_model_requests(tmp_path: Path) -> N
     text = render_dry_run([loaded], model="example-model")
 
     assert text.splitlines() == [
-        "Dry run: no request was made, nothing was cloned and no model ran. The steps are:",
+        "Dry run: no request was made, nothing was cloned and no model ran (with tools). The steps are:",
         "- sample: issue #1, group 1, base 0123456789ab",
         "",
         "The model requests of a run:",
@@ -429,3 +477,48 @@ def test_the_sample_plan_is_the_plan_that_the_repository_holds(
     folder = checkout / "openspec" / "changes" / "1-sample-change"
 
     assert {name: (folder / name).read_text(encoding="utf-8") for name in PLAN} == PLAN
+
+
+def test_the_report_holds_the_tool_mode(tmp_path: Path, cli: Any) -> None:
+    """A dry run states the tool mode, and RunReport holds it (#3148)."""
+    assert hasattr(RunReport, "model_fields")
+    assert "tools" in RunReport.model_fields
+    report = RunReport(results=())
+    assert report.tools is True
+    no_tools_report = RunReport(tools=False, results=())
+    assert no_tools_report.tools is False
+
+    root = tmp_path / "fixtures"
+    root.mkdir()
+    write_fixture(root, folder="a-case", case=case_data(name="a-case"))
+
+    first = cli(
+        "roadmap",
+        "eval",
+        "implement",
+        "--dry-run",
+        "--model",
+        "example-model",
+        "--fixtures",
+        str(root),
+    )
+    assert first.exit_code == 0, first.output
+    assert "a-case" in first.stdout
+    assert "0123456789ab" in first.stdout
+
+    second = cli(
+        "roadmap",
+        "eval",
+        "implement",
+        "--dry-run",
+        "--no-tools",
+        "--model",
+        "example-model",
+        "--fixtures",
+        str(root),
+    )
+    assert second.exit_code == 0, second.output
+    assert "a-case" in second.stdout
+    assert "0123456789ab" in second.stdout
+
+    assert first.stdout != second.stdout

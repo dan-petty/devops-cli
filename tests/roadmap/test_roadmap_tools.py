@@ -97,3 +97,43 @@ def test_the_real_stage_toolsets_name_only_tools_of_the_registry(tmp_path: Path)
     }
 
     assert (check_tables(tables), {len(names) for names in tables.values()}) == ([], {10, 13})
+
+
+def test_the_implement_holder_names_every_tool_of_the_step() -> None:
+    from devops_cli.roadmap.implement.implement_step import IMPLEMENT_LOCAL_TOOL_NAMES
+    from devops_cli.roadmap.tools import HOLDER_IMPLEMENT, HOLDER_STAGE, tool_names
+
+    names = set(tool_names(HOLDER_IMPLEMENT))
+    expected = {
+        "read_file",
+        "list_files",
+        "write_file",
+        "edit_file",
+        "grep",
+        "run_command",
+        "create_directory",
+        "read_comment",
+    }
+    assert names == expected
+    assert "read_file" in tool_names(HOLDER_STAGE)
+    assert IMPLEMENT_LOCAL_TOOL_NAMES == frozenset(names)
+
+
+def test_the_implementation_holder_holds_no_security_lookup() -> None:
+    from devops_cli.roadmap.tools import (
+        HOLDER_IMPLEMENTATION,
+        HOLDER_PLANNING,
+        HOLDER_REVIEW,
+        tool_names,
+    )
+
+    implementation = set(tool_names(HOLDER_IMPLEMENTATION))
+    planning = set(tool_names(HOLDER_PLANNING))
+    review = set(tool_names(HOLDER_REVIEW))
+
+    assert "security_intel_network" not in implementation
+    assert "security_intel_package" not in implementation
+    assert "security_intel_network" in planning
+    assert "security_intel_package" in planning
+    assert "security_intel_network" in review
+    assert "security_intel_package" in review

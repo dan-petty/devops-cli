@@ -241,3 +241,14 @@ def test_the_rendered_prompt_names_create_directory_and_holds_no_python_mkdir() 
     assert not any(
         "python" in line and "-c" in line and "mkdir" in line for line in rendered.splitlines()
     )
+
+
+def test_the_tools_table_lists_the_registry_tools() -> None:
+    from devops_cli.roadmap.implement.implement_step import step_instructions
+    from devops_cli.roadmap.tools import HOLDER_IMPLEMENT, TOOLS, tool_names
+
+    prompt = step_instructions()
+    for name in tool_names(HOLDER_IMPLEMENT):
+        entry = TOOLS[name]
+        access = "read" if entry.read_only else "write"
+        assert f"| `{name}` | {access} | {entry.purpose} |" in prompt

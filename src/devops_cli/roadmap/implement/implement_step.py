@@ -153,6 +153,7 @@ from devops_cli.roadmap.implement.implement_shell_policy import (
     read_verification,
     refusals_table,
     shown,
+    tools_table,
     verification_class,
 )
 from devops_cli.roadmap.implement.implement_shell_refusal import ShellRefusal
@@ -193,6 +194,7 @@ from devops_cli.roadmap.step_files import (
 )
 from devops_cli.roadmap.step_rules import rules_sections
 from devops_cli.roadmap.toolchains import DEVOPS_CLI_PRESET, ToolchainPreset
+from devops_cli.roadmap.tools import HOLDER_IMPLEMENT, tool_names
 from devops_cli.security.sanitizer import mask_secrets
 
 if TYPE_CHECKING:
@@ -203,10 +205,11 @@ _PROMPT = "roadmap_implement_step.md"
 
 
 def step_instructions() -> str:
-    """The instructions of the implement step: the prompt with its three tables, which the caller
+    """The instructions of the implement step: the prompt with its four tables, which the caller
     passes as the context of the prompt (#4633)."""
     return load_task_prompt(
         _PROMPT,
+        tools=tools_table(),
         shell_programs=programs_table(),
         local_commands=local_commands_table(),
         shell_refusals=refusals_table(),
@@ -613,7 +616,7 @@ class StepOutcome(BaseModel):
     `extension` is the one extension of the token budget that the step got, with the counts that
     gave it (#4394), or None. `cache_read_tokens` is the part of `input_tokens` that the provider
     read from its cache (#4387). `comments` names each comment of the item that the inputs of the
-    step held whole (#6167)."""
+    step held whole (#6167). `tool_counts` holds the count of each tool that the step called (#3148)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -645,6 +648,7 @@ class StepOutcome(BaseModel):
     verified: tuple[VerifiedCommand, ...] = ()
     extension: BudgetExtension | None = None
     comments: tuple[str, ...] = ()
+    tool_counts: dict[str, int] = {}
 
 
 # ── The agent ─────────────────────────────────────────────────────────────────────────────
@@ -773,18 +777,7 @@ def _tier_for_attempt(
     return tiers[min(attempt, len(tiers) - 1)], min(attempt, len(tiers) - 1)
 
 
-IMPLEMENT_LOCAL_TOOL_NAMES: Final[frozenset[str]] = frozenset(
-    {
-        "read_file",
-        "write_file",
-        "edit_file",
-        "list_files",
-        "grep",
-        "create_directory",
-        "read_comment",
-        IMPLEMENT_SHELL_TOOL,
-    }
-)
+IMPLEMENT_LOCAL_TOOL_NAMES: Final[frozenset[str]] = frozenset(tool_names(HOLDER_IMPLEMENT))
 
 
 def build_agent(
@@ -2286,6 +2279,7 @@ def _attempt(
     usage_limits: UsageLimits,
     trace: ImplementTrace | None = None,
     mcp_toolset: AbstractToolset[Any] | None = None,
+    tools: bool = True,
 ) -> StepOutcome:
     """Run the agent one tier at a time, then judge the exit and commit. A failed check or a
     hook gets an extra turn while one of the `roadmap.implement.repair_rounds` rounds is
@@ -2300,7 +2294,7 @@ def _attempt(
     `usage_limits`, and its extra turns count against them."""
     settings = load_settings()
     budget = settings.roadmap.implement.repair_rounds
-    if mcp_toolset is None and settings.roadmap.implement.mcp:
+    if tools and mcp_toolset is None and settings.roadmap.implement.mcp:
         mcp_toolset = build_roadmap_mcp_toolset(
             ROLE_IMPLEMENTATION,
             local_tool_names=IMPLEMENT_LOCAL_TOOL_NAMES,
@@ -2392,6 +2386,7 @@ def _attempt(
         last_message=run.last_message,
         requests=total.requests,
         tool_calls=tool_calls,
+        tool_counts=dict(log.calls),
         input_tokens=total.input_tokens,
         cache_read_tokens=total.cache_read_tokens,
         output_tokens=total.output_tokens,
@@ -2520,6 +2515,7 @@ def run_step(
     usage_limits: UsageLimits | None = None,
     token_cap: TokenCap | None = None,
     comments: StepComments | None = None,
+    tools: bool = True,
 ) -> StepOutcome:
     """Run group `group` of item `item` in the checkout `source`, with the pydantic-ai `model`.
 
@@ -2611,6 +2607,7 @@ def run_step(
             usage_limits=usage_limits or step_usage_limits(log.limits),
             trace=trace,
             mcp_toolset=mcp_toolset,
+            tools=tools,
         )
         outcome = outcome.model_copy(update={"comments": inputs.comments.used})
         done = outcome.status is StepStatus.DONE
@@ -2641,6 +2638,7 @@ def run_fix_step(
     usage_limits: UsageLimits | None = None,
     token_cap: TokenCap | None = None,
     comments: StepComments | None = None,
+    tools: bool = True,
 ) -> StepOutcome:
     """Run the fix of the failed check `fix` for item `item` in the checkout `source`: a step
     whose group is "Make check <name> pass". It commits with the type and the scope of the item,

@@ -314,6 +314,77 @@ def test_the_pr_comment_names_each_comment_of_the_item_that_the_step_inputs_held
     assert f"- comments of the item in the step inputs: {page}" in comment["body"]
 
 
+def test_the_pull_request_comment_names_the_tools_of_the_job(
+    job_world: JobWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The comment on the pull request names the tools called, with their counts (#3148)."""
+    from fastmcp import FastMCP
+
+    from devops_cli.roadmap.implement import implement_step
+    from devops_cli.roadmap.implement.implement_step import IMPLEMENT_LOCAL_TOOL_NAMES
+    from devops_cli.roadmap.mcp import RoadmapMcpToolset
+
+    server = FastMCP("test-mcp")
+
+    @server.tool
+    def pr_describe() -> str:
+        return "described"
+
+    toolset = RoadmapMcpToolset(server, local_tool_names=IMPLEMENT_LOCAL_TOOL_NAMES)
+    monkeypatch.setattr(
+        implement_step,
+        "build_roadmap_mcp_toolset",
+        lambda *args, **kwargs: toolset,
+    )
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_IMPLEMENT_MCP", "true")
+
+    ruff_calls = 0
+
+    def answer_ruff(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        nonlocal ruff_calls
+        ruff_calls += 1
+        if ruff_calls == 1:
+            return subprocess.CompletedProcess(
+                call.argv, 1, stdout="src/devops_cli/shout.py:1:1: F401\n"
+            )
+        return subprocess.CompletedProcess(call.argv, 0, stdout="")
+
+    job_world.programs.answer(
+        lambda call: "ruff" in call.argv and "check" in call.argv,
+        ProcessAnswer(side_effect=answer_ruff),
+    )
+
+    script = ModelScript(
+        tool_calls(
+            ("read_file", {"path": "CONTEXT.md"}),
+            ("read_file", {"path": "CONTEXT.md"}),
+            ("pr_describe", {}),
+            *group_one_calls(),
+        ),
+        say("Group 1 is done."),
+        tool_calls(("write_file", {"path": "src/devops_cli/shout.py", "content": SHOUT})),
+        say("Fixed the check."),
+        tool_calls(*group_two_calls()),
+        say("Group 2 is done."),
+    )
+
+    applied = job_world.run(script)
+
+    (comment,) = job_world.sent("POST", f"issues/{PULL}/comments")
+    body = comment["body"]
+
+    assert applied.ready == (1,)
+    assert "uv run ruff check -- src/devops_cli/shout.py" in body
+    tools_lines = [line for line in body.splitlines() if line.startswith("- tools:")]
+    assert len(tools_lines) == 1
+    tools_line = tools_lines[0]
+    assert "read_file 2" in tools_line
+    assert "pr_describe 1" in tools_line
+    assert "/" not in tools_line
+    assert "CONTEXT.md" not in tools_line
+    assert "src" not in tools_line
+
+
 def _rewrite_why(job_world: JobWorld, why: str) -> None:
     """Make the archive step leave `why` as the "Why" of the archived proposal."""
 

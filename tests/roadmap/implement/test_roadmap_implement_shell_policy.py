@@ -36,6 +36,7 @@ from devops_cli.roadmap.implement.implement_shell_policy import (
     read_negative_search,
     refusals_table,
     refused_argument,
+    tools_table,
     verification_problem,
 )
 from devops_cli.roadmap.implement.implement_step import (
@@ -430,26 +431,28 @@ def _prompt() -> str:
     return step_instructions()
 
 
-def test_the_prompt_file_holds_the_three_placeholders_and_no_copy_of_the_table() -> None:
+def test_the_prompt_file_holds_the_four_placeholders_and_no_copy_of_the_table() -> None:
     raw = load_task_prompt("roadmap_implement_step.md")
 
     assert (
+        raw.count("{{tools}}"),
         raw.count("{{shell_programs}}"),
         raw.count("{{local_commands}}"),
         raw.count("{{shell_refusals}}"),
         [line for line in raw.splitlines() if line.startswith("| `")],
-    ) == (1, 1, 1, [])
+    ) == (1, 1, 1, 1, [])
 
 
-def test_the_prompt_of_the_step_holds_the_three_tables_and_no_placeholder() -> None:
+def test_the_prompt_of_the_step_holds_the_four_tables_and_no_placeholder() -> None:
     prompt = _prompt()
 
     assert (
+        tools_table() in prompt,
         programs_table() in prompt,
         local_commands_table() in prompt,
         refusals_table() in prompt,
         "{{" in prompt,
-    ) == (True, True, True, False)
+    ) == (True, True, True, True, False)
 
 
 def test_the_table_of_programs_has_a_row_for_each_program_in_the_order_of_the_table() -> None:
@@ -513,10 +516,22 @@ def test_the_local_commands_are_the_eight_commands_of_the_project_and_none_uses_
         (("ci", "docs"), "read"),
         (("ci", "openspec"), "read"),
         (("ai", "repomap"), "read"),
-        (("ai", "ast"), "write"),
+        (("ai", "ast"), "read"),
         (("docs", "generate"), "write"),
         (("openspec", "check"), "read"),
     ]
+
+
+def test_the_code_intelligence_commands_are_reads() -> None:
+    by_words = {c.words: c for c in LOCAL_COMMANDS}
+    ast = by_words[("ai", "ast")]
+    repomap = by_words[("ai", "repomap")]
+
+    assert ast.access is ShellAccess.READ
+    assert repomap.access is ShellAccess.READ
+    assert "--output" not in ast.use
+    assert "--output" not in repomap.use
+    assert not any(c.access is ShellAccess.NETWORK for c in LOCAL_COMMANDS)
 
 
 def test_the_table_of_local_commands_has_a_row_for_each_command_in_the_order_of_the_table() -> None:

@@ -332,6 +332,7 @@ class ToolCallLog:
 
     root: Path | None = None
     refused: Counter[str] = field(default_factory=Counter[str])
+    calls: Counter[str] = field(default_factory=Counter[str])
     retried: int = 0
     reasons: dict[str, deque[str]] = field(default_factory=dict[str, deque[str]])
     ended_on: str = ""
@@ -398,6 +399,18 @@ class ToolCallLog:
             shown[MESSAGES.roadmap.implement_tool_other] += rest
         return ", ".join(f"{program} {count}" for program, count in shown.most_common())
 
+    def calls_text(self) -> str:
+        """The tool calls of the step: the tools from the most called to the least, such as
+        "read_file 4, pr_describe 2", or "0" when none. It lists at most
+        `CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS` tools. The rest join the count of "other"."""
+        if not self.calls:
+            return "0"
+        ranked = self.calls.most_common()
+        shown = Counter(dict(ranked[:CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS]))
+        if rest := sum(count for _, count in ranked[CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS:]):
+            shown[MESSAGES.roadmap.implement_tool_other] += rest
+        return ", ".join(f"{tool} {count}" for tool, count in shown.most_common())
+
     def retries_text(self) -> str:
         """The last reasons of the tool that exceeded its retries, for the reason of a stop
         (#2866), or empty when no tool did or the tool gave no reason."""
@@ -431,6 +444,7 @@ class ToolCallLog:
         and write the line of the call."""
         if self.trace is not None:
             self.trace.tool_call(tool, program, digest, str(outcome), reason, status)
+        self.calls[tool] += 1
         self.recent.append((tool, outcome))
         if digest and outcome in (ToolOutcome.RETRY, ToolOutcome.FAILED):
             self.failed.setdefault(digest, reason)

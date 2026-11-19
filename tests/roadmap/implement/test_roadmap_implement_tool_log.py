@@ -797,3 +797,29 @@ def test_a_failed_call_is_remembered_by_its_digest(checkout: Path) -> None:
     log = _repeat_log(checkout, call, retry)
 
     assert argument_digest(call) in log.failed
+
+
+def test_the_counts_of_each_tool() -> None:
+    log = ToolCallLog()
+
+    def read_file(path: str) -> str:
+        return "content"
+
+    def pr_describe() -> str:
+        return "pr"
+
+    Agent(
+        ModelScript(
+            tool_calls(
+                ("read_file", {"path": "a.py"}),
+                ("read_file", {"path": "b.py"}),
+                ("pr_describe", {}),
+            ),
+            say("Done."),
+        ).model(),
+        tools=[read_file, pr_describe],
+        capabilities=[log.hooks()],
+    ).run_sync("go")
+
+    assert log.calls == Counter({"read_file": 2, "pr_describe": 1})
+    assert log.calls_text() == "read_file 2, pr_describe 1"

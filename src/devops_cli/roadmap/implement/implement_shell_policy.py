@@ -196,9 +196,8 @@ LOCAL_COMMANDS: tuple[LocalCommand, ...] = (
     ),
     LocalCommand(
         ("ai", "ast"),
-        ShellAccess.WRITE,
-        "Parse one source file (`parse`) or build the symbol graph of the repository (`graph`). "
-        "`graph --output <path>` writes a file: give it a path in the checkout.",
+        ShellAccess.READ,
+        "Parse one source file (`parse`) or build the symbol graph of the repository (`graph`).",
     ),
     LocalCommand(
         ("docs", "generate"),
@@ -573,6 +572,21 @@ def verification_problem(command: str) -> str | None:
     """Why the step cannot run the verification `command`, or None when it can."""
     found = read_verification(command)
     return found if isinstance(found, str) else None
+
+
+TOOLS_PLACEHOLDER = "{{tools}}"
+
+
+def tools_table() -> str:
+    """The Markdown table of the tools of the implement step, from the tools registry."""
+    from devops_cli.roadmap.tools import HOLDER_IMPLEMENT, TOOLS, tool_names
+
+    names = tool_names(HOLDER_IMPLEMENT)
+    rows = [
+        f"| `{name}` | {'read' if TOOLS[name].read_only else 'write'} | {TOOLS[name].purpose} |"
+        for name in names
+    ]
+    return "\n".join(["| Tool | Access | Use |", "| :--- | :--- | :--- |", *rows])
 
 
 def programs_table() -> str:
