@@ -3,7 +3,7 @@
 ## Decisions
 - **The setting is in `.vscode/settings.json`.** VS Code and Antigravity both read the workspace settings, so one entry covers both editors. VS Code starts its watcher again when `files.watcherExclude` changes, so the setting applies with no rebuild of the container. The paths are paths of this workspace, so the workspace scope is correct.
 - **The patterns start at the workspace folder.** The default patterns of VS Code do not start with `**`, because a `**` pattern makes a slow regular expression in a large workspace. A census found `.venv`, `.mypy_cache`, `.ruff_cache` and `.pytest_cache` only at the root, outside the excluded trees.
-- **The setting does not repeat the default excludes.** VS Code merges an object setting with its default (`mergeContents` in `configurationModels.ts`). A copy of the defaults would also stop new defaults of VS Code.
+- **The setting does not repeat the default excludes.** VS Code merges an object setting with its default (`mergeContents` in `configurationModels.ts`). A copy of the defaults would keep old defaults after VS Code removes them.
 - **`.claude/worktrees/**` is excluded.** Claude Code makes its worktrees there, and they held 93127 folders, which is 18 percent of the limit.
 
 ## Rejected alternatives

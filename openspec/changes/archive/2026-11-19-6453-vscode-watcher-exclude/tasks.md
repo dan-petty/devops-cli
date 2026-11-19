@@ -17,3 +17,4 @@ Kind: documents. Changes: `docs/DEVCONTAINER_USAGE.md`.
 ## Workflow follow-up
 
 - Pending a person: reload the VS Code window of the workspace after the merge, then count the watches of the process with `--type=fileWatcher`. The count must be less than 10 percent of `/proc/sys/fs/inotify/max_user_watches`.
+- Pending the podman-in-podman Feature (dan-petty/devcontainer-features#5): in a rootless podman-in-podman container on debian:sid in this devcontainer, `docker compose exec b ping -c1 a` works after the reload. aardvark-dns needs a free inotify watch to resolve the name.
