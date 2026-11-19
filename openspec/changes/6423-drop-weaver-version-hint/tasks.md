@@ -4,7 +4,7 @@
 
 Kind: behavior. Changes: `src/devops_cli/telemetry/semconv.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/config/constants.py`, `tests/telemetry/test_telemetry_semconv.py`.
 
-- [ ] 1.1 Test that with no weaver on PATH, the refusal names `ghcr.io/dan-petty/devtools` and the weaver releases page, and holds no version number
+- [x] 1.1 Test that with no weaver on PATH, the refusal names `ghcr.io/dan-petty/devtools` and the weaver releases page, and holds no version number
   - Verification: `$ uv run devops ci test tests/telemetry/test_telemetry_semconv.py`
 - [ ] 1.2 Move the hint to `MESSAGES.telemetry.weaver_missing_hint` with the image `CONST_DEVTOOLS_IMAGE` and no version, and delete `CONST_SEMCONV_WEAVER_VERSION`
   - Verification: `$ uv run devops ci test tests/telemetry/test_telemetry_semconv.py`
