@@ -13,5 +13,5 @@ Kind: behavior. Reads: `src/devops_cli/ci/fail_to_pass.py`, `src/devops_cli/ci/c
 
 Kind: other.
 
-- [ ] 2.1 State the rule in the module docstrings of `src/devops_cli/ci/fail_to_pass.py` and `src/devops_cli/ci/changed_tests.py`, in "Fail-to-Pass Evidence" of `CONTRIBUTING.md`, and in `docs/TESTING.md` (the list of changes that get no test, and the Fail-to-Pass rule of #6080).
+- [x] 2.1 State the rule in the module docstrings of `src/devops_cli/ci/fail_to_pass.py` and `src/devops_cli/ci/changed_tests.py`, in "Fail-to-Pass Evidence" of `CONTRIBUTING.md`, and in `docs/TESTING.md` (the list of changes that get no test, and the Fail-to-Pass rule of #6080).
   - Verification: `$ uv run devops ci docs`
