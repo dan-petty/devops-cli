@@ -46,7 +46,7 @@ spec:
 
       containers:
         - name: valkey
-          image: valkey/valkey:9.1.3-alpine
+          image: valkey/valkey:9.1.4-alpine
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
