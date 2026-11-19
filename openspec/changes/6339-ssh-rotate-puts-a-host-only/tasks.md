@@ -5,9 +5,9 @@
 Kind: behavior. Reads: `src/devops_cli/github/ssh.py`, `src/devops_cli/crypto/ssh_keys.py`, `tests/github/test_github_ssh.py`, `tests/crypto/test_ssh.py`. Changes: `src/devops_cli/github/ssh.py`, `tests/github/test_github_ssh.py`.
 Adds: `registers_on_github`
 
-- [ ] 1.1 `test_only_the_project_prefix_registers_on_github` in `tests/github/test_github_ssh.py`
+- [x] 1.1 `test_only_the_project_prefix_registers_on_github` in `tests/github/test_github_ssh.py`
   - Verification: `$ uv run devops ci test tests/github/test_github_ssh.py` fails on the base
-- [ ] 1.2 Add `registers_on_github(prefix, project_prefix)` to `src/devops_cli/github/ssh.py` beside `def register_key_on_github(pub_key: str, title: str) -> None:`. It folds each `_` of both prefixes to `-`, as the key selection of `src/devops_cli/crypto/ssh_keys.py:def list_managed_keys` does, and returns true only when the two folded prefixes are equal. Write the case first in `tests/github/test_github_ssh.py`: `devops-cli` matches `devops_cli`, `ansible` matches neither, and two empty prefixes match, so the default key still registers
+- [x] 1.2 Add `registers_on_github(prefix, project_prefix)` to `src/devops_cli/github/ssh.py` beside `def register_key_on_github(pub_key: str, title: str) -> None:`. It folds each `_` of both prefixes to `-`, as the key selection of `src/devops_cli/crypto/ssh_keys.py:def list_managed_keys` does, and returns true only when the two folded prefixes are equal. Write the case first in `tests/github/test_github_ssh.py`: `devops-cli` matches `devops_cli`, `ansible` matches neither, and two empty prefixes match, so the default key still registers
   - Verification: `$ uv run devops ci test tests/github/test_github_ssh.py` passes
 
 ## 2. Gate the rotation and the dry run by the project prefix

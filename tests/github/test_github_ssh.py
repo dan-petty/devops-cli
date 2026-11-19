@@ -240,3 +240,23 @@ def test_a_registration_failure_is_a_github_operation_error_of_the_domain_taxono
         raised.value.error_code,
         raised.value.exit_code,
     ) == ("GITHUB_OPERATION_FAILED", CONST_EXIT_FAILURE)
+
+
+@pytest.mark.parametrize(
+    ("prefix", "project_prefix", "registers"),
+    [
+        pytest.param("devops-cli", "devops_cli", True, id="hyphen-and-underscore-are-one"),
+        pytest.param("ansible", "devops-cli", False, id="host-only-prefix"),
+        pytest.param("", "", True, id="no-prefix"),
+    ],
+)
+def test_only_the_project_prefix_registers_on_github(
+    prefix: str, project_prefix: str, registers: bool
+) -> None:
+    """Only the prefix in `ssh.key_prefix` puts a key on the GitHub account. A hyphen and an
+    underscore are the same separator, as the key selection folds them, so `devops-cli` matches
+    `devops_cli`, and every other prefix is for the hosts only. Two empty prefixes match, so a
+    key with no prefix still registers."""
+    from devops_cli.github.ssh import registers_on_github
+
+    assert registers_on_github(prefix, project_prefix) is registers
