@@ -1190,6 +1190,31 @@ def test_a_changed_test_that_errors_on_setup_proves_the_fix(
     )
 
 
+TEARDOWN_ERROR = (
+    "failed on teardown with &quot;AttributeError: fixture has no attribute 'close'&quot;"
+)
+
+
+def test_a_changed_test_that_passes_and_errors_on_teardown_does_not_prove_the_fix(
+    tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """A changed test whose assertions pass on base and whose fixture errors at teardown ran on the
+    code before the fix and passed, so its error proves nothing about the fix (#6372)."""
+    text = _replay_of_test_mod(
+        tmp_path,
+        replay_state,
+        base=BASE_TESTS,
+        head=HEAD_TESTS,
+        junit=_junit(("test_fixed", "error", TEARDOWN_ERROR), ("test_kept", "", "")),
+    )
+
+    assert (replay_state.satisfied, text.splitlines()[-1]) == (
+        False,
+        "A fix needs at least one changed test that fails on base, or that errors there at "
+        "collection or setup (tests.test_mod::test_fixed, tests.test_mod::test_kept).",
+    )
+
+
 def test_an_unchanged_test_that_errors_on_base_refuses_the_replay(
     tmp_path: Path, replay_state: _FailToPassState
 ) -> None:
