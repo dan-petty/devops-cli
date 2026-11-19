@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.179.4](https://github.com/dan-petty/devops-cli/compare/v0.179.3...v0.179.4) (2026-11-19)
+
+
+### Bug Fixes
+
+* **roadmap:** refine posts a short event only when its result changes ([#6353](https://github.com/dan-petty/devops-cli/issues/6353)) ([1a22853](https://github.com/dan-petty/devops-cli/commit/1a228531c598186f9b48e2c5c4511204ca1fa49f))
+* **roadmap:** stop consolidate run before MCP tool limit ([#6369](https://github.com/dan-petty/devops-cli/issues/6369)) ([3ecd647](https://github.com/dan-petty/devops-cli/commit/3ecd647370ed05d4778a58fc06afa71d24ec86e2))
+
 ## [0.179.3](https://github.com/dan-petty/devops-cli/compare/v0.179.2...v0.179.3) (2026-11-19)
 
 
