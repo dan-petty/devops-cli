@@ -1,8 +1,8 @@
 """The owner question that refine asks (#3077).
 
-A refine step that needs an owner decision posts one owner-question frame: the first open question
-once, two options with their results, a recommendation, the evidence and the hidden block with the
-question hash. The other open questions wait for a later round, so one run asks one question. When
+A refine step that needs an owner decision posts one owner-question frame: the place of the first
+open question in refine's section of the body, two options with their results, a recommendation,
+the evidence and the hidden block with the question hash (#6196). The other open questions wait for a later round, so one run asks one question. When
 an older open item already holds the frame of the same question, the item gets a link comment to it
 instead of a second frame, and both records hold the same hash.
 """
@@ -18,6 +18,7 @@ import pytest
 
 from devops_cli.config import constants
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.body_hash import extract_section_and_outside
 from devops_cli.roadmap.owner_question import frame_hash
 from devops_cli.roadmap.refine.refine import QuestionAnswer
 from devops_cli.roadmap.stores.store import OwnerQuestionRecordKey
@@ -62,9 +63,10 @@ def _open_item(store: InMemoryRoadmapStore) -> int:
 def test_a_refine_step_posts_one_frame_for_the_first_question_of_the_run(
     git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
 ) -> None:
-    """The comment of a wait on a person is one owner-question frame: the first open question once,
-    the two options with their results, the recommendation, the evidence link and the hidden block
-    with the hash that the record keeps. The second question waits for a later round."""
+    """The comment of a wait on a person is one owner-question frame: the place of the first open
+    question in the section, the two options with their results, the recommendation, the evidence
+    link and the hidden block with the hash that the record keeps. The section holds the question,
+    and the frame does not repeat it (#6196). The second question waits for a later round."""
     number = _open_item(store)
     model_fake.answer(_two_questions())
 
@@ -73,9 +75,11 @@ def test_a_refine_step_posts_one_frame_for_the_first_question_of_the_run(
     (comment,) = comment_bodies(store, number)
     record = require_item(store, number).job_record
     options = MESSAGES.roadmap.refine_owner_question_options
+    _, section = extract_section_and_outside(store.read_issue_body(number))
     assert (
         comment.startswith(MARKER),
         comment.count(FIRST_QUESTION),
+        FIRST_QUESTION in (section or ""),
         SECOND_QUESTION in comment,
         len(options),
         [text in comment and result in comment for text, result in options.items()],
@@ -87,7 +91,8 @@ def test_a_refine_step_posts_one_frame_for_the_first_question_of_the_run(
         record.get(OwnerQuestionRecordKey.ANSWER),
     ) == (
         True,
-        1,
+        0,
+        True,
         False,
         2,
         [True, True],

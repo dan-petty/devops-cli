@@ -36,36 +36,43 @@ the comments of trusted authors (`trust.trusted_replies`).
 A part of an item that cannot be built as written, or that waits on a question or a block that only
 a person or an outside event settles, moves to new issues (`deferred`, #2423) when the rest of the
 item is Ready. Intake plans each part; `--confirm` files the parts first, each with a body that
-starts with `Split from #<issue>.`, then writes the section and sets Ready. The Ready comment names
-the new issues and the job record holds them (`RefineRecordKey.DEFERRED`). A part that intake
-cannot place keeps the item New and waiting on a person. An item that is too big for one pull
-request still waits for a person to split it.
+starts with `Split from #<issue>.`, then writes the section and sets Ready. The section names the
+new issues under `Moved to new items` and the job record holds them (`RefineRecordKey.DEFERRED`). A
+part that intake cannot place keeps the item New and waiting on a person. An item that is too big
+for one pull request still waits for a person to split it.
 
 Every item refine does not set Ready gets a next step (`NextStep`, #1758), recorded in its job
-record and posted as one comment that carries `CONST_ROADMAP_REFINE_COMMENT_MARKER`: the open
-questions go to a person, a split goes to a person with the proposed items, and open dependencies
-block it. A later round looks at an unchanged item again when a comment follows refine's last one,
-or when every item that blocks it is closed. The comments since refine's last one reach the model
-as `replies`. A round that reads the comments of a waiting item records what they gave
-(`RefineRecordKey.COMMENTS_SEEN`, `COMMENTED_AT` and `WAIT_REFS`: the count of comments the issue
-listing carried, the time of refine's last comment, and the issues and paths the text of the wait
-names). So an item that waits and holds that count costs no comment read and no body read: a new
-comment moves the count, and the other exits use the record alone (#3667). A comment that is no
-reply costs one read, and the round records the new count. Two waits still cost one comment read
-each round: an item that refine set Ready and a person or the stage job set back to New, and an
-item that an account the jobs do not trust opened. An item the model refines reads its comments
-once. The store reads each blocker, path and named issue once a round. An item refine cannot
-write a design for (too big, or two replies that never validated) waits on a body edit alone. An
-unchanged item whose record holds no step is refined again so it gets one. The report groups
-every item by its next step.
-A proposal with a suspected block or an open dependency also names the repository paths whose
-code causes the block (`block_paths`). Refine records those that the checkout holds, at most
+record: the open questions go to a person, a split goes to a person with the proposed items, and
+open dependencies block it. The section of refine holds the result of the round: the questions, Fit,
+the suspected block, the dependencies, the watched files and the new items of the deferred parts.
+The labels hold the Status and `checked-at` the commit. The comment that carries
+`CONST_ROADMAP_REFINE_COMMENT_MARKER` is one event line that names the next step and the parts of
+the section that hold it, and it posts only when the next step, the section without its `checked-at`
+line or the item that holds the frame differs from the round before, or when the round files a
+deferred part (#6196). A round that posts none records the time at which it read the comments
+(`RefineRecordKey.REPEATED_AT`), and the wait starts at the later of that time and refine's last
+comment. A later round looks at an unchanged item again when a comment follows the start of the
+wait, or when every item that blocks it is closed. The comments since refine's last one reach the
+model as `replies`, also those that a round with no comment read. A round that reads the comments of
+a waiting item records what they gave (`RefineRecordKey.COMMENTS_SEEN`, `COMMENTED_AT` and
+`WAIT_REFS`: the count of comments the issue listing carried, the time of refine's last comment, and
+the issues and paths that the parts of the section that name a cause and the replies name). So an
+item that waits and holds that count costs no comment read and no body read: a new comment moves the
+count, and the other exits use the record alone (#3667). A comment that is no reply costs one read,
+and the round records the new count. Two waits still cost one comment read each round: an item that
+refine set Ready and a person or the stage job set back to New, and an item that an account the jobs
+do not trust opened. An item the model refines reads its comments once. The store reads each
+blocker, path and named issue once a round. An item refine cannot write a design for (too big, or
+two replies that never validated) waits on a body edit alone. An unchanged item whose record holds
+no step is refined again so it gets one. The report groups every item by its next step.
+A proposal with a suspected block or an open dependency also names the repository paths whose code
+causes the block (`block_paths`). Refine records those that the checkout holds, at most
 `CONST_ROADMAP_REFINE_MAX_BLOCK_PATHS`, and a later round looks at the waiting item again when a
-commit on the default branch changed one of them at or after refine's last comment (#2005). That
-costs one commit read for each recorded path of an item that still waits, once a round. When the
-store refuses the comment of such a look as a repeat, the round records its time
-(`RefineRecordKey.REPEATED_AT`), and the wait starts at that time, so one change gives one look
-(#4793).
+commit on the default branch changed one of them at or after the start of the wait (#2005). That
+costs one commit read for each recorded path of an item that still waits, once a round. When such a
+look finds the result of the round before, or the store refuses its comment as a repeat, the round
+records the time of its read (`RefineRecordKey.REPEATED_AT`), and the wait starts at that time, so
+one change gives one look (#4793, #6196).
 The check of the alternatives job (#2650) is an input of both model calls (`alternatives`: its
 verdict, tool, block and latest comment whole). The block holds the result, and the comment the
 evidence of the run (#6195). A `covers` verdict is a question that only a person
@@ -112,7 +119,10 @@ refine logs the skip and writes nothing for the item, and the round does not fai
 `FailureLedger` never suspends the refine row for it (#3478).
 An item whose round leaves a question to a person posts one owner-question frame
 (`owner_question`), on the oldest open item that asks the question, and each other item that asks
-it gets a link to that frame (#3077). The frame is the marker of the wait: a reply of a trusted
+it gets a link to that frame (#3077). The frame names the part of the section that holds the
+question, and the record holds the item of the frame (`RefineRecordKey.FRAME`): when that item is
+no longer the open item that holds the frame, the wait ends and the next round posts the frame
+(#6196). The frame is the marker of the wait: a reply of a trusted
 person to it resumes every open item whose record holds the question's hash, and the request of
 each such item carries the answer text and the reference of the frame, which apply records as
 `OwnerQuestionRecordKey.ANSWER`. A reply of a stranger, of a bot or of the account that the run
@@ -247,6 +257,7 @@ from devops_cli.roadmap.refine.refine_investigation import (
 )
 from devops_cli.roadmap.service_stop import raise_if_service_stops
 from devops_cli.roadmap.status_sync import StatusFacts, owns_status, write_status
+from devops_cli.roadmap.step_files import section_text
 from devops_cli.roadmap.stores.store import (
     AlternativesRecordKey,
     ChangeKind,
@@ -454,7 +465,12 @@ class RefinedItem:
     no comment (#4798). `owner_question` is the one owner question that the round asked, which
     apply records with the hash of its frame (#3077), and `owner_answer` is the answer that a
     trusted person gave to the frame of the question the record holds, which the request of the
-    item carries and apply records (#3077)."""
+    item carries and apply records (#3077). `frame` is the item whose comment holds the frame of
+    `owner_question`. `repeated` is set when the result is the one of the round before: the round
+    posts no comment, and apply records `read_at`, the time at which the round read the comments
+    of the item, so a reply made while the round ran ends the wait (#6196). A result that the
+    round built before it read the comments holds the time it was built, and it posts no
+    comment."""
 
     item: Item
     proposal: RefinementProposal
@@ -480,6 +496,9 @@ class RefinedItem:
     tries: int = 0
     owner_question: OwnerQuestion | None = None
     owner_answer: OwnerAnswer | None = None
+    frame: int | None = None
+    repeated: bool = False
+    read_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     context_before: int = 0
     context_after: int = 0
 
@@ -1559,15 +1578,24 @@ def frame_holder(
 class OwnerAnswer:
     """The answer that a trusted person gave to the frame of an owner question (#3077): the text
     of the reply and the URL of the item that holds the frame, which the request of each covered
-    item carries and which apply records."""
+    item carries and which apply records, and the time of the reply, which ends a wait only when
+    it is not older than the start of the wait (#6196)."""
 
     text: str
     frame: str
+    at: datetime
 
 
 def _asked_question(item: Item) -> str | None:
     """The hash of the owner question that the record of `item` holds, or None."""
     return item.job_record.get(OwnerQuestionRecordKey.HASH)
+
+
+def _recorded_frame(item: Item) -> int | None:
+    """The item whose comment held the frame of the question that refine's last round on `item`
+    asked (`RefineRecordKey.FRAME`, #6196), or None when the record holds no such number."""
+    recorded = item.job_record.get(RefineRecordKey.FRAME) or ""
+    return int(recorded) if recorded.isdecimal() else None
 
 
 def owner_answer_of(
@@ -1594,7 +1622,9 @@ def owner_answer_of(
         return None
     read = comments_on or (lambda number: trusted_replies(store.comments_on(number)))
     reply = question_answer_of(read(holder.number), question_hash, actor=actor)
-    return None if reply is None else OwnerAnswer(text=reply.body, frame=holder.url)
+    if reply is None:
+        return None
+    return OwnerAnswer(text=reply.body, frame=holder.url, at=as_utc(reply.created_at))
 
 
 def _person_comments(comments: Sequence[IssueComment], actor: str | None) -> list[IssueComment]:
@@ -1651,70 +1681,95 @@ def _frame_comments(
     return comments if asked == number else trusted_replies(store.comments_on(asked))
 
 
-def _with_block_paths(comment: str, block_paths: Sequence[str]) -> str:
-    """`comment` with the last line that names the files whose change ends the wait (#2005)."""
-    if not block_paths:
-        return comment
-    paths = ", ".join(f"`{path}`" for path in block_paths)
-    return f"{comment}\n\n{MESSAGES.roadmap.refine_block_paths.format(paths=paths)}"
+# The headings of the parts of refine's section that hold a next step (#6196).
+_PART_OPEN_QUESTIONS: Final[str] = "Open questions"
+_PART_FIT: Final[str] = "Fit"
+_PART_SUSPECTED_BLOCK: Final[str] = "Suspected block"
+_PART_DEPENDENCIES: Final[str] = "Dependencies"
+_PART_WATCHED_FILES: Final[str] = "Watched files"
+_PART_MOVED: Final[str] = "Moved to new items"
 
 
-def _with_notice(comment: str, notice: str) -> str:
-    """`comment` with `notice` after its first line, which holds the marker of the job."""
-    if not notice:
-        return comment
-    first, _, rest = comment.partition("\n")
-    return f"{first}\n{notice}{rest}"
+def section_parts(
+    step: NextStep,
+    open_questions: Sequence[str],
+    *,
+    block_paths: Sequence[str] = (),
+    moved: bool = False,
+) -> tuple[str, ...]:
+    """The headings of the parts of refine's section that hold the next step `step`, which the
+    comment of the round names (#6196): the open questions of a wait on a person, else its
+    suspected block; the split; the dependencies; then the watched files of a block. A Ready item
+    names the new items of its deferred parts when it has some (`moved`)."""
+    match step:
+        case NextStep.PERSON:
+            parts: tuple[str, ...] = (
+                _PART_OPEN_QUESTIONS if open_questions else _PART_SUSPECTED_BLOCK,
+            )
+        case NextStep.SPLIT:
+            parts = (_PART_FIT,)
+        case NextStep.BLOCKED:
+            parts = (_PART_DEPENDENCIES,)
+        case NextStep.READY:
+            return (_PART_MOVED,) if moved else ()
+        case _:
+            return ()
+    return (*parts, _PART_WATCHED_FILES) if block_paths else parts
+
+
+def _section_place(parts: Sequence[str]) -> str:
+    """The sentence that names `parts` of refine's section, or the whole section for none."""
+    texts = MESSAGES.roadmap
+    if not parts:
+        return texts.refine_section_place_whole
+    *head, last = parts
+    named = (
+        texts.refine_section_parts.format(
+            parts=texts.refine_section_parts_separator.join(head), last=last
+        )
+        if head
+        else last
+    )
+    return texts.refine_section_place.format(parts=named)
+
+
+def _frame_place(parts: Sequence[str]) -> str:
+    """The sentence of the frame that names `parts` of refine's section: the first of them holds
+    the question, and of the open questions the frame asks the first one alone
+    (`owner_question_of`), so it names that point of the part."""
+    if parts and parts[0] == _PART_OPEN_QUESTIONS:
+        first = MESSAGES.roadmap.refine_frame_part.format(part=parts[0])
+        return _section_place((first, *parts[1:]))
+    return _section_place(parts)
 
 
 def step_comment(
     item: Item,
     step: NextStep,
     details: Sequence[str],
-    sha: str,
-    block_paths: Sequence[str] = (),
     *,
+    parts: Sequence[str] = (),
     holder: Item | None = None,
 ) -> str:
-    """The one comment that tells a person the item's next step, carrying refine's marker: the
-    Ready notice, or the questions, the split or the blockers, with the Status change from Ready
-    first (#1515, #1758), and last the files whose change ends the wait (#2005).
+    """The one comment that tells a person the item's next step, carrying refine's marker: one
+    event line that names the step and `parts`, the parts of refine's section that hold it. The
+    section holds the result, the labels the Status and `checked-at` the commit, so the comment
+    repeats none of them (#1758, #6196).
 
-    A wait on a person is one owner-question frame for the first open question, which `holder`
-    links when an older open item already asks it (#3077)."""
+    A wait on a person is one owner-question frame for the first open question, which names the
+    place of that question in `parts` in place of the question text (`_frame_place`), and which
+    `holder` links when an older open item already asks it (#3077)."""
     texts = MESSAGES.roadmap
-    short = sha[:12]
-    marker = CONST_ROADMAP_REFINE_COMMENT_MARKER
     question = owner_question_of(item, step, details)
     if question is not None:
-        comment = (
-            question.render()
-            if holder is None
-            else question.link_comment(frame_item=holder.number, frame_url=holder.url)
-        )
-        notice = (
-            texts.refine_back_to_new.format(sha=short)
-            if item.status == CONST_ROADMAP_STATUS_READY
-            else ""
-        )
-        return _with_block_paths(_with_notice(comment, notice), block_paths)
-    if step is NextStep.READY:
-        return texts.refine_ready_comment.format(marker=marker, sha=short)
-    numbered = step is NextStep.SPLIT
-    listed = "\n".join(
-        f"{index}. {detail}" if numbered else f"- {detail}"
-        for index, detail in enumerate(details, start=1)
+        if holder is None:
+            return question.render(asked=_frame_place(parts))
+        return question.link_comment(frame_item=holder.number, frame_url=holder.url)
+    return texts.refine_event_comment.format(
+        marker=CONST_ROADMAP_REFINE_COMMENT_MARKER,
+        step=texts.refine_event_steps[step.value],
+        place=_section_place(parts),
     )
-    template = texts.refine_step_comments[step.value]
-    comment = texts.refine_step_comment.format(
-        marker=marker,
-        status=texts.refine_back_to_new.format(sha=short)
-        if item.status == CONST_ROADMAP_STATUS_READY and owns_status(item)
-        else "",
-        step=template.format(sha=short, count=len(details) or 2),
-        details=listed,
-    )
-    return _with_block_paths(comment, block_paths)
 
 
 # ── Rendering & Sanitization ──────────────────────────────────────────────────
@@ -1976,17 +2031,31 @@ def _requirement_block(criterion: AcceptanceCriterion) -> list[str]:
     ]
 
 
+def _moved_part(numbers: Sequence[int]) -> str:
+    """The last part of refine's section: the new issues of the deferred parts (#2423, #6196), or
+    nothing when the item has none."""
+    if not numbers:
+        return ""
+    return f"\n\n### {_PART_MOVED}\n" + ", ".join(f"#{number}" for number in numbers)
+
+
 def render_proposal_section(
     proposal: RefinementProposal,
     open_questions: list[str],
     sha: str,
     allowed_urls: set[str],
+    *,
+    block_paths: Sequence[str] = (),
+    deferred: Sequence[int] = (),
 ) -> str:
     """Builds the sanitized plain text markdown section between markers.
 
     The markers and the `checked-at` comment go around the text after it is sanitized, so
     `sanitize_text` neutralises an end marker or a comment opener in the model's text but never
-    the section's own (#1470, #2478).
+    the section's own (#1470, #2478). The section holds the whole result of the round (#6196):
+    after the design, the open questions, Fit, the suspected block and the dependencies come the
+    files whose change ends a wait (`block_paths`, sorted, so their order changes no section), and
+    last the new issues of the deferred parts (`deferred`).
     """
     lines: list[str] = [
         "## Proposed design",
@@ -2015,12 +2084,12 @@ def render_proposal_section(
 
     if open_questions:
         lines.append("")
-        lines.append("### Open questions")
+        lines.append(f"### {_PART_OPEN_QUESTIONS}")
         for oq in open_questions:
             lines.append(f"- {oq.strip()}")
 
     lines.append("")
-    lines.append("### Fit")
+    lines.append(f"### {_PART_FIT}")
     if proposal.fits_one_pr:
         lines.append("Fits in one pull request.")
     else:
@@ -2029,21 +2098,45 @@ def render_proposal_section(
             lines.append(f"{idx}. {so.strip()}")
 
     lines.append("")
-    lines.append("### Suspected block")
+    lines.append(f"### {_PART_SUSPECTED_BLOCK}")
     lines.append(proposal.suspected_block.strip() if proposal.suspected_block else "None.")
 
     lines.append("")
-    lines.append("### Dependencies")
+    lines.append(f"### {_PART_DEPENDENCIES}")
     if proposal.dependencies:
         lines.append(", ".join(f"#{d}" for d in proposal.dependencies))
     else:
         lines.append("None.")
 
+    if block_paths:
+        lines.append("")
+        lines.append(f"### {_PART_WATCHED_FILES}")
+        lines.append(MESSAGES.roadmap.refine_block_paths)
+        lines.extend(f"- `{path}`" for path in sorted(set(block_paths)))
+
     section = sanitize_text("\n".join(lines), allowed_urls)
     return (
-        f"{CONST_ROADMAP_REFINE_START_MARKER}\n<!-- checked-at: sha={sha} -->\n{section}\n"
-        f"{CONST_ROADMAP_REFINE_END_MARKER}"
+        f"{CONST_ROADMAP_REFINE_START_MARKER}\n<!-- checked-at: sha={sha} -->\n{section}"
+        f"{_moved_part(deferred)}\n{CONST_ROADMAP_REFINE_END_MARKER}"
     )
+
+
+def _with_moved(body: str, before: Sequence[int], after: Sequence[int]) -> str:
+    """`body`, which ends with the section that `render_proposal_section` built with `before`, the
+    new items of the deferred parts, with `after` in their place (#6196)."""
+    end = f"\n{CONST_ROADMAP_REFINE_END_MARKER}"
+    return body.removesuffix(f"{_moved_part(before)}{end}") + f"{_moved_part(after)}{end}"
+
+
+# The checked-at line of refine's section: the commit of the round, which is no part of its result.
+_CHECKED_AT_RE: Final = re.compile(r"<!-- checked-at: sha=[0-9a-f]* -->")
+
+
+def _result_text(body: str) -> str | None:
+    """Refine's section of `body` without its `checked-at` line: the result of the round that wrote
+    it, which a new commit alone does not change (#6196). None when the body holds no section."""
+    _, inside = extract_section_and_outside(body)
+    return None if inside is None else _CHECKED_AT_RE.sub("", inside, count=1).strip()
 
 
 # ── Selection ─────────────────────────────────────────────────────────────────
@@ -2213,14 +2306,28 @@ def _closed_since(store: RoadmapStore, number: int, since: datetime) -> bool:
     return any(c.kind is ChangeKind.CLOSED and c.at >= since for c in store.closures(number))
 
 
-def _wait_text(comments: Sequence[IssueComment]) -> str:
-    """The text that a refine round read for the wait it left: refine's last comment, with the
-    comments of persons since refine's comment before it, which the round read as replies. The
-    comments of other jobs are left out."""
+# The parts of refine's section that name the cause of a wait on a person (#3483, #6196).
+_WAIT_PARTS: Final = frozenset(
+    part.casefold() for part in (_PART_OPEN_QUESTIONS, _PART_SUSPECTED_BLOCK, _PART_WATCHED_FILES)
+)
+
+
+def _wait_parts(body: str) -> str:
+    """The text of the parts of refine's section of `body` that name the cause of a wait: the
+    open questions, the suspected block and the watched files (#6196)."""
+    _, section = extract_section_and_outside(body)
+    return "" if section is None else section_text(section, _WAIT_PARTS)
+
+
+def _wait_text(body: str, comments: Sequence[IssueComment]) -> str:
+    """The text that the refine rounds read for the wait they left (#6196): the parts of refine's
+    section of `body` that name its cause, and the comments of persons since refine's comment
+    before its last one, which the rounds read as replies, also those that a round with no comment
+    read. Refine's own comments name no cause, and the comments of other jobs are left out."""
     marked = [i for i, c in enumerate(comments) if CONST_ROADMAP_REFINE_COMMENT_MARKER in c.body]
     start = marked[-2] + 1 if len(marked) > 1 else 0
-    read = _without_other_jobs_comments(comments[start : marked[-1] + 1])
-    return "\n".join(comment.body for comment in read)
+    replies = comments_without_jobs(comments[start:])
+    return "\n".join([_wait_parts(body), *(comment.body for comment in replies)])
 
 
 def _wait_refs(text: str, own: int) -> str:
@@ -2294,27 +2401,48 @@ def _person_wait_over(store: RoadmapStore, item: Item, refs: str, since: datetim
     return _set_by_older_rules(item, since) or _named_cause_ended(store, refs, since)
 
 
-def _wait_start(item: Item, commented_at: datetime) -> datetime:
-    """The start of the wait of `item`: `commented_at`, the time of refine's last comment, or the
-    later time of a round whose comment the store refused as a repeat of it
-    (`RefineRecordKey.REPEATED_AT`). That round looked at the item after the change that ended
-    the wait before, so the change ends no later wait (#4793). A value that is no time counts as
-    none."""
+def _repeated_at(item: Item) -> datetime | None:
+    """The time of the last round on `item` that posted no comment (`RefineRecordKey.REPEATED_AT`):
+    its result was the one of the round before (#6196), or the store refused its comment as a
+    repeat (#4793). None when the record holds none, or a value that is no time."""
     recorded = item.job_record.get(RefineRecordKey.REPEATED_AT)
     if not recorded:
-        return commented_at
+        return None
     try:
-        repeated_at = datetime.fromisoformat(recorded)
+        return as_utc(datetime.fromisoformat(recorded))
     except ValueError:
-        logger.warning("The time of the refused repeat recorded on #%d is not a time.", item.number)
-        return commented_at
-    return max(commented_at, as_utc(repeated_at))
+        logger.warning(
+            "The time of the round with no comment recorded on #%d is not a time.", item.number
+        )
+        return None
+
+
+def _wait_start(item: Item, commented_at: datetime) -> datetime:
+    """The start of the wait of `item`: `commented_at`, the time of refine's last comment, or the
+    later time of a round that posted no comment (`_repeated_at`). That round read the replies
+    before it and looked at the item after the change that ended the wait before, so neither ends
+    a later wait (#4793, #6196)."""
+    repeated_at = _repeated_at(item)
+    return commented_at if repeated_at is None else max(commented_at, repeated_at)
+
+
+def _since_wait_start(item: Item, comments: Sequence[IssueComment]) -> list[IssueComment]:
+    """The comments after refine's last comment on `item` made at or after the start of its wait
+    (`_wait_start`), oldest first: those that no round read yet (#6196). Empty when refine left no
+    comment."""
+    marked = [i for i, c in enumerate(comments) if CONST_ROADMAP_REFINE_COMMENT_MARKER in c.body]
+    if not marked:
+        return []
+    since = _wait_start(item, comments[marked[-1]].created_at)
+    return [comment for comment in comments[marked[-1] + 1 :] if comment.created_at >= since]
 
 
 def _stage_return(item: Item, comments: Sequence[IssueComment]) -> IssueComment | None:
     """The newest comment of the stage job after refine's last comment on `item`, when the job
     returned the item to New, or None. A stage comment on an item that holds a staged branch
-    tells of that branch, so it is no return (#3483)."""
+    tells of that branch, so it is no return (#3483). A round that answered the return with no
+    comment leaves it the newest one, since the store refuses a second return with the same text
+    as a repeat, and the record of that round tells a second return (#6196)."""
     if item.job_record.get(StageRecordKey.BRANCH):
         return None
     after = replies_after_marker(comments, CONST_ROADMAP_REFINE_COMMENT_MARKER) or []
@@ -2366,7 +2494,8 @@ def _wait_state(
 ) -> tuple[datetime, str, JobRecord | None] | None:
     """What the exits of a wait need: the time of refine's last comment, the references of the
     wait text, and the marks that record them when the record does not hold them, or None when a
-    reply follows refine's last comment. The job record gives them while the count of comments is
+    reply follows refine's last comment and the last round with no comment (`_since_wait_start`,
+    #6196). The job record gives them while the count of comments is
     the recorded one; otherwise the round reads the comments, which `comments` holds when it read
     them already (#3667). An item whose record holds an owner question waits on its frame, so the
     wait is over when a trusted person answered the frame and not when another comment came
@@ -2378,14 +2507,16 @@ def _wait_state(
     if recorded is not None:
         return recorded[0], recorded[1], None
     comments = comments_on(item.number) if comments is None else comments
-    replies = replies_since_refine(comments)
+    marked = [c for c in comments if CONST_ROADMAP_REFINE_COMMENT_MARKER in c.body]
+    if not marked:
+        return None
+    replies = _without_other_jobs_comments(_since_wait_start(item, comments))
     if replies and _asked_question(item) is not None:
         replies = _person_comments(replies, questions.actor)
-    if replies is None or replies:
+    if replies:
         return None
-    # No reply: the last comment that is not another job's is refine's own.
-    commented_at = _without_other_jobs_comments(comments)[-1].created_at
-    refs = _wait_refs(_wait_text(comments), item.number)
+    commented_at = marked[-1].created_at
+    refs = _wait_refs(_wait_text(item.body, comments), item.number)
     return commented_at, refs, _read_marks(item, commented_at, refs)
 
 
@@ -2402,14 +2533,23 @@ def _question_ends_wait(
     """Whether the owner question that `item` asks ends its wait (#3077): a trusted person
     answered the frame, or no open item holds the frame any more, so no answer can come and
     refine looks at the item again. An item whose record holds a question waits on a person, so
-    this rule holds whatever step the record names."""
+    this rule holds whatever step the record names.
+
+    The frame that the item recorded (`RefineRecordKey.FRAME`) is no longer the frame of the
+    open item that holds it when that item closed, so the wait ends and the next round posts the
+    frame again. An answer on the frame of another item ends the wait only when it is not older
+    than the last round with no comment, which read it already (#6196)."""
     question_hash = _asked_question(item)
     if question_hash is None:
         return False
     holder = questions.frames.get(question_hash)
-    if holder is None:
+    if holder is None or _recorded_frame(item) not in (None, holder.number):
         return True
-    return holder.number != item.number and questions.answer(item, comments_on) is not None
+    if holder.number == item.number:
+        return False
+    answer = questions.answer(item, comments_on)
+    repeated_at = _repeated_at(item)
+    return answer is not None and (repeated_at is None or answer.at >= repeated_at)
 
 
 def _still_waiting(
@@ -3059,6 +3199,8 @@ def refine_one_item(
     alert = _item_alert(item, current_body, repo)
 
     # Step 2: Proposal generation. Only the comments of trusted authors reach the model (#3502).
+    # The time of the read starts the wait of a round that posts no comment (#6196).
+    read_at = datetime.now(UTC)
     comments = trusted_replies(store.comments_on(item.number))
     returned = _stage_return(item, comments)
     check = recorded_check(item, current_body)
@@ -3156,9 +3298,9 @@ def refine_one_item(
     )
     if refused is not None:
         is_ready, step, model_details = False, NextStep.PERSON, (refused,)
-    # The details hold the model's text, which goes into a comment: sanitized like the section,
-    # on one line each (#1758). Each goes on its line first, so its code is the code that the
-    # comment shows (#2525).
+    # The details hold the model's text, which the report shows as the points of the next step:
+    # sanitized like the section, on one line each (#1758). Each goes on its line first, so its
+    # code is the code that the report shows (#2525). No comment holds them (#6196).
     details = tuple(sanitize_text(" ".join(d.split()), allowed_urls) for d in model_details)
     if refusal is not None:
         details = (_failure_line(refusal, tries),)
@@ -3166,8 +3308,14 @@ def refine_one_item(
     blocked = bool(blocked_by) or _suspected_block(proposal) is not None
     block_paths = tuple(proposal.block_paths) if blocked else ()
 
-    # Step 4: Render section & Check size
-    rendered_section = render_proposal_section(proposal, open_questions, sha, allowed_urls)
+    # Step 4: Render section & Check size. The section holds the result of the round: the refusal
+    # of a deferred part is one of its open questions, and it names the new items that the record
+    # holds (#6196).
+    shown = [*open_questions, refused] if refused is not None else open_questions
+    moved = _recorded_numbers(item)
+    rendered_section = render_proposal_section(
+        proposal, shown, sha, allowed_urls, block_paths=block_paths, deferred=moved
+    )
     outside, _ = extract_section_and_outside(current_body)
     new_body = outside.rstrip() + "\n\n" + rendered_section
 
@@ -3194,19 +3342,21 @@ def refine_one_item(
 
     # One comment gives the next step; a Ready item refine finds not ready goes back to New (#1515).
     # A refusal of the review is a job failure, which writes no comment (#4798). A wait on a person
-    # asks one owner question, which an older open item's frame answers (#3077).
+    # asks one owner question, which an older open item's frame answers (#3077). The comment posts
+    # only when the result changed since the round before, or when the round files a part (#6196).
     question = None if refusal is not None else owner_question_of(item, step, details)
+    holder = frame_holder(frames or {}, item, question)
+    frame = None if question is None else (holder or item).number
+    parts = section_parts(step, shown, block_paths=block_paths, moved=bool(moved or deferred))
     comment = (
         None
         if refusal is not None
-        else step_comment(
-            item,
-            step,
-            details,
-            sha,
-            block_paths,
-            holder=frame_holder(frames or {}, item, question),
-        )
+        else step_comment(item, step, details, parts=parts, holder=holder)
+    )
+    repeated = (
+        comment is not None
+        and not deferred
+        and not _result_changed(item, current_body, new_body, step, frame)
     )
 
     s_hash = hash_text(
@@ -3221,7 +3371,7 @@ def refine_one_item(
         open_questions=open_questions,
         is_ready=is_ready,
         needs_split=needs_split,
-        reason_comment=comment,
+        reason_comment=None if repeated else comment,
         new_body=new_body,
         body_hash=body_hashes(current_body)[0],
         section_hash=s_hash,
@@ -3238,8 +3388,24 @@ def refine_one_item(
         tries=tries,
         owner_question=question,
         owner_answer=answer,
+        frame=frame,
+        repeated=repeated,
+        read_at=read_at,
         context_before=getattr(ctx, "before", 0),
         context_after=getattr(ctx, "after", 0),
+    )
+
+
+def _result_changed(
+    item: Item, body: str, new_body: str, step: NextStep, frame: int | None
+) -> bool:
+    """Whether the result of a round on `item` differs from the one of the round before, which
+    wrote the section of `body`: the next step, refine's section without its `checked-at` line
+    (`_result_text`), or the item that holds the frame of the owner question (#6196)."""
+    return (
+        _recorded_step(item) is not step
+        or _result_text(body) != _result_text(new_body)
+        or _recorded_frame(item) != frame
     )
 
 
@@ -3768,22 +3934,15 @@ def _numbers_text(numbers: Sequence[int]) -> str:
     return ",".join(str(number) for number in numbers)
 
 
-def _with_deferrals(comment: str | None, numbers: Sequence[int]) -> str | None:
-    """The Ready comment with the sentence that names the new issues of the deferred parts."""
-    if comment is None or not numbers:
-        return comment
-    items = ", ".join(f"#{number}" for number in numbers)
-    return f"{comment}\n\n{MESSAGES.roadmap.refine_deferred_comment.format(items=items)}"
-
-
-def _refine_marks(r: RefinedItem, deferred: Sequence[int]) -> JobRecord:
-    """The marks that apply sets in the job record of `r.item`: what the round saw, the next step,
-    the verdict of the review when the item held one or the round gave one (#3502), the numbers of
-    the issues that refine filed for the deferred parts, and the owner question that the round
-    asked with the answer that resumed the item (#3077)."""
+def _refine_marks(r: RefinedItem, deferred: Sequence[int], section_hash: str | None) -> JobRecord:
+    """The marks that apply sets in the job record of `r.item`: what the round saw with the hash
+    of the section it writes, the next step, the verdict of the review when the item held one or
+    the round gave one (#3502), the numbers of the issues that refine filed for the deferred
+    parts, the owner question that the round asked with the answer that resumed the item (#3077)
+    and the item that holds its frame, and the time of a round that posts no comment (#6196)."""
     marks: JobRecord = {
         RefineRecordKey.BODY_HASH: r.body_hash,
-        RefineRecordKey.SECTION_HASH: r.section_hash,
+        RefineRecordKey.SECTION_HASH: section_hash,
         RefineRecordKey.NEEDS_SPLIT: "true" if r.needs_split else "false",
         RefineRecordKey.FAILED_BODY_HASH: None,
         RefineRecordKey.NEXT_STEP: r.next_step.value,
@@ -3799,6 +3958,8 @@ def _refine_marks(r: RefinedItem, deferred: Sequence[int]) -> JobRecord:
         if r.owner_question is not None
         else None,
         OwnerQuestionRecordKey.ANSWER: _recorded_answer(r),
+        RefineRecordKey.FRAME: None if r.frame is None else str(r.frame),
+        RefineRecordKey.REPEATED_AT: r.read_at.isoformat() if r.repeated else None,
         **_failure_marks(r.item, r.failure, r.tries),
     }
     if r.judge is not None or RefineRecordKey.JUDGE in r.item.job_record:
@@ -3825,27 +3986,29 @@ def _apply_refined(store: RoadmapStore, r: RefinedItem, *, repo: str) -> RefineA
     deferred = _file_deferrals(store, r, repo=repo) if r.deferred else ()
     if deferred is None:
         return RefineApplied()
-
-    marks = _refine_marks(r, deferred)
+    # The section names the new items, the last part of it, and the record holds its hash (#6196)
+    body = _with_moved(r.new_body, _recorded_numbers(r.item), deferred) if deferred else r.new_body
+    marks = _refine_marks(r, deferred, body_hashes(body)[1])
 
     # Status change & marks: a Ready item refine finds not ready goes back to New (#1515), unless
     # a person set the label (#2951, ADR 0016).
     readied = 0
     if r.is_ready:
-        write_status(store, r.item, StatusFacts(), marks=marks, body=r.new_body)
+        write_status(store, r.item, StatusFacts(), marks=marks, body=body)
         readied = 1
     elif r.item.status == CONST_ROADMAP_STATUS_READY and owns_status(r.item):
-        write_status(store, r.item, StatusFacts(needs_refine=True), marks=marks, body=r.new_body)
+        write_status(store, r.item, StatusFacts(needs_refine=True), marks=marks, body=body)
     else:
-        store.set_marks(r.item, marks, body=r.new_body)
+        store.set_marks(r.item, marks, body=body)
 
-    # Comment: a repeat that the store refuses starts the wait at this round (#4793)
+    # Comment: a round whose result changed posts it (#6196), and a repeat that the store refuses
+    # starts the wait at the read of this round (#4793)
     comments = 0
-    comment = _with_deferrals(r.reason_comment, deferred)
+    comment = r.reason_comment
     if comment and store.comment(r.item.number, comment):
         comments = 1
     elif comment:
-        store.set_marks(r.item, {RefineRecordKey.REPEATED_AT: datetime.now(UTC).isoformat()})
+        store.set_marks(r.item, {RefineRecordKey.REPEATED_AT: r.read_at.isoformat()})
     return RefineApplied(
         refined_count=1,
         readied_count=readied,

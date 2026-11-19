@@ -16,7 +16,7 @@ from typing import Any, Final
 
 import pytest
 
-from devops_cli.dry_run.requests import PlannedRequest
+from devops_cli.dry_run.requests import PlannedRequest, both
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.request_plan import StoreRequests
 from devops_cli.roadmap.stores.github_store import (
@@ -228,6 +228,35 @@ def test_a_refine_plan_records_the_round_of_a_comment_that_the_store_refuses_as_
         [f"api repos/{REPO}/issues/<item>", "issue patch"],
         [f"api repos/{REPO}/issues/7", "issue patch"],
     ]
+
+
+def test_a_refine_plan_posts_the_comment_only_when_the_result_of_the_round_changed() -> None:
+    """The comment of refine posts only when the next step, the section or the item that holds
+    the frame differs from the round before, in a round and for `--item` (#6196): its read of the
+    comments and its post carry that condition first."""
+    from devops_cli.roadmap.request_plan import refine_requests
+
+    conditions = MESSAGES.roadmap.plan_conditions
+    changed = conditions["refine_changed"]
+    plans = [refine_requests(REPO, None)[1], refine_requests(REPO, None, item=7)[1]]
+    shapes = [
+        [
+            (r.argv[0] if r.argv[0] == "GET" else _shape(r), r.condition)
+            for r in writes
+            if r.condition.startswith(changed)
+        ]
+        for writes in plans
+    ]
+    assert (
+        shapes
+        == [
+            [
+                ("GET", both(changed, conditions["job_comment"])),
+                ("api -X POST", both(changed, conditions["no_repeat"])),
+            ]
+        ]
+        * 2
+    )
 
 
 def test_a_refine_round_plans_the_record_of_a_comment_the_cap_stops_and_an_item_plan_none() -> None:

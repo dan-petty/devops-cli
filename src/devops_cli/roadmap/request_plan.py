@@ -416,7 +416,8 @@ def refine_requests(
     records on a waiting item the comments it read, when its job record does not hold them yet
     (#3667). A round reads
     the comments of each item that an account that the jobs do not trust opened, and writes one
-    comment on it when none holds the marker of the notice (#3502). When a proposal defers a
+    comment on it when none holds the marker of the notice (#3502). Refine comments on an item only
+    when the result of its round changed since the round before (#6196). When a proposal defers a
     part, the plan holds the intake requests of one new candidate and the record of its number
     (#2423). Refine reads no repository file, so `ref` changes no request."""
     from devops_cli.roadmap.intake.intake_requests import planned_requests
@@ -430,9 +431,10 @@ def refine_requests(
     part_reads, part_writes = planned_requests([_p("deferred_part")], repo=repo, ref=None, new=True)
     deferred_reads = within(part_reads, cond["deferred"])
     deferred_writes = within([*part_writes, *store.set_marks(target_item)], cond["deferred"])
-    # A repeat that the store refuses records the time of the round as the start of the wait.
+    # The comment posts only when the result of the round changed (#6196), and a repeat that the
+    # store refuses records the time of the round as the start of the wait (#4793).
     comment_writes = [
-        *within(store.comment(target_item), cond["posted"]),
+        *within(store.comment(target_item), cond["refine_changed"]),
         *within(store.set_marks(target_item), cond["repeat_refused"]),
     ]
 

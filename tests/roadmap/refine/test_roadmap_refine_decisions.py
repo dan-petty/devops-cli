@@ -23,7 +23,13 @@ from devops_cli.roadmap.refine.refine import (
     validate_proposal,
 )
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
-from tests.support.roadmap_refine import READY, REPO, refine_round, seed_with_body
+from tests.support.roadmap_refine import (
+    READY,
+    REPO,
+    comment_bodies,
+    refine_round,
+    seed_with_body,
+)
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -172,7 +178,9 @@ def test_an_unsourced_decision_is_investigated_and_stays_proposed(
 def test_a_question_for_a_person_waits_on_a_person_with_no_investigation(
     git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
 ) -> None:
-    seed_with_body(store, "Body")
+    """The Open questions of the section hold the question with its mark, and the comment names
+    Open questions in place of the question text (#6196)."""
+    number = seed_with_body(store, "Body")
     asked = QuestionAnswer(
         question="Which repository secret holds the key?",
         answer="Recommended: a new secret.",
@@ -183,8 +191,13 @@ def test_a_question_for_a_person_waits_on_a_person_with_no_investigation(
     plan = refine_round(store, git_repo)
 
     refined = plan.refined_items[0]
-    assert (refined.next_step, refined.step_details, model_fake.call_count) == (
-        "person",
-        ("Which repository secret holds the key? (a person decides)",),
-        1,
-    )
+    lines = _section_lines(store, number)
+    marked = "Which repository secret holds the key? (a person decides)"
+    (comment,) = comment_bodies(store, number)
+    assert (
+        refined.next_step,
+        refined.step_details,
+        model_fake.call_count,
+        f"- {marked}" in lines[lines.index("### Open questions") :],
+        ("Open questions" in comment, "repository secret" in comment),
+    ) == ("person", (marked,), 1, True, (True, False))

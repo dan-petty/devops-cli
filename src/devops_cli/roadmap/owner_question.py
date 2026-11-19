@@ -3,7 +3,8 @@
 A job that needs an owner decision guesses, or it stops with a comment that reads as a failure.
 This module holds the one form that refine, stage and implement post: the question once, two or
 three options with their results, a recommendation, the evidence and a hidden block with the
-question hash.
+question hash. Refine keeps the question in its section of the body, so its frame names that place
+in place of the question text, and the hash still covers the question (#6196).
 
 The hash covers the question and the option texts, so two items that ask one question post one
 frame: the older item holds it, and each other item gets a link to it. The recommendation and the
@@ -64,9 +65,11 @@ class OwnerQuestion(BaseModel):
         the same options post one frame for it."""
         return hash_text("\n".join((self.question, *(option.text for option in self.options))))
 
-    def render(self) -> str:
+    def render(self, *, asked: str | None = None) -> str:
         """The comment of the frame: the marker of the job, the question once, each option with
-        its result, the recommendation, the evidence and the hidden block with the hash."""
+        its result, the recommendation, the evidence and the hidden block with the hash. `asked`
+        names the place in the body of the item that holds the question, which the frame then
+        shows in place of the question text (#6196)."""
         options = "\n".join(
             f"{number}. {option.text}: {option.result}"
             for number, option in enumerate(self.options, start=1)
@@ -74,7 +77,7 @@ class OwnerQuestion(BaseModel):
         evidence = "\n".join(f"- {link}" for link in self.evidence)
         return (
             f"{self.marker}\n"
-            f"**Owner question:** {self.question}\n\n"
+            f"**Owner question:** {asked or self.question}\n\n"
             f"**Options**\n{options}\n\n"
             f"**Recommendation:** {self.recommendation}\n\n"
             f"**Evidence**\n{evidence}\n\n"

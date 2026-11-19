@@ -21,7 +21,7 @@ A question of kind `person` SHALL be an open question with "(a person decides)",
 
 #### Scenario: A decision that AGENTS.md reserves for a person
 - **WHEN** the proposal asks "Which repository secret holds the key?" as a `person` question and the proposal passes its form check
-- **THEN** the item waits on a person, and the comment lists "Which repository secret holds the key? (a person decides)"
+- **THEN** the item waits on a person, the Open questions of its refine section hold "Which repository secret holds the key? (a person decides)", and the comment names Open questions
 
 ### Requirement: The body's answered key questions are not asked again
 Refine SHALL read the body's "Key questions" section as CommonMark, up to the next heading of the same or a higher level. Only a top-level list item whose first paragraph holds a question mark SHALL be a question. Text after its last question mark, or a block inside the item after that paragraph, SHALL answer it. Refine SHALL send the other questions numbered, and a number that no answer names SHALL be an open question.

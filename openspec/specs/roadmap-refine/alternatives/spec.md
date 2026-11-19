@@ -33,7 +33,7 @@ When the recorded check of an item has the verdict `covers`, refine SHALL add th
 
 #### Scenario: No reply yet
 - **WHEN** refine plans a New item with a `covers` check and no comment of a person after the job's comment, and the model answers every other question
-- **THEN** the item's next step is `PERSON`, the step comment lists the adopt-or-keep question naming the tool, and the item is not Ready
+- **THEN** the item's next step is `PERSON`, the Open questions of its refine section hold the adopt-or-keep question naming the tool, the step comment names Open questions, and the item is not Ready
 
 #### Scenario: Not answered by the model
 - **WHEN** no person replied and the model gives a `decision` answer that names the question's number
@@ -104,11 +104,11 @@ When the recorded check of an item has the verdict `rejected` or `in-use`, refin
 - **THEN** the proposal request holds `alternatives` with the verdict `rejected`, the tool URL and the text of the job's comment
 
 ### Requirement: A recorded verdict gates Ready
-Refine SHALL set `status/ready` on an item only when its job record holds an `alternatives.verdict`, or when the alternatives check is off for the repository, and SHALL leave the item in `status/new` with the comment `Waiting for the alternatives check to run.` when the record holds no verdict and the check is on.
+Refine SHALL set `status/ready` on an item only when its job record holds an `alternatives.verdict`, or when the alternatives check is off for the repository, and SHALL leave the item in `status/new` with the event line `Next step: the alternatives check records a verdict.` when the record holds no verdict and the check is on.
 
 #### Scenario: An item with no verdict stays New
 - **WHEN** Refine runs on an item whose job record holds no `alternatives.verdict` while the alternatives check is on for the repository
-- **THEN** The item keeps `status/new` and refine writes the comment `Waiting for the alternatives check to run.`
+- **THEN** The item keeps `status/new` and refine writes the event line `Next step: the alternatives check records a verdict.`
 
 #### Scenario: An item with a recorded verdict becomes Ready
 - **WHEN** Refine runs on an item whose `alternatives.verdict` is `none`, `not-applicable`, `rejected` or `in-use` and every other readiness rule passes
