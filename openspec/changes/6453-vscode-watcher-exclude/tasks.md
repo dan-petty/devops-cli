@@ -11,7 +11,7 @@ Kind: other. Changes: `.vscode/settings.json`.
 
 Kind: documents. Changes: `docs/DEVCONTAINER_USAGE.md`.
 
-- [ ] 2.1 Tell in "The Devcontainer of This Repository" where the setting is, why, and how to count the watches
+- [x] 2.1 Tell in "The Devcontainer of This Repository" where the setting is, why, and how to count the watches
   - Verification: `$ uv run devops ci --check --only docs`
 
 ## Workflow follow-up
