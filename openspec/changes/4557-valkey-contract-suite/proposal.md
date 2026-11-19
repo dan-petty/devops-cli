@@ -49,7 +49,7 @@ None. The change is test-only and has no spec delta.
 - valkey-py 6.2.0 `Script.__call__` answers `NOSCRIPT` with `SCRIPT LOAD` and a second `EVALSHA` (`valkey/commands/core.py`), not with `EVAL`. The scenarios record this real fallback, and a separate scenario sends `EVAL`.
 - valkey-py 6.2.0 sends `CLIENT SETINFO LIB-NAME` and `CLIENT SETINFO LIB-VER` on each new connection (`valkey/connection.py:436`). The request bytes therefore depend on the valkey-py version, and the record keeps that version.
 - `command -v valkey-server` finds nothing in the devcontainer (Debian forky/sid). `apt-cache policy valkey-server` gives the candidate 9.1.4-1. The recorder needs no host install: it records from that binary in a downloaded package, or from a temporary Pod of the official image `valkey/valkey`. The record at hand came from a new, empty Pod of `valkey/valkey:9.1.4-alpine` through a port-forward.
-- `git grep -n "no contract suite" -- docs tests src` finds the Valkey statements at `docs/TESTING.md:278` and `tests/support/fakes/valkey.py:8`. ADR 0021 (line 284) plans this suite before the first step that uses a lock. That record is accepted, so its body does not change (`docs/adr/README.md`), and this change fulfills the plan without a `Status History` line.
+- `git grep -n "no contract suite" -- docs tests src` finds the Valkey statements at `docs/TESTING.md:278` and `tests/support/fakes/valkey.py:8`. ADR 0021 (line 284) plans this suite before the first step that uses a lock. That record is accepted, so its body does not change (`docs/adr/README.md`). Its fact "the fake refuses `EVAL` today" is then out of date, so this change adds one dated line at the end of its `Status History` section.
 
 ## Existing Tool Considered
 

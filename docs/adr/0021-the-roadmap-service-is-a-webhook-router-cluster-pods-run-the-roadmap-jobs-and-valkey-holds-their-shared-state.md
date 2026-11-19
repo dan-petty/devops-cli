@@ -336,3 +336,5 @@ The naming record of #4533 owns the object names, the labels, the Valkey key for
 2026-11-16: Fact out of date: section 8, row `fix-checks`, Marker. In mode `on` the watch row also writes the record key `fix_checks.units`: the attempt, the outcome and the next allowed time of each fix unit. One pull request has at most one fix Job that runs or waits, and a fix Job that waits longer than `roadmap.fix_checks.max_wait_minutes` is deleted (#6018, [Runner Jobs](../CLUSTER.md#runner-jobs)).
 
 2026-11-17: Fact out of date: section 8, row `fix-checks`, tiers. Tier 1 also writes snapshots again, and tier 2 also repairs files that the change breaks (#6116).
+
+2026-11-19: Fact out of date: Consequences, the Valkey fake. The fake runs `EVAL` with the `lua` extra and has a contract suite. #4563 adds the window case (#4557).

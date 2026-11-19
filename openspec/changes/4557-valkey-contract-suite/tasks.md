@@ -25,7 +25,7 @@ Kind: test-only edit. Changes: `tests/support/valkey_replay.py`, `tests/support/
 - [x] 3.3 Run each scenario over a real valkey-py client on `RecordedValkey`. Assert that both sides give the same result, that `unexpected` is empty and `remaining` is 0, and that the suite fails when the record is not of the locked valkey-py version.
   - Verification: `$ uv run devops ci test tests/valkey/test_valkey_contract.py`
 - [x] 3.4 Confirm that the record holds no host path, hostname or private address.
-  - Verification: `$ ! grep -nE '/(home|workspaces|tmp)/|\.lan\b|192\.168\.|\b10\.[0-9]+\.[0-9]+\.[0-9]+' tests/fixtures/valkey/recorded_exchanges.json`
+  - Verification: `$ ! git grep -n -F -e /home/ -e /workspaces/ -e /tmp/ -e .lan -e 192.168. -e 172.16. -- tests/fixtures/valkey/recorded_exchanges.json`
 
 ## 4. Documents
 
