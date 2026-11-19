@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.179.5](https://github.com/dan-petty/devops-cli/compare/v0.179.4...v0.179.5) (2026-11-19)
+
+
+### Bug Fixes
+
+* **ai:** bound the number of prewarm model label values ([#6391](https://github.com/dan-petty/devops-cli/issues/6391)) ([e3fa4f1](https://github.com/dan-petty/devops-cli/commit/e3fa4f1bdb833e28f2823c59dc26ce81e7097352))
+* **ci:** count a changed test that errors on base as proof ([#6379](https://github.com/dan-petty/devops-cli/issues/6379)) ([6881b4c](https://github.com/dan-petty/devops-cli/commit/6881b4c3dbd3926f1a743d056be059532d682179))
+* **deps:** update Helm release argo-cd to v10.18.2 ([#6398](https://github.com/dan-petty/devops-cli/issues/6398)) ([2604ace](https://github.com/dan-petty/devops-cli/commit/2604aced8c4b9712a8defedd1fefcbbfb2794ede))
+* **infra:** Fix the offline separator of a comma limit ([#6387](https://github.com/dan-petty/devops-cli/issues/6387)) ([98493e4](https://github.com/dan-petty/devops-cli/commit/98493e465797ad7ae9e95938ac9242a5fdcee54b))
+* **roadmap:** Name the cause of a stopped verification run ([#6333](https://github.com/dan-petty/devops-cli/issues/6333)) ([bbf308d](https://github.com/dan-petty/devops-cli/commit/bbf308d51d8acaf85fbe0607c702be4942ae70ce))
+* **roadmap:** Stage a long plan body and a null optional text ([#6351](https://github.com/dan-petty/devops-cli/issues/6351)) ([053aabc](https://github.com/dan-petty/devops-cli/commit/053aabc0f500da2b11804fc7bb132f578e378e05))
+* **telemetry:** Keep the age metrics' reads across pods ([#6326](https://github.com/dan-petty/devops-cli/issues/6326)) ([ad0ee60](https://github.com/dan-petty/devops-cli/commit/ad0ee600aa2db2ca93d96611a92c7891ae24b3ba))
+
+
+### Code Refactoring
+
+* **ai:** rank the benchmark with numpy and pytrec-eval ([#6388](https://github.com/dan-petty/devops-cli/issues/6388)) ([051217e](https://github.com/dan-petty/devops-cli/commit/051217e0021cb201c8c6d1eb7dfead9333a4fed3))
+
 ## [0.179.4](https://github.com/dan-petty/devops-cli/compare/v0.179.3...v0.179.4) (2026-11-19)
 
 
