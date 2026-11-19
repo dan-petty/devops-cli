@@ -32,7 +32,7 @@
 "tests/grafana/test_service_dashboard.py" = 1
 "tests/invariants/test_agents_md.py" = 2
 "tests/invariants/test_architectural_invariants.py" = 5
-"tests/invariants/test_devcontainer_config.py" = 2
+"tests/invariants/test_devcontainer_config.py" = 1
 "tests/invariants/test_image_layers.py" = 1
 "tests/invariants/test_mcp_server_image.py" = 4
 "tests/invariants/test_runner_image.py" = 4

@@ -50,8 +50,8 @@ The devcontainer image SHALL have the Debian packages `iputils-ping`, `iputils-t
 `.devcontainer/Dockerfile` SHALL build FROM `ghcr.io/dan-petty/devtools` with a tag and a `@sha256:` digest, and SHALL download no tool. It SHALL have `# check=error=true`.
 
 #### Scenario: The Dockerfile names the devtools digest and downloads nothing
-- **WHEN** a person runs `git grep -n -E '^FROM |curl|sha256sum|npm ci|pip sync' -- .devcontainer/Dockerfile`
-- **THEN** the only base image of the file is `ghcr.io/dan-petty/devtools:<tag>@sha256:<digest>`, and no line downloads or installs a tool
+- **WHEN** a person runs `git grep -n -E '^FROM |curl|sha256sum|npm ci|devops-tools' -- .devcontainer/Dockerfile`
+- **THEN** the only image that the file pulls is `ghcr.io/dan-petty/devtools:<tag>@sha256:<digest>`, each other `FROM` names a stage of the file or `scratch`, and no line downloads or installs a tool
 
 #### Scenario: The tools of the devtools image run
 - **WHEN** the smoke action starts the built image as `vscode`

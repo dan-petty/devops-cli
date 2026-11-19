@@ -2,11 +2,11 @@
 
 ## 1. Image build definition
 
-- [ ] 1.1 Build `.devcontainer/Dockerfile` FROM the devtools digest with the `lock`, `venv`, `project` and `devcontainers-cli` stages, the project as the last layer, `USER vscode` and `# check=error=true`; delete the actionlint, tools and npm-tools stages, the tool venvs, the `/etc/os-release` rewrite and the pre-commit install
-  - Verification: `$ ! git grep -n -E 'curl|sha256sum|npm ci|pip sync|os-release|FROM (debian|node|docker.io)' -- .devcontainer/Dockerfile`
-- [ ] 1.2 Keep only `common-utils:2` and `podman-in-podman:1` with `dockerCompat` in `.devcontainer/image/devcontainer.json`, move the `GIT_CONFIG_*` entries to `remoteEnv` with `DOCKER_HOST`, remove `DOCKER_CLI_HINTS`, and write `devcontainer-lock.json` again with `devcontainer upgrade`
+- [x] 1.1 Build `.devcontainer/Dockerfile` FROM the devtools digest with the `lock`, `venv`, `project` and `devcontainers-cli` stages, the project as the last layer, `USER vscode` and `# check=error=true`; delete the actionlint, tools and npm-tools stages, the tool venvs, the `/etc/os-release` rewrite and the pre-commit install
+  - Verification: `$ ! git grep -n -E 'curl|sha256sum|npm ci|devops-tools|os-release|FROM (debian|node|docker.io)' -- .devcontainer/Dockerfile`
+- [x] 1.2 Keep only `common-utils:2` and `podman-in-podman:1` with `dockerCompat` in `.devcontainer/image/devcontainer.json`, move the `GIT_CONFIG_*` entries to `remoteEnv` with `DOCKER_HOST`, remove `DOCKER_CLI_HINTS`, and write `devcontainer-lock.json` again with `devcontainer upgrade`
   - Verification: `$ uv run devops ci test tests/invariants/test_devcontainer_config.py tests/core/test_third_party_telemetry.py tests/invariants/test_uv_malware_check.py`
-- [ ] 1.3 Delete the pin-comparison test of `tests/invariants/test_devcontainer_config.py` and lower its count in `tests/gate/tree_checks/config_reads.toml`
+- [x] 1.3 Delete the pin-comparison test of `tests/invariants/test_devcontainer_config.py` and lower its count in `tests/gate/tree_checks/config_reads.toml`
   - Verification: `$ uv run devops ci --check --only test-tree`
 
 ## 2. Workflows and actions

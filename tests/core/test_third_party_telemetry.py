@@ -175,7 +175,6 @@ def test_devcontainer_image_disables_telemetry() -> None:
         env.get("GOTELEMETRY"),
         env.get("PIP_DISABLE_PIP_VERSION_CHECK"),
         env.get("npm_config_update_notifier"),
-        env.get("DOCKER_CLI_HINTS"),
         env.get("MINIKUBE_WANTUPDATENOTIFICATION"),
         env.get("MINIKUBE_WANTREPORTERRORPROMPT"),
     )
@@ -190,7 +189,6 @@ def test_devcontainer_image_disables_telemetry() -> None:
         "1",
         "off",
         "1",
-        "false",
         "false",
         "false",
         "false",
