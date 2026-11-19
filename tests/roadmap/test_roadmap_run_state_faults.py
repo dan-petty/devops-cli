@@ -29,13 +29,18 @@ from devops_cli.config.constants import (
 from devops_cli.exceptions import GitHubUnauthenticatedError, RoadmapRunError
 from devops_cli.roadmap.run import (
     FailureLedger,
-    _read_schedule,
     build_stub_table,
     read_intake_record,
 )
 from devops_cli.server.service import RoundPause, StateRecord
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
-from tests.support.roadmap_run import REPO, REPO_DIR, make_candidates, poll_round, recorded
+from tests.support.roadmap_run import (
+    REPO,
+    REPO_DIR,
+    make_candidates,
+    poll_round,
+    recorded,
+)
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -88,16 +93,7 @@ def test_an_unreadable_schedule_raises_error_and_runs_no_row(tmp_path: Path) -> 
     bad_content = "{not valid json\n"
     schedule_path.write_text(bad_content, encoding="utf-8")
 
-    with pytest.raises(RoadmapRunError) as raised:
-        _read_schedule(schedule_path)
-
-    err = str(raised.value)
-    assert str(schedule_path) in err
-    assert "Repair" in err or "remove" in err
-    assert raised.value.details.get("path") == str(schedule_path)[:256]
-    assert schedule_path.read_text(encoding="utf-8") == bad_content
-
-    # In a poll_round, it raises RoadmapRunError, runs no row, and the file is kept
+    # In a poll_round, reading schedule.json raises RoadmapRunError, runs no row, and the file is kept
     store, _, _ = make_candidates(0)
     ran: list[str] = []
     table = build_stub_table({"metrics": recorded(ran, "metrics")})
@@ -105,7 +101,10 @@ def test_an_unreadable_schedule_raises_error_and_runs_no_row(tmp_path: Path) -> 
     with pytest.raises(RoadmapRunError) as raised_poll:
         poll_round(store, tmp_path, table=table)
 
-    assert str(schedule_path) in str(raised_poll.value)
+    err = str(raised_poll.value)
+    assert str(schedule_path) in err
+    assert "Repair" in err or "remove" in err
+    assert raised_poll.value.details.get("path") == str(schedule_path)[:256]
     assert ran == []
     assert schedule_path.read_text(encoding="utf-8") == bad_content
 
