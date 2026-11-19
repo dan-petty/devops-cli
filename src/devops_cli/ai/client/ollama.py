@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Sequence
 from concurrent.futures import as_completed
 from typing import Any
 
@@ -449,8 +449,8 @@ class OllamaProviderMixin(BaseLLMProviderMixin):
         )
         return [model_info["name"] for model_info in tags.get("models", [])]
 
-    def _ollama_models(self) -> list[str]:
-        candidates = self._get_ollama_urls_loop()
+    def _ollama_models(self, urls: Sequence[str] | None = None) -> list[str]:
+        candidates = list(enumerate(urls)) if urls is not None else self._get_ollama_urls_loop()
         last_exc: Exception | None = None
 
         for _idx, candidate_url in candidates:

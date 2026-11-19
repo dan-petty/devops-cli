@@ -80,7 +80,7 @@ from devops_cli.output import (
     write_text_file,
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
-from devops_cli.telemetry.instruments import AI_PREWARMS_TOTAL, bounded_label, emit
+from devops_cli.telemetry.instruments import AI_PREWARMS_TOTAL, bounded_model_label, emit
 from devops_cli.telemetry.tracer import trace_span
 
 logger = logging.getLogger(__name__)
@@ -819,8 +819,14 @@ def prewarm(
         render_request_plan(f"Plan for prewarming model '{target_model}'", planned)
         return
 
-    from devops_cli.ai.client import RequestPriority, get_llm_client, request_priority_scope
+    from devops_cli.ai.client import (
+        AIClientError,
+        RequestPriority,
+        get_llm_client,
+        request_priority_scope,
+    )
     from devops_cli.config.settings import load_settings
+    from devops_cli.exceptions import ConfigurationError
 
     settings = load_settings()
     target_model = model or settings.ai.model
@@ -832,14 +838,24 @@ def prewarm(
         trace_span(
             "ai.prewarm",
             attributes={
-                "ai.model": str(target_model),
                 "ai.evict": evict,
                 "ai.keep_alive": str(target_keep_alive),
                 "ai.all_nodes": all_nodes,
             },
-        ),
+        ) as span_h,
     ):
         client = get_llm_client(settings=settings, cache_enabled=False)
+        allowed_models: set[str] = {settings.ai.model}
+        if settings.ai.provider == "ollama":
+            for server in urls:
+                try:
+                    allowed_models.update(client.list_models(urls=[server]))
+                except AIClientError, ConfigurationError:
+                    pass
+
+        label_model = bounded_model_label(str(target_model), allowed_models)
+        span_h.set_attribute("ai.model", label_model)
+
         results = client.preload_models(
             model=target_model,
             keep_alive=target_keep_alive,
@@ -859,7 +875,7 @@ def prewarm(
             AI_PREWARMS_TOTAL,
             1.0,
             {
-                "model": bounded_label(str(target_model)),
+                "model": label_model,
                 "evict": str(evict).lower(),
                 "outcome": "ok" if success else "failed",
             },

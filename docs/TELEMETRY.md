@@ -118,7 +118,7 @@ writes by name.
 | `devops_cli_ai_ollama_slot_wait_seconds` | Histogram | `s` | Time a call to Ollama waited in this process for a slot on one of its nodes, by priority (high, normal or as_available) and outcome: ok once it held one, or timeout. |
 | `devops_cli_ai_chat_duration_seconds` | Histogram | `s` | LLM chat call wall time, by provider and model, from the request to the reply. A gateway call's time includes its wait for a backend slot. |
 | `devops_cli_ai_structured_attempts_total` | Counter | `1` | Structured-output attempts, by model and outcome: valid when the reply matched its schema, else invalid. Each invalid attempt but the last is retried. |
-| `devops_cli_ai_prewarms_total` | Counter | `1` | devops ai prewarm runs, by model, evict (true when the run unloaded the model) and outcome: ok or failed. |
+| `devops_cli_ai_prewarms_total` | Counter | `1` | devops ai prewarm runs, by model (a model that no server reports shows as other), evict (true when the run unloaded the model) and outcome: ok or failed. |
 | `devops_cli_ai_gateway_probe_duration_seconds` | Histogram | `s` | Time a health probe of the LLM gateway took. |
 | `devops_cli_ai_gateway_healthy` | Gauge | `1` | Whether the last health probe of the LLM gateway passed: 1, or 0. |
 | `devops_cli_ai_gateway_failovers_total` | Counter | `1` | Failovers of a gateway model alias to its fallback, by virtual model and simulate: true for a simulated failover. |

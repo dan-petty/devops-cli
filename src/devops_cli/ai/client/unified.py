@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Sequence
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, NoReturn
 
@@ -1305,11 +1305,11 @@ class LLMClient(
         if r_tokens:
             span_h.set_attribute("gen_ai.usage.reasoning.output_tokens", r_tokens)
 
-    def list_models(self) -> list[str]:
+    def list_models(self, urls: Sequence[str] | None = None) -> list[str]:
         """List available models for the current provider."""
         p = self._config.provider
         if p == "ollama":
-            return self._ollama_models()
+            return self._ollama_models(urls=urls)
         if p in ("copilot", "openai", "gateway"):
             return self._openai_models()
         return [self._config.model]

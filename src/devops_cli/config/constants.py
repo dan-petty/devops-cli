@@ -1033,6 +1033,8 @@ CONST_AI_BACKEND_HOST_UNKNOWN = "unknown"
 # and marks of an Ollama model reference: `hf.co/org/repo:Q4_K_M`.
 CONST_METRIC_LABEL_MAX_LENGTH: Final[int] = 128
 CONST_METRIC_LABEL_UNSAFE_RE: Final[re.Pattern[str]] = re.compile(r"[^A-Za-z0-9._:/-]")
+# The value of a bounded metric label whose input is not in the allowed set of known values (#2742).
+CONST_METRIC_LABEL_OTHER: Final[str] = "other"
 # The `backend_info` of a reply the response cache answered, and the server its spend-ledger row
 # names: no backend served it, so spend reports leave it out of their server counts (#816).
 CONST_RESPONSE_CACHE_SERVER: Final[str] = "cache"

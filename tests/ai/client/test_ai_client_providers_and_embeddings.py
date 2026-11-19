@@ -740,6 +740,27 @@ def test_openai_and_ollama_list_models(web: WebFake) -> None:
     assert raised.value.error_code == "LLM_INFERENCE_ERROR"
 
 
+def test_ollama_list_models_with_explicit_urls(web: WebFake) -> None:
+    """Verify Ollama list_models queries explicit URLs rather than configured ones."""
+    ollama_cfg = AIConfig(
+        provider="ollama",
+        model="llama3",
+        ollama_urls=["http://example.org:11434"],
+        allow_private_network=True,
+    )
+    client_ollama = LLMClient(ollama_cfg)
+
+    def listing(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path == "/api/tags":
+            return httpx2.Response(200, json={"models": [{"name": "llama3:latest"}]})
+        return httpx2.Response(404)
+
+    serve_llm(web, listing)
+    models = client_ollama.list_models(urls=["http://example.com:11434"])
+    assert models == ["llama3:latest"]
+    assert [str(req.url) for req in web.sent] == ["http://example.com:11434/api/tags"]
+
+
 def test_chat_cache_and_starting_point(web: WebFake) -> None:
     ollama_cfg = AIConfig(
         provider="ollama",

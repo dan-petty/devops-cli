@@ -16,9 +16,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from devops_cli.config.constants import CONST_METRIC_LABEL_MAX_LENGTH, CONST_METRIC_LABEL_UNSAFE_RE
+if TYPE_CHECKING:
+    from collections.abc import Container
+
+from devops_cli.config.constants import (
+    CONST_METRIC_LABEL_MAX_LENGTH,
+    CONST_METRIC_LABEL_OTHER,
+    CONST_METRIC_LABEL_UNSAFE_RE,
+)
 
 
 class InstrumentKind(StrEnum):
@@ -167,8 +174,8 @@ AI_PREWARMS_TOTAL = Instrument(
     "devops_cli_ai_prewarms_total",
     InstrumentKind.COUNTER,
     "1",
-    "devops ai prewarm runs, by model, evict (true when the run unloaded the model) and outcome: "
-    "ok or failed",
+    "devops ai prewarm runs, by model (a model that no server reports shows as other), evict "
+    "(true when the run unloaded the model) and outcome: ok or failed",
 )
 AI_GATEWAY_PROBE_DURATION = Instrument(
     "devops_cli_ai_gateway_probe_duration_seconds",
@@ -1029,6 +1036,16 @@ def bounded_label(value: str) -> str:
     return CONST_METRIC_LABEL_UNSAFE_RE.sub("_", value)[:CONST_METRIC_LABEL_MAX_LENGTH]
 
 
+def bounded_model_label(model: str, allowed: Container[str]) -> str:
+    """A model label value: `bounded_label(model)` when model is in `allowed`, else `other`.
+
+    A model that no server reports shows as `CONST_METRIC_LABEL_OTHER` (#2742).
+    """
+    if model in allowed:
+        return bounded_label(model)
+    return CONST_METRIC_LABEL_OTHER
+
+
 def backend_name(served_by: str | None) -> str:
     """A serving backend's short name: its host's first label, e.g. `ollama-16gib` or `ollama-0`."""
     if not served_by:
@@ -1152,5 +1169,6 @@ __all__ = [
     "InstrumentKind",
     "backend_name",
     "bounded_label",
+    "bounded_model_label",
     "emit",
 ]
