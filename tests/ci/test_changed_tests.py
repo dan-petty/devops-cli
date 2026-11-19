@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from devops_cli.ci.changed_tests import is_test_changed, parse_tests
+from devops_cli.ci.changed_tests import is_file_changed, is_test_changed, parse_tests
 
 BASE = '''\
 """Module docstring."""
@@ -119,3 +119,24 @@ def test_a_test_with_a_source_that_cannot_be_compared_is_changed(
 ) -> None:
     """The check refuses a replay for a test it knows to be unchanged only."""
     assert is_test_changed((), "test_kept", parse_tests(base), parse_tests(head)) is True
+
+
+@pytest.mark.parametrize(
+    ("base", "head", "changed"),
+    [
+        (BASE, f"# A comment.\n{BASE}\n\n", False),
+        (BASE, HEAD, True),
+        (BASE, BASE.replace("import pytest", "import pytest\nimport os", 1), True),
+        (None, HEAD, True),
+        (BASE, None, True),
+        ("def test_kept(:\n", HEAD, True),
+    ],
+    ids=["comment-only", "test-edited", "import", "new-file", "no-head", "base-cannot-parse"],
+)
+def test_a_file_is_changed_when_its_syntax_tree_differs_or_is_new(
+    base: str | None, head: str | None, changed: bool
+) -> None:
+    """A collection error names a whole file and no test (#6372), so the check asks whether the
+    file changed: a comment or a blank line changes no file, and a file that is new or that a
+    parse does not hold is not known unchanged."""
+    assert is_file_changed(parse_tests(base), parse_tests(head)) is changed
