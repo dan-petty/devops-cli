@@ -41,17 +41,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends -o Acquire::Ret
     rm -rf /var/lib/apt/lists/* && \
     case "${TARGETARCH}" in \
       amd64) \
-        url="https://github.com/cli/cli/releases/download/v2.103.3/gh_2.103.3_linux_amd64.tar.gz"; \
-        sha=4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d ;; \
+        url="https://github.com/cli/cli/releases/download/v2.105.0/gh_2.105.0_linux_amd64.tar.gz"; \
+        sha=79e7ab5db738c48777b696e374f8b428f0647debfb424f44d2f426370407fe2f ;; \
       arm64) \
-        url="https://github.com/cli/cli/releases/download/v2.103.3/gh_2.103.3_linux_arm64.tar.gz"; \
-        sha=ee32df2323c8847f5fac6cb6b4b69ca75828e9329a8f22f677021f7b3306ce63 ;; \
+        url="https://github.com/cli/cli/releases/download/v2.105.0/gh_2.105.0_linux_arm64.tar.gz"; \
+        sha=b1278c75107423d818f1937fd92cafc9e5e9b606631568f68d7fb816f5885a02 ;; \
       *) echo "no gh build for ${TARGETARCH}" >&2; exit 1 ;; \
     esac && \
     curl -fsSL --retry 8 --retry-all-errors --retry-delay 2 -o /tmp/gh.tar.gz "$url" && \
     echo "$sha  /tmp/gh.tar.gz" | sha256sum -c - && \
     tar -xzf /tmp/gh.tar.gz -C /tmp && \
-    install -m 755 "/tmp/gh_2.103.3_linux_${TARGETARCH}/bin/gh" /usr/local/bin/gh && \
+    install -m 755 "/tmp/gh_2.105.0_linux_${TARGETARCH}/bin/gh" /usr/local/bin/gh && \
     rm -rf /tmp/gh*
 
 COPY --from=lock /lock/runtime.txt /lock/runtime.txt
