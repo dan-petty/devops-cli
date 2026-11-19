@@ -24,9 +24,9 @@ Adds: `PreReadOrigin`
 
 Kind: other. Reads: `docs/commands/repos.md`, `src/devops_cli/commands/repos.py`. Changes: `docs/commands/repos.md`.
 
-- [ ] 3.1 Run `uv run devops docs generate` after the docstring change of the previous group, and keep the regenerated `docs/commands/repos.md`, whose text of `worktrees add` now says that the command reads `origin` before it reclaims the merged worktrees. Change no text of the page by hand
+- [x] 3.1 Run `uv run devops docs generate` after the docstring change of the previous group, and keep the regenerated `docs/commands/repos.md`, whose text of `worktrees add` now says that the command reads `origin` before it reclaims the merged worktrees. Change no text of the page by hand
   - Verification: `$ uv run devops ci --check --only docs` passes
-- [ ] 3.2 Regenerate `docs/commands/repos.md` with `uv run devops docs generate` from the new docstring of `worktrees add`
+- [x] 3.2 Regenerate `docs/commands/repos.md` with `uv run devops docs generate` from the new docstring of `worktrees add`
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
