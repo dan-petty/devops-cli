@@ -1,0 +1,21 @@
+# Design
+
+## Decisions
+
+- The gate compares the result of the round with the round before: the recorded `refine.next_step`, the refine section of the current body without its `checked-at` line, and the recorded `refine.frame`. A selected item whose section a person edited is left out (`check_person_edits`), so the section in the body is the one that refine wrote last. No new hash is recorded, and `refine.section_hash` keeps the full section for the check of person edits.
+- The `checked-at` line holds the commit, so it is left out of the compared text. A new commit with the same result posts nothing.
+- The watched files are sorted in the section. Two rounds that give the same paths in another order give the same section. The record `refine.block_paths` keeps the order of the proposal, so the cap on the paths keeps its first paths.
+- The new items of deferred parts are known only after apply files them. The plan writes the section with the numbers that the record holds, and apply writes the last part of the section again with all the numbers and records the new section hash. A round that files a part always posts its event.
+- The refusal of intake for a deferred part goes into the open questions of the section, so the frame that asks it can name the section.
+- The frame of an item that links the frame of an older item ended its wait through the issue number in the link comment. The wait text no longer reads the comment, so refine records the item that holds the frame (`refine.frame`). A wait ends when the open item that holds the frame of its question is not that item, and the next round posts the frame.
+- Wait selection uses the later of refine's last comment and `refine.repeated_at` as the start of the wait, for a reply, an owner answer on another item and a stage return. The model input stays at refine's last comment, so a reply that a round with no comment read still reaches the model.
+- A round that posts its event clears `refine.repeated_at`, so the record tells whether the last round posted. A refusal of the store still records it (#4793).
+
+## Rejected alternatives
+
+- A hash of the full comment as the gate: the comment named the commit and the Status, which change each round, as the repeats on #3655 and #6048 show.
+- The next step alone as the gate: a changed question, dependency, path or new item would post nothing.
+- A new record of the section hash without the `checked-at` line: the current body holds the section of the last round, so a record would only copy it.
+- The wait text from the last refine comment: the event line names no issue and no path, so a person wait would never end on a named cause.
+- The anchor of the model input at `refine.repeated_at`: a reply between refine's last comment and the round with no comment would not reach the model again.
+- Edit of one bot comment in place (peter-evans/create-or-update-comment): it runs as a workflow step and has no gate on a changed result, as the alternatives check of #6196 records.

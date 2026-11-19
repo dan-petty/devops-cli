@@ -1,0 +1,26 @@
+## REMOVED Requirements
+
+### Requirement: The next-step comment names the cited files
+**Reason**: The refine section of the body holds the watched files, and a comment holds no content of the section (#6196).
+**Migration**: The requirement "The refine section holds the result of the round" of `roadmap-refine/comments` holds the files under `### Watched files`, and the event line names that part.
+
+## MODIFIED Requirements
+
+### Requirement: A wait on a person ends when a cause that its text names ends
+Without `--item`, `devops roadmap refine` SHALL look again at an unchanged item that waits on a person when an issue that the wait text names closed, or a file that it names changed on the default branch, at or after the start of the wait. The wait text SHALL be the Open questions, Suspected block and Watched files of the refine section and the replies that the rounds read. An issue that closed before, an issue of another repository and the item SHALL end no wait.
+
+#### Scenario: A named issue closes after the comment
+- **WHEN** an item waits on a person, an open question of its refine section asks about #12, and #12 closes after refine's last comment
+- **THEN** the next round refines the item again
+
+#### Scenario: A named issue closed before the comment
+- **WHEN** an open question of the refine section names #12 and #12 closed before refine's last comment
+- **THEN** the item keeps waiting and the round makes no model call
+
+#### Scenario: A named file changes with no recorded block path
+- **WHEN** an item waits on a person with no `refine.block_paths`, an open question of its refine section names `src/sample.py`, and a commit on the default branch changes that file after refine's last comment
+- **THEN** the next round refines the item again
+
+#### Scenario: A reply names the issue
+- **WHEN** the refine section names no issue, a reply that the round read names #12, and #12 closes after refine's last comment
+- **THEN** the next round refines the item again
