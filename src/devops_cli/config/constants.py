@@ -2595,6 +2595,15 @@ CONST_FAIL_TO_PASS_JUNIT_TAG_STATUS: Final[dict[str, str]] = {
     "error": "errored",
     "skipped": "skipped",
 }
+# The start of the message that pytest's `--junitxml` report gives an error at collection and an
+# error at setup (`append_collect_error` and `append_error` in `_pytest/junitxml.py`). Such an error
+# of a changed test on base proves the fix: the test cannot import or set up the code that the fix
+# adds. An error at teardown, `failed on teardown with`, comes after the call phase ran, so it
+# proves nothing (#6372).
+CONST_FAIL_TO_PASS_PROOF_ERROR_MESSAGES: Final[tuple[str, ...]] = (
+    "collection failure",
+    "failed on setup with",
+)
 # The root element pytest's `--junitxml` report closes last; a report that never closes it is
 # empty or was cut short, and holds no complete replay (#1669).
 CONST_FAIL_TO_PASS_JUNIT_ROOT_TAG: Final[str] = "testsuites"

@@ -5,6 +5,9 @@ a test that the fix leaves alone must pass on the base. A test is unchanged when
 the head file has the same syntax tree as the function of the same name in the base file, and the
 rest of the file, which holds the imports, helpers and fixtures that the test runs, has the same
 syntax tree too. Layout and comments are no part of a syntax tree, so they change no test.
+
+A collection error names a whole file and no test, so the gate asks whether the file changed: a
+file is unchanged when its head and its base have the same syntax tree (#6372).
 """
 
 from __future__ import annotations
@@ -78,3 +81,10 @@ def is_test_changed(
         return True
     key = (*class_path, name)
     return key not in head.functions or head.functions.get(key) != base.functions.get(key)
+
+
+def is_file_changed(base: ParsedTests | None, head: ParsedTests | None) -> bool:
+    """Whether a test file differs between its two parses (`parse_tests`): in a test, in a helper,
+    an import or a fixture. A file that is new, or that a parse does not hold, counts as changed,
+    as `is_test_changed` counts such a test (#6372)."""
+    return base is None or head is None or base != head

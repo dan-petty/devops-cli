@@ -12,8 +12,15 @@ the knowledge base) or a gate check needs one; a fix that changes neither passes
 label or body. A
 replay whose pytest was interrupted, stopped with an internal or usage error, or wrote no complete
 JUnit report could not run on base, and fails (#1669). A replay with a failure that the host path
-guard of the test harness raised, or with a failed test that the fix does not change, proves
-nothing about the fix and fails too (#3124).
+guard of the test harness raised, or with a test that the fix does not change and that fails or
+errors on base, proves nothing about the fix and fails too (#3124).
+
+A changed test that errors on base at collection or setup proves the fix as a failure in the call
+phase does (#6372): the replay tree holds the head's tests, so only `src/` differs, and a test that
+imports or sets up the code that the fix adds errors there. An error at teardown comes after the
+call phase ran and proves nothing. pytest reports the collection error of a file as one case with
+no class name, named by the module path of the file. That case names the whole file, which counts
+as changed when its syntax tree differs from the merge base or the file is new.
 
 A changed check module of `tests/gate/<row>_checks/` is a gate check (#4554). For each row of
 these modules, the command runs the gate module `tests.gate.<row>` once on the base tree with the
@@ -23,8 +30,9 @@ changed check module that fails on base and passes on head proves the fix, when 
 same cases. A row run that could not run, or a base failure of a check module that the fix does
 not change, proves nothing and fails the replay.
 
-The run exits non-zero unless no replay fails and at least one changed test fails in the call
-phase on base, or a gate case proves the fix.
+The run exits non-zero unless no replay fails and at least one changed test fails on base, or
+errors there at collection or setup, or a gate case proves the fix. The report names each changed
+test that proves the fix.
 """
 
 from __future__ import annotations
@@ -42,7 +50,7 @@ from pathlib import Path, PurePath, PurePosixPath
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from devops_cli.ci.changed_tests import ParsedTests, is_test_changed, parse_tests
+from devops_cli.ci.changed_tests import ParsedTests, is_file_changed, is_test_changed, parse_tests
 from devops_cli.config.constants import (
     CONST_FAIL_TO_PASS_COULD_NOT_RUN_EXIT_STATUSES,
     CONST_FAIL_TO_PASS_GATE_ROW_EXIT_STATUSES,
@@ -50,6 +58,7 @@ from devops_cli.config.constants import (
     CONST_FAIL_TO_PASS_HOST_PATH_GUARD_MESSAGE,
     CONST_FAIL_TO_PASS_JUNIT_ROOT_TAG,
     CONST_FAIL_TO_PASS_JUNIT_TAG_STATUS,
+    CONST_FAIL_TO_PASS_PROOF_ERROR_MESSAGES,
     CONST_FAIL_TO_PASS_PYTEST_FLAGS,
     CONST_GATE_CHECKS_PACKAGE_SUFFIX,
     CONST_GATE_DIR,
@@ -78,6 +87,9 @@ from devops_cli.git.operations import (
 from devops_cli.lang import MESSAGES
 
 _DELETED = CONST_GIT_NAME_STATUS_CHANGE_TYPES["D"]
+# The statuses of a test that does not pass on base: a failure in the call phase, or an error at
+# collection, setup or teardown (#6372).
+_NOT_PASSED = frozenset({"failed", "errored"})
 # The last line that `tests/gate/runner.py` prints for a row: `<row>: <N> cases, <M> failed`.
 _GATE_ROW_SUMMARY = re.compile(
     r"^(?P<row>\S+): (?P<cases>\d+) cases, (?P<failed>\d+) failed$", re.MULTILINE
@@ -101,6 +113,17 @@ class TestCaseOutcome(BaseModel):
     def test_id(self) -> str:
         """The test's qualified identifier (`classname::name`, or `name` when ungrouped)."""
         return f"{self.classname}::{self.name}" if self.classname else self.name
+
+    @property
+    def proves_fix(self) -> bool:
+        """Whether this outcome of a changed test on base proves the fix: a failure in the call
+        phase, or an error at collection or setup, where the test cannot import or set up the code
+        that the fix adds. An error at teardown comes after the call phase ran, so it proves nothing
+        (#6372)."""
+        return self.status == "failed" or (
+            self.status == "errored"
+            and self.message.startswith(CONST_FAIL_TO_PASS_PROOF_ERROR_MESSAGES)
+        )
 
 
 class ReplayCouldNotRun(BaseModel):
@@ -217,13 +240,17 @@ class FailToPassReport(BaseModel):
         return sum(1 for outcome in self.outcomes if outcome.status == "failed")
 
     @property
-    def changed_failed_count(self) -> int:
-        """Number of changed tests that failed in the call phase on base."""
+    def proof(self) -> tuple[str, ...]:
+        """The test IDs of the changed tests that fail on base, or that error there at collection
+        or setup, which prove the fix (#6372). A test that the fix does not change, or that the head
+        repairs, proves nothing."""
         excluded = set(self.unchanged_failed) | {outcome.test_id for outcome in self.repaired}
-        return sum(
-            1
-            for outcome in self.outcomes
-            if outcome.status == "failed" and outcome.test_id not in excluded
+        return tuple(
+            dict.fromkeys(
+                outcome.test_id
+                for outcome in self.outcomes
+                if outcome.proves_fix and outcome.test_id not in excluded
+            )
         )
 
     @property
@@ -242,7 +269,7 @@ class FailToPassReport(BaseModel):
         return tuple(
             outcome
             for outcome in self.outcomes
-            if outcome.status in ("failed", "errored")
+            if outcome.status in _NOT_PASSED
             and CONST_FAIL_TO_PASS_HOST_PATH_GUARD_MESSAGE in outcome.message
         )
 
@@ -250,7 +277,7 @@ class FailToPassReport(BaseModel):
     def tests_refused(self) -> bool:
         """Whether the test replay proves nothing about the fix: it could not run, a failure comes
         from the host path guard of the test harness, or a test that the fix does not change fails
-        on base (#3124)."""
+        or errors on base (#3124)."""
         return (
             self.could_not_run is not None
             or self.head_could_not_run is not None
@@ -261,14 +288,14 @@ class FailToPassReport(BaseModel):
     @property
     def satisfied(self) -> bool:
         """Whether the fail-to-pass gate is satisfied: no replay refuses the fix, and at least one
-        changed test fails on base or a gate case of a changed check module fails on base and
-        passes on head (#4554). A fix that changes no source code and no gate check needs neither
-        (#6207)."""
+        changed test fails on base, or errors there at collection or setup (#6372), or a gate case
+        of a changed check module fails on base and passes on head (#4554). A fix that changes no source code and no gate check
+        needs neither (#6207)."""
         if not self.needs_proof:
             return True
         if self.tests_refused or any(row.refused for row in self.gate_rows):
             return False
-        return self.changed_failed_count > 0 or any(row.proved for row in self.gate_rows)
+        return bool(self.proof) or any(row.proved for row in self.gate_rows)
 
 
 class _JUnitHTMLParser(HTMLParser):
@@ -526,12 +553,12 @@ TEMP_DIR_PLACEHOLDER = "<temp-dir>"
 CHANGED_TESTS_PLACEHOLDER = "<changed test files>"
 BLOB_PLACEHOLDER = "<blob of the changed test file>"
 GATE_ROW_PLACEHOLDER = "<gate row>"
-UNCHANGED_CHECK = "a test that failed on base is in a changed test file"
+UNCHANGED_CHECK = "a test that failed or errored on base is in a changed test file"
 TEST_REPLAY = "a changed test file exists and the fix changes source code or a gate check"
 GATE_REPLAY = "a changed gate check exists"
 EACH_GATE_ROW = "for each row of a changed gate check"
-UNCHANGED_REPLAY = "a test that failed on base is unchanged"
-HEAD_RUN = "a changed gate check exists or a test that failed on base is unchanged"
+UNCHANGED_REPLAY = "a test that failed or errored on base is unchanged"
+HEAD_RUN = "a changed gate check exists or a test that failed or errored on base is unchanged"
 UNCHANGED_TESTS_PLACEHOLDER = "<unchanged test files>"
 
 
@@ -694,10 +721,14 @@ def _test_location(
 ) -> tuple[str, tuple[str, ...], str] | None:
     """The changed test file, the class names and the function name that `outcome` names, or
     None when it names no changed test file. The JUnit class name is the file's module path, then
-    the classes of the test, and a parametrized test's name ends in its case id."""
+    the classes of the test, and a parametrized test's name ends in its case id. A collection
+    error of a file has no class name and the file's module path as its name: it names the whole
+    file, with no class and an empty function name (#6372)."""
     name = outcome.name.partition("[")[0]
     for path in files:
         module = PurePosixPath(path).with_suffix("").as_posix().replace("/", ".")
+        if not outcome.classname and outcome.name == module:
+            return path, (), ""
         if outcome.classname == module:
             return path, (), name
         if outcome.classname.startswith(f"{module}."):
@@ -712,16 +743,21 @@ def _unchanged_failures(
     files: Sequence[str],
     outcomes: Sequence[TestCaseOutcome],
 ) -> tuple[str, ...]:
-    """The test ids of the tests that failed on base though the fix leaves them alone (#3124).
+    """The test ids of the tests that failed or errored on base though the fix leaves them alone
+    (#3124).
 
     A test is unchanged when its function in the replay tree, which holds the head's tests, has the
-    syntax tree of the function in the merge base. A failed test that is not in a changed file, or
-    that either source does not show, counts as changed.
+    syntax tree of the function in the merge base. A collection error names its whole file, which
+    is unchanged when the file has the syntax tree of the file in the merge base (#6372). A test
+    that is not in a changed file, or that either source does not show, counts as changed.
     """
     parses: dict[str, tuple[ParsedTests | None, ParsedTests | None]] = {}
     unchanged: list[str] = []
     for outcome in outcomes:
-        if outcome.status != "failed" or (location := _test_location(outcome, files)) is None:
+        if (
+            outcome.status not in _NOT_PASSED
+            or (location := _test_location(outcome, files)) is None
+        ):
             continue
         path, classes, name = location
         if path not in parses:
@@ -731,7 +767,12 @@ def _unchanged_failures(
                 read_file_at_revision(root, merge_base, path) if head_source is not None else None
             )
             parses[path] = (parse_tests(base_source), parse_tests(head_source))
-        if not is_test_changed(classes, name, *parses[path]):
+        changed = (
+            is_test_changed(classes, name, *parses[path])
+            if name
+            else is_file_changed(*parses[path])
+        )
+        if not changed:
             unchanged.append(outcome.test_id)
     return tuple(dict.fromkeys(unchanged))
 
@@ -755,9 +796,10 @@ def _repaired_and_refused(
     plain_base_outcomes: Sequence[TestCaseOutcome],
     head_outcomes: Sequence[TestCaseOutcome],
 ) -> tuple[tuple[TestCaseOutcome, ...], tuple[str, ...]]:
-    """Split `unchanged` failed test IDs into repaired outcomes and refused test IDs.
+    """Split the `unchanged` test IDs that do not pass on base into repaired outcomes and refused
+    test IDs.
 
-    A test is repaired only when it fails on the plain merge base and passes on the head.
+    A test is repaired only when it fails or errors on the plain merge base and passes on the head.
     An unchanged test that passes on the plain merge base or that does not pass on the head
     is refused.
     """
@@ -768,12 +810,7 @@ def _repaired_and_refused(
     for test_id in unchanged:
         pb = plain_map.get(test_id)
         h = head_map.get(test_id)
-        if (
-            pb is not None
-            and pb.status in ("failed", "errored")
-            and h is not None
-            and h.status == "passed"
-        ):
+        if pb is not None and pb.status in _NOT_PASSED and h is not None and h.status == "passed":
             repaired.append(h)
         else:
             refused.append(test_id)
@@ -921,7 +958,7 @@ def run_fail_to_pass(root: Path, *, base: str, head: str = "HEAD") -> FailToPass
         head_could_not_run: ReplayCouldNotRun | None = None
         base_could_not_run = run.could_not_run if run is not None else None
         has_guard_failure = run is not None and any(
-            outcome.status in ("failed", "errored")
+            outcome.status in _NOT_PASSED
             and CONST_FAIL_TO_PASS_HOST_PATH_GUARD_MESSAGE in outcome.message
             for outcome in run.outcomes
         )
@@ -1119,4 +1156,6 @@ def format_fail_to_pass_report(report: FailToPassReport) -> str:
         lines += _gate_row_lines(row)
     if not report.satisfied:
         lines += _unsatisfied_reasons(report, files_label)
+    elif report.proof:
+        lines.append(MESSAGES.ci.fail_to_pass_proof.format(tests=", ".join(report.proof)))
     return "\n".join(lines)

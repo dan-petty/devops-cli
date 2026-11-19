@@ -420,10 +420,11 @@ def test_fail_to_pass_passing_test_on_base_exits_1_and_names_test(
     ) == (1, True, True)
 
 
-def test_fail_to_pass_collection_error_does_not_satisfy_check(
+def test_a_replay_whose_only_changed_test_file_fails_to_collect_on_base_exits_0(
     replay_state: _FailToPassState,
 ) -> None:
-    """A collection error is reported as errored and does not satisfy the fail-to-pass check."""
+    """A changed test file that cannot import the code of the fix on base errors at collection,
+    and that error proves the fix as a failure in the call phase does (#6372)."""
     _mock_replay_repo(replay_state, JUNIT_COLLECTION_ERROR, exit_status=1)
     result = runner.invoke(
         app,
@@ -433,7 +434,9 @@ def test_fail_to_pass_collection_error_does_not_satisfy_check(
         result.exit_code,
         "errored on base: tests.test_sample (collection failure)" in result.output,
         "1 errored" in result.output,
-    ) == (1, True, True)
+        "These changed tests fail or error on base and prove the fix: tests.test_sample."
+        in result.output,
+    ) == (0, True, True, True)
 
 
 def test_a_base_replay_timeout_is_a_could_not_run_result(
@@ -901,7 +904,9 @@ def test_a_replay_that_could_not_run_keeps_the_last_whole_lines_within_the_bound
             "  failed on base: tests.test_sample::test_regression_fails"
             " (AssertionError: expected 2)\n"
             "  passed on base: tests.test_sample::test_existing_passes\n"
-            "1 failed on base (1 failed and 1 passed in tests/test_mod.py; 0 errored).",
+            "1 failed on base (1 failed and 1 passed in tests/test_mod.py; 0 errored).\n"
+            "These changed tests fail or error on base and prove the fix: "
+            "tests.test_sample::test_regression_fails.",
         ),
         (
             0,
@@ -909,17 +914,16 @@ def test_a_replay_that_could_not_run_keeps_the_last_whole_lines_within_the_bound
             False,
             "  passed on base: tests.test_sample::test_unchanged_passes\n"
             "0 failed on base (0 failed and 1 passed in tests/test_mod.py; 0 errored).\n"
-            "A fix needs at least one changed test that fails in the call phase on base "
-            "(tests.test_sample::test_unchanged_passes).",
+            "A fix needs at least one changed test that fails on base, or that errors there at "
+            "collection or setup (tests.test_sample::test_unchanged_passes).",
         ),
         (
             1,
             JUNIT_COLLECTION_ERROR,
-            False,
+            True,
             "  errored on base: tests.test_sample (collection failure)\n"
             "0 failed on base (0 failed and 0 passed in tests/test_mod.py; 1 errored).\n"
-            "A fix needs at least one changed test that fails in the call phase on base "
-            "(tests.test_sample).",
+            "These changed tests fail or error on base and prove the fix: tests.test_sample.",
         ),
     ],
     ids=["failing", "passing", "collection-error"],
@@ -954,8 +958,8 @@ def test_a_replay_that_collects_no_tests_is_an_empty_replay(
     assert (report.satisfied, format_fail_to_pass_report(report)) == (
         False,
         "0 failed on base (0 failed and 0 passed in tests/test_mod.py; 0 errored).\n"
-        "A fix needs at least one changed test that fails in the call phase on base "
-        "(tests/test_mod.py).",
+        "A fix needs at least one changed test that fails on base, or that errors there at "
+        "collection or setup (tests/test_mod.py).",
     )
 
 
@@ -1105,7 +1109,7 @@ def test_a_test_that_the_fix_leaves_alone_and_that_fails_on_base_refuses_the_rep
     assert (replay_state.satisfied, text.splitlines()[-1]) == (
         False,
         "A test that the fix does not change does not pass on the head (tests.test_mod::test_kept). "
-        "A test that fails on base must be one that the fix adds or changes.",
+        "A test that fails or errors on base must be one that the fix adds or changes.",
     )
 
 
@@ -1132,6 +1136,127 @@ def test_an_unchanged_failure_that_passes_on_the_plain_merge_base_refuses_the_re
     )
 
 
+# The report pytest writes when `tests/test_mod.py` cannot be imported: one case with no class
+# name, named by the module path of the file (#6372).
+JUNIT_TEST_MOD_COLLECTION_ERROR = """\
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+  <testsuite name="pytest" errors="1" failures="0" skipped="0" tests="1">
+    <testcase classname="" name="tests.test_mod" time="0.000">
+      <error message="collection failure">ImportError: cannot import name 'fixed'</error>
+    </testcase>
+  </testsuite>
+</testsuites>
+"""
+
+SETUP_ERROR = "failed on setup with &quot;AttributeError: module has no attribute 'new_field'&quot;"
+
+
+def test_a_changed_test_file_that_fails_to_collect_on_base_proves_the_fix(
+    tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """The head's tests import the code that the fix adds, so the base cannot collect the file.
+    The error names the file and no test, and the changed file proves the fix (#6372)."""
+    text = _replay_of_test_mod(
+        tmp_path,
+        replay_state,
+        base=BASE_TESTS,
+        head=f"from devops_cli.sample import fixed\n\n\n{HEAD_TESTS}",
+        junit=JUNIT_TEST_MOD_COLLECTION_ERROR,
+    )
+
+    assert (replay_state.satisfied, text.splitlines()[-1]) == (
+        True,
+        "These changed tests fail or error on base and prove the fix: tests.test_mod.",
+    )
+
+
+def test_a_changed_test_that_errors_on_setup_proves_the_fix(
+    tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """A fixture of a changed test reads a field that only the fix adds, so the test errors on
+    setup on base, and that error proves the fix (#6372)."""
+    text = _replay_of_test_mod(
+        tmp_path,
+        replay_state,
+        base=BASE_TESTS,
+        head=HEAD_TESTS,
+        junit=_junit(("test_fixed", "error", SETUP_ERROR), ("test_kept", "", "")),
+    )
+
+    assert (replay_state.satisfied, text.splitlines()[-1]) == (
+        True,
+        "These changed tests fail or error on base and prove the fix: tests.test_mod::test_fixed.",
+    )
+
+
+TEARDOWN_ERROR = (
+    "failed on teardown with &quot;AttributeError: fixture has no attribute 'close'&quot;"
+)
+
+
+def test_a_changed_test_that_passes_and_errors_on_teardown_does_not_prove_the_fix(
+    tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """A changed test whose assertions pass on base and whose fixture errors at teardown ran on the
+    code before the fix and passed, so its error proves nothing about the fix (#6372)."""
+    text = _replay_of_test_mod(
+        tmp_path,
+        replay_state,
+        base=BASE_TESTS,
+        head=HEAD_TESTS,
+        junit=_junit(("test_fixed", "error", TEARDOWN_ERROR), ("test_kept", "", "")),
+    )
+
+    assert (replay_state.satisfied, text.splitlines()[-1]) == (
+        False,
+        "A fix needs at least one changed test that fails on base, or that errors there at "
+        "collection or setup (tests.test_mod::test_fixed, tests.test_mod::test_kept).",
+    )
+
+
+def test_an_unchanged_test_that_errors_on_base_refuses_the_replay(
+    tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """An error of a test that the fix does not change proves nothing about the fix, as its
+    failure does, though a changed test errors too (#6372)."""
+    replay_state.plain_base_junit_xml = _junit(("test_kept", "", ""))
+    replay_state.head_junit_xml = _junit(("test_fixed", "", ""), ("test_kept", "", ""))
+    text = _replay_of_test_mod(
+        tmp_path,
+        replay_state,
+        base=BASE_TESTS,
+        head=HEAD_TESTS,
+        junit=_junit(("test_fixed", "error", SETUP_ERROR), ("test_kept", "error", SETUP_ERROR)),
+    )
+
+    assert (replay_state.satisfied, text.splitlines()[-1]) == (
+        False,
+        "A test that the fix does not change does not pass on the head (tests.test_mod::test_kept). "
+        "A test that fails or errors on base must be one that the fix adds or changes.",
+    )
+
+
+def test_a_file_that_gains_only_a_comment_and_fails_to_collect_on_base_refuses_the_replay(
+    tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """A comment changes no syntax tree, so the fix changes no test of a file that only gains
+    one, and the collection error of that file proves nothing (#3124, #6372)."""
+    text = _replay_of_test_mod(
+        tmp_path,
+        replay_state,
+        base=BASE_TESTS,
+        head=f"# A comment.\n{BASE_TESTS}",
+        junit=JUNIT_TEST_MOD_COLLECTION_ERROR,
+    )
+
+    assert (replay_state.satisfied, text.splitlines()[-1]) == (
+        False,
+        "A test that the fix does not change does not pass on the head (tests.test_mod). "
+        "A test that fails or errors on base must be one that the fix adds or changes.",
+    )
+
+
 def test_a_repair_alone_does_not_satisfy_the_replay(
     tmp_path: Path, replay_state: _FailToPassState
 ) -> None:
@@ -1148,7 +1273,7 @@ def test_a_repair_alone_does_not_satisfy_the_replay(
 
     assert replay_state.satisfied is False
     assert "The head repairs tests.test_mod::test_kept." in text
-    assert "A fix needs at least one changed test that fails in the call phase on base" in text
+    assert "A fix needs at least one changed test that fails on base" in text
 
 
 def test_a_head_replay_that_could_not_run_refuses_the_replay(
@@ -1301,7 +1426,8 @@ def test_fail_to_pass_dry_run_lists_the_head_replay(cli: Any, process_fake: Proc
     head_pytest = [
         line
         for line in _plan_lines(result.output)
-        if " -m pytest " in line and "only if a test that failed on base is unchanged" in line
+        if " -m pytest " in line
+        and "only if a test that failed or errored on base is unchanged" in line
     ]
     assert len(head_pytest) == 1
 
@@ -1350,7 +1476,7 @@ def test_fail_to_pass_dry_run_lists_the_replay_and_starts_nothing(
     assert all(
         condition.startswith("only if a changed test file exists") for condition in conditions[2:5]
     )
-    assert conditions[8] == "only if a test that failed on base is unchanged]"
+    assert conditions[8] == "only if a test that failed or errored on base is unchanged]"
     assert [conditions[5], conditions[9]] == [gate, gate]
 
 
@@ -1368,9 +1494,12 @@ def test_fail_to_pass_dry_run_of_a_head_lists_the_fallback_diff(
         "  [only if the three-dot diff fails]"
     )
     assert not [line for line in lines if "ls-files" in line]
-    head_run = "  [only if a changed gate check exists or a test that failed on base is unchanged]"
+    head_run = (
+        "  [only if a changed gate check exists or a test that failed or errored on base is"
+        " unchanged]"
+    )
     gate = "  [only if a changed gate check exists]"
-    unchanged = "  [only if a test that failed on base is unchanged]"
+    unchanged = "  [only if a test that failed or errored on base is unchanged]"
     assert lines[-5:] == [
         f"git worktree add --quiet --detach '<temp-dir>/head' feature{head_run}",
         lines[-4],
@@ -1414,8 +1543,10 @@ def test_fail_to_pass_runs_the_processes_of_its_plan(
     }
     planned = []
     for request in plan_fail_to_pass("main"):
-        if "failed on base" in request.condition or request.condition.startswith(skipped):
-            continue  # Read only when a test failed on base: this replay ran no test.
+        if "failed or errored on base" in request.condition or request.condition.startswith(
+            skipped
+        ):
+            continue  # Read only when a test failed or errored on base: this replay ran no test.
         line = shlex.join(request.argv)
         for placeholder, value in values.items():
             line = line.replace(shlex.quote(placeholder), value).replace(placeholder, value)
