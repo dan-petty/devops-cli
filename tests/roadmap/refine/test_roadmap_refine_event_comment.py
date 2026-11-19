@@ -31,7 +31,9 @@ from devops_cli.roadmap.refine import refine
 from devops_cli.roadmap.refine.refine import (
     NextStep,
     RefinementProposal,
+    apply_refine,
     next_step_of,
+    owner_question_of,
     plan_refine,
     render_proposal_section,
     step_comment,
@@ -217,6 +219,40 @@ def test_a_round_whose_result_is_the_one_before_posts_no_comment_and_its_read_st
     )
 
 
+def test_a_reply_made_while_a_round_with_no_comment_runs_ends_the_wait(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """A person replies after a round read the comments and before it wrote its result. The round
+    finds the result of the round before, so it posts no comment and records the time of its read.
+    The reply is newer than that time, so it ends the wait, and the model reads it."""
+    store.seed_visibility(is_private=True)
+    model_fake.answer(QUESTION)
+    with time_machine.travel(_START, tick=False) as clock:
+        number = seed_item(store, "New", "P1-High")
+        refine_round(store, git_repo)
+        clock.shift(timedelta(minutes=5))
+        store.as_actor("alice").comment(number, "The first reply.")
+        clock.shift(timedelta(minutes=5))
+        read_at = datetime.now(UTC)
+        plan = plan_refine(store, repo=REPO, source=git_repo)
+        clock.shift(timedelta(minutes=1))
+        store.as_actor("alice").comment(number, "The reply during the round.")
+        clock.shift(timedelta(minutes=1))
+        apply_refine(store, plan)
+        clock.shift(timedelta(minutes=5))
+        again = plan_refine(store, repo=REPO, source=git_repo)
+
+    assert (
+        require_item(store, number).job_record.get(RefineRecordKey.REPEATED_AT),
+        [r.item.number for r in again.refined_items],
+        replies_sent(model_fake),
+    ) == (
+        read_at.isoformat(),
+        [number],
+        ["The first reply.", "The reply during the round."],
+    )
+
+
 def test_a_round_whose_next_step_changes_posts_one_event_with_no_commit_and_no_status(
     git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
 ) -> None:
@@ -282,6 +318,33 @@ def test_the_frame_names_the_section_in_place_of_the_question_that_the_section_h
         frame_hash(frame),
         record.get(OwnerQuestionRecordKey.TEXT),
     ) == (False, True, True, record.get(OwnerQuestionRecordKey.HASH), _OPEN_QUESTION)
+
+
+def test_the_frame_of_two_open_questions_names_the_first_one_that_it_asks(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """The section lists two open questions, and the frame asks the first one: its options, its
+    answer and its hash cover that question alone. So the frame names the first point of Open
+    questions, and a person knows which question it asks."""
+    item = require_item(store, seed_item(store, "New", "P1-High"))
+    questions = (_OPEN_QUESTION, "Which job reads the record? (a person decides)")
+    step, details, _ = next_step_of(QUESTION, questions, (), is_ready=False)
+    parts = refine.section_parts(step, questions, block_paths=(CITED_PATH,))
+    question = owner_question_of(item, step, details)
+
+    frame = step_comment(item, step, details, parts=parts)
+
+    assert question is not None
+    assert (
+        frame.splitlines()[1],
+        frame_hash(frame),
+        question.question,
+    ) == (
+        "**Owner question:** See the first point of Open questions and Watched files in the "
+        "section Proposed design of the body.",
+        question.hash,
+        _OPEN_QUESTION,
+    )
 
 
 def test_an_item_whose_frame_holder_closed_posts_the_frame_on_the_same_result(
