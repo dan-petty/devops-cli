@@ -34,6 +34,7 @@ Read on `origin/main` at 252b6bcef on 2026-11-19:
 - `git grep -nE '^(UV|GH|ACTIONLINT)_VERSION|NODE_MAJOR' -- src` finds only `src/devops_cli/roadmap/runner_tools.py:43-46`. The other users of the constants are `tests/roadmap/test_roadmap_runner_tools.py` and two custom managers of `.github/renovate.json`.
 - `_pin_failure` is the only user of `TOOLS_DIR`, `TOOLS_BIN_DIR`, `USER_DATA_ROOT_VARIABLE` and the message `runner_tool_off_pin`.
 - `src/devops_cli/github/release_title.py` counts each path under `src/devops_cli/` as runtime code, and the path filter of `.github/workflows/fail-to-pass.yml` is `src/**/*.py`. So a pin in a `.py` file needs a `fix` title and starts the check. The comments of #5585 show this on #6370.
+- `is_source_code` in `src/devops_cli/ci/fail_to_pass.py:357-366` reads only the path. The requirement "A pin-only Python module is no source code" of the refine design is not built: no module under `src/` holds only a tool version after this change, and `runner_tools.py` holds functions. `design.md` gives the evidence.
 - The dockerfile manager of Renovate reads `FROM ghcr.io/astral-sh/uv` and `FROM node` in `Dockerfile`, so the `uv` and `node` groups keep members without the custom managers, and the rule for a base image of `Dockerfile` gives them `fix(deps):`.
 
 ## Existing Tool Considered
