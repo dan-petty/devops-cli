@@ -47,6 +47,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_INVESTIGATION_REPLY_WINDOW_SHARE,
     CONST_ROADMAP_REFINE_INVESTIGATION_MAX_REQUESTS,
     CONST_ROADMAP_REFINE_INVESTIGATION_MAX_TOOL_CALLS,
+    CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES,
     CONST_ROADMAP_REFINE_INVESTIGATION_TURN_CALLS,
     CONST_ROADMAP_REFINE_MAX_REPLIES,
     CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS,
@@ -1075,11 +1076,12 @@ def test_a_reply_cut_by_the_output_token_limit_stops_the_run_and_is_not_a_broken
 
     stopped = investigate(model, "Instructions.", "{}", tools, RefinementProposal)
 
-    assert (stopped.reason, stopped.output_limit, stopped.schema_broken) == (
-        "UnexpectedModelBehavior",
-        True,
-        False,
-    )
+    assert (
+        stopped.reason,
+        stopped.output_limit,
+        stopped.schema_broken,
+        stopped.cause.reason,
+    ) == ("UnexpectedModelBehavior", True, False, "output_limit")
 
 
 def test_a_stop_that_is_not_the_output_token_limit_does_not_set_the_flag(
@@ -1180,6 +1182,33 @@ def test_a_third_call_to_a_tool_that_is_gone_stops_the_run_and_it_is_no_budget_l
         stopped.message.startswith("Tool <text> exceeded max retries count of 2."),
         stopped.schema_broken,
     ) == ("UnexpectedModelBehavior", True, False)
+
+
+def test_a_stopped_investigation_names_its_cause(git_repo: Path) -> None:
+    """A stop names its cause (#3717): the text reply that pydantic-ai refused, the tool of a call
+    that the run refused past the tools retry limit, the output retry limit that the caller set,
+    and the name of the limit that ended the budget. A call to a tool that the run offers, with
+    arguments that break the schema of the tool or that are no JSON text, is no refused call."""
+    text = _run(
+        git_repo, Script(ModelResponse(parts=[TextPart(content="not json")])), output_retries=1
+    )
+    refused = _run(git_repo, Script(call("no_such_tool")))
+    output = _run(git_repo, Script(_BROKEN), output_retries=1)
+    spent = _run(git_repo, Script(_read()), limits=_limits(tool_calls=0))
+    schema = _run(git_repo, Script(call("read_file", wrong=1)))
+    joined = _run(git_repo, Script(ModelResponse(parts=[ToolCallPart("read_file", _JOINED_ARGS)])))
+
+    assert [
+        (stopped.cause.reason, stopped.cause.detail, stopped.cause.limit, stopped.cause.texts)
+        for stopped in (text, refused, output, spent, schema, joined)
+    ] == [
+        ("text_reply", "", None, ("not json",)),
+        ("refused_tool_call", "no_such_tool", CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES, ()),
+        ("output_retries_exhausted", "", 1, ()),
+        ("budget_exhausted", "tool_calls_limit", None, ()),
+        ("tool_retries_exhausted", "read_file", CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES, ()),
+        ("invalid_arguments", "read_file", None, ()),
+    ]
 
 
 def test_a_run_with_a_trace_keeps_its_calls_and_counts(git_repo: Path) -> None:

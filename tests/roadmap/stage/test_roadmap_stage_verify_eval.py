@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 import time_machine
+from pydantic_ai.messages import ModelResponse, TextPart
 
 from devops_cli.ai.client import factory
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
@@ -255,6 +256,25 @@ def test_a_failed_call_counts_as_no_defect_found_and_the_other_cases_run(
     score = _evaluate([first, second], model_fake, stage_repo)
 
     assert (score.failed, score.labeled, score.found) == (1, 2, 1)
+
+
+def test_a_failed_case_records_its_stop_reason(
+    cases: list[StageCase], stage_repo: StageRepo
+) -> None:
+    """A case whose review stops with the text reply that pydantic-ai refuses ends as failed, and
+    the report holds the typed reason of its stop (#3717)."""
+    case = _case(cases, stage_repo, "bad", (_defect(DefectType.OTHER),))
+    script = Script(ModelResponse(parts=[TextPart("No findings.")]))
+
+    score = evaluate_cases(
+        "m-1", [case], _client(ModelFake()), stage_repo.clone, toolbox=ToolboxModel(script.model())
+    )
+
+    assert (score.failed, [outcome.reason for outcome in score.cases]) == (1, ["text_reply"])
+    report = json.loads(verify_json(score, gateway="http://gateway.example.com", taken="now"))
+    assert report["cases"][0]["reason"] == "text_reply"
+    text = render_verify(score, gateway="http://gateway.example.com")
+    assert any("bad" in line and "text_reply" in line for line in text.splitlines())
 
 
 def test_rejected_credentials_stop_the_run(

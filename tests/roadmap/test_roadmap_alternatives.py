@@ -2639,12 +2639,14 @@ def test_failure_record_the_reason_of_a_stopped_run_holds_its_message(
     message: str,
     reason: str,
 ) -> None:
+    from devops_cli.roadmap.agent_run import StopCause, StopReason
     from devops_cli.roadmap.refine.refine_investigation import InvestigationStopped
 
     number = _item(store)
+    spent = StopCause(StopReason.BUDGET_EXHAUSTED, "tool_calls_limit")
     monkeypatch.setattr(
         "devops_cli.roadmap.alternatives.investigate",
-        lambda *_args, **_kwargs: InvestigationStopped("UsageLimitExceeded", message),
+        lambda *_args, **_kwargs: InvestigationStopped("UsageLimitExceeded", message, spent),
     )
 
     plan = _plan(store, _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE)))

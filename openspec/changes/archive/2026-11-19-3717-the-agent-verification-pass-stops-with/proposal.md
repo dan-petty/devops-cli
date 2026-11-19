@@ -6,7 +6,7 @@ A run of `devops roadmap eval verify` on #3717 stops a case with `Tool <text> ex
 
 ## What Changes
 
-- Type the stop of an agent run from its messages: a call that the tools retry limit ended, a run whose tools the budget took away, an exhausted output retry and a text reply each get a reason and the name of the tool, the limit or the text.
+- Type the stop of an agent run from its messages: a call to a tool that the run does not offer, a call to an offered tool whose arguments break its schema, arguments that are no JSON text, a reply that the output token limit cut, a run whose tools the budget took away, an exhausted output retry and a text reply each get a reason and the name of the tool, the limit or the text. The names of the tools that the run offered tell a refused call from an offered call with bad arguments, because pydantic-ai gives both the same message.
 - Cite pydantic-ai `AutoOutputSchema` (`_output.py:638-655`, which also strips Markdown fences at `_output.py:981`) for text replies that hold valid JSON findings. Keep `text_reply` only for text replies that pydantic-ai refuses.
 - Name the cause in the stop message of the verification pass: the tool name and the tools retry limit of a refused call, the limit that ended the tools, the output retry limit that the run used, or the text reply that pydantic-ai refuses.
 - Record `cases[].reason` in the JSON report and name the reason of each failed case in the text report of `devops roadmap eval verify`.
@@ -27,7 +27,7 @@ None.
 ## Impact
 
 - Code: `src/devops_cli/roadmap/agent_run.py`, `src/devops_cli/roadmap/refine/refine_investigation.py`, `src/devops_cli/roadmap/stage/stage_toolbox.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/roadmap/stage/stage_verify_eval.py`
-- Tests: `tests/roadmap/refine/test_roadmap_refine_investigation.py`, `tests/roadmap/stage/test_roadmap_stage_toolbox.py`, `tests/roadmap/stage/test_roadmap_stage_verify_eval.py`
+- Tests: `tests/roadmap/refine/test_roadmap_refine_investigation.py`, `tests/roadmap/stage/test_roadmap_stage_toolbox.py`, `tests/roadmap/stage/test_roadmap_stage_verify_eval.py`, `tests/roadmap/test_roadmap_alternatives.py`
 
 ## Feasibility
 

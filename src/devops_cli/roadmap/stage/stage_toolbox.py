@@ -11,6 +11,8 @@ fill the context window (#3037), and keeps a `RunTrace` of what it did. It sends
 run as metrics (`tool_metrics`, #3240). The output tokens have no count of their own (#3206). A run
 that ends with no reply raises `RoadmapStageError` and names the limit it hit, or
 `StructuredOutputValidationError` when the model broke the schema of its reply past its retries.
+A review run that stops names its typed cause, such as the tool of a refused call or the retry
+limit that the run used (#3717).
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ from typing import TYPE_CHECKING, Any, Final
 from pydantic import BaseModel
 from pydantic_ai.usage import UsageLimits
 
-from devops_cli.ai.client.models import StructuredOutputValidationError
+from devops_cli.ai.client.models import AIClientError, StructuredOutputValidationError
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_MIN_TOOL_CALLS,
@@ -34,7 +36,7 @@ from devops_cli.config.settings import load_settings
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
-from devops_cli.roadmap.agent_run import RunLimit, RunTrace
+from devops_cli.roadmap.agent_run import RunLimit, RunTrace, StopCause, StopReason
 from devops_cli.roadmap.mcp import ROLE_PLANNING, RoadmapMcpToolset, build_roadmap_mcp_toolset
 from devops_cli.roadmap.refine.refine_investigation import InvestigationStopped, investigate
 from devops_cli.roadmap.stage.stage_change import StageProposal
@@ -212,9 +214,17 @@ class ToolboxClient:
                 window=self._window,
             )
             finished = True
+        except AIClientError as failed:
+            # The model call of the run failed, and the case of the eval report names that phase
+            # and not a cause of a reply (#3717).
+            trace.stop_reason = StopReason.MODEL_ERROR
+            trace.stop_detail = type(failed).__name__
+            raise
         finally:
             end_run(trace, row=row, toolset=self._toolset, finished=finished)
         if self._window_starved(trace):
+            trace.stop_reason = StopReason.WINDOW_STARVED
+            trace.stop_detail = str(self._window)
             template = (
                 MESSAGES.roadmap.stage_window_starved
                 if schema is StageProposal
@@ -247,19 +257,18 @@ class ToolboxClient:
 def _stopped(result: InvestigationStopped, trace: RunTrace, schema: type[BaseModel]) -> Exception:
     """The error for a run that ended with no reply: a plan run, or a review run of a plan that
     already passed the gates. It reads the typed field of the stop and not the text of its
-    message."""
-    template = (
-        MESSAGES.roadmap.stage_run_stopped
-        if schema is StageProposal
-        else MESSAGES.roadmap.stage_verify_stopped
-    )
-    message = template.format(reason=result.message)
+    message. A review stop names its typed cause, so a person can act on it (#3717)."""
     if result.output_limit:
         return RoadmapStageError(MESSAGES.roadmap.stage_output_limit.format(reason=result.message))
     if result.invalid_arguments:
         return RoadmapStageError(
             MESSAGES.roadmap.stage_invalid_arguments.format(reason=result.message)
         )
+    message = (
+        MESSAGES.roadmap.stage_verify_stopped.format(reason=_stop_detail(result.cause))
+        if _AGENT_ROWS[schema] is REVIEW_ROW
+        else MESSAGES.roadmap.stage_run_stopped.format(reason=result.message)
+    )
     if result.schema_broken:
         # A reply with errors in the retry prompt broke the schema. A reply with none held no call
         # to a tool at all (#4269).
@@ -274,6 +283,28 @@ def _stopped(result: InvestigationStopped, trace: RunTrace, schema: type[BaseMod
             ),
         )
     return RoadmapStageError(message)
+
+
+def _stop_detail(cause: StopCause) -> str:
+    """The text of the cause of a review stop (#3717), which `stage_verify_stopped` names: the text
+    reply that pydantic-ai refused, the tool of a call that the run does not offer, the tool of an
+    offered call whose arguments break its schema, the output retry limit that the run used, or
+    the limit that ended its tools. `_stopped` names a cut reply and arguments that are no JSON
+    text with texts of their own, and `stop_cause` gives no other reason."""
+    texts = MESSAGES.roadmap
+    templates: Mapping[StopReason, str] = {
+        StopReason.TEXT_REPLY: texts.stage_verify_stop_text_reply,
+        StopReason.REFUSED_TOOL_CALL: texts.stage_verify_stop_refused_tool,
+        StopReason.TOOL_RETRIES_EXHAUSTED: texts.stage_verify_stop_tool_retries,
+        StopReason.OUTPUT_RETRIES_EXHAUSTED: texts.stage_verify_stop_output_retries,
+        StopReason.BUDGET_EXHAUSTED: texts.stage_verify_stop_budget,
+    }
+    return templates[cause.reason].format(
+        text=" ".join(cause.texts),
+        tool=cause.detail,
+        limit="" if cause.limit is None else cause.limit,
+        limit_name=cause.detail,
+    )
 
 
 def violation_summary(exc: StructuredOutputValidationError) -> str:

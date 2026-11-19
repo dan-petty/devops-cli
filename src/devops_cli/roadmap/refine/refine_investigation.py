@@ -29,7 +29,6 @@ from pydantic_ai.exceptions import (
     UsageLimitExceeded,
 )
 from pydantic_ai.messages import (
-    INVALID_JSON_KEY,
     ModelMessage,
     ModelRequest,
     ModelRequestPart,
@@ -69,12 +68,15 @@ from devops_cli.exceptions.ai import SearchFailed, SearchQueryRefused
 from devops_cli.roadmap.agent_run import (
     RunLimit,
     RunTrace,
+    StopCause,
+    StopReason,
     cut_answer,
     drain_events,
     empty_answer,
     error_answer,
     model_call_error,
     run_error_message,
+    stop_cause,
 )
 from devops_cli.roadmap.page_fetch import PageFetch
 
@@ -198,10 +200,16 @@ class InvestigationStopped:
 
     `invalid_arguments` is true when a tool call of the last reply held arguments that are not
     JSON, as when a gateway joins the arguments of several calls into one text. The reply broke no
-    schema: `schema_broken` is then false (#4228)."""
+    schema: `schema_broken` is then false (#4228).
+
+    `cause` is the typed cause of the stop (#3717), which names the tool, the retry limit or the
+    limit that ended the run, and the text of the reply that stopped it. `output_limit` and
+    `invalid_arguments` are true for the reasons `output_limit` and `invalid_arguments` of the
+    cause."""
 
     reason: str
     message: str
+    cause: StopCause
     schema_broken: bool = False
     output_limit: bool = False
     invalid_arguments: bool = False
@@ -513,24 +521,6 @@ def _broke_the_output_rules(messages: Sequence[ModelMessage], tools: Collection[
     return not any(call.tool_name in tools for call in calls)
 
 
-def _cut_by_the_output_limit(messages: Sequence[ModelMessage]) -> bool:
-    """Whether the last reply of the run ended with the finish reason `length`: the output token
-    limit of the request cut it (#4220)."""
-    replies = [message for message in messages if isinstance(message, ModelResponse)]
-    return bool(replies) and replies[-1].finish_reason == "length"
-
-
-def _has_invalid_arguments(messages: Sequence[ModelMessage]) -> bool:
-    """Whether a tool call of the last reply of the run holds arguments that are not one JSON
-    object (#4228). pydantic-ai wraps the raw text of such arguments under the key
-    `INVALID_JSON_KEY`, so that key marks the call."""
-    replies = [message for message in messages if isinstance(message, ModelResponse)]
-    return any(
-        isinstance(part, ToolCallPart) and INVALID_JSON_KEY in part.args_as_dict()
-        for part in (replies[-1].parts if replies else [])
-    )
-
-
 def _toolset_names(toolsets: Sequence[Any] | None) -> set[str]:
     """The names of tools exposed by `toolsets`."""
     if not toolsets:
@@ -546,22 +536,40 @@ def _stopped_outcome(
     messages: Sequence[ModelMessage],
     tool_names: Collection[str],
     limits_hit: list[RunLimit],
+    *,
+    offered: Sequence[tuple[str, ...]],
+    tool_retries: int,
+    output_retries: int,
+    trace: RunTrace | None = None,
 ) -> InvestigationStopped:
-    """The result when an investigation ends early from a usage limit or model behavior."""
+    """The result when an investigation ends early from a usage limit or model behavior. It names
+    the cause of the stop (#3717) from the tools that the requests of the run `offered`, and
+    records it on `trace` when the caller keeps one."""
     if isinstance(stopped, UsageLimitExceeded) and not limits_hit:
         limits_hit.append(RunLimit.CALLS)
-    model_stopped = isinstance(stopped, UnexpectedModelBehavior)
-    output_limit = model_stopped and _cut_by_the_output_limit(messages)
-    invalid_arguments = model_stopped and not output_limit and _has_invalid_arguments(messages)
+    cause = stop_cause(
+        stopped,
+        messages,
+        offered={name for names in offered for name in names},
+        tool_retries=tool_retries,
+        output_retries=output_retries,
+        limits_hit=limits_hit,
+    )
+    output_limit = cause.reason is StopReason.OUTPUT_LIMIT
+    invalid_arguments = cause.reason is StopReason.INVALID_ARGUMENTS
     schema_broken = (
-        model_stopped
+        isinstance(stopped, UnexpectedModelBehavior)
         and not output_limit
         and not invalid_arguments
         and _broke_the_output_rules(messages, tool_names)
     )
+    if trace is not None:
+        trace.stop_reason = cause.reason
+        trace.stop_detail = cause.detail
     return InvestigationStopped(
         type(stopped).__name__,
         run_error_message(stopped),
+        cause,
         schema_broken=schema_broken,
         output_limit=output_limit,
         invalid_arguments=invalid_arguments,
@@ -602,6 +610,9 @@ def investigate[T: BaseModel](
     function_tools = tools.tools()
     offered: list[tuple[str, ...]] = []
     limits_hit: list[RunLimit] = []
+    output_retries_used = (
+        CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES if output_retries is None else output_retries
+    )
     agent = build_agent(
         model,
         output_type=output_type,
@@ -610,9 +621,7 @@ def investigate[T: BaseModel](
         toolsets=toolsets,
         retries={
             "tools": CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES,
-            "output": CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES
-            if output_retries is None
-            else output_retries,
+            "output": output_retries_used,
         },
         capabilities=[PrepareTools(_offering(window, offered, limits_hit))],
         request_type="agent_run",
@@ -629,7 +638,16 @@ def investigate[T: BaseModel](
         try:
             result = agent.run_sync(request, usage_limits=limits, event_stream_handler=drain_events)
         except (UsageLimitExceeded, UnexpectedModelBehavior) as stopped:
-            return _stopped_outcome(stopped, messages, tool_names, limits_hit)
+            return _stopped_outcome(
+                stopped,
+                messages,
+                tool_names,
+                limits_hit,
+                offered=offered,
+                tool_retries=CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES,
+                output_retries=output_retries_used,
+                trace=trace,
+            )
         except ModelAPIError as exc:
             # Raised outside this handler, so a logged traceback holds no reply text.
             error = model_call_error(exc, "The investigation's")

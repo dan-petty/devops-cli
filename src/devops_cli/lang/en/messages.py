@@ -4421,6 +4421,28 @@ class RoadmapMessages:
         "The verification run stopped before it gave its findings: {reason}. The plan passed the "
         "gates, and no draft opened."
     )
+    # The cause of a review stop, which `stage_verify_stopped` names (#3717). A text reply that
+    # pydantic-ai refused holds no findings: `text` is its text, masked and cut.
+    stage_verify_stop_text_reply: str = (
+        "the model replied with text and no output tool call, and the run refused it: {text}"
+    )
+    # A call to a tool that the run does not offer, past the tools retry limit of the run (#3717).
+    stage_verify_stop_refused_tool: str = (
+        "the model called the tool `{tool}`, which the run does not offer, past the tools retry "
+        "limit of {limit}"
+    )
+    # A call to a tool that the run offers, with arguments that break the schema of the tool, past
+    # the tools retry limit of the run (#3717).
+    stage_verify_stop_tool_retries: str = (
+        "the model called the tool `{tool}` with arguments that break the schema of the tool, past "
+        "the tools retry limit of {limit}"
+    )
+    # A reply that broke the schema of the findings past the output retry limit of the run (#3717).
+    stage_verify_stop_output_retries: str = (
+        "the model gave no valid findings past the output retry limit of {limit}"
+    )
+    # The limit that ended the tools of the run, such as `tool_calls_limit` (#3717).
+    stage_verify_stop_budget: str = "the run reached the limit {limit_name}"
     # The checkout of a plan run with tools is not the staged commit with no change (#3037).
     stage_checkout_moved: str = "The checkout is not at the staged commit {sha}."
     # A clone with a commit that origin lacks keeps its HEAD after a fast-forward (#3301).
@@ -6544,6 +6566,7 @@ class RoadmapMessages:
     verify_eval_failed: str = (
         "{failed} case(s) could not run. The score counts their defects as not found."
     )
+    verify_eval_failed_case: str = "The case {name} stopped with the reason {reason}."
     verify_eval_storing: str = (
         "The run writes each case to {path} when the case ends. To continue a stopped run, give "
         "this file to --resume."
