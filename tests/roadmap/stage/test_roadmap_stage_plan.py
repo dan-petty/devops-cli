@@ -36,6 +36,7 @@ from devops_cli.git.worktree_add import issue_holder, read_remote_heads
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import isolated_openspec
+from devops_cli.roadmap.pull_retry import BODY_TASK, BodyReply
 from devops_cli.roadmap.stage.stage import (
     LeftOut,
     StagedChange,
@@ -1292,6 +1293,114 @@ def test_a_second_plan_body_that_breaks_the_plan_form_stops_the_item(
     assert plan.ready == ()
     assert (failure.number, failure.error) == (item, "RoadmapStageError")
     assert MESSAGES.roadmap.stage_gate_stop_stuck.format(gates="body") in failure.reason
+
+
+def _text(length: int) -> str:
+    """A body text of words and exactly `length` characters, with no handle, link or tag."""
+    return ("text " * length)[: length - 1] + "."
+
+
+def _room(item: int) -> int:
+    """The characters that the plan form leaves for the text of the body of item `item`: 1000,
+    less the `Plans` line and the `Change:` line of the change folder."""
+    return 1000 - len(f"\n\nPlans #{item}\n\nChange: `openspec/changes/{CHANGE}/`")
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_body_over_its_room_gets_a_shorter_text_from_one_model_turn(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    """A long body is no fault of the plan (#6319): the job asks the model once for a shorter text,
+    with the length and the room, and the draft takes it. The proposal keeps the full text."""
+    long_text, short_text = _text(1200), _text(300)
+    model_fake.answer(make_stage_proposal(pull_request_body=long_text), BodyReply(text=short_text))
+
+    plan = _plan(store, stage_repo)
+
+    (change,) = plan.ready
+    assert plan.failed == ()
+    assert change.body.startswith(f"{short_text}\n\nPlans #{item}\n")
+    assert len(change.body) <= 1000
+    assert change.proposal.pull_request_body == long_text
+    rewrite = model_fake.calls[1]
+    assert rewrite.system_prompt == load_task_prompt(BODY_TASK)
+    assert json.loads(rewrite.prompt) == {
+        "text": long_text,
+        "problems": [MESSAGES.roadmap.stage_body_long.format(length=1200, limit=_room(item))],
+    }
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_body_that_fills_its_room_gets_no_rewrite(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    text = _text(_room(item))
+    model_fake.answer(make_stage_proposal(pull_request_body=text))
+
+    plan = _plan(store, stage_repo)
+
+    (change,) = plan.ready
+    assert len(model_fake.calls) == 1
+    assert change.body.startswith(f"{text}\n\nPlans #{item}\n")
+    assert len(change.body) == 1000
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_shorter_text_still_over_its_room_goes_back_to_the_planner(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    model_fake.answer(
+        make_stage_proposal(pull_request_body=_text(1200)),
+        BodyReply(text=_text(1100)),
+        make_stage_proposal(),
+    )
+
+    plan = _plan(store, stage_repo)
+
+    (change,) = plan.ready
+    assert plan.failed == ()
+    assert change.body.startswith("The job keeps every comment")
+    assert "The limit is 1000" in _requests(model_fake)[2]["problem"]
+
+
+def _reply_with_security(security: object) -> str:
+    """A reply as the model writes it: JSON, with the sample `security` replaced."""
+    return json.dumps(make_stage_proposal().model_dump() | {"security": security})
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_null_security_reads_as_no_security_text(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    """A model writes `null` for an optional text (#4129, #6319): the schema reads its default."""
+    model_fake.answer(_reply_with_security(None))
+
+    plan = _plan(store, stage_repo, model=model_fake.checking_replies())
+
+    (change,) = plan.ready
+    assert len(model_fake.sent) == 1
+    assert change.proposal.security == ""
+
+
+def test_a_null_kind_of_a_reference_reads_as_no_kind() -> None:
+    proposal = make_stage_proposal(
+        references=[{"path": "src/devops_cli/sample.py", "kind": None, "unchanged": False}]
+    )
+
+    assert [reference.kind for reference in proposal.references] == [""]
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_number_as_security_goes_back_to_the_model_once_with_the_field(
+    store: InMemoryRoadmapStore, item: int, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    model_fake.answer(_reply_with_security(123), make_stage_proposal())
+
+    plan = _plan(store, stage_repo, model=model_fake.checking_replies())
+
+    assert len(model_fake.sent) == 2
+    assert "security" in model_fake.sent[1].messages[-1].content
+    assert len(plan.ready) == 1
 
 
 @pytest.mark.usefixtures("openspec")
