@@ -101,6 +101,7 @@ CREDENTIALS: tuple[Credential, ...] = (
         "Password of Gitea's admin user, which `devops k8s push-secrets` writes to Secret "
         "gitea/gitea-admin (stored in OS keyring)",
     ),
+    Credential("gitea.token", "Gitea API token (stored in OS keyring)"),
     Credential(
         "cloudflare.api_token",
         "Cloudflare API Token (stored in OS keyring)",

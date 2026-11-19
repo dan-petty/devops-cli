@@ -61,7 +61,7 @@
   "src/devops_cli/commands/k8s/networking.py": 5,
   "src/devops_cli/commands/k8s/stack_lifecycle.py": 12,
   "src/devops_cli/commands/rag.py": 1,
-  "src/devops_cli/commands/repos.py": 4,
+  "src/devops_cli/commands/repos.py": 3,
   "src/devops_cli/config/metadata.py": 1,
   "src/devops_cli/core/cleanup.py": 1,
   "src/devops_cli/core/gitignore.py": 2,

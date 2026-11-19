@@ -129,7 +129,32 @@ def _resolve_safe_org_dir(root: Path, org_name: str) -> Path:
     return org_dir
 
 
-def _clone_single_org_repo(repo: Any, org_dir: Path) -> None:
+def _ensure_gitea_remote_for_clone(repo_dir: Path, base_dir: Path, settings: Any) -> None:
+    if not settings.gitea.url:
+        return
+    from devops_cli.config.settings import get_gitea_token
+    from devops_cli.gitea.client import GiteaClient
+    from devops_cli.gitea.exceptions import GiteaAccessBlocked, GiteaError
+    from devops_cli.gitea.remotes import ensure_clone_remotes
+
+    token = get_gitea_token(settings)
+    if not token:
+        print_warning(
+            f"Gitea remote setup skipped for {repo_dir.name}: gitea.token is not set. Run 'devops config set gitea.token'.",
+            prefix=False,
+        )
+        return
+    try:
+        with GiteaClient(settings.gitea.url, token) as client:
+            ensure_clone_remotes(repo_dir, base_dir, client, settings, dry_run=False)
+    except (GiteaError, GiteaAccessBlocked, subprocess.SubprocessError, OSError) as exc:
+        print_warning(
+            f"Gitea remote setup for {repo_dir.name} failed: {exc}",
+            prefix=False,
+        )
+
+
+def _clone_single_org_repo(repo: Any, org_dir: Path, root: Path, settings: Any) -> None:
     """Clone a single repository within the validated organization directory."""
     try:
         validate_no_path_traversal(repo.name, label="Repository name")
@@ -145,6 +170,7 @@ def _clone_single_org_repo(repo: Any, org_dir: Path) -> None:
         return
     try:
         clone_repo(_github_https_url(repo.full_name), dest)
+        _ensure_gitea_remote_for_clone(dest, root, settings)
         print_success(f"done {repo.name}")
     except (OSError, subprocess.SubprocessError, Exception) as exc:
         print_error(f"fail {repo.name}: {mask_secrets(str(exc))}")
@@ -202,7 +228,7 @@ def clone_org(
         MESSAGES.repos.cloning_org_repos.format(count=len(repos), dest=org_dir), prefix=False
     )
     for repo in track_progress(repos, description="Cloning..."):
-        _clone_single_org_repo(repo, org_dir)
+        _clone_single_org_repo(repo, org_dir, root, settings)
 
     _sync_and_reload_workspace(root, settings.workspace.file)
 
@@ -266,6 +292,7 @@ def clone(
     masked_url = mask_secrets(url)
     print_info(MESSAGES.repos.cloning_repo.format(url=masked_url, dest=dest), prefix=False)
     clone_repo(url, dest)
+    _ensure_gitea_remote_for_clone(dest, root, settings)
     _sync_and_reload_workspace(root, settings.workspace.file)
     print_success(MESSAGES.repos.done, prefix=False)
 
@@ -305,19 +332,68 @@ def list_repos(
 # =============================================================================
 
 
+def _sync_single_repo(
+    repo_dir: Path,
+    label: str,
+    settings: Any,
+    *,
+    pull: bool,
+    no_gitea: bool,
+) -> bool:
+    failed = False
+    try:
+        fetch_all(repo_dir)
+    except (DevOpsCLIError, OSError, subprocess.SubprocessError) as exc:
+        print_error(f"{label}: {exc}")
+        return False
+
+    try:
+        if pull:
+            pull_tracking(repo_dir)
+        print_success(f"{label}")
+    except (DevOpsCLIError, OSError, subprocess.SubprocessError) as exc:
+        failed = True
+        print_error(f"{label}: {exc}")
+
+    if not no_gitea and settings.gitea.url:
+        from devops_cli.gitea.remotes import sync_repo_to_gitea
+
+        try:
+            if not sync_repo_to_gitea(repo_dir, label, settings):
+                failed = True
+        except (DevOpsCLIError, OSError, subprocess.SubprocessError) as exc:
+            failed = True
+            print_error(f"{label}: Gitea push failed: {exc}")
+
+    return not failed
+
+
 @app.command("sync")
 @app.command()
 @dry_run_class("request-plan")
 def update(
     base_dir: Annotated[Path | None, typer.Option("--base-dir", "-d")] = None,
     pull: Annotated[bool, typer.Option("--pull/--no-pull")] = True,
+    no_gitea: Annotated[
+        bool,
+        typer.Option("--no-gitea", help=HELP.repos.sync_no_gitea),
+    ] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
-    """Fetch (and optionally pull) all tracking branches across repos."""
+    """Fetch (and optionally pull) all tracking branches across repos, and push default branches to Gitea.
+
+    GitHub owns the default branch. devops repos sync carries the default branch from origin
+    to Gitea without force. Pass --no-gitea to skip pushing to Gitea.
+    """
     settings = load_settings()
     root = (base_dir or settings.repos.base_dir).resolve()
 
     repos_list = list(iter_workspace_repos(root))
+    for ep_str in settings.gitea.extra_checkouts:
+        ep = Path(ep_str).resolve()
+        if ep.is_dir() and ep not in repos_list and (ep / ".git").exists():
+            repos_list.append(ep)
+
     if not repos_list:
         print_warning(MESSAGES.repos.no_repos_found, prefix=False)
         raise typer.Exit(0)
@@ -329,14 +405,8 @@ def update(
     failed = False
     for repo_dir in track_progress(repos_list, description="Updating..."):
         label = repo_label(repo_dir)
-        try:
-            fetch_all(repo_dir)
-            if pull:
-                pull_tracking(repo_dir)
-            print_success(f"{label}")
-        except (DevOpsCLIError, OSError, subprocess.SubprocessError, Exception) as exc:
+        if not _sync_single_repo(repo_dir, label, settings, pull=pull, no_gitea=no_gitea):
             failed = True
-            print_error(f"{label}: {exc}")
 
     _sync_and_reload_workspace(root, settings.workspace.file)
     if failed:
@@ -366,11 +436,201 @@ def _plan_update(repos_list: list[Path], ws_file: Path, *, pull: bool) -> None:
 
 
 # =============================================================================
+# Command: devops repos remotes
+# =============================================================================
+
+
+@app.command("remotes")
+@dry_run_class("request-plan")
+def remotes(
+    base_dir: Annotated[
+        Path | None, typer.Option("--base-dir", "-d", help=HELP.repos.remotes_base_dir)
+    ] = None,
+    path: Annotated[
+        list[Path] | None, typer.Option("--path", "-p", help=HELP.repos.remotes_path)
+    ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Ensure Gitea remotes, organizations, repositories, protections, and default branch seeds.
+
+    GitHub owns the default branch (main), tags, pull requests, CI, and releases. Gitea owns
+    iteration branches.
+
+    Setup:
+    1. Set the keyring token: devops config set gitea.token
+    2. Connect to Gitea: devops repos gitea connect
+    3. Configure remotes: devops repos remotes
+
+    Traffic passes Cloudflare Access through the homelab-public-ip-bypass policy.
+    Push iteration branches to Gitea with: git push -u gitea <topic>
+    """
+    from devops_cli.gitea.remotes import run_repos_remotes
+
+    run_repos_remotes(base_dir, path, dry_run=dry_run or is_dry_run())
+
+
+# =============================================================================
 # Subcommand Group: devops repos worktrees
 # =============================================================================
 
 worktrees_app = new_typer(help=HELP.repos.worktrees_app, no_args_is_help=True)
 app.add_typer(worktrees_app, name="worktrees")
+
+# =============================================================================
+# Subcommand Group: devops repos gitea
+# =============================================================================
+
+gitea_app = new_typer(help=HELP.repos.gitea_app, no_args_is_help=True)
+app.add_typer(gitea_app, name="gitea")
+
+credential_app = new_typer(help=HELP.repos.gitea_credential_app, hidden=True)
+gitea_app.add_typer(credential_app, name="credential", hidden=True)
+
+
+@gitea_app.command("connect")
+@dry_run_class("request-plan")
+def gitea_connect(
+    url: Annotated[str | None, typer.Option("--url", help=HELP.repos.gitea_connect_url)] = None,
+    context: Annotated[
+        str | None, typer.Option("--context", help=HELP.repos.gitea_connect_context)
+    ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Connect devops-cli to Gitea, verify credentials, and store settings."""
+    from devops_cli.commands.k8s.networking import (
+        _discover_ingress_hosts,
+        _find_service_ingress_url,
+    )
+    from devops_cli.config.settings import (
+        _validate_gitea_url,
+        dotted_set,
+        get_gitea_token,
+        save_settings,
+    )
+    from devops_cli.dry_run import is_dry_run
+    from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
+    from devops_cli.gitea.client import GiteaClient
+    from devops_cli.gitea.exceptions import GiteaAccessBlocked, GiteaError
+
+    if dry_run or is_dry_run():
+        target = url or "http://gitea-http.gitea.svc.cluster.local:3000"
+        plan = [
+            PlannedRequest("GET", f"{target}/api/v1/version"),
+            PlannedRequest("GET", f"{target}/api/v1/user"),
+        ]
+        render_request_plan("devops repos gitea connect", plan)
+        return
+
+    effective_url: str | None = url
+    if effective_url is not None:
+        try:
+            effective_url = _validate_gitea_url(effective_url)
+        except ValueError as exc:
+            print_error(f"Invalid Gitea URL: {exc}", prefix=False)
+            raise typer.Exit(1) from exc
+    else:
+        ingress_map = _discover_ingress_hosts(effective_ctx=context)
+        discovered = _find_service_ingress_url("gitea-http", ingress_map, namespace="gitea")
+        if not discovered:
+            print_error(
+                "No Ingress found for Gitea service 'gitea-http'. Pass --url.", prefix=False
+            )
+            raise typer.Exit(1)
+        try:
+            effective_url = _validate_gitea_url(discovered)
+        except ValueError as exc:
+            print_error(f"Discovered Gitea Ingress URL is invalid: {exc}", prefix=False)
+            raise typer.Exit(1) from exc
+
+    settings = load_settings()
+    token = get_gitea_token(settings)
+    if not token:
+        print_error(
+            "Gitea token is not set. Run 'devops config set gitea.token' to set it.", prefix=False
+        )
+        raise typer.Exit(1)
+
+    try:
+        with GiteaClient(effective_url, token) as client:
+            ver = client.version()
+            user = client.current_user()
+    except GiteaAccessBlocked as exc:
+        print_error(str(exc), prefix=False)
+        raise typer.Exit(1) from exc
+    except GiteaError as exc:
+        print_error(f"Gitea connection failed: {exc}", prefix=False)
+        raise typer.Exit(1) from exc
+
+    old_url = settings.gitea.url
+    url_changed = old_url != effective_url
+    dotted_set(settings, "gitea.url", effective_url)
+    dotted_set(settings, "gitea.username", user.login)
+    save_settings(settings, keys=("gitea.url", "gitea.username"))
+
+    print_success(f"Connected to Gitea at {effective_url}", prefix=False)
+    print_info(f"User: {user.login}", prefix=False)
+    print_info(f"Version: {ver.version}", prefix=False)
+
+    if url_changed and old_url is not None:
+        print_warning(
+            "Gitea URL changed. Run 'devops repos remotes' to update remotes.", prefix=False
+        )
+
+
+@credential_app.command("get")
+@dry_run_class("no-external-request")
+def credential_get() -> None:
+    """Git credential helper get command."""
+    import sys
+
+    import httpx2
+
+    from devops_cli.config.settings import get_gitea_token
+
+    content = sys.stdin.read()
+    data: dict[str, str] = {}
+    for line in content.splitlines():
+        if "=" in line:
+            k, v = line.split("=", 1)
+            data[k.strip()] = v.strip()
+
+    protocol = data.get("protocol")
+    host = data.get("host")
+    if protocol != "https" or not host:
+        return
+
+    settings = load_settings()
+    if not settings.gitea.url:
+        return
+
+    try:
+        gitea_host = httpx2.URL(settings.gitea.url).host
+    except ValueError, httpx2.InvalidURL:
+        return
+
+    from urllib.parse import urlsplit
+
+    stdin_host = urlsplit(f"//{host}").hostname
+    if stdin_host == gitea_host:
+        token = get_gitea_token(settings)
+        username = settings.gitea.username or ""
+        if token:
+            sys.stdout.write(f"username={username}\npassword={token}\n")
+            sys.stdout.flush()
+
+
+@credential_app.command("store")
+@dry_run_class("no-external-request")
+def credential_store() -> None:
+    """Git credential helper store command (no-op)."""
+    pass
+
+
+@credential_app.command("erase")
+@dry_run_class("no-external-request")
+def credential_erase() -> None:
+    """Git credential helper erase command (no-op)."""
+    pass
 
 
 def _format_worktree_table_row(entry: Any) -> list[str]:

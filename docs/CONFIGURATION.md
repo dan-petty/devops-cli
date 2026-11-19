@@ -102,6 +102,10 @@ gitea configuration settings.
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
 | `applications` | `list` | `['gitea', 'gitea-manifests']` | `DEVOPS_CLI_GITEA_APPLICATIONS` | The Argo CD Applications of the Gitea stack, which 'devops k8s doctor --stack gitea' checks |
+| `url` | `Union` | - | `DEVOPS_CLI_GITEA_URL` | The HTTPS URL of the Gitea instance (with no path) |
+| `username` | `Union` | - | `DEVOPS_CLI_GITEA_USERNAME` | The Gitea user login associated with gitea.token |
+| `github_branches` | `list` | `['main']` | `DEVOPS_CLI_GITEA_GITHUB_BRANCHES` | The GitHub branch patterns mirrored to Gitea |
+| `extra_checkouts` | `list` | `[]` | `DEVOPS_CLI_GITEA_EXTRA_CHECKOUTS` | Extra git checkouts outside repos/ carrying a gitea remote |
 
 ## Mattermost Configuration (`mattermost`)
 

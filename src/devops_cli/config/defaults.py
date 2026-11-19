@@ -568,6 +568,7 @@ DEFAULT_WORKFLOWS_SCAN_PATH: Path = Path(".github")
 # its two policies, which a sync finds by name.
 DEFAULT_ARGOCD_ROOT_APPLICATIONS: tuple[str, ...] = ("bootstrap", "cluster")
 DEFAULT_GITEA_APPLICATIONS: tuple[str, ...] = ("gitea", "gitea-manifests")
+DEFAULT_GITEA_GITHUB_BRANCHES: tuple[str, ...] = ("main",)
 DEFAULT_MATTERMOST_TEAM: str = "homelab"
 DEFAULT_CLOUDFLARE_ACCESS_APPLICATION_NAME: str = "Homelab Ingress"
 DEFAULT_CLOUDFLARE_ACCESS_ALLOW_POLICY_NAME: str = "Allow homelab authorized emails"

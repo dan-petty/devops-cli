@@ -683,6 +683,18 @@ class ReposCommandHelp:
         "unless origin holds a staged branch for the issue; then it must equal the slug of that "
         "branch."
     )
+    gitea_app: str = "Manage Gitea forge connection, remotes, and credentials."
+    gitea_connect: str = "Connect devops-cli to Gitea, verify credentials, and store settings."
+    gitea_connect_url: str = "Gitea instance HTTPS URL (defaults to discovered Ingress host)."
+    gitea_connect_context: str = "Kubernetes context to query for Gitea Ingress."
+    gitea_credential_app: str = "Git credential helper for Gitea (called by git)."
+    remotes: str = (
+        "Ensure Gitea remotes, organizations, repositories, protections, and default branch seeds."
+    )
+    remotes_base_dir: str = "Base repository root directory."
+    remotes_path: str = "Extra repository checkout path outside repos/ to configure and sync."
+    remotes_dry_run: str = "List remote configuration and seed operations without making changes."
+    sync_no_gitea: str = "Do not push branches to Gitea remotes."
 
 
 @dataclass(frozen=True)

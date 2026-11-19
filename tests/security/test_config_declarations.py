@@ -135,6 +135,11 @@ _VARIABLES_ADDED = frozenset(
 # Settings added after the declaration moved onto the fields: each has its variable by the rule.
 _VARIABLES_OF_LATER_SETTINGS = frozenset(
     {
+        "DEVOPS_CLI_GITEA_URL",  # #1090
+        "DEVOPS_CLI_GITEA_USERNAME",  # #1090
+        "DEVOPS_CLI_GITEA_GITHUB_BRANCHES",  # #1090
+        "DEVOPS_CLI_GITEA_EXTRA_CHECKOUTS",  # #1090
+        "DEVOPS_CLI_GITEA_TOKEN",  # #1090
         "DEVOPS_CLI_K8S_TUNNEL_HOST",  # #1641
         "DEVOPS_CLI_INFRA_PLAN_MAX_AGE_HOURS",  # #5121
         "DEVOPS_CLI_INFRA_DRAIN_TIMEOUT_SECONDS",  # #5121
@@ -396,6 +401,7 @@ _KEYRING_OF_LATER_CREDENTIALS = {
     "crawl4ai.api_token": "crawl4ai_api_token",  # #3882
     "roadmap_service.llm_key": "roadmap_service_llm_key",  # #3685
     "renovate.github_app_private_key": "renovate_github_app_private_key",  # #4897
+    "gitea.token": "gitea_token",  # #1090
 }
 
 

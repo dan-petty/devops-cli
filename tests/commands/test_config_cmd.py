@@ -93,6 +93,7 @@ def test_github_token_is_not_a_config_option() -> None:
             ("DEVOPS_CLI_ARGOCD_GITHUB_APP_ID", False),
             ("DEVOPS_CLI_ARGOCD_GITHUB_APP_INSTALLATION_ID", False),
             ("DEVOPS_CLI_ARGOCD_GITHUB_APP_PRIVATE_KEY", True),
+            ("DEVOPS_CLI_GITEA_GITHUB_BRANCHES", False),
             ("DEVOPS_CLI_GITHUB_DEFAULT_ORG", False),
             ("DEVOPS_CLI_RENOVATE_GITHUB_APP_ID", False),
             ("DEVOPS_CLI_RENOVATE_GITHUB_APP_INSTALLATION_ID", False),
