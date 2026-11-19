@@ -290,8 +290,9 @@ directory = ".data/htmlcov"
 output = ".data/coverage.json"
 
 # `devops ci mutate` (#853). mutmut copies src, tests, pyproject.toml and uv.lock into mutants/
-# itself; `also_copy` adds the other top-level entries the tests read. `.claude` holds local
-# worktrees and `.vscode` local settings, and mutmut 3.8.0 cannot copy a nested file path.
+# itself; `also_copy` adds the other entries the tests read. `.claude` holds local worktrees and
+# `.vscode` local settings, so only `.claude/skills` is copied: mutmut copies a nested folder, but
+# not a nested file.
 [tool.mutmut]
 source_paths = ["src/devops_cli"]
 # Appended after addopts, so `-n 0` overrides `-n logical`: mutmut runs the tests in its process.
@@ -319,7 +320,8 @@ pytest_add_cli_args_test_selection = [
     "--deselect=tests/sandbox/test_host_sandbox.py::test_every_allowlisted_criteria_binary_resolves_inside_the_sandbox_mounts",
 ]
 also_copy = [
-    ".devcontainer", ".devops", ".dockerignore", ".editorconfig", ".gh-dash.yml", ".gitattributes",
+    ".agents", ".claude/skills", ".devcontainer", ".devops", ".dockerignore", ".editorconfig",
+    ".gh-dash.yml", ".gitattributes",
     ".github", ".gitignore", ".mcp.json", "kilo.jsonc", ".pre-commit-config.yaml", ".python-version",
     ".tuicrignore",
     ".trivyignore", "AGENTS.md", "ARCHITECTURE.md", "CHANGELOG.md", "CLAUDE.md", "CONTEXT.md",
