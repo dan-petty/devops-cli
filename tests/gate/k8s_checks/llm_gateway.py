@@ -180,9 +180,7 @@ def check_the_gateway_reaches_only_the_collector_pods_on_the_otlp_port() -> None
     )
 
 
-SERVICE_MONITOR = GATEWAY_DIR / "servicemonitor.yaml"
-
-# The labels that grow with each caller pod and that no query reads (#4545).
+# The labels that grow with each caller pod; the gateway excludes them at the source (#4545, #6439).
 DROPPED_LABELS = ("client_ip", "user_agent")
 
 DASHBOARDS = (
@@ -191,25 +189,6 @@ DASHBOARDS = (
 )
 
 PROMETHEUS_VALUES = Path("k8s/monitoring/prometheus-values.yaml")
-
-
-def check_the_gateway_endpoint_drops_the_caller_labels() -> None:
-    """The `http` endpoint drops `client_ip` and `user_agent` at scrape time, and keeps its port,
-    path and interval (#4545)."""
-    monitor = yaml.safe_load(SERVICE_MONITOR.read_text(encoding="utf-8"))
-    (endpoint,) = monitor["spec"]["endpoints"]
-    dropped = [
-        rule["regex"]
-        for rule in endpoint.get("metricRelabelings", [])
-        if rule.get("action") == "labeldrop"
-    ]
-
-    assert (dropped, endpoint["port"], endpoint["path"], endpoint["interval"]) == (
-        list(DROPPED_LABELS),
-        "http",
-        "/metrics/",
-        "15s",
-    )
 
 
 def _named(node: Any, key: str) -> list[str]:

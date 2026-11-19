@@ -14,11 +14,3 @@ spec:
     - port: http
       path: /metrics/
       interval: 15s
-      # Each caller pod adds a `client_ip` and a `user_agent` value to every series, and the
-      # roadmap jobs add about 1,100 pod addresses a day (#4545). No panel, alert rule or test
-      # reads the two labels, so the scrape drops them before ingestion.
-      metricRelabelings:
-        - action: labeldrop
-          regex: client_ip
-        - action: labeldrop
-          regex: user_agent

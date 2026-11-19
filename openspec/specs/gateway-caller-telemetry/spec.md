@@ -81,26 +81,12 @@ Each gateway series that `ai-spend.json` reads SHALL be in the LiteLLM capture w
 - **WHEN** `OTEL_SERVICE_NAME` is set to an empty string
 - **THEN** a chat call, an embedding call and a pydantic-ai agent call each send `x-litellm-end-user-id: devops-cli`
 
-### Requirement: The gateway drops the caller address and user agent
-The `http` endpoint of the LLM gateway ServiceMonitor SHALL hold one `metricRelabelings` entry with `action: labeldrop` for each of `client_ip` and `user_agent`, and SHALL keep its port, path and interval.
-
-#### Scenario: The endpoint holds one labeldrop rule for each label
-- **WHEN** a check reads `k8s/llm/gateway/servicemonitor.yaml` and collects the `regex` of every `metricRelabelings` entry with `action: labeldrop` on the `http` endpoint
-- **THEN** the collected values are exactly `client_ip` and `user_agent`, and the endpoint still names port `http`, path `/metrics/` and interval `15s`
-
 ### Requirement: No query reads the dropped labels
 Every query of `k8s/devops/dashboards/ai-spend.json` and `k8s/monitoring/dashboards/llm-stack.json` and every alert expression of `k8s/monitoring/prometheus-values.yaml` that reads a `litellm_` series MUST NOT group by or filter on `client_ip` or `user_agent`.
 
 #### Scenario: The dashboards and the alerts ignore the labels
 - **WHEN** a check reads the target expressions of both dashboards and the `serverFiles.alerting_rules.yml` expressions of the Prometheus values
 - **THEN** no expression names `client_ip` or `user_agent`
-
-### Requirement: The manifest check runs in the k8s row
-The labeldrop check SHALL run in the `k8s` row of `devops ci`, which the Static Analysis check runs.
-
-#### Scenario: The k8s row reports the check
-- **WHEN** the `k8s` row runs the `check_*` functions under `tests/gate/k8s_checks/`
-- **THEN** the three gateway label checks report a pass
 
 ### Requirement: The spend panels take gateway spend from the gateway
 Cloud Spend in Range, the spend target of each projection, Spend: USD per hour and Spend by provider and model: USD per hour SHALL read the gateway's spend counter `litellm_spend_metric_total` for a call through the gateway, and `devops_cli_ai_spend_usd_total{provider!="gateway"}` for a call that did not go through the gateway. No spend panel SHALL select devops-cli's `provider="gateway"` spend. Each stat SHALL fall back to 0 for each counter.
@@ -137,3 +123,29 @@ The panel Spend by provider and model: USD per hour SHALL name the hosted provid
 #### Scenario: The legends
 - **WHEN** a test reads the targets of the panel
 - **THEN** the legends are `{{api_provider}}: {{model}}` and `{{provider}}: {{model}}`
+
+### Requirement: The gateway excludes the caller address and user agent at the source
+The LLM gateway config SHALL set `litellm_settings.prometheus_exclude_labels` to `client_ip` and `user_agent`, before `litellm_settings.callbacks`. LiteLLM SHALL write no `client_ip` and no `user_agent` label on any `litellm_` series, and SHALL add the counts of all callers into one series, so that no two gateway series collide in Prometheus. The `http` endpoint of the LLM gateway ServiceMonitor SHALL hold no `metricRelabelings` entry.
+
+#### Scenario: The gateway manifests render
+- **WHEN** `uv run devops ci --check --only k8s` renders Application `llm`, and a person reads the render
+- **THEN** the row passes, the gateway ConfigMap sets `prometheus_exclude_labels` to `client_ip` and `user_agent` before `callbacks`, and the `http` endpoint of ServiceMonitor `llm-gateway` holds no `metricRelabelings`
+
+#### Scenario: The gateway series carry no caller labels
+- **WHEN** a person runs `count({job="llm-gateway", client_ip!=""})`, `count({job="llm-gateway", user_agent!=""})` and `count({job="llm-gateway", __name__="litellm_deployment_total_requests_total"})` in Prometheus after the Argo CD sync of Application `llm`
+- **THEN** the first two queries return no series, and the third returns a count above 0
+
+#### Scenario: Prometheus refuses no gateway sample
+- **WHEN** a person runs `sum(increase(prometheus_remote_storage_samples_failed_total{job="integrations/alloy"}[24h]))` in Prometheus 24 h after the Argo CD sync of Application `llm`
+- **THEN** the query gives 0, and `ALERTS{alertname="AlloyRemoteWriteSamplesFailed"}` returns no series
+
+#### Scenario: Each target keeps its scrapes
+- **WHEN** a person runs the Loki query `sum(count_over_time({namespace="monitoring", container="alloy"} |= "duplicate sample" [24h]))` and the PromQL query `sum by(job)(count_over_time(up[2h])) / on(job) group_left count by(job)(max_over_time(up[2h]))` 24 h after the Argo CD sync of Application `llm`
+- **THEN** the Loki query gives 0, and the PromQL query gives 120 for `roadmap-service` and `valkey-devops`
+
+### Requirement: The label reader checks run in the k8s row
+The two checks that no dashboard query and no alert expression names `client_ip` or `user_agent` SHALL run in the `k8s` row of `devops ci`, which the Static Analysis check runs.
+
+#### Scenario: The k8s row reports the checks
+- **WHEN** `uv run devops ci --check --only k8s` runs the `check_*` functions under `tests/gate/k8s_checks/`
+- **THEN** `check_no_dashboard_query_uses_the_dropped_labels` and `check_no_alert_expression_uses_the_dropped_labels` report a pass

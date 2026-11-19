@@ -278,6 +278,13 @@ litellm_settings:
   # reads (#5302). LiteLLM 1.103.11 defaults this to true, and a later major release changes the
   # default to false.
   expose_router_debug_in_errors: false
+  # Each caller pod writes its address as `client_ip`, and each devops-cli release writes its
+  # version as `user_agent`, on seven metric families. LiteLLM keeps each value until it restarts
+  # (#4545). No panel, alert or command reads the two labels. LiteLLM removes them before
+  # exposition and adds the callers into one series, so no two series collide in Prometheus
+  # (#6439). Keep this key before `callbacks`: LiteLLM can make the collectors before it reads a
+  # later key.
+  prometheus_exclude_labels: ["client_ip", "user_agent"]
   # Per-deployment requests, failures and latency at /metrics/, scraped by Prometheus. The
   # Ollama nodes export no metrics of their own, so this is how their load is seen.
   # `otel` sends a span for each request, with its queue, retry and fallback time, to the
