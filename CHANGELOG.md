@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.182.0](https://github.com/dan-petty/devops-cli/compare/v0.181.1...v0.182.0) (2026-11-19)
+
+
+### Features
+
+* **roadmap:** Post delivery PR evidence before ready ([#6426](https://github.com/dan-petty/devops-cli/issues/6426)) ([a3891c0](https://github.com/dan-petty/devops-cli/commit/a3891c0826e2919f01a6764c4af6e72d025e485c))
+
+
+### Bug Fixes
+
+* **ci:** fail-to-pass needs no proof for a deleted gate check ([#6465](https://github.com/dan-petty/devops-cli/issues/6465)) ([52e50f7](https://github.com/dan-petty/devops-cli/commit/52e50f763a1f6b4893970ce0f26f0ad53cbdb137))
+* **deps:** ignore GHSA-qx49-fqc8-xw99 of mcp 1.29.0 until 2026-11-22 ([#6482](https://github.com/dan-petty/devops-cli/issues/6482)) ([99434a9](https://github.com/dan-petty/devops-cli/commit/99434a9493f697d9304423fac5bf6e3a15ab41f5)), closes [#6481](https://github.com/dan-petty/devops-cli/issues/6481)
+* **monitoring:** exclude caller labels at the gateway source ([#6459](https://github.com/dan-petty/devops-cli/issues/6459)) ([bc57c1e](https://github.com/dan-petty/devops-cli/commit/bc57c1ee9d9a658d766a14b7407e9208baedeafa))
+* **security:** Keep host-only SSH keys off GitHub ([#6473](https://github.com/dan-petty/devops-cli/issues/6473)) ([65771a4](https://github.com/dan-petty/devops-cli/commit/65771a431b5a662207e6e0515926ad8cc732073e))
+
 ## [0.181.1](https://github.com/dan-petty/devops-cli/compare/v0.181.0...v0.181.1) (2026-11-19)
 
 
