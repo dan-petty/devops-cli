@@ -31,9 +31,9 @@ Kind: test-only edit. Changes: `tests/support/valkey_replay.py`, `tests/support/
 
 Kind: documents. Changes: `docs/TESTING.md`, `tests/support/fakes/valkey.py`.
 
-- [ ] 4.1 Name the suite in the Valkey paragraph and in the list of fakes of `docs/TESTING.md`, and in the docstring of `tests/support/fakes/valkey.py`, in place of each statement that the fake has no contract suite.
+- [x] 4.1 Name the suite in the Valkey paragraph and in the list of fakes of `docs/TESTING.md`, and in the docstring of `tests/support/fakes/valkey.py`, in place of each statement that the fake has no contract suite.
   - Verification: `$ ! git grep -n -e "has no contract suite yet, since no recorded exchange" -e "The fake has no contract suite" -- docs tests src`
-- [ ] 4.2 Run the documentation check.
+- [x] 4.2 Run the documentation check.
   - Verification: `$ uv run devops ci --check --only docs`
 
 ## Workflow follow-up

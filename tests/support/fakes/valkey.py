@@ -5,9 +5,10 @@ client sends and records nothing else. A `ValkeyClient` reaches it through the `
 seam, so the client's own code runs for real: its reply handling, its batching, and its mapping
 of failures onto `ValkeyError`. Nothing opens a socket.
 
-The fake has no contract suite yet: a Valkey server is a daemon, and no recorded exchange or
-local tool stands in for one (ADR 0007 lists contract suites for most edges under "Not yet").
-fakeredis holds its server to Valkey's behaviour in its own test suite. It answers no INFO, and
+Its contract suite, `tests/valkey/test_valkey_contract.py`, runs each scenario of
+`tests/support/valkey_scenarios.py` over the fake and over the recorded replies of a real
+`valkey-server` (#4557). fakeredis runs Lua through its `lua` extra (`lupa`), and holds its
+server to Valkey's behaviour in its own test suite. It answers no INFO, and
 holds a silent or slow server only as a connection that fails; a test of a timeout binds a
 loopback listener that never answers, as the floor's `refusing_port` does for a refused port.
 The pool is the fake's own, so a test of what the client's own password, the database of its
