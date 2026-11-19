@@ -258,6 +258,19 @@ def test_check_proposal_refuses_unknown_command_under_citation_gate() -> None:
     assert any("ast-graph" in p for p in check_proposal(plan, KNOWN, TREE, registry=()))
 
 
+def test_plan_with_missing_required_option_is_refused() -> None:
+    """The stage plan-check refuses a plan line that omits a required option (#4862)."""
+    plan = make_stage_proposal(feasibility=["Run `devops pr describe 1` to print PR body."])
+
+    problems = command_citation_problems(plan)
+
+    assert len(problems) == 1
+    assert "--summary" in problems[0]
+    found = check_gates(plan, KNOWN, TREE, registry=())
+    assert any("--summary" in p for p in found[ProposalGate.CITATION])
+    assert any("--summary" in p for p in check_proposal(plan, KNOWN, TREE, registry=()))
+
+
 def test_plan_passes_content_problems() -> None:
     from devops_cli.roadmap.stage.stage_change import content_problems
 

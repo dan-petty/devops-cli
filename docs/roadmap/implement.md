@@ -102,7 +102,7 @@ The job never merges. [Checks of the implement job](../ROADMAP_WORKFLOW.md#check
 
 `--confirm` runs steps only when the setting `roadmap.implement.in_runner` is true. Only the pod of a runner Job sets it. The shell of the agent is no security boundary.
 
-On a workstation, `--item <n> --confirm` starts that runner Job for the item. It uses the code of `devops k8s run-job --template runner`, and follows the log of the Job. `--no-wait` prints the name of the Job. The command refuses these cases:
+On a workstation, `--item <n> --confirm` starts that runner Job for the item. It uses the code of `devops k8s run-job --template runner <args>`, and follows the log of the Job. `--no-wait` prints the name of the Job. The command refuses these cases:
 
 - An item that an agent or a person claimed.
 - An item that is neither Ready nor Planned.

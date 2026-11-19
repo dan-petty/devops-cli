@@ -59,6 +59,7 @@ class CommandReferenceDefect(StrEnum):
     UNKNOWN_COMMAND = "unknown_command"
     UNKNOWN_OPTION = "unknown_option"
     UNEXPECTED_ARGUMENT = "unexpected_argument"
+    MISSING_REQUIRED = "missing_required"
 
 
 class CommandReferenceFinding(BaseModel):
@@ -76,6 +77,7 @@ class CommandReferenceFinding(BaseModel):
             CommandReferenceDefect.UNKNOWN_COMMAND: MESSAGES.docs.argv_unknown_command,
             CommandReferenceDefect.UNKNOWN_OPTION: MESSAGES.docs.argv_unknown_option,
             CommandReferenceDefect.UNEXPECTED_ARGUMENT: MESSAGES.docs.argv_unexpected_argument,
+            CommandReferenceDefect.MISSING_REQUIRED: MESSAGES.docs.argv_missing_required,
         }[self.defect]
         return template.format(token=self.token, command_path=self.command_path)
 
@@ -264,7 +266,12 @@ def _parse(
     except typer.TyperException as error:
         if hasattr(error, "option_name"):
             return None, _unknown_option(error, path)
+        if _is_missing_parameter(error):
+            return None, _missing_required(error, path)
     context = command.make_context(name, args, parent=parent, resilient_parsing=True)
+    missing_opt = _missing_required_option(command, path, tokens)
+    if missing_opt is not None:
+        return context, missing_opt
     return context, _unexpected_argument(context, path, tokens)
 
 
@@ -280,6 +287,54 @@ def _gives_action_option(command: Any, name: str, args: list[str], parent: Any) 
     probe = command.make_context(name, [], parent=parent, resilient_parsing=True)
     _, _, given = command.make_parser(probe).parse_args(list(args))
     return any(parameter.is_eager or not parameter.expose_value for parameter in given)
+
+
+def _is_missing_parameter(error: Exception) -> bool:
+    """Whether error is Click's MissingParameter."""
+    return type(error).__name__ == "MissingParameter" and hasattr(error, "param")
+
+
+def _param_token(param: Any) -> str:
+    """The token representing the missing parameter: long option name or argument name."""
+    if getattr(param, "param_type_name", None) == "option":
+        opts = getattr(param, "opts", [])
+        return next(
+            (opt for opt in opts if opt.startswith("--")),
+            opts[0] if opts else f"--{param.name}",
+        )
+    return str(getattr(param, "name", ""))
+
+
+def _missing_required(error: Exception, path: str) -> CommandReferenceFinding:
+    """Report the missing parameter from Click's MissingParameter error."""
+    param = getattr(error, "param", None)
+    return _found(CommandReferenceDefect.MISSING_REQUIRED, path, _param_token(param))
+
+
+def _is_option_given(param: Any, tokens: Sequence[ArgvToken]) -> bool:
+    """Whether the option `param` is provided in `tokens` or covered by [OPTIONS]."""
+    opts = set(getattr(param, "opts", []))
+    for t in tokens:
+        s = str(t)
+        if any(s == opt or s.startswith(f"{opt}=") for opt in opts):
+            return True
+        if isinstance(t, ArgvPlaceholder) and t.expression in ("[OPTIONS]", "OPTIONS"):
+            return True
+    return False
+
+
+def _missing_required_option(
+    command: Any, path: str, tokens: Sequence[ArgvToken]
+) -> CommandReferenceFinding | None:
+    """Report the first required option of `command` that `tokens` does not provide."""
+    for param in getattr(command, "params", []):
+        if (
+            getattr(param, "required", False)
+            and getattr(param, "param_type_name", None) == "option"
+            and not _is_option_given(param, tokens)
+        ):
+            return _found(CommandReferenceDefect.MISSING_REQUIRED, path, _param_token(param))
+    return None
 
 
 def _unknown_option(error: Exception, path: str) -> CommandReferenceFinding | None:

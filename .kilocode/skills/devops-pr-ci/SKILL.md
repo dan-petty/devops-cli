@@ -23,7 +23,7 @@ Do not run bare `gh` commands. The `devops ci` and `devops pr` commands enforce 
 
 ## Open and Advance a Pull Request
 
-1. Run `uv run devops pr describe <issue>` to print a valid pull request title and body.
+1. Run `uv run devops pr describe <issue> --summary "<summary>"` to print a valid pull request title and body.
 2. Run `uv run devops pr create --title "<title>" --body "<body>"` to open the draft pull request. For a pull request in another repository, add `--repo <owner>/<repo> --head <branch>`. The body needs the lines `Closes` and `Change:` only where the base branch holds `openspec/config.yaml`.
 3. Run `uv run devops pr monitor <number>` to wait until the remote checks settle.
 4. Run `uv run devops pr threads list <number> --unresolved-only` to inspect open review threads.

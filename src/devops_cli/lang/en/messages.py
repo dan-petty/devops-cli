@@ -1259,6 +1259,7 @@ class DocsMessages:
     argv_unknown_command: str = "unknown command '{token}' under '{command_path}'"
     argv_unknown_option: str = "unknown option '{token}' for '{command_path}'"
     argv_unexpected_argument: str = "unexpected extra argument '{token}' for '{command_path}'"
+    argv_missing_required: str = "missing required parameter '{token}' for '{command_path}'"
     unsupported_format: str = (
         "Unsupported documentation format: {format}. Supported: markdown, json"
     )

@@ -241,6 +241,7 @@ def test_a_finding_describes_itself() -> None:
         "unknown command 'x' under 'devops scan'",
         "unknown option 'x' for 'devops scan'",
         "unexpected extra argument 'x' for 'devops scan'",
+        "missing required parameter 'x' for 'devops scan'",
     ]
 
 
@@ -316,3 +317,31 @@ def test_a_cited_command_ends_at_the_first_word_the_tree_does_not_take(
     from devops_cli.core.command_resolver import cited_command_length
 
     assert (cited_command_length(words), capsys.readouterr().out) == (expected, "")
+
+
+def test_resolver_reports_missing_required_option() -> None:
+    """A command line omitting a required option reports missing_required (#4862)."""
+    assert resolve_devops_argv(["pr", "describe", "1"]) == _finding(
+        CommandReferenceDefect.MISSING_REQUIRED, "devops pr describe", "--summary"
+    )
+
+
+def test_resolver_reports_missing_required_argument() -> None:
+    """A command line omitting a required argument reports missing_required (#4862)."""
+    assert resolve_devops_argv(["pr", "describe", "--summary", "x"]) == _finding(
+        CommandReferenceDefect.MISSING_REQUIRED, "devops pr describe", "issue"
+    )
+
+
+def test_resolver_skips_bare_command_mention() -> None:
+    """A bare command mention with no token after the command path reports no defect (#4862)."""
+    assert resolve_devops_argv(["pr", "describe"]) is None
+
+
+def test_resolver_treats_placeholder_as_argument_not_option() -> None:
+    """A placeholder fills an argument and does not fill a required option (#4862)."""
+    issue_placeholder = ArgvPlaceholder(expression="issue")
+    assert resolve_devops_argv(["pr", "describe", issue_placeholder]) == _finding(
+        CommandReferenceDefect.MISSING_REQUIRED, "devops pr describe", "--summary"
+    )
+    assert resolve_devops_argv(["pr", "describe", issue_placeholder, "--summary", "x"]) is None
