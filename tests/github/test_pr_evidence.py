@@ -164,9 +164,11 @@ def _comment(comment_id: int, body: str, login: str = _LOGIN) -> dict[str, Any]:
 class _Pull:
     """Pull request 42 of `owner/repo`, its check runs and its comments, over the fake API."""
 
-    def __init__(self, api: GitHubApiFake, *, title: str = "feat(pr): add a thing") -> None:
+    def __init__(
+        self, api: GitHubApiFake, *, title: str = "feat(pr): add a thing", head_sha: str = _SHA
+    ) -> None:
         self.api = api
-        route_pull_request(api, _REPO, 42, pull_request_payload(title=title, head_sha=_SHA))
+        route_pull_request(api, _REPO, 42, pull_request_payload(title=title, head_sha=head_sha))
         api.route("GET", "/user", github_json({"login": _LOGIN}))
         self.checks(_check_run("Tests", "success"), _check_run("Docs", "skipped", 2))
         self.comments()
@@ -198,6 +200,17 @@ class _Pull:
 @pytest.fixture
 def pull(github_api: GitHubApiFake) -> _Pull:
     return _Pull(github_api)
+
+
+def test_publish_names_the_head_that_the_caller_gives(github_api: GitHubApiFake) -> None:
+    pull = _Pull(github_api, head_sha="")
+
+    outcome = publish_pr_evidence(get_github_session(), _REPO, 42, head=_SHA)
+
+    reads = [request.url.path for request in pull.api.sent if request.method == "GET"]
+    assert f"/repos/{_REPO}/commits/{_SHA}/check-runs" in reads
+    assert f"`{_SHA}`" in outcome.body
+    assert [method for method, _, _ in pull.writes()] == ["POST"]
 
 
 def test_publish_posts_one_comment_when_none_carries_the_marker(pull: _Pull) -> None:
