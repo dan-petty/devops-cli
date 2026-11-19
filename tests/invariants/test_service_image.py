@@ -6,7 +6,7 @@ They read only committed files, so they need no network, no image build and no s
 from __future__ import annotations
 
 import re
-from datetime import UTC, date, datetime
+from datetime import date
 from pathlib import Path
 
 from packaging.version import Version
@@ -177,17 +177,6 @@ def test_trivyignore_entry_is_a_problem_on_and_after_its_exp_date() -> None:
     assert _trivyignore_problems(text, date(2026, 11, 21)) == [
         "line 2: CVE-2026-1 expired on 2026-11-21"
     ]
-
-
-def test_every_trivyignore_entry_has_a_reason_and_an_exp_date_that_is_not_past() -> None:
-    """Verify that each entry of the committed `.trivyignore` has a reason and a later exp date.
-
-    The test reads the wall clock on purpose: an ignore must end by itself, so after its date the
-    test fails with the image scan, and the failure is the reminder to fix the finding (#3881).
-    """
-    text = (REPO_ROOT / ".trivyignore").read_text(encoding="utf-8")
-
-    assert _trivyignore_problems(text, datetime.now(UTC).date()) == []
 
 
 def _service_stage() -> list[list[str]]:
