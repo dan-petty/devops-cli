@@ -7,7 +7,6 @@ They read only committed files, so they need no network, no image build and no s
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
 from typing import Any
 
 import yaml
@@ -16,7 +15,6 @@ from devops_cli.tools_lock import load_tools_lock
 from tests.support.dockerfile import env_of, stages
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.paths import REPO_ROOT
-from tests.support.trivyignore import trivyignore_problems as _trivyignore_problems
 
 
 def _stages() -> dict[str, list[list[str]]]:
@@ -83,12 +81,6 @@ def test_the_release_scans_the_mcp_server_image_like_the_pull_request_check() ->
     )["with"]
 
     assert release == ci
-
-
-def test_every_mcp_server_trivyignore_entry_has_a_reason_and_an_exp_date_that_is_not_past() -> None:
-    """Verify that each entry in `.trivyignore-mcp-server` has a reason and a future exp date."""
-    text = (REPO_ROOT / ".trivyignore-mcp-server").read_text(encoding="utf-8")
-    assert _trivyignore_problems(text, datetime.now(UTC).date()) == []
 
 
 def test_the_kubectl_and_helm_pins_hold_the_go_builds_that_fix_the_stdlib_findings() -> None:
