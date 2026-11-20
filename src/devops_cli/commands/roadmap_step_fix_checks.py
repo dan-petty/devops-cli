@@ -69,10 +69,16 @@ def fix_checks_cmd(
         with sigterm_raises():
             repair: Repair | None = None
             if confirm:
+                from devops_cli.core import process_hardening
                 from devops_cli.roadmap.implement.implement_run import require_runner
                 from devops_cli.roadmap.steps.fix_checks_repair import job_repair
 
                 require_runner(target)
+                # The repair runs an agent step whose shell has the user of the Job, so the Job
+                # makes its process unreadable and adopts the orphans of a step first, as the
+                # implement Job does (#2667).
+                process_hardening.deny_environment_reads()
+                process_hardening.adopt_orphans()
                 repair = job_repair(store, target, source=source)
             report = run_fix_checks(
                 store, target, pull, head=head, check=check, confirm=confirm, repair=repair
