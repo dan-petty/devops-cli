@@ -214,12 +214,15 @@ def test_terminate_process_group_guards_and_lifecycle(monkeypatch: pytest.Monkey
     assert terminate_process_group(mock_pid) is False
     assert terminate_process_group(os.getpid()) is False
 
-    real_own_pgid = os.getpgid(0) if hasattr(os, "getpgid") else 1234
+    # The caller's group is a number of the test's own: a runner pod puts every process in the
+    # group of container init, PID 1, and the guard refuses group 1 (#6340).
+    own_pgid = 4242
     mock_kill = MagicMock()
     mock_killpg = MagicMock()
     monkeypatch.setattr(os, "kill", mock_kill)
     monkeypatch.setattr(os, "killpg", mock_killpg)
-    monkeypatch.setattr(os, "getpgid", lambda pid: real_own_pgid)
+    monkeypatch.setattr(os, "getpgrp", lambda: own_pgid)
+    monkeypatch.setattr(os, "getpgid", lambda pid: own_pgid)
 
     assert terminate_process_group(42424, signal.SIGTERM) is True
     assert mock_kill.call_count == 1
@@ -227,7 +230,7 @@ def test_terminate_process_group_guards_and_lifecycle(monkeypatch: pytest.Monkey
 
     mock_kill.reset_mock()
     mock_killpg.reset_mock()
-    monkeypatch.setattr(os, "getpgid", lambda pid: 99999 if pid != 0 else real_own_pgid)
+    monkeypatch.setattr(os, "getpgid", lambda pid: 99999 if pid != 0 else own_pgid)
 
     assert terminate_process_group(42424, signal.SIGTERM) is True
     assert mock_kill.call_count == 0
