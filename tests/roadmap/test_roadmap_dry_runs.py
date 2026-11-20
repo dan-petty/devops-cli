@@ -744,6 +744,17 @@ def test_the_stage_plan_reads_whether_the_default_branch_holds_the_openspec_conf
         ]
 
 
+def test_the_stage_and_explain_plans_list_the_read_of_the_tree_of_the_default_branch() -> None:
+    """The record of a rejected plan and the refine verdict of explain keep only the files of the
+    default branch, so both dry runs list the one read of its tree (#6444)."""
+    from devops_cli.roadmap.request_plan import explain_requests, stage_requests
+
+    tree = ("git", "-C", "<model-clone>", "ls-tree", "-r", "--name-only", "-z", "origin/main")
+
+    for reads, _ in (stage_requests(REPO), explain_requests(REPO, item=7)):
+        assert [request.argv for request in reads if request.argv == tree] == [tree]
+
+
 def test_the_stage_plan_moves_the_clone_to_the_staged_commit_and_starts_each_branch_there() -> None:
     from devops_cli.roadmap.request_plan import stage_requests
 

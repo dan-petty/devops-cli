@@ -4,7 +4,7 @@ ends the record (#1335).
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -191,3 +191,51 @@ def test_a_comment_of_another_job_costs_one_read_and_then_the_wait_is_recorded_a
     refine_round(store, git_repo)
 
     assert (read_once, comment_reads) == ([number], [])
+
+
+# ── A record written before the tree filter is read again (#6444) ──────────────────────────
+
+
+def test_a_record_written_before_the_tree_filter_gets_the_paths_of_the_tree(
+    git_repo: Path,
+    store: InMemoryRoadmapStore,
+    model_fake: ModelFake,
+    comment_reads: list[int],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A round before the tree filter recorded a decimal beside a real file, for the comments that
+    the item holds now. The next round reads the comments once and records the file alone, with no
+    commits read of the decimal and no model call, and the round after it reads no comment."""
+    store.seed_visibility(is_private=True)
+    number = seed_person_wait(store, f"Is 0.202 the version that `{CITED_PATH}` gives?")
+    store.set_marks(
+        require_item(store, number),
+        {
+            RefineRecordKey.COMMENTS_SEEN: str(require_item(store, number).comments),
+            RefineRecordKey.COMMENTED_AT: refine_comment_at(store, number).isoformat(),
+            RefineRecordKey.WAIT_REFS: f"0.202,{CITED_PATH}",
+        },
+    )
+    path_reads: list[str] = []
+    original = store.path_changed_at
+
+    def counted(path: str) -> datetime | None:
+        path_reads.append(path)
+        return original(path)
+
+    monkeypatch.setattr(store, "path_changed_at", counted)
+    calls = model_fake.call_count
+    comment_reads.clear()
+
+    refine_round(store, git_repo)
+    read_once = list(comment_reads)
+    comment_reads.clear()
+    refine_round(store, git_repo)
+
+    assert (
+        require_item(store, number).job_record.get(RefineRecordKey.WAIT_REFS),
+        "0.202" in path_reads,
+        read_once,
+        comment_reads,
+        model_fake.call_count - calls,
+    ) == (CITED_PATH, False, [number], [], 0)

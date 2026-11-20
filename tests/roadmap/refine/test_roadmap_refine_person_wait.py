@@ -230,6 +230,11 @@ def test_a_path_that_a_period_or_a_comma_follows_is_a_path() -> None:
     ) == (["src/devops_cli/commands/ai.py"], ["AGENTS.md"])
 
 
+def test_a_run_of_paths_keeps_each_path() -> None:
+    """The space after one path starts the next one, so each path of a run is a path (#6444)."""
+    assert text_paths("Read a.py b.py c.py d.py") == ["a.py", "b.py", "c.py", "d.py"]
+
+
 def test_a_directory_of_the_tree_is_a_path() -> None:
     """The tree holds a directory through the paths under it."""
     assert text_paths("foo.bar holds the record", tree=frozenset({"foo.bar/x.py"})) == ["foo.bar"]
