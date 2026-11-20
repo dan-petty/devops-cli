@@ -29,6 +29,7 @@ from tests.support.markdown_examples import CodeSnippet, devops_commands
 
 WORKFLOWS_DIR = Path(".github/workflows")
 RELEASE_PATH = WORKFLOWS_DIR / "release.yml"
+RELEASE_IMAGE_PATH = WORKFLOWS_DIR / "release-image.yml"
 ALERTS_PATH = WORKFLOWS_DIR / "trivy-config-alerts.yml"
 
 
@@ -127,9 +128,10 @@ def _extract_steps_with_action(
 
 
 def _assert_attest_build_provenance_contract(workflow: dict[str, Any]) -> None:
-    """Assert that actions/attest-build-provenance steps specify subject-name when subject-digest is present."""
-    attest_steps = _extract_steps_with_action(workflow, "actions/attest-build-provenance")
-    assert attest_steps, "Expected at least one actions/attest-build-provenance step in workflow"
+    """Assert that actions/attest and actions/attest-build-provenance steps specify subject-name
+    when subject-digest is present."""
+    attest_steps = _extract_steps_with_action(workflow, "actions/attest")
+    assert attest_steps, "Expected at least one actions/attest step in workflow"
     for job_id, step in attest_steps:
         with_args = step.get("with", {})
         assert isinstance(with_args, dict), f"Step 'with' must be a dict in job '{job_id}'"
@@ -204,7 +206,7 @@ def test_release_please_makes_every_release_on_a_push_to_main() -> None:
             "sha": "${{ steps.release.outputs.sha }}",
         },
         dict.fromkeys(
-            ("assets", "devcontainer-image", "service-image", "runner-image", "mcp-server-image"),
+            ("assets", "devcontainer-image", "image"),
             _RELEASE_CREATED,
         ),
     )
@@ -304,17 +306,17 @@ def test_the_title_check_and_the_workflow_hold_the_same_rule() -> None:
 
 
 def test_release_workflow_attest_build_provenance_contract() -> None:
-    """Validate that release.yml specifies subject-name when using actions/attest-build-provenance."""
-    workflow = _load_workflow(RELEASE_PATH)
-    _assert_attest_build_provenance_contract(workflow)
-    attest_steps = _extract_steps_with_action(workflow, "actions/attest-build-provenance")
+    """Validate that the release workflows specify subject-name for each attestation of a digest."""
+    workflows = (_load_workflow(RELEASE_PATH), _load_workflow(RELEASE_IMAGE_PATH))
+    for workflow in workflows:
+        _assert_attest_build_provenance_contract(workflow)
     assert [
-        (job_id, step.get("with", {}).get("subject-name")) for job_id, step in attest_steps
+        (job_id, step.get("with", {}).get("subject-name"))
+        for workflow in workflows
+        for job_id, step in _extract_steps_with_action(workflow, "actions/attest")
     ] == [
         ("devcontainer", "ghcr.io/${{ github.repository }}/devcontainer"),
-        ("service-image", "ghcr.io/${{ github.repository }}/service"),
-        ("runner-image", "ghcr.io/${{ github.repository }}/runner"),
-        ("mcp-server-image", "ghcr.io/${{ github.repository }}/mcp-server"),
+        ("publish", "${{ env.IMAGE }}"),
     ]
 
 

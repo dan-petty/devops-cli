@@ -1,0 +1,261 @@
+name: Release Image
+
+# The release of one image of `./Dockerfile` (#6407). release.yml calls this workflow once for each
+# of the service, runner and mcp-server images, in a matrix with `fail-fast: false`. Each call runs
+# its own three jobs, so a failed job of one image stops no job of another image.
+# 1. Build builds the image one time and pushes it by digest, with no tag.
+# 2. Verify pulls that digest, smoke-tests it and scans it. It can write no package and gets no
+#    OIDC token.
+# 3. Attest & Tag attests the digest, puts the release tag and `latest` on it, and checks that
+#    each tag names it. Image Updater reads only `latest`, so a digest that fails Verify gets no tag
+#    and reaches no cluster.
+# To take a fix of a package outside the repository, re-run the Build job of the image: GitHub
+# re-runs the jobs that need it (RELEASE_CYCLE.md).
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: The image and the `Dockerfile` target that builds it.
+        required: true
+        type: string
+      description:
+        description: The OCI description label of the image.
+        required: true
+        type: string
+      no-cache-filters:
+        description: >-
+          The stages that the build runs with no cache, so that their `apt-get upgrade` takes the
+          security updates since the cached stage. Empty for no stage.
+        required: false
+        default: ""
+        type: string
+      category:
+        description: The code scanning category of the scan, such as trivy-image-service.
+        required: true
+        type: string
+      scan-exit-code:
+        description: The exit code of the scan when it reports a finding. 0 only reports.
+        required: false
+        default: "1"
+        type: string
+      tag-name:
+        description: The release tag that release-please created.
+        required: true
+        type: string
+      sha:
+        description: The commit that the release tags.
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}/${{ inputs.image }}
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+      tags: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # The commit that the release tags: a later push can start the run that creates it.
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # The git context reads the checkout, so the revision label is the commit of the release, not
+      # the commit of the push that started the run.
+      - name: Extract Metadata for the Image
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          context: git
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=${{ inputs.tag-name }}
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.title=devops-cli-${{ inputs.image }}
+            org.opencontainers.image.description=${{ inputs.description }}
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.documentation=https://github.com/dan-petty/devops-cli/blob/main/README.md
+            org.opencontainers.image.source=https://github.com/dan-petty/devops-cli
+            org.opencontainers.image.version=${{ inputs.tag-name }}
+
+      # The one build of the image. It is pushed by digest only: the tags move to the digest after
+      # Verify passes and the provenance is attested, so a tag never names an image that Verify did
+      # not start and scan.
+      - name: Build and Push the Image by Digest
+        id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ./Dockerfile
+          target: ${{ inputs.image }}
+          platforms: linux/amd64
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
+          no-cache-filters: ${{ inputs.no-cache-filters }}
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/${{ inputs.image }}:buildcache
+          # The one write of the cache of this image, from the build that the release publishes.
+          # The image jobs of each pull request read it from main and write none (#4646).
+          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/${{ inputs.image }}:buildcache,mode=max
+
+  verify:
+    name: Verify
+    needs: build
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    # The scan action uploads its SARIF to code scanning. The job can write no package.
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull the Image by Digest
+        env:
+          IMAGE_REF: ghcr.io/${{ github.repository }}/${{ inputs.image }}@${{ needs.build.outputs.digest }}
+        run: docker pull "$IMAGE_REF"
+
+      # Each smoke test is the text of the same step of ci.yml.
+      - name: Run Service Image Smoke Test
+        if: inputs.image == 'service'
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}/${{ inputs.image }}@${{ needs.build.outputs.digest }}
+        run: |
+          docker run -d --name svc --read-only --tmpfs /tmp --tmpfs /home/devops:mode=1777 --cap-drop ALL --security-opt no-new-privileges -p 8000:8000 "$IMAGE"
+          curl -fsS --retry 10 --retry-connrefused --retry-all-errors --retry-delay 1 http://127.0.0.1:8000/healthz
+          docker stop svc && docker rm svc
+          docker run --rm --entrypoint id "$IMAGE" -u
+          docker run --rm --entrypoint gh "$IMAGE" --version
+          docker run --rm --entrypoint git "$IMAGE" --version
+          docker run --rm --entrypoint openspec "$IMAGE" --version
+          docker run --rm --read-only --tmpfs /tmp --tmpfs /home/devops:mode=1777 --cap-drop ALL --security-opt no-new-privileges --entrypoint python "$IMAGE" -c "import getpass, numpy, pathlib, pytrec_eval, subprocess; from devops_cli.config.settings import load_settings; from devops_cli.core.process import run_subprocess; from devops_cli.output.file_writer import write_text_file; write_text_file(load_settings().data.dir / 'probe.txt', 'ok'); repo = pathlib.Path.home() / 'probe'; subprocess.run(['git', 'init', '-q', str(repo)], check=True); assert run_subprocess(['git', 'status', '--porcelain'], cwd=repo).returncode == 0; assert getpass.getuser() == 'devops'"
+          if docker run --rm --entrypoint sh "$IMAGE" -c 'command -v uv'; then exit 1; fi
+          if docker run --rm --entrypoint sh "$IMAGE" -c 'command -v gcc'; then exit 1; fi
+          if docker run --rm --entrypoint python "$IMAGE" -c 'import pytest'; then exit 1; fi
+
+      - name: Run Runner Image Smoke Test
+        if: inputs.image == 'runner'
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}/${{ inputs.image }}@${{ needs.build.outputs.digest }}
+        run: |
+          docker run --rm --entrypoint id "$IMAGE" -u
+          docker run --rm "$IMAGE" --version
+          # The check runs the version command of every tool of the image in RUNNER_TOOLS (src/devops_cli/roadmap/runner_tools.py) on the image, so a missing tool fails it. The size of the image stays under its bound.
+          docker run --rm --entrypoint python "$IMAGE" -m devops_cli.roadmap.runner_tools
+          size=$(docker image inspect "$IMAGE" --format '{{.Size}}')
+          if [ "$size" -gt 7000000000 ]; then echo "The runner image is $size bytes, over the bound of 7000000000."; exit 1; fi
+          docker run --rm --read-only --tmpfs /tmp --tmpfs /home/devops:mode=1777 --cap-drop ALL --security-opt no-new-privileges --entrypoint python "$IMAGE" -c "import getpass, pathlib, subprocess; from devops_cli.config.settings import load_settings; from devops_cli.core.process import run_subprocess; from devops_cli.output.file_writer import write_text_file; write_text_file(load_settings().data.dir / 'probe.txt', 'ok'); repo = pathlib.Path.home() / 'probe'; subprocess.run(['git', 'init', '-q', str(repo)], check=True); assert run_subprocess(['git', 'status', '--porcelain'], cwd=repo).returncode == 0; assert getpass.getuser() == 'devops'"
+          if docker run --rm --entrypoint sh "$IMAGE" -c 'command -v gcc'; then exit 1; fi
+          # A Job builds the venv of its checkout with the dev group before its first agent step (#6517), and the image holds no dev dependency. So the check runs the bootstrap of the Job on a copy of the checkout, checks the tools of its venv, and runs ruff, pytest and mypy from it. The checkout's .python-version names a patch release that the base image can lack.
+          docker run --rm --read-only --tmpfs /tmp --tmpfs /home/devops:mode=1777,exec,size=3g -v "$PWD:/checkout:ro" --cap-drop ALL --security-opt no-new-privileges --entrypoint sh "$IMAGE" -c 'mkdir /home/devops/project && tar -C /checkout --exclude=./.git --exclude=./.venv --exclude=./node_modules -cf - . | tar -C /home/devops/project -xf - && cd /home/devops/project && python -m devops_cli.roadmap.runner_tools /home/devops/project && uv run ruff --version && uv run pytest --version && uv run mypy --version'
+
+      - name: Run MCP Server Image Smoke Test
+        if: inputs.image == 'mcp-server'
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}/${{ inputs.image }}@${{ needs.build.outputs.digest }}
+        run: |
+          docker run --rm --entrypoint id "$IMAGE" -u
+          docker run --rm "$IMAGE" --version
+          docker run --rm --entrypoint kubectl "$IMAGE" version --client
+          docker run --rm --entrypoint helm "$IMAGE" version
+          size=$(docker image inspect "$IMAGE" --format '{{.Size}}')
+          if [ "$size" -gt 3000000000 ]; then echo "The mcp-server image is $size bytes, over the bound of 3000000000."; exit 1; fi
+
+      # The runner scan only reports (scan-exit-code 0): the runner builds FROM the devtools image,
+      # and the findings of its tool binaries go to code scanning and stop no build (SECURITY.md,
+      # Dedicated Development Resources and Sandboxes). The Service and MCP server scans keep the
+      # gate.
+      - name: Scan the Image for Vulnerabilities
+        timeout-minutes: 4
+        uses: ./.github/actions/image-scan
+        with:
+          image-ref: ghcr.io/${{ github.repository }}/${{ inputs.image }}@${{ needs.build.outputs.digest }}
+          category: ${{ inputs.category }}
+          exit-code: ${{ inputs.scan-exit-code }}
+
+  publish:
+    name: Attest & Tag
+    needs: [build, verify]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}/${{ inputs.image }}
+
+    steps:
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # With no predicate input, the action writes the SLSA build provenance of the digest.
+      - name: Attest Build Provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ needs.build.outputs.digest }}
+          push-to-registry: true
+
+      # A copy of one index keeps its digest, so each tag names the digest that Verify scanned.
+      - name: Tag the Attested Image
+        shell: bash
+        env:
+          DIGEST: ${{ needs.build.outputs.digest }}
+          TAGS: ${{ needs.build.outputs.tags }}
+        run: |
+          set -euo pipefail
+          TAG_ARGS=()
+          while read -r TAG; do
+            if [ -n "$TAG" ]; then TAG_ARGS+=(--tag "$TAG"); fi
+          done <<< "$TAGS"
+          docker buildx imagetools create "${TAG_ARGS[@]}" "${IMAGE}@${DIGEST}"
+          while read -r TAG; do
+            if [ -n "$TAG" ]; then
+              test "$(docker buildx imagetools inspect "$TAG" --format '{{json .Manifest}}' | jq -r .digest)" = "$DIGEST"
+            fi
+          done <<< "$TAGS"

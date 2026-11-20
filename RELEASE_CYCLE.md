@@ -61,9 +61,11 @@ The `Release` run of the merge creates the GitHub release and its tag. Then thes
 | :--- | :--- |
 | `Upload Release Assets` | The wheel, the sdist and `SHA256SUMS.txt`, attached to the GitHub release |
 | `Build DevContainer Image`, `Smoke-Test DevContainer Image`, `Attest & Tag DevContainer Image` | `ghcr.io/dan-petty/devops-cli/devcontainer`, tagged with the release tag and `latest` |
-| `Build & Publish Service Image` | `ghcr.io/dan-petty/devops-cli/service`, tagged with the release tag and `latest` |
-| `Build & Publish Runner Image` | `ghcr.io/dan-petty/devops-cli/runner`, the image of the implement Job, tagged with the release tag and `latest` |
-| `Build & Publish MCP Server Image` | `ghcr.io/dan-petty/devops-cli/mcp-server`, the image of Deployment `mcp-server`, tagged with the release tag and `latest` |
+| `Service Image / Build`, `Service Image / Verify`, `Service Image / Attest & Tag` | `ghcr.io/dan-petty/devops-cli/service`, tagged with the release tag and `latest` |
+| `Runner Image / Build`, `Runner Image / Verify`, `Runner Image / Attest & Tag` | `ghcr.io/dan-petty/devops-cli/runner`, the image of the implement Job, tagged with the release tag and `latest` |
+| `MCP Server Image / Build`, `MCP Server Image / Verify`, `MCP Server Image / Attest & Tag` | `ghcr.io/dan-petty/devops-cli/mcp-server`, the image of Deployment `mcp-server`, tagged with the release tag and `latest` |
+
+The `Build` job of an image builds the image one time and pushes it by digest, with no tag. The `Verify` job pulls that digest, smoke-tests it and scans it. The `Attest & Tag` job attests the digest, puts the release tag and `latest` on it, and checks that each tag names that digest. Each image goes through its own three jobs of [`release-image.yml`](.github/workflows/release-image.yml), so a failed job of one image stops no job of another image. A digest that fails `Verify` gets no tag, and Image Updater reads only `latest`, so that digest reaches no cluster.
 
 Argo CD Image Updater then moves the Service, the CronJob template of the runner and Deployment `mcp-server` onto the new image digests ([`docs/CLUSTER.md`](docs/CLUSTER.md#service-image-updates), Service Image Updates).
 
@@ -71,8 +73,9 @@ Argo CD Image Updater then moves the Service, the CronJob template of the runner
 
 1. Open the failed `Release` run in the **Actions** tab of the repository.
 2. Read the log of each failed job.
-3. If the cause is outside the repository, such as a registry outage, click **Re-run failed jobs**. The jobs that passed keep their results.
-4. If the cause is in the repository, fix it in a pull request into `main`. The fix ships in the next release.
+3. If the cause is outside the repository, such as a registry outage, click **Re-run failed jobs**. The jobs that passed keep their results. A re-run of a `Verify` job pulls and scans the same digest again.
+4. If the scan of an image finds a vulnerability that a new package outside the repository fixes, open the `Build` job of that image and re-run that job. GitHub also re-runs the `Verify` and `Attest & Tag` jobs of the image, so the new build takes the new packages and `Verify` scans the new digest. Do not use **Re-run all jobs**: release-please then runs again, finds no release to create, and each image job skips.
+5. If the cause is in the repository, fix it in a pull request into `main`. The fix ships in the next release.
 
 ## Versioning Policy
 

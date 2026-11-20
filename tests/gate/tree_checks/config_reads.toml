@@ -14,7 +14,7 @@
 "tests/ai/test_ai_gateway_portkey.py" = 1
 "tests/ai/test_jev_gateway_route.py" = 1
 "tests/ci/test_release_download_retries.py" = 1
-"tests/commands/test_ci.py" = 9
+"tests/commands/test_ci.py" = 8
 "tests/commands/test_ci_bwrap_row.py" = 1
 "tests/commands/test_environment_root_commands.py" = 8
 "tests/commands/test_gh_cmd.py" = 3
