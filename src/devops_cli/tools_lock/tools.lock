@@ -597,7 +597,7 @@ requirements = "ansible-core.txt"
 entry_points = ["ansible-runner"]
 
 [npm.openspec]
-version = "2.1.0"
+version = "2.1.1"
 description = "OpenSpec spec and change-proposal CLI"
 source = "https://github.com/Fission-AI/OpenSpec"
 bin = "openspec"
