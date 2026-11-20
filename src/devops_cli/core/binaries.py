@@ -30,3 +30,13 @@ def require_binary(name: str, *, install_hint: str | None = None) -> Path:
     if not found:
         raise DependencyError(tool_name=name, install_hint=install_hint)
     return Path(found).resolve()
+
+
+def version_line(output: str) -> str | None:
+    """The first non-empty line of `output`, stripped, or None when it holds none: the version line
+    that a command prints with `--version` (#5107)."""
+    for line in output.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped
+    return None
