@@ -1223,21 +1223,69 @@ def body_questions(body: str) -> list[str]:
 
 
 def body_dependencies(body: str) -> list[int]:
-    """The issues the body names under a "Dependencies" heading, in order (#2654).
+    """The issues the body names as a blocker under a "Dependencies" heading, in order (#2654).
 
     The section is the one refine writes (`render_proposal_section`) or a person writes: the
-    text under the heading, up to the next heading of the same or a higher level. A word that is
-    `#` and digits, with the punctuation of a list around it, is an issue; the body is parsed as
-    CommonMark, so a heading in a code block is not a heading.
+    text under the heading, up to the next heading of the same or a higher level. Only a blocker
+    line names a dependency (`_blocker_inlines`); the body is parsed as CommonMark, so a heading
+    in a code block is not a heading.
     """
     section = _section_tokens(MarkdownIt("commonmark").parse(body), _DEPENDENCIES_TITLE_RE)
-    return [number for token in section if token.type == "inline" for number in _issues(token)]
+    return [number for token in _blocker_inlines(section) for number in _issues(token)]
+
+
+# The words that open a blocker line that is no list item, such as `Merge first: #12` (#6451).
+_MERGE_FIRST: Final[str] = "merge first"
+
+
+def _blocker_inlines(section: Sequence[Token]) -> list[Token]:
+    """The inline tokens of a Dependencies section that name a blocker, in section order (#6451).
+
+    A blocker line is a line that starts with `Merge first` in any case, the first text of a list
+    item when its first word is an issue reference, or a line outside a list whose words are
+    issue references only, with at least one word. A parent, a child, a related issue, a reverse
+    link and the source line of intake carry other words, so they name no blocker. The text of a
+    nested list item counts for that item and not for the item that holds it.
+    """
+    kept: list[Token] = []
+    seen_first: list[bool] = []
+    for token in section:
+        if token.type == "list_item_open":
+            seen_first.append(False)
+        elif token.type == "list_item_close":
+            if seen_first:
+                seen_first.pop()
+        elif token.type == "inline":
+            in_item = bool(seen_first)
+            first_of_item = in_item and not seen_first[-1]
+            if in_item:
+                seen_first[-1] = True
+            if _names_a_blocker(token, first_of_item=first_of_item, in_list=in_item):
+                kept.append(token)
+    return kept
+
+
+def _names_a_blocker(token: Token, *, first_of_item: bool, in_list: bool) -> bool:
+    """Whether an inline token names a blocker: a `Merge first` line, the first text of a list
+    item that opens with an issue reference, or a line outside a list of issue references only."""
+    text = " ".join(token.content.split())
+    if text.casefold().startswith(_MERGE_FIRST):
+        return True
+    words = [word.strip(_REFERENCE_PUNCTUATION) for word in text.split()]
+    if first_of_item:
+        return bool(words) and _is_reference(words[0])
+    return not in_list and bool(words) and all(_is_reference(word) for word in words)
+
+
+def _is_reference(word: str) -> bool:
+    """Whether a word stripped of the punctuation of a list is `#` and digits, such as `#12`."""
+    return word.startswith("#") and word[1:].isdigit()
 
 
 def _issues(token: Token) -> list[int]:
     """The issues that an inline token names as `#` and digits, with list punctuation around."""
     words = (word.strip(_REFERENCE_PUNCTUATION) for word in token.content.split())
-    return [int(word[1:]) for word in words if word.startswith("#") and word[1:].isdigit()]
+    return [int(word[1:]) for word in words if _is_reference(word)]
 
 
 @dataclass(frozen=True)
