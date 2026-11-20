@@ -62,7 +62,7 @@ class DueStep(StrEnum):
 
     READY = "ready"
     COMMENT_CONFLICT = "comment_conflict"
-    COMMENT_CI_INFRA = "comment_ci_infra"
+    STOP = "stop"
     FIX_CHECKS = "fix_checks"
     STATUS_SYNC = "status_sync"
     CLEANUP = "cleanup"
@@ -195,6 +195,24 @@ def fix_checks_check(state: WatchState) -> str | None:
     return first.name
 
 
+def unrepaired_check(state: WatchState) -> str | None:
+    """The check of `state` that no fix-checks unit repairs (#6559): the first failed or cancelled
+    check (`_first_failure`), when it was cancelled or when the class of its name is not one of
+    `FIX_CHECK_CLASSES`. None when no check failed or was cancelled, when a unit repairs it, or
+    when GitHub could not say how the checks ended: a later read may say."""
+    if isinstance(state.checks, CheckVerdictSummary) and state.checks.unread_reason:
+        return None
+    ended = [c for c in _check_items(state) if c.bucket in (CheckBucket.FAIL, CheckBucket.CANCEL)]
+    if not ended:
+        return None
+    first = _first_failure(ended)
+    if first.bucket is CheckBucket.CANCEL:
+        return first.name
+    if classify_failure(FailureEvidence(check=first.name)) in FIX_CHECK_CLASSES:
+        return None
+    return first.name
+
+
 def _checks_verdict(state: WatchState) -> WatchVerdict:
     """Judge check runs and review threads on a settled commit."""
     # A poll that reads no check is PENDING (#4927).
@@ -278,6 +296,16 @@ def ready_held(labels: Sequence[str]) -> bool:
     return any(name in VERDICT_LABEL_NAMES and name != _MERGEABLE_LABEL for name in labels)
 
 
+def _failed_steps(state: WatchState) -> tuple[DueStep, ...]:
+    """The due step of a bot pull request with a failed check: `fix_checks` for the check that a
+    unit repairs, else `stop` for a delivery whose check no unit repairs (#6559)."""
+    if fix_checks_check(state) is not None:
+        return (DueStep.FIX_CHECKS,)
+    if not state.is_plan and unrepaired_check(state) is not None:
+        return (DueStep.STOP,)
+    return ()
+
+
 def due_steps(state: WatchState) -> tuple[DueStep, ...]:
     """One pure function gives the due steps for a pull request (ADR 0021, section 8; #5024).
 
@@ -286,9 +314,11 @@ def due_steps(state: WatchState) -> tuple[DueStep, ...]:
     - Skip-ci: no verdict (returns ())
     - READY: `ready` step for bot PRs, unless a verdict label other than `verdict/mergeable`
       holds it (#6024); nothing for person PRs
-    - CONFLICT: `comment_conflict` for person PRs; nothing for bot PRs (writes no due mark)
-    - FAILED: `comment_ci_infra` for bot PRs with CI_INFRA; `fix_checks` for bot PRs whose failed
-      check `fix_checks_check` names (#5027); nothing for person PRs
+    - CONFLICT: `comment_conflict` for person PRs; `stop` for a bot delivery (#6559); nothing for
+      a bot plan
+    - FAILED: `fix_checks` for bot PRs whose failed check `fix_checks_check` names (#5027);
+      `stop` for a bot delivery whose check `unrepaired_check` names, as a check of CI_INFRA or a
+      cancelled check (#6559); nothing for person PRs
     - MERGED / CLOSED: `status_sync` (plus `cleanup` for bot plan PRs)
     - PENDING / BEHIND / THREADS / HEAD_MOVED: ()
     """
@@ -305,14 +335,12 @@ def due_steps(state: WatchState) -> tuple[DueStep, ...]:
         return (DueStep.READY,) if is_bot and not ready_held(state.labels) else ()
 
     if v.verdict is PRVerdict.CONFLICT:
-        return () if is_bot else (DueStep.COMMENT_CONFLICT,)
+        if not is_bot:
+            return (DueStep.COMMENT_CONFLICT,)
+        return () if state.is_plan else (DueStep.STOP,)
 
     if v.verdict is PRVerdict.FAILED:
-        if not is_bot:
-            return ()
-        if v.failure_class == FailureClass.CI_INFRA:
-            return (DueStep.COMMENT_CI_INFRA,)
-        return (DueStep.FIX_CHECKS,) if fix_checks_check(state) is not None else ()
+        return _failed_steps(state) if is_bot else ()
 
     if v.verdict in (PRVerdict.MERGED, PRVerdict.CLOSED):
         if is_bot and state.is_plan:

@@ -6,10 +6,10 @@ The owner decided on 2026-11-20 that the implement Job ends at "draft pull reque
 
 ## What Changes
 
-- The implement Job ends when the draft holds the final title and body. It records `implement.result` as `drafted`, sets Status In Review and comments the spend. It runs no watch, no repair after the push, no evidence comment and no `gh pr ready`.
+- The implement Job ends when the draft holds the final title and body. It asks `draft_readiness` with no check runs first, as its step `ready` did, and a refusal stops the item. Then it records `implement.result` as `drafted`, sets Status In Review and comments the spend. It runs no watch, no repair after the push, no evidence comment and no `gh pr ready`.
 - A step makes no `wip:` commit, and a stopped step resets to the commit where it started. `implement_wip.py`, `_keep`, `_move_wip`, the records `implement.wip` and `implement.continued`, and the counter `devops_cli_service_kept_work_total` go.
-- The ready path of the step `fix-checks`, which the watch row runs, takes a delivery draft with `implement.result` equal to `drafted`.
-- The intended result of the `implement` result line is `drafted`, a new baseline.
+- The ready path of the step `fix-checks`, which the watch row runs, takes a delivery draft with `implement.result` equal to `drafted`. The watch row stops the item of such a draft when no actor takes it: a failed check that no fix-checks unit repairs, a cancelled check, or a conflict.
+- The implement line `drafted` is the record of the hand-off. `devops roadmap eval grades` scores each `drafted` attempt by the forge state of its delivery (merged or ready: success; closed: failure; draft: pending).
 - The setting `roadmap.implement.monitor_timeout_seconds` goes with the watch.
 
 ## Capabilities
@@ -22,9 +22,9 @@ The owner decided on 2026-11-20 that the implement Job ends at "draft pull reque
 
 ## Impact
 
-- A failed check of a class other than `test`, `lint`, `types` and `plan_defect` gets no repair. Before, the Job repaired a failed check whose log named a path of the repair scope, whatever its class.
+- A failed check whose name gives a class other than `test`, `lint` and `types` gets no repair, and the watch row stops its item. Before, the Job repaired a failed check whose log named a path of the repair scope, whatever its class.
 - A pod that dies loses the work of the group that runs. A checkpoint still keeps each group that passed.
-- The `implement` success ratio is not comparable with the ratio before this version.
+- A Job of the earlier runner image that ends during the rollout writes `implement.result` equal to `ready`, which the Service reads as no result: that one attempt counts as `stopped`.
 - The live ConfigMap needs no change first: `RoadmapImplementConfig` ignores a key it does not know (`extra="ignore"`), so `monitor_timeout_seconds` in the ConfigMap does no harm. The example ConfigMap drops it.
 
 ## Feasibility

@@ -11,7 +11,10 @@ only that round: the row logs and counts it and gives its result (#6018). A deli
 fix Job repaired, or whose implement Job ended at the draft (#6559), and whose checks pass gets
 the ready path of the step `fix-checks` once for each head, and only the ready path: a check that
 fails between the two reads gives `skipped`. The row leaves a delivery draft whose implement Job
-stopped. A green plan draft is marked ready only
+stopped. A delivery draft that the ready path takes and that no actor takes on (a failed check that
+no fix-checks unit repairs, a cancelled check, or a conflict with the base) stops its item, once,
+through the stop flow of the implement Job: Status Blocked, `implement.stopped` and the class, and
+one stop comment that names the check or the conflict (#6559). A green plan draft is marked ready only
 when `draft_readiness` answers ready for the draft that `read_ready_draft` reads. The record can
 hold one pull request as the plan and as the delivery of its item, and `read_draft` then judges it
 as the delivery, so a task that is not ticked keeps it a draft; the row judges a refused head once
@@ -30,7 +33,10 @@ from typing import Any, Final
 from pydantic import BaseModel, Field
 from pydantic import ValidationError as MalformedRecordError
 
-from devops_cli.config.constants import CONST_ROADMAP_STAGE_COMMENT_MARKER
+from devops_cli.config.constants import (
+    CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
+    CONST_ROADMAP_STAGE_COMMENT_MARKER,
+)
 from devops_cli.config.defaults import (
     DEFAULT_GH_GRAPHQL_BUDGET_FLOOR,
 )
@@ -54,6 +60,7 @@ from devops_cli.github.client import PullStatus
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.failure import FailureClass, failure_lines, left_action
 from devops_cli.roadmap.fix_checks_row import (
     FixChecksRound,
     FixDue,
@@ -68,7 +75,13 @@ from devops_cli.roadmap.jev_completeness import (
 )
 from devops_cli.roadmap.release_feed import closing_numbers
 from devops_cli.roadmap.stage.stage_criteria import acceptance_criteria
-from devops_cli.roadmap.status_sync import facts_of, job_holds, sync_status
+from devops_cli.roadmap.status_sync import (
+    StatusFacts,
+    facts_of,
+    job_holds,
+    sync_status,
+    write_status,
+)
 from devops_cli.roadmap.steps.comment import Target, post
 from devops_cli.roadmap.steps.fix_checks import (
     FixChecksResult,
@@ -80,13 +93,16 @@ from devops_cli.roadmap.steps.watch import (
     DueStep,
     PRVerdict,
     WatchState,
+    WatchVerdict,
     due_steps,
     fix_checks_check,
+    unrepaired_check,
     verdict,
 )
 from devops_cli.roadmap.stores.store import (
     FixChecksRecordKey,
     GitHubState,
+    ImplementRecordKey,
     Item,
     RoadmapStore,
     StageRecordKey,
@@ -380,6 +396,8 @@ def _evaluate_pull(
     if DueStep.FIX_CHECKS in steps and (check := fix_checks_check(state)) is not None:
         units = item.job_record.get(FixChecksRecordKey.UNITS)
         ctx.fix_due.append(FixDue(pr_number, head_sha, check, item.number, units))
+    if DueStep.STOP in steps and v is not None:
+        _stop_unowned_draft(ctx, item, state, v)
 
     if v is not None:
         if v.verdict is PRVerdict.FAILED:
@@ -408,6 +426,53 @@ def _evaluate_pull(
         steps=steps,
         entry=entry,
         checks=checks,
+    )
+
+
+def _stop_unowned_draft(
+    ctx: _WatchContext, item: Item, state: WatchState, found: WatchVerdict
+) -> None:
+    """Stop the item of a bot delivery draft that no actor takes (#6559): a failed check that no
+    fix-checks unit repairs, a cancelled check, or a conflict with the base. The implement Job
+    ended at the draft, so the item takes the stop flow that the Job gave it before: one stop
+    comment that names the check or the conflict, Status Blocked, `implement.stopped` and the
+    class. Only a draft that the ready path takes gets the stop (`takes_ready_path`), once: an item
+    that holds a stop is left as it is."""
+    if not state.draft or not takes_ready_path(item):
+        return
+    if item.job_record.get(ImplementRecordKey.STOPPED):
+        return
+    texts = MESSAGES.roadmap
+    check: str | None = None
+    if found.verdict is PRVerdict.CONFLICT:
+        klass = FailureClass.CONFLICT
+        reason = texts.watch_stop_conflict.format(pull=state.pull, base=state.base_ref)
+    else:
+        klass = FailureClass.CI_INFRA
+        check = unrepaired_check(state)
+        reason = texts.watch_stop_check.format(pull=state.pull, check=check)
+    left = left_action(klass, None)
+    step = texts.implement_step_names["pull_request"]
+    ctx.store.comment(
+        item.number,
+        texts.watch_stop_comment.format(
+            marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
+            step=step,
+            reason=reason,
+            failure=failure_lines(klass, left=left),
+        ),
+    )
+    held = ctx.store.item(item.number) or item
+    write_status(
+        ctx.store,
+        held,
+        StatusFacts(stopped=True),
+        marks={
+            ImplementRecordKey.STOPPED: step,
+            ImplementRecordKey.FAILURE: klass.value,
+            ImplementRecordKey.LEFT_ACTION: left.value,
+            ImplementRecordKey.CHECK: check,
+        },
     )
 
 
@@ -465,11 +530,13 @@ def _ready_after_fix(ctx: _WatchContext, item: Item, pull: int, head: str) -> bo
         or (entry is not None and entry.ready_head == head)
     ):
         return False
-    if entry is not None:
-        entry.ready_head = head
     report = run_fix_checks(
         ctx.store, ctx.repo, pull, head=head, confirm=mode == "on", ready_only=True
     )
+    # The head counts as judged only once the path gave a report, so an error leaves it for the
+    # next round (#6559).
+    if entry is not None:
+        entry.ready_head = head
     logger.info("The ready path of fix-checks on %s#%d: %s", ctx.repo, pull, report.to_json())
     return report.result is FixChecksResult.READY
 

@@ -90,8 +90,7 @@ def prime_service_counters(
     `repos`: each failure class for each repository on the failure counter, each repository,
     lane, row and result on the job counter, each repository and lane on the job seconds, each
     repository and source on the trigger counter, each result of the chat command, and the one
-    series of the budget holds, which has no label. It also primes each repository, failure class
-    and outcome on the kept-work counter (#3650). The lanes are those that `lanes`, the setting
+    series of the budget holds, which has no label. The lanes are those that `lanes`, the setting
     `service.lanes`, gives (`service_lanes`, #5553)."""
     # The roadmap run imports the Service, so the lane table is read when the counters are
     # primed, not when this module is imported.

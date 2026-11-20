@@ -2,9 +2,9 @@
 
 A fix turn may change only a path that the plan names and the files of the change folder
 (`unplanned_paths`, #3824). The turn still costs model requests before that check stops it, and a
-failed check whose cause lies outside the plan, such as `Deploy Preview`, gives the turn nothing to
-fix. The job asks the scope first: a failed check whose log names no path of the scope is no work
-for a fix turn, so the job stops the item with no model request.
+failed check whose cause lies outside the plan gives the turn nothing to fix. The step `fix-checks`
+asks the scope first (`fix_checks_cause.judge_scope`): a failed check whose log names no path of the
+scope gets no model fix.
 
 The scope holds the paths that the plan names in the code spans of its groups, and the folder of
 the change. The log of the failed run is the evidence: it names the files that a
@@ -17,8 +17,6 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_REASON_PATHS
-from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement.implement_strays import plan_paths
 from devops_cli.roadmap.step_files import TaskGroup
 
@@ -38,16 +36,6 @@ class RepairScope:
         return any(
             re.search(rf"(?<![\w.-]){tail}", log) for tail in (*words, re.escape(self.folder) + "/")
         )
-
-    def listing(self) -> str:
-        """The scope as one line for a stop reason: the change folder, then the paths of the plan,
-        cut to `CONST_ROADMAP_IMPLEMENT_REASON_PATHS` names with the count of the rest."""
-        names = [f"`{self.folder}/`", *(f"`{path}`" for path in self.paths)]
-        shown = names[:CONST_ROADMAP_IMPLEMENT_REASON_PATHS]
-        text = ", ".join(shown)
-        if len(names) > len(shown):
-            text += MESSAGES.roadmap.implement_paths_more.format(count=len(names) - len(shown))
-        return text
 
 
 def repair_scope(groups: Iterable[TaskGroup], folder: str) -> RepairScope:

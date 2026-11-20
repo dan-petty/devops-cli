@@ -446,7 +446,7 @@ def test_a_stray_file_that_the_agent_stages_is_unstaged_and_removed_in_a_fix_ste
     assert _committed(checkout) == ["src/sample.py"]
 
 
-# ── Renames, literal names and the work-in-progress keeper (#3488) ────────────────────────────
+# ── Renames and literal names (#3488) ────────────────────────────
 
 TICK_FIRST = TASKS.replace("- [ ] Add the failing test", "- [x] Add the failing test")
 

@@ -387,7 +387,9 @@ def test_spend_survives_kill_a_stop_writes_the_sum_of_the_jobs(job_world: JobWor
     assert (spend["requests"], spend["input_tokens"]) == (3, GROUP_TOKENS + REQUEST_TOKENS)
 
 
-def test_spend_survives_kill_ready_writes_the_sum_of_the_jobs(job_world: JobWorld) -> None:
+def test_spend_survives_kill_the_drafted_end_writes_the_sum_of_the_jobs(
+    job_world: JobWorld,
+) -> None:
     _kill_in_group_two(job_world)
     _continue(job_world)
 

@@ -11,7 +11,7 @@ issue is an open item, then the filter, then the rules of the job, then the limi
 The command calls no model and writes nothing to git or to GitHub. It reads what the plans read.
 The report gives the totals of the last implement run, from the trace in the job record of the
 issue that the command reads (#3217). It gives the state of a stop of the item too: the step, the
-class, the attempts, the work that the stop kept and the action that is left (#3648).
+class, the attempts and the action that is left (#3648).
 The stage job finds a task group over the budget only after the model plans the item, so the
 command reports that rule from the record of an earlier run (`stage.needs_split`), as the job
 does. The failures ledger of the Service counts failed rounds for each job, not for each item, and

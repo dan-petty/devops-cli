@@ -9,6 +9,7 @@ and `gh` are faked at their edges.
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
@@ -1880,6 +1881,79 @@ def test_implement_with_no_labels_held_sends_no_delete(job_world: JobWorld) -> N
     assert (applied.drafted, applied.stopped, applied.failed) == ((1,), (), ())
     unlabels = [w for w in job_world.store._roadmap.job_writes if w.operation == "unlabel_issue"]
     assert unlabels == []
+
+
+# The completeness of the draft is judged before the run ends at it (#6559), as the ready step
+# judged it before: a refused draft stops the item.
+
+
+def test_unticked_task_in_archived_change_stops_at_ready(job_world: JobWorld) -> None:
+    def unticked_archive(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        res = archive_effect(call)
+        assert call.cwd is not None
+        change = command_text(call).split()[-1]
+        target_tasks = (
+            call.cwd / "openspec" / "changes" / "archive" / f"2026-10-29-{change}" / "tasks.md"
+        )
+        content = target_tasks.read_text(encoding="utf-8")
+        target_tasks.write_text(
+            content.replace("- [x] 2.1 Document", "- [ ] 2.1 Document"), encoding="utf-8"
+        )
+        return res
+
+    job_world.programs.answer(
+        lambda call: command_text(call).startswith("uv run devops openspec archive"),
+        ProcessAnswer(side_effect=unticked_archive),
+    )
+
+    applied = job_world.run(two_groups())
+
+    assert (applied.stopped, job_world.pull.ready_calls) == ((1,), [])
+    status, record = _item(job_world)
+    assert status == "Blocked"
+    assert record.get("implement.stopped") == "ready"
+    comment = _stop_comment(job_world)
+    assert "2" in comment
+    assert "Failure class: `plan_defect`" in comment
+
+
+def test_unarchived_active_change_stops_at_ready(job_world: JobWorld) -> None:
+    """When the change folder was not archived and remains under openspec/changes/, ready refuses."""
+    job_world.programs.answer(
+        lambda call: command_text(call).startswith("uv run devops openspec archive"),
+        ProcessAnswer(stdout="skipped archive\n"),
+    )
+    applied = job_world.run(two_groups())
+    assert (applied.stopped, job_world.pull.ready_calls) == ((1,), [])
+    status, record = _item(job_world)
+    assert status == "Blocked"
+    assert record.get("implement.stopped") == "ready"
+    (comment,) = job_world.issue_comments()
+    assert "not archived" in comment.lower()
+
+
+def test_missing_change_folder_stops_at_ready(job_world: JobWorld) -> None:
+    """When neither archive nor active change folder exists, ready refuses with change missing."""
+
+    def remove_change(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        assert call.cwd is not None
+        change = command_text(call).split()[-1]
+        source = call.cwd / "openspec" / "changes" / change
+        if source.exists():
+            shutil.rmtree(source)
+        return subprocess.CompletedProcess(call.argv, 0, stdout="removed\n")
+
+    job_world.programs.answer(
+        lambda call: command_text(call).startswith("uv run devops openspec archive"),
+        ProcessAnswer(side_effect=remove_change),
+    )
+    applied = job_world.run(two_groups())
+    assert (applied.stopped, job_world.pull.ready_calls) == ((1,), [])
+    status, record = _item(job_world)
+    assert status == "Blocked"
+    assert record.get("implement.stopped") == "ready"
+    (comment,) = job_world.issue_comments()
+    assert "missing" in comment.lower()
 
 
 def test_implement_refused_label_comments_on_pull_and_ends_at_the_draft(

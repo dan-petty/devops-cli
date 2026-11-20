@@ -61,14 +61,18 @@ def test_due_steps_ready(is_bot: bool, is_plan: bool, expected_steps: tuple[DueS
 
 
 @pytest.mark.parametrize(
-    ("is_bot", "expected_steps"),
+    ("is_bot", "is_plan", "expected_steps"),
     [
-        (True, ()),
-        (False, (DueStep.COMMENT_CONFLICT,)),
+        (True, False, (DueStep.STOP,)),
+        (True, True, ()),
+        (False, False, (DueStep.COMMENT_CONFLICT,)),
     ],
 )
-def test_due_steps_conflict(is_bot: bool, expected_steps: tuple[DueStep, ...]) -> None:
-    """A CONFLICT verdict gives one comment per head for person PRs and no marks for bot PRs."""
+def test_due_steps_conflict(
+    is_bot: bool, is_plan: bool, expected_steps: tuple[DueStep, ...]
+) -> None:
+    """A CONFLICT verdict gives one comment per head for person PRs, the stop of the item for a
+    bot delivery (#6559) and nothing for a bot plan."""
     state = WatchState(
         pull=102,
         head_sha="b" * 40,
@@ -76,6 +80,7 @@ def test_due_steps_conflict(is_bot: bool, expected_steps: tuple[DueStep, ...]) -
         mergeable_state="dirty",
         checks=_passing_checks(),
         is_bot=is_bot,
+        is_plan=is_plan,
     )
     assert verdict(state) == WatchVerdict(
         verdict=PRVerdict.CONFLICT,
@@ -89,8 +94,8 @@ def test_due_steps_conflict(is_bot: bool, expected_steps: tuple[DueStep, ...]) -
     [
         (True, "Tests & Coverage", (DueStep.FIX_CHECKS,)),
         (True, "Static Analysis", (DueStep.FIX_CHECKS,)),
-        (True, "ci-infra-check", (DueStep.COMMENT_CI_INFRA,)),
-        (True, "Semantic PR title", (DueStep.COMMENT_CI_INFRA,)),
+        (True, "ci-infra-check", (DueStep.STOP,)),
+        (True, "Semantic PR title", (DueStep.STOP,)),
         (False, "Tests & Coverage", ()),
         (False, "ci-infra-check", ()),
     ],
@@ -98,9 +103,9 @@ def test_due_steps_conflict(is_bot: bool, expected_steps: tuple[DueStep, ...]) -
 def test_due_steps_failed(
     is_bot: bool, check_name: str, expected_steps: tuple[DueStep, ...]
 ) -> None:
-    """FAILED verdict gives comment_ci_infra for a bot PR with a CI_INFRA failure, fix_checks for
-    a bot PR whose check failed with the class test, lint, types or plan check (#5027), and
-    nothing for a person's PR."""
+    """FAILED verdict gives the stop of the item for a bot delivery with a CI_INFRA failure
+    (#6559), fix_checks for a bot PR whose check failed with the class test, lint, types or plan
+    check (#5027), and nothing for a person's PR."""
     state = WatchState(
         pull=103,
         head_sha="c" * 40,
@@ -111,6 +116,34 @@ def test_due_steps_failed(
     assert v is not None
     assert v.verdict == PRVerdict.FAILED
     assert due_steps(state) == expected_steps
+
+
+@pytest.mark.parametrize(
+    ("is_plan", "expected_steps"), [(False, (DueStep.STOP,)), (True, ())], ids=["delivery", "plan"]
+)
+def test_due_steps_a_cancelled_check_of_a_bot_delivery_stops_the_item(
+    is_plan: bool, expected_steps: tuple[DueStep, ...]
+) -> None:
+    """A cancelled check gets no fix-checks unit, so the item of a bot delivery stops (#6559)."""
+    state = WatchState(
+        pull=106,
+        head_sha="f" * 40,
+        checks=[PRCheckItem(name="Tests & Coverage", bucket=CheckBucket.CANCEL, state="cancelled")],
+        is_bot=True,
+        is_plan=is_plan,
+    )
+    assert due_steps(state) == expected_steps
+
+
+def test_due_steps_a_check_that_cannot_be_read_stops_nothing() -> None:
+    """A check with no readable conclusion may read next round, so it stops no item."""
+    state = WatchState(
+        pull=107,
+        head_sha="0" * 40,
+        checks=[PRCheckItem(name="Semantic PR title", bucket=CheckBucket.UNREAD)],
+        is_bot=True,
+    )
+    assert due_steps(state) == ()
 
 
 @pytest.mark.parametrize("is_bot", [True, False])
@@ -223,7 +256,8 @@ def test_due_steps_skips_live_unit() -> None:
 
 def test_the_fix_unit_takes_the_failed_shard_and_no_cancelled_check() -> None:
     """The check of the unit is the failed check whose log holds the cause: a shard of
-    `Tests & Coverage` before the join check, and never a cancelled check (#5027)."""
+    `Tests & Coverage` before the join check, and never a cancelled check (#5027). A cancelled
+    check of a bot delivery stops its item instead (#6559)."""
     shard = "Tests & Coverage (shard 2)"
     failed = WatchState(
         pull=104,
@@ -244,7 +278,7 @@ def test_the_fix_unit_takes_the_failed_shard_and_no_cancelled_check() -> None:
     assert (fix_checks_check(failed), fix_checks_check(cancelled), due_steps(cancelled)) == (
         shard,
         None,
-        (),
+        (DueStep.STOP,),
     )
 
 

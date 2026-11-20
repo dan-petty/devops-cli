@@ -1,8 +1,10 @@
-"""The reads and writes about the pull request of an implement item (#2665): the decision whether a
-draft is ready, the log of a failed check, and `gh pr ready`.
+"""The reads about the pull request of an implement item (#2665): the decision whether a draft is
+ready (`draft_readiness`) and the log of a failed check.
 
-The implement job watches no check and marks nothing ready (#6559): the watch row and the
-fix-checks Jobs call these. The agent's shell never calls them, and holds no credential for them.
+The implement job asks the decision with no check runs before its run ends at the draft (#6559).
+The ready path of the step `fix-checks`, the step `ready` and `devops pr ready` ask it with the
+checks, and `roadmap/steps/ready.py` marks the draft ready. The agent's shell never calls them, and
+holds no credential for them.
 """
 
 from __future__ import annotations
@@ -375,14 +377,3 @@ def failed_log(repo: str, check: PRCheckItem) -> str:
         run, log_failed=True, job=parts[at + _JOB_SEGMENT + 1] if has_job else None, repo=repo
     )
     return viewed.stdout if viewed.returncode == 0 else viewed.stderr
-
-
-def mark_ready(
-    repo: str, pull: int, expected_head: str | None = None, *, draft: Draft | None = None
-) -> None:
-    """Mark the draft pull request `pull` ready for review with `gh pr ready`, after
-    `draft_readiness` answers ready for `draft` (#6123). Raises `RoadmapImplementError` when the
-    answer is not ready or `gh` fails."""
-    from devops_cli.roadmap.steps.ready import mark_ready as _step_mark_ready
-
-    _step_mark_ready(repo, pull, expected_head=expected_head, draft=draft)

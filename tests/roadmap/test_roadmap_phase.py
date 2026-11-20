@@ -104,6 +104,13 @@ def _item(
         ),
         # Ready-for-review item with status In Review
         (_item(13, status="In Review"), None, "ready-for-review"),
+        # An implement Job that ended at the draft writes In Review, and with no pull data the
+        # draft is in review, not ready for review (#6559)
+        (
+            _item(17, status="In Review", job_record={ImplementRecordKey.RESULT: "drafted"}),
+            None,
+            "in-review",
+        ),
         # Ready-for-review item with ready delivery PR
         (
             _item(14, job_record={ImplementRecordKey.PR: "102"}),

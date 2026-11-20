@@ -14,8 +14,11 @@ request unscored, and the read logs why.
 The first verdict scores the pull request. The step fix-plan removes `verdict/fix-plan` after a
 repair, and a later verdict can follow a fix, so the labels of today can lose the first verdict.
 The read takes the label events of the timeline, which GitHub keeps after an unlabel. One GraphQL
-search gives the pull requests of the window with their label events: one request for each 100
-pull requests.
+search gives the pull requests that changed in the window with their label events: one request for
+each 100 pull requests. The search also gives the head branch, the state and the draft flag of
+each pull request: the item of a delivery comes from its head branch (`parse_branch`), and its
+forge outcome (`forge_outcome`) scores the implement attempts that ended at its draft (#6559). The
+verdicts count only the pull requests that the bot opened in the window.
 """
 
 from __future__ import annotations
@@ -39,6 +42,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.dry_run import PlannedRequest
 from devops_cli.exceptions.git import GitHubUnreadError
+from devops_cli.git.branch_form import parse_branch
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.job_result import RoadmapJob
 
@@ -52,6 +56,22 @@ class PullKind(StrEnum):
 
     PLAN = "plan"
     DELIVERY = "delivery"
+
+
+class PullState(StrEnum):
+    """The state of a pull request in the GraphQL API of GitHub."""
+
+    OPEN = "OPEN"
+    CLOSED = "CLOSED"
+    MERGED = "MERGED"
+
+
+class ForgeOutcome(StrEnum):
+    """The forge outcome of a delivery: the work reached a person or the default branch, or the
+    pull request closed with no merge (#6559)."""
+
+    SUCCESS = "success"
+    FAILURE = "failure"
 
 
 class Verdict(StrEnum):
@@ -111,6 +131,10 @@ query($search: String!, $cursor: String) {{
       ... on PullRequest {{
         number
         title
+        headRefName
+        state
+        isDraft
+        createdAt
         repository {{ nameWithOwner }}
         timelineItems(itemTypes: [LABELED_EVENT], first: {_PAGE_SIZE}) {{
           nodes {{ ... on LabeledEvent {{ label {{ name }} }} }}
@@ -127,13 +151,28 @@ _GRAPHQL_URL: Final = f"{CONST_URL_GITHUB_API_BASE}/{CONST_GH_API_GRAPHQL_ENDPOI
 class BotPull:
     """One pull request of the bot: its repository, its number, its kind and its first verdict,
     or None while it has no verdict. `unscored` is its first verdict label when that label is a
-    label of the other kind."""
+    label of the other kind. `item` is the issue that its head branch names, or None; `state`,
+    `draft` and `created` are its state, whether it is a draft, and when it was opened."""
 
     repo: str
     number: int
     kind: PullKind
     verdict: Verdict | None
     unscored: str | None = None
+    item: int | None = None
+    state: PullState = PullState.OPEN
+    draft: bool = False
+    created: datetime | None = None
+
+
+def forge_outcome(pull: BotPull) -> ForgeOutcome | None:
+    """The forge outcome of `pull` (#6559): a success when it merged or is open and out of draft,
+    a failure when it closed with no merge, and None while it is a draft."""
+    if pull.state is PullState.MERGED:
+        return ForgeOutcome.SUCCESS
+    if pull.state is PullState.CLOSED:
+        return ForgeOutcome.FAILURE
+    return None if pull.draft else ForgeOutcome.SUCCESS
 
 
 class VerdictGrade(BaseModel):
@@ -212,10 +251,11 @@ def grade_verdicts(
 
 
 def verdict_search(window: GradeWindow, repo: RepoRef | None, slug: str, now: datetime) -> str:
-    """The GitHub search of the pull requests that the App of `slug` opened in `window` up to
-    `now`, in the repository `repo` or in each repository."""
+    """The GitHub search of the pull requests of the App of `slug` that changed in `window` up to
+    `now`, in the repository `repo` or in each repository. A delivery opened before the window and
+    marked ready or merged in it gives the forge outcome of its attempt (#6559)."""
     start = (now - window.span).astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    search = f"is:pr author:app/{slug} created:>={start}"
+    search = f"is:pr author:app/{slug} updated:>={start}"
     return f"{search} repo:{repo.display}" if repo is not None else search
 
 
@@ -261,6 +301,10 @@ class _Pull(_Answered):
     number: int
     title: str
     repository: _Repository
+    head_ref_name: str = ""
+    state: PullState = PullState.OPEN
+    is_draft: bool = False
+    created_at: datetime | None = None
     timeline_items: _Events = Field(default_factory=_Events)
 
 
@@ -335,7 +379,18 @@ def _bot_pull(node: _Pull) -> BotPull:
             kind,
             unscored,
         )
-    return BotPull(repo=repo, number=node.number, kind=kind, verdict=verdict, unscored=unscored)
+    branch = parse_branch(node.head_ref_name)
+    return BotPull(
+        repo=repo,
+        number=node.number,
+        kind=kind,
+        verdict=verdict,
+        unscored=unscored,
+        item=branch.issue if branch is not None else None,
+        state=node.state,
+        draft=node.is_draft,
+        created=node.created_at,
+    )
 
 
 def read_bot_pulls(reads: GraphQLReads, search: str) -> list[BotPull]:
@@ -357,11 +412,14 @@ __all__ = [
     "VERDICT_LABELS",
     "VERDICT_LABEL_NAMES",
     "BotPull",
+    "ForgeOutcome",
     "GraphQLReads",
     "PullKind",
+    "PullState",
     "Verdict",
     "VerdictGrade",
     "first_verdict_label",
+    "forge_outcome",
     "grade_verdicts",
     "plan_verdict_request",
     "pull_kind",

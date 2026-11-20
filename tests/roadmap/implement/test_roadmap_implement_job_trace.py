@@ -99,7 +99,7 @@ def _writes(world: JobWorld, monkeypatch: pytest.MonkeyPatch) -> list[dict[Any, 
     return seen
 
 
-def test_a_run_to_a_ready_pull_request_leaves_the_events_of_the_steps_and_the_commands(
+def test_a_run_to_a_draft_pull_request_leaves_the_events_of_the_steps_and_the_commands(
     job_world: JobWorld,
 ) -> None:
     applied = job_world.run(two_groups())

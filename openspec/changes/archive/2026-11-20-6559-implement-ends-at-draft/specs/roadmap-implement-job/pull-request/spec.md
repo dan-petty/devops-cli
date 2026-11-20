@@ -100,6 +100,28 @@ For each pull request, after the job sets the title and the body, it SHALL add t
 - **WHEN** `devops roadmap implement --dry-run` runs
 - **THEN** the plan lists the read of the pull request, the read of `.github/labels.yml`, the request that adds a label and the request that removes one, and the run makes no request
 
+### Requirement: The run ends at the draft pull request
+After the job sets the title and the body of the draft and comments each step, it SHALL ask `draft_readiness` with no check runs, and a refusal SHALL stop the item at the step `ready`. Then it SHALL end the run: it SHALL record `implement.result` as `drafted`, the pull request, the last commit and the spend, set Status to In Review, and comment the spend on the item. The job SHALL NOT watch the checks, publish an evidence comment, run `gh pr ready` or merge.
+
+#### Scenario: The end of a run
+- **WHEN** every group passes and the job pushes the branch
+- **THEN** the draft holds the final title and body, `gh pr ready` ran never, the record holds `implement.result` equal to `drafted` and the number of the pull request, and Status is In Review
+
+#### Scenario: A draft that the readiness function refuses
+- **WHEN** the archive leaves a task of group 2 unticked
+- **THEN** the item is Blocked at the step `ready` with the class `plan_defect`, and the record holds no `implement.result` equal to `drafted`
+
+### Requirement: A Planned item gets a new branch
+For a Planned item the job SHALL make the branch `<type>/<issue>-<slug>` at `origin/<default branch>`. The type is the Conventional Commit type of the title of the item, and the slug is the one of the change folder. The job SHALL run the groups that have an unticked task, regenerate the documentation and archive the change, as it does for a Staged item.
+
+#### Scenario: Two groups
+- **WHEN** a Planned item has a change with two unticked groups on `origin/main`, both steps pass, and the checks pass
+- **THEN** `origin` holds the new branch with one commit for each group, one for the documentation and one for the archive, GitHub received one draft pull request and one body that starts with `Closes #<issue>`, `gh pr ready` ran never, `implement.result` is `drafted`, the record holds `implement.branch` and `implement.pr`, and the Status is In Review
+
+#### Scenario: A group that is done
+- **WHEN** every task of group 1 is ticked on `origin/main`
+- **THEN** the job runs a step for group 2 only
+
 ## REMOVED Requirements
 
 ### Requirement: A pull request that passes its checks is marked ready

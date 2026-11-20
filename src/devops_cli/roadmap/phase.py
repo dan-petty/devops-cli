@@ -30,6 +30,7 @@ from devops_cli.roadmap.stores.store import (
     AlternativesRecordKey,
     GitHubState,
     ImplementRecordKey,
+    ImplementResult,
     Item,
     OwnerQuestionRecordKey,
     RefineRecordKey,
@@ -85,6 +86,9 @@ def _delivery_phase(
             return Phase.READY_FOR_REVIEW
         if delivery_pr.state == "open":
             return Phase.IN_REVIEW
+    if record.get(ImplementRecordKey.RESULT) == ImplementResult.DRAFTED.value:
+        # The Job ended at the draft and wrote In Review (#6559); no pull data says it is ready.
+        return Phase.IN_REVIEW
     if item.status == CONST_ROADMAP_STATUS_IN_REVIEW or "status/in-review" in item.labels:
         return Phase.READY_FOR_REVIEW
     if (

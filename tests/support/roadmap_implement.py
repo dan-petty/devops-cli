@@ -21,7 +21,6 @@ from typing import Any
 import pytest
 from pydantic_ai.messages import ModelResponse
 
-from devops_cli.config.constants import CONST_PR_EVIDENCE_MARKER
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap.implement.implement import parse_implement_filters, plan_implement
 from devops_cli.roadmap.implement.implement_run import ImplementApplied, apply_implement
@@ -32,8 +31,6 @@ from tests.support.fakes.github import (
     API,
     GitHubApiFake,
     github_json,
-    route_compare_files,
-    route_file,
 )
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -340,10 +337,9 @@ def long_run_trace() -> ImplementTrace:
     return trace
 
 
-# ── Pull request 5, as GitHub answers the watch of the job ────────────────────────────────
+# ── Pull request 5, as GitHub answers the job ─────────────────────────────────────────────
 
 CHECK_LINK = f"https://github.com/{STAGE_REPO}/actions/runs/101/job/202"
-OLD_HEAD = "0" * 40
 PASS: dict[str, Any] = {
     "name": "Tests & Coverage",
     "status": "completed",
@@ -355,75 +351,18 @@ RUNNING: dict[str, Any] = {**PASS, "status": "in_progress", "conclusion": None}
 _PULL_API = f"api repos/{STAGE_REPO}/pulls/{PULL}"
 # The login of the session that the job acts as.
 _LOGIN = "test-bot"
-# The one evidence comment of the pull request (#4129): the publisher of the job changes it, so a
-# run posts no second evidence comment.
-_EVIDENCE_COMMENT = {
-    "id": 900,
-    "body": f"{CONST_PR_EVIDENCE_MARKER}\n## Check results\n",
-    "user": {"login": _LOGIN},
-}
-_THREADS_QUERY = "GetReviewThreads"
-
-# The repository's pull-request workflow, so a head commit with no check waits for one (#5144).
-_WORKFLOW = """name: CI
-on:
-  pull_request:
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - run: "true"
-"""
-_ARCHIVED_FILE = {
-    "filename": f"openspec/changes/archive/2026-10-29-{CHANGE}/proposal.md",
-    "status": "added",
-}
-
-
-def _threads_page(*threads: dict[str, Any]) -> str:
-    page = {"nodes": list(threads), "pageInfo": {"hasNextPage": False, "endCursor": None}}
-    return json.dumps({"data": {"repository": {"pullRequest": {"reviewThreads": page}}}})
-
-
-OPEN_THREAD: dict[str, Any] = {
-    "id": "T1",
-    "isResolved": False,
-    "path": "src/devops_cli/shout.py",
-    "line": 3,
-    "comments": {
-        "nodes": [{"id": "T1-0", "body": "Rename this.", "author": {"login": "reviewer"}}],
-        "pageInfo": {"hasNextPage": False},
-    },
-}
 
 
 class PullFake:
-    """Pull request 5 of `STAGE_REPO` as GitHub answers `monitor_pr` and `gh`.
+    """Pull request 5 of `STAGE_REPO` as GitHub answers the job and `gh`.
 
-    The head is the tip of `BRANCH` on `origin`. The checks of the first head that it sees are
-    `runs[0]`, those of the second head `runs[1]`, and the last list repeats. `stale` reads show
-    the previous head, `OLD_HEAD`, with a failed check. `gh pr ready` flips the draft flag.
-    `closed` closes the pull request without a merge. The compare of `main` and each head lists
-    the archived change (#2530).
+    The head is the tip of `BRANCH` on `origin`. The job watches no check and marks nothing ready
+    (#6559), so `ready_calls` holds each `gh pr ready` that a test expects to stay empty.
     """
 
     def __init__(self, api: GitHubApiFake, gh: ProcessFake, repo: StageRepo) -> None:
         self.api, self.gh, self.repo = api, gh, repo
-        self.runs: list[list[dict[str, Any]]] = [[PASS]]
-        self.heads: list[str] = []
-        self.stale = 0
-        self.conflict = False
-        self.closed = False
         self.ready_calls: list[tuple[str, ...]] = []
-        # The requests that the API had received at each `gh pr ready`, so a test tells which of
-        # the evidence write and the ready mark came first (#4129).
-        self.ready_requests: list[list[str]] = []
-        self.log = "FAILED tests/test_shout.py::test_shout - assert 'A' == 'a'"
-        self.run_view_calls: list[tuple[str, ...]] = []
-        self.threads()
-        self._answer(
-            "/status", ProcessAnswer(stdout=json.dumps({"state": "success", "statuses": []}))
-        )
         self._answer("contents/openspec/changes", ProcessAnswer())
         references = {
             "totalCount": 1,
@@ -445,14 +384,6 @@ class PullFake:
         gh.answer(
             lambda call: call.argv[1:3] == ("pr", "ready"), ProcessAnswer(side_effect=self._ready)
         )
-        gh.answer(
-            lambda call: call.argv[1:3] == ("run", "view"),
-            ProcessAnswer(side_effect=self._run_view),
-        )
-        api.route("GET", f"/repos/{STAGE_REPO}/pulls/{PULL}/reviews?per_page=100", github_json([]))
-        api.route(
-            "GET", f"/repos/{STAGE_REPO}/issues/{PULL}/timeline?per_page=100", github_json([])
-        )
         api.route("PATCH", f"/repos/{STAGE_REPO}/pulls/{PULL}", github_json({"number": PULL}))
         api.route(
             "POST",
@@ -461,61 +392,26 @@ class PullFake:
         )
         api.route("GET", "/user", github_json({"login": _LOGIN}))
         api.route("PATCH", f"/repos/{STAGE_REPO}/issues/comments/1", github_json({"id": 1}))
-        api.route(
-            "PATCH",
-            f"/repos/{STAGE_REPO}/issues/comments/{_EVIDENCE_COMMENT['id']}",
-            github_json({"id": _EVIDENCE_COMMENT["id"]}),
-        )
         self.comments()
 
     def comments(self, *comments: dict[str, Any]) -> None:
-        """The comments that the pull request holds when the job lists them (#4070). The evidence
-        comment of the job's login comes first, so a test's comments follow it (#4129)."""
+        """The comments that the pull request holds when the job lists them (#4070)."""
         listing = f"/repos/{STAGE_REPO}/issues/{PULL}/comments?per_page=100"
-        self.api.route("GET", listing, github_json([_EVIDENCE_COMMENT, *comments]))
+        self.api.route("GET", listing, github_json(list(comments)))
 
     def _answer(self, route: str, answer: ProcessAnswer) -> None:
         self.gh.answer(lambda call, key=route: key in " ".join(call.argv), answer)
 
-    def threads(self, *threads: dict[str, Any]) -> None:
-        """The unresolved review threads of the pull request."""
-        self._answer(_THREADS_QUERY, ProcessAnswer(stdout=_threads_page(*threads)))
-
-    def _route_checks(self, sha: str, runs: list[dict[str, Any]]) -> None:
-        path = f"/repos/{STAGE_REPO}/commits/{sha}/check-runs?per_page=100"
-        self.api.route("GET", path, github_json({"total_count": len(runs), "check_runs": runs}))
-
-    def _route_workflow(self, sha: str) -> None:
-        """Answer the head's workflow folder with the repository's pull-request workflow."""
-        entry = {"type": "file", "name": "ci.yml", "path": ".github/workflows/ci.yml"}
-        self.api.route(
-            "GET",
-            f"/repos/{STAGE_REPO}/contents/.github/workflows?ref={sha}",
-            github_json([entry]),
-        )
-        route_file(self.api, STAGE_REPO, ".github/workflows/ci.yml", sha, _WORKFLOW)
-
     def _pull(self, _call: ProcessCall) -> subprocess.CompletedProcess[str]:
-        if self.stale > 0:
-            self.stale -= 1
-            sha, runs = OLD_HEAD, [FAIL]
-        else:
-            sha = self.repo.origin_git("rev-parse", BRANCH)
-            if sha not in self.heads:
-                self.heads.append(sha)
-            runs = self.runs[min(self.heads.index(sha), len(self.runs) - 1)]
-        self._route_checks(sha, runs)
-        self._route_workflow(sha)
-        route_compare_files(self.api, STAGE_REPO, "main", sha, _ARCHIVED_FILE, merge_base="c" * 40)
+        sha = self.repo.origin_git("rev-parse", BRANCH)
         repo = {"full_name": STAGE_REPO, "default_branch": "main"}
-        dirty = self.conflict
         payload = {
             "number": PULL,
             "merged": False,
-            "state": "closed" if self.closed else "open",
+            "state": "open",
             "draft": not self.ready_calls,
-            "mergeable": not dirty,
-            "mergeable_state": "dirty" if dirty else "clean",
+            "mergeable": True,
+            "mergeable_state": "clean",
             "base": {"ref": "main", "sha": "b" * 40, "repo": repo},
             "head": {"ref": BRANCH, "sha": sha, "repo": repo},
         }
@@ -523,12 +419,7 @@ class PullFake:
 
     def _ready(self, call: ProcessCall) -> subprocess.CompletedProcess[str]:
         self.ready_calls.append(call.argv[1:])
-        self.ready_requests.append(list(self.api.requested))
         return subprocess.CompletedProcess([], 0, stdout="")
-
-    def _run_view(self, call: ProcessCall) -> subprocess.CompletedProcess[str]:
-        self.run_view_calls.append(call.argv[1:])
-        return subprocess.CompletedProcess([], 0, stdout=self.log)
 
 
 # ── The job, end to end ───────────────────────────────────────────────────────────────────

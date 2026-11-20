@@ -310,7 +310,7 @@ def test_a_claim_during_group_two_keeps_group_one_and_pushes_nothing_more(
 # ── The base ──────────────────────────────────────────────────────────────────────────────
 
 
-def test_the_base_is_written_once_and_cleared_at_ready(world: JobWorld) -> None:
+def test_the_base_is_written_once_and_cleared_at_the_drafted_end(world: JobWorld) -> None:
     start = world.repo.origin_git("rev-parse", BRANCH) if _staged(world) else "new"
     during: list[str | None] = []
     first = _script(

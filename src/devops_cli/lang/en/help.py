@@ -2056,7 +2056,7 @@ class RoadmapCommandHelp:
         "roadmap.stage.planned_limit, which is a rule of the stage job only, and the limit of "
         "a run. For refine the reason is the wait of the item, such as a question for a person. "
         "For a stopped item it prints the state of the stop from the job record: the class, the "
-        "attempts of the stopped step, the work that the stop kept and the action left. "
+        "attempts of the stopped step and the action left. "
         "The reasons are the texts of the 'Left out' list of stage --plan and implement "
         "--plan. The command reads "
         "GitHub and git, calls no model and writes nothing. It uses the filter and the limit "

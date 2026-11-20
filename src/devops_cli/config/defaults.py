@@ -1078,8 +1078,7 @@ DEFAULT_ROADMAP_IMPLEMENT_CONTINUATIONS_PER_ITEM: int = 2
 # gateway group of the implement task. One tier keeps every attempt on the same model until a
 # person names a stronger tier, as `devops-reasoning`, after it.
 DEFAULT_ROADMAP_IMPLEMENT_LADDER_TIERS: Final[tuple[str, ...]] = (DEFAULT_AI_IMPLEMENT_MODEL,)
-# The most items one implement run takes, and the seconds between two reads of a pull request
-# whose checks are not there yet (#2665).
+# The most items one implement run takes (#2665).
 DEFAULT_ROADMAP_IMPLEMENT_LIMIT: int = 1
 # The effort values of the implement job's passes, in order (#3385): the job takes an item of the
 # first effort, and an item of the next effort only when no item of the first is selectable.

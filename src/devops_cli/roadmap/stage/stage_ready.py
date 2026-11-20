@@ -3,7 +3,7 @@
 The stage job opens a draft pull request for each item, and its plan is complete when it opens it.
 A draft stays a draft only while a check runs or fails. A round of this row reads the open items
 whose record holds `stage.pr` and not `stage.ready` of the same number, and holds no
-`implement.job` (a runner Job works on that pull request and marks it ready itself). It never
+`implement.job` (a runner Job works on that pull request). It never
 reads the draft of a person, and with no such item it sends no request.
 
 For each such item the round reads the pull request. One that is not an open draft is only
@@ -14,8 +14,8 @@ draft, and the round comments that the label is the reason once and records `sta
 (#3264). When the function says yes and the label is absent, the round reads the pull request once
 more. If a person pushed a commit or marked it ready since the first read, the draft waits, because
 no check judged that head. A window of milliseconds stays, since `gh pr ready` takes no expected
-head. Else the round marks the pull request ready with `mark_ready`, the function that the implement
-job uses, and records `stage.ready`. The check runs are read without the commit statuses: the App
+head. Else the round marks the pull request ready with `mark_ready`, the function that the ready
+path of the step `fix-checks` uses for a delivery draft, and records `stage.ready`. The check runs are read without the commit statuses: the App
 token holds `checks: read` and no `statuses`.
 
 `draft_readiness` is the one decision. It reads the checks today; #2867 replaces its body with a

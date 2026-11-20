@@ -84,6 +84,7 @@ def _graphql_pr_node(
     author: str = "alice",
     check_state: str = "FAILURE",
     check_conclusion: str = "FAILURE",
+    check_name: str = "Tests & Coverage",
     body: str = "",
     title: str = "feat: test",
     base_ref: str = "main",
@@ -111,7 +112,7 @@ def _graphql_pr_node(
                                 "nodes": [
                                     {
                                         "__typename": "CheckRun",
-                                        "name": "Tests & Coverage",
+                                        "name": check_name,
                                         "status": "COMPLETED",
                                         "conclusion": check_conclusion,
                                     }
@@ -384,6 +385,123 @@ def test_a_green_delivery_draft_gets_the_ready_path_after_a_fix_or_a_drafted_end
 
     assert (seen, result.marked_ready) == ([(pr_num, HEAD_PASS, False)] * calls, ())
     assert [r for r in github_api.sent if r.method != "POST" or r.url.path != "/graphql"] == []
+
+
+def test_a_ready_path_that_raises_runs_again_for_the_same_head(
+    store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The row records the head as judged only after the ready path returns a report, so a GitHub
+    error in the first round leaves the head for the next round (#6559)."""
+    from devops_cli.exceptions import GitHubOperationError
+    from devops_cli.roadmap import watch_row
+    from devops_cli.roadmap.steps.fix_checks import FixChecksReport, FixChecksResult
+
+    issue = store.seed_issue("Issue 1", fields={ItemField.PRIORITY: "P1-High"})
+    held = store.item(issue)
+    assert held is not None
+    store.set_marks(
+        held,
+        {
+            ImplementRecordKey.JOB: f"devops-cli-implement-project-{issue}-abc123",
+            ImplementRecordKey.JOB_STATE: "succeeded",
+            ImplementRecordKey.RESULT: "drafted",
+        },
+    )
+    pr_num = store.seed_pull("feat: delivery PR", head_ref=f"feat/{issue}-deliv", draft=True)
+    node = _graphql_pr_node(
+        number=pr_num,
+        head=HEAD_PASS,
+        is_draft=True,
+        body=f"Closes #{issue}",
+        author="devops-cli-service",
+        check_state="SUCCESS",
+        check_conclusion="SUCCESS",
+    )
+    calls: list[int] = []
+
+    def ready_path(store: Any, repo: str, pull: int, **kwargs: Any) -> FixChecksReport:
+        calls.append(pull)
+        if len(calls) == 1:
+            raise GitHubOperationError("502 Bad Gateway", operation="get_pull_status")
+        return FixChecksReport(repo=repo, pull=pull, result=FixChecksResult.PLANNED)
+
+    monkeypatch.setattr(watch_row, "run_fix_checks", ready_path)
+    ledger = tmp_path / CONST_ROADMAP_WATCH_LEDGER_FILENAME
+    for tick in range(3):
+        _route_graphql(github_api, [node])
+        try:
+            watch_round(store, repo=REPO, ledger_path=ledger, now=NOW + timedelta(minutes=tick))
+        except GitHubOperationError:
+            pass
+
+    assert calls == [pr_num, pr_num]
+
+
+@pytest.mark.parametrize(
+    ("check", "conclusion", "mergeable", "klass"),
+    [
+        ("Semantic PR title", "FAILURE", "MERGEABLE", "ci_infra"),
+        ("Tests & Coverage", "CANCELLED", "MERGEABLE", "ci_infra"),
+        ("Tests & Coverage", "SUCCESS", "CONFLICTING", "conflict"),
+    ],
+    ids=["ci-infra", "cancelled", "conflict"],
+)
+def test_a_drafted_delivery_draft_that_no_unit_takes_stops_its_item_once(
+    store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    tmp_path: Path,
+    check: str,
+    conclusion: str,
+    mergeable: str,
+    klass: str,
+) -> None:
+    """A failed check that no fix-checks unit repairs, a cancelled check and a conflict with the
+    base leave a drafted delivery draft with no actor, so the row stops its item through the stop
+    flow, once: Status Blocked, the class, and one stop comment that names the cause (#6559)."""
+    issue = store.seed_issue("Issue 1", fields={ItemField.PRIORITY: "P1-High"})
+    held = store.item(issue)
+    assert held is not None
+    store.set_field(
+        held,
+        ItemField.STATUS,
+        "In Review",
+        marks={
+            ImplementRecordKey.JOB: f"devops-cli-implement-project-{issue}-abc123",
+            ImplementRecordKey.JOB_STATE: "succeeded",
+            ImplementRecordKey.RESULT: "drafted",
+        },
+    )
+    pr_num = store.seed_pull("feat: delivery PR", head_ref=f"feat/{issue}-deliv", draft=True)
+    node = _graphql_pr_node(
+        number=pr_num,
+        head=HEAD_PASS,
+        is_draft=True,
+        mergeable=mergeable,
+        body=f"Closes #{issue}",
+        author="devops-cli-service",
+        check_state="SUCCESS" if conclusion == "SUCCESS" else "FAILURE",
+        check_conclusion=conclusion,
+        check_name=check,
+    )
+    ledger = tmp_path / CONST_ROADMAP_WATCH_LEDGER_FILENAME
+    for tick in (0, 31, 62):
+        _route_graphql(github_api, [node])
+        watch_round(store, repo=REPO, ledger_path=ledger, now=NOW + timedelta(minutes=tick))
+
+    stopped = store.item(issue)
+    assert stopped is not None
+    comments = [c.body for c in store.comments_on(issue)]
+    named = "conflict" if klass == "conflict" else check
+    assert (
+        stopped.status,
+        stopped.job_record.get(ImplementRecordKey.STOPPED),
+        stopped.job_record.get(ImplementRecordKey.FAILURE),
+        len(comments),
+        named in comments[0],
+    ) == ("Blocked", "pull request", klass, 1, True)
 
 
 def test_watch_row_dry_run_sends_zero_requests(

@@ -40,7 +40,7 @@ def budget(config: Callable[..., Path]) -> None:
 
 
 @pytest.mark.usefixtures("budget")
-def test_the_ready_comment_and_the_record_show_the_extension_of_a_step(
+def test_the_end_comment_and_the_record_show_the_extension_of_a_step(
     job_world: JobWorld,
 ) -> None:
     script = ModelScript(

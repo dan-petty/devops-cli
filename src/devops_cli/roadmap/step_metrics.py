@@ -61,7 +61,7 @@ def observe_step(repo: str | None, row: str, step: StepName) -> Iterator[StepTim
 
 
 def observe_implement(repo: str | None, step: StepName) -> AbstractContextManager[StepTimer]:
-    """`observe_step` for the implement row (#4067): the steps `checks`, `publish` and `watch`."""
+    """`observe_step` for the implement row (#4067): the steps `checks` and `publish`."""
     return observe_step(repo, IMPLEMENT_ROW, step)
 
 

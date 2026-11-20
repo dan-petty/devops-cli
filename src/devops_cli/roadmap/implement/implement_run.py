@@ -98,6 +98,7 @@ from devops_cli.exceptions import (
 )
 from devops_cli.exceptions.roadmap import GitSettingsError, OverWindowError
 from devops_cli.git.worktree_add import add_worktree
+from devops_cli.github.client import PullRequestFile
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.project import uses_openspec
@@ -134,6 +135,13 @@ from devops_cli.roadmap.implement.implement_hooks import (
     trusted_config,
 )
 from devops_cli.roadmap.implement.implement_limits import BudgetExtension, ItemSpend, new_tokens
+from devops_cli.roadmap.implement.implement_pull import (
+    Answer,
+    ChangeFacts,
+    Draft,
+    DraftKind,
+    draft_readiness,
+)
 from devops_cli.roadmap.implement.implement_scoped_ci import (
     ScopedResult,
     ScopedTests,
@@ -847,6 +855,7 @@ class _ItemRun:
         self._delivery_metadata()
         pull = self._push()
         self._pull_request(pull)
+        self._require_complete(pull)
         self._end_drafted(pull)
 
     def _start(self) -> None:
@@ -1925,6 +1934,48 @@ class _ItemRun:
         self.outcomes.append(outcome)
         if outcome.status is StepStatus.STOPPED:
             raise _stopped_by(self.step, outcome, check=check, log=log)
+
+    def _require_complete(self, pull: int) -> None:
+        """Stop the item when `draft_readiness` refuses the draft `pull` with no check runs, as the
+        step `ready` did before the run ended at the draft (#6559): the change is present, each
+        group is ticked, it is archived where the target requires it, and a change of the stage
+        prompt holds its eval scores. The checks of the pull request stay with the watch row."""
+        self.step = MESSAGES.roadmap.implement_step_names["ready"]
+        status = get_github_session().client.get_pull_status(self.repo, pull)
+        archived = self._archived_name()
+        active = self._active_change()
+        change: ChangeFacts | None = None
+        if archived:
+            tasks_path = self.path / CONST_OPENSPEC_ARCHIVE_DIR / archived / "tasks.md"
+            tasks_text = tasks_path.read_text(encoding="utf-8") if tasks_path.is_file() else ""
+            change = ChangeFacts(archived=True, tasks_text=tasks_text)
+        elif active is not None:
+            active_tasks = active / "tasks.md"
+            tasks_text = active_tasks.read_text(encoding="utf-8") if active_tasks.is_file() else ""
+            change = ChangeFacts(
+                archived=False,
+                tasks_text=tasks_text,
+                archive_required=bool(
+                    self.profile.preset.archive_argv
+                    and uses_openspec(self.path, f"origin/{self.default}", operation=GIT_OPERATION)
+                ),
+            )
+        listed = self._git(
+            "diff", "--name-only", "--diff-filter=ACMR", "-z", f"origin/{self.default}", "HEAD"
+        )
+        changed = tuple(
+            PullRequestFile(filename=name, status="modified") for name in listed.split("\0") if name
+        )
+        draft = Draft(
+            kind=DraftKind.IMPLEMENT,
+            pull=status,
+            item=self.target.item,
+            change=change,
+            files=changed,
+        )
+        readiness = draft_readiness(draft)
+        if readiness.answer is not Answer.READY:
+            raise _StopError(self.step, readiness.reason)
 
     def _end_drafted(self, pull: int) -> None:
         """End the run at the draft pull request `pull` (#6559): record the result `drafted`, set

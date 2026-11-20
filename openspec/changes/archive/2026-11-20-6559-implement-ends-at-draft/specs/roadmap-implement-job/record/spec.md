@@ -96,6 +96,21 @@ A job SHALL send at most 5 requests more than before for the comment and the pha
 - **WHEN** a job takes an item to a draft pull request
 - **THEN** it reads the comments once and writes each phase mark once
 
+### Requirement: The spend of a killed Job counts toward the item budget
+The job SHALL write `implement.spend` with each passed group. At the start, the job SHALL read the recorded spend and add it to the spend of its own steps, for the item budget and for the spend that a stop or the end of a drafted run writes. A retry that a person asks for SHALL start from zero spend. A return to New SHALL clear `implement.spend`.
+
+#### Scenario: A continuation after a kill
+- **WHEN** a Job is killed after group 1 spent 100 input tokens, and the item budget is 150
+- **THEN** the second Job stops with the class `limit_reached` after its first request, and the record of a finished item holds the requests and tokens of both Jobs
+
+#### Scenario: A retry of a person
+- **WHEN** a person retries a stopped item
+- **THEN** the Job starts from zero spend
+
+#### Scenario: A record of an older version
+- **WHEN** the record holds `implement.spend` as an earlier version wrote it, and none of the phase marks
+- **THEN** the job starts from that spend and runs the scoped checks
+
 ## REMOVED Requirements
 
 ### Requirement: The job record keeps the base that a withdraw restores

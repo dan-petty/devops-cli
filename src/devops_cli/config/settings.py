@@ -2089,7 +2089,7 @@ class RoadmapFixChecksConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
     mode: Annotated[RowMode, Variable()] = Field(
-        description="What the watch row of the Service does with a bot pull request whose required check fails with the class test, lint, types or plan check (#5027, ADR 0021 section 8). `off` starts no Job. `plan` starts one fix-checks Job from CronJob devops-cli-runner that runs `devops roadmap step fix-checks` without `--confirm`: the Job logs the action that it would take and writes nothing. `on` starts the Job with `--confirm`, so it repairs the check and pushes. A fix Job counts against `roadmap.model_jobs` and goes before a new implement or stage Job",
+        description="What the watch row of the Service does with a bot pull request whose required check fails, when the name of the check gives the class test, lint or types (#5027, ADR 0021 section 8). `off` starts no Job. `plan` starts one fix-checks Job from CronJob devops-cli-runner that runs `devops roadmap step fix-checks` without `--confirm`: the Job logs the action that it would take and writes nothing. `on` starts the Job with `--confirm`, so it repairs the check and pushes. A fix Job counts against `roadmap.model_jobs` and goes before a new implement or stage Job. The mode also rules the ready path of a delivery draft that a fix Job repaired or whose implement Job ended at the draft (#6559): `off` and `plan` leave the draft a draft, and only `on` marks it ready",
         default=DEFAULT_ROADMAP_FIX_CHECKS_MODE,
     )
 

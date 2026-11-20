@@ -2826,8 +2826,8 @@ class RoadmapMessages:
     explain_effort_applies: str = "applies"
     explain_effort_not_applies: str = "does not apply"
     explain_effort_explicit: str = "The filter names effort, so the effort set does not apply."
-    # The state of a stop in the report (#3648): the step, the class, the attempts, the work that
-    # the stop kept and the action that is left.
+    # The state of a stop in the report (#3648): the step, the class, the attempts and the action
+    # that is left.
     explain_stop_step: str = "Stop: step {step}."
     explain_stop_class: str = "Stop class: {failure_class}."
     explain_stop_no_class: str = "Stop class: none is recorded."
@@ -3852,6 +3852,7 @@ class RoadmapMessages:
             "hooks": "hooks",
             "scoped": "scoped checks",
             "pull_request": "pull request",
+            "ready": "ready",
             "commit": "commit",
         }
     )
@@ -3897,6 +3898,18 @@ class RoadmapMessages:
         "allow it.{note}"
     )
     implement_comment_check: str = "Failed check: `{name}`.\n\n"
+    watch_stop_comment: str = (
+        "{marker}\nStopped at {step}.\n\n{failure}\n\nReason:\n\n{reason}\n\nThe item is "
+        "Blocked: the implement Job ended at the draft, and no fix-checks Job takes this case. Fix "
+        "the cause. Then comment `implement: retry`."
+    )
+    watch_stop_check: str = (
+        "The check `{check}` of the draft pull request #{pull} failed or was cancelled, and no "
+        "fix-checks Job repairs it."
+    )
+    watch_stop_conflict: str = (
+        "The draft pull request #{pull} has a merge conflict with the base branch `{base}`."
+    )
     implement_comment_check_log: str = (
         "Failed check: `{name}`. The end of its log:\n\n{fence}\n{log}\n{fence}\n\n"
     )
@@ -4003,9 +4016,11 @@ class RoadmapMessages:
         "over a limit wait for a comment `implement: retry`."
     )
     implement_comment_finished: str = (
-        "{marker}\nThe draft pull request #{pull} holds the final title and body. The watch "
-        "row marks it ready when its checks pass, and a fix-checks Job repairs a failed check."
-        "\n\n"
+        "{marker}\nThe draft pull request #{pull} holds the final title and body. In mode "
+        "`on` of `roadmap.fix_checks.mode`, the watch row marks it ready when its checks pass, "
+        "and a fix-checks Job repairs a failed check whose name gives the class test, lint or "
+        "types. The watch row stops the item for another failed check, a cancelled check or a "
+        "conflict.\n\n"
         "Spend: {requests} model requests, {input_tokens} input tokens, {output_tokens} output "
         "tokens.{extensions}"
     )
@@ -6641,6 +6656,9 @@ class RoadmapMessages:
     grades_classes: str = "  Failure classes: {classes}."
     grades_all_attempts: str = (
         "  All attempts: {attempts}, success ratio {ratio}, infrastructure cuts {infra}."
+    )
+    grades_drafts_pending: str = (
+        "  Drafted attempts whose delivery is still a draft, out of the attempts: {drafts}."
     )
     grades_version: str = "  Version {version}: {successes} of {attempts}, p {ratio} {interval}."
     grades_efficiency: str = (
