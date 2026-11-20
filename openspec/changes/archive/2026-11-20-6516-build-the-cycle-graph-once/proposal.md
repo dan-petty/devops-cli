@@ -22,7 +22,7 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-dependency-cycle`: The dependency graph names a cycle for each item, The shared dependency reason names a dependency cycle, Stage and implement build one graph for each selection
+- `roadmap-dependency-cycle`: The dependency graph names a cycle for each item, The path of an item is a shortest cycle, The shared dependency reason names a dependency cycle, Stage and implement build one graph for each selection
 
 ## Impact
 
