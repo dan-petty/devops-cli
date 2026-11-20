@@ -40,7 +40,7 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 
 DOCS = "uv run devops docs generate"
 ARCHIVE = ("uv run devops openspec archive", "openspec archive")
-HOOK_PRE_PUSH = "uv run pre-commit run --hook-stage pre-push"
+HOOK_PRE_PUSH = "uv run --frozen pre-commit run --hook-stage pre-push"
 STATIC = "uv run devops ci --check --only constructs,docs,openspec"
 RULE = "ast-grep scan....Failed\nerror: pytest.raises without match\n --> tests/test_shout.py"
 DIGEST_A = "sha256:" + "a" * 64

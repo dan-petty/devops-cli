@@ -37,7 +37,7 @@ from tests.support.model_script import ModelScript, say, tool_calls
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
-STAGE = "uv run pre-commit run --hook-stage pre-commit"
+STAGE = "uv run --frozen pre-commit run --hook-stage pre-commit"
 RAISES = (
     "def test_shout() -> None:\n    with pytest.raises(ValueError):\n        raise ValueError\n"
 )

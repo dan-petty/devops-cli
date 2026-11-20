@@ -23,18 +23,22 @@ from tests.support.roadmap_implement import (
     BRANCH,
     PULL,
     SHOUT,
+    STALE_LOCK_COMMANDS,
     JobWorld,
     group_one_calls,
     group_two_calls,
     route_pull_status,
+    stale_lock_effect,
     two_groups,
 )
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
-INSTALL = "uv run pre-commit install-hooks"
-PRE_COMMIT = "uv run pre-commit run --hook-stage pre-commit"
-PRE_PUSH = "uv run pre-commit run --hook-stage pre-push --from-ref origin/main --to-ref HEAD"
+INSTALL = "uv run --frozen pre-commit install-hooks"
+PRE_COMMIT = "uv run --frozen pre-commit run --hook-stage pre-commit"
+PRE_PUSH = (
+    "uv run --frozen pre-commit run --hook-stage pre-push --from-ref origin/main --to-ref HEAD"
+)
 STATIC = "uv run devops ci --check --only constructs,docs,openspec"
 TESTS = "uv run devops ci test tests/test_shout.py"
 RULE = "ast-grep scan....Failed\nerror: pytest.raises without match\n --> tests/test_shout.py"
@@ -137,7 +141,7 @@ def test_the_job_installs_the_hook_environments_before_the_first_step(job_world:
     job_world.run(two_groups())
 
     assert _count(job_world, INSTALL) == 1
-    first_stage = _position(job_world, "uv run pre-commit run --hook-stage pre-commit")
+    first_stage = _position(job_world, "uv run --frozen pre-commit run --hook-stage pre-commit")
     assert _position(job_world, INSTALL) < first_stage
     install = next(c for c in job_world.programs.calls if command_text(c).startswith(INSTALL))
     assert install.cwd is not None
@@ -166,11 +170,11 @@ def test_a_failed_install_stops_the_item_before_any_model_request(job_world: Job
 
 # ── The coder environment (#6517) ─────────────────────────────────────────────────────────
 
-# A staged branch is an existing branch: its sync locks again when its `uv.lock` is stale, as the
-# `uv run` of the hook install did before the bootstrap (#6517).
-SYNC = "uv sync --group dev"
+# A staged branch is an existing branch: the bootstrap installs its locks as they are and writes
+# no tracked file, so a stale lock is the work of the agent (#6557).
+SYNC = "uv sync --frozen --group dev"
 LOCKED_SYNC = "uv sync --locked --group dev"
-NPM = "npm ci --ignore-scripts"
+NPM = "npm install --no-save --ignore-scripts"
 
 
 def _lock(world: JobWorld) -> JobWorld:
@@ -254,20 +258,21 @@ def test_a_failed_bootstrap_stops_the_item_before_any_model_request(
     assert _git_push(locked_world) == []
 
 
-def test_a_stale_lock_of_a_staged_branch_locks_again_and_stops_nothing(
+def test_a_stale_lock_of_a_staged_branch_leaves_the_worktree_clean_and_stops_nothing(
     locked_world: JobWorld,
 ) -> None:
-    """A sync with `--locked` refuses a `uv.lock` that does not match `pyproject.toml`. The staged
-    branch syncs without it, so a stale lock locks again and the item goes on, as before the
-    bootstrap."""
+    """A staged branch can hold a `uv.lock` and a `package-lock.json` that do not match their
+    manifests, and each plain `uv run` then writes `uv.lock`. The bootstrap writes no lock, and
+    the install of the hook environments locks nothing (`uv run --frozen`). So the first step
+    finds a clean worktree, and the item goes on (#6557)."""
     locked_world.programs.answer(
-        lambda call: command_text(call).startswith(LOCKED_SYNC),
-        ProcessAnswer(returncode=1, stderr="error: The lockfile at `uv.lock` needs to be updated"),
+        lambda call: command_text(call).startswith(STALE_LOCK_COMMANDS),
+        ProcessAnswer(side_effect=stale_lock_effect),
     )
 
     applied = locked_world.run(two_groups())
 
-    assert (applied.stopped, _syncs(locked_world)) == ((), [SYNC])
+    assert (applied.stopped, _syncs(locked_world), _count(locked_world, NPM)) == ((), [SYNC], 1)
 
 
 def test_a_planned_item_syncs_with_the_lock_of_the_default_branch(planned_world: JobWorld) -> None:
@@ -546,7 +551,7 @@ def test_a_retry_removes_the_check_and_its_log_with_the_stop(job_world: JobWorld
 
 
 def _hook_runs(world: JobWorld) -> list[str]:
-    return [text for text in _commands(world) if text.startswith("uv run pre-commit")]
+    return [text for text in _commands(world) if text.startswith("uv run --frozen pre-commit")]
 
 
 def test_an_edit_of_the_hook_configuration_by_the_agent_skips_no_hook(job_world: JobWorld) -> None:
@@ -710,7 +715,7 @@ def test_a_repository_with_no_hook_configuration_gets_no_install_and_no_pre_push
 
     commands = _commands(job_world)
     assert applied.ready == (1,)
-    assert [text for text in commands if text.startswith("uv run pre-commit")] == []
+    assert [text for text in commands if text.startswith("uv run --frozen pre-commit")] == []
     assert any(text.startswith(STATIC) for text in commands)
 
 

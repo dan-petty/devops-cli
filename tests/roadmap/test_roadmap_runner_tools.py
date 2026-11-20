@@ -313,6 +313,9 @@ def test_main_checks_the_tools_of_the_image_and_no_tool_of_the_checkout(
 
 SYNC = ("uv", "sync", "--locked", "--group", "dev")
 NPM = ("npm", "ci", "--ignore-scripts")
+# An existing branch: the lock as it is, and no write of a tracked file (#6557).
+FROZEN_SYNC = ("uv", "sync", "--frozen", "--group", "dev")
+NPM_NO_SAVE = ("npm", "install", "--no-save", "--ignore-scripts")
 LOCK = "version = 1\n"
 
 
@@ -381,32 +384,80 @@ def test_the_bootstrap_copies_a_seed_that_fits_and_syncs_offline(
     assert (uv_cache / "wheels-v5" / "entry").read_text(encoding="utf-8") == "wheel"
 
 
+@pytest.mark.parametrize(("locked", "sync"), [(True, SYNC), (False, FROZEN_SYNC)])
 @pytest.mark.parametrize("changed", [{"uv_lock_sha256": "other-lock"}, {"uv": "other-uv"}])
 def test_a_seed_that_does_not_fit_the_checkout_leaves_the_sync_online(
-    tmp_path: Path, process_fake: ProcessFake, uv_cache: Path, changed: dict[str, str]
+    tmp_path: Path,
+    process_fake: ProcessFake,
+    uv_cache: Path,
+    changed: dict[str, str],
+    locked: bool,
+    sync: tuple[str, ...],
 ) -> None:
+    """A seed of another lock or another uv lacks packages of the checkout, so the sync of either
+    mode runs online and the bootstrap copies nothing (#6557)."""
     process_fake.answer(
         lambda call: _argv(call) == ("uv", "--version"), ProcessAnswer(stdout="uv job-uv\n")
     )
     checkout = _checkout(tmp_path, "uv.lock")
     seed = _seed(tmp_path, _record(checkout, **changed))
 
-    bootstrap_checkout(checkout, seed=seed)
+    bootstrap_checkout(checkout, locked=locked, seed=seed)
 
-    assert _argv(process_fake.calls[-1]) == SYNC
+    last = process_fake.calls[-1]
+    assert (_argv(last), last.env) == (sync, {"UV_HTTP_RETRIES": "5", "UV_MALWARE_CHECK": "1"})
     assert not uv_cache.exists()
 
 
-def test_a_sync_that_may_lock_again_runs_without_locked(
+def test_an_unlocked_bootstrap_syncs_the_lock_as_it_is(
     tmp_path: Path, process_fake: ProcessFake, uv_cache: Path
 ) -> None:
-    """A Job on an existing branch syncs as `uv run` does, so a stale `uv.lock` is locked again
-    and does not fail the bootstrap (#6517)."""
+    """The `uv.lock` of an existing branch can be stale. A sync that locks again writes `uv.lock`,
+    and the step then refuses the dirty worktree. So the sync installs the lock as it is
+    (`--frozen`), and the agent locks again in its shell (#6557)."""
     checkout = _checkout(tmp_path, "uv.lock")
 
     bootstrap_checkout(checkout, locked=False, seed=tmp_path / "no-seed")
 
-    assert [_argv(call) for call in process_fake.calls] == [("uv", "sync", "--group", "dev")]
+    assert [(_argv(call), call.cwd, call.env) for call in process_fake.calls] == [
+        (FROZEN_SYNC, checkout, {"UV_HTTP_RETRIES": "5", "UV_MALWARE_CHECK": "1"})
+    ]
+
+
+def test_an_unlocked_bootstrap_installs_the_npm_packages_and_saves_no_lock(
+    tmp_path: Path, process_fake: ProcessFake, uv_cache: Path
+) -> None:
+    """On an existing branch `npm ci` refuses a stale `package-lock.json`, and `npm install`
+    writes it again. With `--no-save`, npm installs and writes no `package.json` and no
+    `package-lock.json`, so the step finds a clean worktree (#6557)."""
+    checkout = _checkout(tmp_path, "uv.lock", "package-lock.json")
+
+    bootstrap_checkout(checkout, locked=False, seed=tmp_path / "no-seed")
+
+    assert [(_argv(call), call.cwd) for call in process_fake.calls] == [
+        (FROZEN_SYNC, checkout),
+        (NPM_NO_SAVE, checkout),
+    ]
+
+
+def test_a_seed_that_fits_an_unlocked_bootstrap_syncs_the_lock_offline(
+    tmp_path: Path, process_fake: ProcessFake, uv_cache: Path
+) -> None:
+    """`--frozen` does not resolve: it installs the packages of `uv.lock`, and a seed that fits
+    holds the packages of that `uv.lock`. So the unlocked sync runs offline from the seed, as the
+    locked sync does (#6557)."""
+    process_fake.answer(
+        lambda call: _argv(call) == ("uv", "--version"),
+        ProcessAnswer(stdout="uv job-uv (x86_64-unknown-linux)\n"),
+    )
+    checkout = _checkout(tmp_path, "uv.lock")
+    seed = _seed(tmp_path, _record(checkout))
+
+    bootstrap_checkout(checkout, locked=False, seed=seed)
+
+    synced = [(_argv(call), call.env) for call in process_fake.calls if _argv(call)[1] == "sync"]
+    assert synced == [((*FROZEN_SYNC, "--offline"), {"UV_MALWARE_CHECK": "0"})]
+    assert (uv_cache / "wheels-v5" / "entry").read_text(encoding="utf-8") == "wheel"
 
 
 def test_a_checkout_with_no_lock_file_gets_no_bootstrap_command(

@@ -561,6 +561,32 @@ def docs_effect(call: ProcessCall) -> subprocess.CompletedProcess[str]:
     return subprocess.CompletedProcess(call.argv, 0, stdout="generated\n")
 
 
+STALE_LOCK_COMMANDS = ("uv sync", "uv run", "npm install")
+
+
+def stale_lock_effect(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+    """What a command of `STALE_LOCK_COMMANDS` does on a stale lock (#6557): a `uv sync` or a
+    `uv run` with none of `--frozen`, `--locked` and `--no-sync` locks again and writes `uv.lock`,
+    as uv does, and an `npm install` with no `--no-save` writes `package-lock.json`. The archive
+    and the documents keep the effects of the job world."""
+    text = command_text(call)
+    words = set(text.split())
+    assert call.cwd is not None
+    if text.startswith(("uv sync", "uv run")) and not words & {
+        "--frozen",
+        "--locked",
+        "--no-sync",
+    }:
+        (call.cwd / "uv.lock").write_text("version = 2\n", encoding="utf-8")
+    if text.startswith("npm install") and "--no-save" not in words:
+        (call.cwd / "package-lock.json").write_text('{"lockfileVersion": 3}\n', encoding="utf-8")
+    if text.startswith("uv run devops openspec archive"):
+        return archive_effect(call)
+    if text.startswith("uv run devops docs generate"):
+        return docs_effect(call)
+    return subprocess.CompletedProcess(call.argv, 0, stdout="", stderr="")
+
+
 def move_main_when(
     world: JobWorld,
     matches: Callable[[ProcessCall], bool],

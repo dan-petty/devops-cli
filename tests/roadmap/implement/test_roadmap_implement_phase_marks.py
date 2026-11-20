@@ -46,7 +46,9 @@ CHECKED = "implement.checked_sha"
 PUBLISHED = "implement.published_sha"
 SPEND = "implement.spend"
 RESULT = "implement.result"
-PRE_PUSH = "uv run pre-commit run --hook-stage pre-push --from-ref origin/main --to-ref HEAD"
+PRE_PUSH = (
+    "uv run --frozen pre-commit run --hook-stage pre-push --from-ref origin/main --to-ref HEAD"
+)
 # Each scripted request counts 50 input tokens, so a group of two requests spends 100. With the
 # output tokens of its parts, group 1 counts 226 new tokens and the first request of group 2 153.
 GROUP_TOKENS = 100

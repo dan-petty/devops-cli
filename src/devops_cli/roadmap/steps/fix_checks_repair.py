@@ -254,9 +254,11 @@ def model_fix(store: ItemReader) -> ModelFixer:
     recorded tests of the default branch, as the implement job reads them, and the cap
     `roadmap.fix_checks.token_budget`. It may also change the files `extra` outside the plan,
     whose failure the change of the branch causes (#6116). Before the step it builds the coder
-    environment of the worktree (#6517). The branch exists, so the sync locks again a stale
-    `uv.lock`, as the `uv run` of the hook install did before; tier 1 runs only `uv run` and
-    `uv lock`, which build what they need, so it needs no bootstrap."""
+    environment of the worktree (#6517). The branch exists, so the bootstrap installs its
+    `uv.lock` as it is and writes no lock, and the install of the hook environments locks nothing
+    (`uv run --frozen`). So the step finds a clean worktree, and locks a stale lock again in its
+    shell (#6557). Tier 1 runs only `uv run` and `uv lock`, which build what they need, so it
+    needs no bootstrap."""
 
     def fix(path: Path, item: int, check: str, log: str, extra: tuple[str, ...]) -> Fixed:
         try:

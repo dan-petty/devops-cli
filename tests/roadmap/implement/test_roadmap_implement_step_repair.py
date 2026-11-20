@@ -199,7 +199,7 @@ def test_the_map_of_the_second_attempt_names_the_file_before_its_location(
     """A reason that names a file with a location, as `ruff` and `mypy` do, names that file
     (#3569)."""
     programs.answer(
-        lambda call: command_text(call).startswith("uv run pre-commit"),
+        lambda call: command_text(call).startswith("uv run --frozen pre-commit"),
         ProcessAnswer(
             returncode=1, stdout="ast-grep scan....Failed\n --> tests/test_sample.py:3:1\n"
         ),
@@ -226,7 +226,7 @@ def test_the_second_attempt_holds_no_map_section_when_no_file_has_a_symbol(
 ) -> None:
     """A failure that names no file and a group that names no file give no section (#3569)."""
     programs.answer(
-        lambda call: command_text(call).startswith("uv run pre-commit"),
+        lambda call: command_text(call).startswith("uv run --frozen pre-commit"),
         ProcessAnswer(returncode=1, stdout="ast-grep scan....Failed\nno file matched\n"),
     )
     script = ModelScript(

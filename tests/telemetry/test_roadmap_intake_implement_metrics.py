@@ -68,7 +68,9 @@ CHECK_SECONDS = 10.0
 PUSH_SECONDS = 2.0
 
 STATIC = "uv run devops ci --check --only constructs,docs,openspec"
-PRE_PUSH = "uv run pre-commit run --hook-stage pre-push --from-ref origin/main --to-ref HEAD"
+PRE_PUSH = (
+    "uv run --frozen pre-commit run --hook-stage pre-push --from-ref origin/main --to-ref HEAD"
+)
 CONFIG = ".pre-commit-config.yaml"
 HOOKS = "repos:\n  - repo: local\n    hooks: []\n"
 TEST_MODULE = "tests/test_shout.py"

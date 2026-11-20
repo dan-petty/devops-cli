@@ -27,7 +27,7 @@ from tests.support.implement_step import command_text
 
 CONFIG = Path("/data/cache/pre-commit-trusted-config.yaml")
 PRE_PUSH = (
-    "uv run pre-commit run --hook-stage pre-push --from-ref origin/main --to-ref HEAD "
+    "uv run --frozen pre-commit run --hook-stage pre-push --from-ref origin/main --to-ref HEAD "
     f"--config {CONFIG}"
 )
 TESTS = ["tests/test_shout.py"]
