@@ -37,7 +37,7 @@ None.
 ## Impact
 
 - Code: `src/devops_cli/roadmap/refine/refine.py`, `src/devops_cli/roadmap/explain.py`, `src/devops_cli/roadmap/stage/stage_rejected.py`, `src/devops_cli/roadmap/stage/stage.py`, `src/devops_cli/roadmap/request_plan.py`, `src/devops_cli/lang/en/messages.py`
-- Documents: `docs/roadmap/refine.md`, `docs/roadmap/stage.md`
+- Documents: `docs/roadmap/refine.md`, `docs/roadmap/stage.md`, `docs/ROADMAP_WORKFLOW.md`
 - Tests: `tests/roadmap/refine/test_roadmap_refine_person_wait.py`, `tests/roadmap/refine/test_roadmap_refine_recorded_wait.py`, `tests/roadmap/stage/test_roadmap_stage_rejected.py`, `tests/roadmap/test_roadmap_explain.py`, `tests/roadmap/test_roadmap_dry_runs.py`, `tests/support/roadmap_refine.py`
 
 ## Feasibility

@@ -48,11 +48,11 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/explain.py`, `src/devops_cli/road
 
 ## 6. State the tree filter in the refine and stage documents
 
-Kind: other. Reads: `src/devops_cli/roadmap/refine/refine.py`, `src/devops_cli/roadmap/stage/stage_rejected.py`, `docs/roadmap/refine.md`, `docs/roadmap/stage.md`. Changes: `docs/roadmap/refine.md`, `docs/roadmap/stage.md`.
+Kind: other. Reads: `src/devops_cli/roadmap/refine/refine.py`, `src/devops_cli/roadmap/stage/stage_rejected.py`, `docs/roadmap/refine.md`, `docs/roadmap/stage.md`, `docs/ROADMAP_WORKFLOW.md`. Changes: `docs/roadmap/refine.md`, `docs/roadmap/stage.md`, `docs/ROADMAP_WORKFLOW.md`.
 
-- [ ] 6.1 State in `docs/roadmap/refine.md` that a wait records only the paths that the tree of the commit of the round holds, that the five slots go to the first five real paths, that a decimal, a version, a dotted setting or a domain takes no slot, that a round reads the comments once for a record that holds a path that the tree lacks, and that a file that the tree does not hold ends no wait
+- [x] 6.1 State in `docs/roadmap/refine.md` that a wait records only the paths that the tree of the commit of the round holds, that the five slots go to the first five real paths, that a decimal, a version, a dotted setting or a domain takes no slot, that a round reads the comments once for a record that holds a path that the tree lacks, and that a file that the tree does not hold ends no wait. State in the job record table of `docs/ROADMAP_WORKFLOW.md` that `refine.wait_refs` holds the paths of the tree of the round, and that a record with a path that the tree does not hold is read again
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 6.2 State in `docs/roadmap/stage.md` that the record of a rejected plan holds only the files of the reason that the default branch holds
+- [x] 6.2 State in `docs/roadmap/stage.md` that the record of a rejected plan holds only the files of the reason that the default branch holds
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
