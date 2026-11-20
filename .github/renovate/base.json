@@ -98,6 +98,13 @@
       "schedule": ["at any time"]
     },
     {
+      "description": "Owner, 2026-11-20 (#6547): each minor, patch and digest update merges itself. Renovate merges the pull request on a later run, and only when each check of the pull request passed, so the rule needs no ruleset. GitHub auto-merge is off here: it waits only for the checks that a ruleset requires, and some repositories require none. A group branch merges only when each update in it can merge, so digest is in the rule: the groups github actions and container images hold digest updates. A major update, a pin and lock file maintenance wait for a person.",
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": false
+    },
+    {
       "description": "These images publish several tags a day, so even a patch waits for the schedule.",
       "matchPackageNames": ["ghcr.io/renovatebot/renovate", "renovatebot/renovate", "searxng/searxng", "docker.io/searxng/searxng"],
       "schedule": ["* * * * 1"]
