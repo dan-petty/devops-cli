@@ -988,7 +988,7 @@ requires-dist = [
     { name = "fastmcp", specifier = "==4.1.8" },
     { name = "filelock", specifier = "==4.2.12" },
     { name = "genai-prices", specifier = "==0.2.5" },
-    { name = "gidgethub", specifier = "==6.0.0" },
+    { name = "gidgethub", specifier = "==6.0.1" },
     { name = "graphql-core", specifier = "==3.3.2" },
     { name = "harbor", specifier = "==0.26.0" },
     { name = "httpcore2", specifier = "==2.16.2" },
@@ -1442,16 +1442,16 @@ wheels = [
 
 [[package]]
 name = "gidgethub"
-version = "6.0.0"
+version = "6.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pyjwt", extra = ["crypto"] },
     { name = "typing-extensions" },
     { name = "uritemplate" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ec/0f/1038d155ffc1116161a0a21c86e78a10921a93f1e5efacab7c1153640cd1/gidgethub-6.0.0.tar.gz", hash = "sha256:4e6ef8acdb45571222ea6f7ec90ec8ca93df847391daac9502562780f1988369", size = 109668, upload-time = "2026-09-25T22:21:12.697Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6a/d2/8dd3f9e8ed6c202b9501a132831286c649480cd886897649fa1d2f5bcec6/gidgethub-6.0.1.tar.gz", hash = "sha256:5a4b45157e1ec073677420a793d4c1192d4a5e1373817779f4328abafd365d3d", size = 109938, upload-time = "2026-11-20T00:46:26.978Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/80/a5/9df6675c1960fe66602140522fd6ea10bf57d169c70052a272fa305d787f/gidgethub-6.0.0-py3-none-any.whl", hash = "sha256:236f53c5e1967bdf9e6963d94c0915757577332680c6f3df469648424ad91419", size = 24786, upload-time = "2026-09-25T22:21:11.216Z" },
+    { url = "https://files.pythonhosted.org/packages/f2/06/2b9216851a650ba4e1aa8abcd070fdaec5a7490059e049ffa43f251cadb0/gidgethub-6.0.1-py3-none-any.whl", hash = "sha256:c2bf0e6d6bf2ec5db0ef0f871655a0379486e5a9f838f1c8c7232a44fefa9a29", size = 24934, upload-time = "2026-11-20T00:46:25.79Z" },
 ]
 
 [[package]]
