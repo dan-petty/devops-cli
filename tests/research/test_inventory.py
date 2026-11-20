@@ -29,10 +29,17 @@ def _component(
     version: str,
     file: str,
     line: int,
+    commit: str = "",
 ) -> Component:
     kind, ecosystem = kind_and_ecosystem
     return Component(
-        kind=kind, ecosystem=ecosystem, name=name, version=version, file=file, line=line
+        kind=kind,
+        ecosystem=ecosystem,
+        name=name,
+        version=version,
+        file=file,
+        line=line,
+        commit=commit,
     )
 
 
@@ -47,12 +54,40 @@ EXPECTED = [
         ".devcontainer/devcontainer-lock.json",
         3,
     ),
-    _component(_ACTION, "actions/checkout", "v7", ".github/workflows/ci.yml", 7),
-    _component(_ACTION, "astral-sh/setup-uv", "v10.2.0", ".github/workflows/ci.yml", 8),
-    _component(_ACTION, "astral-sh/setup-uv", "v10.0.1", ".github/workflows/ci.yml", 13),
+    _component(
+        _ACTION,
+        "actions/checkout",
+        "v7",
+        ".github/workflows/ci.yml",
+        7,
+        commit="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    ),
+    _component(
+        _ACTION,
+        "astral-sh/setup-uv",
+        "v10.2.0",
+        ".github/workflows/ci.yml",
+        8,
+        commit="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    ),
+    _component(
+        _ACTION,
+        "astral-sh/setup-uv",
+        "v10.0.1",
+        ".github/workflows/ci.yml",
+        13,
+        commit="cccccccccccccccccccccccccccccccccccccccc",
+    ),
     _component(_IMAGE, "ghcr.io/example-org/linter", "3.4.5", ".github/workflows/ci.yml", 14),
     _component(_ACTION, "example-org/no-comment", "v2", ".github/workflows/ci.yml", 15),
-    _component(_ACTION, "actions/cache", "v6.1.0", ".github/actions/setup/action.yml", 5),
+    _component(
+        _ACTION,
+        "actions/cache",
+        "v6.1.0",
+        ".github/actions/setup/action.yml",
+        5,
+        commit="dddddddddddddddddddddddddddddddddddddddd",
+    ),
     _component(
         (ComponentKind.CHART, Ecosystem.HELM), "qdrant", "1.19.1", "k8s/argocd/apps/qdrant.yaml", 9
     ),
@@ -125,6 +160,11 @@ def test_inventory_lists_one_component_for_each_pin_of_the_fixture_repository() 
     inventory = read_inventory(FIXTURE_REPO)
 
     assert sorted(inventory.components, key=_sort_key) == sorted(EXPECTED, key=_sort_key)
+    checkout = next(c for c in inventory.components if c.name == "actions/checkout")
+    assert (checkout.commit, checkout.version) == (
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "v7",
+    )
 
 
 def _sort_key(component: Component) -> tuple[str, int, str]:
