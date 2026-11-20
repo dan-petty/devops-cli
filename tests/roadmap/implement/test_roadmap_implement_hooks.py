@@ -24,6 +24,7 @@ from devops_cli.roadmap.implement.implement_hooks import (
     stage_run,
     trusted_config,
 )
+from devops_cli.roadmap.runner_tools import checkout_environment
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.implement_step import command_text, git
 
@@ -96,7 +97,7 @@ def test_the_commit_stage_runs_pre_commit_on_the_staged_files_and_passes(
         None,
         1,
         checkout,
-        {"PRE_COMMIT_HOME": str(cache / "pre-commit")},
+        {**checkout_environment(checkout), "PRE_COMMIT_HOME": str(cache / "pre-commit")},
     )
 
 
@@ -227,7 +228,7 @@ def test_the_install_runs_install_hooks_in_the_hook_home(
         (
             f"uv run pre-commit install-hooks --config {config}",
             checkout,
-            {"PRE_COMMIT_HOME": str(cache / "pre-commit")},
+            {**checkout_environment(checkout), "PRE_COMMIT_HOME": str(cache / "pre-commit")},
         )
     ]
 

@@ -14,18 +14,18 @@ FROM node:24-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3
 # coder bootstrap (#6517) after #6409.
 FROM ghcr.io/dan-petty/devtools:20261119@sha256:a7b2f111941beaf5d36efb19f6ed2a50f8bed3062003498b97523da926143c51 AS devtools
 
-# The requirements of `uv.lock`, with their hashes and without the project (#4550). A release
-# changes the project version in `pyproject.toml` and `uv.lock`, but not these two files, and BuildKit
-# keys the cache of a `COPY --from` or a bind mount on the content of the files that it reads. So the
-# dependency layers of the runner, Service and MCP server images keep their cache when only `src/`
-# and the version change, and a node that holds the previous release pulls only the project layer.
+# The runtime requirements of `uv.lock` with the `review` extra, with their hashes and without the
+# project (#4550). A release changes the project version in `pyproject.toml` and `uv.lock`, but not
+# this file, and BuildKit keys the cache of a `COPY --from` or a bind mount on the content of the
+# files that it reads. So the dependency layers of the runner, Service and MCP server images keep
+# their cache when only `src/` and the version change, and a node that holds the previous release
+# pulls only the project layer.
 FROM python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS lock
 COPY --from=uv /uv /usr/local/bin/
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv export --locked --no-dev --extra review --no-emit-project --format requirements-txt \
-      -o /lock/runtime.txt && \
-    uv export --locked --only-dev --no-emit-project --format requirements-txt -o /lock/dev.txt
+      -o /lock/runtime.txt
 
 # uv and the venv of the runtime requirements, for the Service and MCP server images. No file of the
 # project is in this stage. Each uv install mounts the uv cache of root, so no layer holds the cache.
@@ -69,8 +69,10 @@ RUN npm ci --omit=optional --ignore-scripts --no-audit --no-fund && \
 # The runner: the pod of a cluster Job in which `devops roadmap implement` runs its steps (#2667).
 # The devtools image gives the tools that the steps, the gate and the hooks run: git, gh, uv,
 # Python, Node, OpenSpec, actionlint, promtool, Trivy, OpenTofu, shellcheck, curl, jq and others.
-# This stage adds the user of the Job and the venv of the runtime and the dev requirements of
-# `uv.lock` (pytest, ruff, mypy, pre-commit and the rest of the dev group). The devtools image runs
+# This stage adds the user of the Job and the venv of the runtime requirements of `uv.lock`, with
+# the `review` extra. The image holds no dev dependency: the implement and fix-checks Jobs build the
+# venv of their checkout with the dev group before their first agent step
+# (`bootstrap_checkout` in `src/devops_cli/roadmap/runner_tools.py`, #6517). The devtools image runs
 # `apt-get upgrade` of sid in its own build, and the runner takes a new devtools image each week
 # through Renovate, so the runner runs no `apt-get upgrade` of its own.
 # `RUNNER_TOOLS` in `src/devops_cli/roadmap/runner_tools.py` lists the programs that a Job needs,
@@ -99,10 +101,6 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip sync --python /app/.venv --link-mode copy --require-hashes /lock/runtime.txt && \
     /app/.venv/bin/python -c "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')"
 
-RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,from=lock,source=/lock/dev.txt,target=/lock/dev.txt \
-    uv pip install --python /app/.venv --link-mode copy --require-hashes --no-deps -r /lock/dev.txt
-
 # The project, installed into the venv of `runner-deps`. A change of `src/` builds this stage
 # again. The runner stage copies only the package, its dist-info and its console script from it.
 FROM runner-deps AS runner-builder
@@ -110,11 +108,13 @@ FROM runner-deps AS runner-builder
 COPY pyproject.toml uv.lock ./
 COPY src/ ./src/
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-editable --extra review --link-mode copy
+    uv sync --locked --no-dev --no-editable --extra review --link-mode copy
 
 # The runner stage: the dependency layers of `runner-deps` and one layer of the project. `--link`
 # keeps the project layer independent of the layers under it. This stage comes before `service`,
-# so that a build with no `--target` still builds the Service image.
+# so that a build with no `--target` still builds the Service image. The sync of the checkout of a
+# Job compiles no bytecode (`UV_COMPILE_BYTECODE=0`): Python compiles each module that a check
+# imports, and the compile of all files was 71 s of the 110 s of a sync (#4814).
 FROM runner-deps AS runner
 
 COPY --link --from=runner-builder --parents /app/.venv/lib/python3.14/site-packages/devops_cli \
@@ -123,6 +123,7 @@ COPY --link --from=runner-builder --parents /app/.venv/lib/python3.14/site-packa
 ENV HOME=/home/devops \
     DEVOPS_CLI_DATA_DIR=/home/devops/.data \
     UV_CACHE_DIR=/home/devops/.cache/uv \
+    UV_COMPILE_BYTECODE=0 \
     PATH=/app/.venv/bin:$PATH \
     DO_NOT_TRACK=1 \
     OPENSPEC_TELEMETRY=0 \

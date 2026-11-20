@@ -10,9 +10,13 @@ the devtools image gives the version of each tool (#5585, #4361).
 from __future__ import annotations
 
 import ast
+import hashlib
 import importlib.metadata
+import json
+import os
 import shlex
-import tomllib
+import subprocess
+import sys
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
@@ -21,12 +25,17 @@ import pytest
 import yaml
 
 from devops_cli.commands.ci import get_check_specs
+from devops_cli.exceptions import ToolExecutionError
 from devops_cli.roadmap.runner_tools import (
+    CHECKOUT_TOOLS,
     HOOK_PROGRAMS,
+    IMAGE_TOOLS,
     NOT_IN_RUNNER,
     RUNNER_TOOLS,
     RunnerTool,
     ToolSource,
+    bootstrap_checkout,
+    checkout_environment,
     expected_text,
     failures,
     hooks_without_programs,
@@ -34,7 +43,8 @@ from devops_cli.roadmap.runner_tools import (
     tool_failure,
     tool_names,
 )
-from tests.support.fakes.process import ProcessAnswer, ProcessFake
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
+from tests.support.implement_step import PREVIEW
 from tests.support.paths import REPO_ROOT, TESTS_ROOT
 from tests.support.trees import parse_python_file
 
@@ -197,55 +207,47 @@ def test_a_tool_that_a_row_starts_names_that_row_as_a_reason() -> None:
     assert missing == []
 
 
-def test_the_version_of_each_dev_dependency_is_the_version_of_the_lockfile() -> None:
-    """The check of a dev dependency reads the installed distribution. The image syncs the
-    lockfile, so the distribution must be the version that `uv.lock` names."""
-    packages = tomllib.loads(_text("uv.lock"))["package"]
-    locked = {package["name"]: package["version"] for package in packages}
-    dev = [t for t in RUNNER_TOOLS if t.source is ToolSource.DEV_GROUP]
-
-    assert dev
-    assert {t.package: expected_text(t) for t in dev} == {t.package: locked[t.package] for t in dev}
-
-
 # ── The check of one tool ───────────────────────────────────────────────────────────────────
 
-RUFF = importlib.metadata.version("ruff")
+PROJECT = importlib.metadata.version("devops-cli")
+DEVOPS = next(tool for tool in RUNNER_TOOLS if tool.name == "devops")
+UV = next(tool for tool in RUNNER_TOOLS if tool.name == "uv")
 
 
-def _dev_tool() -> RunnerTool:
-    return RunnerTool("ruff", ToolSource.DEV_GROUP, ("job",), ("ruff", "--version"), package="ruff")
+def _argv(call: ProcessCall) -> tuple[str, ...]:
+    """The words of a call, without the preview flags that the process runner puts after `uv`."""
+    return tuple(word for word in call.argv if word not in PREVIEW)
 
 
-def test_a_dev_dependency_passes_when_it_prints_its_installed_version(
+def test_the_project_passes_when_it_prints_its_installed_version(
     process_fake: ProcessFake,
 ) -> None:
-    process_fake.answer("ruff --version", ProcessAnswer(stdout=f"ruff {RUFF}\n"))
+    process_fake.answer("devops --version", ProcessAnswer(stdout=f"devops {PROJECT}\n"))
 
-    assert tool_failure(_dev_tool()) is None
+    assert tool_failure(DEVOPS) is None
 
 
-def test_a_dev_dependency_fails_when_it_prints_another_version(process_fake: ProcessFake) -> None:
-    process_fake.answer("ruff --version", ProcessAnswer(stdout="ruff 0.0.1\n"))
+def test_the_project_fails_when_it_prints_another_version(process_fake: ProcessFake) -> None:
+    process_fake.answer("devops --version", ProcessAnswer(stdout="devops 0.0.1\n"))
 
-    assert tool_failure(_dev_tool()) == (
-        f"Runner tool 'ruff' is not at its installed version '{RUFF}'. "
-        "Its version command printed: ruff 0.0.1"
+    assert tool_failure(DEVOPS) == (
+        f"Runner tool 'devops' is not at its installed version '{PROJECT}'. "
+        "Its version command printed: devops 0.0.1"
     )
 
 
 def test_a_tool_fails_when_its_version_command_fails(process_fake: ProcessFake) -> None:
-    process_fake.answer("ruff --version", ProcessAnswer(returncode=127))
-
-    assert tool_failure(_dev_tool()) == (
-        "Runner tool 'ruff': `ruff --version` exited with status 127."
+    process_fake.answer(
+        lambda call: _argv(call) == ("uv", "--version"), ProcessAnswer(returncode=127)
     )
+
+    assert tool_failure(UV) == "Runner tool 'uv': `uv --version` exited with status 127."
 
 
 def test_a_tool_with_no_command_fails_when_it_is_not_on_path(
     process_fake: ProcessFake, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("shutil.which", lambda _name: None)
+    monkeypatch.setattr("shutil.which", lambda _name, path=None: None)
 
     assert tool_failure(RunnerTool("nice", ToolSource.BASE, ("ci:security",))) == (
         "Runner tool 'nice' is not on PATH."
@@ -268,8 +270,7 @@ def test_a_tool_of_the_devtools_image_passes_on_any_version_and_runs_only_its_ve
 
 @pytest.fixture
 def every_tool_passes(process_fake: ProcessFake) -> ProcessFake:
-    """Each version command exits 0, and a dev dependency and the project print their installed
-    version."""
+    """Each version command exits 0, and the project prints its installed version."""
 
     def answer(call: Any) -> ProcessAnswer:
         # The process runner puts preview flags after `uv`, so the tool is found by its program.
@@ -280,12 +281,12 @@ def every_tool_passes(process_fake: ProcessFake) -> ProcessFake:
     return process_fake
 
 
-def test_every_tool_of_the_table_has_a_check_that_the_fake_can_answer(
+def test_every_tool_of_the_image_has_a_check_that_the_fake_can_answer(
     every_tool_passes: ProcessFake,
 ) -> None:
-    """This fails when an installed version cannot be read, such as a dev dependency that is not
+    """This fails when an installed version cannot be read, such as a project that is not
     installed."""
-    assert failures() == []
+    assert failures(IMAGE_TOOLS) == []
 
 
 def test_main_prints_each_failure_and_exits_1(
@@ -293,15 +294,216 @@ def test_main_prints_each_failure_and_exits_1(
 ) -> None:
     process_fake.answer(lambda call: call.argv[0] == "uv", ProcessAnswer(returncode=127))
 
-    assert main() == 1
+    assert main([]) == 1
     assert "Runner tool 'uv': `uv --version` exited with status 127." in capsys.readouterr().err
 
 
-def test_main_exits_0_when_every_tool_passes(
+def test_main_checks_the_tools_of_the_image_and_no_tool_of_the_checkout(
     every_tool_passes: ProcessFake, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert main() == 0
-    assert f"All {len(RUNNER_TOOLS)} runner tools are on PATH and run." in capsys.readouterr().out
+    """The image holds no dev dependency (#6517): pytest, ruff, mypy and pre-commit come from the
+    venv of a checkout after its bootstrap, so the check of the image runs none of them."""
+    assert main([]) == 0
+    assert f"All {len(IMAGE_TOOLS)} runner tools are on PATH and run." in capsys.readouterr().out
+    started = {call.argv[0] for call in every_tool_passes.calls}
+    assert started & {"pytest", "ruff", "mypy", "pre-commit"} == set()
+
+
+# ── The coder environment of a checkout (#6517) ──────────────────────────────────────────────
+
+SYNC = ("uv", "sync", "--locked", "--group", "dev")
+NPM = ("npm", "ci", "--ignore-scripts")
+LOCK = "version = 1\n"
+
+
+def _checkout(root: Path, *files: str) -> Path:
+    checkout = root / "checkout"
+    checkout.mkdir()
+    for name in files:
+        (checkout / name).write_text(LOCK, encoding="utf-8")
+    return checkout
+
+
+def _seed(root: Path, record: dict[str, str]) -> Path:
+    """A uv-seed volume (#4814): a cache with one entry, and the record of what filled it."""
+    seed = root / "uv-seed"
+    (seed / "cache" / "wheels-v5").mkdir(parents=True)
+    (seed / "cache" / "wheels-v5" / "entry").write_text("wheel", encoding="utf-8")
+    (seed / "seed.json").write_text(json.dumps(record), encoding="utf-8")
+    return seed
+
+
+def _record(checkout: Path, **changed: str) -> dict[str, str]:
+    lock = hashlib.sha256((checkout / "uv.lock").read_bytes()).hexdigest()
+    minor = f"{sys.version_info.major}.{sys.version_info.minor}"
+    return {"uv": "job-uv", "python": minor, "uv_lock_sha256": lock, **changed}
+
+
+@pytest.fixture
+def uv_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    cache = tmp_path / "home" / ".cache" / "uv"
+    monkeypatch.setenv("UV_CACHE_DIR", str(cache))
+    return cache
+
+
+def test_the_bootstrap_syncs_the_dev_group_online_and_installs_the_locked_npm_packages(
+    tmp_path: Path, process_fake: ProcessFake, uv_cache: Path
+) -> None:
+    """With no seed, the bootstrap is the online sync of the devcontainer and the clean npm
+    install, both in the checkout."""
+    checkout = _checkout(tmp_path, "uv.lock", "package-lock.json")
+
+    bootstrap_checkout(checkout, seed=tmp_path / "no-seed")
+
+    assert [(_argv(call), call.cwd, call.env) for call in process_fake.calls] == [
+        (SYNC, checkout, {"UV_HTTP_RETRIES": "5", "UV_MALWARE_CHECK": "1"}),
+        (NPM, checkout, None),
+    ]
+    assert not uv_cache.exists()
+
+
+def test_the_bootstrap_copies_a_seed_that_fits_and_syncs_offline(
+    tmp_path: Path, process_fake: ProcessFake, uv_cache: Path
+) -> None:
+    """CI checked the hashes of the seed when it built it, so the offline sync runs with no
+    malware check (#4814)."""
+    process_fake.answer(
+        lambda call: _argv(call) == ("uv", "--version"),
+        ProcessAnswer(stdout="uv job-uv (x86_64-unknown-linux)\n"),
+    )
+    checkout = _checkout(tmp_path, "uv.lock")
+    seed = _seed(tmp_path, _record(checkout))
+
+    bootstrap_checkout(checkout, seed=seed)
+
+    synced = [(_argv(call), call.cwd, call.env) for call in process_fake.calls]
+    assert synced[-1] == ((*SYNC, "--offline"), checkout, {"UV_MALWARE_CHECK": "0"})
+    assert (uv_cache / "wheels-v5" / "entry").read_text(encoding="utf-8") == "wheel"
+
+
+@pytest.mark.parametrize("changed", [{"uv_lock_sha256": "other-lock"}, {"uv": "other-uv"}])
+def test_a_seed_that_does_not_fit_the_checkout_leaves_the_sync_online(
+    tmp_path: Path, process_fake: ProcessFake, uv_cache: Path, changed: dict[str, str]
+) -> None:
+    process_fake.answer(
+        lambda call: _argv(call) == ("uv", "--version"), ProcessAnswer(stdout="uv job-uv\n")
+    )
+    checkout = _checkout(tmp_path, "uv.lock")
+    seed = _seed(tmp_path, _record(checkout, **changed))
+
+    bootstrap_checkout(checkout, seed=seed)
+
+    assert _argv(process_fake.calls[-1]) == SYNC
+    assert not uv_cache.exists()
+
+
+def test_a_sync_that_may_lock_again_runs_without_locked(
+    tmp_path: Path, process_fake: ProcessFake, uv_cache: Path
+) -> None:
+    """A Job on an existing branch syncs as `uv run` does, so a stale `uv.lock` is locked again
+    and does not fail the bootstrap (#6517)."""
+    checkout = _checkout(tmp_path, "uv.lock")
+
+    bootstrap_checkout(checkout, locked=False, seed=tmp_path / "no-seed")
+
+    assert [_argv(call) for call in process_fake.calls] == [("uv", "sync", "--group", "dev")]
+
+
+def test_a_checkout_with_no_lock_file_gets_no_bootstrap_command(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
+    bootstrap_checkout(_checkout(tmp_path), seed=tmp_path / "no-seed")
+
+    assert process_fake.calls == []
+
+
+def test_a_failed_sync_raises_with_the_command_and_its_output(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
+    process_fake.answer("uv", ProcessAnswer(returncode=2, stderr="error: Failed to fetch\n"))
+    checkout = _checkout(tmp_path, "uv.lock", "package-lock.json")
+
+    with pytest.raises(ToolExecutionError) as raised:
+        bootstrap_checkout(checkout, seed=tmp_path / "no-seed")
+
+    assert str(raised.value) == (
+        "uv sync --locked --group dev exited with status 2.\nerror: Failed to fetch"
+    )
+    assert [_argv(call)[0] for call in process_fake.calls] == ["uv"]
+
+
+def test_the_checkout_environment_puts_node_modules_and_the_venv_of_the_checkout_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PATH", "/usr/bin")
+    checkout = tmp_path / "checkout"
+
+    assert checkout_environment(checkout) == {
+        "PATH": os.pathsep.join(
+            [str(checkout / "node_modules" / ".bin"), str(checkout / ".venv" / "bin"), "/usr/bin"]
+        )
+    }
+
+
+def _venv(checkout: Path, *names: str) -> None:
+    """The programs `names` in the venv of `checkout`, as `uv sync` puts them there."""
+    folder = checkout / ".venv" / "bin"
+    folder.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        (folder / name).write_text("#!/bin/sh\n", encoding="utf-8")
+        (folder / name).chmod(0o755)
+
+
+def test_a_tool_of_the_checkout_runs_from_the_venv_of_the_checkout(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
+    checkout = _checkout(tmp_path)
+    _venv(checkout, *(tool.name for tool in CHECKOUT_TOOLS))
+
+    assert failures(CHECKOUT_TOOLS, checkout) == []
+    assert {(call.cwd, call.env["PATH"] if call.env else "") for call in process_fake.calls} == {
+        (checkout, checkout_environment(checkout)["PATH"])
+    }
+
+
+def test_a_tool_of_the_checkout_fails_when_the_venv_of_the_checkout_lacks_it(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
+    checkout = _checkout(tmp_path)
+    _venv(checkout, *(tool.name for tool in CHECKOUT_TOOLS if tool.name != "ruff"))
+
+    assert failures(CHECKOUT_TOOLS, checkout) == [
+        f"Runner tool 'ruff' is not in the venv of the checkout {checkout}."
+    ]
+
+
+def test_main_with_a_checkout_bootstraps_it_and_checks_its_tools(
+    tmp_path: Path, process_fake: ProcessFake, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The smoke test of the runner image runs this on a copy of the checkout (#6517)."""
+    checkout = _checkout(tmp_path, "uv.lock")
+
+    def sync(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        _venv(checkout, *(tool.name for tool in CHECKOUT_TOOLS))
+        return subprocess.CompletedProcess(call.argv, 0, stdout="", stderr="")
+
+    process_fake.answer(
+        lambda call: _argv(call)[:2] == ("uv", "sync"), ProcessAnswer(side_effect=sync)
+    )
+
+    assert main([str(checkout)]) == 0
+    assert f"All {len(CHECKOUT_TOOLS)} runner tools are on PATH and run." in capsys.readouterr().out
+    started = [_argv(call)[0] for call in process_fake.calls]
+    assert started == ["uv", *(tool.check[0] for tool in CHECKOUT_TOOLS)]
+
+
+def test_main_with_a_checkout_exits_1_when_the_bootstrap_fails(
+    tmp_path: Path, process_fake: ProcessFake, capsys: pytest.CaptureFixture[str]
+) -> None:
+    process_fake.answer("uv", ProcessAnswer(returncode=2, stderr="error: Failed to fetch\n"))
+
+    assert main([str(_checkout(tmp_path, "uv.lock"))]) == 1
+    assert "uv sync --locked --group dev exited with status 2." in capsys.readouterr().err
 
 
 def test_a_hook_that_the_job_leaves_out_is_a_hook_of_the_config_and_runs_programs_not_in_the_image() -> (

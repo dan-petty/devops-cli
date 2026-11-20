@@ -253,15 +253,18 @@ TYPE_ERROR = (
 )
 
 
-@pytest.fixture
-def failed_draft(
+SHOUT_FILES = {"src/devops_cli/shout.py": "def shout(text):\n"}
+
+
+def _failed_draft(
     stage_repo: StageRepo,
-    app_slug: None,
     github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+    files: dict[str, str],
 ) -> tuple[StageRepo, InMemoryRoadmapStore, str]:
-    """Pull request 5 of item 1: a bot draft on the staged branch, whose `Static Analysis` check
-    failed on its head with a log that names a file of the plan. The store holds the item."""
-    push_staged_branch(stage_repo, files={"src/devops_cli/shout.py": "def shout(text):\n"})
+    """Pull request 5 of item 1: a bot draft on the staged branch with `files`, whose
+    `Static Analysis` check failed on its head with a log that names a file of the plan. The store
+    holds the item."""
+    push_staged_branch(stage_repo, files=files)
     head = stage_repo.origin_git("rev-parse", BRANCH)
     api, programs = github_api_and_gh
     programs.answer("git", ProcessAnswer(side_effect=git_for_real))
@@ -294,6 +297,26 @@ def failed_draft(
     assert held is not None
     store.set_marks(held, {ImplementRecordKey.PR: str(PULL)})
     return stage_repo, store, head
+
+
+@pytest.fixture
+def failed_draft(
+    stage_repo: StageRepo,
+    app_slug: None,
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+) -> tuple[StageRepo, InMemoryRoadmapStore, str]:
+    """The draft of `_failed_draft`, whose branch adds the code that the log names."""
+    return _failed_draft(stage_repo, github_api_and_gh, SHOUT_FILES)
+
+
+@pytest.fixture
+def locked_draft(
+    stage_repo: StageRepo,
+    app_slug: None,
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+) -> tuple[StageRepo, InMemoryRoadmapStore, str]:
+    """The draft of `failed_draft`, whose branch also holds `uv.lock` (#6517)."""
+    return _failed_draft(stage_repo, github_api_and_gh, {**SHOUT_FILES, "uv.lock": "version = 1\n"})
 
 
 def test_a_failed_check_whose_log_names_a_file_of_the_plan_is_repaired_and_pushed(
@@ -546,3 +569,90 @@ def test_the_checkout_refuses_another_branch_or_head_and_removes_its_worktree(
 
     assert repo.git("worktree", "list").count("\n") == 0
     assert repo.git("branch", "--list", BRANCH) == ""
+
+
+def test_a_stale_lock_opens_the_checkout_and_tier1_locks_it_again(
+    stage_repo: StageRepo, app_slug: None, process_fake: ProcessFake
+) -> None:
+    """A check that failed because `uv.lock` is stale is a case of tier 1, and `uv sync --locked`
+    fails on it. The checkout builds no venv, so it opens, and tier 1 locks again with no model
+    (#6517)."""
+    push_staged_branch(stage_repo, files={"uv.lock": "version = 1\n"})
+    process_fake.answer("git", ProcessAnswer(side_effect=git_for_real))
+    process_fake.answer(
+        lambda call: command_text(call).startswith("uv sync"),
+        ProcessAnswer(returncode=1, stderr=LOCK_LOG),
+    )
+    process_fake.answer(
+        lambda call: command_text(call) == "uv lock", _writes("uv.lock", "version = 2\n")
+    )
+    head = stage_repo.origin_git("rev-parse", BRANCH)
+    status = PullStatus(state="open", head_ref=BRANCH, head_sha=head)
+
+    with pull_checkout(STAGE_REPO, status, 1, source=stage_repo.clone) as checkout:
+        fixed = tier1_fix(checkout.path, 1, "Tests & Coverage (shard 1 of 4)", LOCK_LOG)
+
+    assert (fixed.done, _uv_commands(process_fake)) == (True, ["uv lock", "uv lock --check"])
+
+
+def test_the_model_fix_bootstraps_the_worktree_before_the_first_model_request(
+    locked_draft: tuple[StageRepo, InMemoryRoadmapStore, str],
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+) -> None:
+    """The model step runs the dev tools of the venv of the worktree, so the fix builds that venv
+    first. The branch exists, so the sync locks again a stale `uv.lock`, as the `uv run` of the
+    hook install did before (#6517)."""
+    repo, store, _head = locked_draft
+    _api, programs = github_api_and_gh
+    script = ModelScript(*a_fix())
+    factory.set_llm_client_override(script.model())
+    synced: list[tuple[Path | None, int]] = []
+
+    def sync(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        synced.append((call.cwd, len(script.seen)))
+        return subprocess.CompletedProcess(call.argv, 0, stdout="", stderr="")
+
+    programs.answer(
+        lambda call: command_text(call).startswith("uv sync"), ProcessAnswer(side_effect=sync)
+    )
+
+    report = run_fix_checks(
+        store,
+        STAGE_REPO,
+        PULL,
+        confirm=True,
+        repair=job_repair(store, STAGE_REPO, source=repo.clone),
+    )
+
+    syncs = [command_text(c) for c in programs.calls if command_text(c).startswith("uv sync")]
+    assert (report.result, syncs, [requests for _cwd, requests in synced]) == (
+        FixChecksResult.REPAIRED,
+        ["uv sync --group dev"],
+        [0],
+    )
+    assert synced[0][0] not in (None, repo.clone)
+
+
+def test_a_failed_bootstrap_fails_the_model_fix_with_its_output(
+    locked_draft: tuple[StageRepo, InMemoryRoadmapStore, str],
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+) -> None:
+    repo, store, _head = locked_draft
+    _api, programs = github_api_and_gh
+    script = ModelScript(*a_fix())
+    factory.set_llm_client_override(script.model())
+    programs.answer(
+        lambda call: command_text(call).startswith("uv sync"),
+        ProcessAnswer(returncode=2, stderr="error: Failed to fetch example.com\n"),
+    )
+
+    report = run_fix_checks(
+        store,
+        STAGE_REPO,
+        PULL,
+        confirm=True,
+        repair=job_repair(store, STAGE_REPO, source=repo.clone),
+    )
+
+    assert (report.result, script.seen) == (FixChecksResult.FAILED, [])
+    assert "error: Failed to fetch example.com" in report.reason
