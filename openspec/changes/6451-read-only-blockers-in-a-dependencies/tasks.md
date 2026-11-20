@@ -30,9 +30,9 @@ Kind: other. Reads: `tests/roadmap/intake/test_roadmap_intake_sub_issues.py`, `s
 
 Kind: other. Reads: `docs/roadmap/refine.md`, `docs/roadmap/stage.md`, `docs/roadmap/intake.md`, `src/devops_cli/roadmap/refine/refine.py`. Changes: `docs/roadmap/refine.md`, `docs/roadmap/stage.md`, `docs/roadmap/intake.md`.
 
-- [ ] 4.1 Rewrite the Dependencies paragraph of `docs/roadmap/refine.md` to state that only a blocker line under Dependencies names a dependency: a list item whose first word is `#N`, a line that holds issue references only, or a line that starts with `Merge first`. State that a parent, a child, a related issue, an issue that waits for this item, the source line of intake and a sentence that mentions an issue name none, and keep the quoted-title rule. Rewrite the sentence of `docs/roadmap/stage.md` that names the Dependencies section to the same rule, and keep its pointer to `roadmap-stage/selection`. State in `docs/roadmap/intake.md` that intake writes the source under a `## Source` heading after the body
+- [x] 4.1 Rewrite the Dependencies paragraph of `docs/roadmap/refine.md` to state that only a blocker line under Dependencies names a dependency: a list item whose first word is `#N`, a line that holds issue references only, or a line that starts with `Merge first`. State that a parent, a child, a related issue, an issue that waits for this item, the source line of intake and a sentence that mentions an issue name none, and keep the quoted-title rule. Rewrite the sentence of `docs/roadmap/stage.md` that names the Dependencies section to the same rule, and keep its pointer to `roadmap-stage/selection`. State in `docs/roadmap/intake.md` that intake writes the source under a `## Source` heading after the body
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 4.2 Rewrite `docs/roadmap/refine.md`, `docs/roadmap/stage.md` and `docs/roadmap/intake.md` to state that only a blocker line under Dependencies names a dependency and that intake files its source under its own heading
+- [x] 4.2 Rewrite `docs/roadmap/refine.md`, `docs/roadmap/stage.md` and `docs/roadmap/intake.md` to state that only a blocker line under Dependencies names a dependency and that intake files its source under its own heading
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria

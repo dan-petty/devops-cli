@@ -18,7 +18,15 @@ The comment of refine is one event line. It names the next step and the parts of
 
 A proposal that names an open issue as a dependency is not whole. The item waits on that issue. Refine does not set it to Ready, and a Ready item goes back to New. A closed dependency holds nothing back.
 
-The Dependencies section of the body names an issue as `#N` or by its quoted title, such as `- "feat(roadmap): run each refine item in its own pod".`. Refine adds each issue that the body names by title to the dependencies of the proposal: the one open item with that exact title, else the one closed item with it. Quoted text that is no Conventional Commit title names no issue, and a list item that names `#N` names its issue by the number.
+The Dependencies section of the body names an issue as `#N` or by its quoted title, such as `- "feat(roadmap): run each refine item in its own pod".`. Only a blocker line under Dependencies names a dependency. A blocker line is one of these three:
+
+- A list item whose first word is `#N`, such as `- #N` or `- #4989: the prerequisite`.
+- A line that holds issue references only, such as `#5134, #5135`.
+- A line that starts with `Merge first`, such as `Merge first: #5134`.
+
+No other mention of the section names a dependency. A parent link (`Part of #N`), a child link (`Child 2 of #N`), a related issue (`Related: #N`), a reverse link (`#N needs this item`), the source line of intake and a sentence that mentions an issue name no dependency (#6451).
+
+Refine adds each issue that the body names by title to the dependencies of the proposal: the one open item with that exact title, else the one closed item with it. Quoted text that is no Conventional Commit title names no issue, and a list item that names `#N` names its issue by the number.
 
 Refine looks at the item again after a reply, a body edit, or the close of those open items. It also looks again after a commit on the default branch that changes a file that the block cites. The report groups every item by its next step.
 
