@@ -63,6 +63,7 @@ from devops_cli.config.defaults import (
 from devops_cli.core.binaries import require_binary
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.serialization import extract_json_block
+from devops_cli.exceptions.tools import DependencyError
 from devops_cli.lang import MESSAGES
 from devops_cli.review.anchors import AdvisoryAnchor
 from devops_cli.review.finding import Finding
@@ -815,8 +816,9 @@ def _check_versions_and_packages(output: GroupAnalysisOutput, env: EnvironmentFa
 
 
 def ruff_block_checker() -> Callable[[str, str], list[str]]:
-    """The check of a Python block with the `ruff` on PATH. The lookup runs now, so a missing
-    `ruff` reaches the caller with its install hint before a model job starts (#4363).
+    """The check of a Python block with the `ruff` on PATH. The analysis looks it up at the first
+    Python block that parses, and a missing `ruff` reaches the caller with its install hint
+    (#4363).
 
     Raises:
         DependencyError: no `ruff` is on PATH.
@@ -870,12 +872,15 @@ def _check_python_code_blocks(
     blocks = _extract_python_blocks(output)
     if not blocks:
         return True
-    active_checker = checker or ruff_block_checker()
+    active_checker = checker
     for block in blocks:
         try:
             ast.parse(block)
         except SyntaxError:
             return False
+        # The first block that parses looks up `ruff`, so a block that does not parse needs none.
+        if active_checker is None:
+            active_checker = ruff_block_checker()
         if active_checker(block, language_floor):
             return False
     return True
@@ -1437,6 +1442,8 @@ def run_review_plan_job(
             sampling=sampling,
             judge=judge,
         )
+    except DependencyError:
+        raise
     except RuntimeError, ValueError, OSError, TimeoutError, TypeError, KeyError:
         reason = CONST_ANALYSIS_REJECTION_MODEL_CALL_ERROR
         return (
@@ -1467,6 +1474,8 @@ def _process_group_job_outcomes(
     replayed = 0
     failed = 0
     for job, outcome in zip(jobs, outcomes, strict=True):
+        if isinstance(outcome, DependencyError):
+            raise outcome
         if isinstance(outcome, BaseException):
             failed += 1
             err_reason = CONST_ANALYSIS_REJECTION_MODEL_CALL_ERROR
@@ -1502,11 +1511,10 @@ def run_group_analysis(
     """Group admitted findings, run model jobs, compute cross-group correlations and plan the review.
 
     Raises:
-        DependencyError: a model runs, no checker is given and no `ruff` is on PATH. The error
-            comes before any model job, so no job records it as a failed model call (#4363).
+        DependencyError: a reply holds a Python block that parses, no checker is given and no
+            `ruff` is on PATH. The error reaches the caller with its install hint; no job records it as a
+            failed model call (#4363).
     """
-    if python_block_checker is None and (llm_client is not None or plan_client is not None):
-        python_block_checker = ruff_block_checker()
     contents = file_contents or {}
     groups = group_findings_for_analysis(findings, file_contents=contents)
     eff_sampling = sampling or configured_sampling()

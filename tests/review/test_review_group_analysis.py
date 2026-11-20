@@ -556,21 +556,23 @@ def test_the_python_block_check_raises_when_no_ruff_is_on_path(
     ) == ("ruff", True)
 
 
-def test_a_missing_ruff_stops_the_analysis_before_a_model_job(
+def test_a_missing_ruff_reaches_the_caller_and_is_no_failed_model_call(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """With a model and no checker, the analysis looks up `ruff` first. With no `ruff` on PATH it
-    raises `DependencyError` with the Ruff install hint, and the model gets no call: no job
-    records the missing tool as a failed model call (#4363)."""
+    """A reply with a Python block needs `ruff`. With no `ruff` on PATH the analysis raises
+    `DependencyError` with the Ruff install hint, and no job records the missing tool as a failed
+    model call (#4363). A review whose replies hold no Python block needs no `ruff`."""
     from devops_cli.lang import MESSAGES
     from devops_cli.review.analysis import run_group_analysis
 
     class _Model:
-        calls = 0
-
         def chat(self, *args: Any, **kwargs: Any) -> str:
-            _Model.calls += 1
-            return "{}"
+            return json.dumps(
+                {
+                    "explanation": "Remove the import:\n```python\nVALUE = 1\n```",
+                    "root_cause": "Unused import left in module.",
+                }
+            )
 
     source = "import os\n"
     finding = _make_region_finding(path="src/app.py", line=1, fingerprint="fp-1")
@@ -581,10 +583,7 @@ def test_a_missing_ruff_stops_the_analysis_before_a_model_job(
     with pytest.raises(DependencyError) as caught:
         run_group_analysis([finding], llm_client=_Model(), file_contents={"src/app.py": source})
 
-    assert (caught.value.details["install_hint"], _Model.calls) == (
-        MESSAGES.review.ruff_install_hint,
-        0,
-    )
+    assert caught.value.details["install_hint"] == MESSAGES.review.ruff_install_hint
 
 
 def test_dispatch_runs_one_job_per_group_via_pool_capped_at_slots_and_records_sampling(

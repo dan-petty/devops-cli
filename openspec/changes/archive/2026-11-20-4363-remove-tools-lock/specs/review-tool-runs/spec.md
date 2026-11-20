@@ -23,7 +23,7 @@ When no distribution in those directories has a console script that wrote the pr
 ## ADDED Requirements
 
 ### Requirement: A review finds ruff and semgrep on PATH
-The Python block check of the review analysis SHALL run the `ruff` on PATH, and the rule pack test SHALL run the `semgrep` on PATH. Each SHALL find its tool through `require_binary` and SHALL look in no other folder. With no tool on PATH, each SHALL raise `DependencyError` with an install hint that names the upstream install page of the tool. The analysis SHALL look up `ruff` before it starts a model job, so a missing `ruff` reaches the caller and no job records it as a failed model call.
+The Python block check of the review analysis SHALL run the `ruff` on PATH, and the rule pack test SHALL run the `semgrep` on PATH. Each SHALL find its tool through `require_binary` and SHALL look in no other folder. With no tool on PATH, each SHALL raise `DependencyError` with an install hint that names the upstream install page of the tool.
 
 #### Scenario: Semgrep on PATH
 - **WHEN** a stand-in `semgrep` is on PATH and `devops review rules test` runs
@@ -33,6 +33,9 @@ The Python block check of the review analysis SHALL run the `ruff` on PATH, and 
 - **WHEN** a stand-in `semgrep` is in `~/.local/bin` and no `semgrep` is on PATH
 - **THEN** the rule pack test raises `DependencyError` with a hint that names `semgrep.dev`, and no process starts
 
-#### Scenario: No ruff on PATH before a model job
-- **WHEN** no `ruff` is on PATH and the group analysis runs with a model client and no checker
-- **THEN** it raises `DependencyError` with the Ruff install hint, and the model gets no call
+### Requirement: A missing ruff reaches the caller of the analysis
+The group analysis SHALL look up `ruff` at the first Python block of a reply that parses. A missing `ruff` SHALL reach the caller as `DependencyError`, and no job SHALL record it as a failed model call. A review whose replies hold no such block SHALL need no `ruff`.
+
+#### Scenario: No ruff on PATH and a Python block in a reply
+- **WHEN** no `ruff` is on PATH, and the group analysis runs with no checker and a model whose reply holds a Python block
+- **THEN** it raises `DependencyError` with the Ruff install hint, and no job records `model-call-error`
