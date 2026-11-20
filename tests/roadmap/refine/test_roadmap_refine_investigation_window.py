@@ -15,7 +15,6 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
-    RetryPromptPart,
     SystemPromptPart,
     TextPart,
     ThinkingPart,
@@ -34,6 +33,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.roadmap.agent_run import RunLimit
 from devops_cli.roadmap.refine.refine_investigation import _limit_reached, tokens_of, tool_stop
+from tests.support.model_script import refused_call, refused_text
 
 # The input that the provider reported for the last reply of the live run of 2026-11-09, which had
 # a window of 200000 tokens (#4221).
@@ -174,7 +174,8 @@ def test_every_kind_of_part_counts_its_text_and_a_part_without_text_counts_nothi
     """The text of a run is the system prompt, the user prompt (a string or a list), the replies,
     the thinking, the tool calls, the tool answers and the retry texts. A file part holds no text,
     so it adds nothing."""
-    retry = RetryPromptPart("fix the call", tool_name="read_file", tool_call_id="call-1")
+    retry = refused_call("read_file", "fix the call")
+    feedback = refused_text("give the plan as JSON")
     messages: list[ModelMessage] = [
         ModelRequest(
             parts=[
@@ -194,6 +195,7 @@ def test_every_kind_of_part_counts_its_text_and_a_part_without_text_counts_nothi
             parts=[
                 ToolReturnPart("read_file", "the text of a file", tool_call_id="call-0"),
                 retry,
+                feedback,
             ]
         ),
     ]
@@ -205,7 +207,8 @@ def test_every_kind_of_part_counts_its_text_and_a_part_without_text_counts_nothi
             "a reply of text",
             '{"path":"src/a.py"}',
             "the text of a file",
-            retry.model_response(),
+            retry.model_response_str(),
+            feedback.model_response(),
         ]
     )
     assert tokens_of(messages) == count_tokens(expected)

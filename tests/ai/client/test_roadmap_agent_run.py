@@ -21,7 +21,6 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
-    RetryPromptPart,
     TextPart,
     ToolCallPart,
     ToolReturnPart,
@@ -46,6 +45,7 @@ from devops_cli.roadmap.agent_run import (
     run_error_message,
 )
 from tests.support.fakes.otlp import FakeCollector
+from tests.support.model_script import refused_call, refused_output
 
 try:
     from devops_cli.roadmap.agent_run import TraceFacts
@@ -293,9 +293,9 @@ def test_a_trace_counts_the_violations_of_the_last_retry_prompt_of_the_output_to
         {"type": "missing", "loc": ("b",), "msg": "Field required", "input": {}},
     ]
     messages: list[ModelMessage] = [
-        ModelRequest(parts=[RetryPromptPart(content=errors[:1], tool_name="final_result")]),
-        ModelRequest(parts=[RetryPromptPart(content=errors, tool_name="final_result")]),
-        ModelRequest(parts=[RetryPromptPart(content=errors[:1], tool_name="read_file")]),
+        ModelRequest(parts=[refused_output(*errors[:1])]),
+        ModelRequest(parts=[refused_output(*errors)]),
+        ModelRequest(parts=[refused_call("read_file", errors[:1])]),
     ]
     trace = RunTrace()
 

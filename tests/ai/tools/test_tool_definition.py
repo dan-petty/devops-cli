@@ -110,6 +110,10 @@ def test_deferred_tool_requests_and_results() -> None:
     assert isinstance(deny_all.approvals["call_1"], ToolDenied)
     assert isinstance(deny_all.approvals["call_2"], ToolDenied)
 
+    # 4. answered_by names who answered each call
+    answered = reqs.build_results(approve_all=True, answered_by={"call_1": "owner"})
+    assert answered.answered_by == {"call_1": "owner"}
+
 
 def test_a_tool_is_called_and_executed_like_its_function() -> None:
     """Verify a Tool call runs its function and execute() awaits an async function."""

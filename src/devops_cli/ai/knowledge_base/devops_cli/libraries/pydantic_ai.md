@@ -1,10 +1,10 @@
 ---
 applies_to:
-  - "pkg:pypi/pydantic-ai@2.59.*"
+  - "pkg:pypi/pydantic-ai@2.71.*"
 sources:
   - "https://ai.pydantic.dev/"
   - "https://github.com/pydantic/pydantic-ai"
-reviewed: "2026-10-15"
+reviewed: "2026-11-20"
 tags:
   - "pydantic-ai"
   - "ai"
@@ -59,7 +59,9 @@ In `devops-cli`:
        result = await agent.run("Audit Kubernetes security policies")
    ```
 3. **`AgentTool`**: Strongly typed tool definitions with runtime parameter schema validation and path traversal safety checks.
-4. **Structured replies**: `LLMClient.chat_structured(system, prompt, schema)` is the one path that returns a validated Pydantic model. It sends the schema in the system message, repairs the JSON, validates it, and sends the validation errors back to the model for a bounded number of retries. Each provider also gets the schema as a constraint on its reply, where it can take one:
+4. **Retries in the message history**: A retry that answers a tool call is the `ToolReturnPart` of that call with `outcome='retried'`. A retry that answers no call, such as a text reply that breaks the output schema, is a `RetryFeedbackPart`. Find both with `is_retry(part)` from `pydantic_ai.messages`. pydantic-ai 2.60 and later build no part of the deprecated kind `retry-prompt`, so a class check on that part finds nothing. A test gets the parts from a recorded run with `refused_call`, `refused_output` and `refused_text` of `tests/support/model_script.py`.
+5. **Output token limit**: When the output token limit cuts a reply that holds no output, pydantic-ai raises `OutputTokenLimitExceeded`, a kind of `UnexpectedModelBehavior`, and sends no retry.
+6. **Structured replies**: `LLMClient.chat_structured(system, prompt, schema)` is the one path that returns a validated Pydantic model. It sends the schema in the system message, repairs the JSON, validates it, and sends the validation errors back to the model for a bounded number of retries. Each provider also gets the schema as a constraint on its reply, where it can take one:
    - `gateway`: `response_format` with the schema, without `strict`.
    - `ollama`: `format` with the schema.
    - `openai`: the `response_format` of the model's pydantic-ai profile (`openai_model_profile`). `OpenAIJsonSchemaTransformer` adapts the schema, and `strict` is true only when the schema fits OpenAI's strict mode.
