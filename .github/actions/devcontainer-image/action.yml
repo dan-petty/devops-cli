@@ -1,13 +1,12 @@
 name: Build the DevContainer image with its features
 description: >-
-  Build .devcontainer/image/devcontainer.json with the Dev Containers CLI that tools.lock pins, so the
-  image holds the Dev Container Features, the user vscode and the devcontainer.metadata label a
-  child repository reads, for linux/amd64 only and with no emulation, and push it by digest
-  (#1895). The pull request job and the release job
-  both call this action, so the pull request check builds what the release publishes; each then
-  starts the digest with .github/actions/devcontainer-smoke before anything attests or tags it.
-  The caller checks out the repository, installs uv with the project synchronized, and logs in to
-  every registry it names.
+  Build .devcontainer/image/devcontainer.json with the Dev Containers CLI of the devtools image that
+  .devcontainer/Dockerfile pins, so the image holds the Dev Container Features, the user vscode and
+  the devcontainer.metadata label a child repository reads, for linux/amd64 only and with no
+  emulation, and push it by digest (#1895). The pull request job and the release job both call
+  this action, so the pull request check builds what the release publishes; each then starts the
+  digest with .github/actions/devcontainer-smoke before anything attests or tags it. The caller
+  checks out the repository and logs in to every registry it names.
 
 inputs:
   image:
@@ -44,9 +43,16 @@ runs:
       with:
         node-version-file: .node-version
 
-    - name: Install the Dev Containers CLI
+    # The `devcontainers-cli` stage of .devcontainer/Dockerfile holds only the Dev Containers CLI of
+    # the devtools image, so the digest that the Dockerfile pins also gives the CLI. The CLI has no
+    # dependencies and runs with Node.js. The build puts the layers of the devtools image in the
+    # cache of the builder, and the image build below uses them.
+    - name: Copy the Dev Containers CLI from the devtools image
       shell: bash
-      run: uv run devops install-tools --tool devcontainers-cli --only-missing
+      run: |
+        set -euo pipefail
+        docker buildx build --file .devcontainer/Dockerfile --target devcontainers-cli \
+          --output "type=local,dest=$RUNNER_TEMP/devcontainers-cli" .
 
     # `devcontainer build --label` adds nothing to a Dockerfile configuration
     # (devcontainers/cli#930), so the labels, the SBOM, the provenance and the metadata file that
@@ -73,11 +79,10 @@ runs:
         CACHE_TO: ${{ inputs.cache-to }}
       run: |
         set -euo pipefail
-        export PATH="$HOME/.local/bin:$PATH"
         CACHE_ARGS=()
         if [ -n "$CACHE_FROM" ]; then CACHE_ARGS+=(--cache-from "$CACHE_FROM"); fi
         if [ -n "$CACHE_TO" ]; then CACHE_ARGS+=(--cache-to "$CACHE_TO"); fi
-        devcontainer build \
+        node "$RUNNER_TEMP/devcontainers-cli/devcontainer.js" build \
           --workspace-folder . \
           --config .devcontainer/image/devcontainer.build.json \
           --frozen-lockfile \

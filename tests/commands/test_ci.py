@@ -1008,16 +1008,12 @@ def test_the_release_attests_and_tags_only_the_devcontainer_digest_its_smoke_tes
         ],
         [
             "Check out repository",
-            "Install uv and Python",
-            "Synchronize dependencies",
             "Log in to GitHub Container Registry (GHCR)",
             "Extract Metadata for DevContainer Image",
             "Build and Push DevContainer Image by Digest",
         ],
         [
             "Check out repository",
-            "Install uv and Python",
-            "Synchronize dependencies",
             "Log in to GitHub Container Registry (GHCR)",
             "Start the DevContainer Image as Its Remote User",
         ],

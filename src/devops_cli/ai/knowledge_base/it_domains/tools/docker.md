@@ -14,14 +14,14 @@ tags:
 
 ## 1. Overview & Purpose
 
-Docker provides OS-level virtualization to deliver software in lightweight, isolated packages known as containers. In the `devops-cli` ecosystem, Docker powers development containerization (DevContainers), Docker-in-Docker (DinD) workstation support, container image publishing to GitHub Container Registry (GHCR), Minikube container drivers, and container vulnerability scanning.
+Docker provides OS-level virtualization to deliver software in lightweight, isolated packages known as containers. In the `devops-cli` ecosystem, Docker powers development containerization (DevContainers), a Docker-compatible socket in the devcontainer that Podman serves, container image publishing to GitHub Container Registry (GHCR), Minikube container drivers, and container vulnerability scanning.
 
 ---
 
 ## 2. Usage Information & Architecture
 
-- **DevContainer Base Architecture**: `devops-cli` provides an enterprise-ready base image (`ghcr.io/dan-petty/devops-cli/devcontainer:latest`) containing Python 3.14, Docker CLI, Kubernetes CLI tools, OpenTofu, and DevOps CLI binaries.
-- **Docker-in-Docker (DinD)**: Enabled via volume mounting `/var/run/docker.sock` into the container, allowing devcontainers to build, run, and inspect container workloads on the host engine.
+- **DevContainer Base Architecture**: `devops-cli` provides an enterprise-ready base image (`ghcr.io/dan-petty/devops-cli/devcontainer:latest`) containing Python 3.14, Podman with a Docker-compatible `docker` command (no Docker CLI), Kubernetes CLI tools, OpenTofu, and DevOps CLI binaries.
+- **Podman in the devcontainer**: The devcontainer runs Podman (the `podman-in-podman` Feature with `dockerCompat`). `docker` runs rootless Podman, and `/var/run/docker.sock` is the socket of a rootful Podman API service for Docker SDK clients, such as `devops docker`.
 - **GPU Passthrough**: Development containers and Minikube clusters are configured with automatic NVIDIA GPU passthrough (`--gpus all`) when `nvidia-smi` is detected on the host.
 - **CLI Subcommand**: `devops docker` provides stats, container status, image inspection, and cleanup operations.
 
@@ -40,8 +40,8 @@ devops docker prune --volumes
 
 ### Standard & Advanced Docker Commands
 ```bash
-# Build multi-stage container image locally
-docker build -t ghcr.io/dan-petty/devops-cli/devcontainer:local -f .devcontainer/Dockerfile .
+# Build the devcontainer image locally with its two Dev Container Features
+devcontainer build --workspace-folder . --config .devcontainer/image/devcontainer.json --image-name devops-cli-devcontainer:local
 
 # Inspect running containers with formatted JSON output
 docker ps --format "table {{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Ports}}"

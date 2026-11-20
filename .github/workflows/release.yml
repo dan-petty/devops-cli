@@ -172,18 +172,6 @@ jobs:
           ref: ${{ needs.release-please.outputs.sha }}
           persist-credentials: false
 
-      - name: Install uv and Python
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          # This workflow publishes, so it restores no cache another run could have written
-          # (zizmor cache-poisoning).
-          enable-cache: false
-          version: "0.13.9"
-          python-version: "3.14"
-
-      - name: Synchronize dependencies
-        run: uv sync --locked --all-groups --all-extras
-
       - name: Log in to GitHub Container Registry (GHCR)
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
@@ -235,18 +223,6 @@ jobs:
           ref: ${{ needs.release-please.outputs.sha }}
           persist-credentials: false
 
-      - name: Install uv and Python
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          # This workflow publishes, so it restores no cache another run could have written
-          # (zizmor cache-poisoning).
-          enable-cache: false
-          version: "0.13.9"
-          python-version: "3.14"
-
-      - name: Synchronize dependencies
-        run: uv sync --locked --all-groups --all-extras
-
       - name: Log in to GitHub Container Registry (GHCR)
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
@@ -255,6 +231,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Start the DevContainer Image as Its Remote User
+        timeout-minutes: 10
         uses: ./.github/actions/devcontainer-smoke
         with:
           image-ref: ghcr.io/${{ github.repository }}/devcontainer@${{ needs.devcontainer-image.outputs.digest }}

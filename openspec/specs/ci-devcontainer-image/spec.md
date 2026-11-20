@@ -5,21 +5,28 @@ The DevContainer Image check proves that the devcontainer image builds and start
 
 ## Requirements
 
-### Requirement: The DevContainer image builds on its own inputs
-The DevContainer Image workflow SHALL run on the daily schedule, on a manual run, and on a pull request that changes an input of the image other than `src/`: `.devcontainer/`, `.dockerignore`, `pyproject.toml`, `uv.lock`, `README.md`, `src/devops_cli/tools_lock/`, its two actions or the workflow file. A pull request that changes only other `src/` files SHALL start no job of it.
+### Requirement: The DevContainer image builds when an input of its build changes
+The DevContainer Image workflow SHALL run on the daily schedule, on a manual run, and on a pull request that changes an input of the image other than `src/`: `.devcontainer/`, which holds the digest of the devtools image, `.dockerignore`, `pyproject.toml`, `uv.lock`, `README.md`, its two actions or the workflow file. A pull request that changes only `src/` files SHALL start no job of it.
 
 #### Scenario: A pull request changes only src
-- **WHEN** a pull request changes only files under `src/` that are not under `src/devops_cli/tools_lock/`
+- **WHEN** a pull request changes only files under `src/`
 - **THEN** GitHub starts no DevContainer Image job for it
 
 #### Scenario: A pull request changes an image input
-- **WHEN** a pull request changes `.devcontainer/Dockerfile`
+- **WHEN** a pull request changes `.devcontainer/Dockerfile`, for example the digest of the devtools image
 - **THEN** the DevContainer Image job builds the image and starts it as its remote user
 
 #### Scenario: The daily run
 - **WHEN** the daily schedule fires
 - **THEN** the DevContainer Image job builds the image from `main` and starts it
 
-#### Scenario: The filter misses an input
-- **WHEN** the `paths` filter does not hold a file that `.devcontainer/Dockerfile` copies, other than `src/`
-- **THEN** the architectural invariant test fails
+### Requirement: The image actions use the Dev Containers CLI of the devtools image
+The build action SHALL build the image with the Dev Containers CLI of the `devcontainers-cli` stage of `.devcontainer/Dockerfile`, and the smoke action SHALL start it with the CLI of the image that it starts. Neither action SHALL run `devops install-tools`, and the step that calls the smoke action SHALL have `timeout-minutes`.
+
+#### Scenario: A pull request run of the DevContainer Image job
+- **WHEN** the `DevContainer Image` workflow runs on a pull request
+- **THEN** the job exits with code 0 in less than 6 minutes, and its log shows the step `Copy the Dev Containers CLI from the devtools image` and no `devops install-tools` step
+
+#### Scenario: The workflows pass their checks
+- **WHEN** a person runs `uv run devops ci --check --only actionlint,zizmor`
+- **THEN** both rows pass for `devcontainer-image.yml`, `release.yml` and the two actions

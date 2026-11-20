@@ -1,374 +1,63 @@
-# The maintained actionlint fork (#1501) that knows current runner labels, pinned by digest.
-# This stage is a reference only; the binary is copied into the devcontainer image below.
-FROM docker.io/kjanat/actionlint:1.17.1@sha256:c0a63b3e5c974c2466ead39404b70e448176beaff8c5ec7af0b2e96191aea661 AS actionlint
+# syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+# check=error=true
 
-# The binary tools of the image, each at an exact version with the sha256 of its build for the
-# platform. The stage downloads and checks them and keeps the commands in /out/bin, so curl and
-# unzip are not in the image and a source change of this repository rebuilds no step of it.
-FROM debian:sid@sha256:e276677157e13bc51ea5b8651f54ad28883f503cc37b3e3af2c4b6cc2f4efe7b AS tools
-ARG TARGETARCH
-ARG DEBIAN_FRONTEND=noninteractive
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    curl \
-    unzip \
-    && mkdir -p /out/bin
+# The devcontainer image: the devtools image, the venv of devops-cli and the project. Each tool
+# comes from the devtools image (https://github.com/dan-petty/devtools), which names the source
+# of each tool. This file pins the image by digest, and Renovate moves the digest. The two Dev
+# Container Features of .devcontainer/image/devcontainer.json add the user vscode and Podman.
+FROM ghcr.io/dan-petty/devtools:20261119@sha256:a7b2f111941beaf5d36efb19f6ed2a50f8bed3062003498b97523da926143c51 AS devtools
 
-# kubectl 1.37.2
-RUN case "$TARGETARCH" in \
-      amd64) url='https://dl.k8s.io/release/v1.37.2/bin/linux/amd64/kubectl'; sha='c04487523e7aa7d1493f7808174c899db93d7a9cf57531420cd76b9bd415f8f4'; member='' ;; \
-      arm64) url='https://dl.k8s.io/release/v1.37.2/bin/linux/arm64/kubectl'; sha='fcc16f63186659d9722014b7e02d5fdd2d4e669cb8c0ab66365d7d3b8ba03509'; member='' ;; \
-    esac && \
-    mkdir -p /tmp/unpack && \
-    curl -fsSL --retry 3 -o /tmp/asset "$url" && \
-    echo "$sha  /tmp/asset" | sha256sum -c - && \
-    install -m 0755 /tmp/asset /out/bin/kubectl && \
-    rm -rf /tmp/asset /tmp/unpack
+# The requirements of `uv.lock`, with their hashes and without the project (#4550). A release
+# changes the project version in `pyproject.toml` and `uv.lock`, but not this file, and BuildKit
+# keys the cache of a mount from this stage on the content of the file. So the venv layer keeps its
+# cache when only `src/` and the version change.
+FROM devtools AS lock
+WORKDIR /src
+COPY pyproject.toml uv.lock ./
+RUN UV_PYTHON_DOWNLOADS=never uv export --locked --no-dev --extra review --no-emit-project \
+      --format requirements-txt -o /lock/requirements.txt
 
-# kustomize 5.8.3
-RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v5.8.3/kustomize_v5.8.3_linux_amd64.tar.gz'; sha='cb9e31198d3f63b44848bd0afc4c8efc56e6cfef9c93a4a39a211940e6decd61'; member='kustomize' ;; \
-      arm64) url='https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v5.8.3/kustomize_v5.8.3_linux_arm64.tar.gz'; sha='9867b76482cfc6d25b546abc1d2b5a32bd137505aba640649b4b378f64f6d68f'; member='kustomize' ;; \
-    esac && \
-    mkdir -p /tmp/unpack && \
-    curl -fsSL --retry 3 -o /tmp/asset "$url" && \
-    echo "$sha  /tmp/asset" | sha256sum -c - && \
-    tar -xzf /tmp/asset -C /tmp/unpack "$member" && install -m 0755 "/tmp/unpack/$member" /out/bin/kustomize && \
-    rm -rf /tmp/asset /tmp/unpack
-
-# helm 4.3.2
-RUN case "$TARGETARCH" in \
-      amd64) url='https://get.helm.sh/helm-v4.3.2-linux-amd64.tar.gz'; sha='d1c0278d46beab79582d7e50f5b3dc206944ba8e577cde618513fd07daa53983'; member='linux-amd64/helm' ;; \
-      arm64) url='https://get.helm.sh/helm-v4.3.2-linux-arm64.tar.gz'; sha='df31cb61680ef728f82c770e5280dd565617bee6b039d37e85c677288be4bbb0'; member='linux-arm64/helm' ;; \
-    esac && \
-    mkdir -p /tmp/unpack && \
-    curl -fsSL --retry 3 -o /tmp/asset "$url" && \
-    echo "$sha  /tmp/asset" | sha256sum -c - && \
-    tar -xzf /tmp/asset -C /tmp/unpack "$member" && install -m 0755 "/tmp/unpack/$member" /out/bin/helm && \
-    rm -rf /tmp/asset /tmp/unpack
-
-# argo 4.1.6
-RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/argoproj/argo-workflows/releases/download/v4.1.6/argo-linux-amd64.gz'; sha='885f886a338d7e7c0fd4a681152770fb54df1847f8fc55eaed788d661c0304e0'; member='' ;; \
-      arm64) url='https://github.com/argoproj/argo-workflows/releases/download/v4.1.6/argo-linux-arm64.gz'; sha='c11996a95329288ebcc51e5830ad34d61ed684d5280251828596305599f92bf5'; member='' ;; \
-    esac && \
-    mkdir -p /tmp/unpack && \
-    curl -fsSL --retry 3 -o /tmp/asset "$url" && \
-    echo "$sha  /tmp/asset" | sha256sum -c - && \
-    gunzip -c /tmp/asset > /out/bin/argo && chmod 0755 /out/bin/argo && \
-    rm -rf /tmp/asset /tmp/unpack
-
-# argocd 3.6.1
-RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/argoproj/argo-cd/releases/download/v3.6.1/argocd-linux-amd64'; sha='46d2fc941071f0a0c36326a67a431d34b1479e1a24737f7b367abc93968beadc'; member='' ;; \
-      arm64) url='https://github.com/argoproj/argo-cd/releases/download/v3.6.1/argocd-linux-arm64'; sha='6636e9183de7dba666b673a417986e7ff54dbadd948b2f9f6c83bcf7d33ebb94'; member='' ;; \
-    esac && \
-    mkdir -p /tmp/unpack && \
-    curl -fsSL --retry 3 -o /tmp/asset "$url" && \
-    echo "$sha  /tmp/asset" | sha256sum -c - && \
-    install -m 0755 /tmp/asset /out/bin/argocd && \
-    rm -rf /tmp/asset /tmp/unpack
-
-# cloudflared 2026.11.0
-RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/cloudflare/cloudflared/releases/download/2026.11.0/cloudflared-linux-amd64'; sha='51f7c68b57ed7269164075d7e789efce5b59355982f06392deeb037d982a51fd'; member='' ;; \
-      arm64) url='https://github.com/cloudflare/cloudflared/releases/download/2026.11.0/cloudflared-linux-arm64'; sha='abe54a006acf9faf2d19ee9d953cb0d0804e92f59c5382a162e57b84d086f56f'; member='' ;; \
-    esac && \
-    mkdir -p /tmp/unpack && \
-    curl -fsSL --retry 3 -o /tmp/asset "$url" && \
-    echo "$sha  /tmp/asset" | sha256sum -c - && \
-    install -m 0755 /tmp/asset /out/bin/cloudflared && \
-    rm -rf /tmp/asset /tmp/unpack
-
-# kubectl-argo-rollouts 1.10.2
-RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/argoproj/argo-rollouts/releases/download/v1.10.2/kubectl-argo-rollouts-linux-amd64'; sha='355d62379d787a778f92903ce0b2fc1c1f4999d790d829370b6f1854a55f1cf9'; member='' ;; \
-      arm64) url='https://github.com/argoproj/argo-rollouts/releases/download/v1.10.2/kubectl-argo-rollouts-linux-arm64'; sha='b2d414abbdde815f2985c26f58c8461c7949b253e4c23a83737817af34b3be70'; member='' ;; \
-    esac && \
-    mkdir -p /tmp/unpack && \
-    curl -fsSL --retry 3 -o /tmp/asset "$url" && \
-    echo "$sha  /tmp/asset" | sha256sum -c - && \
-    install -m 0755 /tmp/asset /out/bin/kubectl-argo-rollouts && \
-    rm -rf /tmp/asset /tmp/unpack
-
-# trivy 0.76.2
-RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_Linux-64bit.tar.gz'; sha='bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf'; member='trivy' ;; \
-      arm64) url='https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_Linux-ARM64.tar.gz'; sha='ab9d51f86e6a5fb936f605faff6b593ac51bc378fff4d3e8b9d58358b9c367c3'; member='trivy' ;; \
-    esac && \
-    mkdir -p /tmp/unpack && \
-    curl -fsSL --retry 3 -o /tmp/asset "$url" && \
-    echo "$sha  /tmp/asset" | sha256sum -c - && \
-    tar -xzf /tmp/asset -C /tmp/unpack "$member" && install -m 0755 "/tmp/unpack/$member" /out/bin/trivy && \
-    rm -rf /tmp/asset /tmp/unpack
-
-# kube-linter 0.8.3
-RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/stackrox/kube-linter/releases/download/v0.8.3/kube-linter-linux'; sha='618d299a3e2839c8ca9d86fce0db617be0fba41f0fecbbbfb7fbf1c04299fae1'; member='' ;; \
-      arm64) url='https://github.com/stackrox/kube-linter/releases/download/v0.8.3/kube-linter-linux_arm64'; sha='9c39d35252e0dcafb16b26197b9e93ba578e44eb402c3c6660fc94e08f94094f'; member='' ;; \
-    esac && \
-    mkdir -p /tmp/unpack && \
-    curl -fsSL --retry 3 -o /tmp/asset "$url" && \
-    echo "$sha  /tmp/asset" | sha256sum -c - && \
-    install -m 0755 /tmp/asset /out/bin/kube-linter && \
-    rm -rf /tmp/asset /tmp/unpack
-
-# popeye 0.22.1
-RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/derailed/popeye/releases/download/v0.22.1/popeye_linux_amd64.tar.gz'; sha='d58a3c0ba45805d452c32628320eecdcb5172fd5f42c82e12aeecc7a17eb930b'; member='popeye' ;; \
-      arm64) url='https://github.com/derailed/popeye/releases/download/v0.22.1/popeye_linux_arm64.tar.gz'; sha='5188b0b521966113580f0fef7769173af6303061dee10df247536f9bb55fe988'; member='popeye' ;; \
-    esac && \
-    mkdir -p /tmp/unpack && \
-    curl -fsSL --retry 3 -o /tmp/asset "$url" && \
-    echo "$sha  /tmp/asset" | sha256sum -c - && \
-    tar -xzf /tmp/asset -C /tmp/unpack "$member" && install -m 0755 "/tmp/unpack/$member" /out/bin/popeye && \
-    rm -rf /tmp/asset /tmp/unpack
-
-# pluto 5.24.4
-RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/FairwindsOps/pluto/releases/download/v5.24.4/pluto_5.24.4_linux_amd64.tar.gz'; sha='1e5077ce1016fb0bb8ce0103c12b7ca8666eb3959d787ecfc95d9b8acd507147'; member='pluto' ;; \
-      arm64) url='https://github.com/FairwindsOps/pluto/releases/download/v5.24.4/pluto_5.24.4_linux_arm64.tar.gz'; sha='46afed19dec949bd9f7c1da0422ce9d1bdb22c15ae8441552374642ac72f0882'; member='pluto' ;; \
-    esac && \
-    mkdir -p /tmp/unpack && \
-    curl -fsSL --retry 3 -o /tmp/asset "$url" && \
-    echo "$sha  /tmp/asset" | sha256sum -c - && \
-    tar -xzf /tmp/asset -C /tmp/unpack "$member" && install -m 0755 "/tmp/unpack/$member" /out/bin/pluto && \
-    rm -rf /tmp/asset /tmp/unpack
-
-# kubeconform 0.8.0
-RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz'; sha='9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883'; member='kubeconform' ;; \
-      arm64) url='https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-arm64.tar.gz'; sha='1f53fc8e81258197a35e8603054162a5af1de8c5af13746c71ab680d9534ed87'; member='kubeconform' ;; \
-    esac && \
-    mkdir -p /tmp/unpack && \
-    curl -fsSL --retry 3 -o /tmp/asset "$url" && \
-    echo "$sha  /tmp/asset" | sha256sum -c - && \
-    tar -xzf /tmp/asset -C /tmp/unpack "$member" && install -m 0755 "/tmp/unpack/$member" /out/bin/kubeconform && \
-    rm -rf /tmp/asset /tmp/unpack
-
-# tflint 0.65.0
-RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/terraform-linters/tflint/releases/download/v0.65.0/tflint_linux_amd64.zip'; sha='d4c545ed2e29d6338604b586f34f544f380f70f243aa72f7b484713835eaec61'; member='tflint' ;; \
-      arm64) url='https://github.com/terraform-linters/tflint/releases/download/v0.65.0/tflint_linux_arm64.zip'; sha='843017c47a98be1de4d88fa038daa293770fe25cd01656c4f08b2e30d1d3b3a0'; member='tflint' ;; \
-    esac && \
-    mkdir -p /tmp/unpack && \
-    curl -fsSL --retry 3 -o /tmp/asset "$url" && \
-    echo "$sha  /tmp/asset" | sha256sum -c - && \
-    unzip -q /tmp/asset "$member" -d /tmp/unpack && install -m 0755 "/tmp/unpack/$member" /out/bin/tflint && \
-    rm -rf /tmp/asset /tmp/unpack
-
-# k9s 0.51.0
-RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/derailed/k9s/releases/download/v0.51.0/k9s_Linux_amd64.tar.gz'; sha='c3752ad51a5a4015a113819c4eeb6e55a4d0e4b8e652494797532f6fc8161dd7'; member='k9s' ;; \
-      arm64) url='https://github.com/derailed/k9s/releases/download/v0.51.0/k9s_Linux_arm64.tar.gz'; sha='3ee05c82e5f9198928a4e86133608ba6a2c10a2244d6a7789e820f78319d640c'; member='k9s' ;; \
-    esac && \
-    mkdir -p /tmp/unpack && \
-    curl -fsSL --retry 3 -o /tmp/asset "$url" && \
-    echo "$sha  /tmp/asset" | sha256sum -c - && \
-    tar -xzf /tmp/asset -C /tmp/unpack "$member" && install -m 0755 "/tmp/unpack/$member" /out/bin/k9s && \
-    rm -rf /tmp/asset /tmp/unpack
-
-# gh-dash 4.26.2
-RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/dlvhdr/gh-dash/releases/download/v4.26.2/gh-dash_v4.26.2_linux-amd64'; sha='565d7dbfafc568c06441ab49d31c7059b7ade7cbba12490fa7f12f9bb71dc1b5'; member='' ;; \
-      arm64) url='https://github.com/dlvhdr/gh-dash/releases/download/v4.26.2/gh-dash_v4.26.2_linux-arm64'; sha='67e55fe550e86dc7555979f8e0d05b88e1ba086b022a6e19e071dfc67369ec50'; member='' ;; \
-    esac && \
-    mkdir -p /tmp/unpack && \
-    curl -fsSL --retry 3 -o /tmp/asset "$url" && \
-    echo "$sha  /tmp/asset" | sha256sum -c - && \
-    install -m 0755 /tmp/asset /out/bin/gh-dash && \
-    rm -rf /tmp/asset /tmp/unpack
-
-# tuicr 0.28.0
-RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/agavra/tuicr/releases/download/v0.28.0/tuicr-0.28.0-x86_64-unknown-linux-musl.tar.gz'; sha='0e6be65458e83bf3f917a30660d029b7f4dc5f9b6d203adc10f11a93a30c22f2'; member='tuicr' ;; \
-      arm64) url='https://github.com/agavra/tuicr/releases/download/v0.28.0/tuicr-0.28.0-aarch64-unknown-linux-musl.tar.gz'; sha='c5f60e3846733c3f6f676f0b5b44a6c1cec148e2d1132f3bd107833cf5f7fc0e'; member='tuicr' ;; \
-    esac && \
-    mkdir -p /tmp/unpack && \
-    curl -fsSL --retry 3 -o /tmp/asset "$url" && \
-    echo "$sha  /tmp/asset" | sha256sum -c - && \
-    tar -xzf /tmp/asset -C /tmp/unpack "$member" && install -m 0755 "/tmp/unpack/$member" /out/bin/tuicr && \
-    rm -rf /tmp/asset /tmp/unpack
-
-# vale 3.26.0
-RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/errata-ai/vale/releases/download/v3.26.0/vale_3.26.0_Linux_64-bit.tar.gz'; sha='22aa69a556558e4a9dfc63c17030777383d8d3c48dcdfad655fa98e839d666ed'; member='vale' ;; \
-      arm64) url='https://github.com/errata-ai/vale/releases/download/v3.26.0/vale_3.26.0_Linux_arm64.tar.gz'; sha='3154179f4611140c9af54a8b3bc6a90bc02b73fe6c1f635369604dde0490406d'; member='vale' ;; \
-    esac && \
-    mkdir -p /tmp/unpack && \
-    curl -fsSL --retry 3 -o /tmp/asset "$url" && \
-    echo "$sha  /tmp/asset" | sha256sum -c - && \
-    tar -xzf /tmp/asset -C /tmp/unpack "$member" && install -m 0755 "/tmp/unpack/$member" /out/bin/vale && \
-    rm -rf /tmp/asset /tmp/unpack
-
-# tofu 1.13.9
-RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/opentofu/opentofu/releases/download/v1.13.9/tofu_1.13.9_linux_amd64.zip'; sha='bc44eb6b06446ba83bd4072114891987f590f66cca712737a7f1147c50c539ce' ;; \
-      arm64) url='https://github.com/opentofu/opentofu/releases/download/v1.13.9/tofu_1.13.9_linux_arm64.zip'; sha='04f7c93828b859d420269ed30f923ffebf09157b5d7fb95bf8d88a4d208b7fa3' ;; \
-    esac && \
-    curl -fsSL --retry 3 -o /tmp/tofu.zip "$url" && \
-    echo "$sha  /tmp/tofu.zip" | sha256sum -c - && \
-    unzip -q /tmp/tofu.zip tofu -d /tmp && install -m 0755 /tmp/tofu /out/bin/tofu && \
-    rm -f /tmp/tofu /tmp/tofu.zip
-
-# gitleaks 8.30.1
-RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz'; sha='551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb'; member='gitleaks' ;; \
-      arm64) url='https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_arm64.tar.gz'; sha='e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080'; member='gitleaks' ;; \
-    esac && \
-    mkdir -p /tmp/unpack && \
-    curl -fsSL --retry 3 -o /tmp/asset "$url" && \
-    echo "$sha  /tmp/asset" | sha256sum -c - && \
-    tar -xzf /tmp/asset -C /tmp/unpack "$member" && install -m 0755 "/tmp/unpack/$member" /out/bin/gitleaks && \
-    rm -rf /tmp/asset /tmp/unpack
-
-# osv-scanner 2.6.0
-RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/google/osv-scanner/releases/download/v2.6.0/osv-scanner_linux_amd64'; sha='ca69b3d3cd08f889a49dc0a383122f71cc528b83803671df5fd874d97485b108'; member='' ;; \
-      arm64) url='https://github.com/google/osv-scanner/releases/download/v2.6.0/osv-scanner_linux_arm64'; sha='2c71403eb443d05891c4f268c3ad771cf4f16e5443463fd7851ef8f454d3c7e4'; member='' ;; \
-    esac && \
-    mkdir -p /tmp/unpack && \
-    curl -fsSL --retry 3 -o /tmp/asset "$url" && \
-    echo "$sha  /tmp/asset" | sha256sum -c - && \
-    install -m 0755 /tmp/asset /out/bin/osv-scanner && \
-    rm -rf /tmp/asset /tmp/unpack
-
-# golangci-lint 1.64.8
-RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/golangci/golangci-lint/releases/download/v1.64.8/golangci-lint-1.64.8-linux-amd64.tar.gz'; sha='b6270687afb143d019f387c791cd2a6f1cb383be9b3124d241ca11bd3ce2e54e'; member='golangci-lint-1.64.8-linux-amd64/golangci-lint' ;; \
-      arm64) url='https://github.com/golangci/golangci-lint/releases/download/v1.64.8/golangci-lint-1.64.8-linux-arm64.tar.gz'; sha='a6ab58ebcb1c48572622146cdaec2956f56871038a54ed1149f1386e287789a5'; member='golangci-lint-1.64.8-linux-arm64/golangci-lint' ;; \
-    esac && \
-    mkdir -p /tmp/unpack && \
-    curl -fsSL --retry 3 -o /tmp/asset "$url" && \
-    echo "$sha  /tmp/asset" | sha256sum -c - && \
-    tar -xzf /tmp/asset -C /tmp/unpack "$member" && install -m 0755 "/tmp/unpack/$member" /out/bin/golangci-lint && \
-    rm -rf /tmp/asset /tmp/unpack
-
-# promtool 3.16.0
-RUN case "$TARGETARCH" in \
-      amd64) url='https://github.com/prometheus/prometheus/releases/download/v3.16.0/prometheus-3.16.0.linux-amd64.tar.gz'; sha='68727009472a2c02e1ff7f062fd5b3e637285bffc8fc2d340c76fb449d6e0f34'; member='prometheus-3.16.0.linux-amd64/promtool' ;; \
-      arm64) url='https://github.com/prometheus/prometheus/releases/download/v3.16.0/prometheus-3.16.0.linux-arm64.tar.gz'; sha='fd8571b8162f4020232d886f17340bcf92e1722985ae3b4c1d096157826c0fbe'; member='prometheus-3.16.0.linux-arm64/promtool' ;; \
-    esac && \
-    mkdir -p /tmp/unpack && \
-    curl -fsSL --retry 3 -o /tmp/asset "$url" && \
-    echo "$sha  /tmp/asset" | sha256sum -c - && \
-    tar -xzf /tmp/asset -C /tmp/unpack "$member" && install -m 0755 "/tmp/unpack/$member" /out/bin/promtool && \
-    rm -rf /tmp/asset /tmp/unpack
-
-# The Node tools of the image. `npm ci` installs from the committed lockfile, which npm checks
-# against the sha512 of every package, and `--ignore-scripts` runs no install script. The stage
-# keeps only the installed folders: the Node feature of the image configuration provides the
-# runtime that the commands use at run time.
-FROM node:24-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0 AS npm-tools
-COPY src/devops_cli/tools_lock/openspec/package.json src/devops_cli/tools_lock/openspec/package-lock.json /opt/openspec/
-RUN cd /opt/openspec && npm ci --ignore-scripts
-COPY src/devops_cli/tools_lock/devcontainers-cli/package.json src/devops_cli/tools_lock/devcontainers-cli/package-lock.json /opt/devcontainers-cli/
-RUN cd /opt/devcontainers-cli && npm ci --ignore-scripts
-# Style Dictionary builds the design tokens (`make design-tokens`, docs/DESIGN.md). Its lock is no
-# entry of tools.lock: Renovate updates it.
-COPY src/devops_cli/tools_lock/style-dictionary/package.json src/devops_cli/tools_lock/style-dictionary/package-lock.json /opt/style-dictionary/
-RUN cd /opt/style-dictionary && npm ci --ignore-scripts
-
-FROM debian:sid@sha256:e276677157e13bc51ea5b8651f54ad28883f503cc37b3e3af2c4b6cc2f4efe7b
-
-# Avoid interactive prompts during apt operations in CI
-ARG DEBIAN_FRONTEND=noninteractive
-
-# Optimize Python runtime and uv execution in containerized environments
+# The venv of the runtime requirements in /opt/devops-cli/.venv, which is outside the home volume.
+# `--require-hashes` refuses a distribution that the lock does not name with its hash. This stage
+# writes the tiktoken encodings to /usr/local/share/tiktoken (TIKTOKEN_CACHE_DIR), so `devops`
+# counts tokens with no download. /run/user/1000 holds the container-local session bus of
+# gnome-keyring; /tmp is shared.
+FROM devtools AS venv
 ENV PYTHONUNBUFFERED=1 \
     UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
     TIKTOKEN_CACHE_DIR=/usr/local/share/tiktoken
+RUN install -d -m 0700 -o 1000 -g 1000 /run/user/1000
+RUN --mount=type=bind,from=lock,source=/lock/requirements.txt,target=/tmp/requirements.txt \
+    --mount=type=cache,target=/root/.cache/uv \
+    UV_PYTHON_DOWNLOADS=never uv venv --python /usr/bin/python3 /opt/devops-cli/.venv \
+    && uv pip sync --python /opt/devops-cli/.venv/bin/python --require-hashes /tmp/requirements.txt \
+    && /opt/devops-cli/.venv/bin/python -c "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')"
 
-# Install Python 3.14 runtime, symlinks, root certificates, and the gnome-keyring Secret Service
-# (dbus-x11 satisfies its session-bus dependency) with BuildKit apt cache mounts. /run/user/1000
-# holds the container-local session bus; /tmp is shared.
-# The network diagnostics tools are ping, tracepath, traceroute, mtr, nc and tcpdump (#5343).
-# ping opens an ICMP echo socket, and the --sysctl run argument of devcontainer.json lets the
-# group of vscode open one. The mtr-tiny package gives mtr-packet the cap_net_raw file capability.
-# tcpdump needs root, so use sudo. tcpdump depends on systemd, as openssh-client of the
-# common-utils feature does.
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
-    python3.14 \
-    python-is-python3 \
-    ca-certificates \
-    shellcheck \
-    gnome-keyring \
-    dbus-x11 \
-    bubblewrap \
-    socat \
-    iputils-ping \
-    iputils-tracepath \
-    traceroute \
-    mtr-tiny \
-    netcat-openbsd \
-    tcpdump \
-    && install -d -m 0700 -o 1000 -g 1000 /run/user/1000 \
-    && sed -i 's/VERSION_CODENAME=forky/VERSION_CODENAME=trixie/' /etc/os-release \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install standalone uv and uvx binaries into /usr/local/bin pinned to release
-COPY --from=ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d /uv /uvx /usr/local/bin/
-
-# The tools of the image, in the places the Filesystem Hierarchy Standard names for software that
-# the administrator installs: the commands are in /usr/local/bin, which PATH holds already, and the
-# files of a Python or Node tool are in /usr/local/share/devops-tools. All of it is root-owned and
-# outside the home volume, so a rebuild of the image is the way to change a tool.
-COPY --from=tools /out/bin/ /usr/local/bin/
-COPY --from=npm-tools /opt/openspec /usr/local/share/devops-tools/openspec
-COPY --from=npm-tools /opt/devcontainers-cli /usr/local/share/devops-tools/devcontainers-cli
-COPY --from=npm-tools /opt/style-dictionary /usr/local/share/devops-tools/style-dictionary
-RUN ln -s ../share/devops-tools/openspec/node_modules/.bin/openspec /usr/local/bin/openspec && \
-    ln -s ../share/devops-tools/devcontainers-cli/node_modules/.bin/devcontainer /usr/local/bin/devcontainer && \
-    ln -s ../share/devops-tools/style-dictionary/node_modules/.bin/style-dictionary /usr/local/bin/style-dictionary
-
-# Python tools install into a virtual environment of their own from the hashed requirements file,
-# and `--require-hashes` refuses a distribution that the file does not name.
-COPY src/devops_cli/tools_lock/semgrep.txt /tmp/tools_lock/semgrep.txt
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv venv --python /usr/bin/python3.14 /usr/local/share/devops-tools/semgrep && \
-    uv pip sync --require-hashes -p /usr/local/share/devops-tools/semgrep/bin/python /tmp/tools_lock/semgrep.txt && \
-    ln -s /usr/local/share/devops-tools/semgrep/bin/semgrep /usr/local/share/devops-tools/semgrep/bin/pysemgrep /usr/local/bin/ && \
-    rm -rf /tmp/tools_lock/semgrep.txt
-COPY src/devops_cli/tools_lock/bandit.txt /tmp/tools_lock/bandit.txt
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv venv --python /usr/bin/python3.14 /usr/local/share/devops-tools/bandit && \
-    uv pip sync --require-hashes -p /usr/local/share/devops-tools/bandit/bin/python /tmp/tools_lock/bandit.txt && \
-    ln -s /usr/local/share/devops-tools/bandit/bin/bandit /usr/local/bin/ && \
-    rm -rf /tmp/tools_lock/bandit.txt
-# ansible-core and ansible-runner share one environment. Only `ansible-runner` goes on PATH:
-# `devops infra` starts the other Ansible commands from the folder of the `ansible-runner` it finds.
-COPY src/devops_cli/tools_lock/ansible-core.txt /tmp/tools_lock/ansible-core.txt
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv venv --python /usr/bin/python3.14 /usr/local/share/devops-tools/ansible-core && \
-    uv pip sync --require-hashes -p /usr/local/share/devops-tools/ansible-core/bin/python /tmp/tools_lock/ansible-core.txt && \
-    ln -s /usr/local/share/devops-tools/ansible-core/bin/ansible-runner /usr/local/bin/ && \
-    rm -rf /tmp/tools_lock/ansible-core.txt
-
-# Pre-install dependencies from lockfile for optimal Docker layer caching in CI
-COPY pyproject.toml uv.lock /tmp/devops-cli/
-RUN --mount=type=cache,target=/root/.cache/uv \
-    cd /tmp/devops-cli && \
-    uv export --no-dev --extra review --no-emit-project -o /tmp/requirements.txt && \
-    uv pip install --system --break-system-packages -r /tmp/requirements.txt pre-commit && \
-    python3 -c "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')" && \
-    rm -rf /tmp/requirements.txt
-
-# Copy devops-cli source files and install the package without re-downloading dependencies.
-# This copy is the devops of the published image: a child repository's post-create and
-# post-start run it, and so does this repository's first post-create, before `uv sync` fills
-# .venv. The remoteEnv PATH of .devcontainer/devcontainer.json puts .venv/bin first, so in this
-# repository `devops` is the editable install of the checkout (#2449).
+# The project, built and installed into the venv. A change of `src/` builds this stage again; the
+# last stage copies from it only the package, its dist-info and its console script.
+FROM venv AS project
 COPY pyproject.toml README.md /tmp/devops-cli/
 COPY src/ /tmp/devops-cli/src/
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system --break-system-packages --no-deps /tmp/devops-cli && \
-    rm -rf /tmp/devops-cli
+    uv pip install --python /opt/devops-cli/.venv/bin/python --no-deps /tmp/devops-cli
 
-# Provide the pinned actionlint binary on PATH so the bare `actionlint` command resolves.
-# Placed last so a source change above rebuilds no earlier layer.
-COPY --from=actionlint /usr/local/bin/actionlint /usr/local/bin/actionlint
+# Only the Dev Containers CLI of the devtools image. The build action
+# (.github/actions/devcontainer-image) exports this stage to the runner and builds the image with
+# it, so the digest above also pins the CLI. No other stage uses it.
+FROM scratch AS devcontainers-cli
+COPY --from=devtools /usr/local/lib/devtools/npm/node_modules/@devcontainers/cli /
+
+# This copy is the devops of the published image: a child repository's post-create and post-start
+# run it, and so does this repository's first post-create, before `uv sync` fills .venv. The venv
+# is the last directory of PATH, so its python does not hide the python of the system. The
+# remoteEnv PATH of .devcontainer/devcontainer.json puts .venv/bin first, so in this repository
+# `devops` is the editable install of the checkout (#2449). The project layer is the last layer of
+# this file, and `--link` makes it independent of the layers under it. The Dev Containers CLI adds
+# the layers of the two Features over it (#6470).
+FROM venv
+ENV PATH="${PATH}:/opt/devops-cli/.venv/bin"
+COPY --link --from=project --parents /opt/devops-cli/.venv/lib/python3.*/site-packages/devops_cli \
+    /opt/devops-cli/.venv/lib/python3.*/site-packages/devops_cli-*.dist-info \
+    /opt/devops-cli/.venv/bin/devops /
+USER vscode

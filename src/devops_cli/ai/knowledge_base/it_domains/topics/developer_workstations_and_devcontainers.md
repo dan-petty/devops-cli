@@ -14,12 +14,13 @@ tags:
 
 ## 1. Overview & Domain Architecture
 
-Development Containers (DevContainers) provide fully configured, reproducible development environments running inside Docker containers. In `devops-cli`, DevContainer automation standardizes toolchain installations (Python 3.14+, Docker, Kubernetes CLI tools, OpenTofu), manages persistent developer shell histories, automates SSH commit signing, configures Model Context Protocol (MCP) servers, and synchronizes multi-root VS Code workspaces.
+Development Containers (DevContainers) provide fully configured, reproducible development environments running inside containers of a host engine, such as Podman or Docker. In `devops-cli`, DevContainer automation standardizes toolchain installations (Python 3.14+, Podman with a Docker-compatible `docker` command, Kubernetes CLI tools, OpenTofu), manages persistent developer shell histories, automates SSH commit signing, configures Model Context Protocol (MCP) servers, and synchronizes multi-root VS Code workspaces.
 
 ```mermaid
 graph TD
-    A[Host Workstation / Codespaces] --> B[Docker Engine / DinD Socket]
+    A[Host Workstation / Codespaces] --> B[Host Engine: Podman or Docker]
     B --> C[DevContainer Image: ghcr.io/dan-petty/devops-cli/devcontainer:latest]
+    C --> I[Podman in Podman: docker command + Docker API socket]
     C --> D[Persistent Volumes: .bash_history, .zsh_history]
     C --> E[Post-Create Hook: devops devcontainer post-create]
     C --> F[Post-Start Hook: devops devcontainer post-start]
@@ -32,7 +33,7 @@ graph TD
 ## 2. Key Concepts & Theoretical Foundations
 
 - **Development Container Specification (OCI)**: Standardized specification (`.devcontainer/devcontainer.json`) defining container image references, editor extensions, lifecycle hooks, and port forwarding.
-- **Docker-in-Docker (DinD)**: Mounting `/var/run/docker.sock` to enable container building, image inspection, and Minikube execution inside development environments without nested virtualization penalties.
+- **Podman in Podman**: A container engine inside the development container (the `podman-in-podman` Feature), with a Docker-compatible `docker` command and socket, for container builds, image inspection and Minikube without nested virtualization.
 - **Persistent State across Rebuilds**: Preserving shell history, configuration directories (`~/.gemini/config`), and cache directories (`~/.cache/uv`) across container rebuilds via host volume mounts.
 - **Multi-Root Workspaces**: Aggregating multiple independent child repositories under `repos/<org>/` into a single root `.code-workspace` file.
 

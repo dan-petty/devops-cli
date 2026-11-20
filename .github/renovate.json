@@ -50,15 +50,6 @@
     },
     {
       "customType": "regex",
-      "description": "The Python minor of the apt package and the tool environments of the devcontainer image.",
-      "managerFilePatterns": ["/^\\.devcontainer/Dockerfile$/"],
-      "matchStrings": ["python(?<currentValue>3\\.\\d+)\\b"],
-      "depNameTemplate": "python",
-      "datasourceTemplate": "docker",
-      "versioningTemplate": "docker"
-    },
-    {
-      "customType": "regex",
       "description": "The Python minor of the type checkers, the tools lock and DEFAULT_PYTHON_VERSION.",
       "managerFilePatterns": ["/^pyproject\\.toml$/", "/^src/devops_cli/tools_lock/tools\\.lock$/", "/^src/devops_cli/config/defaults\\.py$/"],
       "matchStrings": ["\\n(?:python[_-]version|DEFAULT_PYTHON_VERSION: str) = \"(?<currentValue>3\\.\\d+)\""],
@@ -227,28 +218,28 @@
       "commitMessagePrefix": "fix(deps):"
     },
     {
-      "description": "Coupled pins: a test compares these files, so one pull request updates them all. The trivy-action version inputs, the tools lock and the devcontainer image.",
+      "description": "Coupled pins: a test compares these files, so one pull request updates them all. The trivy-action version inputs and the tools lock.",
       "matchPackageNames": ["aquasecurity/trivy"],
       "groupName": "trivy"
     },
     {
-      "description": "The tools lock, the devcontainer image and the Argo Workflows values tag.",
+      "description": "The tools lock and the Argo Workflows values tag.",
       "matchPackageNames": ["argoproj/argo-workflows", "quay.io/argoproj/workflow-controller"],
       "groupName": "argo"
     },
     {
-      "description": "The tools lock, the devcontainer image and the cloudflared image of the cluster.",
+      "description": "The tools lock and the cloudflared image of the cluster.",
       "matchPackageNames": ["cloudflare/cloudflared"],
       "groupName": "cloudflared"
     },
     {
-      "description": "The two Dockerfiles and the setup-uv version inputs. The uv image of the service image's Dockerfile is a fix by the base image rule, and a group takes the prefix of its first update, so the group sets the prefix itself.",
+      "description": "The Dockerfile and the setup-uv version inputs. The uv image of the service image's Dockerfile is a fix by the base image rule, and a group takes the prefix of its first update, so the group sets the prefix itself.",
       "matchPackageNames": ["astral-sh/uv", "ghcr.io/astral-sh/uv"],
       "groupName": "uv",
       "commitMessagePrefix": "fix(deps):"
     },
     {
-      "description": ".node-version, the node images and the devcontainer node feature. The node image of the service image's Dockerfile is a fix by the base image rule, and a group takes the prefix of its first update, so the group sets the prefix itself.",
+      "description": ".node-version and the node image. The node image of the service image's Dockerfile is a fix by the base image rule, and a group takes the prefix of its first update, so the group sets the prefix itself.",
       "matchPackageNames": ["node"],
       "groupName": "node",
       "commitMessagePrefix": "fix(deps):"
@@ -275,9 +266,14 @@
       "commitMessagePrefix": "fix(deps):"
     },
     {
-      "description": "The actionlint image of the devcontainer image and of the ci.yml step.",
+      "description": "The actionlint image of the Dockerfile and of the ci.yml step.",
       "matchPackageNames": ["kjanat/actionlint", "docker.io/kjanat/actionlint"],
       "groupName": "actionlint"
+    },
+    {
+      "description": "The devtools image of .devcontainer/Dockerfile and of each other Dockerfile or workflow that names it, for each manager: one pull request moves every reference.",
+      "matchPackageNames": ["ghcr.io/dan-petty/devtools"],
+      "groupName": "devtools"
     },
     {
       "description": "The DCGM exporter chart and image: the exporter version of the image tag is the version of the chart. A group takes the prefix of its first update, so the group sets the fix prefix of a chart update.",
@@ -296,11 +292,11 @@
       ]
     },
     {
-      "description": "A feature update writes the devcontainer lockfile again with the pinned Dev Containers CLI.",
+      "description": "A feature update writes the devcontainer lockfile again with the Dev Containers CLI of the devtools image.",
       "matchManagers": ["devcontainer"],
       "matchDatasources": ["docker"],
       "prBodyNotes": [
-        "Before the merge, run `uv run --frozen devops install-tools --tool devcontainers-cli` and `devcontainer upgrade --workspace-folder . --config .devcontainer/image/devcontainer.json` on this branch and push `.devcontainer/image/devcontainer-lock.json`; Renovate runs no upgrade task until #6020."
+        "Before the merge, run `devcontainer upgrade --workspace-folder . --config .devcontainer/image/devcontainer.json` in the devcontainer on this branch and push `.devcontainer/image/devcontainer-lock.json`; Renovate runs no upgrade task until #6020."
       ]
     },
     {
