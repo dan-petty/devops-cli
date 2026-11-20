@@ -1,10 +1,11 @@
-name: Put commands of the devtools image on PATH
+name: Copy commands of the devtools image
 description: >-
-  Copy commands of the devtools image to a directory of the runner and put it first on PATH, for a
-  job on the runner host that cannot run in the image (#6416). The `devtools-bin` stage of
+  Copy commands of the devtools image to a directory of the runner and output that directory, for
+  a job on the runner host that cannot run in the image (#6416). The `devtools-bin` stage of
   .devcontainer/Dockerfile holds the commands, so the digest that the Dockerfile pins also pins
   each command, and Renovate moves that digest. The action names no version. The caller checks out
-  the repository first.
+  the repository first, and puts the `path` output on PATH in a step of its own job when it runs
+  the commands.
 
 inputs:
   commands:
@@ -15,7 +16,7 @@ inputs:
 
 outputs:
   path:
-    description: The directory that holds the commands, which the action puts first on PATH.
+    description: The directory that holds the commands.
     value: ${{ steps.key.outputs.path }}
 
 runs:
@@ -67,9 +68,3 @@ runs:
           mv "$export_dir/$name" "$BIN_DIR/$name"
         done
         rm -rf "$export_dir"
-
-    - name: Put the commands on PATH
-      shell: bash
-      env:
-        BIN_DIR: ${{ steps.key.outputs.path }}
-      run: echo "$BIN_DIR" >> "$GITHUB_PATH"

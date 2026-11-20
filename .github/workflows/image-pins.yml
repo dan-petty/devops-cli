@@ -76,11 +76,19 @@ jobs:
           save-uv-cache: "false"
 
       # The kubectl and helm of the devtools image, from the cache of the action (#6416). The job
-      # stays on the runner host: a container job pulls the whole image on each run.
-      - name: Put kubectl and helm on PATH
+      # stays on the runner host: a container job pulls the whole image on each run. The next step
+      # puts their directory on PATH before /usr/local/bin, which holds the kubectl and helm of the
+      # runner image.
+      - name: Copy kubectl and helm from the devtools image
+        id: devtools
         uses: ./.github/actions/devtools-commands
         with:
           commands: kubectl helm
+
+      - name: Put kubectl and helm on PATH
+        env:
+          BIN_DIR: ${{ steps.devtools.outputs.path }}
+        run: echo "$BIN_DIR" >> "$GITHUB_PATH"
 
       - name: Resolve the Image Pins
         run: uv run devops k8s image-pins

@@ -81,11 +81,18 @@ jobs:
       # kube-linter, which runs the `kube-linter` row on the build of each path source of the Argo CD
       # Applications (#6068); and Trivy, which runs `trivy-config`, the IaC scan of the Security Scan
       # step, in the place of Checkov (#2214). The job stays on the runner host, because the `bwrap`
-      # row needs the sandbox of the host, which a container job cannot make (#6416).
-      - name: Put the tools of the devtools image on PATH
+      # row needs the sandbox of the host, which a container job cannot make (#6416). The next step
+      # puts the directory of the commands first on PATH for the steps after it.
+      - name: Copy the tools of the devtools image
+        id: devtools
         uses: ./.github/actions/devtools-commands
         with:
           commands: tofu osv-scanner trivy kube-linter
+
+      - name: Put the tools of the devtools image on PATH
+        env:
+          BIN_DIR: ${{ steps.devtools.outputs.path }}
+        run: echo "$BIN_DIR" >> "$GITHUB_PATH"
 
       # The pinned actionlint image validates the workflows, and the gate below skips its actionlint
       # row, so actionlint runs once (#1119). The devcontainer and the runner image get actionlint
@@ -182,11 +189,18 @@ jobs:
       # The promtool of the devtools image runs the rule checks and rule unit tests of
       # tests/test_k8s_monitoring_alerting.py, which skip where promtool is not installed (#2472).
       # The shards stay on the runner host: the coverage data of each names the paths of its
-      # checkout, and the job `Tests & Coverage` joins the data on the host (#6416).
-      - name: Put promtool on PATH
+      # checkout, and the job `Tests & Coverage` joins the data on the host (#6416). The next step
+      # puts the directory of promtool first on PATH for the steps after it.
+      - name: Copy promtool from the devtools image
+        id: devtools
         uses: ./.github/actions/devtools-commands
         with:
           commands: promtool
+
+      - name: Put promtool on PATH
+        env:
+          BIN_DIR: ${{ steps.devtools.outputs.path }}
+        run: echo "$BIN_DIR" >> "$GITHUB_PATH"
 
       - name: Tests & Coverage Quality Gate
         if: steps.changes.outputs.outside_plan != 'false'

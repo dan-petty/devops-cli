@@ -49,9 +49,9 @@ FROM scratch AS devcontainers-cli
 COPY --from=devtools /usr/local/lib/devtools/npm/node_modules/@devcontainers/cli /
 
 # Only the commands of the devtools image that the CI jobs on the runner host run (#6416). The
-# action .github/actions/devtools-commands exports this stage on a miss of its cache and puts on
-# PATH the commands that a job names, so the digest above also pins each command. No other stage
-# uses it.
+# action .github/actions/devtools-commands exports this stage on a miss of its cache and copies the
+# commands that a job names to a directory, which the job puts on PATH, so the digest above also
+# pins each command. No other stage uses it.
 FROM scratch AS devtools-bin
 COPY --from=devtools /usr/local/bin/gitleaks /usr/local/bin/helm /usr/local/bin/kube-linter \
     /usr/local/bin/kubectl /usr/local/bin/osv-scanner /usr/local/bin/promtool /usr/local/bin/tofu \

@@ -141,8 +141,10 @@ jobs:
         run: docker load --input "$RUNNER_TEMP/service-image.tar"
 
       # The job loads and runs the Service image with the Docker Engine of the runner, so it stays on
-      # the runner host and takes the two test tools from the devtools image (#6416).
-      - name: Put promtool and kubectl on PATH
+      # the runner host and takes the two test tools from the devtools image (#6416). The next step
+      # copies them from the output directory to the tools directory that the suite mounts; no step
+      # of the runner runs them, so the job does not put them on PATH.
+      - name: Copy promtool and kubectl from the devtools image
         id: devtools
         uses: ./.github/actions/devtools-commands
         with:

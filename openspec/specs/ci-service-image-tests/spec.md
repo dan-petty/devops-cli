@@ -21,7 +21,7 @@ The Service Image Tests workflow SHALL run on the daily schedule, on a manual ru
 - **THEN** the six Service Image Tests shards run the suite inside the built Service image
 
 #### Scenario: A pull request changes the source of the test tools
-- **WHEN** a pull request changes `.github/actions/devtools-commands/action.yml`, which puts the `promtool` and `kubectl` of the devtools image in the tools directory of the shards
+- **WHEN** a pull request changes `.github/actions/devtools-commands/action.yml`, which copies the `promtool` and `kubectl` of the devtools image for the tools directory of the shards
 - **THEN** the six Service Image Tests shards run the suite inside the built Service image
 
 #### Scenario: The daily run

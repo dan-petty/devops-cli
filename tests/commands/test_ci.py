@@ -1903,6 +1903,14 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
         ): "Installs the openspec of package-lock.json that the openspec row runs, with npm ci (#6409)",
         (
             "static",
+            "Put the tools of the devtools image on PATH",
+        ): "Puts the commands that the devtools-commands action copied on PATH, no row of the gate (#6416)",
+        (
+            "test-shard",
+            "Put promtool on PATH",
+        ): "Puts the promtool that the devtools-commands action copied on PATH, no row of the gate (#6416)",
+        (
+            "static",
             "Run actionlint",
         ): "Runs the pinned actionlint via the docker image, so the gate skips it (#1119)",
         (

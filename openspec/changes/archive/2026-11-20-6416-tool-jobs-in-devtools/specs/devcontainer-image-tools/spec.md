@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: OpenTofu is a pinned tool
-`tools.lock` SHALL hold OpenTofu with the sha256 of the linux-amd64 and linux-arm64 builds. The `Static Analysis` job SHALL put the `tofu` of the devtools image on its path with `.github/actions/devtools-commands`. The devcontainer image and the runner image SHALL have the `tofu` of the devtools image.
+`tools.lock` SHALL hold OpenTofu with the sha256 of the linux-amd64 and linux-arm64 builds. The `Static Analysis` job SHALL copy the `tofu` of the devtools image with `.github/actions/devtools-commands` and put it on its path. The devcontainer image and the runner image SHALL have the `tofu` of the devtools image.
 
 #### Scenario: The lock
 - **WHEN** `devops install-tools --tool tofu --target-dir <dir>` runs
@@ -13,4 +13,4 @@
 
 #### Scenario: CI
 - **WHEN** the live check reads the log of the `Static Analysis` job of a pull request
-- **THEN** the step `Put the tools of the devtools image on PATH` restores the commands from the cache, or on a miss builds the `devtools-bin` stage from the tag and the digest of the devtools image, and puts `tofu` on the path of the job
+- **THEN** the step `Copy the tools of the devtools image` restores the commands from the cache, or on a miss builds the `devtools-bin` stage from the tag and the digest of the devtools image, and the step `Put the tools of the devtools image on PATH` puts `tofu` on the path of the job

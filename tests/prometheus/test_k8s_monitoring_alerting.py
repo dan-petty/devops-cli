@@ -14,8 +14,8 @@ missing target, as `KubeControllerManagerDown`, `KubeSchedulerDown` and `KubePro
 The checks read files only, except the two that run promtool: `promtool check rules` over every
 rule, and `promtool test rules` over each group that has unit tests in
 `tests/fixtures/prometheus_rules/`. Each skips where promtool is not installed. They run the
-promtool of the devtools image, which the devcontainer has and which CI puts on PATH with
-`.github/actions/devtools-commands`.
+promtool of the devtools image, which the devcontainer has and which CI copies with
+`.github/actions/devtools-commands` and puts on PATH.
 """
 
 from __future__ import annotations

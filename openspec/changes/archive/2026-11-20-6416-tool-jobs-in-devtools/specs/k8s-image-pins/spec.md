@@ -5,7 +5,7 @@ The job `image-pins` of `.github/workflows/image-pins.yml` SHALL run `devops k8s
 
 #### Scenario: The job's steps
 - **WHEN** `uv run devops ci --check --only actionlint,zizmor` checks `image-pins.yml`, and the live check reads the log of the `Image Pins` job of a pull request
-- **THEN** the check passes, the job has the permission `contents: read`, the step `Put kubectl and helm on PATH` restores or builds the commands of the devtools image, and the last step runs `uv run devops k8s image-pins`
+- **THEN** the check passes, the job has the permission `contents: read`, the step `Copy kubectl and helm from the devtools image` restores or builds the commands of the devtools image, the step `Put kubectl and helm on PATH` puts them first on the path, and the last step runs `uv run devops k8s image-pins`
 
 #### Scenario: A pull request that changes no pin
 - **WHEN** a pull request changes only `README.md`

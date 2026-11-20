@@ -649,6 +649,7 @@ def test_copilot_setup_steps_installs_the_pinned_openspec_with_the_opt_outs() ->
         [
             'echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"',
             "npm ci --ignore-scripts",
+            'echo "$BIN_DIR" >> "$GITHUB_PATH"',
             "uv run pre-commit install --install-hooks",
         ],
     )
