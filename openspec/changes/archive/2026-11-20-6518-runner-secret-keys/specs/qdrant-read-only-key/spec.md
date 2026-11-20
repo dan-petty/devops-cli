@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The runner holds no write path
-The runner pod SHALL hold no Qdrant key (#6518). A pod that loads Secret `devops/devops-cli` with `envFrom`, such as a Job of CronJob `devops-cli`, SHALL get its Qdrant key from the read-only key, and no row of Secret `devops/devops-cli` SHALL name the admin key `api-key`.
+The runner pod SHALL hold no Qdrant key (#6518). A pod that loads Secret `devops/devops-cli` with `envFrom` and sets no `DEVOPS_CLI_QDRANT_API_KEY` of its own, such as a Job of CronJob `devops-cli`, SHALL get its Qdrant key from the read-only key, and no row of Secret `devops/devops-cli` SHALL name the admin key `api-key`.
 
 #### Scenario: The runner template holds no Qdrant key
 - **WHEN** `uv run devops ci --check --only k8s` renders CronJob `devops-cli-runner`

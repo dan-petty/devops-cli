@@ -264,8 +264,9 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
                 KeyringSource.for_credential("qdrant.api_key"),
                 generator=SecretGenerator("urlsafe", 32),
             ),
-            # The read-only key that the runner and the roadmap Service hold through Secret
-            # devops-cli: it admits every read and refuses write and delete (#3823).
+            # The read-only key that a pod which loads Secret devops-cli with envFrom holds (a Job of
+            # CronJob devops-cli, the MCP server): it admits every read and refuses write and delete
+            # (#3823).
             SecretEntry(
                 "read-only-api-key",
                 KeyringSource.for_credential("qdrant.read_only_api_key"),
