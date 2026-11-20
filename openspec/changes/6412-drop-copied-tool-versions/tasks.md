@@ -42,4 +42,5 @@ Kind: other.
 
 ## Workflow follow-up
 
+- `devops devcontainer init` keeps `--published` and `--python`, which change nothing: #6486.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
