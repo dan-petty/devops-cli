@@ -1,7 +1,7 @@
 # tools-lock-install Specification
 
 ## Purpose
-The tools lock pins each tool at an exact version, and `devops install-tools` reports each tool whose command on PATH is not at its pin.
+The tools lock pins each tool at an exact version, and `devops install-tools` reports each tool that is not linked at its pin.
 
 ## Requirements
 

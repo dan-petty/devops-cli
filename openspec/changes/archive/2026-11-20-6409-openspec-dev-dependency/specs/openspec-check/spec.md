@@ -1,6 +1,11 @@
+## RENAMED Requirements
+
+- FROM: `### Requirement: The gate reads the version of the command on PATH`
+- TO: `### Requirement: The gate reads the version of the binary that it runs`
+
 ## MODIFIED Requirements
 
-### Requirement: The gate reads the version of the command on PATH
+### Requirement: The gate reads the version of the binary that it runs
 `devops openspec check` SHALL run `openspec --version` before its other checks and SHALL report one problem naming the printed version, the locked version, the command path and `npm ci --ignore-scripts` when the printed version differs from the `@fission-ai/openspec` version of the `package-lock.json` at the root of the checkout. When that lockfile is absent or pins no `@fission-ai/openspec`, the gate SHALL report one problem naming the lockfile and the package, and SHALL run no other check.
 
 #### Scenario: An older command replaces the skill advice

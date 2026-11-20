@@ -2,8 +2,9 @@
 
 ## Purpose
 `devops openspec regenerate` rewrites the committed OpenSpec skills under the isolated profile. It
-reads the version of the `openspec` binary on PATH first, and stops before it writes when that
-binary is not the tools lock's version.
+reads the version of the `openspec` binary that it runs first (`node_modules/.bin/openspec` of the
+checkout when it exists, else the one on PATH), and stops before it writes when that version is not
+the OpenSpec pin of the root `package-lock.json`.
 
 ## Requirements
 
