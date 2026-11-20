@@ -23,18 +23,22 @@ from tests.support.roadmap_implement import (
     BRANCH,
     PULL,
     SHOUT,
+    STALE_LOCK_COMMANDS,
     JobWorld,
     group_one_calls,
     group_two_calls,
     route_pull_status,
+    stale_lock_effect,
     two_groups,
 )
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
-INSTALL = "uv run pre-commit install-hooks"
-PRE_COMMIT = "uv run pre-commit run --hook-stage pre-commit"
-PRE_PUSH = "uv run pre-commit run --hook-stage pre-push --from-ref origin/main --to-ref HEAD"
+INSTALL = "uv run --frozen pre-commit install-hooks"
+PRE_COMMIT = "uv run --frozen pre-commit run --hook-stage pre-commit"
+PRE_PUSH = (
+    "uv run --frozen pre-commit run --hook-stage pre-push --from-ref origin/main --to-ref HEAD"
+)
 STATIC = "uv run devops ci --check --only constructs,docs,openspec"
 TESTS = "uv run devops ci test tests/test_shout.py"
 RULE = "ast-grep scan....Failed\nerror: pytest.raises without match\n --> tests/test_shout.py"
@@ -137,7 +141,7 @@ def test_the_job_installs_the_hook_environments_before_the_first_step(job_world:
     job_world.run(two_groups())
 
     assert _count(job_world, INSTALL) == 1
-    first_stage = _position(job_world, "uv run pre-commit run --hook-stage pre-commit")
+    first_stage = _position(job_world, "uv run --frozen pre-commit run --hook-stage pre-commit")
     assert _position(job_world, INSTALL) < first_stage
     install = next(c for c in job_world.programs.calls if command_text(c).startswith(INSTALL))
     assert install.cwd is not None
@@ -254,29 +258,16 @@ def test_a_failed_bootstrap_stops_the_item_before_any_model_request(
     assert _git_push(locked_world) == []
 
 
-def _write_stale_locks(call: ProcessCall) -> subprocess.CompletedProcess[str]:
-    """Answer a bootstrap command as uv and npm answer it on a stale lock: a sync with neither
-    `--frozen` nor `--locked` locks again and writes `uv.lock`, and an `npm install` with no
-    `--no-save` writes `package-lock.json`."""
-    text = command_text(call)
-    words = set(text.split())
-    assert call.cwd is not None
-    if text.startswith("uv sync") and not words & {"--frozen", "--locked"}:
-        (call.cwd / "uv.lock").write_text("version = 2\n", encoding="utf-8")
-    if text.startswith("npm install") and "--no-save" not in words:
-        (call.cwd / "package-lock.json").write_text('{"lockfileVersion": 3}\n', encoding="utf-8")
-    return subprocess.CompletedProcess(call.argv, 0, stdout="", stderr="")
-
-
 def test_a_stale_lock_of_a_staged_branch_leaves_the_worktree_clean_and_stops_nothing(
     locked_world: JobWorld,
 ) -> None:
     """A staged branch can hold a `uv.lock` and a `package-lock.json` that do not match their
-    manifests. The bootstrap installs both locks as they are and writes no tracked file, so the
-    first step finds a clean worktree and the item goes on (#6557)."""
+    manifests, and each plain `uv run` then writes `uv.lock`. The bootstrap writes no lock, and
+    the install of the hook environments locks nothing (`uv run --frozen`). So the first step
+    finds a clean worktree, and the item goes on (#6557)."""
     locked_world.programs.answer(
-        lambda call: command_text(call).startswith(("uv sync", "npm install")),
-        ProcessAnswer(side_effect=_write_stale_locks),
+        lambda call: command_text(call).startswith(STALE_LOCK_COMMANDS),
+        ProcessAnswer(side_effect=stale_lock_effect),
     )
 
     applied = locked_world.run(two_groups())
@@ -560,7 +551,7 @@ def test_a_retry_removes_the_check_and_its_log_with_the_stop(job_world: JobWorld
 
 
 def _hook_runs(world: JobWorld) -> list[str]:
-    return [text for text in _commands(world) if text.startswith("uv run pre-commit")]
+    return [text for text in _commands(world) if text.startswith("uv run --frozen pre-commit")]
 
 
 def test_an_edit_of_the_hook_configuration_by_the_agent_skips_no_hook(job_world: JobWorld) -> None:
@@ -724,7 +715,7 @@ def test_a_repository_with_no_hook_configuration_gets_no_install_and_no_pre_push
 
     commands = _commands(job_world)
     assert applied.ready == (1,)
-    assert [text for text in commands if text.startswith("uv run pre-commit")] == []
+    assert [text for text in commands if text.startswith("uv run --frozen pre-commit")] == []
     assert any(text.startswith(STATIC) for text in commands)
 
 

@@ -384,19 +384,28 @@ def test_the_bootstrap_copies_a_seed_that_fits_and_syncs_offline(
     assert (uv_cache / "wheels-v5" / "entry").read_text(encoding="utf-8") == "wheel"
 
 
+@pytest.mark.parametrize(("locked", "sync"), [(True, SYNC), (False, FROZEN_SYNC)])
 @pytest.mark.parametrize("changed", [{"uv_lock_sha256": "other-lock"}, {"uv": "other-uv"}])
 def test_a_seed_that_does_not_fit_the_checkout_leaves_the_sync_online(
-    tmp_path: Path, process_fake: ProcessFake, uv_cache: Path, changed: dict[str, str]
+    tmp_path: Path,
+    process_fake: ProcessFake,
+    uv_cache: Path,
+    changed: dict[str, str],
+    locked: bool,
+    sync: tuple[str, ...],
 ) -> None:
+    """A seed of another lock or another uv lacks packages of the checkout, so the sync of either
+    mode runs online and the bootstrap copies nothing (#6557)."""
     process_fake.answer(
         lambda call: _argv(call) == ("uv", "--version"), ProcessAnswer(stdout="uv job-uv\n")
     )
     checkout = _checkout(tmp_path, "uv.lock")
     seed = _seed(tmp_path, _record(checkout, **changed))
 
-    bootstrap_checkout(checkout, seed=seed)
+    bootstrap_checkout(checkout, locked=locked, seed=seed)
 
-    assert _argv(process_fake.calls[-1]) == SYNC
+    last = process_fake.calls[-1]
+    assert (_argv(last), last.env) == (sync, {"UV_HTTP_RETRIES": "5", "UV_MALWARE_CHECK": "1"})
     assert not uv_cache.exists()
 
 

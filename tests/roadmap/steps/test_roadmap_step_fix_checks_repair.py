@@ -32,12 +32,14 @@ from tests.support.roadmap_implement import (
     CHECK_LINK,
     FAIL,
     PULL,
+    STALE_LOCK_COMMANDS,
     STEPS_DECLARATION,
     STEPS_FILE,
     TASKS,
     a_fix,
     push_staged_branch,
     seed_staged,
+    stale_lock_effect,
 )
 from tests.support.roadmap_stage import STAGE_NAME, STAGE_REPO, StageRepo
 
@@ -631,6 +633,43 @@ def test_the_model_fix_bootstraps_the_worktree_before_the_first_model_request(
         [0],
     )
     assert synced[0][0] not in (None, repo.clone)
+
+
+def test_a_stale_lock_of_the_head_branch_reaches_the_first_model_request(
+    stage_repo: StageRepo,
+    app_slug: None,
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+) -> None:
+    """The head branch can hold a `uv.lock` and a `package-lock.json` that do not match their
+    manifests. The bootstrap writes no lock, and the install of the hook environments locks
+    nothing (`uv run --frozen`). So the step finds a clean worktree, and the model fix repairs
+    the check (#6557)."""
+    _commit(stage_repo, ".pre-commit-config.yaml", "repos: []\n")
+    stage_repo.git("push", "-q", "origin", "main")
+    locks = {"uv.lock": "version = 1\n", "package-lock.json": "{}\n"}
+    repo, store, _head = _failed_draft(stage_repo, github_api_and_gh, {**SHOUT_FILES, **locks})
+    _api, programs = github_api_and_gh
+    script = ModelScript(*a_fix())
+    factory.set_llm_client_override(script.model())
+    programs.answer(
+        lambda call: command_text(call).startswith(STALE_LOCK_COMMANDS),
+        ProcessAnswer(side_effect=stale_lock_effect),
+    )
+
+    report = run_fix_checks(
+        store,
+        STAGE_REPO,
+        PULL,
+        confirm=True,
+        repair=job_repair(store, STAGE_REPO, source=repo.clone),
+    )
+
+    installs = [text for call in programs.calls if "install-hooks" in (text := command_text(call))]
+    assert (report.result, len(installs), bool(script.seen)) == (
+        FixChecksResult.REPAIRED,
+        1,
+        True,
+    )
 
 
 def test_a_failed_bootstrap_fails_the_model_fix_with_its_output(

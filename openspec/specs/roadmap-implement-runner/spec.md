@@ -406,7 +406,7 @@ The implement Job and the model fix of the fix-checks Job SHALL call `bootstrap_
 
 #### Scenario: A stale lock of a staged branch stays for the agent
 - **WHEN** the implement Job runs a staged item whose `uv.lock` and `package-lock.json` do not match `pyproject.toml` and `package.json`
-- **THEN** the bootstrap installs both locks as they are and writes no tracked file, so the item does not stop before its first model request
+- **THEN** the sync installs `uv.lock` as it is, npm writes no lock, `uv run --frozen pre-commit install-hooks` writes no `uv.lock`, and the item does not stop before its first model request
 
 #### Scenario: A Planned item syncs with its lock
 - **WHEN** the implement Job runs a Planned item whose default branch holds `uv.lock`
@@ -423,6 +423,17 @@ The implement Job and the model fix of the fix-checks Job SHALL call `bootstrap_
 #### Scenario: The model fix bootstraps its worktree
 - **WHEN** the fix-checks round reaches the model fix on a branch that holds `uv.lock`
 - **THEN** it runs `uv sync --frozen --group dev` in the worktree before the first model request
+
+#### Scenario: A stale lock of a fix-checks branch stays for the agent
+- **WHEN** the model fix of fix-checks runs on a head branch whose `uv.lock` and `package-lock.json` do not match `pyproject.toml` and `package.json`, and the default branch holds `.pre-commit-config.yaml`
+- **THEN** the bootstrap and the install of the hook environments write no tracked file, and the model fix reaches its first model request
+
+### Requirement: The hook commands of a Job lock nothing
+The Job SHALL start each `pre-commit` command with `uv run --frozen`, so the install of the hook environments and the hook stages write no `uv.lock`.
+
+#### Scenario: The install of the hook environments on a stale lock
+- **WHEN** the implement Job or the model fix of fix-checks installs the hook environments in a worktree whose `uv.lock` does not match `pyproject.toml`
+- **THEN** the command is `uv run --frozen pre-commit install-hooks --config <config>`, and `uv.lock` stays as it is
 
 ### Requirement: A failed bootstrap ends the Job before its first agent step
 A bootstrap command that exits non-zero or runs out of time SHALL raise `ToolExecutionError` with the command and its output. The implement Job SHALL stop the item at the step `bootstrap` with nothing to push, and the model fix of fix-checks SHALL fail with the error and make no model request.

@@ -24,7 +24,7 @@ from tests.support.roadmap_implement import (
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
-STAGE_CMD = f"uv run pre-commit run --hook-stage {CONST_PRE_COMMIT_COMMIT_STAGE}"
+STAGE_CMD = f"uv run --frozen pre-commit run --hook-stage {CONST_PRE_COMMIT_COMMIT_STAGE}"
 PRE_COMMIT_CONFIG = """\
 repos:
   - repo: local

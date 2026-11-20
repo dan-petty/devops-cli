@@ -28,7 +28,7 @@ from devops_cli.roadmap.runner_tools import checkout_environment
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.implement_step import command_text, git
 
-STAGE = "uv run pre-commit run --hook-stage pre-commit"
+STAGE = "uv run --frozen pre-commit run --hook-stage pre-commit"
 TOKEN = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
 
 
@@ -213,7 +213,7 @@ def test_a_stage_run_names_the_stage_and_the_refs(
 
     assert run == HookRun(returncode=0, output="")
     assert [command_text(call) for call in programs.calls if "pre-commit" in call.argv] == [
-        "uv run pre-commit run --hook-stage pre-push --from-ref origin/main --to-ref HEAD "
+        "uv run --frozen pre-commit run --hook-stage pre-push --from-ref origin/main --to-ref HEAD "
         f"--config {config}"
     ]
 
@@ -226,7 +226,7 @@ def test_the_install_runs_install_hooks_in_the_hook_home(
     calls = [call for call in programs.calls if "pre-commit" in call.argv]
     assert [(command_text(call), call.cwd, call.env) for call in calls] == [
         (
-            f"uv run pre-commit install-hooks --config {config}",
+            f"uv run --frozen pre-commit install-hooks --config {config}",
             checkout,
             {**checkout_environment(checkout), "PRE_COMMIT_HOME": str(cache / "pre-commit")},
         )

@@ -128,9 +128,10 @@ def output_text(stdout: str | None, stderr: str | None) -> str:
 
 def pre_commit_command(config: Path, *args: str) -> list[str]:
     """The command line of `pre-commit <args>` with the configuration `config`, started with `uv`
-    from the environment of the checkout. The child is no `git` or `gh` client, so it holds no
-    token."""
-    return [BIN_UV, "run", BIN_PRE_COMMIT, *args, "--config", str(config)]
+    from the environment of the checkout. `--frozen` uses `uv.lock` as it is: a plain `uv run`
+    locks a stale `uv.lock` again and writes it, and the step then refuses the dirty worktree
+    (#6557). The child is no `git` or `gh` client, so it holds no token."""
+    return [BIN_UV, "run", "--frozen", BIN_PRE_COMMIT, *args, "--config", str(config)]
 
 
 def _pre_commit(source: Path, config: Path, *args: str) -> HookRun:

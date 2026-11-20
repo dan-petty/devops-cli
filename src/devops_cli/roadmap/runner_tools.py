@@ -14,9 +14,13 @@ extra, and no dev dependency. The implement Job and the model fix of the fix-che
 the venv of the checkout, as the post-create step of the devcontainer does, and npm installs
 the Node tools of a root `package-lock.json`. On a new branch, the sync adds `--locked` and npm
 runs `npm ci --ignore-scripts`: both refuse a stale lock. On an existing branch, the sync adds
-`--frozen` and npm runs `npm install --no-save --ignore-scripts`: both install the lock as it is
-and write no tracked file (#6557). A step refuses a dirty worktree, so a stale lock of an existing
-branch is the work of the agent: its shell can run `uv lock` or `npm install` and commit the lock.
+`--frozen`, which installs `uv.lock` as it is. npm runs `npm install --no-save --ignore-scripts`,
+which installs the dependencies of `package.json`, uses the lock where it fits and writes no
+lock. So on a stale `package-lock.json` the Node tree can hold packages that the lock does not
+name. Neither command writes a tracked file (#6557). A step refuses a dirty worktree, so a stale
+lock of an existing branch is the work of the agent: its shell can run `uv lock` or
+`npm install` and commit the lock. For the same reason the Job starts `pre-commit` with
+`uv run --frozen`: a plain `uv run` locks a stale `uv.lock` again and writes it.
 The stage Job runs in the Service image, which holds no uv, so it runs no bootstrap. The dev
 tools (`ToolSource.CHECKOUT`) then come from the venv of the checkout. `checkout_environment` puts `node_modules/.bin` and that venv first on
 the PATH of the agent and of the checks that the Job starts. A child that gets a token never gets
@@ -26,9 +30,11 @@ it, because the agent can write both folders.
 `seed.json` holds the uv version, the Python version (`<major>.<minor>`) and the sha256 of the
 `uv.lock` of the checkout (the keys `uv`, `python` and `uv_lock_sha256`), the bootstrap copies
 `/opt/uv-seed/cache` into the uv cache on the home volume and syncs offline, with no malware check:
-CI checked the same hashes when it built the seed. Neither `--locked` nor `--frozen` resolves, so
-the seed holds each package that the sync installs. With no seed, or a seed of another lock, the
-sync runs online with `UV_HTTP_RETRIES=5`. The Job never needs the seed to start.
+CI checked the same hashes when it built the seed. `--frozen` does not resolve. `--locked`
+resolves only to refuse a stale lock, and a new branch starts at the default branch, whose lock is
+current. So the seed holds each package that either sync installs. With no seed, or a seed of
+another lock, the sync runs online with `UV_HTTP_RETRIES=5`. The Job never needs the seed to
+start.
 
 The smoke test of the runner image in `ci.yml` and `release.yml` runs
 `python -m devops_cli.roadmap.runner_tools` on the built image, which checks the tools of the
@@ -376,10 +382,11 @@ def bootstrap_checkout(checkout: Path, *, locked: bool = True, seed: Path = UV_S
     with the dev group, from the uv seed `seed` when it fits, and the Node packages of its
     `package-lock.json`. With `locked`, for a new branch, the sync refuses a `uv.lock` that does
     not match `pyproject.toml` (`--locked`) and npm runs `npm ci`. Without it, for the checkout of
-    an existing branch, the sync installs `uv.lock` as it is (`--frozen`) and npm runs
-    `npm install --no-save`, so a stale lock stays as it is and the worktree stays clean (#6557).
-    Neither sync resolves, so a seed that fits makes both syncs offline. A checkout with neither
-    file gets no command. Raises `ToolExecutionError` when a command fails or runs out of time."""
+    an existing branch, the sync installs `uv.lock` as it is (`--frozen`), and npm installs the
+    dependencies of `package.json` and writes no lock (`--no-save`). So a stale lock stays as it
+    is and the worktree stays clean (#6557). A seed that fits makes either sync offline, as the
+    module says. A checkout with neither file gets no command. Raises `ToolExecutionError` when a
+    command fails or runs out of time."""
     if (checkout / _UV_LOCK).is_file():
         sync = (*_SYNC, _LOCKED if locked else _FROZEN, *_DEV_GROUP)
         if _seed_fits(checkout, seed):

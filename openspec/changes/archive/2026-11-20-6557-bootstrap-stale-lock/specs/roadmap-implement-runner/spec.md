@@ -9,7 +9,7 @@ The implement Job and the model fix of the fix-checks Job SHALL call `bootstrap_
 
 #### Scenario: A stale lock of a staged branch stays for the agent
 - **WHEN** the implement Job runs a staged item whose `uv.lock` and `package-lock.json` do not match `pyproject.toml` and `package.json`
-- **THEN** the bootstrap installs both locks as they are and writes no tracked file, so the item does not stop before its first model request
+- **THEN** the sync installs `uv.lock` as it is, npm writes no lock, `uv run --frozen pre-commit install-hooks` writes no `uv.lock`, and the item does not stop before its first model request
 
 #### Scenario: A Planned item syncs with its lock
 - **WHEN** the implement Job runs a Planned item whose default branch holds `uv.lock`
@@ -27,6 +27,10 @@ The implement Job and the model fix of the fix-checks Job SHALL call `bootstrap_
 - **WHEN** the fix-checks round reaches the model fix on a branch that holds `uv.lock`
 - **THEN** it runs `uv sync --frozen --group dev` in the worktree before the first model request
 
+#### Scenario: A stale lock of a fix-checks branch stays for the agent
+- **WHEN** the model fix of fix-checks runs on a head branch whose `uv.lock` and `package-lock.json` do not match `pyproject.toml` and `package.json`, and the default branch holds `.pre-commit-config.yaml`
+- **THEN** the bootstrap and the install of the hook environments write no tracked file, and the model fix reaches its first model request
+
 ### Requirement: The bootstrap uses the uv seed when it fits
 `bootstrap_checkout` SHALL use the uv-seed volume `/opt/uv-seed` only when it holds `cache/` and a `seed.json` that names the uv version, the `<major>.<minor>` Python version of the Job and the sha256 of the checkout's `uv.lock`. Then it SHALL copy `cache/` into `UV_CACHE_DIR` and run the `--locked` or `--frozen` sync offline with `UV_MALWARE_CHECK=0`. Else it SHALL sync online with `UV_HTTP_RETRIES=5` and `UV_MALWARE_CHECK=1`.
 
@@ -41,3 +45,12 @@ The implement Job and the model fix of the fix-checks Job SHALL call `bootstrap_
 #### Scenario: A seed of another lock or another uv
 - **WHEN** `seed.json` names another lock hash or another uv version
 - **THEN** the bootstrap runs the online sync and copies nothing
+
+## ADDED Requirements
+
+### Requirement: The hook commands of a Job lock nothing
+The Job SHALL start each `pre-commit` command with `uv run --frozen`, so the install of the hook environments and the hook stages write no `uv.lock`.
+
+#### Scenario: The install of the hook environments on a stale lock
+- **WHEN** the implement Job or the model fix of fix-checks installs the hook environments in a worktree whose `uv.lock` does not match `pyproject.toml`
+- **THEN** the command is `uv run --frozen pre-commit install-hooks --config <config>`, and `uv.lock` stays as it is
