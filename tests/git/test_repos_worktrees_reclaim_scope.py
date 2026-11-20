@@ -1,10 +1,12 @@
-"""Tests for the scope of the reclaim that `devops repos worktrees add` runs first (#4092).
+"""Tests for the scope rule of `devops repos worktrees prune` and of the reclaim that
+`devops repos worktrees add` runs first (#4092, #6435). Both ask one function, `scope_refusal`.
 
 The reclaim removes a worktree only under the folder that `add` manages (`agent/worktrees` of the
 data directory), only when its branch is merged, and only when it holds no uncommitted file and no
 ignored data file: a file that `.gitignore` hides and that no regenerable cache holds (#6435). It
 names each worktree that it removes, and each one that it leaves because it is outside the folder
-or holds an ignored data file. The repositories are real, in `tmp_path`; `origin` is a bare
+or holds an ignored data file. Prune refuses the same worktrees unless `--force` is given. The
+repositories are real, in `tmp_path`; `origin` is a bare
 repository at `example-org/app.git`, so git reaches no network.
 """
 
@@ -101,6 +103,13 @@ def _add(cli: Cli, repo: Path, *extra: str) -> Any:
         str(repo),
         *extra,
     )
+
+
+def _prune(cli: Cli, repo: Path, *extra: str) -> tuple[Any, dict[str, tuple[str, str | None]]]:
+    """Run prune with `--json`; return the run and each worktree's status and reason by path."""
+    result = cli("repos", "worktrees", "prune", "--json", "--repo-dir", str(repo), *extra)
+    items = json.loads(result.stdout)["items"]
+    return result, {item["path"]: (item["status"], item["reason"]) for item in items}
 
 
 def _said(result: Any) -> str:
@@ -341,14 +350,154 @@ def test_the_dry_run_lists_a_read_only_for_a_worktree_inside_the_folder(
     assert reads == [f"GET /repos/example-org/app/commits/{inside_tip}/pulls"]
 
 
-def test_prune_keeps_its_scope_and_removes_a_merged_worktree_outside_the_folder(
-    cli: Cli, repo: Path, git: Git, tmp_path: Path, github_api: GitHubApiFake
+@pytest.mark.parametrize("names", [CACHES, (".data/cache/x",)], ids=["caches", "data-cache"])
+def test_prune_removes_a_merged_worktree_that_holds_only_caches(
+    cli: Cli,
+    repo: Path,
+    git: Git,
+    managed: Path,
+    github_api: GitHubApiFake,
+    names: tuple[str, ...],
 ) -> None:
+    old = managed / "w-2100"
+    _merged(github_api, _worktree_with(git, repo, "fix/2100-old", old, *names))
+
+    result, outcomes = _prune(cli, repo, "--confirm")
+
+    assert result.exit_code == 0, result.output
+    assert (outcomes[str(old)], old.exists()) == (("removed", None), False)
+
+
+@pytest.mark.parametrize(
+    "names", [(*CACHES, NOTE), (".env.local",)], ids=["scratch-note", "env-file"]
+)
+def test_prune_refuses_a_merged_worktree_that_holds_data(
+    cli: Cli,
+    repo: Path,
+    git: Git,
+    managed: Path,
+    github_api: GitHubApiFake,
+    names: tuple[str, ...],
+) -> None:
+    """`git worktree remove` deletes the ignored files of a worktree, so prune keeps one that
+    holds data and reads no pull request for it (#6435)."""
+    kept = managed / "w-2100"
+    _merged(github_api, _worktree_with(git, repo, "fix/2100-old", kept, *names))
+
+    preview, previewed = _prune(cli, repo)
+    result, outcomes = _prune(cli, repo, "--confirm")
+
+    refused = ("refused", "holds 1 ignored data file")
+    assert (preview.exit_code, result.exit_code) == (0, 0), result.output
+    assert (previewed[str(kept)], outcomes[str(kept)]) == (refused, refused)
+    assert [(kept / name).is_file() for name in names] == [True] * len(names)
+    assert github_api.requested == []
+
+
+def test_prune_refuses_a_merged_worktree_outside_the_managed_folder(
+    cli: Cli, repo: Path, git: Git, tmp_path: Path, managed: Path, github_api: GitHubApiFake
+) -> None:
+    """A worktree outside the managed folder belongs to another tool: prune names the folder and
+    reads nothing for it, and its dry run lists no request for it (#6435)."""
     outside = tmp_path / "wt_outside"
     _merged(github_api, _worktree(git, repo, "fix/2100-other", outside))
 
-    result = cli("repos", "worktrees", "prune", "--confirm", "--repo-dir", str(repo))
+    plan = cli("repos", "worktrees", "prune", "--dry-run", "--json", "--repo-dir", str(repo))
+    result, outcomes = _prune(cli, repo, "--confirm")
+
+    planned = json.loads(plan.stdout)
+    refused = ("refused", OUTSIDE.format(folder=managed))
+    assert (plan.exit_code, result.exit_code) == (0, 0), result.output
+    assert (outcomes[str(outside)], outside.is_dir()) == (refused, True)
+    assert (planned["requests"], github_api.requested) == ([], [])
+    assert {item["path"]: item["reason"] for item in planned["items"]}[str(outside)] == refused[1]
+
+
+def test_prune_keeps_the_record_of_a_missing_directory_outside_the_managed_folder(
+    cli: Cli, repo: Path, git: Git, tmp_path: Path, managed: Path, github_api: GitHubApiFake
+) -> None:
+    """A directory can look missing from this container while another container or tool still
+    uses it, so prune keeps the record of a worktree outside the folder, as the reclaim does."""
+    gone = tmp_path / "wt_gone"
+    _worktree(git, repo, "fix/2100-other", gone)
+    shutil.rmtree(gone)
+    assert "prunable" in _listed(repo), "git must list the record as prunable"
+
+    result, outcomes = _prune(cli, repo, "--confirm")
 
     assert result.exit_code == 0, result.output
-    assert not outside.exists()
-    assert f"removed {outside}" in _said(result)
+    assert outcomes[str(gone)] == ("refused", OUTSIDE.format(folder=managed))
+    assert (str(gone) in _listed(repo), github_api.requested) == (True, [])
+
+
+def test_prune_refuses_a_worktree_whose_ignored_files_are_unknown(
+    cli: Cli, repo: Path, git: Git, managed: Path, github_api: GitHubApiFake
+) -> None:
+    broken = managed / "w-2100"
+    _merged(github_api, _worktree(git, repo, "fix/2100-old", broken))
+    (broken / ".git").write_text("not a gitdir file\n", encoding="utf-8")
+
+    result, outcomes = _prune(cli, repo, "--confirm")
+
+    reason = "ignored data files are unknown (git ls-files failed)"
+    assert result.exit_code == 0, result.output
+    assert (outcomes[str(broken)], broken.is_dir()) == (("refused", reason), True)
+    assert github_api.requested == []
+
+
+def test_prune_and_the_reclaim_give_the_reason_of_scope_refusal(
+    cli: Cli, repo: Path, git: Git, tmp_path: Path, managed: Path, github_api: GitHubApiFake
+) -> None:
+    """One function decides the scope of both commands, so they cannot drift (#6435)."""
+    outside = tmp_path / "wt_outside"
+    _worktree_with(git, repo, "fix/2100-other", outside)
+    noted = managed / "w-2101"
+    _worktree_with(git, repo, "fix/2101-old", noted, NOTE)
+    entries = {entry.path: entry for entry in inventory_worktrees(repo)}
+    expected = {
+        path: scope_refusal(entries[path], managed_root=managed)
+        for path in (str(outside), str(noted))
+    }
+
+    pruned, outcomes = _prune(cli, repo, "--confirm")
+    added = _add(cli, repo, "--json")
+
+    kept = {item["path"]: item["reason"] for item in json.loads(added.stdout)["kept"]}
+    assert (pruned.exit_code, added.exit_code) == (0, 0), added.output
+    assert {path: outcomes[path][1] for path in expected} == expected
+    assert kept == expected
+    assert expected == {
+        str(outside): OUTSIDE.format(folder=managed),
+        str(noted): "holds 1 ignored data file",
+    }
+
+
+def test_forced_prune_removes_a_refused_worktree_but_keeps_main_and_the_current_directory(
+    cli: Cli,
+    repo: Path,
+    git: Git,
+    tmp_path: Path,
+    managed: Path,
+    github_api: GitHubApiFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`--force` stays the way to remove a worktree that the scope refuses (#6435)."""
+    here = managed / "w-2100"
+    _worktree_with(git, repo, "fix/2100-here", here, NOTE)
+    noted = managed / "w-2101"
+    _worktree_with(git, repo, "fix/2101-old", noted, NOTE)
+    outside = tmp_path / "wt_outside"
+    _worktree_with(git, repo, "fix/2102-other", outside, NOTE)
+    monkeypatch.chdir(here)
+
+    result, outcomes = _prune(cli, repo, "--confirm", "--force")
+
+    assert result.exit_code == 0, result.output
+    assert outcomes == {
+        str(repo): ("refused", "main worktree"),
+        str(here): ("refused", "current directory"),
+        str(noted): ("removed", None),
+        str(outside): ("removed", None),
+    }
+    assert [p.exists() for p in (repo, here, noted, outside)] == [True, True, False, False]
+    assert github_api.requested == []
