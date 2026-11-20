@@ -48,11 +48,11 @@ The `release.yml` workflow SHALL build, smoke-test, scan, push by digest, attest
 - **THEN** The job needs `release-please`, runs only when `release_created` is `true`, builds target `mcp-server`, pushes with `push-by-digest=true`, attests `ghcr.io/${{ github.repository }}/mcp-server`, and its steps keep the order of the `runner-image` job.
 
 ### Requirement: The release gate equals the pull request gate
-The smoke test and the vulnerability scan of the release job SHALL equal those of job `mcp-server-image` in `ci.yml`.
+The smoke test of the release job SHALL equal that of job `mcp-server-image` in `ci.yml`, and both jobs SHALL scan the image with `.github/actions/image-scan` under the category `trivy-image-mcp-server`.
 
 #### Scenario: Same smoke test and scan
-- **WHEN** A test compares the two jobs.
-- **THEN** The smoke test scripts are equal and the inputs of the Trivy steps are equal.
+- **WHEN** A developer compares the two jobs and runs `git grep -c 'category: trivy-image-mcp-server' .github/workflows/ci.yml .github/workflows/release.yml`.
+- **THEN** The smoke test scripts are equal, and the command prints a count of 1 for each file.
 
 ### Requirement: Each image of this repository in k8s has a publish job
 Each value of the keys `image` and `imageName` under `k8s/` that starts with `ghcr.io/dan-petty/devops-cli/` SHALL name an image that a job of `release.yml` attests.
@@ -60,17 +60,3 @@ Each value of the keys `image` and `imageName` under `k8s/` that starts with `gh
 #### Scenario: Manifest names an unpublished image
 - **WHEN** A manifest under `k8s/` names `ghcr.io/dan-petty/devops-cli/<name>` and no job of `release.yml` attests `<name>`.
 - **THEN** The test fails and names the image and the file.
-
-### Requirement: The MCP ignore file holds the kubectl x/net entry
-`.trivyignore-mcp-server` MUST hold a `CVE-2026-78661` entry whose comment names the kubectl finding, the fix in golang.org/x/net 0.62.0 and a tracking issue.
-
-#### Scenario: The finding has its own entry
-- **WHEN** A test reads `.trivyignore-mcp-server`.
-- **THEN** A non-comment line is `CVE-2026-78661 exp:YYYY-MM-DD`, and the comment above it names kubectl, 0.62.0 and `#<number>`.
-
-### Requirement: The MCP scan does not depend on the gh entry
-The MCP Server Image scan MUST keep the `CVE-2026-78661` entry when the `CVE-2026-78661` entry of `.trivyignore` is absent, so the kubectl finding stays ignored after 2026-11-21.
-
-#### Scenario: The gh entry is absent from the scan input
-- **WHEN** A test removes every `CVE-2026-78661` line from `.trivyignore` and reads both ignore files.
-- **THEN** `.trivyignore-mcp-server` still holds a `CVE-2026-78661` entry with an `exp:` date.

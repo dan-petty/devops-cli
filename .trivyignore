@@ -1,5 +1,0 @@
-# Trivy vulnerability ignore file.
-# Pinned findings that cannot be remediated immediately must record a reason and expiration date (exp: YYYY-MM-DD).
-# The scans of the Service, runner and MCP server images read this file. An entry here matches its
-# ID in every binary of each image, so a finding of a tool that only the runner and MCP server
-# images hold goes in `.trivyignore-tofu` or `.trivyignore-mcp-server`, and not here.

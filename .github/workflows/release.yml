@@ -301,6 +301,7 @@ jobs:
       packages: write
       id-token: write
       attestations: write
+      security-events: write
     env:
       SERVICE_IMAGE: ghcr.io/${{ github.repository }}/service
 
@@ -367,27 +368,12 @@ jobs:
           if docker run --rm --entrypoint sh "$IMAGE" -c 'command -v gcc'; then exit 1; fi
           if docker run --rm --entrypoint python "$IMAGE" -c 'import pytest'; then exit 1; fi
 
-      - name: Set up uv toolchain
-        uses: ./.github/actions/setup-toolchain
-        with:
-          cache-suffix: release-service-image
-          save-uv-cache: "false"
-
-      - name: Install Trivy
-        run: |
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          uv run devops install-tools --tool trivy --only-missing
-
       - name: Scan Service Image for Vulnerabilities
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        timeout-minutes: 4
+        uses: ./.github/actions/image-scan
         with:
           image-ref: devops-cli-service:local
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
-          skip-setup-trivy: "true"
-          version: v0.76.2
+          category: trivy-image-service
 
       # Pushed by digest only: the tags move to the digest once its provenance is attested, so
       # a tag never names an unattested image and a failed attestation is retried by a re-run.
@@ -443,6 +429,7 @@ jobs:
       packages: write
       id-token: write
       attestations: write
+      security-events: write
     env:
       RUNNER_IMAGE: ghcr.io/${{ github.repository }}/runner
 
@@ -509,28 +496,12 @@ jobs:
           # The job and its steps run `uv run` in a worktree: the checkout's .python-version names a patch release that the base image can lack.
           docker run --rm --read-only --tmpfs /home/devops:uid=1000,gid=1000,exec,size=3g -v "$PWD:/checkout:ro" --cap-drop ALL --security-opt no-new-privileges --entrypoint sh "$IMAGE" -c 'mkdir /home/devops/project && tar -C /checkout --exclude=./.git --exclude=./.venv -cf - . | tar -C /home/devops/project -xf - && cd /home/devops/project && uv run --locked ruff --version'
 
-      - name: Set up uv toolchain
-        uses: ./.github/actions/setup-toolchain
-        with:
-          cache-suffix: release-runner-image
-          save-uv-cache: "false"
-
-      - name: Install Trivy
-        run: |
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          uv run devops install-tools --tool trivy --only-missing
-
       - name: Scan Runner Image for Vulnerabilities
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        timeout-minutes: 4
+        uses: ./.github/actions/image-scan
         with:
           image-ref: devops-cli-runner:local
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
-          trivyignores: .trivyignore,.trivyignore-tofu
-          skip-setup-trivy: "true"
-          version: v0.76.2
+          category: trivy-image-runner
 
       # Pushed by digest only: the tags move to the digest once its provenance is attested, so
       # a tag never names an unattested image and a failed attestation is retried by a re-run.
@@ -585,6 +556,7 @@ jobs:
       packages: write
       id-token: write
       attestations: write
+      security-events: write
     env:
       MCP_SERVER_IMAGE: ghcr.io/${{ github.repository }}/mcp-server
 
@@ -645,28 +617,12 @@ jobs:
           size=$(docker image inspect "$IMAGE" --format '{{.Size}}')
           if [ "$size" -gt 3000000000 ]; then echo "The mcp-server image is $size bytes, over the bound of 3000000000."; exit 1; fi
 
-      - name: Set up uv toolchain
-        uses: ./.github/actions/setup-toolchain
-        with:
-          cache-suffix: release-mcp-server-image
-          save-uv-cache: "false"
-
-      - name: Install Trivy
-        run: |
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          uv run devops install-tools --tool trivy --only-missing
-
       - name: Scan MCP Server Image for Vulnerabilities
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        timeout-minutes: 4
+        uses: ./.github/actions/image-scan
         with:
           image-ref: devops-cli-mcp-server:local
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          trivyignores: .trivyignore,.trivyignore-mcp-server,.trivyignore-tofu
-          exit-code: "1"
-          skip-setup-trivy: "true"
-          version: v0.76.2
+          category: trivy-image-mcp-server
 
       # Pushed by digest only: the tags move to the digest once its provenance is attested, so
       # a tag never names an unattested image and a failed attestation is retried by a re-run.

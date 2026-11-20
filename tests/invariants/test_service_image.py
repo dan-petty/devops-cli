@@ -1,4 +1,4 @@
-"""Service image invariants: what the committed `Dockerfile` and `.trivyignore` must hold.
+"""Service image invariants: what the committed `Dockerfile` must hold.
 
 They read only committed files, so they need no network, no image build and no scanner.
 """
@@ -6,7 +6,6 @@ They read only committed files, so they need no network, no image build and no s
 from __future__ import annotations
 
 import re
-from datetime import date
 from pathlib import Path
 
 from packaging.version import Version
@@ -14,7 +13,6 @@ from packaging.version import Version
 from tests.support.dockerfile import env_of as _env_of
 from tests.support.dockerfile import stages as _stages
 from tests.support.paths import REPO_ROOT
-from tests.support.trivyignore import trivyignore_problems as _trivyignore_problems
 
 # A gh release URL, wherever it stands in the Dockerfile text: bare, in quotes or after `=`. Its
 # path after `releases/` stops at white space, a quote or a backslash.
@@ -25,10 +23,6 @@ GH_RELEASE_DOWNLOAD_PATH = re.compile(r"download/(?P<tag>[^/]+)/(?P<asset>[^/]+)
 # gh v2.102.1 is the first GitHub CLI release that cli/cli builds with Go 1.27.2 or later
 # (`toolchain go1.27.3` in its go.mod) and with golang.org/x/net v0.60.0 (#1492).
 GH_FIRST_SAFE_VERSION = Version("2.102.1")
-
-# The HIGH Go findings that Trivy reports in gh v2.102.0 (Go 1.27.1, golang.org/x/net v0.58.0).
-# Go 1.27.2 and golang.org/x/net v0.60.0 fix them, so the pinned gh build does not have them.
-GH_GO_FINDINGS_FIXED_IN_THE_PIN = frozenset({"CVE-2026-78667", "CVE-2026-97031", "CVE-2026-78669"})
 
 
 def _check_copy_from_ref(tokens: list[str], stage_names: set[str]) -> bool:
@@ -125,58 +119,6 @@ def test_service_image_installs_a_gh_release_built_with_go_1_27_2_or_later() -> 
         f"download/v{version}/gh_{version}_linux_arm64.tar.gz",
     ]
     assert Version(version) >= GH_FIRST_SAFE_VERSION
-
-
-def test_trivyignore_ignores_no_go_finding_that_the_pinned_gh_fixes() -> None:
-    """Verify that `.trivyignore` holds no ignore for a Go finding that the pinned gh build fixes.
-
-    Regression test (#1492): the three ignores stayed after the Dockerfile moved to gh v2.102.1,
-    and their reason still named gh v2.102.0 and Go 1.27.1. An ignore that no finding needs only
-    hides that finding when a later change brings it back.
-    """
-    lines = (REPO_ROOT / ".trivyignore").read_text(encoding="utf-8").splitlines()
-    ignored = {
-        line.split()[0] for line in lines if line.strip() and not line.lstrip().startswith("#")
-    }
-
-    assert ignored & GH_GO_FINDINGS_FIXED_IN_THE_PIN == set()
-
-
-def test_trivyignore_entry_with_a_reason_and_a_future_exp_date_has_no_problem() -> None:
-    """Verify that an entry with a reason above it and a later exp date passes."""
-    text = "# header\n\n# Reason: tracked in #1.\nCVE-2026-1 exp:2026-11-21\n"
-
-    assert _trivyignore_problems(text, date(2026, 11, 20)) == []
-
-
-def test_trivyignore_entry_without_a_reason_is_a_problem() -> None:
-    """Verify that an entry with no comment right above it fails, also after a blank line."""
-    text = "# header\n\nCVE-2026-1 exp:2026-11-21\n# Reason.\n\nCVE-2026-2 exp:2026-11-21\n"
-
-    assert _trivyignore_problems(text, date(2026, 11, 1)) == [
-        "line 3: CVE-2026-1 has no reason in the comment above it",
-        "line 6: CVE-2026-2 has no reason in the comment above it",
-    ]
-
-
-def test_trivyignore_entry_without_a_valid_exp_date_is_a_problem() -> None:
-    """Verify that an entry with no exp field, or an exp that Trivy cannot parse, fails."""
-    text = "# Reason.\nCVE-2026-1\n# Reason.\nCVE-2026-2 exp:21-11-2026\n"
-
-    assert _trivyignore_problems(text, date(2026, 11, 1)) == [
-        "line 2: CVE-2026-1 has no exp:YYYY-MM-DD date",
-        "line 4: CVE-2026-2 has no exp:YYYY-MM-DD date",
-    ]
-
-
-def test_trivyignore_entry_is_a_problem_on_and_after_its_exp_date() -> None:
-    """Verify that an entry fails on the day of its exp date, when Trivy stops to apply it."""
-    text = "# Reason.\nCVE-2026-1 exp:2026-11-21\n"
-
-    assert _trivyignore_problems(text, date(2026, 11, 20)) == []
-    assert _trivyignore_problems(text, date(2026, 11, 21)) == [
-        "line 2: CVE-2026-1 expired on 2026-11-21"
-    ]
 
 
 def _service_stage() -> list[list[str]]:

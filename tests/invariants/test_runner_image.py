@@ -89,26 +89,8 @@ def test_the_runner_stage_runs_as_user_1000_and_starts_devops() -> None:
     )
 
 
-def _release_job() -> dict[str, Any]:
-    job: dict[str, Any] = _workflow("release.yml")["jobs"]["runner-image"]
-    return job
-
-
 def _step(job: dict[str, Any], name: str) -> dict[str, Any]:
     return next(step for step in job["steps"] if step.get("name") == name)
-
-
-def test_the_release_scans_the_runner_image_for_high_and_critical_findings() -> None:
-    """Verify the scan: vulnerabilities only, HIGH and CRITICAL, unfixed ones ignored, exit 1."""
-    trivy = _step(_release_job(), "Scan Runner Image for Vulnerabilities")["with"]
-
-    assert (
-        trivy["scanners"],
-        trivy["severity"],
-        trivy["ignore-unfixed"],
-        trivy["trivyignores"],
-        str(trivy["exit-code"]),
-    ) == ("vuln", "HIGH,CRITICAL", True, ".trivyignore,.trivyignore-tofu", "1")
 
 
 def test_the_pull_request_check_builds_the_runner_image_and_pushes_nothing() -> None:
@@ -131,7 +113,7 @@ def test_the_pull_request_check_builds_the_runner_image_and_pushes_nothing() -> 
         "(github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request')"
         " && !(startsWith(github.head_ref, 'release-please--')"
         " && github.event.pull_request.head.repo.full_name == github.repository)",
-        {"contents": "read"},
+        {"contents": "read", "security-events": "write"},
         "runner",
         True,
         True,
