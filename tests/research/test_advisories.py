@@ -9,7 +9,11 @@ from pathlib import Path
 import httpx2
 import pytest
 
-from devops_cli.research.advisories import advisory_requests, find_advisories
+from devops_cli.research.advisories import (
+    advisory_requests,
+    find_advisories,
+    resolve_action_commits,
+)
 from devops_cli.research.github_advisories import GitHubAdvisoryClient
 from devops_cli.research.inventory import read_inventory, summarize
 from devops_cli.research.kev import KevClient
@@ -423,6 +427,79 @@ def test_a_failed_tags_read_is_a_failure_and_not_a_clean_pin(web: WebFake) -> No
         [f for f in report.findings if f.component.name == CHECKOUT],
         (report.summary.unpinned, report.summary.failed),
     ) == ([("actions/checkout", "v4", "GitHub returned status 500")], [], (1, 1))
+
+
+CODEQL_COMMIT = "1111111111111111111111111111111111111111"
+CODEQL_TAGS_URL = "https://api.github.com/repos/github/codeql-action/tags?per_page=100"
+
+
+def _workflow_repo(tmp_path: Path, *uses: str) -> Path:
+    """A repository whose one workflow has a step for each `uses` value, one line each."""
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    steps = "".join(f"      - uses: {value}\n" for value in uses)
+    workflow.write_text(
+        f"name: ci\non: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n{steps}",
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+def test_a_sub_path_action_pin_reads_the_tags_of_its_repository(
+    web: WebFake, tmp_path: Path
+) -> None:
+    """`github/codeql-action/init` is a path in the repository `github/codeql-action`. The tags read
+    goes to that repository, and the pin keeps its full name with the release of its commit. The
+    tags answer is synthetic, in the shape of `GET /repos/{owner}/{repo}/tags` (#4012)."""
+    tags = [
+        {"name": "v4.31.2", "commit": {"sha": CODEQL_COMMIT}},
+        {"name": "v4", "commit": {"sha": CODEQL_COMMIT}},
+    ]
+    web.serve(
+        lambda request: (
+            httpx2.Response(200, json=tags)
+            if request.url.path == "/repos/github/codeql-action/tags"
+            else httpx2.Response(404, json={})
+        )
+    )
+    repo = _workflow_repo(tmp_path, f"github/codeql-action/init@{CODEQL_COMMIT} # v4")
+
+    resolved, failures = resolve_action_commits(read_inventory(repo), GitHubAdvisoryClient())
+
+    assert (
+        [(c.name, c.version) for c in resolved.components],
+        failures,
+        web.requested,
+    ) == ([("github/codeql-action/init", "v4.31.2")], [], [CODEQL_TAGS_URL])
+
+
+def test_a_failed_tags_read_gives_one_failure_for_each_repository_and_version(
+    web: WebFake, tmp_path: Path
+) -> None:
+    """Two pins of `actions/checkout` at `v4` and two paths of `github/codeql-action` at `v4` share
+    one tags read for each repository. A read that answers 500 gives one failure for each
+    repository and version, not one for each pin (#4012)."""
+    web.serve(lambda request: httpx2.Response(500, json={}))
+    repo = _workflow_repo(
+        tmp_path,
+        f"{CHECKOUT}@{NO_RELEASE_COMMIT} # v4",
+        f"{CHECKOUT}@{NO_RELEASE_COMMIT} # v4",
+        f"github/codeql-action/init@{CODEQL_COMMIT} # v4",
+        f"github/codeql-action/analyze@{CODEQL_COMMIT} # v4",
+    )
+
+    _, failures = resolve_action_commits(read_inventory(repo), GitHubAdvisoryClient())
+
+    assert (
+        [(f.name, f.version, f.reason) for f in failures],
+        sorted(web.requested),
+    ) == (
+        [
+            ("actions/checkout", "v4", "GitHub returned status 500"),
+            ("github/codeql-action", "v4", "GitHub returned status 500"),
+        ],
+        [CHECKOUT_TAGS_URL, CODEQL_TAGS_URL],
+    )
 
 
 def test_a_cve_in_the_kev_list_sets_the_exploited_flag(web: WebFake) -> None:

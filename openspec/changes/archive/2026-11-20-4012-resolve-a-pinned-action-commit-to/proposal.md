@@ -13,7 +13,7 @@ An Action that a workflow pins to a commit and a major tag (`uses: <action>@<com
 - `src/devops_cli/research/advisories.py:def find_advisories` resolves each Action commit pin through the tags before it plans the advisory reads, and `def advisory_requests` lists one tags request for each Action repository that holds a commit pin.
 - A pin whose commit has no full release tag stays in `unpinned`, and a failed tags read adds a `LookupFailure` that names the Action repository and makes the command exit 1.
 - The tests read the recorded answer `tests/fixtures/research/advisories/github/tags_actions_checkout.json` and assert the three cases of the issue: a full release tag at the commit, no full release tag at it, and a failed read.
-- The spec deltas of `research-advisories`, `research-inventory` and `public-api-egress` state the commit field, the resolution rule, the failure and the approved tags endpoint.
+- The spec deltas of `research-advisories`, `research-inventory` and `public-api-egress` state the commit field, the resolution rule, the failure and the tags endpoint on the approved host.
 - The change fits one pull request.
 
 ## Capabilities
@@ -25,8 +25,8 @@ None.
 ### Modified Capabilities
 
 - `research-advisories`: A pinned commit takes the highest full release of its tags, The tags of an Action are read page by page, A commit with no full release stays unpinned, A failed tags read is a failure and not a clean pin, The tags of one Action repository are read once in a run, Each GitHub Action with an exact release is checked against the GitHub advisories
-- `research-inventory`: The inventory lists each pin as a typed component
-- `public-api-egress`: The research agent may send requests to api.github.com and www.cisa.gov
+- `research-inventory`: An Action pin to a commit keeps its commit (added; the requirement "The inventory lists each pin as a typed component" stays as it was)
+- `public-api-egress`: The tags read of a pinned Action goes to api.github.com only (added; the owner approval of 2026-11-07 stays as recorded)
 
 ## Impact
 
@@ -59,4 +59,4 @@ The GitHub REST API `GET /repos/{owner}/{repo}/tags`, through the client that `s
 
 ## Dependencies
 
-- #3987: the tags read goes through the GitHub advisories client that #3987 delivered; its comment of 2026-11-07 records the owner's approval of the egress, and the client is at the staged commit, so no work of it is left.
+- #3987: the tags read goes through the GitHub advisories client that #3987 delivered; its comment of 2026-11-07 records the owner's approval of the egress to `api.github.com` for the advisories API. The tags path `GET /repos/{owner}/{repo}/tags` is new on that host, and the pull request asks the owner to approve it. The client is at the staged commit, so no work of it is left.

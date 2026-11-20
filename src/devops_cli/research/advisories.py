@@ -168,34 +168,47 @@ def _is_commit_pin(component: Component) -> bool:
     )
 
 
+def _repository_of(component: Component) -> str:
+    """The `owner/repo` of an Action. The name of an Action in a sub-path of its repository, such
+    as `github/codeql-action/init`, holds the path after the repository."""
+    return "/".join(component.name.split("/")[:2])
+
+
 def action_commit_repositories(inventory: Inventory) -> dict[str, set[str]]:
     """The Action repository of each pin that names a commit and no full release, with its commits.
 
     The tags of a repository give the release of each of its commits, so one read serves every pin
-    of that repository.
+    of that repository, also the pins of its sub-path Actions.
     """
     repositories: dict[str, set[str]] = {}
     for component in inventory.components:
         if _is_commit_pin(component):
-            repositories.setdefault(component.name, set()).add(component.commit)
+            repositories.setdefault(_repository_of(component), set()).add(component.commit)
     return repositories
 
 
-def _tags_failure(component: Component, repository: str, reason: str) -> LookupFailure:
-    return LookupFailure(
-        ecosystem=component.ecosystem,
-        name=repository,
-        version=component.version,
-        advisory_id="",
-        reason=reason,
+def _tags_failures(inventory: Inventory, repository: str, reason: str) -> list[LookupFailure]:
+    """One failure for each version that the commit pins of `repository` name, as `_failure` gives
+    one for each pin group: the pins of one repository and version share the failed read."""
+    versions = dict.fromkeys(
+        (component.ecosystem, component.version)
+        for component in inventory.components
+        if _is_commit_pin(component) and _repository_of(component) == repository
     )
+    return [
+        LookupFailure(
+            ecosystem=ecosystem, name=repository, version=version, advisory_id="", reason=reason
+        )
+        for ecosystem, version in versions
+    ]
 
 
 def resolve_action_commits(
     inventory: Inventory, github: GitHubAdvisoryClient
 ) -> tuple[Inventory, list[LookupFailure]]:
     """The inventory with each Action commit pin at the highest full release of its tags, and one
-    failure for each pin of a repository whose tags read failed.
+    failure for each repository and version whose tags read failed. The tags of a sub-path Action,
+    such as `github/codeql-action/init`, come from its repository `github/codeql-action`.
 
     A pin whose commit has no full release tag keeps its version, so the plan counts it in
     `unpinned`.
@@ -208,11 +221,7 @@ def resolve_action_commits(
     for repository, commits in sorted(repositories.items()):
         lookup = github.tags_of(repository, commits)
         if lookup.status != "ok":
-            failures += [
-                _tags_failure(component, repository, lookup.reason)
-                for component in inventory.components
-                if _is_commit_pin(component) and component.name == repository
-            ]
+            failures += _tags_failures(inventory, repository, lookup.reason)
             continue
         tags = [(tag.name, tag.commit.sha) for tag in lookup.tags]
         for commit in commits:
@@ -222,12 +231,17 @@ def resolve_action_commits(
     if not releases:
         return inventory, failures
     components = [
-        component.model_copy(update={"version": releases[(component.name, component.commit)]})
-        if _is_commit_pin(component) and (component.name, component.commit) in releases
+        component.model_copy(update={"version": releases[_commit_key(component)]})
+        if _is_commit_pin(component) and _commit_key(component) in releases
         else component
         for component in inventory.components
     ]
     return inventory.model_copy(update={"components": components}), failures
+
+
+def _commit_key(component: Component) -> tuple[str, str]:
+    """The repository and the commit of a commit pin, the key of its resolved release."""
+    return _repository_of(component), component.commit
 
 
 def advisory_requests(inventory: Inventory, watch: WatchList | None = None) -> list[PlannedRequest]:

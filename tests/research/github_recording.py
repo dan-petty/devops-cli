@@ -1,4 +1,5 @@
-"""The answers that api.github.com and www.cisa.gov gave on 2026-11-07, and a repository to read.
+"""The answers that api.github.com and www.cisa.gov gave on 2026-11-07, a synthetic tags answer
+of `actions/checkout` in the shape of the GitHub answer (#4012), and a repository to read.
 
 `github_repo` pins `tj-actions/changed-files` at `v45.0.0` and `v46.0.1`, `actions/checkout` at the
 major tag `v4`, and the chart `qdrant` 1.19.1, which `.devops/research-watch.toml` maps to the
@@ -28,8 +29,8 @@ def recorded(name: str) -> Any:
 
 
 def serve_recorded_github(web: WebFake) -> None:
-    """Serve the advisories of `tj-actions/changed-files` and of `qdrant/qdrant`, the tags of
-    `actions/checkout`, and an empty list for any other package or repository."""
+    """Serve the advisories of `tj-actions/changed-files` and of `qdrant/qdrant`, the synthetic tags
+    of `actions/checkout`, and an empty list for any other package or repository."""
     actions = recorded("advisories_actions.json")
     qdrant = recorded("qdrant_security_advisories.json")
     checkout_tags = recorded("tags_actions_checkout.json")

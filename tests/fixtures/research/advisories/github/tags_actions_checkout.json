@@ -1,7 +1,7 @@
 {
-  "recorded": "2026-11-19",
+  "synthetic": "A hand-written answer in the shape of GET /repos/{owner}/{repo}/tags, not a recording: GitHub gave no such answer. The tag names and the shas are made up to match the fixture workflow.",
   "request": "GET https://api.github.com/repos/actions/checkout/tags?per_page=100",
-  "note": "Trimmed to the fields that the client reads. The shas are those of the fixture workflow: the pinned commit holds two full releases and the major tag, another commit holds a newer release, and a prerelease holds a third commit.",
+  "note": "Trimmed to the fields that the client reads. The pinned commit of the fixture workflow holds two full releases and the major tag, another commit holds a newer release, and a prerelease holds a third commit.",
   "response": [
     {
       "name": "v4.3.0",
