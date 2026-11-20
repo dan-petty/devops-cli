@@ -2,9 +2,9 @@
 
 ## 1. Decide the eight rows that run 1 finished
 
-Kind: other. Reads: the run 1 results of #2176. Changes: `tests/http/test_http_async_client.py`, `tests/module_durations.json`, and the file of each other row that has no own mutant.
+Kind: other. Reads: the run 1 results of #2176. Changes: `tests/http/test_http_async_client.py` and `tests/module_durations.json`, because each other row of the group has an own mutant.
 
-- [ ] 1.1 For each row, the row file alone must kill each run 1 mutant again in a fresh process outside every checkout, and no other file that runs its statement may kill it. A row with such an own mutant is `kept`. A row with none loses the tests that `## Weakened checks` of the #2176 proposal names
+- [x] 1.1 For each row, the row file alone must kill each run 1 mutant again in a fresh process outside every checkout, and no other file that runs its statement may kill it. A row with such an own mutant is `kept`. A row with none loses the tests that `## Weakened checks` of the #2176 proposal names
   - Verification: `$ uv run devops ci test tests/http`
 
 ## 2. Run and decide the five rows with no run 1
@@ -18,5 +18,5 @@ Kind: other. Reads: `pyproject.toml`. Changes: none, because each of the five ro
 
 Kind: other. Reads: none. Changes: none.
 
-- [ ] 3.1 Post the record comment on the pull request of this item: for each row its decision, the run counts and durations, and its own mutants with the test that kills each of them. Confirm that `fail_under` in `pyproject.toml` stays the same
+- [x] 3.1 Post the record comment on the pull request of this item: for each row its decision, the run counts and durations, and its own mutants with the test that kills each of them. Confirm that `fail_under` in `pyproject.toml` stays the same
   - Verification: `$ uv run devops openspec check`
