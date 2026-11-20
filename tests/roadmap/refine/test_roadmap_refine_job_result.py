@@ -174,6 +174,26 @@ def test_a_round_logs_the_next_step_of_each_item_and_the_class_of_a_failed_model
     ]
 
 
+def test_a_write_that_fails_logs_the_error_and_the_class_of_the_write(
+    store: InMemoryRoadmapStore,
+    git_repo: Path,
+    model_fake: ModelFake,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A write that fails logs `error` with the class of the failure, not the next step of the
+    item that the round planned (#4845)."""
+    number = seed_item(store, "New", "P1-High")
+    store.fail_write(write="set_marks", item=number)
+    model_fake.answer(READY)
+
+    with caplog.at_level(logging.INFO), pytest.raises(RoadmapRefineError) as raised:
+        REFINE_ROW.runner(store=store, repo=REPO, clone_path=git_repo)
+
+    (line,) = result_fields(caplog)
+    assert list(raised.value.failed_items) == [number]
+    assert (line["result"], line["success"], line["class"]) == ("error", "false", "ci_infra")
+
+
 def test_a_ready_proposal_that_waits_on_the_alternatives_verdict_logs_a_success(
     store: InMemoryRoadmapStore,
     git_repo: Path,

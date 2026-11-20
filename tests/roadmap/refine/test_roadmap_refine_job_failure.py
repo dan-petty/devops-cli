@@ -208,6 +208,22 @@ def test_a_form_check_failure_names_the_criterion_and_part(
     assert form_check_details(_EMPTY_THEN) == ("acceptance_criteria[0].then",)
 
 
+def test_form_check_details_names_each_empty_field_and_no_criterion_of_a_split() -> None:
+    """`form_check_details` names an empty problem statement and an empty existing tool, and a
+    proposal that needs a split has no criterion to name (#6327)."""
+    empty_fields = _EMPTY_THEN.model_copy(update={"problem_statement": "", "existing_tool": ""})
+    split = _WHOLE.model_copy(update={"fits_one_pr": False, "split_offs": ["Part one."]})
+    from devops_cli.roadmap.refine.refine import form_check_details
+
+    assert (
+        form_check_details(empty_fields),
+        form_check_details(split),
+    ) == (
+        ("problem_statement", "existing_tool", "acceptance_criteria[0].then"),
+        (),
+    )
+
+
 def test_an_empty_then_reaches_the_record_and_the_next_request(
     git_repo: Path, store: InMemoryRoadmapStore
 ) -> None:
