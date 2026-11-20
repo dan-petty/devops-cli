@@ -13,6 +13,7 @@ repository at `example-org/app.git`, so git reaches no network.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from collections.abc import Callable
@@ -288,6 +289,39 @@ def test_scope_refusal_names_the_folder_and_the_data_count(
     }
 
 
+def test_scope_refusal_counts_a_data_file_whose_name_starts_like_coverage_output(
+    repo: Path, git: Git, managed: Path
+) -> None:
+    """Only the coverage outputs at the root and under `.data` are regenerable. A note whose name
+    starts with `.coverage` is data at any other place."""
+    noted = managed / "w-2100"
+    _worktree(git, repo, "fix/2100-old", noted, gitignore=f"{GITIGNORE}.coverage*\n")
+    outputs = (".coverage", ".coverage.host.1", ".data/.coverage", ".data/.coverage.host.2")
+    _put(noted, *outputs, ".data/agent/notes/.coverage-notes.md")
+    entry = next(entry for entry in inventory_worktrees(repo) if Path(entry.path) == noted)
+
+    assert scope_refusal(entry, managed_root=managed) == "holds 1 ignored data file"
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root opens a directory that has no permissions")
+def test_scope_refusal_is_unknown_when_git_cannot_open_a_directory(
+    repo: Path, git: Git, managed: Path
+) -> None:
+    """`git ls-files` warns and exits 0 when it cannot open a directory, and it does not list the
+    files in that directory. Such a count is not complete, so the rule keeps the worktree."""
+    locked_out = managed / "w-2100"
+    _worktree_with(git, repo, "fix/2100-old", locked_out, ".data/agent/scratch/dist/note.md")
+    unreadable = locked_out / ".data" / "agent" / "scratch" / "dist"
+    entry = next(entry for entry in inventory_worktrees(repo) if Path(entry.path) == locked_out)
+    unreadable.chmod(0)
+    try:
+        refusal = scope_refusal(entry, managed_root=managed)
+    finally:
+        unreadable.chmod(0o755)
+
+    assert refusal == "ignored data files are unknown (git ls-files failed)"
+
+
 @pytest.mark.parametrize("names", [CACHES, (".data/cache/x",)], ids=["caches", "data-cache"])
 def test_the_reclaim_takes_a_merged_worktree_that_holds_only_caches(
     cli: Cli,
@@ -442,6 +476,57 @@ def test_prune_refuses_a_worktree_whose_ignored_files_are_unknown(
     reason = "ignored data files are unknown (git ls-files failed)"
     assert result.exit_code == 0, result.output
     assert (outcomes[str(broken)], broken.is_dir()) == (("refused", reason), True)
+    assert github_api.requested == []
+
+
+def test_prune_checks_the_scope_again_right_before_it_removes_a_worktree(
+    cli: Cli, repo: Path, git: Git, managed: Path, github_api: GitHubApiFake
+) -> None:
+    """Prune reads GitHub for each worktree before it removes the first one, and an agent can write
+    a data file in a worktree in that time. `git worktree remove` deletes ignored files without a
+    check, so prune asks the scope rule again right before each removal (#6435)."""
+    late = managed / "w-2100"
+    _merged(github_api, _worktree_with(git, repo, "fix/2100-old", late))
+    github_api.before_answer = lambda _request: _put(late, NOTE)
+
+    result, outcomes = _prune(cli, repo, "--confirm")
+
+    assert result.exit_code == 0, result.output
+    refused = ("refused", "holds 1 ignored data file")
+    assert (outcomes[str(late)], (late / NOTE).is_file()) == (refused, True)
+
+
+def test_the_reclaim_keeps_a_worktree_that_gets_data_after_its_decision(
+    cli: Cli, repo: Path, git: Git, managed: Path, github_api: GitHubApiFake, new_dir: Path
+) -> None:
+    """The reclaim removes through prune, so it asks the scope rule again right before each
+    removal too."""
+    late = managed / "w-2100"
+    _merged(github_api, _worktree_with(git, repo, "fix/2100-old", late))
+    github_api.before_answer = lambda _request: _put(late, NOTE)
+
+    result = _add(cli, repo)
+
+    assert result.exit_code == 0, result.output
+    assert ((late / NOTE).is_file(), new_dir.is_dir()) == (True, True)
+
+
+def test_prune_refuses_an_untracked_file_that_the_git_configuration_hides(
+    cli: Cli, repo: Path, git: Git, managed: Path, github_api: GitHubApiFake
+) -> None:
+    """`status.showUntrackedFiles=no` hides untracked files from `git status`, and the check of
+    `git worktree remove` obeys it too. Prune asks git for the untracked files itself, so the
+    setting cannot make a worktree with untracked files look clean."""
+    kept = managed / "w-2100"
+    _merged(github_api, _worktree(git, repo, "fix/2100-old", kept))
+    _put(kept, "untracked-notes.md")
+    git(repo, "config", "status.showUntrackedFiles", "no")
+
+    result, outcomes = _prune(cli, repo, "--confirm")
+
+    assert result.exit_code == 0, result.output
+    refused = ("refused", "dirty (1 uncommitted path)")
+    assert (outcomes[str(kept)], (kept / "untracked-notes.md").is_file()) == (refused, True)
     assert github_api.requested == []
 
 
