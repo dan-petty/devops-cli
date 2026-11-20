@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.183.1](https://github.com/dan-petty/devops-cli/compare/v0.183.0...v0.183.1) (2026-11-20)
+
+
+### Bug Fixes
+
+* **docs:** report missing required options in command resolver ([#6373](https://github.com/dan-petty/devops-cli/issues/6373)) ([1b52008](https://github.com/dan-petty/devops-cli/commit/1b52008a7fe2f3cf912a45e927b568b7fec7c99b))
+* **k8s:** load only the needed Secret keys in runner Jobs ([#6520](https://github.com/dan-petty/devops-cli/issues/6520)) ([a656f4b](https://github.com/dan-petty/devops-cli/commit/a656f4b63eb83855567534870ffcb20ffa48f5b0)), closes [#6518](https://github.com/dan-petty/devops-cli/issues/6518)
+* **roadmap:** keep the last valid plan on a schema error ([#6484](https://github.com/dan-petty/devops-cli/issues/6484)) ([9564fb5](https://github.com/dan-petty/devops-cli/commit/9564fb53a88def282916bfb0d23b6eb9b1106626))
+* **roadmap:** Name the failed refine form check to the model ([#6507](https://github.com/dan-petty/devops-cli/issues/6507)) ([582ad22](https://github.com/dan-petty/devops-cli/commit/582ad224717a2b46a93a000c6e04bda2e0a6115d))
+
+
+### Performance Improvements
+
+* **roadmap:** build the cycle graph once for each selection ([#6534](https://github.com/dan-petty/devops-cli/issues/6534)) ([2990a57](https://github.com/dan-petty/devops-cli/commit/2990a57ab6379ba46b31cd85a13c54369e62894f))
+
 ## [0.183.0](https://github.com/dan-petty/devops-cli/compare/v0.182.3...v0.183.0) (2026-11-20)
 
 
