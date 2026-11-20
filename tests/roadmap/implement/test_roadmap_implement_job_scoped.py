@@ -166,20 +166,32 @@ def test_a_failed_install_stops_the_item_before_any_model_request(job_world: Job
 
 # ── The coder environment (#6517) ─────────────────────────────────────────────────────────
 
-SYNC = "uv sync --locked --group dev"
+# A staged branch is an existing branch: its sync locks again when its `uv.lock` is stale, as the
+# `uv run` of the hook install did before the bootstrap (#6517).
+SYNC = "uv sync --group dev"
+LOCKED_SYNC = "uv sync --locked --group dev"
 NPM = "npm ci --ignore-scripts"
 
 
-@pytest.fixture
-def locked_world(job_world: JobWorld) -> JobWorld:
-    """The job world, with `uv.lock` and `package-lock.json` on `main` of `origin`."""
-    repo = job_world.repo
+def _lock(world: JobWorld) -> JobWorld:
+    """`world`, with `uv.lock` and `package-lock.json` on `main` of `origin`."""
+    repo = world.repo
     for name in ("uv.lock", "package-lock.json"):
         (repo.clone / name).write_text("{}\n", encoding="utf-8")
     repo.git("add", "-A")
     repo.git("commit", "-q", "-m", "Lock the dependencies")
     repo.git("push", "-q", "origin", "main")
-    return job_world
+    return world
+
+
+@pytest.fixture
+def locked_world(job_world: JobWorld) -> JobWorld:
+    """The job world, with `uv.lock` and `package-lock.json` on `main` of `origin`."""
+    return _lock(job_world)
+
+
+def _syncs(world: JobWorld) -> list[str]:
+    return [text for text in _commands(world) if text.startswith("uv sync")]
 
 
 def test_the_job_bootstraps_the_worktree_before_the_hooks_and_the_first_model_request(
@@ -240,6 +252,30 @@ def test_a_failed_bootstrap_stops_the_item_before_any_model_request(
     assert any("error: Failed to fetch example.com" in c for c in locked_world.issue_comments())
     assert _count(locked_world, INSTALL) == 0
     assert _git_push(locked_world) == []
+
+
+def test_a_stale_lock_of_a_staged_branch_locks_again_and_stops_nothing(
+    locked_world: JobWorld,
+) -> None:
+    """A sync with `--locked` refuses a `uv.lock` that does not match `pyproject.toml`. The staged
+    branch syncs without it, so a stale lock locks again and the item goes on, as before the
+    bootstrap."""
+    locked_world.programs.answer(
+        lambda call: command_text(call).startswith(LOCKED_SYNC),
+        ProcessAnswer(returncode=1, stderr="error: The lockfile at `uv.lock` needs to be updated"),
+    )
+
+    applied = locked_world.run(two_groups())
+
+    assert (applied.stopped, _syncs(locked_world)) == ((), [SYNC])
+
+
+def test_a_planned_item_syncs_with_the_lock_of_the_default_branch(planned_world: JobWorld) -> None:
+    """A Planned item gets a new branch at the fetched default branch, whose `uv.lock` matches, so
+    its sync refuses a stale lock."""
+    _lock(planned_world).run(two_groups())
+
+    assert _syncs(planned_world) == [LOCKED_SYNC]
 
 
 def test_the_hooks_and_the_scoped_checks_find_the_tools_of_the_checkout_first(

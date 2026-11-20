@@ -9,11 +9,13 @@ program that a step of the Job does not count on, with the reason: the image doe
 no source of the gate runs it in a Job. So a person sees that a decision was made.
 
 **The image and the checkout.** The runner image holds the runtime of devops-cli and its `review`
-extra, and no dev dependency. Each stage, implement and fix-checks Job runs `bootstrap_checkout`
-in its checkout before the first agent step: `uv sync --locked --group dev` builds the venv of the
-checkout, as the post-create step of the devcontainer does, and `npm ci --ignore-scripts` installs
-the Node tools of a root `package-lock.json`. The dev tools (`ToolSource.CHECKOUT`) then come from
-the venv of the checkout. `checkout_environment` puts `node_modules/.bin` and that venv first on
+extra, and no dev dependency. The implement Job and the model fix of the fix-checks Job run
+`bootstrap_checkout` in their checkout before the first agent step: `uv sync --group dev` builds
+the venv of the checkout, as the post-create step of the devcontainer does, and
+`npm ci --ignore-scripts` installs the Node tools of a root `package-lock.json`. The sync adds
+`--locked` on a new branch; on an existing branch it locks again a stale `uv.lock`, as `uv run`
+does. The stage Job runs in the Service image, which holds no uv, so it runs no bootstrap. The dev
+tools (`ToolSource.CHECKOUT`) then come from the venv of the checkout. `checkout_environment` puts `node_modules/.bin` and that venv first on
 the PATH of the agent and of the checks that the Job starts. A child that gets a token never gets
 it, because the agent can write both folders.
 
@@ -303,7 +305,9 @@ _SEED_RECORD: Final[str] = "seed.json"
 _SEED_CACHE: Final[str] = "cache"
 _UV_LOCK: Final[str] = "uv.lock"
 _NPM_LOCK: Final[str] = "package-lock.json"
-_SYNC: Final[tuple[str, ...]] = (BIN_UV, "sync", "--locked", "--group", "dev")
+_SYNC: Final[tuple[str, ...]] = (BIN_UV, "sync")
+_LOCKED: Final[tuple[str, ...]] = ("--locked",)
+_DEV_GROUP: Final[tuple[str, ...]] = ("--group", "dev")
 # The online sync waits out more failed downloads than the 3 of uv; the malware check of uv runs.
 _ONLINE: Final[dict[str, str]] = {"UV_HTTP_RETRIES": "5", "UV_MALWARE_CHECK": "1"}
 # CI ran the malware check on the hashes of the seed when it built the seed.
@@ -361,18 +365,21 @@ def _run(checkout: Path, argv: Sequence[str], env: dict[str, str] | None = None)
         )
 
 
-def bootstrap_checkout(checkout: Path, *, seed: Path = UV_SEED_DIR) -> None:
+def bootstrap_checkout(checkout: Path, *, locked: bool = True, seed: Path = UV_SEED_DIR) -> None:
     """Build the coder environment of `checkout`, as the module says: the venv of its `uv.lock`
     with the dev group, from the uv seed `seed` when it fits, and the Node packages of its
-    `package-lock.json`. A checkout with neither file gets no command. Raises
+    `package-lock.json`. With `locked`, the sync refuses a `uv.lock` that does not match
+    `pyproject.toml` (`--locked`); without it, uv locks again first, as `uv run` does, for the
+    checkout of an existing branch. A checkout with neither file gets no command. Raises
     `ToolExecutionError` when a command fails or runs out of time."""
     if (checkout / _UV_LOCK).is_file():
+        sync = (*_SYNC, *(_LOCKED if locked else ()), *_DEV_GROUP)
         if _seed_fits(checkout, seed):
             cache = Path(os.environ.get("UV_CACHE_DIR") or user_cache_dir("uv"))
             shutil.copytree(seed / _SEED_CACHE, cache, symlinks=True, dirs_exist_ok=True)
-            _run(checkout, (*_SYNC, "--offline"), _OFFLINE)
+            _run(checkout, (*sync, "--offline"), _OFFLINE)
         else:
-            _run(checkout, _SYNC, _ONLINE)
+            _run(checkout, sync, _ONLINE)
     if (checkout / _NPM_LOCK).is_file():
         _run(checkout, (BIN_NPM, "ci", "--ignore-scripts"))
 

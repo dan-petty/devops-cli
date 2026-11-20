@@ -13,11 +13,12 @@ FROM node:24-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3
 # coder bootstrap (#6517) after #6409.
 FROM ghcr.io/dan-petty/devtools:20261119@sha256:a7b2f111941beaf5d36efb19f6ed2a50f8bed3062003498b97523da926143c51 AS devtools
 
-# The requirements of `uv.lock`, with their hashes and without the project (#4550). A release
-# changes the project version in `pyproject.toml` and `uv.lock`, but not these two files, and BuildKit
-# keys the cache of a `COPY --from` or a bind mount on the content of the files that it reads. So the
-# dependency layers of the runner, Service and MCP server images keep their cache when only `src/`
-# and the version change, and a node that holds the previous release pulls only the project layer.
+# The runtime requirements of `uv.lock` with the `review` extra, with their hashes and without the
+# project (#4550). A release changes the project version in `pyproject.toml` and `uv.lock`, but not
+# this file, and BuildKit keys the cache of a `COPY --from` or a bind mount on the content of the
+# files that it reads. So the dependency layers of the runner, Service and MCP server images keep
+# their cache when only `src/` and the version change, and a node that holds the previous release
+# pulls only the project layer.
 FROM python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS lock
 COPY --from=uv /uv /usr/local/bin/
 WORKDIR /app
@@ -68,8 +69,8 @@ RUN cp -a /usr/local/lib/devtools/npm/. . && \
 # The devtools image gives the tools that the steps, the gate and the hooks run: git, gh, uv,
 # Python, Node, OpenSpec, actionlint, promtool, Trivy, OpenTofu, shellcheck, curl, jq and others.
 # This stage adds the user of the Job and the venv of the runtime requirements of `uv.lock`, with
-# the `review` extra. The image holds no dev dependency: each stage, implement and fix-checks Job
-# builds the venv of its checkout with the dev group before its first agent step
+# the `review` extra. The image holds no dev dependency: the implement and fix-checks Jobs build the
+# venv of their checkout with the dev group before their first agent step
 # (`bootstrap_checkout` in `src/devops_cli/roadmap/runner_tools.py`, #6517). The devtools image runs
 # `apt-get upgrade` of sid in its own build, and the runner takes a new devtools image each week
 # through Renovate, so the runner runs no `apt-get upgrade` of its own.

@@ -34,6 +34,7 @@ from devops_cli.ai.client.factory import get_task_model
 from devops_cli.config.commands import BIN_DEVOPS, BIN_RUFF, BIN_UV
 from devops_cli.config.settings import load_settings
 from devops_cli.core.process import run_subprocess
+from devops_cli.exceptions import ToolExecutionError
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.git.worktree_add import add_worktree
 from devops_cli.github.client import PullStatus
@@ -101,8 +102,7 @@ def pull_checkout(
     """The worktree of the clone `source`, or of the clone `model-clone` of `repo`, on the head
     branch of the pull request of `status`, the branch of `item`. The take-over refuses a branch
     with a commit past main that the App did not write. The worktree must be on the head branch of
-    the pull request and at its judged head. The worktree gets its coder environment before the
-    block starts (`bootstrap_checkout`, #6517)."""
+    the pull request and at its judged head."""
     source = source or model_clone(repo)
     url = origin_url(source)
     report = add_worktree(source, issue=item, origin=OriginGit(source, url))
@@ -120,7 +120,6 @@ def pull_checkout(
                 f"{status.head_sha[:12]}."
             )
         (path / ".data" / "agent" / "scratch").mkdir(parents=True, exist_ok=True)
-        bootstrap_checkout(path)
         yield WorktreeCheckout(path, report.branch, status.head_sha, OriginGit(path, url))
     finally:
         git(source, "worktree", "remove", "--force", str(path), operation=_OPERATION)
@@ -254,9 +253,16 @@ def model_fix(store: ItemReader) -> ModelFixer:
     ladder, so a model trial moves this job alone (#5903). The step gets the hooks and the
     recorded tests of the default branch, as the implement job reads them, and the cap
     `roadmap.fix_checks.token_budget`. It may also change the files `extra` outside the plan,
-    whose failure the change of the branch causes (#6116)."""
+    whose failure the change of the branch causes (#6116). Before the step it builds the coder
+    environment of the worktree (#6517). The branch exists, so the sync locks again a stale
+    `uv.lock`, as the `uv run` of the hook install did before; tier 1 runs only `uv run` and
+    `uv lock`, which build what they need, so it needs no bootstrap."""
 
     def fix(path: Path, item: int, check: str, log: str, extra: tuple[str, ...]) -> Fixed:
+        try:
+            bootstrap_checkout(path, locked=False)
+        except ToolExecutionError as exc:
+            return Fixed(done=False, reason=str(exc))
         base = _base(path)
         hooks = trusted_config(path, base)
         if hooks is not None and (failure := install_hook_environments(path, hooks)) is not None:

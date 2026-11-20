@@ -397,6 +397,18 @@ def test_a_seed_that_does_not_fit_the_checkout_leaves_the_sync_online(
     assert not uv_cache.exists()
 
 
+def test_a_sync_that_may_lock_again_runs_without_locked(
+    tmp_path: Path, process_fake: ProcessFake, uv_cache: Path
+) -> None:
+    """A Job on an existing branch syncs as `uv run` does, so a stale `uv.lock` is locked again
+    and does not fail the bootstrap (#6517)."""
+    checkout = _checkout(tmp_path, "uv.lock")
+
+    bootstrap_checkout(checkout, locked=False, seed=tmp_path / "no-seed")
+
+    assert [_argv(call) for call in process_fake.calls] == [("uv", "sync", "--group", "dev")]
+
+
 def test_a_checkout_with_no_lock_file_gets_no_bootstrap_command(
     tmp_path: Path, process_fake: ProcessFake
 ) -> None:

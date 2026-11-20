@@ -4,19 +4,19 @@
 
 Kind: behavior. Changes: `src/devops_cli/roadmap/runner_tools.py`, `src/devops_cli/lang/en/messages.py`.
 
-- [x] 1.1 Write the failing tests in `tests/roadmap/test_roadmap_runner_tools.py`: the online sync and the npm install, the offline sync from a seed that fits, the online sync for a seed of another lock or uv, no command with no lock file, the error of a failed sync, the PATH of `checkout_environment`, the check of a tool of the checkout in its venv, and `main` with and without a checkout
+- [x] 1.1 Write the failing tests in `tests/roadmap/test_roadmap_runner_tools.py`: the online sync and the npm install, the sync without `--locked` for an existing branch, the offline sync from a seed that fits, the online sync for a seed of another lock or uv, no command with no lock file, the error of a failed sync, the PATH of `checkout_environment`, the check of a tool of the checkout in its venv, and `main` with and without a checkout
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_runner_tools.py`
-- [x] 1.2 Add `bootstrap_checkout`, `checkout_environment`, `IMAGE_TOOLS` and `CHECKOUT_TOOLS`, move the dev tools to the source `checkout`, and give `main` the checkout argument
+- [x] 1.2 Add `bootstrap_checkout` (with its `locked` flag), `checkout_environment`, `IMAGE_TOOLS` and `CHECKOUT_TOOLS`, move the dev tools to the source `checkout`, and give `main` the checkout argument
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_runner_tools.py`
 
-## 2. The Jobs call the bootstrap and give the checks the tools of the checkout
+## 2. The runner Jobs call the bootstrap and give the checks the tools of the checkout
 
-Kind: behavior. Changes: `src/devops_cli/roadmap/implement/implement_run.py`, `src/devops_cli/roadmap/implement/implement_step.py`, `src/devops_cli/roadmap/implement/implement_hooks.py`, `src/devops_cli/roadmap/implement/implement_scoped_ci.py`, `src/devops_cli/roadmap/stage/stage_job.py`, `src/devops_cli/roadmap/steps/fix_checks_repair.py`.
+Kind: behavior. Changes: `src/devops_cli/roadmap/implement/implement_run.py`, `src/devops_cli/roadmap/implement/implement_step.py`, `src/devops_cli/roadmap/implement/implement_hooks.py`, `src/devops_cli/roadmap/implement/implement_scoped_ci.py`, `src/devops_cli/roadmap/steps/fix_checks_repair.py`.
 
-- [x] 2.1 Write the failing tests: the implement Job bootstraps the worktree before the hooks and the first model request, a failed bootstrap stops the item at `bootstrap`, the hooks and the scoped checks get the PATH of the checkout, the shell of the agent gets it, the stage Job bootstraps its clone before it plans, and the fix-checks checkout bootstraps its worktree
-  - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_job_scoped.py tests/roadmap/implement/test_roadmap_implement_step.py tests/roadmap/stage/test_roadmap_stage_job_entry.py tests/roadmap/steps/test_roadmap_step_fix_checks_repair.py`
-- [x] 2.2 Call `bootstrap_checkout` in the three Jobs and pass `checkout_environment` to the agent shell and the check children
-  - Verification: `$ uv run devops ci test tests/roadmap/implement tests/roadmap/stage/test_roadmap_stage_job_entry.py tests/roadmap/steps/test_roadmap_step_fix_checks_repair.py`
+- [x] 2.1 Write the failing tests: the implement Job bootstraps the worktree before the hooks and the first model request, a stale lock of a staged branch locks again, a Planned item syncs with `--locked`, a failed bootstrap stops the item at `bootstrap`, the hooks and the scoped checks get the PATH of the checkout, the shell of the agent gets it, the fix-checks checkout opens on a stale lock and tier 1 locks it again, and the model fix bootstraps its worktree before the first model request and fails with the output of a failed sync
+  - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_job_scoped.py tests/roadmap/implement/test_roadmap_implement_step.py tests/roadmap/steps/test_roadmap_step_fix_checks_repair.py`
+- [x] 2.2 Call `bootstrap_checkout` in the implement Job and the model fix of fix-checks, and pass `checkout_environment` to the agent shell and the check children
+  - Verification: `$ uv run devops ci test tests/roadmap/implement tests/roadmap/steps/test_roadmap_step_fix_checks_repair.py`
 
 ## 3. The runner image and its smoke test
 

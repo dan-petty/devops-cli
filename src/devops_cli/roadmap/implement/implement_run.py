@@ -936,11 +936,13 @@ class _ItemRun:
 
     def _bootstrap(self) -> None:
         """Build the coder environment of the worktree before the first model request: the venv
-        of its `uv.lock` with the dev group and its Node packages (#6517). A failure stops the
-        item with nothing to push."""
+        of its `uv.lock` with the dev group and its Node packages (#6517). The new branch of a
+        Planned item starts at the fetched default branch, so its sync refuses a stale lock
+        (`--locked`). A staged branch exists: its sync locks again a stale `uv.lock`, as the
+        `uv run` of the hook install did before. A failure stops the item with nothing to push."""
         self.step = MESSAGES.roadmap.implement_step_names["bootstrap"]
         try:
-            bootstrap_checkout(self.path)
+            bootstrap_checkout(self.path, locked=self.target.new_branch is not None)
         except ToolExecutionError as exc:
             raise _StopError(
                 self.step, str(exc), push=False, failure_class=FailureClass.CI_INFRA
