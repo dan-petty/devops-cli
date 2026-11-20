@@ -19,7 +19,7 @@ tags:
 | :--- | :--- |
 | **Official Documentation** | [qdrant.tech/documentation](https://qdrant.tech/documentation/) |
 | **Public Git Repository** | [github.com/qdrant/qdrant-client-python](https://github.com/qdrant/qdrant-client-python) |
-| **Official PyPI Package** | [pypi.org/project/qdrant-client](https://pypi.org/project/qdrant-client/) (`1.19.1`) |
+| **Official PyPI Package** | [pypi.org/project/qdrant-client](https://pypi.org/project/qdrant-client/) |
 | **DevOps CLI Integration** | [`src/devops_cli/ai/rag/`](../../../../../../src/devops_cli/ai/rag/) • [`src/devops_cli/commands/ai.py`](../../../../../../src/devops_cli/commands/ai.py) |
 
 ---

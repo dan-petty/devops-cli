@@ -20,7 +20,7 @@ tags:
 | :--- | :--- |
 | **Official Documentation** | [pydantic.dev/docs/ai/harness](https://pydantic.dev/docs/ai/harness/) |
 | **Public Git Repository** | [github.com/pydantic/pydantic-ai](https://github.com/pydantic/pydantic-ai), in the path `src/pydantic_ai_harness` |
-| **Official PyPI Package** | [pypi.org/project/pydantic-ai-harness](https://pypi.org/project/pydantic-ai-harness/) (`0.59.0`) |
+| **Official PyPI Package** | [pypi.org/project/pydantic-ai-harness](https://pypi.org/project/pydantic-ai-harness/) |
 | **DevOps CLI Integration** | [`src/devops_cli/roadmap/implement/implement_step.py`](../../../../../../src/devops_cli/roadmap/implement/implement_step.py) |
 
 ---

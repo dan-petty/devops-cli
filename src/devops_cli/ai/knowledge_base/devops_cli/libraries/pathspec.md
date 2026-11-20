@@ -17,7 +17,7 @@ tags:
 | :--- | :--- |
 | **Official Documentation** | [github.com/cpburnz/python-pathspec](https://github.com/cpburnz/python-pathspec) |
 | **Public Git Repository** | [github.com/cpburnz/python-pathspec](https://github.com/cpburnz/python-pathspec) |
-| **Official PyPI Package** | [pypi.org/project/pathspec](https://pypi.org/project/pathspec/) (`1.1.1`) |
+| **Official PyPI Package** | [pypi.org/project/pathspec](https://pypi.org/project/pathspec/) |
 | **DevOps CLI Integration** | [`src/devops_cli/ai/diff/`](../../../../../../src/devops_cli/ai/diff/) • [`src/devops_cli/commands/review.py`](../../../../../../src/devops_cli/commands/review.py) |
 
 ---

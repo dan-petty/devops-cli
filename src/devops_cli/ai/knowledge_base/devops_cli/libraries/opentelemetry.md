@@ -19,7 +19,7 @@ tags:
 | :--- | :--- |
 | **Official Documentation** | [opentelemetry.io/docs/languages/python/](https://opentelemetry.io/docs/languages/python/) • [grafana.com/docs/tempo/latest/](https://grafana.com/docs/tempo/latest/) |
 | **Public Git Repository** | [github.com/open-telemetry/opentelemetry-python](https://github.com/open-telemetry/opentelemetry-python) |
-| **Official PyPI Package** | [pypi.org/project/opentelemetry-sdk](https://pypi.org/project/opentelemetry-sdk/) (`1.45.1`) |
+| **Official PyPI Package** | [pypi.org/project/opentelemetry-sdk](https://pypi.org/project/opentelemetry-sdk/) |
 | **DevOps CLI Integration** | [`src/devops_cli/telemetry/tracer.py`](../../../../../../src/devops_cli/telemetry/tracer.py) • [`src/devops_cli/telemetry/exporter.py`](../../../../../../src/devops_cli/telemetry/exporter.py) • [`src/devops_cli/commands/telemetry.py`](../../../../../../src/devops_cli/commands/telemetry.py) |
 
 ---

@@ -18,7 +18,7 @@ tags:
 | :--- | :--- |
 | **Official Documentation** | [cryptography.io](https://cryptography.io/) |
 | **Public Git Repository** | [github.com/pyca/cryptography](https://github.com/pyca/cryptography) |
-| **Official PyPI Package** | [pypi.org/project/cryptography](https://pypi.org/project/cryptography/) (`50.0.2`) |
+| **Official PyPI Package** | [pypi.org/project/cryptography](https://pypi.org/project/cryptography/) |
 | **DevOps CLI Integration** | [`src/devops_cli/crypto/tls_certificates.py`](../../../../../../src/devops_cli/crypto/tls_certificates.py) • [`src/devops_cli/commands/ssh.py`](../../../../../../src/devops_cli/commands/ssh.py) |
 
 ---
