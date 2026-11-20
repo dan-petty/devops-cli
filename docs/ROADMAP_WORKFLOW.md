@@ -231,7 +231,7 @@ A stop has a class (`roadmap/failure.py`, #3065). A stop site that knows its cau
 | `outside_plan` | `wait` | A fix step changed, added or deleted a path that the plan does not name (a path in a code span of any group, or a file of the change folder). The stop names the paths and holds the discarded diff. A person decides whether the plan changes |
 | `git_config` | `wait` | The git settings of the checkout hold a key that the job does not allow, an attribute names a filter, or a diff or merge driver that git does not define, or the clone has an alternates file. The job checks them when each turn of the agent ends and before each git call that reaches `origin`. The stop names each key, or each attribute and its first path, and no value, and pushes nothing. A person removes the setting and its cause |
 | `plan_unreadable` | `wait` | The plan reader cannot read back the rendered files of a plan, or reads facts that differ from the proposal (#5214) |
-| `form_check` | `retry` | A refine round wrote a proposal that failed a form check: a field that the schema refused, or an empty part that the schema allows. The result line names the failed parts (#6327) |
+| `form_check` | `retry` | A refine round wrote a proposal with an empty part that the schema allows: no problem statement, no existing-tool answer, or, for a proposal that fits one pull request, no criterion or a criterion with an empty part. A field that the schema refuses is `parser`. The result line names the failed parts (#6327) |
 
 The Job runs these actions by itself:
 - the fix rounds of `roadmap.implement.repair_rounds` for a failed check,
