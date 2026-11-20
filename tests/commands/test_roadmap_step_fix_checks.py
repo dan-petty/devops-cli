@@ -209,3 +209,32 @@ def test_a_sigterm_during_the_step_exits_75_with_no_result_line(
     result = cli("roadmap", "step", "fix-checks", "--repo", "example/project", "--pull", "42")
 
     assert (result.exit_code, '"job"' in result.stdout) == (75, False)
+
+
+def test_a_confirmed_round_in_a_runner_makes_its_process_unreadable_before_the_step(
+    cli: Cli, roadmap_store: InMemoryRoadmapStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The repair runs an agent step whose shell has the user of the Job, so the Job clears its
+    dumpable flag and adopts the orphans of a step before the step starts, as the implement Job
+    does (#2667). The spies replace the kernel calls, which would change the test run."""
+    from devops_cli.core import process_hardening
+    from devops_cli.roadmap.attempt_kill import AttemptKilled
+    from devops_cli.roadmap.implement import implement_run
+    from devops_cli.roadmap.steps import fix_checks
+
+    seen: list[str] = []
+    monkeypatch.setattr(implement_run, "require_runner", lambda _repo: seen.append("runner"))
+    monkeypatch.setattr(
+        process_hardening, "deny_environment_reads", lambda: seen.append("unreadable")
+    )
+    monkeypatch.setattr(process_hardening, "adopt_orphans", lambda: seen.append("orphans"))
+
+    def step(*_: Any, **__: Any) -> Any:
+        seen.append("step")
+        raise AttemptKilled
+
+    monkeypatch.setattr(fix_checks, "run_fix_checks", step)
+
+    cli("roadmap", "step", "fix-checks", "--repo", "example/project", "--pull", "42", "--confirm")
+
+    assert seen == ["runner", "unreadable", "orphans", "step"]
