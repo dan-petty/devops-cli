@@ -223,11 +223,21 @@ class NewCandidate:
     filed_by: Filer = Filer.AGENT
 
     def filed_body(self) -> str:
-        """The body the issue is filed with: the candidate's, then its source under a `## Source`
-        heading, so the source never falls under the Dependencies section (#6451)."""
+        """The body the issue is filed with: the candidate's, then a `Source:` line under a
+        `## Source` heading (#6451). The heading ends a Dependencies section of the same or a lower
+        level, and the line opens with a word, so a bare `#N` never sits in a paragraph that a
+        level-1 Dependencies section holds."""
         if not self.source:
             return self.body
-        return f"{self.body}\n\n## Source\n\n{self.source}"
+        return f"{self.body}\n\n## Source\n\nSource: {self.source}"
+
+    def filed_bodies(self) -> tuple[str, ...]:
+        """Each body that an issue filed for this candidate can hold: the one of `filed_body`, and
+        the one from before #6451, which ends with a `Source:` line and no heading. A run that
+        stopped after filing before the release still finds its issue when it tries again."""
+        if not self.source:
+            return (self.body,)
+        return (self.filed_body(), f"{self.body}\n\nSource: {self.source}")
 
     def refuse_secrets(self) -> None:
         """Raise when the title, body or source holds what looks like a secret: the text would
@@ -697,12 +707,13 @@ def _subject(issue: IssueRecord) -> Subject:
 def _new_subject(run: _Run, new: NewCandidate) -> Subject:
     """The subject of a new candidate: the candidate issue that holds the title and body that
     intake files for it, which a run that stopped after filing leaves, or else the candidate
-    itself, to file (#2218)."""
-    body = new.filed_body()
+    itself, to file (#2218). The body of the issue can have each form of `filed_bodies`, so a
+    retry finds an issue filed before #6451."""
+    bodies = new.filed_bodies()
     for issue in run.issues:
-        if _is_candidate(issue, run) and (issue.title, issue.body) == (new.title, body):
+        if _is_candidate(issue, run) and issue.title == new.title and issue.body in bodies:
             return replace(_subject(issue), new=new)
-    return Subject(title=new.title, body=body, new=new)
+    return Subject(title=new.title, body=new.filed_body(), new=new)
 
 
 def _is_candidate(issue: IssueRecord, run: _Run) -> bool:
