@@ -60,17 +60,6 @@ In dry-run mode, the watch row SHALL send zero network requests.
 - **WHEN** `run_due_jobs` runs with `dry_run=True`
 - **THEN** the watch row sends zero requests to GitHub
 
-### Requirement: The watch row marks a delivery draft ready only after a fix
-For a delivery draft with the verdict READY, the watch row SHALL run the ready path of the step `fix-checks` only when its item records `fix_checks.result` as `repaired`, once for each head, with `--confirm` only in mode `on` of `roadmap.fix_checks.mode`, and SHALL ask the step for its ready path only. The row SHALL leave each other delivery draft to its implement Job and SHALL send it no request.
-
-#### Scenario: A repaired draft gets the ready path once
-- **WHEN** a delivery draft that a fix Job repaired has passing checks, and the row runs twice on its head in mode `plan`
-- **THEN** the row runs the ready path once, with no `--confirm` and with `ready_only`
-
-#### Scenario: A draft that no fix repaired is left alone
-- **WHEN** a delivery draft whose implement Job ended has passing checks and no `fix_checks.result`
-- **THEN** the row runs no ready path and sends GitHub only its GraphQL read
-
 ### Requirement: An error of the fix-checks round does not stop the watch row
 When the fix-checks round raises a Kubernetes error, such as `ClusterJobError`, or a `ConfigurationError`, the watch row SHALL log it, count it in `devops_cli_service_fix_checks_jobs_total` with the result `round_error`, keep its ledger, and give its result with an empty fix-checks round.
 
@@ -103,3 +92,18 @@ The `comment_conflict` step SHALL keep one conflict comment on a pull request. T
 #### Scenario: A conflict at a new head
 - **WHEN** the pull request holds the conflict comment of an older head and has a conflict at a new head
 - **THEN** the row edits that comment with the new head and posts no comment
+
+### Requirement: The watch row marks a delivery draft ready after a fix or a drafted end
+For a delivery draft with the verdict READY, the watch row SHALL run the ready path of the step `fix-checks` only when its item records `fix_checks.result` as `repaired` or `implement.result` as `drafted`, once for each head, with `--confirm` only in mode `on` of `roadmap.fix_checks.mode`, and SHALL ask the step for its ready path only. The row SHALL leave each other delivery draft, such as the draft of a stopped implement Job, and SHALL send it no request.
+
+#### Scenario: A repaired draft gets the ready path once
+- **WHEN** a delivery draft that a fix Job repaired has passing checks, and the row runs twice on its head in mode `plan`
+- **THEN** the row runs the ready path once, with no `--confirm` and with `ready_only`
+
+#### Scenario: A drafted end gets the ready path once
+- **WHEN** a delivery draft whose implement Job recorded `implement.result` equal to `drafted` has passing checks, and the row runs twice on its head in mode `plan`
+- **THEN** the row runs the ready path once, with no `--confirm` and with `ready_only`
+
+#### Scenario: A draft of a stopped Job is left alone
+- **WHEN** a delivery draft whose implement Job recorded `implement.result` equal to `stopped` has passing checks and no `fix_checks.result`
+- **THEN** the row runs no ready path and sends GitHub only its GraphQL read

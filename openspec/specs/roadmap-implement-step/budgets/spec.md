@@ -48,16 +48,16 @@ The budgets and the time limits of an implement step and of an item: the setting
 - **WHEN** the pydantic-ai error has the message The reply broke the rules. and the body MODEL-TEXT
 - **THEN** the reason is UnexpectedModelBehavior: The reply broke the rules., with no MODEL-TEXT
 
-### Requirement: The time limits of the implement job are settings
-The settings `roadmap.implement.request_timeout_seconds`, `roadmap.implement.command_timeout_seconds` and `roadmap.implement.monitor_timeout_seconds` SHALL set the seconds that a model call, a command and the watch of the checks of a pull request may take. Each SHALL have a variable named `DEVOPS_CLI_` and the key in upper case. The defaults SHALL be 1200, 1800 and 3600, and a value below 1 SHALL be refused. A reader SHALL ask for the value when it runs.
+### Requirement: The time limits of a model call and a command are settings
+The settings `roadmap.implement.request_timeout_seconds` and `roadmap.implement.command_timeout_seconds` SHALL set the seconds that a model call and a command may take. Each SHALL have a variable named `DEVOPS_CLI_` and the key in upper case. The defaults SHALL be 1200 and 1800, and a value below 1 SHALL be refused. A reader SHALL ask for the value when it runs.
 
 #### Scenario: The defaults
 - **WHEN** no config file and no variable sets a time limit
-- **THEN** the call deadline is 1200 seconds, the command limit is 1800 seconds and the watch limit is 3600 seconds
+- **THEN** the call deadline is 1200 seconds and the command limit is 1800 seconds
 
 #### Scenario: A config file and a variable
-- **WHEN** the config file sets `command_timeout_seconds` to 90 and the variable `DEVOPS_CLI_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS` holds 120
-- **THEN** the command limit is 90 and the watch limit is 120
+- **WHEN** the config file sets `command_timeout_seconds` to 90 and the variable `DEVOPS_CLI_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS` holds 120
+- **THEN** the command limit is 90 and the call deadline is 120
 
 #### Scenario: A limit of zero
 - **WHEN** the config file sets a time limit to 0
@@ -70,10 +70,6 @@ The settings `roadmap.implement.request_timeout_seconds`, `roadmap.implement.com
 #### Scenario: A scoped check
 - **WHEN** the config file sets `command_timeout_seconds` to 41 and the job runs the scoped checks
 - **THEN** each command runs with the limit 41, and a command that runs out of time fails its check with a reason that names 41 seconds
-
-#### Scenario: The watch of the checks
-- **WHEN** the config file sets `monitor_timeout_seconds` to 123 and the checks of the pull request are still pending
-- **THEN** the watch waits at most 123 seconds, and the reason of the stop names 123 seconds
 
 ### Requirement: The budgets of a step and of an item are settings
 The settings `roadmap.implement.step_token_budget`, `item_token_budget`, `step_time_limit_seconds` and `item_time_limit_seconds` SHALL set the new tokens and the seconds that a step and a run of an item may use. Each SHALL have a variable named `DEVOPS_CLI_` and the key in upper case. The defaults SHALL be 8000000, 20000000, 5400 and 12600.

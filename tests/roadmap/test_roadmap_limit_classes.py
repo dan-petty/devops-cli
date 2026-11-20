@@ -562,10 +562,6 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "other",
         "the eval says the set is too small below this for a label",
     ),
-    "CONST_ROADMAP_IMPLEMENT_HEAD_POLLS": (
-        "kept",
-        "the time that GitHub takes to show a pushed head",
-    ),
     "CONST_ROADMAP_IMPLEMENT_JOB_LOG_LINES": ("kept", "lines of the Job log in a comment"),
     "CONST_ROADMAP_IMPLEMENT_FIX_GROUP": ("other", "the number of the group of a fix step"),
     "DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS": (
@@ -573,7 +569,6 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "was 600; under the router timeout of the gateway",
     ),
     "DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS": ("setting", "was 900"),
-    "DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS": ("setting", "was 1800"),
     "DEFAULT_ROADMAP_MCP_TIMEOUT_SECONDS": (
         "setting",
         "the time a remote MCP tool call can run before timing out",
@@ -639,7 +634,6 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "the period of one comment of a clear by digest for an item",
     ),
     "DEFAULT_ROADMAP_IMPLEMENT_LIMIT": ("kept", "items of one round"),
-    "DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS": ("kept", "the pace of the reads of GitHub"),
     "DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES": ("other", "a schedule"),
     # ── Shared by the jobs ────────────────────────────────────────────────────────────────
     "CONST_ROADMAP_RUN_ERROR_CHARS": ("kept", "the error text in a log and a reason"),

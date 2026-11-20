@@ -386,9 +386,8 @@ DEFAULT_AI_CONNECT_TIMEOUT_SECONDS: float = 5.0
 DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS: float = 10.0
 # The GitHub session's read timeout (#4626): the longest wait for each chunk of an answer. GitHub
 # ends a REST request that it cannot process in 10 s, so a read that waits longer gets no answer.
-# The bound is shorter than the calls around a GitHub read that the chain test
-# `tests/github/test_github_session_timeouts.py` holds: the watch of the checks of the implement job
-# (`DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS`) and the MCP read of a `resource://gh/`
+# The bound is shorter than the call around a GitHub read that the chain test
+# `tests/github/test_github_session_timeouts.py` holds: the MCP read of a `resource://gh/`
 # resource (`DEFAULT_MCP_TOOL_TIMEOUT_SECONDS`, #4678). So the read fails first and the call around
 # it gets its error. Downloads keep `DEFAULT_HTTP_TIMEOUT_SECONDS`.
 DEFAULT_GH_SESSION_READ_TIMEOUT_SECONDS: float = 60.0
@@ -1082,7 +1081,6 @@ DEFAULT_ROADMAP_IMPLEMENT_LADDER_TIERS: Final[tuple[str, ...]] = (DEFAULT_AI_IMP
 # The most items one implement run takes, and the seconds between two reads of a pull request
 # whose checks are not there yet (#2665).
 DEFAULT_ROADMAP_IMPLEMENT_LIMIT: int = 1
-DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS: int = 30
 # The effort values of the implement job's passes, in order (#3385): the job takes an item of the
 # first effort, and an item of the next effort only when no item of the first is selectable.
 DEFAULT_ROADMAP_IMPLEMENT_EFFORT: Final[tuple[str, ...]] = ("low", "medium")
@@ -1090,22 +1088,20 @@ DEFAULT_ROADMAP_IMPLEMENT_EFFORT: Final[tuple[str, ...]] = ("low", "medium")
 # the Jobs and the plan; the Job itself runs for up to two hours.
 DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES: int = 7
 # The time limits of the implement job (#3206), in seconds, which the settings
-# `roadmap.implement.request_timeout_seconds`, `command_timeout_seconds` and
-# `monitor_timeout_seconds` change. The deadline of one model call is one clock over the whole
+# `roadmap.implement.request_timeout_seconds` and `command_timeout_seconds` change. The deadline of one model call is one clock over the whole
 # call: every send of it and the read of the stream. It is more than a cold read of the largest
 # window (about 90 s) and a reply at the output cap (a quarter of the window, 32,000 tokens) at the
 # average rate of the longest measured call (38 tokens per second, about 840 s), and above the
 # timeout of the router in `k8s/llm/gateway/config.yaml` (900 s), so the gateway ends a stuck
 # attempt and can retry it or fall back first (#5965), which a test holds. A command is one
-# verification command, static check or hook of a step. The monitor is the most time that the
-# checks of a pull request may take to settle: CI that takes more than 5 minutes is a P0 bug, so
-# an hour is an outer bound. The Job deadline ends a run that these limits do not.
+# verification command, static check or hook of a step. The Job deadline ends a run that these
+# limits do not.
 DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS: int = 1200
 DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS: int = 1800
-DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS: int = 3600
 # The deadline of a runner Job follows its progress (#3063). The stall is the time without a new
 # line in the Job log that ends a run. It is above the longest wait in which the runner writes no
-# line (the watch of the checks, 3600 s) by 600 s (#3206). The extension is the time the deadline
+# line: a command, 1800 s (#3206). It was 600 s above the watch of the checks of a pull request,
+# which the runner no longer runs (#6559). The extension is the time the deadline
 # is kept ahead of the last progress, above the stall by the delay of a row (7 minutes) and a tick
 # of the Service (151 s), so the Service sees a stall before the deadline passes. The ceiling is
 # the cap of the admission policy of the Service's Jobs.

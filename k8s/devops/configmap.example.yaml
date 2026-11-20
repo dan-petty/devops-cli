@@ -318,7 +318,6 @@ data:
         item_token_budget: 80000000
         command_timeout_seconds: 3600
         request_timeout_seconds: 2400
-        monitor_timeout_seconds: 7200
         step_time_limit_seconds: 10800
         item_time_limit_seconds: 14400
         deadline_stall_seconds: 8400

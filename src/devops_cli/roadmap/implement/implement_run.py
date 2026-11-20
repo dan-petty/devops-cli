@@ -1,5 +1,6 @@
 """The writes of the implement job (#2665): the run of one Staged item from its first task group
-to a ready pull request, and the stop of an item that cannot get there.
+to a draft pull request with the final title and body, and the stop of an item that cannot get
+there.
 
 **Where it runs.** The job runs a step only when `roadmap.implement.in_runner` is true. The
 step's shell checks the first word of a command and is no security boundary, so the pod of a
@@ -17,12 +18,13 @@ also ends every process of a step when the step ends, and checks the git setting
 **One item.** The job takes over the staged branch in a worktree, sets Status In Progress and
 rebases onto the fetched default branch. It runs one step for each group that has an unticked
 task, regenerates the documentation, archives the change, rebases again and pushes with a lease.
-Each other push (the first push of a Planned item, a `wip:` push, a checkpoint and the push of a
-stop) also sends a commit that holds the default branch (`_current_tip`, #4380). Each push sends a
-commit (`<sha>:refs/heads/<branch>`) and moves the remote-tracking ref of the branch.
-Then it sets the title and the body of the pull request, comments the outcome of each step, and
-watches the checks. A failed check gets one fix step. When the checks pass the job marks the pull
-request ready and sets Status In Review. It never merges.
+Each other push (the first push of a Planned item, a checkpoint and the push of a stop) also sends
+a commit that holds the default branch (`_current_tip`, #4380). Each push sends a commit
+(`<sha>:refs/heads/<branch>`) and moves the remote-tracking ref of the branch.
+Then it sets the title and the body of the draft pull request, comments the outcome of each step,
+records the result `drafted` and sets Status In Review. The run ends there (#6559): the job
+watches no check and never marks the pull request ready. The watch row of the Service marks the
+draft ready when its checks pass, and the fix-checks Jobs repair a failed check. It never merges.
 
 **A Planned item** (#2714) has its plan on the default branch and no branch. The job makes the
 branch `<type>/<issue>-<slug>` at the fetched default branch, and goes on as above. A pull request
@@ -31,19 +33,12 @@ pushes the branch, opens the draft, and records `implement.branch` and `implemen
 the first commit pushes nothing. A stop after it publishes what passed, so a retry finds the branch
 and the draft and takes them over as a Staged item.
 
-**Work in progress** (#3054). A step commits each ticked task whose verification passes as a `wip:`
-commit. The job pushes it at once (`_keep`) when a task is left, and records `implement.wip`, so a
-pod that dies loses only the work after the last tick. A stop discards only that work. The next run
-takes the branch with its `wip:` commits, shows the kept ticks to the agent, and its step folds them
-into its own commit.
-
-**A stop.** A step that stops, a conflict, a failed command or a check that fails twice stops the
-item: the job drops the files that no commit holds (#4487) and pushes the commits that passed (also
-a stop in the scoped checks, #3645: the finished groups stay on the branch, and the draft is not
-marked ready), comments the step, the reason and the last message of the agent, sets Status
-Blocked, and records `implement.stopped`. The comment starts with the class of the failure, the
-action taken and the action left (`failure.py`, #3065), and the class is recorded in
-`implement.failure`. It does not run the item again until a clear rule of the Service removes the
+**A stop.** A step that stops, a conflict or a failed command stops the item: the job drops the
+files that no commit holds (#4487) and pushes the commits that passed (also a stop in the scoped
+checks, #3645: the finished groups stay on the branch, and the draft stays a draft), comments the
+step, the reason and the last message of the agent, sets Status Blocked, and records
+`implement.stopped`. The comment starts with the class of the failure, the action taken and the
+action left (`failure.py`, #3065), and the class is recorded in `implement.failure`. It does not run the item again until a clear rule of the Service removes the
 stop: a person's comment `implement: retry`, a new runner image (`stop_clear.py`), or, for a Job
 that ended with no result, a continuation (#3721).
 
@@ -58,9 +53,7 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import subprocess
-import tempfile
 import textwrap
 import time
 from collections import Counter
@@ -105,9 +98,6 @@ from devops_cli.exceptions import (
 )
 from devops_cli.exceptions.roadmap import GitSettingsError, OverWindowError
 from devops_cli.git.worktree_add import add_worktree
-from devops_cli.github.check_verdict import PRCheckItem, read_check_runs
-from devops_cli.github.client import PullRequestFile
-from devops_cli.github.pr_evidence import publish_pr_evidence
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.project import uses_openspec
@@ -138,25 +128,12 @@ from devops_cli.roadmap.implement.implement_amend import (
 from devops_cli.roadmap.implement.implement_base_replay import BaseStatus
 from devops_cli.roadmap.implement.implement_comments import StepComments
 from devops_cli.roadmap.implement.implement_disk import log_disk_use
-from devops_cli.roadmap.implement.implement_fix_scope import RepairScope, repair_scope
 from devops_cli.roadmap.implement.implement_hooks import (
     commit_stage,
     install_hook_environments,
     trusted_config,
 )
 from devops_cli.roadmap.implement.implement_limits import BudgetExtension, ItemSpend, new_tokens
-from devops_cli.roadmap.implement.implement_pull import (
-    Answer,
-    ChangeFacts,
-    Draft,
-    DraftKind,
-    Watch,
-    WatchKind,
-    draft_readiness,
-    failed_log,
-    mark_ready,
-    watch_pull,
-)
 from devops_cli.roadmap.implement.implement_scoped_ci import (
     ScopedResult,
     ScopedTests,
@@ -187,7 +164,6 @@ from devops_cli.roadmap.implement.implement_trace import (
     last_failing_command,
     summary_table,
 )
-from devops_cli.roadmap.implement.implement_wip import WipCommit, kept_commits, wip_base
 from devops_cli.roadmap.owner_question import OwnerQuestion, QuestionOption
 from devops_cli.roadmap.plan_read import PlanReadError, merged_recorded_tests
 from devops_cli.roadmap.premise import false_premises
@@ -374,11 +350,11 @@ class ImplementFailure:
 
 @dataclass(frozen=True)
 class ImplementApplied:
-    """What a run did: the items it took to a ready pull request, the items it stopped, the items
-    it ended because an agent or a person claimed them (#2910), and the items whose stop or finish
-    could not be written."""
+    """What a run did: the items it took to a draft pull request with the final title and body
+    (#6559), the items it stopped, the items it ended because an agent or a person claimed them
+    (#2910), and the items whose stop or finish could not be written."""
 
-    ready: tuple[int, ...] = ()
+    drafted: tuple[int, ...] = ()
     stopped: tuple[int, ...] = ()
     failed: tuple[ImplementFailure, ...] = ()
     yielded: tuple[int, ...] = ()
@@ -683,8 +659,6 @@ class _ItemRun:
     checkpoints_off: bool = False
     passed: bool = False
     conflict_files: tuple[str, ...] = ()
-    # The last `wip:` commit of the group that runs (#3054), or None.
-    wip: WipCommit | None = None
     # The time at which the run of the item began, for the time limit of the item (#3053).
     started: float = field(default_factory=time.monotonic)
     # The strength report of the new tests of the item (#3051).
@@ -790,9 +764,6 @@ class _ItemRun:
             "repair_rounds": ImplementRecordKey.REPAIR_ROUNDS,
         }
         written: dict[Any, str | int | None] = {keys[name]: value for name, value in marks.items()}
-        if "group" in marks:
-            written[ImplementRecordKey.WIP] = None
-            self.wip = None
         written[ImplementRecordKey.TRACE] = self.trace.encode()
         self.store.set_marks(self._fresh(), written)
 
@@ -865,7 +836,8 @@ class _ItemRun:
     # ── The sequence ──
 
     def execute(self) -> None:
-        """Run the item from the first step to a ready pull request. Raises `_StopError`."""
+        """Run the item from the first step to a draft pull request with the final title and body.
+        Raises `_StopError`."""
         self._start()
         self._groups()
         if self.returned:
@@ -875,8 +847,7 @@ class _ItemRun:
         self._delivery_metadata()
         pull = self._push()
         self._pull_request(pull)
-        self._checks(pull)
-        self._ready(pull)
+        self._end_drafted(pull)
 
     def _start(self) -> None:
         self.step = MESSAGES.roadmap.implement_step_names["rebase"]
@@ -1039,11 +1010,10 @@ class _ItemRun:
         `groups` names an identifier that the branch already defines (#3417, #3453). The line
         alone decides: a group with no `Adds:` line gets no check, and no rule reads the prose of
         a task. The run calls it once, before its first step, so a false premise costs no model
-        request and loses no group that passed in the run (#5881). The check reads the last commit
-        that is no `wip:` commit, so the name that an earlier attempt of a group kept is no defect
-        of the plan. A group whose tasks are all ticked passed in an earlier Job, and a group of
-        another kind adds no product identifier, so neither gets a check."""
-        base = wip_base(self._git)
+        request and loses no group that passed in the run (#5881). A group whose tasks are all
+        ticked passed in an earlier Job, and a group of another kind adds no product identifier,
+        so neither gets a check."""
+        base = self._head()
         evidence = [
             line
             for group in groups
@@ -1068,7 +1038,6 @@ class _ItemRun:
             {
                 ImplementRecordKey.GROUP: None,
                 ImplementRecordKey.SHA: None,
-                ImplementRecordKey.WIP: None,
                 ImplementRecordKey.BRANCH: None,
                 ImplementRecordKey.PR: None,
                 ImplementRecordKey.BASE: None,
@@ -1313,7 +1282,6 @@ class _ItemRun:
                     preset=self.profile.preset,
                     model_for_tier=self.model_for_tier,
                     trace=self.trace,
-                    on_wip=self._keep,
                     spend=self._item_spend(),
                     recorded_tests=self._recorded_tests(),
                     earlier=self._take_earlier(),
@@ -1324,8 +1292,6 @@ class _ItemRun:
                 continue
             self.outcomes.append(outcome)
             if outcome.status is StepStatus.STOPPED:
-                # The step kept its `wip:` commits (#3054), so the file differs from the text above.
-                tasks_text = tasks_file.read_text(encoding="utf-8")
                 request = parse_request(outcome.last_message)
                 if request is not None:
                     returned = self._handle_request_stop(
@@ -1385,37 +1351,14 @@ class _ItemRun:
                 self.step, reason, push=False, failure_class=_failure_class_of(exc)
             ) from exc
 
-    def _keep(self, commit: WipCommit) -> None:
-        """Take note of a `wip:` commit of the step (#3054). When tasks are left, push it and
-        record it at once, so that a pod that dies keeps the work: the next Job takes the branch
-        from `origin`. A commit that ticks the last task waits for the push of the end or of the
-        stop, because the exit checks of the step follow at once. A push that fails does not stop
-        the step. The line goes to the log, and the next push tries again. A git setting that the
-        job does not allow stops the item at once (`GitSettingsError`), before any record."""
-        self.wip = commit
-        if commit.done >= commit.total:
-            return
-        if failed := self._push_passed(in_step=True):
-            print_muted(failed.strip(), to_stderr=True, safe=True)
-        self.store.set_marks(self._fresh(), {ImplementRecordKey.WIP: _wip_record(commit)})
-
     def _kept_note(self, *, branch: bool = False) -> str:
-        """The part of the stop comment that says what the job kept and where: the branch, the
-        count of `wip:` commits on it and the last one (#3054). With no `wip:` commit, `branch`
-        says that the groups finished, so the note names the branch and its last commit (#3645).
-        Empty when the job kept nothing to name."""
-        kept = kept_commits(self._git, f"origin/{self.default}")
-        if not kept:
-            if not (branch and self._has_new_commits()):
-                return ""
-            return MESSAGES.roadmap.implement_stop_kept_branch.format(
-                branch=self.branch, sha=self._head()
-            )
-        return MESSAGES.roadmap.implement_stop_kept.format(
-            count=len(kept),
-            commits="commit" if len(kept) == 1 else "commits",
-            branch=self.branch,
-            sha=kept[0],
+        """The part of the stop comment that says what the job kept and where: when `branch` says
+        that the groups finished, the branch and its last commit (#3645). Empty when the job kept
+        nothing to name."""
+        if not (branch and self._has_new_commits()):
+            return ""
+        return MESSAGES.roadmap.implement_stop_kept_branch.format(
+            branch=self.branch, sha=self._head()
         )
 
     def _runs(self, step: ProjectStep) -> bool:
@@ -1487,7 +1430,7 @@ class _ItemRun:
             self.checked_sha = self._head()
             self.store.set_marks(self._fresh(), {ImplementRecordKey.CHECKED_SHA: self.checked_sha})
         self.step = MESSAGES.roadmap.implement_step_names["push"]
-        tip = self._current_tip(in_step=False)
+        tip = self._current_tip()
         if self.pull is not None and self.published_sha == tip:
             return self.pull
         with observe_implement(self.repo, StepName.PUBLISH):
@@ -1587,46 +1530,14 @@ class _ItemRun:
         if remote != tip:
             self.origin.push(self.branch, tip, lease=remote)
 
-    def _current_tip(self, *, in_step: bool) -> str:
+    def _current_tip(self) -> str:
         """The commit to push, which holds `origin/<default>` (#4380). A run takes minutes, and the
         default branch moves in that time. Between steps the checkout is clean, and a stop drops
         what no commit holds first (`_drop_uncommitted`), so the job rebases it as `_sync` does. A
-        step that runs holds the shas of its `wip:` commits and may hold edits, so `_rebased_copy`
-        rebases a copy and leaves the checkout alone. A conflict aborts the rebase and raises
-        `_StopError`, so `_push_passed` pushes the head with a lease (#5615). The sync of `_push`
-        stops the item with the same conflict."""
-        if in_step:
-            return self._rebased_copy()
+        conflict aborts the rebase and raises `_StopError`, so `_push_passed` pushes the head with a
+        lease (#5615). The sync of `_push` stops the item with the same conflict."""
         self._sync()
-        self._move_wip()
         return self._head()
-
-    def _move_wip(self) -> None:
-        """Record the last `wip:` commit again after a rebase rewrote it."""
-        if self.wip is None:
-            return
-        if kept := kept_commits(self._git, f"origin/{self.default}"):
-            self.wip = replace(self.wip, sha=kept[0])
-
-    def _rebased_copy(self) -> str:
-        """The tip of the commits of `HEAD` rebased onto `origin/<default>` in a detached worktree
-        that goes at once, or `HEAD` when the default branch has no commit that it lacks."""
-        if not self.rebase:
-            return self._head()
-        self.origin.fetch(self.default)
-        if not self._git("rev-list", "-n", "1", f"HEAD..origin/{self.default}"):
-            return self._head()
-        folder = Path(tempfile.mkdtemp(prefix="rebase-", dir=self.path.parent))
-        copy = folder / "copy"
-        try:
-            self._git("worktree", "add", "-q", "--detach", str(copy), "HEAD")
-            try:
-                self._rebase(copy)
-                return git(copy, "rev-parse", "HEAD", operation=GIT_OPERATION)
-            finally:
-                self._git("worktree", "remove", "--force", str(copy))
-        finally:
-            shutil.rmtree(folder, ignore_errors=True)
 
     def _has_new_commits(self) -> bool:
         return self._head() != self._git("rev-parse", f"origin/{self.default}")
@@ -1994,65 +1905,6 @@ class _ItemRun:
             )
         return summary_table(rows)
 
-    def _checks(self, pull: int) -> None:
-        """Watch the checks. A failed check gets a fix step, a push and a new watch, at most
-        `roadmap.implement.repair_rounds` times (#3043). A check that still fails after the last
-        round stops the item."""
-        self.step = MESSAGES.roadmap.implement_step_names["checks"]
-        budget = load_settings().roadmap.implement.repair_rounds
-        watch = self._watch(pull)
-        rounds = 0
-        for _round in range(budget):
-            if watch.kind is not WatchKind.FAILED or watch.check is None:
-                break
-            self._repair_after_push(pull, watch.check, rounds)
-            rounds += 1
-            watch = self._watch(pull)
-        if watch.kind is not WatchKind.READY:
-            name = watch.check.name if watch.check is not None else ""
-            raise _StopError(self.step, watch.reason, check=name, repair_rounds=rounds)
-
-    def _watch(self, pull: int) -> Watch:
-        """One watch of the checks, timed as the step `watch`. Any result but ready is an error."""
-        with observe_implement(self.repo, StepName.WATCH) as timer:
-            watch = watch_pull(self.repo, pull, self._head())
-            if watch.kind is not WatchKind.READY:
-                timer.fail()
-        return watch
-
-    def _repair_after_push(self, pull: int, check: PRCheckItem, rounds: int) -> None:
-        """One repair round for the failed check `check` of the pull request, after `rounds` rounds:
-        a fix step, the push (with the scoped checks), and a comment that shows the round. A check
-        whose log names no path of the repair scope gets no fix step: the item stops with no model
-        request (#4028). The rounds of this loop count in `implement.repair_rounds` only: the
-        fix-checks unit that the watch row starts after the Job keeps its own counts in
-        `fix_checks.*` (#5027)."""
-        log = failed_log(self.repo, check)
-        scope = self._repair_scope()
-        if not scope.names(log):
-            reason = MESSAGES.roadmap.implement_stop_check_outside_scope.format(
-                check=check.name, scope=scope.listing()
-            )
-            raise _StopError(
-                self.step,
-                reason,
-                check=check.name,
-                check_log=log,
-                repair_rounds=rounds,
-                failure_class=FailureClass.OUTSIDE_PLAN,
-            )
-        self._fix(check.name, log)
-        self._push()
-        self._comment(pull)
-        self.step = MESSAGES.roadmap.implement_step_names["checks"]
-
-    def _repair_scope(self) -> RepairScope:
-        """The paths of the plan and the change folder, which a fix turn may change (#4028). A fix
-        turn runs after the archive, so the folder may be the archived one."""
-        change = find_change(self.path, self.number, archived=True)
-        groups = parse_task_groups((change / "tasks.md").read_text(encoding="utf-8"))
-        return repair_scope(groups, change.relative_to(self.path).as_posix())
-
     def _fix(self, check: str, log: str) -> None:
         self.step = MESSAGES.roadmap.implement_step_fix
         outcome = run_fix_step(
@@ -2074,56 +1926,13 @@ class _ItemRun:
         if outcome.status is StepStatus.STOPPED:
             raise _stopped_by(self.step, outcome, check=check, log=log)
 
-    def _ready(self, pull: int) -> None:
-        self.step = MESSAGES.roadmap.implement_step_names["ready"]
-        client = get_github_session().client
-        status = client.get_pull_status(self.repo, pull)
-        head = status.head_sha or self._head()
-        if not status.head_sha:
-            status = status.model_copy(update={"head_sha": head})
-        owner, name = self.repo.split("/", 1)
-        checks = read_check_runs(owner, name, head)
-        archived = self._archived_name()
-        if archived:
-            tasks_path = self.path / CONST_OPENSPEC_ARCHIVE_DIR / archived / "tasks.md"
-            tasks_text = tasks_path.read_text(encoding="utf-8") if tasks_path.is_file() else ""
-            change = ChangeFacts(archived=True, tasks_text=tasks_text)
-        elif active := self._active_change():
-            active_tasks = active / "tasks.md"
-            tasks_text = active_tasks.read_text(encoding="utf-8") if active_tasks.is_file() else ""
-            change = ChangeFacts(
-                archived=False,
-                tasks_text=tasks_text,
-                archive_required=bool(
-                    self.profile.preset.archive_argv
-                    and uses_openspec(self.path, f"origin/{self.default}", operation=GIT_OPERATION)
-                ),
-            )
-        else:
-            change = None
-
-        listed = self._git(
-            "diff", "--name-only", "--diff-filter=ACMR", "-z", f"origin/{self.default}", "HEAD"
-        )
-        changed = [
-            PullRequestFile(filename=name, status="modified") for name in listed.split("\0") if name
-        ]
-        draft = Draft(
-            kind=DraftKind.IMPLEMENT,
-            pull=status,
-            item=self.target.item,
-            checks=checks,
-            change=change,
-            files=tuple(changed),
-        )
-        readiness = draft_readiness(draft)
-        if readiness.answer is not Answer.READY:
-            raise _StopError(self.step, readiness.reason)
-
-        self._publish_evidence(pull, head)
-        mark_ready(self.repo, pull, draft=draft)
+    def _end_drafted(self, pull: int) -> None:
+        """End the run at the draft pull request `pull` (#6559): record the result `drafted`, set
+        Status In Review and comment the spend on the item. The job watches no check and marks
+        nothing ready: the watch row marks the draft ready when its checks pass, and the fix-checks
+        Jobs repair a failed check."""
         marks: dict[Any, str | int | None] = {
-            ImplementRecordKey.SHA: head,
+            ImplementRecordKey.SHA: self._head(),
             ImplementRecordKey.PR: str(pull),
             ImplementRecordKey.SPEND: self._spend(),
             ImplementRecordKey.TRACE: self.trace.encode(),
@@ -2131,7 +1940,7 @@ class _ItemRun:
             ImplementRecordKey.BASE: None,
             ImplementRecordKey.CHECKED_SHA: None,
             ImplementRecordKey.PUBLISHED_SHA: None,
-            ImplementRecordKey.RESULT: ImplementResult.READY.value,
+            ImplementRecordKey.RESULT: ImplementResult.DRAFTED.value,
         }
         write_status(self.store, self._fresh(), StatusFacts(pull_ready=True), marks=marks)
         spend = json.loads(self._spend())
@@ -2144,16 +1953,6 @@ class _ItemRun:
                 **spend,
             ),
         )
-
-    def _publish_evidence(self, pull: int, head: str) -> None:
-        """Publish the check results of `head` as the one evidence comment of the delivery pull
-        request (#4129). The evidence is a condition of the ready transition: a write that GitHub
-        refuses stops the item before the ready mark, so the pull request stays a draft and a retry
-        publishes the evidence again."""
-        try:
-            publish_pr_evidence(get_github_session(), self.repo, pull, head=head)
-        except GitHubOperationError as exc:
-            raise _StopError(self.step, str(exc)) from exc
 
     # ── The end for a claim ──
 
@@ -2290,8 +2089,6 @@ class _ItemRun:
         }
         if self.pull is not None:
             marks[ImplementRecordKey.PR] = str(self.pull)
-        if self.wip is not None:
-            marks[ImplementRecordKey.WIP] = _wip_record(self.wip)
         marks.update(question_marks)
         marks[ImplementRecordKey.RESULT] = ImplementResult.STOPPED.value
         write_status(self.store, self._fresh(), StatusFacts(stopped=True), marks=marks)
@@ -2340,14 +2137,13 @@ class _ItemRun:
             return texts.implement_stop_push_failed.format(output=mask_secrets(output))
         return ""
 
-    def _push_passed(self, *, in_step: bool = False, at_stop: bool = False) -> str:
+    def _push_passed(self, *, at_stop: bool = False) -> str:
         """Push the commits of the steps that passed, on a branch that holds the default branch
         (`_current_tip`). A Planned item with a commit publishes its branch and opens its draft;
         with none, nothing is pushed. A rebase conflict aborts the rebase, pushes the head with a
         lease, records the conflicting paths in `implement.conflict`, and returns an empty text
-        (#5615). `in_step` is true for the `wip:` push of a step that runs, and `at_stop` for the
-        push of a stop, which drops what no commit holds first. The text to add to the comment when
-        the push fails, else empty. A git setting that the job does not allow raises
+        (#5615). `at_stop` is true for the push of a stop, which drops what no commit holds first.
+        The text to add to the comment when the push fails, else empty. A git setting that the job does not allow raises
         `GitSettingsError`: the item stops with the class `git_config`, and the job writes no
         record of the push first."""
         texts = MESSAGES.roadmap
@@ -2356,7 +2152,7 @@ class _ItemRun:
                 return ""
             if at_stop:
                 self._drop_uncommitted()
-            tip = self._current_tip(in_step=in_step)
+            tip = self._current_tip()
             if self.pull is not None:
                 self._push_with_lease(tip)
             else:
@@ -2387,13 +2183,6 @@ def _earlier_stop(check_log: str | None, conflict: str | None) -> EarlierStop | 
     if not check_log and not files:
         return None
     return EarlierStop(check_log=check_log or "", conflict_files=files)
-
-
-def _wip_record(commit: WipCommit) -> str:
-    """The value of `implement.wip` for a `wip:` commit (#3054)."""
-    return json.dumps(
-        {"group": commit.group, "done": commit.done, "of": commit.total, "sha": commit.sha}
-    )
 
 
 def _failure_class_of(exc: Exception) -> FailureClass | None:
@@ -2469,7 +2258,7 @@ def _implement_item(
             return run.end_stopped(_error_stop(run.step, exc))
         if run.returned:
             return ImplementResult.RETURNED
-    return ImplementResult.READY
+    return ImplementResult.DRAFTED
 
 
 def apply_implement(
@@ -2526,7 +2315,7 @@ def apply_implement(
             continue
         ended[how].append(item.number)
     return ImplementApplied(
-        tuple(ended[ImplementResult.READY]),
+        tuple(ended[ImplementResult.DRAFTED]),
         tuple(ended[ImplementResult.STOPPED]),
         tuple(failed),
         tuple(ended[ImplementResult.YIELDED]),

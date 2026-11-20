@@ -23,7 +23,12 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_FIX_CHECKS_JOBS,
 )
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.stores.store import ImplementRecordKey, ItemField, StageRecordKey
+from devops_cli.roadmap.stores.store import (
+    FixChecksRecordKey,
+    ImplementRecordKey,
+    ItemField,
+    StageRecordKey,
+)
 from devops_cli.roadmap.watch_row import (
     WatchLedger,
     watch_round,
@@ -317,21 +322,29 @@ def test_a_kubernetes_or_configuration_error_of_the_fix_round_does_not_fail_the_
     ) == (1, (pr_num,), (), 1, True, True)
 
 
-@pytest.mark.parametrize(("repaired", "calls"), [(True, 1), (False, 0)])
-def test_a_green_delivery_draft_gets_the_ready_path_only_after_a_fix_and_once_for_each_head(
+@pytest.mark.parametrize(
+    ("end", "calls"),
+    [
+        ({FixChecksRecordKey.RESULT: "repaired"}, 1),
+        ({ImplementRecordKey.RESULT: "drafted"}, 1),
+        ({ImplementRecordKey.RESULT: "stopped"}, 0),
+        ({}, 0),
+    ],
+    ids=["repaired", "drafted", "stopped", "no-end"],
+)
+def test_a_green_delivery_draft_gets_the_ready_path_after_a_fix_or_a_drafted_end_once_a_head(
     store: InMemoryRoadmapStore,
     github_api: GitHubApiFake,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    repaired: bool,
+    end: dict[Any, str],
     calls: int,
 ) -> None:
-    """A delivery draft whose implement Job ended is the implement Job's: the row marks nothing.
-    A draft that a fix Job repaired gets the ready path of the step, in mode `plan` without
-    `--confirm`, once for its head (#5027)."""
+    """A delivery draft that a fix Job repaired, or whose implement Job ended at the draft, gets
+    the ready path of the step, in mode `plan` without `--confirm`, once for its head (#5027,
+    #6559). The row leaves a draft whose Job stopped."""
     from devops_cli.roadmap import watch_row
     from devops_cli.roadmap.steps.fix_checks import FixChecksReport, FixChecksResult
-    from devops_cli.roadmap.stores.store import FixChecksRecordKey
 
     issue = store.seed_issue("Issue 1", fields={ItemField.PRIORITY: "P1-High"})
     held = store.item(issue)
@@ -339,9 +352,8 @@ def test_a_green_delivery_draft_gets_the_ready_path_only_after_a_fix_and_once_fo
     marks: dict[Any, str | None] = {
         ImplementRecordKey.JOB: f"devops-cli-implement-project-{issue}-abc123",
         ImplementRecordKey.JOB_STATE: "succeeded",
+        **end,
     }
-    if repaired:
-        marks[FixChecksRecordKey.RESULT] = "repaired"
     store.set_marks(held, marks)
     pr_num = store.seed_pull("feat: delivery PR", head_ref=f"feat/{issue}-deliv", draft=True)
     node = _graphql_pr_node(

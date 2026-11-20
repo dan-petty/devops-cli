@@ -1177,12 +1177,8 @@ def implement_requests(
         other("REST write", "pull_comment", "POST", f"{issues}/{_p('pull')}/comments"),
         *within(store.label_issue(_p("pull")), repeat=each_item),
         *within(store.unlabel_issue(_p("pull")), cond["unlabel"], repeat=each_item),
-        other("process", "watch", "gh", "pr", "checks", _p("pull")),
-        other("process", "run_log", "gh", "run", "view", "--log-failed", when=cond["run_log"]),
-        other("model", "model_fix", "model", when=cond["model_fix"]),
-        other("process", "ready", "gh", "pr", "ready", _p("pull"), when=cond["ready"]),
-        *within(store.write_status(target), cond["ready"], repeat=each_item),
-        *within(store.comment(target), cond["ready"], repeat=each_item),
+        *within(store.write_status(target), cond["drafted"], repeat=each_item),
+        *within(store.comment(target), cond["drafted"], repeat=each_item),
         # A stop comments on the item first, so the comment of the run can link it (#6194).
         *within(store.comment(target), cond["stop"], repeat=each_item),
         other(

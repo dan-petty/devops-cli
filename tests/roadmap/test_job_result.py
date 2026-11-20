@@ -54,11 +54,11 @@ def test_an_intended_result_with_no_failure_is_a_success_and_no_infrastructure_c
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     with caplog.at_level(logging.INFO):
-        log_job_result(RoadmapJob.IMPLEMENT, "owner/repo", 3, "ready")
+        log_job_result(RoadmapJob.IMPLEMENT, "owner/repo", 3, "drafted")
         log_job_result(RoadmapJob.IMPLEMENT, "owner/repo", 4, "stopped", failure=FailureClass.TEST)
 
     assert [line.split(" class=")[0].split(" result=")[1] for line in result_lines(caplog)] == [
-        "ready success=true",
+        "drafted success=true",
         "stopped success=false",
     ]
     assert [" infra=false " in line for line in result_lines(caplog)] == [True, True]

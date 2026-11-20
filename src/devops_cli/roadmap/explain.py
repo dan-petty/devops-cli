@@ -373,12 +373,6 @@ def _stop_lines(explained: Explanation) -> list[str]:
     )
     if stop.attempts:
         lines.append(texts.explain_stop_attempts.format(count=stop.attempts))
-    if stop.kept_group:
-        lines.append(
-            texts.explain_stop_kept.format(
-                group=stop.kept_group, done=stop.kept_done, total=stop.kept_total
-            )
-        )
     lines.append(
         texts.explain_stop_action.format(action=stop.action_left)
         if stop.action_left

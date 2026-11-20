@@ -390,9 +390,10 @@ class ReviewRecordKey(StrEnum):
 
 class ImplementResult(StrEnum):
     """How the run of an implement Job ended (#4071). The runner records the word in
-    `implement.result`, and the Service compares with it."""
+    `implement.result`, and the Service compares with it. `drafted` is the end of a run that opened
+    or updated the draft pull request with the final title and body (#6559)."""
 
-    READY = "ready"
+    DRAFTED = "drafted"
     STOPPED = "stopped"
     YIELDED = "yielded"
     RETURNED = "returned"
@@ -409,14 +410,13 @@ class ImplementRecordKey(StrEnum):
     named when it made the Job (#2912): the digest of the stop that the Job leaves. The Service
     keeps the digest clears of an item as a JSON list, and the time of the last comment of a clear
     (#3481); a clear of a stop does not remove them. The Service also keeps the count of the Jobs
-    that it started to continue a run that ended without a result (#3721). `implement.wip` holds
-    the work in progress that a step kept (#3054): its group, the tasks done, the tasks of the
-    group and the last commit, as JSON. The job removes it when the group passes. `implement.base`
+    that it started to continue a run that ended without a result (#3721). `implement.base`
     holds where the item branch stood before the job pushed a checkpoint (#3677): the sha of the
     branch for a Staged item, `new` for a Planned item. The job writes it once, and clears it at
-    ready and at a return to New. `implement.checked_sha` and `implement.published_sha` hold the
-    head that passed the scoped checks and the head that the job pushed (#4070): a Job that starts at
-    the same head skips that phase. The job clears both at ready and at a return to New.
+    the end of a drafted run and at a return to New. `implement.checked_sha` and
+    `implement.published_sha` hold the head that passed the scoped checks and the head that the job
+    pushed (#4070): a Job that starts at the same head skips that phase. The job clears both at the
+    end of a drafted run and at a return to New.
     `implement.result` holds how the run of the job ended (`ImplementResult`, #4071). The job
     writes it as the last mark of its end and clears it in its first write, and the Service clears
     it when it records a new Job. `implement.check_log` and `implement.conflict` hold the stop of
@@ -429,9 +429,7 @@ class ImplementRecordKey(StrEnum):
     judges the item and does not leave it out for the label clears the mark. `implement.left_action`
     holds the action left with the stop (#3648), as a value of `FailureAction`, so a person reads it
     in `devops roadmap explain` and `devops roadmap inbox`; a retry and each clear rule of the
-    Service remove it with the stop. `implement.continued` holds the class of the stop whose kept
-    work the next Job continues (#3650): the clear of a stop writes it with the class of the stop
-    when the record holds kept work, and the report of the next Job removes it."""
+    Service remove it with the stop."""
 
     GROUP = "implement.group"
     SHA = "implement.sha"
@@ -443,7 +441,6 @@ class ImplementRecordKey(StrEnum):
     CHECK = "implement.check"
     CHECK_LOG = "implement.check_log"
     CONFLICT = "implement.conflict"
-    WIP = "implement.wip"
     BASE = "implement.base"
     CHECKED_SHA = "implement.checked_sha"
     PUBLISHED_SHA = "implement.published_sha"
@@ -457,7 +454,6 @@ class ImplementRecordKey(StrEnum):
     DIGEST_CLEARS = "implement.digest_clears"
     DIGEST_CLEAR_COMMENTED_AT = "implement.digest_clear_commented_at"
     CONTINUATIONS = "implement.continuations"
-    CONTINUED = "implement.continued"
     REPAIR_ROUNDS = "implement.repair_rounds"
     NEEDS_FIX = "implement.needs_fix"
 

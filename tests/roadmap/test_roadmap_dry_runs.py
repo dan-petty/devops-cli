@@ -687,7 +687,7 @@ def test_the_implement_plan_comments_a_stop_on_the_item_before_it_links_it_on_th
                 names.append("status")
         return names
 
-    assert (order(cond["stop"]), order(cond["ready"])) == (
+    assert (order(cond["stop"]), order(cond["drafted"])) == (
         ["item comment", "pull comment", "status"],
         ["status", "item comment"],
     )

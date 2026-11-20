@@ -83,7 +83,7 @@ def test_docs_commit_runs_commit_stage_and_commits_fixer_rewrite(job_world: JobW
 
     applied = job_world.run(two_groups())
 
-    assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+    assert (applied.drafted, applied.stopped, applied.failed) == ((1,), (), ())
     assert "docs: regenerate the documentation (#1)" in job_world.origin_log()
     committed_content = job_world.repo.origin_git("show", f"{BRANCH}:docs/GENERATED.md")
     assert "   " not in committed_content
@@ -115,7 +115,7 @@ def test_hook_failure_on_docs_commit_stops_the_item(job_world: JobWorld) -> None
 
     applied = job_world.run(two_groups())
 
-    assert (applied.ready, applied.stopped, applied.failed) == ((), (1,), ())
+    assert (applied.drafted, applied.stopped, applied.failed) == ((), (1,), ())
     assert "docs: regenerate the documentation (#1)" not in job_world.origin_log()
     assert "docs(openspec): archive the change (#1)" not in job_world.origin_log()
 
@@ -154,7 +154,7 @@ def test_hook_failure_on_archive_commit_stops_the_item(job_world: JobWorld) -> N
 
     applied = job_world.run(two_groups())
 
-    assert (applied.ready, applied.stopped, applied.failed) == ((), (1,), ())
+    assert (applied.drafted, applied.stopped, applied.failed) == ((), (1,), ())
     assert "docs: regenerate the documentation (#1)" in job_world.origin_log()
     assert "docs(openspec): archive the change (#1)" not in job_world.origin_log()
 
@@ -187,7 +187,7 @@ def test_no_change_runs_no_hook(job_world: JobWorld) -> None:
 
     applied = job_world.run(two_groups())
 
-    assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+    assert (applied.drafted, applied.stopped, applied.failed) == ((1,), (), ())
     # Docs commit was skipped because there were no changes
     assert "docs: regenerate the documentation (#1)" not in job_world.origin_log()
     # Archive commit still ran

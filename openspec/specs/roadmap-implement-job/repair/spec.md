@@ -1,32 +1,9 @@
 # roadmap-implement-job/repair Specification
 
 ## Purpose
-The repair of a failed check: the hook environments and the scoped checks before a push, the fix steps of a failed check, and the comment that shows the repair rounds.
+The repair of a failed check before the push: the hook environments, the scoped checks, the fix steps of a failed scoped check, and the comment that shows the repair rounds.
 
 ## Requirements
-
-### Requirement: A failed check of the pull request gets bounded fix steps
-When the settled checks of the pull request hold a failed one, the job SHALL run a fix step with the log of the failed run, rebase, run the scoped checks, push, and watch again. It SHALL do so at most `roadmap.implement.repair_rounds` times, with a comment on the pull request for each round. A check that still fails after the last round, a check that does not settle within `CONST_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS`, an unresolved review thread and a merge conflict SHALL stop the item.
-
-#### Scenario: A check fails once
-- **WHEN** the first watch shows a failed check, the fix step passes, and the second watch shows every check passed
-- **THEN** the job pushes the fix commit, marks the pull request ready, and sets Status to In Review
-
-#### Scenario: A check fails twice
-- **WHEN** the check fails after the first and the second fix step, and passes after the third
-- **THEN** two fix steps ran, the job marks the pull request ready, and the pull request holds one comment for each round
-
-#### Scenario: A check fails in every round
-- **WHEN** the check fails after each of the 3 fix steps, and `repair_rounds` is 3
-- **THEN** the item is stopped with the step `checks`, the pull request stays a draft, and no fourth fix step runs
-
-#### Scenario: No round
-- **WHEN** `repair_rounds` is 0 and a check fails
-- **THEN** the item is stopped with the step `checks` and no fix step runs
-
-#### Scenario: The watch sees the old head
-- **WHEN** the first read after a push still shows the previous head commit of the pull request
-- **THEN** the job reads again, and judges only a status whose head is the pushed commit
 
 ### Requirement: The job installs the hook environments before the first step
 Before the first step of an item, the job SHALL run `pre-commit install-hooks` in the worktree, outside the agent shell, with `PRE_COMMIT_HOME` under the data directory. A failure SHALL stop the item at the step `hooks` with the output as the reason, before any model request. A repository whose default branch holds no `.pre-commit-config.yaml` SHALL get no install and no `pre-push` check.
@@ -118,8 +95,8 @@ The comment of the job on the pull request SHALL show a table with one row for e
 A stop of a fix step, and a stop of the scoped checks, SHALL name the failed check and hold the end of its log, at most `CONST_ROADMAP_IMPLEMENT_CHECK_LOG_CHARS` characters, with secrets masked. The stop comment and the job record (`implement.check`, `implement.check_log`) SHALL hold both. The next Job SHALL remove `implement.check_log` in its first record write. The comment table SHALL show the check name as the last failing command when no command failed.
 
 #### Scenario: A fix step that stops
-- **WHEN** the check `Tests & Coverage` of the pull request fails with a log that holds a token, and the fix step changes no file
-- **THEN** the comment names `Tests & Coverage`, holds the end of the log with the token masked, the row `fix` of the table shows the check name, and `implement.check` and `implement.check_log` hold the same
+- **WHEN** the scoped check `pre-push` fails with a log that holds a token, and the fix step changes no file
+- **THEN** the comment names `pre-push`, holds the end of the log with the token masked, the row `fix` of the table shows the check name, and `implement.check` and `implement.check_log` hold the same
 
 #### Scenario: A scoped check that still fails
 - **WHEN** the scoped check `pre-push` fails after the last fix round
@@ -139,17 +116,6 @@ The stop comment SHALL start, after the step, with the failed check. The failed 
 #### Scenario: The order of the comment
 - **WHEN** a stop has a failed check, a reason and a last message
 - **THEN** the failed check comes before the class lines, the class lines come before the reason, and the last message follows a label that says that no check verified it
-
-### Requirement: A failed check outside the repair scope gets no fix turn
-The job SHALL stop the item as Blocked with no model request when the log of a failed check of the pull request names no path of the repair scope. The scope SHALL hold each path that the plan names in the code spans of its groups, and each file of the change folder. The stop reason SHALL name the check and the scope.
-
-#### Scenario: A workflow check outside the plan fails after the push
-- **WHEN** the check `Deploy Preview` fails and its log names no path of the repair scope
-- **THEN** the job runs no fix step, the item is Blocked, and the reason names `Deploy Preview` and the paths of the scope
-
-#### Scenario: A check on a path of the plan fails
-- **WHEN** the check `Static Analysis` fails and its log names `src/app.py`, which the plan names
-- **THEN** the job runs a fix step, at most `repair_rounds` times
 
 ### Requirement: The job checks the strength of the new tests
 The implement job SHALL run a strength check after the scoped tests check. It SHALL report a new test file whose test functions hold no assertion, a mutant that no test kills, and a changed line that the scoped test modules do not cover. It SHALL measure that coverage in a run of the scoped test modules with coverage turned on. It SHALL give each finding to a repair step of the scoped-check repair loop.

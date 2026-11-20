@@ -1840,10 +1840,6 @@ CONST_SERVICE_METRIC_WEBHOOK_DELIVERY_FAILURES: Final[str] = (
 CONST_SERVICE_METRIC_IMPLEMENT_FAILURES: Final[str] = "devops_cli_service_implement_failures_total"
 # Counts the runner Jobs that the implement row reports, by `repo`, `item_class` and `result` (#3069).
 CONST_SERVICE_METRIC_IMPLEMENT_JOBS: Final[str] = "devops_cli_service_implement_jobs_total"
-# Counts the items with kept work, by `repo`, failure `class` and `outcome` (#3650): `continued`
-# when the next Job starts from the kept work, `finished` when it reaches the ready mark, and
-# `blocked` when it stops again.
-CONST_SERVICE_METRIC_KEPT_WORK: Final[str] = "devops_cli_service_kept_work_total"
 # Counts the stage Jobs of the stage row, by `repo`, `result` and `class` (#4559): `created` and
 # `existed` (a create that got 409) with the class `none`, and the end of a Job that the row
 # recovered, `evicted`, `deadline`, `failed` or `succeeded`, with the failure class or `none`.
@@ -3707,8 +3703,7 @@ CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES: Final[int] = 20
 # from its end, that the fix step reads (20,000 characters are about 5,000 tokens, and the inputs of
 # a fix step are measured against the window like those of any step); the longest pull request body
 # before its trailers, as the squash message takes it (`roadmap/pull_form.py` holds the rule,
-# #3198); and the longest last message of an agent in a comment. The most time that the checks of
-# a pull request may take to settle is the setting `roadmap.implement.monitor_timeout_seconds`.
+# #3198); and the longest last message of an agent in a comment.
 CONST_ROADMAP_IMPLEMENT_LOG_CHARS: Final[int] = 20000
 CONST_ROADMAP_IMPLEMENT_BODY_MAX_CHARS: Final[int] = 1000
 CONST_ROADMAP_IMPLEMENT_LAST_MESSAGE_CHARS: Final[int] = 1500
@@ -3784,9 +3779,6 @@ CONST_ROADMAP_IMPLEMENT_TRACE_CHARS: Final[int] = 8192
 # characters at most, so 30 rows stay far under the 65,536 characters of a GitHub comment. The
 # table keeps the newest rows.
 CONST_ROADMAP_IMPLEMENT_TABLE_ROWS: Final[int] = 30
-# After a push, GitHub can still show the old head of the pull request. The job reads this many
-# times, `DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS` apart, for the pushed commit as the head.
-CONST_ROADMAP_IMPLEMENT_HEAD_POLLS: Final[int] = 20
 # The comment of a person that clears the stop of an item, and the marker that heads every
 # comment of the job on an item.
 CONST_ROADMAP_IMPLEMENT_RETRY_COMMENT: Final[str] = "implement: retry"
@@ -3818,9 +3810,6 @@ CONST_ROADMAP_IMPLEMENT_DEADLINE_LOG_LINES: Final[int] = 20
 CONST_ROADMAP_IMPLEMENT_ANNOTATION_PROGRESS: Final[str] = "roadmap.devops-cli/progress"
 CONST_ROADMAP_IMPLEMENT_ANNOTATION_PROGRESS_AT: Final[str] = "roadmap.devops-cli/progress-at"
 CONST_ROADMAP_IMPLEMENT_ANNOTATION_STALLED: Final[str] = "roadmap.devops-cli/stalled"
-# The start of the subject of a work-in-progress commit (#3054): a step makes one when a task of
-# its group is ticked and its verification passes. A finished step folds the commits into its own.
-CONST_ROADMAP_IMPLEMENT_WIP_PREFIX: Final[str] = "wip:"
 # The number of the group of a fix step: a change numbers its groups from 1.
 CONST_ROADMAP_IMPLEMENT_FIX_GROUP: Final[int] = 0
 # The headings, in lower case, of the two sections of an issue that a step gives the model: the

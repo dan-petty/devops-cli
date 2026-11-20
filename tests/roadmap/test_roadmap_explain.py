@@ -194,7 +194,6 @@ def test_a_stopped_item_names_its_stop_for_the_implement_job(job_world: JobWorld
         {
             ImplementRecordKey.STOPPED: "group 2",
             ImplementRecordKey.FAILURE: "check_failed",
-            ImplementRecordKey.WIP: '{"group": "group 2", "done": 3, "of": 5, "sha": "abc123"}',
             ImplementRecordKey.TRACE: trace.encode(),
         },
     )
@@ -206,19 +205,11 @@ def test_a_stopped_item_names_its_stop_for_the_implement_job(job_world: JobWorld
     )
     stop = getattr(explained, "stop", None)
     assert stop is not None, "the explanation gives no stop of the item"
-    assert (
-        stop.step,
-        stop.failure_class,
-        stop.attempts,
-        stop.kept_group,
-        stop.kept_done,
-        stop.kept_total,
-    ) == ("group 2", "check_failed", 2, "group 2", 3, 5)
+    assert (stop.step, stop.failure_class, stop.attempts) == ("group 2", "check_failed", 2)
     lines = render_explanation(explained).splitlines()
     assert "Stop: step group 2." in lines
     assert "Stop class: check_failed." in lines
     assert "Stop attempts: 2." in lines
-    assert "Stop kept work: group 2, 3 of 5 tasks." in lines
     assert "Stop action left: none is recorded." in lines
 
     job_world.store.set_marks(held, {ImplementRecordKey.LEFT_ACTION: "wait"})

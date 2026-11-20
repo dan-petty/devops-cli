@@ -107,7 +107,7 @@ def test_a_run_to_a_ready_pull_request_leaves_the_events_of_the_steps_and_the_co
     trace = _trace(job_world)
     kinds = {event.kind for event in trace.events}
     commands = [str(e.fields["command"]) for e in trace.events if e.kind is TraceEventKind.CHECK]
-    assert applied.ready == (1,)
+    assert applied.drafted == (1,)
     assert {TraceEventKind.MODEL, TraceEventKind.TOOL, TraceEventKind.CHECK} <= kinds
     assert any("docs generate" in command for command in commands)
     assert any("ci --check --only" in command for command in commands)

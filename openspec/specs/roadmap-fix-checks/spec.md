@@ -117,13 +117,6 @@ The model fix of one `fix-checks` run SHALL stop before a model request when its
 - **WHEN** the new tokens of the step reach the cap
 - **THEN** the step stops before the next request, and the reason names `roadmap.fix_checks.token_budget`
 
-### Requirement: The step marks a repaired draft ready only by the readiness rule
-When the step finds an implement draft that it repaired, with every check passing on the head, it SHALL ask `draft_readiness`. It SHALL mark the draft ready with the expected head only when the answer is ready, and SHALL return `ready`. Otherwise it SHALL leave the draft as it is.
-
-#### Scenario: A repaired draft whose checks pass is marked ready
-- **WHEN** the step runs with `--confirm` on a repaired implement draft whose checks pass and that `draft_readiness` calls ready
-- **THEN** the step marks the draft ready with the expected head and returns `ready`
-
 ### Requirement: The step leaves an item to its live implement Job
 When the record of the item names an implement Job with no recorded state (`implement.job` set and `implement.job_state` empty), the step SHALL return `skipped` with no checkout, no comment and no mark. A Job with a recorded state has ended and SHALL NOT stop the step.
 
@@ -265,13 +258,6 @@ When SIGTERM ends `devops roadmap step fix-checks` while the step runs, the comm
 - **WHEN** an eviction sends SIGTERM to the pod while the step runs
 - **THEN** the command exits 75 with no result line
 
-### Requirement: The implement repair loop keeps its own counts
-The repair loop of the implement Job SHALL NOT write the `fix_checks.*` marks. It SHALL count its rounds in `implement.repair_rounds` only, so the fix-checks unit after the Job has its own caps.
-
-#### Scenario: A repair round of the implement Job
-- **WHEN** the implement Job repairs a failed check and its checks then pass
-- **THEN** the record of the item holds no `fix_checks.*` mark
-
 ### Requirement: The cluster template lets six model Jobs run
 The ConfigMap template `k8s/devops/configmap.example.yaml` SHALL set `roadmap.model_jobs` to 6, the owner choice for all repositories together. The code default of the setting SHALL stay 2.
 
@@ -366,3 +352,14 @@ With `--confirm` in a runner Job, `devops roadmap step fix-checks` SHALL clear t
 #### Scenario: A confirmed round hardens its process first
 - **WHEN** the command runs with `--confirm` in a runner Job
 - **THEN** it calls the runner check, then `deny_environment_reads`, then `adopt_orphans`, and only then the step
+
+### Requirement: The step marks an implement draft ready only by the readiness rule
+When the step finds an implement draft that it repaired (`fix_checks.result` equal to `repaired`), or whose implement Job ended at the draft (`implement.result` equal to `drafted`), with every check passing on the head, it SHALL ask `draft_readiness`. It SHALL mark the draft ready with the expected head only when the answer is ready, and SHALL return `ready`. Otherwise it SHALL leave the draft as it is.
+
+#### Scenario: A repaired draft whose checks pass is marked ready
+- **WHEN** the step runs with `--confirm` on a repaired implement draft whose checks pass and that `draft_readiness` calls ready
+- **THEN** the step marks the draft ready with the expected head and returns `ready`
+
+#### Scenario: A drafted implement draft whose checks pass is marked ready
+- **WHEN** the step runs with `--confirm` and `ready_only` on an implement draft whose item records `implement.result` equal to `drafted`, whose checks pass and that `draft_readiness` calls ready
+- **THEN** the step marks the draft ready with the expected head and returns `ready`

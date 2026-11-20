@@ -23,7 +23,6 @@ from devops_cli.roadmap.implement.implement_step import (
 )
 from devops_cli.roadmap.implement.implement_strays import stray_files
 from devops_cli.roadmap.implement.implement_tool_log import ToolCallLog
-from devops_cli.roadmap.implement.implement_wip import WipCommit
 from devops_cli.roadmap.step_files import parse_task_groups
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -488,39 +487,3 @@ def test_a_stray_name_with_glob_characters_does_not_unstage_the_tracked_file_it_
     assert not (checkout / "scr[a].py").exists()
     assert git(checkout, "ls-files", "scra.py") == "scra.py"
     assert git(checkout, "diff", "--cached", "--name-only") == ""
-
-
-def test_a_rename_into_a_stray_name_stays_out_of_a_wip_commit_and_its_source_stays(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
-) -> None:
-    """The keeper commits the ticks of a turn, so a rename that the turn staged must not reach
-    that commit: neither the stray nor the deletion of its source (#3488)."""
-    kept: list[WipCommit] = []
-
-    def move() -> None:
-        git(checkout, "mv", "src/other.py", "tmp_test_x.py")
-
-    script = ModelScript(
-        tool_calls(
-            write_call("tests/test_sample.py", TEST_BODY), write_call(TASKS_PATH, TICK_FIRST)
-        ),
-        tool_calls(write_call(TASKS_PATH, TICKED)),
-        say("Done."),
-        effects={2: move},
-    )
-
-    run_step(
-        store,
-        item=1,
-        group=1,
-        source=checkout,
-        model=script.model(),
-        window=WINDOW,
-        on_wip=kept.append,
-    )
-
-    assert [commit.done for commit in kept] == [1, 2]
-    names = git(checkout, "show", "--name-only", "--format=", kept[-1].sha).splitlines()
-    assert "tmp_test_x.py" not in names
-    assert "src/other.py" not in names
-    assert git(checkout, "ls-files", "src/other.py") == "src/other.py"

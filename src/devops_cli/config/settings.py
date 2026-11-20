@@ -154,7 +154,6 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_MAX_REQUESTS,
     DEFAULT_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
     DEFAULT_ROADMAP_IMPLEMENT_MODEL_RESENDS,
-    DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS,
     DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_STEP_TIME_LIMIT_SECONDS,
@@ -1625,7 +1624,7 @@ class RoadmapImplementConfig(BaseModel):
         ge=0,
     )
     continuations_per_item: Annotated[int, Variable()] = Field(
-        description="The most Jobs that the Service starts to continue the run of one item whose runner Job ended with no result. These are a pod that the kernel killed or evicted, a stalled Job that the Service ended, and a Job that no longer exists. Only a stop whose failure class has the default action `retry` is continued. An out-of-memory kill stops the continuation only when the log of the Job shows it. The new Job takes the branch from `origin` with the `wip:` commits that the run pushed. At the limit, the item stays Blocked until a trusted `implement: retry` comment or a new runner image that the digest rule accepts. 0 turns the continuation off",
+        description="The most Jobs that the Service starts to continue the run of one item whose runner Job ended with no result. These are a pod that the kernel killed or evicted, a stalled Job that the Service ended, and a Job that no longer exists. Only a stop whose failure class has the default action `retry` is continued. An out-of-memory kill stops the continuation only when the log of the Job shows it. The new Job takes the branch from `origin` with the groups that the checkpoints of the run pushed. At the limit, the item stays Blocked until a trusted `implement: retry` comment or a new runner image that the digest rule accepts. 0 turns the continuation off",
         default=DEFAULT_ROADMAP_IMPLEMENT_CONTINUATIONS_PER_ITEM,
         ge=0,
     )
@@ -1646,13 +1645,8 @@ class RoadmapImplementConfig(BaseModel):
         default=DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
         ge=1,
     )
-    monitor_timeout_seconds: Annotated[int, Variable()] = Field(
-        description="The most seconds that the implement job waits for the checks of a pull request to settle after a push. When it runs out, the item stops",
-        default=DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
-        ge=1,
-    )
     deadline_stall_seconds: Annotated[int, Variable()] = Field(
-        description="How long the log of a runner Job may stay unchanged before the Service ends the Job by its deadline. It must be above the longest wait in which the runner writes no line, such as the watch of the checks of a pull request (`monitor_timeout_seconds`) or a command (`command_timeout_seconds`), and not above the extension",
+        description="How long the log of a runner Job may stay unchanged before the Service ends the Job by its deadline. It must be above the longest wait in which the runner writes no line, such as a command (`command_timeout_seconds`) or a model call (`request_timeout_seconds`), and not above the extension",
         default=DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_STALL_SECONDS,
         ge=1,
     )

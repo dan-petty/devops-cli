@@ -96,41 +96,6 @@ When a model call fails with a `ModelHTTPError` of the status 400 inside an open
 - **WHEN** a model call fails with a 400 that is not inside a stream, or with a 503
 - **THEN** the reason holds no such line
 
-### Requirement: An error of the generation inside a stream is sent again
-When a model call fails with a `ModelHTTPError` of the status 400 inside an open stream that is no context window error, the step SHALL send the request again, at most `roadmap.implement.model_resends` times in a row. The first such failure on a tier SHALL add a message that asks for a smaller edit to the request. The next one on the same tier SHALL end the turn with no send. After the last send, the step SHALL stop with the reason of the failed call and the class `parser`.
-
-#### Scenario: Two separate failures
-- **WHEN** a model request fails with a 400 inside a stream, a good reply follows, and a later request fails the same way
-- **THEN** the step stops with the class `parser`, and the later request is not sent again
-
-#### Scenario: A new tier
-- **WHEN** the first tier of the ladder ends on a second parser failure, and the first request of the next tier fails with a 400 inside a stream
-- **THEN** the request is sent again with the message that asks for a smaller edit
-
-#### Scenario: One failed send
-- **WHEN** the first model request fails with a 400 inside a stream, and the second request answers with a good reply that ends the run
-- **THEN** the step ends done, and the second request holds the messages of the first and one more part at its end, the message that asks for a smaller edit
-
-#### Scenario: Every send fails
-- **WHEN** every model request fails with a 400 inside a stream with the body "XML syntax error on line 75: unexpected EOF"
-- **THEN** the step stops with the class `parser`, the reason holds the body, and the model got `roadmap.implement.model_resends` plus one requests, the last one with the smaller-edit message
-
-#### Scenario: The work of the group stays
-- **WHEN** the agent ticks the first task of a group and the verification of it passes, then two requests fail with a 400 inside a stream
-- **THEN** the step stops with the class `parser`, and the branch holds the `wip:` commit of the first task
-
-#### Scenario: Other failed model calls
-- **WHEN** a model request fails with a 400 that is not inside a stream, a 503, or a 400 that is a context window error
-- **THEN** the model gets no second request, and the step stops
-
-#### Scenario: The failed send counts in the limit
-- **WHEN** the replies and the failed send reach `roadmap.implement.max_requests`
-- **THEN** the model gets no more than that many requests, and the step stops with the reason of the request limit
-
-#### Scenario: A failure in the extra turn
-- **WHEN** the model request of the extra turn for a failed static check fails once with a 400 inside a stream
-- **THEN** the request is sent again with the message that asks for a smaller edit, and the extra turn ends with the check passing
-
 ### Requirement: A reply that reaches the output cap stops the step with its cause
 A model reply with the finish reason `length` SHALL end the run at once, without a further request or tool call. The step SHALL end as stopped, and SHALL reset the checkout. The reason SHALL start with `OutputCapReached: ` and SHALL hold the cap. The request SHALL count in the requests and the spend of the step, and the step SHALL not send it again. A reply of a size under the cap SHALL pass.
 
@@ -204,3 +169,34 @@ The timeout of the router in `k8s/llm/gateway/config.yaml` SHALL be less than th
 #### Scenario: A deadline above the step limit
 - **WHEN** the config sets `roadmap.implement.request_timeout_seconds` above `roadmap.implement.step_time_limit_seconds`
 - **THEN** the settings load fails with an error that names both settings
+
+### Requirement: An error of the generation inside a stream is sent again, and a stop keeps no work
+When a model call fails with a `ModelHTTPError` of the status 400 inside an open stream that is no context window error, the step SHALL send the request again, at most `roadmap.implement.model_resends` times in a row. The first such failure on a tier SHALL add a message that asks for a smaller edit to the request. The next one on the same tier SHALL end the turn with no send. After the last send, the step SHALL stop with the reason of the failed call and the class `parser`.
+
+#### Scenario: Two separate failures
+- **WHEN** a model request fails with a 400 inside a stream, a good reply follows, and a later request fails the same way
+- **THEN** the step stops with the class `parser`, and the later request is not sent again
+
+#### Scenario: A new tier
+- **WHEN** the first tier of the ladder ends on a second parser failure, and the first request of the next tier fails with a 400 inside a stream
+- **THEN** the request is sent again with the message that asks for a smaller edit
+
+#### Scenario: One failed send
+- **WHEN** the first model request fails with a 400 inside a stream, and the second request answers with a good reply that ends the run
+- **THEN** the step ends done, and the second request holds the messages of the first and one more part at its end, the message that asks for a smaller edit
+
+#### Scenario: Every send fails
+- **WHEN** every model request fails with a 400 inside a stream with the body "XML syntax error on line 75: unexpected EOF"
+- **THEN** the step stops with the class `parser`, the reason holds the body, and the model got `roadmap.implement.model_resends` plus one requests, the last one with the smaller-edit message
+
+#### Scenario: Other failed model calls
+- **WHEN** a model request fails with a 400 that is not inside a stream, a 503, or a 400 that is a context window error
+- **THEN** the model gets no second request, and the step stops
+
+#### Scenario: The failed send counts in the limit
+- **WHEN** the replies and the failed send reach `roadmap.implement.max_requests`
+- **THEN** the model gets no more than that many requests, and the step stops with the reason of the request limit
+
+#### Scenario: A failure in the extra turn
+- **WHEN** the model request of the extra turn for a failed static check fails once with a 400 inside a stream
+- **THEN** the request is sent again with the message that asks for a smaller edit, and the extra turn ends with the check passing

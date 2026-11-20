@@ -18,7 +18,6 @@ from devops_cli.roadmap.stores.store import ImplementRecordKey
 from tests.support.paths import REPO_ROOT
 
 SPEC = "openspec/specs/roadmap-implement-job/record/spec.md"
-PULL_SPEC = "openspec/specs/roadmap-implement-job/pull-request/spec.md"
 DOCUMENT = "docs/ROADMAP_WORKFLOW.md"
 ROADMAP = "src/devops_cli/roadmap"
 
@@ -39,7 +38,6 @@ READERS: Final[dict[str, tuple[str, ...]]] = {
     "implement.check": ("text", DOCUMENT, "The check that failed in the stop"),
     "implement.check_log": ("code", f"{ROADMAP}/implement/implement_run.py"),
     "implement.conflict": ("code", f"{ROADMAP}/implement/implement_run.py"),
-    "implement.wip": ("text", PULL_SPEC, "The job SHALL write `implement.wip` to the job record"),
     "implement.base": ("code", f"{ROADMAP}/implement/implement_run.py"),
     "implement.checked_sha": ("code", f"{ROADMAP}/implement/implement_run.py"),
     "implement.published_sha": ("code", f"{ROADMAP}/implement/implement_run.py"),
@@ -52,11 +50,6 @@ READERS: Final[dict[str, tuple[str, ...]]] = {
     "implement.digest_clears": ("code", f"{ROADMAP}/digest_clears.py"),
     "implement.digest_clear_commented_at": ("code", f"{ROADMAP}/digest_clears.py"),
     "implement.continuations": ("code", f"{ROADMAP}/stop_clear.py"),
-    "implement.continued": (
-        "text",
-        DOCUMENT,
-        "The class of the stop whose kept work the next Job continues",
-    ),
     "implement.repair_rounds": ("code", f"{ROADMAP}/implement/implement_submit.py"),
     "implement.needs_fix": ("code", f"{ROADMAP}/implement/implement_submit.py"),
 }

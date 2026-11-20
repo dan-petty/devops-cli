@@ -8,9 +8,10 @@ holds nothing. After the ledger is written, the row runs the fix-checks units of
 it starts a fix Job for each bot pull request that `due_steps` routes to `fix_checks`, and reports
 the fix Jobs that ended (`fix_checks_row.py`, #5027). A Kubernetes or a configuration error stops
 only that round: the row logs and counts it and gives its result (#6018). A delivery draft that a
-fix Job repaired and whose checks pass gets the ready path of the step `fix-checks` once for each
-head, and only the ready path: a check that fails between the two reads gives `skipped`. The row
-leaves every other delivery draft to its implement Job. A green plan draft is marked ready only
+fix Job repaired, or whose implement Job ended at the draft (#6559), and whose checks pass gets
+the ready path of the step `fix-checks` once for each head, and only the ready path: a check that
+fails between the two reads gives `skipped`. The row leaves a delivery draft whose implement Job
+stopped. A green plan draft is marked ready only
 when `draft_readiness` answers ready for the draft that `read_ready_draft` reads. The record can
 hold one pull request as the plan and as the delivery of its item, and `read_draft` then judges it
 as the delivery, so a task that is not ticked keeps it a draft; the row judges a refused head once
@@ -69,7 +70,11 @@ from devops_cli.roadmap.release_feed import closing_numbers
 from devops_cli.roadmap.stage.stage_criteria import acceptance_criteria
 from devops_cli.roadmap.status_sync import facts_of, job_holds, sync_status
 from devops_cli.roadmap.steps.comment import Target, post
-from devops_cli.roadmap.steps.fix_checks import FixChecksResult, run_fix_checks
+from devops_cli.roadmap.steps.fix_checks import (
+    FixChecksResult,
+    run_fix_checks,
+    takes_ready_path,
+)
 from devops_cli.roadmap.steps.ready import draft_readiness, mark_ready, read_ready_draft
 from devops_cli.roadmap.steps.watch import (
     DueStep,
@@ -446,16 +451,19 @@ def _ready_plan(
 
 
 def _ready_after_fix(ctx: _WatchContext, item: Item, pull: int, head: str) -> bool:
-    """Run the ready path of the step `fix-checks` on a delivery draft that a fix Job repaired and
-    whose checks pass, once for each head (#5027). The step marks the draft ready only when
+    """Run the ready path of the step `fix-checks` on a delivery draft that the path takes
+    (`takes_ready_path`: a fix Job repaired it, or its implement Job ended at the draft) and whose
+    checks pass, once for each head (#5027, #6559). The step marks the draft ready only when
     `draft_readiness` answers ready, and only in mode `on`; in mode `plan` it logs the plan. The
     step runs only the ready path: a check that fails after the read of the row gives `skipped`,
-    with no repair and no comment (#6018). A delivery draft that no fix Job repaired is the
-    implement Job's: the row leaves it."""
+    with no repair and no comment (#6018)."""
     entry = ctx.recorded_pulls.get(pull)
     mode = load_settings().roadmap.fix_checks.mode
-    repaired = item.job_record.get(FixChecksRecordKey.RESULT) == FixChecksResult.REPAIRED
-    if mode == "off" or not repaired or (entry is not None and entry.ready_head == head):
+    if (
+        mode == "off"
+        or not takes_ready_path(item)
+        or (entry is not None and entry.ready_head == head)
+    ):
         return False
     if entry is not None:
         entry.ready_head = head

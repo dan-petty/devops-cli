@@ -303,7 +303,7 @@ def test_the_report_counts_the_json_line_of_the_service_and_the_plain_lines_of_t
     plain text on stderr (#5556). Each line counts once, in its job."""
     implement, fix_plan, stage = written_records(
         caplog,
-        (RoadmapJob.IMPLEMENT, "ready"),
+        (RoadmapJob.IMPLEMENT, "drafted"),
         (RoadmapJob.FIX_PLAN, "revised"),
         (RoadmapJob.STAGE, "staged"),
     )

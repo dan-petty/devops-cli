@@ -8,7 +8,7 @@ with no `_bucket`, `_sum` or `_count` series (#792); a dashboard reads it with
 `histogram_quantile`, `histogram_avg` and `histogram_count`. Dashboards query only the metrics
 defined here; `tests/test_telemetry_instruments.py` checks each query.
 The series that the Service serves on its `/metrics` route, such as
-`devops_cli_service_kept_work_total` with the labels `repo`, `class` and `outcome`,
+`devops_cli_service_implement_jobs_total` with the labels `repo`, `item_class` and `result`,
 are declared in the config constants and are no instrument of this module.
 """
 
@@ -602,14 +602,13 @@ ROADMAP_STEP_SECONDS = Instrument(
     "Seconds that one step of a roadmap job took, one sample for each call of the step, by repo, "
     "row, step and result: ok or error. The labels are those of devops_cli_roadmap_row_seconds "
     "with a step. The stage row sends select, plan, gate, review and apply. The implement row "
-    "sends checks, publish and watch with the same labels (#4067): checks is one call of the "
-    "scoped checks with its fix rounds, publish is the push of the branch with the scoped checks "
-    "left out, and watch is one watch of the checks of the pull request, with the result error "
-    "when a check failed. The push of a stop is not timed. A refused reply adds a second plan "
-    "sample and a second gate sample, so a sample is one call and not one item. A gate that "
-    "finds a problem has the result ok. A job with no review model adds no review sample. One "
-    "repository adds at most 10 series for the stage row (5 steps and 2 results) and 6 series "
-    "for the implement row (3 steps and 2 results): 16 series. The histogram buckets add none",
+    "sends checks and publish with the same labels (#4067): checks is one call of the scoped "
+    "checks with its fix rounds, and publish is the push of the branch with the scoped checks "
+    "left out. The push of a stop is not timed. A refused reply adds a second plan sample and a "
+    "second gate sample, so a sample is one call and not one item. A gate that finds a problem "
+    "has the result ok. A job with no review model adds no review sample. One repository adds at "
+    "most 10 series for the stage row (5 steps and 2 results) and 4 series for the implement row "
+    "(2 steps and 2 results): 14 series. The histogram buckets add none",
 )
 ROADMAP_INTAKE_CANDIDATES_TOTAL = Instrument(
     "devops_cli_roadmap_intake_candidates_total",

@@ -215,20 +215,16 @@ The intake round SHALL add 0 to `devops_cli_roadmap_intake_candidates_total` for
 - **WHEN** the intake round places one candidate
 - **THEN** the counter holds 1 for `placed` and 0 for the other three results
 
-### Requirement: The implement job sends the seconds of its checks, its publish and its watch
-The implement job SHALL send one sample of `devops_cli_roadmap_step_seconds` with the attributes `repo`, `row` `implement`, `step` and `result` for each call of the scoped checks (`checks`), for each publish of a branch (`publish`) and for each watch of the checks of the pull request (`watch`). The `result` SHALL be `error` when the step raised an error, and for a watch also when it returns a check that failed; else `ok`.
+### Requirement: The implement job sends the seconds of its checks and its publish
+The implement job SHALL send one sample of `devops_cli_roadmap_step_seconds` with the attributes `repo`, `row` `implement`, `step` and `result` for each call of the scoped checks (`checks`) and for each publish of a branch (`publish`). The `result` SHALL be `error` when the step raised an error, else `ok`.
 
 #### Scenario: A run sends one sample for each step
 - **WHEN** a test runs the implement job over a Staged item and over a Planned item with passing checks
-- **THEN** the histogram holds one sample for each of `checks`, `publish` and `watch` with `row` `implement` and `result` `ok`
+- **THEN** the histogram holds one sample for each of `checks` and `publish` with `row` `implement` and `result` `ok`
 
 #### Scenario: Scoped checks that no fix repairs
 - **WHEN** a scoped check fails after the last fix round
-- **THEN** the histogram holds one `checks` sample with `result` `error`, and no `publish` and no `watch` sample
-
-#### Scenario: A failed check of the pull request
-- **WHEN** the first watch returns a failed check and the watch after the repair passes
-- **THEN** the histogram holds one `watch` sample with `result` `error` and one with `result` `ok`, and two `checks` and two `publish` samples with `result` `ok`
+- **THEN** the histogram holds one `checks` sample with `result` `error`, and no `publish` sample
 
 ### Requirement: The publish sample excludes the checks and the push of a stop
 The `publish` sample SHALL cover only the push and the draft pull request, and SHALL NOT cover the scoped checks. The push of a stop of the job SHALL send no sample.

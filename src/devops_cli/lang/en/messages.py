@@ -2832,7 +2832,6 @@ class RoadmapMessages:
     explain_stop_class: str = "Stop class: {failure_class}."
     explain_stop_no_class: str = "Stop class: none is recorded."
     explain_stop_attempts: str = "Stop attempts: {count}."
-    explain_stop_kept: str = "Stop kept work: {group}, {done} of {total} tasks."
     explain_stop_action: str = "Stop action left: `{action}`."
     explain_stop_no_action: str = "Stop action left: none is recorded."
     # The report of `devops roadmap explain --trace` (#3032).
@@ -3346,15 +3345,6 @@ class RoadmapMessages:
         "The plan does not name {paths}, but the change of the plan causes their failure. You "
         "can change them too."
     )
-    implement_wip_commit: str = (
-        "{prefix} {done} of {total} tasks of group {group}, {title} (#{item})"
-    )
-    implement_wip_push_failed: str = "The push of the work in progress failed: {output}"
-    implement_stop_kept: str = (
-        "\n\nThe job kept {count} work-in-progress {commits} on the branch `{branch}` on origin. "
-        "The last is `{sha}`. The job discarded only the work after it. The next run continues "
-        "from it and does the tasks that are not ticked."
-    )
     implement_stop_kept_branch: str = (
         "\n\nThe job kept the commits that passed on the branch `{branch}` on origin. The last is "
         "`{sha}`. The pull request stays a draft. The next run continues from it, runs no group "
@@ -3549,12 +3539,6 @@ class RoadmapMessages:
         "The fix step changed paths that the plan does not name: {paths}. A fix step may change "
         "only the paths that the plan names and the files of the change folder. The cause of the "
         "failed check may lie in another path. A person decides how to change the plan."
-    )
-    implement_stop_check_outside_scope: str = (
-        "The check {check} failed, and its log names no path of the repair scope. A fix turn may "
-        "change only the paths that the plan names and the files of the change folder, so the job "
-        "made no model request. The repair scope is: {scope}. A person decides how to fix the "
-        "check."
     )
     implement_stop_test_outside_changes: str = (
         "The test `{test}` failed on `{path}`, which is outside the `Changes:` list of the group. "
@@ -3835,7 +3819,9 @@ class RoadmapMessages:
         "Item #{number} has the Status {status}. A runner Job takes an item that is Ready or "
         "Planned."
     )
-    implement_job_applied: str = "Took {ready} item(s) to a ready pull request, stopped {stopped}."
+    implement_job_applied: str = (
+        "Took {drafted} item(s) to a draft pull request, stopped {stopped}."
+    )
     implement_job_yielded: str = "Left {yielded} item(s) to the owner that claimed them."
     implement_round_left: str = "Left #{number}: an agent or a person claimed it since the plan."
     implement_round_needs_fix: str = (
@@ -3866,8 +3852,6 @@ class RoadmapMessages:
             "hooks": "hooks",
             "scoped": "scoped checks",
             "pull_request": "pull request",
-            "checks": "checks",
-            "ready": "ready",
             "commit": "commit",
         }
     )
@@ -3894,17 +3878,8 @@ class RoadmapMessages:
     implement_stop_abort_failed: str = "\nThe abort of the rebase failed too.\n{output}"
     implement_stop_program_failed: str = "{command} exited with status {status}.\n{output}"
     implement_stop_program_timeout: str = "{command} ran out of time after {seconds} s."
-    implement_stop_checks_timeout: str = (
-        "The checks of the pull request did not finish in {seconds} s."
-    )
-    implement_stop_old_head: str = (
-        "GitHub did not show the commit {head} as the head of the pull request."
-    )
     implement_stop_check_failed: str = "The check {name} failed."
     implement_stop_checks_unread: str = "GitHub could not say whether the checks passed."
-    implement_stop_threads: str = "The pull request has {count} unresolved review thread(s)."
-    implement_stop_conflict: str = "The pull request has a merge conflict with the default branch."
-    implement_stop_merged: str = "The pull request was merged or closed while the job ran."
     implement_stop_ready_failed: str = "`gh pr ready` failed.\n{output}"
     implement_stop_error: str = "{error}: {message}"
     implement_stop_withdraw_failed: str = (
@@ -4028,7 +4003,9 @@ class RoadmapMessages:
         "over a limit wait for a comment `implement: retry`."
     )
     implement_comment_finished: str = (
-        "{marker}\nPull request #{pull} is ready for review. The checks passed.\n\n"
+        "{marker}\nThe draft pull request #{pull} holds the final title and body. The watch "
+        "row marks it ready when its checks pass, and a fix-checks Job repairs a failed check."
+        "\n\n"
         "Spend: {requests} model requests, {input_tokens} input tokens, {output_tokens} output "
         "tokens.{extensions}"
     )
@@ -4040,9 +4017,6 @@ class RoadmapMessages:
     # holds the stop report, once (#6194).
     implement_pull_comment_stopped: str = (
         "Stopped at {step}. The stop report is on #{issue}: {url}."
-    )
-    implement_watch_progress: str = (
-        "The checks of pull request #{pull} still run after {seconds} s."
     )
     implement_table_header: str = (
         "| Step | Status | Attempts | Tokens in/out | Last failing command |\n"
@@ -5051,10 +5025,6 @@ class RoadmapMessages:
             "pull_comment": "comment the outcome of each step on the pull request",
             "pull_comment_stopped": "link the stop comment on the item from the comment of the "
             "run on the pull request",
-            "run_log": "read the log of the failed check",
-            "model_fix": "the implement model fixes the failed check, once",
-            "watch": "read the pull request and its checks until they settle",
-            "ready": "mark the pull request ready for review",
             "remove_worktree": "remove the worktree and the local branch",
         }
     )
@@ -5067,9 +5037,7 @@ class RoadmapMessages:
             "staged": "the item is Staged: its branch is on origin",
             "clear_stop": "a retry comment clears the stop",
             "docs_commit": "the documentation changes",
-            "run_log": "a check fails",
-            "model_fix": "a check fails, for the first time",
-            "ready": "the checks pass",
+            "drafted": "the run sets the title and the body of the draft pull request",
             "amend": "a step asks for an amendment",
             "split": "the inputs of a group measure more than the limit of the step",
             "return": "a step finds the premise false",

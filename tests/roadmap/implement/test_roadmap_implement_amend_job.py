@@ -64,7 +64,7 @@ def test_stop_with_no_request_stops_as_before(
     )
 
     applied = job_world.run(script)
-    assert (applied.ready, applied.stopped, applied.failed) == ((), (1,), ())
+    assert (applied.drafted, applied.stopped, applied.failed) == ((), (1,), ())
     assert "docs(openspec): amend the plan" not in str(job_world.origin_log())
     status, _ = _item(job_world)
     assert status == "Blocked"
@@ -86,7 +86,7 @@ def test_false_premise_on_planned_item_returns_to_new(
     script = ModelScript(say(premise_request))
 
     applied = planned_world.run(script)
-    assert (applied.ready, applied.stopped, applied.failed) == ((), (), ())
+    assert (applied.drafted, applied.stopped, applied.failed) == ((), (), ())
 
     status, record = _item(planned_world)
     assert status == "New"
@@ -132,7 +132,7 @@ def test_false_premise_on_staged_item_after_group_1_leaves_old_tip_and_clears_gr
     )
 
     applied = job_world.run(script)
-    assert (applied.ready, applied.stopped, applied.failed) == ((), (), ())
+    assert (applied.drafted, applied.stopped, applied.failed) == ((), (), ())
 
     assert job_world.repo.origin_git("rev-parse", BRANCH) == before_tip
     status, record = _item(job_world)
@@ -157,7 +157,7 @@ def test_premise_request_with_empty_evidence_stops_as_question_with_plan_defect(
     script = ModelScript(say(request))
 
     applied = job_world.run(script)
-    assert (applied.ready, applied.stopped, applied.failed) == ((), (1,), ())
+    assert (applied.drafted, applied.stopped, applied.failed) == ((), (1,), ())
 
     status, record = _item(job_world)
     assert status == "Blocked"
@@ -183,7 +183,7 @@ def test_scope_request_stops_as_question_with_defect_and_evidence(
     script = ModelScript(say(request))
 
     applied = job_world.run(script)
-    assert (applied.ready, applied.stopped, applied.failed) == ((), (1,), ())
+    assert (applied.drafted, applied.stopped, applied.failed) == ((), (1,), ())
 
     status, record = _item(job_world)
     assert status == "Blocked"
@@ -229,7 +229,7 @@ Reads: `CONTEXT.md`. Changes: `src/devops_cli/shout.py` (new).
     script = ModelScript(say(request))
 
     applied = job_world.run(script)
-    assert (applied.ready, applied.stopped, applied.failed) == ((), (1,), ())
+    assert (applied.drafted, applied.stopped, applied.failed) == ((), (1,), ())
 
     status, record = _item(job_world)
     assert status == "Blocked"

@@ -226,7 +226,7 @@ def test_a_second_job_runs_only_the_groups_that_are_left(world: JobWorld) -> Non
 
     first_message = [str(getattr(part, "content", "")) for part in second.seen[0][-1].parts][-1]
     group = first_message.split("# Your group")[1].split("# The tasks file")[0]
-    assert applied.ready == (1,)
+    assert applied.drafted == (1,)
     assert ("- [ ] 3.1" in group, "1.1" in group, len(second.seen)) == (True, False, 4)
     assert _groups_on_origin(world) == FILES
 
@@ -237,7 +237,7 @@ def test_the_end_boundary_pushes_nothing(world: JobWorld) -> None:
 
     applied = world.run(script)
 
-    assert applied.ready == (1,)
+    assert applied.drafted == (1,)
     assert seen == [FILES[:3]]
     # The checkpoints of groups 1 to 3 and the final push. The end boundary adds none.
     assert len(_pushes(world)) == GROUPS
@@ -285,7 +285,7 @@ def test_a_claim_seen_at_a_boundary_pushes_nothing_at_that_boundary(world: JobWo
 
     applied = world.run(script)
 
-    assert (applied.yielded, applied.ready, applied.stopped) == ((1,), (), ())
+    assert (applied.yielded, applied.drafted, applied.stopped) == ((1,), (), ())
     assert _groups_on_origin(world) == []
     assert (_pull_requests_asked(world), world.pull.ready_calls) == (0, [])
 
@@ -299,7 +299,7 @@ def test_a_claim_during_group_two_keeps_group_one_and_pushes_nothing_more(
     applied = world.run(script)
 
     status, record = _item(world)
-    assert (applied.yielded, applied.ready, applied.stopped) == ((1,), (), ())
+    assert (applied.yielded, applied.drafted, applied.stopped) == ((1,), (), ())
     assert _groups_on_origin(world) == FILES[:1]
     assert (record.get("implement.stopped"), status) == (None, "In Progress")
     # A Planned item keeps its draft: one request opened it, and none closed it.
@@ -329,7 +329,7 @@ def test_the_base_is_written_once_and_cleared_at_ready(world: JobWorld) -> None:
     applied = world.run(second)
 
     assert during == [start, start, start]
-    assert applied.ready == (1,)
+    assert applied.drafted == (1,)
     assert _item(world)[1].get(BASE_KEY) is None
 
 
@@ -352,7 +352,7 @@ def test_a_false_premise_after_two_checkpoints_withdraws_them(world: JobWorld) -
     applied = world.run(script)
 
     status, record = _item(world)
-    assert (applied.ready, applied.stopped, applied.failed) == ((), (), ())
+    assert (applied.drafted, applied.stopped, applied.failed) == ((), (), ())
     assert seen == [FILES[:2]]
     assert (status, record.get(BASE_KEY), record.get("implement.group")) == ("New", None, None)
     if before:
@@ -370,7 +370,7 @@ def test_a_person_who_pushes_before_the_withdraw_keeps_the_push_and_blocks_the_i
     applied = world.run(script)
 
     status, record = _item(world)
-    assert (applied.stopped, applied.ready) == ((1,), ())
+    assert (applied.stopped, applied.drafted) == ((1,), ())
     assert status == "Blocked"
     assert record.get("implement.stopped") is not None
     assert "person.txt" in world.repo.origin_git("ls-tree", "-r", "--name-only", BRANCH)
@@ -384,7 +384,7 @@ def test_a_withdraw_that_fails_blocks_the_item_and_does_not_return_it(world: Job
     applied = world.run(script)
 
     status, record = _item(world)
-    assert (applied.stopped, applied.ready) == ((1,), ())
+    assert (applied.stopped, applied.drafted) == ((1,), ())
     assert status == "Blocked"
     assert record.get("implement.stopped") is not None
     assert _groups_on_origin(world) == FILES[:2]
@@ -438,7 +438,7 @@ class TestAGuardThatTheBranchTipDefines:
 
         status, record = _item(world)
         (comment,) = world.issue_comments()
-        assert (applied.ready, applied.stopped, applied.failed) == ((), (), ())
+        assert (applied.drafted, applied.stopped, applied.failed) == ((), (), ())
         assert (status, record.get(BASE_KEY), script.seen) == ("New", None, [])
         assert self.GUARD in comment
         assert "made no model request" in comment
@@ -468,7 +468,7 @@ def test_a_failed_checkpoint_push_does_not_stop_the_run_and_ends_the_checkpoints
 
     applied = world.run(script)
 
-    assert applied.ready == (1,)
+    assert applied.drafted == (1,)
     # One refused checkpoint at the boundary of group 2, none at the boundaries of groups 3 and 4,
     # and the final push.
     assert before_final == [1]
@@ -489,7 +489,7 @@ def test_a_draft_that_github_refuses_is_asked_for_once_and_ends_the_checkpoints(
     status, _record = _item(planned_world)
     assert asked == [1]
     # The final push asks again, and the refusal stops the item as it does without a checkpoint.
-    assert (applied.stopped, applied.ready, status) == ((1,), (), "Blocked")
+    assert (applied.stopped, applied.drafted, status) == ((1,), (), "Blocked")
     assert _pull_requests_asked(planned_world) == 2
 
 
@@ -502,8 +502,29 @@ def test_a_withdraw_after_a_refused_draft_finds_no_branch_and_does_nothing(
     applied = planned_world.run(script)
 
     status, record = _item(planned_world)
-    assert (applied.ready, applied.stopped, applied.failed) == ((), (), ())
+    assert (applied.drafted, applied.stopped, applied.failed) == ((), (), ())
     assert (status, record.get(BASE_KEY)) == ("New", None)
     assert _pull_requests_asked(planned_world) == 1
     assert planned_world.repo.origin_git("branch", "--list", BRANCH) == ""
     assert planned_world.sent("PATCH", f"pulls/{PULL}") == []
+
+
+def test_a_checkpoint_that_meets_a_refused_setting_stops_the_item_at_once(
+    job_world: JobWorld,
+) -> None:
+    """The agent writes a git setting that the job refuses in group 1. The checkpoint before
+    group 2 stops the item with the class `git_config`, and the job asks the model for nothing
+    more (#6559: the checkpoint is the push between the steps)."""
+    script = _script(
+        *_passes(1, GROUPS),
+        at1=lambda: job_world.repo.git("config", "credential.helper", "example-value-7"),
+    )
+
+    applied = job_world.run(script)
+
+    _, record = _item(job_world)
+    assert (applied.stopped, record.get("implement.failure"), len(script.seen)) == (
+        (1,),
+        "git_config",
+        2,
+    )

@@ -175,7 +175,6 @@ _DRAFT_AGAIN: Final[str] = "make the pull request a draft again; "
 _DELIVERY_KEYS: Final[tuple[ImplementRecordKey, ...]] = (
     ImplementRecordKey.GROUP,
     ImplementRecordKey.SHA,
-    ImplementRecordKey.WIP,
     ImplementRecordKey.BRANCH,
     ImplementRecordKey.PR,
     ImplementRecordKey.BASE,

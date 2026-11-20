@@ -60,7 +60,7 @@ def test_a_refused_body_is_rebuilt_once_and_written(job_world: JobWorld) -> None
         rewriter=Rewriter(),
     )
 
-    assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+    assert (applied.drafted, applied.stopped, applied.failed) == ((1,), (), ())
     assert len(calls) == 1
     (patched,) = job_world.sent("PATCH", f"pulls/{PULL}")
     assert body_problems(patched["body"]) == []
@@ -86,7 +86,7 @@ def test_a_second_refusal_stops_the_item_as_refused_reply(job_world: JobWorld) -
         rewriter=StructuredRewriter(),
     )
 
-    assert (applied.ready, applied.stopped, applied.failed) == ((), (1,), ())
+    assert (applied.drafted, applied.stopped, applied.failed) == ((), (1,), ())
     assert len(calls) == 1
     assert job_world.sent("PATCH", f"pulls/{PULL}") == []
     item = job_world.store.item(1)

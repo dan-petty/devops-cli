@@ -61,7 +61,7 @@ def test_a_removal_that_the_merged_plan_records_passes_the_step(planned_world: J
 
     applied = planned_world.run(_removal())
 
-    assert (applied.ready, applied.stopped) == ((planned_world.number,), ())
+    assert (applied.drafted, applied.stopped) == ((planned_world.number,), ())
 
 
 def test_a_removal_that_the_merged_plan_does_not_record_stops_and_waits(

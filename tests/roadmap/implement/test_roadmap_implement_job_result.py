@@ -102,7 +102,7 @@ def test_a_job_that_the_kernel_killed_logs_a_stopped_attempt_with_its_class_and_
     ]
 
 
-def test_a_job_whose_runner_marked_its_pull_request_ready_logs_a_success(
+def test_a_job_whose_runner_ended_at_the_draft_logs_a_success(
     store: InMemoryRoadmapStore,
     staged_repo: StageRepo,
     api: GitHubApiFake,
@@ -115,12 +115,12 @@ def test_a_job_whose_runner_marked_its_pull_request_ready_logs_a_success(
         ItemField.STATUS,
         "In Review",
         marks={
-            ImplementRecordKey.RESULT: "ready",
+            ImplementRecordKey.RESULT: "drafted",
             ImplementRecordKey.REPAIR_ROUNDS: "2",
             ImplementRecordKey.SPEND: json.dumps({"input_tokens": 800, "output_tokens": 200}),
         },
     )
-    kube.core.answers["read_namespaced_pod_log"] = "The pull request is ready.\n"
+    kube.core.answers["read_namespaced_pod_log"] = "The draft pull request is open.\n"
 
     with caplog.at_level(logging.INFO):
         IMPLEMENT_ROW.runner(store=store, repo=STAGE_REPO, clone_path=staged_repo.clone)
@@ -130,7 +130,7 @@ def test_a_job_whose_runner_marked_its_pull_request_ready_logs_a_success(
             "job": "implement",
             "repo": STAGE_REPO,
             "item": f"#{number}",
-            "result": "ready",
+            "result": "drafted",
             "success": "true",
             "class": "none",
             "infra": "false",

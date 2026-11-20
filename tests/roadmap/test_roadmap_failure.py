@@ -185,11 +185,6 @@ FROM_THE_JOB = [
         id="timeout-command",
     ),
     pytest.param(
-        FailureEvidence(text=TEXTS.implement_stop_checks_timeout.format(seconds=3600)),
-        FailureClass.TIMEOUT,
-        id="timeout-checks",
-    ),
-    pytest.param(
         FailureEvidence(refusal="Command 'curl' is not allowed."),
         FailureClass.REFUSED_TOOL,
         id="refused-tool",
@@ -198,11 +193,6 @@ FROM_THE_JOB = [
         FailureEvidence(text="Refused commands: cd 2. Other retries: 0."),
         FailureClass.REFUSED_TOOL,
         id="refused-commands",
-    ),
-    pytest.param(
-        FailureEvidence(text=TEXTS.implement_stop_conflict),
-        FailureClass.CONFLICT,
-        id="conflict-pull-request",
     ),
     pytest.param(
         FailureEvidence(text=TEXTS.implement_stop_rebase.format(branch="main", output="CONFLICT")),
@@ -881,7 +871,6 @@ def test_step_name_holds_the_step_of_each_job_that_records_one() -> None:
         "review",
         "checks",
         "publish",
-        "watch",
         "judge",
     ]
 

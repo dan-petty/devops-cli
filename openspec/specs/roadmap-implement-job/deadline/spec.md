@@ -100,7 +100,7 @@ The default stall SHALL be at least 600 seconds above the longest wait in which 
 
 #### Scenario: The defaults cover the silent waits
 - **WHEN** a test reads the constants of the runner
-- **THEN** the default stall is at least the longest of the command timeout, the model call timeout and the monitor timeout plus 600 seconds, and the default extension is at least the stall plus the interval of the row and the tick of the Service
+- **THEN** the default stall is at least the longest of the command timeout and the model call timeout plus 600 seconds, and the default extension is at least the stall plus the interval of the row and the tick of the Service
 
 ### Requirement: The Service continues a Job that ended without a result
 A round SHALL clear the stop of an item with the rule `continue` when `implement.stopped` is `job`, the class in `implement.failure` has the action `retry` in `ACTION_BY_CLASS`, and `implement.continuations` is less than `roadmap.implement.continuations_per_item`. A clear SHALL remove `implement.stopped`, `implement.failure` and the failed check, and set the Status to Ready or Planned.

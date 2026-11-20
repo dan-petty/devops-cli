@@ -331,14 +331,8 @@ def test_the_exit_checks_format_first_run_each_command_once_then_the_static_chec
     py = "src/sample.py tests/test_sample.py"
     uv = [call for call in programs.calls if call.argv[0] == "uv"]
     commands = [command_text(call) for call in uv]
-    first_exit_check = commands.index(f"uv run ruff format -- {py}")
-    # The tick of the agent runs the verification of each task before the exit checks (#3054).
-    assert commands[:first_exit_check] == [
-        "uv run devops ci test tests/test_sample.py",
-        "uv run devops ci test tests/test_sample.py",
-        "uv run devops docs check",
-    ]
-    assert (commands[first_exit_check:], {call.cwd for call in uv}) == (
+    # The exit checks are the first commands: a tick runs no verification (#6559).
+    assert (commands, {call.cwd for call in uv}) == (
         [
             f"uv run ruff format -- {py}",
             "uv run devops ci test tests/test_sample.py",
@@ -382,15 +376,6 @@ def test_a_failed_verification_command_stops_the_step_and_resets_the_checkout(
     )
 
 
-def _is_clean_at_wip(checkout: Path, start: str) -> bool:
-    """Whether the checkout is clean, one `wip:` commit past `start`."""
-    return (
-        git(checkout, "rev-list", "--count", f"{start}..HEAD") == "1"
-        and git(checkout, "log", "-1", "--format=%s").startswith("wip:")
-        and git(checkout, "status", "--porcelain") == ""
-    )
-
-
 def test_a_failed_static_check_stops_the_step_and_resets_the_checkout(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
@@ -402,8 +387,8 @@ def test_a_failed_static_check_stops_the_step_and_resets_the_checkout(
 
     outcome = _step(store, checkout, ModelScript(tool_calls(*the_whole_group()), say("Done.")))
 
-    # Every task passed its verification, so the checkout goes back to the `wip:` commit (#3054).
-    assert (outcome.status, outcome.reason, _is_clean_at_wip(checkout, head)) == (
+    # The step makes no `wip:` commit, so the checkout goes back to where the step started (#6559).
+    assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
         StepStatus.STOPPED,
         "uv run ruff check -- src/sample.py tests/test_sample.py exited with status 1.\nE501 too long"
         + rounds_spent(3),
@@ -501,14 +486,14 @@ def test_a_commit_that_a_hook_refuses_stops_the_step_and_resets_the_checkout(
     head = git(checkout, "rev-parse", "HEAD")
     hook = checkout / ".git" / "hooks" / "commit-msg"
     hook.write_text(
-        '#!/bin/sh\ngrep -q "^wip:" "$1" && exit 0\necho refused by the hook\nexit 1\n',
+        "#!/bin/sh\necho refused by the hook\nexit 1\n",
         encoding="utf-8",
     )
     hook.chmod(0o755)
 
     outcome = _step(store, checkout, ModelScript(tool_calls(*the_whole_group()), say("Done.")))
 
-    assert (outcome.status, outcome.reason, _is_clean_at_wip(checkout, head)) == (
+    assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
         StepStatus.STOPPED,
         "The commit failed.\nrefused by the hook",
         True,

@@ -28,7 +28,6 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_IMPLEMENT_TOKENS,
     CONST_SERVICE_METRIC_JOB_SECONDS,
     CONST_SERVICE_METRIC_JOBS,
-    CONST_SERVICE_METRIC_KEPT_WORK,
     CONST_SERVICE_METRIC_STAGE_JOBS,
     CONST_SERVICE_METRIC_TRIGGERS,
     CONST_SERVICE_SOURCE_POLL,
@@ -55,10 +54,6 @@ _STAGE_JOB_SERIES = (
 )
 """The values of the labels `result` and `class` of the stage Jobs that the stage row counts
 (#4559)."""
-
-_KEPT_WORK_OUTCOMES = ("continued", "finished", "blocked")
-"""The values of the label `outcome` of an item with kept work (#3650): `continued` when the next
-Job starts from it, `finished` when it reaches the ready mark, and `blocked` when it stops again."""
 
 _FIX_CHECKS_JOB_ACTIONS = (
     "created",
@@ -116,15 +111,6 @@ def prime_service_counters(
             for repo in repo_names
             for item_class in CONST_BRANCH_TYPES
             for result in ("succeeded", "failed", "gone")
-        ),
-    )
-    GLOBAL_METRICS.prime_counter(
-        CONST_SERVICE_METRIC_KEPT_WORK,
-        (
-            {"repo": repo, "class": klass.value, "outcome": outcome}
-            for repo in repo_names
-            for klass in FailureClass
-            for outcome in _KEPT_WORK_OUTCOMES
         ),
     )
     GLOBAL_METRICS.prime_counter(
