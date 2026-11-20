@@ -14,9 +14,9 @@ Adds: `_schema_failure`
 
 Kind: other. Reads: `docs/CLUSTER.md`. Changes: `docs/CLUSTER.md`.
 
-- [ ] 2.1 In the stage item of `docs/CLUSTER.md`, beside the sentence that gives a reply which breaks the rule `roadmap.stage.gate_returns` returns, state that a revision reply that breaks the reply schema after its output retry goes back to the planner with the last schema-valid plan and its violations, that this return counts against `roadmap.stage.gate_returns`, and that the item ends with the class `parser` when the returns are spent
+- [x] 2.1 In the stage item of `docs/CLUSTER.md`, beside the sentence that gives a reply which breaks the rule `roadmap.stage.gate_returns` returns, state that a revision reply that breaks the reply schema after its output retry goes back to the planner with the last schema-valid plan and its violations, that this return counts against `roadmap.stage.gate_returns`, and that the item ends with the class `parser` when the returns are spent
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 2.2 Edit `docs/CLUSTER.md` to state the schema return of a revision, its count in the gate returns, and the class `parser` of the exhausted case
+- [x] 2.2 Edit `docs/CLUSTER.md` to state the schema return of a revision, its count in the gate returns, and the class `parser` of the exhausted case
   - Verification: `$ uv run devops ci docs` passes
 
 ## Workflow follow-up
