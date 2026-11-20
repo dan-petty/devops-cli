@@ -288,7 +288,7 @@ Executed on workspace initialization (DevContainer startup) or on-demand.
   devops roadmap implement --repo <owner/name> --item <number> --dry-run
   devops roadmap implement --repo <owner/name> --item <number> --confirm
   ```
-  The last command makes the same Job by hand with the code of `devops k8s run-job --template runner`, follows its log, and refuses a claimed item, an item that is neither Ready nor Planned, and a repository that has a runner Job that has not ended.
+  The last command makes the same Job by hand with the code of `devops k8s run-job --template runner <args>`, follows its log, and refuses a claimed item, an item that is neither Ready nor Planned, and a repository that has a runner Job that has not ended.
 
 ---
 

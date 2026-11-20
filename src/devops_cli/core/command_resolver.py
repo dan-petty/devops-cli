@@ -59,6 +59,7 @@ class CommandReferenceDefect(StrEnum):
     UNKNOWN_COMMAND = "unknown_command"
     UNKNOWN_OPTION = "unknown_option"
     UNEXPECTED_ARGUMENT = "unexpected_argument"
+    MISSING_REQUIRED = "missing_required"
 
 
 class CommandReferenceFinding(BaseModel):
@@ -76,6 +77,7 @@ class CommandReferenceFinding(BaseModel):
             CommandReferenceDefect.UNKNOWN_COMMAND: MESSAGES.docs.argv_unknown_command,
             CommandReferenceDefect.UNKNOWN_OPTION: MESSAGES.docs.argv_unknown_option,
             CommandReferenceDefect.UNEXPECTED_ARGUMENT: MESSAGES.docs.argv_unexpected_argument,
+            CommandReferenceDefect.MISSING_REQUIRED: MESSAGES.docs.argv_missing_required,
         }[self.defect]
         return template.format(token=self.token, command_path=self.command_path)
 
@@ -249,9 +251,10 @@ def _parse(
     known option missing its value stopped the parser before it bound the positionals, so
     its leftovers are not extra arguments. Click converts values before it looks for extra
     arguments, so a value that fails conversion -- usually a placeholder -- hides them, and
-    a lenient parse recovers the leftovers instead. Click's parser consumes the list it is
-    given, so each parse gets its own. An exit is a fallback for any other callback that
-    ends the command.
+    a lenient parse recovers the leftovers instead. A conversion error hides a missing
+    required parameter too, so the lenient path looks for one first. Click's parser consumes
+    the list it is given, so each parse gets its own. An exit is a fallback for any other
+    callback that ends the command.
     """
     args = [str(token) for token in tokens]
     if not args or _gives_action_option(command, name, args, parent):
@@ -264,8 +267,9 @@ def _parse(
     except typer.TyperException as error:
         if hasattr(error, "option_name"):
             return None, _unknown_option(error, path)
+    missing = _missing_required(command, name, args, parent, path)
     context = command.make_context(name, args, parent=parent, resilient_parsing=True)
-    return context, _unexpected_argument(context, path, tokens)
+    return context, missing or _unexpected_argument(context, path, tokens)
 
 
 def _gives_action_option(command: Any, name: str, args: list[str], parent: Any) -> bool:
@@ -280,6 +284,36 @@ def _gives_action_option(command: Any, name: str, args: list[str], parent: Any) 
     probe = command.make_context(name, [], parent=parent, resilient_parsing=True)
     _, _, given = command.make_parser(probe).parse_args(list(args))
     return any(parameter.is_eager or not parameter.expose_value for parameter in given)
+
+
+def _missing_required(
+    command: Any, name: str, args: list[str], parent: Any, path: str
+) -> CommandReferenceFinding | None:
+    """The first required parameter of `command` that `args` leaves empty, as Click finds it.
+
+    Click raises `MissingParameter` only after it converts the values before that parameter,
+    so a placeholder that fails conversion hides it. Here only the option parser runs, on a
+    context parsed from no arguments, as in `_gives_action_option`. Each parameter then takes
+    its value with Click's own `consume_value`, from a word, an environment variable or a
+    default, and Click's `value_is_missing` decides. No value is converted. A placeholder is
+    one word, so it fills the argument at its position and never an option (#4862).
+    """
+    probe = command.make_context(name, [], parent=parent, resilient_parsing=True)
+    opts, _, _ = command.make_parser(probe).parse_args(list(args))
+    for parameter in command.get_params(probe):
+        value, _ = parameter.consume_value(probe, opts)
+        if parameter.required and parameter.value_is_missing(value):
+            token = _parameter_token(parameter)
+            return _found(CommandReferenceDefect.MISSING_REQUIRED, path, token)
+    return None
+
+
+def _parameter_token(parameter: Any) -> str:
+    """The name a document writes for `parameter`: the first long name of an option, else its
+    first name, and the name of an argument."""
+    if parameter.param_type_name != "option":
+        return str(parameter.name)
+    return str(next((opt for opt in parameter.opts if opt.startswith("--")), parameter.opts[0]))
 
 
 def _unknown_option(error: Exception, path: str) -> CommandReferenceFinding | None:

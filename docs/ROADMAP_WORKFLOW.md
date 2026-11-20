@@ -280,7 +280,7 @@ A person reads the panel, and not the issue. So the gauge proves itself with liv
 
 ## The manual path
 
-A person can run the work of the Service for one Item. The Item must be Staged or Planned, and nobody may hold its claim. A Blocked Item is not startable: comment `implement: retry`, and the next round of row `implement` clears the stop. The command `devops k8s run-job --template runner` makes the Job. Its options, and the rule for `--repo`, are in [docs/CLUSTER.md](CLUSTER.md#runner-jobs), Runner Jobs. The same stop and retry path applies.
+A person can run the work of the Service for one Item. The Item must be Staged or Planned, and nobody may hold its claim. A Blocked Item is not startable: comment `implement: retry`, and the next round of row `implement` clears the stop. The command `devops k8s run-job --template runner <args>` makes the Job. Its options, and the rule for `--repo`, are in [docs/CLUSTER.md](CLUSTER.md#runner-jobs), Runner Jobs. The same stop and retry path applies.
 
 ## The diagram
 

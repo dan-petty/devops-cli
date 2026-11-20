@@ -187,7 +187,7 @@ Open WebUI uses the same key: on a fresh install it connects to the gateway auto
 The LiteLLM upgrade changes the provider path of each hosted group, and no offline test reaches a
 provider. After the gateway rolls onto the new image, run five calls from a host that reaches the
 gateway node port, record each result as a comment on the upgrade issue, and open an issue with
-`devops gh issue create --label source/agent` for a call that fails.
+`devops gh issue create --title "<title>" --label source/agent` for a call that fails.
 
 Each call sends the gateway master key and no provider key: the gateway pod holds the provider keys
 in its environment. `$KEY` is the `master-key` of Secret `llm-gateway-secrets`, which the keyring
