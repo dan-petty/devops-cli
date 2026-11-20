@@ -18,7 +18,7 @@ from tests.support.paths import REPO_ROOT
 DEVOPS_DIR = REPO_ROOT / "k8s" / "devops"
 
 
-SERVICE_IMAGE = "ghcr.io/dan-petty/devops-cli/service"
+RUNNER_IMAGE = "ghcr.io/dan-petty/devops-cli/runner"
 
 
 @functools.cache
@@ -46,7 +46,7 @@ def _stage_container() -> dict[str, Any]:
     return container
 
 
-def check_the_stage_cronjob_is_a_suspended_template_of_the_service_image() -> None:
+def check_the_stage_cronjob_is_a_suspended_template_of_the_runner_image() -> None:
     cronjob = _cronjob(STAGE_TEMPLATE.cronjob)
     pod = _pod(STAGE_TEMPLATE.cronjob)
     container = _stage_container()
@@ -69,7 +69,7 @@ def check_the_stage_cronjob_is_a_suspended_template_of_the_service_image() -> No
         "devops-cli",
         False,
         STAGE_TEMPLATE.container,
-        SERVICE_IMAGE,
+        RUNNER_IMAGE,
         "IfNotPresent",
         False,
         {"requests": {"cpu": "250m", "memory": "1Gi"}, "limits": {"cpu": "1", "memory": "2Gi"}},
