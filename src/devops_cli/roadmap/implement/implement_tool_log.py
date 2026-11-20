@@ -57,6 +57,7 @@ from pydantic_ai import RunContext
 from pydantic_ai.capabilities import Hooks, RawToolArgs, ValidatedToolArgs, WrapToolExecuteHandler
 from pydantic_ai.exceptions import (
     ModelRetry,
+    ToolFailed,
     ToolFailedError,
     ToolRetryError,
     UnexpectedModelBehavior,
@@ -487,8 +488,10 @@ class ToolCallLog:
         handler: WrapToolExecuteHandler,
     ) -> Any:
         """Run the call, write its line, and pass on the result or the error. The call that
-        exceeds the limit of retries reaches here as `UnexpectedModelBehavior`. A refused call
-        that passes a limit of refusals ends the run in the same way."""
+        exceeds the limit of retries reaches here as `UnexpectedModelBehavior`, or as `ToolFailed`
+        when `Coder` answers it with a failed result and the run goes on (#5098). Either way its
+        reason is kept, so the same call again gets the refusal of a repeated failed call (#3570).
+        A refused call that passes a limit of refusals ends the run as `UnexpectedModelBehavior`."""
         shown = self._shown(args)
         program = logged_program(command_word(shown))
         digest = argument_digest(call)
@@ -515,6 +518,15 @@ class ToolCallLog:
                 call.tool_name,
                 program,
                 ToolOutcome.RETRY,
+                logged_reason(error, args, self.root),
+                digest=digest,
+            )
+            raise
+        except ToolFailed as error:
+            self._note(
+                call.tool_name,
+                program,
+                ToolOutcome.FAILED,
                 logged_reason(error, args, self.root),
                 digest=digest,
             )

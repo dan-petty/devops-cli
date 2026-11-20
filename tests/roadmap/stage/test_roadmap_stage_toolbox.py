@@ -18,7 +18,6 @@ from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
-    RetryPromptPart,
     TextPart,
     ToolCallPart,
 )
@@ -57,6 +56,7 @@ from devops_cli.telemetry.instruments import (
 )
 from tests.support.builders import make_stage_proposal
 from tests.support.length_stop import length_stopped_model
+from tests.support.model_script import refused_output
 from tests.support.scripted_model import Script, call
 
 if TYPE_CHECKING:
@@ -1044,7 +1044,7 @@ def _broken_plan(*dropped: str, empty_changes: bool = True) -> ModelResponse:
 
 def _retry(*errors: dict[str, Any]) -> ModelRequest:
     """The request after a reply that broke the schema: pydantic-ai sends the errors back."""
-    return ModelRequest(parts=[RetryPromptPart(content=list(errors), tool_name="final_result")])
+    return ModelRequest(parts=[refused_output(*errors)])
 
 
 def _error(loc: tuple[int | str, ...], message: str = "Field required") -> dict[str, Any]:

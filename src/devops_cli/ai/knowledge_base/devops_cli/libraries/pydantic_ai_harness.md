@@ -1,10 +1,10 @@
 ---
 applies_to:
-  - "pkg:pypi/pydantic-ai-harness@0.59.*"
+  - "pkg:pypi/pydantic-ai-harness@0.71.*"
 sources:
   - "https://github.com/pydantic/pydantic-ai"
   - "https://pydantic.dev/docs/ai/harness/"
-reviewed: "2026-11-11"
+reviewed: "2026-11-20"
 tags:
   - "pydantic-ai-harness"
   - "pydantic-ai"
@@ -31,7 +31,7 @@ tags:
 
 In `devops-cli`, `devops roadmap implement` uses two parts:
 
-- `Coder` gives an agent six tools: `read_file`, `write_file`, `edit_file`, `list_files`, `grep` and the persistent shell tool `shell`. It also gives the context controls `ClearToolResults` and `ToolOutputLimits`. The step registers the tool `run_command` of `Shell` in place of `shell`, and adds `create_directory` from `FileSystem`. A call of `run_command` waits until its command ends, up to the command limit of the step, and has no background mode.
+- `Coder` gives an agent six tools: `read_file`, `write_file`, `edit_file`, `list_files`, `grep` and the persistent shell tool `shell`. It also gives the context controls `ClearToolResults` and `ToolOutputLimits`. Since 0.64 its tools have no strict schema unless `Coder(strict=True)`. The step registers the tool `run_command` of `Shell` in place of `shell`, and adds `create_directory` from `FileSystem`. A call of `run_command` waits until its command ends, up to the command limit of the step, and has no background mode.
 - `LocalWorkspace` of pydantic-ai gives the tools a checkout on this machine. The step passes the checkout as the working directory.
 
 The project builds no agent loop of its own. It builds only the inputs of a step, its exit checks and its report.
@@ -59,6 +59,8 @@ The project builds no agent loop of its own. It builds only the inputs of a step
 7. **Directories.** `write_file` does not create a directory. `FileSystem` has the tool `create_directory`, and the step adds it to the agent.
 8. **Streaming.** The harness drives the model with streamed requests. A `FunctionModel` in a test needs a `stream_function`.
 9. **Base instructions.** `Coder` puts its own instructions before the `instructions` of the step. They tell the model to check behavior with a heredoc and to poll a long command. The shell of the step refuses a new line, and `run_command` waits for its command, so the prompt of the step forbids both.
+10. **Spent retries.** Since 0.65, `Coder` answers the call that spends the retries of a tool with the last error of the tool as a failed result, and the run goes on. A call with arguments that break the schema of the tool still ends the run when it spends the retries.
+11. **Module names.** Since 0.69, `FileSystem` is in `pydantic_ai_harness.file_system`. The old module `pydantic_ai_harness.filesystem` gives a `HarnessDeprecationWarning`.
 
 ---
 

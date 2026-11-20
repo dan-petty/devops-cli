@@ -12,7 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from pydantic_ai.messages import RetryPromptPart, ToolReturnPart
+from pydantic_ai.messages import RetryFeedbackPart, ToolReturnPart, is_retry
 
 from devops_cli.config.constants import CONST_ROADMAP_RUN_ERROR_CHARS
 from devops_cli.config.defaults import (
@@ -249,9 +249,9 @@ def test_a_refusal_comes_back_as_a_tool_result_and_not_as_a_retry(
         part
         for message in script.seen[-1]
         for part in getattr(message, "parts", ())
-        if isinstance(part, ToolReturnPart | RetryPromptPart)
+        if isinstance(part, ToolReturnPart | RetryFeedbackPart)
     ]
-    assert type(part) is ToolReturnPart
+    assert not is_retry(part)
     assert "max retries" not in outcome.reason
 
 

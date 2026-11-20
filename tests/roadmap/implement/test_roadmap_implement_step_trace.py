@@ -14,6 +14,7 @@ import pytest
 from pydantic_ai import Agent
 
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_TRACE_CHARS
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement.implement_step import StepOutcome, StepStatus, run_step
 from devops_cli.roadmap.implement.implement_tool_log import ToolCallLog
 from devops_cli.roadmap.implement.implement_trace import (
@@ -136,6 +137,39 @@ def test_a_refused_command_and_a_retried_edit_are_tool_events(
     assert "reason" not in tools["run_command"]
     assert tools["edit_file"]["outcome"] == "retry"
     assert "old_text not found" in tools["edit_file"]["reason"]
+
+
+def test_the_call_that_spends_the_retries_of_a_tool_fails_and_its_repeat_does_not_run(
+    store: InMemoryRoadmapStore, checkout: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`Coder` answers the call that spends the retries of a file tool with a failed result
+    (pydantic-ai-harness 0.65). The log notes that call as failed with its reason, so the same
+    call again gets the refusal of a repeated failed call and its tool does not run (#3570)."""
+    trace = ImplementTrace(step="group 1")
+    edits = [
+        ("edit_file", {"path": f"src/missing{n}.py", "old_text": "x", "new_text": "y"})
+        for n in range(6)
+    ]
+    script = ModelScript(*(tool_calls(edit) for edit in edits), tool_calls(edits[-1]), say("Done."))
+
+    _step(store, checkout, script, trace)
+
+    events = [(e.fields["tool"], e.fields["outcome"]) for e in _of(trace, TraceEventKind.TOOL)]
+    lines = [
+        line
+        for line in capsys.readouterr().err.splitlines()
+        if line.startswith("Tool call: edit_file")
+    ]
+    spent, repeat = script.tool_answers()[-2:]
+    assert events == [("edit_file", "retry")] * 5 + [
+        ("edit_file", "failed"),
+        ("edit_file", "refused"),
+    ]
+    assert lines[5] == "Tool call: edit_file, failed (File not found: <path>)."
+    assert "has failed several times in a row" in spent
+    assert repeat == MESSAGES.roadmap.implement_tool_repeat_refusal.format(
+        reason="File not found: <path>"
+    )
 
 
 def test_the_same_call_twice_has_one_digest_and_no_event_holds_the_command(

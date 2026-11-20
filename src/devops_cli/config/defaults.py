@@ -1018,11 +1018,12 @@ DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS: int = 3
 # them the Job deadline would be the only stop of a model that loops.
 DEFAULT_ROADMAP_IMPLEMENT_MAX_REQUESTS: int = 500
 DEFAULT_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS: int = 1500
-# The consecutive failures that a tool may answer before the run ends, such as an `edit_file` whose
-# text is not found. A successful call of a tool resets its count (`pydantic_ai/tool_manager.py`),
-# so the count is of failures in a row. A refusal of the shell by policy is a tool result, not a
-# failure, so it adds nothing to this count (#3271). A failure is the model's to correct, as the
-# harness's own file tools allow five.
+# The consecutive failures that a tool may answer as a retry, such as an `edit_file` whose text is
+# not found. `Coder` answers the next failure with a failed result and the run goes on; arguments
+# that break the schema of the tool end the run. A successful call of a tool resets its count
+# (`pydantic_ai/tool_manager.py`), so the count is of failures in a row. A refusal of the shell by
+# policy is a tool result, not a failure, so it adds nothing to this count (#3271). A failure is
+# the model's to correct, as the harness's own file tools allow five.
 DEFAULT_ROADMAP_IMPLEMENT_TOOL_RETRIES: int = 5
 # The commands that the shell of a step may refuse by policy before the run ends (#3271). The
 # refusals count no tool retry, so this total is the stop of a model that loops on a refused

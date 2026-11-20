@@ -251,6 +251,7 @@ class DeferredToolRequests(NativeDeferredToolRequests):
         approvals: Mapping[str, Any] | None = None,
         calls: dict[str, Any] | None = None,
         metadata: dict[str, dict[str, Any]] | None = None,
+        answered_by: dict[str, str] | None = None,
         approve_all: bool = False,
         deny_all: bool = False,
     ) -> DeferredToolResults:
@@ -270,6 +271,7 @@ class DeferredToolRequests(NativeDeferredToolRequests):
             approvals=appr_map,
             calls=calls,
             metadata=metadata,
+            answered_by=answered_by,
             approve_all=False,
         )
 

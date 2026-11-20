@@ -8,6 +8,10 @@ keeps the messages of each request, the names of the function tools each request
 model settings of each request. A script with `cached` input tokens gives each streamed reply that
 many more input tokens, all read from the cache of the provider, as a gateway reply reports them
 when the provider caches the prefix of the conversation (#4387).
+
+`refused_call`, `refused_output` and `refused_text` give the parts that pydantic-ai builds for a
+retry, recorded from a run of an agent on the installed pydantic-ai, so a test of the code that
+reads a retry cannot pass on a part that the framework no longer builds (#5098).
 """
 
 from __future__ import annotations
@@ -15,16 +19,20 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
+from pydantic import BaseModel
+from pydantic_ai import Agent, ModelRetry, Tool
 from pydantic_ai.messages import (
     ModelMessage,
+    ModelRequest,
     ModelResponse,
-    RetryPromptPart,
+    RetryFeedbackPart,
     TextPart,
     ToolCallPart,
     ToolReturnPart,
+    is_retry,
 )
 from pydantic_ai.models import StreamedResponse
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, DeltaToolCalls, FunctionModel
@@ -154,5 +162,68 @@ class ModelScript:
             str(part.content)
             for message in self.seen[-1]
             for part in getattr(message, "parts", ())
-            if isinstance(part, ToolReturnPart | RetryPromptPart)
+            if isinstance(part, ToolReturnPart | RetryFeedbackPart)
         ]
+
+
+class _Count(BaseModel):
+    """The output of a recording run: a text in place of the number breaks its schema."""
+
+    count: int
+
+
+def _recorded_retry(agent: Agent[None, Any]) -> ToolReturnPart | RetryFeedbackPart:
+    """The one retry of a run of `agent`."""
+    (retry,) = [
+        part
+        for message in agent.run_sync("Record the retry.").all_messages()
+        if isinstance(message, ModelRequest)
+        for part in message.parts
+        if is_retry(part)
+    ]
+    return retry
+
+
+def refused_call(tool: str, content: str | list[Any]) -> ToolReturnPart:
+    """The return that pydantic-ai builds when it refuses a call of the function tool `tool`, with
+    `content` as its feedback. A text is the message of the `ModelRetry` that the tool raised. A
+    list of errors comes from an argument that breaks the schema of the tool, and replaces the
+    errors of the recorded run."""
+
+    def refuse(count: int) -> str:
+        raise ModelRetry(content if isinstance(content, str) else "")
+
+    argument = 1 if isinstance(content, str) else "no number"
+    script = ModelScript(tool_call(tool, count=argument), say("Done."))
+    retry = _recorded_retry(Agent(script.model(), tools=[Tool(refuse, name=tool)]))
+    assert isinstance(retry, ToolReturnPart)
+    return retry if isinstance(content, str) else replace(retry, content=content)
+
+
+def refused_output(*errors: Any) -> ToolReturnPart:
+    """The return that pydantic-ai builds when a call of the output tool `final_result` breaks
+    the schema of the output, with `errors` in place of the errors of the recorded run."""
+    script = ModelScript(
+        tool_call("final_result", count="no number"), tool_call("final_result", count=1)
+    )
+    retry = _recorded_retry(Agent(script.model(), output_type=_Count))
+    assert isinstance(retry, ToolReturnPart)
+    return replace(retry, content=list(errors))
+
+
+def refused_text(feedback: str) -> RetryFeedbackPart:
+    """The part that pydantic-ai builds when an output validator refuses a text reply with the
+    `ModelRetry` message `feedback`. It answers no tool call."""
+    agent = Agent(ModelScript(say("First."), say("Second.")).model())
+    refused: list[str] = []
+
+    @agent.output_validator
+    def refuse_once(output: str) -> str:
+        if not refused:
+            refused.append(output)
+            raise ModelRetry(feedback)
+        return output
+
+    retry = _recorded_retry(agent)
+    assert isinstance(retry, RetryFeedbackPart)
+    return retry
