@@ -179,9 +179,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_CONTEXT_MAX_TOKENS,
     CONST_ROADMAP_REFINE_DEFINITIONS_PER_SYMBOL,
     CONST_ROADMAP_REFINE_END_MARKER,
-    CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS,
     CONST_ROADMAP_REFINE_HELD_STATUSES,
-    CONST_ROADMAP_REFINE_JUDGE_FINDINGS_MAX_CHARS,
     CONST_ROADMAP_REFINE_MAX_BLOCK_PATHS,
     CONST_ROADMAP_REFINE_MAX_BODY_CHARS,
     CONST_ROADMAP_REFINE_MAX_COMMENTS_PER_ITEM,
@@ -428,8 +426,8 @@ class JobCheck(StrEnum):
 class JobFailure:
     """A round whose job failed, with no person to ask (#3632): the checks that failed and the
     last error, which names the calls of the read tools when they found no source. It is one line
-    of text, cut to `CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS`. A refusal of the review also holds
-    its open `findings`, one line each, which the next round gives to the model (#4798)."""
+    of text, whole. A refusal of the review also holds its open `findings`, one line each, which
+    the next round gives to the model (#4798)."""
 
     checks: tuple[JobCheck, ...]
     error: str
@@ -3124,12 +3122,7 @@ def _job_failure(
         )
     if not checks:
         return None
-    # The searched calls are what the issue asks for: they keep half of the room at most, and the
-    # stop and the open question give way to them, so a long question cannot cut them off.
-    room = CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS
-    searched_text = searched_text[: room // 2]
-    head = _printable_line(" ".join(parts))[: room - len(searched_text) - 1]
-    return JobFailure(tuple(checks), f"{head.rstrip()} {searched_text}".strip())
+    return JobFailure(tuple(checks), f"{_printable_line(' '.join(parts))} {searched_text}".strip())
 
 
 def _refusal(findings: Sequence[str]) -> JobFailure:
@@ -3137,9 +3130,7 @@ def _refusal(findings: Sequence[str]) -> JobFailure:
     the first open finding is the last error, and the record keeps each finding for the next
     round."""
     lines = tuple(_printable_line(finding) for finding in findings)
-    return JobFailure(
-        (JobCheck.JUDGE_REFUSED,), lines[0][:CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS], lines
-    )
+    return JobFailure((JobCheck.JUDGE_REFUSED,), lines[0], lines)
 
 
 def _tries_on(item: Item, body_hash: str) -> tuple[int, NextStep]:
@@ -3991,13 +3982,7 @@ def _failure_marks(item: Item, failure: JobFailure | None, tries: int) -> JobRec
         )
         return {**{key: None for key in keys if key in item.job_record}, **cleared}
     findings: JobRecord = (
-        {
-            RefineRecordKey.JUDGE_FINDINGS: "\n".join(failure.findings)[
-                :CONST_ROADMAP_REFINE_JUDGE_FINDINGS_MAX_CHARS
-            ]
-        }
-        if failure.findings
-        else {}
+        {RefineRecordKey.JUDGE_FINDINGS: "\n".join(failure.findings)} if failure.findings else {}
     )
     return {
         **cleared,

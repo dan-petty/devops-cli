@@ -17,10 +17,7 @@ from typing import Any
 import pytest
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 
-from devops_cli.config.constants import (
-    CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS,
-    CONST_ROADMAP_REFINE_MAX_TRIES,
-)
+from devops_cli.config.constants import CONST_ROADMAP_REFINE_MAX_TRIES
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.body_hash import extract_section_and_outside
 from devops_cli.roadmap.refine.refine import (
@@ -38,6 +35,7 @@ from devops_cli.roadmap.refine.refine import (
 )
 from devops_cli.roadmap.stores.store import ItemField, RefineRecordKey
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.paths import REPO_ROOT
 from tests.support.scripted_model import Script, call
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -315,7 +313,8 @@ def test_a_long_open_question_does_not_cut_the_searches_from_the_failure(
     git_repo: Path, store: InMemoryRoadmapStore
 ) -> None:
     number = _seed(store)
-    long_fact = _OPEN_FACT.model_copy(update={"question": "Where is the sample function? " * 20})
+    question = " ".join(["Where is the sample function?"] * 20)
+    long_fact = _OPEN_FACT.model_copy(update={"question": question})
     long_proposal = _WHOLE.model_copy(update={"key_questions": [long_fact]})
     script = Script(call("search_code", text="no_such_symbol"), long_proposal)
 
@@ -323,8 +322,22 @@ def test_a_long_open_question_does_not_cut_the_searches_from_the_failure(
 
     failure = _record(store, number)["refine.failure"]
     assert failure is not None
-    assert len(failure) <= CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS
+    assert question in failure
     assert failure.endswith("Searched: search_code 'no_such_symbol'")
+
+
+def test_no_character_cap_cuts_a_refine_failure() -> None:
+    """Neither cap of a refine failure stays in the code, so the whole failure of an earlier try
+    reaches the record and the next request (#6327)."""
+    sources = (
+        REPO_ROOT / "src" / "devops_cli" / "config" / "constants.py",
+        REPO_ROOT / "src" / "devops_cli" / "roadmap" / "refine" / "refine.py",
+    )
+
+    text = "\n".join(path.read_text(encoding="utf-8") for path in sources)
+
+    assert "CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS" not in text
+    assert "CONST_ROADMAP_REFINE_JUDGE_FINDINGS_MAX_CHARS" not in text
 
 
 def test_an_investigation_that_runs_out_of_output_retries_is_a_job_failure(
