@@ -4,7 +4,7 @@
 
 Kind: other. Reads: `tests/git/test_repos_worktrees.py`, `tests/git/conftest.py`. Changes: `tests/git/test_repos_worktrees.py`.
 
-- [ ] 1.1 In `tests/git/test_repos_worktrees.py`, take the `managed` fixture of `tests/git/conftest.py` and build each worktree of every `test_prune_*` and `test_forced_prune_*` test and of `test_a_worktree_whose_directory_is_gone_has_no_size` under it in place of `tmp_path`, so `tests/git/test_repos_worktrees.py:404:` `merged = tmp_path / "wt_merged"` becomes `merged = managed / "wt_merged"`. The `worktrees status` tests keep `tmp_path`. Keep the repository and every expectation: prune removes a clean worktree at a merged head in any folder today, so the module stays green on the base
+- [x] 1.1 In `tests/git/test_repos_worktrees.py`, take the `managed` fixture of `tests/git/conftest.py` and build each worktree of every `test_prune_*` and `test_forced_prune_*` test and of `test_a_worktree_whose_directory_is_gone_has_no_size` under it in place of `tmp_path`, so `tests/git/test_repos_worktrees.py:404:` `merged = tmp_path / "wt_merged"` becomes `merged = managed / "wt_merged"`. The `worktrees status` tests keep `tmp_path`. Keep the repository and every expectation: prune removes a clean worktree at a merged head in any folder today, so the module stays green on the base
   - Verification: `$ uv run devops ci test tests/git/test_repos_worktrees.py` passes
 
 ## 2. Count only the ignored data files in one shared scope rule
