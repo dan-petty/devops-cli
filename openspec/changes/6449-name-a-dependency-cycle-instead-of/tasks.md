@@ -31,7 +31,7 @@ Kind: other. Reads: `src/devops_cli/roadmap/stage/stage.py`, `src/devops_cli/roa
 
 Kind: other. Reads: `src/devops_cli/roadmap/implement/implement.py`, `src/devops_cli/roadmap/dependencies.py`, `tests/roadmap/implement/test_roadmap_implement_selection.py`. Changes: `tests/roadmap/implement/test_roadmap_implement_selection.py`.
 
-- [ ] 4.1 Add `test_a_dependency_cycle_names_the_cycle_in_the_reason` to `tests/roadmap/implement/test_roadmap_implement_selection.py` beside `test_an_item_with_an_open_body_dependency_is_left_out`: the reason that the plan gives for item A names `#A → #B → #A` and not only `#B`, where the Dependencies section of A names the open item B and the record of B names A
+- [x] 4.1 Add `test_a_dependency_cycle_names_the_cycle_in_the_reason` to `tests/roadmap/implement/test_roadmap_implement_selection.py` beside `test_an_item_with_an_open_body_dependency_is_left_out`: the reason that the plan gives for item A names `#A → #B → #A` and not only `#B`, where the Dependencies section of A names the open item B and the record of B names A
   - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_selection.py` passes
 
 ## 5. Give a dependency cycle a person step in refine
