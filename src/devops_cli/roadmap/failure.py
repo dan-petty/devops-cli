@@ -14,7 +14,8 @@ table of defaults: each class has exactly one `FailureAction`.
 except the rule of an evicted pod, which gives `limit_reached` (#5960). A command of the implement
 job that the process runner refuses (`SecurityError`) gives `refused_tool`, which a rule below also
 reads from the text. A pull request title or body that breaks a form rule two times gives
-`refused_reply` (#3599).
+`refused_reply` (#3599). The refine round passes `form_check` for a proposal that fails a form
+check (#6327), which no rule below makes: the round reads the failed parts of its proposal.
 The rules are the fallback for a stop whose cause has no class of its own.
 
 **Order of the rules.** The first rule that matches wins, and the order goes from the cause that is
@@ -89,6 +90,7 @@ class FailureClass(StrEnum):
     OUTSIDE_PLAN = "outside_plan"
     GIT_CONFIG = "git_config"
     PLAN_UNREADABLE = "plan_unreadable"
+    FORM_CHECK = "form_check"
 
 
 class StepName(StrEnum):
@@ -151,6 +153,7 @@ ACTION_BY_CLASS: Final[Mapping[FailureClass, FailureAction]] = MappingProxyType(
         FailureClass.OUTSIDE_PLAN: FailureAction.WAIT,
         FailureClass.GIT_CONFIG: FailureAction.WAIT,
         FailureClass.PLAN_UNREADABLE: FailureAction.WAIT,
+        FailureClass.FORM_CHECK: FailureAction.RETRY,
     }
 )
 

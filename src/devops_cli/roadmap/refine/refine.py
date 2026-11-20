@@ -4208,19 +4208,40 @@ def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
 
 # The result of a refine attempt whose model call or write failed (#4845).
 _ATTEMPT_ERROR: Final = "error"
+# The form checks of a round: a failure that holds one writes the class `form_check` (#6327).
+_FORM_CHECKS: Final[frozenset[JobCheck]] = frozenset(
+    {JobCheck.ACCEPTANCE_CRITERIA, JobCheck.PROBLEM_STATEMENT, JobCheck.EXISTING_TOOL}
+)
+
+
+def _form_check_line(result: RefinedItem) -> tuple[FailureClass | None, dict[str, str] | None]:
+    """The class of a round whose job failure holds a form check, and the name of each failed
+    part, such as `failed_1=acceptance_criteria.0.then`, or the class None and no name (#6327).
+    A result line holds names only, so the brackets of a path are written as dots."""
+    if result.failure is None or not _FORM_CHECKS.intersection(result.failure.checks):
+        return None, None
+    names = {
+        f"failed_{index}": part.replace("[", ".").replace("]", "")
+        for index, part in enumerate(form_check_details(result.proposal), start=1)
+    }
+    return FailureClass.FORM_CHECK, names
 
 
 def _log_attempt(
     repo: str, result: RefinedItem | RefineFailure, write_failure: FailureClass | None = None
 ) -> None:
     """Log the result line of one item of a round: the next step that the item waits on, or
-    `error` with the class of the failed model call or of the failed write (#4845)."""
+    `error` with the class of the failed model call or of the failed write (#4845). A round whose
+    job failure holds a form check writes the class `form_check` and its failed parts (#6327)."""
+    failure: FailureClass | None
+    names: dict[str, str] | None
     if isinstance(result, RefineFailure):
-        outcome, failure = _ATTEMPT_ERROR, result.failure_class
+        outcome, failure, names = _ATTEMPT_ERROR, result.failure_class, None
     elif write_failure is not None:
-        outcome, failure = _ATTEMPT_ERROR, write_failure
+        outcome, failure, names = _ATTEMPT_ERROR, write_failure, None
     else:
-        outcome, failure = result.next_step.value, None
+        outcome = result.next_step.value
+        failure, names = _form_check_line(result)
     prior = result.item.job_record.get(RefineRecordKey.TRIES) or ""
     tries = (
         result.tries
@@ -4238,6 +4259,7 @@ def _log_attempt(
         outcome,
         failure=failure,
         counts=counts,
+        names=names,
     )
 
 

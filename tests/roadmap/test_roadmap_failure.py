@@ -417,6 +417,8 @@ TYPED_BY_SITE = {
     FailureClass.OUTSIDE_PLAN,
     FailureClass.GIT_CONFIG,
     FailureClass.REFUSED_REPLY,
+    # The refine round passes it for a proposal that fails a form check (#6327).
+    FailureClass.FORM_CHECK,
     *(
         (getattr(FailureClass, "PLAN_UNREADABLE"),)
         if hasattr(FailureClass, "PLAN_UNREADABLE")
@@ -533,6 +535,8 @@ def test_exit_status_137_of_a_container_is_oom_only_when_its_reason_is_oom_kille
 
 
 def test_the_classes_are_the_twenty_one_of_the_taxonomy() -> None:
+    """The taxonomy holds these classes and no other. The count in the name is the count at
+    #3065; `form_check` joins the set at #6327, and the name keeps its node id."""
     expected = {
         "provider",
         "parser",
@@ -555,12 +559,14 @@ def test_the_classes_are_the_twenty_one_of_the_taxonomy() -> None:
         "limit_reached",
         "outside_plan",
         "git_config",
+        "form_check",
     }
     if hasattr(FailureClass, "PLAN_UNREADABLE"):
         expected.add("plan_unreadable")
     assert {klass.value for klass in FailureClass} == expected
 
 
+test_the_classes_are_the_taxonomy = test_the_classes_are_the_twenty_one_of_the_taxonomy
 test_the_classes_are_the_twenty_of_the_taxonomy = (
     test_the_classes_are_the_twenty_one_of_the_taxonomy
 )
@@ -594,6 +600,7 @@ def test_the_default_actions_are_the_ones_of_the_design() -> None:
         "limit_reached": "raise_limit",
         "outside_plan": "wait",
         "git_config": "wait",
+        "form_check": "retry",
     }
     if hasattr(FailureClass, "PLAN_UNREADABLE"):
         expected["plan_unreadable"] = "wait"
