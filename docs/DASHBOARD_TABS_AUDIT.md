@@ -8,7 +8,7 @@ The audit evaluates each tab against an open tool that performs the same functio
 
 ## Kubernetes
 
-The open tool is k9s version 0.51.0. The file `src/devops_cli/tools_lock/tools.lock` at line 386 pins this version.
+The open tool is k9s. The devtools image installs it (#4363).
 
 ### Gap Analysis
 
@@ -23,7 +23,7 @@ Replacing the Kubernetes tab deletes the following lines:
 
 ### Configuration and Pin
 
-The pin `0.51.0` resides in `src/devops_cli/tools_lock/tools.lock`. No custom configuration file is required. The tool uses standard kubeconfig settings.
+The devtools image pins k9s. No custom configuration file is required. The tool uses standard kubeconfig settings.
 
 ### Request Cost
 
@@ -52,7 +52,7 @@ Replacing the Docker tab deletes the following lines:
 
 ### Configuration and Pin
 
-The repository does not pin lazydocker. The follow-up issue will add a binary pin to `src/devops_cli/tools_lock/tools.lock`. Default configuration connects to `/var/run/docker.sock`.
+The repository does not pin lazydocker. A follow-up issue of the devtools repository adds it to the image. Default configuration connects to `/var/run/docker.sock`.
 
 ### Request Cost
 

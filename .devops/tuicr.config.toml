@@ -3,7 +3,7 @@
 # If that file exists, make a backup first with the suffix `.bak-<YYYYMMDD-HHMMSS>`.
 # tuicr ignores a key that it does not know, and it prints a warning at start.
 
-# tuicr calls crates.io at start to look for a new version. Updates come from the tools lock.
+# tuicr calls crates.io at start to look for a new version. Updates come from the devtools image.
 no_update_check = true
 
 # The type sets the tag in the export (`[ISSUE]`) and the legend that tells the agent what each tag

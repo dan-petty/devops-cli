@@ -18,9 +18,6 @@
   "helm-values": {
     "managerFilePatterns": ["/^k8s/.+values[^/]*\\.ya?ml$/"]
   },
-  "pip-compile": {
-    "managerFilePatterns": ["/^src/devops_cli/tools_lock/[^/]+\\.txt$/"]
-  },
   "customDatasources": {
     "grafana_plugins": {
       "defaultRegistryUrlTemplate": "https://grafana.com/api/plugins/{{packageName}}/versions",
@@ -50,18 +47,9 @@
     },
     {
       "customType": "regex",
-      "description": "The Python minor of the type checkers, the tools lock and DEFAULT_PYTHON_VERSION.",
-      "managerFilePatterns": ["/^pyproject\\.toml$/", "/^src/devops_cli/tools_lock/tools\\.lock$/", "/^src/devops_cli/config/defaults\\.py$/"],
+      "description": "The Python minor of the type checkers and DEFAULT_PYTHON_VERSION.",
+      "managerFilePatterns": ["/^pyproject\\.toml$/", "/^src/devops_cli/config/defaults\\.py$/"],
       "matchStrings": ["\\n(?:python[_-]version|DEFAULT_PYTHON_VERSION: str) = \"(?<currentValue>3\\.\\d+)\""],
-      "depNameTemplate": "python",
-      "datasourceTemplate": "docker",
-      "versioningTemplate": "docker"
-    },
-    {
-      "customType": "regex",
-      "description": "The Python minor of the uv compile command in the header of each hashed requirements file of the tools lock, and in the bump steps of tools.lock.",
-      "managerFilePatterns": ["/^src/devops_cli/tools_lock/[^/]+\\.(?:txt|lock)$/"],
-      "matchStrings": ["--python-version=(?<currentValue>3\\.\\d+)"],
       "depNameTemplate": "python",
       "datasourceTemplate": "docker",
       "versioningTemplate": "docker"
@@ -99,31 +87,13 @@
     },
     {
       "customType": "regex",
-      "description": "The one tag of the Argo Workflows controller and executor. It equals the argo pin of the tools lock.",
+      "description": "The one tag of the Argo Workflows controller and executor.",
       "managerFilePatterns": ["/^k8s/argo-workflows/values\\.yaml$/"],
       "matchStrings": ["\\nimages:\\n  tag: (?<currentValue>\\S+)"],
       "depNameTemplate": "quay.io/argoproj/workflow-controller",
       "datasourceTemplate": "docker"
-    },
-    {
-      "customType": "regex",
-      "description": "The version of each Python tool of the tools lock. The pip-compile manager updates its <name>.in and <name>.txt.",
-      "managerFilePatterns": ["/^src/devops_cli/tools_lock/tools\\.lock$/"],
-      "matchStrings": ["\\n\\[python\\.(?<depName>[a-z0-9-]+)\\]\\nversion = \"(?<currentValue>[^\"]+)\""],
-      "datasourceTemplate": "pypi"
-    },
-    {
-      "customType": "regex",
-      "description": "The Dev Containers CLI version of the tools lock. The npm manager updates devcontainers-cli/package.json and its lockfile.",
-      "managerFilePatterns": ["/^src/devops_cli/tools_lock/tools\\.lock$/"],
-      "matchStrings": ["\\n\\[npm\\.devcontainers-cli\\]\\nversion = \"(?<currentValue>[^\"]+)\""],
-      "depNameTemplate": "@devcontainers/cli",
-      "datasourceTemplate": "npm"
     }
   ],
-  "dependencyDashboard": {
-    "footer": "Held security fixes: `mcp` and `opentelemetry-api` in `src/devops_cli/tools_lock/semgrep.txt`. Semgrep pins their vulnerable versions, so uv finds no lock with the fixes. #3988 tracks them."
-  },
   "packageRules": [
     {
       "description": "OpenTofu reads its providers from the OpenTofu registry.",
@@ -131,18 +101,12 @@
       "registryUrls": ["https://registry.opentofu.org"]
     },
     {
-      "description": "The tools of the tools lock come in one pull request for their non-major updates.",
-      "matchFileNames": ["src/devops_cli/tools_lock/**"],
-      "matchUpdateTypes": ["minor", "patch"],
-      "groupName": "tools"
-    },
-    {
-      "description": "A file under src/devops_cli/ is runtime code, so the update is a fix: the Semantic PR title check refuses a hidden type there, and release-please releases it (#6061). Such files are the tools lock with its npm and pip-compile files and DEFAULT_PYTHON_VERSION. No custom manager writes another tool version into a Python file under src/ (#5585). A group takes the prefix of its first update, so each group with such a member sets the prefix itself: python runtime and bandit.",
+      "description": "A file under src/devops_cli/ is runtime code, so the update is a fix: the Semantic PR title check refuses a hidden type there, and release-please releases it (#6061). Such a file is DEFAULT_PYTHON_VERSION. No custom manager writes a tool version into a file under src/ (#5585, #4363). A group takes the prefix of its first update, so each group with such a member sets the prefix itself: python runtime.",
       "matchFileNames": ["src/devops_cli/**"],
       "commitMessagePrefix": "fix(deps):"
     },
     {
-      "description": "Lock file maintenance writes the npm lockfiles of the tools lock again, and the pip-compile refresh its requirements files, so it is a fix (#6061).",
+      "description": "Lock file maintenance writes uv.lock and the root package-lock.json again, so it is a fix (#6061).",
       "matchUpdateTypes": ["lockFileMaintenance"],
       "commitMessagePrefix": "fix(deps):"
     },
@@ -202,16 +166,6 @@
       "commitMessagePrefix": "fix(deps):"
     },
     {
-      "description": "The tools lock and the Argo Workflows values tag.",
-      "matchPackageNames": ["argoproj/argo-workflows", "quay.io/argoproj/workflow-controller"],
-      "groupName": "argo"
-    },
-    {
-      "description": "The tools lock and the cloudflared image of the cluster.",
-      "matchPackageNames": ["cloudflare/cloudflared"],
-      "groupName": "cloudflared"
-    },
-    {
       "description": "The uv image of the Dockerfile and the setup-uv version inputs. The builds of the Service and MCP server images use that image. The runner image gets uv from the devtools image. The uv image is a fix by the base image rule. A group takes the prefix of its first update, so the group sets the prefix itself.",
       "matchPackageNames": ["astral-sh/uv", "ghcr.io/astral-sh/uv"],
       "groupName": "uv",
@@ -237,12 +191,6 @@
       "description": "The ruff dev dependency and the ruff-pre-commit hook.",
       "matchPackageNames": ["ruff", "astral-sh/ruff-pre-commit"],
       "groupName": "ruff"
-    },
-    {
-      "description": "The bandit dev dependency, the tools lock and bandit.in and bandit.txt.",
-      "matchPackageNames": ["bandit"],
-      "groupName": "bandit",
-      "commitMessagePrefix": "fix(deps):"
     },
     {
       "description": "The actionlint image of the ci.yml step. The runner image and the devcontainer get actionlint from the devtools image.",
@@ -282,43 +230,11 @@
       ]
     },
     {
-      "description": "The gh-dash schema fixture holds the schema of the pinned version.",
-      "matchPackageNames": ["dlvhdr/gh-dash"],
-      "prBodyNotes": [
-        "Before the merge, replace `tests/fixtures/gh_dash_schema/` with the schema of the new version."
-      ]
-    },
-    {
-      "description": "The tuicr configuration test runs the pinned binary.",
-      "matchPackageNames": ["agavra/tuicr"],
-      "prBodyNotes": [
-        "Before the merge, run `uv run devops ci test tests/config/test_tuicr_config.py` with the new binary."
-      ]
-    },
-    {
       "description": "A LiteLLM release can change the gateway configuration and its migrations.",
       "matchPackageNames": ["ghcr.io/berriai/litellm"],
       "prBodyNotes": [
         "Before the merge, follow the upgrade plan of #4406: read the release notes and the migrations, and load `k8s/llm/gateway/config.yaml` with the new release."
       ]
-    },
-    {
-      "description": "semgrep pins mcp==1.29.0, also in its newest release (1.185.0 on 2026-11-16), so uv finds no lock of the semgrep tool with the security fix, and Renovate stopped the fix as an empty commit at each run. The hold ends when the lock takes the fix. #3988 tracks the advisories of the tools lock.",
-      "matchManagers": ["pip-compile"],
-      "matchFileNames": ["src/devops_cli/tools_lock/semgrep.in"],
-      "matchDepTypes": ["indirect"],
-      "matchPackageNames": ["mcp"],
-      "matchCurrentVersion": "<1.30.0",
-      "enabled": false
-    },
-    {
-      "description": "semgrep pins opentelemetry-api~=1.37.0, also in its newest release (1.185.0 on 2026-11-16), so uv finds no lock of the semgrep tool with the security fix, and Renovate stopped the fix as an empty commit at each run. The hold ends when the lock takes the fix. #3988 tracks the advisories of the tools lock.",
-      "matchManagers": ["pip-compile"],
-      "matchFileNames": ["src/devops_cli/tools_lock/semgrep.in"],
-      "matchDepTypes": ["indirect"],
-      "matchPackageNames": ["opentelemetry-api"],
-      "matchCurrentVersion": "<1.45.2",
-      "enabled": false
     },
     {
       "description": "A person runs devops k8s searxng-check against each new SearXNG image on the cluster, so a SearXNG update waits for an approval on the Dependency Dashboard. It gets its own branch, so that the other container images do not wait for it (#6029, #6051).",

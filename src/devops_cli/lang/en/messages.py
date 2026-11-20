@@ -149,6 +149,11 @@ class ReviewMessages:
     rules_test_checked: str = (
         "Tested {count} rule(s) with Semgrep {version}; [bold]{path}[/bold] is up to date."
     )
+    semgrep_install_hint: str = (
+        "Install Semgrep (https://semgrep.dev/docs/getting-started/quickstart), or use the "
+        "devtools image {image}."
+    )
+    ruff_install_hint: str = "Install Ruff (https://docs.astral.sh/ruff/installation/)."
     rules_fetch_dry_run_heading: str = (
         "Dry run: no request was made. rules fetch would make these requests, in order:"
     )
@@ -430,27 +435,6 @@ class ConfigMessages:
         "devops-cli found no private folder for the gh configuration of a gh call: {reasons}. "
         "Set XDG_RUNTIME_DIR or TMPDIR to a folder that you can write, or set data.dir "
         "(DEVOPS_CLI_DATA_DIR) to an absolute folder that you can write."
-    )
-
-
-@dataclass(frozen=True)
-class InstallMessages:
-    status_title: str = "DevOps Tool Status"
-    checking_tools: str = "Checking DevOps toolchain versions..."
-    installing_tool: str = "Installing [cyan]{name}[/cyan] {version}..."
-    tool_installed: str = "✓ {name} {version} installed to {path}"
-    tool_already_installed: str = "✓ {name} is already installed ({version})"
-    download_failed: str = "Error downloading {name} from {url}: {exc}"
-    at_pin: str = "at pin"
-    not_installed: str = "not installed"
-    check_off_pin: str = "{name} {version}: {installed}"
-    check_all_pinned: str = "All {count} tools are linked at their locked versions in {path}."
-    npm_missing_hint: str = (
-        "A Node tool installs with npm, and the installer provisions no runtime: install Node.js at "
-        "the version in .node-version, which brings npm."
-    )
-    path_hint: str = (
-        'Note: {path} is not in your PATH.\nAdd to your shell config:  export PATH="{path}:$PATH"'
     )
 
 
@@ -1334,13 +1318,12 @@ class InfraMessages:
         "Commit .devops/project.toml with these values, so that the profile does not change when "
         "a file that detection reads changes."
     )
-    tool_missing: str = (
-        "No Ansible tool environment is installed: no install of devops install-tools, and no "
-        "ansible-runner on PATH."
-    )
-    tool_version: str = "ansible-core {version}"
+    tool_missing: str = "No Ansible tool environment is installed: no ansible-runner is on PATH."
     tool_on_path: str = "the ansible-runner on PATH, in {folder}"
-    tool_step: str = "devops install-tools --tool ansible-core"
+    tool_step: str = (
+        "Install ansible-core and ansible-runner "
+        "(https://ansible.readthedocs.io/projects/runner/en/stable/install/)."
+    )
     config_file_other: str = "Ansible reads {file}, not a file of the repository."
     config_file_none: str = "Ansible reads no config file."
     config_file_step: str = (
@@ -1569,7 +1552,7 @@ class TfMessages:
     fmt_success: str = "✓ OpenTofu files formatted."
     binary_not_found: str = (
         "Neither 'tofu' nor 'terraform' was found in PATH. "
-        "Install OpenTofu or run 'devops install-tools'."
+        "Install OpenTofu (https://opentofu.org/docs/intro/install/)."
     )
     dir_not_found: str = "OpenTofu directory '{path}' does not exist."
     deploy_cloud_header: str = (
@@ -7234,7 +7217,6 @@ class LanguageCatalog:
     research: ResearchMessages = field(default_factory=ResearchMessages)
     benchmark: BenchmarkMessages = field(default_factory=BenchmarkMessages)
     config: ConfigMessages = field(default_factory=ConfigMessages)
-    install: InstallMessages = field(default_factory=InstallMessages)
     openspec: OpenSpecMessages = field(default_factory=OpenSpecMessages)
     new: NewMessages = field(default_factory=NewMessages)
     branches: BranchMessages = field(default_factory=BranchMessages)

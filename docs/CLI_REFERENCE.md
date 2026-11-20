@@ -11,7 +11,6 @@ The command groups of `devops` and their commands. The page of each group in `co
 | [`devops branches`](commands/branches.md) | Branch management and Jira workflows. |
 | [`devops devcontainer`](commands/devcontainer.md) | Manage devcontainer configurations. |
 | [`devops workspace`](commands/workspace.md) | Manage multi-root VS Code workspace files (.code-workspace). |
-| [`devops install-tools`](commands/install-tools.md) | Install and manage DevOps tool binaries. |
 | [`devops openspec`](commands/openspec.md) | Check the OpenSpec change folders, regenerate the agent skills and archive a change. |
 | [`devops new`](commands/new.md) | Write the files of a new command or a new test in project form. |
 | [`devops k8s`](commands/k8s.md) | Manage Kubernetes clusters, pods, services, and workloads. |
@@ -87,7 +86,6 @@ The command groups of `devops` and their commands. The page of each group in `co
 |  | `devops workspace generate [OPTIONS]` | Regenerate the workspace file from all repos in the repos directory. |
 |  | `devops workspace open [OPTIONS]` | Open the workspace in VS Code. |
 |  | `devops workspace clean [OPTIONS]` | Clean stale reviews, analysis, logs, traces, benchmarks and cache under the data directory. |
-| [**install-tools**](commands/install-tools.md) | `devops install-tools status [OPTIONS]` | Show each tool's locked version and where its command is installed, without a request. |
 | [**openspec**](commands/openspec.md) | `devops openspec check` | Run the OpenSpec gate: validate every change and archived change, check the committed skills against a regeneration, render the instructions every agent reads, and find a requirement that two changes rewrite. Exits 1 on any problem. |
 |  | `devops openspec regenerate` | Rewrite the committed OpenSpec skills with `openspec update --force` under an isolated configuration, so no developer's own profile decides what is written. |
 |  | `devops openspec archive [OPTIONS] <change>` | Archive a change with `openspec archive <change> --yes`, then run `openspec validate --all --strict`. Both runs use an isolated configuration with telemetry off. The command exits 1 when a run fails, or when the archive leaves the change folder in place or makes no archive folder. A failed archive skips the validation. With --dry-run, it lists the two commands and runs none. |

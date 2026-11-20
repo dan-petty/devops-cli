@@ -12,9 +12,9 @@
     5. EXEC the export of the default branch, unpacked and removed after the read
          git -C <tmp>/repo archive --format=tar '--output=<private temporary folder>/tree.tar' '<commit of the default branch>'
     6. EXEC the Ansible inventory of the export
-         <tmp>/user-data/tools/ansible-core/2.22.0/bin/ansible-inventory -i '<inventory>' --list
+         <tmp>/ansible/bin/ansible-inventory -i '<inventory>' --list
     7. EXEC the SSH check of each host in service
-         <tmp>/user-data/tools/ansible-core/2.22.0/bin/ansible-runner run '<export>' --hosts all --limit '!<offline group>' -m ansible.builtin.stat -a path=/run/reboot-required
+         <tmp>/ansible/bin/ansible-runner run '<export>' --hosts all --limit '!<offline group>' -m ansible.builtin.stat -a path=/run/reboot-required
   
   '''
 # ---

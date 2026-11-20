@@ -186,7 +186,7 @@ class KubeApiNetwork(_Frozen):
 class ToolRequest(_Frozen):
     """One run of a review tool.
 
-    `tool` names the program, as `tools.lock` and the PATH of the host know it. `arguments` are the
+    `tool` names the program, as the PATH of the host knows it. `arguments` are the
     arguments of the program. The element `{targets}` stands for `targets`, the paths of the tree
     that the tool scans.
 

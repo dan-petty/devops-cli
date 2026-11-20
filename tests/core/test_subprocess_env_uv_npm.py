@@ -179,8 +179,8 @@ def test_an_isolated_child_gets_no_uv_tool_dir_or_env_file_from_the_environment(
 def test_a_uv_or_npm_key_that_names_no_program_reaches_the_child(
     isolate_env: bool, tmp_path: Path
 ) -> None:
-    """The keys that callers set on purpose reach the child with their values: the npm settings of
-    `devops install-tools` and the uv settings that it names. So do the file keys that a probe
+    """The keys that callers set on purpose reach the child with their values: the npm settings and
+    the uv settings that a caller names. So do the file keys that a probe
     showed can name a program (`npm_config_userconfig` with an npmrc, `UV_CONFIG_FILE`), because
     a caller names a file that it controls, as for `GH_CONFIG_DIR` (#2672). So do keys that only
     contain a refused name (#2673)."""

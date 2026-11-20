@@ -29,7 +29,7 @@ How `devops research advisories` finds the advisories that affect the pins of a 
 - **THEN** OSV is asked about it once, and the finding lists both places
 
 ### Requirement: Only exact pins of packages are asked
-The command SHALL send OSV the name, the version and the OSV ecosystem (`PyPI` or `npm`) of a package component with an exact version. It SHALL count a package whose version is empty or is not a version in `unpinned`, and SHALL NOT send it. It SHALL NOT send OSV a tool of the tools lock, an image, a chart, an action, a Terraform provider or a devcontainer feature.
+The command SHALL send OSV the name, the version and the OSV ecosystem (`PyPI` or `npm`) of a package component with an exact version. It SHALL count a package whose version is empty or is not a version in `unpinned`, and SHALL NOT send it. It SHALL NOT send OSV an image, a chart, an action, a Terraform provider or a devcontainer feature.
 
 #### Scenario: A pin that is a range
 - **WHEN** `pyproject.toml` declares `pyyaml>=5.3` and `idna==3.6`
@@ -40,7 +40,7 @@ The command SHALL send OSV the name, the version and the OSV ecosystem (`PyPI` o
 - **THEN** none of them is in a query, and the summary counts each of them under its ecosystem
 
 ### Requirement: A component that no source matches is counted
-The command SHALL count a component that no source matches in `not_covered` under its ecosystem (`tool-lock-entry` for a tool whose package the lists hold). It SHALL NOT count an Action or a mapped component there.
+The command SHALL count a component that no source matches in `not_covered` under its ecosystem. It SHALL NOT count an Action or a mapped component there.
 
 #### Scenario: Not covered
 - **WHEN** the repository pins a chart and an image that the watch list does not map, and an Action
@@ -116,17 +116,6 @@ An entry MAY name the `package` that the advisories of the repository give to th
 #### Scenario: Two modules in one advisory
 - **WHEN** an advisory lists `example.com/app/v2` with the range `>= 2.7.0` and `example.com/app/v3` with the range `>= 3.0.0, < 3.5.4`, and the pinned release is 3.5.4
 - **THEN** the entry with the package `example.com/app/v3` gives no finding, and the entry with no package gives one
-
-### Requirement: The watch list is checked
-Reading the watch list SHALL be an error that names the file when it is not valid TOML, has an unknown key, has a repository that is not `owner/name`, or maps a Python package, a Node package or an Action. An entry for a release binary of `tools.lock` SHALL name the repository of its `source`, and a binary that has no entry SHALL be named as left out in the watch list file.
-
-#### Scenario: A file that is wrong
-- **WHEN** an entry has the repository `qdrant`, an unknown key, or the ecosystem `pypi`
-- **THEN** reading the watch list is an error that names `.devops/research-watch.toml`
-
-#### Scenario: The binaries of the tools lock
-- **WHEN** the watch list of this repository is read
-- **THEN** each binary of `tools.lock` maps, as a `github-release` component, to the repository of its `source`, except the binaries that the file names as left out
 
 ### Requirement: The range of an advisory is matched with packaging
 The command SHALL match a pinned version to the range of a GitHub advisory (`<= 45.0.7`, `< 41`, `>= 1.18.0, < 1.19.2`, `= 1.2.3`) with `packaging`; ranges that `||` joins match when any of them holds. A pin names one release only when it has at least three numbers after an optional `v`. A range that is empty or that cannot be read SHALL be a failure that names the advisory, and SHALL NOT be a pin that is clean.
@@ -208,3 +197,10 @@ The command SHALL read the tags of each Action repository at most once in a run,
 #### Scenario: The plan of a dry run
 - **WHEN** `devops research advisories --dry-run` runs on a repository whose pin holds a commit and the version `v7`
 - **THEN** the plan lists one tags request for the Action repository and the command sends no request
+
+### Requirement: The watch list file is checked
+Reading the watch list SHALL be an error that names the file when it is not valid TOML, has an unknown key, has a repository that is not `owner/name`, or maps a Python package, a Node package or an Action.
+
+#### Scenario: A file that is wrong
+- **WHEN** an entry has the repository `qdrant`, an unknown key, or the ecosystem `pypi`
+- **THEN** reading the watch list is an error that names `.devops/research-watch.toml`

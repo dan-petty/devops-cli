@@ -14,7 +14,7 @@ The devcontainer image SHALL have the command of each tool of the devtools image
 - **AND** `readlink -f /usr/local/bin/semgrep` in a container of the image names a path under `/usr/local/lib/devtools/semgrep/`
 
 ### Requirement: Post-create installs no locked tool
-`devops devcontainer post-create` SHALL install no tool of `tools.lock` and SHALL have no `--skip-tools` option, and its plan SHALL have no request of an installer for a tool.
+`devops devcontainer post-create` SHALL install no tool and SHALL have no `--skip-tools` option, and its plan SHALL have no request of an installer for a tool.
 
 #### Scenario: The plan has no tool install
 - **WHEN** a test builds the post-create plan
@@ -35,21 +35,6 @@ The `runArgs` of `.devcontainer/devcontainer.json` SHALL hold `--sysctl=net.ipv4
 #### Scenario: ping works as vscode in the built image
 - **WHEN** the smoke action starts the built image as `vscode` with `--sysctl net.ipv4.ping_group_range=1000 1000` and runs `ping -c 1 127.0.0.1`
 - **THEN** `ping` exits with code 0
-
-### Requirement: OpenTofu is a pinned tool
-`tools.lock` SHALL hold OpenTofu with the sha256 of the linux-amd64 and linux-arm64 builds. The `Static Analysis` job SHALL copy the `tofu` of the devtools image with `.github/actions/devtools-commands` and put it on its path. The devcontainer image and the runner image SHALL have the `tofu` of the devtools image.
-
-#### Scenario: The lock
-- **WHEN** `devops install-tools --tool tofu --target-dir <dir>` runs
-- **THEN** `<dir>/tofu version` prints `OpenTofu v<version>`, with the `Pinned` version that `devops install-tools status` shows for `tofu`
-
-#### Scenario: The devcontainer image
-- **WHEN** a person runs `tofu version` in a container of the image
-- **THEN** it prints `OpenTofu v<version>` and exits with code 0
-
-#### Scenario: CI
-- **WHEN** the live check reads the log of the `Static Analysis` job of a pull request
-- **THEN** the step `Copy the tools of the devtools image` restores the commands from the cache, or on a miss builds the `devtools-bin` stage from the tag and the digest of the devtools image, and the step `Put the tools of the devtools image on PATH` puts `tofu` on the path of the job
 
 ### Requirement: The image has the network diagnostics commands
 The devcontainer image SHALL have the Debian packages `iputils-ping`, `iputils-tracepath`, `traceroute`, `mtr-tiny`, `netcat-openbsd` and `tcpdump` of the devtools image, and the commands `ping`, `tracepath`, `traceroute`, `mtr`, `nc` and `tcpdump` on the path of `vscode`.
@@ -108,3 +93,14 @@ The `devcontainer.json` that `devops devcontainer init` writes SHALL have no `fe
 #### Scenario: --minikube adds only the forwarded ports
 - **WHEN** a test renders `devcontainer.json.j2` with `minikube` true and then with `minikube` false
 - **THEN** the first output has `forwardPorts`, the second has no `forwardPorts`, and neither output has a `features` key
+
+### Requirement: OpenTofu comes from the devtools image
+The `Static Analysis` job SHALL copy the `tofu` of the devtools image with `.github/actions/devtools-commands` and put it on its path. The devcontainer image and the runner image SHALL have the `tofu` of the devtools image.
+
+#### Scenario: The devcontainer image
+- **WHEN** a person runs `tofu version` in a container of the image
+- **THEN** it prints `OpenTofu v<version>` and exits with code 0
+
+#### Scenario: CI
+- **WHEN** the live check reads the log of the `Static Analysis` job of a pull request
+- **THEN** the step `Copy the tools of the devtools image` restores the commands from the cache, or on a miss builds the `devtools-bin` stage from the tag and the digest of the devtools image, and the step `Put the tools of the devtools image on PATH` puts `tofu` on the path of the job

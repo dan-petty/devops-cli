@@ -28,6 +28,7 @@ from devops_cli.config.constants import (
     CONST_KB_METADATA_TARGET_SUBDIRS,
     CONST_KB_REFERENCE_PREFIX,
     CONST_KB_SHA_DIGEST_LENGTH,
+    CONST_TOOL_VERSION_UNKNOWN,
 )
 
 logger = logging.getLogger(__name__)
@@ -329,6 +330,9 @@ def _match_python_spec(spec: str, python_pin: str, language_floor: str) -> tuple
 
 
 def _match_tool_spec(spec: str, tool_versions: Mapping[str, str]) -> tuple[bool, str]:
+    """Whether the manual applies to the tool: it drifts only when the version of the installed
+    tool, as the record of its run names it, is outside its range. A tool with no known version,
+    such as one that did not run or a native binary, matches by its name (#4363)."""
     body = spec[5:]
     if "@" not in body:
         return False, f"malformed tool specifier: {spec}"
@@ -341,8 +345,8 @@ def _match_tool_spec(spec: str, tool_versions: Mapping[str, str]) -> tuple[bool,
             if k.replace("-", "") == compact:
                 tv = v
                 break
-    if not tv:
-        return False, f"tool:{name} not found in tools.lock or environment"
+    if not tv or tv == CONST_TOOL_VERSION_UNKNOWN:
+        return True, ""
     if _version_matches_pattern(tv, pattern):
         return True, ""
     return False, f"mismatched tool {name}: requires {pattern}, found {tv}"
@@ -525,26 +529,7 @@ def _apply_environment_facts(
     return lang_floor, python_pin, k8s
 
 
-def _apply_tools_lock(tools_lock: Any | None, tool_versions: dict[str, str]) -> str | None:
-    """Load tools.lock facts and populate tool versions."""
-    if tools_lock is None:
-        try:
-            from devops_cli.tools_lock import load_tools_lock
-
-            tools_lock = load_tools_lock()
-        except (OSError, tomllib.TOMLDecodeError, ValueError) as exc:
-            logger.debug("Failed loading tools.lock: %s", exc)
-            tools_lock = None
-    if tools_lock is None:
-        return None
-    if hasattr(tools_lock, "tools"):
-        for name, tool in tools_lock.tools().items():
-            tool_versions.setdefault(name.lower(), tool.version)
-    return getattr(tools_lock, "python_version", None)
-
-
 def _resolve_matching_context(
-    tools_lock: Any | None,
     environment: Any | None,
     kubernetes_version: str | None,
     cyclonedx_inventory: dict[str, Any] | None,
@@ -570,8 +555,6 @@ def _resolve_matching_context(
         eff_python_pin = env_pin or eff_python_pin
         eff_k8s = eff_k8s or env_k8s
 
-    lock_pin = _apply_tools_lock(tools_lock, eff_tool_versions)
-    eff_python_pin = eff_python_pin or lock_pin or "3.14"
     eff_k8s = eff_k8s or "v1.31.0"
 
     return _MatchContext(
@@ -629,7 +612,6 @@ def _process_manual_file(
 def load_matched_kb_manuals(
     *,
     kb_dir: Path | None = None,
-    tools_lock: Any | None = None,
     environment: Any | None = None,
     kubernetes_version: str | None = None,
     cyclonedx_inventory: dict[str, Any] | None = None,
@@ -638,10 +620,11 @@ def load_matched_kb_manuals(
     python_pin: str | None = None,
     tool_versions: Mapping[str, str] | None = None,
 ) -> tuple[list[MatchedManual], list[DriftManual]]:
-    """Match KB manuals against tools.lock, locked inventory, language floor and kubernetes_version (#1149)."""
+    """Match KB manuals against the tool versions of the environment, the locked inventory, the
+    language floor and kubernetes_version (#1149). A tool version is the installed tool's, from
+    the record of its run, and no pin (#4388)."""
     base_dir = (kb_dir or get_knowledge_base_dir()).resolve()
     ctx = _resolve_matching_context(
-        tools_lock,
         environment,
         kubernetes_version,
         cyclonedx_inventory,

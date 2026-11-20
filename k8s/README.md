@@ -35,7 +35,7 @@ Register each manifest, Helm release and post-Helm step that runs in the cluster
   - On the homelab, the storage layer comes from the dan-petty/homelab repository: its `make storage` applies `k8s/manifests/local-path-storage.yaml`. That manifest holds namespace `local-path-storage`, the local-path provisioner (`rancher/local-path-provisioner` v0.0.28), the default StorageClass `local-path` (reclaim policy `Delete`) and the StorageClass `fast-nvme` (reclaim policy `Retain`). This repository does not deploy them. [Local-Path Volume Placement](#local-path-volume-placement) tells where the provisioner keeps a volume.
   - On minikube, the default `storage-provisioner` addon serves only the class `standard`. The class `local-path` comes from the `storage-provisioner-rancher` addon. `devops` starts minikube with `--addons=storage-provisioner-rancher`, so the class `local-path` exists from the first start. A minikube that already runs keeps its addons. Run `minikube addons enable storage-provisioner-rancher` one time on that cluster, or the claims that name `local-path` stay `Pending`.
 
-Kubernetes supports `kubectl` within one minor version of the API server. The `tools.lock` file tracks a current `kubectl` release. The homelab cluster runs Kubernetes 1.31 (`v1.31.4+k3s1`), which stays outside the supported skew range until dan-petty/homelab#3 lands. We do not pin `kubectl` to 1.31 or 1.32, because both versions are end of life and the devcontainer minikube runs a current release.
+Kubernetes supports `kubectl` within one minor version of the API server. The devtools image installs a current `kubectl` release, and `devops k8s doctor` reads its version from `kubectl version --client`. The homelab cluster runs Kubernetes 1.31 (`v1.31.4+k3s1`), which stays outside the supported skew range until dan-petty/homelab#3 lands. We do not pin `kubectl` to 1.31 or 1.32, because both versions are end of life and the devcontainer minikube runs a current release.
 
 ## Quick Start
 
@@ -863,7 +863,7 @@ kubectl -n devops get deploy roadmap-service           # unchanged: the replicas
 
 ### Measurement
 
-The go/no-go measurement needs the cluster and the `argo` CLI (`devops install-tools --tool argo`), whose pin in `tools.lock` is the chart's app version. The CLI talks to the Kubernetes API directly, so no argo-server is needed. A person (or an agent on the homelab) runs it once after the install syncs:
+The go/no-go measurement needs the cluster and the `argo` CLI of the devtools image. The CLI talks to the Kubernetes API directly, so no argo-server is needed. A person (or an agent on the homelab) runs it once after the install syncs:
 
 ```bash
 # API-server requests handled so far, then how many of them were 429 or 5xx
@@ -1358,9 +1358,8 @@ Off the home network, `kubectl` reaches the API server through the tunnel as a T
    devops cloudflare tunnel sync --subdomains k8s --service tcp://kubernetes.default.svc.cluster.local:443
    ```
    `k8s/cloudflared/networkpolicy.yaml` lets cloudflared reach the API server on 6443.
-2. On the workstation, install `cloudflared` from `tools.lock`, set the hostname of the route, and start the forward. `devops k8s tunnel start` runs `cloudflared access login` first: it opens a browser for the Access login or prints the login URL, and stores the token without printing it. Then it starts `cloudflared access tcp` in the background on `127.0.0.1:16443` (`--port` sets another port), records it under the data directory and waits until the port accepts connections. When a forward already runs, it reports that forward and starts no other. `--context` adds or updates the kubeconfig cluster and context `<cluster>-tunnel`, with the cluster, the user and the CA data of the home context (`k8s.context`, or `--from-context`), the server `https://127.0.0.1:16443` and the TLS server name `kubernetes.default.svc`.
+2. On the workstation, install `cloudflared` (the devtools image holds it), set the hostname of the route, and start the forward. `devops k8s tunnel start` runs `cloudflared access login` first: it opens a browser for the Access login or prints the login URL, and stores the token without printing it. Then it starts `cloudflared access tcp` in the background on `127.0.0.1:16443` (`--port` sets another port), records it under the data directory and waits until the port accepts connections. When a forward already runs, it reports that forward and starts no other. `--context` adds or updates the kubeconfig cluster and context `<cluster>-tunnel`, with the cluster, the user and the CA data of the home context (`k8s.context`, or `--from-context`), the server `https://127.0.0.1:16443` and the TLS server name `kubernetes.default.svc`.
    ```bash
-   devops install-tools --tool cloudflared
    devops config set k8s.tunnel_host k8s.<domain>
    devops k8s tunnel start --context
    kubectl --context <cluster>-tunnel get nodes

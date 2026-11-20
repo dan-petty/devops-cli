@@ -41,7 +41,7 @@ from devops_cli.commands.review import _backend_host
 from devops_cli.lang import MESSAGES
 from devops_cli.main import app
 from devops_cli.review.session import ReviewSession, ReviewSessionStore
-from devops_cli.tools_lock import tools_lock_digest
+from devops_cli.security.tool_executor import ToolRun
 
 cli = CliRunner(env={"COLUMNS": "250", "NO_COLOR": "1", "TERM": "dumb"})
 
@@ -607,17 +607,38 @@ def test_a_review_warns_when_prompts_change_during_the_run(
     ) == (start_digest, True, True, [MESSAGES.review.code_changed_during_run])
 
 
-def test_a_profile_records_the_tools_lock_it_started_with(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The tools lock digest is a review input, read when the review starts (#1142)."""
-    packaged = ReviewProfiler().build(session_id="s", target="t").tools_lock_digest
-    monkeypatch.setattr(profile_module, "tools_lock_digest", lambda: "at-start")
-    profiler = ReviewProfiler()
-    monkeypatch.setattr(profile_module, "tools_lock_digest", lambda: "at-end")
-
-    assert (packaged, profiler.build(session_id="s", target="t").tools_lock_digest) == (
-        tools_lock_digest(),
-        "at-start",
+def _semgrep_run(version: str) -> ToolRun:
+    """The record of one run of an installed Semgrep at `version`."""
+    return ToolRun(
+        tool="semgrep",
+        version=version,
+        binary_sha256="0" * 64,
+        executor="direct",
+        network="host",
+        config_digest="0123456789abcdef",
+        ruleset_digest="4f53cda18c2baa0c",
+        argv_template=("semgrep", "scan", "{targets}"),
+        targets_digest="fedcba9876543210",
+        commit=None,
     )
+
+
+def test_a_profile_hashes_the_versions_of_the_tools_that_ran() -> None:
+    """The digest covers the version of each installed tool that ran, so another Semgrep gives
+    another digest. It reads no pin, and a review with no tool run has none (#4388)."""
+
+    def built(*runs: ToolRun) -> str:
+        profiler = ReviewProfiler()
+        profiler.set_tool_runs(runs)
+        return profiler.build(session_id="s", target="t").tool_versions_digest
+
+    first, again, other = (
+        built(_semgrep_run("1.0.0")),
+        built(_semgrep_run("1.0.0")),
+        built(_semgrep_run("1.1.0")),
+    )
+
+    assert (first == again, first != other, len(first), built()) == (True, True, 16, "")
 
 
 @pytest.mark.parametrize(
@@ -658,7 +679,7 @@ def test_a_review_warns_when_its_own_source_changes_during_the_run(
 
 
 def test_the_profile_records_the_digest_of_the_registry_ruleset_a_review_scanned_with() -> None:
-    """Semgrep's registry rules are an input of a review as the tools lock is, so the profile
+    """Semgrep's registry rules are an input of a review as the tools that ran are, so the profile
     keeps their digest, empty when the review read none (#1144)."""
     with profiling() as profiler:
         none_read = profiler.build(session_id="s", target="t").semgrep_registry_digest

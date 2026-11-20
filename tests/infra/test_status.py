@@ -214,14 +214,14 @@ def _runner(
 
 @pytest.fixture
 def tool(tmp_path: Path) -> AnsibleTool:
-    return AnsibleTool(bin_dir=tmp_path / "bin", installed=True, version="2.22.0")
+    return AnsibleTool(bin_dir=tmp_path / "bin")
 
 
 def test_ping_reads_each_host_in_service(
     tmp_path: Path, tool: AnsibleTool, process_fake: ProcessFake
 ) -> None:
     process_fake.answer(
-        [str(tool.bin_dir / "ansible-runner")],
+        tool.argv("ansible-runner"),
         _runner(
             {
                 "node-1.example.com": ("runner_on_ok", {"stat": {"exists": False}}),
@@ -261,7 +261,7 @@ def test_ping_reads_each_host_in_service(
     )
     assert call.env is not None
     assert call.env["ANSIBLE_HOST_KEY_CHECKING"] == "True"
-    assert call.env["PATH"].split(":")[0] == str(tool.bin_dir)
+    assert call.env["PATH"].split(":")[0] == str(tmp_path / "bin")
     assert not Path(_option(call.argv, "--artifact-dir")).exists()
 
 
@@ -269,7 +269,7 @@ def test_a_host_with_no_event_has_no_answer(
     tmp_path: Path, tool: AnsibleTool, process_fake: ProcessFake
 ) -> None:
     process_fake.answer(
-        [str(tool.bin_dir / "ansible-runner")],
+        tool.argv("ansible-runner"),
         _runner({"node-1.example.com": ("runner_on_ok", {"stat": {"exists": False}})}),
     )
 

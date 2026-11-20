@@ -840,43 +840,45 @@ def test_a_support_helper_writes_nothing_outside_the_run(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A support helper refuses a path outside the run's temporary directory before its first
-    write: `link_at_pin` with a user data root outside the run writes nothing (#4739).
+    write: `hold_to_the_run`, which a helper calls before it writes, fails on a path outside the
+    run (#4739).
 
-    The user data root lies in this test's own temporary directory, so a helper that writes
-    changes nothing a person keeps."""
+    The path lies in this test's own temporary directory, so a helper that writes changes nothing
+    a person keeps."""
     outside = pytester.path / "outside"
     outside.mkdir()
     result = _run_with_floor(
         pytester,
         monkeypatch,
         f"""
+        from pathlib import Path
+
         import pytest
 
-        from tests.support.tools import link_at_pin
+        from tests.support.home_write_guard import hold_to_the_run
 
-        def test_links_a_tool_under_a_user_data_root_outside_the_run(tmp_path, monkeypatch):
-            monkeypatch.setenv("DEVOPS_CLI_USER_DATA_ROOT", {str(outside)!r})
+        def test_holds_a_path_outside_the_run():
             with pytest.raises(pytest.fail.Exception, match="outside the run's temporary"):
-                link_at_pin("gitleaks", tmp_path / "links")
+                hold_to_the_run(Path({str(outside)!r}) / "tool")
         """,
     )
     result.assert_outcomes(passed=1)
     assert _tree(outside) == {}
 
 
-_LINK_A_TOOL_FROM_PLAIN_PYTHON = (
+_HOLD_A_PATH_FROM_PLAIN_PYTHON = (
     "import sys\n"
     "from pathlib import Path\n"
     "sys.path.insert(0, sys.argv[1])\n"
-    "from tests.support.tools import link_at_pin\n"
-    "link_at_pin('gitleaks', Path(sys.argv[2]))\n"
+    "from tests.support.home_write_guard import hold_to_the_run\n"
+    "hold_to_the_run(Path(sys.argv[2]))\n"
 )
 
 
 @pytest.mark.live("python")
 def test_a_support_helper_called_outside_pytest_writes_nothing(tmp_path: Path) -> None:
-    """`link_at_pin`, called from plain Python with no pytest run, as an agent once called it,
-    stops before its first write and says why (#4739).
+    """`hold_to_the_run`, called from plain Python with no pytest run, as an agent once called a
+    support helper, stops before the first write of the helper and says why (#4739).
 
     The HOME of the child process lies in this test's own temporary directory, so a helper that
     writes changes nothing a person keeps. The child keeps `PYTHONPATH`: the Service image test
@@ -892,7 +894,7 @@ def test_a_support_helper_called_outside_pytest_writes_nothing(tmp_path: Path) -
             "-P",
             "-s",
             "-c",
-            _LINK_A_TOOL_FROM_PLAIN_PYTHON,
+            _HOLD_A_PATH_FROM_PLAIN_PYTHON,
             str(REPO_ROOT),
             str(tmp_path / "links"),
         ],

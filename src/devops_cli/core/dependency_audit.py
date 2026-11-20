@@ -17,7 +17,6 @@ not expired ignores each of its advisories in that lockfile (SECURITY.md, A Find
 
 from __future__ import annotations
 
-import json
 import re
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from datetime import date
@@ -28,7 +27,7 @@ from typing import Final
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from devops_cli.config.commands import BIN_NPM, BIN_OSV_SCANNER, BIN_UV
+from devops_cli.config.commands import BIN_NPM, BIN_UV
 from devops_cli.config.constants import CONST_EXIT_SUCCESS, CONST_UV_EXIT_FAILURE
 
 
@@ -135,10 +134,6 @@ def load_npm_audit_ignores(path: Path) -> tuple[NpmAuditIgnore, ...]:
     return _NpmAuditIgnoreFile.model_validate(loaded).vulnerabilities
 
 
-AuditIgnore = NpmAuditIgnore
-load_osv_audit_ignores = load_npm_audit_ignores
-
-
 class AppliedIgnores(BaseModel):
     """The entries of one lockfile: those that apply today by advisory ID, and those that expired."""
 
@@ -191,49 +186,9 @@ def _read_npm_failure(_returncode: int, stdout: str, ignored: Collection[str]) -
     return AuditVerdict.VULNERABLE
 
 
-def _json_advisory_ids(data: object) -> set[str]:
-    if not isinstance(data, dict):
-        return set()
-    return {
-        vuln["id"]
-        for res in data.get("results", [])
-        for pkg in res.get("packages", [])
-        for vuln in pkg.get("vulnerabilities", [])
-        if "id" in vuln
-    }
-
-
-def osv_advisory_ids(stdout: str) -> frozenset[str]:
-    """The advisory IDs of an `osv-scanner` report; none when it is no report."""
-    if not stdout:
-        return frozenset()
-    try:
-        json_ids = _json_advisory_ids(json.loads(stdout))
-        if json_ids:
-            return frozenset(json_ids)
-    except json.JSONDecodeError, ValueError:
-        pass
-    urls = re.findall(r"https://osv\.dev/([A-Za-z0-9_-]+)", stdout)
-    if urls:
-        return frozenset(urls)
-    return frozenset(re.findall(r"\b(GHSA-[0-9a-zA-Z-]+|CVE-\d{4}-\d+|PYSEC-\d{4}-\d+)\b", stdout))
-
-
-def _read_osv_failure(returncode: int, stdout: str, ignored: Collection[str]) -> AuditVerdict:
-    """An `osv-scanner` run exits 1 on finding vulnerabilities, and another code when it could not
-    run. A finding passes when `ignored` covers each of its advisories."""
-    if returncode == 1:
-        advisories = osv_advisory_ids(stdout)
-        if advisories and advisories <= set(ignored):
-            return AuditVerdict.CLEAN
-        return AuditVerdict.VULNERABLE
-    return AuditVerdict.NOT_RUN
-
-
 _FAILURE_READERS: Final[Mapping[str, Callable[[int, str, Collection[str]], AuditVerdict]]] = {
     BIN_UV: _read_uv_failure,
     BIN_NPM: _read_npm_failure,
-    BIN_OSV_SCANNER: _read_osv_failure,
 }
 
 

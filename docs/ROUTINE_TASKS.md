@@ -42,7 +42,7 @@ The following matrix categorizes all project routine tasks by operational layer,
 | **Feature / PR Lifecycle** | Human Squash Merge | Step 6 | GitHub web UI (a person) | Maintainer squash-merges the approved PR into `main` | PR merged and topic branch deleted |
 | **Feature / PR Lifecycle** | Remote Branch Audit & Pruning | Step 7 | `git fetch --prune origin` | Prunes merged, closed, or superseded remote tracking branches | Zero orphan remote branches on origin |
 | **Release (scheduled)** | Release Pull Request Merge | Every 6 hours | `release-merge.yml`, or a person in the GitHub web UI | The workflow merges the release-please pull request when it passes the guards; a person can merge it at any time or hold it with the label `hold-release`. `release.yml` then publishes. Agents have no step ([`RELEASE_CYCLE.md`](../RELEASE_CYCLE.md)) | GitHub release, tag, packages and images published |
-| **Security & Audits** | Dependency Security Audit | Weekly | `uv run devops ci audit` (`uv audit`, `npm audit`) | Scans installed packages and the lockfile of each Node tool in `tools.lock` for known vulnerabilities | 0 known vulnerabilities |
+| **Security & Audits** | Dependency Security Audit | Weekly | `uv run devops ci audit` (`uv audit`, `npm audit`) | Scans installed packages and the root `package-lock.json` of the Node tools for known vulnerabilities | 0 known vulnerabilities |
 | **Security & Audits** | Ignore Entry Renewal | Daily / Pre-PR | `git grep -n 'expired_at:' -- '.*-ignore.yaml' .trivyignore.yaml` | Renews or drops each ignore entry before its `expired_at` date, as [SECURITY.md](../SECURITY.md#a-finding-with-no-fix) says | No entry is past its date; the image scans and the audit pass |
 | **Security & Audits** | Static Security Scan (SAST) | Weekly | `uv run devops ci security` (`bandit`) | Static security scan for code vulnerabilities | 0 issues in `src/`; 0 high/medium issues in `tests/` |
 | **Security & Audits** | Kubernetes Manifest Scans | Per Manifest Change | `devops k8s lint` / `devops k8s check-deprecated` / `devops scan trivy <dir> --type config` | Validates manifests against K8s security best practices (cluster health: `devops k8s audit`) | Zero deprecated APIs or misconfigurations |
@@ -187,9 +187,9 @@ Executed weekly, or when dependencies are updated.
 
 #### 1. Dependency Vulnerability Audit (`uv audit`, `npm audit`)
 - **Frequency**: Weekly & in every CI run.
-- **Methodology**: Scans packages in `uv.lock` against Open Source Vulnerabilities (OSV) database, and the `package-lock.json` of each Node tool in `tools.lock` against npm's advisory database, without installing it.
-- **Command**: `uv run devops ci audit`, or `uv audit` and `npm audit --package-lock-only --json --prefix src/devops_cli/tools_lock/<tool>`.
-- **Ignore entries**: An entry in an ignore file (`.trivyignore.yaml`, `.osv-scanner-ignore.yaml`, `.npm-audit-ignore.yaml`) expires by itself, and the scan fails on its `expired_at` date. Before the date, renew or drop the entry as [SECURITY.md](../SECURITY.md#a-finding-with-no-fix) says. This document does not repeat that rule.
+- **Methodology**: Scans packages in `uv.lock` against Open Source Vulnerabilities (OSV) database, and the root `package-lock.json` of the Node tools against npm's advisory database, without installing it.
+- **Command**: `uv run devops ci audit`, or `uv audit` and `npm audit --package-lock-only --json --prefix .`.
+- **Ignore entries**: An entry in an ignore file (`.trivyignore.yaml`, `.npm-audit-ignore.yaml`) expires by itself, and the scan fails on its `expired_at` date. Before the date, renew or drop the entry as [SECURITY.md](../SECURITY.md#a-finding-with-no-fix) says. This document does not repeat that rule.
 
 #### 2. Static Application Security Testing (SAST - `bandit`)
 - **Frequency**: Pre-commit / CI gate.
@@ -302,6 +302,6 @@ Executed on workspace initialization (DevContainer startup) or on-demand.
 | `devops ci` fails at `docs` | CLI commands or flags changed without updating docs | Run `uv run devops docs generate` and verify with `devops docs check`. |
 | `pytest` intermittent test failures | Non-deterministic test ordering in multi-threaded code | Ensure assertions use order-independent checks (`any(...)` or sets) rather than fixed array indices. |
 | `uv audit` reports vulnerability | A dependency has a known security advisory | Run `uv lock --upgrade-package <name>` and verify compatibility. |
-| `npm audit` reports vulnerability | A package in a Node tool's `package-lock.json` has a known security advisory | Bump the tool with the runbook in the header of `src/devops_cli/tools_lock/tools.lock`. When no release holds the fix, add an entry to `.npm-audit-ignore.yaml` ([A Finding with No Fix](../SECURITY.md#a-finding-with-no-fix)). |
+| `npm audit` reports vulnerability | A package in the root `package-lock.json` has a known security advisory | Bump the devDependency in `package.json` and run `npm install --package-lock-only --ignore-scripts`. When no release holds the fix, add an entry to `.npm-audit-ignore.yaml` ([A Finding with No Fix](../SECURITY.md#a-finding-with-no-fix)). |
 | `devops ci audit` says an audit could not run | The registry is unreachable or serves no advisories endpoint; npm exits 1 for this as for a finding, uv exits 2 | Read the output above the verdict, restore the network or registry configuration and re-run. |
 | Agent PR targeting error | Topic PR opened against a base other than `main` | Update PR base branch via `devops pr edit <id> --base main`. |

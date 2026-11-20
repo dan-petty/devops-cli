@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=tests/fixtures/gh_dash_schema/schema.json
+# yaml-language-server: $schema=https://gh-dash.dev/schema.json
 # Person-run dashboard for the pull request queue and issue triage. Start it at the root of the
 # clone or worktree with `gh-dash --config .gh-dash.yml`. The flag stops GH_DASH_CONFIG from
 # winning over this file. Each section is a GitHub search filter. gh-dash adds `is:pr` or

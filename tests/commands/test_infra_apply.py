@@ -506,6 +506,23 @@ def test_a_plan_record_that_changed_is_refused(lab: Lab, person_caller: None) ->
     assert lab.steps == []
 
 
+def test_a_plan_record_of_the_pinned_ansible_environment_must_be_planned_again(
+    lab: Lab, person_caller: None
+) -> None:
+    """A plan record from before #4363 names the ansible-core version of the pinned install. The
+    record does not read now, so the apply refuses it and asks for a new plan; it never runs."""
+    plan = lab.plan(NODE_3)
+    _edit_record(plan, lambda data: data.update(ansible_core="2.0.0"))
+
+    result = lab.apply(plan)
+
+    assert (result.exit_code, "Plan again." in " ".join(result.output.split()), lab.steps) == (
+        1,
+        True,
+        [],
+    )
+
+
 def test_a_plan_older_than_the_limit_is_refused(
     lab: Lab, clock: ClockFake, person_caller: None
 ) -> None:

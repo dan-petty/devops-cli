@@ -33,7 +33,7 @@ None.
 ## Feasibility
 
 - The probe "The path `uv.lock` is a file of the staging commit." confirms the uv lock at the root, which the pin section reads.
-- The probe "The path `tools.lock` is no file at the root of the staging commit. These files of the commit are candidates: `src/devops_cli/tools_lock/tools.lock`, `tests/fixtures/research/repo/src/devops_cli/tools_lock/tools.lock`. No commit in the history deleted or renamed it." shows where the tools lock sits; `search_code` for `LOCK_DIR = "src/devops_cli/tools_lock"` returned `src/devops_cli/research/tool_pins.py:18:LOCK_DIR = "src/devops_cli/tools_lock"`, and the plan creates no root file.
+- #4363 deleted the tools lock: the devtools image installs the command-line tools (`RUNNER_TOOLS`, `ToolSource.DEVTOOLS`), and their versions are those of the installed tools. `src/devops_cli/research/node_pins.py` reads the root `package-lock.json`, and the plan creates no root file.
 - The probe "The path `AGENTS.md` is a file of the staging commit." and the probe "The path `CONTRIBUTING.md` is a file of the staging commit." confirm the two documents that receive a claim with no owner.
 - The probe `Not probed, the bound of 10 commands is reached` covers the rest of the paths that the issue cites, so the drift counts of the issue, the settings field map and the retrieval gold set are `not checked` in this run. The plan states no count for them and blocks on no gold set.
 - `read_file` of `src/devops_cli/config/settings.py` lines 2366 to 2378 returned `src/devops_cli/config/settings.py:2372:class Settings(BaseSettings):`, the class whose fields group 1 projects, and the file defines that class once.

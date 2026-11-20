@@ -26,7 +26,6 @@ from pathlib import Path
 import pytest
 
 from devops_cli.review.canary import clear_canary_cache, resolve_tool_version_and_sha
-from devops_cli.tools_lock import load_tools_lock
 
 _SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 
@@ -89,7 +88,7 @@ def _install(
 
 
 def _on_path(monkeypatch: pytest.MonkeyPatch, path_dir: Path, *programs: Path) -> None:
-    """Link each program into `path_dir`, as `devops install-tools` links its commands, and make
+    """Link each program into `path_dir`, as an image links its commands, and make
     `path_dir` the only directory on PATH."""
     path_dir.mkdir(parents=True, exist_ok=True)
     for program in programs:
@@ -169,8 +168,8 @@ def test_a_python_tool_digest_names_its_package_not_its_launcher_script(
 def test_a_python_tool_version_is_the_version_of_the_distribution_that_runs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A Semgrep that is not at the version `tools.lock` pins is recorded at the version that
-    runs, so the version and the digest name one distribution."""
+    """A Semgrep is recorded at the version of the distribution that runs, so the version and
+    the digest name one distribution (#4388)."""
     launcher = _install(
         tmp_path / "env",
         "semgrep",
@@ -180,7 +179,6 @@ def test_a_python_tool_version_is_the_version_of_the_distribution_that_runs(
     )
     _on_path(monkeypatch, tmp_path / "bin", launcher)
 
-    assert load_tools_lock().python["semgrep"].version != "1.0.0"
     assert _resolve("semgrep")[0] == "1.0.0"
 
 
@@ -206,7 +204,8 @@ def test_a_native_binary_digest_is_the_digest_of_its_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """kube-linter is one binary, and the Ruff distribution ships its binary as a file, not as
-    a console script. The digest of each is the SHA-256 of that file."""
+    a console script. The digest of each is the SHA-256 of that file. No installed distribution
+    names kube-linter, so its version is `unknown`, and no pin stands in for it (#4388)."""
     kube_linter = tmp_path / "tools" / "kube-linter"
     kube_linter.parent.mkdir(parents=True)
     kube_linter.write_bytes(b"\x7fELF kube-linter")
@@ -222,7 +221,7 @@ def test_a_native_binary_digest_is_the_digest_of_its_file(
     _on_path(monkeypatch, tmp_path / "bin", kube_linter, ruff)
 
     assert _resolve("kube-linter") == (
-        load_tools_lock().binary["kube-linter"].version,
+        "unknown",
         hashlib.sha256(b"\x7fELF kube-linter").hexdigest(),
     )
     assert _resolve("ruff")[1] == hashlib.sha256(b"\x7fELF ruff").hexdigest()
@@ -258,7 +257,7 @@ def test_a_tool_that_an_interpreter_runs_without_its_distribution_names_the_prog
     tmp_path: Path,
 ) -> None:
     """A `.venv` without mypy holds nothing that names mypy. The record then names the program
-    that ran, by the digest of its file, and `tools.lock` pins no mypy, so the version is not known."""
+    that ran, by the digest of its file, and the version is not known."""
     base = _base_interpreter(tmp_path)
     python = _interpreter(tmp_path / "project" / ".venv", base)
 

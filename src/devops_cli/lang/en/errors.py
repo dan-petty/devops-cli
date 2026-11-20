@@ -160,7 +160,8 @@ class K8sErrorMessages:
         "'devops config set k8s.tunnel_host k8s.example.com'."
     )
     tunnel_cloudflared_missing: str = (
-        "cloudflared is not on PATH. Install it with 'devops install-tools --tool cloudflared'."
+        "cloudflared is not on PATH. Install it "
+        "(https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)."
     )
     tunnel_login_failed: str = (
         "The Cloudflare Access login for {host} failed with exit code {code}."
@@ -479,7 +480,9 @@ class InfraErrorMessages:
         "{key}."
     )
     tool_missing: str = (
-        "No Ansible tool environment is installed. Run devops install-tools --tool ansible-core."
+        "No Ansible tool environment is installed: no ansible-runner is on PATH. Install "
+        "ansible-core and ansible-runner "
+        "(https://ansible.readthedocs.io/projects/runner/en/stable/install/)."
     )
     no_inventory: str = (
         "The project profile of {repo} names no inventory. Run devops infra onboard {repo} for "

@@ -9,7 +9,8 @@ from devops_cli.research.models import ComponentKind
 from tests.support.paths import REPO_ROOT
 
 
-@pytest.mark.parametrize("kind", list(ComponentKind))
+# A tool is a pin outside the repository, which only the watch file names (#4363).
+@pytest.mark.parametrize("kind", [kind for kind in ComponentKind if kind is not ComponentKind.TOOL])
 def test_the_repository_has_at_least_one_pin_of_each_kind(kind: ComponentKind) -> None:
     summary = read_inventory(REPO_ROOT).summary
 

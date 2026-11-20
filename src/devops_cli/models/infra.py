@@ -226,9 +226,10 @@ class PlanStatus(StrEnum):
 
 class PlanContent(BaseModel):
     """The facts of a plan that its id covers: what ran, at which commit, and what it shows on
-    each host."""
+    each host. A record with a field that the model does not name does not read: a record from
+    before #4363, which named the ansible-core version of the pinned install, is planned again."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     repo: str = Field(description="The GitHub repository of the infra repo, as owner/name")
     ref: str = Field(description="The ref at origin that the plan read")
@@ -240,10 +241,6 @@ class PlanContent(BaseModel):
         "of hosts out of service"
     )
     tags: str | None = Field(description="The --tags that the caller gave; none for all tasks")
-    ansible_core: str | None = Field(
-        description="The ansible-core version of the tool environment; none when it is not the "
-        "pinned install"
-    )
     inventory_hash: str = Field(
         description="The SHA-256 of the inventory listing, with its groups and raw host variables"
     )

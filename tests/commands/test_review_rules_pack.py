@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections.abc import Iterator
 from pathlib import Path
+from shutil import which
 
 import pytest
 import yaml
@@ -14,6 +16,7 @@ from typer.testing import CliRunner
 from devops_cli.commands.review import app as review_app
 from devops_cli.config.defaults import DEFAULT_SEMGREP_CONFIG
 from devops_cli.dry_run.state import set_dry_run
+from devops_cli.exceptions.tools import DependencyError
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.main import app as root_app
 from devops_cli.review.rules_pack import (
@@ -218,6 +221,73 @@ def test_semgrep_gets_only_its_own_setting_and_not_the_environment_of_the_person
         ("--version", {"SEMGREP_ENABLE_VERSION_CHECK": "0"}),
         ("--test", {"SEMGREP_ENABLE_VERSION_CHECK": "0"}),
     ]
+
+
+def _stand_in(folder: Path) -> Path:
+    """An executable `semgrep` stand-in in `folder`."""
+    folder.mkdir(parents=True, exist_ok=True)
+    stand_in = folder / "semgrep"
+    stand_in.write_text("#!/bin/sh\n", encoding="utf-8")
+    stand_in.chmod(0o755)
+    return stand_in
+
+
+@pytest.fixture
+def installer_semgrep() -> Iterator[Path]:
+    """A `semgrep` stand-in in `~/.local/bin` of the isolated home, a folder that PATH does not
+    name. The folders that the fixture makes go after the test."""
+    local_bin = Path.home() / ".local" / "bin"
+    made = [folder for folder in (local_bin, *local_bin.parents) if not folder.exists()]
+    stand_in = _stand_in(local_bin)
+    try:
+        yield stand_in
+    finally:
+        stand_in.unlink()
+        if made:
+            shutil.rmtree(made[-1])
+
+
+def test_rules_test_runs_the_semgrep_on_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+) -> None:
+    """The rule pack test runs the `semgrep` that PATH names (#4362). The test gives back the
+    PATH lookup that `process_fake` replaces."""
+    pack_copy = tmp_path / "rules"
+    shutil.copytree(RULE_PACK_DIR, pack_copy)
+    stand_in = _stand_in(tmp_path / "bin")
+    monkeypatch.setenv("PATH", str(stand_in.parent))
+    monkeypatch.setattr(shutil, "which", which)
+    process_fake.answer(lambda call: "--version" in call.argv, ProcessAnswer(stdout="1.99.0\n"))
+
+    run_rule_pack_tests(pack_copy)
+
+    assert [call.argv[0] for call in process_fake.calls] == [str(stand_in.resolve())] * 2
+
+
+def test_rules_test_does_not_find_a_semgrep_only_in_the_installer_folder(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    process_fake: ProcessFake,
+    installer_semgrep: Path,
+) -> None:
+    """A `semgrep` only in `~/.local/bin` is not on PATH: the rule pack test raises
+    `DependencyError` with an install hint and starts no process (#4362)."""
+    pack_copy = tmp_path / "rules"
+    shutil.copytree(RULE_PACK_DIR, pack_copy)
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.setenv("PATH", str(empty))
+    monkeypatch.setattr(shutil, "which", which)
+
+    with pytest.raises(DependencyError) as caught:
+        run_rule_pack_tests(pack_copy)
+
+    assert (
+        installer_semgrep.is_file(),
+        caught.value.details["tool_name"],
+        "semgrep.dev" in caught.value.details["install_hint"],
+        process_fake.calls,
+    ) == (True, "semgrep", True, [])
 
 
 def test_a_lock_entry_with_a_semgrep_version_does_not_load() -> None:

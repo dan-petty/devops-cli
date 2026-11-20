@@ -1,7 +1,7 @@
 # k8s-validate Specification
 
 ## Purpose
-The `devops k8s validate` command validates Kubernetes manifests against their JSON schemas with the kubeconform that `tools.lock` pins. It never reports a pass when kubeconform did not run.
+The `devops k8s validate` command validates Kubernetes manifests against their JSON schemas with the kubeconform on PATH. It never reports a pass when kubeconform did not run.
 
 ## Requirements
 

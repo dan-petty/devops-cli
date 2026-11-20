@@ -18,7 +18,6 @@ FIXTURE_REPO = FIXTURES / "research" / "repo"
 
 _PIP = (ComponentKind.PYTHON_PACKAGE, Ecosystem.PYPI)
 _NODE = (ComponentKind.NODE_PACKAGE, Ecosystem.NPM)
-_TOOL = ComponentKind.TOOL
 _IMAGE = (ComponentKind.CONTAINER_IMAGE, Ecosystem.DOCKER)
 _ACTION = (ComponentKind.ACTION, Ecosystem.GITHUB_ACTIONS)
 
@@ -97,55 +96,7 @@ EXPECTED = [
     _component(_PIP, "httpx2", "2.13.1", "pyproject.toml", 5),
     _component(_PIP, "pyyaml", "6.0.3", "pyproject.toml", 6),
     _component(_PIP, "pytest", "9.1.1", "pyproject.toml", 11),
-    _component(
-        _NODE,
-        "@example/helper",
-        "0.4.2",
-        "src/devops_cli/tools_lock/example-npm/package-lock.json",
-        11,
-    ),
-    _component(
-        _NODE,
-        "example-npm",
-        "1.14.3",
-        "src/devops_cli/tools_lock/example-npm/package-lock.json",
-        14,
-    ),
     _component(_NODE, "example-dev-tool", "2.1.0", "package-lock.json", 11),
-    _component(_PIP, "bandit", "1.9.4", "src/devops_cli/tools_lock/bandit.txt", 3),
-    _component(_PIP, "colorama", "0.4.6", "src/devops_cli/tools_lock/bandit.txt", 6),
-    Component(
-        kind=_TOOL,
-        ecosystem=Ecosystem.GITHUB_RELEASE,
-        name="kubectl",
-        version="1.37.1",
-        file="src/devops_cli/tools_lock/tools.lock",
-        line=3,
-    ),
-    Component(
-        kind=_TOOL,
-        ecosystem=Ecosystem.UNKNOWN,
-        name="homebrewed",
-        version="2.0.0",
-        file="src/devops_cli/tools_lock/tools.lock",
-        line=14,
-    ),
-    Component(
-        kind=_TOOL,
-        ecosystem=Ecosystem.PYPI,
-        name="bandit",
-        version="1.9.4",
-        file="src/devops_cli/tools_lock/tools.lock",
-        line=25,
-    ),
-    Component(
-        kind=_TOOL,
-        ecosystem=Ecosystem.NPM,
-        name="example-npm",
-        version="1.14.3",
-        file="src/devops_cli/tools_lock/tools.lock",
-        line=32,
-    ),
     _component(
         (ComponentKind.TERRAFORM_PROVIDER, Ecosystem.TERRAFORM),
         "hashicorp/aws",
@@ -190,14 +141,10 @@ def test_the_same_action_at_two_versions_is_two_components() -> None:
     assert setup_uv == ["v10.2.0", "v10.0.1"]
 
 
-def test_a_pin_with_no_ecosystem_is_listed_and_counted() -> None:
+def test_the_summary_counts_every_component() -> None:
     inventory = read_inventory(FIXTURE_REPO)
 
-    unknown = [c.name for c in inventory.components if c.ecosystem == Ecosystem.UNKNOWN]
-
-    assert unknown == ["homebrewed"]
-    assert inventory.summary.unknown == 1
-    assert inventory.summary.total == len(EXPECTED)
+    assert (inventory.summary.unknown, inventory.summary.total) == (0, len(EXPECTED))
 
 
 def test_summary_counts_each_kind_and_ecosystem() -> None:
@@ -208,10 +155,9 @@ def test_summary_counts_each_kind_and_ecosystem() -> None:
         "chart": 1,
         "container-image": 7,
         "devcontainer-feature": 1,
-        "node-package": 3,
-        "python-package": 6,
+        "node-package": 1,
+        "python-package": 4,
         "terraform-provider": 1,
-        "tool": 4,
     }
     assert sum(summary.by_ecosystem.values()) == summary.total
 

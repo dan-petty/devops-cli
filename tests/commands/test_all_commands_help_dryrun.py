@@ -110,7 +110,6 @@ def test_all_command_specs_registered(cli: Any) -> None:
         "branches",
         "devcontainer",
         "workspace",
-        "install-tools",
         "openspec",
         "k8s",
         "kustomize",

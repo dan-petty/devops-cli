@@ -64,9 +64,6 @@ _OSV_ECOSYSTEMS: Final[dict[ComponentKind, tuple[Ecosystem, str]]] = {
     ComponentKind.PYTHON_PACKAGE: (Ecosystem.PYPI, "PyPI"),
     ComponentKind.NODE_PACKAGE: (Ecosystem.NPM, "npm"),
 }
-# A tool of the tools lock is named by its key, which is not always the name of its package: the
-# key `openspec` is the package `@fission-ai/openspec`. The Python and Node lists hold the package.
-_TOOL_LOCK_ENTRY: Final[str] = "tool-lock-entry"
 # The ecosystem of the GitHub Actions in the GitHub Advisory Database.
 _GITHUB_ACTIONS: Final[str] = "actions"
 _SOURCE_OSV: Final[str] = "OSV"
@@ -131,11 +128,6 @@ def _plan(inventory: Inventory, watch: WatchList) -> _Plan:
                 plan.osv.setdefault(key, []).append(component)
             else:
                 plan.unpinned += 1
-            continue
-        if component.kind is ComponentKind.TOOL and any(
-            component.ecosystem is known for known, _ in _OSV_ECOSYSTEMS.values()
-        ):
-            plan.not_covered[_TOOL_LOCK_ENTRY] += 1
             continue
         entry = (
             None

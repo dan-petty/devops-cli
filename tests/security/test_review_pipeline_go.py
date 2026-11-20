@@ -49,11 +49,11 @@ def test_classify_scanner_files_keeps_unknown_lock_names_out(tmp_path: Path) -> 
     """classify_scanner_files keeps a file out of the lockfile bucket by any other name (#3536)."""
     uv_lock = tmp_path / "uv.lock"
     rules_lock = tmp_path / "rules.lock"
-    tools_lock = tmp_path / "tools.lock"
-    for lock in (uv_lock, rules_lock, tools_lock):
+    pins_lock = tmp_path / "pins.lock"
+    for lock in (uv_lock, rules_lock, pins_lock):
         lock.write_text("version = 1\n", encoding="utf-8")
 
-    buckets = classify_scanner_files([uv_lock, rules_lock, tools_lock])
+    buckets = classify_scanner_files([uv_lock, rules_lock, pins_lock])
 
     assert buckets.lockfiles == [uv_lock]
 

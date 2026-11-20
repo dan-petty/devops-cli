@@ -23,10 +23,6 @@ from tests.support.paths import FIXTURES, REPO_ROOT
 _MAPPING_FILE = REPO_ROOT / WATCH_FILE
 # The fixtures of the research package: the recorded answers of OSV, GitHub and the scanners.
 _RESEARCH_FIXTURES = FIXTURES / "research"
-# The release binaries whose repository publishes them as a Go module.
-_GO_BINARIES = ("argo", "argocd", "trivy")
-# The prefix of the module path that OSV gives a Go package.
-_GO_MODULE = "github.com/"
 # RFC 1918's three blocks. `ipaddress.is_private` also holds the documentation blocks of RFC 5737,
 # which a fixture may name.
 _RFC1918 = tuple(
@@ -105,34 +101,24 @@ def test_the_mapping_file_and_the_research_fixtures_hold_no_private_value() -> N
     assert (len(scanned) > 1, found) == (True, [])
 
 
-def test_the_repository_lists_the_pins_outside_it_and_the_osv_identity_of_the_go_binaries() -> None:
+def test_the_repository_lists_the_pins_outside_it() -> None:
     """The inventory of the repository lists the two pins that no file holds, at the file
-    `external` and line 0, and gives each Go release binary its OSV identity."""
+    `external` and line 0. The watch list names no release binary: the devtools image audits the
+    tools that it installs (#4363)."""
     inventory = mapped_inventory(REPO_ROOT)
     external = [component for component in inventory.components if component.file == "external"]
-    go = {
-        component.name: (component.osv_ecosystem, component.osv_name.startswith(_GO_MODULE))
-        for component in inventory.components
-        if component.name in _GO_BINARIES
-    }
 
-    assert (
-        [
-            (
-                component.name,
-                component.line,
-                component.kind,
-                component.ecosystem,
-                component.osv_ecosystem,
-                component.osv_name,
-            )
-            for component in external
-        ],
-        go,
-    ) == (
-        [
-            ("nvidia-driver", 0, ComponentKind.TOOL, Ecosystem.UNKNOWN, "", ""),
-            ("ubuntu", 0, ComponentKind.TOOL, Ecosystem.UNKNOWN, "Ubuntu", "linux"),
-        ],
-        {"argo": ("Go", True), "argocd": ("Go", True), "trivy": ("Go", True)},
-    )
+    assert [
+        (
+            component.name,
+            component.line,
+            component.kind,
+            component.ecosystem,
+            component.osv_ecosystem,
+            component.osv_name,
+        )
+        for component in external
+    ] == [
+        ("nvidia-driver", 0, ComponentKind.TOOL, Ecosystem.UNKNOWN, "", ""),
+        ("ubuntu", 0, ComponentKind.TOOL, Ecosystem.UNKNOWN, "Ubuntu", "linux"),
+    ]

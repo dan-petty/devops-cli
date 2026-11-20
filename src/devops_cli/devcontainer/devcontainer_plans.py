@@ -1,4 +1,4 @@
-"""Planned requests for devcontainer and install-tools commands (#412, #886, #2256).
+"""Planned requests for devcontainer commands (#412, #886, #2256).
 
 A dry run makes zero external requests and returns ordered PlannedRequest items.
 """
@@ -6,33 +6,10 @@ A dry run makes zero external requests and returns ordered PlannedRequest items.
 from __future__ import annotations
 
 import os
-import platform
 from pathlib import Path
-from typing import Final
 
-from devops_cli.config.commands import build_npm_ci_cmd
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.k8s.context import configured_context
-from devops_cli.tools_lock import (
-    LOCK_DIR,
-    BinaryTool,
-    NpmTool,
-    PythonTool,
-    load_tools_lock,
-)
-
-
-def _sys_info() -> tuple[str, str]:
-    system = platform.system().lower()
-    arch = platform.machine().lower()
-    os_name = {"darwin": "darwin", "linux": "linux", "windows": "windows"}.get(system, system)
-    arch_name = {"x86_64": "amd64", "amd64": "amd64", "arm64": "arm64", "aarch64": "arm64"}.get(
-        arch, arch
-    )
-    return os_name, arch_name
-
-
-_PLATFORM: Final[str] = "-".join(_sys_info())
 
 
 def plan_bootstrap_k8s(
@@ -58,56 +35,6 @@ def plan_bootstrap_k8s(
             argv=("minikube", "update-context"),
         ),
     ]
-
-
-def plan_install_tools(
-    tool: str | None = None,
-    target_dir: Path | None = None,
-    only_missing: bool = False,
-) -> list[PlannedRequest]:
-    """Plan tool downloads and installations from tools lock."""
-    tools = load_tools_lock().tools()
-    if tool is not None and tool in tools:
-        selected_tools = {tool: tools[tool]}
-    else:
-        selected_tools = tools
-
-    requests: list[PlannedRequest] = []
-    for name, entry in selected_tools.items():
-        if isinstance(entry, BinaryTool):
-            artifact = entry.platforms.get(_PLATFORM)
-            if artifact:
-                requests.append(
-                    PlannedRequest(
-                        method="GET",
-                        target=artifact.url,
-                    )
-                )
-        elif isinstance(entry, PythonTool):
-            requests.append(
-                PlannedRequest(
-                    method="uv",
-                    target=f"pip sync {entry.requirements}",
-                    argv=(
-                        "uv",
-                        "pip",
-                        "sync",
-                        "--require-hashes",
-                        "-p",
-                        "<python>",
-                        str(LOCK_DIR / entry.requirements),
-                    ),
-                )
-            )
-        elif isinstance(entry, NpmTool):
-            requests.append(
-                PlannedRequest(
-                    method="npm",
-                    target=f"ci {name}",
-                    argv=tuple(build_npm_ci_cmd()),
-                )
-            )
-    return requests
 
 
 def plan_post_create(workspace: Path | str = ".") -> list[PlannedRequest]:

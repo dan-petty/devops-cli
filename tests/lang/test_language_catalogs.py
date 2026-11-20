@@ -81,7 +81,6 @@ def test_domain_message_catalogs() -> None:
         MESSAGES.tf.plan_success,
         MESSAGES.pipeline.executing,
         MESSAGES.ai.cache_title,
-        MESSAGES.install.status_title,
     ]
     for msg in messages:
         assert isinstance(msg, str)
@@ -125,7 +124,6 @@ def test_domain_help_catalogs() -> None:
         HELP.telemetry.app,
         HELP.tls.app,
         HELP.config.app,
-        HELP.install.app,
         HELP.benchmark.app,
         HELP.analyze.app,
         HELP.prometheus.app,

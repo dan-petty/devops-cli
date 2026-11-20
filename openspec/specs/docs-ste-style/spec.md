@@ -1,7 +1,7 @@
 # docs-ste-style Specification
 
 ## Purpose
-The Vale style that checks the hand-written prose against the four ASD-STE100 rules of AGENTS.md rule 9, and its pinned tool.
+The Vale style that checks the hand-written prose against the four ASD-STE100 rules of AGENTS.md rule 9.
 
 ## Requirements
 
@@ -19,13 +19,6 @@ The repository SHALL hold `.vale.ini` and the style `STE` with four suggestion r
 #### Scenario: Code
 - **WHEN** a code span or a code block holds a contraction
 - **THEN** Vale reports no alert
-
-### Requirement: The pin installs the tool
-`src/devops_cli/tools_lock/tools.lock` SHALL hold Vale 3.26.0 with the sha256 of its Linux amd64 and arm64 builds, so `devops install-tools --tool vale` installs it.
-
-#### Scenario: The install
-- **WHEN** `devops install-tools --tool vale --target-dir <dir>` runs
-- **THEN** `<dir>/vale` is the pinned binary
 
 ### Requirement: The testing page passes
 `vale docs/TESTING.md` SHALL return 0 errors and 0 warnings, with the findings at the suggestion level.

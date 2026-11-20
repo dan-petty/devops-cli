@@ -21,7 +21,7 @@ The fail-to-pass workflow SHALL start only for a pull request into `main` that c
 - **THEN** it holds `github.event.pull_request.user.login != 'dan-petty-renovate[bot]'` and names no other author, so the fix pull requests of the Service App keep the check
 
 #### Scenario: A change outside the code under src
-- **WHEN** the path filter of the workflow is evaluated for `tests/test_fail_to_pass.py`, `tests/gate/runner.py`, `k8s/otel/values.yaml`, `Dockerfile`, `src/devops_cli/ai/knowledge_base/devops_cli/tasks/testing.md`, `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `src/devops_cli/tools_lock/tools.lock` and the files of a release pull request
+- **WHEN** the path filter of the workflow is evaluated for `tests/test_fail_to_pass.py`, `tests/gate/runner.py`, `k8s/otel/values.yaml`, `Dockerfile`, `src/devops_cli/ai/knowledge_base/devops_cli/tasks/testing.md`, `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `src/devops_cli/review/rules/rules.lock` and the files of a release pull request
 - **THEN** the workflow does not start for any of them, and it starts for `src/devops_cli/ci/fail_to_pass.py`
 
 #### Scenario: A gate check pull request
@@ -211,17 +211,6 @@ and pytest's exit status, or the limit when pytest passed it.
 - **WHEN** `devops ci fail-to-pass --dry-run` runs
 - **THEN** the plan lists the head pytest run with the condition `a test that failed or errored on base is unchanged`, and the process fake records no call
 
-### Requirement: A fix that changes no source code needs no proof
-`devops ci fail-to-pass` SHALL pass with no replay, and SHALL say that the fix changes no source code and no gate check, when the diff from the merge base holds no `.py` file under `src/` outside the knowledge base and no check module of `tests/gate/*_checks/`.
-
-#### Scenario: A fix of a prompt
-- **WHEN** a fix changes only `src/devops_cli/ai/tasks/roadmap_stage_change.md` and a test that passes on base
-- **THEN** the command exits 0, starts no pytest, and says that the fix changes no source code
-
-#### Scenario: A fix of tool pins
-- **WHEN** a fix changes only `src/devops_cli/tools_lock/tools.lock` and `src/devops_cli/tools_lock/devcontainers-cli/package-lock.json`
-- **THEN** the command exits 0 and starts no pytest
-
 ### Requirement: A replay that passes the process-runner limit names the limit
 
 When a replay stops after `DEFAULT_SUBPROCESS_TIMEOUT_SECONDS`, the report SHALL name the limit and
@@ -320,3 +309,14 @@ The base, plain-base, head and gate-row replays SHALL use this report.
 #### Scenario: A dry run with a named head
 - **WHEN** `devops ci fail-to-pass --base main --head feature --dry-run` runs
 - **THEN** the plan lists a read of the gate check module at `<merge-base>`, repeated for each changed or deleted module of `tests/gate/*_checks/`, and at `feature`, repeated for each changed module, and no process starts
+
+### Requirement: A fix that changes no source code needs no failing proof
+`devops ci fail-to-pass` SHALL pass with no replay, and SHALL say that the fix changes no source code and no gate check, when the diff from the merge base holds no `.py` file under `src/` outside the knowledge base and no check module of `tests/gate/*_checks/`.
+
+#### Scenario: A fix of a prompt
+- **WHEN** a fix changes only `src/devops_cli/ai/tasks/roadmap_stage_change.md` and a test that passes on base
+- **THEN** the command exits 0, starts no pytest, and says that the fix changes no source code
+
+#### Scenario: A fix of a rule lock
+- **WHEN** a fix changes only `src/devops_cli/review/rules/rules.lock`
+- **THEN** the command exits 0 and starts no pytest

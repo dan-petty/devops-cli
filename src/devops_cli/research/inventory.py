@@ -12,9 +12,9 @@ from pathlib import Path
 from devops_cli.research.container_pins import read_container_pins
 from devops_cli.research.k8s_pins import read_k8s_pins
 from devops_cli.research.models import Component, Ecosystem, Inventory, InventorySummary
+from devops_cli.research.node_pins import read_node_pins
 from devops_cli.research.python_pins import read_python_pins
 from devops_cli.research.terraform_pins import read_terraform_pins
-from devops_cli.research.tool_pins import read_tool_pins
 from devops_cli.research.workflow_pins import read_workflow_pins
 
 
@@ -33,7 +33,7 @@ def read_inventory(root: Path) -> Inventory:
     """The inventory of the repository at `root`, ordered by file, then line, then name."""
     components = [
         *read_python_pins(root),
-        *read_tool_pins(root),
+        *read_node_pins(root),
         *read_container_pins(root),
         *read_workflow_pins(root),
         *read_k8s_pins(root),

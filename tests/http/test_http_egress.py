@@ -37,7 +37,6 @@ from devops_cli.argo.gitops import trigger_argocd_sync
 from devops_cli.argo.rollouts import evaluate_rollout_gate
 from devops_cli.cloudflare.client import CloudflareClient
 from devops_cli.commands import ai_gateway, argo, grafana, prometheus
-from devops_cli.commands.install_tools import _download
 from devops_cli.config.defaults import (
     DEFAULT_HTTP_MAX_CONNECTIONS,
     DEFAULT_HTTP_MAX_KEEPALIVE_CONNECTIONS,
@@ -912,7 +911,6 @@ def _k8s_service_calls() -> dict[str, Callable[[], Any]]:
 def _caller_calls(flag: bool, tmp_path: Path) -> dict[str, Callable[[], Any]]:
     """Each caller that a change moved to the entry point, against example.com or its fixed API host."""
     return {
-        "tool download": lambda: _download("https://example.com/tool.tar.gz"),
         "vault": lambda: VaultSecretBroker("http://example.com:8200", "token").get_status(),
         "vault lease": lambda: _post("http://example.com:8200", "sys/leases/renew", {}, {}),
         "tempo": lambda: query_tempo_trace(_TRACE_ID, tempo_url="http://example.com:3200"),
@@ -978,7 +976,6 @@ def _k8s_service_levels(flag: bool) -> dict[str, EgressLevel]:
 def _expected_levels(flag: bool) -> dict[str, EgressLevel]:
     """The level table of each change that moved callers to the factory, for those callers."""
     return {
-        "tool download": PUBLIC,
         "vault": PRIVATE,
         "vault lease": PRIVATE,
         "tempo": LOOPBACK,
@@ -1060,7 +1057,7 @@ def test_each_caller_dials_at_its_level(
 
     The caller runs twice, its host answering 127.0.0.1 and then 192.0.2.10: a public-level client
     dials neither, a loopback-level one only the first, a private-level one both. Only the URLs
-    that come from configuration follow the flag; the tool downloads, the documentation crawler,
+    that come from configuration follow the flag; the documentation crawler,
     the default pricing registry and the clients of fixed public APIs (OSV, Shodan InternetDB,
     Cloudflare Radar, the Cloudflare API and PyPI) do not widen with it. A caller host name never
     reaches the dial: a client that hands the socket the name lets it resolve the name again

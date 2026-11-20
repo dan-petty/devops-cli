@@ -1,4 +1,4 @@
-"""The Python pins: pyproject.toml, uv.lock and the hashed requirements of the tools lock (#3896).
+"""The Python pins: pyproject.toml and uv.lock (#3896).
 
 A direct dependency has the pin of pyproject.toml. A package that only uv.lock holds is a
 transitive one, and has the version of the lock. The project itself, which uv.lock lists with an
@@ -14,12 +14,11 @@ from typing import Any
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 
-from devops_cli.research.files import LineIndex, matching_files, parse_errors, relative
+from devops_cli.research.files import LineIndex, parse_errors
 from devops_cli.research.models import Component, ComponentKind, Ecosystem
 
 PYPROJECT = "pyproject.toml"
 UV_LOCK = "uv.lock"
-REQUIREMENTS_GLOB = "src/devops_cli/tools_lock/*.txt"
 
 
 def _component(name: str, version: str, file: str, line: int) -> Component:
@@ -90,23 +89,6 @@ def _read_uv_lock(root: Path, direct: set[str]) -> list[Component]:
         return found
 
 
-def _read_requirements(root: Path, path: Path) -> list[Component]:
-    """The pins of a requirements file that `uv pip compile --generate-hashes` wrote."""
-    with parse_errors(root, path):
-        found: list[Component] = []
-        for number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-            # A requirement starts at the left edge; its hashes and `# via` notes are indented.
-            if not raw or raw[0].isspace() or raw.startswith("#"):
-                continue
-            requirement = Requirement(raw.removesuffix("\\").strip())
-            found.append(
-                _component(
-                    requirement.name, _pinned_version(requirement), relative(root, path), number
-                )
-            )
-        return found
-
-
 def read_python_pins(root: Path) -> list[Component]:
     """The Python components of `root`."""
     direct = _read_pyproject(root)
@@ -114,6 +96,4 @@ def read_python_pins(root: Path) -> list[Component]:
         *direct,
         *_read_uv_lock(root, {component.name for component in direct}),
     ]
-    for path in matching_files(root, REQUIREMENTS_GLOB):
-        found.extend(_read_requirements(root, path))
     return found

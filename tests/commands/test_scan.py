@@ -119,7 +119,7 @@ def test_scan_json_stdout_is_valid_json(
 
 
 def test_scan_has_no_iac_command(tmp_path: Path, runner: CliRunner) -> None:
-    """`devops scan iac` ran Checkov, which `tools.lock` does not pin. Trivy's misconfiguration
+    """`devops scan iac` ran Checkov, which no image installs. Trivy's misconfiguration
     scan, `devops scan trivy --type config`, scans the IaC files in its place (#2214)."""
     result = runner.invoke(scan_app, ["iac", str(tmp_path)])
 

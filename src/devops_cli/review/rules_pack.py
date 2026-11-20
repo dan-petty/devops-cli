@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import functools
 import hashlib
-import os
-import shutil
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -14,10 +12,12 @@ from pydantic import BaseModel, ConfigDict
 from pydantic import ValidationError as PydanticValidationError
 
 from devops_cli.config.commands import BIN_SEMGREP
-from devops_cli.config.defaults import DEFAULT_LOCAL_BIN_DIR
+from devops_cli.config.constants import CONST_DEVTOOLS_IMAGE
+from devops_cli.core.binaries import require_binary
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
 from devops_cli.exceptions.validation import ValidationError
+from devops_cli.lang import MESSAGES
 from devops_cli.output.file_writer import write_text_file
 
 RULE_PACK_DIR = Path(__file__).resolve().parent / "rules"
@@ -194,9 +194,13 @@ def verify_rules_lock(rules_dir: Path = RULE_PACK_DIR) -> list[str]:
 
 
 def _resolve_semgrep_binary() -> str:
-    """Prefer the pinned binary in `~/.local/bin/semgrep` when installed, else PATH `semgrep`."""
-    search_path = os.pathsep.join((str(DEFAULT_LOCAL_BIN_DIR), os.environ.get("PATH", "")))
-    return shutil.which(BIN_SEMGREP, path=search_path) or BIN_SEMGREP
+    """The `semgrep` on PATH (#4362).
+
+    Raises:
+        DependencyError: no `semgrep` is on PATH.
+    """
+    hint = MESSAGES.review.semgrep_install_hint.format(image=CONST_DEVTOOLS_IMAGE)
+    return str(require_binary(BIN_SEMGREP, install_hint=hint))
 
 
 def _detect_semgrep_version(binary: str, env: dict[str, str]) -> str:

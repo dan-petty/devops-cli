@@ -3,7 +3,7 @@
 `tests/fixtures/infra/homelab_shape/` holds the repo: the groups, host_vars and playbook names of
 homelab, with `example.com` hosts and RFC 5737 addresses, and a `.devops/project.toml` that
 declares its profile. `ansible_config.json` and
-`ansible_inventory.json` beside it are the output of the pinned `ansible-config dump --format json
+`ansible_inventory.json` beside it are the output of `ansible-config dump --format json
 --only-changed` and `ansible-inventory -i ansible/inventory/hosts.yaml --list` in a copy of the repo, with the folder of the copy
 as `{root}`. To record them again, copy the repo to a scratch folder, run the two commands there
 with only `HOME`, `PATH` and `LANG` set, and put `{root}` in place of the folder.
@@ -17,7 +17,7 @@ export writes the files of a folder, by default the checkout, as the tar file of
 The Ansible reads run in the export, so their answers name the export where the recording names
 `{root}`.
 
-`runner_events/<run>.jsonl` holds the job events of a recorded check-mode run of the pinned
+`runner_events/<run>.jsonl` holds the job events of a recorded check-mode run of
 `ansible-runner` (#5124), one event on each line, in the order of their counter. The probe in
 `runner_events/probe/` is a small infra repo with one host for each case: the k3s agent role of
 dan-petty/homelab on node-3, the changes, skips and restart handler of a demo unit on node-1, a
@@ -61,10 +61,8 @@ from typing import Any, Final
 import pytest
 
 from devops_cli.core.process import build_subprocess_env
-from devops_cli.tools_lock import load_tools_lock, tool_install_dir
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.paths import FIXTURES
-from tests.support.tools import link_at_pin
 
 INFRA_FIXTURES: Final[Path] = FIXTURES / "infra"
 RUNNER_EVENTS: Final[Path] = INFRA_FIXTURES / "runner_events"
@@ -96,10 +94,11 @@ _CI_TEXT: Final[str] = (
 )
 
 
-def ansible_bin_dir() -> Path:
-    """The `bin` folder of the pinned Ansible tool environment under the user data root."""
-    tool = load_tools_lock().python["ansible-core"]
-    return tool_install_dir("ansible-core", tool.version).joinpath(*tool.command_dir)
+def ansible_command(command: str, *words: str) -> Callable[[ProcessCall], bool]:
+    """A matcher of the Ansible command `command` in any folder, with `words` next."""
+    return lambda call: (
+        Path(call.argv[0]).name == command and call.argv[1 : 1 + len(words)] == words
+    )
 
 
 def recorded_read(name: str, root: Path) -> Any:
@@ -218,11 +217,10 @@ def answer_infra_reads(
     (recorded unless given, with each path of `root` in the export), the kubeconfig contexts, and
     `ssh-keygen -F`, which finds each host of `known_hosts`."""
     answer_default_branch(fake, root)
-    bin_dir = ansible_bin_dir()
     dump = recorded_read("config", root) if config is None else config
     listing = recorded_read("inventory", root) if inventory is None else inventory
-    fake.answer([str(bin_dir / "ansible-config"), "dump"], in_export(json.dumps(dump), root))
-    fake.answer([str(bin_dir / "ansible-inventory")], in_export(json.dumps(listing), root))
+    fake.answer(ansible_command("ansible-config", "dump"), in_export(json.dumps(dump), root))
+    fake.answer(ansible_command("ansible-inventory"), in_export(json.dumps(listing), root))
     fake.answer(
         ["kubectl", "config", "get-contexts"],
         ProcessAnswer(stdout="".join(f"{name}\n" for name in contexts)),
@@ -249,11 +247,22 @@ def infra_repo(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def ansible_installed(tmp_path: Path) -> Path:
-    """The pinned Ansible tool environment, laid out as `devops install-tools` leaves it."""
-    target = tmp_path / "bin"
-    link_at_pin("ansible-core", target)
-    return ansible_bin_dir()
+def ansible_installed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+) -> Path:
+    """The `bin` folder of an Ansible tool environment whose `ansible-runner` is on PATH, as the
+    devtools image has it (#4362). `process_fake` answers the commands and finds each other tool."""
+    bin_dir = tmp_path / "ansible" / "bin"
+    bin_dir.mkdir(parents=True)
+    runner = bin_dir / "ansible-runner"
+    runner.write_text("#!/bin/sh\n", encoding="utf-8")
+    lookup = shutil.which
+
+    def which(cmd: str, *args: Any, **kwargs: Any) -> str | None:
+        return str(runner) if cmd == runner.name else lookup(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "which", which)
+    return bin_dir.resolve()
 
 
 @pytest.fixture

@@ -36,8 +36,12 @@ An entry of `infra.repos` SHALL hold operational keys only: `repo`, `path`, `kub
 - **THEN** the row of that item is `listed` with each value to declare and its source, host, task (`<path>:<line> <name>`) or target
 
 #### Scenario: No tool environment
-- **WHEN** no Ansible tool environment is installed: no install of `devops install-tools` and no `ansible-runner` on PATH
-- **THEN** the first row is `missing` with the step `devops install-tools --tool ansible-core`, each row that needs the config or the inventory is `not readable`, and no Ansible command starts
+- **WHEN** no `ansible-runner` is on PATH
+- **THEN** the first row is `missing` with a step that names the upstream install page of ansible-runner, each row that needs the config or the inventory is `not readable`, and no Ansible command starts
+
+#### Scenario: A tool environment on PATH
+- **WHEN** an `ansible-runner` is on PATH
+- **THEN** the first row is `present` and names the folder of the `ansible-runner` on PATH
 
 ### Requirement: Host key checks in the config and the inventory
 The host key row SHALL be `missing` when the effective config sets `host_key_checking` false or holds `StrictHostKeyChecking=no` or `UserKnownHostsFile=/dev/null` in an option of the `ssh` plugin, or when a host variable `ansible_ssh_args`, `ansible_ssh_common_args`, `ansible_ssh_extra_args`, `ansible_host_key_checking` or `ansible_ssh_host_key_checking` does the same. It SHALL list each such setting.
@@ -92,13 +96,6 @@ With `--dry-run`, the command SHALL start no process and write no file, and SHAL
 - **WHEN** the command runs with `--confirm --dry-run`
 - **THEN** no process starts, the config file keeps every byte, and the output lists the fetch of `origin`, the reads of the default branch and of the checkout, the export, the config dump, the inventory listing, `ssh-keygen -F <host>` for each host in service, the kubeconfig contexts and the write of `infra.repos`
 
-### Requirement: One pinned Ansible environment
-The tools lock SHALL hold `[python.ansible-core]`: one environment with ansible-core and ansible-runner from hashed requirements. Only `ansible-runner` SHALL go on PATH. The command SHALL start the Ansible commands from the environment that `devops install-tools` installed, else from the folder of the `ansible-runner` on PATH.
-
-#### Scenario: The lock is read
-- **WHEN** the packaged tools lock is read
-- **THEN** `ansible-core` is a Python tool, its requirements pin `ansible-runner==2.4.3`, and its only command is `ansible-runner`
-
 ### Requirement: The report reads the default branch at origin
 The command SHALL read the infra repo at the head of its default branch at `origin`, never in the working tree of the checkout. It SHALL fetch `origin` with the credential of the GitHub session and no prompt, export the tracked files of the commit that `refs/remotes/origin/HEAD` names into a new private folder, run every read of the repo there, and remove the folder after. It MUST NOT change a file or a branch of the checkout.
 
@@ -138,3 +135,14 @@ The unpack of the export SHALL refuse a member that links out of its folder, a d
 #### Scenario: An absolute base dir
 - **WHEN** `repos.base_dir` is `/srv/repos`
 - **THEN** the default checkout is `/srv/repos/owner/name`
+
+### Requirement: The Ansible environment is the ansible-runner on PATH
+Only `ansible-runner` SHALL go on PATH. The command SHALL start the Ansible commands from the folder of the file that the `ansible-runner` on PATH resolves to. It SHALL look in no other folder and SHALL record no version of the environment.
+
+#### Scenario: A link on PATH
+- **WHEN** the `ansible-runner` on PATH is a link to a file in another folder
+- **THEN** the command starts `ansible-config` from the folder of that file
+
+#### Scenario: No ansible-runner on PATH
+- **WHEN** no `ansible-runner` is on PATH
+- **THEN** the command finds no tool environment, and a dry run shows each Ansible command with no folder

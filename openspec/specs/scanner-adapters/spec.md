@@ -86,7 +86,7 @@ The uv audit adapter SHALL NOT start uv for a path that is not a directory, such
 - **THEN** uv does not start, and the outcome is `not_applicable` with no finding and the reason `<path> is not a directory. uv audit audits the project of a directory.`
 
 ### Requirement: kubeconform reads the one report object that it writes
-The kubeconform adapter SHALL run the kubeconform that `tools.lock` pins with `-output json`. The parser SHALL give one HIGH finding at `<manifest>:<Kind>/<name>` for each resource with the status `statusInvalid` or `statusError`. It SHALL give no finding for `statusValid` or `statusSkipped`.
+The kubeconform adapter SHALL run the kubeconform on PATH with `-output json`. The parser SHALL give one HIGH finding at `<manifest>:<Kind>/<name>` for each resource with the status `statusInvalid` or `statusError`. It SHALL give no finding for `statusValid` or `statusSkipped`.
 
 #### Scenario: kubeconform finds two invalid resources and one it cannot validate
 - **WHEN** kubeconform 0.8.0 validates a manifest directory and exits 1. It reports the ConfigMap `settings` and the Service `web` as `statusInvalid`, and the Widget `blue` as `statusError`
@@ -119,7 +119,7 @@ The kubeconform adapter SHALL keep no built-in patterns. When no directory of PA
 - **THEN** the outcome status is `unavailable`, the reason is `Binary 'kubeconform' not found on PATH`, and the outcome has no finding
 
 ### Requirement: Trivy's misconfiguration scan is the IaC scanner of the registry
-The scanner registry SHALL hold `trivy-config`, which runs `trivy config <target> --severity <severities> --format json --quiet` with the Trivy that `tools.lock` pins, and SHALL hold no Checkov adapter. Every scanner of the registry that has a binary in `tools.lock` SHALL have no built-in patterns.
+The scanner registry SHALL hold `trivy-config`, which runs `trivy config <target> --severity <severities> --format json --quiet` with the Trivy on PATH, and SHALL hold no Checkov adapter. No scanner of the registry SHALL have built-in patterns that stand in for a missing program.
 
 #### Scenario: devops scan report scans IaC files with Trivy
 - **WHEN** `devops scan report` runs every registered scanner over a directory
@@ -178,13 +178,6 @@ The tflint adapter SHALL keep no built-in patterns. When no directory of PATH ho
 #### Scenario: tflint is not installed
 - **WHEN** no directory of PATH holds tflint, and the adapter scans a directory with a security group open to `0.0.0.0/0`
 - **THEN** the outcome status is `unavailable`, the reason is `Binary 'tflint' not found on PATH`, and the outcome has no finding
-
-### Requirement: Every scanner of the registry has a pinned program
-The program of each scanner of the default registry SHALL be a command of a tool in `tools.lock`, or a pinned dev dependency of `pyproject.toml`. The registry SHALL hold no scanner for another program.
-
-#### Scenario: A scanner names a program that nothing pins
-- **WHEN** a test reads the program of each scanner of the default registry
-- **THEN** each program is a command of `tools.lock` or the dev dependency zizmor
 
 ### Requirement: No scanner or command runs dive
 The scanner registry SHALL hold no scanner named `dive`. The `devops docker` commands SHALL include no `analyze-layers` command.

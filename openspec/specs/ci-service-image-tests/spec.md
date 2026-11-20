@@ -6,10 +6,10 @@ The in-image suite proves that the tests pass in the Python and the OS of the Se
 ## Requirements
 
 ### Requirement: The in-image suite runs nightly and on image pull requests
-The Service Image Tests workflow SHALL run on the daily schedule, on a manual run, and on a pull request that changes `Dockerfile`, `.dockerignore`, `pyproject.toml`, `uv.lock`, `package.json`, `package-lock.json`, `src/devops_cli/tools_lock/`, `.devcontainer/Dockerfile`, `.github/actions/devtools-commands/` or the workflow file. A pull request that changes only other `src/` files SHALL start no job of it.
+The Service Image Tests workflow SHALL run on the daily schedule, on a manual run, and on a pull request that changes `Dockerfile`, `.dockerignore`, `pyproject.toml`, `uv.lock`, `package.json`, `package-lock.json`, `.devcontainer/Dockerfile`, `.github/actions/devtools-commands/` or the workflow file. A pull request that changes only other `src/` files SHALL start no job of it.
 
 #### Scenario: A pull request changes only src
-- **WHEN** a pull request changes only files under `src/` that are not under `src/devops_cli/tools_lock/`
+- **WHEN** a pull request changes only files under `src/`
 - **THEN** GitHub starts no Service Image Tests job for it
 
 #### Scenario: A pull request changes an image input

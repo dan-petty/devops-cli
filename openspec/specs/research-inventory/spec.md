@@ -6,7 +6,7 @@ How `devops research inventory` reads the pins of a repository from its files in
 ## Requirements
 
 ### Requirement: The inventory lists each pin as a typed component
-`devops research inventory` SHALL read the pins in `pyproject.toml`, `uv.lock`, the tools lock with its requirement and Node lock files, the root `package-lock.json`, the Dockerfiles, the devcontainer lock, the workflows and actions of `.github/`, the YAML of `k8s/` and the Terraform of `tf/`. It SHALL list one component for each pin, with a kind, an ecosystem, a name, a version, the file from the repository root and the line, ordered by file, then line, then name.
+`devops research inventory` SHALL read the pins in `pyproject.toml`, `uv.lock`, the root `package-lock.json`, the Dockerfiles, the devcontainer lock, the workflows and actions of `.github/`, the YAML of `k8s/` and the Terraform of `tf/`. It SHALL list one component for each pin, with a kind, an ecosystem, a name, a version, the file from the repository root and the line, ordered by file, then line, then name.
 
 #### Scenario: Each kind of pin gives a component
 - **WHEN** the repository holds one pin of each kind in the formats above
@@ -30,13 +30,6 @@ The inventory SHALL keep, beside the version, the commit of an Action pin whose 
 #### Scenario: A pin to a commit and a major tag
 - **WHEN** a step reads `uses: actions/checkout@<commit> # v7`
 - **THEN** the version of the component is `v7` and the component holds the commit
-
-### Requirement: A pin with no ecosystem is listed and counted
-A component that the reader cannot map to a registry SHALL have the ecosystem `unknown`. The summary SHALL count it in `unknown`, and the total SHALL include it.
-
-#### Scenario: A tool from a source that is no GitHub repository
-- **WHEN** a binary tool of the tools lock names a `source` outside `github.com`
-- **THEN** the list holds it with the ecosystem `unknown` and the summary counts one unknown component
 
 ### Requirement: The reader reaches nothing outside the files
 The inventory SHALL start no program and open no network connection unless the opt-in render option of `devops research inventory` is set and the run is not a dry run.
@@ -120,3 +113,10 @@ The inventory SHALL list each image of the rendered Argo CD Applications when th
 #### Scenario: Rendered image
 - **WHEN** the opt-in render option is set and a fake renderer returns an image that only the rendered chart names
 - **THEN** `renderer_for` gives that image, `mapped_inventory` lists it as a container image at the file `rendered` and line 0, and the fake ran once
+
+### Requirement: A pin with no publisher is listed and counted
+A component that the reader cannot map to a registry SHALL have the ecosystem `unknown`. The summary SHALL count it in `unknown`, and the total SHALL include it.
+
+#### Scenario: A pin outside the repository with no publisher
+- **WHEN** the watch file declares a `[[pin]]` that names no repository and no OSV identity
+- **THEN** the mapped inventory holds it with the ecosystem `unknown` and the summary counts one unknown component

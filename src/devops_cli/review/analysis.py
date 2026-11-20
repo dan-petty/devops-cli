@@ -15,9 +15,8 @@ from __future__ import annotations
 import ast
 import functools
 import json
-import os
 import re
-import shutil
+import sys
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Final, Literal
 
@@ -39,6 +38,7 @@ from devops_cli.ai.review.ast_imports import (
 )
 from devops_cli.ai.review.pool import ReviewWorkerPool
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.config.commands import BIN_RUFF
 from devops_cli.config.constants import (
     CONST_ANALYSIS_ADVISORY_TOOLS,
     CONST_ANALYSIS_DROP_REASON_BUDGET,
@@ -59,17 +59,18 @@ from devops_cli.config.defaults import (
     DEFAULT_ANALYSIS_REFERENCE_BUDGET_CHARS,
     DEFAULT_ANALYSIS_SAMPLING_SEED,
     DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
-    DEFAULT_LOCAL_BIN_DIR,
 )
+from devops_cli.core.binaries import require_binary
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.serialization import extract_json_block
+from devops_cli.exceptions.tools import DependencyError
+from devops_cli.lang import MESSAGES
 from devops_cli.review.anchors import AdvisoryAnchor
 from devops_cli.review.finding import Finding
 from devops_cli.review.fingerprint import extract_enclosing_symbol
 from devops_cli.review.rules_pack import discover_pack_rules
 from devops_cli.review.state import FindingState
 from devops_cli.security.sanitizer import mask_secrets
-from devops_cli.tools_lock import load_tools_lock
 
 GroupKind = Literal["region", "kubernetes", "advisory"]
 RelationKind = Literal["caller", "callee", "same-symbol", "same-rule", "same-root-cause"]
@@ -626,14 +627,11 @@ def default_environment_facts(
     cyclonedx_inventory: dict[str, Any] | None = None,
     kubernetes_version: str | None = None,
 ) -> EnvironmentFacts:
-    """Build default EnvironmentFacts from `tools.lock`, findings metadata, and CycloneDX inventory (#1146)."""
-    try:
-        lock = load_tools_lock()
-        python_pin = lock.python_version
-        tool_versions = {name.lower(): tool.version for name, tool in lock.tools().items()}
-    except OSError, ValueError:
-        python_pin = "3.14"
-        tool_versions = {}
+    """Build default EnvironmentFacts from the findings metadata, the running interpreter and the
+    CycloneDX inventory (#1146). The version of each tool is the version that the record of its run
+    names, the installed tool's, and no pin (#4388)."""
+    python_pin = f"{sys.version_info.major}.{sys.version_info.minor}"
+    tool_versions: dict[str, str] = {}
 
     locked_packages: dict[str, list[str]] = {}
     advisory_fixed: dict[str, list[str]] = {}
@@ -817,9 +815,20 @@ def _check_versions_and_packages(output: GroupAnalysisOutput, env: EnvironmentFa
     return all(ver.lstrip("v") in allowed_versions for ver in _VERSION_TOKEN_RE.findall(prose))
 
 
-def _default_ruff_block_checker(code: str, language_floor: str) -> list[str]:
-    search_path = os.pathsep.join((str(DEFAULT_LOCAL_BIN_DIR), os.environ.get("PATH", "")))
-    ruff_bin = shutil.which("ruff", path=search_path) or "ruff"
+def ruff_block_checker() -> Callable[[str, str], list[str]]:
+    """The check of a Python block with the `ruff` on PATH. The analysis looks it up at the first
+    Python block that parses, and a missing `ruff` reaches the caller with its install hint
+    (#4363).
+
+    Raises:
+        DependencyError: no `ruff` is on PATH.
+    """
+    ruff_bin = str(require_binary(BIN_RUFF, install_hint=MESSAGES.review.ruff_install_hint))
+    return functools.partial(_ruff_block_problems, ruff_bin)
+
+
+def _ruff_block_problems(ruff_bin: str, code: str, language_floor: str) -> list[str]:
+    """The `ruff check` problems of a Python block, from the `ruff` at `ruff_bin`."""
     floor = language_floor if language_floor.startswith("py") else DEFAULT_ANALYSIS_PYTHON_FLOOR
     res = run_subprocess(
         [
@@ -863,12 +872,15 @@ def _check_python_code_blocks(
     blocks = _extract_python_blocks(output)
     if not blocks:
         return True
-    active_checker = checker or _default_ruff_block_checker
+    active_checker = checker
     for block in blocks:
         try:
             ast.parse(block)
         except SyntaxError:
             return False
+        # The first block that parses looks up `ruff`, so a block that does not parse needs none.
+        if active_checker is None:
+            active_checker = ruff_block_checker()
         if active_checker(block, language_floor):
             return False
     return True
@@ -1430,6 +1442,8 @@ def run_review_plan_job(
             sampling=sampling,
             judge=judge,
         )
+    except DependencyError:
+        raise
     except RuntimeError, ValueError, OSError, TimeoutError, TypeError, KeyError:
         reason = CONST_ANALYSIS_REJECTION_MODEL_CALL_ERROR
         return (
@@ -1460,6 +1474,8 @@ def _process_group_job_outcomes(
     replayed = 0
     failed = 0
     for job, outcome in zip(jobs, outcomes, strict=True):
+        if isinstance(outcome, DependencyError):
+            raise outcome
         if isinstance(outcome, BaseException):
             failed += 1
             err_reason = CONST_ANALYSIS_REJECTION_MODEL_CALL_ERROR
@@ -1492,7 +1508,13 @@ def run_group_analysis(
     plan_client: Any | None = None,
     drift_manuals: Sequence[DriftManual] | None = None,
 ) -> AnalysisReport:
-    """Group admitted findings, run model jobs, compute cross-group correlations and plan the review."""
+    """Group admitted findings, run model jobs, compute cross-group correlations and plan the review.
+
+    Raises:
+        DependencyError: a reply holds a Python block that parses, no checker is given and no
+            `ruff` is on PATH. The error reaches the caller with its install hint; no job records it as a
+            failed model call (#4363).
+    """
     contents = file_contents or {}
     groups = group_findings_for_analysis(findings, file_contents=contents)
     eff_sampling = sampling or configured_sampling()
@@ -1785,6 +1807,7 @@ __all__ = [
     "group_findings_for_analysis",
     "load_matched_kb_manuals",
     "render_model_analysis_markdown",
+    "ruff_block_checker",
     "run_group_analysis",
     "run_review_plan_job",
     "verify_group_analysis",
