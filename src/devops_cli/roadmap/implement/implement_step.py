@@ -2127,7 +2127,10 @@ def _moves_tier(run: _Run) -> bool:
 
 def _commit_group(source: Path, inputs: StepInputs, item: int) -> tuple[str, str]:
     """The commit of a step whose exit checks passed, and why the step stops when git refuses
-    it."""
+    it. A tracked file that an exit check changed after the staging, such as the `uv.lock` that a
+    plain `uv run` writes on a stale lock (#6557), is staged first, so the checkout is clean after
+    the commit; a new file is not (#6559)."""
+    _git_output(source, "add", "-u")
     return _commit(source, step_commit_title(inputs.item_title, inputs.group.title, item))
 
 
