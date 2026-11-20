@@ -8,8 +8,9 @@ FROM node:24-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3
 # The devtools image (https://github.com/dan-petty/devtools): Debian sid with the development tools.
 # Its README names the source of each tool. The runner image builds FROM it, and the Service and MCP
 # server images copy single tools from it. This file names no tool version: Renovate moves the tag
-# and the digest of this line, in the devtools group with the devcontainer image (#4361).
-FROM ghcr.io/dan-petty/devtools:20261120@sha256:dc4ee4386d1b98116db489f4f507afc7236dcb04e97385eab378a48491cbf9b0 AS devtools
+# and the digest of this line each week, in the devtools group with the devcontainer image and the
+# OpenSpec pin of `tools.lock`, so the OpenSpec of the image is the one that the gate expects (#4361).
+FROM ghcr.io/dan-petty/devtools:20261119@sha256:a7b2f111941beaf5d36efb19f6ed2a50f8bed3062003498b97523da926143c51 AS devtools
 
 # The requirements of `uv.lock`, with their hashes and without the project (#4550). A release
 # changes the project version in `pyproject.toml` and `uv.lock`, but not these two files, and BuildKit
@@ -67,8 +68,9 @@ RUN cp -a /usr/local/lib/devtools/npm/. . && \
 # The devtools image gives the tools that the steps, the gate and the hooks run: git, gh, uv,
 # Python, Node, OpenSpec, actionlint, promtool, Trivy, OpenTofu, shellcheck, curl, jq and others.
 # This stage adds the user of the Job and the venv of the runtime and the dev requirements of
-# `uv.lock` (pytest, ruff, mypy, pre-commit and the rest of the dev group). The devtools image is
-# rebuilt each day with the updates of sid, so the runner runs no `apt-get upgrade`.
+# `uv.lock` (pytest, ruff, mypy, pre-commit and the rest of the dev group). The devtools image runs
+# `apt-get upgrade` of sid in its own build, and the runner takes a new devtools image each week
+# through Renovate, so the runner runs no `apt-get upgrade` of its own.
 # `RUNNER_TOOLS` in `src/devops_cli/roadmap/runner_tools.py` lists the programs that a Job needs,
 # and the smoke test of `ci.yml` and `release.yml` checks each one of them on the image.
 FROM devtools AS runner-deps

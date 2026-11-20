@@ -145,8 +145,8 @@ RUNNER_TOOLS: tuple[RunnerTool, ...] = (
 # holds most of these programs, but no source of the gate runs them in a Job. A test fails when a
 # program that a source of the gate names is in neither table.
 _NO_CLUSTER = (
-    "No check, hook, test or job of the gate runs it. The Job has no cluster token and no "
-    "container engine."
+    "No check, hook, test or job of the gate runs it. The Job has no cluster token, and its pod "
+    "cannot run a container engine: it has no capability and a read-only root."
 )
 _SCANNER = (
     "A scanner of `devops scan report`. The Static Analysis job of `ci.yml` installs none of "

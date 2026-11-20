@@ -2,7 +2,7 @@
 
 The move copies a claim with one pipe between two `kubectl exec` streams (#3695), so this measure
 plans the same `copy_argv` and reads each side with `digest_args`. A person runs it against a
-cluster, because the runner holds no kubectl, and records its report in #3953.
+cluster, because a runner Job has no cluster token, and records its report in #3953.
 
 The measure makes one temporary namespace with two claims and two pods, one pod on each named
 node. Each copy writes fresh random data to the source claim, empties the destination claim, runs

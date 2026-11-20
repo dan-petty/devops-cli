@@ -11,7 +11,6 @@ from typing import Any
 
 import yaml
 
-from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.paths import REPO_ROOT
 
 
@@ -35,21 +34,6 @@ def test_the_pull_request_check_builds_the_mcp_server_target_at_or_below_3gb() -
 
     (bound,) = re.findall(r'"\$size" -gt (\d+)', smoke)
     assert int(bound) <= 3000000000
-
-
-def test_the_tool_version_check_fails_on_mismatch_and_names_the_tool(
-    process_fake: ProcessFake,
-) -> None:
-    """When a tool is off-pin, devops install-tools --check fails and names the tool."""
-    process_fake.answer(
-        ["devops", "install-tools", "--check", "--tool", "kubectl"],
-        ProcessAnswer(returncode=1, stderr="kubectl 1.37.1: not installed\n"),
-    )
-    from devops_cli.core.process import run_subprocess
-
-    done = run_subprocess(["devops", "install-tools", "--check", "--tool", "kubectl"])
-    assert done.returncode == 1
-    assert "kubectl" in done.stderr
 
 
 def test_the_change_records_the_findings_and_the_date() -> None:

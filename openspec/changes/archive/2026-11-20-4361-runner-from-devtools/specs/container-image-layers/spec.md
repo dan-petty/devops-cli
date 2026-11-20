@@ -8,7 +8,7 @@ Only the `builder` and `runner-builder` stages SHALL copy a file of `src/`, and 
 - **THEN** `docker image inspect --format '{{json .RootFS.Layers}}'` gives the same layer digests for the two builds of each image, except the one layer of the project
 
 ### Requirement: A final stage adds only the apt upgrade and the project
-The `service` and `mcp-server` stages SHALL run `apt-get upgrade` and then copy from `builder` only the `devops_cli` package, its dist-info and `/app/.venv/bin/devops`, in one `COPY --link --parents`. The `runner` stage SHALL run no apt step, because the devtools image is rebuilt each day with the updates of sid, and SHALL copy the same three paths from `runner-builder` in one `COPY --link --parents`. No final stage SHALL install an apt package.
+The `service` and `mcp-server` stages SHALL run `apt-get upgrade` and then copy from `builder` only the `devops_cli` package, its dist-info and `/app/.venv/bin/devops`, in one `COPY --link --parents`. The `runner` stage SHALL run no apt step, because the devtools image runs `apt-get upgrade` in its own build. It SHALL copy the same three paths from `runner-builder` in one `COPY --link --parents`. No final stage SHALL install an apt package.
 
 #### Scenario: The final stage adds the upgrade and one copy of the project
 - **WHEN** a person runs `docker history` on a `runner`, `mcp-server` or `service` image
