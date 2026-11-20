@@ -40,7 +40,7 @@ When a tool exceeds its retries and ends the run, the reason of the stopped run 
 
 #### Scenario: A file tool that spends its retries in a step
 - **WHEN** the model calls `edit_file` with an `old_text` that the file does not hold in six replies, and its next reply breaks the rules
-- **THEN** the sixth call gets a failed result that names the missing file, and the reason holds no line of reasons
+- **THEN** the sixth call gets a failed result that names the missing file, its Job log line and its trace event are `failed` with its reason, the same call again gets the refusal of a repeated failed call and does not run, and the reason holds no line of reasons
 
 #### Scenario: A tool that ends the run on retries
 - **WHEN** an agent with the hooks of the log and no `Coder` calls a tool that asks for a retry once more than its retries allow

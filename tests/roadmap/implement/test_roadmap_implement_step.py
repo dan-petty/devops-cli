@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic_ai._model_errors import http_status_category
 from pydantic_ai.exceptions import (
     ModelAPIError,
     ModelContextWindowExceededError,
@@ -1630,6 +1631,25 @@ def test_a_model_call_that_fails_gives_the_status_of_the_reply_and_the_model_in_
     outcome = _step(store, checkout, script)
 
     assert outcome.reason == "ModelHTTPError: HTTP 503, model example-model"
+
+
+@pytest.mark.parametrize("status", [400, 404, 408, 413, 422])
+def test_a_status_that_pydantic_ai_names_by_its_category_is_a_failure_of_the_provider(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, status: int
+) -> None:
+    """pydantic-ai 2.71 names the class of an HTTP error by the category of its status, as its
+    adapters build it: `ModelRequestRejectedError`, `ModelNotFoundError` or `ModelTimeoutError`
+    (#5098). The stop stays a failure of the provider, as a `ModelHTTPError` was."""
+    failure = ModelHTTPError.for_category(
+        http_status_category(status), status_code=status, model_name="example-model"
+    )
+
+    outcome = _step(store, checkout, ModelScript(failure))
+
+    assert (outcome.reason, outcome.failure_class) == (
+        f"{type(failure).__name__}: HTTP {status}, model example-model",
+        FailureClass.PROVIDER,
+    )
 
 
 def test_a_model_call_that_fails_without_a_status_gives_the_model_in_the_reason(

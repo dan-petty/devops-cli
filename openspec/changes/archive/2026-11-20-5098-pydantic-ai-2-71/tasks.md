@@ -15,11 +15,17 @@
   - Verification: `$ uv run devops ci test tests/ai tests/roadmap/stage tests/roadmap/implement tests/roadmap/refine tests/roadmap/test_roadmap_alternatives.py`
 - [x] 2.3 Remove every name of `RetryPromptPart` from the code and the tests, and ban it and `pydantic_ai_harness.filesystem` with the ruff rule TID251
   - Verification: `$ uv run ruff check --select TID251 src tests`
+- [x] 2.4 Note the call that `Coder` answers with a failed result in the tool log, so its repeat gets the refusal of a repeated failed call; keep an HTTP error with the class of its status category a failure of the provider
+  - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_step_trace.py tests/roadmap/implement/test_roadmap_implement_step.py tests/roadmap/test_roadmap_failure.py`
+- [x] 2.5 Test each `is_retry` check of the run trace and the stop cause, and drop the check of the match lines, which an error object of pydantic-ai makes no-op
+  - Verification: `$ uv run devops ci test tests/ai/client/test_roadmap_agent_run.py`
 
 ## 3. Documents
 
 - [x] 3.1 Update the knowledge base pages of pydantic-ai and pydantic-ai-harness to 2.71 and 0.71
   - Verification: `$ uv run devops ci test tests/ai/test_kb.py`
+- [x] 3.2 Say in the `roadmap.implement.tool_retries` description that a spent retry comes back as a failed result, and generate `docs/ENV_VARS.md`
+  - Verification: `$ uv run devops docs generate --check`
 
 ## Workflow follow-up
 

@@ -8,6 +8,7 @@ import json
 import logging
 import sqlite3
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -37,12 +38,14 @@ from devops_cli.config.constants import (
 )
 from devops_cli.roadmap.agent_run import (
     RunTrace,
+    StopReason,
     ToolCallRecord,
     ToolOutcome,
     bounded_text,
     model_call_error,
     record_run_spend,
     run_error_message,
+    stop_cause,
 )
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.model_script import refused_call, refused_output
@@ -302,6 +305,99 @@ def test_a_trace_counts_the_violations_of_the_last_retry_prompt_of_the_output_to
     trace.absorb(messages, tools={"read_file"})
 
     assert trace.violations == 2
+
+
+def _retried(tool: str, call_id: str, text: str) -> ToolReturnPart:
+    """The retried return that pydantic-ai builds for the call `call_id` of `tool`, recorded from
+    a run."""
+    return replace(refused_call(tool, text), tool_call_id=call_id)
+
+
+def test_a_trace_keeps_the_violations_of_the_last_retry_after_the_output_succeeds() -> None:
+    """The successful return of the output tool is no retry, so it leaves the count of the
+    violations of the retry before it."""
+    errors: list[Any] = [
+        {"type": "missing", "loc": ("a",), "msg": "Field required", "input": {}},
+        {"type": "missing", "loc": ("b",), "msg": "Field required", "input": {}},
+    ]
+    messages: list[ModelMessage] = [
+        ModelRequest(parts=[refused_output(*errors)]),
+        ModelRequest(parts=[ToolReturnPart("final_result", "Final result processed.")]),
+    ]
+    trace = RunTrace()
+
+    trace.absorb(messages, tools={"read_file"})
+
+    assert trace.violations == 2
+
+
+def test_a_trace_keeps_no_retried_return_as_a_tool_answer() -> None:
+    """A retried return holds the feedback of pydantic-ai, not the text of the tool, so no quote of
+    the run comes from it. Its call is an error."""
+    messages: list[ModelMessage] = [
+        _tool_reply(1, 1, ToolCallPart("read_file", {"path": "a"}, tool_call_id="c1")),
+        ModelRequest(parts=[_retried("read_file", "c1", "cannot read it")]),
+        _tool_reply(1, 1, ToolCallPart("read_file", {"path": "b"}, tool_call_id="c2")),
+        ModelRequest(parts=[ToolReturnPart("read_file", "the text", tool_call_id="c2")]),
+    ]
+    trace = RunTrace()
+
+    trace.absorb(messages, tools={"read_file"})
+
+    assert (trace.tool_answers, [call.outcome for call in trace.tool_calls]) == (
+        ["the text"],
+        [ToolOutcome.ERROR, ToolOutcome.OK],
+    )
+
+
+def test_a_retried_search_gives_no_match_lines() -> None:
+    """pydantic-ai sends a retried return to the model as one `{"error": ...}` object, so a retry
+    text that names a `path:line` adds no match line of the run."""
+    messages: list[ModelMessage] = [
+        _tool_reply(1, 1, ToolCallPart("search_code", {"pattern": "x"}, tool_call_id="c1")),
+        ModelRequest(parts=[_retried("search_code", "c1", "src/a.py:3:no such pattern")]),
+    ]
+    trace = RunTrace()
+
+    trace.absorb(messages, tools={"search_code"})
+
+    assert [(call.outcome, call.matches) for call in trace.tool_calls] == [(ToolOutcome.ERROR, ())]
+
+
+def test_the_stop_by_the_tools_retry_limit_names_the_tool_whose_call_was_retried() -> None:
+    """The last reply calls two tools. The stop names the tool whose earlier call got a retried
+    return, not the tool whose call got its answer."""
+    messages: list[ModelMessage] = [
+        _tool_reply(
+            1,
+            1,
+            ToolCallPart("read_file", {"path": "a"}, tool_call_id="c1"),
+            ToolCallPart("search_code", {"pattern": "x"}, tool_call_id="c2"),
+        ),
+        ModelRequest(
+            parts=[
+                _retried("read_file", "c1", "cannot read it"),
+                ToolReturnPart("search_code", "src/a.py:1:x", tool_call_id="c2"),
+            ]
+        ),
+        _tool_reply(
+            1,
+            1,
+            ToolCallPart("read_file", {"path": "a"}, tool_call_id="c3"),
+            ToolCallPart("search_code", {"pattern": "x"}, tool_call_id="c4"),
+        ),
+    ]
+    stopped = UnexpectedModelBehavior("Tool 'read_file' exceeded max retries count of 1")
+
+    cause = stop_cause(
+        stopped,
+        messages,
+        offered={"read_file", "search_code"},
+        tool_retries=1,
+        output_retries=1,
+    )
+
+    assert (cause.reason, cause.detail) == (StopReason.TOOL_RETRIES_EXHAUSTED, "read_file")
 
 
 def test_a_trace_of_no_reply_is_empty() -> None:

@@ -545,8 +545,9 @@ _MATCH_LINE: Final[re.Pattern[str]] = re.compile(r"^(?P<path>[^\s:]+):(?P<line>\
 
 def _match_lines(tool: str, answer: ToolReturnPart | None) -> tuple[str, ...]:
     """The `path:line` of each match line of the answer of a search tool, in order and once each.
-    The answer of any other tool, a retried call and a call with no answer give none."""
-    if tool not in _MATCH_TOOLS or answer is None or is_retry(answer):
+    The answer of any other tool and a call with no answer give none. A retried or failed answer
+    reaches the model as one `{"error": ...}` object, so no line of it starts with a path."""
+    if tool not in _MATCH_TOOLS or answer is None:
         return ()
     text = answer.model_response_str()
     return tuple(dict.fromkeys(f"{m['path']}:{m['line']}" for m in _MATCH_LINE.finditer(text)))

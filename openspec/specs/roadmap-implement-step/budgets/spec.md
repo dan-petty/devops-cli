@@ -271,7 +271,7 @@ The implement step SHALL read each limit that ends its run from `roadmap.impleme
 
 #### Scenario: The refusal and retry limits of a setting
 - **WHEN** `max_consecutive_refusals` is 5, `max_refusals` is 7 and `tool_retries` is 2
-- **THEN** 5 refusals in a row stop a step, 7 refusals between accepted calls stop a step at its eighth request, and a third failure of `read_file` in a row stops a step
+- **THEN** 5 refusals in a row stop a step, 7 refusals between accepted calls stop a step at its eighth request, and a third call of `read_file` in a row with no `path` argument stops a step
 
 #### Scenario: No resend and a small request limit
 - **WHEN** `model_resends` is 0 and `max_requests` is 2
