@@ -1,6 +1,6 @@
 """The client of the GitHub advisories API for `devops research advisories` (#3987).
 
-Two reads, both on `api.github.com`:
+Three reads, all on `api.github.com`:
 
 - `GET /advisories?ecosystem=<ecosystem>&affects=<names>` lists the reviewed advisories of the
   GitHub Advisory Database that name a package. GitHub Actions are the packages of the ecosystem
@@ -9,8 +9,10 @@ Two reads, both on `api.github.com`:
   A vendor of an image or a binary publishes the advisory here before, or without, a CVE and a
   database entry: the Qdrant server advisories GHSA-3gph-6c29-p29v and GHSA-frc7-44gm-99qq are
   not in `GET /advisories` (a read of each gave 404 on 2026-11-07).
+- `GET /repos/{owner}/{repo}/tags` lists the tags of a repository with the commit that each points
+  at, so a workflow pin to a commit resolves to the release of that commit (#4012).
 
-Both read public data, so a token is optional: it lifts the limit of 60 requests an hour for a
+All three read public data, so a token is optional: it lifts the limit of 60 requests an hour for a
 caller with no token to 5000. The client follows no redirect and reads the next page of a list
 only when its URL is on `api.github.com`, so the token never reaches another host. A reply over
 `DEFAULT_GITHUB_ADVISORIES_MAX_RESPONSE_BYTES` is an error.
@@ -19,7 +21,8 @@ only when its URL is on `api.github.com`, so the token never reaches another hos
 from __future__ import annotations
 
 import logging
-from typing import Literal
+from collections.abc import Collection, Iterator
+from typing import Any, Literal
 
 import httpx2
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
@@ -93,15 +96,48 @@ class GhsaLookup(BaseModel):
     advisories: list[GhsaAdvisory] = Field(default_factory=list)
 
 
+class GhsaTagCommit(BaseModel):
+    """The commit that a tag points at."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    sha: str
+
+
+class GhsaTag(BaseModel):
+    """One tag of a repository: its name and the commit that it points at."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    name: str
+    commit: GhsaTagCommit
+
+
+class GhsaTagLookup(BaseModel):
+    """The tags that a read returned, or the reason that it got none. A failed read is no clean tag."""
+
+    model_config = ConfigDict(frozen=True)
+
+    status: Literal["ok", "failed"]
+    reason: str = ""
+    tags: list[GhsaTag] = Field(default_factory=list)
+
+
 _ADVISORY_PAGE = TypeAdapter(list[GhsaAdvisory])
+_TAG_PAGE = TypeAdapter(list[GhsaTag])
 
 
 def _failed(reason: str) -> GhsaLookup:
     return GhsaLookup(status="failed", reason=reason[:CONST_MAX_ERROR_DETAIL_LENGTH])
 
 
+def _failed_tags(reason: str) -> GhsaTagLookup:
+    return GhsaTagLookup(status="failed", reason=reason[:CONST_MAX_ERROR_DETAIL_LENGTH])
+
+
 class GitHubAdvisoryClient:
-    """Reads advisories from `api.github.com`. The token, when there is one, goes to that host only."""
+    """Reads advisories and tags from `api.github.com`. The token, when there is one, goes to that
+    host only."""
 
     BASE_URL = "https://api.github.com"
     ADVISORIES_URL = f"{BASE_URL}/advisories"
@@ -117,14 +153,16 @@ class GitHubAdvisoryClient:
             headers["Authorization"] = f"Bearer {token}"
         self._client = public_api_client(timeout, headers)
 
-    def _read_pages(self, url: str, params: dict[str, str]) -> list[GhsaAdvisory]:
-        """Every advisory of a list, read page by page up to `DEFAULT_GITHUB_ADVISORIES_MAX_PAGES`."""
-        advisories: list[GhsaAdvisory] = []
+    def _iter_pages(self, url: str, params: dict[str, str], what: str) -> Iterator[Any]:
+        """The JSON body of each page of a list, up to `DEFAULT_GITHUB_ADVISORIES_MAX_PAGES`.
+
+        A next page on another host is a failed read, and so is a list that passes the page bound.
+        """
         next_url: str | None = url
         next_params: dict[str, str] | None = params
         for _ in range(DEFAULT_GITHUB_ADVISORIES_MAX_PAGES):
             if next_url is None:
-                return advisories
+                return
             if not next_url.startswith(f"{self.BASE_URL}/"):
                 raise ValueError("GitHub named a next page on another host")
             answer = read_json(
@@ -135,13 +173,32 @@ class GitHubAdvisoryClient:
                 max_bytes=DEFAULT_GITHUB_ADVISORIES_MAX_RESPONSE_BYTES,
                 params=next_params,
             )
-            advisories.extend(_ADVISORY_PAGE.validate_python(answer.data))
+            yield answer.data
             next_url, next_params = answer.next_url, None
         if next_url is not None:
             raise ValueError(
-                f"GitHub listed more than {DEFAULT_GITHUB_ADVISORIES_MAX_PAGES} pages of advisories"
+                f"GitHub listed more than {DEFAULT_GITHUB_ADVISORIES_MAX_PAGES} pages of {what}"
             )
+
+    def _read_pages(self, url: str, params: dict[str, str]) -> list[GhsaAdvisory]:
+        """Every advisory of a list, read page by page up to `DEFAULT_GITHUB_ADVISORIES_MAX_PAGES`."""
+        advisories: list[GhsaAdvisory] = []
+        for page in self._iter_pages(url, params, "advisories"):
+            advisories.extend(_ADVISORY_PAGE.validate_python(page))
         return advisories
+
+    def _read_tag_pages(self, url: str, commits: Collection[str]) -> list[GhsaTag]:
+        """The tags of a repository, until each sha of `commits` is found or the list has no next page."""
+        wanted = set(commits)
+        tags: list[GhsaTag] = []
+        found: set[str] = set()
+        for page in self._iter_pages(url, {"per_page": _PAGE_SIZE}, "tags"):
+            page_tags = _TAG_PAGE.validate_python(page)
+            tags.extend(page_tags)
+            found.update(tag.commit.sha for tag in page_tags)
+            if wanted <= found:
+                return tags
+        return tags
 
     def _lookup(self, url: str, params: dict[str, str], span_name: str, count: int) -> GhsaLookup:
         with trace_span(
@@ -210,3 +267,29 @@ class GitHubAdvisoryClient:
             "vulnerability.lookup.github_repository_advisories",
             1,
         )
+
+    def tags_of(self, repository: str, commits: Collection[str]) -> GhsaTagLookup:
+        """The tags of the repository `owner/name`, until it lists each commit of `commits`.
+
+        A pin to a commit resolves to its release through these tags. The read stops at the page
+        that holds the last commit that the caller looks for, so a repository with many tags costs
+        no more requests than it needs. A page read that fails, or a list that passes the page
+        bound, gives a failed lookup: the release of a pin whose tags are unknown is unknown.
+        """
+        url = f"{self.REPOSITORY_URL}/{repository}/tags"
+        with trace_span(
+            "vulnerability.lookup.github_action_tags",
+            attributes={
+                "rpc.system": "http",
+                "rpc.service": "api.github.com",
+                "count": len(commits),
+            },
+        ) as span_h:
+            try:
+                tags = self._read_tag_pages(url, commits)
+            except (httpx2.HTTPError, ValueError) as exc:
+                logger.debug("GitHub tags read failed: %s", exc)
+                span_h.set_attribute("lookup.error", str(exc))
+                return _failed_tags(str(exc))
+            span_h.set_attribute("tags_found", len(tags))
+            return GhsaTagLookup(status="ok", tags=tags)
