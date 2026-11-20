@@ -56,6 +56,9 @@ _WHOLE = RefinementProposal(
     acceptance_criteria=[_CRITERION],
 )
 _NO_CRITERION = _WHOLE.model_copy(update={"acceptance_criteria": []})
+_EMPTY_THEN = _WHOLE.model_copy(
+    update={"acceptance_criteria": [_CRITERION.model_copy(update={"then": ""})]}
+)
 _OPEN_FACT = QuestionAnswer(question="Where is the sample function?", answer="?", kind="fact")
 _UNSOURCED = _WHOLE.model_copy(update={"key_questions": [_OPEN_FACT]})
 _SOURCED = _WHOLE.model_copy(
@@ -163,7 +166,7 @@ def test_a_proposal_that_fails_a_form_check_makes_no_person_wait_and_counts_the_
 ) -> None:
     number = _seed(store)
 
-    plan = _round(store, git_repo, {number: _NO_CRITERION})
+    plan = _round(store, git_repo, {number: _EMPTY_THEN})
 
     refined = plan.refined_items[0]
     assert (
@@ -179,9 +182,30 @@ def test_a_proposal_that_fails_a_form_check_makes_no_person_wait_and_counts_the_
             "refine.next_step": "retry",
             "refine.tries": "1",
             "refine.failed_check": "acceptance_criteria",
-            "refine.failure": "The reply of the model failed the form check.",
+            "refine.failure": "The reply of the model failed the form check: "
+            "acceptance_criteria[0].then.",
         },
     )
+
+
+def test_a_form_check_failure_names_the_criterion_and_part(
+    git_repo: Path, store: InMemoryRoadmapStore
+) -> None:
+    """A form check names the field that holds no text, and the index and the part of a criterion
+    that does (#6327)."""
+    number = _seed(store)
+
+    plan = _round(store, git_repo, {number: _EMPTY_THEN})
+
+    failure = _record(store, number)["refine.failure"]
+    assert plan.refined_items[0].next_step == NextStep.RETRY
+    assert failure is not None
+    assert "acceptance_criteria[0].then" in failure
+    # Imported here, so that this module imports on the base commit and the test fails there on an
+    # assertion rather than at collection.
+    from devops_cli.roadmap.refine.refine import form_check_details
+
+    assert form_check_details(_EMPTY_THEN) == ("acceptance_criteria[0].then",)
 
 
 def test_a_later_round_tries_the_item_again_and_the_limit_ends_the_tries(

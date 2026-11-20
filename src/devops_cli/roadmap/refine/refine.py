@@ -1533,6 +1533,31 @@ def _complete(criterion: AcceptanceCriterion) -> bool:
     return all(part.strip() for part in criterion.model_dump().values())
 
 
+def form_check_details(proposal: RefinementProposal) -> tuple[str, ...]:
+    """The parts of `proposal` that fail a form check (`form_checks`), named for the model and a
+    person (#6327): the field of the proposal that holds no text, `acceptance_criteria` when a
+    proposal that fits one pull request holds no criterion, or the index and the part of each
+    criterion whose requirement block holds an empty part, such as `acceptance_criteria[0].then`.
+    """
+    details: list[str] = []
+    if not proposal.problem_statement.strip():
+        details.append(JobCheck.PROBLEM_STATEMENT.value)
+    if not proposal.existing_tool.strip():
+        details.append(JobCheck.EXISTING_TOOL.value)
+    if not proposal.fits_one_pr:
+        return tuple(details)
+    if not proposal.acceptance_criteria:
+        details.append(JobCheck.ACCEPTANCE_CRITERIA.value)
+        return tuple(details)
+    for index, criterion in enumerate(proposal.acceptance_criteria):
+        details.extend(
+            f"{JobCheck.ACCEPTANCE_CRITERIA.value}[{index}].{part}"
+            for part, text in criterion.model_dump().items()
+            if not str(text).strip()
+        )
+    return tuple(details)
+
+
 def form_checks(proposal: RefinementProposal) -> list[JobCheck]:
     """The form checks that `proposal` fails (#3632): a problem statement, an answer to the
     existing-tool question (#1849), and, for a proposal that fits one pull request, 1+ criterion
@@ -3067,11 +3092,15 @@ def _job_failure(
     (`DEPENDENCIES`, `unmatched`, #4803), or when another open question stays open after the
     investigation: the tools found no source (`MISSING_SOURCE`), the proposal left a question of
     the body without an answer (`UNANSWERED_QUESTION`), or the investigation ended with no
-    proposal (`INVESTIGATION_STOPPED`). The error names the title and asks for its `#N`, or names
-    the open question, the stop and the calls of the tools, so a person sees what they searched."""
+    proposal (`INVESTIGATION_STOPPED`). The error names the empty part of a form check
+    (`form_check_details`), the title and its `#N`, or the open question, the stop and the calls of
+    the tools, so a person sees what they searched."""
     texts = MESSAGES.roadmap
     checks = form_checks(proposal)
     parts: list[str] = []
+    details = form_check_details(proposal)
+    if details:
+        parts.append(texts.refine_failure_form_parts.format(parts=", ".join(details)))
     if unmatched:
         checks.append(JobCheck.DEPENDENCIES)
         parts.append(texts.refine_failure_dependency.format(title=unmatched[0]))
@@ -3095,8 +3124,6 @@ def _job_failure(
         )
     if not checks:
         return None
-    if not parts:
-        return JobFailure(tuple(checks), texts.refine_failure_form)
     # The searched calls are what the issue asks for: they keep half of the room at most, and the
     # stop and the open question give way to them, so a long question cannot cut them off.
     room = CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS
@@ -4403,6 +4430,7 @@ __all__ = [
     "collect_context",
     "comments_without_jobs",
     "dry_run_refine",
+    "form_check_details",
     "form_checks",
     "inspect_checkout",
     "needs_investigation",
