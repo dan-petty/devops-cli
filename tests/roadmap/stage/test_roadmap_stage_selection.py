@@ -285,6 +285,26 @@ def test_an_item_that_depends_on_an_open_issue_is_left_out(store: InMemoryRoadma
     assert f"#{blocker}" in _reasons(selection)[waiting]
 
 
+def test_a_dependency_cycle_names_the_cycle_in_the_reason(store: InMemoryRoadmapStore) -> None:
+    """The Dependencies section of A names the open B, and the record of B names A, so the reason
+    for A names the path back to A and not only the open issue B (#6449). An item whose open
+    dependency is in no cycle keeps the open-issue reason."""
+    blocker = _seed(store, status="New", priority="P2-Medium")
+    waiting = _seed(store, body=f"### Dependencies\n#{blocker}\n")
+    blocker_item = store.item(blocker)
+    assert blocker_item is not None
+    store.set_marks(blocker_item, {RefineRecordKey.BLOCKED_BY: str(waiting)})
+    single = _seed(store, status="New", priority="P2-Medium")
+    outside = _seed(store, body=f"### Dependencies\n#{single}\n")
+
+    selection = _select(store)
+
+    reasons = _reasons(selection)
+    assert f"#{waiting} → #{blocker} → #{waiting}" in reasons[waiting]
+    assert reasons[outside] == MESSAGES.roadmap.stage_left_dependency.format(issues=f"#{single}")
+    assert "→" not in reasons[outside]
+
+
 def test_an_item_that_names_an_open_issue_by_its_quoted_title_is_left_out(
     store: InMemoryRoadmapStore,
 ) -> None:

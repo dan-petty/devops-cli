@@ -1,0 +1,57 @@
+# Tasks
+
+## 1. Add the dependency graph and the cycle path of an item
+
+Kind: behavior. Reads: `src/devops_cli/roadmap/refine/refine.py`, `src/devops_cli/roadmap/stores/store.py`, `tests/support/fakes/roadmap_store.py`, `tests/roadmap/refine/test_roadmap_refine_blocked.py`. Changes: `src/devops_cli/roadmap/refine/refine.py`, `tests/roadmap/refine/test_roadmap_dependency_graph.py` (new).
+Adds: `DependencyGraph`, `cycle_text`, `_path_back`
+
+- [x] 1.1 `test_each_item_of_a_cycle_gets_its_own_path`, `test_an_edge_to_an_issue_outside_the_sequence_is_dropped`, `test_a_closed_dependency_gives_no_edge` and `test_two_cycles_that_share_an_edge` in `tests/roadmap/refine/test_roadmap_dependency_graph.py`: `DependencyGraph.of` over items A and B, where the record of A names B and the Dependencies section of B names A, gives the path `#A → #B → #A` for A and `#B → #A → #B` for B, and gives no path for an item that no cycle holds; a second case gives items A and B whose records name #999, which the sequence does not hold, and neither gets a path; a third case gives the open A and a closed B that the record of A names, and A gets no path and no edge; a fourth case over items A, B and C, where A names B, B names A, B names C and C names A, gives a path for each of A, B and C; the cases fail on the base because `DependencyGraph` does not exist
+  - Verification: `$ uv run devops ci test tests/roadmap/refine/test_roadmap_dependency_graph.py` fails on the base
+- [x] 1.2 Add `DependencyGraph`, `cycle_text` and `_path_back` to `src/devops_cli/roadmap/refine/refine.py` beside `body_dependencies`: a frozen dataclass that holds the edges of the open items and the cycle of each item; the classmethod `of(items)` keeps the open items as nodes, builds the edge set of each open item from `recorded_blockers(item)`, `body_dependencies(item.body)` and `title_dependencies(item.body, items).numbers`, drops every edge to an issue that is no open item of `items`, gates the graph with one `TopologicalSorter(edges).prepare()` inside a `try` that catches `CycleError`, and fills the cycles from `_path_back`; `cycle_of(number)` gives the path from the item back to it, or None; `_path_back` walks the edges of one item with a depth-first search and returns the first path that ends at the item; `cycle_text(path)` renders `#A → #B → #A`
+  - Verification: `$ uv run devops ci test tests/roadmap/refine/test_roadmap_dependency_graph.py` passes
+
+## 2. Name the cycle in the shared dependency reason
+
+Kind: behavior. Reads: `src/devops_cli/roadmap/dependencies.py`, `src/devops_cli/roadmap/refine/refine.py`, `src/devops_cli/lang/en/messages.py`, `tests/support/fakes/roadmap_store.py`, `tests/roadmap/stage/test_roadmap_stage_selection.py`, `tests/roadmap/implement/test_roadmap_implement_selection.py`, `tests/lang/test_language_catalogs.py`, `tests/roadmap/implement/test_roadmap_implement_amend.py`, `tests/roadmap/refine/test_roadmap_refine_tracker.py`, `tests/roadmap/stage/test_roadmap_stage_module_test_order.py`, `tests/roadmap/stage/test_roadmap_stage_paths.py`, `tests/roadmap/stage/test_roadmap_stage_trace_subject.py`. Changes: `src/devops_cli/roadmap/dependencies.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_dependencies.py` (new).
+Adds: `dependency_cycle`
+
+- [x] 2.1 `test_the_reason_of_an_item_in_a_cycle_names_the_cycle` in `tests/roadmap/test_roadmap_dependencies.py`: `open_dependency` for item A of a store where the Dependencies section of A names the open item B and the record of B names A returns a reason that names `#A → #B → #A`; a second case gives item A whose Dependencies section names the open item B and whose B names no open item, and the reason stays `MESSAGES.roadmap.stage_left_dependency` with no cycle; a third case gives item A whose body names no open issue and whose record names B, and the reason is None; the cases fail on the base because `open_dependency` names the open issue only
+  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_dependencies.py` fails on the base
+- [x] 2.2 Add `dependency_cycle` to `src/devops_cli/lang/en/messages.py` beside `stage_left_dependency`, with the path of the cycle and the sentence that a person removes one edge. In `src/devops_cli/roadmap/dependencies.py`, import `DependencyGraph` and `cycle_text` beside `body_dependencies`, keep the open-issue reason first, and add the cycle reason after it: call `open_issue_dependencies` with the body dependencies and the quoted titles, return None when it gives no reason, else build `DependencyGraph.of(items)` from the sequence that the caller already holds and return the `dependency_cycle` message with `cycle_text(cycle)` when `cycle_of(item.number)` gives a path, else the open-issue reason
+  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_dependencies.py` passes
+
+## 3. Prove the stage reason names the cycle
+
+Kind: other. Reads: `src/devops_cli/roadmap/stage/stage.py`, `src/devops_cli/roadmap/dependencies.py`, `tests/roadmap/stage/test_roadmap_stage_selection.py`. Changes: `tests/roadmap/stage/test_roadmap_stage_selection.py`.
+
+- [x] 3.1 Add `test_a_dependency_cycle_names_the_cycle_in_the_reason` to `tests/roadmap/stage/test_roadmap_stage_selection.py` beside `test_an_item_with_an_open_body_dependency_is_left_out`: the stage plan leaves item A out with a reason that names `#A → #B → #A`, where the Dependencies section of A names the open item B and the record of B names A, and an item whose open dependency is in no cycle keeps the open-issue reason that `open_dependency` gives
+  - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_selection.py` passes
+
+## 4. Prove the implement reason names the cycle
+
+Kind: other. Reads: `src/devops_cli/roadmap/implement/implement.py`, `src/devops_cli/roadmap/dependencies.py`, `tests/roadmap/implement/test_roadmap_implement_selection.py`. Changes: `tests/roadmap/implement/test_roadmap_implement_selection.py`.
+
+- [x] 4.1 Add `test_a_dependency_cycle_names_the_cycle_in_the_reason` to `tests/roadmap/implement/test_roadmap_implement_selection.py` beside `test_an_item_with_an_open_body_dependency_is_left_out`: the reason that the plan gives for item A names `#A → #B → #A` and not only `#B`, where the Dependencies section of A names the open item B and the record of B names A
+  - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_selection.py` passes
+
+## 5. Give a dependency cycle a person step in refine
+
+Kind: behavior. Reads: `src/devops_cli/roadmap/refine/refine.py`, `src/devops_cli/roadmap/explain.py`, `src/devops_cli/roadmap/dependencies.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/refine/test_roadmap_refine_proposal.py`, `tests/roadmap/refine/test_roadmap_refine_blocked.py`, `tests/support/roadmap_refine.py`, `tests/support/fakes/roadmap_store.py`. Changes: `src/devops_cli/roadmap/refine/refine.py`, `tests/roadmap/refine/test_roadmap_refine_cycle.py` (new), `tests/roadmap/refine/test_roadmap_refine_proposal.py`.
+Adds: `frames_of`
+
+- [x] 5.1 `test_two_items_in_a_cycle_get_a_person_step`, `test_the_status_of_an_item_in_a_cycle_stays_new`, `test_a_blocked_item_in_a_cycle_is_refined_and_gets_the_person_step`, `test_explain_ends_the_wait_that_the_round_ends`, `test_an_open_dependency_outside_a_cycle_keeps_the_blocked_step`, `test_a_round_calls_open_items_once_for_the_graph` and `test_a_round_with_no_candidate_reads_no_listing_for_the_graph` in `tests/roadmap/refine/test_roadmap_refine_cycle.py`: one `refine_round` over items A and B, where the record of A names B and the Dependencies section of B names A and each proposal is complete, gives both the step `person` with a detail that names `#A → #B → #A` or `#B → #A → #B`, leaves both items New with no Ready label, records no blocker for either, and writes the cycle under the Suspected block heading of each section; a second case starts from a record that holds the step `blocked` and shows that the round refines the item and records `person`; a third case gives the same record to `refine_left_out` and shows that it returns None, so `devops roadmap explain` takes the item; a fourth case gives A the step `blocked` with `#B` when B names no open item, and the record of A keeps that step and names no cycle; a fifth case counts the calls of `open_items()` of the fake store over a round that refines two items in a cycle and asserts the count is one; a sixth case runs a round whose store holds no refinable item over a store that counts the reads of the whole item listing, and asserts that the round reads no listing for the graph; the first four cases fail on the base, where a complete proposal takes `ready` and a recorded `blocked` item is left waiting
+  - Verification: `$ uv run devops ci test tests/roadmap/refine/test_roadmap_refine_cycle.py` fails on the base
+- [x] 5.2 In `src/devops_cli/roadmap/refine/refine.py`, add `frames_of(items)` and make `recorded_frames(store)` return `frames_of(store.open_items())`; in `plan_refine`, read `store.open_items()` once, build the frames with `frames_of` and the graph with `DependencyGraph.of` from that sequence, and pass the graph to `_select_round` and to each `refine_one_item` call; give `_select_round` the keyword `graph`, which defaults to None, and give it to `_Selection`; give `_Selection` the field `graph` and pass it to `_still_waiting`; give `_still_waiting` the keyword `graph`, which defaults to None, and in its blocked branch build `DependencyGraph.of(store.open_items())` when the caller gives none and return None when `cycle_of(item.number)` gives a path; give `check_ready` the required keyword `cycle` and return False when it is set; give `next_step_of` the keyword `cycle`, whose default is None, and return `NextStep.PERSON` with the one `dependency_cycle` detail and no blockers before the alternatives and ready branches; give `render_proposal_section` the keyword `cycle`, whose default is None, and put the cycle line under the Suspected block heading; give `refine_one_item` the keyword `graph`, which defaults to None and is built from `store.open_items()` when the caller gives none, and pass the cycle of the item to `check_ready`, `next_step_of` and `render_proposal_section`; update each case of the matrix in `tests/roadmap/refine/test_roadmap_refine_proposal.py` with `cycle=None` and add one case with a cycle that is not ready
+  - Verification: `$ uv run devops ci test tests/roadmap/refine/test_roadmap_refine_cycle.py` passes
+
+## Criteria
+
+- Group 5: Test first: a store with items A and B, where the record of A names B and the Dependencies section of B names A. Refine gives each item a person step that names the cycle `A → B → A`. The test fails on the base.
+- Group 4: A test: the stage and implement reason for an item in a cycle names the cycle, not only "depends on the open issue".
+- Group 5: A test: an item whose dependency is open but not in a cycle keeps the step `blocked`.
+- Group 5: The graph is read once for each round from the listing that the round already holds. The round sends no extra GitHub request.
+- Pending person: Live proof: after the release, the next refine round gives #4691 or #4692 a person step that names its cycle., Only a person can read a live refine round after a release, and this run reads no GitHub state.
+
+## Workflow follow-up
+
+- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

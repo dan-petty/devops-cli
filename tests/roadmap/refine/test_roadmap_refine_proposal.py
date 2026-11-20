@@ -141,22 +141,26 @@ def test_check_ready_matrix() -> None:
         suspected_block=None,
     )
     assert (
-        check_ready(base, [], ()),
-        check_ready(base, ["Unresolved question"], ()),
-        check_ready(base, [], (7,)),
-        check_ready(base.model_copy(update={"fits_one_pr": False}), [], ()),
-        check_ready(base.model_copy(update={"suspected_block": "Waiting on auth"}), [], ()),
-        check_ready(base.model_copy(update={"acceptance_criteria": []}), [], ()),
-        check_ready(base.model_copy(update={"problem_statement": ""}), [], ()),
-        check_ready(base.model_copy(update={"existing_tool": " "}), [], ()),
+        check_ready(base, [], (), cycle=None),
+        check_ready(base, ["Unresolved question"], (), cycle=None),
+        check_ready(base, [], (7,), cycle=None),
+        check_ready(base.model_copy(update={"fits_one_pr": False}), [], (), cycle=None),
+        check_ready(
+            base.model_copy(update={"suspected_block": "Waiting on auth"}), [], (), cycle=None
+        ),
+        check_ready(base.model_copy(update={"acceptance_criteria": []}), [], (), cycle=None),
+        check_ready(base.model_copy(update={"problem_statement": ""}), [], (), cycle=None),
+        check_ready(base.model_copy(update={"existing_tool": " "}), [], (), cycle=None),
         check_ready(
             base.model_copy(
                 update={"acceptance_criteria": [CRITERION.model_copy(update={"then": ""})]}
             ),
             [],
             (),
+            cycle=None,
         ),
-    ) == (True, False, False, False, False, False, False, False, False)
+        check_ready(base, [], (), cycle=(1, 2, 1)),
+    ) == (True, False, False, False, False, False, False, False, False, False)
 
 
 def test_a_criterion_takes_the_parts_of_an_openspec_requirement_and_refuses_the_old_keys() -> None:
