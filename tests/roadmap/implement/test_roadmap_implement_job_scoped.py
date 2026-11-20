@@ -170,7 +170,8 @@ def test_a_failed_install_stops_the_item_before_any_model_request(job_world: Job
 # `uv run` of the hook install did before the bootstrap (#6517).
 SYNC = "uv sync --group dev"
 LOCKED_SYNC = "uv sync --locked --group dev"
-NPM = "npm ci --ignore-scripts"
+# A staged item has an existing branch, so npm installs with `npm install` (#6517).
+NPM = "npm install --ignore-scripts"
 
 
 def _lock(world: JobWorld) -> JobWorld:

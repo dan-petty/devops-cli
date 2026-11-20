@@ -369,19 +369,24 @@ def bootstrap_checkout(checkout: Path, *, locked: bool = True, seed: Path = UV_S
     """Build the coder environment of `checkout`, as the module says: the venv of its `uv.lock`
     with the dev group, from the uv seed `seed` when it fits, and the Node packages of its
     `package-lock.json`. With `locked`, the sync refuses a `uv.lock` that does not match
-    `pyproject.toml` (`--locked`); without it, uv locks again first, as `uv run` does, for the
-    checkout of an existing branch. A checkout with neither file gets no command. Raises
+    `pyproject.toml` (`--locked`) and npm installs with `npm ci`; without it, uv locks again first,
+    as `uv run` does, and npm installs with `npm install`, which updates a stale lock, for the
+    checkout of an existing branch. The seed hash covers `uv.lock` only, so the offline sync runs
+    only with `locked`; without it, the seed fills the cache and the sync stays online, so that a
+    stale lock can resolve. A checkout with neither file gets no command. Raises
     `ToolExecutionError` when a command fails or runs out of time."""
     if (checkout / _UV_LOCK).is_file():
         sync = (*_SYNC, *(_LOCKED if locked else ()), *_DEV_GROUP)
-        if _seed_fits(checkout, seed):
+        fits = _seed_fits(checkout, seed)
+        if fits:
             cache = Path(os.environ.get("UV_CACHE_DIR") or user_cache_dir("uv"))
             shutil.copytree(seed / _SEED_CACHE, cache, symlinks=True, dirs_exist_ok=True)
+        if locked and fits:
             _run(checkout, (*sync, "--offline"), _OFFLINE)
         else:
             _run(checkout, sync, _ONLINE)
     if (checkout / _NPM_LOCK).is_file():
-        _run(checkout, (BIN_NPM, "ci", "--ignore-scripts"))
+        _run(checkout, (BIN_NPM, "ci" if locked else "install", "--ignore-scripts"))
 
 
 def main(argv: Sequence[str] | None = None) -> int:

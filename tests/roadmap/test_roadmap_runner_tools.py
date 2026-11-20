@@ -409,6 +409,44 @@ def test_a_sync_that_may_lock_again_runs_without_locked(
     assert [_argv(call) for call in process_fake.calls] == [("uv", "sync", "--group", "dev")]
 
 
+def test_a_bootstrap_that_may_lock_again_installs_the_npm_packages_without_ci(
+    tmp_path: Path, process_fake: ProcessFake, uv_cache: Path
+) -> None:
+    """On an existing branch `npm ci` would refuse a `package-lock.json` that does not match
+    `package.json`, as `uv sync --locked` refuses a stale `uv.lock`. So the bootstrap runs
+    `npm install`, which updates the lock as the unlocked sync does (#6517)."""
+    checkout = _checkout(tmp_path, "uv.lock", "package-lock.json")
+
+    bootstrap_checkout(checkout, locked=False, seed=tmp_path / "no-seed")
+
+    assert [_argv(call) for call in process_fake.calls] == [
+        ("uv", "sync", "--group", "dev"),
+        ("npm", "install", "--ignore-scripts"),
+    ]
+
+
+def test_a_seed_that_fits_a_bootstrap_that_may_lock_again_fills_the_cache_and_syncs_online(
+    tmp_path: Path, process_fake: ProcessFake, uv_cache: Path
+) -> None:
+    """The seed hash covers `uv.lock` only, so a stale lock can fit it. To lock again, uv must
+    resolve, which the offline cache cannot do. So without `locked` the bootstrap copies the seed
+    into the cache and syncs online (#6517)."""
+    process_fake.answer(
+        lambda call: _argv(call) == ("uv", "--version"),
+        ProcessAnswer(stdout="uv job-uv (x86_64-unknown-linux)\n"),
+    )
+    checkout = _checkout(tmp_path, "uv.lock")
+    seed = _seed(tmp_path, _record(checkout))
+
+    bootstrap_checkout(checkout, locked=False, seed=seed)
+
+    synced = [(_argv(call), call.env) for call in process_fake.calls if _argv(call)[1] == "sync"]
+    assert synced == [
+        (("uv", "sync", "--group", "dev"), {"UV_HTTP_RETRIES": "5", "UV_MALWARE_CHECK": "1"})
+    ]
+    assert (uv_cache / "wheels-v5" / "entry").read_text(encoding="utf-8") == "wheel"
+
+
 def test_a_checkout_with_no_lock_file_gets_no_bootstrap_command(
     tmp_path: Path, process_fake: ProcessFake
 ) -> None:

@@ -398,15 +398,15 @@ The Runner Image jobs of `ci.yml` and `release.yml` SHALL scan the built `runner
 - **THEN** the scan step exits 0, the job log names each finding, and code scanning lists them under `trivy-image-runner`
 
 ### Requirement: A Job builds the coder environment of its checkout
-The implement Job and the model fix of the fix-checks Job SHALL call `bootstrap_checkout` of `devops_cli.roadmap.runner_tools` with their checkout before their first agent step. The function SHALL run `uv sync --group dev` in a checkout that holds `uv.lock`, with `--locked` for the new branch of a Planned item, and `npm ci --ignore-scripts` in a checkout that holds a root `package-lock.json`. A checkout with neither file SHALL get no command. Tier 1 of fix-checks SHALL run no bootstrap.
+The implement Job and the model fix of the fix-checks Job SHALL call `bootstrap_checkout` (`devops_cli.roadmap.runner_tools`) on their checkout before their first agent step. It SHALL run `uv sync --group dev` when `uv.lock` exists and an npm install when a root `package-lock.json` exists: `--locked` and `npm ci` on the new branch of a Planned item, else no `--locked` and `npm install`. A checkout with neither file SHALL get no command. Tier 1 of fix-checks SHALL run no bootstrap.
 
 #### Scenario: The implement Job bootstraps before the hooks and the first model request
 - **WHEN** the implement Job runs a staged item whose default branch holds `uv.lock` and `package-lock.json`
-- **THEN** it runs `uv sync --group dev` and then `npm ci --ignore-scripts` in the worktree, after the rebase, before `pre-commit install-hooks` and before the first model request
+- **THEN** it runs `uv sync --group dev` and then `npm install --ignore-scripts` in the worktree, after the rebase, before `pre-commit install-hooks` and before the first model request
 
 #### Scenario: A stale lock of a staged branch locks again
-- **WHEN** a sync with `--locked` fails on the worktree of a staged item
-- **THEN** the Job runs the sync without `--locked`, and the item does not stop
+- **WHEN** the implement Job runs a staged item whose `uv.lock` does not match `pyproject.toml`
+- **THEN** the only sync is `uv sync --group dev` with no `--locked`, and the item does not stop
 
 #### Scenario: A Planned item syncs with its lock
 - **WHEN** the implement Job runs a Planned item whose default branch holds `uv.lock`
@@ -432,7 +432,7 @@ A bootstrap command that exits non-zero or runs out of time SHALL raise `ToolExe
 - **THEN** the round ends as failed with the output of the sync, and no model request was made
 
 ### Requirement: The bootstrap uses the uv seed when it fits
-`bootstrap_checkout` SHALL use the uv-seed volume at `/opt/uv-seed` only when it holds `cache/` and a `seed.json` whose `uv`, `python` and `uv_lock_sha256` equal the uv version, the `<major>.<minor>` Python version of the Job and the sha256 of the `uv.lock` of the checkout. Then it SHALL copy `cache/` into `UV_CACHE_DIR` and sync offline with `UV_MALWARE_CHECK=0`. Else it SHALL sync online with `UV_HTTP_RETRIES=5` and `UV_MALWARE_CHECK=1`.
+`bootstrap_checkout` SHALL use the uv-seed volume `/opt/uv-seed` only when it holds `cache/` and a `seed.json` that names the uv version, the `<major>.<minor>` Python version of the Job and the sha256 of the checkout's `uv.lock`. Then it SHALL copy `cache/` into `UV_CACHE_DIR`, and a `--locked` sync SHALL run offline with `UV_MALWARE_CHECK=0`. Every other sync SHALL run online with `UV_HTTP_RETRIES=5` and `UV_MALWARE_CHECK=1`.
 
 #### Scenario: No seed
 - **WHEN** the bootstrap runs with no seed volume
