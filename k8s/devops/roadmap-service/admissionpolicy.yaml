@@ -85,25 +85,31 @@ spec:
         object.spec.template.spec.automountServiceAccountToken == false
       message: The pod must set automountServiceAccountToken to false, so that it has no token.
       reason: Forbidden
-    # A stage Job takes 2 keys of the Secret and no other value of it.
+    # A Job takes no envFrom: a stage Job and a runner Job read their keys of the Secret with
+    # valueFrom (#6518). A runner Job that the Service made from the template before #6518 names
+    # Secret devops-cli in envFrom, and the Service still patches it (its deadline, its resume). A
+    # Job keeps its pod template, so an UPDATE cannot add envFrom: the policy admits envFrom of
+    # Secret devops-cli in an UPDATE of a runner Job and nowhere else.
     - expression: >-
         object.spec.template.spec.containers.all(c, !has(c.envFrom) ||
-        (!variables.stage && !variables.planner && c.envFrom.all(e, has(e.secretRef) &&
-        !has(e.configMapRef) && e.secretRef.name == "devops-cli")))
-      message: envFrom may name only Secret devops-cli, and a stage Job and a planner run Job have no envFrom.
+        (request.operation == "UPDATE" && !variables.stage && !variables.planner &&
+        c.envFrom.all(e, has(e.secretRef) && !has(e.configMapRef) &&
+        e.secretRef.name == "devops-cli")))
+      message: A Job must not use envFrom, but an UPDATE of a runner Job that has the old template (before issue 6518) may keep envFrom of Secret devops-cli.
       reason: Forbidden
-    # `valueFrom` reads one key of any Secret, which `envFrom` does not allow. A stage Job reads the
-    # keys of `CONST_ROADMAP_STAGE_JOB_SECRET_KEYS`, each in the variable of its name.
+    # `valueFrom` reads one key of any Secret, which `envFrom` does not allow. A stage Job and a
+    # runner Job (#6518) read the keys of `CONST_ROADMAP_STAGE_JOB_SECRET_KEYS`, each in the
+    # variable of its name. A planner run Job reads no key.
     - expression: >-
         object.spec.template.spec.containers.all(c, !has(c.env) ||
-        c.env.all(e, !has(e.valueFrom) || (variables.stage &&
+        c.env.all(e, !has(e.valueFrom) || (!variables.planner &&
         has(e.valueFrom.secretKeyRef) && !has(e.valueFrom.fieldRef) &&
         !has(e.valueFrom.configMapKeyRef) && !has(e.valueFrom.resourceFieldRef) &&
         e.valueFrom.secretKeyRef.name == "devops-cli" &&
         e.valueFrom.secretKeyRef.key in ["DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY",
         "DEVOPS_CLI_AI_API_KEY"] &&
         e.name == e.valueFrom.secretKeyRef.key)))
-      message: An env entry must not use valueFrom, but a stage Job reads the keys DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY and DEVOPS_CLI_AI_API_KEY of Secret devops-cli, each in the variable of its name.
+      message: An env entry must not use valueFrom, but a runner Job and a stage Job read the keys DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY and DEVOPS_CLI_AI_API_KEY of Secret devops-cli, each in the variable of its name.
       reason: Forbidden
     # A stage Job of the Service runs the stage job of one item and nothing else, with the keys of
     # the Secret. `devops k8s run-job` of a person is not evaluated, so this rule does not limit it.

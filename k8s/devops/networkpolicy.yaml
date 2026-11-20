@@ -49,8 +49,9 @@ spec:
           port: 4000
         - protocol: TCP
           port: 6379
-    # 3. Qdrant in namespace llm, on TCP 6333 only: the search path of `devops ai rag-query`. The
-    #    runner sends the read-only key from Secret devops-cli, so it holds no write path (#3823).
+    # 3. Qdrant in namespace llm, on TCP 6333 only: the search path of `devops ai rag-query`. A
+    #    Job of CronJob devops-cli sends the read-only key from Secret devops-cli, so it holds no
+    #    write path (#3823). The runner Job holds no Qdrant key (#6518).
     - to:
         - namespaceSelector:
             matchLabels:

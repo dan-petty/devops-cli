@@ -25,9 +25,9 @@ env:
       secretKeyRef:
         name: qdrant-api-key
         key: api-key
-  # The read-only key of the same Secret: the runner and the roadmap Service hold it through
-  # Secret devops-cli, so their search path cannot write or delete (#3823). One keyring value
-  # feeds both keys (`devops k8s push-secrets`).
+  # The read-only key of the same Secret: the pods that load Secret devops-cli with envFrom,
+  # such as a Job of CronJob devops-cli, hold it, so their search path cannot write or delete
+  # (#3823). One keyring value feeds both keys (`devops k8s push-secrets`).
   - name: QDRANT__SERVICE__READ_ONLY_API_KEY
     valueFrom:
       secretKeyRef:

@@ -75,8 +75,8 @@ spec:
                   value: roadmap-planner-run
                 - name: OTEL_RESOURCE_ATTRIBUTES
                   value: service.instance.id=devops-cli-planner-run
-                # The admission policy roadmap-service-jobs refuses `valueFrom` in a Job of the
-                # Service, so the cluster and the namespace are plain values, as in cronjob-runner.
+                # The admission policy roadmap-service-jobs refuses `valueFrom` in a planner run
+                # Job, so the cluster and the namespace are plain values, as in cronjob-runner.
                 - name: K8S_CONTEXT
                   value: homelab-k3s
                 - name: POD_NAMESPACE
