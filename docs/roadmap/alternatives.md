@@ -99,6 +99,8 @@ The check is off for a private repository and when no search provider is configu
 
 An item is skipped, reported and recorded in its job record when its model call fails, when its run stops, when its read of deps.dev fails, or when the job refuses its reply. The job writes the other items. The run takes a skipped item again after `roadmap.alternatives.retry_days`.
 
+The result line of a skipped item gives in `searches` the searches that a provider answered before the failure, and in `returns` the replies that the run sent back to the model. When the job refuses a reply because a source cites a URL that no tool of the run returned (reason `url`), it logs one warning for each such URL, with the item number and the URL (#6346).
+
 The job writes the check of an item before it checks the next item. A kill of the worker loses at most the check in progress. A rate limit on a write ends the round, and the checks that are written stay.
 
 The command exits 1 only when it tried items and checked none.

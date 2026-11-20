@@ -568,7 +568,10 @@ class CheckFailure:
     reply the job refused. `error_class` and `failed_at` go to the item's job record.
     `failure_class` is the class of a failed model call, which the result line logs (#4845).
     `reason_code` is the stable code of a refused reply or stopped run (#4864).
-    `band` is the decision band from alternatives.reply_fixable (#4864)."""
+    `band` is the decision band from alternatives.reply_fixable (#4864).
+    `searches` is the number of searches that a provider answered before the failure, and
+    `returns` the number of times that the run sent a refused reply back to the model. The result
+    line logs both (#6346)."""
 
     item: Item
     reason: str
@@ -577,6 +580,8 @@ class CheckFailure:
     failure_class: FailureClass | None = None
     reason_code: str | None = None
     band: Band | None = None
+    searches: int = 0
+    returns: int = 0
 
 
 @dataclass(frozen=True)
@@ -859,12 +864,17 @@ def _refusal_reason(reply: AlternativesReply, tools: AlternativesTools) -> tuple
             return "no_tool", texts.alternatives_reason_no_tool.format(verdict=reply.verdict.value)
         if normalize_url(reply.tool_url) not in tools.facts:
             return "no_facts", texts.alternatives_reason_no_facts.format(url=reply.tool_url)
-    unknown = next(
-        (url for url in reply.sources if normalize_url(url) not in tools.allowed_urls), None
-    )
-    if unknown is not None:
-        return "url", texts.alternatives_reason_url.format(url=unknown)
+    unknown = _unknown_urls(reply, tools)
+    if unknown:
+        return "url", texts.alternatives_reason_url.format(url=unknown[0])
     return None
+
+
+def _unknown_urls(reply: AlternativesReply, tools: AlternativesTools) -> list[str]:
+    """Each source of `reply` that no tool of the run returned, once, in the order of the reply."""
+    return list(
+        dict.fromkeys(url for url in reply.sources if normalize_url(url) not in tools.allowed_urls)
+    )
 
 
 def _refusal(reply: AlternativesReply, tools: AlternativesTools) -> str | None:
@@ -1175,9 +1185,18 @@ def validate_reply(
     in force that the model saw, which confirm the ADR that the reply names. `inventory` holds the
     tools that the repository uses (#4661); a read of deps.dev that it makes can raise
     `httpx2.HTTPError` or `ValidationError`."""
+    searches = len(tools.searches)
     refusal = _refusal_reason(reply, tools)
     if refusal is not None:
         code, text = refusal
+        if code == "url":
+            for url in _unknown_urls(reply, tools):
+                logger.warning(
+                    "The alternatives check of #%d refused its reply (url): the reply cites %s, "
+                    "and no tool of the run returned it.",
+                    item.number,
+                    url,
+                )
         if band is None and chain is not None:
             earlier_code = item.job_record.get(AlternativesRecordKey.FAILED_REASON)
             record = chain.decide(
@@ -1185,12 +1204,25 @@ def validate_reply(
             )
             band = record.band
         return CheckFailure(
-            item, text, CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR, now, reason_code=code, band=band
+            item,
+            text,
+            CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR,
+            now,
+            reason_code=code,
+            band=band,
+            searches=searches,
+            returns=returns,
         )
     problem = _marker_problem(item.body)
     if problem is not None:
         return CheckFailure(
-            item, problem, CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR, now, reason_code="marker"
+            item,
+            problem,
+            CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR,
+            now,
+            reason_code="marker",
+            searches=searches,
+            returns=returns,
         )
     allowed = tools.allowed_urls
     tool = _checked_tool(reply, tools, now)
@@ -1294,6 +1326,9 @@ def _stopped_failure(
     now: datetime,
     chain: ResolverChain[Mapping[str, Any]] | None,
     earlier_code: str | None,
+    *,
+    searches: int,
+    returns: int,
 ) -> CheckFailure:
     logger.warning(
         "The alternatives check of #%d was skipped: its run stopped (%s).",
@@ -1314,6 +1349,8 @@ def _stopped_failure(
         now,
         reason_code=code,
         band=band,
+        searches=searches,
+        returns=returns,
     )
 
 
@@ -1368,9 +1405,25 @@ def _check_one(
         )
         error = type(exc).__name__
         reason = texts.alternatives_reason_error.format(error=error)
-        return CheckFailure(item, reason, error, now, failure_class_of(exc))
+        return CheckFailure(
+            item,
+            reason,
+            error,
+            now,
+            failure_class_of(exc),
+            searches=len(tools.searches),
+            returns=checker.returns,
+        )
     if isinstance(reply, InvestigationStopped):
-        return _stopped_failure(item, reply, now, chain, earlier_code)
+        return _stopped_failure(
+            item,
+            reply,
+            now,
+            chain,
+            earlier_code,
+            searches=len(tools.searches),
+            returns=checker.returns,
+        )
     try:
         return validate_reply(
             item,
@@ -1391,7 +1444,12 @@ def _check_one(
         )
         error = type(exc).__name__
         return CheckFailure(
-            item, texts.alternatives_reason_inventory.format(error=error), error, now
+            item,
+            texts.alternatives_reason_inventory.format(error=error),
+            error,
+            now,
+            searches=len(tools.searches),
+            returns=checker.returns,
         )
 
 
@@ -1577,7 +1635,9 @@ class AlternativesWriter:
     def _log(self, outcome: Check | CheckFailure) -> None:
         """Log the result line of one item: the verdict of a check, or `refused` for a reply that
         the job refused and `failed` for another failure, with the code of the error as the
-        reason. The reason of a check is its skip class, or `none`."""
+        reason. The reason of a check is its skip class, or `none`. `searches` counts the searches
+        that a provider answered and `returns` the replies sent back to the model, for a failure
+        too (#6346)."""
         names: dict[str, str] = {}
         if isinstance(outcome, CheckFailure):
             refused = (
@@ -1587,9 +1647,9 @@ class AlternativesWriter:
             result = "refused" if refused else "failed"
             failure, searches, reason, returns = (
                 outcome.failure_class,
-                0,
+                outcome.searches,
                 outcome.reason_code or outcome.error_class,
-                0,
+                outcome.returns,
             )
             if outcome.band is not None:
                 names["band"] = outcome.band.value
