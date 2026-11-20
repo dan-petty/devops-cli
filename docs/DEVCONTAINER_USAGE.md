@@ -73,7 +73,7 @@ devops devcontainer init --name my-project --image ghcr.io/dan-petty/devops-cli/
 ```
 
 This scaffolds:
-1. `.devcontainer/devcontainer.json`: Pre-configured manifest using the published image with `/tmp`, persistent user home volume, SSH directory forwarding, post-create lifecycle commands (`devops devcontainer post-create`), and IDE extensions.
+1. `.devcontainer/devcontainer.json`: Pre-configured manifest using the published image with `/tmp`, persistent user home volume, SSH directory forwarding, post-create lifecycle commands (`devops devcontainer post-create`), and IDE extensions. The file has no Dev Container Feature: the image supplies the user `vscode` and the tools. The `devcontainer.metadata` label of the published image also gives `remoteEnv`, for example `DOCKER_HOST`. An image that `--image` names must have the user `vscode` and the tools. `--minikube` (the default) only forwards the ports of the services of the Minikube stack.
 2. `.vscode/mcp.json`: Model Context Protocol configuration exposing `devops-cli` tools to AI coding assistants (Claude Desktop, Cursor, VS Code, Antigravity IDE).
 3. `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` and `.github/copilot-instructions.md`: The rules for every agent task, and a table that routes each task to its document.
 4. `.mcp.json`: the same MCP server for Claude Code.

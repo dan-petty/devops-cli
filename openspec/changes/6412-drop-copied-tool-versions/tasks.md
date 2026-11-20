@@ -37,7 +37,7 @@ Kind: other.
 
 Kind: other.
 
-- [ ] 4.1 Say in `docs/DEVCONTAINER_USAGE.md` that `devops devcontainer init` adds no Feature, and that an image that `--image` names must have the user `vscode` and the tools
+- [x] 4.1 Say in `docs/DEVCONTAINER_USAGE.md` that `devops devcontainer init` adds no Feature, and that an image that `--image` names must have the user `vscode` and the tools
   - Verification: `$ uv run devops ci --check --only docs`
 
 ## Workflow follow-up
