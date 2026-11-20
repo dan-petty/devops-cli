@@ -2,24 +2,29 @@
 
 ## Purpose
 `devops openspec regenerate` rewrites the committed OpenSpec skills under the isolated profile. It
-reads the version of the `openspec` binary on PATH first, and stops before it writes when that
-binary is not the tools lock's version.
+reads the version of the `openspec` binary that it runs first (`node_modules/.bin/openspec` of the
+checkout when it exists, else the one on PATH), and stops before it writes when that version is not
+the OpenSpec pin of the root `package-lock.json`.
 
 ## Requirements
 
 ### Requirement: Regenerate reads the version before it writes
-`devops openspec regenerate` SHALL read the version of the `openspec` binary on PATH and SHALL stop with exit 1 before it writes any skill, when the printed version is not the version of the tools lock or the binary prints no version line. A binary that prints the locked version SHALL run `openspec update --force` and exit 0. A dry run SHALL write no skill, run no `openspec --version` and run no `openspec update --force`, and exit 0.
+`devops openspec regenerate` SHALL read the version of the `openspec` binary that it runs, and SHALL exit 1 before it writes any skill when that version is not the one that the `package-lock.json` of the checkout pins or the binary prints none. A binary at the locked version SHALL run `openspec update --force` and exit 0. A dry run SHALL run neither command, write no skill and exit 0.
 
 #### Scenario: An older binary on PATH
-- **WHEN** the `openspec_fake` fixture stands for a binary that prints `1.14.3`, the tools lock pins another version, and `devops openspec regenerate` runs in the fake's tree
+- **WHEN** the `openspec_fake` fixture stands for a binary that prints `1.14.3`, the `package-lock.json` of the fake's tree pins another version, and `devops openspec regenerate` runs in that tree
 - **THEN** the command exits 1 and the fake records no `openspec update --force` call
+
+#### Scenario: The lockfile of the checkout moves the pin
+- **WHEN** the fake binary prints the version of the old pin and the `package-lock.json` of the tree pins `9.9.9`
+- **THEN** `devops openspec check` and `devops openspec regenerate` each exit 1, the output names both versions, and the fake records no `openspec update --force` call
 
 #### Scenario: A binary that prints no version
 - **WHEN** the fake answers the `--version` run with exit 1 and no output, and `devops openspec regenerate` runs
 - **THEN** the command exits 1 and the fake records no `openspec update --force` call
 
 #### Scenario: The locked binary on PATH
-- **WHEN** the fake binary prints the tools lock's version and `devops openspec regenerate` runs
+- **WHEN** the fake binary prints the version that the `package-lock.json` of the tree pins and `devops openspec regenerate` runs
 - **THEN** the command exits 0 and the fake records the `openspec update --force` call
 
 #### Scenario: A dry run with an older binary
@@ -30,8 +35,8 @@ binary is not the tools lock's version.
 The error of the version finding of `devops openspec regenerate` SHALL name the binary path, the printed version, the locked version and the install hint.
 
 #### Scenario: The message of the version finding
-- **WHEN** the fake binary prints `1.14.3`, the tools lock pins another version, and `devops openspec regenerate` runs
-- **THEN** the command's error text holds the fake binary path, `1.14.3`, the locked version and the text of `MESSAGES.openspec.missing_hint`
+- **WHEN** the fake binary prints `1.14.3`, the `package-lock.json` of the tree pins another version, and `devops openspec regenerate` runs
+- **THEN** the command's error text holds the fake binary path, `1.14.3`, the locked version and the text of `MESSAGES.openspec.missing_hint`, which names `npm ci --ignore-scripts`
 
 ### Requirement: One version guard serves check and regenerate
 The version guard SHALL be one function of `src/devops_cli/openspec/gate.py` that `check_openspec` and `regenerate` both call, and its version run SHALL go through `OpenSpecTool.run`, so it uses the same opt-out environment and timeout as the version run of the gate.

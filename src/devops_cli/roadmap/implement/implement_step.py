@@ -62,7 +62,7 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.toolsets import AbstractToolset
 from pydantic_ai.usage import RunUsage, UsageLimits
 from pydantic_ai_harness.compaction import ClearToolResults, WarnNearLimits
-from pydantic_ai_harness.filesystem import FileSystem
+from pydantic_ai_harness.file_system import FileSystem
 from pydantic_ai_harness.shell import Shell
 from pydantic_ai_harness.tool_output_limits import Band, ToolOutputLimits, Truncate
 

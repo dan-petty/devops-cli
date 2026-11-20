@@ -204,7 +204,7 @@ def scaffold_change(
         rel_folder = change_folder.relative_to(root).as_posix()
         raise DevOpsCLIError(MESSAGES.openspec.change_folder_exists.format(path=rel_folder))
 
-    with isolated_openspec() as tool:
+    with isolated_openspec(root) as tool:
         tool.run_checked(["new", "change", change_name], root)
 
     skip_specs = decide_skip_specs(paths, capabilities)

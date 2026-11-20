@@ -27,6 +27,8 @@ moves nothing unless the test gives it an `effect`. It answers `list --specs --j
 as the real tool does, unless a test scripts it (#4622): the stage job lists the base specs of
 each checkout that it plans, and a record of one tree cannot answer for another. It answers
 `--version` with the version it stands for, so a test says which release PATH holds (`version`).
+By default that is the version that the `package-lock.json` of the repository pins, which each
+scenario tree copies, so a bump of the pin passes the tests with no edit of a test (#6409).
 `calls` holds every command the fake answered, with the
 directory and the OpenSpec environment it was started with.
 """
@@ -47,9 +49,11 @@ from typing import Any
 import pytest
 
 from tests.support.openspec_recording import BASE_SCENARIO, RecordedRun, load_recorded_runs
-from tests.support.openspec_scenarios import build_scenario
+from tests.support.openspec_scenarios import NPM_LOCKFILE, build_scenario
 
 _PROGRAM = "openspec"
+# The key of OpenSpec in the `packages` of a `package-lock.json`.
+_LOCK_KEY = "node_modules/@fission-ai/openspec"
 # The variables a run sets for the tool, which a call keeps of the environment it was given.
 _TOOL_ENV_PREFIXES = ("OPENSPEC_", "OPEN_SPEC_", "XDG_CONFIG_HOME", "DO_NOT_TRACK", "HOME")
 # What a successful `openspec archive` prints, with the name of the folder it moved the change to.
@@ -63,11 +67,13 @@ VERSION_ARGS = ("--version",)
 @dataclass(frozen=True)
 class OpenSpecCall:
     """A command the fake answered: its arguments after the program name, the directory it was
-    started from, and the tool's environment variables it was given."""
+    started from, the tool's environment variables it was given, and the program it started: the
+    bare name that PATH resolves, or the path of the `openspec` that `npm ci` installed."""
 
     argv: tuple[str, ...]
     cwd: Path
     env: dict[str, str]
+    program: str = _PROGRAM
 
 
 class OpenSpecFake:
@@ -208,7 +214,7 @@ class OpenSpecFake:
             for key, value in kwargs.get("env", {}).items()
             if key.startswith(_TOOL_ENV_PREFIXES)
         }
-        self.calls.append(OpenSpecCall(arguments, cwd, env))
+        self.calls.append(OpenSpecCall(arguments, cwd, env, argv[0]))
         if arguments in self._scripted and self._scripted[arguments] is None:
             raise subprocess.TimeoutExpired(argv, kwargs.get("timeout", 0))
         if len(arguments) == 3 and arguments[:2] == ("new", "change"):
@@ -259,14 +265,17 @@ def spec_listing(cwd: Path) -> str:
 @pytest.fixture
 def openspec_fake(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> OpenSpecFake:
     """The recorded OpenSpec, found and answered for the whole test."""
-    version, scenarios = load_recorded_runs()
+    _, scenarios = load_recorded_runs()
+    repository = Path(str(files("tests"))).parent
+    lock = json.loads((repository / NPM_LOCKFILE).read_text(encoding="utf-8"))
+    version = str(lock["packages"][_LOCK_KEY]["version"])
     trees = tmp_path / "openspec-trees"
     trees.mkdir()
     fake = OpenSpecFake(
         version,
         scenarios,
         tmp_path / "openspec-bin",
-        Path(str(files("tests"))).parent,
+        repository,
         trees,
     )
     monkeypatch.setattr(shutil, "which", fake.which)

@@ -219,7 +219,7 @@ and pytest's exit status, or the limit when pytest passed it.
 - **THEN** the command exits 0, starts no pytest, and says that the fix changes no source code
 
 #### Scenario: A fix of tool pins
-- **WHEN** a fix changes only `src/devops_cli/tools_lock/tools.lock` and `src/devops_cli/tools_lock/openspec/package-lock.json`
+- **WHEN** a fix changes only `src/devops_cli/tools_lock/tools.lock` and `src/devops_cli/tools_lock/devcontainers-cli/package-lock.json`
 - **THEN** the command exits 0 and starts no pytest
 
 ### Requirement: A replay that passes the process-runner limit names the limit

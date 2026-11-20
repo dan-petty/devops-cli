@@ -383,6 +383,9 @@ def test_a_failed_python_install_leaves_no_stage_and_no_link(
 # The stderr of `npm ci` 11.19.1 at log level `error` on a lockfile whose last package had one
 # character of its sha512 changed, recorded on 2026-10-22: the registry's bytes did not match the
 # lockfile.
+# The Node tool of the lock that the npm tests install, and the command its package links.
+NODE_TOOL = "devcontainers-cli"
+NODE_COMMAND = "devcontainer"
 _NPM_INTEGRITY_FAILURE = (
     "npm error code EINTEGRITY\n"
     "npm error sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzP"
@@ -414,21 +417,16 @@ def _record_npm(
     *,
     ci_fails: bool = False,
     npm_installed: bool = True,
-    version: str | None = None,
 ) -> list[NpmRun]:
     """Stand in for npm at the stdlib, as `run_subprocess` starts it: `shutil.which` finds npm, and
     `subprocess.run` records each command. A successful `npm ci` writes the tree npm makes for
-    the OpenSpec lockfile, a package and its `.bin` link; a failed one answers with the real
-    tool's recorded integrity failure, after the partial `node_modules` it leaves. A `--version`
-    run answers `version`, the lock's OpenSpec version by default, and is not recorded."""
+    the lockfile of the Dev Containers CLI, a package and its `.bin` link; a failed one answers
+    with the real tool's recorded integrity failure, after the partial `node_modules` it leaves."""
     runs: list[NpmRun] = []
-    printed = load_tools_lock().npm["openspec"].version if version is None else version
 
     def run(
         cmd: list[str], *, cwd: Path, env: dict[str, str], **_: object
     ) -> subprocess.CompletedProcess[str]:
-        if cmd[1:] == ["--version"]:
-            return subprocess.CompletedProcess(cmd, 0, f"{printed}\n", "")
         runs.append(
             NpmRun(
                 cmd,
@@ -445,12 +443,12 @@ def _record_npm(
         if ci_fails:
             (cwd / "node_modules" / "zod").mkdir(parents=True)
             return subprocess.CompletedProcess(cmd, 1, "", _NPM_INTEGRITY_FAILURE)
-        script = cwd / "node_modules" / "@fission-ai" / "openspec" / "bin" / "openspec.js"
+        script = cwd / "node_modules" / "@devcontainers" / "cli" / "devcontainer.js"
         script.parent.mkdir(parents=True)
         script.write_bytes(EXECUTABLE)
         (cwd / "node_modules" / ".bin").mkdir()
-        (cwd / "node_modules" / ".bin" / "openspec").symlink_to(
-            "../@fission-ai/openspec/bin/openspec.js"
+        (cwd / "node_modules" / ".bin" / NODE_COMMAND).symlink_to(
+            "../@devcontainers/cli/devcontainer.js"
         )
         return subprocess.CompletedProcess(cmd, 0, "added 57 packages in 2s\n", "")
 
@@ -473,11 +471,11 @@ def test_a_node_tool_installs_with_npm_ci_in_a_stage_that_becomes_its_version(
     monkeypatch.setenv("npm_config_registry", "https://example.com/registry")
     runs = _record_npm(monkeypatch)
     target = tmp_path / "bin"
-    openspec = load_tools_lock().npm["openspec"]
+    node_tool = load_tools_lock().npm[NODE_TOOL]
 
-    install_npm_tool("openspec", openspec, target)
+    install_npm_tool(NODE_TOOL, node_tool, target)
 
-    pinned = isolate_user_data_root / "tools" / "openspec" / openspec.version
+    pinned = isolate_user_data_root / "tools" / NODE_TOOL / node_tool.version
     (run,) = runs
     npm_env = {key: value for key, value in run.env.items() if key.lower().startswith("npm_")}
     assert (
@@ -519,17 +517,17 @@ def test_a_node_tool_installs_with_npm_ci_in_a_stage_that_becomes_its_version(
         sorted(path.name for path in pinned.iterdir()),
         [(pinned / name).read_bytes() for name in ("package.json", "package-lock.json")],
         sorted(path.name for path in pinned.parent.iterdir()),
-        (target / "openspec").is_symlink(),
-        (target / "openspec").resolve(),
+        (target / NODE_COMMAND).is_symlink(),
+        (target / NODE_COMMAND).resolve(),
     ) == (
         ["node_modules", "package-lock.json", "package.json"],
         [
-            (LOCK_DIR / "openspec" / name).read_bytes()
+            (LOCK_DIR / NODE_TOOL / name).read_bytes()
             for name in ("package.json", "package-lock.json")
         ],
-        [openspec.version],
+        [node_tool.version],
         True,
-        (pinned / "node_modules" / "@fission-ai" / "openspec" / "bin" / "openspec.js").resolve(),
+        (pinned / "node_modules" / "@devcontainers" / "cli" / "devcontainer.js").resolve(),
     )
 
 
@@ -540,31 +538,31 @@ def test_a_failed_npm_ci_leaves_no_stage_no_link_and_an_earlier_install_as_it_wa
     with npm's reason, removes the stage and links nothing, and an install of the same version that
     an earlier run made is still there with its link."""
     _record_npm(monkeypatch, ci_fails=True)
-    openspec = load_tools_lock().npm["openspec"]
-    earlier = isolate_user_data_root / "tools" / "openspec" / openspec.version
+    node_tool = load_tools_lock().npm[NODE_TOOL]
+    earlier = isolate_user_data_root / "tools" / NODE_TOOL / node_tool.version
     (earlier / "node_modules" / ".bin").mkdir(parents=True)
-    (earlier / "node_modules" / ".bin" / "openspec").write_bytes(EXECUTABLE)
+    (earlier / "node_modules" / ".bin" / NODE_COMMAND).write_bytes(EXECUTABLE)
     target = tmp_path / "bin"
     target.mkdir()
-    (target / "openspec").symlink_to(earlier / "node_modules" / ".bin" / "openspec")
+    (target / NODE_COMMAND).symlink_to(earlier / "node_modules" / ".bin" / NODE_COMMAND)
 
     with pytest.raises(ToolExecutionError) as raised:
-        install_npm_tool("openspec", openspec, target)
+        install_npm_tool(NODE_TOOL, node_tool, target)
 
     assert (
         str(raised.value),
         raised.value.exit_code,
         raised.value.error_code,
         sorted(path.name for path in earlier.parent.iterdir()),
-        (earlier / "node_modules" / ".bin" / "openspec").read_bytes(),
-        (target / "openspec").resolve(),
+        (earlier / "node_modules" / ".bin" / NODE_COMMAND).read_bytes(),
+        (target / NODE_COMMAND).resolve(),
     ) == (
-        f"npm could not install openspec: {_NPM_INTEGRITY_FAILURE[:256]}",
+        f"npm could not install {NODE_TOOL}: {_NPM_INTEGRITY_FAILURE[:256]}",
         1,
         "TOOL_EXECUTION_ERROR",
-        [openspec.version],
+        [node_tool.version],
         EXECUTABLE,
-        (earlier / "node_modules" / ".bin" / "openspec").resolve(),
+        (earlier / "node_modules" / ".bin" / NODE_COMMAND).resolve(),
     )
     assert sorted(path.name for path in earlier.iterdir()) == ["node_modules"]
 
@@ -577,11 +575,11 @@ def test_a_failed_first_npm_ci_leaves_no_version_directory(
     _record_npm(monkeypatch, ci_fails=True)
 
     with pytest.raises(ToolExecutionError, match="EINTEGRITY"):
-        install_npm_tool("openspec", load_tools_lock().npm["openspec"], tmp_path / "bin")
+        install_npm_tool(NODE_TOOL, load_tools_lock().npm[NODE_TOOL], tmp_path / "bin")
 
     assert (
-        list((isolate_user_data_root / "tools" / "openspec").iterdir()),
-        os.path.lexists(tmp_path / "bin" / "openspec"),
+        list((isolate_user_data_root / "tools" / NODE_TOOL).iterdir()),
+        os.path.lexists(tmp_path / "bin" / NODE_COMMAND),
     ) == ([], False)
 
 
@@ -593,39 +591,35 @@ def test_a_node_tool_without_npm_fails_first_naming_npm(
     runs = _record_npm(monkeypatch, npm_installed=False)
 
     with pytest.raises(DependencyError) as raised:
-        install_npm_tool("openspec", load_tools_lock().npm["openspec"], tmp_path / "bin")
+        install_npm_tool(NODE_TOOL, load_tools_lock().npm[NODE_TOOL], tmp_path / "bin")
 
     assert (
         raised.value.exit_code,
         raised.value.error_code,
         raised.value.details["tool_name"],
         runs,
-        (isolate_user_data_root / "tools" / "openspec").exists(),
+        (isolate_user_data_root / "tools" / NODE_TOOL).exists(),
     ) == (1, "DEPENDENCY_MISSING", "npm", [], False)
 
 
 def test_install_tools_installs_a_node_tool_and_check_finds_it_at_its_pin(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolate_user_data_root: Path
 ) -> None:
-    """`devops install-tools --tool openspec` installs the pin from the lockfile and links
-    `openspec`, and `--check` then reports the version and the path of the command on PATH."""
+    """`devops install-tools --tool devcontainers-cli` installs the pin from the lockfile and links
+    `devcontainer`, and `--check` then finds the link at the pin."""
     _record_npm(monkeypatch)
     target = tmp_path / "bin"
-    openspec = load_tools_lock().npm["openspec"]
 
-    installed = runner.invoke(
-        install_tools_app, ["--tool", "openspec", "--target-dir", str(target)]
-    )
+    installed = runner.invoke(install_tools_app, ["--tool", NODE_TOOL, "--target-dir", str(target)])
     checked = runner.invoke(
-        install_tools_app, ["--check", "--tool", "openspec", "--target-dir", str(target)]
+        install_tools_app, ["--check", "--tool", NODE_TOOL, "--target-dir", str(target)]
     )
 
     assert (
         installed.exit_code,
         checked.exit_code,
-        f"openspec {openspec.version}: /usr/bin/openspec" in checked.output,
         "All 1 tools are linked" in checked.output,
-    ) == (0, 0, True, True)
+    ) == (0, 0, True)
 
 
 def test_install_tools_without_npm_exits_1_naming_npm(
@@ -635,7 +629,7 @@ def test_install_tools_without_npm_exits_1_naming_npm(
     _record_npm(monkeypatch, npm_installed=False)
 
     result = runner.invoke(
-        install_tools_app, ["--tool", "openspec", "--target-dir", str(tmp_path / "bin")]
+        install_tools_app, ["--tool", NODE_TOOL, "--target-dir", str(tmp_path / "bin")]
     )
 
     assert (result.exit_code, "Required dependency 'npm' is not installed" in result.output) == (
@@ -691,83 +685,6 @@ def test_check_passes_only_when_every_tool_is_at_its_pin(
         0,
         [],
     )
-
-
-def test_check_prints_the_version_and_the_path_of_the_locked_command(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolate_user_data_root: Path
-) -> None:
-    """The check reads the version of the command that PATH resolves, and prints it with the path
-    of that command when it prints the locked version."""
-    _record_npm(monkeypatch)
-    target = tmp_path / "bin"
-    openspec = load_tools_lock().npm["openspec"]
-    runner.invoke(install_tools_app, ["--tool", "openspec", "--target-dir", str(target)])
-
-    checked = runner.invoke(
-        install_tools_app, ["--check", "--tool", "openspec", "--target-dir", str(target)]
-    )
-
-    assert (
-        checked.exit_code,
-        f"openspec {openspec.version}: /usr/bin/openspec" in checked.output,
-    ) == (0, True)
-
-
-def test_check_fails_naming_the_version_the_binary_prints(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolate_user_data_root: Path
-) -> None:
-    """A command on PATH that prints another version than the lock's fails the check, and the line
-    names the path, the version it prints and the locked version."""
-    _record_npm(monkeypatch, version="1.14.3")
-    target = tmp_path / "bin"
-    openspec = load_tools_lock().npm["openspec"]
-    runner.invoke(install_tools_app, ["--tool", "openspec", "--target-dir", str(target)])
-
-    checked = runner.invoke(
-        install_tools_app, ["--check", "--tool", "openspec", "--target-dir", str(target)]
-    )
-
-    assert (
-        checked.exit_code,
-        all(part in checked.output for part in ("/usr/bin/openspec", "1.14.3", openspec.version)),
-        "All 1 tools are linked" in checked.output,
-    ) == (1, True, False)
-
-
-def test_check_fails_when_the_binary_prints_no_version(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolate_user_data_root: Path
-) -> None:
-    """A command on PATH that prints no version cannot be shown to be the lock's: the check fails
-    and names the path."""
-    _record_npm(monkeypatch, version="")
-    target = tmp_path / "bin"
-    runner.invoke(install_tools_app, ["--tool", "openspec", "--target-dir", str(target)])
-
-    checked = runner.invoke(
-        install_tools_app, ["--check", "--tool", "openspec", "--target-dir", str(target)]
-    )
-
-    assert (
-        checked.exit_code,
-        "/usr/bin/openspec" in checked.output,
-        "All 1 tools are linked" in checked.output,
-    ) == (1, True, False)
-
-
-def test_only_missing_installs_openspec_when_the_binary_on_path_prints_another_version(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, isolate_user_data_root: Path
-) -> None:
-    """A link at the pin hides nothing: `--only-missing` installs the locked version when the
-    command that PATH resolves prints another one."""
-    runs = _record_npm(monkeypatch, version="1.14.3")
-    target = tmp_path / "bin"
-    link_at_pin("openspec", target)
-
-    installed = runner.invoke(
-        install_tools_app, ["--tool", "openspec", "--only-missing", "--target-dir", str(target)]
-    )
-
-    assert (installed.exit_code, [run.argv[1] for run in runs]) == (0, ["ci"])
 
 
 @pytest.mark.parametrize(

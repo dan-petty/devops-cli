@@ -444,14 +444,6 @@ class InstallMessages:
     at_pin: str = "at pin"
     not_installed: str = "not installed"
     check_off_pin: str = "{name} {version}: {installed}"
-    check_version_differs: str = (
-        "{name} {locked}: the command at {path} prints {version}. "
-        "Install the locked version: uv run devops install-tools --tool {name}"
-    )
-    check_version_unreadable: str = (
-        "Cannot read the version of {path}: `{name} --version` printed no version line."
-    )
-    check_version_at_pin: str = "{name} {version}: {path}"
     check_all_pinned: str = "All {count} tools are linked at their locked versions in {path}."
     npm_missing_hint: str = (
         "A Node tool installs with npm, and the installer provisions no runtime: install Node.js at "
@@ -507,8 +499,8 @@ class NewMessages:
 @dataclass(frozen=True)
 class OpenSpecMessages:
     missing_hint: str = (
-        "OpenSpec is a pinned Node tool: install it with "
-        "`uv run devops install-tools --tool openspec --only-missing`."
+        "OpenSpec is a devDependency of package-lock.json: install it at the root of the checkout "
+        "with `npm ci --ignore-scripts`."
     )
     command_timed_out: str = "{command} ran past its {timeout} timeout and was stopped."
     command_failed: str = "{command} failed with exit code {code}: {reason}"
@@ -544,11 +536,17 @@ class OpenSpecMessages:
         "`openspec instructions`."
     )
     version_differs: str = (
-        "The openspec command at {path} prints {version}, and the tools lock pins {locked}. {hint}"
+        "The openspec command at {path} prints {version}, and package-lock.json pins {locked}. "
+        "{hint}"
     )
     version_unreadable: str = (
-        "The openspec command at {path} printed no version line, and the tools lock pins "
+        "The openspec command at {path} printed no version line, and package-lock.json pins "
         "{locked}. {hint}"
+    )
+    version_unpinned: str = (
+        "The {lockfile} at the root of the checkout pins no {package}, so no version writes the "
+        "skills: add {package} to the devDependencies of package.json and run "
+        "`npm install --package-lock-only --ignore-scripts`."
     )
     scaffold_marker_present: str = (
         "{path} still holds the scaffold marker: replace every line that needs author input."

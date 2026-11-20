@@ -8,9 +8,9 @@
     "source=${localEnv:HOME}${localEnv:USERPROFILE}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
   ],
   "remoteEnv": {
-    "PATH": "${containerWorkspaceFolder}/.venv/bin:${containerEnv:PATH}"
+    "PATH": "${containerWorkspaceFolder}/.venv/bin:${containerWorkspaceFolder}/node_modules/.bin:${containerEnv:PATH}"
   },
-  "postCreateCommand": "UV_MALWARE_CHECK=1 devops devcontainer post-create",
+  "postCreateCommand": "UV_MALWARE_CHECK=1 devops devcontainer post-create && npm ci --ignore-scripts",
   "postStartCommand": "devops devcontainer post-start",
   "customizations": {
     "vscode": {

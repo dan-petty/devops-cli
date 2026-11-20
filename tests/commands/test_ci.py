@@ -90,7 +90,6 @@ def test_ci_audit_command(process_fake: ProcessFake) -> None:
         "uv",
         "npm",
         "npm",
-        "npm",
         "osv-scanner",
         "osv-scanner",
         "osv-scanner",
@@ -98,10 +97,12 @@ def test_ci_audit_command(process_fake: ProcessFake) -> None:
     assert any("uv" in c and "audit" in c for c in called)
 
 
-def test_the_audit_check_audits_uv_and_the_lockfile_of_each_node_tool_without_a_shell() -> None:
+def test_the_audit_check_audits_uv_and_each_npm_lockfile_without_a_shell() -> None:
     """One check carries both audits as argument lists, each started on its own: `uv audit` of
-    `uv.lock`, `npm audit` of the lockfile in the repository's copy of the lock directory,
-    and `osv-scanner` of the requirements file of each Python tool, which need no install."""
+    `uv.lock`, `npm audit` of the `package-lock.json` at the root, which pins OpenSpec and Style
+    Dictionary (#6409), and of the lockfile of each Node tool in the repository's copy of the lock
+    directory, and `osv-scanner` of the requirements file of each Python tool, which need no
+    install."""
     assert get_check_spec("audit").commands == [
         ["uv", "audit"],
         [
@@ -111,7 +112,7 @@ def test_the_audit_check_audits_uv_and_the_lockfile_of_each_node_tool_without_a_
             "--json",
             "--no-update-notifier",
             "--prefix",
-            "src/devops_cli/tools_lock/openspec",
+            ".",
         ],
         [
             "npm",
@@ -121,15 +122,6 @@ def test_the_audit_check_audits_uv_and_the_lockfile_of_each_node_tool_without_a_
             "--no-update-notifier",
             "--prefix",
             "src/devops_cli/tools_lock/devcontainers-cli",
-        ],
-        [
-            "npm",
-            "audit",
-            "--package-lock-only",
-            "--json",
-            "--no-update-notifier",
-            "--prefix",
-            "src/devops_cli/tools_lock/style-dictionary",
         ],
         [
             "osv-scanner",
@@ -160,7 +152,7 @@ def test_the_audit_command_fails_when_either_audit_fails_and_still_runs_the_othe
 
     assert (result.exit_code, [argv[0] for argv in _started(process_fake)]) == (
         1,
-        ["uv", "npm", "npm", "npm", "osv-scanner", "osv-scanner", "osv-scanner"],
+        ["uv", "npm", "npm", "osv-scanner", "osv-scanner", "osv-scanner"],
     )
 
 
@@ -1908,7 +1900,7 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
         (
             "static",
             "Install OpenSpec",
-        ): "Installs the pinned openspec the gate's openspec row runs, with the lock's installer",
+        ): "Installs the openspec of package-lock.json that the openspec row runs, with npm ci (#6409)",
         (
             "static",
             "Install Trivy",
@@ -1948,7 +1940,7 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
         (
             "design-tokens",
             "Install Style Dictionary",
-        ): "Installs the Style Dictionary lock outside the checkout; the lock is no entry of tools.lock (#4738)",
+        ): "Installs Style Dictionary from the root package-lock.json with npm ci, no row of the gate (#6409)",
         (
             "design-tokens",
             "Build the Design Tokens",

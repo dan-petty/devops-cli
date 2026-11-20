@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.184.0](https://github.com/dan-petty/devops-cli/compare/v0.183.2...v0.184.0) (2026-11-20)
+
+
+### Features
+
+* **deps:** merge minor, patch and digest Renovate updates ([#6550](https://github.com/dan-petty/devops-cli/issues/6550)) ([952ac24](https://github.com/dan-petty/devops-cli/commit/952ac24cb5c7e8a9987c0e939c525f814948b4a6)), closes [#6547](https://github.com/dan-petty/devops-cli/issues/6547)
+
+
+### Bug Fixes
+
+* **deps:** move pydantic-ai to 2.71 and the harness to 0.71 ([#6524](https://github.com/dan-petty/devops-cli/issues/6524)) ([52f7231](https://github.com/dan-petty/devops-cli/commit/52f7231b0104881303966baaeccdc75ed83b2a8a)), closes [#5098](https://github.com/dan-petty/devops-cli/issues/5098)
+* **openspec:** pin OpenSpec and Style Dictionary in the root npm lockfile ([#6536](https://github.com/dan-petty/devops-cli/issues/6536)) ([299e050](https://github.com/dan-petty/devops-cli/commit/299e0509b975f5b0665225cc3009827a03c77d1a))
+
 ## [0.183.2](https://github.com/dan-petty/devops-cli/compare/v0.183.1...v0.183.2) (2026-11-20)
 
 

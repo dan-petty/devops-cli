@@ -1,10 +1,10 @@
 ---
 applies_to:
-  - "pkg:pypi/pydantic-ai@2.59.*"
+  - "pkg:pypi/pydantic-ai@2.71.*"
 sources:
   - "https://ai.pydantic.dev/"
   - "https://github.com/pydantic/pydantic-ai"
-reviewed: "2026-10-22"
+reviewed: "2026-11-20"
 tags:
   - "pydantic-ai"
   - "ai"

@@ -1554,7 +1554,7 @@ class RoadmapImplementConfig(BaseModel):
         le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
     )
     tool_retries: Annotated[int, Variable()] = Field(
-        description="The failures in a row that one tool of an implementation step may answer before the run ends, such as an `edit_file` whose text is not found. A successful call resets the count, and a refusal of the shell by policy is no failure. The settings load refuses a value above 4 times the default",
+        description="The failures in a row that one tool of an implementation step may answer as a retry, such as an `edit_file` whose text is not found. The next failure comes back to the model as a failed result and the run goes on, but arguments that break the schema of the tool end the run. A successful call resets the count, and a refusal of the shell by policy is no failure. The settings load refuses a value above 4 times the default",
         default=DEFAULT_ROADMAP_IMPLEMENT_TOOL_RETRIES,
         ge=0,
         le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_IMPLEMENT_TOOL_RETRIES,

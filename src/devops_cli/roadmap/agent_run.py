@@ -27,11 +27,12 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
-    RetryPromptPart,
+    RetryFeedbackPart,
     TextPart,
     ToolCallPart,
     ToolReturn,
     ToolReturnPart,
+    is_retry,
 )
 
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
@@ -282,14 +283,14 @@ def _limit_name(text: str) -> str:
 
 def _retried_name(messages: Sequence[ModelMessage], calls: Sequence[ToolCallPart]) -> str:
     """The name of the tool whose calls spent the tools retry limit: the call of the last reply
-    whose name a retry prompt of the run holds, else the name of its last call. pydantic-ai writes
+    whose name a retried return of the run holds, else the name of its last call. pydantic-ai writes
     the name into the message of the error, which `run_error_message` hides."""
     retried = {
         part.tool_name
         for message in messages
         if isinstance(message, ModelRequest)
         for part in message.parts
-        if isinstance(part, RetryPromptPart) and part.tool_name
+        if is_retry(part) and isinstance(part, ToolReturnPart)
     }
     return next(
         (call.tool_name for call in reversed(calls) if call.tool_name in retried),
@@ -463,14 +464,16 @@ class RunTrace:
                 self.tool_answers.extend(
                     str(part.content)
                     for part in message.parts
-                    if isinstance(part, ToolReturnPart) and part.tool_name in tools
+                    if isinstance(part, ToolReturnPart)
+                    and part.tool_name in tools
+                    and not is_retry(part)
                 )
 
     def _add_reply(
         self,
         reply: ModelResponse,
         tools: Collection[str],
-        answers: Mapping[str, ToolReturnPart | RetryPromptPart],
+        answers: Mapping[str, ToolReturnPart],
     ) -> None:
         self.requests += 1
         self.last_input_tokens = reply.usage.input_tokens
@@ -497,7 +500,7 @@ class RunTrace:
 
     def _add_violations(self, request: ModelRequest, tools: Collection[str]) -> None:
         for part in request.parts:
-            if isinstance(part, RetryPromptPart) and part.tool_name not in tools:
+            if is_retry(part) and _retried_tool(part) not in tools:
                 errors = part.content if isinstance(part.content, list) else []
                 self.violations = len(errors)
                 self.violation_texts = tuple(
@@ -516,15 +519,21 @@ def _violation_text(error: Mapping[str, Any]) -> ViolationText:
     )
 
 
-def _answers(messages: Sequence[ModelMessage]) -> dict[str, ToolReturnPart | RetryPromptPart]:
+def _retried_tool(part: ToolReturnPart | RetryFeedbackPart) -> str | None:
+    """The name of the tool whose call a retry answers, or None for a retry that answers no call,
+    such as a text reply that breaks the output schema."""
+    return part.tool_name if isinstance(part, ToolReturnPart) else None
+
+
+def _answers(messages: Sequence[ModelMessage]) -> dict[str, ToolReturnPart]:
     """The part that answers each tool call, by the id of the call, in the requests of `messages`:
-    the return of the tool, or the retry prompt of a call that pydantic-ai refused."""
+    the return of the tool, or the retried return of a call that pydantic-ai refused."""
     return {
         part.tool_call_id: part
         for message in messages
         if isinstance(message, ModelRequest)
         for part in message.parts
-        if isinstance(part, ToolReturnPart | RetryPromptPart)
+        if isinstance(part, ToolReturnPart)
     }
 
 
@@ -534,24 +543,26 @@ _MATCH_TOOLS: Final[frozenset[str]] = frozenset({"search_code", "callers"})
 _MATCH_LINE: Final[re.Pattern[str]] = re.compile(r"^(?P<path>[^\s:]+):(?P<line>\d+):", re.MULTILINE)
 
 
-def _match_lines(tool: str, answer: ToolReturnPart | RetryPromptPart | None) -> tuple[str, ...]:
+def _match_lines(tool: str, answer: ToolReturnPart | None) -> tuple[str, ...]:
     """The `path:line` of each match line of the answer of a search tool, in order and once each.
-    The answer of any other tool, a failed call and a call with no answer give none."""
-    if tool not in _MATCH_TOOLS or not isinstance(answer, ToolReturnPart):
+    The answer of any other tool and a call with no answer give none. `model_response_str()` wraps
+    a retried or failed answer in one `{"error": ...}` object, so no line of its text starts with a
+    path."""
+    if tool not in _MATCH_TOOLS or answer is None:
         return ()
     text = answer.model_response_str()
     return tuple(dict.fromkeys(f"{m['path']}:{m['line']}" for m in _MATCH_LINE.finditer(text)))
 
 
 def _outcome_of(
-    answer: ToolReturnPart | RetryPromptPart | None,
+    answer: ToolReturnPart | None,
 ) -> tuple[ToolOutcome, int | None, float | None, str | None]:
     """How a tool call ended, the characters of its answer, its timeout in seconds (None for a call
     with no answer or timeout), and the cap that cut its answer (None with no cut, #3241). The
     answer is the text that the model read, after the cut of the tool. The tool sets its outcome
     with `empty_answer` and `error_answer`, or in a metadata dict. A call with no return of the
     tool is an error."""
-    if not isinstance(answer, ToolReturnPart) or answer.outcome != "success":
+    if answer is None or answer.outcome != "success":
         return ToolOutcome.ERROR, None, None, None
     text = answer.model_response_str()
     if isinstance(answer.metadata, ToolOutcome):

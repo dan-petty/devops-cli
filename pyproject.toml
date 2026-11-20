@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "devops-cli"
-version = "0.183.2"
+version = "0.184.0"
 
 description = "DevOps CLI for managing repos, SSH keys, Kubernetes, and more"
 requires-python = ">=3.14"
@@ -37,8 +37,8 @@ dependencies = [
     "fastapi==0.162.7",
     "uvicorn==0.54.0",
     "tiktoken==0.14.0",
-    "pydantic-ai[spec]==2.59.0",
-    "pydantic-ai-harness[coder]==0.59.0",
+    "pydantic-ai[spec]==2.71.0",
+    "pydantic-ai-harness[coder]==0.71.0",
     "logfire==5.6.0",
     "pynacl==1.6.2",
     "openai==3.49.0",
@@ -199,6 +199,9 @@ raises-require-match-for = [
 "socket.inet_pton".msg = "Parse and format addresses with ipaddress.ip_address."
 "socket.inet_ntop".msg = "Parse and format addresses with ipaddress.ip_address."
 "time.sleep".msg = "Use devops_cli.core.clock.sleep instead of time.sleep."
+"pydantic_ai.RetryPromptPart".msg = "pydantic-ai builds no RetryPromptPart since 2.60: find a retry with pydantic_ai.messages.is_retry."
+"pydantic_ai.messages.RetryPromptPart".msg = "pydantic-ai builds no RetryPromptPart since 2.60: find a retry with pydantic_ai.messages.is_retry."
+"pydantic_ai_harness.filesystem".msg = "Import FileSystem from pydantic_ai_harness.file_system, its module since 0.69."
 
 [tool.mypy]
 python_version = "3.14"

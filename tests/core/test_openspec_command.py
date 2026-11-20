@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -9,14 +10,14 @@ from typing import Any
 
 import pytest
 
-from devops_cli.config.commands import BIN_OPENSPEC
 from devops_cli.lang import MESSAGES
-from devops_cli.tools_lock import load_tools_lock
 from tests.support.fakes.openspec import VERSION_ARGS, OpenSpecFake
 
 Cli = Callable[..., Any]
 
 ARCHIVE_COMMAND = ("archive", "1930-export-widgets", "--yes")
+# The key of OpenSpec in the `packages` of a `package-lock.json`.
+LOCKED_PACKAGE = "node_modules/@fission-ai/openspec"
 VALIDATE_COMMAND = ("validate", "--all", "--strict")
 
 
@@ -55,6 +56,20 @@ def test_check_prints_each_problem_with_its_check_and_exits_1(
     ]
 
 
+def _locked_version(tree: Path) -> str:
+    """The version of OpenSpec that the `package-lock.json` of `tree` pins."""
+    lock = json.loads((tree / "package-lock.json").read_text(encoding="utf-8"))
+    return str(lock["packages"][LOCKED_PACKAGE]["version"])
+
+
+def _move_the_pin(tree: Path, version: str) -> None:
+    """Make the `package-lock.json` of `tree` pin OpenSpec at `version`."""
+    lockfile = tree / "package-lock.json"
+    lock = json.loads(lockfile.read_text(encoding="utf-8"))
+    lock["packages"][LOCKED_PACKAGE]["version"] = version
+    lockfile.write_text(json.dumps(lock), encoding="utf-8")
+
+
 def test_check_without_openspec_exits_1_naming_the_install_command(
     cli: Cli, openspec_fake: OpenSpecFake, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -65,7 +80,7 @@ def test_check_without_openspec_exits_1_naming_the_install_command(
     result = cli("openspec", "check")
 
     assert result.exit_code == 1
-    assert "uv run devops install-tools --tool openspec --only-missing" in result.output
+    assert "npm ci --ignore-scripts" in result.output
 
 
 def test_regenerate_writes_the_skills_under_the_isolated_profile_and_never_a_bare_update(
@@ -104,8 +119,8 @@ def test_regenerate_writes_the_skills_under_the_isolated_profile_and_never_a_bar
 def test_regenerate_stops_before_it_writes_when_the_binary_is_older(
     cli: Cli, openspec_fake: OpenSpecFake, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A binary older than the tools lock pin writes no skill: the command reads the version and
-    stops before `openspec update --force` (#5375)."""
+    """A binary older than the pin of `package-lock.json` writes no skill: the command reads the
+    version and stops before `openspec update --force` (#5375)."""
     tree = openspec_fake.tree("empty")
     monkeypatch.chdir(tree)
     openspec_fake.version = "1.14.3"
@@ -116,6 +131,27 @@ def test_regenerate_stops_before_it_writes_when_the_binary_is_older(
         result.exit_code,
         [call.argv for call in openspec_fake.calls if call.argv[0] != "config"],
     ) == (1, [("--version",)])
+
+
+@pytest.mark.parametrize("command", ["check", "regenerate"])
+def test_a_binary_other_than_the_pin_of_the_checkout_lockfile_fails_check_and_regenerate(
+    cli: Cli, openspec_fake: OpenSpecFake, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    """The pin is the `package-lock.json` of the checkout: when it moves, the binary at the old
+    version fails both commands, and regenerate writes no skill (#6409)."""
+    tree = openspec_fake.tree("empty")
+    monkeypatch.chdir(tree)
+    printed = _locked_version(tree)
+    _move_the_pin(tree, "9.9.9")
+
+    result = cli("openspec", command)
+
+    assert (
+        result.exit_code,
+        printed in result.output,
+        "9.9.9" in result.output,
+        [call.argv for call in openspec_fake.calls if call.argv[0] == "update"],
+    ) == (1, True, True, [])
 
 
 def test_regenerate_stops_when_the_binary_prints_no_version(
@@ -142,7 +178,7 @@ def test_regenerate_names_the_path_the_versions_and_the_hint(
     tree = openspec_fake.tree("empty")
     monkeypatch.chdir(tree)
     openspec_fake.version = "1.14.3"
-    locked = load_tools_lock().tools()[BIN_OPENSPEC].version
+    locked = _locked_version(tree)
 
     result = cli("openspec", "regenerate")
 

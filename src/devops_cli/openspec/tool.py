@@ -1,5 +1,10 @@
 """The pinned OpenSpec, run with telemetry off under a configuration of its own (ADR 0010).
 
+The `package-lock.json` at the root of a checkout pins OpenSpec as a devDependency, and
+`npm ci --ignore-scripts` links it into `node_modules/.bin` (#6409). A run in a checkout starts
+that binary when it is there, so an `openspec` on PATH, such as the one of the devtools image, has
+no effect on it; else it starts the `openspec` on PATH.
+
 OpenSpec reports usage and asks the registry for a newer version unless told not to, and it has no
 project-level profile: a developer's own `~/.config/openspec` decides which skills `update` writes.
 So every run here sets the opt-outs and points `XDG_CONFIG_HOME` at a scratch directory holding the
@@ -11,6 +16,7 @@ profile of the run.
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import tempfile
 from collections.abc import Iterator, Sequence
@@ -21,9 +27,12 @@ from typing import Any
 
 from devops_cli.config.commands import BIN_OPENSPEC, build_openspec_cmd
 from devops_cli.config.constants import (
+    CONST_NPM_BIN_DIR,
+    CONST_NPM_LOCKFILE,
     CONST_OPENSPEC_CONFIG_HOME_ENV,
     CONST_OPENSPEC_HOME_ENV,
     CONST_OPENSPEC_ISOLATED_SETTINGS,
+    CONST_OPENSPEC_LOCK_KEY,
     CONST_OPENSPEC_OPT_OUT_ENV,
 )
 from devops_cli.config.defaults import DEFAULT_OPENSPEC_COMMAND_TIMEOUT_SECONDS
@@ -58,11 +67,37 @@ def output_of(run: subprocess.CompletedProcess[str]) -> str:
     return "\n".join(part for part in (run.stdout.strip(), run.stderr.strip()) if part)
 
 
+def locked_version(root: Path) -> str | None:
+    """The version of OpenSpec that the `package-lock.json` of the checkout at `root` pins, or None
+    when the checkout has no such lockfile or the lockfile holds no OpenSpec."""
+    lockfile = root / CONST_NPM_LOCKFILE
+    if not lockfile.is_file():
+        return None
+    package = json.loads(lockfile.read_text(encoding="utf-8")).get("packages", {})
+    version = package.get(CONST_OPENSPEC_LOCK_KEY, {}).get("version")
+    return str(version) if version else None
+
+
+def installed_program(root: Path) -> Path:
+    """Where `npm ci --ignore-scripts` links `openspec` in the checkout at `root`."""
+    return root / CONST_NPM_BIN_DIR / BIN_OPENSPEC
+
+
 @dataclass(frozen=True)
 class OpenSpecTool:
-    """`openspec`, started with the opt-outs and the configuration directory `config_home`."""
+    """`openspec`, started with the opt-outs and the configuration directory `config_home`.
+    `program` is the bare name that PATH resolves, or the path of the binary of a checkout."""
 
     config_home: Path
+    program: str = BIN_OPENSPEC
+
+    @property
+    def path(self) -> str:
+        """The binary that a run starts: the path of the binary of a checkout, else the `openspec`
+        that PATH resolves, or the bare name when PATH resolves none."""
+        if self.program != BIN_OPENSPEC:
+            return self.program
+        return shutil.which(BIN_OPENSPEC) or BIN_OPENSPEC
 
     @property
     def environment(self) -> dict[str, str]:
@@ -72,7 +107,7 @@ class OpenSpecTool:
 
     def run(self, args: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
         """Run `openspec <args>` in `cwd`, whatever its exit code."""
-        command = build_openspec_cmd(*args)
+        command = [self.program, *args]
         try:
             return run_subprocess(
                 command,
@@ -127,15 +162,20 @@ def active_changes(tool: OpenSpecTool, directory: Path) -> list[str]:
 
 
 @contextmanager
-def isolated_openspec() -> Iterator[OpenSpecTool]:
+def isolated_openspec(root: Path | None = None) -> Iterator[OpenSpecTool]:
     """The pinned OpenSpec under a configuration of its own, held in a scratch directory that goes
-    when the block ends.
+    when the block ends: the binary that `npm ci` installed in the checkout at `root` when it is
+    there, else the `openspec` on PATH.
 
-    Raises `DependencyError` naming the install command when `openspec` is not on PATH.
+    Raises `DependencyError` naming the install command when neither is there.
     """
-    require_binary(BIN_OPENSPEC, install_hint=MESSAGES.openspec.missing_hint)
+    if root is not None and installed_program(root).is_file():
+        program = str(installed_program(root))
+    else:
+        require_binary(BIN_OPENSPEC, install_hint=MESSAGES.openspec.missing_hint)
+        program = BIN_OPENSPEC
     with tempfile.TemporaryDirectory(prefix="openspec-config-") as scratch:
-        tool = OpenSpecTool(Path(scratch))
+        tool = OpenSpecTool(Path(scratch), program)
         for args in settings_args():
             tool.run_checked(args, Path(scratch))
         yield tool

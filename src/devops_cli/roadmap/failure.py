@@ -277,7 +277,11 @@ def _rule(klass: FailureClass, pattern: str) -> tuple[FailureClass, re.Pattern[s
 
 
 # Rules for the causes outside the code of the item. The parser comes before the provider: an
-# Ollama that cannot parse a tool call answers `ModelHTTPError`, an HTTP 400 (#2747).
+# Ollama that cannot parse a tool call answers an HTTP 400 (#2747). pydantic-ai 2.71 names the class
+# of an HTTP error by the category of its status, such as `ModelRequestRejectedError` for a 400 or
+# `ModelNotFoundError` for a 404, so the provider rule takes such a class with its status (#5098).
+# `ModelContextWindowExceededError` and `ModelQuotaExceededError` had their names before, and keep
+# the class they had.
 _CAUSE_RULES: Final[tuple[tuple[FailureClass, re.Pattern[str]], ...]] = (
     _rule(
         FailureClass.OOM,
@@ -303,9 +307,10 @@ _CAUSE_RULES: Final[tuple[tuple[FailureClass, re.Pattern[str]], ...]] = (
     ),
     _rule(
         FailureClass.PROVIDER,
-        r"ModelHTTPError|HTTP (429|5\d\d)|rate.?limit|ConnectionError|Connection (refused|reset"
-        r"|aborted)|APIConnectionError|ServiceUnavailable|overloaded|Bad Gateway"
-        r"|temporarily unavailable|AIClientError|ModelAPIError",
+        r"ModelHTTPError|Model(?!ContextWindowExceeded|QuotaExceeded)\w*Error: HTTP \d{3}"
+        r"|HTTP (429|5\d\d)|rate.?limit|ConnectionError"
+        r"|Connection (refused|reset|aborted)|APIConnectionError|ServiceUnavailable|overloaded"
+        r"|Bad Gateway|temporarily unavailable|AIClientError|ModelAPIError",
     ),
     # A tool that came back as a retry more often than the bound, or a shell that refused a
     # command (#2735). "Refused commands: 0" is a count of none.

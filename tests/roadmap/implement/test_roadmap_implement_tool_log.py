@@ -13,9 +13,14 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
-from pydantic_ai import Agent
-from pydantic_ai.exceptions import ModelRetry, ToolFailed, ToolRetryError
-from pydantic_ai.messages import RetryPromptPart, ToolCallPart
+from pydantic_ai import Agent, Tool
+from pydantic_ai.exceptions import (
+    ModelRetry,
+    ToolFailed,
+    ToolRetryError,
+    UnexpectedModelBehavior,
+)
+from pydantic_ai.messages import ToolCallPart
 from pydantic_ai.tools import ToolDefinition
 
 from devops_cli.config import constants
@@ -28,7 +33,7 @@ from devops_cli.roadmap.implement.implement_trace import argument_digest
 from tests.support.fakes.process import ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import TEST_BODY, WINDOW, write_call
-from tests.support.model_script import ModelScript, say, tool_call, tool_calls
+from tests.support.model_script import ModelScript, refused_call, say, tool_call, tool_calls
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -474,6 +479,34 @@ def _retry_lines(
     return _lines(capsys)
 
 
+def test_a_tool_that_ends_a_run_on_its_retries_names_its_last_reasons_masked(
+    checkout: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """With no `Coder` to answer the call that spends the retries, the tool ends the run, and the
+    reason of the stop keeps the last three reasons, masked (#2866). The paths are no files of the
+    checkout: text that the model chose. `Coder` answers that call with a failed result, so a step
+    names no last retries (#5098)."""
+
+    def edit(path: str) -> str:
+        raise ModelRetry(f"File not found: {path}")
+
+    paths = ("src/a.py", f"src/{TOKEN}.py", PLAIN_SECRET, "src/b.py")
+    log = ToolCallLog(checkout)
+    agent = Agent(
+        ModelScript(*(tool_call("edit", path=path) for path in paths)).model(),
+        tools=[Tool(edit, max_retries=len(paths) - 1)],
+        capabilities=[log.hooks()],
+    )
+
+    with pytest.raises(UnexpectedModelBehavior, match="exceeded max retries count of 3"):
+        agent.run_sync("go")
+
+    assert log.retries_text() == "Last retries of edit: " + " | ".join(
+        ["File not found: <path>"] * 3
+    )
+    assert [line for line in _lines(capsys) if TOKEN[:12] in line or PLAIN_SECRET in line] == []
+
+
 def test_an_edit_whose_old_text_is_missing_logs_the_reason_that_the_tool_returned(
     store: InMemoryRoadmapStore,
     checkout: Path,
@@ -728,9 +761,7 @@ def _repeat_log(checkout: Path, call: ToolCallPart, retry: ToolRetryError) -> To
 
 def test_a_repeated_failed_call_returns_the_masked_reason(checkout: Path) -> None:
     call = ToolCallPart(tool_name="read_file", args={"path": "/etc/passwd"})
-    retry = ToolRetryError(
-        RetryPromptPart(content="cannot read /etc/passwd", tool_name="read_file", tool_call_id="1")
-    )
+    retry = ToolRetryError(refused_call("read_file", "cannot read /etc/passwd"))
     log = _repeat_log(checkout, call, retry)
 
     async def repeat() -> str:
@@ -751,9 +782,7 @@ def test_a_repeated_failed_call_returns_the_masked_reason(checkout: Path) -> Non
 
 def test_a_changed_failed_call_runs(checkout: Path) -> None:
     call = ToolCallPart(tool_name="read_file", args={"path": "/etc/passwd"})
-    retry = ToolRetryError(
-        RetryPromptPart(content="cannot read it", tool_name="read_file", tool_call_id="1")
-    )
+    retry = ToolRetryError(refused_call("read_file", "cannot read it"))
     log = _repeat_log(checkout, call, retry)
     changed = ToolCallPart(tool_name="read_file", args={"path": "src/sample.py"})
 
@@ -791,9 +820,7 @@ def test_a_repeated_successful_call_runs(checkout: Path) -> None:
 
 def test_a_failed_call_is_remembered_by_its_digest(checkout: Path) -> None:
     call = ToolCallPart(tool_name="read_file", args={"path": "/etc/passwd"})
-    retry = ToolRetryError(
-        RetryPromptPart(content="cannot read it", tool_name="read_file", tool_call_id="1")
-    )
+    retry = ToolRetryError(refused_call("read_file", "cannot read it"))
     log = _repeat_log(checkout, call, retry)
 
     assert argument_digest(call) in log.failed

@@ -1,8 +1,9 @@
 # syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv
 
-# The Node runtime that runs OpenSpec in the Service and MCP server images. Its major version is the
-# one of `.node-version`. These images are on trixie, and the Node package of sid needs a newer glibc.
+# The Node runtime that installs OpenSpec and runs it in the Service and MCP server images. Its major
+# version is the one of `.node-version`. These images are on trixie, and the Node package of sid
+# needs a newer glibc.
 FROM node:24-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0 AS node
 
 # The devtools image (https://github.com/dan-petty/devtools): Debian sid with the development tools.
@@ -52,16 +53,16 @@ COPY src/ ./src/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable --extra review --link-mode copy
 
-# OpenSpec and only the npm packages that it needs, from the Node tools of the devtools image, for
-# the Service and MCP server images. The stage keeps OpenSpec alone in the package.json of the tree,
-# and `npm prune` removes each package that OpenSpec does not need. The prune reads only the tree on
-# disk (`--offline`) and runs no install script.
-FROM devtools AS openspec
+# OpenSpec and only the npm packages that it needs, at the version that the package-lock.json of
+# the project pins (#6409), for the Service and MCP server images. The OpenSpec of the devtools
+# image has no effect on them. `npm ci` installs the lockfile and runs no install script. The stage
+# then keeps OpenSpec alone in the package.json of the tree, and `npm prune` removes each package
+# that OpenSpec does not need. The prune reads only the tree on disk (`--offline`).
+FROM node AS openspec
 WORKDIR /usr/local/lib/openspec
-RUN cp -a /usr/local/lib/devtools/npm/. . && \
-    version="$(node -p 'require("./node_modules/@fission-ai/openspec/package.json").version')" && \
-    npm pkg delete dependencies overrides allowScripts && \
-    npm pkg set "dependencies.@fission-ai/openspec=${version}" && \
+COPY package.json package-lock.json ./
+RUN npm ci --omit=optional --ignore-scripts --no-audit --no-fund && \
+    npm pkg delete devDependencies.style-dictionary overrides && \
     npm prune --offline --ignore-scripts --no-audit --no-fund && \
     find node_modules -mindepth 1 -maxdepth 1 -type d -empty -delete
 
@@ -137,8 +138,8 @@ USER 1000:1000
 ENTRYPOINT ["devops"]
 
 # The layers of the Service and MCP server images that a change of `src/` keeps: git, the Node
-# runtime, gh and OpenSpec, and the venv of the runtime requirements. gh and OpenSpec come from the
-# devtools image. The image holds no uv, curl or pip.
+# runtime, gh and OpenSpec, and the venv of the runtime requirements. gh comes from the devtools
+# image, and OpenSpec from the `openspec` stage. The image holds no uv, curl or pip.
 FROM python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS service-deps
 
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \

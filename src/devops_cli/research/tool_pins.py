@@ -1,4 +1,6 @@
-"""The pins of the tools lock: each tool, and each package of the lock of a Node tool (#3896).
+"""The pins of the tools lock: each tool, and each package of the lock of a Node tool (#3896), and
+each package of the `package-lock.json` at the root, which pins the Node tools of the project as
+devDependencies (#6409).
 
 The lock is read with the model of `devops_cli.tools_lock`, so a lock that the installer refuses is
 refused here too. A binary tool has the ecosystem `github-release` when its `source` is a GitHub
@@ -11,6 +13,7 @@ import json
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from devops_cli.config.constants import CONST_NPM_LOCKFILE
 from devops_cli.research.files import LineIndex, matching_files, parse_errors, relative
 from devops_cli.research.models import Component, ComponentKind, Ecosystem
 from devops_cli.tools_lock import LOCK_FILENAME, read_tools_lock
@@ -78,8 +81,8 @@ def _read_node_packages(root: Path, path: Path) -> list[Component]:
 
 
 def read_tool_pins(root: Path) -> list[Component]:
-    """The components of the tools lock of `root`."""
+    """The components of the tools lock of `root` and of the npm lockfile at its root."""
     found = _read_tools(root, root / LOCK_DIR)
-    for path in matching_files(root, f"{LOCK_DIR}/*/package-lock.json"):
+    for path in matching_files(root, CONST_NPM_LOCKFILE, f"{LOCK_DIR}/*/{CONST_NPM_LOCKFILE}"):
         found.extend(_read_node_packages(root, path))
     return found

@@ -7,13 +7,16 @@ standard error. A run's text names the directory it ran in, which differs on eve
 the record holds `{cwd}` in its place. A scenario's runs that equal the `empty` scenario's, such as
 `config set` and `update --force`, are kept once, in `empty`, and the fake falls back to them.
 
-Record again when the pin in `tools.lock` changes, or a command the gate or the archive runs, with
-the pinned `openspec` on PATH (`uv run devops install-tools --tool openspec --only-missing`). Record
+Record again when the pin in `package-lock.json` changes, or a command the gate or the archive runs,
+with the pinned `openspec` on PATH (`npm ci --ignore-scripts`, then put `node_modules/.bin` first
+on PATH). Record
 inside pytest, so that the isolation of the suite applies: a helper of `tests/support/` runs only
 through pytest. Add a scratch test marked `live("openspec")` that calls `record_scenarios()`, run
 it with `uv run pytest <file> -m live`, and delete it.
 
-`tests/tools_lock/test_openspec_contract.py` fails until the record is of the locked version.
+No test compares the version of the record with the pin, so a bump of the pin in
+`package-lock.json` needs no new record unless a command of the gate or the archive answers
+otherwise. The `--version` run is answered by the fake, from the pin.
 """
 
 from __future__ import annotations

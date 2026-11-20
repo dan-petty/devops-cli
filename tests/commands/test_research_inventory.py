@@ -30,7 +30,7 @@ def test_inventory_table_lists_each_component_and_the_unknown_count(
 
     assert result.exit_code == 0
     assert "astral-sh/setup-uv" in result.output
-    assert "27 components, 1 with an unknown ecosystem." in result.output
+    assert "28 components, 1 with an unknown ecosystem." in result.output
 
 
 def test_inventory_refuses_an_unknown_format(cli: Callable[..., Any]) -> None:

@@ -54,13 +54,14 @@ def failed_before_first_event(error: Exception) -> bool:
     """Whether `error`, raised before the first event of a stream, lets the call go again: the
     call never left the client, an error frame came inside the stream, the stream broke, or it
     ended with no content. A status of the gateway, a timeout of the client and the deadline of
-    the call do not."""
+    the call do not. An error frame keeps the category of its status: pydantic-ai raises the 408 of
+    a timeout frame as a `ModelTimeoutError`, so the frame is read before the timeout."""
     if never_sent(error):
+        return True
+    if isinstance(error, ModelAPIError) and error.in_stream:
         return True
     if isinstance(error, ModelConnectionError):
         return not isinstance(error, ModelTimeoutError)
-    if isinstance(error, ModelAPIError):
-        return error.in_stream
     return isinstance(error, UnexpectedModelBehavior)
 
 

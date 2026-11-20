@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic_ai._model_errors import http_status_category
 from pydantic_ai.exceptions import (
     ModelAPIError,
     ModelContextWindowExceededError,
@@ -24,7 +25,7 @@ from pydantic_ai.exceptions import (
     ModelRequestTimeout,
     UnexpectedModelBehavior,
 )
-from pydantic_ai.messages import ModelResponse, TextPart
+from pydantic_ai.messages import ModelResponse, TextPart, ToolReturnPart
 from pydantic_ai.usage import UsageLimits
 from pydantic_ai_harness.shell import Shell
 
@@ -1474,83 +1475,38 @@ def test_a_model_that_sends_invalid_arguments_stops_with_the_count_of_other_retr
 def test_a_model_that_asks_for_a_path_outside_the_root_counts_other_retries_not_refused_commands(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    script = ModelScript(*(tool_call("read_file", path=f"/etc/passwd{n}") for n in range(6)))
+    script = ModelScript(*(tool_call("read_file", path=f"/etc/passwd{n}") for n in range(5)), BROKE)
 
     outcome = _step(store, checkout, script)
 
-    assert outcome.reason.endswith("\nRefused commands: 0. Other retries: 6.")
-
-
-MISSING_TEXT = "old_text not found in src/other.py. No changes were written."
+    assert outcome.reason.endswith("\nRefused commands: 0. Other retries: 5.")
 
 
 def _edit_missing(path: str = "src/other.py") -> ModelResponse:
     return tool_call("edit_file", path=path, old_text="SENTINEL-OLD-TEXT", new_text="x")
 
 
-def test_a_tool_that_ends_the_run_on_retries_names_its_last_reasons(
+def test_a_file_tool_that_runs_out_of_retries_fails_its_call_and_the_run_goes_on(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    """The reasons are the messages of the `ModelRetry` of the harness tool (#2866). The reason of
-    the run keeps the last three of them, and not the old text that the model looked for."""
-    script = ModelScript(
-        *(_edit_missing(f"src/other{number}.py") for number in range(5)), _edit_missing()
+    """`Coder` answers the call that spends the retries of a file tool with the last error as a
+    failed result, so the model can change its approach (pydantic-ai-harness 0.65, #5098). The
+    retries end no run, so the reason of the stop names no last retries (#2866)."""
+    script = ModelScript(*(_edit_missing(f"src/other{number}.py") for number in range(6)), BROKE)
+
+    outcome = _step(store, checkout, script)
+
+    failed = [
+        str(part.content).splitlines()[0]
+        for message in script.seen[-1]
+        for part in getattr(message, "parts", ())
+        if isinstance(part, ToolReturnPart) and part.outcome == "failed"
+    ]
+    assert (failed, outcome.reason) == (
+        ["File not found: src/other5.py"],
+        "UnexpectedModelBehavior: The reply broke the rules.\n"
+        "Refused commands: 0. Other retries: 5.",
     )
-
-    outcome = _step(store, checkout, script)
-
-    assert outcome.reason.endswith(
-        "\nRefused commands: 0. Other retries: 6.\nLast retries of edit_file: "
-        "File not found: <path> | File not found: <path> | "
-        f"{MISSING_TEXT}"
-    )
-    assert "SENTINEL-OLD-TEXT" not in outcome.reason
-
-
-def test_the_last_reasons_of_a_run_hold_no_secret(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
-) -> None:
-    script = ModelScript(*(_edit_missing(f"src/{TOKEN}{n}.py") for n in range(6)))
-
-    outcome = _step(store, checkout, script)
-
-    assert "Last retries of edit_file: File not found: <path>" in outcome.reason
-    assert TOKEN[:12] not in outcome.reason
-    assert TOKEN[-12:] not in outcome.reason
-
-
-def test_the_last_reasons_of_a_run_hold_no_plain_secret_that_the_model_chose_as_a_path(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
-) -> None:
-    """A password has no form that the mask of secrets finds. The stop comment is public, so the
-    reason shows a path only when it names a file of the checkout."""
-    secret = "hunter2-Sup3rS3cretPassw0rd"
-    script = ModelScript(*(_edit_missing(f"{secret}{n}") for n in range(6)))
-
-    outcome = _step(store, checkout, script)
-
-    assert secret not in outcome.reason
-    assert "Last retries of edit_file: File not found: <path> | " in outcome.reason
-
-
-def test_the_last_reasons_of_a_run_are_cut_to_the_constant_length(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
-) -> None:
-    limit = constants.CONST_ROADMAP_IMPLEMENT_LOG_REASON_CHARS
-    long_name = "d" * (limit - 10)
-    path = f"src/{long_name}.py"
-    script = ModelScript(
-        tool_calls(write_call(path, "X = 1\n")),
-        *(
-            tool_call("edit_file", path=path, old_text=f"SENTINEL-OLD-TEXT-{n}", new_text="x")
-            for n in range(6)
-        ),
-    )
-
-    outcome = _step(store, checkout, script)
-
-    reasons = outcome.reason.rsplit("Last retries of edit_file: ", 1)[1].split(" | ")
-    assert [len(reason) for reason in reasons] == [limit + len(" ...")] * 3
 
 
 def test_a_run_that_ends_on_a_limit_after_retries_names_no_reasons(
@@ -1679,6 +1635,43 @@ def test_a_model_call_that_fails_gives_the_status_of_the_reply_and_the_model_in_
     outcome = _step(store, checkout, script)
 
     assert outcome.reason == "ModelHTTPError: HTTP 503, model example-model"
+
+
+# The HTTP errors that pydantic-ai 2.71 names by a category that 2.59 did not have, and the two
+# categories that 2.59 had already: a stop with one of those two stays where it was (#5098).
+STATUS_CATEGORIES = [
+    *(
+        pytest.param(status, http_status_category(status), FailureClass.PROVIDER, id=str(status))
+        for status in (400, 404, 408, 413, 422)
+    ),
+    pytest.param(
+        400, ModelContextWindowExceededError, FailureClass.CI_INFRA, id="400-context-window"
+    ),
+    pytest.param(402, http_status_category(402), FailureClass.CI_INFRA, id="402-quota"),
+]
+
+
+@pytest.mark.parametrize(("status", "category", "klass"), STATUS_CATEGORIES)
+def test_a_status_that_pydantic_ai_names_by_its_category_keeps_the_class_of_its_stop(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    status: int,
+    category: Any,
+    klass: FailureClass,
+) -> None:
+    """pydantic-ai 2.71 names the class of an HTTP error by the category of its status, as its
+    adapters build it: `ModelRequestRejectedError`, `ModelNotFoundError` or `ModelTimeoutError`
+    (#5098). Such a stop stays a failure of the provider, as a `ModelHTTPError` was. A context
+    window error and a spent quota had their names in 2.59 already, and keep their class."""
+    failure = ModelHTTPError.for_category(category, status_code=status, model_name="example-model")
+
+    outcome = _step(store, checkout, ModelScript(failure))
+
+    assert (outcome.reason, outcome.failure_class) == (
+        f"{type(failure).__name__}: HTTP {status}, model example-model",
+        klass,
+    )
 
 
 def test_a_model_call_that_fails_without_a_status_gives_the_model_in_the_reason(

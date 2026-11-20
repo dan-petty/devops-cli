@@ -39,11 +39,6 @@
 # Then, in a scratch copy of `<name>/`, run `npm ci --ignore-scripts` and `npm audit signatures`,
 # which reads installed packages, and in `<name>/` run
 #   osv-scanner scan source --lockfile package-lock.json
-# OpenSpec's bump also rewrites the skills it generates, whose text changes with the version:
-# install the new pin, run `uv run devops openspec regenerate` and commit the skills, run
-# `uv run devops openspec check`, and record the tool again for the tests that replay it
-# (`tests/support/openspec_recording.py` says how). The regeneration needs Git and access to
-# github.com, because OpenSpec installs its skills from the release tag of its repository.
 #
 # Then run `uv run pytest tests/tools_lock tests/commands/test_install_tools.py`, and
 # `devops install-tools --target-dir <dir>` followed by
@@ -595,23 +590,11 @@ source = "https://github.com/ansible/ansible"
 requirements = "ansible-core.txt"
 entry_points = ["ansible-runner"]
 
-[npm.openspec]
-version = "2.1.0"
-description = "OpenSpec spec and change-proposal CLI"
-source = "https://github.com/Fission-AI/OpenSpec"
-bin = "openspec"
-
 [npm.devcontainers-cli]
 version = "0.90.0"
 description = "Dev Containers CLI, which builds the published devcontainer image with its features"
 source = "https://github.com/devcontainers/cli"
 bin = "devcontainer"
-
-[npm.style-dictionary]
-version = "5.8.0"
-description = "Style Dictionary, which builds the design tokens of design/ (#4777)"
-source = "https://github.com/style-dictionary/style-dictionary"
-bin = "style-dictionary"
 
 [binary.vale]
 version = "3.26.0"

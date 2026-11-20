@@ -34,7 +34,7 @@ from pydantic_ai.messages import (
     ModelRequestPart,
     ModelResponse,
     ModelResponsePart,
-    RetryPromptPart,
+    RetryFeedbackPart,
     SystemPromptPart,
     TextPart,
     ThinkingPart,
@@ -483,11 +483,13 @@ def _part_text(part: ModelRequestPart | ModelResponsePart) -> str:
         case UserPromptPart():
             content = part.content
             return content if isinstance(content, str) else "\n".join(map(str, content))
+        case ToolReturnPart(outcome="retried"):
+            return part.model_response_str()
         case ToolReturnPart():
             return str(part.content)
         case ToolCallPart():
             return part.args_as_json_str()
-        case RetryPromptPart():
+        case RetryFeedbackPart():
             return part.model_response()
         case _:
             return ""

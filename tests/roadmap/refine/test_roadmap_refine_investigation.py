@@ -32,10 +32,10 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelMessagesTypeAdapter,
     ModelResponse,
-    RetryPromptPart,
     TextPart,
     ToolCallPart,
     UserPromptPart,
+    is_retry,
 )
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.usage import UsageLimits
@@ -1070,7 +1070,8 @@ def test_a_reply_cut_by_the_output_token_limit_stops_the_run_and_is_not_a_broken
     git_repo: Path, web: WebFake, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A reply with `finish_reason` `length` and no part is a stop by the output token limit
-    of the model. It is not a reply that breaks the schema, and the stop says so (#4220)."""
+    of the model. It is not a reply that breaks the schema, and the stop says so (#4220).
+    pydantic-ai raises `OutputTokenLimitExceeded` for it, a kind of `UnexpectedModelBehavior`."""
     model, _sent = length_stopped_model(web, monkeypatch)
     tools = InvestigationTools(source=git_repo, sha=inspect_checkout(git_repo, REPO))
 
@@ -1081,7 +1082,7 @@ def test_a_reply_cut_by_the_output_token_limit_stops_the_run_and_is_not_a_broken
         stopped.output_limit,
         stopped.schema_broken,
         stopped.cause.reason,
-    ) == ("UnexpectedModelBehavior", True, False, "output_limit")
+    ) == ("OutputTokenLimitExceeded", True, False, "output_limit")
 
 
 def test_a_stop_that_is_not_the_output_token_limit_does_not_set_the_flag(
@@ -1162,10 +1163,7 @@ def test_the_retry_of_a_call_to_a_tool_that_is_gone_names_the_tools_that_are_off
     _run(git_repo, script, limits=_limits(tool_calls=6))
 
     retries = [
-        str(part.content)
-        for message in script.seen[-1]
-        for part in message.parts
-        if isinstance(part, RetryPromptPart)
+        str(part.content) for message in script.seen[-1] for part in message.parts if is_retry(part)
     ]
     assert ["Available tools: 'final_result'" in text for text in retries] == [True]
 

@@ -970,8 +970,9 @@ def plan_check_cmd(
         render_dry_run("plan-check", target, plan_check_requests(target, pull_request))
         return
     with _exit_on_failure("Could not check the plan"):
-        with isolated_openspec() as tool:
-            result = plan_check(target, pull_request, find_repo_root(Path.cwd()), tool=tool)
+        root = find_repo_root(Path.cwd())
+        with isolated_openspec(root) as tool:
+            result = plan_check(target, pull_request, root, tool=tool)
     if json_output:
         write_stdout(json.dumps([problem.as_dict() for problem in result.problems]) + "\n")
     else:

@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 import time_machine
-from pydantic_ai.messages import ModelMessage, RetryPromptPart, ToolReturnPart, UserPromptPart
+from pydantic_ai.messages import ModelMessage, ToolReturnPart, UserPromptPart, is_retry
 from typer.testing import CliRunner
 
 from devops_cli.ai.client.models import AICredentialsError
@@ -2385,7 +2385,7 @@ def _retry_prompts(script: Script) -> list[str]:
         str(part.content)
         for message in script.seen[-1]
         for part in getattr(message, "parts", ())
-        if isinstance(part, RetryPromptPart)
+        if is_retry(part)
     ]
 
 
