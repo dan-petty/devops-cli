@@ -1,0 +1,27 @@
+# Design
+
+## Decisions
+
+- **Remove `stackoverflow`, `askubuntu` and `superuser` from the list under `k8s/devops/searxng/configmap.yaml:30:keep_only:` and keep the six other engines.**: The 3-hour log of 2026-11-08 records HTTP 400 from `api.stackexchange.com` with no key for the three and no hit, and a 180 s suspension for too many requests; the log holds no reply body, so the cause of the 400 stays unproven, and `k8s/devops/searxng/configmap.yaml:2:no secret:` shows that the settings hold no key.
+- **Add the three names to `OFF_ENGINES` so `devops k8s searxng-check` fails a reply that names one.**: That command fails today over the chosen engine set, because the live reply names the three in its unresponsive engines, and it passes after the ConfigMap rollout; its offline case proves the refusal with no cluster.
+- **Keep `duckduckgo` in the settings.**: `docs/CLUSTER.md:243:- **The engines.**` records it as the only `general` engine with hits, and the `ddgs` provider sends the same request from the same address, so its removal moves the load and does not cut it.
+- **Prove the engine set with the live check and its offline case, and add no test that reads the ConfigMap.**: `docs/TESTING.md:68:and never a test that reads the file (#6080)` refuses such a test, and `tests/invariants/test_k8s_searxng.py:5:No test asserts a value of the manifests (#6060).` records that the tree holds none.
+- **Record the engine list in `docs/CLUSTER.md` and not in `k8s/README.md`.**: `search_code` for `stackoverflow` returned no hit in `k8s/README.md`, and `docs/CLUSTER.md:243:- **The engines.**` is the one list of the engines.
+- **Keep one attempt for each provider in the search chain.**: #4094 decided against a retry, and `src/devops_cli/ai/web_search.py:339:for provider in iter_configured_providers(settings):` asks each configured provider once in one pass, with no second attempt.
+- **Add no Stack Exchange API key, no per-engine suspension value and no rate limit.**: The key is a Secret that a person creates and `k8s/devops/searxng/configmap.yaml:2:no secret:` states that the settings hold none; the suspension and the rate wait on the measure that the refine comment records under #4201.
+- **Read the existing metric `devops_cli_web_searches_total` and add no instrument.**: `src/devops_cli/telemetry/instruments.py` already declares `WEB_SEARCHES_TOTAL` with the labels `backend` and `result` that the measure of #4201 needs, so this change adds no metric and no label.
+
+## Rejected alternatives
+
+- **Keep the three Stack Exchange engines and add a Stack Exchange API key.**: The key is a Secret that a person creates, and `k8s/devops/searxng/configmap.yaml:2:no secret:` states that the settings file holds none, so the change would wait on a person while the three answer nothing.
+- **Keep the three Stack Exchange engines unchanged.**: The log of 2026-11-08 records HTTP 400 from `api.stackexchange.com` with no key and no hit for the three, and a 180 s suspension for too many requests, so a query spends one request on each of them and gets no hit.
+- **Remove `duckduckgo` from the settings as well.**: `docs/CLUSTER.md:243:- **The engines.**` records that it is the only `general` engine with hits, and the `ddgs` provider sends the same request from the same address, so the load moves and does not fall.
+- **Set `search.suspended_times` for the `duckduckgo` CAPTCHA in the settings.**: `docs/CLUSTER.md:243:- **The engines.**` records that `duckduckgo` raises its CAPTCHA with no suspension, so the settings value does not apply to that engine, and the measure under #4201 checks it against the pinned image.
+- **Extend `tests/invariants/test_k8s_searxng.py` with a test over the rendered ConfigMap and its engine list.**: `docs/TESTING.md:68:and never a test that reads the file (#6080)` refuses a test that reads a config file as the proof, and `tests/invariants/test_k8s_searxng.py:5:No test asserts a value of the manifests (#6060).` records that the file holds only the Secret row test.
+- **Prove the engine set with `uv run devops k8s searxng-check` alone.**: It needs a checkout, a client of the Kubernetes API and a network, and the runner pod holds no Kubernetes token, so the offline case of the check is what the runner proves.
+- **Add a retry with a backoff to the provider chain.**: #4094 decided against it, and `src/devops_cli/ai/web_search.py:339:for provider in iter_configured_providers(settings):` asks each configured provider once, so a retry would add a second attempt and hide the throttle.
+- **Treat the HTTP 400 of `api.stackexchange.com` as a proven cause of the throttle.**: The issue states "The reply body is not in the log, so the cause of the 400 is not proven.", so the plan removes the three for the recorded 400 and no hit without a key, and names no cause.
+
+## Security
+
+The change removes egress to `api.stackexchange.com` from the `searxng` pod: the three engines that leave `keep_only` sent that request, and the pod keeps the `searxng-perimeter` NetworkPolicy and its public HTTPS rule for the six kept engines. A person must confirm that a Stack Exchange API key, when one is added, goes into a Secret and never into `k8s/devops/searxng/configmap.yaml`, which holds no secret. `uv run devops ci --check --only k8s` fails if the ConfigMap stops rendering, and `tests/k8s/test_searxng_check.py` fails if a Stack Exchange engine name stops failing the check.
