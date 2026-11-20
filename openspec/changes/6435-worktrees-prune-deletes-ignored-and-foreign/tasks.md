@@ -46,12 +46,26 @@ Kind: other. Reads: `CONTRIBUTING.md`, `src/devops_cli/commands/repos.py`. Chang
 - [x] 5.1 In section 5 of `CONTRIBUTING.md`, change the reclaim sentence of the `devops repos worktrees add` paragraph to say that the command keeps a worktree that holds ignored data files, and that regenerable caches are no data. Add one paragraph after it: `devops repos worktrees prune` previews unless `--confirm` is given; it removes only a clean, unlocked worktree under `.data/agent/worktrees` that holds no ignored data file and whose tip heads a merged pull request; it keeps a worktree outside that folder, also a record whose directory is missing; an ignored data file is a file that `.gitignore` hides, but not a regenerable cache or build output such as `.venv`, `__pycache__`, `.pytest_cache`, `dist` or `.data/cache`; `--force` removes every worktree but the main worktree and the worktree that holds the current directory
   - Verification: `$ uv run devops ci docs` passes
 
+## 6. Close the review findings of the build
+
+Kind: behavior. Reads: `src/devops_cli/config/constants.py`, `src/devops_cli/git/worktree_inventory.py`, `tests/git/test_repos_worktrees_reclaim_scope.py`, `tests/git/test_repos_worktrees.py`, `tests/commands/test_repos.py`, `tests/support/fakes/github.py`, `docs/TESTING.md`. Changes: `src/devops_cli/config/constants.py`, `src/devops_cli/git/worktree_inventory.py`, `tests/git/test_repos_worktrees_reclaim_scope.py`, `tests/git/test_repos_worktrees.py`, `tests/commands/test_repos.py`, `tests/support/fakes/github.py`, `docs/TESTING.md`, and the spec deltas and `design.md` of this change.
+
+- [x] 6.1 In `tests/git/test_repos_worktrees_reclaim_scope.py`, write the failing tests first: a note `.data/agent/notes/.coverage-notes.md` beside the coverage outputs gives `holds 1 ignored data file`; a directory that git cannot open gives the unknown reason; a data file that an agent writes while prune or the reclaim reads GitHub stays (the GitHub fake gets a `before_answer` hook in `tests/support/fakes/github.py`, named in `docs/TESTING.md`); and an untracked file stays when `status.showUntrackedFiles` is `no`
+  - Verification: `$ uv run devops ci test tests/git/test_repos_worktrees_reclaim_scope.py` fails with 5 tests
+- [x] 6.2 In `src/devops_cli/config/constants.py`, replace `:(exclude,glob)**/.coverage*` with the coverage data files at the root and under `.data`. In `src/devops_cli/git/worktree_inventory.py`, make `count_ignored_data_files` return None when git writes to standard error, pass `--untracked-files=normal` in `count_dirty_paths`, and make `prune_worktrees` ask `scope_refusal` again right before each removal under `confirm` without `force`
+  - Verification: `$ uv run devops ci test tests/git/test_repos_worktrees_reclaim_scope.py tests/git/test_repos_worktrees.py tests/git/test_repos_worktrees_reclaim.py` passes
+- [x] 6.3 In `tests/git/test_repos_worktrees.py`, make the fake git answer `ls-files` with exit 128 for a directory that is no worktree and for a broken `.git` file, as `status`, and expect the unknown reason of the scope for `wt_broken`. In `tests/commands/test_repos.py`, point `workspace.file` of `test_repos_sync_reports_failures_and_exits_nonzero` at `tmp_path`, so the run writes no `.code-workspace` into the worktree
+  - Verification: `$ uv run devops ci test tests/git/test_repos_worktrees.py tests/commands/test_repos.py` passes, and the worktree holds no `.code-workspace` after the run
+- [x] 6.4 Add the MODIFIED requirement `Local state protects a worktree` to the prune delta with the order of the scope before the lock and the dirty state, and add the scenarios of 6.1 to the prune and add deltas
+  - Verification: `$ uv run devops openspec check` passes
+
 ## Criteria
 
 - Group 3: A test makes a clean worktree at a merged head that holds one ignored file. Prune refuses it and names the ignored count.
 - Group 3: A test makes a clean worktree at a merged head outside the managed folder. Prune refuses it and names the folder.
 - Group 3: Prune and the reclaim decide scope with one shared function, so the two rules cannot drift.
 - Group 5: The help text of `prune` and `CONTRIBUTING.md` say which worktrees prune removes.
+- Group 6: A data file written while prune reads GitHub, a directory that git cannot open, and an untracked file that the git configuration hides each keep the worktree.
 
 ## Workflow follow-up
 

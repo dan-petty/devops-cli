@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A reclaim keeps a worktree that it does not manage
-`devops repos worktrees add` SHALL keep a worktree that is outside the agent worktrees directory, also when its directory is missing, and SHALL read no pull request for it. It SHALL keep a worktree under the directory that holds ignored data files: files that `.gitignore` hides and that no regenerable path holds, as the scope rule of `devops repos worktrees prune` defines them. A worktree whose only ignored files are regenerable caches or build outputs, such as `.venv`, `__pycache__`, `.pytest_cache` and `.data/cache`, is no such worktree. The reclaim SHALL take this rule from the function that prune uses, and SHALL name each worktree that it keeps for one of these reasons, with the reason, in the output and in the `kept` list of the JSON report.
+`devops repos worktrees add` SHALL keep a worktree that is outside the agent worktrees directory, also when its directory is missing, and SHALL read no pull request for it. It SHALL keep a worktree under the directory that holds ignored data files: files that `.gitignore` hides and that no regenerable path holds, as the scope rule of `devops repos worktrees prune` defines them. A worktree whose only ignored files are regenerable caches or build outputs, such as `.venv`, `__pycache__`, `.pytest_cache` and `.data/cache`, is no such worktree. The reclaim SHALL take this rule from the function that prune uses, and SHALL name each worktree that its scope check keeps, with the reason, in the output and in the `kept` list of the JSON report. A worktree that gets an ignored data file after that check stays too, because prune asks the rule again right before each removal; the reclaim does not list it, as it lists no other refusal of prune.
 
 #### Scenario: A merged worktree outside the directory stays
 - **WHEN** a clean, unlocked worktree outside the agent worktrees directory has a tip that is the head of a merged pull request, and the user runs `add 2345 --type feat --slug next`
@@ -21,6 +21,10 @@
 #### Scenario: A worktree with a local environment file stays
 - **WHEN** a worktree under the agent worktrees directory has a tip that is the head of a merged pull request, and it holds `.env.local`, which `.gitignore` hides
 - **THEN** the worktree and the file still exist
+
+#### Scenario: A data file written after the check stays
+- **WHEN** a clean worktree under the agent worktrees directory at a merged head holds no data file when the reclaim checks it, and an agent writes `.data/agent/scratch/note.md` in it while the reclaim reads GitHub
+- **THEN** the worktree and the note still exist, and `w-2345` is created
 
 #### Scenario: A worktree with only caches is removed
 - **WHEN** a clean worktree under the agent worktrees directory has a tip that is the head of a merged pull request, and its only ignored files are `.venv/x`, `src/pkg/__pycache__/m.pyc` and `.pytest_cache/v`, or only `.data/cache/x`

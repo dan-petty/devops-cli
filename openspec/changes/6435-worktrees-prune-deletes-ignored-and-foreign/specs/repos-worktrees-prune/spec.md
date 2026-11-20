@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Ignored data files keep a worktree
-`devops repos worktrees prune` SHALL refuse a worktree that holds ignored data files: files that `.gitignore` hides and that no regenerable path holds. It SHALL name the number of those files in the reason and SHALL read no pull request for the worktree. When git cannot list the ignored files, prune SHALL refuse the worktree with a reason that says the count is unknown.
+`devops repos worktrees prune` SHALL refuse a worktree that holds ignored data files: files that `.gitignore` hides and that no regenerable path holds. It SHALL name the number of those files in the reason and SHALL read no pull request for the worktree. When git cannot list the ignored files, or warns while it lists them, prune SHALL refuse the worktree with a reason that says the count is unknown.
 
 #### Scenario: A scratch note
 - **WHEN** a clean worktree under the managed folder at a merged head holds `.venv/x`, `src/pkg/__pycache__/m.pyc`, `.pytest_cache/v` and `.data/agent/scratch/note.md`
@@ -15,8 +15,19 @@
 - **WHEN** the `.git` file of a worktree under the managed folder is broken
 - **THEN** `prune --confirm` refuses the worktree with a reason that names `git ls-files`, and GitHub receives no request for it
 
+#### Scenario: Git cannot open a directory
+- **WHEN** a worktree under the managed folder holds `.data/agent/scratch/dist/note.md`, and git has no permission to open `.data/agent/scratch/dist`
+- **THEN** the scope rule refuses the worktree with a reason that names `git ls-files`
+
+### Requirement: Prune checks the scope again before each removal
+`devops repos worktrees prune --confirm` without `--force` SHALL ask the scope rule again right before it removes each worktree, and SHALL refuse a worktree that holds ignored data files at that time.
+
+#### Scenario: A data file written after the decision
+- **WHEN** a clean worktree under the managed folder at a merged head holds no data file when prune decides it, and an agent writes `.data/agent/scratch/note.md` in it while prune reads GitHub
+- **THEN** `prune --confirm` refuses the worktree with the reason `holds 1 ignored data file`, and the note still exists
+
 ### Requirement: Regenerable paths hold no data
-The count of ignored data files SHALL leave out the regenerable paths: the caches and build outputs that a command makes again. They are `.venv`, `dist`, `build`, `htmlcov`, `.data/cache`, `.data/rag` and the coverage outputs under `.data/`, and each `__pycache__`, `.pytest_cache`, `.ruff_cache`, `.mypy_cache`, `.hypothesis`, `node_modules` and `.coverage*` path at any depth. An empty directory holds no data file.
+The count of ignored data files SHALL leave out the regenerable paths: the caches and build outputs that a command makes again. They are `.venv`, `dist`, `build`, `htmlcov`, `.data/cache`, `.data/rag`, the coverage outputs under `.data/`, `.coverage` and `.coverage.*` at the root and under `.data/`, and each `__pycache__`, `.pytest_cache`, `.ruff_cache`, `.mypy_cache`, `.hypothesis` and `node_modules` path at any depth. An empty directory holds no data file.
 
 #### Scenario: Only caches
 - **WHEN** a clean worktree under the managed folder at a merged head holds only `.venv/x`, `src/pkg/__pycache__/m.pyc` and `.pytest_cache/v`
@@ -25,6 +36,10 @@ The count of ignored data files SHALL leave out the regenerable paths: the cache
 #### Scenario: Only the data cache
 - **WHEN** a clean worktree under the managed folder at a merged head holds only `.data/cache/x`
 - **THEN** `prune --confirm` removes it
+
+#### Scenario: A note named like coverage output
+- **WHEN** a worktree under the managed folder holds `.coverage`, `.coverage.host.1`, `.data/.coverage`, `.data/.coverage.host.2` and `.data/agent/notes/.coverage-notes.md`, which `.gitignore` hides
+- **THEN** the scope rule refuses the worktree with the reason `holds 1 ignored data file`
 
 ### Requirement: A worktree outside the managed folder stays
 `devops repos worktrees prune` SHALL refuse a worktree whose path is not under the managed folder, also when its directory is missing, SHALL name that folder in the reason, and SHALL read no pull request for it. The dry run SHALL list no request for it.
@@ -86,3 +101,18 @@ The system SHALL treat a worktree that the scope rule allows as removable only w
 #### Scenario: Commit that GitHub does not know
 - **WHEN** GitHub answers HTTP 422 for the tip of a worktree
 - **THEN** `prune --confirm` keeps the worktree and does not fail
+
+### Requirement: Local state protects a worktree
+The system SHALL keep the main worktree, a locked worktree, a worktree with uncommitted paths and a worktree whose dirty state is unknown, and SHALL NOT read GitHub for them. The scope refusal comes before the lock and the dirty state: a locked or dirty worktree outside the managed folder, or one that holds ignored data files, gets the reason of the scope. The count of uncommitted paths SHALL include the untracked files also when the git configuration sets `status.showUntrackedFiles` to `no`.
+
+#### Scenario: Locked worktree
+- **WHEN** a worktree under the managed folder that holds no ignored data file is locked
+- **THEN** `prune --confirm` keeps it and reports the lock reason
+
+#### Scenario: Dirty state unknown
+- **WHEN** `git status` fails in a worktree
+- **THEN** `worktrees status` shows its dirty count as unknown and `prune --confirm` keeps it
+
+#### Scenario: Untracked files that the git configuration hides
+- **WHEN** the git configuration sets `status.showUntrackedFiles` to `no`, and a clean worktree under the managed folder at a merged head holds the untracked file `untracked-notes.md`
+- **THEN** `prune --confirm` keeps the worktree with the reason `dirty (1 uncommitted path)`, the file still exists, and GitHub receives no request for it
