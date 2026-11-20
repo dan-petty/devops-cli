@@ -210,7 +210,7 @@ def parse_osv_scanner_output(
         "bomFormat": "CycloneDX",
         "specVersion": "1.5",
         "version": 1,
-        "metadata": {"tools": [{"vendor": "Google", "name": "osv-scanner", "version": "2.6.0"}]},
+        "metadata": {"tools": [{"vendor": "Google", "name": "osv-scanner"}]},
         "components": components,
     }
     return findings, cyclonedx_inventory, locked_packages
