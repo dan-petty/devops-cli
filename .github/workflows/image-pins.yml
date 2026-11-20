@@ -5,7 +5,23 @@ name: Image Pins
 # The command reads the environment tree that `.devops/project.toml` names (#5131).
 # The native `paths` filter stops the run before a runner starts, so a pull request that changes
 # none of the paths starts no job and shows no check (#4653). The check is not required.
+# A push to main that changes the same paths runs the job too. The job only reads: it renders the
+# Applications in a temporary directory and sends HEAD requests. The run on main saves the cache
+# entry of kubectl and helm that each pull request restores (#6416).
 on:
+  push:
+    branches: [main]
+    paths:
+      - "k8s/**"
+      - "src/devops_cli/**/image_pins.py"
+      - "src/devops_cli/k8s/app_sources.py"
+      - "src/devops_cli/k8s/app_render.py"
+      - "src/devops_cli/k8s/environment.py"
+      - "src/devops_cli/docker/registry.py"
+      - ".devops/project.toml"
+      - ".devcontainer/Dockerfile"
+      - ".github/actions/devtools-commands/**"
+      - ".github/workflows/image-pins.yml"
   pull_request:
     types: [opened, synchronize, reopened]
     branches: [main]
@@ -23,9 +39,10 @@ on:
 
 permissions: {}
 
-# A newer push to the pull request cancels the run of the older head.
+# A newer push to the pull request cancels the run of the older head. The group of a push to main
+# is its commit, so a merge cancels no run of main before it saves the cache.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: true
 
 env:

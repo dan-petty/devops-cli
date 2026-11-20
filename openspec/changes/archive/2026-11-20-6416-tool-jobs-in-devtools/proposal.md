@@ -11,7 +11,7 @@ Issue #6416: CI jobs install their tools with `uv run devops install-tools` befo
   - The test shards (promtool): the coverage data of a shard names the paths of its checkout, and `Tests & Coverage` joins the data on the host.
   - `Copilot Setup Steps` (gitleaks, osv-scanner, tuicr): GitHub ignores a `container` key of this job.
   - `Service Image Tests` (promtool, kubectl): the job loads and runs the Service image with the Docker Engine. The step copies the two commands to the tools directory that it mounts in the image.
-  - `Image Pins` (kubectl, helm): a container job pulls the whole image on each run, 40 s in the first run of this change.
+  - `Image Pins` (kubectl, helm): a container job pulls the whole image on each run, 40 s in the first run of this change. The workflow also runs on a push to `main` that changes its paths, so that `main` saves the cache entry of kubectl and helm.
 - `Rule Pack Tests` runs in the devtools image (`container.image` with the tag and the digest of the Dockerfiles): the Semgrep of the image is a venv that runs only with the Python of the image. The Copilot agent gets no Semgrep for the same reason.
 - The Semgrep pin of the rule pack goes, because Semgrep now comes from the image: `RuleLockEntry.semgrep_version`, the field in `rules.lock`, `pinned_semgrep_version` and the compare of `--check`. The command prints the version that the installed `semgrep --version` states. The help text of `--check` names no pinned version. This part is the reviewed rule pack part of the branch of #4388.
 - The `paths` filters of `copilot-setup-steps.yml`, `image-pins.yml` and `service-image-test.yml` add `.devcontainer/Dockerfile` and `.github/actions/devtools-commands/**`. `rule-pack.yml` names the image, so the pull request of a new image changes it and runs it.
@@ -36,7 +36,7 @@ The change fits one pull request.
 
 - `.devcontainer/Dockerfile` (stage `devtools-bin`), `.github/actions/devtools-commands/action.yml` (new), `.github/workflows/ci.yml`, `copilot-setup-steps.yml`, `image-pins.yml`, `rule-pack.yml`, `service-image-test.yml`.
 - `src/devops_cli/review/rules_pack.py`, `src/devops_cli/review/rules/rules.lock`, `src/devops_cli/commands/review.py`, `src/devops_cli/lang/en/help.py` and the generated pages `docs/commands/review.md` and `docs/commands/ai.md`.
-- A host job pulls the devtools image (1796 MB compressed for linux/amd64) only on a cache miss: once for each digest and list of commands, then again when GitHub evicts the entry. The cache holds one entry for each list of commands.
+- A host job pulls the devtools image (1796 MB compressed for linux/amd64) only on a cache miss: once on `main` for each digest and list of commands, then again when GitHub evicts the entry. A pull request restores the entry of `main`. The cache holds one entry for each list of commands. `Image Pins` also runs on a push to `main` that changes its paths, so that `main` saves its entry.
 - `devops review rules test --check` passes with any Semgrep on `PATH` whose `--test` passes.
 
 ## Feasibility

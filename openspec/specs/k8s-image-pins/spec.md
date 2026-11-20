@@ -55,7 +55,7 @@ The command SHALL resolve each pinned image once with a HEAD request of its mani
 - **THEN** no request reaches a registry and the output names `HEAD https://<registry>/v2/<repository>/manifests/<reference>`
 
 ### Requirement: The CI job checks a pull request that changes the pins
-The job `image-pins` of `.github/workflows/image-pins.yml` SHALL run `devops k8s image-pins` with read-only permissions and the kubectl and helm of the devtools image. The workflow SHALL run only for a pull request that changes `k8s/`, the command's modules, `src/devops_cli/docker/registry.py`, `.devops/project.toml`, `.devcontainer/Dockerfile`, `.github/actions/devtools-commands` or the workflow file.
+The job `image-pins` of `.github/workflows/image-pins.yml` SHALL run `devops k8s image-pins` with read-only permissions and the kubectl and helm of the devtools image. The workflow SHALL run only for a pull request or a push to `main` that changes `k8s/`, the command's modules, `src/devops_cli/docker/registry.py`, `.devops/project.toml`, `.devcontainer/Dockerfile`, `.github/actions/devtools-commands` or the workflow file.
 
 #### Scenario: The job's steps
 - **WHEN** `uv run devops ci --check --only actionlint,zizmor` checks `image-pins.yml`, and the live check reads the log of the `Image Pins` job of a pull request

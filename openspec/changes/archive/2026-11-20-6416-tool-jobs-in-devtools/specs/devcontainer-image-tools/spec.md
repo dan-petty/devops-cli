@@ -13,4 +13,4 @@
 
 #### Scenario: CI
 - **WHEN** the live check reads the log of the `Static Analysis` job of a pull request
-- **THEN** the step `Put the tools of the devtools image on PATH` builds the `devtools-bin` stage from the tag and the digest of the devtools image and puts `tofu` on the path of the job
+- **THEN** the step `Put the tools of the devtools image on PATH` restores the commands from the cache, or on a miss builds the `devtools-bin` stage from the tag and the digest of the devtools image, and puts `tofu` on the path of the job

@@ -11,10 +11,11 @@ defines. The k3s server runs the controller manager, scheduler and proxy in its 
 no scrape targets them and none of their series is listed: a rule over them would fire on the
 missing target, as `KubeControllerManagerDown`, `KubeSchedulerDown` and `KubeProxyDown` did.
 
-The checks read files only, except the two that run the pinned promtool (`tools.lock`):
-`promtool check rules` over every rule, and `promtool test rules` over each group that has unit
-tests in `tests/fixtures/prometheus_rules/`. Each skips where promtool is
-not installed; CI's test job installs it.
+The checks read files only, except the two that run promtool: `promtool check rules` over every
+rule, and `promtool test rules` over each group that has unit tests in
+`tests/fixtures/prometheus_rules/`. Each skips where promtool is not installed. They run the
+promtool of the devtools image, which the devcontainer has and which CI puts on PATH with
+`.github/actions/devtools-commands`.
 """
 
 from __future__ import annotations
