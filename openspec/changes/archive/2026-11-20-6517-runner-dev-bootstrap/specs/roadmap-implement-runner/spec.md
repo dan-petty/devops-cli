@@ -8,7 +8,7 @@ The `runner` stage SHALL set `UV_PYTHON` to the Python of the devtools image and
 - **THEN** the command prints the ruff version of `uv.lock` and exits 0
 
 ### Requirement: The runner tools table names each tool that the gate and the hooks need
-`RUNNER_TOOLS` in `devops_cli.roadmap.runner_tools` SHALL list each program that a runner Job needs, its source (the base system, the devtools image, the project in the image venv, or the venv of the checkout after the bootstrap), why it is there, and the command that proves it runs. `NOT_IN_RUNNER` SHALL name each program that a step of the Job does not count on, with the reason. The module SHALL hold no tool version: the devtools image gives the version of each image tool, and `uv.lock` the version of each tool of the checkout.
+`RUNNER_TOOLS` in `devops_cli.roadmap.runner_tools` SHALL list each program that a runner Job needs, its source (the base system, the devtools image, the project or the venv of the checkout), why it is there, and the command that proves it runs. `NOT_IN_RUNNER` SHALL name each program that a step of the Job does not count on, with the reason. The module SHALL hold no tool version: the devtools image and `uv.lock` give them.
 
 #### Scenario: A source of the gate needs a program that is in neither table
 - **WHEN** a program of a `devops ci` row, of a hook of `.pre-commit-config.yaml`, of a required job of `ci.yml` or of a live-marked test is in neither `RUNNER_TOOLS` nor `NOT_IN_RUNNER`
@@ -19,7 +19,7 @@ The `runner` stage SHALL set `UV_PYTHON` to the Python of the devtools image and
 - **THEN** it changes no line of `src/devops_cli/roadmap/runner_tools.py`, because `RUNNER_TOOLS` holds no version
 
 ### Requirement: The runner image builds FROM the devtools image
-The `runner` stage SHALL build from `runner-deps`, which builds FROM the devtools image, pinned by tag and digest. `runner-deps` SHALL add the user `devops` (uid and gid 1000) and install only the runtime requirements of the `lock` stage, with the `review` extra, into `/app/.venv`: no requirement of the dev group. The devtools image SHALL give each other program of `RUNNER_TOOLS` but the tools of the checkout. The image SHALL run as user 1000 with `ENTRYPOINT ["devops"]`, `/app/.venv/bin` first on `PATH` and `UV_COMPILE_BYTECODE=0`.
+The `runner` stage SHALL build from `runner-deps`, which builds FROM the devtools image, pinned by tag and digest. `runner-deps` SHALL add the user `devops` (uid and gid 1000) and install only the runtime requirements of the `lock` stage, with the `review` extra, into `/app/.venv`. The devtools image SHALL give each image tool of `RUNNER_TOOLS`. The image SHALL run as user 1000 with `ENTRYPOINT ["devops"]`, `/app/.venv/bin` first on `PATH` and `UV_COMPILE_BYTECODE=0`.
 
 #### Scenario: The image is built and started
 - **WHEN** a person builds `--target runner` and runs `docker run --rm --entrypoint id <image> -u` and `docker run --rm <image> --version`
@@ -30,7 +30,7 @@ The `runner` stage SHALL build from `runner-deps`, which builds FROM the devtool
 - **THEN** the output lists no `ruff`, `mypy`, `pytest` or `pre-commit`
 
 ### Requirement: The runner tool check fails on a missing tool
-The smoke test of the runner image SHALL run `python -m devops_cli.roadmap.runner_tools` as user 1000 on the loaded image, which checks each tool of the image, and `python -m devops_cli.roadmap.runner_tools <checkout>` on a copy of the checkout, which runs the bootstrap of a Job and checks each tool of the checkout. The check SHALL fail when a program of the image is not on PATH or its version command exits non-zero, when a program of the checkout is not in `<checkout>/.venv/bin` or its version command exits non-zero there, and when the bootstrap fails. For the project, it SHALL also fail when the output lacks the version of the installed distribution. It SHALL compare no other version.
+The smoke test of the runner image SHALL run `python -m devops_cli.roadmap.runner_tools` as user 1000 on the loaded image, which checks each image tool, and with a copy of the checkout as its argument, which runs the bootstrap and checks each tool of the checkout. The check SHALL fail when an image program is not on PATH, a checkout program is not in `<checkout>/.venv/bin`, a version command fails, the project prints another version, or the bootstrap fails. It SHALL compare no other version.
 
 #### Scenario: A tool is missing or at another version
 - **WHEN** a program of the image is not on PATH, its version command exits non-zero, or the project prints a version other than the version of its installed distribution
