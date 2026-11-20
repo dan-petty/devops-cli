@@ -2,15 +2,15 @@
 
 ## Why
 
-The stage job and the implement job read each `#N` under a Dependencies heading as an open dependency, so a parent link, a child link, a related item, a reverse link and the source line of intake hold Ready items back. #6451 reports 18 Ready items that never become Staged and 2 cycles that reverse links make. Only a blocker line must hold an item back.
+The stage job and the implement job read each `#N` under a Dependencies heading as an open dependency, so a parent link, a child link, a related item, a reverse link and the source line of intake hold Ready items back. #6451 reports 18 Ready items that never become Staged and 2 cycles that reverse links make. Only an issue that the item waits for must hold it back.
 
 ## What Changes
 
-- `src/devops_cli/roadmap/refine/refine.py` keeps only a blocker line of the Dependencies section: a line that starts with a blocker opener in any case (`Merge first`, `Depends on`, `Blocked by`, `Waits for`, `Wait for`), or a line whose first word is `#N` when it is the first text of a list item or a paragraph outside a list. A line with a reverse phrase (`needs this item`, `waits for this item`, `depends on this item`, `blocked by this item`) names no blocker, and a `#N` that directly follows `of` names a parent. A parent, a child, a related issue, a tracker and the source line name no dependency.
+- `src/devops_cli/roadmap/refine/refine.py` keeps each `#N` of the Dependencies section as a blocker, also in prose, unless the text names a link: a block that starts with `None` or `No`, a `#N` after a link word (`Part of`, `Child`, `Tracker`, `Related`, `Source`, an owner decision), a sentence with a reverse phrase (`#N needs this item`, `This item blocks #N`, `#N is the parent tracker`), a block whose issue merges in either order, or a `#N` in parentheses with other words. The hold line `- #6521 (hold: ... of #6519)` names #6521 only.
 - `CONST_ROADMAP_REFINE_RULES_SINCE` in `src/devops_cli/config/constants.py` moves to the time of the fix, so a wait on a person that the older rule set gets one new round.
 - The new test module `tests/roadmap/refine/test_roadmap_refine_dependencies.py` holds the blocker and the non-blocker forms of the reader, so the stage, implement and consolidate paths that read the one reader keep their behavior with no change of their own.
 - `NewCandidate.filed_body` in `src/devops_cli/roadmap/intake/intake.py` writes the line `Source: <source>` under a `## Source` heading after the body, so the source names no dependency. `_new_subject` also finds an issue of the old form, which ends with the `Source:` line and no heading. The assertion of `tests/roadmap/intake/test_roadmap_intake_evidence.py` and the one of `tests/roadmap/intake/test_roadmap_intake_sub_issues.py` move to the new form.
-- `docs/roadmap/refine.md`, `docs/roadmap/stage.md` and `docs/roadmap/intake.md` state that only a blocker line under Dependencies names a dependency, and that intake writes its source under `## Source`. The base specs `roadmap-stage/context` and `roadmap-implement-job/selection` read each blocker that the Dependencies section names.
+- `docs/roadmap/refine.md`, `docs/roadmap/stage.md` and `docs/roadmap/intake.md` state the blocker rule, and that intake writes its source under `## Source`. The base specs `roadmap-stage/context` and `roadmap-implement-job/selection` read each blocker that the Dependencies section names.
 - The change carries a spec delta, because the Dependencies section that a job of the service reads and the filed body of intake are behavior that a consumer observes.
 - The change fits one pull request.
 
@@ -22,7 +22,7 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-refine/waits`: A blocker line under Dependencies names a dependency, A reverse phrase or a parent names no blocker, A non-blocker mention under Dependencies holds nothing back
+- `roadmap-refine/waits`: An issue reference under Dependencies names a blocker, A link under Dependencies names no blocker, A non-blocker mention under Dependencies holds nothing back
 - `roadmap-intake-writes`: The filed body names its source under its own heading
 - `roadmap-stage/context`: The request lists the declared issue dependencies, The prompt names the declared dependencies (base spec text only)
 - `roadmap-implement-job/selection`: The implement judge leaves out an open dependency (base spec text only)

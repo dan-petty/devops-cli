@@ -3,11 +3,11 @@
 ## 1. Read only a blocker line under Dependencies
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/refine/refine.py`, `tests/roadmap/stage/test_roadmap_stage_selection.py`, `tests/roadmap/test_roadmap_consolidate_shortlist.py`, `tests/roadmap/implement/test_roadmap_implement_selection.py`, `tests/roadmap/refine/test_roadmap_refine_alert.py`. Changes: `src/devops_cli/roadmap/refine/refine.py`, `tests/roadmap/refine/test_roadmap_refine_dependencies.py` (new).
-Adds: `_blocker_inlines`
+Adds: `_block_blockers`
 
 - [x] 1.1 `tests/roadmap/refine/test_roadmap_refine_dependencies.py::test_body_dependencies_names_only_a_blocker_line` fails on the base: `body_dependencies` returns `[4989]` for a section that holds `None.` and then a paragraph that names `Source: #4989`
   - Verification: `$ uv run devops ci test tests/roadmap/refine/test_roadmap_refine_dependencies.py` fails on the base
-- [x] 1.2 Add `_blocker_inlines(section: Sequence[Token]) -> list[Token]` to `src/devops_cli/roadmap/refine/refine.py`. It keeps an inline token when its squashed text starts with `merge first` in any case, when it is the first text of a list item and its first word, stripped of `_REFERENCE_PUNCTUATION`, is `#` and digits, and when it sits outside a list and every word of it, stripped of `_REFERENCE_PUNCTUATION`, is `#` and digits, with at least one word. The text of a nested list item counts for that item and not for its parent. Change `body_dependencies` to keep the numbers of those tokens and leave `_issues` as it is. Write the failing test `test_body_dependencies_names_only_a_blocker_line` first in the new module `tests/roadmap/refine/test_roadmap_refine_dependencies.py`: `None.` and then `Source: #4989` give `[]`, the paragraphs `Part of #5014`, `Child 5 of #4893`, `Related: #4408`, `#4691 needs this item` and `This item blocks #5134 step 6` give `[]`, the list item `- #4989` with `Merge first: #5134` gives `[4989, 5134]`, and the paragraph `#2, #4` gives `[2, 4]`
+- [x] 1.2 Add `_block_blockers(text: str) -> list[int]` to `src/devops_cli/roadmap/refine/refine.py` and change `body_dependencies` to read each inline token of the section through it, with the rule of task 5.1. Leave `_issues` as it is. Write the failing test `test_body_dependencies_names_only_a_blocker_line` first in the new module `tests/roadmap/refine/test_roadmap_refine_dependencies.py`: `None.` and then `Source: #4989` give `[]`, the paragraphs `Part of #5014`, `Child 5 of #4893`, `Related: #4408`, `#4691 needs this item` and `This item blocks #5134 step 6` give `[]`, the list item `- #4989` with `Merge first: #5134` gives `[4989, 5134]`, and the paragraph `#2, #4` gives `[2, 4]`
   - Verification: `$ uv run devops ci test tests/roadmap/refine/test_roadmap_refine_dependencies.py` passes
 
 ## 2. File the source under its own heading
@@ -30,17 +30,17 @@ Kind: other. Reads: `tests/roadmap/intake/test_roadmap_intake_sub_issues.py`, `s
 
 Kind: other. Reads: `docs/roadmap/refine.md`, `docs/roadmap/stage.md`, `docs/roadmap/intake.md`, `src/devops_cli/roadmap/refine/refine.py`. Changes: `docs/roadmap/refine.md`, `docs/roadmap/stage.md`, `docs/roadmap/intake.md`.
 
-- [x] 4.1 Rewrite the Dependencies paragraph of `docs/roadmap/refine.md` to state that only a blocker line under Dependencies names a dependency: a list item whose first word is `#N`, a line that holds issue references only, or a line that starts with `Merge first`. State that a parent, a child, a related issue, an issue that waits for this item, the source line of intake and a sentence that mentions an issue name none, and keep the quoted-title rule. Rewrite the sentence of `docs/roadmap/stage.md` that names the Dependencies section to the same rule, and keep its pointer to `roadmap-stage/selection`. State in `docs/roadmap/intake.md` that intake writes the source under a `## Source` heading after the body
+- [x] 4.1 Rewrite the Dependencies paragraph of `docs/roadmap/refine.md` to state the blocker rule of task 5.1, with the forms that name a blocker and the links that name none, and keep the quoted-title rule. Rewrite the sentence of `docs/roadmap/stage.md` that names the Dependencies section to the same rule, and keep its pointer to `roadmap-stage/selection`. State in `docs/roadmap/intake.md` that intake writes the source under a `## Source` heading after the body
   - Verification: `$ uv run devops ci docs` passes
-- [x] 4.2 Rewrite `docs/roadmap/refine.md`, `docs/roadmap/stage.md` and `docs/roadmap/intake.md` to state that only a blocker line under Dependencies names a dependency and that intake files its source under its own heading
+- [x] 4.2 Rewrite `docs/roadmap/refine.md`, `docs/roadmap/stage.md` and `docs/roadmap/intake.md` to state the blocker rule of task 5.1 and that intake files its source under its own heading
   - Verification: `$ uv run devops ci docs` passes
 
 ## 5. Fix the findings of the plan review
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/refine/refine.py`, `src/devops_cli/roadmap/intake/intake.py`, `src/devops_cli/roadmap/dependencies.py`, `src/devops_cli/config/constants.py`. Changes: `src/devops_cli/roadmap/refine/refine.py`, `src/devops_cli/roadmap/intake/intake.py`, `src/devops_cli/config/constants.py`, `tests/roadmap/refine/test_roadmap_refine_dependencies.py`, `tests/roadmap/test_roadmap_dependencies.py`, `tests/roadmap/intake/test_roadmap_intake_evidence.py`, `tests/roadmap/intake/test_roadmap_intake_sub_issues.py`, `tests/roadmap/intake/test_roadmap_intake_agent_candidates.py`.
-Adds: `_blocker_issues`, `NewCandidate.filed_bodies`
+Adds: `_sentences`, `_units`, `_sentence_blockers`, `_bare_word`, `NewCandidate.filed_bodies`
 
-- [x] 5.1 Keep the prose blockers: a line that starts with `Merge first`, `Depends on`, `Blocked by`, `Waits for` or `Wait for` in any case, and a paragraph outside a list whose first word is `#N`. A line with a reverse phrase names no blocker, and a `#N` after `of` names a parent. Write the failing tests first from short copies of the Dependencies sections of #4867, #5430, #4993, #4921, #5379, #5348, #4765, #4848, #5001 and #5026
+- [x] 5.1 Keep the prose blockers: each `#N` names a blocker, also in prose, except in a block that starts with `None` or `No`, after a link word of its sentence (`Part of`, `Child`, `Tracker`, `Related`, `Source`, an owner decision), in a sentence with a reverse phrase (`needs this item`, `this item blocks`, `is the parent`, `does not wait for`), in a block whose issue merges in either order, and in parentheses with other words. A sentence ends at `.`, `;`, `!`, `?` or a line end, outside parentheses. Write the failing tests first from short copies of the Dependencies sections of #4867, #5430, #4993, #4921, #5379, #5348, #4765, #4848, #5001 and #5026
   - Verification: `$ uv run devops ci test src/devops_cli/roadmap/refine/refine.py` passes
 - [x] 5.2 Test `open_dependency`: `Related: #N` with #N open gives no reason, and `Depends on #N` with #N open gives the reason
   - Verification: `$ uv run devops ci test src/devops_cli/roadmap/dependencies.py` passes
@@ -48,11 +48,14 @@ Adds: `_blocker_issues`, `NewCandidate.filed_bodies`
   - Verification: `$ uv run devops ci test src/devops_cli/roadmap/intake/intake.py` passes
 - [x] 5.4 Set `CONST_ROADMAP_REFINE_RULES_SINCE` to the time of the fix, and state the full rule in the base specs and the roadmap pages
   - Verification: `$ uv run devops openspec check` passes
+- [x] 5.5 Keep the blockers that a sentence opens with other words, drop the links that open with `#N`, and keep the hold issue of the freeze (#6521) and not the tracker in its note. The tests `test_body_dependencies_keeps_a_blocker_written_in_prose`, `test_body_dependencies_names_no_link_in_a_list_item_or_a_blocker_line` and `test_the_hold_line_names_its_hold_issue_and_not_the_tracker` of `tests/roadmap/refine/test_roadmap_refine_dependencies.py` fail on the second draft (12a2cd819) and pass after it, and `test_the_reason_of_a_held_item_names_the_hold_issue_and_no_link` of `tests/roadmap/test_roadmap_dependencies.py` passes. On the 806 open bodies of 2026-11-20, the rule adds no issue to what the base reads, each open issue that it drops is a link, and the 14 bodies with the hold line name #6521
+  - Verification: `$ uv run devops ci test tests/roadmap/refine/test_roadmap_refine_dependencies.py tests/roadmap/test_roadmap_dependencies.py` passes
 
 ## Criteria
 
 - Group 1: Test first: a Dependencies section that holds "None.", then "Source: #N", gives no dependency. The test fails on the base.
 - Group 1: A test: "Part of #N", "Child 2 of #N", "Related: #N" and "#N needs this item" give no dependency. "- #N" and "Merge first: #N" still give one.
+- Group 5: A blocker in prose ("#N (merged first).", "Depends on #N", "Open the pull request after the pull request of #N merges") still gives one, and the hold line "- #6521 (hold: ... of #6519)" gives #6521 only.
 - Group 2: Intake writes the source line under its own heading, or as a link, so that it is never under Dependencies.
 - Group 4: `docs/roadmap/refine.md` and `docs/roadmap/stage.md` state the rule.
 - Pending person: Live proof: after the release, `devops roadmap explain 5001` and `devops roadmap explain 5026` give no dependency reason., Only a person can run the live check on the real roadmap after the release, because the plan changes no live item and the command reads the deployed Service.

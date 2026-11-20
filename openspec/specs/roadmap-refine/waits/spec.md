@@ -182,16 +182,8 @@ Refine SHALL NOT set the Status to Ready for an item in a cycle, and a Ready ite
 - **WHEN** a person runs `devops roadmap explain` for item A whose record holds the step `blocked` on the open item B, and the record of B or its Dependencies section names A
 - **THEN** the refine line of the output says that refine takes the item, and names no wait on the open issue
 
-### Requirement: A blocker line under Dependencies names a dependency
-Refine SHALL read as a dependency only a line under the Dependencies heading that names blockers: a line that starts with a blocker opener in any case (`Merge first`, `Depends on`, `Blocked by`, `Waits for`, `Wait for`), or a line whose first word is an issue reference when it is the first text of a list item or a paragraph outside a list. Refine SHALL read no other `#N` of the section, such as a parent, a child, a related issue or the source line of intake.
-
-#### Scenario: A source line after None
-- **WHEN** `body_dependencies` reads a body whose Dependencies section holds `None.` and then `Source: #4989` as a separate paragraph
-- **THEN** `body_dependencies` returns an empty list
-
-#### Scenario: A parent, a child, a related issue and a reverse link
-- **WHEN** `body_dependencies` reads a body whose Dependencies section holds the paragraphs `Part of #5014`, `Child 5 of #4893`, `Related: #4408`, `#4691 needs this item` and `This item blocks #5134 step 6`
-- **THEN** `body_dependencies` returns an empty list
+### Requirement: An issue reference under Dependencies names a blocker
+Refine SHALL read each `#N` under the Dependencies heading of the body as a dependency of the proposal, also in a sentence of prose, unless the requirement "A link under Dependencies names no blocker" leaves it out.
 
 #### Scenario: A blocker list item, a line of references and a Merge first line
 - **WHEN** `body_dependencies` reads a body whose Dependencies section holds the list item `- #4989`, the paragraph `#5134, #5135` and the paragraph `Merge first: #5136`
@@ -205,23 +197,35 @@ Refine SHALL read as a dependency only a line under the Dependencies heading tha
 - **WHEN** `body_dependencies` reads a body whose Dependencies section holds the paragraph `Depends on #5356. The acceptance needs the running server.` and then the paragraph `It does not wait for #5343.`
 - **THEN** `body_dependencies` returns `[5356]`
 
-### Requirement: A reverse phrase or a parent names no blocker
-On a blocker line, a clause that holds a reverse phrase in any case (`needs this item`, `waits for this item`, `depends on this item`, `blocked by this item`) SHALL name no blocker; a clause ends at `.`, `;`, `!` or `?`. Refine SHALL read each other issue reference except one that directly follows `of`, which names a parent.
+#### Scenario: A blocker in a sentence that opens with other words
+- **WHEN** `body_dependencies` reads a body whose Dependencies section holds the paragraphs `#5421 (merged first).` and `Open the pull request after the pull request of #5234 merges.`
+- **THEN** `body_dependencies` returns `[5421, 5234]`
 
-#### Scenario: A reverse phrase
-- **WHEN** `body_dependencies` reads a body whose Dependencies section holds the list items `- #3741 (the backup sets the pattern).` and `- #3803 (move the database) waits for this item.`
-- **THEN** `body_dependencies` returns `[3741]`
+#### Scenario: The hold line of the freeze
+- **WHEN** `body_dependencies` reads a body whose Dependencies section holds as its first item `- #6521 (hold: incremental work on the stage, implement and fix-checks jobs waits for the re-architecture of #6519)`
+- **THEN** `body_dependencies` returns `[6521]`
 
-#### Scenario: A blocker and a reverse clause in one paragraph
+### Requirement: A link under Dependencies names no blocker
+Refine SHALL read no dependency from a block that starts with `None` or `No`, from a `#N` after a link word of its sentence (`Part of`, `Child`, `Tracker`, `Related`, `Source` or an owner decision), from a sentence with a reverse phrase such as `needs this item`, `this item blocks` or `is the parent`, from a block whose issue merges in either order, or from a `#N` in parentheses with other words. A sentence ends at `.`, `;`, `!`, `?` or a line end.
+
+#### Scenario: A source line after None
+- **WHEN** `body_dependencies` reads a body whose Dependencies section holds `None.` and then `Source: #4989` as a separate paragraph
+- **THEN** `body_dependencies` returns an empty list
+
+#### Scenario: A parent, a child, a related issue and a reverse link
+- **WHEN** `body_dependencies` reads a body whose Dependencies section holds the paragraphs `Part of #5014`, `Child 5 of #4893`, `Related: #4408`, `#4691 needs this item` and `This item blocks #5134 step 6`
+- **THEN** `body_dependencies` returns an empty list
+
+#### Scenario: A blocker and a reverse sentence in one paragraph
 - **WHEN** `body_dependencies` reads a body whose Dependencies section holds the paragraph `#4550 puts the dependencies of the catalog first. #4691 needs this item.`
 - **THEN** `body_dependencies` returns `[4550]`
 
-#### Scenario: A parent after of on a blocker line
-- **WHEN** `body_dependencies` reads a body whose Dependencies section holds the paragraph `Merge first: #4835, child 8 of #4833.`
+#### Scenario: A parent after a blocker, a parent tracker and a merge in either order
+- **WHEN** `body_dependencies` reads a body whose Dependencies section holds the paragraph `Merge first: #4835, child 8 of #4833.` and the list items `- #4517 is the parent tracker.` and `- #6347 (open): changes the verdict too. Rebase before the second of the two merges.`
 - **THEN** `body_dependencies` returns `[4835]`
 
 ### Requirement: A non-blocker mention under Dependencies holds nothing back
-The stage job and the implement job SHALL give no reason for an open issue that the body names only as a non-blocker mention under Dependencies. They SHALL name only an open issue that a blocker line of the section names.
+The stage job and the implement job SHALL give no reason for an open issue that the body names only as a non-blocker mention under Dependencies. They SHALL name only an open issue that the section names as a blocker.
 
 #### Scenario: An open related issue
 - **WHEN** the Dependencies section of a Ready item holds `Related: #4408`, and issue `#4408` is open
@@ -230,3 +234,7 @@ The stage job and the implement job SHALL give no reason for an open issue that 
 #### Scenario: An open issue on a Depends on line
 - **WHEN** the Dependencies section of a Ready item holds `Depends on #4408`, and issue `#4408` is open
 - **THEN** the stage job and the implement job give the reason that names `#4408`
+
+#### Scenario: A held item
+- **WHEN** the Dependencies section of an item holds the hold line `- #<hold> (hold: ... of #<tracker>)` and then `Related: #<related>`, and the three issues are open
+- **THEN** `open_dependency` gives a reason that names `#<hold>` only

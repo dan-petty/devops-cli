@@ -1,10 +1,10 @@
-"""The blocker lines of a Dependencies section, and the mentions that name no dependency (#6451).
+"""The blockers of a Dependencies section, and the mentions that name no dependency (#6451).
 
-A line names blockers when it starts with a blocker opener (`Merge first`, `Depends on`, `Blocked
-by`, `Waits for`, `Wait for`), or when its first word is an issue reference and it is the first
-text of a list item or a paragraph outside a list. A line with a reverse phrase, such as `needs
-this item`, names no blocker, and a reference that follows `of` names a parent. A parent, a child,
-a related issue and the source line of intake name no dependency.
+Each issue reference of the section names a blocker, also in prose, unless the text names a link
+and no blocker: a block that starts with `None` or `No`, the references after a link word such as
+`Part of`, `Child 2 of`, `Tracker`, `Related` or `Source`, a sentence with a reverse phrase such as
+`#N needs this item`, a block whose issue merges in either order, and a reference in parentheses
+with other words, such as the tracker of the hold line `- #N (hold: ... of #M)`.
 """
 
 from __future__ import annotations
@@ -12,6 +12,12 @@ from __future__ import annotations
 import pytest
 
 from devops_cli.roadmap.refine.refine import body_dependencies
+
+# The hold line that the freeze of #6519 writes as the first item of a Dependencies section.
+HOLD = (
+    "- #6521 (hold: incremental work on the stage, implement and fix-checks jobs waits for the "
+    "re-architecture of #6519)"
+)
 
 
 def test_body_dependencies_names_only_a_blocker_line() -> None:
@@ -106,3 +112,50 @@ def test_body_dependencies_reads_openers_and_reverse_phrases_in_any_case(
     """Each blocker opener names the references of its line in any case, a reverse phrase in any
     case names none, and a reference after `of` is a parent (#6451)."""
     assert body_dependencies(f"## Dependencies\n\n{line}\n") == blockers
+
+
+def test_body_dependencies_keeps_a_blocker_written_in_prose() -> None:
+    """A blocker that a person writes in prose still names a dependency: a paragraph that starts
+    with `#N` and goes on, the openers `Depends on`, `Blocked by` and `Waits for`, a merge order
+    in a sentence of a block that opens with other words, a sibling child that a quoted title
+    names with its number, and the number of a quoted title (#6451)."""
+    assert body_dependencies(
+        "## Dependencies\n\n#5421 (merged first).\n\nDepends on #5380 (the step budget).\n\n"
+        "#4847; #4798 with the fixable check of its scope comment, merged first.\n\n"
+        "Blocked by #12.\n\nWaits for #13.\n\n"
+        "Open the pull request after the pull request of #5234 merges.\n\n"
+        "Issue #5451 sets the forms. Start this item after #5451 merges.\n\n"
+        "#4970 (the rerank route). The stop test of #4968 must pass first.\n\n"
+        '- Child 2 of #4742: "feat(k8s): apply store buckets" (#4756).\n'
+        '- "feat(roadmap): a title" (#123)\n'
+    ) == [5421, 5380, 4847, 4798, 12, 13, 5234, 5451, 5451, 4970, 4968, 4756, 123]
+
+
+def test_body_dependencies_names_no_link_in_a_list_item_or_a_blocker_line() -> None:
+    """A list item or a sentence that names a reverse link, a parent or an issue that merges in
+    either order names no dependency, a block that starts with `None` names none, a tracker of an
+    owner decision names none, and a `Merge first` line names its blocker and not the parent of
+    that blocker (#6451)."""
+    assert body_dependencies(
+        "## Dependencies\n\n- #3803 waits for this item.\n- #4517 is the parent tracker.\n"
+        "- #6347 (open): changes `_verdict_of` too. Rebase before the second of the two merges.\n"
+        "- #5135 comes after this item.\n\nMerge first: #4835, child 8 of #4833.\n\n"
+        "#5131 (the fixture). This item blocks #5134 step 6.\n\n"
+        "It does not wait for #5343, because the Dockerfile does not change.\n\n"
+        "None. #4385, #4386 and #5168 use these records.\n\n"
+        "#5327, #5328 and #5330; owner decisions 2, 3 in #5311. Part of the plan #5311.\n"
+    ) == [4835, 5131, 5327, 5328, 5330]
+
+
+def test_the_hold_line_names_its_hold_issue_and_not_the_tracker() -> None:
+    """The hold line of the freeze, the first item of the Dependencies section, names the hold
+    issue as a blocker, so a person lifts every hold when that issue closes. The tracker that its
+    parentheses name, and a `None.`, a related or a reverse line after it, name no dependency
+    (#6519, #6521)."""
+    assert (
+        body_dependencies(f"### Dependencies\n\n{HOLD}\n"),
+        body_dependencies(f"### Dependencies\n\n{HOLD}\n\nNone.\n"),
+        body_dependencies(f"### Dependencies\n\n{HOLD}\n- #4847: the prerequisite\n"),
+        body_dependencies(f"### Dependencies\n\n{HOLD}\nRelated: #4408\n"),
+        body_dependencies(f"### Dependencies\n\n{HOLD}\n#4691 needs this item.\n"),
+    ) == ([6521], [6521], [6521, 4847], [6521], [6521])

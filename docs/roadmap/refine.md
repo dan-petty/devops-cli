@@ -18,15 +18,13 @@ The comment of refine is one event line. It names the next step and the parts of
 
 A proposal that names an open issue as a dependency is not whole. The item waits on that issue. Refine does not set it to Ready, and a Ready item goes back to New. A closed dependency holds nothing back.
 
-The Dependencies section of the body names an issue as `#N` or by its quoted title, such as `- "feat(roadmap): run each refine item in its own pod".`. Only a blocker line under Dependencies names a dependency (#6451). A blocker line is one of these three:
+The Dependencies section of the body names an issue as `#N` or by its quoted title, such as `- "feat(roadmap): run each refine item in its own pod".`. Each `#N` of the section names a blocker, also in prose, such as `- #N`, `#5134, #5135`, `Merge first: #N`, `Depends on #N`, `#N (merged first).` or `Open the pull request after the pull request of #N merges.`. A missed blocker lets a job take an item while its blocker is open, so the rule keeps a `#N` unless the text says that it names a link (#6451):
 
-- A line that starts with a blocker opener, in any case: `Merge first`, `Depends on`, `Blocked by`, `Waits for` or `Wait for`. For example, `Merge first: #5134` or `Depends on #5380 (the step budget).`.
-- The first text of a list item, when its first word is `#N`, such as `- #N` or `- #4989: the prerequisite`.
-- A paragraph outside a list, when its first word is `#N`. The paragraph can go on in prose, such as `#4847; #4798 with its scope comment, merged first.` or `#5134, #5135`.
-
-A clause that holds a reverse phrase names no blocker, in any case: `needs this item`, `waits for this item`, `depends on this item` or `blocked by this item`. A clause ends at a full stop, a semicolon, an exclamation or a question mark, so `#4550 puts the catalog first. #4691 needs this item.` names only #4550. On a blocker line, each `#N` is a dependency, except a `#N` that directly follows `of`, which names a parent: `Merge first: #4835, child 8 of #4833.` names only #4835.
-
-No other mention of the section names a dependency. A parent link (`Part of #N`), a child link (`Child 2 of #N`), a related issue (`Related: #N`), a tracker (`- Tracker: #N`), the source line of intake (`Source: #N`) and a sentence that opens with other words, such as `It does not wait for #N.`, name no dependency.
+- A block (a paragraph or the text of a list item) that starts with `None` or `No`, such as `None. #N uses these records.`, names no blocker.
+- A `#N` after a link word of its sentence names no blocker: a parent (`Part of #N`), a child (`Child 2 of #N`), a tracker (`Tracker: #N`), a related issue (`Related: #N, #M`), the source line of intake (`Source: #N`) and the issue of an owner decision (`owner decision 4 in #N`). `Merge first: #4835, child 8 of #4833.` names #4835 and not #4833.
+- A sentence with a reverse phrase names no blocker, in any case: `#N needs this item`, `#N waits for this item`, `#N depends on this item`, `#N is blocked by this item`, `#N comes after this item`, `This item blocks #N`, `#N is the parent tracker`, `It does not wait for #N` and `#N is not a dependency`. A sentence ends at `.`, `;`, `!` or `?` and at the end of a line, outside parentheses, so `#4550 puts the catalog first. #4691 needs this item.` names only #4550.
+- A block that names an issue that merges in either order (`No merge order`, `Rebase before the second of the two merges`) names no blocker.
+- A `#N` in parentheses with other words is a note and names no blocker, and `(#N)` alone names one. So the hold line `- #6521 (hold: ... of #6519)` names the hold issue #6521 and not the tracker #6519.
 
 The narrower rule removes false dependencies, so it sets a new version of the rules (`CONST_ROADMAP_REFINE_RULES_SINCE`, 2026-11-20T14:03:08Z). An item that waits on a person under the older rule, such as an item in a dependency cycle that a false dependency made, gets one new look. The new version ends no blocked wait: an item keeps its recorded blockers until they close, a person replies or a person edits the body.
 
