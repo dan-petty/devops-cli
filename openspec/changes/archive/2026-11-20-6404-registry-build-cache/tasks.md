@@ -1,22 +1,20 @@
 # Tasks
 
-## 1. Make the tree check require the registry ref
+## 1. Remove the value check
 
-Kind: other (test-only edit of a gate row). Changes: `tests/gate/tree_checks/image_cache.py`.
+Kind: other (test-only removal of a gate row). Changes: `tests/gate/tree_checks/image_cache.py`.
 
-- [x] 1.1 Change `check_each_image_build_cache_entry_names_a_scope` into `check_no_cache_entry_uses_the_actions_cache`, which names each `type=gha` cache entry of the three workflows with its file and line. Change `check_each_image_build_cache_entry_uses_its_target_scope` into `check_each_image_build_cache_entry_uses_its_target_ref`, which names each image build cache entry that is not `type=registry` with `ref=ghcr.io/${{ github.repository }}/<target>:buildcache`, and keeps the `mode=max` check of a write
+- [x] 1.1 Delete `tests/gate/tree_checks/image_cache.py`, which asserted cache values of the workflows (owner decision of 2026-11-20)
   - Verification: `$ uv run devops ci --check --only test-tree`
 
 ## 2. Move the image build cache to the registry
 
-Kind: other (workflows). Changes: `.github/workflows/release.yml`, `.github/workflows/ci.yml`, `.github/workflows/service-image-test.yml`, `.github/workflows/cleanup-devcontainer.yml`.
+Kind: other (workflows). Changes: `.github/workflows/release.yml`, `.github/workflows/ci.yml`, `.github/workflows/service-image-test.yml`.
 
 - [x] 2.1 Set `cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/<target>:buildcache` in the six image builds of `release.yml`, the three image builds of `ci.yml` and the build of `service-image-test.yml`, and set `cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/<target>:buildcache,mode=max` in the three builds of `release.yml` that push an image. Keep each `no-cache-filters` entry and each job permission
   - Verification: `$ ! git grep -n 'type=gha' -- .github/workflows`
-- [x] 2.2 Add `buildcache` to the tags that `cleanup-devcontainer.yml` keeps
-  - Verification: a run with `dry_run: true` prints `buildcache` in the line `Protected tags:` of the step 'Resolve Target Cleanup and Exclusion Tags'
-- [x] 2.3 Validate the changed workflows
-  - Verification: `$ uv run devops ci --check --only actionlint,zizmor,test-tree`
+- [x] 2.2 Validate the changed workflows
+  - Verification: `$ uv run devops ci --check --only actionlint,zizmor`
 
 ## 3. Name the registry cache in the cluster document
 
