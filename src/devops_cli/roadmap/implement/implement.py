@@ -472,7 +472,7 @@ class _Judge:
             return texts.implement_left_plan_git.format(reason=error)
         if (
             dependency := open_issue_dependencies(
-                issue_dependencies(proposal.dependencies), self._store
+                item, issue_dependencies(proposal.dependencies), self._store, self._items
             )
         ) is not None:
             return dependency

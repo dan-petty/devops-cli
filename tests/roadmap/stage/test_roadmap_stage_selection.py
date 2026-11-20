@@ -287,6 +287,48 @@ def test_an_item_that_depends_on_an_open_issue_is_left_out(store: InMemoryRoadma
     assert f"#{blocker}" in _reasons(selection)[waiting]
 
 
+def test_an_item_whose_dependencies_name_its_parent_tracker_is_staged(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """The Dependencies section of a Ready item names its open parent tracker, which closes only
+    after the item: the tracker is no blocker, so the job stages the item (#6450)."""
+    tracker = _seed(store, "feat(roadmap): the plan", status="New")
+    number = _seed(store, body=f"### Dependencies\n\n#{tracker}\n")
+    store.add_sub_issue(tracker, number)
+
+    assert _numbers(_select(store)) == [number]
+
+
+def test_an_item_whose_record_names_its_parent_tracker_is_staged(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """The record of a Ready item names its open parent tracker as a blocker: the tracker is no
+    blocker of its sub-issue, so the job stages the item (#6450)."""
+    tracker = _seed(store, "feat(roadmap): the plan", status="New")
+    number = _seed(store)
+    store.add_sub_issue(tracker, number)
+    item = store.item(number)
+    assert item is not None
+    store.set_marks(item, {RefineRecordKey.BLOCKED_BY: str(tracker)})
+
+    assert _numbers(_select(store)) == [number]
+
+
+def test_an_item_that_names_another_tracker_waits_on_its_open_sub_issues(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """The Dependencies section of a Ready item names another open tracker with one open sub-issue:
+    the reason names the sub-issue and not the tracker (#6450)."""
+    tracker = _seed(store, "feat(roadmap): another plan", status="New")
+    part = _seed(store, "fix(roadmap): a part of the plan", status="New")
+    store.add_sub_issue(tracker, part)
+    number = _seed(store, body=f"### Dependencies\n\n#{tracker}\n")
+
+    assert _reasons(_select(store))[number] == MESSAGES.roadmap.stage_left_dependency.format(
+        issues=f"#{part}"
+    )
+
+
 def test_a_dependency_cycle_names_the_cycle_in_the_reason(store: InMemoryRoadmapStore) -> None:
     """The Dependencies section of A names the open B, and the record of B names A, so the reason
     for A names the path back to A and not only the open issue B (#6449). An item whose open

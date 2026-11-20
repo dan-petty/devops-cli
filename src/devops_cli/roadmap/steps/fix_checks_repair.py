@@ -34,6 +34,7 @@ from devops_cli.ai.client.factory import get_task_model
 from devops_cli.config.commands import BIN_DEVOPS, BIN_RUFF, BIN_UV
 from devops_cli.config.settings import load_settings
 from devops_cli.core.process import run_subprocess
+from devops_cli.exceptions import ToolExecutionError
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.git.worktree_add import add_worktree
 from devops_cli.github.client import PullStatus
@@ -51,6 +52,7 @@ from devops_cli.roadmap.implement.implement_step import (
 from devops_cli.roadmap.plan_read import PlanReadError, merged_recorded_tests
 from devops_cli.roadmap.project_profile import resolve_profile
 from devops_cli.roadmap.run import model_clone
+from devops_cli.roadmap.runner_tools import bootstrap_checkout, checkout_environment
 from devops_cli.roadmap.steps.fix_checks import (
     Fixed,
     ModelFixer,
@@ -198,10 +200,16 @@ def tier1_commands(
 
 
 def _exit_status(path: Path, argv: Sequence[str], limit: int) -> int | None:
-    """The exit status of `argv` in `path`, or None when it ran out of time."""
+    """The exit status of `argv` in `path`, with the tools of the checkout first on PATH, or None
+    when it ran out of time."""
     try:
         return run_subprocess(
-            list(argv), cwd=path, check=False, quiet=True, timeout=limit
+            list(argv),
+            cwd=path,
+            env=checkout_environment(path),
+            check=False,
+            quiet=True,
+            timeout=limit,
         ).returncode
     except subprocess.TimeoutExpired:
         return None
@@ -245,9 +253,16 @@ def model_fix(store: ItemReader) -> ModelFixer:
     ladder, so a model trial moves this job alone (#5903). The step gets the hooks and the
     recorded tests of the default branch, as the implement job reads them, and the cap
     `roadmap.fix_checks.token_budget`. It may also change the files `extra` outside the plan,
-    whose failure the change of the branch causes (#6116)."""
+    whose failure the change of the branch causes (#6116). Before the step it builds the coder
+    environment of the worktree (#6517). The branch exists, so the sync locks again a stale
+    `uv.lock`, as the `uv run` of the hook install did before; tier 1 runs only `uv run` and
+    `uv lock`, which build what they need, so it needs no bootstrap."""
 
     def fix(path: Path, item: int, check: str, log: str, extra: tuple[str, ...]) -> Fixed:
+        try:
+            bootstrap_checkout(path, locked=False)
+        except ToolExecutionError as exc:
+            return Fixed(done=False, reason=str(exc))
         base = _base(path)
         hooks = trusted_config(path, base)
         if hooks is not None and (failure := install_hook_environments(path, hooks)) is not None:

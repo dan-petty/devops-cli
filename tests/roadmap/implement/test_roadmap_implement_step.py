@@ -569,15 +569,18 @@ def test_the_shell_tool_refuses_the_devops_cli_and_openspec(
     ]
 
 
-def test_the_shell_runs_with_a_scratch_home_and_the_cache_of_uv(
+def test_the_shell_runs_with_a_scratch_home_the_cache_of_uv_and_the_tools_of_the_checkout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """No git configuration, helper or key of the user's home reaches a shell command."""
+    """No git configuration, helper or key of the user's home reaches a shell command. The tools
+    of the checkout come first on PATH: the runner image holds no dev dependency (#6517)."""
     monkeypatch.setenv("UV_CACHE_DIR", str(tmp_path / "uv-cache"))
+    monkeypatch.setenv("PATH", "/usr/bin")
     monkeypatch.delenv("UV_PYTHON", raising=False)
     monkeypatch.delenv("PYTEST_XDIST_AUTO_NUM_WORKERS", raising=False)
+    source = tmp_path / "checkout"
 
-    env = shell_environment(tmp_path / "home")
+    env = shell_environment(tmp_path / "home", source)
 
     assert env == {
         "HOME": str(tmp_path / "home"),
@@ -586,6 +589,7 @@ def test_the_shell_runs_with_a_scratch_home_and_the_cache_of_uv(
         "GIT_TERMINAL_PROMPT": "0",
         "UV_CACHE_DIR": str(tmp_path / "uv-cache"),
         "AI_AGENT": "devops-implement",
+        "PATH": f"{source}/node_modules/.bin:{source}/.venv/bin:/usr/bin",
     }
 
 
@@ -596,7 +600,7 @@ def test_the_shell_gets_the_interpreter_that_uv_is_told_to_use(
     the image forbids a Python download and its Python can be older than `.python-version`."""
     monkeypatch.setenv("UV_PYTHON", "/usr/local/bin/python3")
 
-    env = shell_environment(tmp_path / "home")
+    env = shell_environment(tmp_path / "home", tmp_path)
 
     assert env["UV_PYTHON"] == "/usr/local/bin/python3"
 
@@ -608,7 +612,7 @@ def test_the_shell_gets_the_worker_bound_of_the_process(
     shell of a step gets no other variable of the job, so the bound must be passed on (#2806)."""
     monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "2")
 
-    env = shell_environment(tmp_path / "home")
+    env = shell_environment(tmp_path / "home", tmp_path)
 
     assert env["PYTEST_XDIST_AUTO_NUM_WORKERS"] == "2"
 
@@ -636,7 +640,7 @@ def test_the_agent_of_a_step_runs_its_shell_in_that_environment(
     agent.root_capability.visit_and_replace(collect)
 
     shells = [leaf for leaf in leaves if isinstance(leaf, Shell)]
-    assert [shell.env for shell in shells] == [shell_environment(tmp_path / "home")]
+    assert [shell.env for shell in shells] == [shell_environment(tmp_path / "home", checkout)]
     assert [shell.allowed_commands for shell in shells] == [list(IMPLEMENT_SHELL_PROGRAMS)]
     assert [(list(shell.tools), shell.default_timeout) for shell in shells] == [
         (["run_command"], load_settings().roadmap.implement.command_timeout_seconds)
@@ -677,7 +681,7 @@ def test_the_shell_environment_of_a_step_holds_the_broker_and_no_ai_key(
             log,
             StepBudget(progress=log.progress),
         )
-        env = shell_environment(home)
+        env = shell_environment(home, checkout)
 
         leaves: list[Any] = []
 
@@ -717,7 +721,7 @@ def test_a_step_with_no_gateway_gets_no_broker(
     monkeypatch.delenv("DEVOPS_CLI_AI_API_KEY", raising=False)
     reset_step_broker()
 
-    env = shell_environment(tmp_path / "home")
+    env = shell_environment(tmp_path / "home", tmp_path)
 
     assert live_broker() is None
     assert ("DEVOPS_CLI_BROKER_URL" in env, "DEVOPS_CLI_BROKER_TOKEN" in env) == (False, False)

@@ -189,6 +189,46 @@ def test_an_item_whose_dependencies_are_closed_is_selected(
     assert [target.item.number for target in plan.selected] == [number]
 
 
+def _seed_tracker(store: InMemoryRoadmapStore) -> int:
+    """An open item that is no Staged item, to hold sub-issues as a tracker."""
+    return store.seed_issue("feat(roadmap): the plan", labels=("priority/p2-medium", "status/new"))
+
+
+def test_an_item_whose_dependencies_name_its_parent_tracker_is_selected(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    """The Dependencies section of the body names the open parent tracker of the item, which
+    closes only after the item: the tracker is no blocker, so the job selects the item (#6450)."""
+    tracker = _seed_tracker(store)
+    number = seed_staged(store, body=f"## Dependencies\n\n#{tracker}\n")
+    store.add_sub_issue(tracker, number)
+    push_staged_branch(stage_repo, number=number)
+
+    plan = _plan(store, stage_repo)
+
+    assert [target.item.number for target in plan.selected] == [number]
+
+
+def test_an_item_whose_plan_names_its_parent_tracker_is_selected(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    """The plan proposal names the open parent tracker of the item as a dependency: the tracker is
+    no blocker of its sub-issue, so the job selects the item (#6450)."""
+    tracker = _seed_tracker(store)
+    number = seed_staged(store)
+    store.add_sub_issue(tracker, number)
+    proposal = f"openspec/changes/{number}-the-job-drops-a-comment/proposal.md"
+    push_staged_branch(
+        stage_repo,
+        number=number,
+        files={proposal: f"{PROPOSAL}\n## Dependencies\n\n- #{tracker}: the tracker\n"},
+    )
+
+    plan = _plan(store, stage_repo)
+
+    assert [target.item.number for target in plan.selected] == [number]
+
+
 def test_an_item_that_the_filter_does_not_name_is_not_in_the_plan(
     store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake
 ) -> None:

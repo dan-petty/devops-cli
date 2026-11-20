@@ -180,6 +180,7 @@ from devops_cli.roadmap.item_comments import (
 )
 from devops_cli.roadmap.mcp import ROLE_IMPLEMENTATION, build_roadmap_mcp_toolset
 from devops_cli.roadmap.plan_read import PlanReadError, group_files
+from devops_cli.roadmap.runner_tools import checkout_environment
 from devops_cli.roadmap.step_commit import step_commit_title
 from devops_cli.roadmap.step_files import (
     CHECKBOXES,
@@ -657,11 +658,13 @@ class StepOutcome(BaseModel):
 _PASSED_VARIABLES = ("UV_PYTHON", "PYTEST_XDIST_AUTO_NUM_WORKERS")
 
 
-def shell_environment(home: Path) -> dict[str, str]:
+def shell_environment(home: Path, source: Path) -> dict[str, str]:
     """The variables a shell command gets on top of the workspace's own: a scratch `home` in place
     of the user's, so that no git configuration, credential helper or key of the user reaches the
-    agent, no system git configuration, no prompt for a password, and the cache of `uv` where the
-    user keeps it, so that `uv run` finds its packages. The variables in `_PASSED_VARIABLES` go on
+    agent, no system git configuration, no prompt for a password, the cache of `uv` where the
+    user keeps it, so that `uv run` finds its packages, and a PATH with the Node tools and the venv
+    of the checkout `source` first, as the bootstrap of the Job built them: the runner image holds
+    no dev dependency (#6517). The variables in `_PASSED_VARIABLES` go on
     when the process has them. `UV_PYTHON`: the runner image sets it, as it forbids a Python
     download and `uv run` finds no interpreter without it. `PYTEST_XDIST_AUTO_NUM_WORKERS`: the
     pod of the runner sets it to its CPU limit, as `pytest-xdist` counts the CPUs of the node and
@@ -676,6 +679,7 @@ def shell_environment(home: Path) -> dict[str, str]:
         "GIT_TERMINAL_PROMPT": "0",
         "UV_CACHE_DIR": os.environ.get("UV_CACHE_DIR") or user_cache_dir("uv"),
         "AI_AGENT": "devops-implement",
+        **checkout_environment(source),
     }
     env.update({name: os.environ[name] for name in _PASSED_VARIABLES if os.environ.get(name)})
     broker = live_broker()
@@ -689,6 +693,7 @@ def _tune(
     capability: AbstractCapability[None],
     window: int,
     home: Path,
+    source: Path,
     command_timeout: float,
     tool_retries: int,
 ) -> AbstractCapability[None]:
@@ -710,7 +715,7 @@ def _tune(
             denied_commands=[],
             denied_operators=list(HARNESS_DENIED_OPERATORS),
             allow_interactive=False,
-            env=shell_environment(home),
+            env=shell_environment(home, source),
         )
     if isinstance(capability, FileSystem):
         return replace(
@@ -809,7 +814,7 @@ def build_agent(
     tuned = cast(
         AbstractCapability[None],
         coder.visit_and_replace(
-            lambda leaf: _tune(leaf, window, home, command_timeout, log.limits.tool_retries)
+            lambda leaf: _tune(leaf, window, home, source, command_timeout, log.limits.tool_retries)
         ),
     )
     toolsets = [mcp_toolset] if mcp_toolset is not None else None
@@ -1292,14 +1297,17 @@ def _command_failure(
     verified: list[VerifiedCommand] | None = None,
     stops: list[_CommandStop] | None = None,
 ) -> str | None:
-    """Run `argv` in the checkout. None when it exits 0, else why the step stops. A `negative`
+    """Run `argv` in the checkout, with the tools of the checkout first on PATH (#6517). None when
+    it exits 0, else why the step stops. A `negative`
     search passes on exit 1 (git found no match), and a match (exit 0) is why it stops. With a
     `trace`, the run is a `check` event: its exit status, or none for a timeout (#3032). With
     `verified`, the run is added to it with its masked, bounded output (#3042). With `stops`,
     the command that failed is appended to it (#3577)."""
     limit = load_settings().roadmap.implement.command_timeout_seconds
     try:
-        done = run_subprocess(list(argv), cwd=source, quiet=True, timeout=limit)
+        done = run_subprocess(
+            list(argv), cwd=source, env=checkout_environment(source), quiet=True, timeout=limit
+        )
     except subprocess.TimeoutExpired:
         if trace is not None:
             trace.check(named, None)
@@ -1604,7 +1612,9 @@ def _form_failure(source: Path, form: TestForm, trace: ImplementTrace | None) ->
     argv = [BIN_UV, "run", BIN_PYTEST, "--collect-only", "-q", "--", form.path]
     limit = load_settings().roadmap.implement.command_timeout_seconds
     try:
-        done = run_subprocess(argv, cwd=source, quiet=True, timeout=limit)
+        done = run_subprocess(
+            argv, cwd=source, env=checkout_environment(source), quiet=True, timeout=limit
+        )
     except subprocess.TimeoutExpired:
         if trace is not None:
             trace.check(_form_check(form, None), None)

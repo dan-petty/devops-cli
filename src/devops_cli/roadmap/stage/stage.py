@@ -173,7 +173,7 @@ from devops_cli.roadmap.clone_git import branch_authors, default_branch, git
 from devops_cli.roadmap.commit_title import commit_summary, commit_type, unlisted_type_reason
 from devops_cli.roadmap.decision_point import ResolverChain
 from devops_cli.roadmap.decision_step import Band
-from devops_cli.roadmap.dependencies import open_dependency
+from devops_cli.roadmap.dependencies import open_blockers, open_dependency
 from devops_cli.roadmap.digest_clears import has_digest_clear
 from devops_cli.roadmap.failure import FailureClass, StepName, failure_class_of, retry_after
 from devops_cli.roadmap.item_comments import HeldComment, RequestForm, fit_comments, held_comments
@@ -377,6 +377,7 @@ from devops_cli.roadmap.stores.store import (
     GitHubState,
     IssueComment,
     Item,
+    ItemTree,
     OwnerQuestionRecordKey,
     RefineRecordKey,
     RoadmapStore,
@@ -786,15 +787,17 @@ class _Judge:
 
     def _recorded_blocker(self, item: Item) -> str | None:
         """An open item that the record of a refine round or of the stage job names as the blocker
-        of `item` (#3418). A closed blocker holds nothing back, so it is no reason to leave out."""
-        open_blockers = [
-            f"#{number}"
-            for number in recorded_blockers(item)
-            if (found := self._store.item(number)) is not None and found.state is GitHubState.OPEN
-        ]
-        if not open_blockers:
+        of `item` (#3418). A closed blocker holds nothing back, so it is no reason to leave out.
+        The rule of the jobs decides the blockers (#6450): a parent tracker is none, and another
+        tracker gives its open sub-issues."""
+        blockers = open_blockers(
+            item, recorded_blockers(item), self._store.item, ItemTree.of(self._items)
+        )
+        if not blockers:
             return None
-        return MESSAGES.roadmap.stage_left_blocked.format(issues=", ".join(open_blockers))
+        return MESSAGES.roadmap.stage_left_blocked.format(
+            issues=", ".join(f"#{number}" for number in blockers)
+        )
 
     def _planned_on_default(self, item: Item) -> str | None:
         """The plan is on the default branch, or its change is archived there (#2714). The folder

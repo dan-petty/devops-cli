@@ -41,7 +41,7 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import resolve_data_path
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.clone_git import git
-from devops_cli.roadmap.runner_tools import hooks_without_programs
+from devops_cli.roadmap.runner_tools import checkout_environment, hooks_without_programs
 from devops_cli.security.sanitizer import mask_secrets
 
 _OPERATION = "roadmap.implement.hooks"
@@ -134,15 +134,15 @@ def pre_commit_command(config: Path, *args: str) -> list[str]:
 
 
 def _pre_commit(source: Path, config: Path, *args: str) -> HookRun:
-    """Run `pre-commit <args>` in the checkout. A run that runs out of time is a failure that no
-    repair round can fix."""
+    """Run `pre-commit <args>` in the checkout, with the tools of the checkout first on PATH
+    (#6517). A run that runs out of time is a failure that no repair round can fix."""
     command = pre_commit_command(config, *args)
     limit = load_settings().roadmap.implement.command_timeout_seconds
     try:
         done = run_subprocess(
             command,
             cwd=source,
-            env=hook_environment(),
+            env={**checkout_environment(source), **hook_environment()},
             quiet=True,
             timeout=limit,
         )
