@@ -78,7 +78,7 @@ A scanner can name a finding that no update of the pinned package solves yet. Th
 **When the rule applies.** A scanner (Trivy on an image, OSV, `uv audit` or `npm audit`) names a vulnerable package or a vendored library, and no released version of the package that the project pins holds the fix. Prove it in a pull request comment: the fixed version that the scanner names, the newest release of the pinned package, what the `go.mod` or lock file of that release holds, and the date you read it. If any released version holds the fix, bump the pin instead, on the day the fix is published (Dependency Versions in [`CONTRIBUTING.md`](CONTRIBUTING.md#1-development-philosophy--core-invariants)). Do not ignore the finding.
 
 **What the agent does.**
-1. Add one entry to `.trivyignore`, or to the ignore file of the other scanner. `npm audit` reads no ignore file, so `devops ci audit` reads `.npm-audit-ignore.yaml` for it: the advisory ID, the lockfile paths, a `statement` that names the tracking issue, and `expired_at`, in the form of `.trivyignore.yaml`. An entry applies before its `expired_at` day, and the audit names each entry it used or that expired. Scope it as narrowly as the scanner allows: the finding ID, and the path or package when the file format holds them. Give it a reason, a link to the tracking issue, and an `exp:` date. The date is the day of the entry plus 3 days.
+1. Add one entry to the ignore file of the scanner. For Trivy on an image, add it under `vulnerabilities:` in `.trivyignore.yaml`: the finding `id`, the `paths` that hold the Trivy target of the binary, and the `purls` that hold the package that Trivy reports, so the entry hides the finding in no other binary. The image scan action `.github/actions/image-scan` reads this file for each image. `npm audit` reads no ignore file, so `devops ci audit` reads `.npm-audit-ignore.yaml` for it: the advisory ID, the lockfile paths, a `statement` that names the tracking issue, and `expired_at`, in the form of `.trivyignore.yaml`. An entry applies before its `expired_at` day, and the audit names each entry it used or that expired. Scope it as narrowly as the scanner allows: the finding ID, and the path or package when the file format holds them. Give it a `statement` with the reason and the tracking issue, and an `expired_at` date. The date is the day of the entry plus 3 days.
 2. Search open issues for a duplicate, then file the tracking issue "bump `<package>` and drop the ignore".
 3. Open the pull request with the entry.
 
@@ -90,7 +90,7 @@ A scanner can name a finding that no update of the pinned package solves yet. Th
 - Ignore a finding of a package that only the owner pins, by a decision that an ADR records.
 - Use a wildcard.
 - Lower the severity threshold, turn off `ignore-unfixed`, or turn off a scanner.
-- Add an ignore without a reason, an `exp:` date and a tracking issue.
+- Add an ignore without a reason, an `expired_at` date and a tracking issue.
 
 **Report.** The pull request comment lists each ignore that the agent added, its expiry and its tracking issue. The final message of the agent says the same.
 

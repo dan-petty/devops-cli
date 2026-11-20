@@ -28,7 +28,7 @@ from typing import Final, TypeGuard
 from tests.support.paths import REPO_ROOT
 
 # The top-level paths of the repository that hold manifests and config, and the prefixes of the
-# ones that come in families (`Dockerfile.x`, `.trivyignore-x`).
+# ones whose names vary (`Dockerfile.x`, `.trivyignore.yaml`).
 CONFIG_ROOTS: Final[frozenset[str]] = frozenset(
     {
         ".bandit",

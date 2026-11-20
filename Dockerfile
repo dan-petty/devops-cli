@@ -5,8 +5,8 @@ FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678
 FROM node:24-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0 AS node
 
 # The maintained actionlint fork that knows current runner labels, pinned by digest (#1501,
-# #3108). Its 1.17.1 release holds Go 1.27.3, and `.trivyignore-tofu` names the finding of that Go
-# version until a release holds the fix (#6367).
+# #3108). Its 1.17.1 release holds Go 1.27.3, and `.trivyignore.yaml` names the finding of that Go
+# version in its binary until a release holds the fix (#6367).
 FROM docker.io/kjanat/actionlint:1.17.1@sha256:c0a63b3e5c974c2466ead39404b70e448176beaff8c5ec7af0b2e96191aea661 AS actionlint
 
 # The requirements of `uv.lock`, with their hashes and without the project (#4550). A release

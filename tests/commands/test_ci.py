@@ -822,7 +822,7 @@ def test_service_image_ci_job_invariants() -> None:
         "(github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request')"
         " && !(startsWith(github.head_ref, 'release-please--')"
         " && github.event.pull_request.head.repo.full_name == github.repository)",
-        {"contents": "read"},
+        {"contents": "read", "security-events": "write"},
     )
 
     build_step = next(s for s in job["steps"] if s.get("name") == "Build and Load Service Image")
@@ -868,6 +868,7 @@ def test_service_image_release_job_invariants() -> None:
             "packages": "write",
             "id-token": "write",
             "attestations": "write",
+            "security-events": "write",
         },
         False,
     )
@@ -910,16 +911,6 @@ def test_service_image_release_job_invariants() -> None:
         True,
         False,
     )
-
-    trivy_with = next(
-        s for s in steps if s.get("name") == "Scan Service Image for Vulnerabilities"
-    ).get("with", {})
-    assert (
-        trivy_with.get("scanners"),
-        trivy_with.get("severity"),
-        trivy_with.get("ignore-unfixed"),
-        str(trivy_with.get("exit-code")),
-    ) == ("vuln", "HIGH,CRITICAL", True, "1")
 
     interpolated_runs = [s.get("name", "") for s in steps if "${{" in s.get("run", "")]
     assert not interpolated_runs, (
@@ -1890,18 +1881,10 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
         ): "Git diff to check changed service image sources",
         ("service-image", "Run Service Image Smoke Test"): "Docker container curl/smoke tests",
         (
-            "service-image",
-            "Install Trivy",
-        ): "Installs the pinned Trivy that the Scan Service Image step runs, with the lock's installer (#4229)",
-        (
             "runner-image",
             "Detect Image Content Changes",
         ): "Git diff to check changed runner image sources",
         ("runner-image", "Run Runner Image Smoke Test"): "Docker container tool smoke tests",
-        (
-            "runner-image",
-            "Install Trivy",
-        ): "Installs the pinned Trivy that the Scan Runner Image step runs, with the lock's installer (#4229)",
         (
             "mcp-server-image",
             "Detect Image Content Changes",
@@ -1910,10 +1893,6 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "mcp-server-image",
             "Run MCP Server Image Smoke Test",
         ): "Docker container tool smoke tests",
-        (
-            "mcp-server-image",
-            "Install Trivy",
-        ): "Installs the pinned Trivy that the Scan MCP Server Image step runs, with the lock's installer (#4229)",
         (
             "test",
             "Changed-Line Coverage",

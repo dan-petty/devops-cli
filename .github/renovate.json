@@ -218,11 +218,6 @@
       "commitMessagePrefix": "fix(deps):"
     },
     {
-      "description": "Coupled pins: a test compares these files, so one pull request updates them all. The trivy-action version inputs and the tools lock.",
-      "matchPackageNames": ["aquasecurity/trivy"],
-      "groupName": "trivy"
-    },
-    {
       "description": "The tools lock and the Argo Workflows values tag.",
       "matchPackageNames": ["argoproj/argo-workflows", "quay.io/argoproj/workflow-controller"],
       "groupName": "argo"

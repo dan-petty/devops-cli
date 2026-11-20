@@ -11,8 +11,7 @@
 # the release asset's `digest` (`gh api repos/<owner>/<repo>/releases/tags/<tag>`), checked
 # against the publisher's checksum file. Where the release has no digest, the publisher's file
 # alone gives it: popeye's `checksums.sha256`, get.helm.sh's `<archive>.sha256sum` and
-# dl.k8s.io's `kubectl.sha256`. Trivy's version is also the `version` of every
-# `aquasecurity/trivy-action` step in `.github/workflows/`.
+# dl.k8s.io's `kubectl.sha256`.
 # cloudflared's release notes give each macOS checksum for the binary inside the `.tgz`, not
 # the archive: check the archive's digest by unpacking it and hashing `cloudflared`.
 # gh-dash publishes `checksums.txt`, but it comes from the same release as the asset `digest`, so

@@ -1,0 +1,68 @@
+name: Scan an image with Trivy
+description: >-
+  Scan one container image for vulnerabilities with the Trivy image that this action pins by
+  digest (#6405), so the job installs no Trivy. The scan reports the HIGH and CRITICAL findings
+  that have a fix, leaves out the entries of the ignore file, and writes SARIF. Code scanning
+  records the SARIF under the category of the caller, also when the scan fails. A second pass
+  prints the same findings as a table from the database and the layers that the scan cached, so
+  the job log names each finding. The caller checks out the repository, gives the job
+  `security-events: write`, and sets `timeout-minutes` above 3 on the step that uses this action:
+  a step of a composite action has no timeout of its own.
+
+inputs:
+  image-ref:
+    description: >-
+      The image to scan, as Docker names it: a tag that the job loaded, such as
+      devops-cli-service:local, or a registry reference.
+    required: true
+  category:
+    description: >-
+      The code scanning category of the SARIF, one for each image, such as trivy-image-service.
+      The SARIF file of the workspace has the same name, with the extension .sarif.
+    required: true
+  exit-code:
+    description: >-
+      The exit code of the scan when it reports a finding. 1 fails the step; 0 only reports.
+    required: false
+    default: "1"
+  ignore-file:
+    description: The Trivy ignore file, relative to the workspace.
+    required: false
+    default: .trivyignore.yaml
+
+outputs:
+  sarif-file:
+    description: The SARIF file that the scan writes, relative to the workspace.
+    value: ${{ inputs.category }}.sarif
+
+runs:
+  using: composite
+  steps:
+    # The runner starts the image with the workspace as its working directory and the Docker
+    # socket mounted, so Trivy reads an image that the job loaded. dockerd retries each layer
+    # pull. Renovate moves the tag and the digest of both steps.
+    - name: Scan the image
+      uses: docker://ghcr.io/aquasecurity/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb
+      with:
+        args: >-
+          image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --timeout 3m
+          --ignorefile ${{ inputs.ignore-file }} --exit-code ${{ inputs.exit-code }}
+          --format sarif --output ${{ inputs.category }}.sarif ${{ inputs.image-ref }}
+
+    # The SARIF goes to a file, so the log of the scan names no finding. This pass reads the cache
+    # that the scan wrote and takes less than 1 s. It only prints: the scan above is the gate.
+    - name: Print the findings
+      if: ${{ !cancelled() }}
+      continue-on-error: true
+      uses: docker://ghcr.io/aquasecurity/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb
+      with:
+        args: >-
+          image --quiet --skip-db-update --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed
+          --timeout 1m --ignorefile ${{ inputs.ignore-file }} --format table ${{ inputs.image-ref }}
+
+    - name: Upload the SARIF to code scanning
+      if: ${{ !cancelled() }}
+      uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+      with:
+        sarif_file: ${{ inputs.category }}.sarif
+        category: ${{ inputs.category }}

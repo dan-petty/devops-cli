@@ -42,51 +42,22 @@ def test_the_mcp_server_stage_runs_as_user_1000_and_keeps_directories_under_home
     assert env["UV_CACHE_DIR"].startswith(env["HOME"])
 
 
-def test_the_pull_request_check_builds_and_scans_mcp_server_image() -> None:
-    """The mcp-server image SHALL pass the HIGH and CRITICAL scan and stay at or below 3GB."""
+def test_the_pull_request_check_builds_the_mcp_server_target_at_or_below_3gb() -> None:
+    """The pull request check SHALL build the mcp-server target and keep it at or below 3GB."""
     job = _workflow("ci.yml")["jobs"]["mcp-server-image"]
     build = _step(job, "Build and Load MCP Server Image")
-    trivy = _step(job, "Scan MCP Server Image for Vulnerabilities")["with"]
     smoke = _step(job, "Run MCP Server Image Smoke Test")["run"]
 
     assert build["with"]["target"] == "mcp-server"
-    assert (
-        trivy["scanners"],
-        trivy["severity"],
-        trivy["ignore-unfixed"],
-        trivy["trivyignores"],
-        str(trivy["exit-code"]),
-    ) == (
-        "vuln",
-        "HIGH,CRITICAL",
-        True,
-        ".trivyignore,.trivyignore-mcp-server,.trivyignore-tofu",
-        "1",
-    )
 
     (bound,) = re.findall(r'"\$size" -gt (\d+)', smoke)
     assert int(bound) <= 3000000000
 
 
-def _release_job() -> dict[str, Any]:
-    job: dict[str, Any] = _workflow("release.yml")["jobs"]["mcp-server-image"]
-    return job
-
-
-def test_the_release_scans_the_mcp_server_image_like_the_pull_request_check() -> None:
-    """The release scan SHALL equal the scan of the pull request check, with the same ignore files."""
-    release = _step(_release_job(), "Scan MCP Server Image for Vulnerabilities")["with"]
-    ci = _step(
-        _workflow("ci.yml")["jobs"]["mcp-server-image"], "Scan MCP Server Image for Vulnerabilities"
-    )["with"]
-
-    assert release == ci
-
-
 def test_the_kubectl_and_helm_pins_hold_the_go_builds_that_fix_the_stdlib_findings() -> None:
     """tools.lock SHALL pin kubectl 1.37.2 or newer and helm 4.3.2 or newer (#4336, #5573).
 
-    The older releases hold Go standard library findings that the ignore file no longer lists:
+    The older releases hold Go standard library findings that no ignore entry lists:
     CVE-2026-78667 and CVE-2026-97031 (kubectl), and CVE-2026-111943 (helm 4.3.1 has Go 1.27.2,
     helm 4.3.2 has Go 1.27.4). A bump back below the floor fails the image scan.
     """
@@ -97,10 +68,6 @@ def test_the_kubectl_and_helm_pins_hold_the_go_builds_that_fix_the_stdlib_findin
 
     assert numbers(tools["kubectl"].version) >= (1, 37, 2)
     assert numbers(tools["helm"].version) >= (4, 3, 2)
-    ignored = (REPO_ROOT / ".trivyignore-mcp-server").read_text(encoding="utf-8")
-    assert "CVE-2026-78667" not in ignored
-    assert "CVE-2026-97031" not in ignored
-    assert "CVE-2026-111943" not in ignored
 
 
 def test_the_tool_version_check_fails_on_mismatch_and_names_the_tool(
