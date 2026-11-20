@@ -742,7 +742,7 @@ def test_a_gh_child_gets_the_token_in_a_private_folder_that_goes_after_the_run(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    _runtime_folder_at(monkeypatch, tmp_path)
     monkeypatch.setenv("GH_TOKEN", "ambient")
     child = _GhChild(end)
 
@@ -806,6 +806,15 @@ def _temp_folder(monkeypatch: pytest.MonkeyPatch, path: Path) -> None:
     monkeypatch.setattr(tempfile, "tempdir", str(path))
 
 
+def _runtime_folder_at(monkeypatch: pytest.MonkeyPatch, path: Path) -> None:
+    """Make `path` the runtime folder that platformdirs answers, so a test does not depend on
+    platformdirs' check of the parents of `$XDG_RUNTIME_DIR`: a runner pod's `/tmp` is writable by
+    every user and holds no sticky bit, so platformdirs refuses a folder below it."""
+    import platformdirs
+
+    monkeypatch.setattr(platformdirs, "user_runtime_path", lambda *_a, **_k: path)
+
+
 def test_a_gh_child_whose_runtime_folder_fails_gets_a_new_folder_of_the_temp_folder(
     pin_github_session: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -828,13 +837,12 @@ def test_a_link_below_the_runtime_folder_does_not_move_the_token_folder(
     """A link at `<runtime folder>/devops-cli` points into a checkout. The token folder goes
     directly into the runtime folder, with no folder of devops-cli between them, so the link does
     not move it."""
-    import platformdirs
 
     runtime, checkout = tmp_path / "runtime", tmp_path / "checkout"
     runtime.mkdir(mode=0o700)
     (checkout / "sub").mkdir(parents=True)
     (runtime / "devops-cli").symlink_to(checkout / "sub", target_is_directory=True)
-    monkeypatch.setattr(platformdirs, "user_runtime_path", lambda *_a, **_k: runtime)
+    _runtime_folder_at(monkeypatch, runtime)
     child = _GhChild()
 
     _run_gh(child)
@@ -881,11 +889,10 @@ def test_the_root_of_the_file_system_as_the_current_folder_skips_no_candidate(
     pin_github_session: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Every folder is in the root of the file system, so it counts as no current folder."""
-    import platformdirs
 
     runtime = tmp_path / "runtime"
     runtime.mkdir(mode=0o700)
-    monkeypatch.setattr(platformdirs, "user_runtime_path", lambda *_a, **_k: runtime)
+    _runtime_folder_at(monkeypatch, runtime)
     monkeypatch.chdir("/")
     child = _GhChild()
 
