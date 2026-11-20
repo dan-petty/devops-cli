@@ -21,7 +21,6 @@ from devops_cli.config.constants import (
     CONST_GIT_BRANCH_PREFIX,
     CONST_GIT_DETACHED_TOKEN,
     CONST_GIT_HEAD_PREFIX,
-    CONST_GIT_IGNORED_PREFIX,
     CONST_GIT_LOCKED_TOKEN,
     CONST_GIT_MAIN_BRANCH,
     CONST_GIT_NAME_STATUS_TWO_PATH_LETTERS,
@@ -29,12 +28,14 @@ from devops_cli.config.constants import (
     CONST_GIT_PRUNABLE_TOKEN,
     CONST_GIT_WORKTREE_PREFIX,
     CONST_MAX_ERROR_DETAIL_LENGTH,
+    CONST_WORKTREE_REGENERABLE_PATHSPECS,
 )
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_repo_root
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.git import GitOperationError
 from devops_cli.git.branch_form import issue_of_branch
+from devops_cli.lang import MESSAGES
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -224,17 +225,34 @@ def count_dirty_paths(worktree_dir: Path) -> int | None:
     return count
 
 
-def count_ignored_paths(worktree_dir: Path) -> int | None:
-    """Count the paths that `.gitignore` hides, via git status --porcelain --ignored -z.
+def count_ignored_data_files(worktree_dir: Path) -> int | None:
+    """Count the ignored data files of a worktree: the files that `.gitignore` hides and that no
+    regenerable path of `CONST_WORKTREE_REGENERABLE_PATHSPECS` holds.
 
-    `git status` prints none of them without `--ignored`, so `count_dirty_paths` counts a worktree
-    that holds only ignored data as clean, and `git worktree remove` deletes that data (#4092). A
-    directory that is gone holds none, so it counts 0. None means `git status` failed.
+    `git status` shows no ignored file, so `count_dirty_paths` counts a worktree that holds only
+    ignored data as clean, and `git worktree remove` deletes that data (#4092). A regenerable path,
+    such as `.venv` or `__pycache__`, is a cache that a command makes again, so it is no data
+    (#6435). `git ls-files --others --ignored --exclude-standard` applies the ignore rules of the
+    worktree and lists each file inside an ignored directory, so it tells `.data/cache` from
+    `.data/agent`; it lists no empty directory. A directory that is gone holds no file, so it
+    counts 0. None means that `git ls-files` failed, so the count is unknown.
     """
     if not worktree_dir.is_dir():
         return 0
     proc = run_subprocess(
-        ["git", "-C", str(worktree_dir), "status", "--porcelain", "--ignored", "-z"],
+        [
+            "git",
+            "-C",
+            str(worktree_dir),
+            "ls-files",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "-z",
+            "--",
+            ".",
+            *CONST_WORKTREE_REGENERABLE_PATHSPECS,
+        ],
         check=False,
         quiet=True,
         local_read=True,
@@ -246,7 +264,29 @@ def count_ignored_paths(worktree_dir: Path) -> int | None:
         if isinstance(proc.stdout, bytes)
         else proc.stdout
     )
-    return sum(1 for token in raw.split("\0") if token.startswith(CONST_GIT_IGNORED_PREFIX))
+    return sum(1 for name in raw.split("\0") if name)
+
+
+def scope_refusal(entry: WorktreeEntry, *, managed_root: Path) -> str | None:
+    """Why the scope rule keeps a worktree from removal, or None when the rule allows it.
+
+    `worktrees prune` and the reclaim of `worktrees add` both ask this rule, so the two cannot
+    drift (#6435). The folder comes first: a worktree outside `managed_root` belongs to another
+    tool or agent, also when its directory looks missing, because another container or tool can
+    still use that directory. Then the data: a worktree that holds an ignored data file
+    (`count_ignored_data_files`) stays, and so does one whose count is unknown. `managed_root` is
+    the resolved managed folder. The rule needs no GitHub read.
+    """
+    messages = MESSAGES.repos
+    directory = Path(entry.path)
+    if not directory.resolve().is_relative_to(managed_root):
+        return messages.worktrees_kept_outside.format(folder=managed_root)
+    count = count_ignored_data_files(directory)
+    if count is None:
+        return messages.worktrees_kept_data_unknown
+    if count:
+        return messages.worktrees_kept_data.format(count=count, plural="s" if count != 1 else "")
+    return None
 
 
 def _resolve_base_ref(repo_root: Path, preferred: str) -> str | None:

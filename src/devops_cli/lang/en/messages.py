@@ -687,9 +687,9 @@ class RepoMessages:
     worktrees_add_took_over: str = (
         "Took over the staged branch {branch} in worktree {path}. Commits by the App: {commits}."
     )
-    worktrees_add_kept_outside: str = "outside the managed folder"
-    worktrees_add_kept_ignored: str = "has ignored files (paths that .gitignore hides: {count})"
-    worktrees_add_kept_ignored_unknown: str = "ignored files are unknown (git status failed)"
+    worktrees_kept_outside: str = "outside the managed folder {folder}"
+    worktrees_kept_data: str = "holds {count} ignored data file{plural}"
+    worktrees_kept_data_unknown: str = "ignored data files are unknown (git ls-files failed)"
     worktrees_add_kept_line: str = "kept {path}: {reason}"
     worktrees_add_not_reclaimed: str = "Merged worktrees were not reclaimed: {reason}"
     worktrees_add_claimed: str = "Claimed #{issue} for an agent."

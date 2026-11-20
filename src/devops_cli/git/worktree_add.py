@@ -53,12 +53,12 @@ from devops_cli.git.worktree_inventory import (
     CONST_REFS_HEADS_PREFIX,
     WorktreeEntry,
     WorktreePruneItem,
-    count_ignored_paths,
     git_message,
     inventory_worktrees,
     list_worktree_infos,
     plan_prune,
     prune_worktrees,
+    scope_refusal,
 )
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.commit_title import commit_type
@@ -71,7 +71,7 @@ logger = logging.getLogger(__name__)
 
 class ReclaimResult(BaseModel):
     """What the reclaim of merged worktrees did: the worktrees it removed, the worktrees it kept
-    for a reason of scope (`kept`: outside the managed folder, or holding ignored files), the
+    for a reason of scope (`kept`: outside the managed folder, or holding ignored data files), the
     GitHub reads that a dry run lists, and the reason it removed nothing when it could not run."""
 
     removed: list[WorktreePruneItem] = Field(default_factory=list)
@@ -258,23 +258,19 @@ def _split_by_scope(
 ) -> tuple[list[WorktreeEntry], list[WorktreePruneItem]]:
     """The worktrees that the reclaim may remove, and the ones it keeps without a GitHub read.
 
-    A worktree outside `folder` is kept, also when its directory is gone. Inside `folder`, a
-    worktree that holds a path which `.gitignore` hides is kept: `git worktree remove` deletes
-    that data, and `git status` does not show it as a change. The main worktree is no candidate
-    and is named nowhere.
+    `scope_refusal`, the rule that `worktrees prune` asks too, decides: a worktree outside
+    `folder` is kept, also when its directory is gone, and a worktree inside it that holds ignored
+    data files is kept, because `git worktree remove` deletes them and `git status` does not show
+    them as a change. A regenerable cache, such as `.venv`, is no data. The main worktree is no
+    candidate and is named nowhere.
     """
-    messages = MESSAGES.repos
     inside: list[WorktreeEntry] = []
     kept: list[WorktreePruneItem] = []
     for entry in entries:
         if entry.is_main:
             continue
-        if not Path(entry.path).resolve().is_relative_to(folder):
-            kept.append(_kept(entry, messages.worktrees_add_kept_outside))
-        elif (ignored := count_ignored_paths(Path(entry.path))) is None:
-            kept.append(_kept(entry, messages.worktrees_add_kept_ignored_unknown))
-        elif ignored:
-            kept.append(_kept(entry, messages.worktrees_add_kept_ignored.format(count=ignored)))
+        if (reason := scope_refusal(entry, managed_root=folder)) is not None:
+            kept.append(_kept(entry, reason))
         else:
             inside.append(entry)
     return inside, kept
@@ -282,8 +278,8 @@ def _split_by_scope(
 
 def reclaim_merged_worktrees(repo_root: Path, *, dry_run: bool = False) -> ReclaimResult:
     """Remove the worktrees that `prune --confirm` removes and that `add` manages: under the
-    managed folder, clean, with no ignored file, not locked, not the current directory, and at the
-    head of a merged pull request (#2338, #4092).
+    managed folder, clean, with no ignored data file, not locked, not the current directory, and at
+    the head of a merged pull request (#2338, #4092, #6435).
 
     A worktree outside the managed folder belongs to another tool or agent, so the reclaim keeps
     it and reads no pull request for it. It never forces a removal. A merged worktree still holds

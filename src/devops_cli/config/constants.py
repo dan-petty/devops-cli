@@ -786,6 +786,30 @@ CONST_BRANCH_SLUG_PATTERN: Final[str] = "[a-z0-9]+(?:-[a-z0-9]+)*"
 # of the data directory (CONTRIBUTING.md: agent files and worktrees live under `.data/agent/`).
 CONST_AGENT_WORKTREES_SUBPATH: Final[str] = "agent/worktrees"
 CONST_AGENT_WORKTREE_PREFIX: Final[str] = "w-"
+# The regenerable paths of a worktree, as git exclude pathspecs (#6435). A regenerable path is a
+# cache or a build output that a command makes again, so it holds no data: `uv sync` makes `.venv`,
+# a test run makes `__pycache__`, `.pytest_cache`, `.hypothesis` and the coverage outputs of
+# `pyproject.toml`. A plain pathspec matches at the root of the worktree and covers the files under
+# it, so `dist` under `.data/agent/scratch` stays data; the glob ones match at any depth. Each
+# other file that `.gitignore` hides is data and keeps the worktree from `worktrees prune`.
+CONST_WORKTREE_REGENERABLE_PATHSPECS: Final[tuple[str, ...]] = (
+    ":(exclude).venv",
+    ":(exclude)dist",
+    ":(exclude)build",
+    ":(exclude)htmlcov",
+    ":(exclude).data/cache",
+    ":(exclude).data/rag",
+    ":(exclude).data/htmlcov",
+    ":(exclude).data/coverage.xml",
+    ":(exclude).data/coverage.json",
+    ":(exclude,glob)**/__pycache__/**",
+    ":(exclude,glob)**/.pytest_cache/**",
+    ":(exclude,glob)**/.ruff_cache/**",
+    ":(exclude,glob)**/.mypy_cache/**",
+    ":(exclude,glob)**/.hypothesis/**",
+    ":(exclude,glob)**/node_modules/**",
+    ":(exclude,glob)**/.coverage*",
+)
 CONST_GIT_REMOTE_ORIGIN: Final[str] = "origin"
 # Host-folder shares (WSL's drvfs over 9p) answer each file check hundreds of times slower than
 # a Linux filesystem, which multiplies the gate's time for a workspace checked out on them.
@@ -1527,7 +1551,6 @@ CONST_GIT_NAME_STATUS_CHANGE_TYPES: Final[dict[str, str]] = {
 CONST_GIT_NAME_STATUS_TWO_PATH_LETTERS: Final[frozenset[str]] = frozenset({"C", "R"})
 CONST_GIT_WORKTREE_PREFIX: Final[str] = "worktree "
 CONST_GIT_HEAD_PREFIX: Final[str] = "HEAD "
-CONST_GIT_IGNORED_PREFIX: Final[str] = "!! "
 CONST_GIT_BRANCH_PREFIX: Final[str] = "branch "
 CONST_GIT_LOCKED_TOKEN: Final[str] = "locked"
 CONST_GIT_PRUNABLE_TOKEN: Final[str] = "prunable"
