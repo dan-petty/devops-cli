@@ -18,7 +18,7 @@ This change gives prune and the reclaim one shared scope rule. The rule keeps a 
 - Give `_decided_by_local_state`, `_decide`, `plan_prune` and `prune_worktrees` a required keyword-only `managed_root`. Prune asks `scope_refusal` after the main worktree, the current directory and `--force`, and before the lock, the missing directory, the dirty state and the merged pull request. So a refused worktree costs no GitHub request, also in the dry run.
 - Pass the managed folder from each caller in the same task group: `worktrees_prune` of `src/devops_cli/commands/repos.py`, `reclaim_merged_worktrees` of `src/devops_cli/git/worktree_add.py`, and the direct call in `tests/git/test_repos_worktrees_reclaim.py`.
 - Move the worktrees of the prune tests of `tests/git/test_repos_worktrees.py` under the managed folder first, because prune refuses a worktree outside it after the change.
-- State the scope in the docstring of `worktrees_prune`, which is the help of the command, in `HELP.repos.worktrees_force`, and in section 4 of `CONTRIBUTING.md`. Delete `HELP.repos.worktrees_prune`, which no code reads. Regenerate `docs/commands/repos.md`.
+- State the scope in the docstring of `worktrees_prune`, which is the help of the command, in `HELP.repos.worktrees_force`, and in section 5 of `CONTRIBUTING.md`. Delete `HELP.repos.worktrees_prune`, which no code reads. Regenerate `docs/commands/repos.md`.
 - The change is observable: prune refuses more worktrees, the reclaim takes more worktrees, and the reasons change. So the change has spec deltas for `repos-worktrees-prune` and `repos-worktrees-add`.
 - The change fits one pull request.
 
