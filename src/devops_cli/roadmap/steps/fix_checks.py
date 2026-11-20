@@ -43,7 +43,6 @@ import re
 from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final, NamedTuple, Protocol
 
@@ -86,6 +85,7 @@ from devops_cli.roadmap.steps.fix_checks_cause import (
 from devops_cli.roadmap.steps.ready import draft_readiness, mark_ready
 from devops_cli.roadmap.stores.store import (
     FixChecksRecordKey,
+    FixChecksResult,
     ImplementRecordKey,
     ImplementResult,
     Item,
@@ -107,18 +107,6 @@ _DOCS_FAILURE: Final = re.compile(
     r"devops docs generate|Documentation is out of date|Missing documentation file"
 )
 _LOCK_FAILURE: Final = re.compile(r"uv\.lock\S*\s+needs to be updated")
-
-
-class FixChecksResult(StrEnum):
-    """The result of the fix-checks step on a pull request (#5023)."""
-
-    REPAIRED = "repaired"
-    STOPPED = "stopped"
-    SKIPPED = "skipped"
-    WAIT = "wait"
-    FAILED = "failed"
-    PLANNED = "planned"
-    READY = "ready"
 
 
 @dataclass(frozen=True)

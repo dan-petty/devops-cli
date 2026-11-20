@@ -388,6 +388,18 @@ class ReviewRecordKey(StrEnum):
     DISCARD = "review.discard"
 
 
+class FixChecksResult(StrEnum):
+    """The result of the fix-checks step on a pull request (#5023), in `fix_checks.result`."""
+
+    REPAIRED = "repaired"
+    STOPPED = "stopped"
+    SKIPPED = "skipped"
+    WAIT = "wait"
+    FAILED = "failed"
+    PLANNED = "planned"
+    READY = "ready"
+
+
 class ImplementResult(StrEnum):
     """How the run of an implement Job ended (#4071). The runner records the word in
     `implement.result`, and the Service compares with it. `drafted` is the end of a run that opened

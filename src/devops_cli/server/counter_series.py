@@ -95,7 +95,7 @@ def prime_service_counters(
     # The roadmap run imports the Service, so the lane table is read when the counters are
     # primed, not when this module is imported.
     from devops_cli.roadmap.run import service_lanes
-    from devops_cli.roadmap.steps.fix_checks import FixChecksResult
+    from devops_cli.roadmap.stores.store import FixChecksResult
 
     lane_rows = tuple(service_lanes(lanes).items())
     repo_names = list(repos)

@@ -32,7 +32,6 @@ import pytest
 from devops_cli.exceptions import GitOperationError, RoadmapImplementError
 from devops_cli.github.client import PullStatus
 from devops_cli.roadmap.steps.fix_checks import (
-    FixChecksResult,
     Fixed,
     Repair,
     check_scope,
@@ -40,7 +39,7 @@ from devops_cli.roadmap.steps.fix_checks import (
     run_fix_checks,
 )
 from devops_cli.roadmap.steps.fix_checks_cause import FileCause, ScopeVerdict
-from devops_cli.roadmap.stores.store import FixChecksRecordKey, ImplementRecordKey
+from devops_cli.roadmap.stores.store import FixChecksRecordKey, FixChecksResult, ImplementRecordKey
 from tests.support.fakes.github import (
     GitHubApiFake,
     github_json,

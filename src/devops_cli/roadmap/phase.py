@@ -26,10 +26,10 @@ from devops_cli.github.client import PullStatus
 from devops_cli.github.repo_ref import RepoRef
 from devops_cli.k8s.cluster_job import ITEM_LABEL, REPO_LABEL
 from devops_cli.k8s.cluster_job_api import ClusterJobs, JobState
-from devops_cli.roadmap.steps.fix_checks import FixChecksResult
 from devops_cli.roadmap.stores.store import (
     AlternativesRecordKey,
     FixChecksRecordKey,
+    FixChecksResult,
     GitHubState,
     ImplementRecordKey,
     ImplementResult,

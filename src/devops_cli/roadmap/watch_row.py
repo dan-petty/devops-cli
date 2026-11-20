@@ -94,7 +94,6 @@ from devops_cli.roadmap.status_sync import (
 )
 from devops_cli.roadmap.steps.comment import Target, post
 from devops_cli.roadmap.steps.fix_checks import (
-    FixChecksResult,
     has_owner_label,
     run_fix_checks,
     takes_ready_path,
@@ -113,6 +112,7 @@ from devops_cli.roadmap.steps.watch import (
 )
 from devops_cli.roadmap.stores.store import (
     FixChecksRecordKey,
+    FixChecksResult,
     GitHubState,
     ImplementRecordKey,
     ImplementResult,
