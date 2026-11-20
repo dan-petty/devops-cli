@@ -231,3 +231,26 @@ def test_a_round_with_no_candidate_reads_no_listing_for_the_graph(
         store.open_item_reads,
         store.whole_listing_reads,
     ) == ([], 1, 1)
+
+
+def test_an_edge_to_the_parent_tracker_closes_no_cycle(
+    store: _ListingCountingStore, git_repo: Path, model_fake: ModelFake
+) -> None:
+    """The Dependencies section of the item names its open parent tracker, and the Dependencies
+    section of the tracker names the item. The parent tracker is no blocker of its sub-issue, so no
+    cycle holds the item, and refine sets it Ready (#6450)."""
+    store.seed_visibility(is_private=True)
+    tracker = seed_item(store, "In Progress", "P1-High")
+    number = seed_item(
+        store, "New", "P1-High", body=f"Body P1-High\n\n## Dependencies\n\n- #{tracker}\n"
+    )
+    store.write_issue_body(tracker, f"Body P1-High\n\n## Dependencies\n\n- #{number}\n")
+    store.add_sub_issue(tracker, number)
+    model_fake.answer(blocked_by_issue(tracker))
+
+    plan = refine_round(store, git_repo)
+
+    assert (
+        [(r.item.number, r.next_step) for r in plan.refined_items],
+        require_item(store, number).status,
+    ) == ([(number, "ready")], "Ready")

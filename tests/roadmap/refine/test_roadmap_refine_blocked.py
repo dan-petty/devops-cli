@@ -14,10 +14,12 @@ import pytest
 from devops_cli.config.constants import (
     CONST_ROADMAP_STATUS_READY,
 )
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.body_hash import extract_section_and_outside
 from devops_cli.roadmap.refine.refine import (
     apply_refine,
     plan_refine,
+    refine_left_out,
 )
 from devops_cli.roadmap.stores.store import (
     CloseReason,
@@ -137,6 +139,111 @@ def test_a_blocked_item_reaches_ready_in_the_round_after_its_last_blocker_closes
         1,
         [(number, "ready")],
         CONST_ROADMAP_STATUS_READY,
+    )
+
+
+# ── An open tracker holds back no item (#6450) ───────────────────────────────────────────
+
+
+def test_a_proposal_that_names_the_parent_tracker_of_its_item_reaches_ready(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """The proposal names the open parent tracker of the item as its one dependency. The tracker
+    closes only after the item, so it is no blocker: the next step is `ready`, the record holds no
+    blocker, and the item is Ready (#6450)."""
+    store.seed_visibility(is_private=True)
+    tracker = seed_item(store, "In Progress", "P1-High")
+    number = seed_item(store, "New", "P1-High")
+    store.add_sub_issue(tracker, number)
+    model_fake.answer(blocked_by_issue(tracker))
+
+    plan = refine_round(store, git_repo)
+
+    item = require_item(store, number)
+    assert (
+        [(r.item.number, r.next_step, r.blocked_by) for r in plan.refined_items],
+        item.status,
+        item.job_record.get(RefineRecordKey.BLOCKED_BY),
+    ) == ([(number, "ready", ())], CONST_ROADMAP_STATUS_READY, None)
+
+
+def test_a_proposal_that_names_another_tracker_waits_on_its_open_sub_issues(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """The proposal names another open tracker with two open sub-issues: the item waits on the
+    two sub-issues and not on the tracker, and the record holds their numbers (#6450)."""
+    store.seed_visibility(is_private=True)
+    tracker = seed_item(store, "In Progress", "P1-High")
+    first = seed_item(store, "In Progress", "P1-High")
+    second = seed_item(store, "In Progress", "P1-High")
+    store.add_sub_issue(tracker, first)
+    store.add_sub_issue(tracker, second)
+    number = seed_item(store, "New", "P1-High")
+    model_fake.answer(blocked_by_issue(tracker))
+
+    plan = refine_round(store, git_repo)
+
+    item = require_item(store, number)
+    assert (
+        [(r.next_step, r.step_details, r.blocked_by) for r in plan.refined_items],
+        item.job_record.get(RefineRecordKey.BLOCKED_BY),
+    ) == (
+        [("blocked", (f"#{first}", f"#{second}"), (first, second))],
+        f"{first},{second}",
+    )
+
+
+def test_a_recorded_wait_on_the_parent_tracker_ends_in_the_next_round(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """An earlier round recorded the item as blocked on an open issue, and the issue is now the
+    parent tracker of the item. The wait is over: explain names no wait, and the next round refines
+    the item and sets it Ready (#6450)."""
+    store.seed_visibility(is_private=True)
+    tracker = seed_item(store, "In Progress", "P1-High")
+    number = seed_item(store, "New", "P1-High")
+    model_fake.answer(blocked_by_issue(tracker), blocked_by_issue(tracker))
+    refine_round(store, git_repo)
+    store.add_sub_issue(tracker, number)
+
+    explained = refine_left_out(store, require_item(store, number))
+    after = refine_round(store, git_repo)
+
+    assert (
+        explained,
+        [(r.item.number, r.next_step) for r in after.refined_items],
+        require_item(store, number).status,
+    ) == (None, [(number, "ready")], CONST_ROADMAP_STATUS_READY)
+
+
+def test_a_recorded_wait_on_another_tracker_names_its_open_sub_issues(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """An earlier round recorded the item as blocked on an open issue, and the issue is now a
+    tracker with two open sub-issues. The item waits on the two sub-issues with no model call, and
+    explain names them (#6450)."""
+    store.seed_visibility(is_private=True)
+    tracker = seed_item(store, "In Progress", "P1-High")
+    number = seed_item(store, "New", "P1-High")
+    model_fake.answer(blocked_by_issue(tracker))
+    refine_round(store, git_repo)
+    first = seed_item(store, "In Progress", "P1-High")
+    second = seed_item(store, "In Progress", "P1-High")
+    store.add_sub_issue(tracker, first)
+    store.add_sub_issue(tracker, second)
+    calls = model_fake.call_count
+
+    plan = plan_refine(store, repo=REPO, source=git_repo)
+
+    blocked = f"#{first}, #{second}"
+    assert (
+        [(w.step, w.details) for w in plan.waiting_items if w.item.number == number],
+        model_fake.call_count - calls,
+        refine_left_out(store, require_item(store, number)),
+    ) == (
+        [("blocked", (f"#{first}", f"#{second}"))],
+        0,
+        MESSAGES.roadmap.refine_left_waits["blocked"].format(details=blocked),
     )
 
 
