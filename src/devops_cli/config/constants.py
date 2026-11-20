@@ -3479,8 +3479,9 @@ CONST_ROADMAP_REFINE_MAX_TRIES: Final[int] = 3
 # records it as `refine.rules`. A wait on a person that older rules set gets one new round: the
 # record holds an older version, or, when it holds none, refine's last comment is older (#4795). A
 # change to a rule that sets a next step sets a later time in its pull request. This one is the
-# release of the rules of #3632 (0.72.0).
-CONST_ROADMAP_REFINE_RULES_SINCE: Final[datetime] = datetime(2026, 11, 6, 19, 25, 37, tzinfo=UTC)
+# blocker rule of the Dependencies section (#6451): it removes false dependencies, so a wait on a
+# person that a false dependency set, such as a dependency cycle, gets one new round.
+CONST_ROADMAP_REFINE_RULES_SINCE: Final[datetime] = datetime(2026, 11, 20, 14, 3, 8, tzinfo=UTC)
 # The most characters of the last error that the job record of a failed refine round keeps. The
 # text holds the calls of the read tools that found no source (#3632).
 CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS: Final[int] = 300

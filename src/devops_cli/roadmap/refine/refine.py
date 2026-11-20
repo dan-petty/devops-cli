@@ -1223,21 +1223,151 @@ def body_questions(body: str) -> list[str]:
 
 
 def body_dependencies(body: str) -> list[int]:
-    """The issues the body names under a "Dependencies" heading, in order (#2654).
+    """The issues the body names as a blocker under a "Dependencies" heading, in order (#2654).
 
     The section is the one refine writes (`render_proposal_section`) or a person writes: the
-    text under the heading, up to the next heading of the same or a higher level. A word that is
-    `#` and digits, with the punctuation of a list around it, is an issue; the body is parsed as
-    CommonMark, so a heading in a code block is not a heading.
+    text under the heading, up to the next heading of the same or a higher level. Each block of
+    the section, a paragraph or the text of a list item, names its blockers (`_block_blockers`);
+    the body is parsed as CommonMark, so a heading in a code block is not a heading.
     """
     section = _section_tokens(MarkdownIt("commonmark").parse(body), _DEPENDENCIES_TITLE_RE)
-    return [number for token in section if token.type == "inline" for number in _issues(token)]
+    return [
+        number
+        for token in section
+        if token.type == "inline"
+        for number in _block_blockers(token.content)
+    ]
+
+
+# The first words of a block that says that the item waits for no issue, such as `None.` (#6451).
+_NO_BLOCKER_WORDS: Final[frozenset[str]] = frozenset({"none", "no"})
+# The phrases of a block whose issue changes the same code and merges in either order (#6451).
+_ORDER_FREE: Final[tuple[str, ...]] = ("no merge order", "rebase before the second")
+# The words after which the next issue references name a link and no blocker: a parent, a child,
+# a tracker, a related issue, the source of the item, or the issue of an owner decision (#6451).
+_LINK_WORDS: Final[frozenset[str]] = frozenset(
+    {"child", "children", "parent", "tracker", "related", "source", "decision", "decisions"}
+)
+# `Part of #N` names the parent of the item (#6451).
+_PART_OF: Final[tuple[str, str]] = ("part", "of")
+# The words that join the issue references of one link, such as `Related: #1, #2 and #3`.
+_JOIN_WORDS: Final[frozenset[str]] = frozenset({"", "and", "or", "&"})
+# A sentence that names an issue that waits for this item, the parent of the item, or an issue
+# that the item does not wait for (#6451).
+_NOT_A_BLOCKER_RE = re.compile(
+    r"\b(?:needs|waits for|depends on|comes after|blocked by) this item\b"
+    r"|\bthis item blocks\b|\bis the (?:parent|tracker)\b"
+    r"|\bdoes not (?:wait for|depend on)\b|\bis not a dependency\b"
+)
+# The marks that end a sentence, and the marks that can close a sentence after its last word.
+_SENTENCE_ENDS: Final[tuple[str, ...]] = (".", ";", "!", "?")
+_CLOSING_MARKS: Final[str] = ")]\"'*_`"
+
+
+def _block_blockers(text: str) -> list[int]:
+    """The issues that one block of a Dependencies section names as blockers, in order (#6451).
+
+    Each issue reference names a blocker, also in prose such as `#5421 (merged first).` or
+    `Depends on #5380.`, because a missed blocker lets a job take an item too early. A reference
+    names no blocker in these cases: the block starts with `None` or `No`, the block names an issue
+    that merges in either order, its sentence names a reverse link or a parent
+    (`_NOT_A_BLOCKER_RE`), a link word such as `Part of`, `Child`, `Related` or `Source` comes
+    before it in its sentence (`_sentence_blockers`), or it is in parentheses with other words.
+    """
+    words = text.split()
+    if not words or _bare_word(words[0]) in _NO_BLOCKER_WORDS:
+        return []
+    if any(phrase in " ".join(words).casefold() for phrase in _ORDER_FREE):
+        return []
+    return [
+        number
+        for sentence in _sentences(text)
+        if not _NOT_A_BLOCKER_RE.search(" ".join(sentence).casefold())
+        for number in _sentence_blockers(_units(sentence))
+    ]
+
+
+def _bare_word(word: str) -> str:
+    """A word in lower case, stripped of the punctuation of a list and of emphasis."""
+    return word.strip(_REFERENCE_PUNCTUATION + _EMPHASIS_CHARS + '"').casefold()
+
+
+def _sentences(text: str) -> list[list[str]]:
+    """The words of each sentence of a block. A sentence ends at a word that ends with `.`, `;`,
+    `!` or `?`, and at the end of a line, outside parentheses."""
+    sentences: list[list[str]] = [[]]
+    depth = 0
+    for line in text.splitlines():
+        for word in line.split():
+            sentences[-1].append(word)
+            depth = max(0, depth + word.count("(") - word.count(")"))
+            if depth == 0 and word.rstrip(_CLOSING_MARKS).endswith(_SENTENCE_ENDS):
+                sentences.append([])
+        if depth == 0:
+            sentences.append([])
+    return [sentence for sentence in sentences if sentence]
+
+
+def _units(words: Sequence[str]) -> list[tuple[str, ...]]:
+    """The words of a sentence, with the words of each group in parentheses as one unit."""
+    units: list[tuple[str, ...]] = []
+    group: list[str] = []
+    depth = 0
+    for word in words:
+        inside = depth > 0
+        depth = max(0, depth + word.count("(") - word.count(")"))
+        if not inside and "(" not in word:
+            units.append((word,))
+            continue
+        group.append(word)
+        if depth == 0:
+            units.append(tuple(group))
+            group = []
+    if group:
+        units.append(tuple(group))
+    return units
+
+
+def _sentence_blockers(units: Sequence[tuple[str, ...]]) -> list[int]:
+    """The issues that one sentence names as blockers, in order (#6451).
+
+    The references that follow a link word, up to the first other word after them, name a link:
+    `Merge first: #4835, child 8 of #4833` names #4835 and not its parent #4833. A group in
+    parentheses names a blocker only when it holds issue references only, such as `(#123)`; a
+    note such as `(hold: ... of #6519)` names none.
+    """
+    found: list[int] = []
+    linked = named = False
+    for index, unit in enumerate(units):
+        if "(" in unit[0]:
+            inner = [word.strip(_REFERENCE_PUNCTUATION) for word in unit]
+            inner = [word for word in inner if word.casefold() not in _JOIN_WORDS]
+            if not linked and inner and all(_is_reference(word) for word in inner):
+                found.extend(int(word[1:]) for word in inner)
+            continue
+        word = unit[0].strip(_REFERENCE_PUNCTUATION)
+        bare = _bare_word(word)
+        after = _bare_word(units[index + 1][0]) if index + 1 < len(units) else ""
+        if bare in _LINK_WORDS or (bare, after) == _PART_OF:
+            linked, named = True, False
+        elif _is_reference(word):
+            named = linked
+            if not linked:
+                found.append(int(word[1:]))
+        elif linked and named and bare not in _JOIN_WORDS:
+            linked = False
+    return found
+
+
+def _is_reference(word: str) -> bool:
+    """Whether a word stripped of the punctuation of a list is `#` and digits, such as `#12`."""
+    return word.startswith("#") and word[1:].isdigit()
 
 
 def _issues(token: Token) -> list[int]:
     """The issues that an inline token names as `#` and digits, with list punctuation around."""
     words = (word.strip(_REFERENCE_PUNCTUATION) for word in token.content.split())
-    return [int(word[1:]) for word in words if word.startswith("#") and word[1:].isdigit()]
+    return [int(word[1:]) for word in words if _is_reference(word)]
 
 
 @dataclass(frozen=True)
