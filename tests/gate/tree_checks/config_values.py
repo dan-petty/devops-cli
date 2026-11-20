@@ -27,8 +27,8 @@ from typing import Final, TypeGuard
 
 from tests.support.paths import REPO_ROOT
 
-# The top-level paths of the repository that hold manifests and config, and the prefixes of the
-# ones whose names vary (`Dockerfile.x`, `.trivyignore.yaml`).
+# The top-level paths of the repository that hold manifests and config, and the prefix of the
+# ones whose names vary (`Dockerfile.x`).
 CONFIG_ROOTS: Final[frozenset[str]] = frozenset(
     {
         ".bandit",
@@ -41,6 +41,7 @@ CONFIG_ROOTS: Final[frozenset[str]] = frozenset(
         ".node-version",
         ".pre-commit-config.yaml",
         ".python-version",
+        ".trivyignore.yaml",
         ".tuicrignore",
         ".vale.ini",
         "config.example.yaml",
@@ -53,7 +54,7 @@ CONFIG_ROOTS: Final[frozenset[str]] = frozenset(
         "uv.lock",
     }
 )
-CONFIG_ROOT_PREFIXES: Final[tuple[str, ...]] = ("Dockerfile", ".trivyignore")
+CONFIG_ROOT_PREFIXES: Final[tuple[str, ...]] = ("Dockerfile",)
 # The names that stand for the repository root, and those that stand for its `k8s` folder.
 _REPO_NAMES: Final[frozenset[str]] = frozenset({"REPO_ROOT"})
 # The names of `tests.support.k8s_tree` that stand for the `k8s` folder of the repository.

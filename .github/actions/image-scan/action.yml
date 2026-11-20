@@ -59,7 +59,7 @@ runs:
       with:
         args: >-
           image --quiet --skip-db-update --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed
-          --timeout 1m --ignorefile ${{ inputs.ignore-file }} --format table --table-mode detailed
+          --timeout 30s --ignorefile ${{ inputs.ignore-file }} --format table --table-mode detailed
           ${{ inputs.image-ref }}
 
     - name: Upload the SARIF to code scanning
