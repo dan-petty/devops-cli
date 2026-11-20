@@ -11,7 +11,9 @@
 - **Skip a name with no `/` when the tags are grouped, and count its pin in `unpinned`.**: The tags URL needs `owner/repo`, so a name without a slash names no repository to read.
 - **Replace the version of the pin with the release that the tags give, before the existing advisory match.**: It reuses `_github_matches` and the range logic of `packaging` unchanged.
 - **Use recorded GitHub answers in `tests/research/test_advisories.py` and `tests/research/test_github_advisories.py`.**: The existing advisory tests need no network and no token, and a recorded answer checks the HTTP shape as well as the selection.
-- **State the measured tags request count in the pull request, with the dry run as the source of the count.**: The dry run lists one tags request for each repository that needs one, so the count follows from `devops research advisories --dry-run` with no network.
+- **State the measured tags request count in the pull request: the number of repositories that `action_commit_repositories` gives for this repository, and the tags page of each pinned commit.**: The dry run lists the tags request once with a repeat, so it gives no count. On 2026-11-20 the count is 2 repositories with each commit on the first page, so a run sends 2 extra requests.
+- **Group the tags reads by `owner/repo`, the first two parts of the Action name, and keep the full name for the release and the advisory match.**: An Action in a sub-path of its repository, such as `github/codeql-action/init`, has no tags route of its own, and GitHub answers 404 for `/repos/github/codeql-action/init/tags`.
+- **Give one failure for each repository and version of a failed tags read.**: `LookupFailure` holds no file and no line, so one failure for each pin repeats one line, and the existing reads give one failure for each pin group.
 - **Extend the existing research advisories path and build no new scanner.**: The advisory match, the client and the report already exist, so a second scanner would duplicate them and add maintenance cost.
 
 ## Rejected alternatives

@@ -9,6 +9,7 @@ image.
 
 from __future__ import annotations
 
+import string
 from pathlib import Path
 
 import yaml
@@ -26,12 +27,20 @@ WORKFLOW_GLOBS = (
     ".github/actions/*/action.yaml",
 )
 _DOCKER_PREFIX = "docker://"
+_COMMIT_LENGTH = 40
 
 
 def _comment_version(line_text: str) -> str:
     """The first word of the comment at the end of `line_text`, or an empty string."""
     words = line_text.partition(" #")[2].split()
     return words[0] if words else ""
+
+
+def _commit_ref(ref: str) -> str:
+    """The ref when it is a full commit sha, and an empty string otherwise."""
+    if len(ref) == _COMMIT_LENGTH and all(character in string.hexdigits for character in ref):
+        return ref
+    return ""
 
 
 def _component(uses: str, comment: str, file: str, line: int) -> Component | None:
@@ -47,6 +56,7 @@ def _component(uses: str, comment: str, file: str, line: int) -> Component | Non
         version=comment or ref,
         file=file,
         line=line,
+        commit=_commit_ref(ref),
     )
 
 

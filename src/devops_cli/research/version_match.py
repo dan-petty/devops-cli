@@ -9,6 +9,8 @@ match a version for an Action, an image or a release, so the client does.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from packaging.specifiers import SpecifierSet
 from packaging.version import InvalidVersion, Version
 
@@ -28,6 +30,37 @@ def pinned_version(text: str) -> Version | None:
     except InvalidVersion:
         return None
     return version if len(version.release) >= _RELEASE_PARTS else None
+
+
+def full_release(text: str) -> Version | None:
+    """The `Version` of a tag that names a full release, or None when it names no one release.
+
+    A full release has three release numbers and no prerelease, dev, local or post part, so an
+    advisory range compares it. A major tag (`v7`) and a tag with a variant (`v7.2.1-rc1`) give None.
+    """
+    version = pinned_version(text)
+    if version is None:
+        return None
+    if version.pre or version.dev or version.local or version.post:
+        return None
+    return version
+
+
+def release_for_commit(tags: Iterable[tuple[str, str]], commit: str) -> str | None:
+    """The name of the highest full release tag that points at `commit`, or None when no tag does.
+
+    `tags` holds a pair of tag name and commit sha. A major tag, a prerelease tag and a tag at
+    another commit name no release of this commit.
+    """
+    releases: dict[Version, str] = {}
+    for name, sha in tags:
+        version = full_release(name)
+        if sha != commit or version is None:
+            continue
+        releases[version] = name
+    if not releases:
+        return None
+    return releases[max(releases)]
 
 
 def _specifier_set(comparators: str) -> SpecifierSet:
