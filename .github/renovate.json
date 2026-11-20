@@ -207,7 +207,7 @@
       ]
     },
     {
-      "description": "A base image update of the service image is a fix, so release-please releases it. Other updates stay chore and release nothing alone, except a chart update.",
+      "description": "An update of a base image of the root Dockerfile is a fix, so release-please releases it. The devtools image is the base of the runner image. The Python, uv and Node images are the bases of the Service and MCP server images. Other updates stay chore and release nothing alone, except a chart update.",
       "matchManagers": ["dockerfile"],
       "matchFileNames": ["Dockerfile"],
       "commitMessagePrefix": "fix(deps):"
@@ -228,13 +228,13 @@
       "groupName": "cloudflared"
     },
     {
-      "description": "The Dockerfile and the setup-uv version inputs. The uv image of the service image's Dockerfile is a fix by the base image rule, and a group takes the prefix of its first update, so the group sets the prefix itself.",
+      "description": "The uv image of the Dockerfile and the setup-uv version inputs. The builds of the Service and MCP server images use that image. The runner image gets uv from the devtools image. The uv image is a fix by the base image rule. A group takes the prefix of its first update, so the group sets the prefix itself.",
       "matchPackageNames": ["astral-sh/uv", "ghcr.io/astral-sh/uv"],
       "groupName": "uv",
       "commitMessagePrefix": "fix(deps):"
     },
     {
-      "description": ".node-version and the node image. The node image of the service image's Dockerfile is a fix by the base image rule, and a group takes the prefix of its first update, so the group sets the prefix itself.",
+      "description": ".node-version and the node image. The node image of the Dockerfile is a fix by the base image rule. A group takes the prefix of its first update, so the group sets the prefix itself.",
       "matchPackageNames": ["node"],
       "groupName": "node",
       "commitMessagePrefix": "fix(deps):"
@@ -261,14 +261,15 @@
       "commitMessagePrefix": "fix(deps):"
     },
     {
-      "description": "The actionlint image of the Dockerfile and of the ci.yml step.",
+      "description": "The actionlint image of the ci.yml step. The runner image and the devcontainer get actionlint from the devtools image.",
       "matchPackageNames": ["kjanat/actionlint", "docker.io/kjanat/actionlint"],
       "groupName": "actionlint"
     },
     {
-      "description": "The devtools image of .devcontainer/Dockerfile and of each other Dockerfile or workflow that names it, for each manager: one pull request moves every reference.",
+      "description": "The devtools image of .devcontainer/Dockerfile, of the root Dockerfile and of each workflow that names it, for each manager: one pull request moves every reference. The runner image builds FROM it, so the update is a fix. A group takes the prefix of its first update, so the group sets the prefix itself.",
       "matchPackageNames": ["ghcr.io/dan-petty/devtools"],
-      "groupName": "devtools"
+      "groupName": "devtools",
+      "commitMessagePrefix": "fix(deps):"
     },
     {
       "description": "The DCGM exporter chart and image: the exporter version of the image tag is the version of the chart. A group takes the prefix of its first update, so the group sets the fix prefix of a chart update.",

@@ -33,10 +33,9 @@
 "tests/invariants/test_agents_md.py" = 2
 "tests/invariants/test_architectural_invariants.py" = 5
 "tests/invariants/test_devcontainer_config.py" = 1
-"tests/invariants/test_image_layers.py" = 1
-"tests/invariants/test_mcp_server_image.py" = 2
-"tests/invariants/test_runner_image.py" = 3
-"tests/invariants/test_service_image.py" = 3
+"tests/invariants/test_mcp_server_image.py" = 1
+"tests/invariants/test_runner_image.py" = 1
+"tests/invariants/test_service_image.py" = 2
 "tests/invariants/test_workflow_contracts.py" = 21
 "tests/prometheus/test_dashboard_queries.py" = 7
 "tests/prometheus/test_implement_failure_labels.py" = 1
@@ -59,7 +58,7 @@
 "tests/roadmap/test_roadmap_run_intake_row.py" = 4
 "tests/roadmap/test_roadmap_run_job.py" = 4
 "tests/roadmap/test_roadmap_run_job_rows.py" = 2
-"tests/roadmap/test_roadmap_runner_tools.py" = 7
+"tests/roadmap/test_roadmap_runner_tools.py" = 5
 "tests/roadmap/test_roadmap_status_round.py" = 2
 "tests/roadmap/test_roadmap_watch_row.py" = 2
 "tests/security/test_scanner_contract.py" = 1

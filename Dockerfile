@@ -1,19 +1,21 @@
 # syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv
 
-# The Node runtime of the pinned OpenSpec. Its major version is the one of `.node-version`.
+# The Node runtime that runs OpenSpec in the Service and MCP server images. Its major version is the
+# one of `.node-version`. These images are on trixie, and the Node package of sid needs a newer glibc.
 FROM node:24-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0 AS node
 
-# The maintained actionlint fork that knows current runner labels, pinned by digest (#1501,
-# #3108). Its 1.17.1 release holds Go 1.27.3, and `.trivyignore.yaml` names the finding of that Go
-# version in its binary until a release holds the fix (#6367).
-FROM docker.io/kjanat/actionlint:1.17.1@sha256:c0a63b3e5c974c2466ead39404b70e448176beaff8c5ec7af0b2e96191aea661 AS actionlint
+# The devtools image (https://github.com/dan-petty/devtools): Debian sid with the development tools.
+# Its README names the source of each tool. The runner image builds FROM it, and the Service and MCP
+# server images copy single tools from it. This file names no tool version: Renovate moves the tag
+# and the digest of this line, in the devtools group with the devcontainer image (#4361).
+FROM ghcr.io/dan-petty/devtools:20261120@sha256:dc4ee4386d1b98116db489f4f507afc7236dcb04e97385eab378a48491cbf9b0 AS devtools
 
 # The requirements of `uv.lock`, with their hashes and without the project (#4550). A release
 # changes the project version in `pyproject.toml` and `uv.lock`, but not these two files, and BuildKit
-# keys the cache of a `COPY --from` on the content of the files that it copies. So the dependency
-# layers under the `runner` and `service` stages keep their cache when only `src/` and the version
-# change, and a node that holds the previous release pulls only the new project layer.
+# keys the cache of a `COPY --from` or a bind mount on the content of the files that it reads. So the
+# dependency layers of the runner, Service and MCP server images keep their cache when only `src/`
+# and the version change, and a node that holds the previous release pulls only the project layer.
 FROM python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS lock
 COPY --from=uv /uv /usr/local/bin/
 WORKDIR /app
@@ -22,10 +24,9 @@ RUN uv export --locked --no-dev --extra review --no-emit-project --format requir
       -o /lock/runtime.txt && \
     uv export --locked --only-dev --no-emit-project --format requirements-txt -o /lock/dev.txt
 
-# uv, gh and the venv of the runtime requirements. No file of the project is in this stage. Each uv
-# install mounts the uv cache of root, so no layer holds the cache.
+# uv and the venv of the runtime requirements, for the Service and MCP server images. No file of the
+# project is in this stage. Each uv install mounts the uv cache of root, so no layer holds the cache.
 FROM python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS deps
-ARG TARGETARCH=amd64
 
 COPY --from=uv /uv /uvx /usr/local/bin/
 
@@ -34,89 +35,53 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_PYTHON_DOWNLOADS=never \
     TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken
 
-# gh, from its pinned release. BuildKit `ADD` of a URL has no retry option, so a 504 answer of GitHub
-# failed the build (#4223). The step fetches the tarball with `curl --retry` instead, and it checks
-# the pinned SHA-256 with `sha256sum`. The Service image copies gh from this stage, but not curl.
-RUN apt-get update && apt-get install -y --no-install-recommends -o Acquire::Retries=5 \
-      ca-certificates curl && \
-    rm -rf /var/lib/apt/lists/* && \
-    case "${TARGETARCH}" in \
-      amd64) \
-        url="https://github.com/cli/cli/releases/download/v2.105.0/gh_2.105.0_linux_amd64.tar.gz"; \
-        sha=79e7ab5db738c48777b696e374f8b428f0647debfb424f44d2f426370407fe2f ;; \
-      arm64) \
-        url="https://github.com/cli/cli/releases/download/v2.105.0/gh_2.105.0_linux_arm64.tar.gz"; \
-        sha=b1278c75107423d818f1937fd92cafc9e5e9b606631568f68d7fb816f5885a02 ;; \
-      *) echo "no gh build for ${TARGETARCH}" >&2; exit 1 ;; \
-    esac && \
-    curl -fsSL --retry 8 --retry-all-errors --retry-delay 2 -o /tmp/gh.tar.gz "$url" && \
-    echo "$sha  /tmp/gh.tar.gz" | sha256sum -c - && \
-    tar -xzf /tmp/gh.tar.gz -C /tmp && \
-    install -m 755 "/tmp/gh_2.105.0_linux_${TARGETARCH}/bin/gh" /usr/local/bin/gh && \
-    rm -rf /tmp/gh*
-
 COPY --from=lock /lock/runtime.txt /lock/runtime.txt
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv venv /app/.venv && \
     uv pip sync --python /app/.venv --link-mode copy --require-hashes /lock/runtime.txt && \
     /app/.venv/bin/python -c "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')"
 
-# The project, installed into the venv of `deps`, and the tools that `devops install-tools` installs
-# from `tools.lock`. A change of `src/` builds this stage again. The final stages copy only the
-# package, its dist-info and its console script from it, and the stages under them copy the tool
-# directory, which is the same after such a change.
+# The project, installed into the venv of `deps`. A change of `src/` builds this stage again. The
+# Service and MCP server stages copy only the package, its dist-info and its console script from it.
 FROM deps AS builder
-
-# OpenSpec, as `devops install-tools` installs it: `npm ci` from the lockfile of
-# `src/devops_cli/tools_lock/openspec`, which checks the sha512 of every package. The tool goes to
-# /opt/devops-tools, and `service-deps` copies that directory to the same path. The installer
-# makes the version directory private to its user, so the chmod lets the Service user read it.
-COPY --from=node /usr/local/bin/node /usr/local/bin/node
-COPY --from=node /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
-RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
 
 COPY pyproject.toml uv.lock ./
 COPY src/ ./src/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable --extra review --link-mode copy
 
-RUN DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools /app/.venv/bin/devops install-tools \
-      --tool openspec --target-dir /opt/devops-tools/bin && \
-    chmod -R a+rX /opt/devops-tools
-
-# The pinned promtool and tofu go where OpenSpec went, from the same lock and with the same
-# checksum check. The Service image does not hold them, so they have their own stage, which
-# `runner-deps` copies.
-FROM builder AS runner-tools
-RUN DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools /app/.venv/bin/devops install-tools \
-      --tool promtool --target-dir /opt/devops-tools/bin && \
-    DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools /app/.venv/bin/devops install-tools \
-      --tool trivy --target-dir /opt/devops-tools/bin && \
-    DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools /app/.venv/bin/devops install-tools \
-      --tool tofu --target-dir /opt/devops-tools/bin && \
-    chmod -R a+rX /opt/devops-tools
+# OpenSpec and only the npm packages that it needs, from the Node tools of the devtools image, for
+# the Service and MCP server images. The stage keeps OpenSpec alone in the package.json of the tree,
+# and `npm prune` removes each package that OpenSpec does not need. The prune reads only the tree on
+# disk (`--offline`) and runs no install script.
+FROM devtools AS openspec
+WORKDIR /usr/local/lib/openspec
+RUN cp -a /usr/local/lib/devtools/npm/. . && \
+    version="$(node -p 'require("./node_modules/@fission-ai/openspec/package.json").version')" && \
+    npm pkg delete dependencies overrides allowScripts && \
+    npm pkg set "dependencies.@fission-ai/openspec=${version}" && \
+    npm prune --offline --ignore-scripts --no-audit --no-fund && \
+    find node_modules -mindepth 1 -maxdepth 1 -type d -empty -delete
 
 # The runner: the pod of a cluster Job in which `devops roadmap implement` runs its steps (#2667).
-# `runner-deps` adds to the venv of `deps` the dev requirements that the steps' tests and checks
-# run (pytest, ruff, mypy, pre-commit and the rest of the dev group), and git, which a step and
-# the job need. `deps` holds uv and gh. The stage adds the tools that the gate and the hooks need
-# (#3072): curl, jq and shellcheck from apt, the Node runtime, and actionlint, OpenSpec, promtool
-# and Trivy at their pins. The list of the tools is `RUNNER_TOOLS` in
-# `src/devops_cli/roadmap/runner_tools.py`, and the last step of the `runner` stage checks every
-# one of them. A Job installs no tool, so the image holds no npm, and pip goes (it vendors
-# `certifi`, `urllib3` and `msgpack`), as in the service stage: the scan of the image reports them.
-FROM deps AS runner-deps
+# The devtools image gives the tools that the steps, the gate and the hooks run: git, gh, uv,
+# Python, Node, OpenSpec, actionlint, promtool, Trivy, OpenTofu, shellcheck, curl, jq and others.
+# This stage adds the user of the Job and the venv of the runtime and the dev requirements of
+# `uv.lock` (pytest, ruff, mypy, pre-commit and the rest of the dev group). The devtools image is
+# rebuilt each day with the updates of sid, so the runner runs no `apt-get upgrade`.
+# `RUNNER_TOOLS` in `src/devops_cli/roadmap/runner_tools.py` lists the programs that a Job needs,
+# and the smoke test of `ci.yml` and `release.yml` checks each one of them on the image.
+FROM devtools AS runner-deps
 
-RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
-    git \
-    ca-certificates \
-    curl \
-    jq \
-    shellcheck \
-    && rm -rf /var/lib/apt/lists/* \
-    && rm -rf /usr/local/lib/python3.14/site-packages/pip* /usr/local/bin/pip*
-
-COPY --from=node /usr/local/bin/node /usr/local/bin/node
+WORKDIR /app
+# `uv run` in a worktree builds the venv of the worktree, from the cache on the home volume of the
+# Job. The build forbids a Python download, and the `.python-version` of a checkout can name a
+# patch release that the devtools image lacks, so `UV_PYTHON` names the Python of the devtools image,
+# which uv uses for that minor release.
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_PYTHON=/usr/bin/python3.14 \
+    TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken
 
 RUN groupadd -g 1000 devops && \
     useradd -u 1000 -g 1000 -m -d /home/devops -s /bin/bash devops
@@ -124,33 +89,37 @@ RUN groupadd -g 1000 devops && \
 RUN git config --system credential.https://github.com.helper '!gh auth git-credential' && \
     git config --system credential.https://gist.github.com.helper '!gh auth git-credential'
 
-COPY --from=runner-tools /opt/devops-tools /opt/devops-tools
-COPY --from=actionlint /usr/local/bin/actionlint /usr/local/bin/actionlint
-
-COPY --from=lock /lock/dev.txt /lock/dev.txt
 RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,from=lock,source=/lock/runtime.txt,target=/lock/runtime.txt \
+    uv venv /app/.venv && \
+    uv pip sync --python /app/.venv --link-mode copy --require-hashes /lock/runtime.txt && \
+    /app/.venv/bin/python -c "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')"
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,from=lock,source=/lock/dev.txt,target=/lock/dev.txt \
     uv pip install --python /app/.venv --link-mode copy --require-hashes --no-deps -r /lock/dev.txt
 
-# The runner stage. No build caches it (`no-cache-filters: runner`), so it takes the security
-# updates of the apt packages since `runner-deps`, and then the project. This stage comes before
-# `service`, so that a build with no `--target` still builds the Service image.
+# The project, installed into the venv of `runner-deps`. A change of `src/` builds this stage
+# again. The runner stage copies only the package, its dist-info and its console script from it.
+FROM runner-deps AS runner-builder
+
+COPY pyproject.toml uv.lock ./
+COPY src/ ./src/
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-editable --extra review --link-mode copy
+
+# The runner stage: the dependency layers of `runner-deps` and one layer of the project. `--link`
+# keeps the project layer independent of the layers under it. This stage comes before `service`,
+# so that a build with no `--target` still builds the Service image.
 FROM runner-deps AS runner
 
-RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
-
-COPY --from=builder --parents /app/.venv/lib/python3.14/site-packages/devops_cli \
+COPY --link --from=runner-builder --parents /app/.venv/lib/python3.14/site-packages/devops_cli \
     /app/.venv/lib/python3.14/site-packages/devops_cli-*.dist-info /app/.venv/bin/devops /
 
-# `uv run` in a worktree builds the worktree's own venv, from the cache below, which the Job's
-# home volume holds: the root filesystem of the Job is read-only. The builder forbids a Python
-# download, and the `.python-version` of a checkout can name a patch release that this base image
-# lacks, so `UV_PYTHON` names the image's own interpreter, which uv uses for that minor release.
 ENV HOME=/home/devops \
-    UV_PYTHON=/usr/local/bin/python3 \
     DEVOPS_CLI_DATA_DIR=/home/devops/.data \
     UV_CACHE_DIR=/home/devops/.cache/uv \
-    TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken \
-    PATH=/app/.venv/bin:/opt/devops-tools/bin:$PATH \
+    PATH=/app/.venv/bin:$PATH \
     DO_NOT_TRACK=1 \
     OPENSPEC_TELEMETRY=0 \
     OPENSPEC_NO_UPDATE_CHECK=1 \
@@ -161,40 +130,11 @@ ENV HOME=/home/devops \
 WORKDIR /home/devops
 USER 1000:1000
 
-# The smoke test of the stage: every tool of `RUNNER_TOOLS` is on PATH and its version command exits
-# 0, and a dev dependency and the project print their installed version. A missing tool fails the
-# build. The pins of this file and of `tools.lock` are the only pins, so the check compares no other
-# version (#5585).
-RUN DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools python -m devops_cli.roadmap.runner_tools
-
 ENTRYPOINT ["devops"]
 
-# The MCP server: image for the MCP server that serves role-scoped tool sets to cluster jobs (#3220).
-# Inherits runner, installs kubectl and helm at their pinned versions, and runs as user 1000:1000.
-FROM runner AS mcp-server
-
-USER root
-
-RUN DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools /app/.venv/bin/devops install-tools \
-      --tool kubectl --target-dir /opt/devops-tools/bin && \
-    DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools /app/.venv/bin/devops install-tools \
-      --tool helm --target-dir /opt/devops-tools/bin && \
-    chmod -R a+rX /opt/devops-tools
-
-ENV HOME=/home/devops \
-    DEVOPS_CLI_DATA_DIR=/home/devops/.data \
-    UV_CACHE_DIR=/home/devops/.cache/uv
-
-USER 1000:1000
-
-# The tool version check of the stage: kubectl and helm run at their locked versions.
-RUN DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools /app/.venv/bin/devops install-tools \
-      --check --tool kubectl --target-dir /opt/devops-tools/bin && \
-    DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools /app/.venv/bin/devops install-tools \
-      --check --tool helm --target-dir /opt/devops-tools/bin
-
-# The layers of the Service image that a change of `src/` keeps: git, the Node runtime, gh, OpenSpec
-# and the venv of the runtime requirements. The image holds no uv, curl or pip.
+# The layers of the Service and MCP server images that a change of `src/` keeps: git, the Node
+# runtime, gh and OpenSpec, and the venv of the runtime requirements. gh and OpenSpec come from the
+# devtools image. The image holds no uv, curl or pip.
 FROM python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS service-deps
 
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
@@ -204,7 +144,9 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     && rm -rf /usr/local/lib/python3.14/site-packages/pip* /usr/local/bin/pip*
 
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
-COPY --from=deps /usr/local/bin/gh /usr/local/bin/gh
+COPY --link --from=devtools /usr/local/bin/gh /usr/local/bin/gh
+COPY --link --from=openspec /usr/local/lib/openspec /usr/local/lib/openspec
+RUN ln -s ../lib/openspec/node_modules/@fission-ai/openspec/bin/openspec.js /usr/local/bin/openspec
 
 RUN groupadd -g 1000 devops && \
     useradd -u 1000 -g 1000 -m -d /home/devops -s /bin/bash devops
@@ -213,8 +155,39 @@ RUN git config --system credential.https://github.com.helper '!gh auth git-crede
     git config --system credential.https://gist.github.com.helper '!gh auth git-credential'
 
 COPY --from=deps /app/.cache/tiktoken /app/.cache/tiktoken
-COPY --from=builder /opt/devops-tools /opt/devops-tools
 COPY --from=deps /app/.venv /app/.venv
+
+# The layers of the MCP server image that a change of `src/` keeps: those of the Service image, and
+# kubectl and helm of the devtools image, which the cluster tools of the MCP server run.
+FROM service-deps AS mcp-server-deps
+
+COPY --link --from=devtools /usr/local/bin/kubectl /usr/local/bin/helm /usr/local/bin/
+
+# The MCP server: the image of the server that serves role-scoped tool sets to cluster jobs (#3220).
+# No build caches this stage (`no-cache-filters: mcp-server`), so it takes the security updates of
+# the apt packages since `mcp-server-deps`, and then the project. It runs as user 1000:1000.
+FROM mcp-server-deps AS mcp-server
+
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+
+COPY --link --from=builder --parents /app/.venv/lib/python3.14/site-packages/devops_cli \
+    /app/.venv/lib/python3.14/site-packages/devops_cli-*.dist-info /app/.venv/bin/devops /
+
+ENV HOME=/home/devops \
+    DEVOPS_CLI_DATA_DIR=/home/devops/.data \
+    TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken \
+    PATH=/app/.venv/bin:$PATH \
+    DO_NOT_TRACK=1 \
+    OPENSPEC_TELEMETRY=0 \
+    OPENSPEC_NO_UPDATE_CHECK=1 \
+    PYTHONUNBUFFERED=1 \
+    GH_PROMPT_DISABLED=1 \
+    GH_NO_UPDATE_NOTIFIER=1
+
+WORKDIR /home/devops
+USER 1000:1000
+
+ENTRYPOINT ["devops"]
 
 # The service stage. No build caches it (`no-cache-filters: service`), so it takes the security
 # updates of the apt packages since `service-deps`, and then the project.
@@ -222,13 +195,13 @@ FROM service-deps AS service
 
 RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder --parents /app/.venv/lib/python3.14/site-packages/devops_cli \
+COPY --link --from=builder --parents /app/.venv/lib/python3.14/site-packages/devops_cli \
     /app/.venv/lib/python3.14/site-packages/devops_cli-*.dist-info /app/.venv/bin/devops /
 
 ENV HOME=/home/devops \
     DEVOPS_CLI_DATA_DIR=/home/devops/.data \
     TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken \
-    PATH=/app/.venv/bin:/opt/devops-tools/bin:$PATH \
+    PATH=/app/.venv/bin:$PATH \
     DO_NOT_TRACK=1 \
     OPENSPEC_TELEMETRY=0 \
     OPENSPEC_NO_UPDATE_CHECK=1 \

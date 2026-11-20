@@ -94,6 +94,15 @@ A scanner can name a finding that no update of the pinned package solves yet. Th
 
 **Report.** The pull request comment lists each ignore that the agent added, its expiry and its tracking issue. The final message of the agent says the same.
 
+## Dedicated Development Resources and Sandboxes
+
+A control can change for a dedicated development resource or a sandbox only when the owner approves the change. This table records each such change: the control, its scope, the control that holds the risk in its place, the evidence, the approval and the review.
+
+| Control | Scope | Compensating control | Evidence | Approved by | Reviewed |
+| --- | --- | --- | --- | --- | --- |
+| The Trivy image scan finds the CVEs of the OS packages. | The devcontainer image and the runner image (stage, implement and fix-checks Jobs). Both build FROM `ghcr.io/dan-petty/devtools`, which is on Debian sid. | The Job sandbox: no ServiceAccount token, so no read of a cluster Secret, a GitHub token for one repository, and the NetworkPolicy of the namespace. | Trivy finds no OS-package CVE on sid: 0 findings in 444 packages. With `--distro debian/14` it finds 941, and 940 of them have no fix. | The owner, 2026-11-19 | 2026-11-19 |
+| The Trivy image scan stops the build on a HIGH or CRITICAL finding that has a fix. | The scan of `ghcr.io/dan-petty/devtools` and of each image built FROM it: the devcontainer image and the runner image. These scans send their findings to code scanning (exit code 0, SARIF) and stop no build. The Service and MCP server images keep the full gate. | The Job sandbox of the row above, the daily rebuild of the devtools image, the Renovate update of each tool on the day of a newer release, and the osv-scanner gate on the npm and Python lock files. | dan-petty/devtools#3: the Go binaries hold 353 HIGH or CRITICAL findings with a fixed version. 262 of them, 4 CRITICAL, are in tools at their newest release, so no change in this project can pass a gate. The runner image of #4361 holds 286 such findings in the devtools tools and none in its venv. | The owner, 2026-11-19 | When #6406 makes the devcontainer scan a gate |
+
 ## Judging a Trivy-config Alert
 
 The `Security Scan` step of CI uploads the results of `trivy config` to code scanning. Each result is an alert of the tool `Trivy-config`. The workflow `.github/workflows/trivy-config-alerts.yml` runs `devops scan alerts` each day, after the CI run on `main` that uploaded the alerts. The command files one issue for each rule and file that has open alerts and no open issue: at most 5 in one run, the worst severity first. The title is `fix(security): judge Trivy-config <rule-id> in <path>`.
